@@ -51,10 +51,14 @@ export async function calculateBaziDirect(params: {
 }): Promise<Record<string, unknown>> {
   const BAZI_ENGINE_URL = process.env.NEXT_PUBLIC_BAZI_ENGINE_URL || 'http://localhost:5001';
 
+  // Map frontend field names to engine field names
+  const { timezone, ...rest } = params;
+  const enginePayload = { ...rest, birth_timezone: timezone };
+
   const response = await fetch(`${BAZI_ENGINE_URL}/calculate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
+    body: JSON.stringify(enginePayload),
   });
 
   if (!response.ok) {
