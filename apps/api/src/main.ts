@@ -1,0 +1,68 @@
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
+import { ValidationPipe, Logger } from '@nestjs/common';
+import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import helmet from 'helmet';
+
+async function bootstrap() {
+  const logger = new Logger('Bootstrap');
+
+  const app = await NestFactory.create(AppModule, {
+    // Enable raw body for webhook signature verification (Svix/Clerk)
+    rawBody: true,
+  });
+
+  // Security headers
+  app.use(helmet());
+
+  // Global validation pipe
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
+    }),
+  );
+
+  // CORS
+  app.enableCors({
+    origin: process.env.CORS_ORIGINS?.split(',') || ['http://localhost:3000'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language'],
+  });
+
+  // Swagger API documentation
+  const config = new DocumentBuilder()
+    .setTitle('Bazi Platform API')
+    .setDescription(
+      '八字命理平台 API — AI-powered Chinese astrology analysis.\n\n' +
+      '## Authentication\n' +
+      'Most endpoints require a Clerk JWT token passed as `Bearer <token>` in the Authorization header.\n\n' +
+      '## Rate Limiting\n' +
+      '- General: 100 requests/min per IP\n' +
+      '- Bazi readings: 10 requests/min per user\n' +
+      '- AI interpretation: 3 requests/min per user',
+    )
+    .setVersion('1.0')
+    .addBearerAuth({
+      type: 'http',
+      scheme: 'bearer',
+      bearerFormat: 'JWT',
+      description: 'Clerk JWT token',
+    })
+    .addTag('Health', 'Health check endpoints')
+    .addTag('Users', 'User profile and birth profiles management')
+    .addTag('Bazi', 'Bazi reading and comparison services')
+    .addTag('Payments', 'Subscription and payment management')
+    .addTag('Admin', 'Admin dashboard and configuration')
+    .build();
+  const document = SwaggerModule.createDocument(app, config);
+  SwaggerModule.setup('api/docs', app, document);
+
+  const port = process.env.PORT || 4000;
+  await app.listen(port);
+  logger.log(`API server running on http://localhost:${port}`);
+  logger.log(`Swagger docs at http://localhost:${port}/api/docs`);
+}
+bootstrap();

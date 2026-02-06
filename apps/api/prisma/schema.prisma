@@ -1,0 +1,393 @@
+// ============================================================
+// Bazi Platform - Database Schema
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Users (Clerk handles auth, we store app-specific data)
+// ============================================================
+
+model User {
+  id               String   @id @default(uuid())
+  clerkUserId      String   @unique @map("clerk_user_id")
+  name             String?
+  avatarUrl        String?  @map("avatar_url")
+  subscriptionTier SubscriptionTier @default(FREE) @map("subscription_tier")
+  credits          Int      @default(0)
+  languagePref     Language @default(ZH_TW) @map("language_pref")
+  freeReadingUsed  Boolean  @default(false) @map("free_reading_used")
+  deviceFingerprint String? @map("device_fingerprint")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  birthProfiles   BirthProfile[]
+  baziReadings    BaziReading[]
+  baziComparisons BaziComparison[]
+  subscriptions   Subscription[]
+  transactions    Transaction[]
+  aiUsageLogs     AIUsageLog[]
+
+  @@map("users")
+}
+
+// ============================================================
+// Birth Profiles (users can save multiple)
+// ============================================================
+
+model BirthProfile {
+  id              String    @id @default(uuid())
+  userId          String    @map("user_id")
+  name            String
+  birthDate       DateTime  @map("birth_date") @db.Date
+  birthTime       String    @map("birth_time") // HH:MM format
+  birthCity       String    @map("birth_city")
+  birthTimezone   String    @map("birth_timezone") // IANA timezone
+  birthLongitude  Float?    @map("birth_longitude")
+  birthLatitude   Float?    @map("birth_latitude")
+  gender          Gender
+  relationshipTag RelationshipTag @default(SELF) @map("relationship_tag")
+  isPrimary       Boolean   @default(false) @map("is_primary")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relations
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readings        BaziReading[]
+  comparisonsA    BaziComparison[] @relation("ProfileA")
+  comparisonsB    BaziComparison[] @relation("ProfileB")
+
+  @@map("birth_profiles")
+}
+
+// ============================================================
+// Bazi Readings (generated reports — single person)
+// ============================================================
+
+model BaziReading {
+  id                  String    @id @default(uuid())
+  userId              String    @map("user_id")
+  birthProfileId      String    @map("birth_profile_id")
+  readingType         ReadingType @map("reading_type")
+  calculationData     Json      @map("calculation_data") // Full Bazi calculation JSON
+  aiInterpretation    Json?     @map("ai_interpretation") // Structured JSON with preview/full per section
+  aiProvider          AIProvider? @map("ai_provider")
+  aiModel             String?   @map("ai_model")
+  tokenUsage          Json?     @map("token_usage") // { inputTokens, outputTokens, totalTokens, estimatedCostUsd }
+  creditsUsed         Int       @default(0) @map("credits_used")
+  targetYear          Int?      @map("target_year") // For annual readings
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  birthProfile       BirthProfile  @relation(fields: [birthProfileId], references: [id], onDelete: Cascade)
+  aiUsageLogs        AIUsageLog[]
+
+  @@index([userId])
+  @@index([birthProfileId])
+  @@map("bazi_readings")
+}
+
+// ============================================================
+// Bazi Compatibility Readings (two-person comparison)
+// ============================================================
+
+model BaziComparison {
+  id                  String    @id @default(uuid())
+  userId              String    @map("user_id")
+  profileAId          String    @map("profile_a_id")
+  profileBId          String    @map("profile_b_id")
+  comparisonType      ComparisonType @map("comparison_type")
+  calculationData     Json      @map("calculation_data")
+  aiInterpretation    Json?     @map("ai_interpretation")
+  aiProvider          AIProvider? @map("ai_provider")
+  aiModel             String?   @map("ai_model")
+  tokenUsage          Json?     @map("token_usage")
+  creditsUsed         Int       @default(0) @map("credits_used")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  profileA           BirthProfile  @relation("ProfileA", fields: [profileAId], references: [id], onDelete: Cascade)
+  profileB           BirthProfile  @relation("ProfileB", fields: [profileBId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("bazi_comparisons")
+}
+
+// ============================================================
+// Subscriptions
+// ============================================================
+
+model Subscription {
+  id                   String   @id @default(uuid())
+  userId               String   @map("user_id")
+  stripeSubscriptionId String?  @unique @map("stripe_subscription_id")
+  appleOriginalTxId    String?  @unique @map("apple_original_tx_id")
+  googlePurchaseToken  String?  @unique @map("google_purchase_token")
+  planTier             SubscriptionTier @map("plan_tier")
+  status               SubscriptionStatus @map("status")
+  platform             PaymentPlatform @default(STRIPE) @map("platform")
+  currentPeriodStart   DateTime @map("current_period_start")
+  currentPeriodEnd     DateTime @map("current_period_end")
+  cancelledAt          DateTime? @map("cancelled_at")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  user                User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("subscriptions")
+}
+
+// ============================================================
+// Transactions
+// ============================================================
+
+model Transaction {
+  id                String    @id @default(uuid())
+  userId            String    @map("user_id")
+  stripePaymentId   String?   @unique @map("stripe_payment_id")
+  amount            Decimal   @db.Decimal(10, 2)
+  currency          String    @default("USD")
+  type              TransactionType
+  description       String?
+  platform          PaymentPlatform @default(STRIPE) @map("platform")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  user              User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("transactions")
+}
+
+// ============================================================
+// Reading Cache (for performance)
+// ============================================================
+
+model ReadingCache {
+  id                String    @id @default(uuid())
+  birthDataHash     String    @map("birth_data_hash") // SHA-256(birth_datetime_utc + birth_lng_lat + gender + reading_type)
+  readingType       ReadingType @map("reading_type")
+  calculationJson   Json      @map("calculation_json")
+  interpretationJson Json?    @map("interpretation_json")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  expiresAt         DateTime  @map("expires_at")
+
+  @@unique([birthDataHash, readingType])
+  @@index([expiresAt])
+  @@map("reading_cache")
+}
+
+// ============================================================
+// AI Usage Tracking (cost monitoring)
+// ============================================================
+
+model AIUsageLog {
+  id               String    @id @default(uuid())
+  userId           String?   @map("user_id")
+  readingId        String?   @map("reading_id")
+  aiProvider       AIProvider @map("ai_provider")
+  aiModel          String    @map("ai_model")
+  inputTokens      Int       @map("input_tokens")
+  outputTokens     Int       @map("output_tokens")
+  costUsd          Decimal   @map("cost_usd") @db.Decimal(10, 6)
+  latencyMs        Int       @map("latency_ms")
+  isCacheHit       Boolean   @default(false) @map("is_cache_hit")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  user             User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+  reading          BaziReading?  @relation(fields: [readingId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([aiProvider])
+  @@map("ai_usage_log")
+}
+
+// ============================================================
+// ADMIN-CONFIGURABLE TABLES
+// ============================================================
+
+// Service/Product Catalog
+model Service {
+  id                String    @id @default(uuid())
+  slug              String    @unique
+  nameZhTw          String    @map("name_zh_tw")
+  nameZhCn          String    @map("name_zh_cn")
+  descriptionZhTw   String    @map("description_zh_tw")
+  descriptionZhCn   String    @map("description_zh_cn")
+  type              ReadingType
+  creditCost        Int       @map("credit_cost")
+  isActive          Boolean   @default(true) @map("is_active")
+  sortOrder         Int       @default(0) @map("sort_order")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("services")
+}
+
+// Subscription Plans
+model Plan {
+  id                String    @id @default(uuid())
+  slug              String    @unique
+  nameZhTw          String    @map("name_zh_tw")
+  nameZhCn          String    @map("name_zh_cn")
+  priceMonthly      Decimal   @map("price_monthly") @db.Decimal(10, 2)
+  priceAnnual       Decimal   @map("price_annual") @db.Decimal(10, 2)
+  currency          String    @default("USD")
+  features          Json      // Array of feature strings
+  readingsPerMonth  Int       @map("readings_per_month") // -1 = unlimited
+  isActive          Boolean   @default(true) @map("is_active")
+  sortOrder         Int       @default(0) @map("sort_order")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("plans")
+}
+
+// Promo Codes
+model PromoCode {
+  id               String    @id @default(uuid())
+  code             String    @unique
+  discountType     DiscountType @map("discount_type")
+  discountValue    Decimal   @map("discount_value") @db.Decimal(10, 2)
+  maxUses          Int       @map("max_uses")
+  currentUses      Int       @default(0) @map("current_uses")
+  validFrom        DateTime  @map("valid_from")
+  validUntil       DateTime  @map("valid_until")
+  isActive         Boolean   @default(true) @map("is_active")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@map("promo_codes")
+}
+
+// Payment Gateway Config
+model PaymentGateway {
+  id               String    @id @default(uuid())
+  provider         String    // e.g., 'stripe', 'line_pay', 'alipay'
+  region           String    // e.g., 'global', 'taiwan', 'hong_kong', 'malaysia'
+  isActive         Boolean   @default(true) @map("is_active")
+  config           Json?     // Provider-specific config (non-sensitive)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([provider, region])
+  @@map("payment_gateways")
+}
+
+// AI Prompt Templates (admin-editable per reading type AND per provider)
+model PromptTemplate {
+  id                     String    @id @default(uuid())
+  readingType            ReadingType @map("reading_type")
+  aiProvider             AIProvider @map("ai_provider")
+  version                Int       @default(1)
+  systemPrompt           String    @map("system_prompt") @db.Text
+  userPromptTemplate     String    @map("user_prompt_template") @db.Text
+  outputFormatInstructions String? @map("output_format_instructions") @db.Text
+  isActive               Boolean   @default(true) @map("is_active")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@unique([readingType, aiProvider, version])
+  @@map("prompt_templates")
+}
+
+// Admin Audit Log
+model AdminAuditLog {
+  id               String    @id @default(uuid())
+  adminUserId      String    @map("admin_user_id")
+  action           String    // e.g., 'update_plan_price', 'toggle_service'
+  entityType       String    @map("entity_type") // e.g., 'plan', 'service', 'promo_code'
+  entityId         String?   @map("entity_id")
+  oldValue         Json?     @map("old_value")
+  newValue         Json?     @map("new_value")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([adminUserId])
+  @@map("admin_audit_log")
+}
+
+// ============================================================
+// Enums
+// ============================================================
+
+enum SubscriptionTier {
+  FREE
+  BASIC
+  PRO
+  MASTER
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELLED
+  EXPIRED
+  PAST_DUE
+}
+
+enum ReadingType {
+  LIFETIME      // 八字終身運
+  ANNUAL        // 八字流年運勢
+  CAREER        // 事業財運
+  LOVE          // 愛情姻緣
+  HEALTH        // 先天健康分析
+  COMPATIBILITY // 合盤比較
+}
+
+enum ComparisonType {
+  ROMANCE
+  BUSINESS
+  FRIENDSHIP
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+enum Language {
+  ZH_TW
+  ZH_CN
+}
+
+enum AIProvider {
+  CLAUDE
+  GPT
+  GEMINI
+}
+
+enum TransactionType {
+  SUBSCRIPTION
+  ONE_TIME
+  CREDIT_PURCHASE
+  REFUND
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum RelationshipTag {
+  SELF
+  FAMILY
+  FRIEND
+}
+
+enum PaymentPlatform {
+  STRIPE
+  APPLE_IAP
+  GOOGLE_PLAY
+}
