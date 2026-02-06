@@ -1,0 +1,408 @@
+.chartContainer {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* ==== Profile Header ==== */
+.profileHeader {
+  background: linear-gradient(135deg, #2a2a4e 0%, #1a1a3e 100%);
+  border: 1px solid rgba(232, 213, 183, 0.15);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.profileName {
+  color: #e8d5b7;
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: 0.3rem;
+}
+
+.profileDates {
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.solarTimeNote {
+  color: #d4af37;
+  font-size: 0.8rem;
+  margin-top: 0.5rem;
+}
+
+/* ==== Section ==== */
+.section {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.sectionTitle {
+  color: #e8d5b7;
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.1);
+}
+
+/* ==== Four Pillars Table ==== */
+.pillarsTable {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 6px;
+  table-layout: fixed;
+}
+
+.pillarsTable th {
+  color: #a0a0a0;
+  font-weight: 500;
+  font-size: 0.8rem;
+  padding: 0.5rem;
+  text-align: center;
+  width: 20%;
+}
+
+.pillarsTable td {
+  text-align: center;
+  padding: 0.5rem;
+  vertical-align: middle;
+}
+
+.pillarLabel {
+  color: #a0a0a0;
+  font-size: 0.75rem;
+  text-align: right;
+  padding-right: 0.5rem;
+  white-space: nowrap;
+  width: 15%;
+}
+
+.stemCell {
+  font-size: 1.8rem;
+  font-weight: 700;
+  padding: 0.6rem 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.branchCell {
+  font-size: 1.8rem;
+  font-weight: 700;
+  padding: 0.6rem 0;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tenGodCell {
+  font-size: 0.75rem;
+  color: #a0a0a0;
+  padding: 0.3rem;
+}
+
+.hiddenStemsCell {
+  font-size: 0.85rem;
+  padding: 0.4rem;
+}
+
+.hiddenStem {
+  display: inline-block;
+  margin: 0 2px;
+}
+
+.nayinCell {
+  font-size: 0.7rem;
+  color: #8a7a6a;
+  padding: 0.3rem;
+}
+
+.shenShaCell {
+  font-size: 0.7rem;
+  color: #d4af37;
+  padding: 0.3rem;
+}
+
+.lifeStageCell {
+  font-size: 0.75rem;
+  color: #c4a882;
+  padding: 0.3rem;
+}
+
+.dayMasterBadge {
+  display: inline-block;
+  background: rgba(232, 213, 183, 0.15);
+  color: #e8d5b7;
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-top: 2px;
+}
+
+/* ==== Five Elements ==== */
+.elementsGrid {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.elementBar {
+  flex: 1;
+  min-width: 80px;
+  max-width: 120px;
+  text-align: center;
+}
+
+.elementCircle {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  margin: 0 auto 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #fff;
+  position: relative;
+}
+
+.elementPercent {
+  font-size: 0.85rem;
+  color: #e0e0e0;
+  font-weight: 600;
+}
+
+.elementName {
+  font-size: 0.75rem;
+  color: #a0a0a0;
+  margin-top: 2px;
+}
+
+/* ==== Day Master ==== */
+.dayMasterCard {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.dmItem {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.dmLabel {
+  color: #a0a0a0;
+  font-size: 0.85rem;
+}
+
+.dmValue {
+  color: #e8d5b7;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.strengthBar {
+  grid-column: 1 / -1;
+  margin-top: 0.5rem;
+}
+
+.strengthBarInner {
+  display: flex;
+  height: 28px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #1a1a2e;
+}
+
+.strengthSame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  background: #4CAF50;
+  transition: width 0.5s ease;
+}
+
+.strengthOpposite {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  background: #F44336;
+  transition: width 0.5s ease;
+}
+
+.strengthLabels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 4px;
+  font-size: 0.7rem;
+  color: #a0a0a0;
+}
+
+.godsRow {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.godTag {
+  padding: 0.35rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.godTagFavorable {
+  composes: godTag;
+  background: rgba(76, 175, 80, 0.15);
+  color: #4CAF50;
+  border-color: rgba(76, 175, 80, 0.3);
+}
+
+.godTagUseful {
+  composes: godTag;
+  background: rgba(33, 150, 243, 0.15);
+  color: #2196F3;
+  border-color: rgba(33, 150, 243, 0.3);
+}
+
+.godTagIdle {
+  composes: godTag;
+  background: rgba(158, 158, 158, 0.15);
+  color: #9e9e9e;
+  border-color: rgba(158, 158, 158, 0.3);
+}
+
+.godTagTaboo {
+  composes: godTag;
+  background: rgba(244, 67, 54, 0.15);
+  color: #F44336;
+  border-color: rgba(244, 67, 54, 0.3);
+}
+
+.godTagEnemy {
+  composes: godTag;
+  background: rgba(156, 39, 176, 0.15);
+  color: #9C27B0;
+  border-color: rgba(156, 39, 176, 0.3);
+}
+
+/* ==== Luck Periods Timeline ==== */
+.timelineScroll {
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.timelineRow {
+  display: flex;
+  gap: 0.5rem;
+  min-width: max-content;
+}
+
+.periodCard {
+  min-width: 100px;
+  padding: 0.75rem;
+  background: #1a1a2e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 10px;
+  text-align: center;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.periodCardCurrent {
+  composes: periodCard;
+  border-color: #e8d5b7;
+  background: rgba(232, 213, 183, 0.08);
+}
+
+.periodAge {
+  font-size: 0.7rem;
+  color: #a0a0a0;
+  margin-bottom: 4px;
+}
+
+.periodYear {
+  font-size: 0.65rem;
+  color: #8a7a6a;
+  margin-bottom: 6px;
+}
+
+.periodStemBranch {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.periodTenGod {
+  font-size: 0.7rem;
+  color: #a0a0a0;
+}
+
+.periodCurrentLabel {
+  font-size: 0.6rem;
+  color: #d4af37;
+  margin-top: 4px;
+  font-weight: 600;
+}
+
+/* ==== Shen Sha ==== */
+.shenShaList {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.shenShaTag {
+  padding: 0.35rem 0.75rem;
+  background: rgba(212, 175, 55, 0.1);
+  border: 1px solid rgba(212, 175, 55, 0.25);
+  border-radius: 20px;
+  font-size: 0.8rem;
+  color: #d4af37;
+}
+
+/* ==== Kong Wang ==== */
+.kongWangText {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+}
+
+.kongWangBranch {
+  color: #e8d5b7;
+  font-weight: 600;
+}
+
+/* ==== Responsive ==== */
+@media (max-width: 600px) {
+  .stemCell,
+  .branchCell {
+    font-size: 1.4rem;
+  }
+
+  .dayMasterCard {
+    grid-template-columns: 1fr;
+  }
+
+  .section {
+    padding: 1rem;
+  }
+}

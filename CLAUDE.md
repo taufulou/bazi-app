@@ -140,9 +140,19 @@ python -m pytest tests/ -v                                  # Run 121 tests
 - `apps/mobile/.env` — EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
 - `.env.example` — Template with all env vars (safe to commit)
 
+## Frontend UI (apps/web/)
+- **BirthDataForm**: Client component with name, gender toggle, date/time pickers, city datalist, timezone select. Validates all required fields before enabling submit.
+- **BaziChart**: Full Four Pillars table (stems/branches colored by element, hidden stems, ten gods, na yin, shen sha, life stages), Five Elements energy circles, Day Master analysis panel (strength bar, pattern, five gods), Luck Periods horizontal scrollable timeline, Shen Sha tags, Kong Wang display.
+- **AIReadingDisplay**: Section-by-section AI reading with themed backgrounds (personality=gold, career=blue, love=pink, finance=orange, health=green). Subscribers see full content; free users see preview + blurred paywall overlay with subscribe CTA. Includes streaming cursor, loading skeletons, entertainment disclaimer, cross-sell grid linking to other reading types.
+- **Reading Page** (`/reading/[type]`): Two-step flow (input → result) with step indicator and tab bar (chart/reading). Validates reading type slug. Currently uses mock AI data; production will call NestJS API.
+- **Dashboard**: Authenticated page (Clerk) with 6 reading type cards linking to `/reading/[slug]`.
+- **Styling**: CSS Modules (no Tailwind). Dark theme matching design system.
+- **Tests**: 71 tests (BirthDataForm: 16, BaziChart: 30, AIReadingDisplay: 25). Jest + React Testing Library + jsdom.
+
 ## Phase Status
 - ✅ Phase 1: Foundation (Steps 1-4 complete — monorepo, DB, auth, API)
 - ✅ Phase 2: Bazi Engine (Steps 5-6 complete — calculation engine, luck periods, compatibility, 121 tests passing)
 - ✅ Phase 3: AI Interpretation (Steps 7-8 complete — provider abstraction, 6 reading prompts, failover chain, reading cache, 48 tests passing)
-- ⏳ Phase 4: Frontend UI (Steps 9-11 — birth data input, Bazi chart display, AI reading display with paywall)
-- ⏳ Phase 5-7: See implementation plan
+- ✅ Phase 4: Frontend UI (Steps 9-11 complete — birth data form, Bazi chart display, AI reading display with paywall, 71 tests passing)
+- ⏳ Phase 5: Monetization & Payment (Steps 12-13 — Stripe, Apple IAP, Google Play, subscription management)
+- ⏳ Phase 6-7: See implementation plan

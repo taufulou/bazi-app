@@ -1,0 +1,140 @@
+.formWrapper {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.15);
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 600px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.formTitle {
+  color: #e8d5b7;
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.formSubtitle {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+  text-align: center;
+  margin-bottom: 1.5rem;
+}
+
+.fieldGroup {
+  margin-bottom: 1.25rem;
+}
+
+.label {
+  display: block;
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  margin-bottom: 0.4rem;
+  font-weight: 500;
+}
+
+.input,
+.select {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background: #1a1a2e;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input:focus,
+.select:focus {
+  border-color: #e8d5b7;
+}
+
+.input::placeholder {
+  color: #555;
+}
+
+.select option {
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.genderGroup {
+  display: flex;
+  gap: 1rem;
+}
+
+.genderOption {
+  flex: 1;
+  padding: 0.75rem;
+  background: #1a1a2e;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 8px;
+  color: #a0a0a0;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 1rem;
+}
+
+.genderOption:hover {
+  border-color: rgba(232, 213, 183, 0.4);
+}
+
+.genderOptionActive {
+  composes: genderOption;
+  border-color: #e8d5b7;
+  color: #e8d5b7;
+  background: rgba(232, 213, 183, 0.1);
+}
+
+.submitBtn {
+  width: 100%;
+  padding: 0.9rem;
+  background: linear-gradient(135deg, #e8d5b7 0%, #d4af37 100%);
+  border: none;
+  border-radius: 8px;
+  color: #1a1a2e;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 0.5rem;
+}
+
+.submitBtn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.submitBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.error {
+  color: #f44336;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+
+@media (max-width: 480px) {
+  .row {
+    grid-template-columns: 1fr;
+  }
+
+  .formWrapper {
+    padding: 1.5rem;
+  }
+}

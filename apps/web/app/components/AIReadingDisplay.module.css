@@ -1,0 +1,330 @@
+/* ==== AI Reading Display ==== */
+.readingContainer {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* ==== Section Wrapper ==== */
+.readingSection {
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.readingSection[data-theme="personality"] {
+  background: linear-gradient(135deg, #2a2a1e 0%, #16213e 100%);
+  border-color: rgba(255, 215, 0, 0.15);
+}
+
+.readingSection[data-theme="career"] {
+  background: linear-gradient(135deg, #1a2a3e 0%, #16213e 100%);
+  border-color: rgba(33, 150, 243, 0.15);
+}
+
+.readingSection[data-theme="love"] {
+  background: linear-gradient(135deg, #2a1a2e 0%, #16213e 100%);
+  border-color: rgba(233, 30, 99, 0.15);
+}
+
+.readingSection[data-theme="finance"] {
+  background: linear-gradient(135deg, #2a2a1e 0%, #16213e 100%);
+  border-color: rgba(255, 152, 0, 0.15);
+}
+
+.readingSection[data-theme="health"] {
+  background: linear-gradient(135deg, #1a2a1e 0%, #16213e 100%);
+  border-color: rgba(76, 175, 80, 0.15);
+}
+
+.readingSection[data-theme="overview"],
+.readingSection[data-theme="default"] {
+  background: linear-gradient(135deg, #1e1e3e 0%, #16213e 100%);
+  border-color: rgba(232, 213, 183, 0.12);
+}
+
+/* ==== Section Header ==== */
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.08);
+}
+
+.sectionIcon {
+  font-size: 1.5rem;
+}
+
+.sectionTitle {
+  color: #e8d5b7;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+/* ==== Content ==== */
+.sectionContent {
+  color: #d0d0d0;
+  font-size: 0.95rem;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+.sectionContent p {
+  margin-bottom: 0.8rem;
+}
+
+.sectionContent h4 {
+  color: #e8d5b7;
+  font-size: 1rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.sectionContent ul,
+.sectionContent ol {
+  margin-left: 1.2rem;
+  margin-bottom: 0.8rem;
+}
+
+.sectionContent li {
+  margin-bottom: 0.3rem;
+}
+
+/* ==== Paywall Overlay ==== */
+.paywallWrapper {
+  position: relative;
+}
+
+.paywallBlur {
+  filter: blur(5px);
+  -webkit-filter: blur(5px);
+  user-select: none;
+  pointer-events: none;
+  max-height: 200px;
+  overflow: hidden;
+}
+
+.paywallOverlay {
+  position: absolute;
+  top: 60px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(22, 33, 62, 0) 0%,
+    rgba(22, 33, 62, 0.85) 30%,
+    rgba(22, 33, 62, 0.98) 60%,
+    #16213e 100%
+  );
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  z-index: 2;
+}
+
+.paywallIcon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.paywallMessage {
+  color: #e8d5b7;
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.paywallSubtext {
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  margin-bottom: 1.25rem;
+  text-align: center;
+}
+
+.paywallBtn {
+  background: linear-gradient(135deg, #d4af37, #b8962e);
+  color: #1a1a2e;
+  border: none;
+  padding: 0.75rem 2rem;
+  border-radius: 25px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+}
+
+.paywallBtn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(212, 175, 55, 0.4);
+}
+
+/* ==== Preview text (visible to free users) ==== */
+.previewContent {
+  color: #d0d0d0;
+  font-size: 0.95rem;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+/* ==== Streaming animation ==== */
+.streamingCursor {
+  display: inline-block;
+  width: 8px;
+  height: 18px;
+  background: #e8d5b7;
+  margin-left: 2px;
+  animation: blink 0.8s ease-in-out infinite;
+  vertical-align: text-bottom;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* ==== Loading skeleton ==== */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.06) 37%,
+    rgba(255, 255, 255, 0.03) 63%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+  height: 16px;
+  margin-bottom: 0.5rem;
+}
+
+.skeletonShort {
+  composes: skeleton;
+  width: 60%;
+}
+
+.skeletonMedium {
+  composes: skeleton;
+  width: 85%;
+}
+
+.skeletonLong {
+  composes: skeleton;
+  width: 100%;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ==== Disclaimer ==== */
+.disclaimer {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(232, 213, 183, 0.08);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-top: 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.disclaimerIcon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.disclaimerText {
+  color: #8a7a6a;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+/* ==== Summary Card ==== */
+.summaryCard {
+  background: linear-gradient(135deg, #2a2a4e 0%, #1a1a3e 100%);
+  border: 1px solid rgba(232, 213, 183, 0.15);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.summaryTitle {
+  color: #e8d5b7;
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.summaryText {
+  color: #d0d0d0;
+  font-size: 0.95rem;
+  line-height: 1.8;
+  white-space: pre-wrap;
+}
+
+/* ==== Cross-sell grid ==== */
+.crossSellGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.crossSellCard {
+  background: #1a1a2e;
+  border: 1px solid rgba(232, 213, 183, 0.08);
+  border-radius: 12px;
+  padding: 1rem;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}
+
+.crossSellCard:hover {
+  border-color: rgba(232, 213, 183, 0.25);
+  transform: translateY(-2px);
+}
+
+.crossSellIcon {
+  font-size: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.crossSellName {
+  color: #e8d5b7;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* ==== Responsive ==== */
+@media (max-width: 600px) {
+  .readingSection {
+    padding: 1rem;
+  }
+
+  .paywallBtn {
+    padding: 0.65rem 1.5rem;
+    font-size: 0.9rem;
+  }
+
+  .crossSellGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

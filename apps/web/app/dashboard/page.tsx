@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { UserButton } from "@clerk/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
@@ -72,72 +73,78 @@ export default async function DashboardPage() {
           }}
         >
           {readingTypes.map((reading) => (
-            <div
+            <Link
               key={reading.slug}
-              style={{
-                backgroundColor: "#16213e",
-                borderRadius: "12px",
-                padding: "1.5rem",
-                border: "1px solid rgba(232, 213, 183, 0.1)",
-                cursor: "pointer",
-                transition: "all 0.2s ease",
-              }}
+              href={`/reading/${reading.slug}`}
+              style={{ textDecoration: "none", color: "inherit" }}
             >
               <div
                 style={{
-                  fontSize: "2rem",
-                  marginBottom: "0.75rem",
+                  backgroundColor: "#16213e",
+                  borderRadius: "12px",
+                  padding: "1.5rem",
+                  border: "1px solid rgba(232, 213, 183, 0.1)",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                  height: "100%",
                 }}
               >
-                {reading.icon}
-              </div>
-              <h3
-                style={{
-                  color: "#e8d5b7",
-                  fontSize: "1.2rem",
-                  marginBottom: "0.5rem",
-                  fontWeight: 600,
-                }}
-              >
-                {reading.name}
-              </h3>
-              <p
-                style={{
-                  color: "#a0a0a0",
-                  fontSize: "0.9rem",
-                  lineHeight: 1.5,
-                }}
-              >
-                {reading.description}
-              </p>
-              <div
-                style={{
-                  marginTop: "1rem",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <span
+                <div
                   style={{
-                    color: "#e8d5b7",
-                    fontSize: "0.85rem",
-                    opacity: 0.7,
+                    fontSize: "2rem",
+                    marginBottom: "0.75rem",
                   }}
                 >
-                  {reading.credits} 點數
-                </span>
-                <span
+                  {reading.icon}
+                </div>
+                <h3
                   style={{
                     color: "#e8d5b7",
-                    fontSize: "0.85rem",
-                    fontWeight: 500,
+                    fontSize: "1.2rem",
+                    marginBottom: "0.5rem",
+                    fontWeight: 600,
                   }}
                 >
-                  開始分析 &rarr;
-                </span>
+                  {reading.name}
+                </h3>
+                <p
+                  style={{
+                    color: "#a0a0a0",
+                    fontSize: "0.9rem",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {reading.description}
+                </p>
+                <div
+                  style={{
+                    marginTop: "1rem",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                  }}
+                >
+                  <span
+                    style={{
+                      color: "#e8d5b7",
+                      fontSize: "0.85rem",
+                      opacity: 0.7,
+                    }}
+                  >
+                    {reading.credits} 點數
+                  </span>
+                  <span
+                    style={{
+                      color: "#e8d5b7",
+                      fontSize: "0.85rem",
+                      fontWeight: 500,
+                    }}
+                  >
+                    開始分析 &rarr;
+                  </span>
+                </div>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       </section>
