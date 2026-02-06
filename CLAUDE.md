@@ -81,7 +81,11 @@ python -m pytest tests/ -v                                  # Run 121 tests
 ## API Architecture (apps/api/src/)
 - `auth/` — Clerk JWT guard (global APP_GUARD), @Public() decorator, @CurrentUser() decorator
 - `users/` — Profile CRUD, birth profiles CRUD, reading history
-- `bazi/` — Reading creation, comparison, services/plans catalog (public). Calls Bazi Engine at http://localhost:5001
+- `bazi/` — Reading creation, comparison, services/plans catalog (public). Calls Bazi Engine + AI Service
+- `ai/` — AI interpretation service with provider abstraction, failover chain, caching
+  - `ai.service.ts` — Provider calls (Claude/GPT/Gemini), prompt building, response parsing, cache
+  - `ai.module.ts` — NestJS module (exported, imported by BaziModule)
+  - `prompts.ts` — System prompts for all 6 reading types, output format, template interpolation
 - `payments/` — Subscription status, transaction history, payment gateways (public)
 - `admin/` — Dashboard stats, services/plans/promo/prompts management, audit log
 - `webhooks/` — Clerk user.created/updated/deleted → sync to PostgreSQL
@@ -120,14 +124,25 @@ python -m pytest tests/ -v                                  # Run 121 tests
 - Entertainment disclaimer required: 「本服務僅供參考與娛樂用途，不構成任何專業建議」
 - AI fallback chain: Claude Sonnet 4.5 → GPT-5.2 → Gemini 3
 
+## AI Interpretation Layer
+- **Provider chain**: Claude Sonnet 4.5 (primary) → GPT-4o (fallback) → Gemini 2.0 Flash (fallback)
+- **Prompt system**: 6 reading-specific system prompts with template interpolation from Bazi data
+- **Output format**: Structured JSON with `sections[key].preview` (free users) / `.full` (subscribers)
+- **Caching**: SHA-256 hash of (birthDate + birthTime + city + gender + readingType + targetYear) → Redis (24h) + DB (30d)
+- **Cost tracking**: Every AI call logged to `ai_usage_log` table (tokens, cost, latency, provider)
+- **Admin override**: PromptTemplate DB table allows editing prompts per reading type + provider without deploy
+- **Graceful degradation**: If all AI providers fail, reading is saved with calculationData only (no AI text)
+- **Tests**: 48 tests for prompts, response parsing, caching, hash generation, provider initialization
+
 ## Environment Files
 - `apps/web/.env.local` — NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY, routing vars
-- `apps/api/.env` — DATABASE_URL, REDIS_URL, CLERK keys, CLERK_WEBHOOK_SECRET, BAZI_ENGINE_URL=http://localhost:5001
+- `apps/api/.env` — DATABASE_URL, REDIS_URL, CLERK keys, CLERK_WEBHOOK_SECRET, BAZI_ENGINE_URL, AI API keys
 - `apps/mobile/.env` — EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
 - `.env.example` — Template with all env vars (safe to commit)
 
 ## Phase Status
 - ✅ Phase 1: Foundation (Steps 1-4 complete — monorepo, DB, auth, API)
 - ✅ Phase 2: Bazi Engine (Steps 5-6 complete — calculation engine, luck periods, compatibility, 121 tests passing)
-- ⏳ Phase 3: AI Interpretation (Steps 7-8 — Claude integration, streaming, failover, caching)
-- ⏳ Phase 4-7: See implementation plan
+- ✅ Phase 3: AI Interpretation (Steps 7-8 complete — provider abstraction, 6 reading prompts, failover chain, reading cache, 48 tests passing)
+- ⏳ Phase 4: Frontend UI (Steps 9-11 — birth data input, Bazi chart display, AI reading display with paywall)
+- ⏳ Phase 5-7: See implementation plan

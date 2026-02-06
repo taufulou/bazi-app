@@ -30,7 +30,7 @@ export class BaziController {
 
   @Post('readings')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Create a new Bazi reading' })
+  @ApiOperation({ summary: 'Create a new Bazi reading with AI interpretation' })
   async createReading(
     @CurrentUser() auth: AuthPayload,
     @Body() dto: CreateReadingDto,
@@ -50,7 +50,7 @@ export class BaziController {
 
   @Post('comparisons')
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Create a Bazi compatibility comparison' })
+  @ApiOperation({ summary: 'Create a Bazi compatibility comparison with AI interpretation' })
   async createComparison(
     @CurrentUser() auth: AuthPayload,
     @Body() dto: CreateComparisonDto,

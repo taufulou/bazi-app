@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { AIService } from '../ai/ai.service';
 import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto';
 import { Prisma, ReadingType } from '@prisma/client';
 
@@ -20,8 +21,9 @@ export class BaziService {
     private prisma: PrismaService,
     private redis: RedisService,
     private configService: ConfigService,
+    private aiService: AIService,
   ) {
-    this.baziEngineUrl = this.configService.get<string>('BAZI_ENGINE_URL') || 'http://localhost:5000';
+    this.baziEngineUrl = this.configService.get<string>('BAZI_ENGINE_URL') || 'http://localhost:5001';
   }
 
   // ============ Services Catalog ============
@@ -88,14 +90,78 @@ export class BaziService {
       );
     }
 
+    // Generate birth data hash for cache lookup
+    const birthDataHash = this.aiService.generateBirthDataHash(
+      profile.birthDate.toISOString().split('T')[0],
+      profile.birthTime,
+      profile.birthCity,
+      profile.gender.toLowerCase(),
+      dto.readingType,
+      dto.targetYear,
+    );
+
+    // Check cache for existing interpretation
+    const cachedInterpretation = await this.aiService.getCachedInterpretation(
+      birthDataHash,
+      dto.readingType,
+    );
+
     // Call Python Bazi engine for calculation
-    let calculationData: Prisma.InputJsonValue;
+    let calculationData: Record<string, unknown>;
     try {
-      calculationData = await this.callBaziEngine(profile, dto);
+      calculationData = await this.callBaziEngine(profile, dto) as Record<string, unknown>;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(`Bazi engine call failed: ${message}`);
       throw new InternalServerErrorException('Bazi calculation failed. Please try again.');
+    }
+
+    // Generate AI interpretation (or use cache)
+    let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
+    let aiProvider: string | undefined = undefined;
+    let aiModel: string | undefined = undefined;
+    let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
+
+    if (cachedInterpretation) {
+      this.logger.log(`Cache hit for reading ${birthDataHash}`);
+      aiInterpretation = cachedInterpretation as unknown as Prisma.InputJsonValue;
+      aiProvider = 'CLAUDE'; // Original provider unknown for cached results
+      aiModel = 'cached';
+    } else {
+      try {
+        // Add birth info to calculation data for prompt interpolation
+        const enrichedData = {
+          ...calculationData,
+          gender: profile.gender.toLowerCase(),
+          birthDate: profile.birthDate.toISOString().split('T')[0],
+          birthTime: profile.birthTime,
+          targetYear: dto.targetYear,
+        };
+
+        const aiResult = await this.aiService.generateInterpretation(
+          enrichedData,
+          dto.readingType,
+          user.id,
+        );
+
+        aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
+        aiProvider = aiResult.provider;
+        aiModel = aiResult.model;
+        tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
+
+        // Cache the result asynchronously
+        this.aiService.cacheInterpretation(
+          birthDataHash,
+          dto.readingType,
+          calculationData,
+          aiResult.interpretation,
+        ).catch((err) => this.logger.error(`Cache write failed: ${err}`));
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.logger.error(`AI interpretation failed: ${message}`);
+        // Don't fail the reading — return calculation without AI
+        // The frontend can request AI interpretation later
+      }
     }
 
     // Deduct credits or use free reading
@@ -107,7 +173,11 @@ export class BaziService {
           userId: user.id,
           birthProfileId: profile.id,
           readingType: dto.readingType,
-          calculationData,
+          calculationData: calculationData as Prisma.InputJsonValue,
+          aiInterpretation,
+          aiProvider: aiProvider as any,
+          aiModel,
+          tokenUsage,
           creditsUsed,
           targetYear: dto.targetYear,
         },
@@ -198,13 +268,40 @@ export class BaziService {
     }
 
     // Call Bazi engine for compatibility calculation
-    let calculationData: Prisma.InputJsonValue;
+    let calculationData: Record<string, unknown>;
     try {
-      calculationData = await this.callBaziCompatibility(profileA, profileB, dto);
+      calculationData = await this.callBaziCompatibility(profileA, profileB, dto) as Record<string, unknown>;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(`Bazi compatibility engine call failed: ${message}`);
       throw new InternalServerErrorException('Bazi compatibility calculation failed.');
+    }
+
+    // Generate AI interpretation for compatibility
+    let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
+    let aiProvider: string | undefined = undefined;
+    let aiModel: string | undefined = undefined;
+    let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
+
+    try {
+      const enrichedData = {
+        ...calculationData,
+        comparisonType: dto.comparisonType.toLowerCase(),
+      };
+
+      const aiResult = await this.aiService.generateInterpretation(
+        enrichedData,
+        ReadingType.COMPATIBILITY,
+        user.id,
+      );
+
+      aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
+      aiProvider = aiResult.provider;
+      aiModel = aiResult.model;
+      tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`AI compatibility interpretation failed: ${message}`);
     }
 
     const creditsUsed = canUseFreeTrial ? 0 : service.creditCost;
@@ -216,7 +313,11 @@ export class BaziService {
           profileAId: profileA.id,
           profileBId: profileB.id,
           comparisonType: dto.comparisonType,
-          calculationData,
+          calculationData: calculationData as Prisma.InputJsonValue,
+          aiInterpretation,
+          aiProvider: aiProvider as any,
+          aiModel,
+          tokenUsage,
           creditsUsed,
         },
       }),
@@ -265,7 +366,9 @@ export class BaziService {
       throw new Error(`Bazi engine returned ${response.status}`);
     }
 
-    return response.json();
+    const result = await response.json();
+    // The engine returns { status, data, calculationTimeMs }
+    return result.data || result;
   }
 
   private async callBaziCompatibility(
@@ -302,6 +405,7 @@ export class BaziService {
       throw new Error(`Bazi engine returned ${response.status}`);
     }
 
-    return response.json();
+    const result = await response.json();
+    return result.data || result;
   }
 }

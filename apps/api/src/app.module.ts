@@ -11,6 +11,7 @@ import { UsersModule } from './users/users.module';
 import { BaziModule } from './bazi/bazi.module';
 import { PaymentsModule } from './payments/payments.module';
 import { AdminModule } from './admin/admin.module';
+import { AIModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -34,6 +35,9 @@ import { AdminModule } from './admin/admin.module';
 
     // Auth
     AuthModule,
+
+    // AI
+    AIModule,
 
     // Feature modules
     UsersModule,
