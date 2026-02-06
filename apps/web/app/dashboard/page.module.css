@@ -1,0 +1,201 @@
+/* ============================================================
+   Dashboard Page — User home with reading types and subscription CTA
+   ============================================================ */
+
+.page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  color: #e0e0e0;
+  padding: 2rem;
+}
+
+/* ---- Header ---- */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 3rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.2);
+}
+
+.logo {
+  color: #e8d5b7;
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.headerRight {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.pricingLink {
+  color: #d4af37;
+  font-size: 0.9rem;
+  text-decoration: none;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.pricingLink:hover {
+  background: rgba(212, 175, 55, 0.1);
+  border-color: rgba(212, 175, 55, 0.5);
+}
+
+.userName {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+}
+
+/* ---- Welcome ---- */
+.welcome {
+  margin-bottom: 3rem;
+}
+
+.welcomeTitle {
+  color: #e8d5b7;
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.welcomeSubtitle {
+  color: #a0a0a0;
+}
+
+/* ---- Reading Grid ---- */
+.readingsSection {
+  margin-bottom: 3rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.cardLink {
+  text-decoration: none;
+  color: inherit;
+}
+
+.card {
+  background-color: #16213e;
+  border-radius: 12px;
+  padding: 1.5rem;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  height: 100%;
+}
+
+.card:hover {
+  border-color: rgba(232, 213, 183, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+}
+
+.cardIcon {
+  font-size: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.cardTitle {
+  color: #e8d5b7;
+  font-size: 1.2rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.cardDescription {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.cardFooter {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.cardAction {
+  color: #e8d5b7;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+/* ---- Subscription CTA Banner ---- */
+.ctaBanner {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.1) 0%, rgba(232, 213, 183, 0.05) 100%);
+  border: 1px solid rgba(212, 175, 55, 0.2);
+  border-radius: 16px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.ctaContent {
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.ctaTitle {
+  color: #e8d5b7;
+  font-size: 1.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.ctaText {
+  color: #a0a0a0;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+.ctaButton {
+  display: inline-block;
+  padding: 0.75rem 2rem;
+  background: linear-gradient(135deg, #d4af37, #b8962e);
+  color: #1a1a2e;
+  font-weight: 600;
+  font-size: 1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.ctaButton:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 768px) {
+  .page {
+    padding: 1rem;
+  }
+
+  .header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .headerRight {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .welcomeTitle {
+    font-size: 1.4rem;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,14 +1,15 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import BirthDataForm, {
   type BirthDataFormValues,
 } from "../../components/BirthDataForm";
 import BaziChart from "../../components/BaziChart";
 import AIReadingDisplay from "../../components/AIReadingDisplay";
-import { calculateBaziDirect } from "../../lib/api";
+import { calculateBaziDirect, getSubscriptionStatus, checkFreeReading } from "../../lib/api";
 import { READING_TYPE_META } from "@repo/shared";
 import styles from "./page.module.css";
 
@@ -78,9 +79,39 @@ export default function ReadingPage() {
     null,
   );
 
-  // For now, treat all users as non-subscribers (paywall visible).
-  // This will be replaced with real Clerk subscription check in Phase 5.
-  const isSubscriber = false;
+  // Check subscription status via Clerk auth + API
+  const { getToken, isSignedIn } = useAuth();
+  const [isSubscriber, setIsSubscriber] = useState(false);
+  const [hasFreeReading, setHasFreeReading] = useState(false);
+
+  useEffect(() => {
+    async function checkSubscription() {
+      if (!isSignedIn) {
+        setIsSubscriber(false);
+        return;
+      }
+      try {
+        const token = await getToken();
+        if (!token) return;
+
+        const [subStatus, freeStatus] = await Promise.all([
+          getSubscriptionStatus(token).catch(() => null),
+          checkFreeReading(token).catch(() => null),
+        ]);
+
+        if (subStatus && subStatus.subscribed) {
+          setIsSubscriber(true);
+        }
+        if (freeStatus && freeStatus.available) {
+          setHasFreeReading(true);
+        }
+      } catch {
+        // If API is not available, default to non-subscriber
+        setIsSubscriber(false);
+      }
+    }
+    checkSubscription();
+  }, [isSignedIn, getToken]);
 
   const handleFormSubmit = useCallback(
     async (data: BirthDataFormValues) => {

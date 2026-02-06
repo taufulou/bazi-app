@@ -26,6 +26,26 @@ export class PaymentsService {
     });
   }
 
+  // ============ Active Plans ============
+
+  async getActivePlans() {
+    return this.prisma.plan.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        id: true,
+        slug: true,
+        nameZhTw: true,
+        nameZhCn: true,
+        priceMonthly: true,
+        priceAnnual: true,
+        currency: true,
+        features: true,
+        readingsPerMonth: true,
+      },
+    });
+  }
+
   // ============ Subscription Status ============
 
   async getSubscriptionStatus(clerkUserId: string) {
@@ -92,10 +112,4 @@ export class PaymentsService {
     };
   }
 
-  // ============ Placeholder for Phase 2 ============
-  // Stripe checkout session creation
-  // Stripe webhook handling
-  // Apple IAP verification
-  // Google Play verification
-  // Credit purchase flow
 }
