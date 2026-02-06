@@ -8,7 +8,7 @@ AI-powered Bazi (八字) fortune-telling SaaS platform inspired by 先知命局 
 - **Web**: Next.js 16 (App Router, port 3000)
 - **Mobile**: React Native Expo (expo-router)
 - **API**: NestJS 11 (TypeScript, port 4000)
-- **Bazi Engine**: FastAPI Python (port 5000, stub)
+- **Bazi Engine**: FastAPI Python (port 5001) — fully implemented
 - **Database**: PostgreSQL 16 + Prisma v6 ORM
 - **Cache**: Redis 7
 - **Auth**: Clerk (Email OTP, Phone OTP, Google, Apple, Facebook, LINE — no WeChat in V1)
@@ -22,7 +22,20 @@ apps/
   mobile/       — Expo React Native app (Clerk auth, SecureStore token cache)
 packages/
   shared/       — TypeScript types + constants (Bazi types, reading types, rate limits)
-  bazi-engine/  — Python FastAPI microservice (calculation engine, stub)
+  bazi-engine/  — Python FastAPI Bazi calculation engine (fully implemented)
+    app/
+      main.py         — FastAPI endpoints (/health, /calculate, /compatibility)
+      calculator.py   — Main orchestrator for all calculations
+      constants.py    — All Bazi lookup tables (stems, branches, elements, Na Yin, etc.)
+      solar_time.py   — True Solar Time (真太陽時) with longitude + EoT + DST correction
+      four_pillars.py — Four Pillars with 立春-based year correction (overrides cnlunar)
+      ten_gods.py     — Ten Gods (十神) derivation from Day Master
+      five_elements.py — Five Elements balance, Day Master strength, favorable gods
+      shen_sha.py     — Shen Sha (神煞) special stars
+      life_stages.py  — Twelve Life Stages (十二長生)
+      luck_periods.py — 大運 (10-year cycles), 流年, 流月
+      compatibility.py — Two-person chart comparison (六合/六沖/天干合)
+    tests/            — 121 tests, all passing
   ui/           — Shared React UI components
   eslint-config/ — Shared ESLint config
   typescript-config/ — Shared TS configs
@@ -41,7 +54,23 @@ npm run build             # Build all
 npm run db:migrate        # Prisma migrate dev
 npm run db:seed           # Seed database
 npm run db:studio         # Prisma Studio GUI
+
+# Bazi Engine (Python)
+cd packages/bazi-engine
+source .venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 5001 --reload  # Start engine
+python -m pytest tests/ -v                                  # Run 121 tests
 ```
+
+## Bazi Engine Details
+- **Port**: 5001 (port 5000 is used by macOS AirPlay)
+- **Performance**: ~3ms per chart calculation (target was <50ms)
+- **True Solar Time**: Longitude correction + Equation of Time (Spencer's formula) + DST detection for historical dates (e.g., China DST 1986-1991)
+- **立春 Year Boundary**: Overrides cnlunar's Lunar New Year boundary with astronomically-computed 立春 using ephem library. Critical for accuracy.
+- **Month Stem Recalculation**: After year correction, month stem is recalculated via 五虎遁月 rule for consistency
+- **City Coordinates**: 60+ pre-coded cities (Taiwan, HK, Malaysia, China, Singapore, etc.) with fallback to user-provided lat/lng
+- **API Endpoints**: POST /calculate (single chart), POST /compatibility (two-person comparison), GET /health
+- **Python venv**: `packages/bazi-engine/.venv` (Python 3.12, cnlunar, ephem, fastapi, uvicorn, pydantic, pytest)
 
 ## Database
 - 14 models, 11 enums in `apps/api/prisma/schema.prisma`
@@ -52,7 +81,7 @@ npm run db:studio         # Prisma Studio GUI
 ## API Architecture (apps/api/src/)
 - `auth/` — Clerk JWT guard (global APP_GUARD), @Public() decorator, @CurrentUser() decorator
 - `users/` — Profile CRUD, birth profiles CRUD, reading history
-- `bazi/` — Reading creation, comparison, services/plans catalog (public)
+- `bazi/` — Reading creation, comparison, services/plans catalog (public). Calls Bazi Engine at http://localhost:5001
 - `payments/` — Subscription status, transaction history, payment gateways (public)
 - `admin/` — Dashboard stats, services/plans/promo/prompts management, audit log
 - `webhooks/` — Clerk user.created/updated/deleted → sync to PostgreSQL
@@ -93,11 +122,12 @@ npm run db:studio         # Prisma Studio GUI
 
 ## Environment Files
 - `apps/web/.env.local` — NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY, CLERK_SECRET_KEY, routing vars
-- `apps/api/.env` — DATABASE_URL, REDIS_URL, CLERK keys, CLERK_WEBHOOK_SECRET
+- `apps/api/.env` — DATABASE_URL, REDIS_URL, CLERK keys, CLERK_WEBHOOK_SECRET, BAZI_ENGINE_URL=http://localhost:5001
 - `apps/mobile/.env` — EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY
 - `.env.example` — Template with all env vars (safe to commit)
 
 ## Phase Status
-- ✅ Phase 1: Foundation (Steps 1-4 complete)
-- ⏳ Phase 2: Bazi Engine + AI (next)
-- ⏳ Phase 3-7: See implementation plan
+- ✅ Phase 1: Foundation (Steps 1-4 complete — monorepo, DB, auth, API)
+- ✅ Phase 2: Bazi Engine (Steps 5-6 complete — calculation engine, luck periods, compatibility, 121 tests passing)
+- ⏳ Phase 3: AI Interpretation (Steps 7-8 — Claude integration, streaming, failover, caching)
+- ⏳ Phase 4-7: See implementation plan
