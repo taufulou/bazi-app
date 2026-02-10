@@ -32,31 +32,59 @@ import {
   ApiQuery,
   ApiBody,
 } from '@nestjs/swagger';
+import { IsString, IsIn, IsOptional, IsUrl, Matches } from 'class-validator';
 import { PaymentsService } from './payments.service';
 import { StripeService } from './stripe.service';
 import { CurrentUser, AuthPayload } from '../auth/current-user.decorator';
 import { Public } from '../auth/public.decorator';
 
 // ============================================================
-// DTOs
+// DTOs — validated to prevent open redirect via successUrl/cancelUrl
+// Only allow URLs that start with our own site origin (relative or absolute).
 // ============================================================
 
+const SAFE_URL_REGEX = /^(https?:\/\/(localhost(:\d+)?|[a-z0-9-]+\.bazi-platform\.com)\/|\/)/;
+
 class CreateSubscriptionCheckoutDto {
+  @IsString()
   planSlug!: string;
+
+  @IsIn(['monthly', 'annual'])
   billingCycle!: 'monthly' | 'annual';
+
+  @IsOptional()
+  @IsString()
   promoCode?: string;
+
+  @IsString()
+  @Matches(SAFE_URL_REGEX, { message: 'successUrl must be a relative path or point to our domain' })
   successUrl!: string;
+
+  @IsString()
+  @Matches(SAFE_URL_REGEX, { message: 'cancelUrl must be a relative path or point to our domain' })
   cancelUrl!: string;
 }
 
 class CreateOneTimeCheckoutDto {
+  @IsString()
   serviceSlug!: string;
+
+  @IsOptional()
+  @IsString()
   promoCode?: string;
+
+  @IsString()
+  @Matches(SAFE_URL_REGEX, { message: 'successUrl must be a relative path or point to our domain' })
   successUrl!: string;
+
+  @IsString()
+  @Matches(SAFE_URL_REGEX, { message: 'cancelUrl must be a relative path or point to our domain' })
   cancelUrl!: string;
 }
 
 class CreatePortalSessionDto {
+  @IsString()
+  @Matches(SAFE_URL_REGEX, { message: 'returnUrl must be a relative path or point to our domain' })
   returnUrl!: string;
 }
 

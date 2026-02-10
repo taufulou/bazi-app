@@ -83,6 +83,7 @@ export class PaymentsService {
   // ============ Transaction History ============
 
   async getTransactionHistory(clerkUserId: string, page = 1, limit = 20) {
+    limit = Math.min(Math.max(limit, 1), 100); // Clamp to 1-100
     const user = await this.prisma.user.findUnique({
       where: { clerkUserId },
     });

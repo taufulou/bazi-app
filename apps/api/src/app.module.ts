@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import * as Joi from 'joi';
 import { HealthController } from './health/health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
@@ -18,6 +19,27 @@ import { AIModule } from './ai/ai.module';
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],
+      validationSchema: Joi.object({
+        // Required — app fails to start without these
+        DATABASE_URL: Joi.string().required(),
+        REDIS_URL: Joi.string().default('redis://localhost:6379'),
+        CLERK_SECRET_KEY: Joi.string().required(),
+        CLERK_WEBHOOK_SECRET: Joi.string().required(),
+        // Optional — features degrade gracefully without these
+        ANTHROPIC_API_KEY: Joi.string().optional().default(''),
+        OPENAI_API_KEY: Joi.string().optional().default(''),
+        GOOGLE_AI_API_KEY: Joi.string().optional().default(''),
+        STRIPE_SECRET_KEY: Joi.string().optional().default(''),
+        STRIPE_WEBHOOK_SECRET: Joi.string().optional().default(''),
+        BAZI_ENGINE_URL: Joi.string().default('http://localhost:5001'),
+        CORS_ORIGINS: Joi.string().optional().default('http://localhost:3000'),
+        PORT: Joi.number().default(4000),
+        NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
+      }),
+      validationOptions: {
+        allowUnknown: true,
+        abortEarly: false,
+      },
     }),
 
     // Rate limiting — 100 requests per 60 seconds per IP

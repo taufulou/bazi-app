@@ -16,6 +16,12 @@ const mockStripeService = {
   handleInvoiceFailed: jest.fn(),
 };
 
+// Mock RedisService (for idempotency)
+const mockRedis = {
+  get: jest.fn().mockResolvedValue(null), // not yet processed by default
+  set: jest.fn().mockResolvedValue('OK'),
+};
+
 // Mock Express Response
 const createMockResponse = () => {
   const res: any = {};
@@ -38,7 +44,7 @@ describe('StripeWebhookController', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    controller = new StripeWebhookController(mockStripeService as any);
+    controller = new StripeWebhookController(mockStripeService as any, mockRedis as any);
   });
 
   // ============================================================
@@ -208,7 +214,7 @@ describe('StripeWebhookController', () => {
   // ============================================================
 
   describe('error handling', () => {
-    it('should return 200 even when handler throws (prevent Stripe retries)', async () => {
+    it('should return 500 when handler throws (so Stripe retries transient errors)', async () => {
       mockStripeService.verifyWebhookSignature.mockReturnValue({
         type: 'checkout.session.completed',
         id: 'evt_err',
@@ -223,9 +229,11 @@ describe('StripeWebhookController', () => {
 
       await controller.handleStripeWebhook(req, res, 'sig_valid');
 
-      // Should still return 200 to prevent Stripe retries
-      expect(res.status).toHaveBeenCalledWith(200);
-      expect(res.json).toHaveBeenCalledWith({ received: true });
+      // Should return 500 for transient errors so Stripe retries (up to ~3 days)
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ error: 'Webhook processing failed' }),
+      );
     });
   });
 });

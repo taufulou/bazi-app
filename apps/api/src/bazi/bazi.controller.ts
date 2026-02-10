@@ -1,5 +1,6 @@
 import { Controller, Get, Post, Body, Param } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { BaziService } from './bazi.service';
 import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto';
 import { CurrentUser, AuthPayload } from '../auth/current-user.decorator';
@@ -30,6 +31,7 @@ export class BaziController {
 
   @Post('readings')
   @ApiBearerAuth()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Create a new Bazi reading with AI interpretation' })
   async createReading(
     @CurrentUser() auth: AuthPayload,
@@ -50,6 +52,7 @@ export class BaziController {
 
   @Post('comparisons')
   @ApiBearerAuth()
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({ summary: 'Create a Bazi compatibility comparison with AI interpretation' })
   async createComparison(
     @CurrentUser() auth: AuthPayload,

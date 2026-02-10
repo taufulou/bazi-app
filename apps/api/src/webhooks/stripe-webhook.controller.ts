@@ -21,6 +21,7 @@ import { ApiTags, ApiOperation, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { Request, Response } from 'express';
 import { Public } from '../auth/public.decorator';
 import { StripeService } from '../payments/stripe.service';
+import { RedisService } from '../redis/redis.service';
 import Stripe from 'stripe';
 
 @ApiTags('Webhooks')
@@ -28,7 +29,10 @@ import Stripe from 'stripe';
 export class StripeWebhookController {
   private readonly logger = new Logger(StripeWebhookController.name);
 
-  constructor(private readonly stripeService: StripeService) {}
+  constructor(
+    private readonly stripeService: StripeService,
+    private readonly redis: RedisService,
+  ) {}
 
   @Public()
   @Post('stripe')
@@ -59,6 +63,14 @@ export class StripeWebhookController {
     }
 
     this.logger.log(`Stripe webhook received: ${event.type} (${event.id})`);
+
+    // Idempotency: skip already-processed events (TTL 48h to cover Stripe retry window)
+    const idempotencyKey = `stripe:event:${event.id}`;
+    const alreadyProcessed = await this.redis.get(idempotencyKey);
+    if (alreadyProcessed) {
+      this.logger.log(`Stripe event ${event.id} already processed, skipping`);
+      return res.status(200).json({ received: true });
+    }
 
     try {
       switch (event.type) {
@@ -97,9 +109,12 @@ export class StripeWebhookController {
       }
     } catch (err) {
       this.logger.error(`Error processing Stripe webhook ${event.type}: ${err}`);
-      // Return 200 even on processing errors to prevent Stripe retries
-      // We log the error for investigation
+      // Return 500 for transient errors so Stripe retries (up to ~3 days)
+      return res.status(500).json({ error: 'Webhook processing failed' });
     }
+
+    // Mark event as processed (48h TTL covers Stripe retry window)
+    await this.redis.set(idempotencyKey, '1', 172800);
 
     return res.status(200).json({ received: true });
   }

@@ -510,14 +510,7 @@ export class StripeService {
     clerkUserId: string,
     name: string | null,
   ): Promise<string> {
-    // Check if we already have a Stripe customer ID stored
-    // We'll store it in the deviceFingerprint field (or we could add a dedicated column)
-    // For V1, we search Stripe by metadata
-    const existingCustomers = await this.stripe.customers.list({
-      limit: 1,
-    });
-
-    // Search by metadata for our user
+    // Search Stripe by metadata for our user
     const searchResult = await this.stripe.customers.search({
       query: `metadata['clerkUserId']:'${clerkUserId}'`,
     });
@@ -660,6 +653,20 @@ export class StripeService {
       return null;
     }
 
+    // Atomically claim a use — prevents race condition where concurrent requests exceed maxUses
+    const claimed = await this.prisma.promoCode.updateMany({
+      where: {
+        id: promo.id,
+        currentUses: { lt: promo.maxUses },
+        isActive: true,
+      },
+      data: { currentUses: { increment: 1 } },
+    });
+
+    if (claimed.count === 0) {
+      return null; // Race condition: another request used the last slot
+    }
+
     // Create a corresponding Stripe coupon (or reuse if already created)
     try {
       const couponId = `promo_${promo.code}`;
@@ -689,14 +696,13 @@ export class StripeService {
 
       const coupon = await this.stripe.coupons.create(couponParams);
 
-      // Increment usage count
-      await this.prisma.promoCode.update({
-        where: { id: promo.id },
-        data: { currentUses: { increment: 1 } },
-      });
-
       return { stripeCouponId: coupon.id };
     } catch (error) {
+      // Rollback the usage count if Stripe coupon creation fails
+      await this.prisma.promoCode.update({
+        where: { id: promo.id },
+        data: { currentUses: { decrement: 1 } },
+      }).catch((e) => this.logger.error(`Failed to rollback promo use: ${e}`));
       this.logger.error(`Failed to create Stripe coupon for promo ${promoCode}: ${error}`);
       return null;
     }

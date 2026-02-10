@@ -151,6 +151,7 @@ export class UsersService {
   // ============ Reading History ============
 
   async getReadingHistory(clerkUserId: string, page = 1, limit = 20) {
+    limit = Math.min(Math.max(limit, 1), 100); // Clamp to 1-100
     const user = await this.ensureUser(clerkUserId);
 
     const [readings, total] = await Promise.all([

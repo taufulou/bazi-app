@@ -61,6 +61,10 @@ interface ProviderConfig {
 export class AIService implements OnModuleInit {
   private readonly logger = new Logger(AIService.name);
   private providers: ProviderConfig[] = [];
+  // Cached SDK clients — instantiated once at init, not per-request
+  private claudeClient: any;
+  private openaiClient: any;
+  private geminiAI: any;
 
   constructor(
     private configService: ConfigService,
@@ -68,8 +72,9 @@ export class AIService implements OnModuleInit {
     private redis: RedisService,
   ) {}
 
-  onModuleInit() {
+  async onModuleInit() {
     this.initializeProviders();
+    await this.initializeClients();
   }
 
   /**
@@ -118,6 +123,38 @@ export class AIService implements OnModuleInit {
 
     if (this.providers.length === 0) {
       this.logger.warn('No AI providers configured! Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.');
+    }
+  }
+
+  /**
+   * Initialize SDK clients once at startup — avoids re-importing and re-instantiating per request.
+   */
+  private async initializeClients() {
+    for (const provider of this.providers) {
+      try {
+        switch (provider.provider) {
+          case AIProvider.CLAUDE: {
+            const { default: Anthropic } = await import('@anthropic-ai/sdk');
+            this.claudeClient = new Anthropic({ apiKey: provider.apiKey });
+            this.logger.log('Claude SDK client cached');
+            break;
+          }
+          case AIProvider.GPT: {
+            const { default: OpenAI } = await import('openai');
+            this.openaiClient = new OpenAI({ apiKey: provider.apiKey });
+            this.logger.log('OpenAI SDK client cached');
+            break;
+          }
+          case AIProvider.GEMINI: {
+            const { GoogleGenerativeAI } = await import('@google/generative-ai');
+            this.geminiAI = new GoogleGenerativeAI(provider.apiKey);
+            this.logger.log('Gemini SDK client cached');
+            break;
+          }
+        }
+      } catch (err) {
+        this.logger.warn(`Failed to initialize ${provider.provider} client: ${err}`);
+      }
     }
   }
 
@@ -277,10 +314,12 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
   ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey: config.apiKey });
+    if (!this.claudeClient) {
+      const { default: Anthropic } = await import('@anthropic-ai/sdk');
+      this.claudeClient = new Anthropic({ apiKey: config.apiKey });
+    }
 
-    const response = await client.messages.create({
+    const response = await this.claudeClient.messages.create({
       model: config.model,
       max_tokens: 4096,
       system: systemPrompt,
@@ -288,8 +327,8 @@ export class AIService implements OnModuleInit {
     });
 
     const content = response.content
-      .filter((block) => block.type === 'text')
-      .map((block) => ('text' in block ? block.text : ''))
+      .filter((block: { type: string }) => block.type === 'text')
+      .map((block: { type: string; text?: string }) => block.text || '')
       .join('');
 
     return {
@@ -304,10 +343,12 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
   ): AsyncGenerator<string> {
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    const client = new Anthropic({ apiKey: config.apiKey });
+    if (!this.claudeClient) {
+      const { default: Anthropic } = await import('@anthropic-ai/sdk');
+      this.claudeClient = new Anthropic({ apiKey: config.apiKey });
+    }
 
-    const stream = client.messages.stream({
+    const stream = this.claudeClient.messages.stream({
       model: config.model,
       max_tokens: 4096,
       system: systemPrompt,
@@ -332,10 +373,12 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
   ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
-    const { default: OpenAI } = await import('openai');
-    const client = new OpenAI({ apiKey: config.apiKey });
+    if (!this.openaiClient) {
+      const { default: OpenAI } = await import('openai');
+      this.openaiClient = new OpenAI({ apiKey: config.apiKey });
+    }
 
-    const response = await client.chat.completions.create({
+    const response = await this.openaiClient.chat.completions.create({
       model: config.model,
       max_tokens: 4096,
       messages: [
@@ -356,10 +399,12 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
   ): AsyncGenerator<string> {
-    const { default: OpenAI } = await import('openai');
-    const client = new OpenAI({ apiKey: config.apiKey });
+    if (!this.openaiClient) {
+      const { default: OpenAI } = await import('openai');
+      this.openaiClient = new OpenAI({ apiKey: config.apiKey });
+    }
 
-    const stream = await client.chat.completions.create({
+    const stream = await this.openaiClient.chat.completions.create({
       model: config.model,
       max_tokens: 4096,
       stream: true,
@@ -384,9 +429,11 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
   ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(config.apiKey);
-    const model = genAI.getGenerativeModel({
+    if (!this.geminiAI) {
+      const { GoogleGenerativeAI } = await import('@google/generative-ai');
+      this.geminiAI = new GoogleGenerativeAI(config.apiKey);
+    }
+    const model = this.geminiAI.getGenerativeModel({
       model: config.model,
       systemInstruction: systemPrompt,
     });
@@ -406,9 +453,11 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
   ): AsyncGenerator<string> {
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(config.apiKey);
-    const model = genAI.getGenerativeModel({
+    if (!this.geminiAI) {
+      const { GoogleGenerativeAI } = await import('@google/generative-ai');
+      this.geminiAI = new GoogleGenerativeAI(config.apiKey);
+    }
+    const model = this.geminiAI.getGenerativeModel({
       model: config.model,
       systemInstruction: systemPrompt,
     });

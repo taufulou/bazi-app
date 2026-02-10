@@ -164,11 +164,33 @@ export class BaziService {
       }
     }
 
-    // Deduct credits or use free reading
+    // Deduct credits or use free reading — atomic to prevent double-spend
     const creditsUsed = canUseFreeTrial ? 0 : service.creditCost;
 
-    const [reading] = await this.prisma.$transaction([
-      this.prisma.baziReading.create({
+    const reading = await this.prisma.$transaction(async (tx) => {
+      if (canUseFreeTrial) {
+        // Atomically claim the free reading — only succeeds if not already used
+        const updated = await tx.user.updateMany({
+          where: { id: user.id, freeReadingUsed: false },
+          data: { freeReadingUsed: true },
+        });
+        if (updated.count === 0) {
+          throw new BadRequestException('Free reading already used');
+        }
+      } else {
+        // Atomically deduct credits — only succeeds if user has enough
+        const updated = await tx.user.updateMany({
+          where: { id: user.id, credits: { gte: service.creditCost } },
+          data: { credits: { decrement: service.creditCost } },
+        });
+        if (updated.count === 0) {
+          throw new BadRequestException(
+            `Insufficient credits. This reading requires ${service.creditCost} credits.`,
+          );
+        }
+      }
+
+      return tx.baziReading.create({
         data: {
           userId: user.id,
           birthProfileId: profile.id,
@@ -181,22 +203,8 @@ export class BaziService {
           creditsUsed,
           targetYear: dto.targetYear,
         },
-      }),
-      // Deduct credits or mark free reading used
-      ...(canUseFreeTrial
-        ? [
-            this.prisma.user.update({
-              where: { id: user.id },
-              data: { freeReadingUsed: true },
-            }),
-          ]
-        : [
-            this.prisma.user.update({
-              where: { id: user.id },
-              data: { credits: { decrement: service.creditCost } },
-            }),
-          ]),
-    ]);
+      });
+    });
 
     return reading;
   }
@@ -219,6 +227,34 @@ export class BaziService {
 
     if (!reading) {
       throw new NotFoundException('Reading not found');
+    }
+
+    // Server-side paywall: non-subscribers only get preview sections
+    const isSubscriber = user.subscriptionTier !== 'FREE';
+    const isOwnerReading = reading.creditsUsed > 0 || reading.userId === user.id;
+
+    // If user paid for this reading (credits or free trial) OR is a subscriber, return full
+    if (isSubscriber || isOwnerReading) {
+      return reading;
+    }
+
+    // Strip full text, keep only preview for non-subscribers
+    if (reading.aiInterpretation && typeof reading.aiInterpretation === 'object') {
+      const interpretation = reading.aiInterpretation as Record<string, unknown>;
+      const sections = interpretation.sections as Record<string, { preview: string; full: string }> | undefined;
+      if (sections) {
+        const previewOnly: Record<string, { preview: string; full: string }> = {};
+        for (const [key, section] of Object.entries(sections)) {
+          previewOnly[key] = { preview: section.preview, full: section.preview }; // full = preview only
+        }
+        return {
+          ...reading,
+          aiInterpretation: {
+            ...interpretation,
+            sections: previewOnly,
+          },
+        };
+      }
     }
 
     return reading;
@@ -306,8 +342,29 @@ export class BaziService {
 
     const creditsUsed = canUseFreeTrial ? 0 : service.creditCost;
 
-    const [comparison] = await this.prisma.$transaction([
-      this.prisma.baziComparison.create({
+    // Atomic transaction to prevent double-spend
+    const comparison = await this.prisma.$transaction(async (tx) => {
+      if (canUseFreeTrial) {
+        const updated = await tx.user.updateMany({
+          where: { id: user.id, freeReadingUsed: false },
+          data: { freeReadingUsed: true },
+        });
+        if (updated.count === 0) {
+          throw new BadRequestException('Free reading already used');
+        }
+      } else {
+        const updated = await tx.user.updateMany({
+          where: { id: user.id, credits: { gte: service.creditCost } },
+          data: { credits: { decrement: service.creditCost } },
+        });
+        if (updated.count === 0) {
+          throw new BadRequestException(
+            `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
+          );
+        }
+      }
+
+      return tx.baziComparison.create({
         data: {
           userId: user.id,
           profileAId: profileA.id,
@@ -320,21 +377,8 @@ export class BaziService {
           tokenUsage,
           creditsUsed,
         },
-      }),
-      ...(canUseFreeTrial
-        ? [
-            this.prisma.user.update({
-              where: { id: user.id },
-              data: { freeReadingUsed: true },
-            }),
-          ]
-        : [
-            this.prisma.user.update({
-              where: { id: user.id },
-              data: { credits: { decrement: service.creditCost } },
-            }),
-          ]),
-    ]);
+      });
+    });
 
     return comparison;
   }
