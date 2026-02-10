@@ -42,6 +42,7 @@ interface BirthDataFormProps {
   title?: string;
   subtitle?: string;
   submitLabel?: string;
+  children?: React.ReactNode;
 }
 
 export default function BirthDataForm({
@@ -51,6 +52,7 @@ export default function BirthDataForm({
   title = "輸入出生資料",
   subtitle = "請填寫準確的出生時間以獲得最精確的分析",
   submitLabel = "開始排盤",
+  children,
 }: BirthDataFormProps) {
   const [form, setForm] = useState<BirthDataFormValues>({
     name: "",
@@ -183,6 +185,9 @@ export default function BirthDataForm({
           </select>
         </div>
       </div>
+
+      {/* Extra inputs injected by parent (e.g., monthly/daily/Q&A pickers) */}
+      {children}
 
       {error && <p className={styles.error}>{error}</p>}
 

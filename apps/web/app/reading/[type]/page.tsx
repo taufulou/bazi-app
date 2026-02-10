@@ -31,7 +31,11 @@ type ReadingTypeSlug =
   | "zwds-career"
   | "zwds-love"
   | "zwds-health"
-  | "zwds-compatibility";
+  | "zwds-compatibility"
+  | "zwds-monthly"
+  | "zwds-daily"
+  | "zwds-major-period"
+  | "zwds-qa";
 
 type ViewStep = "input" | "result";
 type ResultTab = "chart" | "reading";
@@ -64,6 +68,10 @@ const VALID_TYPES: ReadingTypeSlug[] = [
   "zwds-love",
   "zwds-health",
   "zwds-compatibility",
+  "zwds-monthly",
+  "zwds-daily",
+  "zwds-major-period",
+  "zwds-qa",
 ];
 
 // ============================================================
@@ -102,6 +110,17 @@ export default function ReadingPage() {
   const [formValues, setFormValues] = useState<BirthDataFormValues | null>(
     null,
   );
+
+  // Phase 8B: Extra inputs for monthly/daily/Q&A
+  const [targetMonth, setTargetMonth] = useState<number>(new Date().getMonth() + 1);
+  const [targetDay, setTargetDay] = useState<string>(
+    `${new Date().getFullYear()}-${new Date().getMonth() + 1}-${new Date().getDate()}`
+  );
+  const [questionText, setQuestionText] = useState<string>("");
+
+  const needsMonthPicker = readingType === "zwds-monthly";
+  const needsDatePicker = readingType === "zwds-daily";
+  const needsQuestion = readingType === "zwds-qa";
 
   // Check subscription status via Clerk auth + API
   const { getToken, isSignedIn } = useAuth();
@@ -145,8 +164,15 @@ export default function ReadingPage() {
 
       try {
         if (isZwds) {
+          // Validate extra inputs for Phase 8B types
+          if (needsQuestion && !questionText.trim()) {
+            setError("請輸入您的問題");
+            setIsLoading(false);
+            return;
+          }
+
           // ZWDS: Generate mock chart data for now
-          // In production, this calls POST /api/zwds/chart-preview via NestJS
+          // In production, this calls POST /api/zwds/readings via NestJS
           const mockChart = generateMockZwdsChart(data);
           setZwdsChartData(mockChart);
 
@@ -239,14 +265,78 @@ export default function ReadingPage() {
       {/* Content */}
       <div className={styles.contentArea}>
         {step === "input" && (
-          <BirthDataForm
-            onSubmit={handleFormSubmit}
-            isLoading={isLoading}
-            error={error}
-            title={`${meta.nameZhTw} — 輸入出生資料`}
-            subtitle={meta.description["zh-TW"]}
-            submitLabel="開始分析"
-          />
+          <>
+            <BirthDataForm
+              onSubmit={handleFormSubmit}
+              isLoading={isLoading}
+              error={error}
+              title={`${meta.nameZhTw} — 輸入出生資料`}
+              subtitle={meta.description["zh-TW"]}
+              submitLabel="開始分析"
+            >
+              {/* Phase 8B: Extra inputs for monthly/daily/Q&A */}
+              {needsMonthPicker && (
+                <div className={styles.extraInput}>
+                  <label className={styles.extraInputLabel}>分析年月</label>
+                  <div className={styles.extraInputRow}>
+                    <select
+                      className={styles.extraInputSelect}
+                      value={new Date().getFullYear()}
+                      disabled
+                    >
+                      <option value={new Date().getFullYear()}>{new Date().getFullYear()} 年</option>
+                    </select>
+                    <select
+                      className={styles.extraInputSelect}
+                      value={targetMonth}
+                      onChange={(e) => setTargetMonth(Number(e.target.value))}
+                    >
+                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                        <option key={m} value={m}>{m} 月</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {needsDatePicker && (
+                <div className={styles.extraInput}>
+                  <label className={styles.extraInputLabel}>分析日期</label>
+                  <input
+                    type="date"
+                    className={styles.extraInputDate}
+                    value={(() => {
+                      const parts = targetDay.split("-");
+                      return `${parts[0]}-${(parts[1] || "1").padStart(2, "0")}-${(parts[2] || "1").padStart(2, "0")}`;
+                    })()}
+                    onChange={(e) => {
+                      const d = new Date(e.target.value);
+                      if (!isNaN(d.getTime())) {
+                        setTargetDay(`${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`);
+                      }
+                    }}
+                  />
+                </div>
+              )}
+
+              {needsQuestion && (
+                <div className={styles.extraInput}>
+                  <label className={styles.extraInputLabel}>您想問什麼？</label>
+                  <textarea
+                    className={styles.extraInputTextarea}
+                    value={questionText}
+                    onChange={(e) => setQuestionText(e.target.value.slice(0, 500))}
+                    placeholder="請輸入您的問題，例如：今年適合跳槽嗎？我的感情何時有進展？"
+                    rows={3}
+                    maxLength={500}
+                  />
+                  <div className={styles.extraInputHint}>
+                    {questionText.length}/500 字
+                  </div>
+                </div>
+              )}
+            </BirthDataForm>
+          </>
         )}
 
         {step === "result" && (
@@ -576,6 +666,98 @@ function generateMockZwdsReading(type: ReadingTypeSlug): AIReadingData {
         title: "相處建議",
         preview: "請完成雙方資料輸入後查看相處建議。",
         full: "請完成雙方資料輸入後查看相處建議。\n\n將根據雙方命盤的優勢和挑戰提供經營關係之道。",
+      },
+    ],
+    "zwds-monthly": [
+      {
+        key: "monthly_overview",
+        title: "本月運勢總覽",
+        preview: "本月流月宮位走入財帛宮，太陰星化祿，整體財運偏旺。",
+        full: "本月流月宮位走入財帛宮，太陰星化祿，整體財運偏旺。\n\n流月四化：化祿入財帛宮（正財運旺）、化權入事業宮（工作有突破）、化科入命宮（人緣佳）、化忌入疾厄宮（注意休息）。本月整體運勢上升，宜積極把握機遇。",
+      },
+      {
+        key: "monthly_career",
+        title: "本月事業運",
+        preview: "化權入事業宮，本月工作上有表現機會，適合提出新方案。",
+        full: "化權入事業宮，本月工作上有表現機會，適合提出新方案或爭取晉升。上半月運勢較強，下半月趨於平穩。注意與同事的溝通協調。",
+      },
+      {
+        key: "monthly_love",
+        title: "本月感情運",
+        preview: "化科入命宮，個人魅力提升，有利於社交和感情發展。",
+        full: "化科入命宮，個人魅力提升。單身者本月桃花運中等，適合主動認識新朋友。有伴侶者感情穩定，可安排約會增進感情。",
+      },
+      {
+        key: "monthly_health",
+        title: "本月健康運",
+        preview: "化忌入疾厄宮，本月需注意休息和作息規律。",
+        full: "化忌入疾厄宮，本月需注意休息和作息規律。容易出現疲勞、失眠等問題。建議減少熬夜，適度運動，飲食清淡。特別注意腸胃和肝臟保養。",
+      },
+      {
+        key: "monthly_advice",
+        title: "本月行動建議",
+        preview: "把握上半月的事業運勢，合理安排工作與休息。",
+        full: "1. 把握上半月的事業運勢，積極表現\n2. 理財方面可小額投資，正財運佳\n3. 下半月注意身體，避免過度勞累\n4. 人際關係順暢，適合拓展社交圈",
+      },
+    ],
+    "zwds-daily": [
+      {
+        key: "daily_fortune",
+        title: "今日運勢",
+        preview: "今日流日走入官祿宮，天府星化祿。",
+        full: "今日流日走入官祿宮，天府星化祿，事業運佳。工作上有利好消息或貴人相助。財運中等，不宜大額支出。感情方面平穩。健康注意頸椎和肩膀。吉時：巳時、午時。",
+      },
+    ],
+    "zwds-major-period": [
+      {
+        key: "period_overview",
+        title: "大限運勢總覽",
+        preview: "您目前正處於第三大限（22-31歲），大限宮位走入田宅宮，太陰星化科坐守。",
+        full: "您目前正處於第三大限（22-31歲），大限宮位走入田宅宮，太陰星化科坐守。\n\n此大限整體運勢平穩向上，重點在置產、家庭根基的建立。太陰化科帶來學識和聲望的提升。大限四化與本命四化互動良好，屬於順遂的十年運。",
+      },
+      {
+        key: "period_career",
+        title: "大限事業運",
+        preview: "大限事業宮見天同星入廟，事業穩定但缺乏衝勁。",
+        full: "大限事業宮見天同星入廟，事業穩定但缺乏衝勁。適合在大機構中穩步發展，不宜冒險創業。此十年適合積累經驗和人脈，為下一個大限的事業爆發期做準備。最佳發展方向：管理、教育、諮詢類行業。",
+      },
+      {
+        key: "period_relationships",
+        title: "大限人際關係",
+        preview: "大限交友宮見巨門星，人際關係上容易遇到口舌是非。",
+        full: "大限交友宮見巨門星，人際關係上容易遇到口舌是非。建議注意言語表達，避免不必要的爭論。但巨門也主才華和口才，善加利用可在談判和溝通領域出色。夫妻宮太陽星化權，感情中主導性強。",
+      },
+      {
+        key: "period_health",
+        title: "大限健康運",
+        preview: "大限疾厄宮見廉貞星，需注意心血管和情緒健康。",
+        full: "大限疾厄宮見廉貞星，需注意心血管和情緒健康。建議定期體檢，保持運動習慣。情緒波動較大的年份（化忌飛入疾厄宮時）更需注意心理調適。整體而言，此大限健康運中等，無大礙但需預防。",
+      },
+      {
+        key: "period_strategy",
+        title: "大限發展策略",
+        preview: "此大限的核心策略：穩紮穩打，為下一個十年蓄力。",
+        full: "核心策略：穩紮穩打，為下一個十年蓄力。\n\n1. 前五年（22-26歲）：打基礎，學習專業技能\n2. 後五年（27-31歲）：穩步升遷，建立人脈\n3. 理財重點：此期適合儲蓄和穩健投資\n4. 大限末期注意：交接年（31歲）運勢波動，宜保守行事\n5. 為下一大限（32-41歲事業黃金期）做好準備",
+      },
+    ],
+    "zwds-qa": [
+      {
+        key: "answer",
+        title: "問題解答",
+        preview: "根據您的紫微命盤與當前流年分析，以下為您的問題解答。",
+        full: "根據您的紫微命盤與當前流年分析：\n\n您目前的流年化祿入事業宮，代表今年事業運勢正旺。結合大限運勢來看，當前正是積極行動的好時機。命盤中天府星坐守事業宮，主穩健發展，建議以穩中求進的策略為佳。",
+      },
+      {
+        key: "analysis",
+        title: "命盤分析",
+        preview: "從相關宮位的星曜組合與四化飛星來看，提供以下深入分析。",
+        full: "從相關宮位的星曜組合與四化飛星來看：\n\n1. 事業宮天府化祿：正財運強，適合穩健發展\n2. 財帛宮武曲化權：有主導權，可爭取更好的薪資待遇\n3. 流年化忌入夫妻宮：感情方面需多關注，避免因工作忽略伴侶\n4. 遷移宮太陽化科：外出發展有利，可考慮跨區域機會",
+      },
+      {
+        key: "advice",
+        title: "綜合建議",
+        preview: "綜合命盤與流年運勢，給出以下具體建議。",
+        full: "綜合建議：\n\n1. 把握當前事業運旺的時機，積極爭取機會\n2. 財務方面正財為主，不宜投機\n3. 注意工作與生活的平衡\n4. 最佳行動時機：本月中旬至下月上旬\n5. 貴人方位：西北方",
       },
     ],
   };

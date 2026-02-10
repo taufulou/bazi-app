@@ -5,6 +5,8 @@ import { ZwdsService } from './zwds.service';
 import {
   CreateZwdsReadingDto,
   CreateZwdsComparisonDto,
+  CrossSystemReadingDto,
+  DeepStarReadingDto,
   ZwdsChartPreviewDto,
   ZwdsHoroscopeDto,
 } from './dto/create-zwds-reading.dto';
@@ -62,6 +64,32 @@ export class ZwdsController {
     @Body() dto: ZwdsHoroscopeDto,
   ) {
     return this.zwdsService.getHoroscope(auth.userId, dto);
+  }
+
+  // ============ Cross-System (Bazi + ZWDS) ============
+
+  @Post('cross-system')
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @ApiOperation({ summary: 'Create a cross-system Bazi + ZWDS combined reading' })
+  async createCrossSystemReading(
+    @CurrentUser() auth: AuthPayload,
+    @Body() dto: CrossSystemReadingDto,
+  ) {
+    return this.zwdsService.createCrossSystemReading(auth.userId, dto);
+  }
+
+  // ============ Deep Star Analysis ============
+
+  @Post('deep-stars')
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @ApiOperation({ summary: 'Create a deep star analysis reading (enhanced ZWDS_LIFETIME)' })
+  async createDeepStarReading(
+    @CurrentUser() auth: AuthPayload,
+    @Body() dto: DeepStarReadingDto,
+  ) {
+    return this.zwdsService.createDeepStarReading(auth.userId, dto);
   }
 
   // ============ Compatibility ============

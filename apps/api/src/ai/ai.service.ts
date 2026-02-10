@@ -173,6 +173,7 @@ export class AIService implements OnModuleInit {
     readingType: ReadingType,
     userId?: string,
     readingId?: string,
+    promptVariant?: string,
   ): Promise<AIGenerationResult> {
     if (this.providers.length === 0) {
       throw new Error('No AI providers configured');
@@ -182,6 +183,7 @@ export class AIService implements OnModuleInit {
     const { systemPrompt, userPrompt } = await this.buildPrompt(
       calculationData,
       readingType,
+      promptVariant,
     );
 
     // Try each provider in order
@@ -485,7 +487,32 @@ export class AIService implements OnModuleInit {
   async buildPrompt(
     calculationData: Record<string, unknown>,
     readingType: ReadingType,
+    promptVariant?: string,
   ): Promise<{ systemPrompt: string; userPrompt: string }> {
+    // Handle special prompt variants (cross-system, deep-stars)
+    if (promptVariant === 'cross-system') {
+      const { CROSS_SYSTEM_PROMPT } = await import('./prompts');
+      const baseSystemPrompt = ZWDS_BASE_SYSTEM_PROMPT + '\n\n' + BASE_SYSTEM_PROMPT;
+      const systemPrompt = baseSystemPrompt + '\n\n' + CROSS_SYSTEM_PROMPT.systemAddition;
+      const userPrompt = this.interpolateTemplate(
+        CROSS_SYSTEM_PROMPT.userTemplate,
+        calculationData,
+        readingType,
+      ) + '\n\n' + OUTPUT_FORMAT_INSTRUCTIONS;
+      return { systemPrompt, userPrompt };
+    }
+
+    if (promptVariant === 'deep-stars') {
+      const { DEEP_STAR_PROMPT } = await import('./prompts');
+      const systemPrompt = ZWDS_BASE_SYSTEM_PROMPT + '\n\n' + DEEP_STAR_PROMPT.systemAddition;
+      const userPrompt = this.interpolateTemplate(
+        DEEP_STAR_PROMPT.userTemplate,
+        calculationData,
+        readingType,
+      ) + '\n\n' + OUTPUT_FORMAT_INSTRUCTIONS;
+      return { systemPrompt, userPrompt };
+    }
+
     // Try to load admin-customized prompt from DB
     const dbPrompt = await this.loadPromptFromDB(readingType);
 
@@ -910,6 +937,30 @@ export class AIService implements OnModuleInit {
 
       result = result.replace(/\{\{yearlyOverlay\}\}/g,
         `大限：${decadal?.['name'] || ''}，流年：${yearly?.['name'] || ''}`);
+
+      // Monthly horoscope data
+      const monthly = horoscope['monthly'] as Record<string, unknown> | undefined;
+      if (monthly) {
+        result = result.replace(/\{\{monthlyInfo\}\}/g,
+          `${monthly['name']}（${monthly['stem']}${monthly['branch']}）`);
+        result = result.replace(/\{\{monthlyMutagen\}\}/g,
+          (monthly['mutagen'] as string[] || []).join('、'));
+      }
+
+      // Daily horoscope data
+      const daily = horoscope['daily'] as Record<string, unknown> | undefined;
+      if (daily) {
+        result = result.replace(/\{\{dailyInfo\}\}/g,
+          `${daily['name']}（${daily['stem']}${daily['branch']}）`);
+        result = result.replace(/\{\{dailyMutagen\}\}/g,
+          (daily['mutagen'] as string[] || []).join('、'));
+      }
+    }
+
+    // Q&A question text
+    const questionText = data['questionText'] as string | undefined;
+    if (questionText) {
+      result = result.replace(/\{\{questionText\}\}/g, questionText);
     }
 
     // ZWDS Compatibility fields
@@ -1223,9 +1274,12 @@ export class AIService implements OnModuleInit {
     gender: string,
     readingType: ReadingType,
     targetYear?: number,
+    targetMonth?: number,
+    targetDay?: string,
+    questionText?: string,
   ): string {
     const crypto = require('crypto');
-    const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}`;
+    const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}`;
     return crypto.createHash('sha256').update(data).digest('hex');
   }
 }

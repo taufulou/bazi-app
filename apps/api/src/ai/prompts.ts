@@ -651,6 +651,235 @@ sections 的 key 必須為：constitution, health_risks, period_health, wellness
 sections 的 key 必須為：overall_compatibility, strengths, challenges, advice`,
     sections: ['overall_compatibility', 'strengths', 'challenges', 'advice'],
   },
+
+  // ============ 紫微流月運 (ZWDS Monthly) ============
+  ZWDS_MONTHLY: {
+    systemAddition: `你現在要進行的是「紫微流月運」月度運勢分析。重點分析特定月份的流月四化飛入宮位與命盤的交互作用。
+
+分析重點：
+- 流月四化（化祿/化權/化科/化忌）飛入哪些宮位
+- 流月命宮的星曜組合和大限、流年命宮的三重疊加
+- 流月與本命盤的互動（雙祿交會、祿忌沖等）
+- 本月事業、感情、健康各宮位受到的具體影響
+- 本月最有利和最需注意的日期區間
+- 提供具體可行的月度行動建議`,
+    userTemplate: `以下是命主的紫微斗數命盤數據，請進行流月運勢分析：
+
+【命主資料】
+- 性別：{{gender}}
+- 公曆生日：{{solarDate}}
+- 出生時辰：{{birthTime}}（{{timeRange}}）
+- 五行局：{{fiveElementsClass}}
+
+【本命命盤十二宮】
+{{allPalacesData}}
+
+【目前大限】
+{{currentDecadal}}
+
+【流年資料】
+- 流年：{{yearlyInfo}}
+- 流年四化：{{yearlyMutagen}}
+
+【流月資料】
+- 流月：{{monthlyInfo}}
+- 流月四化：{{monthlyMutagen}}
+
+【大限流年疊加】
+{{yearlyOverlay}}
+
+請依照以下分區輸出分析：
+sections 的 key 必須為：monthly_overview, monthly_career, monthly_love, monthly_health, monthly_advice`,
+    sections: ['monthly_overview', 'monthly_career', 'monthly_love', 'monthly_health', 'monthly_advice'],
+  },
+
+  // ============ 紫微每日運勢 (ZWDS Daily) ============
+  ZWDS_DAILY: {
+    systemAddition: `你現在要進行的是「紫微每日運勢」簡短運勢提點。這是一個簡短精煉的每日提示，不需要長篇大論。
+
+重要要求：
+- preview 約30-50字，一句話概括今日能量
+- full 約100-200字，簡短提點今日重點和一個具體建議
+- 語氣鼓勵正面，像朋友般的溫暖提醒
+- 必須提到今日流日四化對命主的具體影響
+- 只需一個 section（daily_fortune）`,
+    userTemplate: `以下是命主的紫微斗數命盤數據，請給出今日運勢提點：
+
+【命主資料】
+- 性別：{{gender}}
+- 五行局：{{fiveElementsClass}}
+
+【命宮】
+{{lifePalaceData}}
+
+【流日資料】
+- 流日：{{dailyInfo}}
+- 流日四化：{{dailyMutagen}}
+
+【大限流年疊加】
+{{yearlyOverlay}}
+
+請以精簡方式輸出，sections 的 key 必須為：daily_fortune
+注意：full 內容控制在200字以內，不需要冗長分析`,
+    sections: ['daily_fortune'],
+  },
+
+  // ============ 紫微大限分析 (ZWDS Major Period) ============
+  ZWDS_MAJOR_PERIOD: {
+    systemAddition: `你現在要進行的是「紫微大限分析」深度解讀。大限是紫微斗數中最重要的時間週期（約10年一個），大限轉換是人生重大轉折。
+
+分析重點：
+- 當前大限的命宮位置和星曜組合
+- 大限四化對十二宮的影響（特別是化祿帶來的機遇和化忌帶來的考驗）
+- 與上一個大限的對比（哪些方面改善、哪些需要注意）
+- 大限三方四正的星曜互動
+- 此大限中事業、感情、財運、健康各方面的運勢走向
+- 大限內最關鍵的流年節點（哪幾年是高峰或低谷）
+- 因應此大限的整體人生策略建議`,
+    userTemplate: `以下是命主的紫微斗數命盤數據，請進行「紫微大限分析」深度解讀：
+
+【命主資料】
+- 性別：{{gender}}
+- 公曆生日：{{solarDate}}
+- 出生時辰：{{birthTime}}（{{timeRange}}）
+- 五行局：{{fiveElementsClass}}
+
+【本命命盤十二宮】
+{{allPalacesData}}
+
+【目前大限】
+{{currentDecadal}}
+
+【大限走勢總覽】
+{{decadalPeriods}}
+
+【全盤四化】
+{{allMutagens}}
+
+請依照以下分區輸出分析：
+sections 的 key 必須為：period_overview, period_career, period_relationships, period_health, period_strategy`,
+    sections: ['period_overview', 'period_career', 'period_relationships', 'period_health', 'period_strategy'],
+  },
+
+  // ============ 紫微問事 (ZWDS Q&A) ============
+  ZWDS_QA: {
+    systemAddition: `你現在要進行的是「紫微問事」針對性分析。命主提出一個具體問題，你需要根據命盤和當前運勢給出針對性的解答。
+
+分析重點：
+- 直接回答命主的問題，給出明確的判斷（適合/不適合、有利/不利、建議/不建議）
+- 根據問題內容，自動判斷最相關的宮位進行分析（例如事業問題看事業宮、感情問題看夫妻宮）
+- 結合流年、流月的四化動態，給出時機判斷
+- 分析有利因素和不利因素
+- 給出具體可行的建議和注意事項
+- 如果問題涉及時機，要指出最佳和最需避免的時間段`,
+    userTemplate: `命主提出了以下問題，請根據紫微命盤進行針對性解答：
+
+【命主的問題】
+{{questionText}}
+
+【命主資料】
+- 性別：{{gender}}
+- 公曆生日：{{solarDate}}
+- 出生時辰：{{birthTime}}（{{timeRange}}）
+- 五行局：{{fiveElementsClass}}
+
+【本命命盤十二宮】
+{{allPalacesData}}
+
+【目前大限】
+{{currentDecadal}}
+
+【流年資料】
+- 流年：{{yearlyInfo}}
+- 流年四化：{{yearlyMutagen}}
+
+【大限流年疊加】
+{{yearlyOverlay}}
+
+請依照以下分區輸出分析：
+sections 的 key 必須為：answer, analysis, advice`,
+    sections: ['answer', 'analysis', 'advice'],
+  },
+};
+
+// ============================================================
+// Cross-System (Bazi + ZWDS) Combined Prompt
+// ============================================================
+
+export const CROSS_SYSTEM_PROMPT = {
+  systemAddition: `你是同時精通八字命理與紫微斗數的資深命理師。現在要進行「八字 + 紫微雙系統」交叉比對分析。
+
+分析重點：
+- 八字命格與紫微命宮主星的相互驗證
+- 八字五行喜用與紫微五行局的一致性
+- 八字大運走勢與紫微大限的對照
+- 兩套系統得出的共同結論（交叉驗證增加可信度）
+- 兩套系統的差異分析（不同視角的互補）
+- 綜合兩套系統給出最全面的人生指引`,
+  userTemplate: `以下是命主的八字命盤與紫微斗數命盤數據，請進行「雙系統交叉分析」：
+
+【八字命盤資料】
+{{baziData}}
+
+【紫微斗數命盤資料】
+- 陽曆生日：{{solarDate}}
+- 農曆生日：{{lunarDate}}
+- 命宮主星：{{soulStar}}
+- 身宮主星：{{bodyStar}}
+- 五行局：{{fiveElementsClass}}
+- 命宮位置：{{soulPalaceBranch}}
+- 身宮位置：{{bodyPalaceBranch}}
+
+【十二宮位】
+{{palaceSummary}}
+
+【本命四化】
+{{natalMutagen}}
+
+請依照以下分區輸出分析：
+sections 的 key 必須為：cross_validation, bazi_perspective, zwds_perspective, combined_career, combined_love, synthesis`,
+  sections: ['cross_validation', 'bazi_perspective', 'zwds_perspective', 'combined_career', 'combined_love', 'synthesis'],
+};
+
+// ============================================================
+// Deep Star Analysis — Enhanced ZWDS_LIFETIME prompt variant
+// ============================================================
+
+export const DEEP_STAR_PROMPT = {
+  systemAddition: `你現在要進行的是「紫微深度星曜分析」，這是比標準終身運更深入的命盤解讀，專注於星曜組合、四化飛星鏈和格局判斷。
+
+分析重點：
+- 每一宮位的星曜組合深度解析（不僅是命宮，全十二宮都要分析）
+- 四化飛星的完整連鎖反應（A宮化祿飛入B宮，B宮化忌飛入C宮等）
+- 特殊格局判斷：紫府同宮、日月並明、機月同梁、殺破狼、府相朝垣等
+- 三方四正的星曜交互影響
+- 主星亮度與煞星的交互作用
+- 輔星（文昌文曲、左輔右弼）的增益分析
+- 大限轉換時的四化疊加效應`,
+  userTemplate: `以下是命主的紫微斗數命盤數據，請進行「深度星曜分析」：
+
+【命主資料】
+- 陽曆生日：{{solarDate}}
+- 農曆生日：{{lunarDate}}
+- 性別：{{gender}}
+- 命宮主星：{{soulStar}}
+- 身宮主星：{{bodyStar}}
+- 五行局：{{fiveElementsClass}}
+- 命宮位置：{{soulPalaceBranch}}
+- 身宮位置：{{bodyPalaceBranch}}
+
+【十二宮位完整資料】
+{{palaceSummary}}
+
+【本命四化】
+{{natalMutagen}}
+
+【大限資料】
+{{currentDecadal}}
+
+請依照以下分區輸出分析：
+sections 的 key 必須為：pattern_analysis, palace_deep_dive, star_chains, mutagen_analysis, special_formations, life_strategy`,
+  sections: ['pattern_analysis', 'palace_deep_dive', 'star_chains', 'mutagen_analysis', 'special_formations', 'life_strategy'],
 };
 
 /**

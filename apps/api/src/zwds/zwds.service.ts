@@ -5,12 +5,15 @@ import {
   Logger,
   InternalServerErrorException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AIService } from '../ai/ai.service';
 import {
   CreateZwdsReadingDto,
   CreateZwdsComparisonDto,
+  CrossSystemReadingDto,
+  DeepStarReadingDto,
   ZwdsChartPreviewDto,
   ZwdsHoroscopeDto,
 } from './dto/create-zwds-reading.dto';
@@ -20,12 +23,16 @@ import { Prisma, ReadingType } from '@prisma/client';
 @Injectable()
 export class ZwdsService {
   private readonly logger = new Logger(ZwdsService.name);
+  private readonly baziEngineUrl: string;
 
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
     private aiService: AIService,
-  ) {}
+    private configService: ConfigService,
+  ) {
+    this.baziEngineUrl = this.configService.get<string>('BAZI_ENGINE_URL') || 'http://localhost:5001';
+  }
 
   // ============================================================
   // Chart Generation (iztro)
@@ -181,6 +188,10 @@ export class ZwdsService {
       ReadingType.ZWDS_CAREER,
       ReadingType.ZWDS_LOVE,
       ReadingType.ZWDS_HEALTH,
+      ReadingType.ZWDS_MONTHLY,
+      ReadingType.ZWDS_DAILY,
+      ReadingType.ZWDS_MAJOR_PERIOD,
+      ReadingType.ZWDS_QA,
     ];
 
     if (!validZwdsTypes.includes(dto.readingType)) {
@@ -190,6 +201,21 @@ export class ZwdsService {
     // Annual reading requires targetYear
     if (dto.readingType === ReadingType.ZWDS_ANNUAL && !dto.targetYear) {
       throw new BadRequestException('Target year is required for annual readings');
+    }
+
+    // Monthly reading requires targetYear + targetMonth
+    if (dto.readingType === ReadingType.ZWDS_MONTHLY && (!dto.targetYear || !dto.targetMonth)) {
+      throw new BadRequestException('Target year and month are required for monthly readings');
+    }
+
+    // Daily reading requires targetDay
+    if (dto.readingType === ReadingType.ZWDS_DAILY && !dto.targetDay) {
+      throw new BadRequestException('Target day is required for daily readings');
+    }
+
+    // Q&A reading requires questionText
+    if (dto.readingType === ReadingType.ZWDS_QA && !dto.questionText) {
+      throw new BadRequestException('Question text is required for Q&A readings');
     }
 
     // Validate birth profile belongs to user
@@ -228,6 +254,9 @@ export class ZwdsService {
       profile.gender.toLowerCase(),
       dto.readingType,
       dto.targetYear,
+      dto.targetMonth,
+      dto.targetDay,
+      dto.questionText,
     );
 
     // Check cache
@@ -238,7 +267,18 @@ export class ZwdsService {
 
     // Generate ZWDS chart
     const solarDate = this.formatSolarDate(profile.birthDate);
-    const targetDate = dto.targetYear ? `${dto.targetYear}-1-1` : undefined;
+    let targetDate: string | undefined;
+    if (dto.targetDay) {
+      targetDate = dto.targetDay;
+    } else if (dto.targetYear && dto.targetMonth) {
+      targetDate = `${dto.targetYear}-${dto.targetMonth}-15`;
+    } else if (dto.targetYear) {
+      targetDate = `${dto.targetYear}-1-1`;
+    } else if (dto.readingType === ReadingType.ZWDS_MAJOR_PERIOD || dto.readingType === ReadingType.ZWDS_QA) {
+      // Use today's date for major period and Q&A readings
+      const now = new Date();
+      targetDate = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+    }
     let chartData: ZwdsChartData;
     try {
       chartData = await this.generateChart(
@@ -273,6 +313,9 @@ export class ZwdsService {
           birthDate: profile.birthDate.toISOString().split('T')[0],
           birthTime: profile.birthTime,
           targetYear: dto.targetYear,
+          targetMonth: dto.targetMonth,
+          targetDay: dto.targetDay,
+          questionText: dto.questionText,
         };
 
         const aiResult = await this.aiService.generateInterpretation(
@@ -336,6 +379,9 @@ export class ZwdsService {
           tokenUsage,
           creditsUsed,
           targetYear: dto.targetYear,
+          targetMonth: dto.targetMonth || null,
+          targetDay: dto.targetDay || null,
+          questionText: dto.questionText || null,
         },
       });
     });
@@ -570,6 +616,268 @@ export class ZwdsService {
     });
 
     return comparison;
+  }
+
+  // ============================================================
+  // Cross-System Reading (Bazi + ZWDS combined)
+  // ============================================================
+
+  async createCrossSystemReading(clerkUserId: string, dto: CrossSystemReadingDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const profile = await this.prisma.birthProfile.findFirst({
+      where: { id: dto.birthProfileId, userId: user.id },
+    });
+
+    if (!profile) {
+      throw new NotFoundException('Birth profile not found');
+    }
+
+    // Cross-system costs 3 credits
+    const creditCost = 3;
+    const canUseFreeTrial = !user.freeReadingUsed;
+    const hasEnoughCredits = user.credits >= creditCost;
+
+    if (!canUseFreeTrial && !hasEnoughCredits) {
+      throw new BadRequestException(
+        `Insufficient credits. Cross-system reading requires ${creditCost} credits. You have ${user.credits} credits.`,
+      );
+    }
+
+    // Generate both charts in parallel
+    const solarDate = this.formatSolarDate(profile.birthDate);
+    const now = new Date();
+    const targetDate = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+
+    let baziData: any;
+    let zwdsChart: ZwdsChartData;
+
+    try {
+      const [baziResponse, zwdsResult] = await Promise.all([
+        // Call Bazi engine
+        fetch(`${this.baziEngineUrl}/calculate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            birth_date: profile.birthDate.toISOString().split('T')[0],
+            birth_time: profile.birthTime,
+            birth_city: profile.birthCity,
+            timezone: profile.birthTimezone,
+            longitude: profile.birthLongitude,
+            latitude: profile.birthLatitude,
+            gender: profile.gender.toLowerCase(),
+            reading_type: 'lifetime',
+            target_year: now.getFullYear(),
+          }),
+          signal: AbortSignal.timeout(30000),
+        }),
+        // Generate ZWDS chart
+        this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), targetDate),
+      ]);
+
+      if (!baziResponse.ok) {
+        throw new Error(`Bazi engine returned ${baziResponse.status}`);
+      }
+      const baziResult = await baziResponse.json();
+      baziData = baziResult.data || baziResult;
+      zwdsChart = zwdsResult;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`Cross-system chart generation failed: ${message}`);
+      throw new InternalServerErrorException('Cross-system calculation failed. Please try again.');
+    }
+
+    // Generate combined AI interpretation
+    let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
+    let aiProvider: string | undefined = undefined;
+    let aiModel: string | undefined = undefined;
+    let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
+
+    try {
+      const enrichedData = {
+        ...zwdsChart,
+        system: 'cross-system',
+        baziData: JSON.stringify(baziData),
+        gender: profile.gender.toLowerCase(),
+        birthDate: profile.birthDate.toISOString().split('T')[0],
+        birthTime: profile.birthTime,
+      };
+
+      const aiResult = await this.aiService.generateInterpretation(
+        enrichedData as any,
+        ReadingType.ZWDS_LIFETIME, // Use ZWDS_LIFETIME as base type for DB storage
+        user.id,
+        undefined, // readingId
+        'cross-system', // promptVariant
+      );
+
+      aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
+      aiProvider = aiResult.provider;
+      aiModel = aiResult.model;
+      tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`AI cross-system interpretation failed: ${message}`);
+    }
+
+    const creditsUsed = canUseFreeTrial ? 0 : creditCost;
+
+    const reading = await this.prisma.$transaction(async (tx) => {
+      if (canUseFreeTrial) {
+        const updated = await tx.user.updateMany({
+          where: { id: user.id, freeReadingUsed: false },
+          data: { freeReadingUsed: true },
+        });
+        if (updated.count === 0) {
+          throw new BadRequestException('Free reading already used');
+        }
+      } else {
+        const updated = await tx.user.updateMany({
+          where: { id: user.id, credits: { gte: creditCost } },
+          data: { credits: { decrement: creditCost } },
+        });
+        if (updated.count === 0) {
+          throw new BadRequestException(
+            `Insufficient credits. This reading requires ${creditCost} credits.`,
+          );
+        }
+      }
+
+      return tx.baziReading.create({
+        data: {
+          userId: user.id,
+          birthProfileId: profile.id,
+          readingType: ReadingType.ZWDS_LIFETIME, // Store as ZWDS_LIFETIME (cross-system is a variant)
+          calculationData: { bazi: baziData, zwds: zwdsChart } as unknown as Prisma.InputJsonValue,
+          aiInterpretation,
+          aiProvider: aiProvider as any,
+          aiModel,
+          tokenUsage,
+          creditsUsed,
+        },
+      });
+    });
+
+    return reading;
+  }
+
+  // ============================================================
+  // Deep Star Analysis (enhanced ZWDS_LIFETIME)
+  // ============================================================
+
+  async createDeepStarReading(clerkUserId: string, dto: DeepStarReadingDto) {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Require MASTER subscription for deep star analysis
+    if (user.subscriptionTier !== 'MASTER') {
+      throw new BadRequestException('Deep star analysis is available for Master-tier subscribers only');
+    }
+
+    const profile = await this.prisma.birthProfile.findFirst({
+      where: { id: dto.birthProfileId, userId: user.id },
+    });
+
+    if (!profile) {
+      throw new NotFoundException('Birth profile not found');
+    }
+
+    const creditCost = 2;
+    if (user.credits < creditCost) {
+      throw new BadRequestException(
+        `Insufficient credits. Deep star analysis requires ${creditCost} credits. You have ${user.credits} credits.`,
+      );
+    }
+
+    // Generate ZWDS chart with current date horoscope
+    const solarDate = this.formatSolarDate(profile.birthDate);
+    const now = new Date();
+    const targetDate = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+
+    let chartData: ZwdsChartData;
+    try {
+      chartData = await this.generateChart(
+        solarDate,
+        profile.birthTime,
+        profile.gender.toLowerCase(),
+        targetDate,
+      );
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`Deep star chart generation failed: ${message}`);
+      throw new InternalServerErrorException('ZWDS calculation failed. Please try again.');
+    }
+
+    // Generate AI interpretation with deep-star prompt variant
+    let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
+    let aiProvider: string | undefined = undefined;
+    let aiModel: string | undefined = undefined;
+    let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
+
+    try {
+      const enrichedData = {
+        ...chartData,
+        system: 'zwds',
+        gender: profile.gender.toLowerCase(),
+        birthDate: profile.birthDate.toISOString().split('T')[0],
+        birthTime: profile.birthTime,
+      };
+
+      const aiResult = await this.aiService.generateInterpretation(
+        enrichedData as any,
+        ReadingType.ZWDS_LIFETIME,
+        user.id,
+        undefined, // readingId
+        'deep-stars', // promptVariant
+      );
+
+      aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
+      aiProvider = aiResult.provider;
+      aiModel = aiResult.model;
+      tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`AI deep star interpretation failed: ${message}`);
+    }
+
+    const reading = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.updateMany({
+        where: { id: user.id, credits: { gte: creditCost } },
+        data: { credits: { decrement: creditCost } },
+      });
+      if (updated.count === 0) {
+        throw new BadRequestException(
+          `Insufficient credits. This reading requires ${creditCost} credits.`,
+        );
+      }
+
+      return tx.baziReading.create({
+        data: {
+          userId: user.id,
+          birthProfileId: profile.id,
+          readingType: ReadingType.ZWDS_LIFETIME,
+          calculationData: chartData as unknown as Prisma.InputJsonValue,
+          aiInterpretation,
+          aiProvider: aiProvider as any,
+          aiModel,
+          tokenUsage,
+          creditsUsed: creditCost,
+        },
+      });
+    });
+
+    return reading;
   }
 
   // ============================================================

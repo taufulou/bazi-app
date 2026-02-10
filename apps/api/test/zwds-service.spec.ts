@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigService } from '@nestjs/config';
 import { ZwdsService } from '../src/zwds/zwds.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RedisService } from '../src/redis/redis.service';
@@ -121,12 +122,17 @@ describe('ZwdsService', () => {
       cacheInterpretation: jest.fn().mockResolvedValue(undefined),
     };
 
+    const mockConfig = {
+      get: jest.fn().mockReturnValue('http://localhost:5001'),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ZwdsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: RedisService, useValue: mockRedis },
         { provide: AIService, useValue: mockAI },
+        { provide: ConfigService, useValue: mockConfig },
       ],
     }).compile();
 
@@ -879,6 +885,9 @@ describe('ZwdsService', () => {
         'male',             // gender
         ReadingType.ZWDS_LIFETIME,
         undefined,          // no targetYear
+        undefined,          // no targetMonth
+        undefined,          // no targetDay
+        undefined,          // no questionText
       );
     });
 

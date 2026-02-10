@@ -74,6 +74,37 @@ const SECTION_THEMES: Record<string, { icon: string; theme: string }> = {
   palace_interaction: { icon: "🔗", theme: "overview" },
   star_compatibility: { icon: "⭐", theme: "overview" },
   advice: { icon: "💡", theme: "overview" },
+  // ZWDS Monthly sections
+  monthly_overview: { icon: "🗓️", theme: "overview" },
+  monthly_career: { icon: "💼", theme: "career" },
+  monthly_love: { icon: "💕", theme: "love" },
+  monthly_health: { icon: "🏥", theme: "health" },
+  monthly_advice: { icon: "💡", theme: "overview" },
+  // ZWDS Daily section
+  daily_fortune: { icon: "☀️", theme: "overview" },
+  // ZWDS Major Period sections
+  period_overview: { icon: "🔄", theme: "overview" },
+  period_career: { icon: "💼", theme: "career" },
+  period_relationships: { icon: "💕", theme: "love" },
+  period_health: { icon: "🏥", theme: "health" },
+  period_strategy: { icon: "🧭", theme: "overview" },
+  // ZWDS Q&A sections
+  answer: { icon: "💬", theme: "overview" },
+  analysis: { icon: "🔍", theme: "personality" },
+  // Cross-system sections
+  cross_validation: { icon: "🔗", theme: "overview" },
+  bazi_perspective: { icon: "📊", theme: "overview" },
+  zwds_perspective: { icon: "🌟", theme: "personality" },
+  combined_career: { icon: "💼", theme: "career" },
+  combined_love: { icon: "💕", theme: "love" },
+  synthesis: { icon: "🎯", theme: "overview" },
+  // Deep star analysis sections
+  pattern_analysis: { icon: "🌌", theme: "personality" },
+  palace_deep_dive: { icon: "🏛️", theme: "overview" },
+  star_chains: { icon: "⛓️", theme: "overview" },
+  mutagen_analysis: { icon: "🔄", theme: "personality" },
+  special_formations: { icon: "✨", theme: "overview" },
+  life_strategy: { icon: "🎯", theme: "overview" },
 };
 
 const SECTION_TITLES_ZH: Record<string, string> = {
@@ -114,6 +145,37 @@ const SECTION_TITLES_ZH: Record<string, string> = {
   palace_interaction: "宮位互動",
   star_compatibility: "星曜契合度",
   advice: "綜合建議",
+  // ZWDS Monthly sections
+  monthly_overview: "本月運勢總覽",
+  monthly_career: "本月事業運",
+  monthly_love: "本月感情運",
+  monthly_health: "本月健康運",
+  monthly_advice: "本月行動建議",
+  // ZWDS Daily section
+  daily_fortune: "今日運勢",
+  // ZWDS Major Period sections
+  period_overview: "大限總覽",
+  period_career: "大限事業運",
+  period_relationships: "大限人際關係",
+  period_health: "大限健康運",
+  period_strategy: "大限發展策略",
+  // ZWDS Q&A sections
+  answer: "問題解答",
+  analysis: "命盤分析",
+  // Cross-system sections
+  cross_validation: "雙系統交叉驗證",
+  bazi_perspective: "八字視角分析",
+  zwds_perspective: "紫微視角分析",
+  combined_career: "綜合事業分析",
+  combined_love: "綜合感情分析",
+  synthesis: "雙系統綜合結論",
+  // Deep star analysis sections
+  pattern_analysis: "格局深度分析",
+  palace_deep_dive: "十二宮位深度解讀",
+  star_chains: "四化飛星連鎖",
+  mutagen_analysis: "四化深度分析",
+  special_formations: "特殊格局判定",
+  life_strategy: "人生策略建議",
 };
 
 // Cross-sell reading types (show other reading types)
@@ -133,6 +195,10 @@ const ZWDS_CROSS_SELL = [
   { slug: "zwds-love", icon: "💕", name: "紫微愛情運" },
   { slug: "zwds-health", icon: "🏥", name: "紫微健康運" },
   { slug: "zwds-compatibility", icon: "🤝", name: "紫微合盤" },
+  { slug: "zwds-monthly", icon: "🗓️", name: "紫微流月運" },
+  { slug: "zwds-daily", icon: "☀️", name: "紫微每日運勢" },
+  { slug: "zwds-major-period", icon: "🔄", name: "紫微大限分析" },
+  { slug: "zwds-qa", icon: "❓", name: "紫微問事" },
 ];
 
 // ============================================================

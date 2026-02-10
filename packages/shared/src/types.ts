@@ -42,7 +42,11 @@ export type ReadingType =
   | 'zwds-career'        // 紫微事業運
   | 'zwds-love'          // 紫微愛情運
   | 'zwds-health'        // 紫微健康運
-  | 'zwds-compatibility'; // 紫微合盤
+  | 'zwds-compatibility' // 紫微合盤
+  | 'zwds-monthly'       // 紫微流月運
+  | 'zwds-daily'         // 紫微每日運勢
+  | 'zwds-major-period'  // 紫微大限分析
+  | 'zwds-qa';           // 紫微問事
 
 /** Comparison type for compatibility readings */
 export type ComparisonType = 'romance' | 'business' | 'friendship';

@@ -106,6 +106,9 @@ export async function createZwdsReading(
     birthProfileId: string;
     readingType: string;
     targetYear?: number;
+    targetMonth?: number;
+    targetDay?: string;
+    questionText?: string;
   },
 ): Promise<ZwdsReadingResponse> {
   return apiFetch<ZwdsReadingResponse>('/api/zwds/readings', {
@@ -156,6 +159,104 @@ export async function createZwdsComparison(
   },
 ): Promise<ZwdsReadingResponse> {
   return apiFetch<ZwdsReadingResponse>('/api/zwds/comparisons', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+// ============================================================
+// Phase 8B: Convenience functions for new reading types
+// ============================================================
+
+/**
+ * Create a ZWDS monthly forecast reading.
+ */
+export async function createZwdsMonthlyReading(
+  token: string,
+  data: {
+    birthProfileId: string;
+    targetYear: number;
+    targetMonth: number;
+  },
+): Promise<ZwdsReadingResponse> {
+  return createZwdsReading(token, {
+    ...data,
+    readingType: 'ZWDS_MONTHLY',
+  });
+}
+
+/**
+ * Create a ZWDS daily fortune reading.
+ */
+export async function createZwdsDailyReading(
+  token: string,
+  data: {
+    birthProfileId: string;
+    targetDay: string; // YYYY-M-D format
+  },
+): Promise<ZwdsReadingResponse> {
+  return createZwdsReading(token, {
+    ...data,
+    readingType: 'ZWDS_DAILY',
+  });
+}
+
+/**
+ * Create a ZWDS major period analysis reading.
+ */
+export async function createZwdsMajorPeriodReading(
+  token: string,
+  data: {
+    birthProfileId: string;
+  },
+): Promise<ZwdsReadingResponse> {
+  return createZwdsReading(token, {
+    ...data,
+    readingType: 'ZWDS_MAJOR_PERIOD',
+  });
+}
+
+/**
+ * Create a ZWDS Q&A reading.
+ */
+export async function createZwdsQaReading(
+  token: string,
+  data: {
+    birthProfileId: string;
+    questionText: string;
+  },
+): Promise<ZwdsReadingResponse> {
+  return createZwdsReading(token, {
+    ...data,
+    readingType: 'ZWDS_QA',
+  });
+}
+
+/**
+ * Create a cross-system (Bazi + ZWDS) combined reading.
+ * POST /api/zwds/cross-system
+ */
+export async function createCrossSystemReading(
+  token: string,
+  data: { birthProfileId: string },
+): Promise<ZwdsReadingResponse> {
+  return apiFetch<ZwdsReadingResponse>('/api/zwds/cross-system', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * Create a deep star analysis reading (enhanced ZWDS_LIFETIME).
+ * POST /api/zwds/deep-stars
+ */
+export async function createDeepStarReading(
+  token: string,
+  data: { birthProfileId: string },
+): Promise<ZwdsReadingResponse> {
+  return apiFetch<ZwdsReadingResponse>('/api/zwds/deep-stars', {
     method: 'POST',
     token,
     body: JSON.stringify(data),

@@ -220,6 +220,84 @@
   box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
 }
 
+/* ==== Extra Inputs (Phase 8B: monthly/daily/Q&A pickers) ==== */
+.extraInput {
+  margin-top: 1rem;
+}
+
+.extraInputLabel {
+  display: block;
+  color: #e8d5b7;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.extraInputRow {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.extraInputSelect {
+  flex: 1;
+  padding: 0.65rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+}
+
+.extraInputSelect:focus {
+  outline: none;
+  border-color: rgba(232, 213, 183, 0.5);
+}
+
+.extraInputDate {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  color-scheme: dark;
+}
+
+.extraInputDate:focus {
+  outline: none;
+  border-color: rgba(232, 213, 183, 0.5);
+}
+
+.extraInputTextarea {
+  width: 100%;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  font-family: inherit;
+  resize: vertical;
+  min-height: 80px;
+}
+
+.extraInputTextarea:focus {
+  outline: none;
+  border-color: rgba(232, 213, 183, 0.5);
+}
+
+.extraInputTextarea::placeholder {
+  color: #666;
+}
+
+.extraInputHint {
+  color: #666;
+  font-size: 0.75rem;
+  text-align: right;
+  margin-top: 0.25rem;
+}
+
 /* ==== Responsive ==== */
 @media (max-width: 600px) {
   .pageContainer {

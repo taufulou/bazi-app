@@ -21,6 +21,10 @@ async function main() {
     { slug: 'zwds-love', nameZhTw: '紫微愛情運', nameZhCn: '紫微爱情运', descriptionZhTw: '解讀夫妻宮星曜組合，了解理想伴侶與姻緣時機', descriptionZhCn: '解读夫妻宫星曜组合，了解理想伴侣与姻缘时机', type: ReadingType.ZWDS_LOVE, creditCost: 2, sortOrder: 10 },
     { slug: 'zwds-health', nameZhTw: '紫微健康運', nameZhCn: '紫微健康运', descriptionZhTw: '根據疾厄宮與五行局分析先天體質，提供養生保健方向', descriptionZhCn: '根据疾厄宫与五行局分析先天体质，提供养生保健方向', type: ReadingType.ZWDS_HEALTH, creditCost: 2, sortOrder: 11 },
     { slug: 'zwds-compatibility', nameZhTw: '紫微合盤', nameZhCn: '紫微合盘', descriptionZhTw: '比較兩人紫微命盤，分析宮位星曜互動與契合度', descriptionZhCn: '比较两人紫微命盘，分析宫位星曜互动与契合度', type: ReadingType.ZWDS_COMPATIBILITY, creditCost: 3, sortOrder: 12 },
+    { slug: 'zwds-monthly', nameZhTw: '紫微流月運', nameZhCn: '紫微流月运', descriptionZhTw: '紫微斗數流月分析，掌握本月宮位四化與運勢重點', descriptionZhCn: '紫微斗数流月分析，掌握本月宫位四化与运势重点', type: ReadingType.ZWDS_MONTHLY, creditCost: 1, sortOrder: 13 },
+    { slug: 'zwds-daily', nameZhTw: '紫微每日運勢', nameZhCn: '紫微每日运势', descriptionZhTw: '每日紫微運勢提點，快速掌握今天的能量與建議', descriptionZhCn: '每日紫微运势提点，快速掌握今天的能量与建议', type: ReadingType.ZWDS_DAILY, creditCost: 0, sortOrder: 14 },
+    { slug: 'zwds-major-period', nameZhTw: '紫微大限分析', nameZhCn: '紫微大限分析', descriptionZhTw: '深度分析大限轉運期，了解十年運程的重大轉變與機遇', descriptionZhCn: '深度分析大限转运期，了解十年运程的重大转变与机遇', type: ReadingType.ZWDS_MAJOR_PERIOD, creditCost: 2, sortOrder: 15 },
+    { slug: 'zwds-qa', nameZhTw: '紫微問事', nameZhCn: '紫微问事', descriptionZhTw: '針對特定問題，結合紫微命盤與流年分析給出具體建議', descriptionZhCn: '针对特定问题，结合紫微命盘与流年分析给出具体建议', type: ReadingType.ZWDS_QA, creditCost: 1, sortOrder: 16 },
   ];
 
   for (const service of services) {
@@ -61,7 +65,7 @@ async function main() {
   console.log(`  ✅ ${gateways.length} payment gateways seeded`);
 
   // Seed Prompt Templates
-  const readingTypes = [ReadingType.LIFETIME, ReadingType.ANNUAL, ReadingType.CAREER, ReadingType.LOVE, ReadingType.HEALTH, ReadingType.COMPATIBILITY, ReadingType.ZWDS_LIFETIME, ReadingType.ZWDS_ANNUAL, ReadingType.ZWDS_CAREER, ReadingType.ZWDS_LOVE, ReadingType.ZWDS_HEALTH, ReadingType.ZWDS_COMPATIBILITY];
+  const readingTypes = [ReadingType.LIFETIME, ReadingType.ANNUAL, ReadingType.CAREER, ReadingType.LOVE, ReadingType.HEALTH, ReadingType.COMPATIBILITY, ReadingType.ZWDS_LIFETIME, ReadingType.ZWDS_ANNUAL, ReadingType.ZWDS_CAREER, ReadingType.ZWDS_LOVE, ReadingType.ZWDS_HEALTH, ReadingType.ZWDS_COMPATIBILITY, ReadingType.ZWDS_MONTHLY, ReadingType.ZWDS_DAILY, ReadingType.ZWDS_MAJOR_PERIOD, ReadingType.ZWDS_QA];
   const providers = [AIProvider.CLAUDE, AIProvider.GPT, AIProvider.GEMINI];
 
   const baziBasePrompt = `你是一位經驗豐富的八字命理大師（命理師），擁有超過30年的八字分析經驗。
@@ -104,6 +108,10 @@ async function main() {
     ZWDS_LOVE: '\n\n專注於：夫妻宮星曜組合、桃花星分佈、理想伴侶特質、婚姻時機判斷。',
     ZWDS_HEALTH: '\n\n專注於：疾厄宮先天體質、五行局對應體質特點、各大限健康關注重點、養生建議。',
     ZWDS_COMPATIBILITY: '\n\n專注於：雙方命宮主星互動、夫妻宮星曜對照、四化交叉影響、契合度評估與建議。',
+    ZWDS_MONTHLY: '\n\n專注於：流月四化飛入宮位、流月命宮變化、本月事業感情健康重點、具體行動建議。',
+    ZWDS_DAILY: '\n\n專注於：流日四化能量、今日重點提示。注意：回覆要簡短精煉，full內容控制在200字以內。',
+    ZWDS_MAJOR_PERIOD: '\n\n專注於：當前大限命宮星曜分析、大限四化影響、與上一大限的對比、十年運勢策略建議。',
+    ZWDS_QA: '\n\n專注於：根據命主問題判斷相關宮位、結合流年流月給出針對性解答、明確建議與時機判斷。',
   };
 
   const userTemplateBase = `以下是用戶的八字命盤計算數據：
@@ -131,6 +139,10 @@ async function main() {
     ZWDS_LOVE: '「紫微愛情運」分析，包含：夫妻宮分析、理想伴侶特質、桃花星分佈、感情時機建議。',
     ZWDS_HEALTH: '「紫微健康運」分析，包含：疾厄宮分析、五行局體質特點、大限健康變化、養生保健建議。',
     ZWDS_COMPATIBILITY: '「紫微合盤」分析。\n\n第二位用戶的紫微命盤數據：\n{{calculation_data_b}}\n\n比較類型：{{comparison_type}}\n\n請分析兩人命盤的契合度，包含：整體配對評估、優勢互補、潛在衝突、和諧相處建議。',
+    ZWDS_MONTHLY: '「紫微流月運」分析（目標月份：{{target_year}}年{{target_month}}月），包含：本月運勢總覽、事業運、感情運、健康運、月度建議。',
+    ZWDS_DAILY: '「紫微每日運勢」提點（目標日期：{{target_day}}），請給出簡短的每日運勢提示（full控制在200字以內）。',
+    ZWDS_MAJOR_PERIOD: '「紫微大限分析」深度解讀，包含：大限總覽、事業運程、感情變化、健康走向、十年策略。',
+    ZWDS_QA: '「紫微問事」解答。\n\n命主的問題：{{question_text}}\n\n請根據命盤和當前運勢針對性回答，包含：直接解答、命盤分析依據、具體建議。',
   };
 
   const outputFormat = `回覆必須使用以下JSON格式：
