@@ -1,0 +1,51 @@
+.usersLayout {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 20px;
+  align-items: start;
+}
+
+.usersList {
+  min-width: 0;
+}
+
+.userDetail {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 8px;
+  padding: 20px;
+  position: sticky;
+  top: 24px;
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+.detailTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: #e8d5b7;
+  margin-bottom: 16px;
+}
+
+.detailMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: #a0a0a0;
+  margin-bottom: 20px;
+}
+
+.detailMeta strong {
+  color: #e0e0e0;
+}
+
+.detailSection {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin-top: 20px;
+  margin-bottom: 12px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(232, 213, 183, 0.1);
+}

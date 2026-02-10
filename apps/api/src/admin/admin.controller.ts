@@ -1,22 +1,34 @@
 import {
   Controller,
   Get,
+  Post,
   Patch,
   Body,
   Param,
   Query,
   ParseIntPipe,
   DefaultValuePipe,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AdminService } from './admin.service';
+import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser, AuthPayload } from '../auth/current-user.decorator';
-
-// TODO: Add admin role guard — for now, all authenticated users can access
-// In production, check Clerk metadata for admin role
+import {
+  UpdateServiceDto,
+  UpdatePlanDto,
+  UpdatePromptTemplateDto,
+  CreatePromoCodeDto,
+  UpdatePromoCodeDto,
+  UpdateGatewayDto,
+  AdjustCreditsDto,
+} from './dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
+@UseGuards(AdminGuard)
+@Throttle({ default: { limit: 30, ttl: 60000 } })
 @Controller('api/admin')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
@@ -42,7 +54,7 @@ export class AdminController {
   async updateService(
     @CurrentUser() auth: AuthPayload,
     @Param('id') id: string,
-    @Body() data: Record<string, unknown>,
+    @Body() data: UpdateServiceDto,
   ) {
     return this.adminService.updateService(id, data, auth.userId);
   }
@@ -60,7 +72,7 @@ export class AdminController {
   async updatePlan(
     @CurrentUser() auth: AuthPayload,
     @Param('id') id: string,
-    @Body() data: Record<string, unknown>,
+    @Body() data: UpdatePlanDto,
   ) {
     return this.adminService.updatePlan(id, data, auth.userId);
   }
@@ -71,6 +83,25 @@ export class AdminController {
   @ApiOperation({ summary: 'List all promo codes' })
   async listPromoCodes() {
     return this.adminService.listPromoCodes();
+  }
+
+  @Post('promo-codes')
+  @ApiOperation({ summary: 'Create a new promo code' })
+  async createPromoCode(
+    @CurrentUser() auth: AuthPayload,
+    @Body() data: CreatePromoCodeDto,
+  ) {
+    return this.adminService.createPromoCode(data, auth.userId);
+  }
+
+  @Patch('promo-codes/:id')
+  @ApiOperation({ summary: 'Update a promo code' })
+  async updatePromoCode(
+    @CurrentUser() auth: AuthPayload,
+    @Param('id') id: string,
+    @Body() data: UpdatePromoCodeDto,
+  ) {
+    return this.adminService.updatePromoCode(id, data, auth.userId);
   }
 
   @Get('promo-codes/validate/:code')
@@ -92,9 +123,72 @@ export class AdminController {
   async updatePromptTemplate(
     @CurrentUser() auth: AuthPayload,
     @Param('id') id: string,
-    @Body() data: Record<string, unknown>,
+    @Body() data: UpdatePromptTemplateDto,
   ) {
     return this.adminService.updatePromptTemplate(id, data, auth.userId);
+  }
+
+  // ============ Payment Gateways ============
+
+  @Get('gateways')
+  @ApiOperation({ summary: 'List all payment gateways' })
+  async listGateways() {
+    return this.adminService.listGateways();
+  }
+
+  @Patch('gateways/:id')
+  @ApiOperation({ summary: 'Update a payment gateway' })
+  async updateGateway(
+    @CurrentUser() auth: AuthPayload,
+    @Param('id') id: string,
+    @Body() data: UpdateGatewayDto,
+  ) {
+    return this.adminService.updateGateway(id, data, auth.userId);
+  }
+
+  // ============ User Management ============
+
+  @Get('users')
+  @ApiOperation({ summary: 'List users with pagination and search' })
+  @ApiQuery({ name: 'page', required: false, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiQuery({ name: 'search', required: false, description: 'Search by name or Clerk ID' })
+  async listUsers(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('search') search?: string,
+  ) {
+    return this.adminService.listUsers(page, limit, search);
+  }
+
+  @Get('users/:id')
+  @ApiOperation({ summary: 'Get user detail with subscriptions and readings count' })
+  async getUserDetail(@Param('id') id: string) {
+    return this.adminService.getUserDetail(id);
+  }
+
+  @Patch('users/:id/credits')
+  @ApiOperation({ summary: 'Adjust user credits (add or subtract)' })
+  async adjustUserCredits(
+    @CurrentUser() auth: AuthPayload,
+    @Param('id') id: string,
+    @Body() data: AdjustCreditsDto,
+  ) {
+    return this.adminService.adjustUserCredits(id, data, auth.userId);
+  }
+
+  // ============ Analytics ============
+
+  @Get('ai-costs')
+  @ApiOperation({ summary: 'Get AI usage costs and analytics (last 30 days)' })
+  async getAICosts() {
+    return this.adminService.getAICosts();
+  }
+
+  @Get('revenue')
+  @ApiOperation({ summary: 'Get revenue analytics' })
+  async getRevenue() {
+    return this.adminService.getRevenue();
   }
 
   // ============ Audit Log ============

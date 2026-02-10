@@ -1,0 +1,393 @@
+.layout {
+  display: flex;
+  min-height: 100vh;
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+/* ============ Sidebar ============ */
+
+.sidebar {
+  width: 240px;
+  min-height: 100vh;
+  background: #0f0f23;
+  border-right: 1px solid rgba(232, 213, 183, 0.1);
+  display: flex;
+  flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 10;
+}
+
+.sidebarHeader {
+  padding: 20px 16px;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.1);
+}
+
+.sidebarLogo {
+  font-size: 18px;
+  font-weight: 700;
+  color: #e8d5b7;
+  text-decoration: none;
+  letter-spacing: 0.5px;
+}
+
+/* ============ Navigation ============ */
+
+.nav {
+  flex: 1;
+  padding: 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  color: #a0a0a0;
+  text-decoration: none;
+  font-size: 14px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.navItem:hover {
+  background: rgba(232, 213, 183, 0.08);
+  color: #e0e0e0;
+}
+
+.navItemActive {
+  background: rgba(232, 213, 183, 0.12);
+  color: #e8d5b7;
+  font-weight: 500;
+}
+
+.navIcon {
+  font-size: 16px;
+  width: 20px;
+  text-align: center;
+}
+
+/* ============ Footer ============ */
+
+.sidebarFooter {
+  padding: 16px;
+  border-top: 1px solid rgba(232, 213, 183, 0.1);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.adminInfo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.adminName {
+  font-size: 13px;
+  color: #a0a0a0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.backLink {
+  font-size: 12px;
+  color: #a0a0a0;
+  text-decoration: none;
+  text-align: center;
+  padding: 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(232, 213, 183, 0.15);
+  transition: background 0.15s, color 0.15s;
+}
+
+.backLink:hover {
+  background: rgba(232, 213, 183, 0.08);
+  color: #e8d5b7;
+}
+
+/* ============ Main Content ============ */
+
+.main {
+  flex: 1;
+  margin-left: 240px;
+  padding: 24px 32px;
+  min-height: 100vh;
+}
+
+/* ============ Shared Page Styles ============ */
+
+.pageTitle {
+  font-size: 24px;
+  font-weight: 700;
+  color: #e8d5b7;
+  margin-bottom: 24px;
+}
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.statCard {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+.statLabel {
+  font-size: 13px;
+  color: #a0a0a0;
+  margin-bottom: 8px;
+}
+
+.statValue {
+  font-size: 28px;
+  font-weight: 700;
+  color: #e8d5b7;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  background: #16213e;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+}
+
+.table th {
+  text-align: left;
+  padding: 12px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #a0a0a0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #0f0f23;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.1);
+}
+
+.table td {
+  padding: 12px 16px;
+  font-size: 14px;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.05);
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table tr:hover td {
+  background: rgba(232, 213, 183, 0.03);
+}
+
+.toggle {
+  position: relative;
+  width: 40px;
+  height: 22px;
+  border-radius: 11px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s;
+  padding: 0;
+}
+
+.toggleOn {
+  background: #4ade80;
+}
+
+.toggleOff {
+  background: #475569;
+}
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  transition: transform 0.2s;
+}
+
+.toggleOn::after {
+  transform: translateX(18px);
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.badgeActive {
+  background: rgba(74, 222, 128, 0.15);
+  color: #4ade80;
+}
+
+.badgeInactive {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+}
+
+.btn {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnPrimary {
+  background: #e8d5b7;
+  color: #1a1a2e;
+  font-weight: 600;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  background: #d4c4a8;
+}
+
+.btnSecondary {
+  background: rgba(232, 213, 183, 0.1);
+  color: #e0e0e0;
+}
+
+.btnSecondary:hover:not(:disabled) {
+  background: rgba(232, 213, 183, 0.2);
+}
+
+.input {
+  width: 100%;
+  padding: 8px 12px;
+  background: #0f0f23;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.input:focus {
+  border-color: #e8d5b7;
+}
+
+.textarea {
+  composes: input;
+  min-height: 120px;
+  resize: vertical;
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  justify-content: center;
+}
+
+.paginationInfo {
+  font-size: 13px;
+  color: #a0a0a0;
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 0;
+  color: #a0a0a0;
+  font-size: 14px;
+}
+
+.error {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  border-radius: 8px;
+  padding: 16px 20px;
+  color: #f87171;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.error button {
+  margin-left: auto;
+}
+
+/* ============ Modal ============ */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.15);
+  border-radius: 12px;
+  padding: 24px;
+  width: 90%;
+  max-width: 520px;
+  max-height: 85vh;
+  overflow-y: auto;
+}
+
+.modalTitle {
+  font-size: 18px;
+  font-weight: 600;
+  color: #e8d5b7;
+  margin-bottom: 20px;
+}
+
+.formGroup {
+  margin-bottom: 16px;
+}
+
+.formLabel {
+  display: block;
+  font-size: 13px;
+  color: #a0a0a0;
+  margin-bottom: 6px;
+}
+
+.formActions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 24px;
+}
+
+.select {
+  composes: input;
+  cursor: pointer;
+}

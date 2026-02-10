@@ -12,6 +12,7 @@ import { Request, Response } from 'express';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Webhook } from 'svix';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import { Public } from '../auth/public.decorator';
 
 interface ClerkEmailAddress {
@@ -40,6 +41,7 @@ export class ClerkWebhookController {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
     private readonly configService: ConfigService,
   ) {}
 
@@ -52,13 +54,10 @@ export class ClerkWebhookController {
     const webhookSecret = this.configService.get<string>('CLERK_WEBHOOK_SECRET');
 
     if (!webhookSecret) {
-      this.logger.warn('CLERK_WEBHOOK_SECRET not configured — skipping signature verification');
-      // In development, process without verification
-      if (this.configService.get<string>('NODE_ENV') !== 'development') {
-        return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
-          error: 'Webhook secret not configured',
-        });
-      }
+      this.logger.error('CLERK_WEBHOOK_SECRET not configured — rejecting webhook');
+      return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
+        error: 'Webhook secret not configured',
+      });
     }
 
     // Get the headers
@@ -73,25 +72,20 @@ export class ClerkWebhookController {
 
     let event: ClerkWebhookEvent;
 
-    // Verify webhook signature (skip in dev if no secret)
-    if (webhookSecret) {
-      try {
-        const wh = new Webhook(webhookSecret);
-        event = wh.verify(body, {
-          'svix-id': svixId,
-          'svix-timestamp': svixTimestamp,
-          'svix-signature': svixSignature,
-        }) as ClerkWebhookEvent;
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        this.logger.error(`Webhook verification failed: ${message}`);
-        return res.status(HttpStatus.BAD_REQUEST).json({
-          error: 'Invalid webhook signature',
-        });
-      }
-    } else {
-      // Development mode — parse body directly
-      event = JSON.parse(body) as ClerkWebhookEvent;
+    // Always verify webhook signature — no bypass in any environment
+    try {
+      const wh = new Webhook(webhookSecret);
+      event = wh.verify(body, {
+        'svix-id': svixId,
+        'svix-timestamp': svixTimestamp,
+        'svix-signature': svixSignature,
+      }) as ClerkWebhookEvent;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`Webhook verification failed: ${message}`);
+      return res.status(HttpStatus.BAD_REQUEST).json({
+        error: 'Invalid webhook signature',
+      });
     }
 
     this.logger.log(`Received Clerk webhook: ${event.type}`);
@@ -159,15 +153,31 @@ export class ClerkWebhookController {
       },
     });
 
+    // Invalidate admin role cache so role changes take effect immediately
+    await this.redis.del(`admin:role:${data.id}`);
+
     this.logger.log(`User updated in DB: ${data.id}`);
   }
 
   private async handleUserDeleted(data: ClerkUserEventData) {
     try {
-      await this.prisma.user.delete({
+      // Soft-delete: anonymize user data but preserve financial records
+      // (subscriptions, transactions) for compliance and accounting
+      await this.prisma.user.update({
         where: { clerkUserId: data.id },
+        data: {
+          name: '[deleted]',
+          avatarUrl: null,
+          clerkUserId: `deleted_${data.id}_${Date.now()}`, // Free up the original clerkUserId
+          credits: 0,
+          subscriptionTier: 'FREE',
+        },
       });
-      this.logger.log(`User deleted from DB: ${data.id}`);
+
+      // Invalidate admin cache
+      await this.redis.del(`admin:role:${data.id}`);
+
+      this.logger.log(`User soft-deleted from DB: ${data.id}`);
     } catch (error) {
       // User may not exist in our DB yet
       this.logger.warn(`User not found for deletion: ${data.id}`);

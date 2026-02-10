@@ -1,0 +1,12 @@
+.regionGroup {
+  margin-bottom: 28px;
+}
+
+.regionTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.1);
+}

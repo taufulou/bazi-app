@@ -65,6 +65,7 @@ model BirthProfile {
   comparisonsA    BaziComparison[] @relation("ProfileA")
   comparisonsB    BaziComparison[] @relation("ProfileB")
 
+  @@index([userId])
   @@map("birth_profiles")
 }
 
@@ -168,6 +169,7 @@ model Transaction {
   user              User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+  @@index([createdAt])
   @@map("transactions")
 }
 
@@ -212,6 +214,7 @@ model AIUsageLog {
 
   @@index([createdAt])
   @@index([aiProvider])
+  @@index([aiProvider, createdAt])
   @@map("ai_usage_log")
 }
 
