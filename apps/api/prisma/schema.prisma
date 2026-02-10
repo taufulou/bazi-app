@@ -341,12 +341,18 @@ enum SubscriptionStatus {
 }
 
 enum ReadingType {
-  LIFETIME      // 八字終身運
-  ANNUAL        // 八字流年運勢
-  CAREER        // 事業財運
-  LOVE          // 愛情姻緣
-  HEALTH        // 先天健康分析
-  COMPATIBILITY // 合盤比較
+  LIFETIME           // 八字終身運
+  ANNUAL             // 八字流年運勢
+  CAREER             // 事業財運
+  LOVE               // 愛情姻緣
+  HEALTH             // 先天健康分析
+  COMPATIBILITY      // 合盤比較
+  ZWDS_LIFETIME      // 紫微終身運
+  ZWDS_ANNUAL        // 紫微流年運
+  ZWDS_CAREER        // 紫微事業運
+  ZWDS_LOVE          // 紫微愛情運
+  ZWDS_HEALTH        // 紫微健康運
+  ZWDS_COMPATIBILITY // 紫微合盤
 }
 
 enum ComparisonType {

@@ -58,6 +58,22 @@ const SECTION_THEMES: Record<string, { icon: string; theme: string }> = {
   strengths: { icon: "✨", theme: "overview" },
   challenges: { icon: "⚡", theme: "overview" },
   compatibility_advice: { icon: "💡", theme: "overview" },
+  // ZWDS sections
+  life_pattern: { icon: "🌌", theme: "personality" },
+  major_periods: { icon: "🔄", theme: "overview" },
+  overall_destiny: { icon: "🌟", theme: "personality" },
+  annual_advice: { icon: "💡", theme: "overview" },
+  career_palace: { icon: "💼", theme: "career" },
+  wealth_palace: { icon: "💰", theme: "finance" },
+  career_direction: { icon: "🧭", theme: "career" },
+  spouse_palace: { icon: "💕", theme: "love" },
+  love_timing: { icon: "💍", theme: "love" },
+  health_palace: { icon: "🏥", theme: "health" },
+  element_health: { icon: "🔥", theme: "health" },
+  health_periods: { icon: "📅", theme: "health" },
+  palace_interaction: { icon: "🔗", theme: "overview" },
+  star_compatibility: { icon: "⭐", theme: "overview" },
+  advice: { icon: "💡", theme: "overview" },
 };
 
 const SECTION_TITLES_ZH: Record<string, string> = {
@@ -82,16 +98,41 @@ const SECTION_TITLES_ZH: Record<string, string> = {
   strengths: "優勢互補",
   challenges: "挑戰與磨合",
   compatibility_advice: "相處建議",
+  // ZWDS sections
+  life_pattern: "人生格局",
+  major_periods: "大限運程",
+  overall_destiny: "命運總論",
+  annual_advice: "流年建議",
+  career_palace: "事業宮分析",
+  wealth_palace: "財帛宮分析",
+  career_direction: "事業方向",
+  spouse_palace: "夫妻宮分析",
+  love_timing: "桃花姻緣時機",
+  health_palace: "疾厄宮分析",
+  element_health: "五行健康",
+  health_periods: "健康注意時期",
+  palace_interaction: "宮位互動",
+  star_compatibility: "星曜契合度",
+  advice: "綜合建議",
 };
 
 // Cross-sell reading types (show other reading types)
-const CROSS_SELL_ITEMS = [
+const BAZI_CROSS_SELL = [
   { slug: "lifetime", icon: "🌟", name: "八字終身運" },
   { slug: "annual", icon: "📅", name: "八字流年運勢" },
   { slug: "career", icon: "💼", name: "事業財運" },
   { slug: "love", icon: "💕", name: "愛情姻緣" },
   { slug: "health", icon: "🏥", name: "先天健康分析" },
   { slug: "compatibility", icon: "🤝", name: "合盤比較" },
+];
+
+const ZWDS_CROSS_SELL = [
+  { slug: "zwds-lifetime", icon: "🌟", name: "紫微終身運" },
+  { slug: "zwds-annual", icon: "📅", name: "紫微流年運" },
+  { slug: "zwds-career", icon: "💼", name: "紫微事業運" },
+  { slug: "zwds-love", icon: "💕", name: "紫微愛情運" },
+  { slug: "zwds-health", icon: "🏥", name: "紫微健康運" },
+  { slug: "zwds-compatibility", icon: "🤝", name: "紫微合盤" },
 ];
 
 // ============================================================
@@ -119,7 +160,9 @@ export default function AIReadingDisplay({
     );
   }
 
-  const crossSellFiltered = CROSS_SELL_ITEMS.filter(
+  const isZwds = readingType.startsWith("zwds-");
+  const crossSellItems = isZwds ? ZWDS_CROSS_SELL : BAZI_CROSS_SELL;
+  const crossSellFiltered = crossSellItems.filter(
     (item) => item.slug !== readingType,
   );
 

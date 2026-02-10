@@ -1,0 +1,478 @@
+/* ============================================================
+   ZwdsChart — 紫微斗數 Palace Grid & Detail Display
+   ============================================================ */
+
+.chartContainer {
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* ==== Profile Header ==== */
+.profileHeader {
+  background: linear-gradient(135deg, #2a1a4e 0%, #1a1a3e 100%);
+  border: 1px solid rgba(156, 39, 176, 0.2);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+
+.profileName {
+  color: #ce93d8;
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: 0.3rem;
+}
+
+.profileDates {
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.profileMeta {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+.metaTag {
+  padding: 0.25rem 0.6rem;
+  background: rgba(156, 39, 176, 0.12);
+  border: 1px solid rgba(156, 39, 176, 0.25);
+  border-radius: 12px;
+  font-size: 0.75rem;
+  color: #ce93d8;
+}
+
+/* ==== Section ==== */
+.section {
+  background: #16213e;
+  border: 1px solid rgba(156, 39, 176, 0.1);
+  border-radius: 16px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.sectionTitle {
+  color: #ce93d8;
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(156, 39, 176, 0.15);
+}
+
+/* ==== Palace Grid (4×3 + center 2×2) ==== */
+.palaceGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  grid-template-rows: repeat(4, auto);
+  gap: 4px;
+}
+
+/* ==== Palace Cell ==== */
+.palaceCell {
+  background: #1a1a2e;
+  border: 1px solid rgba(156, 39, 176, 0.12);
+  border-radius: 8px;
+  padding: 0.5rem;
+  min-height: 90px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  width: 100%;
+}
+
+.palaceCell:hover {
+  border-color: rgba(156, 39, 176, 0.4);
+  background: rgba(156, 39, 176, 0.05);
+}
+
+.palaceCellSelected {
+  border-color: #ce93d8;
+  background: rgba(156, 39, 176, 0.08);
+  box-shadow: 0 0 8px rgba(156, 39, 176, 0.2);
+}
+
+.palaceCellDecadal {
+  border-color: #d4af37;
+  background: rgba(212, 175, 55, 0.06);
+}
+
+.palaceCellBody {
+  /* subtle body palace indicator */
+}
+
+.palaceEmpty {
+  /* placeholder for missing palaces */
+}
+
+/* Palace header: name + stem/branch */
+.palaceHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.palaceName {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #ce93d8;
+}
+
+.palaceBranch {
+  font-size: 0.6rem;
+  color: #8a7a9a;
+}
+
+/* Stars within palace cell */
+.palaceStars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  margin-bottom: 2px;
+}
+
+.palaceMinorStars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.moreStars {
+  font-size: 0.55rem;
+  color: #8a7a9a;
+  padding: 1px 3px;
+}
+
+/* Palace footer: decadal age + body badge */
+.palaceFooter {
+  margin-top: auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 2px;
+}
+
+.decadalAge {
+  font-size: 0.55rem;
+  color: #8a7a9a;
+}
+
+.bodyBadge {
+  font-size: 0.5rem;
+  padding: 1px 4px;
+  background: rgba(212, 175, 55, 0.15);
+  color: #d4af37;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+.bodyBadgeInline {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  background: rgba(212, 175, 55, 0.15);
+  color: #d4af37;
+  border-radius: 4px;
+  font-weight: 600;
+  margin-left: 0.5rem;
+}
+
+.bodyDot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  background: #d4af37;
+  border-radius: 50%;
+  margin-left: 3px;
+  vertical-align: middle;
+}
+
+/* ==== Center Panel (2×2) ==== */
+.centerPanel {
+  grid-column: 2 / 4;
+  grid-row: 2 / 4;
+  background: linear-gradient(135deg, #1a1a2e 0%, #2a1a3e 100%);
+  border: 1px solid rgba(156, 39, 176, 0.2);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  text-align: center;
+}
+
+.centerTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #ce93d8;
+  margin-bottom: 0.75rem;
+}
+
+.centerInfo {
+  font-size: 0.75rem;
+  color: #a0a0a0;
+  line-height: 1.8;
+}
+
+.centerFiveEl {
+  color: #d4af37;
+  font-weight: 600;
+  margin-top: 0.25rem;
+}
+
+/* ==== Star Badges ==== */
+.starMajor {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #d4af37;
+  padding: 2px 6px;
+  background: rgba(212, 175, 55, 0.08);
+  border-radius: 4px;
+  margin: 1px;
+}
+
+.starMinor {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.75rem;
+  color: #b0b0b0;
+  padding: 2px 5px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 4px;
+  margin: 1px;
+}
+
+.starCompact {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-size: 0.6rem;
+  color: #d4af37;
+  padding: 1px 3px;
+  margin: 1px;
+}
+
+.brightnessBadge {
+  font-size: 0.5rem;
+  color: #8a7a9a;
+  margin-left: 1px;
+}
+
+.mutagenDot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  margin-left: 1px;
+  flex-shrink: 0;
+}
+
+/* ==== Legend ==== */
+.legendRow {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: #a0a0a0;
+}
+
+.legendDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.legendSample {
+  font-size: 0.75rem;
+  color: #ce93d8;
+  font-weight: 600;
+}
+
+/* ==== Palace Detail ==== */
+.detailGroup {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.detailLabel {
+  min-width: 50px;
+  font-size: 0.8rem;
+  color: #8a7a9a;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.detailStars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.detailValue {
+  font-size: 0.85rem;
+  color: #e0e0e0;
+}
+
+/* ==== Horoscope ==== */
+.horoscopeGrid {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.horoscopeCard {
+  flex: 1;
+  min-width: 120px;
+  background: #1a1a2e;
+  border: 1px solid rgba(156, 39, 176, 0.12);
+  border-radius: 10px;
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.horoscopeLabel {
+  font-size: 0.75rem;
+  color: #8a7a9a;
+  margin-bottom: 4px;
+}
+
+.horoscopeValue {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #ce93d8;
+  margin-bottom: 4px;
+}
+
+.horoscopeMutagen {
+  font-size: 0.7rem;
+  color: #a0a0a0;
+}
+
+/* ==== Summary Table ==== */
+.summaryTable {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summaryRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+}
+
+.summaryRow:hover {
+  background: rgba(156, 39, 176, 0.05);
+  border-color: rgba(156, 39, 176, 0.15);
+}
+
+.summaryRowActive {
+  background: rgba(156, 39, 176, 0.08);
+  border-color: rgba(156, 39, 176, 0.25);
+}
+
+.summaryPalace {
+  font-size: 0.85rem;
+  color: #ce93d8;
+  font-weight: 600;
+  min-width: 55px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.summaryStemBranch {
+  font-size: 0.75rem;
+  color: #8a7a9a;
+  min-width: 30px;
+}
+
+.summaryStarList {
+  font-size: 0.8rem;
+  color: #d4af37;
+  flex: 1;
+}
+
+/* ==== Responsive ==== */
+@media (max-width: 600px) {
+  .palaceGrid {
+    gap: 2px;
+  }
+
+  .palaceCell {
+    min-height: 70px;
+    padding: 0.35rem;
+  }
+
+  .palaceName {
+    font-size: 0.6rem;
+  }
+
+  .palaceBranch {
+    font-size: 0.5rem;
+  }
+
+  .starCompact {
+    font-size: 0.5rem;
+  }
+
+  .decadalAge {
+    font-size: 0.45rem;
+  }
+
+  .centerTitle {
+    font-size: 0.8rem;
+  }
+
+  .centerInfo {
+    font-size: 0.65rem;
+  }
+
+  .section {
+    padding: 1rem;
+  }
+
+  .detailGroup {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .summaryRow {
+    flex-wrap: wrap;
+  }
+}

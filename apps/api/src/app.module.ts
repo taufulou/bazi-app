@@ -10,6 +10,7 @@ import { AuthModule } from './auth/auth.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { UsersModule } from './users/users.module';
 import { BaziModule } from './bazi/bazi.module';
+import { ZwdsModule } from './zwds/zwds.module';
 import { PaymentsModule } from './payments/payments.module';
 import { AdminModule } from './admin/admin.module';
 import { AIModule } from './ai/ai.module';
@@ -64,6 +65,7 @@ import { AIModule } from './ai/ai.module';
     // Feature modules
     UsersModule,
     BaziModule,
+    ZwdsModule,
     PaymentsModule,
     AdminModule,
 

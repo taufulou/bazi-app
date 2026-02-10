@@ -9,7 +9,9 @@ import { RedisService } from '../redis/redis.service';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
 import {
   READING_PROMPTS,
+  ZWDS_READING_PROMPTS,
   BASE_SYSTEM_PROMPT,
+  ZWDS_BASE_SYSTEM_PROMPT,
   OUTPUT_FORMAT_INSTRUCTIONS,
   COMPARISON_TYPE_ZH,
   GENDER_ZH,
@@ -499,13 +501,18 @@ export class AIService implements OnModuleInit {
       };
     }
 
-    // Fall back to hardcoded defaults
-    const readingConfig = READING_PROMPTS[readingType];
+    // Fall back to hardcoded defaults — check both Bazi and ZWDS prompt maps
+    const isZwds = readingType.startsWith('ZWDS_');
+    const readingConfig = isZwds
+      ? ZWDS_READING_PROMPTS[readingType]
+      : READING_PROMPTS[readingType];
+
     if (!readingConfig) {
       throw new Error(`No prompt template for reading type: ${readingType}`);
     }
 
-    const systemPrompt = BASE_SYSTEM_PROMPT + '\n\n' + readingConfig.systemAddition;
+    const baseSystemPrompt = isZwds ? ZWDS_BASE_SYSTEM_PROMPT : BASE_SYSTEM_PROMPT;
+    const systemPrompt = baseSystemPrompt + '\n\n' + readingConfig.systemAddition;
     const userPrompt = this.interpolateTemplate(
       readingConfig.userTemplate,
       calculationData,
@@ -678,7 +685,12 @@ export class AIService implements OnModuleInit {
       result = result.replace(/\{\{elementCounts\}\}/g, ecText);
     }
 
-    // Compatibility-specific fields
+    // ZWDS-specific fields
+    if (readingType.startsWith('ZWDS_')) {
+      result = this.interpolateZwdsFields(result, data, readingType);
+    }
+
+    // Compatibility-specific fields (Bazi)
     if (readingType === ReadingType.COMPATIBILITY) {
       const compatibility = data['compatibility'] as Record<string, unknown> | undefined;
       const chartA = data['chartA'] as Record<string, unknown> | undefined;
@@ -768,6 +780,236 @@ export class AIService implements OnModuleInit {
   }
 
   // ============================================================
+  // ZWDS-specific Interpolation
+  // ============================================================
+
+  /**
+   * Interpolate ZWDS-specific placeholders in prompt templates.
+   * Handles palace data, star data, horoscope overlays, etc.
+   */
+  private interpolateZwdsFields(
+    template: string,
+    data: Record<string, unknown>,
+    readingType: ReadingType,
+  ): string {
+    let result = template;
+
+    // Basic ZWDS fields
+    result = result.replace(/\{\{solarDate\}\}/g, (data['solarDate'] as string) || '');
+    result = result.replace(/\{\{lunarDate\}\}/g, (data['lunarDate'] as string) || '');
+    result = result.replace(/\{\{birthTime\}\}/g, (data['birthTime'] as string) || '');
+    result = result.replace(/\{\{timeRange\}\}/g, (data['timeRange'] as string) || '');
+    result = result.replace(/\{\{zodiac\}\}/g, (data['zodiac'] as string) || '');
+    result = result.replace(/\{\{fiveElementsClass\}\}/g, (data['fiveElementsClass'] as string) || '');
+    result = result.replace(/\{\{soulStar\}\}/g, (data['soulStar'] as string) || '');
+    result = result.replace(/\{\{bodyStar\}\}/g, (data['bodyStar'] as string) || '');
+    result = result.replace(/\{\{soulPalaceBranch\}\}/g, (data['soulPalaceBranch'] as string) || '');
+    result = result.replace(/\{\{bodyPalaceBranch\}\}/g, (data['bodyPalaceBranch'] as string) || '');
+    result = result.replace(/\{\{gender\}\}/g, (data['gender'] as string) || '');
+
+    const palaces = data['palaces'] as Array<Record<string, unknown>> | undefined;
+
+    if (palaces) {
+      // Format palace data for specific palaces
+      const palaceByName = new Map<string, Record<string, unknown>>();
+      for (const palace of palaces) {
+        palaceByName.set(palace['name'] as string, palace);
+      }
+
+      // Individual palace data placeholders
+      const palaceFieldMap: Record<string, string> = {
+        '命宮': 'lifePalaceData',
+        '官祿宮': 'careerPalaceData',
+        '財帛宮': 'wealthPalaceData',
+        '遷移宮': 'travelPalaceData',
+        '夫妻宮': 'spousePalaceData',
+        '子女宮': 'childrenPalaceData',
+        '交友宮': 'friendsPalaceData',
+        '福德宮': 'fortunePalaceData',
+        '疾厄宮': 'healthPalaceData',
+        '父母宮': 'parentsPalaceData',
+      };
+
+      for (const [palaceName, placeholder] of Object.entries(palaceFieldMap)) {
+        const palace = palaceByName.get(palaceName);
+        if (palace) {
+          result = result.replace(
+            new RegExp(`\\{\\{${placeholder}\\}\\}`, 'g'),
+            this.formatPalaceText(palace),
+          );
+        }
+      }
+
+      // Body palace location
+      const bodyPalace = palaces.find((p) => p['isBodyPalace']);
+      result = result.replace(/\{\{bodyPalaceLocation\}\}/g,
+        bodyPalace ? `${bodyPalace['name']}（${bodyPalace['earthlyBranch']}）` : '');
+
+      // All palaces overview
+      const allPalacesText = palaces.map((p) => this.formatPalaceText(p)).join('\n\n');
+      result = result.replace(/\{\{allPalacesData\}\}/g, allPalacesText);
+
+      // Decadal periods
+      const decadalText = palaces.map((p) => {
+        const decadal = p['decadal'] as Record<string, unknown>;
+        if (!decadal) return '';
+        return `${decadal['startAge']}-${decadal['endAge']}歲：${decadal['stem']}${decadal['branch']}（${p['name']}）`;
+      }).filter(Boolean).join('\n');
+      result = result.replace(/\{\{decadalPeriods\}\}/g, decadalText);
+
+      // All mutagens across palaces
+      const mutagenList: string[] = [];
+      for (const palace of palaces) {
+        const allStars = [
+          ...((palace['majorStars'] as Array<Record<string, unknown>>) || []),
+          ...((palace['minorStars'] as Array<Record<string, unknown>>) || []),
+        ];
+        for (const star of allStars) {
+          if (star['mutagen']) {
+            mutagenList.push(`${star['name']}${star['mutagen']}（${palace['name']}）`);
+          }
+        }
+      }
+      result = result.replace(/\{\{allMutagens\}\}/g, mutagenList.join('、') || '無四化');
+
+      // Peach blossom stars (桃花星)
+      const peachStars = ['貪狼', '廉貞', '天姚', '紅鸞', '天喜', '咸池'];
+      const peachList: string[] = [];
+      for (const palace of palaces) {
+        const allStars = [
+          ...((palace['majorStars'] as Array<Record<string, unknown>>) || []),
+          ...((palace['minorStars'] as Array<Record<string, unknown>>) || []),
+          ...((palace['adjectiveStars'] as Array<Record<string, unknown>>) || []),
+        ];
+        for (const star of allStars) {
+          if (peachStars.includes(star['name'] as string)) {
+            peachList.push(`${star['name']}在${palace['name']}`);
+          }
+        }
+      }
+      result = result.replace(/\{\{peachBlossomStars\}\}/g, peachList.join('、') || '無明顯桃花星');
+    }
+
+    // Horoscope data
+    const horoscope = data['horoscope'] as Record<string, unknown> | undefined;
+    if (horoscope) {
+      const decadal = horoscope['decadal'] as Record<string, unknown>;
+      const yearly = horoscope['yearly'] as Record<string, unknown>;
+
+      if (decadal) {
+        result = result.replace(/\{\{currentDecadal\}\}/g,
+          `${decadal['name']}大限（${decadal['stem']}${decadal['branch']}）四化：${(decadal['mutagen'] as string[] || []).join('、')}`);
+      }
+
+      if (yearly) {
+        result = result.replace(/\{\{yearlyInfo\}\}/g,
+          `${yearly['name']}（${yearly['stem']}${yearly['branch']}）`);
+        result = result.replace(/\{\{yearlyMutagen\}\}/g,
+          (yearly['mutagen'] as string[] || []).join('、'));
+      }
+
+      result = result.replace(/\{\{yearlyOverlay\}\}/g,
+        `大限：${decadal?.['name'] || ''}，流年：${yearly?.['name'] || ''}`);
+    }
+
+    // ZWDS Compatibility fields
+    if (readingType === ReadingType.ZWDS_COMPATIBILITY) {
+      const compType = (data['comparisonType'] as string) || 'ROMANCE';
+      result = result.replace(/\{\{comparisonType\}\}/g, compType);
+      result = result.replace(/\{\{comparisonTypeZh\}\}/g,
+        COMPARISON_TYPE_ZH[compType.toLowerCase()] || '配對');
+
+      // Chart A and B
+      const chartA = data['chartA'] as Record<string, unknown> | undefined;
+      const chartB = data['chartB'] as Record<string, unknown> | undefined;
+
+      if (chartA) {
+        result = this.interpolateZwdsChartFields(result, chartA, 'A');
+      }
+      if (chartB) {
+        result = this.interpolateZwdsChartFields(result, chartB, 'B');
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Format a single palace into readable text for AI prompts.
+   */
+  private formatPalaceText(palace: Record<string, unknown>): string {
+    const majorStars = (palace['majorStars'] as Array<Record<string, unknown>>) || [];
+    const minorStars = (palace['minorStars'] as Array<Record<string, unknown>>) || [];
+
+    const majorText = majorStars.map((s) => {
+      let text = s['name'] as string;
+      if (s['brightness']) text += `（${s['brightness']}）`;
+      if (s['mutagen']) text += `${s['mutagen']}`;
+      return text;
+    }).join('、');
+
+    const minorText = minorStars.map((s) => {
+      let text = s['name'] as string;
+      if (s['mutagen']) text += `${s['mutagen']}`;
+      return text;
+    }).join('、');
+
+    const lines = [
+      `【${palace['name']}】（${palace['heavenlyStem']}${palace['earthlyBranch']}）`,
+    ];
+    if (majorText) lines.push(`主星：${majorText}`);
+    if (minorText) lines.push(`輔星：${minorText}`);
+    if (palace['changsheng12']) lines.push(`十二長生：${palace['changsheng12']}`);
+    if (palace['isBodyPalace']) lines.push(`※ 身宮所在`);
+
+    return lines.join('\n');
+  }
+
+  /**
+   * Interpolate ZWDS chart fields for compatibility (chartA/chartB).
+   */
+  private interpolateZwdsChartFields(
+    template: string,
+    chart: Record<string, unknown>,
+    suffix: string,
+  ): string {
+    let result = template;
+
+    result = result.replace(new RegExp(`\\{\\{gender${suffix}\\}\\}`, 'g'),
+      (chart['gender'] as string) || '');
+    result = result.replace(new RegExp(`\\{\\{fiveElementsClass${suffix}\\}\\}`, 'g'),
+      (chart['fiveElementsClass'] as string) || '');
+
+    const palaces = chart['palaces'] as Array<Record<string, unknown>> | undefined;
+    if (palaces) {
+      const palaceByName = new Map<string, Record<string, unknown>>();
+      for (const palace of palaces) {
+        palaceByName.set(palace['name'] as string, palace);
+      }
+
+      const fieldMap: Record<string, string> = {
+        '命宮': `lifePalaceData${suffix}`,
+        '夫妻宮': `spousePalaceData${suffix}`,
+        '官祿宮': `careerPalaceData${suffix}`,
+        '交友宮': `friendsPalaceData${suffix}`,
+        '福德宮': `fortunePalaceData${suffix}`,
+      };
+
+      for (const [palaceName, placeholder] of Object.entries(fieldMap)) {
+        const palace = palaceByName.get(palaceName);
+        if (palace) {
+          result = result.replace(
+            new RegExp(`\\{\\{${placeholder}\\}\\}`, 'g'),
+            this.formatPalaceText(palace),
+          );
+        }
+      }
+    }
+
+    return result;
+  }
+
+  // ============================================================
   // Response Parsing
   // ============================================================
 
@@ -826,7 +1068,10 @@ export class AIService implements OnModuleInit {
     rawContent: string,
     readingType: ReadingType,
   ): AIInterpretationResult {
-    const readingConfig = READING_PROMPTS[readingType];
+    const isZwds = readingType.startsWith('ZWDS_');
+    const readingConfig = isZwds
+      ? ZWDS_READING_PROMPTS[readingType]
+      : READING_PROMPTS[readingType];
     const sectionKeys = readingConfig?.sections || ['analysis'];
 
     // Split text into roughly equal parts for each expected section

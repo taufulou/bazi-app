@@ -31,12 +31,18 @@ export type Language = 'zh-TW' | 'zh-CN';
 
 /** Reading types available in V1 */
 export type ReadingType =
-  | 'lifetime'      // 八字終身運
-  | 'annual'        // 八字流年運勢
-  | 'career'        // 事業財運
-  | 'love'          // 愛情姻緣
-  | 'health'        // 先天健康分析
-  | 'compatibility'; // 合盤比較
+  | 'lifetime'           // 八字終身運
+  | 'annual'             // 八字流年運勢
+  | 'career'             // 事業財運
+  | 'love'               // 愛情姻緣
+  | 'health'             // 先天健康分析
+  | 'compatibility'      // 八字合盤比較
+  | 'zwds-lifetime'      // 紫微終身運
+  | 'zwds-annual'        // 紫微流年運
+  | 'zwds-career'        // 紫微事業運
+  | 'zwds-love'          // 紫微愛情運
+  | 'zwds-health'        // 紫微健康運
+  | 'zwds-compatibility'; // 紫微合盤
 
 /** Comparison type for compatibility readings */
 export type ComparisonType = 'romance' | 'business' | 'friendship';

@@ -12,8 +12,8 @@ export default async function DashboardPage() {
     redirect("/sign-in");
   }
 
-  // Build reading types from shared constants
-  const readingTypes = (
+  // Build reading types from shared constants, separated by system
+  const allTypes = (
     Object.entries(READING_TYPE_META) as [string, (typeof READING_TYPE_META)[keyof typeof READING_TYPE_META]][]
   ).map(([slug, meta]) => ({
     slug,
@@ -21,6 +21,9 @@ export default async function DashboardPage() {
     name: meta.nameZhTw,
     description: meta.description["zh-TW"],
   }));
+
+  const baziTypes = allTypes.filter((t) => !t.slug.startsWith("zwds-"));
+  const zwdsTypes = allTypes.filter((t) => t.slug.startsWith("zwds-"));
 
   return (
     <div className={styles.page}>
@@ -55,16 +58,40 @@ export default async function DashboardPage() {
         <p className={styles.welcomeSubtitle}>選擇一項服務開始您的命理之旅</p>
       </section>
 
-      {/* Reading Types Grid */}
+      {/* Bazi Reading Types */}
       <section className={styles.readingsSection}>
+        <h3 className={styles.sectionLabel}>八字命理分析</h3>
         <div className={styles.grid}>
-          {readingTypes.map((reading) => (
+          {baziTypes.map((reading) => (
             <Link
               key={reading.slug}
               href={`/reading/${reading.slug}`}
               className={styles.cardLink}
             >
               <div className={styles.card}>
+                <div className={styles.cardIcon}>{reading.icon}</div>
+                <h3 className={styles.cardTitle}>{reading.name}</h3>
+                <p className={styles.cardDescription}>{reading.description}</p>
+                <div className={styles.cardFooter}>
+                  <span className={styles.cardAction}>開始分析 &rarr;</span>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* ZWDS Reading Types */}
+      <section className={styles.readingsSection}>
+        <h3 className={styles.sectionLabel}>紫微斗數分析</h3>
+        <div className={styles.grid}>
+          {zwdsTypes.map((reading) => (
+            <Link
+              key={reading.slug}
+              href={`/reading/${reading.slug}`}
+              className={styles.cardLink}
+            >
+              <div className={styles.cardZwds}>
                 <div className={styles.cardIcon}>{reading.icon}</div>
                 <h3 className={styles.cardTitle}>{reading.name}</h3>
                 <p className={styles.cardDescription}>{reading.description}</p>

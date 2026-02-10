@@ -130,6 +130,27 @@
   font-weight: 500;
 }
 
+/* ---- Section Label ---- */
+.sectionLabel {
+  color: #e8d5b7;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  padding-left: 0.25rem;
+}
+
+/* ---- ZWDS Card (purple accent instead of gold) ---- */
+.cardZwds {
+  composes: card;
+  border-color: rgba(156, 39, 176, 0.15);
+}
+
+.cardZwds:hover {
+  border-color: rgba(156, 39, 176, 0.35);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px rgba(156, 39, 176, 0.15);
+}
+
 /* ---- Subscription CTA Banner ---- */
 .ctaBanner {
   background: linear-gradient(135deg, rgba(212, 175, 55, 0.1) 0%, rgba(232, 213, 183, 0.05) 100%);
