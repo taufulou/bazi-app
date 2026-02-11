@@ -21,10 +21,7 @@ export function DashboardViewTracker({
   useEffect(() => {
     if (!tracked.current) {
       tracked.current = true;
-      trackDashboardViewed({
-        readingTypesCount,
-        isSubscriber: false, // Will be enriched by PostHog user properties
-      });
+      trackDashboardViewed({ readingTypesCount });
     }
   }, [readingTypesCount]);
 
@@ -33,6 +30,7 @@ export function DashboardViewTracker({
 
 /**
  * Wrapper for reading card links that fires tracking on click.
+ * Uses a span (inline) to avoid breaking flex/grid layout from the parent Link.
  */
 export function ReadingCardTracker({
   readingType,
@@ -46,18 +44,19 @@ export function ReadingCardTracker({
   children: React.ReactNode;
 }) {
   return (
-    <div
+    <span
       onClick={() =>
         trackReadingCardClicked({ readingType, system, cardPosition })
       }
     >
       {children}
-    </div>
+    </span>
   );
 }
 
 /**
  * Wrapper for subscription CTA that fires tracking on click.
+ * Uses a span to avoid breaking layout.
  */
 export function SubscriptionCtaTracker({
   location,
@@ -67,8 +66,8 @@ export function SubscriptionCtaTracker({
   children: React.ReactNode;
 }) {
   return (
-    <div onClick={() => trackSubscriptionCtaClicked({ location })}>
+    <span onClick={() => trackSubscriptionCtaClicked({ location })}>
       {children}
-    </div>
+    </span>
   );
 }

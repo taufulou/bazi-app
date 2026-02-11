@@ -171,7 +171,7 @@ export default function ReadingPage() {
       setIsLoading(true);
       setError(undefined);
 
-      const system = isZwds ? 'zwds' : 'bazi' as const;
+      const system: 'bazi' | 'zwds' = isZwds ? 'zwds' : 'bazi';
       trackCalculationStarted({ readingType, system });
       const calcStart = Date.now();
 
@@ -236,7 +236,7 @@ export default function ReadingPage() {
         setIsLoading(false);
       }
     },
-    [readingType, isZwds],
+    [readingType, isZwds, needsQuestion, questionText],
   );
 
   const handleRetry = () => {

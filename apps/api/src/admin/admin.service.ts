@@ -424,14 +424,25 @@ export class AdminService {
   // ============ User Behavior Summary ============
 
   async getUserBehaviorSummary(days = 30) {
+    // Cap days to prevent abuse — max 365
+    days = Math.min(Math.max(days, 1), 365);
+
+    const cacheKey = `admin:user-behavior:${days}`;
+
+    return this.redis.getOrSet(cacheKey, 300, async () => {
+      return this._computeUserBehaviorSummary(days);
+    });
+  }
+
+  private async _computeUserBehaviorSummary(days: number) {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     try {
       const [
-        // Funnel: total users vs users who created readings
-        totalUsers,
-        usersWithReadings,
-        usersWithSubscriptions,
+        // Funnel: time-windowed user counts for consistent funnel
+        totalUsersInPeriod,
+        usersWithReadingsInPeriod,
+        usersWithSubscriptionsInPeriod,
         newUsersInPeriod,
         // Reading type popularity
         readingsByType,
@@ -446,7 +457,7 @@ export class AdminService {
         activeUsers30d,
         // Readings created per day (for trend)
         readingsPerDay,
-        // Most active hours (when do users create readings)
+        // Most active hours (when do users create readings) — in Asia/Taipei timezone
         readingsByHour,
         // Users by subscription tier
         usersByTier,
@@ -456,15 +467,23 @@ export class AdminService {
         // Churn: cancelled subscriptions in period
         cancelledSubscriptions,
       ] = await Promise.all([
-        this.prisma.user.count(),
-
+        // Time-windowed: users who signed up in period
         this.prisma.user.count({
-          where: { baziReadings: { some: {} } },
+          where: { createdAt: { gte: since } },
         }),
 
-        this.prisma.user.count({
-          where: { subscriptions: { some: { status: 'ACTIVE' } } },
-        }),
+        // Time-windowed: users who created a reading in period
+        this.prisma.$queryRaw<Array<{ count: bigint }>>`
+          SELECT COUNT(DISTINCT user_id) as count
+          FROM bazi_readings
+          WHERE created_at >= ${since}
+        `,
+
+        // Time-windowed: users who started subscription in period
+        this.prisma.subscription.groupBy({
+          by: ['userId'],
+          where: { status: 'ACTIVE', createdAt: { gte: since } },
+        }).then((rows) => rows.length),
 
         this.prisma.user.count({
           where: { createdAt: { gte: since } },
@@ -513,7 +532,7 @@ export class AdminService {
         this.prisma.$queryRaw<Array<{ count: bigint }>>`
           SELECT COUNT(DISTINCT user_id) as count
           FROM bazi_readings
-          WHERE created_at >= ${since}
+          WHERE created_at >= ${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)}
         `,
 
         // Readings per day trend
@@ -525,9 +544,9 @@ export class AdminService {
           ORDER BY day ASC
         `,
 
-        // Readings by hour of day (user behavior pattern)
+        // Readings by hour of day in Asia/Taipei timezone (UTC+8)
         this.prisma.$queryRaw<Array<{ hour: number; count: bigint }>>`
-          SELECT EXTRACT(HOUR FROM created_at)::int as hour, COUNT(*) as count
+          SELECT EXTRACT(HOUR FROM created_at AT TIME ZONE 'Asia/Taipei')::int as hour, COUNT(*) as count
           FROM bazi_readings
           WHERE created_at >= ${since}
           GROUP BY hour
@@ -571,19 +590,21 @@ export class AdminService {
         }),
       ]);
 
-      // Compute funnel percentages
-      const signupToReadingRate = totalUsers > 0 ? usersWithReadings / totalUsers : 0;
-      const readingToSubscriptionRate = usersWithReadings > 0 ? usersWithSubscriptions / usersWithReadings : 0;
-      const overallConversionRate = totalUsers > 0 ? usersWithSubscriptions / totalUsers : 0;
+      const usersWithReadings = Number(usersWithReadingsInPeriod[0]?.count || 0);
+
+      // Compute funnel percentages (all time-windowed now)
+      const signupToReadingRate = totalUsersInPeriod > 0 ? usersWithReadings / totalUsersInPeriod : 0;
+      const readingToSubscriptionRate = usersWithReadings > 0 ? usersWithSubscriptionsInPeriod / usersWithReadings : 0;
+      const overallConversionRate = totalUsersInPeriod > 0 ? usersWithSubscriptionsInPeriod / totalUsersInPeriod : 0;
 
       return {
         period: { days, since: since.toISOString() },
 
-        // Conversion funnel
+        // Conversion funnel (all time-windowed to selected period)
         funnel: {
-          totalUsers,
+          totalUsers: totalUsersInPeriod,
           usersWhoCreatedReading: usersWithReadings,
-          usersWithActiveSubscription: usersWithSubscriptions,
+          usersWithActiveSubscription: usersWithSubscriptionsInPeriod,
           signupToReadingRate: Math.round(signupToReadingRate * 10000) / 100,
           readingToSubscriptionRate: Math.round(readingToSubscriptionRate * 10000) / 100,
           overallConversionRate: Math.round(overallConversionRate * 10000) / 100,
@@ -641,14 +662,15 @@ export class AdminService {
         // Churn
         churn: {
           cancelledInPeriod: cancelledSubscriptions,
-          churnRate: usersWithSubscriptions > 0
-            ? Math.round((cancelledSubscriptions / (usersWithSubscriptions + cancelledSubscriptions)) * 10000) / 100
+          churnRate: usersWithSubscriptionsInPeriod > 0
+            ? Math.round((cancelledSubscriptions / (usersWithSubscriptionsInPeriod + cancelledSubscriptions)) * 10000) / 100
             : 0,
         },
       };
     } catch (err) {
       this.logger.error(`Failed to fetch user behavior summary: ${err instanceof Error ? err.message : err}`);
       return {
+        error: true,
         period: { days, since: since.toISOString() },
         funnel: {
           totalUsers: 0, usersWhoCreatedReading: 0, usersWithActiveSubscription: 0,

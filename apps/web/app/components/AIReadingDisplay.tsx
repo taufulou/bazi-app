@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import styles from "./AIReadingDisplay.module.css";
 import { ENTERTAINMENT_DISCLAIMER } from "@repo/shared";
 import {
@@ -368,6 +369,7 @@ function SectionWithTracking({
   paywallTracked: React.MutableRefObject<Set<string>>;
 }) {
   const sectionRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   // Track when section scrolls into view
   useEffect(() => {
@@ -453,12 +455,13 @@ function SectionWithTracking({
                 </div>
                 <button
                   className={styles.paywallBtn}
-                  onClick={() =>
+                  onClick={() => {
                     trackPaywallCtaClicked({
                       readingType,
                       sectionKey: section.key,
-                    })
-                  }
+                    });
+                    router.push("/pricing");
+                  }}
                 >
                   立即訂閱
                 </button>

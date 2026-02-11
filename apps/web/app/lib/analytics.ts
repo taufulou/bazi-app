@@ -1,3 +1,5 @@
+'use client';
+
 import posthog from 'posthog-js';
 
 // ============================================================
@@ -7,10 +9,24 @@ import posthog from 'posthog-js';
 // Every user interaction event is defined here with typed properties.
 // Components import and call these helpers instead of using posthog.capture() directly.
 // This makes it easy to audit what we track and rename/refactor events.
+//
+// Note: This file is marked 'use client' to prevent SSR issues with posthog-js
+// which accesses window/document internally.
 
 function capture(event: string, properties?: Record<string, unknown>) {
   if (typeof window !== 'undefined' && posthog.__loaded) {
     posthog.capture(event, properties);
+  }
+}
+
+/**
+ * Capture an event and attempt to flush it immediately via sendBeacon.
+ * Use this for events fired right before navigation (e.g., link clicks)
+ * to prevent events being lost when the page unloads.
+ */
+function captureBeforeNavigation(event: string, properties?: Record<string, unknown>) {
+  if (typeof window !== 'undefined' && posthog.__loaded) {
+    posthog.capture(event, properties, { send_instantly: true });
   }
 }
 
@@ -43,7 +59,6 @@ export function resetUser() {
 
 export function trackDashboardViewed(properties: {
   readingTypesCount: number;
-  isSubscriber: boolean;
 }) {
   capture('dashboard_viewed', properties);
 }
@@ -53,13 +68,13 @@ export function trackReadingCardClicked(properties: {
   system: 'bazi' | 'zwds';
   cardPosition: number;
 }) {
-  capture('reading_card_clicked', properties);
+  captureBeforeNavigation('reading_card_clicked', properties);
 }
 
 export function trackSubscriptionCtaClicked(properties: {
   location: 'dashboard_banner' | 'header_link';
 }) {
-  capture('subscription_cta_clicked', properties);
+  captureBeforeNavigation('subscription_cta_clicked', properties);
 }
 
 // ============================================================
@@ -179,14 +194,14 @@ export function trackPaywallCtaClicked(properties: {
   readingType: string;
   sectionKey: string;
 }) {
-  capture('paywall_cta_clicked', properties);
+  captureBeforeNavigation('paywall_cta_clicked', properties);
 }
 
 export function trackCrossSellClicked(properties: {
   readingType: string;
   targetReadingType: string;
 }) {
-  capture('cross_sell_clicked', properties);
+  captureBeforeNavigation('cross_sell_clicked', properties);
 }
 
 export function trackReadingCompleted(properties: {
@@ -220,7 +235,7 @@ export function trackPlanCtaClicked(properties: {
   billingCycle: 'monthly' | 'annual';
   displayPrice: string;
 }) {
-  capture('plan_cta_clicked', properties);
+  captureBeforeNavigation('plan_cta_clicked', properties);
 }
 
 // ============================================================

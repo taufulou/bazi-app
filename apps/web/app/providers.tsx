@@ -1,8 +1,8 @@
 'use client';
 
 import posthog from 'posthog-js';
-import { useEffect, useRef } from 'react';
-import { usePathname } from 'next/navigation';
+import { useEffect, useRef, useCallback } from 'react';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
 import { identifyUser, resetUser, trackScrollDepth, trackTimeOnPage } from './lib/analytics';
 
@@ -21,12 +21,15 @@ if (
 
 function PostHogPageview() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     if (pathname && posthog.__loaded) {
-      posthog.capture('$pageview', { $current_url: window.origin + pathname });
+      const search = searchParams.toString();
+      const fullUrl = window.origin + pathname + (search ? `?${search}` : '');
+      posthog.capture('$pageview', { $current_url: fullUrl });
     }
-  }, [pathname]);
+  }, [pathname, searchParams]);
 
   return null;
 }
@@ -56,22 +59,38 @@ function PostHogIdentify() {
 function ScrollDepthTracker() {
   const pathname = usePathname();
   const milestonesHit = useRef<Set<number>>(new Set());
+  const rafPending = useRef(false);
 
   useEffect(() => {
     milestonesHit.current = new Set();
 
-    function handleScroll() {
-      const scrollTop = window.scrollY;
+    // Fire 100% for pages that fit within viewport (no scrolling needed)
+    requestAnimationFrame(() => {
       const docHeight = document.documentElement.scrollHeight - window.innerHeight;
-      if (docHeight <= 0) return;
-      const pct = Math.round((scrollTop / docHeight) * 100);
-
-      for (const milestone of [25, 50, 75, 100]) {
-        if (pct >= milestone && !milestonesHit.current.has(milestone)) {
-          milestonesHit.current.add(milestone);
-          trackScrollDepth({ page: pathname, depth: milestone });
-        }
+      if (docHeight <= 0 && !milestonesHit.current.has(100)) {
+        milestonesHit.current.add(100);
+        trackScrollDepth({ page: pathname, depth: 100 });
       }
+    });
+
+    function handleScroll() {
+      if (rafPending.current) return;
+      rafPending.current = true;
+
+      requestAnimationFrame(() => {
+        rafPending.current = false;
+        const scrollTop = window.scrollY;
+        const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+        if (docHeight <= 0) return;
+        const pct = Math.round((scrollTop / docHeight) * 100);
+
+        for (const milestone of [25, 50, 75, 100]) {
+          if (pct >= milestone && !milestonesHit.current.has(milestone)) {
+            milestonesHit.current.add(milestone);
+            trackScrollDepth({ page: pathname, depth: milestone });
+          }
+        }
+      });
     }
 
     window.addEventListener('scroll', handleScroll, { passive: true });
@@ -81,21 +100,53 @@ function ScrollDepthTracker() {
   return null;
 }
 
-/** Track time spent on each page (fires on navigation away) */
+/** Track active (visible) time spent on each page */
 function TimeOnPageTracker() {
   const pathname = usePathname();
-  const pageEnterTime = useRef<number>(Date.now());
+  const activeTimeMs = useRef<number>(0);
+  const lastVisibleAt = useRef<number>(Date.now());
+  const isVisible = useRef(!document.hidden);
+
+  const pauseTimer = useCallback(() => {
+    if (isVisible.current) {
+      activeTimeMs.current += Date.now() - lastVisibleAt.current;
+      isVisible.current = false;
+    }
+  }, []);
+
+  const resumeTimer = useCallback(() => {
+    if (!isVisible.current) {
+      lastVisibleAt.current = Date.now();
+      isVisible.current = true;
+    }
+  }, []);
 
   useEffect(() => {
-    pageEnterTime.current = Date.now();
+    activeTimeMs.current = 0;
+    lastVisibleAt.current = Date.now();
+    isVisible.current = !document.hidden;
+
+    function handleVisibility() {
+      if (document.hidden) {
+        pauseTimer();
+      } else {
+        resumeTimer();
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
-      const duration = Date.now() - pageEnterTime.current;
-      if (duration > 1000) { // Only track if > 1s (ignore instant redirects)
-        trackTimeOnPage({ page: pathname, durationMs: duration });
+      document.removeEventListener('visibilitychange', handleVisibility);
+      // Flush final active time
+      if (isVisible.current) {
+        activeTimeMs.current += Date.now() - lastVisibleAt.current;
+      }
+      if (activeTimeMs.current > 1000) {
+        trackTimeOnPage({ page: pathname, durationMs: activeTimeMs.current });
       }
     };
-  }, [pathname]);
+  }, [pathname, pauseTimer, resumeTimer]);
 
   return null;
 }

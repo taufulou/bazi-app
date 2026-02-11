@@ -48,6 +48,12 @@ export default function UserBehaviorPage() {
     <div>
       <h1 className={styles.pageTitle}>User Behavior Summary</h1>
 
+      {data.error && (
+        <div className={styles.error}>
+          Failed to load some data. Values below may be incomplete.
+        </div>
+      )}
+
       {/* Period selector */}
       <div className={pageStyles.periodSelector}>
         {[7, 14, 30, 90].map((d) => (
@@ -202,8 +208,9 @@ export default function UserBehaviorPage() {
         <>
           <h2 className={pageStyles.sectionTitle}>Readings Per Day</h2>
           <div className={pageStyles.barChartContainer} role="img" aria-label="Daily readings bar chart">
-            {data.readingsPerDay.map((d) => {
+            {(() => {
               const max = Math.max(...data.readingsPerDay.map((x) => x.count));
+              return data.readingsPerDay.map((d) => {
               const pct = max > 0 ? (d.count / max) * 100 : 0;
               const dateStr = new Date(d.date).toLocaleDateString('en-US', {
                 month: 'short',
@@ -219,7 +226,8 @@ export default function UserBehaviorPage() {
                   <span className={pageStyles.barLabel}>{dateStr}</span>
                 </div>
               );
-            })}
+            });
+            })()}
           </div>
         </>
       )}
@@ -229,8 +237,9 @@ export default function UserBehaviorPage() {
         <>
           <h2 className={pageStyles.sectionTitle}>Activity by Hour of Day</h2>
           <div className={pageStyles.barChartContainer} role="img" aria-label="Hourly activity chart">
-            {data.readingsByHourOfDay.map((h) => {
+            {(() => {
               const max = Math.max(...data.readingsByHourOfDay.map((x) => x.count));
+              return data.readingsByHourOfDay.map((h) => {
               const pct = max > 0 ? (h.count / max) * 100 : 0;
               return (
                 <div key={h.hour} className={pageStyles.bar}>
@@ -242,7 +251,8 @@ export default function UserBehaviorPage() {
                   <span className={pageStyles.barLabel}>{h.hour}:00</span>
                 </div>
               );
-            })}
+            });
+            })()}
           </div>
         </>
       )}
@@ -275,8 +285,9 @@ export default function UserBehaviorPage() {
         <>
           <h2 className={pageStyles.sectionTitle}>Subscriptions by Month</h2>
           <div className={pageStyles.barChartContainer} role="img" aria-label="Monthly subscriptions chart">
-            {data.subscriptionsByMonth.map((s) => {
+            {(() => {
               const max = Math.max(...data.subscriptionsByMonth.map((x) => x.count));
+              return data.subscriptionsByMonth.map((s) => {
               const pct = max > 0 ? (s.count / max) * 100 : 0;
               const monthStr = new Date(s.month).toLocaleDateString('en-US', {
                 month: 'short',
@@ -292,7 +303,8 @@ export default function UserBehaviorPage() {
                   <span className={pageStyles.barLabel}>{monthStr}</span>
                 </div>
               );
-            })}
+            });
+            })()}
           </div>
         </>
       )}

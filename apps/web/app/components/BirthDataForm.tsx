@@ -76,6 +76,20 @@ export default function BirthDataForm({
   const filledFields = useRef<Set<string>>(new Set());
   const hasTrackedStart = useRef(false);
   const hasSubmitted = useRef(false);
+  const readingTypeRef = useRef(readingType);
+
+  // Keep ref in sync so cleanup always has the latest readingType
+  useEffect(() => {
+    readingTypeRef.current = readingType;
+  }, [readingType]);
+
+  // Reset tracking state when readingType changes (e.g., client-side navigation)
+  useEffect(() => {
+    hasTrackedStart.current = false;
+    hasSubmitted.current = false;
+    filledFields.current = new Set();
+    formStartTime.current = 0;
+  }, [readingType]);
 
   // Track form_started on first interaction
   const trackStartOnce = useCallback(() => {
@@ -91,7 +105,7 @@ export default function BirthDataForm({
     return () => {
       if (hasTrackedStart.current && !hasSubmitted.current) {
         trackFormAbandoned({
-          readingType,
+          readingType: readingTypeRef.current,
           filledFields: Array.from(filledFields.current),
           timeSpentMs: Date.now() - formStartTime.current,
         });
@@ -112,12 +126,23 @@ export default function BirthDataForm({
     onSubmit(form);
   };
 
+  // Initial values — used to detect if user actually changed a field vs leaving default
+  const INITIAL_VALUES: BirthDataFormValues = {
+    name: "",
+    gender: "male",
+    birthDate: "",
+    birthTime: "",
+    birthCity: "台北市",
+    birthTimezone: "Asia/Taipei",
+  };
+
   const updateField = <K extends keyof BirthDataFormValues>(
     key: K,
     value: BirthDataFormValues[K],
   ) => {
     trackStartOnce();
-    if (!filledFields.current.has(key)) {
+    // Only track field_filled when user changes a field from its initial/default value
+    if (!filledFields.current.has(key) && value !== INITIAL_VALUES[key]) {
       filledFields.current.add(key);
       trackFormFieldFilled({ readingType, fieldName: key });
     }

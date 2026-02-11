@@ -334,6 +334,7 @@ export async function getRevenue(token: string): Promise<Revenue> {
 // ============ User Behavior Summary ============
 
 export interface UserBehaviorSummary {
+  error?: boolean;
   period: { days: number; since: string };
   funnel: {
     totalUsers: number;
