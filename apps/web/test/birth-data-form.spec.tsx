@@ -217,5 +217,68 @@ describe('BirthDataForm', () => {
       const options = document.querySelectorAll('select option');
       expect(options.length).toBeGreaterThanOrEqual(5);
     });
+
+    it('should group timezones by region using optgroup', () => {
+      renderForm();
+      const optgroups = document.querySelectorAll('select optgroup');
+      expect(optgroups.length).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  describe('City-Timezone Auto-Select', () => {
+    it('should auto-set timezone when a known city is entered', () => {
+      const onSubmit = jest.fn();
+      render(<BirthDataForm onSubmit={onSubmit} />);
+
+      // Change city to Tokyo
+      const cityInput = screen.getByPlaceholderText('輸入或選擇城市');
+      fireEvent.change(cityInput, { target: { value: '東京' } });
+
+      // Fill other required fields and submit
+      fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
+        target: { value: '測試' },
+      });
+      const dateInputs = document.querySelectorAll('input[type="date"]');
+      fireEvent.change(dateInputs[0]!, { target: { value: '1990-01-01' } });
+      const timeInputs = document.querySelectorAll('input[type="time"]');
+      fireEvent.change(timeInputs[0]!, { target: { value: '12:00' } });
+
+      fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
+
+      const data = onSubmit.mock.calls[0][0] as BirthDataFormValues;
+      expect(data.birthCity).toBe('東京');
+      expect(data.birthTimezone).toBe('Asia/Tokyo');
+    });
+
+    it('should preserve timezone when an unrecognized city is entered', () => {
+      const onSubmit = jest.fn();
+      render(<BirthDataForm onSubmit={onSubmit} />);
+
+      // Type a partial/unrecognized city — timezone should stay as default
+      const cityInput = screen.getByPlaceholderText('輸入或選擇城市');
+      fireEvent.change(cityInput, { target: { value: '某某市' } });
+
+      // Fill other required fields and submit
+      fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
+        target: { value: '測試' },
+      });
+      const dateInputs = document.querySelectorAll('input[type="date"]');
+      fireEvent.change(dateInputs[0]!, { target: { value: '1990-01-01' } });
+      const timeInputs = document.querySelectorAll('input[type="time"]');
+      fireEvent.change(timeInputs[0]!, { target: { value: '12:00' } });
+
+      fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
+
+      const data = onSubmit.mock.calls[0][0] as BirthDataFormValues;
+      expect(data.birthCity).toBe('某某市');
+      // Timezone stays as the initial default since city is unrecognized
+      expect(data.birthTimezone).toBe('Asia/Taipei');
+    });
+
+    it('should list all cities in the datalist', () => {
+      renderForm();
+      const datalistOptions = document.querySelectorAll('datalist#cities option');
+      expect(datalistOptions.length).toBeGreaterThanOrEqual(50);
+    });
   });
 });

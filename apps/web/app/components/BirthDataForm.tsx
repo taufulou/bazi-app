@@ -1,30 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import {
+  CITIES,
+  TIMEZONES,
+  REGIONS,
+  getTimezoneForCity,
+  type TimezoneEntry,
+  type CityRegion,
+} from "@repo/shared";
 import styles from "./BirthDataForm.module.css";
-
-// Common timezones for target markets
-const TIMEZONES = [
-  { value: "Asia/Taipei", label: "台灣 (UTC+8)" },
-  { value: "Asia/Hong_Kong", label: "香港 (UTC+8)" },
-  { value: "Asia/Kuala_Lumpur", label: "馬來西亞 (UTC+8)" },
-  { value: "Asia/Singapore", label: "新加坡 (UTC+8)" },
-  { value: "Asia/Shanghai", label: "中國 (UTC+8)" },
-  { value: "Asia/Tokyo", label: "日本 (UTC+9)" },
-  { value: "Asia/Seoul", label: "韓國 (UTC+9)" },
-  { value: "America/New_York", label: "美東 (UTC-5)" },
-  { value: "America/Los_Angeles", label: "美西 (UTC-8)" },
-  { value: "Europe/London", label: "倫敦 (UTC+0)" },
-];
-
-// Common birth cities
-const CITIES = [
-  "台北市", "台中市", "高雄市", "台南市", "新北市", "桃園市",
-  "香港", "九龍", "新界",
-  "吉隆坡", "檳城", "新山",
-  "北京", "上海", "廣州", "深圳",
-  "新加坡",
-];
 
 export interface BirthDataFormValues {
   name: string;
@@ -43,6 +28,13 @@ interface BirthDataFormProps {
   subtitle?: string;
   submitLabel?: string;
   children?: React.ReactNode;
+}
+
+/** Group items by region, returning only non-empty groups in market-priority order */
+function groupByRegion<T extends { region: CityRegion }>(items: T[]) {
+  return REGIONS
+    .map((r) => ({ region: r, items: items.filter((i) => i.region === r.key) }))
+    .filter((g) => g.items.length > 0);
 }
 
 export default function BirthDataForm({
@@ -75,11 +67,24 @@ export default function BirthDataForm({
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const handleCityChange = (cityName: string) => {
+    const tz = getTimezoneForCity(cityName);
+    setForm((prev) => ({
+      ...prev,
+      birthCity: cityName,
+      // Only auto-set timezone if the city exactly matches a known entry;
+      // otherwise preserve the user's current timezone selection
+      ...(tz ? { birthTimezone: tz } : {}),
+    }));
+  };
+
   const isValid =
     form.name.trim() !== "" &&
     form.birthDate !== "" &&
     form.birthTime !== "" &&
     form.birthCity.trim() !== "";
+
+  const tzGroups = groupByRegion<TimezoneEntry>(TIMEZONES);
 
   return (
     <form className={styles.formWrapper} onSubmit={handleSubmit}>
@@ -162,11 +167,11 @@ export default function BirthDataForm({
             list="cities"
             placeholder="輸入或選擇城市"
             value={form.birthCity}
-            onChange={(e) => updateField("birthCity", e.target.value)}
+            onChange={(e) => handleCityChange(e.target.value)}
           />
           <datalist id="cities">
             {CITIES.map((city) => (
-              <option key={city} value={city} />
+              <option key={city.name} value={city.name} />
             ))}
           </datalist>
         </div>
@@ -177,10 +182,14 @@ export default function BirthDataForm({
             value={form.birthTimezone}
             onChange={(e) => updateField("birthTimezone", e.target.value)}
           >
-            {TIMEZONES.map((tz) => (
-              <option key={tz.value} value={tz.value}>
-                {tz.label}
-              </option>
+            {tzGroups.map((group) => (
+              <optgroup key={group.region.key} label={group.region.labelZhTw}>
+                {group.items.map((tz) => (
+                  <option key={tz.value} value={tz.value}>
+                    {tz.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </div>
