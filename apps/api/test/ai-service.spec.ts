@@ -398,6 +398,143 @@ describe('AIService', () => {
   });
 
   // ============================================================
+  // Usage Logging — readingType tracking
+  // ============================================================
+
+  describe('logUsage', () => {
+    it('should include readingType in the Prisma create call', async () => {
+      const logUsage = (service as any).logUsage.bind(service);
+
+      await logUsage(
+        'user-1',
+        'reading-1',
+        ReadingType.LIFETIME,
+        { provider: 'CLAUDE', model: 'claude-sonnet-4-5-20250514' },
+        {
+          interpretation: { sections: {}, summary: { preview: '', full: '' } },
+          provider: 'CLAUDE',
+          model: 'claude-sonnet-4-5-20250514',
+          tokenUsage: { inputTokens: 1000, outputTokens: 500, totalTokens: 1500, estimatedCostUsd: 0.01 },
+          latencyMs: 2500,
+          isCacheHit: false,
+        },
+      );
+
+      expect(mockPrisma.aIUsageLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-1',
+          readingId: 'reading-1',
+          readingType: 'LIFETIME',
+          aiProvider: 'CLAUDE',
+          aiModel: 'claude-sonnet-4-5-20250514',
+          inputTokens: 1000,
+          outputTokens: 500,
+          costUsd: 0.01,
+          latencyMs: 2500,
+          isCacheHit: false,
+        }),
+      });
+    });
+
+    it('should store null when readingType is undefined', async () => {
+      const logUsage = (service as any).logUsage.bind(service);
+
+      await logUsage(
+        'user-1',
+        'reading-1',
+        undefined,
+        { provider: 'GPT', model: 'gpt-4o' },
+        {
+          interpretation: { sections: {}, summary: { preview: '', full: '' } },
+          provider: 'GPT',
+          model: 'gpt-4o',
+          tokenUsage: { inputTokens: 800, outputTokens: 400, totalTokens: 1200, estimatedCostUsd: 0.005 },
+          latencyMs: 1800,
+          isCacheHit: false,
+        },
+      );
+
+      expect(mockPrisma.aIUsageLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          readingType: null,
+        }),
+      });
+    });
+
+    it('should not throw when Prisma create fails (logs error silently)', async () => {
+      mockPrisma.aIUsageLog.create.mockRejectedValueOnce(new Error('DB write failed'));
+
+      const logUsage = (service as any).logUsage.bind(service);
+
+      // Should not throw
+      await expect(
+        logUsage(
+          'user-1',
+          'reading-1',
+          ReadingType.CAREER,
+          { provider: 'CLAUDE', model: 'claude-sonnet-4-5-20250514' },
+          {
+            interpretation: { sections: {}, summary: { preview: '', full: '' } },
+            provider: 'CLAUDE',
+            model: 'claude-sonnet-4-5-20250514',
+            tokenUsage: { inputTokens: 500, outputTokens: 300, totalTokens: 800, estimatedCostUsd: 0.003 },
+            latencyMs: 1200,
+            isCacheHit: false,
+          },
+        ),
+      ).resolves.not.toThrow();
+    });
+  });
+
+  // ============================================================
+  // generateInterpretation — readingType passthrough
+  // ============================================================
+
+  describe('generateInterpretation readingType passthrough', () => {
+    it('should pass readingType to logUsage when generating interpretation', async () => {
+      // Set up a provider
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'ANTHROPIC_API_KEY') return 'test-key';
+        return undefined;
+      });
+
+      const s = new AIService(mockConfigService as any, mockPrisma as any, mockRedis as any);
+      s.onModuleInit();
+
+      // Mock callProvider to return a valid response
+      (s as any).callProvider = jest.fn().mockResolvedValue({
+        content: JSON.stringify({
+          sections: { personality: { preview: 'P', full: 'F' } },
+          summary: { preview: 'S', full: 'SF' },
+        }),
+        inputTokens: 1000,
+        outputTokens: 500,
+      });
+
+      // Spy on logUsage
+      const logUsageSpy = jest.spyOn(s as any, 'logUsage');
+
+      await s.generateInterpretation(
+        SAMPLE_CALCULATION,
+        ReadingType.LOVE,
+        'user-42',
+        'reading-99',
+      );
+
+      expect(logUsageSpy).toHaveBeenCalledWith(
+        'user-42',
+        'reading-99',
+        ReadingType.LOVE,
+        expect.objectContaining({ provider: 'CLAUDE' }),
+        expect.objectContaining({
+          provider: 'CLAUDE',
+          tokenUsage: expect.objectContaining({ inputTokens: 1000, outputTokens: 500 }),
+        }),
+      );
+    });
+  });
+
+  // ============================================================
   // Provider Initialization
   // ============================================================
 

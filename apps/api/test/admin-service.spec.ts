@@ -467,18 +467,443 @@ describe('AdminService', () => {
   // ============================================================
 
   describe('getAICosts', () => {
-    it('should return fallback values on error', async () => {
+    // Helper to set up happy-path mocks for getAICosts
+    const setupAICostsMocks = (overrides?: {
+      costByProvider?: any[];
+      costByReadingTypeRaw?: any[];
+      dailyCosts?: any[];
+      aggregateSummary?: any;
+      cacheHitCount?: number;
+    }) => {
+      const summary = overrides?.aggregateSummary ?? {
+        _sum: { inputTokens: 50000, outputTokens: 25000 },
+        _count: { id: 10 },
+      };
+      const costByProvider = overrides?.costByProvider ?? [
+        {
+          ai_provider: 'CLAUDE',
+          total_cost: 1.5,
+          count: BigInt(8),
+          avg_cost: 0.1875,
+          total_input_tokens: BigInt(40000),
+          total_output_tokens: BigInt(20000),
+        },
+        {
+          ai_provider: 'GPT',
+          total_cost: 0.5,
+          count: BigInt(2),
+          avg_cost: 0.25,
+          total_input_tokens: BigInt(10000),
+          total_output_tokens: BigInt(5000),
+        },
+      ];
+      const costByReadingTypeRaw = overrides?.costByReadingTypeRaw ?? [
+        {
+          reading_type: 'LIFETIME',
+          total_cost: 1.0,
+          count: BigInt(4),
+          avg_cost: 0.25,
+          avg_input_tokens: 5000,
+          avg_output_tokens: 2500,
+          total_input_tokens: BigInt(20000),
+          total_output_tokens: BigInt(10000),
+          avg_latency_ms: 3200,
+          cache_hits: BigInt(1),
+        },
+        {
+          reading_type: 'ANNUAL',
+          total_cost: 0.6,
+          count: BigInt(3),
+          avg_cost: 0.2,
+          avg_input_tokens: 4000,
+          avg_output_tokens: 2000,
+          total_input_tokens: BigInt(12000),
+          total_output_tokens: BigInt(6000),
+          avg_latency_ms: 2800,
+          cache_hits: BigInt(0),
+        },
+        {
+          reading_type: 'CAREER',
+          total_cost: 0.4,
+          count: BigInt(3),
+          avg_cost: 0.133,
+          avg_input_tokens: 3500,
+          avg_output_tokens: 1800,
+          total_input_tokens: BigInt(10500),
+          total_output_tokens: BigInt(5400),
+          avg_latency_ms: 2500,
+          cache_hits: BigInt(2),
+        },
+      ];
+      const dailyCosts = overrides?.dailyCosts ?? [
+        { day: new Date('2026-02-10'), total_cost: 1.0, count: BigInt(5) },
+        { day: new Date('2026-02-11'), total_cost: 1.0, count: BigInt(5) },
+      ];
+      const cacheHitCount = overrides?.cacheHitCount ?? 3;
+
+      mockPrisma.aIUsageLog.aggregate.mockResolvedValue(summary);
+      // $queryRaw is called 3 times in sequence via Promise.all:
+      // 1) costByProvider, 2) costByReadingType, 3) dailyCosts
+      mockPrisma.$queryRaw
+        .mockResolvedValueOnce(costByProvider)
+        .mockResolvedValueOnce(costByReadingTypeRaw)
+        .mockResolvedValueOnce(dailyCosts);
+      mockPrisma.aIUsageLog.count.mockResolvedValue(cacheHitCount);
+    };
+
+    it('should return correct structure with all required fields', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(30);
+
+      expect(result).toEqual(expect.objectContaining({
+        days: 30,
+        totalCost: expect.any(Number),
+        avgCostPerReading: expect.any(Number),
+        totalTokens: expect.any(Number),
+        totalInputTokens: expect.any(Number),
+        totalOutputTokens: expect.any(Number),
+        totalRequests: expect.any(Number),
+        cacheHitRate: expect.any(Number),
+        costByProvider: expect.any(Array),
+        costByReadingType: expect.any(Array),
+        costByTier: expect.any(Array),
+        dailyCosts: expect.any(Array),
+      }));
+    });
+
+    it('should compute totalCost as sum of provider costs', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(30);
+
+      // 1.5 (CLAUDE) + 0.5 (GPT) = 2.0
+      expect(result.totalCost).toBe(2.0);
+    });
+
+    it('should compute avgCostPerReading correctly', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(30);
+
+      // totalCost=2.0, totalCount=10 → 0.2
+      expect(result.avgCostPerReading).toBe(0.2);
+    });
+
+    it('should compute token totals from aggregate summary', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(30);
+
+      expect(result.totalInputTokens).toBe(50000);
+      expect(result.totalOutputTokens).toBe(25000);
+      expect(result.totalTokens).toBe(75000);
+    });
+
+    it('should compute cacheHitRate correctly', async () => {
+      setupAICostsMocks({ cacheHitCount: 3 });
+
+      const result = await service.getAICosts(30);
+
+      // 3 cache hits / 10 total = 0.3
+      expect(result.cacheHitRate).toBe(0.3);
+    });
+
+    it('costByProvider should include avgCost, totalInputTokens, totalOutputTokens', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(30);
+
+      expect(result.costByProvider).toEqual([
+        {
+          provider: 'CLAUDE',
+          totalCost: 1.5,
+          count: 8,
+          avgCost: 0.1875,
+          totalInputTokens: 40000,
+          totalOutputTokens: 20000,
+        },
+        {
+          provider: 'GPT',
+          totalCost: 0.5,
+          count: 2,
+          avgCost: 0.25,
+          totalInputTokens: 10000,
+          totalOutputTokens: 5000,
+        },
+      ]);
+    });
+
+    it('costByReadingType should include avgInputTokens, avgOutputTokens, avgLatencyMs, cacheHitRate', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(30);
+
+      const lifetime = result.costByReadingType.find((r: any) => r.readingType === 'LIFETIME')!;
+      expect(lifetime).toBeDefined();
+      expect(lifetime).toEqual(expect.objectContaining({
+        readingType: 'LIFETIME',
+        totalCost: 1.0,
+        count: 4,
+        avgCost: 0.25,
+        avgInputTokens: 5000,
+        avgOutputTokens: 2500,
+        totalInputTokens: 20000,
+        totalOutputTokens: 10000,
+        avgLatencyMs: 3200,
+        cacheHitRate: 0.25, // 1 cache hit / 4 total
+      }));
+    });
+
+    it('costByReadingType should map NULL reading_type to UNCLASSIFIED', async () => {
+      setupAICostsMocks({
+        costByReadingTypeRaw: [
+          {
+            reading_type: null,
+            total_cost: 0.3,
+            count: BigInt(2),
+            avg_cost: 0.15,
+            avg_input_tokens: 3000,
+            avg_output_tokens: 1500,
+            total_input_tokens: BigInt(6000),
+            total_output_tokens: BigInt(3000),
+            avg_latency_ms: 2000,
+            cache_hits: BigInt(0),
+          },
+        ],
+      });
+
+      const result = await service.getAICosts(30);
+
+      const unclassified = result.costByReadingType.find((r: any) => r.readingType === 'UNCLASSIFIED')!;
+      expect(unclassified).toBeDefined();
+      expect(unclassified.readingType).toBe('UNCLASSIFIED');
+      expect(unclassified.totalCost).toBe(0.3);
+      expect(unclassified.cacheHitRate).toBe(0);
+    });
+
+    it('costByTier should aggregate LIFETIME into comprehensive tier', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(30);
+
+      const comprehensive = result.costByTier.find((t: any) => t.tier === 'comprehensive')!;
+      expect(comprehensive).toBeDefined();
+      // LIFETIME (1.0, 4) + CAREER (0.4, 3) = 1.4, 7
+      expect(comprehensive.totalCost).toBe(1.4);
+      expect(comprehensive.count).toBe(7);
+      expect(comprehensive.readingTypes).toEqual(expect.arrayContaining(['LIFETIME', 'CAREER']));
+      expect(comprehensive.label).toBe('Comprehensive');
+    });
+
+    it('costByTier should aggregate ANNUAL into periodic tier', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(30);
+
+      const periodic = result.costByTier.find((t: any) => t.tier === 'periodic')!;
+      expect(periodic).toBeDefined();
+      expect(periodic.totalCost).toBe(0.6);
+      expect(periodic.count).toBe(3);
+      expect(periodic.readingTypes).toContain('ANNUAL');
+      expect(periodic.label).toBe('Periodic');
+    });
+
+    it('costByTier should compute avgCost for each tier', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(30);
+
+      const comprehensive = result.costByTier.find((t: any) => t.tier === 'comprehensive')!;
+      // avgCost = 1.4 / 7 = 0.2
+      expect(comprehensive.avgCost).toBe(1.4 / 7);
+
+      const periodic = result.costByTier.find((t: any) => t.tier === 'periodic')!;
+      // avgCost = 0.6 / 3 ≈ 0.2
+      expect(periodic.avgCost).toBeCloseTo(0.2, 10);
+    });
+
+    it('costByTier should include unclassified tier for NULL reading types', async () => {
+      setupAICostsMocks({
+        costByReadingTypeRaw: [
+          {
+            reading_type: null,
+            total_cost: 0.5,
+            count: BigInt(5),
+            avg_cost: 0.1,
+            avg_input_tokens: 2000,
+            avg_output_tokens: 1000,
+            total_input_tokens: BigInt(10000),
+            total_output_tokens: BigInt(5000),
+            avg_latency_ms: 1500,
+            cache_hits: BigInt(0),
+          },
+        ],
+      });
+
+      const result = await service.getAICosts(30);
+
+      const unclassified = result.costByTier.find((t: any) => t.tier === 'unclassified')!;
+      expect(unclassified).toBeDefined();
+      expect(unclassified.label).toBe('Legacy / Unclassified');
+      expect(unclassified.readingTypes).toContain('UNCLASSIFIED');
+      expect(unclassified.totalCost).toBe(0.5);
+      expect(unclassified.count).toBe(5);
+    });
+
+    it('costByTier should group ZWDS_DAILY into daily tier and ZWDS_QA into qa tier', async () => {
+      setupAICostsMocks({
+        costByReadingTypeRaw: [
+          {
+            reading_type: 'ZWDS_DAILY',
+            total_cost: 0.2,
+            count: BigInt(10),
+            avg_cost: 0.02,
+            avg_input_tokens: 1000,
+            avg_output_tokens: 500,
+            total_input_tokens: BigInt(10000),
+            total_output_tokens: BigInt(5000),
+            avg_latency_ms: 800,
+            cache_hits: BigInt(5),
+          },
+          {
+            reading_type: 'ZWDS_QA',
+            total_cost: 0.3,
+            count: BigInt(6),
+            avg_cost: 0.05,
+            avg_input_tokens: 1500,
+            avg_output_tokens: 700,
+            total_input_tokens: BigInt(9000),
+            total_output_tokens: BigInt(4200),
+            avg_latency_ms: 1200,
+            cache_hits: BigInt(1),
+          },
+        ],
+      });
+
+      const result = await service.getAICosts(30);
+
+      const daily = result.costByTier.find((t: any) => t.tier === 'daily')!;
+      expect(daily).toBeDefined();
+      expect(daily.readingTypes).toContain('ZWDS_DAILY');
+      expect(daily.label).toBe('Daily');
+      expect(daily.totalCost).toBe(0.2);
+
+      const qa = result.costByTier.find((t: any) => t.tier === 'qa')!;
+      expect(qa).toBeDefined();
+      expect(qa.readingTypes).toContain('ZWDS_QA');
+      expect(qa.label).toBe('Q&A');
+      expect(qa.totalCost).toBe(0.3);
+    });
+
+    it('should use default days=30 when called without arguments', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts();
+
+      expect(result.days).toBe(30);
+    });
+
+    it('should pass days=7 and return it in the response', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(7);
+
+      expect(result.days).toBe(7);
+    });
+
+    it('should pass days=90 correctly', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(90);
+
+      expect(result.days).toBe(90);
+    });
+
+    it('should pass days=365 correctly', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(365);
+
+      expect(result.days).toBe(365);
+    });
+
+    it('should clamp days=0 to 1', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(0);
+
+      expect(result.days).toBe(1);
+    });
+
+    it('should clamp days=999 to 365', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(999);
+
+      expect(result.days).toBe(365);
+    });
+
+    it('should clamp negative days to 1', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(-10);
+
+      expect(result.days).toBe(1);
+    });
+
+    it('should return fallback values with new fields on error', async () => {
       mockPrisma.aIUsageLog.aggregate.mockRejectedValue(new Error('DB connection failed'));
 
       const result = await service.getAICosts();
 
-      expect(result.totalCost30d).toBe(0);
+      expect(result.days).toBe(30);
+      expect(result.totalCost).toBe(0);
       expect(result.avgCostPerReading).toBe(0);
       expect(result.totalTokens).toBe(0);
+      expect(result.totalInputTokens).toBe(0);
+      expect(result.totalOutputTokens).toBe(0);
       expect(result.totalRequests).toBe(0);
       expect(result.cacheHitRate).toBe(0);
       expect(result.costByProvider).toEqual([]);
+      expect(result.costByReadingType).toEqual([]);
+      expect(result.costByTier).toEqual([]);
       expect(result.dailyCosts).toEqual([]);
+    });
+
+    it('should handle empty results (no usage logs)', async () => {
+      setupAICostsMocks({
+        aggregateSummary: { _sum: { inputTokens: null, outputTokens: null }, _count: { id: 0 } },
+        costByProvider: [],
+        costByReadingTypeRaw: [],
+        dailyCosts: [],
+        cacheHitCount: 0,
+      });
+
+      const result = await service.getAICosts(30);
+
+      expect(result.totalCost).toBe(0);
+      expect(result.avgCostPerReading).toBe(0);
+      expect(result.totalTokens).toBe(0);
+      expect(result.totalInputTokens).toBe(0);
+      expect(result.totalOutputTokens).toBe(0);
+      expect(result.totalRequests).toBe(0);
+      expect(result.cacheHitRate).toBe(0);
+      expect(result.costByProvider).toEqual([]);
+      expect(result.costByReadingType).toEqual([]);
+      expect(result.costByTier).toEqual([]);
+      expect(result.dailyCosts).toEqual([]);
+    });
+
+    it('dailyCosts should map day and count correctly', async () => {
+      setupAICostsMocks();
+
+      const result = await service.getAICosts(30);
+
+      expect(result.dailyCosts).toEqual([
+        { date: new Date('2026-02-10'), totalCost: 1.0, count: 5 },
+        { date: new Date('2026-02-11'), totalCost: 1.0, count: 5 },
+      ]);
     });
   });
 
