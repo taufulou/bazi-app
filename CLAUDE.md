@@ -99,7 +99,7 @@ python -m pytest tests/ -v                                  # Run 121 tests
 - Rate limiting: @nestjs/throttler (100 req/min default), helmet security headers
 
 ## Auth Flow
-- Web: Clerk middleware protects all routes except `/`, `/sign-in`, `/sign-up`, `/api/webhooks`, `/api/zwds-calculate`, `/reading`, `/pricing`
+- Web: Clerk middleware protects all routes except `/`, `/sign-in`, `/sign-up`, `/api/webhooks`, `/api/zwds-calculate`, `/api/bazi-calculate`, `/reading`, `/pricing`
 - API: ClerkAuthGuard verifies JWT on all routes except @Public() decorated ones
 - Mobile: ClerkProvider with SecureStore token cache, (authenticated) route group
 - Webhook: Clerk → ngrok → /api/webhooks/clerk → syncs user to DB
@@ -139,10 +139,44 @@ python -m pytest tests/ -v                                  # Run 121 tests
 17. 八字+紫微綜合分析 (Cross-System) — 3 credits
 18. 深度星曜分析 (Deep Stars, Master-tier only) — 2 credits
 
+## Competitive Strategy & Monetization
+- **Key differentiator**: Combined Bazi + ZWDS in one platform (most competitors offer only one system)
+- **Competitors**: 科技紫微網 (Click108, 10M+ members), 靈機 (Linghit, 100M+ users), CHANI (~$14M/yr), Co-Star (~$5-10M/yr)
+- **ZWDS school**: Default to 全書派 (Chen Xi-Yi) system — most widely recognized (~60% of apps)
+- **Pricing tiers** (planned):
+  | Plan | Price | Credits |
+  |------|-------|---------|
+  | Free | $0 | 1 free reading + chart display |
+  | Basic | $5.99/mo | 5 Bazi + 3 ZWDS/month |
+  | Pro | $12.99/mo | 15 Bazi + 10 ZWDS/month + monthly/compatibility/大限 |
+  | Master | $24.99/mo | Unlimited + daily/Q&A/cross-system/deep-stars |
+- **Retention flywheel**: Free chart (hook) → chart preview → subscribe → monthly notifications → annual renewal → share compatibility → friend joins
+
+## Frontend Data Flow Architecture
+The frontend currently calls calculation engines directly (no NestJS for reading flow):
+```
+Bazi Reading:
+  Browser → POST localhost:5001/calculate (Python engine directly)
+  → BaziChart component renders Four Pillars
+  → AI interpretation uses mock data (until API keys configured)
+
+ZWDS Reading:
+  Browser → POST /api/zwds-calculate (Next.js API route)
+  → route.ts calls iztro server-side → returns ZwdsChartData JSON
+  → ZwdsChart component renders 12 palaces
+  → AI interpretation uses mock data (until API keys configured)
+
+Birth Profile CRUD (Phase 9):
+  Browser → GET/POST/PATCH/DELETE localhost:4000/api/users/me/birth-profiles
+  → NestJS API with Clerk JWT auth → PostgreSQL via Prisma
+
+Future (not yet wired):
+  Browser → NestJS API → credit check → calculation engine → AI provider → DB save → return
+```
+
 ## Important Notes
 - Docker is NOT available on this machine — use Homebrew services (PostgreSQL, Redis) instead
 - Prisma v6 (not v7) — v7 has breaking constructor changes incompatible with traditional server setup
-- The full implementation plan is at `~/.claude/plans/magical-dancing-moonbeam.md`
 - Entertainment disclaimer required: 「本服務僅供參考與娛樂用途，不構成任何專業建議」
 - AI fallback chain: Claude Sonnet 4.5 → GPT-4o → Gemini 2.0 Flash
 - PostgreSQL@15 is running (not @16 — @16 has startup errors on this machine)
@@ -169,13 +203,17 @@ python -m pytest tests/ -v                                  # Run 121 tests
 
 ## Frontend UI (apps/web/)
 - **Landing Page** (`/`): Hero with CTA button ("免費開始" → sign-in or dashboard), 6 Bazi feature cards + 6 ZWDS feature cards (purple-themed). All cards are clickable links. Server component with `auth()` to detect signed-in state.
-- **BirthDataForm**: Client component with name, gender toggle, date/time pickers, city datalist, timezone select. Validates all required fields before enabling submit. Phase 8B: extra inputs for monthly (month picker), daily (date picker), Q&A (textarea).
+- **BirthDataForm**: Client component with name (custom dropdown for saved profiles), gender toggle, date/time pickers, city datalist, timezone select. Validates all required fields before enabling submit. Phase 8B: extra inputs for monthly (month picker), daily (date picker), Q&A (textarea). Save checkbox with relationship tag (本人/家人/朋友). Selecting a saved profile auto-fills all fields.
 - **BaziChart**: Full Four Pillars table (stems/branches colored by element, hidden stems, ten gods, na yin, shen sha, life stages), Five Elements energy circles, Day Master analysis panel (strength bar, pattern, five gods), Luck Periods horizontal scrollable timeline, Shen Sha tags, Kong Wang display.
 - **ZwdsChart**: 12-palace grid with real iztro data — major/minor/adjective stars, brightness levels, mutagens, changsheng12, decadal ranges, age lists. Central info panel (solarDate, lunarDate, chineseDate, gender, fiveElementsClass). Purple-themed styling.
 - **AIReadingDisplay**: Section-by-section AI reading with themed backgrounds (personality=gold, career=blue, love=pink, finance=orange, health=green). Subscribers see full content; free users see preview + blurred paywall overlay with subscribe CTA. Includes streaming cursor, loading skeletons, entertainment disclaimer, cross-sell grid linking to other reading types.
 - **Reading Page** (`/reading/[type]`): Two-step flow (input → result) with step indicator and tab bar (chart/reading). Supports all 16 reading types (6 Bazi + 10 ZWDS). Bazi calls Python engine directly; ZWDS calls `/api/zwds-calculate` (iztro). AI interpretation uses mock data until API keys configured.
-- **Dashboard** (`/dashboard`): Authenticated page (Clerk) with two sections — 八字命理分析 (Bazi cards) + 紫微斗數分析 (ZWDS cards, purple-themed). Subscription CTA banner. User avatar via Clerk `<UserButton>`.
+- **Dashboard** (`/dashboard`): Authenticated page (Clerk) with two sections — 八字命理分析 (Bazi cards) + 紫微斗數分析 (ZWDS cards, purple-themed). Subscription CTA banner. Link to profile management. User avatar via Clerk `<UserButton>`.
+- **Profile Management** (`/dashboard/profiles`): Full CRUD for birth profiles with ProfileCard component. Create/edit/delete profiles, set primary. Inline delete confirmation (not window.confirm). Optimistic delete with revert on API failure.
+- **ProfileCard**: Reusable card showing name, birth date/time, city, gender, relationship tag badge (gold=本人, blue=家人, green=朋友). Edit/delete buttons. Used in profile management page.
 - **ZWDS Direct API Route** (`/api/zwds-calculate`): Next.js API route that calls iztro server-side for chart calculation. No auth required. Returns ZwdsChartData JSON. Used by frontend for direct chart preview without NestJS backend.
+- **Bazi Direct API Route** (`/api/bazi-calculate`): Next.js API route that proxies to Python engine. Used as fallback when browser can't reach localhost:5001 directly.
+- **Birth Profiles API Client** (`app/lib/birth-profiles-api.ts`): CRUD functions (fetch/create/update/delete), gender enum conversion (male↔MALE), `profileToFormValues()` and `formValuesToPayload()` helpers.
 - **Styling**: CSS Modules (no Tailwind). Dark theme matching design system.
 - **Tests**: 71 tests (BirthDataForm: 16, BaziChart: 30, AIReadingDisplay: 25). Jest + React Testing Library + jsdom.
 
@@ -189,17 +227,20 @@ python -m pytest tests/ -v                                  # Run 121 tests
 - **Tests**: 209 ZWDS-specific tests + 80 Phase 8B tests = 289 ZWDS tests
 
 ## Phase Status
-- ✅ Phase 1: Foundation (Steps 1-4 complete — monorepo, DB, auth, API)
-- ✅ Phase 2: Bazi Engine (Steps 5-6 complete — calculation engine, luck periods, compatibility, 121 tests passing)
-- ✅ Phase 3: AI Interpretation (Steps 7-8 complete — provider abstraction, 6 reading prompts, failover chain, reading cache, 48 tests passing)
-- ✅ Phase 4: Frontend UI (Steps 9-11 complete — birth data form, Bazi chart display, AI reading display with paywall, 71 tests passing)
+- ✅ Phase 1: Foundation (monorepo, DB, auth, API)
+- ✅ Phase 2: Bazi Engine (calculation engine, luck periods, compatibility, 121 tests)
+- ✅ Phase 3: AI Interpretation (provider abstraction, 6 reading prompts, failover chain, 48 tests)
+- ✅ Phase 4: Frontend UI (birth data form, Bazi chart, AI reading display with paywall, 71 tests)
 - ✅ Phase 6: Admin Dashboard (9 admin pages, 157 API tests)
 - ✅ Phase 7A: Production Hardening (env validation, exception filter, security headers, Sentry, PostHog)
 - ✅ Phase 8: ZWDS Engine + Frontend (iztro integration, 6 ZWDS reading types, chart component, 209 ZWDS tests)
 - ✅ Phase 8B: ZWDS Features (Monthly/Daily/MajorPeriod/QA + cross-system + deep-stars, 80 new tests)
-- ✅ Frontend Wiring: ZWDS chart now uses real iztro data (via `/api/zwds-calculate`), landing page updated with ZWDS cards + CTA
-- ⏳ Phase 5: Monetization & Payment (Steps 12-13 — Stripe, Apple IAP, Google Play, subscription management)
-- ⏳ Remaining: Wire frontend to NestJS API for authenticated readings (credits, AI interpretation, history)
+- ✅ Phase 9: User Birth Profile Management (profile CRUD, custom dropdown on name field, auto-fill, profile manager page, relationship tags)
+
+### Upcoming Work (Priority Order)
+1. **Wire frontend to NestJS API** — Currently frontend calls engines directly with mock AI. Need to route through NestJS for: credit deduction, real AI interpretation (Claude/GPT/Gemini), reading history saved to DB, subscription gating
+2. **Phase 5: Monetization & Payment** — Stripe integration, subscription plans, credit system, Apple IAP, Google Play billing
+3. **Mobile app** — React Native Expo app (skeleton exists, needs reading flow)
 
 ## Total Tests: 462 (16 suites) — all passing
 
