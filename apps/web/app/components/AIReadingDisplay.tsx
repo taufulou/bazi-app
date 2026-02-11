@@ -1,8 +1,16 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import styles from "./AIReadingDisplay.module.css";
 import { ENTERTAINMENT_DISCLAIMER } from "@repo/shared";
+import {
+  trackReadingSectionViewed,
+  trackPaywallImpression,
+  trackPaywallCtaClicked,
+  trackCrossSellClicked,
+  trackReadingCompleted,
+} from "../lib/analytics";
 
 // ============================================================
 // Types
@@ -212,6 +220,31 @@ export default function AIReadingDisplay({
   isLoading = false,
   isStreaming = false,
 }: AIReadingDisplayProps) {
+  // Track time spent viewing the reading
+  const viewStartTime = useRef<number>(Date.now());
+  const sectionsViewedSet = useRef<Set<string>>(new Set());
+  const paywallTracked = useRef<Set<string>>(new Set());
+
+  // Track reading_completed on unmount
+  useEffect(() => {
+    viewStartTime.current = Date.now();
+    sectionsViewedSet.current = new Set();
+    paywallTracked.current = new Set();
+
+    return () => {
+      if (data && data.sections.length > 0) {
+        trackReadingCompleted({
+          readingType,
+          isSubscriber,
+          sectionsViewed: sectionsViewedSet.current.size,
+          totalSections: data.sections.length,
+          timeSpentMs: Date.now() - viewStartTime.current,
+        });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readingType]);
+
   if (isLoading) {
     return <LoadingSkeleton />;
   }
@@ -252,54 +285,19 @@ export default function AIReadingDisplay({
           SECTION_TITLES_ZH[section.key] || section.title || section.key;
 
         return (
-          <div
+          <SectionWithTracking
             key={section.key || index}
-            className={styles.readingSection}
-            data-theme={themeInfo.theme}
-          >
-            <div className={styles.sectionHeader}>
-              <span className={styles.sectionIcon}>{themeInfo.icon}</span>
-              <h3 className={styles.sectionTitle}>{titleZh}</h3>
-            </div>
-
-            {isSubscriber ? (
-              /* Subscriber: show full content */
-              <div className={styles.sectionContent}>
-                {section.full}
-                {isStreaming && index === data.sections.length - 1 && (
-                  <span className={styles.streamingCursor} />
-                )}
-              </div>
-            ) : (
-              /* Free user: show preview + paywall */
-              <div className={styles.paywallWrapper}>
-                {/* Preview text (visible) */}
-                <div className={styles.previewContent}>{section.preview}</div>
-
-                {/* Blurred full text behind paywall */}
-                {section.full && section.full !== section.preview && (
-                  <>
-                    <div className={styles.paywallBlur}>
-                      {section.full.slice(
-                        section.preview.length,
-                        section.preview.length + 300,
-                      )}
-                    </div>
-                    <div className={styles.paywallOverlay}>
-                      <div className={styles.paywallIcon}>🔒</div>
-                      <div className={styles.paywallMessage}>
-                        訂閱解鎖完整內容
-                      </div>
-                      <div className={styles.paywallSubtext}>
-                        升級會員查看詳細分析與建議
-                      </div>
-                      <button className={styles.paywallBtn}>立即訂閱</button>
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
+            section={section}
+            index={index}
+            themeInfo={themeInfo}
+            titleZh={titleZh}
+            readingType={readingType}
+            isSubscriber={isSubscriber}
+            isStreaming={isStreaming}
+            isLastSection={index === data.sections.length - 1}
+            sectionsViewedSet={sectionsViewedSet}
+            paywallTracked={paywallTracked}
+          />
         );
       })}
 
@@ -324,12 +322,149 @@ export default function AIReadingDisplay({
                 key={item.slug}
                 href={`/reading/${item.slug}`}
                 className={styles.crossSellCard}
+                onClick={() =>
+                  trackCrossSellClicked({
+                    readingType,
+                    targetReadingType: item.slug,
+                  })
+                }
               >
                 <div className={styles.crossSellIcon}>{item.icon}</div>
                 <div className={styles.crossSellName}>{item.name}</div>
               </Link>
             ))}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Section with IntersectionObserver tracking
+// ============================================================
+
+function SectionWithTracking({
+  section,
+  index,
+  themeInfo,
+  titleZh,
+  readingType,
+  isSubscriber,
+  isStreaming,
+  isLastSection,
+  sectionsViewedSet,
+  paywallTracked,
+}: {
+  section: ReadingSectionData;
+  index: number;
+  themeInfo: { icon: string; theme: string };
+  titleZh: string;
+  readingType: string;
+  isSubscriber: boolean;
+  isStreaming: boolean;
+  isLastSection: boolean;
+  sectionsViewedSet: React.MutableRefObject<Set<string>>;
+  paywallTracked: React.MutableRefObject<Set<string>>;
+}) {
+  const sectionRef = useRef<HTMLDivElement>(null);
+
+  // Track when section scrolls into view
+  useEffect(() => {
+    const el = sectionRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry && entry.isIntersecting && !sectionsViewedSet.current.has(section.key)) {
+          sectionsViewedSet.current.add(section.key);
+          trackReadingSectionViewed({
+            readingType,
+            sectionKey: section.key,
+            sectionIndex: index,
+            isSubscriber,
+          });
+
+          // Track paywall impression for non-subscribers
+          if (
+            !isSubscriber &&
+            section.full &&
+            section.full !== section.preview &&
+            !paywallTracked.current.has(section.key)
+          ) {
+            paywallTracked.current.add(section.key);
+            trackPaywallImpression({
+              readingType,
+              sectionKey: section.key,
+              sectionIndex: index,
+            });
+          }
+        }
+      },
+      { threshold: 0.3 },
+    );
+
+    observer.observe(el);
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section.key, readingType, isSubscriber, index]);
+
+  return (
+    <div
+      ref={sectionRef}
+      className={styles.readingSection}
+      data-theme={themeInfo.theme}
+    >
+      <div className={styles.sectionHeader}>
+        <span className={styles.sectionIcon}>{themeInfo.icon}</span>
+        <h3 className={styles.sectionTitle}>{titleZh}</h3>
+      </div>
+
+      {isSubscriber ? (
+        /* Subscriber: show full content */
+        <div className={styles.sectionContent}>
+          {section.full}
+          {isStreaming && isLastSection && (
+            <span className={styles.streamingCursor} />
+          )}
+        </div>
+      ) : (
+        /* Free user: show preview + paywall */
+        <div className={styles.paywallWrapper}>
+          {/* Preview text (visible) */}
+          <div className={styles.previewContent}>{section.preview}</div>
+
+          {/* Blurred full text behind paywall */}
+          {section.full && section.full !== section.preview && (
+            <>
+              <div className={styles.paywallBlur}>
+                {section.full.slice(
+                  section.preview.length,
+                  section.preview.length + 300,
+                )}
+              </div>
+              <div className={styles.paywallOverlay}>
+                <div className={styles.paywallIcon}>🔒</div>
+                <div className={styles.paywallMessage}>
+                  訂閱解鎖完整內容
+                </div>
+                <div className={styles.paywallSubtext}>
+                  升級會員查看詳細分析與建議
+                </div>
+                <button
+                  className={styles.paywallBtn}
+                  onClick={() =>
+                    trackPaywallCtaClicked({
+                      readingType,
+                      sectionKey: section.key,
+                    })
+                  }
+                >
+                  立即訂閱
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

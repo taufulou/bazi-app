@@ -331,6 +331,47 @@ export async function getRevenue(token: string): Promise<Revenue> {
   return apiFetch<Revenue>('/api/admin/revenue', { token });
 }
 
+// ============ User Behavior Summary ============
+
+export interface UserBehaviorSummary {
+  period: { days: number; since: string };
+  funnel: {
+    totalUsers: number;
+    usersWhoCreatedReading: number;
+    usersWithActiveSubscription: number;
+    signupToReadingRate: number;
+    readingToSubscriptionRate: number;
+    overallConversionRate: number;
+  };
+  growth: {
+    newUsersInPeriod: number;
+    freeReadingUsedCount: number;
+  };
+  readingTypePopularity: { type: string; count: number }[];
+  engagement: {
+    activeUsers7d: number;
+    activeUsers30d: number;
+    avgReadingsPerSubscriber: number;
+    avgReadingsPerFreeUser: number;
+  };
+  usersByTier: { tier: string; count: number }[];
+  readingsPerUserDistribution: { readingCount: number; userCount: number }[];
+  readingsPerDay: { date: string; count: number }[];
+  readingsByHourOfDay: { hour: number; count: number }[];
+  subscriptionsByMonth: { month: string; count: number }[];
+  churn: { cancelledInPeriod: number; churnRate: number };
+}
+
+export async function getUserBehaviorSummary(
+  token: string,
+  days = 30,
+): Promise<UserBehaviorSummary> {
+  return apiFetch<UserBehaviorSummary>(
+    `/api/admin/user-behavior?days=${days}`,
+    { token },
+  );
+}
+
 // ============ Audit Log ============
 
 export async function getAuditLog(

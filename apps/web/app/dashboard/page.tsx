@@ -4,6 +4,11 @@ import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { READING_TYPE_META } from "@repo/shared";
 import styles from "./page.module.css";
+import {
+  DashboardViewTracker,
+  ReadingCardTracker,
+  SubscriptionCtaTracker,
+} from "./DashboardTracker";
 
 export default async function DashboardPage() {
   const user = await currentUser();
@@ -27,15 +32,19 @@ export default async function DashboardPage() {
 
   return (
     <div className={styles.page}>
+      <DashboardViewTracker readingTypesCount={allTypes.length} />
+
       {/* Header */}
       <header className={styles.header}>
         <Link href="/" className={styles.logo}>
           八字命理平台
         </Link>
         <div className={styles.headerRight}>
-          <Link href="/pricing" className={styles.pricingLink}>
-            💎 訂閱方案
-          </Link>
+          <SubscriptionCtaTracker location="header_link">
+            <Link href="/pricing" className={styles.pricingLink}>
+              💎 訂閱方案
+            </Link>
+          </SubscriptionCtaTracker>
           <span className={styles.userName}>
             {user.firstName || user.emailAddresses[0]?.emailAddress || "用戶"}
           </span>
@@ -62,21 +71,27 @@ export default async function DashboardPage() {
       <section className={styles.readingsSection}>
         <h3 className={styles.sectionLabel}>八字命理分析</h3>
         <div className={styles.grid}>
-          {baziTypes.map((reading) => (
-            <Link
+          {baziTypes.map((reading, index) => (
+            <ReadingCardTracker
               key={reading.slug}
-              href={`/reading/${reading.slug}`}
-              className={styles.cardLink}
+              readingType={reading.slug}
+              system="bazi"
+              cardPosition={index}
             >
-              <div className={styles.card}>
-                <div className={styles.cardIcon}>{reading.icon}</div>
-                <h3 className={styles.cardTitle}>{reading.name}</h3>
-                <p className={styles.cardDescription}>{reading.description}</p>
-                <div className={styles.cardFooter}>
-                  <span className={styles.cardAction}>開始分析 &rarr;</span>
+              <Link
+                href={`/reading/${reading.slug}`}
+                className={styles.cardLink}
+              >
+                <div className={styles.card}>
+                  <div className={styles.cardIcon}>{reading.icon}</div>
+                  <h3 className={styles.cardTitle}>{reading.name}</h3>
+                  <p className={styles.cardDescription}>{reading.description}</p>
+                  <div className={styles.cardFooter}>
+                    <span className={styles.cardAction}>開始分析 &rarr;</span>
+                  </div>
                 </div>
-              </div>
-            </Link>
+              </Link>
+            </ReadingCardTracker>
           ))}
         </div>
       </section>
@@ -85,21 +100,27 @@ export default async function DashboardPage() {
       <section className={styles.readingsSection}>
         <h3 className={styles.sectionLabel}>紫微斗數分析</h3>
         <div className={styles.grid}>
-          {zwdsTypes.map((reading) => (
-            <Link
+          {zwdsTypes.map((reading, index) => (
+            <ReadingCardTracker
               key={reading.slug}
-              href={`/reading/${reading.slug}`}
-              className={styles.cardLink}
+              readingType={reading.slug}
+              system="zwds"
+              cardPosition={index}
             >
-              <div className={styles.cardZwds}>
-                <div className={styles.cardIcon}>{reading.icon}</div>
-                <h3 className={styles.cardTitle}>{reading.name}</h3>
-                <p className={styles.cardDescription}>{reading.description}</p>
-                <div className={styles.cardFooter}>
-                  <span className={styles.cardAction}>開始分析 &rarr;</span>
+              <Link
+                href={`/reading/${reading.slug}`}
+                className={styles.cardLink}
+              >
+                <div className={styles.cardZwds}>
+                  <div className={styles.cardIcon}>{reading.icon}</div>
+                  <h3 className={styles.cardTitle}>{reading.name}</h3>
+                  <p className={styles.cardDescription}>{reading.description}</p>
+                  <div className={styles.cardFooter}>
+                    <span className={styles.cardAction}>開始分析 &rarr;</span>
+                  </div>
                 </div>
-              </div>
-            </Link>
+              </Link>
+            </ReadingCardTracker>
           ))}
         </div>
       </section>
@@ -111,9 +132,11 @@ export default async function DashboardPage() {
           <p className={styles.ctaText}>
             訂閱會員即可查看所有分析的完整內容，包括詳細的性格分析、事業指引、感情建議等。
           </p>
-          <Link href="/pricing" className={styles.ctaButton}>
-            查看訂閱方案
-          </Link>
+          <SubscriptionCtaTracker location="dashboard_banner">
+            <Link href="/pricing" className={styles.ctaButton}>
+              查看訂閱方案
+            </Link>
+          </SubscriptionCtaTracker>
         </div>
       </section>
     </div>

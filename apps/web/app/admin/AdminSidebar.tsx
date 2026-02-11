@@ -14,6 +14,7 @@ const NAV_ITEMS = [
   { href: '/admin/users', label: 'Users', icon: '👥' },
   { href: '/admin/gateways', label: 'Gateways', icon: '💳' },
   { href: '/admin/ai-costs', label: 'AI Costs', icon: '🤖' },
+  { href: '/admin/user-behavior', label: 'User Behavior', icon: '📈' },
   { href: '/admin/audit-log', label: 'Audit Log', icon: '📋' },
 ];
 

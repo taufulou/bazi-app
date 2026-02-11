@@ -191,6 +191,17 @@ export class AdminController {
     return this.adminService.getRevenue();
   }
 
+  // ============ User Behavior Summary ============
+
+  @Get('user-behavior')
+  @ApiOperation({ summary: 'Get aggregated user behavior summary and funnel analytics' })
+  @ApiQuery({ name: 'days', required: false, description: 'Number of days to analyze (default 30)' })
+  async getUserBehaviorSummary(
+    @Query('days', new DefaultValuePipe(30), ParseIntPipe) days: number,
+  ) {
+    return this.adminService.getUserBehaviorSummary(days);
+  }
+
   // ============ Audit Log ============
 
   @Get('audit-log')

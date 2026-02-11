@@ -1,9 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { DEFAULT_PLANS } from "@repo/shared";
 import styles from "./page.module.css";
+import {
+  trackPricingPageViewed,
+  trackBillingToggled,
+  trackPlanCtaClicked,
+} from "../lib/analytics";
 
 // ============================================================
 // Plan metadata (features, descriptions, CTA text)
@@ -104,6 +110,25 @@ function calcSavingsPercent(monthly: number, annual: number): number {
 
 export default function PricingPage() {
   const [isAnnual, setIsAnnual] = useState(false);
+  const searchParams = useSearchParams();
+  const hasTrackedView = useRef(false);
+
+  // Track pricing page view with referral source
+  useEffect(() => {
+    if (!hasTrackedView.current) {
+      hasTrackedView.current = true;
+      trackPricingPageViewed({
+        source: searchParams.get("source") || document.referrer || "direct",
+      });
+    }
+  }, [searchParams]);
+
+  const handleBillingToggle = (annual: boolean) => {
+    if (annual !== isAnnual) {
+      trackBillingToggled({ newValue: annual ? "annual" : "monthly" });
+    }
+    setIsAnnual(annual);
+  };
 
   return (
     <div className={styles.pageContainer}>
@@ -119,14 +144,14 @@ export default function PricingPage() {
       <div className={styles.billingToggle}>
         <span
           className={`${styles.billingLabel} ${!isAnnual ? styles.billingLabelActive : ""}`}
-          onClick={() => setIsAnnual(false)}
+          onClick={() => handleBillingToggle(false)}
         >
           月繳
         </span>
 
         <div
           className={styles.toggleTrack}
-          onClick={() => setIsAnnual((prev) => !prev)}
+          onClick={() => handleBillingToggle(!isAnnual)}
           role="switch"
           aria-checked={isAnnual}
           aria-label="切換月繳或年繳"
@@ -134,7 +159,7 @@ export default function PricingPage() {
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              setIsAnnual((prev) => !prev);
+              handleBillingToggle(!isAnnual);
             }
           }}
         >
@@ -145,7 +170,7 @@ export default function PricingPage() {
 
         <span
           className={`${styles.billingLabel} ${isAnnual ? styles.billingLabelActive : ""}`}
-          onClick={() => setIsAnnual(true)}
+          onClick={() => handleBillingToggle(true)}
         >
           年繳
         </span>
@@ -211,6 +236,13 @@ export default function PricingPage() {
               <Link
                 href="/api/payments/checkout/subscription"
                 className={`${styles.ctaButton} ${plan.isRecommended ? styles.ctaPrimary : styles.ctaSecondary}`}
+                onClick={() =>
+                  trackPlanCtaClicked({
+                    planName: plan.name,
+                    billingCycle: isAnnual ? "annual" : "monthly",
+                    displayPrice: displayPrice,
+                  })
+                }
               >
                 {plan.isRecommended ? "立即訂閱" : "選擇方案"}
               </Link>

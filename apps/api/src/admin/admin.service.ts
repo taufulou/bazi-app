@@ -421,6 +421,252 @@ export class AdminService {
     }
   }
 
+  // ============ User Behavior Summary ============
+
+  async getUserBehaviorSummary(days = 30) {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    try {
+      const [
+        // Funnel: total users vs users who created readings
+        totalUsers,
+        usersWithReadings,
+        usersWithSubscriptions,
+        newUsersInPeriod,
+        // Reading type popularity
+        readingsByType,
+        // Readings per user distribution
+        readingsPerUser,
+        // Subscription conversion over time
+        subscriptionsByMonth,
+        // Free reading usage
+        freeReadingUsedCount,
+        // User retention: users who created readings in last 7 days vs last 30 days
+        activeUsers7d,
+        activeUsers30d,
+        // Readings created per day (for trend)
+        readingsPerDay,
+        // Most active hours (when do users create readings)
+        readingsByHour,
+        // Users by subscription tier
+        usersByTier,
+        // Average readings per subscriber vs free user
+        subscriberReadingCount,
+        freeUserReadingCount,
+        // Churn: cancelled subscriptions in period
+        cancelledSubscriptions,
+      ] = await Promise.all([
+        this.prisma.user.count(),
+
+        this.prisma.user.count({
+          where: { baziReadings: { some: {} } },
+        }),
+
+        this.prisma.user.count({
+          where: { subscriptions: { some: { status: 'ACTIVE' } } },
+        }),
+
+        this.prisma.user.count({
+          where: { createdAt: { gte: since } },
+        }),
+
+        this.prisma.baziReading.groupBy({
+          by: ['readingType'],
+          _count: { id: true },
+          where: { createdAt: { gte: since } },
+          orderBy: { _count: { id: 'desc' } },
+        }),
+
+        // Distribution: how many readings per user
+        this.prisma.$queryRaw<Array<{ reading_count: bigint; user_count: bigint }>>`
+          SELECT reading_count, COUNT(*) as user_count FROM (
+            SELECT user_id, COUNT(*) as reading_count
+            FROM bazi_readings
+            WHERE created_at >= ${since}
+            GROUP BY user_id
+          ) sub
+          GROUP BY reading_count
+          ORDER BY reading_count ASC
+        `,
+
+        // Subscriptions created per month
+        this.prisma.$queryRaw<Array<{ month: Date; count: bigint }>>`
+          SELECT DATE_TRUNC('month', created_at) as month, COUNT(*) as count
+          FROM subscriptions
+          WHERE created_at >= ${since}
+          GROUP BY DATE_TRUNC('month', created_at)
+          ORDER BY month ASC
+        `,
+
+        this.prisma.user.count({
+          where: { freeReadingUsed: true },
+        }),
+
+        // Active users last 7 days (created a reading)
+        this.prisma.$queryRaw<Array<{ count: bigint }>>`
+          SELECT COUNT(DISTINCT user_id) as count
+          FROM bazi_readings
+          WHERE created_at >= ${new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)}
+        `,
+
+        // Active users last 30 days
+        this.prisma.$queryRaw<Array<{ count: bigint }>>`
+          SELECT COUNT(DISTINCT user_id) as count
+          FROM bazi_readings
+          WHERE created_at >= ${since}
+        `,
+
+        // Readings per day trend
+        this.prisma.$queryRaw<Array<{ day: Date; count: bigint }>>`
+          SELECT DATE_TRUNC('day', created_at) as day, COUNT(*) as count
+          FROM bazi_readings
+          WHERE created_at >= ${since}
+          GROUP BY DATE_TRUNC('day', created_at)
+          ORDER BY day ASC
+        `,
+
+        // Readings by hour of day (user behavior pattern)
+        this.prisma.$queryRaw<Array<{ hour: number; count: bigint }>>`
+          SELECT EXTRACT(HOUR FROM created_at)::int as hour, COUNT(*) as count
+          FROM bazi_readings
+          WHERE created_at >= ${since}
+          GROUP BY hour
+          ORDER BY hour ASC
+        `,
+
+        // Users by subscription tier
+        this.prisma.user.groupBy({
+          by: ['subscriptionTier'],
+          _count: { id: true },
+        }),
+
+        // Average readings by subscribers
+        this.prisma.$queryRaw<Array<{ avg_readings: number }>>`
+          SELECT COALESCE(AVG(cnt), 0)::float as avg_readings FROM (
+            SELECT u.id, COUNT(r.id) as cnt
+            FROM users u
+            LEFT JOIN bazi_readings r ON r.user_id = u.id AND r.created_at >= ${since}
+            WHERE u.subscription_tier != 'FREE'
+            GROUP BY u.id
+          ) sub
+        `,
+
+        // Average readings by free users
+        this.prisma.$queryRaw<Array<{ avg_readings: number }>>`
+          SELECT COALESCE(AVG(cnt), 0)::float as avg_readings FROM (
+            SELECT u.id, COUNT(r.id) as cnt
+            FROM users u
+            LEFT JOIN bazi_readings r ON r.user_id = u.id AND r.created_at >= ${since}
+            WHERE u.subscription_tier = 'FREE'
+            GROUP BY u.id
+          ) sub
+        `,
+
+        // Cancelled subscriptions in period
+        this.prisma.subscription.count({
+          where: {
+            status: 'CANCELLED',
+            cancelledAt: { gte: since },
+          },
+        }),
+      ]);
+
+      // Compute funnel percentages
+      const signupToReadingRate = totalUsers > 0 ? usersWithReadings / totalUsers : 0;
+      const readingToSubscriptionRate = usersWithReadings > 0 ? usersWithSubscriptions / usersWithReadings : 0;
+      const overallConversionRate = totalUsers > 0 ? usersWithSubscriptions / totalUsers : 0;
+
+      return {
+        period: { days, since: since.toISOString() },
+
+        // Conversion funnel
+        funnel: {
+          totalUsers,
+          usersWhoCreatedReading: usersWithReadings,
+          usersWithActiveSubscription: usersWithSubscriptions,
+          signupToReadingRate: Math.round(signupToReadingRate * 10000) / 100,
+          readingToSubscriptionRate: Math.round(readingToSubscriptionRate * 10000) / 100,
+          overallConversionRate: Math.round(overallConversionRate * 10000) / 100,
+        },
+
+        // User growth
+        growth: {
+          newUsersInPeriod,
+          freeReadingUsedCount,
+        },
+
+        // Feature usage: which reading types are most popular
+        readingTypePopularity: readingsByType.map((r) => ({
+          type: r.readingType,
+          count: r._count.id,
+        })),
+
+        // User engagement
+        engagement: {
+          activeUsers7d: Number(activeUsers7d[0]?.count || 0),
+          activeUsers30d: Number(activeUsers30d[0]?.count || 0),
+          avgReadingsPerSubscriber: subscriberReadingCount[0]?.avg_readings || 0,
+          avgReadingsPerFreeUser: freeUserReadingCount[0]?.avg_readings || 0,
+        },
+
+        // User distribution by tier
+        usersByTier: usersByTier.map((t) => ({
+          tier: t.subscriptionTier,
+          count: t._count.id,
+        })),
+
+        // Readings per user distribution (how many users have 1, 2, 3... readings)
+        readingsPerUserDistribution: readingsPerUser.map((r) => ({
+          readingCount: Number(r.reading_count),
+          userCount: Number(r.user_count),
+        })),
+
+        // Activity patterns
+        readingsPerDay: readingsPerDay.map((d) => ({
+          date: d.day,
+          count: Number(d.count),
+        })),
+
+        readingsByHourOfDay: readingsByHour.map((h) => ({
+          hour: h.hour,
+          count: Number(h.count),
+        })),
+
+        // Subscription trends
+        subscriptionsByMonth: subscriptionsByMonth.map((s) => ({
+          month: s.month,
+          count: Number(s.count),
+        })),
+
+        // Churn
+        churn: {
+          cancelledInPeriod: cancelledSubscriptions,
+          churnRate: usersWithSubscriptions > 0
+            ? Math.round((cancelledSubscriptions / (usersWithSubscriptions + cancelledSubscriptions)) * 10000) / 100
+            : 0,
+        },
+      };
+    } catch (err) {
+      this.logger.error(`Failed to fetch user behavior summary: ${err instanceof Error ? err.message : err}`);
+      return {
+        period: { days, since: since.toISOString() },
+        funnel: {
+          totalUsers: 0, usersWhoCreatedReading: 0, usersWithActiveSubscription: 0,
+          signupToReadingRate: 0, readingToSubscriptionRate: 0, overallConversionRate: 0,
+        },
+        growth: { newUsersInPeriod: 0, freeReadingUsedCount: 0 },
+        readingTypePopularity: [],
+        engagement: { activeUsers7d: 0, activeUsers30d: 0, avgReadingsPerSubscriber: 0, avgReadingsPerFreeUser: 0 },
+        usersByTier: [],
+        readingsPerUserDistribution: [],
+        readingsPerDay: [],
+        readingsByHourOfDay: [],
+        subscriptionsByMonth: [],
+        churn: { cancelledInPeriod: 0, churnRate: 0 },
+      };
+    }
+  }
+
   // ============ Audit Log ============
 
   async getAuditLog(page = 1, limit = 50) {

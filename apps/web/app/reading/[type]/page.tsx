@@ -1,9 +1,18 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
+import {
+  trackCalculationStarted,
+  trackCalculationCompleted,
+  trackResultTabSwitched,
+  trackResultStepChanged,
+  trackBackButtonClicked,
+  trackRetryClicked,
+  trackFormError,
+} from "../../lib/analytics";
 import BirthDataForm, {
   type BirthDataFormValues,
 } from "../../components/BirthDataForm";
@@ -162,12 +171,17 @@ export default function ReadingPage() {
       setIsLoading(true);
       setError(undefined);
 
+      const system = isZwds ? 'zwds' : 'bazi' as const;
+      trackCalculationStarted({ readingType, system });
+      const calcStart = Date.now();
+
       try {
         if (isZwds) {
           // Validate extra inputs for Phase 8B types
           if (needsQuestion && !questionText.trim()) {
             setError("請輸入您的問題");
             setIsLoading(false);
+            trackFormError({ readingType, errorMessage: "請輸入您的問題" });
             return;
           }
 
@@ -198,12 +212,26 @@ export default function ReadingPage() {
           setAiData(mockAI);
         }
 
+        trackCalculationCompleted({
+          readingType,
+          system,
+          durationMs: Date.now() - calcStart,
+          success: true,
+        });
+        trackResultStepChanged({ readingType, fromStep: 'input', toStep: 'result' });
         setStep("result");
         setTab("chart");
       } catch (err) {
         const message =
           err instanceof Error ? err.message : "排盤失敗，請稍後再試";
         setError(message);
+        trackCalculationCompleted({
+          readingType,
+          system,
+          durationMs: Date.now() - calcStart,
+          success: false,
+          errorMessage: message,
+        });
       } finally {
         setIsLoading(false);
       }
@@ -212,6 +240,7 @@ export default function ReadingPage() {
   );
 
   const handleRetry = () => {
+    trackRetryClicked({ readingType });
     if (formValues) {
       handleFormSubmit(formValues);
     }
@@ -219,11 +248,14 @@ export default function ReadingPage() {
 
   const handleBack = () => {
     if (step === "result") {
+      trackBackButtonClicked({ readingType, currentStep: 'result', destination: 'form' });
+      trackResultStepChanged({ readingType, fromStep: 'result', toStep: 'input' });
       setStep("input");
       setChartData(null);
       setZwdsChartData(null);
       setAiData(null);
     } else {
+      trackBackButtonClicked({ readingType, currentStep: 'input', destination: 'dashboard' });
       router.push("/dashboard");
     }
   };
@@ -273,6 +305,7 @@ export default function ReadingPage() {
               title={`${meta.nameZhTw} — 輸入出生資料`}
               subtitle={meta.description["zh-TW"]}
               submitLabel="開始分析"
+              readingType={readingType}
             >
               {/* Phase 8B: Extra inputs for monthly/daily/Q&A */}
               {needsMonthPicker && (
@@ -347,7 +380,12 @@ export default function ReadingPage() {
                 className={
                   tab === "chart" ? styles.tabActive : styles.tab
                 }
-                onClick={() => setTab("chart")}
+                onClick={() => {
+                  if (tab !== "chart") {
+                    trackResultTabSwitched({ readingType, fromTab: tab, toTab: "chart" });
+                  }
+                  setTab("chart");
+                }}
               >
                 {isZwds ? "🌟 紫微命盤" : "📊 命盤排盤"}
               </button>
@@ -355,7 +393,12 @@ export default function ReadingPage() {
                 className={
                   tab === "reading" ? styles.tabActive : styles.tab
                 }
-                onClick={() => setTab("reading")}
+                onClick={() => {
+                  if (tab !== "reading") {
+                    trackResultTabSwitched({ readingType, fromTab: tab, toTab: "reading" });
+                  }
+                  setTab("reading");
+                }}
               >
                 📝 AI 解讀
               </button>

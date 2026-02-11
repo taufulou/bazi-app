@@ -1,7 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import styles from "./BirthDataForm.module.css";
+import {
+  trackFormStarted,
+  trackFormFieldFilled,
+  trackFormSubmitted,
+  trackFormAbandoned,
+} from "../lib/analytics";
 
 // Common timezones for target markets
 const TIMEZONES = [
@@ -42,6 +48,7 @@ interface BirthDataFormProps {
   title?: string;
   subtitle?: string;
   submitLabel?: string;
+  readingType?: string;
   children?: React.ReactNode;
 }
 
@@ -52,6 +59,7 @@ export default function BirthDataForm({
   title = "輸入出生資料",
   subtitle = "請填寫準確的出生時間以獲得最精確的分析",
   submitLabel = "開始排盤",
+  readingType = "unknown",
   children,
 }: BirthDataFormProps) {
   const [form, setForm] = useState<BirthDataFormValues>({
@@ -63,8 +71,44 @@ export default function BirthDataForm({
     birthTimezone: "Asia/Taipei",
   });
 
+  // Analytics: track which fields have been filled and when form was started
+  const formStartTime = useRef<number>(0);
+  const filledFields = useRef<Set<string>>(new Set());
+  const hasTrackedStart = useRef(false);
+  const hasSubmitted = useRef(false);
+
+  // Track form_started on first interaction
+  const trackStartOnce = useCallback(() => {
+    if (!hasTrackedStart.current) {
+      hasTrackedStart.current = true;
+      formStartTime.current = Date.now();
+      trackFormStarted({ readingType });
+    }
+  }, [readingType]);
+
+  // Track form abandonment on unmount (if started but not submitted)
+  useEffect(() => {
+    return () => {
+      if (hasTrackedStart.current && !hasSubmitted.current) {
+        trackFormAbandoned({
+          readingType,
+          filledFields: Array.from(filledFields.current),
+          timeSpentMs: Date.now() - formStartTime.current,
+        });
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    hasSubmitted.current = true;
+    trackFormSubmitted({
+      readingType,
+      gender: form.gender,
+      birthCity: form.birthCity,
+      timezone: form.birthTimezone,
+    });
     onSubmit(form);
   };
 
@@ -72,6 +116,11 @@ export default function BirthDataForm({
     key: K,
     value: BirthDataFormValues[K],
   ) => {
+    trackStartOnce();
+    if (!filledFields.current.has(key)) {
+      filledFields.current.add(key);
+      trackFormFieldFilled({ readingType, fieldName: key });
+    }
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
