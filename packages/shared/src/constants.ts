@@ -357,3 +357,43 @@ export const AI_MAX_RETRIES = 1;     // 1 retry per provider before failover
 export const CACHE_TTL_DAYS = 30;    // Reading cache expires after 30 days
 
 export const SESSION_EXPIRY_DAYS = 90; // Clerk session expiry
+
+// ============================================================
+// AI Cost Tier Mapping (uses Prisma ReadingType enum values)
+// ============================================================
+
+/**
+ * Maps each Prisma ReadingType enum value to a cost tier.
+ * Keys are UPPERCASE Prisma enum values (as stored in ai_usage_log.reading_type).
+ * If a new ReadingType is added but not mapped here, the backend falls back to 'unclassified'.
+ */
+export const READING_TYPE_TIERS: Record<string, { tier: string; label: string }> = {
+  LIFETIME:           { tier: 'comprehensive', label: 'Comprehensive' },
+  CAREER:             { tier: 'comprehensive', label: 'Comprehensive' },
+  LOVE:               { tier: 'comprehensive', label: 'Comprehensive' },
+  HEALTH:             { tier: 'comprehensive', label: 'Comprehensive' },
+  COMPATIBILITY:      { tier: 'comprehensive', label: 'Comprehensive' },
+  ZWDS_LIFETIME:      { tier: 'comprehensive', label: 'Comprehensive' },
+  ZWDS_CAREER:        { tier: 'comprehensive', label: 'Comprehensive' },
+  ZWDS_LOVE:          { tier: 'comprehensive', label: 'Comprehensive' },
+  ZWDS_HEALTH:        { tier: 'comprehensive', label: 'Comprehensive' },
+  ZWDS_COMPATIBILITY: { tier: 'comprehensive', label: 'Comprehensive' },
+  ZWDS_MAJOR_PERIOD:  { tier: 'comprehensive', label: 'Comprehensive' },
+  ANNUAL:             { tier: 'periodic', label: 'Periodic' },
+  ZWDS_ANNUAL:        { tier: 'periodic', label: 'Periodic' },
+  ZWDS_MONTHLY:       { tier: 'periodic', label: 'Periodic' },
+  ZWDS_DAILY:         { tier: 'daily', label: 'Daily' },
+  ZWDS_QA:            { tier: 'qa', label: 'Q&A' },
+};
+
+/** Tier display order for admin UI */
+export const TIER_ORDER = ['comprehensive', 'periodic', 'daily', 'qa', 'unclassified'] as const;
+
+/** Human-readable labels for tiers */
+export const TIER_LABELS: Record<string, string> = {
+  comprehensive: 'Comprehensive',
+  periodic: 'Periodic',
+  daily: 'Daily',
+  qa: 'Q&A',
+  unclassified: 'Legacy / Unclassified',
+};

@@ -34,7 +34,6 @@
     "iztro": "^2.5.7",
     "joi": "^18.0.2",
     "openai": "^6.18.0",
-    "prisma": "^6.19.2",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
     "stripe": "^20.3.1",
@@ -50,6 +49,7 @@
     "@types/jest": "^29.5.0",
     "@types/node": "^22.15.3",
     "jest": "^29.7.0",
+    "prisma": "^6.19.2",
     "ts-jest": "^29.2.0",
     "tsx": "^4.21.0",
     "typescript": "5.9.2"

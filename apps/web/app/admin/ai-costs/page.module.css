@@ -5,6 +5,184 @@
   margin-bottom: 16px;
 }
 
+/* ============ Page Header with Date Selector ============ */
+
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.pageHeader h1 {
+  font-size: 24px;
+  font-weight: 700;
+  color: #e8d5b7;
+  margin: 0;
+}
+
+.dateSelector {
+  padding: 8px 12px;
+  background: #0f0f23;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 14px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.dateSelector:focus {
+  border-color: #e8d5b7;
+}
+
+/* ============ Tier Cards ============ */
+
+.tierCards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+.tierCard {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 8px;
+  padding: 20px;
+  border-left: 4px solid #a0a0a0;
+}
+
+.tierCard[data-tier="comprehensive"] {
+  border-left-color: #e8d5b7;
+}
+
+.tierCard[data-tier="periodic"] {
+  border-left-color: #9C27B0;
+}
+
+.tierCard[data-tier="daily"] {
+  border-left-color: #FF8F00;
+}
+
+.tierCard[data-tier="qa"] {
+  border-left-color: #00897B;
+}
+
+.tierCard[data-tier="unclassified"] {
+  border-left-color: #475569;
+}
+
+.tierLabel {
+  font-size: 13px;
+  color: #a0a0a0;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.tierCost {
+  font-size: 24px;
+  font-weight: 700;
+  color: #e8d5b7;
+  margin-bottom: 4px;
+}
+
+.tierMeta {
+  font-size: 12px;
+  color: #a0a0a0;
+}
+
+.tierMeta span {
+  margin-right: 12px;
+}
+
+/* ============ Reading Type Table ============ */
+
+.readingTypeTable {
+  width: 100%;
+  border-collapse: collapse;
+  background: #16213e;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  font-size: 13px;
+}
+
+.readingTypeTable th {
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #a0a0a0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  background: #0f0f23;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.1);
+  white-space: nowrap;
+}
+
+.readingTypeTable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.05);
+  white-space: nowrap;
+}
+
+.readingTypeTable tr:last-child td {
+  border-bottom: none;
+}
+
+.readingTypeTable tr:hover td {
+  background: rgba(232, 213, 183, 0.03);
+}
+
+.readingTypeTable td:first-child {
+  font-weight: 500;
+}
+
+.legacyRow td {
+  opacity: 0.5;
+  font-style: italic;
+}
+
+.tierBadge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.tierBadge[data-tier="comprehensive"] {
+  background: rgba(232, 213, 183, 0.15);
+  color: #e8d5b7;
+}
+
+.tierBadge[data-tier="periodic"] {
+  background: rgba(156, 39, 176, 0.15);
+  color: #CE93D8;
+}
+
+.tierBadge[data-tier="daily"] {
+  background: rgba(255, 143, 0, 0.15);
+  color: #FFB74D;
+}
+
+.tierBadge[data-tier="qa"] {
+  background: rgba(0, 137, 123, 0.15);
+  color: #80CBC4;
+}
+
+.tierBadge[data-tier="unclassified"] {
+  background: rgba(71, 85, 105, 0.15);
+  color: #94A3B8;
+}
+
+/* ============ Daily Chart ============ */
+
 .dailyChart {
   display: flex;
   align-items: flex-end;
@@ -45,4 +223,23 @@
   white-space: nowrap;
   transform: rotate(-45deg);
   transform-origin: top center;
+}
+
+/* ============ Responsive ============ */
+
+@media (max-width: 768px) {
+  .pageHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .tierCards {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .readingTypeTable {
+    display: block;
+    overflow-x: auto;
+  }
 }

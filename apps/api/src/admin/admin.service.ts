@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { READING_TYPE_TIERS, TIER_ORDER, TIER_LABELS } from '@repo/shared';
 import { CreatePromoCodeDto } from './dto/create-promo-code.dto';
 import { UpdatePromoCodeDto } from './dto/update-promo-code.dto';
 import { UpdateGatewayDto } from './dto/update-gateway.dto';
@@ -299,45 +300,134 @@ export class AdminService {
     };
   }
 
-  async getAICosts() {
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  async getAICosts(days = 30) {
+    days = Math.min(Math.max(days, 1), 365);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     try {
-      const [summary, costByProvider, dailyCosts] = await Promise.all([
+      const [summary, costByProvider, costByReadingTypeRaw, dailyCosts, cacheHits] = await Promise.all([
         // Summary stats
         this.prisma.aIUsageLog.aggregate({
-          where: { createdAt: { gte: thirtyDaysAgo } },
+          where: { createdAt: { gte: since } },
           _sum: { inputTokens: true, outputTokens: true },
           _count: { id: true },
         }),
-        // Cost by provider using raw SQL for Decimal aggregation
-        this.prisma.$queryRaw<Array<{ ai_provider: string; total_cost: number; count: bigint }>>`
-          SELECT ai_provider, SUM(cost_usd)::float as total_cost, COUNT(*) as count
+        // Cost by provider with extended metrics
+        this.prisma.$queryRaw<Array<{
+          ai_provider: string;
+          total_cost: number;
+          count: bigint;
+          avg_cost: number;
+          total_input_tokens: bigint;
+          total_output_tokens: bigint;
+        }>>`
+          SELECT
+            ai_provider,
+            SUM(cost_usd)::float as total_cost,
+            COUNT(*) as count,
+            AVG(cost_usd)::float as avg_cost,
+            SUM(input_tokens) as total_input_tokens,
+            SUM(output_tokens) as total_output_tokens
           FROM ai_usage_log
-          WHERE created_at >= ${thirtyDaysAgo}
+          WHERE created_at >= ${since}
           GROUP BY ai_provider
           ORDER BY total_cost DESC
         `,
-        // Daily costs using DATE_TRUNC
+        // Cost by reading type
+        this.prisma.$queryRaw<Array<{
+          reading_type: string | null;
+          total_cost: number;
+          count: bigint;
+          avg_cost: number;
+          avg_input_tokens: number;
+          avg_output_tokens: number;
+          total_input_tokens: bigint;
+          total_output_tokens: bigint;
+          avg_latency_ms: number;
+          cache_hits: bigint;
+        }>>`
+          SELECT
+            reading_type,
+            SUM(cost_usd)::float as total_cost,
+            COUNT(*) as count,
+            AVG(cost_usd)::float as avg_cost,
+            AVG(input_tokens)::float as avg_input_tokens,
+            AVG(output_tokens)::float as avg_output_tokens,
+            SUM(input_tokens) as total_input_tokens,
+            SUM(output_tokens) as total_output_tokens,
+            AVG(latency_ms)::float as avg_latency_ms,
+            COUNT(*) FILTER (WHERE is_cache_hit) as cache_hits
+          FROM ai_usage_log
+          WHERE created_at >= ${since}
+          GROUP BY reading_type
+          ORDER BY total_cost DESC
+        `,
+        // Daily costs
         this.prisma.$queryRaw<Array<{ day: Date; total_cost: number; count: bigint }>>`
           SELECT DATE_TRUNC('day', created_at) as day, SUM(cost_usd)::float as total_cost, COUNT(*) as count
           FROM ai_usage_log
-          WHERE created_at >= ${thirtyDaysAgo}
+          WHERE created_at >= ${since}
           GROUP BY DATE_TRUNC('day', created_at)
           ORDER BY day ASC
         `,
+        // Cache hit count
+        this.prisma.aIUsageLog.count({
+          where: { createdAt: { gte: since }, isCacheHit: true },
+        }),
       ]);
 
-      // Calculate totals and cache hit rate
+      // Calculate totals
       const totalCost = costByProvider.reduce((sum, p) => sum + (p.total_cost || 0), 0);
       const totalCount = summary._count.id;
 
-      const cacheHits = await this.prisma.aIUsageLog.count({
-        where: { createdAt: { gte: thirtyDaysAgo }, isCacheHit: true },
+      // Map reading type breakdown
+      const costByReadingType = costByReadingTypeRaw.map((r) => {
+        const count = Number(r.count);
+        const cacheHitCount = Number(r.cache_hits);
+        return {
+          readingType: r.reading_type ?? 'UNCLASSIFIED',
+          totalCost: r.total_cost || 0,
+          count,
+          avgCost: r.avg_cost || 0,
+          avgInputTokens: Math.round(r.avg_input_tokens || 0),
+          avgOutputTokens: Math.round(r.avg_output_tokens || 0),
+          totalInputTokens: Number(r.total_input_tokens),
+          totalOutputTokens: Number(r.total_output_tokens),
+          avgLatencyMs: Math.round(r.avg_latency_ms || 0),
+          cacheHitRate: count > 0 ? cacheHitCount / count : 0,
+        };
       });
 
+      // Aggregate into tiers
+      const tierMap = new Map<string, { totalCost: number; count: number; types: string[] }>();
+      for (const entry of costByReadingType) {
+        const tier = READING_TYPE_TIERS[entry.readingType]?.tier ?? 'unclassified';
+        const existing = tierMap.get(tier) || { totalCost: 0, count: 0, types: [] };
+        existing.totalCost += entry.totalCost;
+        existing.count += entry.count;
+        if (!existing.types.includes(entry.readingType)) {
+          existing.types.push(entry.readingType);
+        }
+        tierMap.set(tier, existing);
+      }
+
+      const costByTier = TIER_ORDER
+        .filter((tier) => tierMap.has(tier))
+        .map((tier) => {
+          const data = tierMap.get(tier)!;
+          return {
+            tier,
+            label: TIER_LABELS[tier] || tier,
+            readingTypes: data.types,
+            totalCost: data.totalCost,
+            count: data.count,
+            avgCost: data.count > 0 ? data.totalCost / data.count : 0,
+          };
+        });
+
       return {
-        totalCost30d: totalCost,
+        days,
+        totalCost: totalCost,
         avgCostPerReading: totalCount > 0 ? totalCost / totalCount : 0,
         totalTokens: (summary._sum.inputTokens || 0) + (summary._sum.outputTokens || 0),
         totalInputTokens: summary._sum.inputTokens || 0,
@@ -348,7 +438,12 @@ export class AdminService {
           provider: p.ai_provider,
           totalCost: p.total_cost || 0,
           count: Number(p.count),
+          avgCost: p.avg_cost || 0,
+          totalInputTokens: Number(p.total_input_tokens),
+          totalOutputTokens: Number(p.total_output_tokens),
         })),
+        costByReadingType,
+        costByTier,
         dailyCosts: dailyCosts.map((d) => ({
           date: d.day,
           totalCost: d.total_cost || 0,
@@ -358,7 +453,8 @@ export class AdminService {
     } catch (err) {
       this.logger.error(`Failed to fetch AI costs: ${err instanceof Error ? err.message : err}`);
       return {
-        totalCost30d: 0,
+        days,
+        totalCost: 0,
         avgCostPerReading: 0,
         totalTokens: 0,
         totalInputTokens: 0,
@@ -366,6 +462,8 @@ export class AdminService {
         totalRequests: 0,
         cacheHitRate: 0,
         costByProvider: [],
+        costByReadingType: [],
+        costByTier: [],
         dailyCosts: [],
       };
     }

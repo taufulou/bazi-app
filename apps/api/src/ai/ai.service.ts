@@ -226,6 +226,7 @@ export class AIService implements OnModuleInit {
         this.logUsage(
           userId,
           readingId,
+          readingType,
           providerConfig,
           generationResult,
         ).catch((err) => this.logger.error(`Failed to log AI usage: ${err}`));
@@ -1158,6 +1159,7 @@ export class AIService implements OnModuleInit {
   private async logUsage(
     userId: string | undefined,
     readingId: string | undefined,
+    readingType: ReadingType | undefined,
     config: ProviderConfig,
     result: AIGenerationResult,
   ) {
@@ -1166,6 +1168,7 @@ export class AIService implements OnModuleInit {
         data: {
           userId,
           readingId,
+          readingType: readingType ?? null,
           aiProvider: config.provider,
           aiModel: config.model,
           inputTokens: result.tokenUsage.inputTokens,

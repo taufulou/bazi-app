@@ -199,17 +199,18 @@ model ReadingCache {
 // ============================================================
 
 model AIUsageLog {
-  id               String    @id @default(uuid())
-  userId           String?   @map("user_id")
-  readingId        String?   @map("reading_id")
-  aiProvider       AIProvider @map("ai_provider")
-  aiModel          String    @map("ai_model")
-  inputTokens      Int       @map("input_tokens")
-  outputTokens     Int       @map("output_tokens")
-  costUsd          Decimal   @map("cost_usd") @db.Decimal(10, 6)
-  latencyMs        Int       @map("latency_ms")
-  isCacheHit       Boolean   @default(false) @map("is_cache_hit")
-  createdAt        DateTime  @default(now()) @map("created_at")
+  id               String       @id @default(uuid())
+  userId           String?      @map("user_id")
+  readingId        String?      @map("reading_id")
+  readingType      ReadingType? @map("reading_type")
+  aiProvider       AIProvider   @map("ai_provider")
+  aiModel          String       @map("ai_model")
+  inputTokens      Int          @map("input_tokens")
+  outputTokens     Int          @map("output_tokens")
+  costUsd          Decimal      @map("cost_usd") @db.Decimal(10, 6)
+  latencyMs        Int          @map("latency_ms")
+  isCacheHit       Boolean      @default(false) @map("is_cache_hit")
+  createdAt        DateTime     @default(now()) @map("created_at")
 
   // Relations
   user             User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
@@ -218,6 +219,7 @@ model AIUsageLog {
   @@index([createdAt])
   @@index([aiProvider])
   @@index([aiProvider, createdAt])
+  @@index([createdAt, readingType])
   @@map("ai_usage_log")
 }
 
