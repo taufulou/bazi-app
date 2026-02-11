@@ -115,7 +115,7 @@ export function trackFormAbandoned(properties: {
   filledFields: string[];
   timeSpentMs: number;
 }) {
-  capture('form_abandoned', properties);
+  captureBeforeNavigation('form_abandoned', properties);
 }
 
 // ============================================================
