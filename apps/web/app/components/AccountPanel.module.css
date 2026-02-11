@@ -1,0 +1,204 @@
+/* AccountPanel — Dashboard bottom panel */
+
+.panel {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.1) 0%, rgba(232, 213, 183, 0.05) 100%);
+  border: 1px solid rgba(212, 175, 55, 0.2);
+  border-radius: 16px;
+  padding: 2rem;
+  text-align: center;
+}
+
+/* ---- Top Row: Tier + Credits ---- */
+.topRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+
+.tierBadge {
+  display: inline-block;
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: 1px solid;
+}
+
+.tierFREE {
+  border-color: rgba(160, 160, 160, 0.4);
+  color: #a0a0a0;
+  background: rgba(160, 160, 160, 0.15);
+}
+
+.tierBASIC {
+  border-color: rgba(100, 181, 246, 0.4);
+  color: #64b5f6;
+  background: rgba(100, 181, 246, 0.15);
+}
+
+.tierPRO {
+  border-color: rgba(156, 39, 176, 0.4);
+  color: #ce93d8;
+  background: rgba(156, 39, 176, 0.15);
+}
+
+.tierMASTER {
+  border-color: rgba(232, 213, 183, 0.4);
+  color: #e8d5b7;
+  background: rgba(232, 213, 183, 0.15);
+}
+
+.creditDisplay {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.creditIcon {
+  font-size: 1.1rem;
+}
+
+.creditCount {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #e8d5b7;
+}
+
+.creditLabel {
+  font-size: 0.85rem;
+  color: #a0a0a0;
+}
+
+/* ---- Conditional Bars ---- */
+.warningBar {
+  background: rgba(255, 152, 0, 0.1);
+  border: 1px solid rgba(255, 152, 0, 0.3);
+  color: #ffb74d;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+.freeTrialBar {
+  background: rgba(76, 175, 80, 0.1);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  color: #81c784;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+}
+
+/* ---- CTA Buttons ---- */
+.ctaBtn {
+  display: inline-block;
+  padding: 0.75rem 2rem;
+  background: linear-gradient(135deg, #d4af37, #b8962e);
+  color: #1a1a2e;
+  font-weight: 600;
+  font-size: 1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.ctaBtn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.ctaBtnOutline {
+  display: inline-block;
+  padding: 0.75rem 2rem;
+  background: transparent;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+  color: #d4af37;
+  font-weight: 600;
+  font-size: 1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.ctaBtnOutline:hover {
+  background: rgba(212, 175, 55, 0.1);
+  border-color: rgba(212, 175, 55, 0.6);
+}
+
+/* ---- Static CTA fallback ---- */
+.staticTitle {
+  color: #e8d5b7;
+  font-size: 1.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.staticText {
+  color: #a0a0a0;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+  max-width: 500px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ---- Skeleton ---- */
+.skeletonRow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.skeletonBadge {
+  width: 80px;
+  height: 28px;
+  border-radius: 20px;
+  background: linear-gradient(90deg, rgba(232, 213, 183, 0.08) 25%, rgba(232, 213, 183, 0.15) 50%, rgba(232, 213, 183, 0.08) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.skeletonCredits {
+  width: 100px;
+  height: 36px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(232, 213, 183, 0.08) 25%, rgba(232, 213, 183, 0.15) 50%, rgba(232, 213, 183, 0.08) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+.skeletonBtn {
+  width: 140px;
+  height: 42px;
+  border-radius: 8px;
+  margin: 0 auto;
+  background: linear-gradient(90deg, rgba(232, 213, 183, 0.08) 25%, rgba(232, 213, 183, 0.15) 50%, rgba(232, 213, 183, 0.08) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 768px) {
+  .panel {
+    padding: 1.5rem;
+  }
+
+  .creditCount {
+    font-size: 1.2rem;
+  }
+
+  .topRow {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+}

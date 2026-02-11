@@ -49,12 +49,12 @@ function formatProfileOption(p: BirthProfile): string {
 }
 
 interface BirthDataFormProps {
-  onSubmit: (data: BirthDataFormValues) => void;
+  onSubmit: (data: BirthDataFormValues, profileId: string | null) => void;
   isLoading?: boolean;
   error?: string;
   title?: string;
   subtitle?: string;
-  submitLabel?: string;
+  submitLabel?: React.ReactNode;
   children?: React.ReactNode;
   initialValues?: Partial<BirthDataFormValues>;
   showSaveOption?: boolean;
@@ -108,7 +108,7 @@ export default function BirthDataForm({
     if (wantsSave && onSaveProfile) {
       onSaveProfile(form, relationshipTag, selectedProfileId || undefined);
     }
-    onSubmit(form);
+    onSubmit(form, selectedProfileId);
   };
 
   const updateField = <K extends keyof BirthDataFormValues>(

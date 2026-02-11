@@ -105,6 +105,13 @@
   font-size: 1rem;
 }
 
+.quickLinks {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+}
+
 /* ---- Reading Grid ---- */
 .readingsSection {
   margin-bottom: 3rem;
@@ -187,50 +194,6 @@
   border-color: rgba(156, 39, 176, 0.35);
   transform: translateY(-2px);
   box-shadow: 0 4px 20px rgba(156, 39, 176, 0.15);
-}
-
-/* ---- Subscription CTA Banner ---- */
-.ctaBanner {
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.1) 0%, rgba(232, 213, 183, 0.05) 100%);
-  border: 1px solid rgba(212, 175, 55, 0.2);
-  border-radius: 16px;
-  padding: 2rem;
-  text-align: center;
-}
-
-.ctaContent {
-  max-width: 500px;
-  margin: 0 auto;
-}
-
-.ctaTitle {
-  color: #e8d5b7;
-  font-size: 1.4rem;
-  margin-bottom: 0.75rem;
-}
-
-.ctaText {
-  color: #a0a0a0;
-  font-size: 0.95rem;
-  line-height: 1.6;
-  margin-bottom: 1.5rem;
-}
-
-.ctaButton {
-  display: inline-block;
-  padding: 0.75rem 2rem;
-  background: linear-gradient(135deg, #d4af37, #b8962e);
-  color: #1a1a2e;
-  font-weight: 600;
-  font-size: 1rem;
-  border-radius: 8px;
-  text-decoration: none;
-  transition: all 0.2s;
-}
-
-.ctaButton:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
 }
 
 /* ---- Responsive ---- */

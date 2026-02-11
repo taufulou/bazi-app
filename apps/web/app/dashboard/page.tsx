@@ -3,6 +3,8 @@ import { UserButton } from "@clerk/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { READING_TYPE_META } from "@repo/shared";
+import CreditBadge from "../components/CreditBadge";
+import AccountPanel from "../components/AccountPanel";
 import styles from "./page.module.css";
 
 export default async function DashboardPage() {
@@ -33,6 +35,7 @@ export default async function DashboardPage() {
           八字命理平台
         </Link>
         <div className={styles.headerRight}>
+          <CreditBadge />
           <Link href="/pricing" className={styles.pricingLink}>
             💎 訂閱方案
           </Link>
@@ -58,14 +61,23 @@ export default async function DashboardPage() {
         <p className={styles.welcomeSubtitle}>選擇一項服務開始您的命理之旅</p>
       </section>
 
-      {/* Profile Management Link */}
-      <Link href="/dashboard/profiles" className={styles.profileLink}>
-        <span className={styles.profileLinkIcon}>👤</span>
-        <span className={styles.profileLinkText}>
-          管理出生資料 — 儲存出生資料，快速開始各項分析
-        </span>
-        <span className={styles.profileLinkArrow}>&rarr;</span>
-      </Link>
+      {/* Quick Links */}
+      <div className={styles.quickLinks}>
+        <Link href="/dashboard/profiles" className={styles.profileLink}>
+          <span className={styles.profileLinkIcon}>👤</span>
+          <span className={styles.profileLinkText}>
+            管理出生資料 — 儲存出生資料，快速開始各項分析
+          </span>
+          <span className={styles.profileLinkArrow}>&rarr;</span>
+        </Link>
+        <Link href="/dashboard/readings" className={styles.profileLink}>
+          <span className={styles.profileLinkIcon}>📋</span>
+          <span className={styles.profileLinkText}>
+            歷史分析記錄 — 查看過去的命理分析結果
+          </span>
+          <span className={styles.profileLinkArrow}>&rarr;</span>
+        </Link>
+      </div>
 
       {/* Bazi Reading Types */}
       <section className={styles.readingsSection}>
@@ -113,18 +125,8 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* Subscription CTA Banner */}
-      <section className={styles.ctaBanner}>
-        <div className={styles.ctaContent}>
-          <h3 className={styles.ctaTitle}>🔓 解鎖完整命理分析</h3>
-          <p className={styles.ctaText}>
-            訂閱會員即可查看所有分析的完整內容，包括詳細的性格分析、事業指引、感情建議等。
-          </p>
-          <Link href="/pricing" className={styles.ctaButton}>
-            查看訂閱方案
-          </Link>
-        </div>
-      </section>
+      {/* Account Panel (replaces static CTA banner) */}
+      <AccountPanel />
     </div>
   );
 }

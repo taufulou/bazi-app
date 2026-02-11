@@ -1,0 +1,124 @@
+/* InsufficientCreditsModal */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease;
+}
+
+.modal {
+  max-width: 420px;
+  width: 100%;
+  background: #16213e;
+  border-radius: 16px;
+  padding: 2rem;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  text-align: center;
+  animation: scaleUp 0.2s ease;
+}
+
+.icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.title {
+  color: #e8d5b7;
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.body {
+  color: #a0a0a0;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+.body strong {
+  color: #e8d5b7;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.primaryBtn {
+  display: block;
+  padding: 0.75rem 2rem;
+  background: linear-gradient(135deg, #d4af37, #b8962e);
+  color: #1a1a2e;
+  font-weight: 700;
+  font-size: 1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.primaryBtn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.primaryBtn:focus-visible {
+  outline: 2px solid #e8d5b7;
+  outline-offset: 2px;
+}
+
+.secondaryBtn {
+  display: block;
+  padding: 0.75rem 2rem;
+  background: transparent;
+  border: 1px solid rgba(232, 213, 183, 0.3);
+  color: #e8d5b7;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.secondaryBtn:hover {
+  background: rgba(232, 213, 183, 0.08);
+  border-color: rgba(232, 213, 183, 0.5);
+}
+
+.secondaryBtn:focus-visible {
+  outline: 2px solid #e8d5b7;
+  outline-offset: 2px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@media (max-width: 600px) {
+  .modal {
+    width: calc(100% - 2rem);
+    padding: 1.5rem;
+  }
+
+  .title {
+    font-size: 1.15rem;
+  }
+
+  .body {
+    font-size: 0.9rem;
+  }
+}

@@ -1,0 +1,246 @@
+/* ============================================================
+   Reading History Page
+   ============================================================ */
+
+.page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  color: #e0e0e0;
+  padding: 2rem;
+}
+
+/* ---- Header ---- */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.backLink {
+  color: #a0a0a0;
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: color 0.2s;
+}
+
+.backLink:hover {
+  color: #e8d5b7;
+}
+
+.headerTitle {
+  color: #e8d5b7;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+/* ---- Title Section ---- */
+.titleSection {
+  text-align: center;
+  margin-bottom: 2rem;
+  max-width: 800px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.pageTitle {
+  color: #e8d5b7;
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.pageSubtitle {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+}
+
+/* ---- Loading ---- */
+.loadingState {
+  text-align: center;
+  padding: 3rem;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(232, 213, 183, 0.15);
+  border-top-color: #e8d5b7;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 1rem;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loadingText {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+}
+
+/* ---- Error ---- */
+.errorState {
+  text-align: center;
+  padding: 3rem;
+}
+
+.errorText {
+  color: #F44336;
+  font-size: 1rem;
+}
+
+/* ---- Empty State ---- */
+.emptyState {
+  text-align: center;
+  padding: 4rem 2rem;
+}
+
+.emptyIcon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+}
+
+.emptyTitle {
+  color: #e8d5b7;
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.emptyText {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.startLink {
+  display: inline-block;
+  background: linear-gradient(135deg, #d4af37, #b8962e);
+  color: #1a1a2e;
+  padding: 0.7rem 2rem;
+  border-radius: 25px;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.startLink:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+}
+
+/* ---- Grid ---- */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.cardLink {
+  text-decoration: none;
+  color: inherit;
+}
+
+.card {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 12px;
+  padding: 1.25rem;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(232, 213, 183, 0.25);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+}
+
+.cardZwds {
+  composes: card;
+  border-color: rgba(138, 43, 226, 0.15);
+}
+
+.cardZwds:hover {
+  border-color: rgba(138, 43, 226, 0.35);
+}
+
+/* ---- Card Content ---- */
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.cardIcon {
+  font-size: 1.3rem;
+}
+
+.cardType {
+  color: #e8d5b7;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.cardBody {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.cardName {
+  color: #e0e0e0;
+  font-size: 0.9rem;
+}
+
+.cardDate {
+  color: #666;
+  font-size: 0.8rem;
+}
+
+.cardFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.cardCredits {
+  color: #ff9800;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.cardFree {
+  color: #4CAF50;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.cardAction {
+  color: #e8d5b7;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 600px) {
+  .page {
+    padding: 1rem;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -125,6 +125,7 @@ export const READING_TYPE_META: Record<ReadingType, {
   nameEn: string;
   icon: string;
   themeColor: string;
+  creditCost: number;
   description: Record<Language, string>;
 }> = {
   lifetime: {
@@ -133,6 +134,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'Lifetime Destiny',
     icon: '🌟',
     themeColor: '#FFD700',
+    creditCost: 2,
     description: {
       'zh-TW': '全面分析您的八字命盤，深入了解一生的命運走向',
       'zh-CN': '全面分析您的八字命盘，深入了解一生的命运走向',
@@ -144,6 +146,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'Annual Fortune',
     icon: '📅',
     themeColor: '#9C27B0',
+    creditCost: 2,
     description: {
       'zh-TW': '預測您今年的運勢變化，掌握每月吉凶',
       'zh-CN': '预测您今年的运势变化，掌握每月吉凶',
@@ -155,6 +158,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'Career & Finance',
     icon: '💼',
     themeColor: '#2196F3',
+    creditCost: 2,
     description: {
       'zh-TW': '分析事業發展方向與財運走勢，找到最佳機遇',
       'zh-CN': '分析事业发展方向与财运走势，找到最佳机遇',
@@ -166,6 +170,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'Love & Marriage',
     icon: '💕',
     themeColor: '#E91E63',
+    creditCost: 2,
     description: {
       'zh-TW': '探索感情運勢，了解理想伴侶特質與姻緣時機',
       'zh-CN': '探索感情运势，了解理想伴侣特质与姻缘时机',
@@ -177,6 +182,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'Health Analysis',
     icon: '🏥',
     themeColor: '#4CAF50',
+    creditCost: 2,
     description: {
       'zh-TW': '根據五行分析先天體質，提供養生保健建議',
       'zh-CN': '根据五行分析先天体质，提供养生保健建议',
@@ -188,6 +194,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'Compatibility',
     icon: '🤝',
     themeColor: '#FF5722',
+    creditCost: 3,
     description: {
       'zh-TW': '比較兩人八字，分析感情或事業合作的契合度',
       'zh-CN': '比较两人八字，分析感情或事业合作的契合度',
@@ -199,6 +206,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'ZWDS Lifetime',
     icon: '🌟',
     themeColor: '#9C27B0',
+    creditCost: 2,
     description: {
       'zh-TW': '紫微斗數全面解讀，深入分析十二宮位與一生命運格局',
       'zh-CN': '紫微斗数全面解读，深入分析十二宫位与一生命运格局',
@@ -210,6 +218,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'ZWDS Annual',
     icon: '📅',
     themeColor: '#3F51B5',
+    creditCost: 2,
     description: {
       'zh-TW': '紫微斗數流年分析，預測今年宮位四化變動與運勢起伏',
       'zh-CN': '紫微斗数流年分析，预测今年宫位四化变动与运势起伏',
@@ -221,6 +230,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'ZWDS Career',
     icon: '💼',
     themeColor: '#009688',
+    creditCost: 2,
     description: {
       'zh-TW': '分析事業宮、財帛宮三方四正，找到最佳職業方向',
       'zh-CN': '分析事业宫、财帛宫三方四正，找到最佳职业方向',
@@ -232,6 +242,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'ZWDS Love',
     icon: '💕',
     themeColor: '#C2185B',
+    creditCost: 2,
     description: {
       'zh-TW': '解讀夫妻宮星曜組合，了解理想伴侶與姻緣時機',
       'zh-CN': '解读夫妻宫星曜组合，了解理想伴侣与姻缘时机',
@@ -243,6 +254,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'ZWDS Health',
     icon: '🏥',
     themeColor: '#8BC34A',
+    creditCost: 2,
     description: {
       'zh-TW': '根據疾厄宮與五行局分析先天體質，提供養生保健方向',
       'zh-CN': '根据疾厄宫与五行局分析先天体质，提供养生保健方向',
@@ -254,6 +266,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'ZWDS Compatibility',
     icon: '🤝',
     themeColor: '#E64A19',
+    creditCost: 3,
     description: {
       'zh-TW': '比較兩人紫微命盤，分析宮位星曜互動與契合度',
       'zh-CN': '比较两人紫微命盘，分析宫位星曜互动与契合度',
@@ -265,6 +278,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'ZWDS Monthly',
     icon: '🗓️',
     themeColor: '#7B1FA2',
+    creditCost: 1,
     description: {
       'zh-TW': '紫微斗數流月分析，掌握本月宮位四化與運勢重點',
       'zh-CN': '紫微斗数流月分析，掌握本月宫位四化与运势重点',
@@ -276,6 +290,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'ZWDS Daily',
     icon: '☀️',
     themeColor: '#FF8F00',
+    creditCost: 0,
     description: {
       'zh-TW': '每日紫微運勢提點，快速掌握今天的能量與建議',
       'zh-CN': '每日紫微运势提点，快速掌握今天的能量与建议',
@@ -287,6 +302,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'ZWDS Major Period',
     icon: '🔄',
     themeColor: '#5C6BC0',
+    creditCost: 2,
     description: {
       'zh-TW': '深度分析大限轉運期，了解十年運程的重大轉變與機遇',
       'zh-CN': '深度分析大限转运期，了解十年运程的重大转变与机遇',
@@ -298,6 +314,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'ZWDS Q&A',
     icon: '❓',
     themeColor: '#00897B',
+    creditCost: 1,
     description: {
       'zh-TW': '針對特定問題，結合紫微命盤與流年分析給出具體建議',
       'zh-CN': '针对特定问题，结合紫微命盘与流年分析给出具体建议',

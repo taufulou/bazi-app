@@ -70,6 +70,27 @@ export async function calculateBaziDirect(params: {
 }
 
 // ---------------------------------------------------------------------------
+// User Profile API
+// ---------------------------------------------------------------------------
+
+/** Shape returned by GET /api/users/me (cherry-picked fields) */
+export interface UserProfile {
+  id: string;
+  credits: number;
+  subscriptionTier: 'FREE' | 'BASIC' | 'PRO' | 'MASTER';
+  freeReadingUsed: boolean;
+  name: string | null;
+}
+
+/**
+ * Get the current user's profile (credits, tier, etc.).
+ * GET /api/users/me
+ */
+export async function getUserProfile(token: string): Promise<UserProfile> {
+  return apiFetch<UserProfile>('/api/users/me', { token });
+}
+
+// ---------------------------------------------------------------------------
 // Payment & Subscription API
 // ---------------------------------------------------------------------------
 

@@ -63,7 +63,7 @@ export default function ProfileManagerPage() {
     }
   }, [success]);
 
-  const handleCreate = async (data: BirthDataFormValues) => {
+  const handleCreate = async (data: BirthDataFormValues, _profileId: string | null) => {
     clearNotifications();
     setIsSaving(true);
     try {
@@ -80,7 +80,7 @@ export default function ProfileManagerPage() {
     }
   };
 
-  const handleUpdate = async (data: BirthDataFormValues) => {
+  const handleUpdate = async (data: BirthDataFormValues, _profileId: string | null) => {
     if (!editingProfile) return;
     clearNotifications();
     setIsSaving(true);
