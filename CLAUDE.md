@@ -238,9 +238,41 @@ Future (not yet wired):
 - ✅ Phase 9: User Birth Profile Management (profile CRUD, custom dropdown on name field, auto-fill, profile manager page, relationship tags)
 
 ### Upcoming Work (Priority Order)
-1. **Wire frontend to NestJS API** — Currently frontend calls engines directly with mock AI. Need to route through NestJS for: credit deduction, real AI interpretation (Claude/GPT/Gemini), reading history saved to DB, subscription gating
-2. **Phase 5: Monetization & Payment** — Stripe integration, subscription plans, credit system, Apple IAP, Google Play billing
-3. **Mobile app** — React Native Expo app (skeleton exists, needs reading flow)
+
+#### 1. Wire Frontend to NestJS API (Phase 10)
+Currently the reading page (`apps/web/app/reading/[type]/page.tsx`) calls engines directly and uses mock AI data. The NestJS backend already has full endpoints ready — just need to connect them.
+
+**What exists (backend — all built & tested):**
+- `POST /api/bazi/readings` — Bazi reading (calls Python engine + AI provider, deducts credits, saves to DB)
+- `GET /api/bazi/readings/:id` — Get saved Bazi reading
+- `POST /api/bazi/comparisons` — Bazi compatibility
+- `POST /api/zwds/readings` — ZWDS reading (calls iztro + AI provider, deducts credits, saves to DB)
+- `GET /api/zwds/readings/:id` — Get saved ZWDS reading
+- `POST /api/zwds/chart-preview` — Free ZWDS chart (no AI, no credits)
+- `POST /api/zwds/horoscope` — ZWDS horoscope for date
+- `POST /api/zwds/cross-system` — Combined Bazi+ZWDS reading
+- `POST /api/zwds/deep-stars` — Deep star analysis
+- `POST /api/zwds/comparisons` — ZWDS compatibility
+- All endpoints require Clerk JWT (`Authorization: Bearer ${token}`) except @Public() ones
+
+**What needs to change (frontend):**
+1. **Create `apps/web/app/lib/readings-api.ts`** — API client functions for creating/fetching readings via NestJS
+2. **Modify `apps/web/app/reading/[type]/page.tsx`** `handleFormSubmit()`:
+   - Signed-in users: Call NestJS API (`POST /api/bazi/readings` or `POST /api/zwds/readings`) with Clerk JWT token
+   - Not signed-in users: Keep current direct engine calls (free chart preview, no AI)
+   - Parse response: NestJS returns `{ calculationData, aiInterpretation }` — feed `calculationData` to BaziChart/ZwdsChart, feed `aiInterpretation` to AIReadingDisplay
+3. **Remove mock AI functions** — `generateMockReading()` and `generateMockZwdsReading()` at bottom of page.tsx (~130 lines of mock data)
+4. **Handle errors**: Insufficient credits → show subscription CTA; AI provider failure → show chart-only (graceful degradation already built in backend)
+5. **Add reading history page** — `GET /api/users/me/readings` endpoint already exists, need frontend page to display past readings
+6. **Prerequisites**: AI API keys must be set in `apps/api/.env` (ANTHROPIC_API_KEY or OPENAI_API_KEY or GOOGLE_AI_API_KEY) — at least one provider needed
+
+**Key implementation detail:** The NestJS reading endpoints return the same `calculationData` JSON structure that the frontend already parses for BaziChart/ZwdsChart. The `aiInterpretation` is structured JSON with `sections[key].preview` / `.full` matching what AIReadingDisplay expects. So the chart/reading components need NO changes — only the data-fetching layer in page.tsx changes.
+
+#### 2. Phase 5: Monetization & Payment
+Stripe integration, subscription plans (Free/Basic/Pro/Master), credit system, Apple IAP, Google Play billing. DB models (Subscription, Transaction, Plan) already exist.
+
+#### 3. Mobile App
+React Native Expo app (skeleton exists in `apps/mobile/`, needs reading flow)
 
 ## Total Tests: 462 (16 suites) — all passing
 
