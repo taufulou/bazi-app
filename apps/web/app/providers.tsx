@@ -105,7 +105,7 @@ function TimeOnPageTracker() {
   const pathname = usePathname();
   const activeTimeMs = useRef<number>(0);
   const lastVisibleAt = useRef<number>(Date.now());
-  const isVisible = useRef(!document.hidden);
+  const isVisible = useRef(true);
 
   const pauseTimer = useCallback(() => {
     if (isVisible.current) {

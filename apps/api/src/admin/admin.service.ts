@@ -440,10 +440,9 @@ export class AdminService {
     try {
       const [
         // Funnel: time-windowed user counts for consistent funnel
-        totalUsersInPeriod,
+        newUsersInPeriod,
         usersWithReadingsInPeriod,
         usersWithSubscriptionsInPeriod,
-        newUsersInPeriod,
         // Reading type popularity
         readingsByType,
         // Readings per user distribution
@@ -467,7 +466,7 @@ export class AdminService {
         // Churn: cancelled subscriptions in period
         cancelledSubscriptions,
       ] = await Promise.all([
-        // Time-windowed: users who signed up in period
+        // Time-windowed: users who signed up in period (also used as funnel top)
         this.prisma.user.count({
           where: { createdAt: { gte: since } },
         }),
@@ -484,10 +483,6 @@ export class AdminService {
           by: ['userId'],
           where: { status: 'ACTIVE', createdAt: { gte: since } },
         }).then((rows) => rows.length),
-
-        this.prisma.user.count({
-          where: { createdAt: { gte: since } },
-        }),
 
         this.prisma.baziReading.groupBy({
           by: ['readingType'],
@@ -593,16 +588,16 @@ export class AdminService {
       const usersWithReadings = Number(usersWithReadingsInPeriod[0]?.count || 0);
 
       // Compute funnel percentages (all time-windowed now)
-      const signupToReadingRate = totalUsersInPeriod > 0 ? usersWithReadings / totalUsersInPeriod : 0;
+      const signupToReadingRate = newUsersInPeriod > 0 ? usersWithReadings / newUsersInPeriod : 0;
       const readingToSubscriptionRate = usersWithReadings > 0 ? usersWithSubscriptionsInPeriod / usersWithReadings : 0;
-      const overallConversionRate = totalUsersInPeriod > 0 ? usersWithSubscriptionsInPeriod / totalUsersInPeriod : 0;
+      const overallConversionRate = newUsersInPeriod > 0 ? usersWithSubscriptionsInPeriod / newUsersInPeriod : 0;
 
       return {
         period: { days, since: since.toISOString() },
 
         // Conversion funnel (all time-windowed to selected period)
         funnel: {
-          totalUsers: totalUsersInPeriod,
+          totalUsers: newUsersInPeriod,
           usersWhoCreatedReading: usersWithReadings,
           usersWithActiveSubscription: usersWithSubscriptionsInPeriod,
           signupToReadingRate: Math.round(signupToReadingRate * 10000) / 100,

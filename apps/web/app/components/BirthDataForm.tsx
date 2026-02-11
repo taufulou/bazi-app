@@ -41,6 +41,16 @@ export interface BirthDataFormValues {
   birthTimezone: string;
 }
 
+// Initial/default form values — used for state init and to detect real user changes
+const INITIAL_VALUES: BirthDataFormValues = {
+  name: "",
+  gender: "male",
+  birthDate: "",
+  birthTime: "",
+  birthCity: "台北市",
+  birthTimezone: "Asia/Taipei",
+};
+
 interface BirthDataFormProps {
   onSubmit: (data: BirthDataFormValues) => void;
   isLoading?: boolean;
@@ -62,14 +72,7 @@ export default function BirthDataForm({
   readingType = "unknown",
   children,
 }: BirthDataFormProps) {
-  const [form, setForm] = useState<BirthDataFormValues>({
-    name: "",
-    gender: "male",
-    birthDate: "",
-    birthTime: "",
-    birthCity: "台北市",
-    birthTimezone: "Asia/Taipei",
-  });
+  const [form, setForm] = useState<BirthDataFormValues>({ ...INITIAL_VALUES });
 
   // Analytics: track which fields have been filled and when form was started
   const formStartTime = useRef<number>(0);
@@ -124,16 +127,6 @@ export default function BirthDataForm({
       timezone: form.birthTimezone,
     });
     onSubmit(form);
-  };
-
-  // Initial values — used to detect if user actually changed a field vs leaving default
-  const INITIAL_VALUES: BirthDataFormValues = {
-    name: "",
-    gender: "male",
-    birthDate: "",
-    birthTime: "",
-    birthCity: "台北市",
-    birthTimezone: "Asia/Taipei",
   };
 
   const updateField = <K extends keyof BirthDataFormValues>(

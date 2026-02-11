@@ -30,7 +30,7 @@ export function DashboardViewTracker({
 
 /**
  * Wrapper for reading card links that fires tracking on click.
- * Uses a span (inline) to avoid breaking flex/grid layout from the parent Link.
+ * Uses display:contents so the wrapper is invisible to layout.
  */
 export function ReadingCardTracker({
   readingType,
@@ -44,19 +44,20 @@ export function ReadingCardTracker({
   children: React.ReactNode;
 }) {
   return (
-    <span
+    <div
+      style={{ display: "contents" }}
       onClick={() =>
         trackReadingCardClicked({ readingType, system, cardPosition })
       }
     >
       {children}
-    </span>
+    </div>
   );
 }
 
 /**
  * Wrapper for subscription CTA that fires tracking on click.
- * Uses a span to avoid breaking layout.
+ * Uses display:contents so the wrapper is invisible to layout.
  */
 export function SubscriptionCtaTracker({
   location,
@@ -66,8 +67,8 @@ export function SubscriptionCtaTracker({
   children: React.ReactNode;
 }) {
   return (
-    <span onClick={() => trackSubscriptionCtaClicked({ location })}>
+    <div style={{ display: "contents" }} onClick={() => trackSubscriptionCtaClicked({ location })}>
       {children}
-    </span>
+    </div>
   );
 }
