@@ -1,0 +1,202 @@
+/* ==== Profile Card ==== */
+
+.card {
+  position: relative;
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 12px;
+  padding: 1rem;
+  transition: all 0.2s ease;
+}
+
+.cardClickable {
+  cursor: pointer;
+}
+
+.cardClickable:hover {
+  border-color: rgba(232, 213, 183, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.cardSelected {
+  border-color: #e8d5b7;
+  box-shadow: 0 0 0 1px #e8d5b7;
+}
+
+.cardCompact {
+  padding: 0.75rem;
+}
+
+/* ==== Top Row: Name + Actions ==== */
+
+.topRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.primaryStar {
+  color: #e8d5b7;
+  font-size: 0.9rem;
+}
+
+.name {
+  color: #e0e0e0;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.actionBtn {
+  background: none;
+  border: none;
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+
+.actionBtn:hover {
+  color: #e8d5b7;
+  background: rgba(232, 213, 183, 0.1);
+}
+
+.deleteBtn:hover {
+  color: #ef5350;
+  background: rgba(239, 83, 80, 0.1);
+}
+
+/* ==== Info ==== */
+
+.info {
+  margin-bottom: 0.25rem;
+}
+
+.date {
+  color: #a0a0a0;
+  font-size: 0.85rem;
+}
+
+.meta {
+  color: #808080;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+/* ==== Badges ==== */
+
+.badges {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.badge {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+  border: 1px solid rgba(232, 213, 183, 0.3);
+  color: #e8d5b7;
+}
+
+.badgeSELF {
+  border-color: rgba(232, 213, 183, 0.4);
+  color: #e8d5b7;
+}
+
+.badgeFAMILY {
+  border-color: rgba(33, 150, 243, 0.4);
+  color: #64b5f6;
+}
+
+.badgeFRIEND {
+  border-color: rgba(76, 175, 80, 0.4);
+  color: #81c784;
+}
+
+.badgePrimary {
+  border-color: rgba(232, 213, 183, 0.5);
+  background: rgba(232, 213, 183, 0.1);
+  color: #e8d5b7;
+}
+
+/* ==== Inline Delete Confirmation ==== */
+
+.confirmOverlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(22, 33, 62, 0.95);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  z-index: 10;
+}
+
+.confirmText {
+  color: #e0e0e0;
+  font-size: 0.9rem;
+}
+
+.confirmBtns {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.confirmYes {
+  background: rgba(239, 83, 80, 0.15);
+  border: 1px solid #ef5350;
+  color: #ef5350;
+  padding: 0.35rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s;
+}
+
+.confirmYes:hover {
+  background: rgba(239, 83, 80, 0.25);
+}
+
+.confirmNo {
+  background: rgba(160, 160, 160, 0.1);
+  border: 1px solid rgba(160, 160, 160, 0.3);
+  color: #a0a0a0;
+  padding: 0.35rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s;
+}
+
+.confirmNo:hover {
+  background: rgba(160, 160, 160, 0.2);
+}
+
+/* ==== Responsive ==== */
+
+@media (max-width: 480px) {
+  .card {
+    padding: 0.75rem;
+  }
+
+  .name {
+    font-size: 0.9rem;
+  }
+}

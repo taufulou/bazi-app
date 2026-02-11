@@ -2,9 +2,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   min-height: 100svh;
-  padding: 40px 20px;
+  padding: 60px 20px;
   background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
   color: #e8d5b7;
 }
@@ -41,15 +40,49 @@
 .description {
   font-size: 1rem;
   color: #8a7a6a;
-  margin: 0 0 32px 0;
+  margin: 0 0 8px 0;
 }
 
+/* CTA Button */
+.ctaButton {
+  display: inline-block;
+  padding: 14px 48px;
+  background: linear-gradient(135deg, #d4af37 0%, #c4a882 100%);
+  color: #1a1a2e;
+  font-size: 1.1rem;
+  font-weight: 700;
+  border-radius: 12px;
+  text-decoration: none;
+  transition: all 0.3s ease;
+  margin: 16px 0 24px 0;
+}
+
+.ctaButton:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(212, 175, 55, 0.3);
+}
+
+/* Section Titles */
+.sectionTitle {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: #e8d5b7;
+  margin: 32px 0 4px 0;
+  letter-spacing: 0.05em;
+}
+
+/* Feature Grid */
 .features {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 20px;
   width: 100%;
-  margin-top: 20px;
+  margin-top: 8px;
+}
+
+.featureLink {
+  text-decoration: none;
+  color: inherit;
 }
 
 .feature {
@@ -59,11 +92,28 @@
   padding: 28px 20px;
   text-align: center;
   transition: all 0.3s ease;
+  cursor: pointer;
 }
 
 .feature:hover {
   background: rgba(255, 255, 255, 0.08);
   border-color: rgba(232, 213, 183, 0.3);
+  transform: translateY(-4px);
+}
+
+.featureZwds {
+  background: rgba(88, 28, 135, 0.12);
+  border: 1px solid rgba(168, 85, 247, 0.2);
+  border-radius: 16px;
+  padding: 28px 20px;
+  text-align: center;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.featureZwds:hover {
+  background: rgba(88, 28, 135, 0.2);
+  border-color: rgba(168, 85, 247, 0.4);
   transform: translateY(-4px);
 }
 
@@ -73,13 +123,15 @@
   margin-bottom: 12px;
 }
 
-.feature h3 {
+.feature h3,
+.featureZwds h3 {
   font-size: 1.2rem;
   margin: 0 0 6px 0;
   color: #e8d5b7;
 }
 
-.feature p {
+.feature p,
+.featureZwds p {
   font-size: 0.85rem;
   color: #8a7a6a;
   margin: 0;

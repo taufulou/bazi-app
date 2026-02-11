@@ -181,12 +181,16 @@ export class UsersService {
   // ============ Internal Helpers ============
 
   private async ensureUser(clerkUserId: string) {
-    const user = await this.prisma.user.findUnique({
+    let user = await this.prisma.user.findUnique({
       where: { clerkUserId },
     });
 
     if (!user) {
-      throw new NotFoundException('User not found');
+      // Auto-create user record if not found (e.g., webhook not configured)
+      this.logger.warn(`User ${clerkUserId} not in DB — auto-creating`);
+      user = await this.prisma.user.create({
+        data: { clerkUserId },
+      });
     }
 
     return user;

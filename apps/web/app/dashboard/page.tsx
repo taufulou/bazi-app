@@ -58,6 +58,15 @@ export default async function DashboardPage() {
         <p className={styles.welcomeSubtitle}>選擇一項服務開始您的命理之旅</p>
       </section>
 
+      {/* Profile Management Link */}
+      <Link href="/dashboard/profiles" className={styles.profileLink}>
+        <span className={styles.profileLinkIcon}>👤</span>
+        <span className={styles.profileLinkText}>
+          管理出生資料 — 儲存出生資料，快速開始各項分析
+        </span>
+        <span className={styles.profileLinkArrow}>&rarr;</span>
+      </Link>
+
       {/* Bazi Reading Types */}
       <section className={styles.readingsSection}>
         <h3 className={styles.sectionLabel}>八字命理分析</h3>

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useId, useRef, useEffect } from "react";
+import type { BirthProfile } from "../lib/birth-profiles-api";
 import styles from "./BirthDataForm.module.css";
 
 // Common timezones for target markets
@@ -35,6 +36,18 @@ export interface BirthDataFormValues {
   birthTimezone: string;
 }
 
+const RELATIONSHIP_TAGS = [
+  { value: "SELF", label: "本人" },
+  { value: "FAMILY", label: "家人" },
+  { value: "FRIEND", label: "朋友" },
+];
+
+const TAG_LABEL_MAP: Record<string, string> = { SELF: "本人", FAMILY: "家人", FRIEND: "朋友" };
+
+function formatProfileOption(p: BirthProfile): string {
+  return `${p.name} (${TAG_LABEL_MAP[p.relationshipTag] || ""})`;
+}
+
 interface BirthDataFormProps {
   onSubmit: (data: BirthDataFormValues) => void;
   isLoading?: boolean;
@@ -43,6 +56,10 @@ interface BirthDataFormProps {
   subtitle?: string;
   submitLabel?: string;
   children?: React.ReactNode;
+  initialValues?: Partial<BirthDataFormValues>;
+  showSaveOption?: boolean;
+  onSaveProfile?: (data: BirthDataFormValues, relationshipTag: string, existingProfileId?: string) => void;
+  savedProfiles?: BirthProfile[];
 }
 
 export default function BirthDataForm({
@@ -53,18 +70,44 @@ export default function BirthDataForm({
   subtitle = "請填寫準確的出生時間以獲得最精確的分析",
   submitLabel = "開始排盤",
   children,
+  initialValues,
+  showSaveOption = false,
+  onSaveProfile,
+  savedProfiles,
 }: BirthDataFormProps) {
+  const formId = useId();
+
   const [form, setForm] = useState<BirthDataFormValues>({
-    name: "",
-    gender: "male",
-    birthDate: "",
-    birthTime: "",
-    birthCity: "台北市",
-    birthTimezone: "Asia/Taipei",
+    name: initialValues?.name ?? "",
+    gender: initialValues?.gender ?? "male",
+    birthDate: initialValues?.birthDate ?? "",
+    birthTime: initialValues?.birthTime ?? "",
+    birthCity: initialValues?.birthCity ?? "台北市",
+    birthTimezone: initialValues?.birthTimezone ?? "Asia/Taipei",
   });
+
+  const [wantsSave, setWantsSave] = useState(showSaveOption);
+  const [relationshipTag, setRelationshipTag] = useState("SELF");
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (wantsSave && onSaveProfile) {
+      onSaveProfile(form, relationshipTag, selectedProfileId || undefined);
+    }
     onSubmit(form);
   };
 
@@ -73,6 +116,32 @@ export default function BirthDataForm({
     value: BirthDataFormValues[K],
   ) => {
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const selectProfile = (profile: BirthProfile) => {
+    setForm({
+      name: profile.name,
+      gender: profile.gender === "MALE" ? "male" : "female",
+      birthDate: profile.birthDate.substring(0, 10),
+      birthTime: profile.birthTime,
+      birthCity: profile.birthCity,
+      birthTimezone: profile.birthTimezone,
+    });
+    setSelectedProfileId(profile.id);
+    setRelationshipTag(profile.relationshipTag);
+    setShowDropdown(false);
+  };
+
+  const handleNameChange = (inputValue: string) => {
+    // Show dropdown while typing if there are profiles
+    if (savedProfiles?.length) {
+      setShowDropdown(true);
+    }
+    // User is typing a new name — no longer an existing profile
+    if (selectedProfileId) {
+      setSelectedProfileId(null);
+    }
+    updateField("name", inputValue);
   };
 
   const isValid =
@@ -87,16 +156,62 @@ export default function BirthDataForm({
       <p className={styles.formSubtitle}>{subtitle}</p>
 
       {/* Name */}
-      <div className={styles.fieldGroup}>
+      <div className={styles.fieldGroup} ref={dropdownRef}>
         <label className={styles.label}>稱呼</label>
-        <input
-          className={styles.input}
-          type="text"
-          placeholder="請輸入稱呼"
-          value={form.name}
-          onChange={(e) => updateField("name", e.target.value)}
-          maxLength={20}
-        />
+        <div className={styles.nameInputWrapper}>
+          <input
+            className={styles.input}
+            type="text"
+            placeholder={
+              savedProfiles?.length
+                ? "輸入稱呼或選擇已儲存的資料"
+                : "請輸入稱呼"
+            }
+            value={form.name}
+            onChange={(e) => handleNameChange(e.target.value)}
+            onFocus={() => savedProfiles?.length && setShowDropdown(true)}
+            maxLength={20}
+            autoComplete="off"
+          />
+          {savedProfiles?.length ? (
+            <button
+              type="button"
+              className={styles.dropdownToggle}
+              onClick={() => setShowDropdown((prev) => !prev)}
+              tabIndex={-1}
+              aria-label="展開已儲存的資料"
+            >
+              ▾
+            </button>
+          ) : null}
+        </div>
+        {showDropdown && savedProfiles?.length ? (
+          <ul className={styles.profileDropdown}>
+            {savedProfiles
+              .filter(
+                (p) =>
+                  !form.name ||
+                  p.name.toLowerCase().includes(form.name.toLowerCase()),
+              )
+              .map((p) => (
+                <li key={p.id}>
+                  <button
+                    type="button"
+                    className={styles.profileDropdownItem}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      selectProfile(p);
+                    }}
+                  >
+                    <span className={styles.profileDropdownName}>{p.name}</span>
+                    <span className={`${styles.profileDropdownTag} ${styles[`tag${p.relationshipTag}`] || ""}`}>
+                      {TAG_LABEL_MAP[p.relationshipTag] || ""}
+                    </span>
+                  </button>
+                </li>
+              ))}
+          </ul>
+        ) : null}
       </div>
 
       {/* Gender */}
@@ -159,12 +274,12 @@ export default function BirthDataForm({
           <input
             className={styles.input}
             type="text"
-            list="cities"
+            list={`cities-${formId}`}
             placeholder="輸入或選擇城市"
             value={form.birthCity}
             onChange={(e) => updateField("birthCity", e.target.value)}
           />
-          <datalist id="cities">
+          <datalist id={`cities-${formId}`}>
             {CITIES.map((city) => (
               <option key={city} value={city} />
             ))}
@@ -185,6 +300,42 @@ export default function BirthDataForm({
           </select>
         </div>
       </div>
+
+      {/* Save Profile Option */}
+      {showSaveOption && (
+        <div className={styles.saveProfileGroup}>
+          <label className={styles.checkboxLabel}>
+            <input
+              type="checkbox"
+              checked={wantsSave}
+              onChange={(e) => setWantsSave(e.target.checked)}
+              className={styles.checkbox}
+            />
+            儲存此資料以便下次使用
+          </label>
+          {wantsSave && (
+            <div className={styles.tagRow}>
+              <label className={styles.label}>關係</label>
+              <div className={styles.tagGroup}>
+                {RELATIONSHIP_TAGS.map((tag) => (
+                  <button
+                    key={tag.value}
+                    type="button"
+                    className={
+                      relationshipTag === tag.value
+                        ? styles.tagOptionActive
+                        : styles.tagOption
+                    }
+                    onClick={() => setRelationshipTag(tag.value)}
+                  >
+                    {tag.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Extra inputs injected by parent (e.g., monthly/daily/Q&A pickers) */}
       {children}

@@ -24,6 +24,7 @@
 }
 
 .fieldGroup {
+  position: relative;
   margin-bottom: 1.25rem;
 }
 
@@ -127,6 +128,155 @@
   font-size: 0.85rem;
   margin-top: 0.5rem;
   text-align: center;
+}
+
+/* ==== Custom Profile Dropdown ==== */
+
+.nameInputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.nameInputWrapper .input {
+  padding-right: 2.5rem;
+}
+
+.dropdownToggle {
+  position: absolute;
+  right: 0.5rem;
+  background: none;
+  border: none;
+  color: #a0a0a0;
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.dropdownToggle:hover {
+  color: #e8d5b7;
+}
+
+.profileDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0.25rem 0;
+  background: #1a1a2e;
+  border: 1px solid rgba(232, 213, 183, 0.3);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.profileDropdownItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  background: none;
+  border: none;
+  color: #e0e0e0;
+  font-size: 0.95rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.profileDropdownItem:hover {
+  background: rgba(232, 213, 183, 0.1);
+}
+
+.profileDropdownName {
+  font-weight: 500;
+}
+
+.profileDropdownTag {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.tagSELF {
+  color: #e8d5b7;
+  background: rgba(232, 213, 183, 0.12);
+}
+
+.tagFAMILY {
+  color: #64b5f6;
+  background: rgba(33, 150, 243, 0.12);
+}
+
+.tagFRIEND {
+  color: #81c784;
+  background: rgba(76, 175, 80, 0.12);
+}
+
+/* ==== Save Profile Option ==== */
+
+.saveProfileGroup {
+  margin-bottom: 1.25rem;
+  padding: 0.75rem 1rem;
+  background: rgba(232, 213, 183, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+}
+
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.checkbox {
+  accent-color: #e8d5b7;
+  width: 16px;
+  height: 16px;
+}
+
+.tagRow {
+  margin-top: 0.75rem;
+}
+
+.tagGroup {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.tagOption {
+  flex: 1;
+  padding: 0.5rem;
+  background: #1a1a2e;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 8px;
+  color: #a0a0a0;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.85rem;
+}
+
+.tagOption:hover {
+  border-color: rgba(232, 213, 183, 0.4);
+}
+
+.tagOptionActive {
+  composes: tagOption;
+  border-color: #e8d5b7;
+  color: #e8d5b7;
+  background: rgba(232, 213, 183, 0.1);
 }
 
 @media (max-width: 480px) {

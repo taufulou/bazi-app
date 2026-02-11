@@ -220,6 +220,37 @@
   box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
 }
 
+/* ==== Save Warning ==== */
+.saveWarning {
+  color: #ff9800;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+
+/* ==== Loading Skeleton ==== */
+.loadingSkeleton {
+  max-width: 600px;
+  margin: 4rem auto;
+  text-align: center;
+  color: #a0a0a0;
+  font-size: 0.9rem;
+}
+
+.skeletonSpinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(232, 213, 183, 0.15);
+  border-top-color: #e8d5b7;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 1rem;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ==== Extra Inputs (Phase 8B: monthly/daily/Q&A pickers) ==== */
 .extraInput {
   margin-top: 1rem;

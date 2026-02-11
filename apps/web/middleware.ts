@@ -7,6 +7,8 @@ const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/api/webhooks(.*)',
+  '/api/zwds-calculate(.*)',
+  '/api/bazi-calculate(.*)',
   '/reading(.*)',
   '/pricing(.*)',
 ]);
