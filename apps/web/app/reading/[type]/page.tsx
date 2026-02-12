@@ -6,6 +6,7 @@ import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import BirthDataForm, {
   type BirthDataFormValues,
+  type SaveProfileIntent,
 } from "../../components/BirthDataForm";
 import BaziChart from "../../components/BaziChart";
 import ZwdsChart from "../../components/ZwdsChart";
@@ -403,7 +404,7 @@ export default function ReadingPage() {
   // ============================================================
 
   const handleFormSubmit = useCallback(
-    async (data: BirthDataFormValues, profileId: string | null) => {
+    async (data: BirthDataFormValues, profileId: string | null, saveIntent?: SaveProfileIntent) => {
       setFormValues(data);
       setIsLoading(true);
       setError(undefined);
@@ -420,14 +421,21 @@ export default function ReadingPage() {
 
       let birthProfileId = profileId;
 
-      // Signed-in but no profile selected → auto-create one
-      if (isSignedIn && !birthProfileId) {
+      // Signed-in: ensure we have a birth profile (create or update as needed)
+      if (isSignedIn) {
         const token = await getToken();
         if (token) {
           try {
-            const newProfile = await createBirthProfile(token, formValuesToPayload(data, "SELF"));
-            birthProfileId = newProfile.id;
-            // Update savedProfiles for dropdown
+            const tag = saveIntent?.relationshipTag ?? "SELF";
+            if (birthProfileId) {
+              // Existing profile selected — update it with any modified data
+              await updateBirthProfile(token, birthProfileId, formValuesToPayload(data, tag));
+            } else {
+              // No existing profile — create a new one
+              const newProfile = await createBirthProfile(token, formValuesToPayload(data, tag));
+              birthProfileId = newProfile.id;
+            }
+            // Refresh dropdown
             const updated = await fetchBirthProfiles(token);
             setSavedProfiles(updated);
           } catch {
@@ -560,23 +568,8 @@ export default function ReadingPage() {
             }
             savedProfiles={isSignedIn ? savedProfiles : undefined}
             showSaveOption={isSignedIn === true}
-            onSaveProfile={async (data, tag, existingProfileId) => {
-              setSaveError(null);
-              try {
-                const token = await getToken();
-                if (token) {
-                  if (existingProfileId) {
-                    await updateBirthProfile(token, existingProfileId, formValuesToPayload(data, tag));
-                  } else {
-                    await createBirthProfile(token, formValuesToPayload(data, tag));
-                  }
-                  // Re-fetch profiles so dropdown is up-to-date on back navigation
-                  const updated = await fetchBirthProfiles(token);
-                  setSavedProfiles(updated);
-                }
-              } catch {
-                setSaveError("儲存資料失敗，您可以稍後在「管理出生資料」中手動新增。");
-              }
+            onSaveProfile={() => {
+              // Profile save is now handled sequentially in handleFormSubmit via saveIntent
             }}
           >
             {needsMonthPicker && (

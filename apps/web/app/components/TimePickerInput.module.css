@@ -1,0 +1,61 @@
+.wrapper {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.select {
+  flex: 1;
+  padding: 0.75rem 0.5rem;
+  background: #1a1a2e;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 0.2s;
+  cursor: pointer;
+  appearance: auto;
+}
+
+.select:focus {
+  border-color: #e8d5b7;
+}
+
+.select option {
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+.separator {
+  color: #a0a0a0;
+  font-size: 1.2rem;
+  font-weight: 600;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.periodSelect {
+  flex-shrink: 0;
+  width: auto;
+  padding: 0.75rem 0.4rem;
+  background: #1a1a2e;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 8px;
+  color: #e8d5b7;
+  font-size: 0.85rem;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.2s;
+  cursor: pointer;
+  appearance: auto;
+}
+
+.periodSelect:focus {
+  border-color: #e8d5b7;
+}
+
+.periodSelect option {
+  background: #1a1a2e;
+  color: #e0e0e0;
+}

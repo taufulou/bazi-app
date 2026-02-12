@@ -2,6 +2,8 @@
 
 import { useState, useId, useRef, useEffect } from "react";
 import type { BirthProfile } from "../lib/birth-profiles-api";
+import DatePickerInput from "./DatePickerInput";
+import TimePickerInput from "./TimePickerInput";
 import styles from "./BirthDataForm.module.css";
 
 // Common timezones for target markets
@@ -48,8 +50,13 @@ function formatProfileOption(p: BirthProfile): string {
   return `${p.name} (${TAG_LABEL_MAP[p.relationshipTag] || ""})`;
 }
 
+export interface SaveProfileIntent {
+  relationshipTag: string;
+  existingProfileId?: string;
+}
+
 interface BirthDataFormProps {
-  onSubmit: (data: BirthDataFormValues, profileId: string | null) => void;
+  onSubmit: (data: BirthDataFormValues, profileId: string | null, saveIntent?: SaveProfileIntent) => void;
   isLoading?: boolean;
   error?: string;
   title?: string;
@@ -105,10 +112,11 @@ export default function BirthDataForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (wantsSave && onSaveProfile) {
-      onSaveProfile(form, relationshipTag, selectedProfileId || undefined);
-    }
-    onSubmit(form, selectedProfileId);
+    const saveIntent: SaveProfileIntent | undefined =
+      wantsSave
+        ? { relationshipTag, existingProfileId: selectedProfileId || undefined }
+        : undefined;
+    onSubmit(form, selectedProfileId, saveIntent);
   };
 
   const updateField = <K extends keyof BirthDataFormValues>(
@@ -247,22 +255,16 @@ export default function BirthDataForm({
       <div className={styles.row}>
         <div className={styles.fieldGroup}>
           <label className={styles.label}>出生日期</label>
-          <input
-            className={styles.input}
-            type="date"
+          <DatePickerInput
             value={form.birthDate}
-            onChange={(e) => updateField("birthDate", e.target.value)}
-            max={new Date().toISOString().split("T")[0]}
-            min="1920-01-01"
+            onChange={(v) => updateField("birthDate", v)}
           />
         </div>
         <div className={styles.fieldGroup}>
           <label className={styles.label}>出生時間</label>
-          <input
-            className={styles.input}
-            type="time"
+          <TimePickerInput
             value={form.birthTime}
-            onChange={(e) => updateField("birthTime", e.target.value)}
+            onChange={(v) => updateField("birthTime", v)}
           />
         </div>
       </div>
