@@ -180,9 +180,12 @@ export class AdminController {
   // ============ Analytics ============
 
   @Get('ai-costs')
-  @ApiOperation({ summary: 'Get AI usage costs and analytics (last 30 days)' })
-  async getAICosts() {
-    return this.adminService.getAICosts();
+  @ApiOperation({ summary: 'Get AI usage costs and analytics' })
+  @ApiQuery({ name: 'days', required: false, example: 30, description: 'Number of days to look back (1-365, default 30)' })
+  async getAICosts(
+    @Query('days', new DefaultValuePipe(30), ParseIntPipe) days: number,
+  ) {
+    return this.adminService.getAICosts(days);
   }
 
   @Get('revenue')

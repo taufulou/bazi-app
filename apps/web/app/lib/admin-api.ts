@@ -144,15 +144,47 @@ export interface PaginatedResponse<T> {
   };
 }
 
+export interface CostByReadingType {
+  readingType: string;
+  totalCost: number;
+  count: number;
+  avgCost: number;
+  avgInputTokens: number;
+  avgOutputTokens: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  avgLatencyMs: number;
+  cacheHitRate: number;
+}
+
+export interface CostByTier {
+  tier: string;
+  label: string;
+  readingTypes: string[];
+  totalCost: number;
+  count: number;
+  avgCost: number;
+}
+
 export interface AICosts {
-  totalCost30d: number;
+  days: number;
+  totalCost: number;
   avgCostPerReading: number;
   totalTokens: number;
   totalInputTokens: number;
   totalOutputTokens: number;
   totalRequests: number;
   cacheHitRate: number;
-  costByProvider: { provider: string; totalCost: number; count: number }[];
+  costByProvider: {
+    provider: string;
+    totalCost: number;
+    count: number;
+    avgCost: number;
+    totalInputTokens: number;
+    totalOutputTokens: number;
+  }[];
+  costByReadingType: CostByReadingType[];
+  costByTier: CostByTier[];
   dailyCosts: { date: string; totalCost: number; count: number }[];
 }
 
@@ -323,8 +355,11 @@ export async function adjustUserCredits(
 
 // ============ Analytics ============
 
-export async function getAICosts(token: string): Promise<AICosts> {
-  return apiFetch<AICosts>('/api/admin/ai-costs', { token });
+export async function getAICosts(token: string, params?: { days?: number }): Promise<AICosts> {
+  const query = new URLSearchParams();
+  if (params?.days) query.set('days', String(params.days));
+  const qs = query.toString();
+  return apiFetch<AICosts>(`/api/admin/ai-costs${qs ? `?${qs}` : ''}`, { token });
 }
 
 export async function getRevenue(token: string): Promise<Revenue> {
