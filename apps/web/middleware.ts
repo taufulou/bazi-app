@@ -1,5 +1,4 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
-import { NextResponse } from 'next/server';
 
 // Public routes that don't require authentication
 const isPublicRoute = createRouteMatcher([
@@ -13,17 +12,11 @@ const isPublicRoute = createRouteMatcher([
   '/pricing(.*)',
 ]);
 
-// Admin routes require admin role
-const isAdminRoute = createRouteMatcher(['/admin(.*)']);
-
 export default clerkMiddleware(async (auth, request) => {
-  if (isAdminRoute(request)) {
-    const session = await auth.protect();
-    const role = (session.sessionClaims?.metadata as Record<string, unknown>)?.role;
-    if (role !== 'admin') {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
-  } else if (!isPublicRoute(request)) {
+  // All non-public routes require authentication.
+  // Admin role check is handled by admin/layout.tsx (checks user.publicMetadata.role directly),
+  // which avoids needing Clerk session token customization for publicMetadata.
+  if (!isPublicRoute(request)) {
     await auth.protect();
   }
 });

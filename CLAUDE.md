@@ -276,6 +276,51 @@ React Native Expo app (skeleton exists in `apps/mobile/`, needs reading flow)
 
 ## Total Tests: 462 (16 suites) — all passing
 
+## Worktree Development Guide
+When working in a git worktree (`.claude/worktrees/`), these steps are REQUIRED before starting servers:
+
+### 1. Copy environment files (gitignored, not shared across worktrees)
+```bash
+MAIN="/Users/roger/Documents/Python/Bazi_Plotting"
+cp "$MAIN/apps/web/.env.local" apps/web/.env.local    # Clerk keys for Next.js
+cp "$MAIN/apps/api/.env" apps/api/.env                  # DB, Redis, Clerk, AI keys for NestJS
+```
+**Without `.env.local`**, Clerk enters "keyless mode" — a separate user pool where admin roles and user data don't exist.
+
+### 2. Generate Prisma client & run migrations
+```bash
+cd apps/api
+npx prisma@6 generate       # MUST use prisma@6 (global is v7, incompatible)
+npx prisma@6 migrate deploy  # Apply pending migrations
+```
+
+### 3. Start NestJS API from the MAIN repo (not worktree)
+The `@repo/shared` package exports raw TypeScript (`"main": "./src/index.ts"`) with extensionless imports (`export * from './types'`). NestJS compiles to CommonJS but at runtime Node ESM can't resolve `.ts` files without extensions. This means:
+- **NestJS backend files that import from `@repo/shared` will fail at runtime** in both worktree and main repo
+- **Workaround**: Inline shared constants directly in NestJS files instead of importing from `@repo/shared`
+- **Or**: Copy worktree's changed API source files to main repo, build there (`npx nest build`), and run (`node dist/main.js`)
+- **Next.js frontend** handles `@repo/shared` fine (Turbopack resolves TS natively)
+
+### 4. Start Next.js from worktree directly
+```bash
+cd apps/web
+npx next dev --port 3000    # NOT via turbo (may pick up main repo code)
+```
+
+### 5. Admin role setup
+Admin access requires `publicMetadata.role === "admin"` on the Clerk user. Set via Clerk API:
+```bash
+CLERK_KEY=$(grep CLERK_SECRET_KEY apps/api/.env | cut -d= -f2)
+# Find user: curl -H "Authorization: Bearer $CLERK_KEY" "https://api.clerk.com/v1/users?email_address=EMAIL"
+# Set admin: curl -X PATCH -H "Authorization: Bearer $CLERK_KEY" -H "Content-Type: application/json" -d '{"public_metadata":{"role":"admin"}}' "https://api.clerk.com/v1/users/USER_ID"
+```
+Admin check is in `apps/web/app/admin/layout.tsx` (uses `currentUser().publicMetadata`). Middleware only checks authentication, not admin role.
+
+### 6. PostgreSQL CLI
+```bash
+/opt/homebrew/opt/postgresql@15/bin/psql -U bazi_user -d bazi_platform
+```
+
 ## Known Issues / Notes
 - **Clerk deprecated props**: `afterSignInUrl`/`afterSignUpUrl` env vars should be migrated to `fallbackRedirectUrl`/`forceRedirectUrl`
 - **Clerk phone requirement**: Phone number is set to "required" in Clerk Dashboard — blocks Google sign-in flow. Should be changed to "optional" in Clerk Dashboard → Configure → Email, Phone, Username
@@ -283,3 +328,4 @@ React Native Expo app (skeleton exists in `apps/mobile/`, needs reading flow)
 - **Joi validation fix**: API env vars use `.allow('')` for optional keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) to allow empty strings in `.env`
 - **AI mock data**: Both Bazi and ZWDS AI readings use mock data on frontend. Chart calculations are real. AI interpretation requires API keys in `apps/api/.env`
 - **Sentry**: `@sentry/nextjs` is in next.config.js but runs silently when no SENTRY_AUTH_TOKEN is set
+- **@repo/shared runtime issue**: NestJS files must NOT import from `@repo/shared` at runtime — inline constants instead. See "Worktree Development Guide" above.
