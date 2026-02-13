@@ -228,6 +228,7 @@ export class AIService implements OnModuleInit {
           readingId,
           providerConfig,
           generationResult,
+          readingType,
         ).catch((err) => this.logger.error(`Failed to log AI usage: ${err}`));
 
         this.logger.log(
@@ -1160,12 +1161,14 @@ export class AIService implements OnModuleInit {
     readingId: string | undefined,
     config: ProviderConfig,
     result: AIGenerationResult,
+    readingType?: ReadingType,
   ) {
     try {
       await this.prisma.aIUsageLog.create({
         data: {
           userId,
           readingId,
+          readingType: readingType ?? null,
           aiProvider: config.provider,
           aiModel: config.model,
           inputTokens: result.tokenUsage.inputTokens,

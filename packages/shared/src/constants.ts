@@ -323,6 +323,50 @@ export const READING_TYPE_META: Record<ReadingType, {
 };
 
 // ============================================================
+// Reading Type Cost Tiers (for admin AI cost analytics)
+// ============================================================
+
+/** Cost tier for a reading type — groups readings by complexity/token usage */
+export type ReadingCostTier = 'comprehensive' | 'periodic' | 'daily' | 'qa' | 'unclassified';
+
+/**
+ * Maps each Prisma ReadingType enum value (uppercase) to its cost tier.
+ * Used by both NestJS admin service and Next.js admin page.
+ */
+export const READING_TYPE_TIERS: Record<string, { tier: ReadingCostTier; label: string }> = {
+  LIFETIME:           { tier: 'comprehensive', label: 'Bazi Lifetime' },
+  CAREER:             { tier: 'comprehensive', label: 'Bazi Career' },
+  LOVE:               { tier: 'comprehensive', label: 'Bazi Love' },
+  HEALTH:             { tier: 'comprehensive', label: 'Bazi Health' },
+  COMPATIBILITY:      { tier: 'comprehensive', label: 'Bazi Compatibility' },
+  ZWDS_LIFETIME:      { tier: 'comprehensive', label: 'ZWDS Lifetime' },
+  ZWDS_CAREER:        { tier: 'comprehensive', label: 'ZWDS Career' },
+  ZWDS_LOVE:          { tier: 'comprehensive', label: 'ZWDS Love' },
+  ZWDS_HEALTH:        { tier: 'comprehensive', label: 'ZWDS Health' },
+  ZWDS_COMPATIBILITY: { tier: 'comprehensive', label: 'ZWDS Compatibility' },
+  ZWDS_MAJOR_PERIOD:  { tier: 'comprehensive', label: 'ZWDS Major Period' },
+  ANNUAL:             { tier: 'periodic', label: 'Bazi Annual' },
+  ZWDS_ANNUAL:        { tier: 'periodic', label: 'ZWDS Annual' },
+  ZWDS_MONTHLY:       { tier: 'periodic', label: 'ZWDS Monthly' },
+  ZWDS_DAILY:         { tier: 'daily', label: 'ZWDS Daily' },
+  ZWDS_QA:            { tier: 'qa', label: 'ZWDS Q&A' },
+};
+
+/** Display order for tiers in admin UI */
+export const TIER_ORDER: ReadingCostTier[] = [
+  'comprehensive', 'periodic', 'daily', 'qa', 'unclassified',
+];
+
+/** Human-readable tier labels */
+export const TIER_LABELS: Record<ReadingCostTier, string> = {
+  comprehensive: 'Comprehensive',
+  periodic: 'Periodic',
+  daily: 'Daily',
+  qa: 'Q&A',
+  unclassified: 'Unclassified',
+};
+
+// ============================================================
 // Rate Limits
 // ============================================================
 

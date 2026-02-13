@@ -398,6 +398,111 @@ describe('AIService', () => {
   });
 
   // ============================================================
+  // Usage Logging
+  // ============================================================
+
+  describe('logUsage', () => {
+    const mockProviderConfig = {
+      provider: 'CLAUDE',
+      model: 'claude-sonnet-4-20250514',
+      apiKey: 'test',
+      timeoutMs: 30000,
+      costPerInputToken: 3 / 1_000_000,
+      costPerOutputToken: 15 / 1_000_000,
+    };
+
+    const mockGenerationResult = {
+      interpretation: { sections: {}, summary: { preview: '', full: '' } },
+      provider: 'CLAUDE',
+      model: 'claude-sonnet-4-20250514',
+      tokenUsage: { inputTokens: 1000, outputTokens: 500, totalTokens: 1500, estimatedCostUsd: 0.0105 },
+      latencyMs: 2500,
+      isCacheHit: false,
+    };
+
+    it('should include readingType in Prisma create call', async () => {
+      await (service as any).logUsage(
+        'user-1',
+        'reading-1',
+        mockProviderConfig,
+        mockGenerationResult,
+        ReadingType.LIFETIME,
+      );
+
+      expect(mockPrisma.aIUsageLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          readingType: ReadingType.LIFETIME,
+          userId: 'user-1',
+          readingId: 'reading-1',
+        }),
+      });
+    });
+
+    it('should pass null readingType when undefined', async () => {
+      await (service as any).logUsage(
+        'user-1',
+        'reading-1',
+        mockProviderConfig,
+        mockGenerationResult,
+        undefined,
+      );
+
+      expect(mockPrisma.aIUsageLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          readingType: null,
+        }),
+      });
+    });
+
+    it('should not throw on Prisma error (silent error handling)', async () => {
+      mockPrisma.aIUsageLog.create.mockRejectedValueOnce(new Error('DB error'));
+
+      // Should not throw
+      await expect(
+        (service as any).logUsage('user-1', 'reading-1', mockProviderConfig, mockGenerationResult, ReadingType.CAREER),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('generateInterpretation readingType passthrough', () => {
+    it('should pass readingType through to logUsage', async () => {
+      // Setup: configure a provider
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'ANTHROPIC_API_KEY') return 'test-key';
+        return undefined;
+      });
+      const s = new AIService(mockConfigService as any, mockPrisma as any, mockRedis as any);
+      await s.onModuleInit();
+
+      // Mock the Claude client call
+      (s as any).claudeClient = {
+        messages: {
+          create: jest.fn().mockResolvedValue({
+            content: [{ type: 'text', text: JSON.stringify({
+              sections: { personality: { preview: 'P', full: 'F' } },
+              summary: { preview: 'S', full: 'SF' },
+            })}],
+            usage: { input_tokens: 100, output_tokens: 50 },
+          }),
+        },
+      };
+
+      // Spy on logUsage
+      const logUsageSpy = jest.spyOn(s as any, 'logUsage');
+
+      await s.generateInterpretation(SAMPLE_CALCULATION, ReadingType.ZWDS_DAILY, 'user-1', 'reading-1');
+
+      expect(logUsageSpy).toHaveBeenCalledWith(
+        'user-1',
+        'reading-1',
+        expect.any(Object),
+        expect.any(Object),
+        ReadingType.ZWDS_DAILY,
+      );
+    });
+  });
+
+  // ============================================================
   // Provider Initialization
   // ============================================================
 

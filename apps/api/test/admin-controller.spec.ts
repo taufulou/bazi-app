@@ -351,17 +351,40 @@ describe('AdminController', () => {
   // ============================================================
 
   describe('GET /api/admin/ai-costs', () => {
-    it('should delegate to adminService.getAICosts', async () => {
+    it('should delegate to adminService.getAICosts with default 30 days', async () => {
       const costs = {
+        days: 30,
         totalCost: 142.50,
-        byProvider: { CLAUDE: 95.30, GPT: 35.20, GEMINI: 12.00 },
+        costByProvider: [],
+        costByReadingType: [],
+        costByTier: [],
       };
       mockAdminService.getAICosts.mockResolvedValue(costs);
 
-      const result = await controller.getAICosts();
+      const result = await controller.getAICosts(30);
 
       expect(result).toEqual(costs);
-      expect(mockAdminService.getAICosts).toHaveBeenCalledTimes(1);
+      expect(mockAdminService.getAICosts).toHaveBeenCalledWith(30);
+    });
+
+    it('should forward days=7 parameter to service', async () => {
+      const costs = { days: 7, totalCost: 20.00 };
+      mockAdminService.getAICosts.mockResolvedValue(costs);
+
+      const result = await controller.getAICosts(7);
+
+      expect(result).toEqual(costs);
+      expect(mockAdminService.getAICosts).toHaveBeenCalledWith(7);
+    });
+
+    it('should forward days=90 parameter to service', async () => {
+      const costs = { days: 90, totalCost: 400.00 };
+      mockAdminService.getAICosts.mockResolvedValue(costs);
+
+      const result = await controller.getAICosts(90);
+
+      expect(result).toEqual(costs);
+      expect(mockAdminService.getAICosts).toHaveBeenCalledWith(90);
     });
   });
 
