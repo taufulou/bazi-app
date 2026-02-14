@@ -1,33 +1,17 @@
 "use client";
 
-import { useState, useId, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
+import {
+  CITIES,
+  TIMEZONES,
+  REGIONS,
+  getTimezoneForCity,
+  getRegionForCity,
+  type TimezoneEntry,
+  type CityRegion,
+} from "@repo/shared";
 import type { BirthProfile } from "../lib/birth-profiles-api";
-import DatePickerInput from "./DatePickerInput";
-import TimePickerInput from "./TimePickerInput";
 import styles from "./BirthDataForm.module.css";
-
-// Common timezones for target markets
-const TIMEZONES = [
-  { value: "Asia/Taipei", label: "台灣 (UTC+8)" },
-  { value: "Asia/Hong_Kong", label: "香港 (UTC+8)" },
-  { value: "Asia/Kuala_Lumpur", label: "馬來西亞 (UTC+8)" },
-  { value: "Asia/Singapore", label: "新加坡 (UTC+8)" },
-  { value: "Asia/Shanghai", label: "中國 (UTC+8)" },
-  { value: "Asia/Tokyo", label: "日本 (UTC+9)" },
-  { value: "Asia/Seoul", label: "韓國 (UTC+9)" },
-  { value: "America/New_York", label: "美東 (UTC-5)" },
-  { value: "America/Los_Angeles", label: "美西 (UTC-8)" },
-  { value: "Europe/London", label: "倫敦 (UTC+0)" },
-];
-
-// Common birth cities
-const CITIES = [
-  "台北市", "台中市", "高雄市", "台南市", "新北市", "桃園市",
-  "香港", "九龍", "新界",
-  "吉隆坡", "檳城", "新山",
-  "北京", "上海", "廣州", "深圳",
-  "新加坡",
-];
 
 export interface BirthDataFormValues {
   name: string;
@@ -55,6 +39,13 @@ export interface SaveProfileIntent {
   existingProfileId?: string;
 }
 
+/** Group items by region, returning only non-empty groups in market-priority order */
+function groupByRegion<T extends { region: CityRegion }>(items: T[]) {
+  return REGIONS
+    .map((r) => ({ region: r, items: items.filter((i) => i.region === r.key) }))
+    .filter((g) => g.items.length > 0);
+}
+
 interface BirthDataFormProps {
   onSubmit: (data: BirthDataFormValues, profileId: string | null, saveIntent?: SaveProfileIntent) => void;
   isLoading?: boolean;
@@ -67,6 +58,38 @@ interface BirthDataFormProps {
   showSaveOption?: boolean;
   onSaveProfile?: (data: BirthDataFormValues, relationshipTag: string, existingProfileId?: string) => void;
   savedProfiles?: BirthProfile[];
+}
+
+/** Get number of days in a given month (handles leap years) */
+function getDaysInMonth(year: string, month: string): number {
+  if (!year || !month) return 31;
+  return new Date(parseInt(year), parseInt(month), 0).getDate();
+}
+
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 1920 + 1 }, (_, i) => CURRENT_YEAR - i);
+const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => i + 1);
+const HOUR_12_OPTIONS = Array.from({ length: 12 }, (_, i) => i + 1); // 1-12
+const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => i);
+
+/** Convert 24-hour string (e.g. "14") to 12-hour + period */
+function to12Hour(hour24: string): { hour12: string; period: "AM" | "PM" } {
+  if (hour24 === "") return { hour12: "", period: "AM" };
+  const h = parseInt(hour24);
+  if (h === 0) return { hour12: "12", period: "AM" };
+  if (h < 12) return { hour12: String(h), period: "AM" };
+  if (h === 12) return { hour12: "12", period: "PM" };
+  return { hour12: String(h - 12), period: "PM" };
+}
+
+/** Convert 12-hour + period to 24-hour zero-padded string */
+function to24Hour(hour12: string, period: "AM" | "PM"): string {
+  if (hour12 === "") return "";
+  const h = parseInt(hour12);
+  if (period === "AM") {
+    return String(h === 12 ? 0 : h).padStart(2, "0");
+  }
+  return String(h === 12 ? 12 : h + 12).padStart(2, "0");
 }
 
 export default function BirthDataForm({
@@ -82,8 +105,6 @@ export default function BirthDataForm({
   onSaveProfile,
   savedProfiles,
 }: BirthDataFormProps) {
-  const formId = useId();
-
   const [form, setForm] = useState<BirthDataFormValues>({
     name: initialValues?.name ?? "",
     gender: initialValues?.gender ?? "male",
@@ -93,11 +114,71 @@ export default function BirthDataForm({
     birthTimezone: initialValues?.birthTimezone ?? "Asia/Taipei",
   });
 
+  // Date/time split into individual dropdown states
+  const [birthYear, setBirthYear] = useState(() => initialValues?.birthDate?.substring(0, 4) ?? "");
+  const [birthMonth, setBirthMonth] = useState(() => initialValues?.birthDate?.substring(5, 7) ?? "");
+  const [birthDay, setBirthDay] = useState(() => initialValues?.birthDate?.substring(8, 10) ?? "");
+  const [birthHour, setBirthHour] = useState(() => {
+    const h24 = initialValues?.birthTime?.substring(0, 2) ?? "";
+    return h24 ? to12Hour(h24).hour12 : "";
+  });
+  const [birthPeriod, setBirthPeriod] = useState<"AM" | "PM">(() => {
+    const h24 = initialValues?.birthTime?.substring(0, 2) ?? "";
+    return h24 ? to12Hour(h24).period : "AM";
+  });
+  const [birthMinute, setBirthMinute] = useState(() => initialValues?.birthTime?.substring(3, 5) ?? "");
+
+  const [selectedRegion, setSelectedRegion] = useState<CityRegion>(
+    () => getRegionForCity(initialValues?.birthCity ?? "台北市") ?? "taiwan"
+  );
+
   const [wantsSave, setWantsSave] = useState(showSaveOption);
   const [relationshipTag, setRelationshipTag] = useState("SELF");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Sync date/time dropdowns → form.birthDate / form.birthTime
+  useEffect(() => {
+    if (birthYear && birthMonth && birthDay) {
+      setForm((prev) => ({
+        ...prev,
+        birthDate: `${birthYear}-${birthMonth}-${birthDay}`,
+      }));
+    } else {
+      setForm((prev) => ({ ...prev, birthDate: "" }));
+    }
+  }, [birthYear, birthMonth, birthDay]);
+
+  useEffect(() => {
+    if (birthHour !== "" && birthMinute !== "") {
+      const h24 = to24Hour(birthHour, birthPeriod);
+      setForm((prev) => ({
+        ...prev,
+        birthTime: `${h24}:${birthMinute}`,
+      }));
+    } else {
+      setForm((prev) => ({ ...prev, birthTime: "" }));
+    }
+  }, [birthHour, birthMinute, birthPeriod]);
+
+  // Clamp day when month/year changes (e.g., Jan 31 → Feb → clamp to 28/29)
+  useEffect(() => {
+    if (birthDay) {
+      const maxDays = getDaysInMonth(birthYear, birthMonth);
+      if (parseInt(birthDay) > maxDays) {
+        setBirthDay(String(maxDays).padStart(2, "0"));
+      }
+    }
+  }, [birthYear, birthMonth, birthDay]);
+
+  // Sync region when initialValues changes (e.g. parent re-renders with new profile)
+  useEffect(() => {
+    if (initialValues?.birthCity) {
+      const region = getRegionForCity(initialValues.birthCity);
+      if (region) setSelectedRegion(region);
+    }
+  }, [initialValues?.birthCity]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -126,15 +207,48 @@ export default function BirthDataForm({
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const filteredCities = CITIES.filter((c) => c.region === selectedRegion);
+
+  const handleRegionChange = (region: CityRegion) => {
+    if (region === selectedRegion) return;
+    setSelectedRegion(region);
+    const citiesInRegion = CITIES.filter((c) => c.region === region);
+    if (citiesInRegion.length > 0) {
+      handleCityChange(citiesInRegion[0].name);
+    }
+  };
+
+  const handleCityChange = (cityName: string) => {
+    const tz = getTimezoneForCity(cityName);
+    setForm((prev) => ({
+      ...prev,
+      birthCity: cityName,
+      // Only auto-set timezone if the city exactly matches a known entry;
+      // otherwise preserve the user's current timezone selection
+      ...(tz ? { birthTimezone: tz } : {}),
+    }));
+  };
+
   const selectProfile = (profile: BirthProfile) => {
+    const dateStr = profile.birthDate.substring(0, 10);
+    const timeStr = profile.birthTime;
     setForm({
       name: profile.name,
       gender: profile.gender === "MALE" ? "male" : "female",
-      birthDate: profile.birthDate.substring(0, 10),
-      birthTime: profile.birthTime,
+      birthDate: dateStr,
+      birthTime: timeStr,
       birthCity: profile.birthCity,
       birthTimezone: profile.birthTimezone,
     });
+    // Sync date/time dropdowns from profile
+    setBirthYear(dateStr.substring(0, 4));
+    setBirthMonth(dateStr.substring(5, 7));
+    setBirthDay(dateStr.substring(8, 10));
+    const { hour12, period } = to12Hour(timeStr.substring(0, 2));
+    setBirthHour(hour12);
+    setBirthPeriod(period);
+    setBirthMinute(timeStr.substring(3, 5));
+    setSelectedRegion(getRegionForCity(profile.birthCity) ?? "taiwan");
     setSelectedProfileId(profile.id);
     setRelationshipTag(profile.relationshipTag);
     setShowDropdown(false);
@@ -152,11 +266,16 @@ export default function BirthDataForm({
     updateField("name", inputValue);
   };
 
+  const dayCount = getDaysInMonth(birthYear, birthMonth);
+  const dayOptions = Array.from({ length: dayCount }, (_, i) => i + 1);
+
   const isValid =
     form.name.trim() !== "" &&
     form.birthDate !== "" &&
     form.birthTime !== "" &&
     form.birthCity.trim() !== "";
+
+  const tzGroups = groupByRegion<TimezoneEntry>(TIMEZONES);
 
   return (
     <form className={styles.formWrapper} onSubmit={handleSubmit}>
@@ -251,41 +370,113 @@ export default function BirthDataForm({
         </div>
       </div>
 
-      {/* Date & Time */}
-      <div className={styles.row}>
+      {/* Date & Time — industry standard Year/Month/Day + Hour/Minute dropdowns */}
+      <div className={styles.dateTimeGroup}>
         <div className={styles.fieldGroup}>
           <label className={styles.label}>出生日期</label>
-          <DatePickerInput
-            value={form.birthDate}
-            onChange={(v) => updateField("birthDate", v)}
-          />
+          <div className={styles.dateRow}>
+            <select
+              className={styles.dateSelect}
+              value={birthYear}
+              onChange={(e) => setBirthYear(e.target.value)}
+              aria-label="年"
+            >
+              <option value="">年</option>
+              {YEAR_OPTIONS.map((y) => (
+                <option key={y} value={String(y)}>{y}</option>
+              ))}
+            </select>
+            <select
+              className={styles.dateSelect}
+              value={birthMonth}
+              onChange={(e) => setBirthMonth(e.target.value)}
+              aria-label="月"
+            >
+              <option value="">月</option>
+              {MONTH_OPTIONS.map((m) => (
+                <option key={m} value={String(m).padStart(2, "0")}>{m}</option>
+              ))}
+            </select>
+            <select
+              className={styles.dateSelect}
+              value={birthDay}
+              onChange={(e) => setBirthDay(e.target.value)}
+              aria-label="日"
+            >
+              <option value="">日</option>
+              {dayOptions.map((d) => (
+                <option key={d} value={String(d).padStart(2, "0")}>{d}</option>
+              ))}
+            </select>
+          </div>
         </div>
         <div className={styles.fieldGroup}>
           <label className={styles.label}>出生時間</label>
-          <TimePickerInput
-            value={form.birthTime}
-            onChange={(v) => updateField("birthTime", v)}
-          />
+          <div className={styles.timeRow}>
+            <select
+              className={styles.dateSelect}
+              value={birthHour}
+              onChange={(e) => setBirthHour(e.target.value)}
+              aria-label="時"
+            >
+              <option value="">時</option>
+              {HOUR_12_OPTIONS.map((h) => (
+                <option key={h} value={String(h)}>{h}</option>
+              ))}
+            </select>
+            <select
+              className={styles.dateSelect}
+              value={birthMinute}
+              onChange={(e) => setBirthMinute(e.target.value)}
+              aria-label="分"
+            >
+              <option value="">分</option>
+              {MINUTE_OPTIONS.map((m) => (
+                <option key={m} value={String(m).padStart(2, "0")}>{String(m).padStart(2, "0")}</option>
+              ))}
+            </select>
+            <select
+              className={styles.dateSelect}
+              value={birthPeriod}
+              onChange={(e) => setBirthPeriod(e.target.value as "AM" | "PM")}
+              aria-label="午別"
+            >
+              <option value="AM">上午</option>
+              <option value="PM">下午</option>
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* City & Timezone */}
-      <div className={styles.row}>
+      {/* Region, City & Timezone */}
+      <div className={styles.regionCityRow}>
         <div className={styles.fieldGroup}>
-          <label className={styles.label}>出生城市</label>
-          <input
-            className={styles.input}
-            type="text"
-            list={`cities-${formId}`}
-            placeholder="輸入或選擇城市"
-            value={form.birthCity}
-            onChange={(e) => updateField("birthCity", e.target.value)}
-          />
-          <datalist id={`cities-${formId}`}>
-            {CITIES.map((city) => (
-              <option key={city} value={city} />
+          <label className={styles.label}>地區</label>
+          <select
+            className={styles.select}
+            value={selectedRegion}
+            onChange={(e) => handleRegionChange(e.target.value as CityRegion)}
+          >
+            {REGIONS.map((r) => (
+              <option key={r.key} value={r.key}>{r.labelZhTw}</option>
             ))}
-          </datalist>
+          </select>
+        </div>
+        <div className={styles.fieldGroup}>
+          <label className={styles.label}>出生地</label>
+          <select
+            className={styles.select}
+            value={form.birthCity}
+            onChange={(e) => handleCityChange(e.target.value)}
+          >
+            {filteredCities.map((city) => (
+              <option key={city.name} value={city.name}>{city.name}</option>
+            ))}
+            {/* Fallback for unlisted cities (saved profiles, initialValues) */}
+            {form.birthCity && !filteredCities.some((c) => c.name === form.birthCity) && (
+              <option value={form.birthCity}>{form.birthCity}</option>
+            )}
+          </select>
         </div>
         <div className={styles.fieldGroup}>
           <label className={styles.label}>時區</label>
@@ -294,10 +485,14 @@ export default function BirthDataForm({
             value={form.birthTimezone}
             onChange={(e) => updateField("birthTimezone", e.target.value)}
           >
-            {TIMEZONES.map((tz) => (
-              <option key={tz.value} value={tz.value}>
-                {tz.label}
-              </option>
+            {tzGroups.map((group) => (
+              <optgroup key={group.region.key} label={group.region.labelZhTw}>
+                {group.items.map((tz) => (
+                  <option key={tz.value} value={tz.value}>
+                    {tz.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </div>

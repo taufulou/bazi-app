@@ -69,6 +69,12 @@
   gap: 1rem;
 }
 
+.regionCityRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1rem;
+}
+
 .genderGroup {
   display: flex;
   gap: 1rem;
@@ -279,8 +285,46 @@
   background: rgba(232, 213, 183, 0.1);
 }
 
+/* ==== Date & Time Dropdowns ==== */
+
+.dateTimeGroup {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.dateRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.timeRow {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.dateSelect {
+  composes: select;
+  padding: 0.75rem 0.5rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.dateSelect:first-child {
+  flex: 1.4;
+}
+
 @media (max-width: 480px) {
   .row {
+    grid-template-columns: 1fr;
+  }
+
+  .regionCityRow {
+    grid-template-columns: 1fr;
+  }
+
+  .dateTimeGroup {
     grid-template-columns: 1fr;
   }
 

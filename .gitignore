@@ -55,3 +55,4 @@ apps/api/prisma/*.db
 # Mobile native builds
 apps/mobile/ios/
 apps/mobile/android/
+.claude/worktrees/
