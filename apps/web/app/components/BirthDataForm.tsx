@@ -55,6 +55,18 @@ interface BirthDataFormProps {
   savedProfiles?: BirthProfile[];
 }
 
+/** Get number of days in a given month (handles leap years) */
+function getDaysInMonth(year: string, month: string): number {
+  if (!year || !month) return 31;
+  return new Date(parseInt(year), parseInt(month), 0).getDate();
+}
+
+const CURRENT_YEAR = new Date().getFullYear();
+const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 1920 + 1 }, (_, i) => CURRENT_YEAR - i);
+const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => i + 1);
+const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i);
+const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => i);
+
 export default function BirthDataForm({
   onSubmit,
   isLoading = false,
@@ -77,6 +89,13 @@ export default function BirthDataForm({
     birthTimezone: initialValues?.birthTimezone ?? "Asia/Taipei",
   });
 
+  // Date/time split into individual dropdown states
+  const [birthYear, setBirthYear] = useState(() => initialValues?.birthDate?.substring(0, 4) ?? "");
+  const [birthMonth, setBirthMonth] = useState(() => initialValues?.birthDate?.substring(5, 7) ?? "");
+  const [birthDay, setBirthDay] = useState(() => initialValues?.birthDate?.substring(8, 10) ?? "");
+  const [birthHour, setBirthHour] = useState(() => initialValues?.birthTime?.substring(0, 2) ?? "");
+  const [birthMinute, setBirthMinute] = useState(() => initialValues?.birthTime?.substring(3, 5) ?? "");
+
   const [selectedRegion, setSelectedRegion] = useState<CityRegion>(
     () => getRegionForCity(initialValues?.birthCity ?? "台北市") ?? "taiwan"
   );
@@ -86,6 +105,39 @@ export default function BirthDataForm({
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Sync date/time dropdowns → form.birthDate / form.birthTime
+  useEffect(() => {
+    if (birthYear && birthMonth && birthDay) {
+      setForm((prev) => ({
+        ...prev,
+        birthDate: `${birthYear}-${birthMonth}-${birthDay}`,
+      }));
+    } else {
+      setForm((prev) => ({ ...prev, birthDate: "" }));
+    }
+  }, [birthYear, birthMonth, birthDay]);
+
+  useEffect(() => {
+    if (birthHour !== "" && birthMinute !== "") {
+      setForm((prev) => ({
+        ...prev,
+        birthTime: `${birthHour}:${birthMinute}`,
+      }));
+    } else {
+      setForm((prev) => ({ ...prev, birthTime: "" }));
+    }
+  }, [birthHour, birthMinute]);
+
+  // Clamp day when month/year changes (e.g., Jan 31 → Feb → clamp to 28/29)
+  useEffect(() => {
+    if (birthDay) {
+      const maxDays = getDaysInMonth(birthYear, birthMonth);
+      if (parseInt(birthDay) > maxDays) {
+        setBirthDay(String(maxDays).padStart(2, "0"));
+      }
+    }
+  }, [birthYear, birthMonth, birthDay]);
 
   // Sync region when initialValues changes (e.g. parent re-renders with new profile)
   useEffect(() => {
@@ -144,14 +196,22 @@ export default function BirthDataForm({
   };
 
   const selectProfile = (profile: BirthProfile) => {
+    const dateStr = profile.birthDate.substring(0, 10);
+    const timeStr = profile.birthTime;
     setForm({
       name: profile.name,
       gender: profile.gender === "MALE" ? "male" : "female",
-      birthDate: profile.birthDate.substring(0, 10),
-      birthTime: profile.birthTime,
+      birthDate: dateStr,
+      birthTime: timeStr,
       birthCity: profile.birthCity,
       birthTimezone: profile.birthTimezone,
     });
+    // Sync date/time dropdowns from profile
+    setBirthYear(dateStr.substring(0, 4));
+    setBirthMonth(dateStr.substring(5, 7));
+    setBirthDay(dateStr.substring(8, 10));
+    setBirthHour(timeStr.substring(0, 2));
+    setBirthMinute(timeStr.substring(3, 5));
     setSelectedRegion(getRegionForCity(profile.birthCity) ?? "taiwan");
     setSelectedProfileId(profile.id);
     setRelationshipTag(profile.relationshipTag);
@@ -169,6 +229,9 @@ export default function BirthDataForm({
     }
     updateField("name", inputValue);
   };
+
+  const dayCount = getDaysInMonth(birthYear, birthMonth);
+  const dayOptions = Array.from({ length: dayCount }, (_, i) => i + 1);
 
   const isValid =
     form.name.trim() !== "" &&
@@ -271,27 +334,77 @@ export default function BirthDataForm({
         </div>
       </div>
 
-      {/* Date & Time */}
-      <div className={styles.row}>
+      {/* Date & Time — industry standard Year/Month/Day + Hour/Minute dropdowns */}
+      <div className={styles.dateTimeGroup}>
         <div className={styles.fieldGroup}>
           <label className={styles.label}>出生日期</label>
-          <input
-            className={styles.input}
-            type="date"
-            value={form.birthDate}
-            onChange={(e) => updateField("birthDate", e.target.value)}
-            max={new Date().toISOString().split("T")[0]}
-            min="1920-01-01"
-          />
+          <div className={styles.dateRow}>
+            <select
+              className={styles.dateSelect}
+              value={birthYear}
+              onChange={(e) => setBirthYear(e.target.value)}
+              aria-label="年"
+            >
+              <option value="">年</option>
+              {YEAR_OPTIONS.map((y) => (
+                <option key={y} value={String(y)}>{y}</option>
+              ))}
+            </select>
+            <span className={styles.dateSuffix}>年</span>
+            <select
+              className={styles.dateSelect}
+              value={birthMonth}
+              onChange={(e) => setBirthMonth(e.target.value)}
+              aria-label="月"
+            >
+              <option value="">月</option>
+              {MONTH_OPTIONS.map((m) => (
+                <option key={m} value={String(m).padStart(2, "0")}>{m}</option>
+              ))}
+            </select>
+            <span className={styles.dateSuffix}>月</span>
+            <select
+              className={styles.dateSelect}
+              value={birthDay}
+              onChange={(e) => setBirthDay(e.target.value)}
+              aria-label="日"
+            >
+              <option value="">日</option>
+              {dayOptions.map((d) => (
+                <option key={d} value={String(d).padStart(2, "0")}>{d}</option>
+              ))}
+            </select>
+            <span className={styles.dateSuffix}>日</span>
+          </div>
         </div>
         <div className={styles.fieldGroup}>
           <label className={styles.label}>出生時間</label>
-          <input
-            className={styles.input}
-            type="time"
-            value={form.birthTime}
-            onChange={(e) => updateField("birthTime", e.target.value)}
-          />
+          <div className={styles.timeRow}>
+            <select
+              className={styles.dateSelect}
+              value={birthHour}
+              onChange={(e) => setBirthHour(e.target.value)}
+              aria-label="時"
+            >
+              <option value="">時</option>
+              {HOUR_OPTIONS.map((h) => (
+                <option key={h} value={String(h).padStart(2, "0")}>{h}</option>
+              ))}
+            </select>
+            <span className={styles.dateSuffix}>時</span>
+            <select
+              className={styles.dateSelect}
+              value={birthMinute}
+              onChange={(e) => setBirthMinute(e.target.value)}
+              aria-label="分"
+            >
+              <option value="">分</option>
+              {MINUTE_OPTIONS.map((m) => (
+                <option key={m} value={String(m).padStart(2, "0")}>{m}</option>
+              ))}
+            </select>
+            <span className={styles.dateSuffix}>分</span>
+          </div>
         </div>
       </div>
 

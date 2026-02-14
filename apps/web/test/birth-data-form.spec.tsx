@@ -19,6 +19,26 @@ function renderForm(overrides: Partial<typeof defaultProps> = {}) {
   return render(<BirthDataForm {...defaultProps} {...overrides} />);
 }
 
+/** Fill year/month/day/hour/minute dropdowns by aria-label */
+function fillDate(year: string, month: string, day: string) {
+  fireEvent.change(screen.getByLabelText('年'), { target: { value: year } });
+  fireEvent.change(screen.getByLabelText('月'), { target: { value: month } });
+  fireEvent.change(screen.getByLabelText('日'), { target: { value: day } });
+}
+
+function fillTime(hour: string, minute: string) {
+  fireEvent.change(screen.getByLabelText('時'), { target: { value: hour } });
+  fireEvent.change(screen.getByLabelText('分'), { target: { value: minute } });
+}
+
+function fillAllRequired(name = '王小明') {
+  fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
+    target: { value: name },
+  });
+  fillDate('1990', '05', '15');
+  fillTime('14', '30');
+}
+
 // ============================================================
 // Tests
 // ============================================================
@@ -58,9 +78,15 @@ describe('BirthDataForm', () => {
       // Gender buttons
       expect(screen.getByText('♂ 男')).toBeInTheDocument();
       expect(screen.getByText('♀ 女')).toBeInTheDocument();
-      // Date and time labels
+      // Date dropdowns (year/month/day)
       expect(screen.getByText('出生日期')).toBeInTheDocument();
+      expect(screen.getByLabelText('年')).toBeInTheDocument();
+      expect(screen.getByLabelText('月')).toBeInTheDocument();
+      expect(screen.getByLabelText('日')).toBeInTheDocument();
+      // Time dropdowns (hour/minute)
       expect(screen.getByText('出生時間')).toBeInTheDocument();
+      expect(screen.getByLabelText('時')).toBeInTheDocument();
+      expect(screen.getByLabelText('分')).toBeInTheDocument();
       // Region, city and timezone
       expect(screen.getByText('地區')).toBeInTheDocument();
       expect(screen.getByText('出生地')).toBeInTheDocument();
@@ -120,17 +146,7 @@ describe('BirthDataForm', () => {
 
     it('should enable submit when all required fields are filled', () => {
       renderForm();
-      // Fill in all fields
-      fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
-        target: { value: '王小明' },
-      });
-      // Date input
-      const dateInputs = document.querySelectorAll('input[type="date"]');
-      fireEvent.change(dateInputs[0]!, { target: { value: '1990-05-15' } });
-      // Time input
-      const timeInputs = document.querySelectorAll('input[type="time"]');
-      fireEvent.change(timeInputs[0]!, { target: { value: '14:30' } });
-
+      fillAllRequired();
       const submitBtn = screen.getByRole('button', { name: '開始排盤' });
       expect(submitBtn).not.toBeDisabled();
     });
@@ -141,14 +157,7 @@ describe('BirthDataForm', () => {
       const onSubmit = jest.fn();
       render(<BirthDataForm onSubmit={onSubmit} />);
 
-      // Fill fields
-      fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
-        target: { value: '王小明' },
-      });
-      const dateInputs = document.querySelectorAll('input[type="date"]');
-      fireEvent.change(dateInputs[0]!, { target: { value: '1990-05-15' } });
-      const timeInputs = document.querySelectorAll('input[type="time"]');
-      fireEvent.change(timeInputs[0]!, { target: { value: '14:30' } });
+      fillAllRequired('王小明');
 
       // Submit
       const submitBtn = screen.getByRole('button', { name: '開始排盤' });
@@ -226,6 +235,84 @@ describe('BirthDataForm', () => {
     });
   });
 
+  describe('Date/Time Dropdowns', () => {
+    it('should render year options from current year back to 1920', () => {
+      renderForm();
+      const yearSelect = screen.getByLabelText('年') as HTMLSelectElement;
+      const options = Array.from(yearSelect.querySelectorAll('option'));
+      // First option is placeholder "年", then years descending
+      expect(options[0].textContent).toBe('年');
+      const currentYear = new Date().getFullYear();
+      expect(options[1].value).toBe(String(currentYear));
+      expect(options[options.length - 1].value).toBe('1920');
+    });
+
+    it('should render 12 month options', () => {
+      renderForm();
+      const monthSelect = screen.getByLabelText('月') as HTMLSelectElement;
+      const options = monthSelect.querySelectorAll('option');
+      // 1 placeholder + 12 months
+      expect(options.length).toBe(13);
+    });
+
+    it('should show 31 days for January', () => {
+      renderForm();
+      fillDate('2000', '01', '');
+      const daySelect = screen.getByLabelText('日') as HTMLSelectElement;
+      const options = daySelect.querySelectorAll('option');
+      // 1 placeholder + 31 days
+      expect(options.length).toBe(32);
+    });
+
+    it('should show 29 days for February in a leap year', () => {
+      renderForm();
+      fillDate('2000', '02', '');
+      const daySelect = screen.getByLabelText('日') as HTMLSelectElement;
+      const options = daySelect.querySelectorAll('option');
+      // 1 placeholder + 29 days (2000 is a leap year)
+      expect(options.length).toBe(30);
+    });
+
+    it('should show 28 days for February in a non-leap year', () => {
+      renderForm();
+      fillDate('2001', '02', '');
+      const daySelect = screen.getByLabelText('日') as HTMLSelectElement;
+      const options = daySelect.querySelectorAll('option');
+      // 1 placeholder + 28 days
+      expect(options.length).toBe(29);
+    });
+
+    it('should clamp day when switching to shorter month', () => {
+      const onSubmit = jest.fn();
+      render(<BirthDataForm onSubmit={onSubmit} />);
+
+      // Pick Jan 31
+      fillDate('2000', '01', '31');
+      // Switch to February (max 29 days in 2000)
+      fireEvent.change(screen.getByLabelText('月'), { target: { value: '02' } });
+
+      // Fill time and name, submit
+      fillTime('12', '00');
+      fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
+        target: { value: '測試' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
+
+      const data = onSubmit.mock.calls[0][0] as BirthDataFormValues;
+      // Day should be clamped to 29 (Feb in leap year 2000)
+      expect(data.birthDate).toBe('2000-02-29');
+    });
+
+    it('should render 24 hour options and 60 minute options', () => {
+      renderForm();
+      const hourSelect = screen.getByLabelText('時') as HTMLSelectElement;
+      const minuteSelect = screen.getByLabelText('分') as HTMLSelectElement;
+      // 1 placeholder + 24 hours, 1 placeholder + 60 minutes
+      expect(hourSelect.querySelectorAll('option').length).toBe(25);
+      expect(minuteSelect.querySelectorAll('option').length).toBe(61);
+    });
+  });
+
   describe('Region-City Cascade', () => {
     function getSelectByLabel(label: string): HTMLSelectElement {
       const labelEl = screen.getByText(label);
@@ -249,10 +336,8 @@ describe('BirthDataForm', () => {
       fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
         target: { value: '測試' },
       });
-      const dateInputs = document.querySelectorAll('input[type="date"]');
-      fireEvent.change(dateInputs[0]!, { target: { value: '1990-01-01' } });
-      const timeInputs = document.querySelectorAll('input[type="time"]');
-      fireEvent.change(timeInputs[0]!, { target: { value: '12:00' } });
+      fillDate('1990', '01', '01');
+      fillTime('12', '00');
 
       fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
 
@@ -269,7 +354,7 @@ describe('BirthDataForm', () => {
       // Default region is Taiwan — should show Taiwan cities
       const taiwanOptions = citySelect.querySelectorAll('option');
       const taiwanCityCount = taiwanOptions.length;
-      expect(taiwanCityCount).toBeGreaterThanOrEqual(5); // 11 Taiwan cities
+      expect(taiwanCityCount).toBeGreaterThanOrEqual(5); // 22 Taiwan cities
 
       // Switch to Hong Kong & Macau
       fireEvent.change(regionSelect, { target: { value: 'hong_kong_macau' } });
@@ -289,10 +374,8 @@ describe('BirthDataForm', () => {
       fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
         target: { value: '測試' },
       });
-      const dateInputs = document.querySelectorAll('input[type="date"]');
-      fireEvent.change(dateInputs[0]!, { target: { value: '1990-01-01' } });
-      const timeInputs = document.querySelectorAll('input[type="time"]');
-      fireEvent.change(timeInputs[0]!, { target: { value: '12:00' } });
+      fillDate('1990', '01', '01');
+      fillTime('12', '00');
 
       fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
 
