@@ -1,31 +1,17 @@
 "use client";
 
-import { useState, useId, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
+import {
+  CITIES,
+  TIMEZONES,
+  REGIONS,
+  getTimezoneForCity,
+  getRegionForCity,
+  type TimezoneEntry,
+  type CityRegion,
+} from "@repo/shared";
 import type { BirthProfile } from "../lib/birth-profiles-api";
 import styles from "./BirthDataForm.module.css";
-
-// Common timezones for target markets
-const TIMEZONES = [
-  { value: "Asia/Taipei", label: "台灣 (UTC+8)" },
-  { value: "Asia/Hong_Kong", label: "香港 (UTC+8)" },
-  { value: "Asia/Kuala_Lumpur", label: "馬來西亞 (UTC+8)" },
-  { value: "Asia/Singapore", label: "新加坡 (UTC+8)" },
-  { value: "Asia/Shanghai", label: "中國 (UTC+8)" },
-  { value: "Asia/Tokyo", label: "日本 (UTC+9)" },
-  { value: "Asia/Seoul", label: "韓國 (UTC+9)" },
-  { value: "America/New_York", label: "美東 (UTC-5)" },
-  { value: "America/Los_Angeles", label: "美西 (UTC-8)" },
-  { value: "Europe/London", label: "倫敦 (UTC+0)" },
-];
-
-// Common birth cities
-const CITIES = [
-  "台北市", "台中市", "高雄市", "台南市", "新北市", "桃園市",
-  "香港", "九龍", "新界",
-  "吉隆坡", "檳城", "新山",
-  "北京", "上海", "廣州", "深圳",
-  "新加坡",
-];
 
 export interface BirthDataFormValues {
   name: string;
@@ -46,6 +32,13 @@ const TAG_LABEL_MAP: Record<string, string> = { SELF: "本人", FAMILY: "家人"
 
 function formatProfileOption(p: BirthProfile): string {
   return `${p.name} (${TAG_LABEL_MAP[p.relationshipTag] || ""})`;
+}
+
+/** Group items by region, returning only non-empty groups in market-priority order */
+function groupByRegion<T extends { region: CityRegion }>(items: T[]) {
+  return REGIONS
+    .map((r) => ({ region: r, items: items.filter((i) => i.region === r.key) }))
+    .filter((g) => g.items.length > 0);
 }
 
 interface BirthDataFormProps {
@@ -75,8 +68,6 @@ export default function BirthDataForm({
   onSaveProfile,
   savedProfiles,
 }: BirthDataFormProps) {
-  const formId = useId();
-
   const [form, setForm] = useState<BirthDataFormValues>({
     name: initialValues?.name ?? "",
     gender: initialValues?.gender ?? "male",
@@ -86,11 +77,23 @@ export default function BirthDataForm({
     birthTimezone: initialValues?.birthTimezone ?? "Asia/Taipei",
   });
 
+  const [selectedRegion, setSelectedRegion] = useState<CityRegion>(
+    () => getRegionForCity(initialValues?.birthCity ?? "台北市") ?? "taiwan"
+  );
+
   const [wantsSave, setWantsSave] = useState(showSaveOption);
   const [relationshipTag, setRelationshipTag] = useState("SELF");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Sync region when initialValues changes (e.g. parent re-renders with new profile)
+  useEffect(() => {
+    if (initialValues?.birthCity) {
+      const region = getRegionForCity(initialValues.birthCity);
+      if (region) setSelectedRegion(region);
+    }
+  }, [initialValues?.birthCity]);
 
   // Close dropdown on click outside
   useEffect(() => {
@@ -118,6 +121,28 @@ export default function BirthDataForm({
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
+  const filteredCities = CITIES.filter((c) => c.region === selectedRegion);
+
+  const handleRegionChange = (region: CityRegion) => {
+    if (region === selectedRegion) return;
+    setSelectedRegion(region);
+    const citiesInRegion = CITIES.filter((c) => c.region === region);
+    if (citiesInRegion.length > 0) {
+      handleCityChange(citiesInRegion[0].name);
+    }
+  };
+
+  const handleCityChange = (cityName: string) => {
+    const tz = getTimezoneForCity(cityName);
+    setForm((prev) => ({
+      ...prev,
+      birthCity: cityName,
+      // Only auto-set timezone if the city exactly matches a known entry;
+      // otherwise preserve the user's current timezone selection
+      ...(tz ? { birthTimezone: tz } : {}),
+    }));
+  };
+
   const selectProfile = (profile: BirthProfile) => {
     setForm({
       name: profile.name,
@@ -127,6 +152,7 @@ export default function BirthDataForm({
       birthCity: profile.birthCity,
       birthTimezone: profile.birthTimezone,
     });
+    setSelectedRegion(getRegionForCity(profile.birthCity) ?? "taiwan");
     setSelectedProfileId(profile.id);
     setRelationshipTag(profile.relationshipTag);
     setShowDropdown(false);
@@ -149,6 +175,8 @@ export default function BirthDataForm({
     form.birthDate !== "" &&
     form.birthTime !== "" &&
     form.birthCity.trim() !== "";
+
+  const tzGroups = groupByRegion<TimezoneEntry>(TIMEZONES);
 
   return (
     <form className={styles.formWrapper} onSubmit={handleSubmit}>
@@ -267,23 +295,35 @@ export default function BirthDataForm({
         </div>
       </div>
 
-      {/* City & Timezone */}
-      <div className={styles.row}>
+      {/* Region, City & Timezone */}
+      <div className={styles.regionCityRow}>
+        <div className={styles.fieldGroup}>
+          <label className={styles.label}>地區</label>
+          <select
+            className={styles.select}
+            value={selectedRegion}
+            onChange={(e) => handleRegionChange(e.target.value as CityRegion)}
+          >
+            {REGIONS.map((r) => (
+              <option key={r.key} value={r.key}>{r.labelZhTw}</option>
+            ))}
+          </select>
+        </div>
         <div className={styles.fieldGroup}>
           <label className={styles.label}>出生城市</label>
-          <input
-            className={styles.input}
-            type="text"
-            list={`cities-${formId}`}
-            placeholder="輸入或選擇城市"
+          <select
+            className={styles.select}
             value={form.birthCity}
-            onChange={(e) => updateField("birthCity", e.target.value)}
-          />
-          <datalist id={`cities-${formId}`}>
-            {CITIES.map((city) => (
-              <option key={city} value={city} />
+            onChange={(e) => handleCityChange(e.target.value)}
+          >
+            {filteredCities.map((city) => (
+              <option key={city.name} value={city.name}>{city.name}</option>
             ))}
-          </datalist>
+            {/* Fallback for unlisted cities (saved profiles, initialValues) */}
+            {form.birthCity && !filteredCities.some((c) => c.name === form.birthCity) && (
+              <option value={form.birthCity}>{form.birthCity}</option>
+            )}
+          </select>
         </div>
         <div className={styles.fieldGroup}>
           <label className={styles.label}>時區</label>
@@ -292,10 +332,14 @@ export default function BirthDataForm({
             value={form.birthTimezone}
             onChange={(e) => updateField("birthTimezone", e.target.value)}
           >
-            {TIMEZONES.map((tz) => (
-              <option key={tz.value} value={tz.value}>
-                {tz.label}
-              </option>
+            {tzGroups.map((group) => (
+              <optgroup key={group.region.key} label={group.region.labelZhTw}>
+                {group.items.map((tz) => (
+                  <option key={tz.value} value={tz.value}>
+                    {tz.label}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
         </div>

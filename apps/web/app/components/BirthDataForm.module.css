@@ -69,6 +69,12 @@
   gap: 1rem;
 }
 
+.regionCityRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 1rem;
+}
+
 .genderGroup {
   display: flex;
   gap: 1rem;
@@ -281,6 +287,10 @@
 
 @media (max-width: 480px) {
   .row {
+    grid-template-columns: 1fr;
+  }
+
+  .regionCityRow {
     grid-template-columns: 1fr;
   }
 

@@ -61,7 +61,8 @@ describe('BirthDataForm', () => {
       // Date and time labels
       expect(screen.getByText('出生日期')).toBeInTheDocument();
       expect(screen.getByText('出生時間')).toBeInTheDocument();
-      // City and timezone
+      // Region, city and timezone
+      expect(screen.getByText('地區')).toBeInTheDocument();
       expect(screen.getByText('出生城市')).toBeInTheDocument();
       expect(screen.getByText('時區')).toBeInTheDocument();
     });
@@ -216,6 +217,101 @@ describe('BirthDataForm', () => {
       renderForm();
       const options = document.querySelectorAll('select option');
       expect(options.length).toBeGreaterThanOrEqual(5);
+    });
+
+    it('should group timezones by region using optgroup', () => {
+      renderForm();
+      const optgroups = document.querySelectorAll('select optgroup');
+      expect(optgroups.length).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  describe('Region-City Cascade', () => {
+    function getSelectByLabel(label: string): HTMLSelectElement {
+      const labelEl = screen.getByText(label);
+      const fieldGroup = labelEl.closest('div');
+      return fieldGroup!.querySelector('select') as HTMLSelectElement;
+    }
+
+    it('should auto-set timezone when selecting a city in a different region', () => {
+      const onSubmit = jest.fn();
+      render(<BirthDataForm onSubmit={onSubmit} />);
+
+      // Change region to Japan/Korea
+      const regionSelect = getSelectByLabel('地區');
+      fireEvent.change(regionSelect, { target: { value: 'japan_korea' } });
+
+      // Select Tokyo
+      const citySelect = getSelectByLabel('出生城市');
+      fireEvent.change(citySelect, { target: { value: '東京' } });
+
+      // Fill other required fields and submit
+      fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
+        target: { value: '測試' },
+      });
+      const dateInputs = document.querySelectorAll('input[type="date"]');
+      fireEvent.change(dateInputs[0]!, { target: { value: '1990-01-01' } });
+      const timeInputs = document.querySelectorAll('input[type="time"]');
+      fireEvent.change(timeInputs[0]!, { target: { value: '12:00' } });
+
+      fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
+
+      const data = onSubmit.mock.calls[0][0] as BirthDataFormValues;
+      expect(data.birthCity).toBe('東京');
+      expect(data.birthTimezone).toBe('Asia/Tokyo');
+    });
+
+    it('should filter cities by selected region', () => {
+      renderForm();
+      const regionSelect = getSelectByLabel('地區');
+      const citySelect = getSelectByLabel('出生城市');
+
+      // Default region is Taiwan — should show Taiwan cities
+      const taiwanOptions = citySelect.querySelectorAll('option');
+      const taiwanCityCount = taiwanOptions.length;
+      expect(taiwanCityCount).toBeGreaterThanOrEqual(5); // 11 Taiwan cities
+
+      // Switch to Hong Kong & Macau
+      fireEvent.change(regionSelect, { target: { value: 'hong_kong_macau' } });
+      const hkOptions = citySelect.querySelectorAll('option');
+      expect(hkOptions.length).toBe(3); // 香港, 九龍, 澳門
+    });
+
+    it('should auto-select first city when region changes', () => {
+      const onSubmit = jest.fn();
+      render(<BirthDataForm onSubmit={onSubmit} />);
+
+      // Change region to Malaysia
+      const regionSelect = getSelectByLabel('地區');
+      fireEvent.change(regionSelect, { target: { value: 'malaysia' } });
+
+      // Fill required fields and submit
+      fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
+        target: { value: '測試' },
+      });
+      const dateInputs = document.querySelectorAll('input[type="date"]');
+      fireEvent.change(dateInputs[0]!, { target: { value: '1990-01-01' } });
+      const timeInputs = document.querySelectorAll('input[type="time"]');
+      fireEvent.change(timeInputs[0]!, { target: { value: '12:00' } });
+
+      fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
+
+      const data = onSubmit.mock.calls[0][0] as BirthDataFormValues;
+      expect(data.birthCity).toBe('吉隆坡'); // First Malaysia city
+      expect(data.birthTimezone).toBe('Asia/Kuala_Lumpur');
+    });
+
+    it('should update city options when region changes', () => {
+      renderForm();
+      const regionSelect = getSelectByLabel('地區');
+      const citySelect = getSelectByLabel('出生城市');
+
+      // Switch to Americas
+      fireEvent.change(regionSelect, { target: { value: 'americas' } });
+      const americasOptions = Array.from(citySelect.querySelectorAll('option')).map(o => o.textContent);
+      expect(americasOptions).toContain('紐約');
+      expect(americasOptions).toContain('洛杉磯');
+      expect(americasOptions).not.toContain('台北市');
     });
   });
 });
