@@ -310,7 +310,7 @@ export default function BirthDataForm({
           </select>
         </div>
         <div className={styles.fieldGroup}>
-          <label className={styles.label}>出生城市</label>
+          <label className={styles.label}>出生地</label>
           <select
             className={styles.select}
             value={form.birthCity}

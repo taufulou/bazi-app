@@ -63,7 +63,7 @@ describe('BirthDataForm', () => {
       expect(screen.getByText('出生時間')).toBeInTheDocument();
       // Region, city and timezone
       expect(screen.getByText('地區')).toBeInTheDocument();
-      expect(screen.getByText('出生城市')).toBeInTheDocument();
+      expect(screen.getByText('出生地')).toBeInTheDocument();
       expect(screen.getByText('時區')).toBeInTheDocument();
     });
 
@@ -242,7 +242,7 @@ describe('BirthDataForm', () => {
       fireEvent.change(regionSelect, { target: { value: 'japan_korea' } });
 
       // Select Tokyo
-      const citySelect = getSelectByLabel('出生城市');
+      const citySelect = getSelectByLabel('出生地');
       fireEvent.change(citySelect, { target: { value: '東京' } });
 
       // Fill other required fields and submit
@@ -264,7 +264,7 @@ describe('BirthDataForm', () => {
     it('should filter cities by selected region', () => {
       renderForm();
       const regionSelect = getSelectByLabel('地區');
-      const citySelect = getSelectByLabel('出生城市');
+      const citySelect = getSelectByLabel('出生地');
 
       // Default region is Taiwan — should show Taiwan cities
       const taiwanOptions = citySelect.querySelectorAll('option');
@@ -304,7 +304,7 @@ describe('BirthDataForm', () => {
     it('should update city options when region changes', () => {
       renderForm();
       const regionSelect = getSelectByLabel('地區');
-      const citySelect = getSelectByLabel('出生城市');
+      const citySelect = getSelectByLabel('出生地');
 
       // Switch to Americas
       fireEvent.change(regionSelect, { target: { value: 'americas' } });

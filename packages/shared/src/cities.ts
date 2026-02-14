@@ -113,24 +113,22 @@ export const CITIES: CityEntry[] = [
   { name: '澳門', aliases: ['Macau'], longitude: 113.5439, latitude: 22.1987, timezone: 'Asia/Macau', region: 'hong_kong_macau' },
 
   // --- Malaysia ---
-  // Federal Territories & Selangor
+  // Federal Territories
   { name: '吉隆坡', aliases: ['Kuala Lumpur'], longitude: 101.6869, latitude: 3.1390, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
   { name: '布城', aliases: ['Putrajaya'], longitude: 101.6964, latitude: 2.9264, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  { name: '莎阿南', aliases: ['Shah Alam'], longitude: 101.5325, latitude: 3.0738, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  { name: '八打靈再也', aliases: ['Petaling Jaya'], longitude: 101.6074, latitude: 3.1073, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  { name: '梳邦再也', aliases: ['Subang Jaya'], longitude: 101.5853, latitude: 3.0565, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  // Peninsular states
-  { name: '檳城', aliases: ['Penang'], longitude: 100.3293, latitude: 5.4164, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  { name: '新山', aliases: ['Johor Bahru'], longitude: 103.7414, latitude: 1.4927, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  { name: '怡保', aliases: ['Ipoh'], longitude: 101.0901, latitude: 4.5975, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  { name: '芙蓉', aliases: ['Seremban'], longitude: 101.9424, latitude: 2.7258, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
+  // Peninsular states (州屬) — state capital coords, max ~8 min TST error, safe for Bazi
+  { name: '雪蘭莪', aliases: ['Selangor', '莎阿南', 'Shah Alam', '八打靈再也', 'Petaling Jaya', '梳邦再也', 'Subang Jaya'], longitude: 101.5325, latitude: 3.0738, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
+  { name: '檳城', aliases: ['Penang', 'Pulau Pinang'], longitude: 100.3293, latitude: 5.4164, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
+  { name: '柔佛', aliases: ['Johor', '新山', 'Johor Bahru'], longitude: 103.7414, latitude: 1.4927, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
+  { name: '霹靂', aliases: ['Perak', '怡保', 'Ipoh'], longitude: 101.0901, latitude: 4.5975, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
+  { name: '森美蘭', aliases: ['Negeri Sembilan', '芙蓉', 'Seremban'], longitude: 101.9424, latitude: 2.7258, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
   { name: '馬六甲', aliases: ['Melaka', 'Malacca'], longitude: 102.2501, latitude: 2.1896, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  { name: '關丹', aliases: ['Kuantan'], longitude: 103.4174, latitude: 3.8077, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  { name: '瓜拉登嘉樓', aliases: ['Kuala Terengganu'], longitude: 103.1324, latitude: 5.3117, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  { name: '哥打巴魯', aliases: ['Kota Bharu'], longitude: 102.2386, latitude: 6.1256, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  { name: '亞羅士打', aliases: ['Alor Setar'], longitude: 100.3685, latitude: 6.1248, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  { name: '加央', aliases: ['Kangar'], longitude: 100.1953, latitude: 6.4414, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
-  // East Malaysia (Borneo) — uses Asia/Kuching timezone
+  { name: '彭亨', aliases: ['Pahang', '關丹', 'Kuantan'], longitude: 103.4174, latitude: 3.8077, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
+  { name: '登嘉樓', aliases: ['Terengganu', '瓜拉登嘉樓', 'Kuala Terengganu'], longitude: 103.1324, latitude: 5.3117, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
+  { name: '吉蘭丹', aliases: ['Kelantan', '哥打巴魯', 'Kota Bharu'], longitude: 102.2386, latitude: 6.1256, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
+  { name: '吉打', aliases: ['Kedah', '亞羅士打', 'Alor Setar'], longitude: 100.3685, latitude: 6.1248, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
+  { name: '玻璃市', aliases: ['Perlis', '加央', 'Kangar'], longitude: 100.1953, latitude: 6.4414, timezone: 'Asia/Kuala_Lumpur', region: 'malaysia' },
+  // East Malaysia (Borneo) — cities needed, not states (Sarawak spans 6° = 24 min error)
   { name: '古晉', aliases: ['Kuching'], longitude: 110.3444, latitude: 1.5497, timezone: 'Asia/Kuching', region: 'malaysia' },
   { name: '亞庇', aliases: ['Kota Kinabalu'], longitude: 116.0735, latitude: 5.9804, timezone: 'Asia/Kuching', region: 'malaysia' },
   { name: '詩巫', aliases: ['Sibu'], longitude: 111.8311, latitude: 2.3000, timezone: 'Asia/Kuching', region: 'malaysia' },
