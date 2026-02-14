@@ -426,7 +426,7 @@ export default function BirthDataForm({
             >
               <option value="">分</option>
               {MINUTE_OPTIONS.map((m) => (
-                <option key={m} value={String(m).padStart(2, "0")}>{m}</option>
+                <option key={m} value={String(m).padStart(2, "0")}>{String(m).padStart(2, "0")}</option>
               ))}
             </select>
             <select
