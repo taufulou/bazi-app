@@ -296,14 +296,12 @@
 
 .dateRow {
   display: flex;
-  gap: 0.35rem;
-  align-items: center;
+  gap: 0.5rem;
 }
 
 .timeRow {
   display: flex;
-  gap: 0.35rem;
-  align-items: center;
+  gap: 0.5rem;
 }
 
 .dateSelect {
@@ -315,13 +313,6 @@
 
 .dateSelect:first-child {
   flex: 1.4;
-}
-
-.dateSuffix {
-  color: #a0a0a0;
-  font-size: 0.85rem;
-  white-space: nowrap;
-  flex-shrink: 0;
 }
 
 @media (max-width: 480px) {

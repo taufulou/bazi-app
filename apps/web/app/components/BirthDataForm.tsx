@@ -350,7 +350,6 @@ export default function BirthDataForm({
                 <option key={y} value={String(y)}>{y}</option>
               ))}
             </select>
-            <span className={styles.dateSuffix}>年</span>
             <select
               className={styles.dateSelect}
               value={birthMonth}
@@ -362,7 +361,6 @@ export default function BirthDataForm({
                 <option key={m} value={String(m).padStart(2, "0")}>{m}</option>
               ))}
             </select>
-            <span className={styles.dateSuffix}>月</span>
             <select
               className={styles.dateSelect}
               value={birthDay}
@@ -374,7 +372,6 @@ export default function BirthDataForm({
                 <option key={d} value={String(d).padStart(2, "0")}>{d}</option>
               ))}
             </select>
-            <span className={styles.dateSuffix}>日</span>
           </div>
         </div>
         <div className={styles.fieldGroup}>
@@ -391,7 +388,6 @@ export default function BirthDataForm({
                 <option key={h} value={String(h).padStart(2, "0")}>{h}</option>
               ))}
             </select>
-            <span className={styles.dateSuffix}>時</span>
             <select
               className={styles.dateSelect}
               value={birthMinute}
@@ -403,7 +399,6 @@ export default function BirthDataForm({
                 <option key={m} value={String(m).padStart(2, "0")}>{m}</option>
               ))}
             </select>
-            <span className={styles.dateSuffix}>分</span>
           </div>
         </div>
       </div>
