@@ -26,9 +26,10 @@ function fillDate(year: string, month: string, day: string) {
   fireEvent.change(screen.getByLabelText('日'), { target: { value: day } });
 }
 
-function fillTime(hour: string, minute: string) {
+function fillTime(hour: string, minute: string, period: 'AM' | 'PM' = 'AM') {
   fireEvent.change(screen.getByLabelText('時'), { target: { value: hour } });
   fireEvent.change(screen.getByLabelText('分'), { target: { value: minute } });
+  fireEvent.change(screen.getByLabelText('午別'), { target: { value: period } });
 }
 
 function fillAllRequired(name = '王小明') {
@@ -36,7 +37,7 @@ function fillAllRequired(name = '王小明') {
     target: { value: name },
   });
   fillDate('1990', '05', '15');
-  fillTime('14', '30');
+  fillTime('2', '30', 'PM'); // 2:30 PM = 14:30 in 24h
 }
 
 // ============================================================
@@ -83,10 +84,11 @@ describe('BirthDataForm', () => {
       expect(screen.getByLabelText('年')).toBeInTheDocument();
       expect(screen.getByLabelText('月')).toBeInTheDocument();
       expect(screen.getByLabelText('日')).toBeInTheDocument();
-      // Time dropdowns (hour/minute)
+      // Time dropdowns (hour/minute/AM-PM)
       expect(screen.getByText('出生時間')).toBeInTheDocument();
       expect(screen.getByLabelText('時')).toBeInTheDocument();
       expect(screen.getByLabelText('分')).toBeInTheDocument();
+      expect(screen.getByLabelText('午別')).toBeInTheDocument();
       // Region, city and timezone
       expect(screen.getByText('地區')).toBeInTheDocument();
       expect(screen.getByText('出生地')).toBeInTheDocument();
@@ -292,7 +294,7 @@ describe('BirthDataForm', () => {
       fireEvent.change(screen.getByLabelText('月'), { target: { value: '02' } });
 
       // Fill time and name, submit
-      fillTime('12', '00');
+      fillTime('12', '00', 'PM');
       fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
         target: { value: '測試' },
       });
@@ -303,13 +305,83 @@ describe('BirthDataForm', () => {
       expect(data.birthDate).toBe('2000-02-29');
     });
 
-    it('should render 24 hour options and 60 minute options', () => {
+    it('should convert AM time to 24-hour format on submit', () => {
+      const onSubmit = jest.fn();
+      render(<BirthDataForm onSubmit={onSubmit} />);
+
+      fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
+        target: { value: '測試' },
+      });
+      fillDate('1990', '01', '01');
+      fillTime('9', '15', 'AM'); // 9:15 AM = 09:15
+
+      fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
+
+      const data = onSubmit.mock.calls[0][0] as BirthDataFormValues;
+      expect(data.birthTime).toBe('09:15');
+    });
+
+    it('should convert PM time to 24-hour format on submit', () => {
+      const onSubmit = jest.fn();
+      render(<BirthDataForm onSubmit={onSubmit} />);
+
+      fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
+        target: { value: '測試' },
+      });
+      fillDate('1990', '01', '01');
+      fillTime('3', '45', 'PM'); // 3:45 PM = 15:45
+
+      fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
+
+      const data = onSubmit.mock.calls[0][0] as BirthDataFormValues;
+      expect(data.birthTime).toBe('15:45');
+    });
+
+    it('should handle 12 AM (midnight) correctly', () => {
+      const onSubmit = jest.fn();
+      render(<BirthDataForm onSubmit={onSubmit} />);
+
+      fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
+        target: { value: '測試' },
+      });
+      fillDate('1990', '01', '01');
+      fillTime('12', '00', 'AM'); // 12:00 AM = 00:00
+
+      fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
+
+      const data = onSubmit.mock.calls[0][0] as BirthDataFormValues;
+      expect(data.birthTime).toBe('00:00');
+    });
+
+    it('should handle 12 PM (noon) correctly', () => {
+      const onSubmit = jest.fn();
+      render(<BirthDataForm onSubmit={onSubmit} />);
+
+      fireEvent.change(screen.getByPlaceholderText('請輸入稱呼'), {
+        target: { value: '測試' },
+      });
+      fillDate('1990', '01', '01');
+      fillTime('12', '00', 'PM'); // 12:00 PM = 12:00
+
+      fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
+
+      const data = onSubmit.mock.calls[0][0] as BirthDataFormValues;
+      expect(data.birthTime).toBe('12:00');
+    });
+
+    it('should render 12 hour options, 60 minute options, and AM/PM selector', () => {
       renderForm();
       const hourSelect = screen.getByLabelText('時') as HTMLSelectElement;
       const minuteSelect = screen.getByLabelText('分') as HTMLSelectElement;
-      // 1 placeholder + 24 hours, 1 placeholder + 60 minutes
-      expect(hourSelect.querySelectorAll('option').length).toBe(25);
+      const periodSelect = screen.getByLabelText('午別') as HTMLSelectElement;
+      // 1 placeholder + 12 hours (1-12), 1 placeholder + 60 minutes, 2 options (上午/下午)
+      expect(hourSelect.querySelectorAll('option').length).toBe(13);
       expect(minuteSelect.querySelectorAll('option').length).toBe(61);
+      expect(periodSelect.querySelectorAll('option').length).toBe(2);
+      // Verify AM/PM labels
+      const periodOptions = Array.from(periodSelect.querySelectorAll('option'));
+      expect(periodOptions[0].textContent).toBe('上午');
+      expect(periodOptions[1].textContent).toBe('下午');
     });
   });
 
@@ -337,7 +409,7 @@ describe('BirthDataForm', () => {
         target: { value: '測試' },
       });
       fillDate('1990', '01', '01');
-      fillTime('12', '00');
+      fillTime('12', '00', 'PM');
 
       fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
 
@@ -375,7 +447,7 @@ describe('BirthDataForm', () => {
         target: { value: '測試' },
       });
       fillDate('1990', '01', '01');
-      fillTime('12', '00');
+      fillTime('12', '00', 'PM');
 
       fireEvent.click(screen.getByRole('button', { name: '開始排盤' }));
 

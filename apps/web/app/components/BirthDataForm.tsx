@@ -64,8 +64,28 @@ function getDaysInMonth(year: string, month: string): number {
 const CURRENT_YEAR = new Date().getFullYear();
 const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 1920 + 1 }, (_, i) => CURRENT_YEAR - i);
 const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => i + 1);
-const HOUR_OPTIONS = Array.from({ length: 24 }, (_, i) => i);
+const HOUR_12_OPTIONS = Array.from({ length: 12 }, (_, i) => i + 1); // 1-12
 const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => i);
+
+/** Convert 24-hour string (e.g. "14") to 12-hour + period */
+function to12Hour(hour24: string): { hour12: string; period: "AM" | "PM" } {
+  if (hour24 === "") return { hour12: "", period: "AM" };
+  const h = parseInt(hour24);
+  if (h === 0) return { hour12: "12", period: "AM" };
+  if (h < 12) return { hour12: String(h), period: "AM" };
+  if (h === 12) return { hour12: "12", period: "PM" };
+  return { hour12: String(h - 12), period: "PM" };
+}
+
+/** Convert 12-hour + period to 24-hour zero-padded string */
+function to24Hour(hour12: string, period: "AM" | "PM"): string {
+  if (hour12 === "") return "";
+  const h = parseInt(hour12);
+  if (period === "AM") {
+    return String(h === 12 ? 0 : h).padStart(2, "0");
+  }
+  return String(h === 12 ? 12 : h + 12).padStart(2, "0");
+}
 
 export default function BirthDataForm({
   onSubmit,
@@ -93,7 +113,14 @@ export default function BirthDataForm({
   const [birthYear, setBirthYear] = useState(() => initialValues?.birthDate?.substring(0, 4) ?? "");
   const [birthMonth, setBirthMonth] = useState(() => initialValues?.birthDate?.substring(5, 7) ?? "");
   const [birthDay, setBirthDay] = useState(() => initialValues?.birthDate?.substring(8, 10) ?? "");
-  const [birthHour, setBirthHour] = useState(() => initialValues?.birthTime?.substring(0, 2) ?? "");
+  const [birthHour, setBirthHour] = useState(() => {
+    const h24 = initialValues?.birthTime?.substring(0, 2) ?? "";
+    return h24 ? to12Hour(h24).hour12 : "";
+  });
+  const [birthPeriod, setBirthPeriod] = useState<"AM" | "PM">(() => {
+    const h24 = initialValues?.birthTime?.substring(0, 2) ?? "";
+    return h24 ? to12Hour(h24).period : "AM";
+  });
   const [birthMinute, setBirthMinute] = useState(() => initialValues?.birthTime?.substring(3, 5) ?? "");
 
   const [selectedRegion, setSelectedRegion] = useState<CityRegion>(
@@ -120,14 +147,15 @@ export default function BirthDataForm({
 
   useEffect(() => {
     if (birthHour !== "" && birthMinute !== "") {
+      const h24 = to24Hour(birthHour, birthPeriod);
       setForm((prev) => ({
         ...prev,
-        birthTime: `${birthHour}:${birthMinute}`,
+        birthTime: `${h24}:${birthMinute}`,
       }));
     } else {
       setForm((prev) => ({ ...prev, birthTime: "" }));
     }
-  }, [birthHour, birthMinute]);
+  }, [birthHour, birthMinute, birthPeriod]);
 
   // Clamp day when month/year changes (e.g., Jan 31 → Feb → clamp to 28/29)
   useEffect(() => {
@@ -210,7 +238,9 @@ export default function BirthDataForm({
     setBirthYear(dateStr.substring(0, 4));
     setBirthMonth(dateStr.substring(5, 7));
     setBirthDay(dateStr.substring(8, 10));
-    setBirthHour(timeStr.substring(0, 2));
+    const { hour12, period } = to12Hour(timeStr.substring(0, 2));
+    setBirthHour(hour12);
+    setBirthPeriod(period);
     setBirthMinute(timeStr.substring(3, 5));
     setSelectedRegion(getRegionForCity(profile.birthCity) ?? "taiwan");
     setSelectedProfileId(profile.id);
@@ -384,8 +414,8 @@ export default function BirthDataForm({
               aria-label="時"
             >
               <option value="">時</option>
-              {HOUR_OPTIONS.map((h) => (
-                <option key={h} value={String(h).padStart(2, "0")}>{h}</option>
+              {HOUR_12_OPTIONS.map((h) => (
+                <option key={h} value={String(h)}>{h}</option>
               ))}
             </select>
             <select
@@ -398,6 +428,15 @@ export default function BirthDataForm({
               {MINUTE_OPTIONS.map((m) => (
                 <option key={m} value={String(m).padStart(2, "0")}>{m}</option>
               ))}
+            </select>
+            <select
+              className={styles.dateSelect}
+              value={birthPeriod}
+              onChange={(e) => setBirthPeriod(e.target.value as "AM" | "PM")}
+              aria-label="午別"
+            >
+              <option value="AM">上午</option>
+              <option value="PM">下午</option>
             </select>
           </div>
         </div>
