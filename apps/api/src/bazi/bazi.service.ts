@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
   InternalServerErrorException,
 } from '@nestjs/common';
@@ -80,16 +81,44 @@ export class BaziService {
       throw new BadRequestException('This reading type is not currently available');
     }
 
-    const canUseFreeTrial = !user.freeReadingUsed;
+    // Master tier bypass — truly unlimited, skip credit system entirely
+    const isMaster = user.subscriptionTier === 'MASTER';
+    const canUseFreeTrial = !isMaster && !user.freeReadingUsed;
     const hasEnoughCredits = user.credits >= service.creditCost;
 
-    if (!canUseFreeTrial && !hasEnoughCredits) {
+    if (!isMaster && !canUseFreeTrial && !hasEnoughCredits) {
       throw new BadRequestException(
         `Insufficient credits. This reading requires ${service.creditCost} credits. ` +
         `You have ${user.credits} credits.`,
       );
     }
 
+    // Acquire distributed lock to prevent concurrent reading creation exploit
+    const lockKey = `reading:create:${user.id}`;
+    const lockAcquired = await this.redis.acquireLock(lockKey, 30);
+    if (!lockAcquired) {
+      throw new ConflictException('A reading is already being created. Please wait.');
+    }
+
+    try {
+      return await this._executeCreateReading(user, profile, dto, service, isMaster, canUseFreeTrial);
+    } finally {
+      await this.redis.releaseLock(lockKey);
+    }
+  }
+
+  /**
+   * Internal: executes reading creation within distributed lock.
+   * Separated to keep createReading() clean and testable.
+   */
+  private async _executeCreateReading(
+    user: { id: string; credits: number; freeReadingUsed: boolean; subscriptionTier: string },
+    profile: { id: string; birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
+    dto: CreateReadingDto,
+    service: { creditCost: number; type: string },
+    isMaster: boolean,
+    canUseFreeTrial: boolean,
+  ) {
     // Generate birth data hash for cache lookup
     const birthDataHash = this.aiService.generateBirthDataHash(
       profile.birthDate.toISOString().split('T')[0],
@@ -164,11 +193,16 @@ export class BaziService {
       }
     }
 
-    // Deduct credits or use free reading — atomic to prevent double-spend
-    const creditsUsed = canUseFreeTrial ? 0 : service.creditCost;
+    // Master tier: no credit deduction at all (creditsUsed: 0)
+    // Free trial: claim free reading (creditsUsed: 0)
+    // Regular: deduct service.creditCost credits
+    const creditsUsed = (isMaster || canUseFreeTrial) ? 0 : service.creditCost;
 
     const reading = await this.prisma.$transaction(async (tx) => {
-      if (canUseFreeTrial) {
+      if (isMaster) {
+        // Master tier: no credit deduction, no free trial claim
+        // Just proceed to create reading
+      } else if (canUseFreeTrial) {
         // Atomically claim the free reading — only succeeds if not already used
         const updated = await tx.user.updateMany({
           where: { id: user.id, freeReadingUsed: false },
@@ -294,93 +328,109 @@ export class BaziService {
       throw new BadRequestException('Compatibility comparison is not currently available');
     }
 
-    const canUseFreeTrial = !user.freeReadingUsed;
+    // Master tier bypass — truly unlimited
+    const isMaster = user.subscriptionTier === 'MASTER';
+    const canUseFreeTrial = !isMaster && !user.freeReadingUsed;
     const hasEnoughCredits = user.credits >= service.creditCost;
 
-    if (!canUseFreeTrial && !hasEnoughCredits) {
+    if (!isMaster && !canUseFreeTrial && !hasEnoughCredits) {
       throw new BadRequestException(
         `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
       );
     }
 
-    // Call Bazi engine for compatibility calculation
-    let calculationData: Record<string, unknown>;
-    try {
-      calculationData = await this.callBaziCompatibility(profileA, profileB, dto) as Record<string, unknown>;
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      this.logger.error(`Bazi compatibility engine call failed: ${message}`);
-      throw new InternalServerErrorException('Bazi compatibility calculation failed.');
+    // Acquire distributed lock to prevent concurrent exploit
+    const lockKey = `reading:create:${user.id}`;
+    const lockAcquired = await this.redis.acquireLock(lockKey, 30);
+    if (!lockAcquired) {
+      throw new ConflictException('A reading is already being created. Please wait.');
     }
 
-    // Generate AI interpretation for compatibility
-    let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
-    let aiProvider: string | undefined = undefined;
-    let aiModel: string | undefined = undefined;
-    let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
-
     try {
-      const enrichedData = {
-        ...calculationData,
-        comparisonType: dto.comparisonType.toLowerCase(),
-      };
-
-      const aiResult = await this.aiService.generateInterpretation(
-        enrichedData,
-        ReadingType.COMPATIBILITY,
-        user.id,
-      );
-
-      aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
-      aiProvider = aiResult.provider;
-      aiModel = aiResult.model;
-      tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      this.logger.error(`AI compatibility interpretation failed: ${message}`);
-    }
-
-    const creditsUsed = canUseFreeTrial ? 0 : service.creditCost;
-
-    // Atomic transaction to prevent double-spend
-    const comparison = await this.prisma.$transaction(async (tx) => {
-      if (canUseFreeTrial) {
-        const updated = await tx.user.updateMany({
-          where: { id: user.id, freeReadingUsed: false },
-          data: { freeReadingUsed: true },
-        });
-        if (updated.count === 0) {
-          throw new BadRequestException('Free reading already used');
-        }
-      } else {
-        const updated = await tx.user.updateMany({
-          where: { id: user.id, credits: { gte: service.creditCost } },
-          data: { credits: { decrement: service.creditCost } },
-        });
-        if (updated.count === 0) {
-          throw new BadRequestException(
-            `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
-          );
-        }
+      // Call Bazi engine for compatibility calculation
+      let calculationData: Record<string, unknown>;
+      try {
+        calculationData = await this.callBaziCompatibility(profileA, profileB, dto) as Record<string, unknown>;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.logger.error(`Bazi compatibility engine call failed: ${message}`);
+        throw new InternalServerErrorException('Bazi compatibility calculation failed.');
       }
 
-      return tx.baziComparison.create({
-        data: {
-          userId: user.id,
-          profileAId: profileA.id,
-          profileBId: profileB.id,
-          comparisonType: dto.comparisonType,
-          calculationData: calculationData as Prisma.InputJsonValue,
-          aiInterpretation,
-          aiProvider: aiProvider as any,
-          aiModel,
-          tokenUsage,
-          creditsUsed,
-        },
-      });
-    });
+      // Generate AI interpretation for compatibility
+      let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
+      let aiProvider: string | undefined = undefined;
+      let aiModel: string | undefined = undefined;
+      let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
 
-    return comparison;
+      try {
+        const enrichedData = {
+          ...calculationData,
+          comparisonType: dto.comparisonType.toLowerCase(),
+        };
+
+        const aiResult = await this.aiService.generateInterpretation(
+          enrichedData,
+          ReadingType.COMPATIBILITY,
+          user.id,
+        );
+
+        aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
+        aiProvider = aiResult.provider;
+        aiModel = aiResult.model;
+        tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.logger.error(`AI compatibility interpretation failed: ${message}`);
+      }
+
+      // Master tier: creditsUsed = 0; Free trial: creditsUsed = 0; Regular: service.creditCost
+      const creditsUsed = (isMaster || canUseFreeTrial) ? 0 : service.creditCost;
+
+      // Atomic transaction to prevent double-spend
+      const comparison = await this.prisma.$transaction(async (tx) => {
+        if (isMaster) {
+          // Master tier: no credit deduction
+        } else if (canUseFreeTrial) {
+          const updated = await tx.user.updateMany({
+            where: { id: user.id, freeReadingUsed: false },
+            data: { freeReadingUsed: true },
+          });
+          if (updated.count === 0) {
+            throw new BadRequestException('Free reading already used');
+          }
+        } else {
+          const updated = await tx.user.updateMany({
+            where: { id: user.id, credits: { gte: service.creditCost } },
+            data: { credits: { decrement: service.creditCost } },
+          });
+          if (updated.count === 0) {
+            throw new BadRequestException(
+              `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
+            );
+          }
+        }
+
+        return tx.baziComparison.create({
+          data: {
+            userId: user.id,
+            profileAId: profileA.id,
+            profileBId: profileB.id,
+            comparisonType: dto.comparisonType,
+            calculationData: calculationData as Prisma.InputJsonValue,
+            aiInterpretation,
+            aiProvider: aiProvider as any,
+            aiModel,
+            tokenUsage,
+            creditsUsed,
+          },
+        });
+      });
+
+      return comparison;
+    } finally {
+      await this.redis.releaseLock(lockKey);
+    }
   }
 
   // ============ Engine Communication ============
