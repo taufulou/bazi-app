@@ -236,45 +236,64 @@ Future (not yet wired):
 - ✅ Phase 8: ZWDS Engine + Frontend (iztro integration, 6 ZWDS reading types, chart component, 209 ZWDS tests)
 - ✅ Phase 8B: ZWDS Features (Monthly/Daily/MajorPeriod/QA + cross-system + deep-stars, 80 new tests)
 - ✅ Phase 9: User Birth Profile Management (profile CRUD, custom dropdown on name field, auto-fill, profile manager page, relationship tags)
+- ✅ Phase 10: Wire Frontend to NestJS API (readings-api.ts, reading page calls NestJS for signed-in users, chart-only fallback for free users, reading history page, subscription management page)
+- ✅ Phase 5: Monetization & Payment (5 revenue streams: Stripe subscriptions, per-reading credits, per-section unlock, rewarded video ads, credit packages. 4 new DB models, 15 payment endpoints, store page, admin monetization dashboard, 33 new test files)
+
+### Phase 10 Details (Wire Frontend to NestJS API)
+- **`readings-api.ts`**: API client with `createBaziReading()`, `createZwdsReading()`, `getReading()`, `getReadingHistory()`, `transformAIResponse()`, slug→enum mapping, 40+ section title zh-TW labels
+- **`reading/[type]/page.tsx`**: Signed-in users → NestJS API (credit deduction, AI interpretation, DB save); unsigned users → direct engine (chart-only, mock AI paywall); `loadSavedReading(id)` for deep-links; `refreshUserProfile()` on tab visibility
+- **`dashboard/readings/page.tsx`**: Reading history with type, credits used, date, birth profile; enum→slug reverse mapping for navigation
+- **`dashboard/subscription/page.tsx`**: Current plan display, cancel/reactivate with inline confirmation dialogs, billing period display (月繳/年繳), Stripe Customer Portal link for billing management
+- **`pricing/page.tsx`**: Tier-aware CTA buttons (current plan → "管理訂閱", upgrade → confirmation modal, downgrade → confirmation modal, new subscription → Stripe checkout). Unified `handlePlanChange()` for both upgrade and downgrade via `POST /api/payments/upgrade`. Monthly/annual toggle; success/cancel toast notifications
+- **`store/page.tsx`**: Credit package cards from API, best-value badge, `createCreditCheckout()` → Stripe; balance display
+
+### Phase 5 Details (Monetization — 5 Revenue Streams)
+**New DB Models** (migration `20260215092104_add_monetization_models`):
+- `CreditPackage` — slug, nameZhTw/ZhCn, creditAmount, priceUsd, isActive, sortOrder
+- `AdRewardLog` — userId, rewardType (CREDIT/SECTION_UNLOCK/DAILY_HOROSCOPE), creditsGranted
+- `SectionUnlock` — userId, readingId, sectionKey, unlockMethod (CREDIT/AD_REWARD/SUBSCRIPTION), unique constraint
+- `MonthlyCreditsLog` — userId, creditAmount, periodStart/End, unique constraint on [userId, periodStart]
+- Updated: Plan.monthlyCredits (Basic:5, Pro:15, Master:-1), Service.sectionUnlockCreditCost
+
+**Backend (15 payment endpoints + 3 ads endpoints):**
+- `GET /api/payments/credit-packages` (@Public) — active credit packages
+- `POST /api/payments/checkout/credits` — Stripe credit package checkout
+- `POST /api/payments/checkout/subscription` — Stripe subscription checkout
+- `POST /api/payments/portal` — Stripe customer portal
+- `POST /api/payments/cancel` / `POST /api/payments/reactivate` — subscription management
+- `POST /api/payments/upgrade` — upgrade or downgrade subscription plan (Stripe `subscriptions.update` with `price_data` + proration)
+- `GET /api/payments/monthly-credits` — monthly credit grant status
+- `POST /api/readings/:id/unlock-section` / `GET /api/readings/:id/unlocked-sections` — section unlock
+- `GET /api/ads/config` / `GET /api/ads/status` / `POST /api/ads/claim` — rewarded video ads (5/day limit, Redis atomic counter)
+- `apps/api/src/ads/` — ads module, controller, service
+- `apps/api/src/payments/section-unlock.service.ts` — per-section unlock with credit/$transaction
+
+**Frontend:**
+- `store/page.tsx` + `store.module.css` — credit package purchase with Stripe
+- `admin/credit-packages/page.tsx` — admin CRUD for credit packages
+- `admin/monetization/page.tsx` — revenue analytics dashboard (30-day breakdown, subscriber tiers, ad rewards, section unlocks)
+- `InsufficientCreditsModal.tsx` — paywall with buy credits / watch ad / subscribe CTAs
+- Updated `AdminSidebar.tsx` with monetization nav items
+
+**Seed Data:** 4 credit packages (starter-5/$4.99, value-12/$9.99, popular-30/$19.99, mega-60/$34.99)
+
+**Not Yet Implemented (deferred to mobile phase):**
+- Apple IAP + Google Play billing
+- Real AdMob SDK integration (currently mock ad button on web, labeled "行動裝置限定")
+- AdMob Server-Side Verification (V2)
 
 ### Upcoming Work (Priority Order)
 
-#### 1. Wire Frontend to NestJS API (Phase 10)
-Currently the reading page (`apps/web/app/reading/[type]/page.tsx`) calls engines directly and uses mock AI data. The NestJS backend already has full endpoints ready — just need to connect them.
+#### 1. Mobile App
+React Native Expo app (skeleton exists in `apps/mobile/`, needs reading flow, real AdMob integration)
 
-**What exists (backend — all built & tested):**
-- `POST /api/bazi/readings` — Bazi reading (calls Python engine + AI provider, deducts credits, saves to DB)
-- `GET /api/bazi/readings/:id` — Get saved Bazi reading
-- `POST /api/bazi/comparisons` — Bazi compatibility
-- `POST /api/zwds/readings` — ZWDS reading (calls iztro + AI provider, deducts credits, saves to DB)
-- `GET /api/zwds/readings/:id` — Get saved ZWDS reading
-- `POST /api/zwds/chart-preview` — Free ZWDS chart (no AI, no credits)
-- `POST /api/zwds/horoscope` — ZWDS horoscope for date
-- `POST /api/zwds/cross-system` — Combined Bazi+ZWDS reading
-- `POST /api/zwds/deep-stars` — Deep star analysis
-- `POST /api/zwds/comparisons` — ZWDS compatibility
-- All endpoints require Clerk JWT (`Authorization: Bearer ${token}`) except @Public() ones
+#### 2. Playwright E2E Tests
+Comprehensive end-to-end tests for payment flows, reading creation, section unlock, credit purchase
 
-**What needs to change (frontend):**
-1. **Create `apps/web/app/lib/readings-api.ts`** — API client functions for creating/fetching readings via NestJS
-2. **Modify `apps/web/app/reading/[type]/page.tsx`** `handleFormSubmit()`:
-   - Signed-in users: Call NestJS API (`POST /api/bazi/readings` or `POST /api/zwds/readings`) with Clerk JWT token
-   - Not signed-in users: Keep current direct engine calls (free chart preview, no AI)
-   - Parse response: NestJS returns `{ calculationData, aiInterpretation }` — feed `calculationData` to BaziChart/ZwdsChart, feed `aiInterpretation` to AIReadingDisplay
-3. **Remove mock AI functions** — `generateMockReading()` and `generateMockZwdsReading()` at bottom of page.tsx (~130 lines of mock data)
-4. **Handle errors**: Insufficient credits → show subscription CTA; AI provider failure → show chart-only (graceful degradation already built in backend)
-5. **Add reading history page** — `GET /api/users/me/readings` endpoint already exists, need frontend page to display past readings
-6. **Prerequisites**: AI API keys must be set in `apps/api/.env` (ANTHROPIC_API_KEY or OPENAI_API_KEY or GOOGLE_AI_API_KEY) — at least one provider needed
+#### 3. Production Deployment
+Docker setup, CI/CD, environment configuration, domain setup
 
-**Key implementation detail:** The NestJS reading endpoints return the same `calculationData` JSON structure that the frontend already parses for BaziChart/ZwdsChart. The `aiInterpretation` is structured JSON with `sections[key].preview` / `.full` matching what AIReadingDisplay expects. So the chart/reading components need NO changes — only the data-fetching layer in page.tsx changes.
-
-#### 2. Phase 5: Monetization & Payment
-Stripe integration, subscription plans (Free/Basic/Pro/Master), credit system, Apple IAP, Google Play billing. DB models (Subscription, Transaction, Plan) already exist.
-
-#### 3. Mobile App
-React Native Expo app (skeleton exists in `apps/mobile/`, needs reading flow)
-
-## Total Tests: 462 (16 suites) — all passing
+## Total Tests: ~530+ (462 original + 33 new Phase 5/10 test files) — in worktree
 
 ## Worktree Development Guide
 When working in a git worktree (`.claude/worktrees/`), these steps are REQUIRED before starting servers:
@@ -294,11 +313,22 @@ npx prisma@6 generate       # MUST use prisma@6 (global is v7, incompatible)
 npx prisma@6 migrate deploy  # Apply pending migrations
 ```
 
-### 3. Start NestJS API from the MAIN repo (not worktree)
-The `@repo/shared` package exports raw TypeScript (`"main": "./src/index.ts"`) with extensionless imports (`export * from './types'`). NestJS compiles to CommonJS but at runtime Node ESM can't resolve `.ts` files without extensions. This means:
-- **NestJS backend files that import from `@repo/shared` will fail at runtime** in both worktree and main repo
-- **Workaround**: Inline shared constants directly in NestJS files instead of importing from `@repo/shared`
-- **Or**: Copy worktree's changed API source files to main repo, build there (`npx nest build`), and run (`node dist/main.js`)
+### 3. Start NestJS API (solving @repo/shared ESM issue)
+The `@repo/shared` package exports raw TypeScript (`"main": "./src/index.ts"`) with extensionless imports (`export * from './types'`). NestJS compiles to CommonJS but at runtime Node ESM can't resolve `.ts` files without extensions.
+
+**Working solution — build then run with tsx loader:**
+```bash
+cd apps/api
+../../node_modules/.bin/nest build          # Compile TS → dist/
+node --import tsx dist/main.js              # Run with tsx for @repo/shared resolution
+```
+The `tsx` loader resolves the extensionless `.ts` imports in `@repo/shared` at runtime. This is the **recommended approach** for both main repo and worktree.
+
+**Why other approaches fail:**
+- `nest start --watch` → compiles fine but crashes at runtime: `ERR_MODULE_NOT_FOUND: Cannot find module '.../shared/src/types'`
+- `npx tsx src/main.ts` → resolves imports but `ConfigService` DI fails (constructor runs before module init)
+- `node dist/main.js` (without tsx) → same `ERR_MODULE_NOT_FOUND` on `@repo/shared`
+- Adding `.ts` extensions to shared imports → TypeScript rejects unless `allowImportingTsExtensions` is enabled, which breaks `nest build`
 - **Next.js frontend** handles `@repo/shared` fine (Turbopack resolves TS natively)
 
 ### 4. Start Next.js from worktree directly
@@ -321,7 +351,100 @@ Admin check is in `apps/web/app/admin/layout.tsx` (uses `currentUser().publicMet
 /opt/homebrew/opt/postgresql@15/bin/psql -U bazi_user -d bazi_platform
 ```
 
+## Server Startup & Troubleshooting
+
+### Quick Start (all 3 servers)
+```bash
+export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
+
+# Terminal 1: Bazi Engine
+cd packages/bazi-engine && source .venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 5001 --reload
+
+# Terminal 2: NestJS API (build first, then run with tsx)
+cd apps/api
+../../node_modules/.bin/nest build
+node --import tsx dist/main.js
+
+# Terminal 3: Next.js (from worktree or main)
+cd apps/web
+npx next dev --port 3000
+```
+
+### Health Checks
+```bash
+curl -s http://localhost:5001/health   # Bazi Engine
+curl -s http://localhost:4000/health   # NestJS API
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/  # Next.js (expect 200)
+```
+
+### Common Issues
+
+> **⚠️ IMPORTANT: When ANYTHING seems wrong (page stuck, loading forever, blank screen, 404 on known routes), ALWAYS check Next.js first!**
+> The Turbopack dev server crashes frequently (every 15-30 min under active development). This is a dev-mode-only issue — production builds are unaffected.
+> Quick check: `curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:3000/` — if it returns `000` (timeout) or hangs, Next.js is dead.
+> Quick fix: `kill -9 $(lsof -ti:3000) 2>/dev/null; sleep 2; cd apps/web && npx next dev --port 3000`
+> This does NOT affect production — `next build` + `next start` serves pre-compiled files with no file watcher or HMR.
+
+**Next.js stuck on "載入中..." / unresponsive:**
+- **Symptom**: Page shows loading spinner forever, `curl http://localhost:3000/` hangs or times out, browser tab keeps loading
+- **Cause**: Turbopack hot-reload loop — process runs at >100% CPU and stops serving requests. Happens frequently (every 15-30 min) during active code editing. More likely with rapid file changes or long-running sessions.
+- **Diagnosis**: `ps -p $(lsof -ti:3000) -o %cpu,etime` — if CPU >60% and uptime >15min, it's likely stuck
+- **Fix**: Force kill and restart:
+  ```bash
+  kill -9 $(lsof -ti:3000) 2>/dev/null   # Force kill (regular kill may not work)
+  sleep 2
+  cd apps/web && npx next dev --port 3000  # Restart fresh
+  ```
+- **Note**: This is purely a dev-mode issue. Production (`next build` + `next start`) has no file watcher, no HMR, no Turbopack — so this never happens in production.
+
+**NestJS `ERR_MODULE_NOT_FOUND` on @repo/shared:**
+- **Symptom**: `Cannot find module '.../shared/src/types'` at startup
+- **Cause**: `@repo/shared` uses extensionless TS imports that Node ESM can't resolve
+- **Fix**: Build first, then run with `tsx` loader (see Worktree Guide section 3)
+
+**NestJS `ConfigService` undefined (TypeError: Cannot read properties of undefined):**
+- **Symptom**: `new RedisService` crashes because `configService.get()` is undefined
+- **Cause**: Running `npx tsx src/main.ts` directly — tsx resolves imports but NestJS DI doesn't initialize `ConfigModule` before constructors run
+- **Fix**: Use `nest build` + `node --import tsx dist/main.js` instead of `npx tsx src/main.ts`
+
+**Port already in use:**
+- **Diagnosis**: `lsof -iTCP:PORT -sTCP:LISTEN -P` to find the process
+- **Fix**: `kill $(lsof -ti:PORT)` then restart
+
+**Multiple stale NestJS processes:**
+- **Diagnosis**: `ps aux | grep -E "nest|node.*dist/main"` — look for multiple entries
+- **Fix**: Kill all and restart only one:
+  ```bash
+  kill $(lsof -ti:4000) 2>/dev/null
+  ps aux | grep "nest start" | grep -v grep | awk '{print $2}' | xargs kill 2>/dev/null
+  ```
+
+**npx fails with `spawn sh ENOENT` in worktree:**
+- **Symptom**: `npm error enoent spawn sh ENOENT` when running `npx jest` or similar
+- **Fix**: Use direct binary paths instead: `node_modules/.bin/jest`, `node_modules/.bin/playwright`
+- **Also ensure PATH includes**: `export PATH="/opt/homebrew/opt/node@22/bin:/usr/bin:/bin:$PATH"`
+
+**Jest config not found:**
+- **Config file**: `apps/api/jest.config.js` (NOT `.ts`)
+- **Direct run**: `node_modules/.bin/jest --config apps/api/jest.config.js`
+
+**ANTHROPIC_API_KEY not picked up from .env (AI provider warning despite key in .env):**
+- **Symptom**: NestJS logs `No AI providers configured!` even though `ANTHROPIC_API_KEY=sk-ant-...` is in `.env`
+- **Cause**: Claude Code sets `ANTHROPIC_API_KEY=` (empty) and `ANTHROPIC_BASE_URL=...` in the shell environment. dotenv v17 does NOT override existing env vars by default — the empty shell var wins over `.env`.
+- **Diagnosis**: `env | grep ANTHROPIC` — if you see `ANTHROPIC_API_KEY=` (empty), that's the problem
+- **Fix**: Explicitly export the key before starting NestJS:
+  ```bash
+  export ANTHROPIC_API_KEY="$(grep ANTHROPIC_API_KEY apps/api/.env | cut -d= -f2)"
+  node --import tsx dist/main.js
+  ```
+- **Verify**: Look for `Claude provider initialized` in the startup log (instead of `No AI providers configured!`)
+
 ## Known Issues / Notes
+- **TODO: First-time user welcome message**: New users receive 2 free credits on signup. We should show a welcome toast/modal on first login that says something like "歡迎！您已獲得 2 點免費額度，立即開始您的命理分析之旅！" (Welcome! You've received 2 free credits. Start your fortune analysis journey now!). This could be triggered by checking if `user.credits === 2 && user.baziReadings.length === 0` or via a `welcomeShown` flag.
+- **TODO: Deferred cleanup — remove `freeReadingUsed` column**: The `freeReadingUsed` column in the User model is deprecated (always `true` for all users). It should be removed in a future PR along with: Prisma schema field, `payments.service.ts` response field, `UserProfile`/`AdminUser`/`AdminUserDetail` TypeScript interfaces, CSS classes (`.freeBadge`, `.freeTrialBar`), and related test assertions. The column is harmless to keep.
+- **Stripe inactive product workaround**: Stripe checkout creates ad-hoc products via `product_data` which can become inactive. The `upgradeSubscription()` method in `stripe.service.ts` checks if the current product is active; if inactive, it creates a new Stripe product via `stripe.products.create()` before calling `subscriptions.update()`. Note: `product_data` is only available in Checkout Sessions, NOT in `subscriptions.update()` — must create product separately.
+- **Stripe plan change uses inline `price_data`**: Since prices are admin-configurable (not stored as Stripe Price IDs), both upgrade and downgrade use `subscriptions.update()` with `items[0].price_data` + `proration_behavior: 'create_prorations'`. This is the Stripe-recommended approach for dynamic pricing.
 - **Clerk deprecated props**: `afterSignInUrl`/`afterSignUpUrl` env vars should be migrated to `fallbackRedirectUrl`/`forceRedirectUrl`
 - **Clerk phone requirement**: Phone number is set to "required" in Clerk Dashboard — blocks Google sign-in flow. Should be changed to "optional" in Clerk Dashboard → Configure → Email, Phone, Username
 - **Next.js 16 middleware deprecation**: "middleware" file convention is deprecated, should use "proxy" instead
