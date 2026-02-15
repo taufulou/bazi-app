@@ -105,6 +105,20 @@ export default function InsufficientCreditsModal({
           >
             升級方案
           </Link>
+          <Link
+            href="/store"
+            className={styles.buyCreditsBtn}
+          >
+            購買點數
+          </Link>
+          <button
+            className={styles.adRewardBtn}
+            type="button"
+            disabled
+            title="此功能僅限行動裝置使用"
+          >
+            📺 看廣告獲得 1 點（行動裝置限定）
+          </button>
           <button
             className={styles.secondaryBtn}
             onClick={onViewChart}

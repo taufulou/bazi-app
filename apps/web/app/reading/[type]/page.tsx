@@ -159,6 +159,24 @@ export default function ReadingPage() {
   // Subscription & free reading state
   const [isSubscriber, setIsSubscriber] = useState(false);
   const [hasFreeReading, setHasFreeReading] = useState(false);
+  const [isPaidReading, setIsPaidReading] = useState(false);
+  const [isChartOnly, setIsChartOnly] = useState(false);
+
+  // Refresh user profile (credits, tier, free reading status)
+  const refreshUserProfile = useCallback(async () => {
+    if (!isSignedIn) return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const profile = await getUserProfile(token);
+      setUserCredits(profile.credits);
+      setUserTier(profile.subscriptionTier);
+      setIsSubscriber(profile.subscriptionTier !== "FREE");
+      setHasFreeReading(!profile.freeReadingUsed);
+    } catch {
+      /* silent */
+    }
+  }, [isSignedIn, getToken]);
 
   // Consolidated: fetch profiles + user profile in one effect
   useEffect(() => {
@@ -187,6 +205,17 @@ export default function ReadingPage() {
     })();
   }, [isSignedIn, getToken]);
 
+  // Refresh credits when user returns from /pricing or /store (tab becomes visible)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshUserProfile();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [refreshUserProfile]);
+
   // ============================================================
   // Load saved reading from ?id=xxx (reading history deep link)
   // ============================================================
@@ -212,6 +241,10 @@ export default function ReadingPage() {
       // Transform and set AI data
       const aiReading = transformAIResponse(reading.aiInterpretation);
       setAiData(aiReading);
+
+      // User owns this reading — unlock all sections
+      // (backend already verifies ownership and sends full data)
+      setIsPaidReading(true);
 
       setCurrentReadingId(reading.id);
       setStep("result");
@@ -296,17 +329,6 @@ export default function ReadingPage() {
         return;
       }
 
-      // Free reading already used → fall back to chart-only via direct engine
-      if (message.includes("Free reading already used")) {
-        try {
-          await callDirectEngine(data);
-          setShowSubscribeCTA(true);
-          return;
-        } catch {
-          // If direct engine also fails, show generic error
-        }
-      }
-
       // Other errors → show Chinese error message
       handleNestJSError(err);
     }
@@ -362,15 +384,12 @@ export default function ReadingPage() {
       setChartData(baziResult.data || baziResult);
     }
 
-    // Direct engine: no AI (show mock in dev, null in prod)
-    if (process.env.NODE_ENV === "development") {
-      const mockAI = isZwds
-        ? generateMockZwdsReading(readingType as ReadingTypeSlug)
-        : generateMockReading(readingType as ReadingTypeSlug);
-      setAiData(mockAI);
-    } else {
-      setAiData(null);
-    }
+    // Direct engine: show mock AI sections with paywall overlay
+    const mockAI = isZwds
+      ? generateMockZwdsReading(readingType as ReadingTypeSlug)
+      : generateMockReading(readingType as ReadingTypeSlug);
+    setAiData(mockAI);
+    setIsChartOnly(true);
 
     setStep("result");
     setTab("chart");
@@ -387,9 +406,6 @@ export default function ReadingPage() {
     if (message.includes("Insufficient credits")) {
       setShowCreditsModal(true);
       return; // Modal handles the UX — no inline error needed
-    } else if (message.includes("Free reading already used")) {
-      setError("免費體驗已使用完畢，請訂閱以繼續");
-      setShowSubscribeCTA(true);
     } else if (message.includes("429") || message.includes("Too many")) {
       setError("請求過於頻繁，請稍候再試");
     } else if (message === "Failed to fetch") {
@@ -411,6 +427,8 @@ export default function ReadingPage() {
       setShowSubscribeCTA(false);
       setShowCreditsModal(false);
       setCurrentReadingId(null);
+      setIsChartOnly(false);
+      setIsPaidReading(false);
 
       // Validate Q&A question
       if (needsQuestion && !questionText.trim()) {
@@ -504,10 +522,40 @@ export default function ReadingPage() {
       setLastProfileId(null);
       setShowSubscribeCTA(false);
       setShowCreditsModal(false);
+      setIsChartOnly(false);
+      setIsPaidReading(false);
     } else {
       router.push("/dashboard");
     }
   };
+
+  // ============================================================
+  // Free Chart Path (chart only, no credits, no DB save)
+  // ============================================================
+
+  const handleFreeChart = useCallback(
+    async (data: BirthDataFormValues) => {
+      setFormValues(data);
+      setIsLoading(true);
+      setError(undefined);
+      setShowSubscribeCTA(false);
+      setShowCreditsModal(false);
+      setCurrentReadingId(null);
+      setIsChartOnly(false);
+      setIsPaidReading(false);
+
+      try {
+        await callDirectEngine(data);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "排盤失敗，請稍後再試";
+        setError(msg);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [readingType, isZwds, needsDatePicker, targetDay],
+  );
 
   // Loading state while Clerk auth resolves
   if (step === null) {
@@ -561,11 +609,13 @@ export default function ReadingPage() {
             subtitle={meta.description["zh-TW"]}
             submitLabel={
               !isSignedIn ? "開始分析" :
-              meta.creditCost === 0 ? (<>開始分析<span className={styles.btnCreditFree}>免費</span></>) :
-              hasFreeReading ? (<>開始分析<span className={styles.btnCreditFree}>首次免費</span></>) :
-              userCredits !== null ? (<>開始分析<span className={styles.btnCredit}>💎 {meta.creditCost} 點・剩 {userCredits}</span></>) :
-              (<>開始分析<span className={styles.btnCredit}>💎 {meta.creditCost} 點</span></>)
+              meta.creditCost === 0 ? (<>AI 完整解讀<span className={styles.btnCreditFree}>免費</span></>) :
+              hasFreeReading ? (<>AI 完整解讀<span className={styles.btnCreditFree}>首次免費</span></>) :
+              userCredits !== null ? (<>AI 完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點・剩 {userCredits}</span></>) :
+              (<>AI 完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點</span></>)
             }
+            onSecondarySubmit={isSignedIn ? (data) => handleFreeChart(data) : undefined}
+            secondaryLabel={isSignedIn ? "查看免費命盤 →" : undefined}
             savedProfiles={isSignedIn ? savedProfiles : undefined}
             showSaveOption={isSignedIn === true}
             onSaveProfile={() => {
@@ -658,16 +708,20 @@ export default function ReadingPage() {
                 {showSubscribeCTA && (
                   <div className={styles.subscribeCTA}>
                     <div className={styles.subscribeCTAIcon}>🔒</div>
-                    <h3 className={styles.subscribeCTATitle}>解鎖 AI 命理解讀</h3>
+                    <h3 className={styles.subscribeCTATitle}>
+                      {isSubscriber ? "點數不足" : "解鎖 AI 命理解讀"}
+                    </h3>
                     <p className={styles.subscribeCTAText}>
-                      訂閱會員即可獲得 AI 為您量身打造的詳細命理分析報告
+                      {isSubscriber
+                        ? "您的點數已用完，購買點數包即可繼續使用 AI 命理分析"
+                        : "訂閱會員即可獲得 AI 為您量身打造的詳細命理分析報告"}
                     </p>
-                    <Link href="/pricing" className={styles.subscribeCTAButton}>
-                      查看訂閱方案
+                    <Link href={isSubscriber ? "/store" : "/pricing"} className={styles.subscribeCTAButton}>
+                      {isSubscriber ? "購買點數" : "查看訂閱方案"}
                     </Link>
                   </div>
                 )}
-                <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isSubscriber} isLoading={isLoading} />
+                <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isLoading} />
               </>
             )}
           </>

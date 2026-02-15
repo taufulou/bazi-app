@@ -1083,12 +1083,46 @@ export class AIService implements OnModuleInit {
     try {
       const parsed = JSON.parse(jsonMatch[0]);
 
-      // Validate structure
+      // Validate structure — try { sections: { ... } } wrapper first
       if (parsed.sections && typeof parsed.sections === 'object') {
         const sections: Record<string, InterpretationSection> = {};
 
         for (const [key, value] of Object.entries(parsed.sections)) {
           const section = value as Record<string, string>;
+          sections[key] = {
+            preview: section.preview || '',
+            full: section.full || section.preview || '',
+          };
+        }
+
+        const summary: InterpretationSection = parsed.summary
+          ? {
+              preview: (parsed.summary as Record<string, string>).preview || '',
+              full: (parsed.summary as Record<string, string>).full || '',
+            }
+          : { preview: '', full: '' };
+
+        return { sections, summary };
+      }
+
+      // Handle flat structure — AI returned sections at top level without "sections" wrapper
+      // e.g., { personality: { preview, full }, career: { preview, full }, summary: { preview, full } }
+      const topLevelKeys = Object.keys(parsed);
+      const sectionLikeKeys = topLevelKeys.filter((key) => {
+        const val = parsed[key];
+        return (
+          key !== 'summary' &&
+          val &&
+          typeof val === 'object' &&
+          ('preview' in val || 'full' in val)
+        );
+      });
+
+      if (sectionLikeKeys.length > 0) {
+        const sections: Record<string, InterpretationSection> = {};
+
+        for (const key of sectionLikeKeys) {
+          const section = parsed[key] as Record<string, string>;
           sections[key] = {
             preview: section.preview || '',
             full: section.full || section.preview || '',

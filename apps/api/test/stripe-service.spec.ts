@@ -53,6 +53,14 @@ jest.mock('stripe', () => {
 // Mock Prisma
 // ============================================================
 
+const mockMonthlyCreditsLog = {
+  create: jest.fn(),
+  findFirst: jest.fn(),
+};
+
+const mockTxUser = { update: jest.fn() };
+const mockTxMonthlyCreditsLog = { create: jest.fn() };
+
 const mockPrisma = {
   user: {
     findUnique: jest.fn(),
@@ -76,6 +84,18 @@ const mockPrisma = {
     findFirst: jest.fn(),
     update: jest.fn(),
   },
+  creditPackage: {
+    findFirst: jest.fn(),
+    findUnique: jest.fn(),
+  },
+  monthlyCreditsLog: mockMonthlyCreditsLog,
+  $transaction: jest.fn().mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+    // Execute the transaction callback with mock tx objects
+    return fn({
+      user: mockTxUser,
+      monthlyCreditsLog: mockTxMonthlyCreditsLog,
+    });
+  }),
 };
 
 const mockConfig = {
@@ -484,6 +504,10 @@ describe('StripeService', () => {
       mockPrisma.subscription.create.mockResolvedValue({});
       mockPrisma.user.update.mockResolvedValue({});
       mockPrisma.transaction.create.mockResolvedValue({});
+      // Mock plan lookup for grantMonthlyCredits
+      mockPrisma.plan.findFirst.mockResolvedValue({ ...MOCK_PLAN, slug: 'pro', monthlyCredits: 15 });
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
       await service.handleCheckoutCompleted(session);
 
@@ -676,7 +700,7 @@ describe('StripeService', () => {
         id: 'in_123',
         amount_paid: 999,
         currency: 'usd',
-        lines: { data: [{ description: 'Pro Plan × 1' }] },
+        lines: { data: [{ description: 'Pro Plan × 1', period: { start: 1700000000, end: 1702592000 } }] },
         parent: {
           subscription_details: {
             subscription: 'sub_stripe_123',
@@ -687,8 +711,13 @@ describe('StripeService', () => {
       mockPrisma.subscription.findFirst.mockResolvedValue({
         userId: 'user-123',
         stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
       });
       mockPrisma.transaction.create.mockResolvedValue({});
+      // Mock for grantMonthlyCredits
+      mockPrisma.plan.findFirst.mockResolvedValue({ ...MOCK_PLAN, slug: 'pro', monthlyCredits: 15 });
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
       await service.handleInvoicePaid(invoice);
 

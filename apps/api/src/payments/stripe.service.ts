@@ -34,6 +34,13 @@ interface CreateOneTimeCheckoutInput {
   cancelUrl: string;
 }
 
+interface CreateCreditPackageCheckoutInput {
+  clerkUserId: string;
+  packageSlug: string;    // 'starter-5', 'value-12', etc.
+  successUrl: string;
+  cancelUrl: string;
+}
+
 // ============================================================
 // Service
 // ============================================================
@@ -186,6 +193,66 @@ export class StripeService {
   }
 
   /**
+   * Create a Stripe Checkout session for a credit package purchase.
+   */
+  async createCreditPackageCheckout(input: CreateCreditPackageCheckoutInput): Promise<{ sessionId: string; url: string }> {
+    const user = await this.findUserOrThrow(input.clerkUserId);
+
+    const pkg = await this.prisma.creditPackage.findFirst({
+      where: { slug: input.packageSlug, isActive: true },
+    });
+    if (!pkg) {
+      throw new NotFoundException(`Credit package "${input.packageSlug}" not found or inactive`);
+    }
+
+    const customerId = await this.getOrCreateStripeCustomer(user.id, user.clerkUserId, user.name);
+
+    const unitAmount = Math.round(Number(pkg.priceUsd) * 100);
+
+    // Validate Stripe metadata total size < 500 chars
+    const metadata = {
+      clerkUserId: input.clerkUserId,
+      type: 'credit_package',
+      creditPackageId: pkg.id,
+      creditAmount: String(pkg.creditAmount),
+      packageSlug: pkg.slug,
+      internalUserId: user.id,
+    };
+    const metadataStr = JSON.stringify(metadata);
+    if (metadataStr.length > 500) {
+      throw new BadRequestException('Checkout metadata too large');
+    }
+
+    const session = await this.stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer: customerId,
+      line_items: [
+        {
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: pkg.nameZhTw,
+              description: `${pkg.nameZhTw} — ${pkg.creditAmount} 點`,
+            },
+            unit_amount: unitAmount,
+          },
+          quantity: 1,
+        },
+      ],
+      success_url: input.successUrl,
+      cancel_url: input.cancelUrl,
+      metadata,
+    });
+
+    this.logger.log(`Credit package checkout created: ${session.id} for user ${input.clerkUserId}, package ${pkg.slug}`);
+
+    return {
+      sessionId: session.id,
+      url: session.url || '',
+    };
+  }
+
+  /**
    * Create a Stripe Customer Portal session for managing subscriptions.
    */
   async createPortalSession(clerkUserId: string, returnUrl: string): Promise<{ url: string }> {
@@ -278,6 +345,135 @@ export class StripeService {
     });
 
     return { success: true };
+  }
+
+  /**
+   * Upgrade (or downgrade) a user's subscription to a different plan.
+   * Uses Stripe subscription item replacement with proration.
+   */
+  async upgradeSubscription(
+    clerkUserId: string,
+    planSlug: string,
+    billingCycle: 'monthly' | 'annual',
+  ): Promise<{ success: boolean; newTier: string }> {
+    this.logger.log(`[upgrade] Starting upgrade for user=${clerkUserId} plan=${planSlug} cycle=${billingCycle}`);
+
+    const user = await this.findUserOrThrow(clerkUserId);
+    this.logger.log(`[upgrade] Found user id=${user.id}`);
+
+    // Validate target plan
+    const plan = await this.prisma.plan.findFirst({
+      where: { slug: planSlug, isActive: true },
+    });
+    if (!plan) {
+      throw new NotFoundException(`Plan "${planSlug}" not found or inactive`);
+    }
+    this.logger.log(`[upgrade] Found plan: ${plan.slug}, priceMonthly=${plan.priceMonthly}, priceAnnual=${plan.priceAnnual}, currency=${plan.currency}`);
+
+    // Find active subscription
+    const subscription = await this.prisma.subscription.findFirst({
+      where: { userId: user.id, status: { in: ['ACTIVE', 'CANCELLED'] }, platform: 'STRIPE' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (!subscription || !subscription.stripeSubscriptionId) {
+      throw new NotFoundException('No active Stripe subscription found');
+    }
+    this.logger.log(`[upgrade] Found subscription: ${subscription.stripeSubscriptionId}, status=${subscription.status}`);
+
+    // Calculate new price
+    const unitAmount = billingCycle === 'annual'
+      ? Math.round(Number(plan.priceAnnual) * 100)
+      : Math.round(Number(plan.priceMonthly) * 100);
+    const interval = billingCycle === 'annual' ? 'year' : 'month';
+    this.logger.log(`[upgrade] unitAmount=${unitAmount}, interval=${interval}`);
+
+    // Retrieve the Stripe subscription to get current item
+    const stripeSub = await this.stripe.subscriptions.retrieve(subscription.stripeSubscriptionId);
+    const currentItem = stripeSub.items.data[0];
+    if (!currentItem) {
+      throw new BadRequestException('Subscription has no items');
+    }
+    this.logger.log(`[upgrade] Current item id=${currentItem.id}, product=${currentItem.price.product}`);
+
+    // Create (or reuse) a Stripe product for the target plan, then update subscription.
+    // Checkout creates ad-hoc products via product_data, but subscription.update only
+    // accepts a product ID string. We create a product per plan on-demand.
+    const newTier = this.planSlugToTier(planSlug);
+    this.logger.log(`[upgrade] Updating Stripe subscription to tier=${newTier}...`);
+
+    try {
+      // Ensure the current product is active, or create a new one for this plan
+      const currentProduct = currentItem.price.product as string;
+      let productId = currentProduct;
+
+      // Check if current product is active; if not, create a new one
+      try {
+        const product = await this.stripe.products.retrieve(currentProduct);
+        if (!product.active) {
+          this.logger.log(`[upgrade] Product ${currentProduct} is inactive, creating new product...`);
+          const newProduct = await this.stripe.products.create({
+            name: plan.nameZhTw,
+            description: `${plan.nameZhTw} — ${billingCycle === 'annual' ? '年繳' : '月繳'}`,
+          });
+          productId = newProduct.id;
+          this.logger.log(`[upgrade] Created new product ${productId}`);
+        }
+      } catch {
+        // Product doesn't exist, create a new one
+        const newProduct = await this.stripe.products.create({
+          name: plan.nameZhTw,
+          description: `${plan.nameZhTw} — ${billingCycle === 'annual' ? '年繳' : '月繳'}`,
+        });
+        productId = newProduct.id;
+        this.logger.log(`[upgrade] Created new product ${productId} (previous not found)`);
+      }
+
+      await this.stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+        items: [
+          {
+            id: currentItem.id,
+            price_data: {
+              currency: plan.currency.toLowerCase(),
+              product: productId,
+              unit_amount: unitAmount,
+              recurring: { interval: interval as 'month' | 'year' },
+            },
+          },
+        ],
+        proration_behavior: 'create_prorations',
+        cancel_at_period_end: false, // Ensure reactivated if was pending cancel
+        metadata: {
+          ...stripeSub.metadata,
+          planSlug,
+        },
+      });
+    } catch (stripeError: unknown) {
+      const errMsg = stripeError instanceof Error ? stripeError.message : String(stripeError);
+      this.logger.error(`[upgrade] Stripe API error: ${errMsg}`);
+      throw new BadRequestException(`Stripe upgrade failed: ${errMsg}`);
+    }
+
+    this.logger.log(`[upgrade] Stripe updated successfully, updating DB...`);
+
+    // Immediately update DB (webhook will also fire, but this gives instant UI feedback)
+    await this.prisma.subscription.update({
+      where: { id: subscription.id },
+      data: {
+        planTier: newTier,
+        status: 'ACTIVE',
+        cancelledAt: null,
+      },
+    });
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { subscriptionTier: newTier },
+    });
+
+    this.logger.log(`Subscription ${subscription.stripeSubscriptionId} upgraded to ${newTier} for user ${clerkUserId}`);
+
+    return { success: true, newTier };
   }
 
   // ============================================================
@@ -453,6 +649,21 @@ export class StripeService {
         platform: 'STRIPE',
       },
     });
+
+    // Grant monthly credits for the new billing period (renewal)
+    // Extract period dates from invoice line items (Stripe clover API)
+    const lineItem = invoice.lines?.data?.[0];
+    if (lineItem) {
+      const periodStart = lineItem.period?.start
+        ? new Date(lineItem.period.start * 1000)
+        : new Date();
+      const periodEnd = lineItem.period?.end
+        ? new Date(lineItem.period.end * 1000)
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+      // Use subscription's planTier to determine credit amount
+      await this.grantMonthlyCredits(sub.userId, sub.planTier, periodStart, periodEnd);
+    }
   }
 
   /**
@@ -484,6 +695,110 @@ export class StripeService {
         where: { id: existing.userId },
         data: { subscriptionTier: 'FREE' },
       });
+    }
+  }
+
+  // ============================================================
+  // Monthly Credit Allowance
+  // ============================================================
+
+  /**
+   * Grant monthly credits to a subscriber based on their plan tier.
+   *
+   * Uses MonthlyCreditsLog unique constraint [userId, periodStart] for idempotency:
+   * - If credits were already granted for this period, the unique constraint
+   *   violation is caught and silently ignored (prevents double-grant on webhook replay).
+   * - Master tier (monthlyCredits = -1) is skipped entirely (Master bypasses credit system).
+   * - All operations are wrapped in $transaction for atomicity.
+   *
+   * @param userId Internal user ID
+   * @param planTier 'BASIC' | 'PRO' | 'MASTER'
+   * @param periodStart Start of the billing period (from Stripe, UTC)
+   * @param periodEnd End of the billing period (from Stripe, UTC)
+   */
+  async grantMonthlyCredits(
+    userId: string,
+    planTier: string,
+    periodStart: Date,
+    periodEnd: Date,
+  ): Promise<{ granted: boolean; creditsGranted: number }> {
+    // Look up plan by tier slug to get monthlyCredits value
+    const tierToSlug: Record<string, string> = {
+      BASIC: 'basic',
+      PRO: 'pro',
+      MASTER: 'master',
+    };
+    const planSlug = tierToSlug[planTier];
+
+    if (!planSlug) {
+      this.logger.warn(`Unknown plan tier "${planTier}" — skipping monthly credit grant`);
+      return { granted: false, creditsGranted: 0 };
+    }
+
+    const plan = await this.prisma.plan.findFirst({
+      where: { slug: planSlug, isActive: true },
+    });
+
+    if (!plan) {
+      this.logger.warn(`Plan "${planSlug}" not found — skipping monthly credit grant`);
+      return { granted: false, creditsGranted: 0 };
+    }
+
+    const monthlyCredits = plan.monthlyCredits;
+
+    // Master tier (monthlyCredits = -1): skip credit grant entirely
+    // Master users bypass the credit system — they don't need monthly credits
+    if (monthlyCredits < 0) {
+      this.logger.log(`Master tier user ${userId} — skipping monthly credit grant (unlimited bypass)`);
+      return { granted: false, creditsGranted: 0 };
+    }
+
+    if (monthlyCredits === 0) {
+      this.logger.log(`Plan "${planSlug}" has 0 monthly credits — skipping grant`);
+      return { granted: false, creditsGranted: 0 };
+    }
+
+    // Use $transaction for atomicity: create log + increment credits
+    // The unique constraint [userId, periodStart] prevents double-grant
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        // Create MonthlyCreditsLog — will throw on duplicate [userId, periodStart]
+        await tx.monthlyCreditsLog.create({
+          data: {
+            userId,
+            creditAmount: monthlyCredits,
+            periodStart,
+            periodEnd,
+          },
+        });
+
+        // Increment user credits
+        await tx.user.update({
+          where: { id: userId },
+          data: { credits: { increment: monthlyCredits } },
+        });
+      });
+
+      this.logger.log(
+        `Granted ${monthlyCredits} monthly credits to user ${userId} ` +
+        `for period ${periodStart.toISOString()} — ${periodEnd.toISOString()}`,
+      );
+      return { granted: true, creditsGranted: monthlyCredits };
+    } catch (error: unknown) {
+      // Check for unique constraint violation (P2002) — means credits already granted for this period
+      if (
+        error &&
+        typeof error === 'object' &&
+        'code' in error &&
+        (error as { code: string }).code === 'P2002'
+      ) {
+        this.logger.log(
+          `Monthly credits already granted for user ${userId}, period ${periodStart.toISOString()} — idempotent skip`,
+        );
+        return { granted: false, creditsGranted: 0 };
+      }
+      // Re-throw unexpected errors
+      throw error;
     }
   }
 
@@ -604,6 +919,9 @@ export class StripeService {
       },
     });
 
+    // Grant initial monthly credits for the subscription period
+    await this.grantMonthlyCredits(userId, planTier, periodStart, periodEnd);
+
     this.logger.log(`Subscription created for user ${userId}: ${planSlug} (${planTier})`);
   }
 
@@ -611,28 +929,65 @@ export class StripeService {
     session: Stripe.Checkout.Session,
     userId: string,
   ): Promise<void> {
-    const serviceSlug = session.metadata?.serviceSlug;
+    const metadata = session.metadata;
 
-    // Record the transaction
-    await this.prisma.transaction.create({
-      data: {
-        userId,
-        stripePaymentId: session.payment_intent as string,
-        amount: (session.amount_total || 0) / 100,
-        currency: (session.currency || 'usd').toUpperCase(),
-        type: 'ONE_TIME',
-        description: serviceSlug ? `One-time reading: ${serviceSlug}` : 'One-time purchase',
-        platform: 'STRIPE',
-      },
-    });
+    if (metadata?.type === 'credit_package') {
+      // Credit package purchase — grant credits from package
+      const creditPackageId = metadata.creditPackageId;
+      const creditAmount = parseInt(metadata.creditAmount || '0', 10);
 
-    // Add credits to user (1 credit per reading purchase)
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { credits: { increment: 1 } },
-    });
+      if (creditPackageId && creditAmount > 0) {
+        // Verify package still exists and is active
+        const pkg = await this.prisma.creditPackage.findUnique({
+          where: { id: creditPackageId },
+        });
 
-    this.logger.log(`One-time payment recorded for user ${userId}: ${serviceSlug}`);
+        const actualAmount = (pkg && pkg.isActive) ? pkg.creditAmount : creditAmount;
+
+        // Record the transaction
+        await this.prisma.transaction.create({
+          data: {
+            userId,
+            stripePaymentId: session.payment_intent as string,
+            amount: (session.amount_total || 0) / 100,
+            currency: (session.currency || 'usd').toUpperCase(),
+            type: 'CREDIT_PURCHASE',
+            description: `Credit package: ${metadata.packageSlug || 'unknown'} (${actualAmount} credits)`,
+            platform: 'STRIPE',
+          },
+        });
+
+        // Grant credits to user
+        await this.prisma.user.update({
+          where: { id: userId },
+          data: { credits: { increment: actualAmount } },
+        });
+
+        this.logger.log(`Credit package purchased for user ${userId}: ${metadata.packageSlug} (+${actualAmount} credits)`);
+      }
+    } else {
+      // Legacy: single reading purchase, increment by 1
+      const serviceSlug = metadata?.serviceSlug;
+
+      await this.prisma.transaction.create({
+        data: {
+          userId,
+          stripePaymentId: session.payment_intent as string,
+          amount: (session.amount_total || 0) / 100,
+          currency: (session.currency || 'usd').toUpperCase(),
+          type: 'ONE_TIME',
+          description: serviceSlug ? `One-time reading: ${serviceSlug}` : 'One-time purchase',
+          platform: 'STRIPE',
+        },
+      });
+
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { credits: { increment: 1 } },
+      });
+
+      this.logger.log(`One-time payment recorded for user ${userId}: ${serviceSlug}`);
+    }
   }
 
   private async validateAndGetStripeCoupon(

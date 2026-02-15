@@ -387,7 +387,7 @@ Comprehensive end-to-end tests for payment flows, reading creation, section unlo
 #### 3. Production Deployment
 Docker setup, CI/CD, environment configuration, domain setup
 
-## Total Tests: ~530+ (462 original + 33 new Phase 5/10 test files) — in worktree, pending merge to main
+## Total Tests: ~530+ (462 original + 33 new Phase 5/10 test files)
 
 ## Worktree Development Guide
 When working in a git worktree (`.claude/worktrees/`), these steps are REQUIRED before starting servers:

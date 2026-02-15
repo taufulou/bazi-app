@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
+import { useAuth, useUser } from "@clerk/nextjs";
 import { DEFAULT_PLANS } from "@repo/shared";
+import { createSubscriptionCheckout, upgradeSubscription, getUserProfile } from "../lib/api";
 import styles from "./page.module.css";
 
 // ============================================================
@@ -66,13 +69,6 @@ const PLANS: PlanInfo[] = [
   },
 ];
 
-// Free tier features for comparison
-const FREE_FEATURES = [
-  "1 次免費八字解讀",
-  "基礎命盤計算",
-  "五行分析圖表（預覽）",
-];
-
 // Comparison table rows: [featureLabel, free, basic, pro, master]
 type ComparisonValue = string | boolean;
 const COMPARISON_ROWS: [string, ComparisonValue, ComparisonValue, ComparisonValue, ComparisonValue][] = [
@@ -93,6 +89,13 @@ const COMPARISON_ROWS: [string, ComparisonValue, ComparisonValue, ComparisonValu
 // Helper: calculate savings percentage
 // ============================================================
 
+const TIER_META: Record<string, { name: string }> = {
+  FREE: { name: "免費方案" },
+  BASIC: { name: "Basic 方案" },
+  PRO: { name: "Pro 方案" },
+  MASTER: { name: "Master 方案" },
+};
+
 function calcSavingsPercent(monthly: number, annual: number): number {
   const fullYearPrice = monthly * 12;
   return Math.round(((fullYearPrice - annual) / fullYearPrice) * 100);
@@ -104,9 +107,143 @@ function calcSavingsPercent(monthly: number, annual: number): number {
 
 export default function PricingPage() {
   const [isAnnual, setIsAnnual] = useState(false);
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "info" } | null>(null);
+  const [currentTier, setCurrentTier] = useState<string>("FREE");
+  const [changeTarget, setChangeTarget] = useState<{ key: string; name: string; direction: "upgrade" | "downgrade" } | null>(null);
+
+  const { isSignedIn, getToken } = useAuth();
+  const { user } = useUser();
+  const searchParams = useSearchParams();
+
+  // ---- Fetch current user tier ----
+  useEffect(() => {
+    if (!isSignedIn) {
+      setCurrentTier("FREE");
+      return;
+    }
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const profile = await getUserProfile(token);
+        setCurrentTier(profile.subscriptionTier);
+      } catch {
+        // Silent — default to FREE
+      }
+    })();
+  }, [isSignedIn, getToken]);
+
+  // ---- Handle success/cancel query params ----
+  useEffect(() => {
+    const subscription = searchParams.get("subscription");
+    const cancelled = searchParams.get("cancelled");
+
+    if (subscription === "success") {
+      setToast({ message: "訂閱成功！歡迎加入", type: "success" });
+    } else if (cancelled === "true") {
+      setToast({ message: "已取消結帳流程，您可隨時再訂閱", type: "info" });
+    }
+  }, [searchParams]);
+
+  // ---- Auto-dismiss toast ----
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => setToast(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+  // ---- Handle plan change (upgrade or downgrade via Stripe API) ----
+  const handlePlanChange = useCallback(
+    async (planKey: string, direction: "upgrade" | "downgrade") => {
+      setChangeTarget(null);
+      setError(null);
+      setLoadingPlan(planKey);
+
+      try {
+        const token = await getToken();
+        if (!token) throw new Error("無法取得認證令牌，請重新登入");
+
+        await upgradeSubscription(token, {
+          planSlug: planKey,
+          billingCycle: isAnnual ? "annual" : "monthly",
+        });
+
+        setCurrentTier(planKey.toUpperCase());
+        setToast({
+          message: direction === "upgrade" ? "方案升級成功！" : "方案已變更成功！",
+          type: "success",
+        });
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : "變更方案時發生錯誤，請稍後再試";
+        setError(message);
+      } finally {
+        setLoadingPlan(null);
+      }
+    },
+    [isAnnual, getToken],
+  );
+
+  // ---- Handle checkout ----
+  const handleCheckout = useCallback(
+    async (planKey: string) => {
+      setError(null);
+
+      // Not signed in → redirect to sign-in with return URL
+      if (!isSignedIn) {
+        window.location.href = `/sign-in?redirect_url=${encodeURIComponent("/pricing")}`;
+        return;
+      }
+
+      setLoadingPlan(planKey);
+
+      try {
+        const token = await getToken();
+        if (!token) {
+          throw new Error("無法取得認證令牌，請重新登入");
+        }
+
+        const origin = window.location.origin;
+        const session = await createSubscriptionCheckout(token, {
+          planSlug: planKey,
+          billingCycle: isAnnual ? "annual" : "monthly",
+          successUrl: `${origin}/dashboard?subscription=success`,
+          cancelUrl: `${origin}/pricing?cancelled=true`,
+        });
+
+        // Redirect to Stripe Checkout
+        window.location.href = session.url;
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : "結帳時發生錯誤，請稍後再試";
+        setError(message);
+        setLoadingPlan(null);
+      }
+    },
+    [isSignedIn, isAnnual, getToken],
+  );
 
   return (
     <div className={styles.pageContainer}>
+      {/* ---- Toast Notification ---- */}
+      {toast && (
+        <div
+          className={`${styles.toast} ${toast.type === "success" ? styles.toastSuccess : styles.toastInfo}`}
+          role="alert"
+        >
+          <span>{toast.message}</span>
+          <button
+            className={styles.toastClose}
+            onClick={() => setToast(null)}
+            aria-label="關閉通知"
+          >
+            &times;
+          </button>
+        </div>
+      )}
+
       {/* ---- Header ---- */}
       <header className={styles.header}>
         <h1 className={styles.pageTitle}>選擇您的方案</h1>
@@ -114,6 +251,20 @@ export default function PricingPage() {
           從免費體驗到無限探索，找到最適合您的命理旅程方案
         </p>
       </header>
+
+      {/* ---- Error Banner ---- */}
+      {error && (
+        <div className={styles.errorBanner} role="alert">
+          <span>{error}</span>
+          <button
+            className={styles.errorClose}
+            onClick={() => setError(null)}
+            aria-label="關閉錯誤"
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* ---- Billing Toggle ---- */}
       <div className={styles.billingToggle}>
@@ -163,13 +314,26 @@ export default function PricingPage() {
             ? (annualPrice / 12).toFixed(2)
             : monthlyPrice.toFixed(2);
           const savings = calcSavingsPercent(monthlyPrice, annualPrice);
+          const isLoading = loadingPlan === plan.key;
+
+          // Determine relationship between current tier and this plan
+          const TIER_ORDER: Record<string, number> = { FREE: 0, BASIC: 1, PRO: 2, MASTER: 3 };
+          const planTier = plan.key.toUpperCase();
+          const currentLevel = TIER_ORDER[currentTier] ?? 0;
+          const planLevel = TIER_ORDER[planTier] ?? 0;
+          const isCurrentPlan = currentTier === planTier;
+          const isUpgrade = planLevel > currentLevel;
+          const isDowngrade = planLevel < currentLevel;
 
           return (
             <div
               key={plan.key}
-              className={`${styles.planCard} ${plan.isRecommended ? styles.planCardRecommended : ""}`}
+              className={`${styles.planCard} ${plan.isRecommended ? styles.planCardRecommended : ""} ${isCurrentPlan ? styles.planCardCurrent : ""}`}
             >
-              {plan.isRecommended && (
+              {isCurrentPlan && (
+                <div className={styles.currentBadge}>目前方案</div>
+              )}
+              {plan.isRecommended && !isCurrentPlan && (
                 <div className={styles.recommendedBadge}>推薦</div>
               )}
 
@@ -207,13 +371,49 @@ export default function PricingPage() {
                 ))}
               </ul>
 
-              {/* CTA */}
-              <Link
-                href="/api/payments/checkout/subscription"
-                className={`${styles.ctaButton} ${plan.isRecommended ? styles.ctaPrimary : styles.ctaSecondary}`}
-              >
-                {plan.isRecommended ? "立即訂閱" : "選擇方案"}
-              </Link>
+              {/* CTA Button — context-aware */}
+              {isCurrentPlan ? (
+                <Link href="/dashboard/subscription" className={`${styles.ctaButton} ${styles.ctaCurrent}`}>
+                  管理訂閱
+                </Link>
+              ) : isDowngrade ? (
+                <button
+                  className={`${styles.ctaButton} ${styles.ctaDowngrade} ${isLoading ? styles.ctaLoading : ""}`}
+                  onClick={() => setChangeTarget({ key: plan.key, name: plan.name, direction: "downgrade" })}
+                  disabled={loadingPlan !== null}
+                >
+                  {isLoading ? (
+                    <span className={styles.spinner} aria-label="載入中" />
+                  ) : (
+                    "降級方案"
+                  )}
+                </button>
+              ) : isUpgrade && currentTier !== "FREE" ? (
+                <button
+                  className={`${styles.ctaButton} ${plan.isRecommended ? styles.ctaPrimary : styles.ctaSecondary} ${isLoading ? styles.ctaLoading : ""}`}
+                  onClick={() => setChangeTarget({ key: plan.key, name: plan.name, direction: "upgrade" })}
+                  disabled={loadingPlan !== null}
+                >
+                  {isLoading ? (
+                    <span className={styles.spinner} aria-label="載入中" />
+                  ) : (
+                    "升級方案"
+                  )}
+                </button>
+              ) : (
+                <button
+                  className={`${styles.ctaButton} ${plan.isRecommended ? styles.ctaPrimary : styles.ctaSecondary} ${isLoading ? styles.ctaLoading : ""}`}
+                  onClick={() => handleCheckout(plan.key)}
+                  disabled={loadingPlan !== null}
+                  aria-busy={isLoading}
+                >
+                  {isLoading ? (
+                    <span className={styles.spinner} aria-label="載入中" />
+                  ) : (
+                    "立即訂閱"
+                  )}
+                </button>
+              )}
             </div>
           );
         })}
@@ -257,6 +457,15 @@ export default function PricingPage() {
         </div>
       </section>
 
+      {/* ---- Subscription Management Link (for logged-in users) ---- */}
+      {isSignedIn && (
+        <div className={styles.manageLinkWrapper}>
+          <Link href="/dashboard/subscription" className={styles.manageLink}>
+            管理我的訂閱
+          </Link>
+        </div>
+      )}
+
       {/* ---- Bottom Note ---- */}
       <p className={styles.bottomNote}>
         所有方案均可隨時取消。年繳方案將按年度收費，取消後服務持續至到期日。
@@ -265,6 +474,63 @@ export default function PricingPage() {
         <Link href="/contact" className={styles.bottomNoteLink}>聯絡我們</Link>
         。
       </p>
+
+      {/* ---- Plan Change Confirmation Modal (Upgrade / Downgrade) ---- */}
+      {changeTarget && (() => {
+        const targetPlan = PLANS.find((p) => p.key === changeTarget.key);
+        const targetDefaults = targetPlan ? DEFAULT_PLANS[targetPlan.key] : null;
+        const targetPrice = targetDefaults
+          ? isAnnual
+            ? `$${(targetDefaults.priceAnnual / 12).toFixed(2)}/月（年繳 $${targetDefaults.priceAnnual.toFixed(2)}/年）`
+            : `$${targetDefaults.priceMonthly.toFixed(2)}/月`
+          : "";
+        const isUpgradeModal = changeTarget.direction === "upgrade";
+
+        return (
+          <div className={styles.upgradeOverlay} onClick={() => setChangeTarget(null)}>
+            <div className={styles.upgradeDialog} onClick={(e) => e.stopPropagation()}>
+              <h3 className={styles.upgradeDialogTitle}>
+                {isUpgradeModal ? "確認升級方案" : "確認降級方案"}
+              </h3>
+              <p className={styles.upgradeDialogText}>
+                您即將從{" "}
+                <strong>{TIER_META[currentTier]?.name || currentTier}</strong>{" "}
+                {isUpgradeModal ? "升級" : "降級"}至{" "}
+                <strong>{changeTarget.name} 方案</strong>。
+              </p>
+              <div className={styles.upgradeDialogPrice}>
+                {targetPrice}
+              </div>
+              <p className={styles.upgradeDialogNote}>
+                {isUpgradeModal
+                  ? "升級後將立即生效，差額將按比例計算並從您的付款方式扣款。"
+                  : "降級後將立即生效，多餘的費用將按比例退回或轉為帳戶餘額。降級後部分進階功能將無法使用。"}
+              </p>
+              <div className={styles.upgradeDialogActions}>
+                <button
+                  className={styles.upgradeDialogCancel}
+                  onClick={() => setChangeTarget(null)}
+                >
+                  取消
+                </button>
+                <button
+                  className={isUpgradeModal ? styles.upgradeDialogConfirm : styles.downgradeDialogConfirm}
+                  onClick={() => handlePlanChange(changeTarget.key, changeTarget.direction)}
+                  disabled={loadingPlan !== null}
+                >
+                  {loadingPlan === changeTarget.key ? (
+                    <span className={styles.spinner} aria-label="載入中" />
+                  ) : isUpgradeModal ? (
+                    "確認升級"
+                  ) : (
+                    "確認降級"
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
