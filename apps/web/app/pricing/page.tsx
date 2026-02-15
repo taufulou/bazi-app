@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useAuth, useUser } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { DEFAULT_PLANS } from "@repo/shared";
-import { createSubscriptionCheckout, upgradeSubscription, getUserProfile } from "../lib/api";
+import { createSubscriptionCheckout, upgradeSubscription, getSubscriptionStatus } from "../lib/api";
 import styles from "./page.module.css";
 
 // ============================================================
@@ -114,10 +114,9 @@ export default function PricingPage() {
   const [changeTarget, setChangeTarget] = useState<{ key: string; name: string; direction: "upgrade" | "downgrade" } | null>(null);
 
   const { isSignedIn, getToken } = useAuth();
-  const { user } = useUser();
   const searchParams = useSearchParams();
 
-  // ---- Fetch current user tier ----
+  // ---- Fetch current user tier + detect billing cycle ----
   useEffect(() => {
     if (!isSignedIn) {
       setCurrentTier("FREE");
@@ -127,10 +126,19 @@ export default function PricingPage() {
       try {
         const token = await getToken();
         if (!token) return;
-        const profile = await getUserProfile(token);
-        setCurrentTier(profile.subscriptionTier);
+        const status = await getSubscriptionStatus(token);
+        setCurrentTier(status.subscriptionTier);
+
+        // Detect billing cycle from subscription period dates
+        if (status.activeSubscription) {
+          const start = new Date(status.activeSubscription.currentPeriodStart).getTime();
+          const end = new Date(status.activeSubscription.currentPeriodEnd).getTime();
+          const daysDiff = (end - start) / (1000 * 60 * 60 * 24);
+          setIsAnnual(daysDiff > 180);
+        }
+        // If no active subscription (FREE user), leave isAnnual at default false
       } catch {
-        // Silent — default to FREE
+        // Silent — default to FREE + monthly
       }
     })();
   }, [isSignedIn, getToken]);
@@ -502,6 +510,8 @@ export default function PricingPage() {
                 {targetPrice}
               </div>
               <p className={styles.upgradeDialogNote}>
+                計費方式：{isAnnual ? "年繳" : "月繳"}
+                <br />
                 {isUpgradeModal
                   ? "升級後將立即生效，差額將按比例計算並從您的付款方式扣款。"
                   : "降級後將立即生效，多餘的費用將按比例退回或轉為帳戶餘額。降級後部分進階功能將無法使用。"}

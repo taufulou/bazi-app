@@ -112,9 +112,12 @@ export default function CreditStorePage() {
   );
 
   // ---- Find best value package (highest credit-to-price ratio) ----
+  const validPackages = packages.filter(
+    (p) => Number(p.priceUsd) > 0 && p.creditAmount > 0,
+  );
   const bestValueSlug =
-    packages.length > 0
-      ? packages.reduce((best, pkg) =>
+    validPackages.length > 0
+      ? validPackages.reduce((best, pkg) =>
           pkg.creditAmount / Number(pkg.priceUsd) >
           best.creditAmount / Number(best.priceUsd)
             ? pkg
@@ -189,7 +192,11 @@ export default function CreditStorePage() {
         <div className={styles.packagesGrid}>
           {packages.map((pkg) => {
             const isBestValue = pkg.slug === bestValueSlug;
-            const perCredit = (Number(pkg.priceUsd) / pkg.creditAmount).toFixed(2);
+            const price = Number(pkg.priceUsd);
+            const perCredit =
+              price > 0 && pkg.creditAmount > 0
+                ? (price / pkg.creditAmount).toFixed(2)
+                : "—";
             const isLoading = loadingSlug === pkg.slug;
 
             return (
