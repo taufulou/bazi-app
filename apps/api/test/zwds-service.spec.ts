@@ -113,6 +113,8 @@ describe('ZwdsService', () => {
       getJson: jest.fn(),
       setJson: jest.fn(),
       del: jest.fn(),
+      acquireLock: jest.fn().mockResolvedValue(true),
+      releaseLock: jest.fn().mockResolvedValue(undefined),
     };
 
     const mockAI = {

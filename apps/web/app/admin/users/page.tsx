@@ -199,10 +199,6 @@ export default function AdminUsersPage() {
                     <strong>Credits:</strong> {selectedUser.credits}
                   </div>
                   <div>
-                    <strong>Free Reading:</strong>{' '}
-                    {selectedUser.freeReadingUsed ? 'Used' : 'Available'}
-                  </div>
-                  <div>
                     <strong>Readings:</strong> {selectedUser._count.baziReadings} |{' '}
                     <strong>Comparisons:</strong> {selectedUser._count.baziComparisons}
                   </div>

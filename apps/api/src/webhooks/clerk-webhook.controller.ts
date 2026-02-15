@@ -124,9 +124,9 @@ export class ClerkWebhookController {
         name,
         avatarUrl: data.image_url,
         subscriptionTier: 'FREE',
-        credits: 0,
+        credits: 2,
         languagePref: 'ZH_TW',
-        freeReadingUsed: false,
+        freeReadingUsed: true,
       },
     });
 
@@ -147,9 +147,9 @@ export class ClerkWebhookController {
         name,
         avatarUrl: data.image_url,
         subscriptionTier: 'FREE',
-        credits: 0,
+        credits: 2,
         languagePref: 'ZH_TW',
-        freeReadingUsed: false,
+        freeReadingUsed: true,
       },
     });
 

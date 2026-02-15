@@ -2,19 +2,23 @@
  * Payments Controller — REST endpoints for payment operations.
  *
  * Public:
- *   GET  /api/payments/gateways — List available payment gateways
- *   GET  /api/payments/plans    — List active subscription plans
+ *   GET  /api/payments/gateways         — List available payment gateways
+ *   GET  /api/payments/plans            — List active subscription plans
+ *   GET  /api/payments/credit-packages  — List active credit packages
  *
  * Authenticated:
  *   GET  /api/payments/subscription — Current subscription status
  *   GET  /api/payments/transactions — Transaction history
  *   POST /api/payments/checkout/subscription — Create subscription checkout
  *   POST /api/payments/checkout/one-time     — Create one-time checkout
+ *   POST /api/payments/checkout/credits      — Create credit package checkout
  *   POST /api/payments/portal                — Create customer portal session
  *   POST /api/payments/cancel                — Cancel subscription
  *   POST /api/payments/reactivate            — Reactivate cancelled subscription
  *   GET  /api/payments/free-reading           — Check free reading availability
  *   POST /api/payments/free-reading/use       — Mark free reading as used
+ *   POST /api/readings/:id/unlock-section     — Unlock a specific section
+ *   GET  /api/readings/:id/unlocked-sections  — Get unlocked sections for a reading
  */
 import {
   Controller,
@@ -22,6 +26,7 @@ import {
   Post,
   Body,
   Query,
+  Param,
   ParseIntPipe,
   DefaultValuePipe,
 } from '@nestjs/common';
@@ -31,10 +36,12 @@ import {
   ApiBearerAuth,
   ApiQuery,
   ApiBody,
+  ApiParam,
 } from '@nestjs/swagger';
 import { IsString, IsIn, IsOptional, IsUrl, Matches } from 'class-validator';
 import { PaymentsService } from './payments.service';
 import { StripeService } from './stripe.service';
+import { SectionUnlockService } from './section-unlock.service';
 import { CurrentUser, AuthPayload } from '../auth/current-user.decorator';
 import { Public } from '../auth/public.decorator';
 
@@ -82,10 +89,42 @@ class CreateOneTimeCheckoutDto {
   cancelUrl!: string;
 }
 
+class CreateCreditCheckoutDto {
+  @IsString()
+  packageSlug!: string;
+
+  @IsString()
+  @Matches(SAFE_URL_REGEX, { message: 'successUrl must be a relative path or point to our domain' })
+  successUrl!: string;
+
+  @IsString()
+  @Matches(SAFE_URL_REGEX, { message: 'cancelUrl must be a relative path or point to our domain' })
+  cancelUrl!: string;
+}
+
+class UpgradeSubscriptionDto {
+  @IsString()
+  planSlug!: string;
+
+  @IsIn(['monthly', 'annual'])
+  billingCycle!: 'monthly' | 'annual';
+}
+
 class CreatePortalSessionDto {
   @IsString()
   @Matches(SAFE_URL_REGEX, { message: 'returnUrl must be a relative path or point to our domain' })
   returnUrl!: string;
+}
+
+class UnlockSectionDto {
+  @IsString()
+  sectionKey!: string;
+
+  @IsIn(['credit', 'ad_reward'])
+  method!: 'credit' | 'ad_reward';
+
+  @IsIn(['bazi', 'zwds'])
+  readingType!: 'bazi' | 'zwds';
 }
 
 // ============================================================
@@ -98,6 +137,7 @@ export class PaymentsController {
   constructor(
     private readonly paymentsService: PaymentsService,
     private readonly stripeService: StripeService,
+    private readonly sectionUnlockService: SectionUnlockService,
   ) {}
 
   // ============ Public Endpoints ============
@@ -117,6 +157,13 @@ export class PaymentsController {
     return this.paymentsService.getActivePlans();
   }
 
+  @Public()
+  @Get('credit-packages')
+  @ApiOperation({ summary: 'List active credit packages for purchase' })
+  async getCreditPackages() {
+    return this.paymentsService.getActiveCreditPackages();
+  }
+
   // ============ Subscription Status ============
 
   @Get('subscription')
@@ -124,6 +171,15 @@ export class PaymentsController {
   @ApiOperation({ summary: 'Get current user subscription status' })
   async getSubscriptionStatus(@CurrentUser() auth: AuthPayload) {
     return this.paymentsService.getSubscriptionStatus(auth.userId);
+  }
+
+  // ============ Monthly Credits Status ============
+
+  @Get('monthly-credits')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get monthly credits status for current user' })
+  async getMonthlyCreditsStatus(@CurrentUser() auth: AuthPayload) {
+    return this.paymentsService.getMonthlyCreditsStatus(auth.userId);
   }
 
   // ============ Transaction History ============
@@ -178,6 +234,22 @@ export class PaymentsController {
     });
   }
 
+  @Post('checkout/credits')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a Stripe checkout session for credit package purchase' })
+  @ApiBody({ type: CreateCreditCheckoutDto })
+  async createCreditCheckout(
+    @CurrentUser() auth: AuthPayload,
+    @Body() dto: CreateCreditCheckoutDto,
+  ) {
+    return this.stripeService.createCreditPackageCheckout({
+      clerkUserId: auth.userId,
+      packageSlug: dto.packageSlug,
+      successUrl: dto.successUrl,
+      cancelUrl: dto.cancelUrl,
+    });
+  }
+
   // ============ Customer Portal ============
 
   @Post('portal')
@@ -207,6 +279,17 @@ export class PaymentsController {
     return this.stripeService.reactivateSubscription(auth.userId);
   }
 
+  @Post('upgrade')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Upgrade or change subscription plan' })
+  @ApiBody({ type: UpgradeSubscriptionDto })
+  async upgradeSubscription(
+    @CurrentUser() auth: AuthPayload,
+    @Body() dto: UpgradeSubscriptionDto,
+  ) {
+    return this.stripeService.upgradeSubscription(auth.userId, dto.planSlug, dto.billingCycle);
+  }
+
   // ============ Free Reading ============
 
   @Get('free-reading')
@@ -223,5 +306,41 @@ export class PaymentsController {
   async useFreeReading(@CurrentUser() auth: AuthPayload) {
     await this.stripeService.markFreeReadingUsed(auth.userId);
     return { success: true };
+  }
+
+  // ============ Section Unlock ============
+
+  @Post('readings/:id/unlock-section')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Unlock a specific section of a reading' })
+  @ApiParam({ name: 'id', description: 'Reading ID' })
+  @ApiBody({ type: UnlockSectionDto })
+  async unlockSection(
+    @CurrentUser() auth: AuthPayload,
+    @Param('id') readingId: string,
+    @Body() dto: UnlockSectionDto,
+  ) {
+    return this.sectionUnlockService.unlockSection(
+      auth.userId,
+      readingId,
+      dto.readingType,
+      dto.sectionKey,
+      dto.method,
+    );
+  }
+
+  @Get('readings/:id/unlocked-sections')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get unlocked sections for a reading' })
+  @ApiParam({ name: 'id', description: 'Reading ID' })
+  @ApiQuery({ name: 'readingType', required: false, example: 'bazi' })
+  async getUnlockedSections(
+    @CurrentUser() auth: AuthPayload,
+    @Param('id') readingId: string,
+  ) {
+    return this.sectionUnlockService.getUnlockedSections(
+      auth.userId,
+      readingId,
+    );
   }
 }

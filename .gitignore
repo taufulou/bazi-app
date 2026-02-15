@@ -37,6 +37,8 @@ Thumbs.db
 # Testing
 coverage/
 htmlcov/
+playwright-report/
+test-results/
 
 # Turbo
 .turbo/

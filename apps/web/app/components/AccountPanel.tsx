@@ -122,7 +122,7 @@ export default function AccountPanel() {
           升級方案
         </Link>
       ) : (
-        <Link href="/pricing" className={styles.ctaBtnOutline}>
+        <Link href="/dashboard/subscription" className={styles.ctaBtnOutline}>
           管理訂閱
         </Link>
       )}

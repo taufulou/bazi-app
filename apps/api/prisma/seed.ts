@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { PrismaClient, ReadingType, AIProvider, DiscountType } from '@prisma/client';
+import type { Decimal } from '@prisma/client/runtime/library';
 
 const prisma = new PrismaClient();
 
@@ -34,9 +35,9 @@ async function main() {
 
   // Seed Plans (Subscription Tiers)
   const plans = [
-    { slug: 'basic', nameZhTw: '基礎版', nameZhCn: '基础版', priceMonthly: 4.99, priceAnnual: 39.99, currency: 'USD', features: ['5 detailed readings/month', 'Full 八字終身運', 'Basic 流年運勢'], readingsPerMonth: 5, sortOrder: 1 },
-    { slug: 'pro', nameZhTw: '專業版', nameZhCn: '专业版', priceMonthly: 9.99, priceAnnual: 79.99, currency: 'USD', features: ['15 readings/month', 'All reading types', 'PDF export', 'Priority AI'], readingsPerMonth: 15, sortOrder: 2 },
-    { slug: 'master', nameZhTw: '大師版', nameZhCn: '大师版', priceMonthly: 19.99, priceAnnual: 159.99, currency: 'USD', features: ['Unlimited readings', 'Partner compatibility', 'Advanced analysis', 'Early access features'], readingsPerMonth: -1, sortOrder: 3 },
+    { slug: 'basic', nameZhTw: '基礎版', nameZhCn: '基础版', priceMonthly: 4.99, priceAnnual: 39.99, currency: 'USD', features: ['5 detailed readings/month', 'Full 八字終身運', 'Basic 流年運勢'], readingsPerMonth: 5, monthlyCredits: 5, sortOrder: 1 },
+    { slug: 'pro', nameZhTw: '專業版', nameZhCn: '专业版', priceMonthly: 9.99, priceAnnual: 79.99, currency: 'USD', features: ['15 readings/month', 'All reading types', 'PDF export', 'Priority AI'], readingsPerMonth: 15, monthlyCredits: 15, sortOrder: 2 },
+    { slug: 'master', nameZhTw: '大師版', nameZhCn: '大师版', priceMonthly: 19.99, priceAnnual: 159.99, currency: 'USD', features: ['Unlimited readings', 'Partner compatibility', 'Advanced analysis', 'Early access features'], readingsPerMonth: -1, monthlyCredits: -1, sortOrder: 3 },
   ];
 
   for (const plan of plans) {
@@ -211,6 +212,23 @@ async function main() {
     },
   });
   console.log('  ✅ 1 promo code seeded (LAUNCH2026)');
+
+  // Seed Credit Packages (bulk purchase — Stream 5)
+  const creditPackages = [
+    { slug: 'starter-5', nameZhTw: '入門包 5 點', nameZhCn: '入门包 5 点', creditAmount: 5, priceUsd: 4.99, sortOrder: 1 },
+    { slug: 'value-12', nameZhTw: '超值包 12 點', nameZhCn: '超值包 12 点', creditAmount: 12, priceUsd: 9.99, sortOrder: 2 },
+    { slug: 'popular-30', nameZhTw: '暢銷包 30 點', nameZhCn: '畅销包 30 点', creditAmount: 30, priceUsd: 19.99, sortOrder: 3 },
+    { slug: 'mega-60', nameZhTw: '豪華包 60 點', nameZhCn: '豪华包 60 点', creditAmount: 60, priceUsd: 34.99, sortOrder: 4 },
+  ];
+
+  for (const pkg of creditPackages) {
+    await prisma.creditPackage.upsert({
+      where: { slug: pkg.slug },
+      update: pkg,
+      create: pkg,
+    });
+  }
+  console.log(`  ✅ ${creditPackages.length} credit packages seeded`);
 
   console.log('\n🎉 Database seeding complete!');
 }

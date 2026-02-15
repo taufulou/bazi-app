@@ -15,9 +15,12 @@
     "docker:down": "docker compose -f docker/docker-compose.yml down",
     "db:migrate": "cd apps/api && npx prisma migrate dev",
     "db:seed": "cd apps/api && npx prisma db seed",
-    "db:studio": "cd apps/api && npx prisma studio"
+    "db:studio": "cd apps/api && npx prisma studio",
+    "test:e2e": "npx playwright test",
+    "test:e2e:ui": "npx playwright test --ui"
   },
   "devDependencies": {
+    "@playwright/test": "1.58.2",
     "prettier": "^3.7.4",
     "turbo": "^2.8.3",
     "typescript": "5.9.2"

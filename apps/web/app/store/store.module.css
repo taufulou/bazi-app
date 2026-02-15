@@ -1,0 +1,453 @@
+/* ============================================================
+   Credit Store — Dark Theme with Gold Accents
+   ============================================================ */
+
+.pageContainer {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  color: #e0e0e0;
+  padding: 3rem 1.5rem 5rem;
+}
+
+/* ==== Header ==== */
+.header {
+  text-align: center;
+  max-width: 700px;
+  margin: 0 auto 1rem;
+}
+
+.backLink {
+  display: inline-block;
+  color: #a0a0a0;
+  text-decoration: none;
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+  transition: color 0.2s;
+}
+
+.backLink:hover {
+  color: #e8d5b7;
+}
+
+.pageTitle {
+  font-size: 2.2rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  margin: 0 0 0.75rem;
+  background: linear-gradient(135deg, #e8d5b7 0%, #c4a882 50%, #d4af37 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.pageSubtitle {
+  font-size: 1.05rem;
+  color: #a0a0a0;
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* ==== Credit Balance ==== */
+.balanceCard {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  max-width: 500px;
+  margin: 0 auto 3rem;
+  padding: 1.25rem 2rem;
+  background: rgba(232, 213, 183, 0.06);
+  border: 1px solid rgba(232, 213, 183, 0.15);
+  border-radius: 14px;
+}
+
+.balanceLabel {
+  font-size: 0.95rem;
+  color: #a0a0a0;
+}
+
+.balanceValue {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #e8d5b7;
+}
+
+.balanceUnit {
+  font-size: 0.9rem;
+  color: #c4a882;
+  margin-left: 0.25rem;
+}
+
+/* ==== Packages Grid ==== */
+.packagesGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1.5rem;
+  max-width: 1100px;
+  margin: 0 auto 4rem;
+  align-items: stretch;
+}
+
+/* ==== Package Card ==== */
+.packageCard {
+  position: relative;
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 16px;
+  padding: 2rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: all 0.3s ease;
+}
+
+.packageCard:hover {
+  transform: translateY(-4px);
+  border-color: rgba(232, 213, 183, 0.2);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+}
+
+.packageCardBestValue {
+  border-color: rgba(212, 175, 55, 0.45);
+  box-shadow:
+    0 0 20px rgba(212, 175, 55, 0.08),
+    0 0 60px rgba(212, 175, 55, 0.04);
+}
+
+.packageCardBestValue:hover {
+  border-color: rgba(212, 175, 55, 0.6);
+  box-shadow:
+    0 0 30px rgba(212, 175, 55, 0.12),
+    0 0 80px rgba(212, 175, 55, 0.06),
+    0 12px 40px rgba(0, 0, 0, 0.3);
+}
+
+.bestValueBadge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: linear-gradient(135deg, #d4af37, #b8962e);
+  color: #1a1a2e;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.25rem 1rem;
+  border-radius: 20px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+}
+
+/* Credit Amount */
+.creditAmount {
+  font-size: 3rem;
+  font-weight: 800;
+  color: #e8d5b7;
+  line-height: 1;
+  margin-bottom: 0.25rem;
+}
+
+.creditLabel {
+  font-size: 0.9rem;
+  color: #c4a882;
+  margin-bottom: 1rem;
+}
+
+/* Package Name */
+.packageName {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin: 0 0 0.5rem;
+  text-align: center;
+}
+
+/* Price */
+.priceTag {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #e8d5b7;
+  margin-bottom: 0.25rem;
+}
+
+.perCreditPrice {
+  font-size: 0.8rem;
+  color: #a0a0a0;
+  margin-bottom: 1.5rem;
+}
+
+.perCreditHighlight {
+  color: #4CAF50;
+  font-weight: 600;
+}
+
+/* Buy Button */
+.buyButton {
+  display: block;
+  width: 100%;
+  padding: 0.85rem 1.5rem;
+  border: none;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.3s ease;
+  letter-spacing: 0.02em;
+  background: rgba(232, 213, 183, 0.1);
+  color: #e8d5b7;
+  border: 1px solid rgba(232, 213, 183, 0.25);
+  margin-top: auto;
+}
+
+.buyButton:hover {
+  background: rgba(232, 213, 183, 0.15);
+  border-color: rgba(232, 213, 183, 0.4);
+  transform: translateY(-2px);
+}
+
+.buyButtonPrimary {
+  background: linear-gradient(135deg, #d4af37, #b8962e);
+  color: #1a1a2e;
+  border: none;
+  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.25);
+}
+
+.buyButtonPrimary:hover {
+  box-shadow: 0 6px 25px rgba(212, 175, 55, 0.35);
+  transform: translateY(-2px);
+}
+
+.buyButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+/* ==== Loading & Error ==== */
+.loadingWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 4rem 0;
+}
+
+.loadingText {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+}
+
+.spinner {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 2px solid rgba(232, 213, 183, 0.2);
+  border-top-color: #e8d5b7;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.btnSpinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.errorBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  max-width: 600px;
+  margin: 0 auto 2rem;
+  padding: 0.85rem 1.5rem;
+  background: rgba(244, 67, 54, 0.12);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  border-radius: 10px;
+  color: #ef9a9a;
+  font-size: 0.9rem;
+}
+
+.errorClose {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.2rem;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  padding: 0;
+  line-height: 1;
+}
+
+.errorClose:hover {
+  opacity: 1;
+}
+
+/* ==== Toast ==== */
+.toast {
+  position: fixed;
+  top: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1.5rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  animation: slideDown 0.3s ease;
+  max-width: 480px;
+  width: 90%;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.toastSuccess {
+  background: rgba(76, 175, 80, 0.2);
+  border: 1px solid rgba(76, 175, 80, 0.4);
+  color: #81c784;
+}
+
+.toastClose {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.3rem;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  padding: 0;
+  line-height: 1;
+}
+
+.toastClose:hover {
+  opacity: 1;
+}
+
+/* ==== Sign-in CTA ==== */
+.signInSection {
+  text-align: center;
+  max-width: 500px;
+  margin: 2rem auto;
+  padding: 2rem;
+  background: rgba(232, 213, 183, 0.04);
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 14px;
+}
+
+.signInText {
+  color: #a0a0a0;
+  font-size: 0.95rem;
+  margin: 0 0 1rem;
+}
+
+.signInLink {
+  display: inline-block;
+  padding: 0.75rem 2rem;
+  background: linear-gradient(135deg, #d4af37, #b8962e);
+  color: #1a1a2e;
+  border-radius: 10px;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 0.95rem;
+  transition: all 0.3s ease;
+}
+
+.signInLink:hover {
+  box-shadow: 0 6px 25px rgba(212, 175, 55, 0.35);
+  transform: translateY(-2px);
+}
+
+/* ==== Bottom Links ==== */
+.bottomLinks {
+  text-align: center;
+  margin-top: 2rem;
+}
+
+.subscriptionLink {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.subscriptionLink:hover {
+  color: #e8d5b7;
+  text-decoration: underline;
+}
+
+.bottomNote {
+  max-width: 700px;
+  margin: 2rem auto 0;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #666;
+  line-height: 1.7;
+}
+
+.bottomNoteLink {
+  color: #e8d5b7;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.bottomNoteLink:hover {
+  color: #d4af37;
+  text-decoration: underline;
+}
+
+/* ==== Responsive ==== */
+@media (max-width: 1024px) {
+  .packagesGrid {
+    grid-template-columns: repeat(2, 1fr);
+    max-width: 600px;
+    gap: 1.5rem;
+  }
+}
+
+@media (max-width: 600px) {
+  .pageContainer {
+    padding: 2rem 1rem 3rem;
+  }
+
+  .pageTitle {
+    font-size: 1.75rem;
+  }
+
+  .packagesGrid {
+    grid-template-columns: 1fr;
+    max-width: 380px;
+    gap: 1.5rem;
+  }
+
+  .creditAmount {
+    font-size: 2.5rem;
+  }
+
+  .priceTag {
+    font-size: 1.5rem;
+  }
+
+  .balanceCard {
+    padding: 1rem 1.25rem;
+  }
+
+  .balanceValue {
+    font-size: 1.5rem;
+  }
+}

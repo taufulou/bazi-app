@@ -10,6 +10,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/bazi-calculate(.*)',
   '/reading(.*)',
   '/pricing(.*)',
+  '/store(.*)',
 ]);
 
 export default clerkMiddleware(async (auth, request) => {

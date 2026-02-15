@@ -1,0 +1,245 @@
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.daySelector {
+  background: #16213e;
+  color: #e0e0e0;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.daySelector:focus {
+  outline: none;
+  border-color: #e8d5b7;
+}
+
+.sectionTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin-bottom: 16px;
+}
+
+/* Revenue Cards */
+.revenueGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+
+.revenueCard {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-left: 4px solid #666;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.revenueLabel {
+  font-size: 13px;
+  color: #a0a0a0;
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.revenueValue {
+  font-size: 24px;
+  font-weight: 700;
+  color: #e0e0e0;
+  margin-bottom: 4px;
+}
+
+.revenueMeta {
+  font-size: 12px;
+  color: #888;
+}
+
+/* Funnel */
+.funnelContainer {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.funnelStep {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.funnelBar {
+  height: 32px;
+  background: linear-gradient(90deg, #e8d5b7, #d4c4a8);
+  border-radius: 4px;
+  min-width: 4px;
+  transition: width 0.5s ease;
+  position: relative;
+}
+
+.funnelLabel {
+  font-size: 13px;
+  color: #a0a0a0;
+  min-width: 140px;
+  text-align: right;
+}
+
+.funnelCount {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e0e0e0;
+  min-width: 60px;
+}
+
+.funnelRate {
+  font-size: 12px;
+  color: #888;
+  min-width: 50px;
+}
+
+/* Tier Donut Chart (simplified CSS) */
+.donutContainer {
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.donutLegend {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legendDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.legendLabel {
+  font-size: 14px;
+  color: #e0e0e0;
+}
+
+.legendCount {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e8d5b7;
+  margin-left: auto;
+}
+
+/* Section Unlock Bars */
+.sectionBars {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 8px;
+  padding: 24px;
+}
+
+.sectionBar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.sectionBarLabel {
+  font-size: 13px;
+  color: #a0a0a0;
+  min-width: 100px;
+  text-align: right;
+}
+
+.sectionBarFill {
+  height: 24px;
+  background: linear-gradient(90deg, #e8d5b7, #d4c4a8);
+  border-radius: 4px;
+  min-width: 4px;
+  transition: width 0.5s ease;
+}
+
+.sectionBarCount {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e0e0e0;
+  min-width: 40px;
+}
+
+/* Daily Trend Chart */
+.dailyChart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 180px;
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 8px;
+  padding: 20px 16px 40px;
+  overflow-x: auto;
+}
+
+.dailyBar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  min-width: 20px;
+  height: 100%;
+  justify-content: flex-end;
+  position: relative;
+}
+
+.dailyBarFill {
+  width: 100%;
+  max-width: 24px;
+  background: linear-gradient(180deg, #9C27B0, #7B1FA2);
+  border-radius: 3px 3px 0 0;
+  min-height: 2px;
+  transition: height 0.3s ease;
+}
+
+.dailyBarLabel {
+  position: absolute;
+  bottom: -28px;
+  font-size: 9px;
+  color: #a0a0a0;
+  white-space: nowrap;
+  transform: rotate(-45deg);
+  transform-origin: top center;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .pageHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .revenueGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .donutContainer {
+    flex-direction: column;
+  }
+}

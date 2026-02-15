@@ -12,8 +12,10 @@ const NAV_ITEMS = [
   { href: '/admin/promos', label: 'Promo Codes', icon: '🎟️' },
   { href: '/admin/prompts', label: 'Prompts', icon: '📝' },
   { href: '/admin/users', label: 'Users', icon: '👥' },
+  { href: '/admin/credit-packages', label: 'Credit Packages', icon: '🎁' },
   { href: '/admin/gateways', label: 'Gateways', icon: '💳' },
   { href: '/admin/ai-costs', label: 'AI Costs', icon: '🤖' },
+  { href: '/admin/monetization', label: 'Monetization', icon: '💰' },
   { href: '/admin/audit-log', label: 'Audit Log', icon: '📋' },
 ];
 

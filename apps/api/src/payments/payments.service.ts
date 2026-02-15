@@ -42,6 +42,25 @@ export class PaymentsService {
         currency: true,
         features: true,
         readingsPerMonth: true,
+        monthlyCredits: true,
+      },
+    });
+  }
+
+  // ============ Credit Packages ============
+
+  async getActiveCreditPackages() {
+    return this.prisma.creditPackage.findMany({
+      where: { isActive: true },
+      orderBy: { sortOrder: 'asc' },
+      select: {
+        id: true,
+        slug: true,
+        nameZhTw: true,
+        nameZhCn: true,
+        creditAmount: true,
+        priceUsd: true,
+        sortOrder: true,
       },
     });
   }
@@ -57,10 +76,12 @@ export class PaymentsService {
       throw new NotFoundException('User not found');
     }
 
+    // Find the most recent subscription that is still relevant
+    // (ACTIVE or CANCELLED-but-not-yet-expired — user may want to reactivate)
     const activeSubscription = await this.prisma.subscription.findFirst({
       where: {
         userId: user.id,
-        status: 'ACTIVE',
+        status: { in: ['ACTIVE', 'CANCELLED'] },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -73,10 +94,48 @@ export class PaymentsService {
         ? {
             planTier: activeSubscription.planTier,
             platform: activeSubscription.platform,
+            currentPeriodStart: activeSubscription.currentPeriodStart,
             currentPeriodEnd: activeSubscription.currentPeriodEnd,
             status: activeSubscription.status,
+            cancelledAt: activeSubscription.cancelledAt,
           }
         : null,
+    };
+  }
+
+  // ============ Monthly Credits Status ============
+
+  async getMonthlyCreditsStatus(clerkUserId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Get active subscription for next reset date
+    const activeSubscription = await this.prisma.subscription.findFirst({
+      where: {
+        userId: user.id,
+        status: 'ACTIVE',
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    // Get the most recent monthly credit grant
+    const latestGrant = await this.prisma.monthlyCreditsLog.findFirst({
+      where: { userId: user.id },
+      orderBy: { grantedAt: 'desc' },
+    });
+
+    return {
+      currentPeriodCreditsGranted: latestGrant?.creditAmount ?? 0,
+      creditsRemaining: user.credits,
+      nextResetDate: activeSubscription?.currentPeriodEnd ?? null,
+      lastGrantDate: latestGrant?.grantedAt ?? null,
+      periodStart: latestGrant?.periodStart ?? null,
+      periodEnd: latestGrant?.periodEnd ?? null,
     };
   }
 
