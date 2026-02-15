@@ -111,6 +111,48 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return value;
   }
 
+  // ============ Distributed Lock Operations ============
+
+  /**
+   * Acquire a distributed lock using Redis SET NX EX.
+   * Returns true if lock was acquired, false if already held.
+   * @param key - Lock key (e.g., 'reading:create:{userId}')
+   * @param ttlSeconds - Lock expiry in seconds (prevents deadlock on crash)
+   */
+  async acquireLock(key: string, ttlSeconds: number = 30): Promise<boolean> {
+    const result = await this.client.set(key, '1', 'EX', ttlSeconds, 'NX');
+    return result === 'OK';
+  }
+
+  /**
+   * Release a distributed lock.
+   * @param key - Lock key to release
+   */
+  async releaseLock(key: string): Promise<void> {
+    await this.client.del(key);
+  }
+
+  /**
+   * Execute a function while holding a distributed lock.
+   * Automatically acquires and releases the lock.
+   * @throws ConflictException if lock cannot be acquired
+   */
+  async withLock<T>(
+    key: string,
+    fn: () => Promise<T>,
+    ttlSeconds: number = 30,
+  ): Promise<T> {
+    const acquired = await this.acquireLock(key, ttlSeconds);
+    if (!acquired) {
+      throw new Error(`Failed to acquire lock: ${key}`);
+    }
+    try {
+      return await fn();
+    } finally {
+      await this.releaseLock(key);
+    }
+  }
+
   async exists(key: string): Promise<boolean> {
     const result = await this.client.exists(key);
     return result === 1;

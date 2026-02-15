@@ -13,6 +13,7 @@ import { BaziModule } from './bazi/bazi.module';
 import { ZwdsModule } from './zwds/zwds.module';
 import { PaymentsModule } from './payments/payments.module';
 import { AdminModule } from './admin/admin.module';
+import { AdsModule } from './ads/ads.module';
 import { AIModule } from './ai/ai.module';
 
 @Module({
@@ -68,6 +69,7 @@ import { AIModule } from './ai/ai.module';
     ZwdsModule,
     PaymentsModule,
     AdminModule,
+    AdsModule,
 
     // Webhooks
     WebhooksModule,

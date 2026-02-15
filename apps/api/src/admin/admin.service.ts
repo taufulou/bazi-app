@@ -532,6 +532,246 @@ export class AdminService {
     }
   }
 
+  // ============ Credit Packages Management ============
+
+  async listCreditPackages() {
+    return this.prisma.creditPackage.findMany({ orderBy: { sortOrder: 'asc' } });
+  }
+
+  async createCreditPackage(
+    data: { slug: string; nameZhTw: string; nameZhCn: string; creditAmount: number; priceUsd: number; isActive?: boolean; sortOrder?: number },
+    adminUserId: string,
+  ) {
+    const existing = await this.prisma.creditPackage.findUnique({ where: { slug: data.slug } });
+    if (existing) throw new BadRequestException(`Credit package with slug "${data.slug}" already exists`);
+
+    const pkg = await this.prisma.creditPackage.create({
+      data: {
+        slug: data.slug,
+        nameZhTw: data.nameZhTw,
+        nameZhCn: data.nameZhCn,
+        creditAmount: data.creditAmount,
+        priceUsd: data.priceUsd,
+        isActive: data.isActive ?? true,
+        sortOrder: data.sortOrder ?? 0,
+      },
+    });
+
+    await this.logAudit(adminUserId, 'create_credit_package', 'credit_package', pkg.id, null, pkg);
+    await this.redis.del('credit_packages:active');
+
+    return pkg;
+  }
+
+  async updateCreditPackage(
+    id: string,
+    data: { nameZhTw?: string; nameZhCn?: string; creditAmount?: number; priceUsd?: number; isActive?: boolean; sortOrder?: number },
+    adminUserId: string,
+  ) {
+    const pkg = await this.prisma.creditPackage.findUnique({ where: { id } });
+    if (!pkg) throw new NotFoundException('Credit package not found');
+
+    const updated = await this.prisma.creditPackage.update({ where: { id }, data });
+
+    await this.logAudit(adminUserId, 'update_credit_package', 'credit_package', id, pkg, updated);
+    await this.redis.del('credit_packages:active');
+
+    return updated;
+  }
+
+  // ============ Monetization Analytics ============
+
+  async getMonetizationAnalytics(days = 30) {
+    days = Math.max(1, Math.min(365, days));
+    const sinceDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    try {
+      const [
+        // Credit package purchases
+        creditPackagePurchases,
+        // Ad reward claims
+        adRewardClaims,
+        adRewardDaily,
+        // Section unlock stats
+        sectionUnlockStats,
+        // Subscription metrics
+        activeSubscriptions,
+        newSubscriptions,
+        cancelledSubscriptions,
+        // Conversion funnel
+        totalUsers,
+        usersWithReadings,
+        // Revenue breakdown
+        revenueByType,
+      ] = await Promise.all([
+        // Credit package purchases (from transactions with type=CREDIT_PURCHASE)
+        this.prisma.$queryRaw<Array<{
+          description: string | null;
+          total_revenue: number;
+          count: bigint;
+          avg_amount: number;
+        }>>`
+          SELECT
+            description,
+            SUM(amount)::float as total_revenue,
+            COUNT(*) as count,
+            AVG(amount)::float as avg_amount
+          FROM transactions
+          WHERE type = 'CREDIT_PURCHASE' AND created_at >= ${sinceDate}
+          GROUP BY description
+          ORDER BY total_revenue DESC
+        `,
+
+        // Ad reward claims by type
+        this.prisma.adRewardLog.groupBy({
+          by: ['rewardType'],
+          where: { createdAt: { gte: sinceDate } },
+          _count: { id: true },
+          _sum: { creditsGranted: true },
+        }),
+
+        // Ad reward daily trend
+        this.prisma.$queryRaw<Array<{ day: Date; count: bigint }>>`
+          SELECT DATE_TRUNC('day', created_at) as day, COUNT(*) as count
+          FROM ad_reward_logs
+          WHERE created_at >= ${sinceDate}
+          GROUP BY DATE_TRUNC('day', created_at)
+          ORDER BY day ASC
+        `,
+
+        // Section unlock stats by sectionKey
+        this.prisma.sectionUnlock.groupBy({
+          by: ['sectionKey'],
+          where: { createdAt: { gte: sinceDate } },
+          _count: { id: true },
+        }),
+
+        // Active subscriptions by tier
+        this.prisma.subscription.groupBy({
+          by: ['planTier'],
+          where: { status: 'ACTIVE' },
+          _count: { id: true },
+        }),
+
+        // New subscriptions in period
+        this.prisma.subscription.count({
+          where: { createdAt: { gte: sinceDate } },
+        }),
+
+        // Cancelled subscriptions in period
+        this.prisma.subscription.count({
+          where: { cancelledAt: { gte: sinceDate } },
+        }),
+
+        // Total users (funnel)
+        this.prisma.user.count(),
+
+        // Users with at least 1 reading (funnel)
+        this.prisma.$queryRaw<Array<{ count: bigint }>>`
+          SELECT COUNT(DISTINCT user_id) as count FROM bazi_readings
+        `,
+
+        // Revenue breakdown by transaction type
+        this.prisma.$queryRaw<Array<{
+          type: string;
+          total: number;
+          count: bigint;
+        }>>`
+          SELECT type, SUM(amount)::float as total, COUNT(*) as count
+          FROM transactions
+          WHERE created_at >= ${sinceDate} AND type != 'REFUND'
+          GROUP BY type
+          ORDER BY total DESC
+        `,
+      ]);
+
+      // Count users who purchased credits (funnel)
+      const creditPurchasers = await this.prisma.$queryRaw<Array<{ count: bigint }>>`
+        SELECT COUNT(DISTINCT user_id) as count
+        FROM transactions
+        WHERE type = 'CREDIT_PURCHASE'
+      `;
+
+      // Count subscribers (funnel)
+      const subscriberCount = await this.prisma.subscription.count({
+        where: { status: 'ACTIVE' },
+      });
+
+      return {
+        days,
+
+        // Credit package purchases
+        creditPackagePurchases: creditPackagePurchases.map((p) => ({
+          description: p.description || 'Unknown',
+          totalRevenue: p.total_revenue || 0,
+          count: Number(p.count),
+          avgAmount: p.avg_amount || 0,
+        })),
+
+        // Ad reward claims
+        adRewardClaims: adRewardClaims.map((a) => ({
+          rewardType: a.rewardType,
+          count: a._count.id,
+          creditsGranted: a._sum.creditsGranted || 0,
+        })),
+        adRewardDailyTrend: adRewardDaily.map((d) => ({
+          date: d.day,
+          count: Number(d.count),
+        })),
+
+        // Section unlock popularity
+        sectionUnlockStats: sectionUnlockStats
+          .map((s) => ({
+            sectionKey: s.sectionKey,
+            count: s._count.id,
+          }))
+          .sort((a, b) => b.count - a.count),
+
+        // Subscription metrics
+        activeSubscriptionsByTier: activeSubscriptions.map((s) => ({
+          tier: s.planTier,
+          count: s._count.id,
+        })),
+        newSubscriptions,
+        cancelledSubscriptions,
+
+        // Conversion funnel
+        conversionFunnel: {
+          totalUsers,
+          usersWithReadings: Number(usersWithReadings[0]?.count || 0),
+          creditPurchasers: Number(creditPurchasers[0]?.count || 0),
+          subscribers: subscriberCount,
+        },
+
+        // Revenue breakdown
+        revenueByType: revenueByType.map((r) => ({
+          type: r.type,
+          total: r.total || 0,
+          count: Number(r.count),
+        })),
+      };
+    } catch (err) {
+      this.logger.error(`Failed to fetch monetization analytics: ${err instanceof Error ? err.message : err}`);
+      return {
+        days,
+        creditPackagePurchases: [],
+        adRewardClaims: [],
+        adRewardDailyTrend: [],
+        sectionUnlockStats: [],
+        activeSubscriptionsByTier: [],
+        newSubscriptions: 0,
+        cancelledSubscriptions: 0,
+        conversionFunnel: {
+          totalUsers: 0,
+          usersWithReadings: 0,
+          creditPurchasers: 0,
+          subscribers: 0,
+        },
+        revenueByType: [],
+      };
+    }
+  }
+
   // ============ Audit Log ============
 
   async getAuditLog(page = 1, limit = 50) {
