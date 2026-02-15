@@ -129,6 +129,29 @@
   transform: none;
 }
 
+.secondaryBtn {
+  display: block;
+  width: 100%;
+  padding: 0.65rem;
+  background: transparent;
+  border: none;
+  color: #a0a0a0;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: color 0.2s;
+  text-align: center;
+  margin-top: 0.25rem;
+}
+
+.secondaryBtn:hover {
+  color: #e8d5b7;
+}
+
+.secondaryBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .error {
   color: #f44336;
   font-size: 0.85rem;

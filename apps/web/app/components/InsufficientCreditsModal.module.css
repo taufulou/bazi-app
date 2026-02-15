@@ -75,6 +75,44 @@
   outline-offset: 2px;
 }
 
+.buyCreditsBtn {
+  display: block;
+  padding: 0.75rem 2rem;
+  background: rgba(100, 181, 246, 0.12);
+  border: 1px solid rgba(100, 181, 246, 0.35);
+  color: #64b5f6;
+  font-weight: 600;
+  font-size: 0.95rem;
+  border-radius: 8px;
+  text-decoration: none;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.buyCreditsBtn:hover {
+  background: rgba(100, 181, 246, 0.2);
+  border-color: rgba(100, 181, 246, 0.5);
+}
+
+.buyCreditsBtn:focus-visible {
+  outline: 2px solid #64b5f6;
+  outline-offset: 2px;
+}
+
+.adRewardBtn {
+  display: block;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #666;
+  font-size: 0.8rem;
+  border-radius: 8px;
+  cursor: not-allowed;
+  opacity: 0.5;
+  text-align: center;
+}
+
 .secondaryBtn {
   display: block;
   padding: 0.75rem 2rem;

@@ -10,18 +10,27 @@ import { PaymentsController } from '../src/payments/payments.controller';
 const mockPaymentsService = {
   getAvailableGateways: jest.fn(),
   getActivePlans: jest.fn(),
+  getActiveCreditPackages: jest.fn(),
   getSubscriptionStatus: jest.fn(),
+  getMonthlyCreditsStatus: jest.fn(),
   getTransactionHistory: jest.fn(),
 };
 
 const mockStripeService = {
   createSubscriptionCheckout: jest.fn(),
   createOneTimeCheckout: jest.fn(),
+  createCreditPackageCheckout: jest.fn(),
   createPortalSession: jest.fn(),
   cancelSubscription: jest.fn(),
   reactivateSubscription: jest.fn(),
   canUseFreeReading: jest.fn(),
   markFreeReadingUsed: jest.fn(),
+};
+
+const mockSectionUnlockService = {
+  unlockSection: jest.fn(),
+  getUnlockedSections: jest.fn(),
+  getReadingWithSectionAccess: jest.fn(),
 };
 
 // ============================================================
@@ -65,6 +74,7 @@ describe('PaymentsController', () => {
     controller = new PaymentsController(
       mockPaymentsService as any,
       mockStripeService as any,
+      mockSectionUnlockService as any,
     );
   });
 
@@ -304,6 +314,155 @@ describe('PaymentsController', () => {
 
       expect(result).toEqual({ success: true });
       expect(mockStripeService.markFreeReadingUsed).toHaveBeenCalledWith('clerk_user_abc');
+    });
+  });
+
+  // ============================================================
+  // Credit Packages
+  // ============================================================
+
+  describe('GET /api/payments/credit-packages', () => {
+    it('should return active credit packages', async () => {
+      const packages = [
+        { id: 'pkg-1', slug: 'starter-5', creditAmount: 5, priceUsd: 4.99 },
+        { id: 'pkg-2', slug: 'value-12', creditAmount: 12, priceUsd: 9.99 },
+      ];
+      mockPaymentsService.getActiveCreditPackages.mockResolvedValue(packages);
+
+      const result = await controller.getCreditPackages();
+      expect(result).toEqual(packages);
+      expect(result).toHaveLength(2);
+    });
+  });
+
+  // ============================================================
+  // Monthly Credits Status
+  // ============================================================
+
+  describe('GET /api/payments/monthly-credits', () => {
+    it('should return monthly credits status', async () => {
+      const status = {
+        currentPeriodCreditsGranted: 15,
+        creditsRemaining: 10,
+        nextResetDate: '2026-03-01T00:00:00.000Z',
+      };
+      mockPaymentsService.getMonthlyCreditsStatus.mockResolvedValue(status);
+
+      const result = await controller.getMonthlyCreditsStatus(AUTH_PAYLOAD as any);
+      expect(result).toEqual(status);
+      expect(mockPaymentsService.getMonthlyCreditsStatus).toHaveBeenCalledWith('clerk_user_abc');
+    });
+  });
+
+  // ============================================================
+  // Credit Package Checkout
+  // ============================================================
+
+  describe('POST /api/payments/checkout/credits', () => {
+    it('should create a credit package checkout session', async () => {
+      const checkoutResult = {
+        sessionId: 'cs_credit_123',
+        url: 'https://checkout.stripe.com/credits',
+      };
+      mockStripeService.createCreditPackageCheckout.mockResolvedValue(checkoutResult);
+
+      const dto = {
+        packageSlug: 'starter-5',
+        successUrl: '/dashboard?credits=success',
+        cancelUrl: '/store?cancelled=true',
+      };
+
+      const result = await controller.createCreditCheckout(AUTH_PAYLOAD as any, dto as any);
+      expect(result).toEqual(checkoutResult);
+      expect(mockStripeService.createCreditPackageCheckout).toHaveBeenCalledWith({
+        clerkUserId: 'clerk_user_abc',
+        packageSlug: 'starter-5',
+        successUrl: '/dashboard?credits=success',
+        cancelUrl: '/store?cancelled=true',
+      });
+    });
+  });
+
+  // ============================================================
+  // Section Unlock
+  // ============================================================
+
+  describe('POST /api/readings/:id/unlock-section', () => {
+    it('should unlock a section via credit method', async () => {
+      const unlockResult = { success: true, sectionKey: 'career', creditsUsed: 1 };
+      mockSectionUnlockService.unlockSection.mockResolvedValue(unlockResult);
+
+      const dto = { sectionKey: 'career', method: 'credit' as const, readingType: 'bazi' as const };
+      const result = await controller.unlockSection(AUTH_PAYLOAD as any, 'reading-123', dto as any);
+
+      expect(result).toEqual(unlockResult);
+      expect(mockSectionUnlockService.unlockSection).toHaveBeenCalledWith(
+        'clerk_user_abc',
+        'reading-123',
+        'bazi',
+        'career',
+        'credit',
+      );
+    });
+
+    it('should unlock a section via ad_reward method', async () => {
+      const unlockResult = { success: true, sectionKey: 'love', creditsUsed: 0 };
+      mockSectionUnlockService.unlockSection.mockResolvedValue(unlockResult);
+
+      const dto = { sectionKey: 'love', method: 'ad_reward' as const, readingType: 'zwds' as const };
+      const result = await controller.unlockSection(AUTH_PAYLOAD as any, 'reading-456', dto as any);
+
+      expect(result).toEqual(unlockResult);
+      expect(mockSectionUnlockService.unlockSection).toHaveBeenCalledWith(
+        'clerk_user_abc',
+        'reading-456',
+        'zwds',
+        'love',
+        'ad_reward',
+      );
+    });
+
+    it('should propagate errors from service', async () => {
+      mockSectionUnlockService.unlockSection.mockRejectedValue(
+        new Error('Insufficient credits'),
+      );
+
+      const dto = { sectionKey: 'finance', method: 'credit' as const, readingType: 'bazi' as const };
+      await expect(
+        controller.unlockSection(AUTH_PAYLOAD as any, 'reading-789', dto as any),
+      ).rejects.toThrow('Insufficient credits');
+    });
+  });
+
+  describe('GET /api/readings/:id/unlocked-sections', () => {
+    it('should return unlocked sections for a reading', async () => {
+      const sectionsResult = { sections: ['career', 'love'], isSubscriber: false };
+      mockSectionUnlockService.getUnlockedSections.mockResolvedValue(sectionsResult);
+
+      const result = await controller.getUnlockedSections(AUTH_PAYLOAD as any, 'reading-123');
+
+      expect(result).toEqual(sectionsResult);
+      expect(mockSectionUnlockService.getUnlockedSections).toHaveBeenCalledWith(
+        'clerk_user_abc',
+        'reading-123',
+      );
+    });
+
+    it('should return empty sections for new reading', async () => {
+      const sectionsResult = { sections: [], isSubscriber: false };
+      mockSectionUnlockService.getUnlockedSections.mockResolvedValue(sectionsResult);
+
+      const result = await controller.getUnlockedSections(AUTH_PAYLOAD as any, 'reading-new');
+      expect(result.sections).toHaveLength(0);
+    });
+
+    it('should show subscriber status', async () => {
+      const sectionsResult = { sections: ['personality', 'career', 'love', 'finance', 'health'], isSubscriber: true };
+      mockSectionUnlockService.getUnlockedSections.mockResolvedValue(sectionsResult);
+
+      const result = await controller.getUnlockedSections(AUTH_PAYLOAD as any, 'reading-sub');
+      expect(result.isSubscriber).toBe(true);
+      expect(result.sections).toHaveLength(5);
     });
   });
 });

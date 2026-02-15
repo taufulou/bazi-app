@@ -48,12 +48,15 @@ function groupByRegion<T extends { region: CityRegion }>(items: T[]) {
 
 interface BirthDataFormProps {
   onSubmit: (data: BirthDataFormValues, profileId: string | null, saveIntent?: SaveProfileIntent) => void;
+  onSecondarySubmit?: (data: BirthDataFormValues, profileId: string | null) => void;
+  secondaryLabel?: React.ReactNode;
   isLoading?: boolean;
   error?: string;
   title?: string;
   subtitle?: string;
   submitLabel?: React.ReactNode;
   children?: React.ReactNode;
+  afterSubmit?: React.ReactNode;
   initialValues?: Partial<BirthDataFormValues>;
   showSaveOption?: boolean;
   onSaveProfile?: (data: BirthDataFormValues, relationshipTag: string, existingProfileId?: string) => void;
@@ -94,12 +97,15 @@ function to24Hour(hour12: string, period: "AM" | "PM"): string {
 
 export default function BirthDataForm({
   onSubmit,
+  onSecondarySubmit,
+  secondaryLabel,
   isLoading = false,
   error,
   title = "輸入出生資料",
   subtitle = "請填寫準確的出生時間以獲得最精確的分析",
   submitLabel = "開始排盤",
   children,
+  afterSubmit,
   initialValues,
   showSaveOption = false,
   onSaveProfile,
@@ -200,6 +206,12 @@ export default function BirthDataForm({
     onSubmit(form, selectedProfileId, saveIntent);
   };
 
+  const handleSecondaryClick = () => {
+    if (onSecondarySubmit && isValid) {
+      onSecondarySubmit(form, selectedProfileId);
+    }
+  };
+
   const updateField = <K extends keyof BirthDataFormValues>(
     key: K,
     value: BirthDataFormValues[K],
@@ -213,8 +225,9 @@ export default function BirthDataForm({
     if (region === selectedRegion) return;
     setSelectedRegion(region);
     const citiesInRegion = CITIES.filter((c) => c.region === region);
-    if (citiesInRegion.length > 0) {
-      handleCityChange(citiesInRegion[0].name);
+    const firstCity = citiesInRegion[0];
+    if (firstCity) {
+      handleCityChange(firstCity.name);
     }
   };
 
@@ -546,6 +559,17 @@ export default function BirthDataForm({
       >
         {isLoading ? "排盤中..." : submitLabel}
       </button>
+      {onSecondarySubmit && secondaryLabel && (
+        <button
+          type="button"
+          className={styles.secondaryBtn}
+          onClick={handleSecondaryClick}
+          disabled={!isValid || isLoading}
+        >
+          {secondaryLabel}
+        </button>
+      )}
+      {afterSubmit}
     </form>
   );
 }
