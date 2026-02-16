@@ -258,6 +258,32 @@ export async function reactivateSubscription(token: string): Promise<{ success: 
   });
 }
 
+// ---------------------------------------------------------------------------
+// Invoice API
+// ---------------------------------------------------------------------------
+
+/** A single invoice from Stripe returned by GET /api/payments/invoices */
+export interface Invoice {
+  id: string;
+  number: string | null;
+  date: string;
+  amountDue: number;
+  amountPaid: number;
+  currency: string;
+  status: string;
+  description: string | null;
+  hostedInvoiceUrl: string | null;
+  invoicePdf: string | null;
+}
+
+/**
+ * Get invoice history for the current user.
+ * GET /api/payments/invoices
+ */
+export async function getInvoices(token: string, limit = 10): Promise<Invoice[]> {
+  return apiFetch<Invoice[]>(`/api/payments/invoices?limit=${limit}`, { token });
+}
+
 /**
  * Check whether the current user has a free reading available.
  * GET /api/payments/free-reading

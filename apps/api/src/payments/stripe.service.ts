@@ -11,6 +11,7 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 import Stripe from 'stripe';
 
 // ============================================================
@@ -53,6 +54,7 @@ export class StripeService {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
   ) {
     const secretKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (!secretKey) {
@@ -642,7 +644,7 @@ export class StripeService {
       data: {
         userId: sub.userId,
         stripePaymentId: invoice.id,
-        amount: (invoice.amount_paid || 0) / 100,
+        amount: this.formatStripeAmount(invoice.amount_paid || 0, invoice.currency || 'usd'),
         currency: (invoice.currency || 'usd').toUpperCase(),
         type: 'SUBSCRIPTION',
         description: `Subscription payment — ${invoice.lines?.data?.[0]?.description || 'renewal'}`,
@@ -911,7 +913,7 @@ export class StripeService {
       data: {
         userId,
         stripePaymentId: session.payment_intent as string,
-        amount: (session.amount_total || 0) / 100,
+        amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
         currency: (session.currency || 'usd').toUpperCase(),
         type: 'SUBSCRIPTION',
         description: `New subscription: ${planSlug}`,
@@ -949,7 +951,7 @@ export class StripeService {
           data: {
             userId,
             stripePaymentId: session.payment_intent as string,
-            amount: (session.amount_total || 0) / 100,
+            amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
             currency: (session.currency || 'usd').toUpperCase(),
             type: 'CREDIT_PURCHASE',
             description: `Credit package: ${metadata.packageSlug || 'unknown'} (${actualAmount} credits)`,
@@ -973,7 +975,7 @@ export class StripeService {
         data: {
           userId,
           stripePaymentId: session.payment_intent as string,
-          amount: (session.amount_total || 0) / 100,
+          amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
           currency: (session.currency || 'usd').toUpperCase(),
           type: 'ONE_TIME',
           description: serviceSlug ? `One-time reading: ${serviceSlug}` : 'One-time purchase',
@@ -1082,4 +1084,88 @@ export class StripeService {
     };
     return map[status] || 'ACTIVE';
   }
+
+  // ============================================================
+  // Invoice History
+  // ============================================================
+
+  /** Stripe zero-decimal currencies — amounts are NOT in cents.
+   *  Full list from Stripe docs: https://docs.stripe.com/currencies#zero-decimal */
+  private static readonly ZERO_DECIMAL_CURRENCIES = new Set([
+    'bif','clp','djf','gnf','isk','jpy','kmf','krw','mga','pyg',
+    'rwf','twd','ugx','vnd','vuv','xaf','xof','xpf',
+  ]);
+
+  /** Convert Stripe smallest-unit amount to human-readable amount */
+  private formatStripeAmount(amount: number, currency: string): number {
+    if (StripeService.ZERO_DECIMAL_CURRENCIES.has(currency.toLowerCase())) {
+      return amount; // JPY 1000 stays 1000, TWD 999 stays 999
+    }
+    return amount / 100; // USD 999 becomes 9.99
+  }
+
+  /** Validate that a URL is a legitimate Stripe-hosted URL */
+  private validateStripeUrl(url: string | null): string | null {
+    if (!url) return null;
+    if (!/^https:\/\/[a-z-]+\.stripe\.com\//.test(url)) {
+      this.logger.warn(`Invalid Stripe URL rejected: ${url}`);
+      return null;
+    }
+    return url;
+  }
+
+  /**
+   * Get Stripe invoice history for a user.
+   * Returns empty array for free users with no Stripe customer.
+   * Results cached in Redis for 5 minutes.
+   */
+  async getInvoices(clerkUserId: string, limit = 10): Promise<InvoiceItem[]> {
+    const user = await this.findUserOrThrow(clerkUserId);
+    const customerId = await this.getStripeCustomerId(user.id);
+    if (!customerId) return []; // Free user, no Stripe customer
+
+    const cacheKey = `invoices:${clerkUserId}:${limit}`;
+    return this.redis.getOrSet<InvoiceItem[]>(cacheKey, 300, async () => {
+      try {
+        const invoices = await this.stripe.invoices.list({
+          customer: customerId,
+          limit: Math.min(limit, 24),
+        });
+
+        return invoices.data.map((inv) => ({
+          id: inv.id,
+          number: inv.number || null,
+          date: new Date((inv.created || 0) * 1000).toISOString(),
+          amountDue: this.formatStripeAmount(inv.amount_due || 0, inv.currency || 'usd'),
+          amountPaid: this.formatStripeAmount(inv.amount_paid || 0, inv.currency || 'usd'),
+          currency: (inv.currency || 'usd').toUpperCase(),
+          status: inv.status || 'unknown',
+          description: inv.lines?.data?.[0]?.description || inv.description || null,
+          hostedInvoiceUrl: this.validateStripeUrl(inv.hosted_invoice_url || null),
+          invoicePdf: this.validateStripeUrl(inv.invoice_pdf || null),
+        }));
+      } catch (error: unknown) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        this.logger.error(`[getInvoices] Stripe API error for user ${clerkUserId}: ${errMsg}`);
+        throw new BadRequestException('無法取得帳單記錄，請稍後再試');
+      }
+    });
+  }
+}
+
+// ============================================================
+// Exported Types
+// ============================================================
+
+export interface InvoiceItem {
+  id: string;
+  number: string | null;
+  date: string;
+  amountDue: number;
+  amountPaid: number;
+  currency: string;
+  status: string;
+  description: string | null;
+  hostedInvoiceUrl: string | null;
+  invoicePdf: string | null;
 }

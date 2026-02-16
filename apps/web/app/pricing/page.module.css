@@ -16,6 +16,23 @@
   margin: 0 auto 3rem;
 }
 
+.backButton {
+  background: none;
+  border: 1px solid rgba(232, 213, 183, 0.3);
+  color: #e8d5b7;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 1.5rem;
+}
+
+.backButton:hover {
+  background: rgba(232, 213, 183, 0.1);
+  border-color: rgba(232, 213, 183, 0.5);
+}
+
 .pageTitle {
   font-size: 2.5rem;
   font-weight: 800;

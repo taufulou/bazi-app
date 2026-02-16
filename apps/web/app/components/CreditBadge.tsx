@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } from "react";
+import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { getUserProfile } from "../lib/api";
 import styles from "./CreditBadge.module.css";
@@ -17,7 +18,11 @@ export interface CreditBadgeHandle {
   refresh: () => Promise<void>;
 }
 
-const CreditBadge = forwardRef<CreditBadgeHandle>(function CreditBadge(_props, ref) {
+interface CreditBadgeProps {
+  showPricingLink?: boolean;
+}
+
+const CreditBadge = forwardRef<CreditBadgeHandle, CreditBadgeProps>(function CreditBadge({ showPricingLink = false }, ref) {
   const { getToken, isSignedIn, isLoaded } = useAuth();
   const [credits, setCredits] = useState<number | null>(null);
   const [tier, setTier] = useState<string>("FREE");
@@ -70,19 +75,32 @@ const CreditBadge = forwardRef<CreditBadgeHandle>(function CreditBadge(_props, r
 
   const tierClass = styles[`tier${tier}`] || styles.tierFREE;
 
+  // Master tier: hide pricing link; Pro or lower: show "升級方案"; FREE: show "訂閱方案"
+  const pricingLabel = tier === "FREE" ? "💎 訂閱方案" : "⬆ 升級方案";
+  const showPricing = showPricingLink && tier !== "MASTER";
+
   return (
-    <div className={styles.badgeContainer}>
-      <span className={`${styles.tierBadge} ${tierClass}`}>
-        {TIER_LABELS[tier] || "免費"}
-      </span>
-      <span className={styles.creditBadge}>
-        <span className={styles.creditIcon}>💎</span>
-        <span className={styles.creditCount}>{credits}</span>
-      </span>
-      {!freeReadingUsed && (
-        <span className={styles.freeBadge} title="免費體驗可用">🎁</span>
+    <>
+      <Link href="/dashboard/subscription" className={styles.badgeLink}>
+        <div className={styles.badgeContainer}>
+          <span className={`${styles.tierBadge} ${tierClass}`}>
+            {TIER_LABELS[tier] || "免費"}
+          </span>
+          <span className={styles.creditBadge}>
+            <span className={styles.creditIcon}>💎</span>
+            <span className={styles.creditCount}>{credits}</span>
+          </span>
+          {!freeReadingUsed && (
+            <span className={styles.freeBadge} title="免費體驗可用">🎁</span>
+          )}
+        </div>
+      </Link>
+      {showPricing && (
+        <Link href="/pricing" className={styles.pricingLink}>
+          {pricingLabel}
+        </Link>
       )}
-    </div>
+    </>
   );
 });
 

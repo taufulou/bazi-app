@@ -8,6 +8,7 @@
  *
  * Authenticated:
  *   GET  /api/payments/subscription — Current subscription status
+ *   GET  /api/payments/invoices    — Stripe invoice history
  *   GET  /api/payments/transactions — Transaction history
  *   POST /api/payments/checkout/subscription — Create subscription checkout
  *   POST /api/payments/checkout/one-time     — Create one-time checkout
@@ -171,6 +172,19 @@ export class PaymentsController {
   @ApiOperation({ summary: 'Get current user subscription status' })
   async getSubscriptionStatus(@CurrentUser() auth: AuthPayload) {
     return this.paymentsService.getSubscriptionStatus(auth.userId);
+  }
+
+  // ============ Invoice History ============
+
+  @Get('invoices')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get Stripe invoice history for current user' })
+  @ApiQuery({ name: 'limit', required: false, example: 10 })
+  async getInvoices(
+    @CurrentUser() auth: AuthPayload,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+  ) {
+    return this.stripeService.getInvoices(auth.userId, limit);
   }
 
   // ============ Monthly Credits Status ============

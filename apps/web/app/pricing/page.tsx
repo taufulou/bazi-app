@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { DEFAULT_PLANS } from "@repo/shared";
 import { createSubscriptionCheckout, upgradeSubscription, getSubscriptionStatus } from "../lib/api";
@@ -114,6 +114,7 @@ export default function PricingPage() {
   const [changeTarget, setChangeTarget] = useState<{ key: string; name: string; direction: "upgrade" | "downgrade" } | null>(null);
 
   const { isSignedIn, getToken } = useAuth();
+  const router = useRouter();
   const searchParams = useSearchParams();
 
   // ---- Fetch current user tier + detect billing cycle ----
@@ -251,6 +252,11 @@ export default function PricingPage() {
           </button>
         </div>
       )}
+
+      {/* ---- Back Button ---- */}
+      <button className={styles.backButton} onClick={() => router.back()} aria-label="返回上一頁">
+        ← 返回
+      </button>
 
       {/* ---- Header ---- */}
       <header className={styles.header}>

@@ -1,6 +1,18 @@
 /* CreditBadge — Header credit display */
 
+.badgeLink {
+  text-decoration: none;
+  color: inherit;
+  display: inline-flex;
+}
+
+.badgeLink:hover .badgeContainer {
+  opacity: 0.85;
+}
+
 .badgeContainer {
+  cursor: pointer;
+  transition: opacity 0.15s ease;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -76,6 +88,24 @@
 .freeBadge {
   font-size: 0.85rem;
   cursor: default;
+}
+
+.pricingLink {
+  display: inline-flex;
+  align-items: center;
+  color: #d4af37;
+  font-size: 0.9rem;
+  text-decoration: none;
+  padding: 0.4rem 0.8rem;
+  border: 1px solid rgba(212, 175, 55, 0.3);
+  border-radius: 6px;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.pricingLink:hover {
+  background: rgba(212, 175, 55, 0.1);
+  border-color: rgba(212, 175, 55, 0.5);
 }
 
 @media (max-width: 768px) {

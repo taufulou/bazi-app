@@ -480,6 +480,11 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/  # Next.js (expect
 > Quick fix: `kill -9 $(lsof -ti:3000) 2>/dev/null; sleep 2; cd apps/web && npx next dev --port 3000`
 > This does NOT affect production — `next build` + `next start` serves pre-compiled files with no file watcher or HMR.
 
+> **⚠️ ALSO CHECK NestJS: When restarting Next.js (or any server), always verify NestJS API is alive too!**
+> Many frontend features (credit badge, reading creation, profile management, subscription) depend on NestJS at port 4000.
+> Quick check: `curl -s http://localhost:4000/health` — should return `{"status":"ok",...}`
+> If dead, restart: `cd apps/api && ../../node_modules/.bin/nest build && export ANTHROPIC_API_KEY="$(grep ANTHROPIC_API_KEY .env | cut -d= -f2)" && node --import tsx dist/main.js`
+
 **Next.js stuck on "載入中..." / unresponsive:**
 - **Symptom**: Page shows loading spinner forever, `curl http://localhost:3000/` hangs or times out, browser tab keeps loading
 - **Cause**: Turbopack hot-reload loop — process runs at >100% CPU and stops serving requests. Happens frequently (every 15-30 min) during active code editing. More likely with rapid file changes or long-running sessions.

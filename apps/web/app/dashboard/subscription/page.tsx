@@ -8,7 +8,9 @@ import {
   cancelSubscription,
   reactivateSubscription,
   createPortalSession,
+  getInvoices,
   type SubscriptionStatus,
+  type Invoice,
 } from "../../lib/api";
 import styles from "./page.module.css";
 
@@ -24,6 +26,28 @@ const TIER_META: Record<string, { name: string; badge: string }> = {
 };
 
 // ============================================================
+// Invoice helpers
+// ============================================================
+
+const STATUS_LABELS: Record<string, { text: string; className: string }> = {
+  paid: { text: "已付款", className: "statusPaid" },
+  open: { text: "待付款", className: "statusOpen" },
+  void: { text: "已作廢", className: "statusVoid" },
+  uncollectible: { text: "無法收款", className: "statusUncollectible" },
+  draft: { text: "草稿", className: "statusDraft" },
+};
+
+function formatAmount(amount: number, currency: string): string {
+  const symbol =
+    currency === "TWD" ? "NT$" :
+    currency === "USD" ? "US$" :
+    `${currency} `;
+  // Zero-decimal currencies show integer, others show 2 decimals
+  const zeroDecimal = ["TWD", "JPY", "KRW", "VND"].includes(currency);
+  return `${symbol}${zeroDecimal ? Math.round(amount) : amount.toFixed(2)}`;
+}
+
+// ============================================================
 // Component
 // ============================================================
 
@@ -35,6 +59,9 @@ export default function SubscriptionPage() {
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [invoicesError, setInvoicesError] = useState<string | null>(null);
 
   // ---- Fetch subscription data ----
   const fetchData = useCallback(async () => {
@@ -53,11 +80,28 @@ export default function SubscriptionPage() {
     }
   }, [getToken]);
 
+  // ---- Fetch invoices ----
+  const fetchInvoices = useCallback(async () => {
+    try {
+      setInvoicesLoading(true);
+      setInvoicesError(null);
+      const token = await getToken();
+      if (!token) return;
+      const data = await getInvoices(token);
+      setInvoices(data);
+    } catch (err: unknown) {
+      setInvoicesError(err instanceof Error ? err.message : "無法載入帳單記錄");
+    } finally {
+      setInvoicesLoading(false);
+    }
+  }, [getToken]);
+
   useEffect(() => {
     if (isSignedIn) {
       fetchData();
+      fetchInvoices();
     }
-  }, [isSignedIn, fetchData]);
+  }, [isSignedIn, fetchData, fetchInvoices]);
 
   // ---- Cancel subscription ----
   const handleCancel = useCallback(async () => {
@@ -317,6 +361,87 @@ export default function SubscriptionPage() {
                 </div>
               </div>
             )}
+
+            {/* Invoice History */}
+            <div className={styles.invoiceSection}>
+              <h2 className={styles.invoiceSectionTitle}>帳單記錄</h2>
+
+              {invoicesLoading && (
+                <div className={styles.invoiceLoading}>
+                  <div className={styles.invoiceSkeleton} />
+                  <div className={styles.invoiceSkeleton} />
+                </div>
+              )}
+
+              {invoicesError && (
+                <p className={styles.invoiceError}>{invoicesError}</p>
+              )}
+
+              {!invoicesLoading && !invoicesError && invoices.length === 0 && (
+                <p className={styles.invoiceEmpty}>尚無帳單記錄</p>
+              )}
+
+              {!invoicesLoading && invoices.length > 0 && (
+                <div className={styles.invoiceList}>
+                  {invoices.map((inv) => {
+                    const statusInfo = STATUS_LABELS[inv.status] || { text: inv.status, className: "" };
+                    return (
+                      <div key={inv.id} className={styles.invoiceCard}>
+                        <div className={styles.invoiceMain}>
+                          <div className={styles.invoiceInfo}>
+                            <span className={styles.invoiceDate}>
+                              {new Date(inv.date).toLocaleDateString("zh-TW", {
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                              })}
+                            </span>
+                            {inv.number && (
+                              <span className={styles.invoiceNumber}>#{inv.number}</span>
+                            )}
+                            {inv.description && (
+                              <span className={styles.invoiceDesc}>{inv.description}</span>
+                            )}
+                          </div>
+                          <div className={styles.invoiceRight}>
+                            <span className={styles.invoiceAmount}>
+                              {formatAmount(inv.amountPaid > 0 ? inv.amountPaid : inv.amountDue, inv.currency)}
+                            </span>
+                            <span className={`${styles.invoiceStatus} ${styles[statusInfo.className] || ""}`}>
+                              {statusInfo.text}
+                            </span>
+                          </div>
+                        </div>
+                        {(inv.hostedInvoiceUrl || inv.invoicePdf) && (
+                          <div className={styles.invoiceActions}>
+                            {inv.hostedInvoiceUrl && (
+                              <a
+                                href={inv.hostedInvoiceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={styles.invoiceLink}
+                              >
+                                查看收據
+                              </a>
+                            )}
+                            {inv.invoicePdf && (
+                              <a
+                                href={inv.invoicePdf}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={styles.invoiceLink}
+                              >
+                                下載 PDF
+                              </a>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>

@@ -35,10 +35,7 @@ export default async function DashboardPage() {
           八字命理平台
         </Link>
         <div className={styles.headerRight}>
-          <CreditBadge />
-          <Link href="/pricing" className={styles.pricingLink}>
-            💎 訂閱方案
-          </Link>
+          <CreditBadge showPricingLink />
           <span className={styles.userName}>
             {user.firstName || user.emailAddresses[0]?.emailAddress || "用戶"}
           </span>
