@@ -43,6 +43,7 @@ function formatProfileOption(p: BirthProfile): string {
 }
 
 export interface SaveProfileIntent {
+  wantsSave: boolean;
   relationshipTag: string;
   existingProfileId?: string;
   lunarBirthDate?: string;
@@ -57,7 +58,7 @@ function groupByRegion<T extends { region: CityRegion }>(items: T[]) {
 
 interface BirthDataFormProps {
   onSubmit: (data: BirthDataFormValues, profileId: string | null, saveIntent?: SaveProfileIntent) => void;
-  onSecondarySubmit?: (data: BirthDataFormValues, profileId: string | null) => void;
+  onSecondarySubmit?: (data: BirthDataFormValues, profileId: string | null, lunarBirthDate?: string) => void;
   secondaryLabel?: React.ReactNode;
   isLoading?: boolean;
   error?: string;
@@ -133,7 +134,6 @@ export default function BirthDataForm({
 
   const [isLunarDate, setIsLunarDate] = useState(initialValues?.isLunarDate ?? false);
   const [isLeapMonth, setIsLeapMonth] = useState(initialValues?.isLeapMonth ?? false);
-  const [lunarBirthDate, setLunarBirthDate] = useState("");
   const [submitError, setSubmitError] = useState("");
 
   // Date/time split into individual dropdown states
@@ -255,8 +255,6 @@ export default function BirthDataForm({
       try {
         const solarDateStr = lunarToSolar(y, m, d, isLeapMonth);
         submittedForm = { ...submittedForm, birthDate: solarDateStr };
-        // Store original lunar date for profile saving
-        setLunarBirthDate(`${birthYear}-${birthMonth.padStart(2, "0")}-${birthDay.padStart(2, "0")}`);
       } catch {
         setSubmitError("無效的農曆日期，請檢查年月日是否正確");
         return;
@@ -264,12 +262,12 @@ export default function BirthDataForm({
     }
 
     setSubmitError("");
-    // Construct the original lunar date string for profile saving
+    // Construct the original lunar date string for profile saving and engine accuracy
     const lunarDateStr = isLunarDate && birthYear && birthMonth && birthDay
       ? `${birthYear}-${birthMonth.padStart(2, "0")}-${birthDay.padStart(2, "0")}`
       : undefined;
-    // Always pass saveIntent so the reading page can access lunarBirthDate for profile creation
     const saveIntent: SaveProfileIntent = {
+      wantsSave,
       relationshipTag,
       existingProfileId: selectedProfileId || undefined,
       lunarBirthDate: lunarDateStr,
@@ -280,6 +278,7 @@ export default function BirthDataForm({
   const handleSecondaryClick = () => {
     if (onSecondarySubmit && isValid) {
       let submittedForm = { ...form };
+      let lunarDateStr: string | undefined;
       if (isLunarDate && birthYear && birthMonth && birthDay) {
         const y = parseInt(birthYear);
         const m = parseInt(birthMonth);
@@ -291,14 +290,14 @@ export default function BirthDataForm({
         try {
           const solarDateStr = lunarToSolar(y, m, d, isLeapMonth);
           submittedForm = { ...submittedForm, birthDate: solarDateStr };
-          setLunarBirthDate(`${birthYear}-${birthMonth.padStart(2, "0")}-${birthDay.padStart(2, "0")}`);
+          lunarDateStr = `${birthYear}-${birthMonth.padStart(2, "0")}-${birthDay.padStart(2, "0")}`;
         } catch {
           setSubmitError("無效的農曆日期，請檢查年月日是否正確");
           return;
         }
       }
       setSubmitError("");
-      onSecondarySubmit(submittedForm, selectedProfileId);
+      onSecondarySubmit(submittedForm, selectedProfileId, lunarDateStr);
     }
   };
 
@@ -345,7 +344,6 @@ export default function BirthDataForm({
       setBirthDay(lunarStr.substring(8, 10));
       setIsLunarDate(true);
       setIsLeapMonth(profile.isLeapMonth ?? false);
-      setLunarBirthDate(lunarStr);
     } else {
       // Solar profiles — use birthDate (always solar)
       const dateStr = profile.birthDate.substring(0, 10);
@@ -354,7 +352,6 @@ export default function BirthDataForm({
       setBirthDay(dateStr.substring(8, 10));
       setIsLunarDate(false);
       setIsLeapMonth(false);
-      setLunarBirthDate("");
     }
 
     setForm({

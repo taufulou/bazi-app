@@ -135,7 +135,7 @@ export default function ReadingPage() {
 
   // Phase 10: New state for NestJS integration
   const [lastProfileId, setLastProfileId] = useState<string | null>(null);
-  const [lastLunarBirthDate, setLastLunarBirthDate] = useState<string | undefined>();
+  const [lastSaveIntent, setLastSaveIntent] = useState<SaveProfileIntent | undefined>();
   const [currentReadingId, setCurrentReadingId] = useState<string | null>(null);
   const [showSubscribeCTA, setShowSubscribeCTA] = useState(false);
   const [userCredits, setUserCredits] = useState<number | null>(null);
@@ -339,7 +339,7 @@ export default function ReadingPage() {
   // Direct Engine Path (unauthenticated — chart only, no AI)
   // ============================================================
 
-  async function callDirectEngine(data: BirthDataFormValues) {
+  async function callDirectEngine(data: BirthDataFormValues, lunarBirthDate?: string) {
     if (isZwds) {
       const dateParts = data.birthDate.split("-") as [string, string, string];
       const solarDate = `${parseInt(dateParts[0])}-${parseInt(dateParts[1])}-${parseInt(dateParts[2])}`;
@@ -351,8 +351,8 @@ export default function ReadingPage() {
         targetDate: needsDatePicker ? targetDay : undefined,
       };
       // Pass lunar date for direct astrolabeByLunarDate (better ZWDS accuracy)
-      if (data.isLunarDate && lastLunarBirthDate) {
-        zwdsBody.lunarDate = lastLunarBirthDate;
+      if (data.isLunarDate && lunarBirthDate) {
+        zwdsBody.lunarDate = lunarBirthDate;
         zwdsBody.isLeapMonth = data.isLeapMonth;
       }
 
@@ -446,14 +446,14 @@ export default function ReadingPage() {
       }
 
       let birthProfileId = profileId;
+      const lunarDate = saveIntent?.lunarBirthDate;
 
       // Signed-in: ensure we have a birth profile (create or update as needed)
-      if (isSignedIn) {
+      if (isSignedIn && saveIntent?.wantsSave) {
         const token = await getToken();
         if (token) {
           try {
-            const tag = saveIntent?.relationshipTag ?? "SELF";
-            const lunarDate = saveIntent?.lunarBirthDate;
+            const tag = saveIntent.relationshipTag ?? "SELF";
             if (birthProfileId) {
               // Existing profile selected — update it with any modified data
               await updateBirthProfile(token, birthProfileId, formValuesToPayload(data, tag, lunarDate));
@@ -471,9 +471,9 @@ export default function ReadingPage() {
         }
       }
 
-      // Store profile ID and lunar date for retry
+      // Store profile ID and save intent for retry
       setLastProfileId(birthProfileId);
-      setLastLunarBirthDate(saveIntent?.lunarBirthDate);
+      setLastSaveIntent(saveIntent);
 
       try {
         if (isSignedIn && birthProfileId) {
@@ -481,7 +481,7 @@ export default function ReadingPage() {
           await callNestJSReading(data, birthProfileId);
         } else {
           // Not signed in OR profile creation failed → direct engine (chart only, no AI)
-          await callDirectEngine(data);
+          await callDirectEngine(data, lunarDate);
         }
       } finally {
         setIsLoading(false);
@@ -513,8 +513,8 @@ export default function ReadingPage() {
         setIsLoading(false);
       }
     } else if (formValues) {
-      // No reading was created yet → retry full submit
-      handleFormSubmit(formValues, lastProfileId);
+      // No reading was created yet → retry full submit (preserve lunar date via saveIntent)
+      handleFormSubmit(formValues, lastProfileId, lastSaveIntent);
     }
   };
 
@@ -544,7 +544,7 @@ export default function ReadingPage() {
   // ============================================================
 
   const handleFreeChart = useCallback(
-    async (data: BirthDataFormValues) => {
+    async (data: BirthDataFormValues, _profileId: string | null, lunarBirthDate?: string) => {
       setFormValues(data);
       setIsLoading(true);
       setError(undefined);
@@ -555,7 +555,7 @@ export default function ReadingPage() {
       setIsPaidReading(false);
 
       try {
-        await callDirectEngine(data);
+        await callDirectEngine(data, lunarBirthDate);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "排盤失敗，請稍後再試";
         setError(msg);
@@ -624,7 +624,7 @@ export default function ReadingPage() {
               userCredits !== null ? (<>AI 完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點・剩 {userCredits}</span></>) :
               (<>AI 完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點</span></>)
             }
-            onSecondarySubmit={isSignedIn ? (data) => handleFreeChart(data) : undefined}
+            onSecondarySubmit={isSignedIn ? (data, _pid, lunarDate) => handleFreeChart(data, _pid, lunarDate) : undefined}
             secondaryLabel={isSignedIn ? "查看免費命盤 →" : undefined}
             savedProfiles={isSignedIn ? savedProfiles : undefined}
             showSaveOption={isSignedIn === true}
@@ -747,7 +747,7 @@ export default function ReadingPage() {
           if (formValues) {
             setIsLoading(true);
             try {
-              await callDirectEngine(formValues);
+              await callDirectEngine(formValues, lastSaveIntent?.lunarBirthDate);
               setShowSubscribeCTA(true);
             } catch {
               setError("排盤失敗，請稍後再試");
