@@ -56,6 +56,22 @@ export class CreateBirthProfileDto {
   @IsOptional()
   @IsBoolean()
   isPrimary?: boolean;
+
+  @ApiProperty({ required: false, default: false, description: 'Whether birthDate was entered as lunar calendar' })
+  @IsOptional()
+  @IsBoolean()
+  isLunarDate?: boolean;
+
+  @ApiProperty({ required: false, description: 'Original lunar date YYYY-MM-DD (only when isLunarDate=true)' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'lunarBirthDate must be in YYYY-MM-DD format' })
+  lunarBirthDate?: string;
+
+  @ApiProperty({ required: false, default: false, description: 'Whether the lunar date falls in a leap month (閏月)' })
+  @IsOptional()
+  @IsBoolean()
+  isLeapMonth?: boolean;
 }
 
 export class UpdateBirthProfileDto {
@@ -110,4 +126,20 @@ export class UpdateBirthProfileDto {
   @IsOptional()
   @IsBoolean()
   isPrimary?: boolean;
+
+  @ApiProperty({ required: false, default: false, description: 'Whether birthDate was entered as lunar calendar' })
+  @IsOptional()
+  @IsBoolean()
+  isLunarDate?: boolean;
+
+  @ApiProperty({ required: false, description: 'Original lunar date YYYY-MM-DD (only when isLunarDate=true)' })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'lunarBirthDate must be in YYYY-MM-DD format' })
+  lunarBirthDate?: string;
+
+  @ApiProperty({ required: false, default: false, description: 'Whether the lunar date falls in a leap month (閏月)' })
+  @IsOptional()
+  @IsBoolean()
+  isLeapMonth?: boolean;
 }
