@@ -308,6 +308,56 @@
   background: rgba(232, 213, 183, 0.1);
 }
 
+/* ==== Calendar Type Toggle ==== */
+
+.calendarTypeGroup {
+  display: flex;
+  gap: 1rem;
+}
+
+.calendarTypeOption {
+  flex: 1;
+  padding: 0.75rem;
+  background: #1a1a2e;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 8px;
+  color: #a0a0a0;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 1rem;
+}
+
+.calendarTypeOption:hover {
+  border-color: rgba(232, 213, 183, 0.4);
+}
+
+.calendarTypeOptionActive {
+  composes: calendarTypeOption;
+  border-color: #e8d5b7;
+  color: #e8d5b7;
+  background: rgba(232, 213, 183, 0.1);
+}
+
+.leapMonthRow {
+  margin-top: 0.5rem;
+}
+
+.leapMonthLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.leapMonthHint {
+  color: #a0a0a0;
+  font-size: 0.75rem;
+  margin-top: 0.25rem;
+}
+
 /* ==== Date & Time Dropdowns ==== */
 
 .dateTimeGroup {

@@ -59,6 +59,9 @@ model BirthProfile {
   gender          Gender
   relationshipTag RelationshipTag @default(SELF) @map("relationship_tag")
   isPrimary       Boolean   @default(false) @map("is_primary")
+  isLunarDate     Boolean   @default(false) @map("is_lunar_date")
+  lunarBirthDate  String?   @map("lunar_birth_date") // Original lunar date "YYYY-MM-DD" if isLunarDate=true
+  isLeapMonth     Boolean   @default(false) @map("is_leap_month") // Whether the lunar date is in a leap month (閏月)
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 

@@ -102,7 +102,7 @@ function transformPalaces(iztoPalaces: any[]): ZwdsPalace[] {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { birthDate, birthTime, gender, targetDate } = body;
+    const { birthDate, birthTime, gender, targetDate, lunarDate, isLeapMonth } = body;
 
     // Validate required fields
     if (!birthDate || !birthTime || !gender) {
@@ -118,14 +118,20 @@ export async function POST(request: NextRequest) {
     const timeIndex = birthTimeToIndex(birthTime);
     const iztroGender = gender.toLowerCase() === 'male' ? '男' : '女';
 
-    // Parse birthDate to non-zero-padded format for iztro
-    const dateParts = birthDate.split('-');
-    const solarDate = `${parseInt(dateParts[0])}-${parseInt(dateParts[1])}-${parseInt(dateParts[2])}`;
-
     // Generate chart
     let astrolabe: any; // eslint-disable-line @typescript-eslint/no-explicit-any
     try {
-      astrolabe = astro.astrolabeBySolarDate(solarDate, timeIndex, iztroGender, true, 'zh-TW');
+      if (lunarDate) {
+        // Use lunar date directly for better accuracy
+        const lunarParts = lunarDate.split('-');
+        const lunarDateStr = `${parseInt(lunarParts[0])}-${parseInt(lunarParts[1])}-${parseInt(lunarParts[2])}`;
+        astrolabe = astro.astrolabeByLunarDate(lunarDateStr, timeIndex, iztroGender, isLeapMonth ?? false, true, 'zh-TW');
+      } else {
+        // Parse birthDate to non-zero-padded format for iztro
+        const dateParts = birthDate.split('-');
+        const solarDate = `${parseInt(dateParts[0])}-${parseInt(dateParts[1])}-${parseInt(dateParts[2])}`;
+        astrolabe = astro.astrolabeBySolarDate(solarDate, timeIndex, iztroGender, true, 'zh-TW');
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       return NextResponse.json(

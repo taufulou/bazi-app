@@ -135,6 +135,7 @@ export default function ReadingPage() {
 
   // Phase 10: New state for NestJS integration
   const [lastProfileId, setLastProfileId] = useState<string | null>(null);
+  const [lastLunarBirthDate, setLastLunarBirthDate] = useState<string | undefined>();
   const [currentReadingId, setCurrentReadingId] = useState<string | null>(null);
   const [showSubscribeCTA, setShowSubscribeCTA] = useState(false);
   const [userCredits, setUserCredits] = useState<number | null>(null);
@@ -343,15 +344,22 @@ export default function ReadingPage() {
       const dateParts = data.birthDate.split("-") as [string, string, string];
       const solarDate = `${parseInt(dateParts[0])}-${parseInt(dateParts[1])}-${parseInt(dateParts[2])}`;
 
+      const zwdsBody: Record<string, unknown> = {
+        birthDate: solarDate,
+        birthTime: data.birthTime,
+        gender: data.gender,
+        targetDate: needsDatePicker ? targetDay : undefined,
+      };
+      // Pass lunar date for direct astrolabeByLunarDate (better ZWDS accuracy)
+      if (data.isLunarDate && lastLunarBirthDate) {
+        zwdsBody.lunarDate = lastLunarBirthDate;
+        zwdsBody.isLeapMonth = data.isLeapMonth;
+      }
+
       const zwdsResponse = await fetch("/api/zwds-calculate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          birthDate: solarDate,
-          birthTime: data.birthTime,
-          gender: data.gender,
-          targetDate: needsDatePicker ? targetDay : undefined,
-        }),
+        body: JSON.stringify(zwdsBody),
       });
 
       if (!zwdsResponse.ok) {
@@ -445,12 +453,13 @@ export default function ReadingPage() {
         if (token) {
           try {
             const tag = saveIntent?.relationshipTag ?? "SELF";
+            const lunarDate = saveIntent?.lunarBirthDate;
             if (birthProfileId) {
               // Existing profile selected — update it with any modified data
-              await updateBirthProfile(token, birthProfileId, formValuesToPayload(data, tag));
+              await updateBirthProfile(token, birthProfileId, formValuesToPayload(data, tag, lunarDate));
             } else {
               // No existing profile — create a new one
-              const newProfile = await createBirthProfile(token, formValuesToPayload(data, tag));
+              const newProfile = await createBirthProfile(token, formValuesToPayload(data, tag, lunarDate));
               birthProfileId = newProfile.id;
             }
             // Refresh dropdown
@@ -462,8 +471,9 @@ export default function ReadingPage() {
         }
       }
 
-      // Store profile ID for retry
+      // Store profile ID and lunar date for retry
       setLastProfileId(birthProfileId);
+      setLastLunarBirthDate(saveIntent?.lunarBirthDate);
 
       try {
         if (isSignedIn && birthProfileId) {

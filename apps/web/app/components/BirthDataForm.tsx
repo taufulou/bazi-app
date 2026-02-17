@@ -11,6 +11,12 @@ import {
   type CityRegion,
 } from "@repo/shared";
 import type { BirthProfile } from "../lib/birth-profiles-api";
+import {
+  lunarToSolar,
+  getLunarDaysInMonth,
+  getLeapMonthInYear,
+  isValidLunarDate,
+} from "../lib/lunar-utils";
 import styles from "./BirthDataForm.module.css";
 
 export interface BirthDataFormValues {
@@ -20,6 +26,8 @@ export interface BirthDataFormValues {
   birthTime: string;
   birthCity: string;
   birthTimezone: string;
+  isLunarDate: boolean;
+  isLeapMonth: boolean;
 }
 
 const RELATIONSHIP_TAGS = [
@@ -37,6 +45,7 @@ function formatProfileOption(p: BirthProfile): string {
 export interface SaveProfileIntent {
   relationshipTag: string;
   existingProfileId?: string;
+  lunarBirthDate?: string;
 }
 
 /** Group items by region, returning only non-empty groups in market-priority order */
@@ -118,7 +127,14 @@ export default function BirthDataForm({
     birthTime: initialValues?.birthTime ?? "",
     birthCity: initialValues?.birthCity ?? "台北市",
     birthTimezone: initialValues?.birthTimezone ?? "Asia/Taipei",
+    isLunarDate: initialValues?.isLunarDate ?? false,
+    isLeapMonth: initialValues?.isLeapMonth ?? false,
   });
+
+  const [isLunarDate, setIsLunarDate] = useState(initialValues?.isLunarDate ?? false);
+  const [isLeapMonth, setIsLeapMonth] = useState(initialValues?.isLeapMonth ?? false);
+  const [lunarBirthDate, setLunarBirthDate] = useState("");
+  const [submitError, setSubmitError] = useState("");
 
   // Date/time split into individual dropdown states
   const [birthYear, setBirthYear] = useState(() => initialValues?.birthDate?.substring(0, 4) ?? "");
@@ -170,13 +186,36 @@ export default function BirthDataForm({
 
   // Clamp day when month/year changes (e.g., Jan 31 → Feb → clamp to 28/29)
   useEffect(() => {
-    if (birthDay) {
-      const maxDays = getDaysInMonth(birthYear, birthMonth);
+    if (birthDay && birthYear && birthMonth) {
+      const maxDays = isLunarDate
+        ? getLunarDaysInMonth(parseInt(birthYear), parseInt(birthMonth), isLeapMonth)
+        : getDaysInMonth(birthYear, birthMonth);
       if (parseInt(birthDay) > maxDays) {
         setBirthDay(String(maxDays).padStart(2, "0"));
       }
     }
-  }, [birthYear, birthMonth, birthDay]);
+  }, [birthYear, birthMonth, birthDay, isLunarDate, isLeapMonth]);
+
+  // Auto-reset leap month when year/month changes and leap month no longer applies
+  useEffect(() => {
+    if (!isLunarDate) return;
+    const y = parseInt(birthYear);
+    const m = parseInt(birthMonth);
+    if (!y || !m) return;
+    const leapMonth = getLeapMonthInYear(y);
+    if (!leapMonth || m !== leapMonth) {
+      setIsLeapMonth(false);
+    }
+  }, [birthYear, birthMonth, isLunarDate]);
+
+  // Sync lunar fields to form state
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      isLunarDate,
+      isLeapMonth,
+    }));
+  }, [isLunarDate, isLeapMonth]);
 
   // Sync region when initialValues changes (e.g. parent re-renders with new profile)
   useEffect(() => {
@@ -199,16 +238,67 @@ export default function BirthDataForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const saveIntent: SaveProfileIntent | undefined =
-      wantsSave
-        ? { relationshipTag, existingProfileId: selectedProfileId || undefined }
-        : undefined;
-    onSubmit(form, selectedProfileId, saveIntent);
+
+    let submittedForm = { ...form };
+
+    // If lunar date, convert to solar before submitting
+    if (isLunarDate && birthYear && birthMonth && birthDay) {
+      const y = parseInt(birthYear);
+      const m = parseInt(birthMonth);
+      const d = parseInt(birthDay);
+
+      if (!isValidLunarDate(y, m, d, isLeapMonth)) {
+        setSubmitError("無效的農曆日期，請檢查年月日是否正確");
+        return;
+      }
+
+      try {
+        const solarDateStr = lunarToSolar(y, m, d, isLeapMonth);
+        submittedForm = { ...submittedForm, birthDate: solarDateStr };
+        // Store original lunar date for profile saving
+        setLunarBirthDate(`${birthYear}-${birthMonth.padStart(2, "0")}-${birthDay.padStart(2, "0")}`);
+      } catch {
+        setSubmitError("無效的農曆日期，請檢查年月日是否正確");
+        return;
+      }
+    }
+
+    setSubmitError("");
+    // Construct the original lunar date string for profile saving
+    const lunarDateStr = isLunarDate && birthYear && birthMonth && birthDay
+      ? `${birthYear}-${birthMonth.padStart(2, "0")}-${birthDay.padStart(2, "0")}`
+      : undefined;
+    // Always pass saveIntent so the reading page can access lunarBirthDate for profile creation
+    const saveIntent: SaveProfileIntent = {
+      relationshipTag,
+      existingProfileId: selectedProfileId || undefined,
+      lunarBirthDate: lunarDateStr,
+    };
+    onSubmit(submittedForm, selectedProfileId, saveIntent);
   };
 
   const handleSecondaryClick = () => {
     if (onSecondarySubmit && isValid) {
-      onSecondarySubmit(form, selectedProfileId);
+      let submittedForm = { ...form };
+      if (isLunarDate && birthYear && birthMonth && birthDay) {
+        const y = parseInt(birthYear);
+        const m = parseInt(birthMonth);
+        const d = parseInt(birthDay);
+        if (!isValidLunarDate(y, m, d, isLeapMonth)) {
+          setSubmitError("無效的農曆日期，請檢查年月日是否正確");
+          return;
+        }
+        try {
+          const solarDateStr = lunarToSolar(y, m, d, isLeapMonth);
+          submittedForm = { ...submittedForm, birthDate: solarDateStr };
+          setLunarBirthDate(`${birthYear}-${birthMonth.padStart(2, "0")}-${birthDay.padStart(2, "0")}`);
+        } catch {
+          setSubmitError("無效的農曆日期，請檢查年月日是否正確");
+          return;
+        }
+      }
+      setSubmitError("");
+      onSecondarySubmit(submittedForm, selectedProfileId);
     }
   };
 
@@ -243,20 +333,42 @@ export default function BirthDataForm({
   };
 
   const selectProfile = (profile: BirthProfile) => {
-    const dateStr = profile.birthDate.substring(0, 10);
     const timeStr = profile.birthTime;
+    const gender = profile.gender === "MALE" ? "male" : "female" as const;
+
+    // Determine which date to show in the dropdowns
+    if (profile.isLunarDate && profile.lunarBirthDate) {
+      // For lunar profiles, show the original lunar date in dropdowns
+      const lunarStr = profile.lunarBirthDate.substring(0, 10);
+      setBirthYear(lunarStr.substring(0, 4));
+      setBirthMonth(lunarStr.substring(5, 7));
+      setBirthDay(lunarStr.substring(8, 10));
+      setIsLunarDate(true);
+      setIsLeapMonth(profile.isLeapMonth ?? false);
+      setLunarBirthDate(lunarStr);
+    } else {
+      // Solar profiles — use birthDate (always solar)
+      const dateStr = profile.birthDate.substring(0, 10);
+      setBirthYear(dateStr.substring(0, 4));
+      setBirthMonth(dateStr.substring(5, 7));
+      setBirthDay(dateStr.substring(8, 10));
+      setIsLunarDate(false);
+      setIsLeapMonth(false);
+      setLunarBirthDate("");
+    }
+
     setForm({
       name: profile.name,
-      gender: profile.gender === "MALE" ? "male" : "female",
-      birthDate: dateStr,
+      gender,
+      birthDate: profile.birthDate.substring(0, 10),
       birthTime: timeStr,
       birthCity: profile.birthCity,
       birthTimezone: profile.birthTimezone,
+      isLunarDate: profile.isLunarDate ?? false,
+      isLeapMonth: profile.isLeapMonth ?? false,
     });
-    // Sync date/time dropdowns from profile
-    setBirthYear(dateStr.substring(0, 4));
-    setBirthMonth(dateStr.substring(5, 7));
-    setBirthDay(dateStr.substring(8, 10));
+
+    // Sync time dropdowns
     const { hour12, period } = to12Hour(timeStr.substring(0, 2));
     setBirthHour(hour12);
     setBirthPeriod(period);
@@ -264,6 +376,7 @@ export default function BirthDataForm({
     setSelectedRegion(getRegionForCity(profile.birthCity) ?? "taiwan");
     setSelectedProfileId(profile.id);
     setRelationshipTag(profile.relationshipTag);
+    setSubmitError("");
     setShowDropdown(false);
   };
 
@@ -279,7 +392,9 @@ export default function BirthDataForm({
     updateField("name", inputValue);
   };
 
-  const dayCount = getDaysInMonth(birthYear, birthMonth);
+  const dayCount = isLunarDate && birthYear && birthMonth
+    ? getLunarDaysInMonth(parseInt(birthYear), parseInt(birthMonth), isLeapMonth)
+    : getDaysInMonth(birthYear, birthMonth);
   const dayOptions = Array.from({ length: dayCount }, (_, i) => i + 1);
 
   const isValid =
@@ -383,10 +498,59 @@ export default function BirthDataForm({
         </div>
       </div>
 
+      {/* Calendar Type Toggle */}
+      <div className={styles.fieldGroup}>
+        <label className={styles.label}>曆法</label>
+        <div className={styles.calendarTypeGroup}>
+          <button
+            type="button"
+            className={
+              !isLunarDate
+                ? styles.calendarTypeOptionActive
+                : styles.calendarTypeOption
+            }
+            onClick={() => { setIsLunarDate(false); setIsLeapMonth(false); setSubmitError(""); }}
+          >
+            國曆(陽曆)
+          </button>
+          <button
+            type="button"
+            className={
+              isLunarDate
+                ? styles.calendarTypeOptionActive
+                : styles.calendarTypeOption
+            }
+            onClick={() => { setIsLunarDate(true); setSubmitError(""); }}
+          >
+            農曆(陰曆)
+          </button>
+        </div>
+        {/* Leap month checkbox — only shown when lunar + correct year + month matches */}
+        {isLunarDate && birthYear && birthMonth && (() => {
+          const leapMonth = getLeapMonthInYear(parseInt(birthYear));
+          return leapMonth && parseInt(birthMonth) === leapMonth;
+        })() && (
+          <div className={styles.leapMonthRow}>
+            <label className={styles.leapMonthLabel}>
+              <input
+                type="checkbox"
+                checked={isLeapMonth}
+                onChange={(e) => setIsLeapMonth(e.target.checked)}
+                className={styles.checkbox}
+              />
+              閏月
+            </label>
+            <p className={styles.leapMonthHint}>
+              該年有閏{parseInt(birthMonth)}月，請確認是否為閏月出生
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* Date & Time — industry standard Year/Month/Day + Hour/Minute dropdowns */}
       <div className={styles.dateTimeGroup}>
         <div className={styles.fieldGroup}>
-          <label className={styles.label}>出生日期</label>
+          <label className={styles.label}>{isLunarDate ? "農曆出生日期" : "出生日期"}</label>
           <div className={styles.dateRow}>
             <select
               className={styles.dateSelect}
@@ -550,7 +714,7 @@ export default function BirthDataForm({
       {/* Extra inputs injected by parent (e.g., monthly/daily/Q&A pickers) */}
       {children}
 
-      {error && <p className={styles.error}>{error}</p>}
+      {(error || submitError) && <p className={styles.error}>{error || submitError}</p>}
 
       <button
         type="submit"

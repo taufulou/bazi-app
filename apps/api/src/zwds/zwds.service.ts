@@ -42,12 +42,15 @@ export class ZwdsService {
 
   /**
    * Generate a ZWDS chart from birth profile data using iztro.
+   * When lunarOptions is provided, uses astrolabeByLunarDate for better accuracy
+   * (avoids solar→lunar→solar double conversion inside iztro).
    */
   async generateChart(
     solarDate: string,
     birthTime: string,
     gender: string,
     targetDate?: string,
+    lunarOptions?: { lunarDate: string; isLeapMonth: boolean },
   ): Promise<ZwdsChartData> {
     const { astro } = await import('iztro');
 
@@ -59,7 +62,15 @@ export class ZwdsService {
 
     let astrolabe: any;
     try {
-      astrolabe = astro.astrolabeBySolarDate(solarDate, timeIndex, iztroGender, true, 'zh-TW');
+      if (lunarOptions) {
+        // Use lunar date directly for better accuracy
+        // iztro expects non-zero-padded format: YYYY-M-D
+        const parts = lunarOptions.lunarDate.split('-');
+        const lunarDateStr = `${parseInt(parts[0])}-${parseInt(parts[1])}-${parseInt(parts[2])}`;
+        astrolabe = astro.astrolabeByLunarDate(lunarDateStr, timeIndex, iztroGender, lunarOptions.isLeapMonth, true, 'zh-TW');
+      } else {
+        astrolabe = astro.astrolabeBySolarDate(solarDate, timeIndex, iztroGender, true, 'zh-TW');
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(`iztro chart generation failed: ${message}`);
@@ -269,7 +280,7 @@ export class ZwdsService {
    */
   private async _executeCreateReading(
     user: { id: string; credits: number; freeReadingUsed: boolean; subscriptionTier: string },
-    profile: { id: string; birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
+    profile: { id: string; birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string; isLunarDate: boolean; lunarBirthDate: string | null; isLeapMonth: boolean },
     dto: CreateZwdsReadingDto,
     service: { creditCost: number; type: string },
     isMaster: boolean,
@@ -308,6 +319,11 @@ export class ZwdsService {
       const now = new Date();
       targetDate = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
     }
+    // Build lunar options if the profile was entered as a lunar date
+    const lunarOptions = profile.isLunarDate && profile.lunarBirthDate
+      ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
+      : undefined;
+
     let chartData: ZwdsChartData;
     try {
       chartData = await this.generateChart(
@@ -315,6 +331,7 @@ export class ZwdsService {
         profile.birthTime,
         profile.gender.toLowerCase(),
         targetDate,
+        lunarOptions,
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -487,7 +504,10 @@ export class ZwdsService {
     }
 
     const solarDate = this.formatSolarDate(profile.birthDate);
-    return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase());
+    const lunarOptions = profile.isLunarDate && profile.lunarBirthDate
+      ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
+      : undefined;
+    return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), undefined, lunarOptions);
   }
 
   // ============================================================
@@ -512,7 +532,10 @@ export class ZwdsService {
     }
 
     const solarDate = this.formatSolarDate(profile.birthDate);
-    return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), dto.targetDate);
+    const lunarOptions = profile.isLunarDate && profile.lunarBirthDate
+      ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
+      : undefined;
+    return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), dto.targetDate, lunarOptions);
   }
 
   // ============================================================
@@ -566,6 +589,13 @@ export class ZwdsService {
 
     try {
       // Generate both charts
+      const lunarOptionsA = profileA.isLunarDate && profileA.lunarBirthDate
+        ? { lunarDate: profileA.lunarBirthDate, isLeapMonth: profileA.isLeapMonth }
+        : undefined;
+      const lunarOptionsB = profileB.isLunarDate && profileB.lunarBirthDate
+        ? { lunarDate: profileB.lunarBirthDate, isLeapMonth: profileB.isLeapMonth }
+        : undefined;
+
       let chartA: ZwdsChartData;
       let chartB: ZwdsChartData;
       try {
@@ -574,11 +604,15 @@ export class ZwdsService {
             this.formatSolarDate(profileA.birthDate),
             profileA.birthTime,
             profileA.gender.toLowerCase(),
+            undefined,
+            lunarOptionsA,
           ),
           this.generateChart(
             this.formatSolarDate(profileB.birthDate),
             profileB.birthTime,
             profileB.gender.toLowerCase(),
+            undefined,
+            lunarOptionsB,
           ),
         ]);
       } catch (err: unknown) {
@@ -730,7 +764,12 @@ export class ZwdsService {
           signal: AbortSignal.timeout(30000),
         }),
         // Generate ZWDS chart
-        this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), targetDate),
+        (() => {
+          const lunarOpts = profile.isLunarDate && profile.lunarBirthDate
+            ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
+            : undefined;
+          return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), targetDate, lunarOpts);
+        })(),
       ]);
 
       if (!baziResponse.ok) {
@@ -845,6 +884,10 @@ export class ZwdsService {
     const now = new Date();
     const targetDate = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
 
+    const deepLunarOptions = profile.isLunarDate && profile.lunarBirthDate
+      ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
+      : undefined;
+
     let chartData: ZwdsChartData;
     try {
       chartData = await this.generateChart(
@@ -852,6 +895,7 @@ export class ZwdsService {
         profile.birthTime,
         profile.gender.toLowerCase(),
         targetDate,
+        deepLunarOptions,
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';

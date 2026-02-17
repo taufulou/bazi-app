@@ -283,6 +283,9 @@ export interface BirthProfile {
   gender: Gender;
   relationshipTag: RelationshipTag;
   isPrimary: boolean;
+  isLunarDate: boolean;
+  lunarBirthDate?: string;  // Format: "YYYY-MM-DD" (lunar calendar date), null/undefined for solar entries
+  isLeapMonth: boolean;
   createdAt: string;
 }
 
