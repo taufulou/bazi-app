@@ -11,13 +11,16 @@
 export const BASE_SYSTEM_PROMPT = `你是一位擁有三十年以上實戰經驗的資深命理大師，精通八字命理學（四柱推命）。你的分析風格結合了傳統命理智慧與現代生活應用，用語專業但不晦澀，讓一般大眾也能理解。
 
 重要原則：
-1. 所有分析必須完全基於提供的八字排盤數據，不可捏造或猜測數據
+1. 所有分析必須完全基於提供的預分析結果和原始八字排盤數據，不可捏造或猜測數據
 2. 使用繁體中文回答（除非特別指定簡體中文）
-3. 分析要具體且有深度，避免空泛的通用描述
+3. 重點分析段落必須引用命主具體天干地支，概要段落可適當概括
 4. 結合天干地支、五行生剋、十神關係、大運流年進行綜合判斷
-5. 提供務實可行的建議，而非模糊的玄學說法
-6. 不要提及任何競爭對手或其他算命服務
-7. 回答時展現專業自信，但不過度武斷
+5. 預分析提供基礎框架，請根據整體命局靈活調整，避免機械套用單一規則
+6. 不要自行推導八字規則，使用系統提供的分析結論
+7. 提供務實可行的建議，而非模糊的玄學說法
+8. 趨勢預測而非絕對事件
+9. 不要提及任何競爭對手或其他算命服務
+10. 回答時展現專業自信，但不過度武斷
 
 你的分析必須嚴格按照指定的 JSON 格式輸出。`;
 
@@ -84,9 +87,19 @@ export const READING_PROMPTS: Record<string, {
 - 日支藏干：{{dayHidden}}
 - 時支藏干：{{hourHidden}}
 
+【柱位五行】
+{{pillarElements}}
+
+【十二長生】
+{{lifeStages}}
+
+【空亡】
+{{kongWang}}
+
 【日主分析】
 - 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
 - 旺衰：{{strength}}（{{strengthScore}}分）
+- 日主強度V2：{{strengthV2}}
 - 格局：{{pattern}}
 - 同黨：{{sameParty}}% / 異黨：{{oppositeParty}}%
 - 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}} / 仇神：{{enemyGod}}
@@ -102,6 +115,9 @@ export const READING_PROMPTS: Record<string, {
 
 【納音】
 年柱納音：{{yearNaYin}} / 日柱納音：{{dayNaYin}}
+
+【預分析結果】
+{{preAnalysis}}
 
 請依照以下分區輸出分析：
 sections 的 key 必須為：personality, career, love, finance, health`,
@@ -131,9 +147,19 @@ sections 的 key 必須為：personality, career, love, finance, health`,
 - 日柱：{{dayPillar}}（日主）
 - 時柱：{{hourPillar}}（{{hourTenGod}}）
 
+【柱位五行】
+{{pillarElements}}
+
+【十二長生】
+{{lifeStages}}
+
+【空亡】
+{{kongWang}}
+
 【日主分析】
 - 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
 - 旺衰：{{strength}} / 格局：{{pattern}}
+- 日主強度V2：{{strengthV2}}
 - 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}}
 
 【五行比例】
@@ -150,6 +176,9 @@ sections 的 key 必須為：personality, career, love, finance, health`,
 
 【神煞】
 {{shenSha}}
+
+【預分析結果】
+{{preAnalysis}}
 
 請依照以下分區輸出分析：
 sections 的 key 必須為：annual_overview, monthly_forecast, career_annual, love_annual, health_annual`,
@@ -179,9 +208,16 @@ sections 的 key 必須為：annual_overview, monthly_forecast, career_annual, l
 - 日柱：{{dayPillar}}（日主）
 - 時柱：{{hourPillar}}（{{hourTenGod}}）
 
+【柱位五行】
+{{pillarElements}}
+
+【十二長生】
+{{lifeStages}}
+
 【日主分析】
 - 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
 - 旺衰：{{strength}} / 格局：{{pattern}}
+- 日主強度V2：{{strengthV2}}
 - 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}}
 
 【十神分佈】
@@ -195,6 +231,9 @@ sections 的 key 必須為：annual_overview, monthly_forecast, career_annual, l
 
 【神煞】
 {{shenSha}}
+
+【預分析結果】
+{{preAnalysis}}
 
 請依照以下分區輸出分析：
 sections 的 key 必須為：career_analysis, favorable_industries, finance_analysis, wealth_strategy`,
@@ -227,9 +266,16 @@ sections 的 key 必須為：career_analysis, favorable_industries, finance_anal
 【藏干】
 - 日支藏干：{{dayHidden}}（配偶宮）
 
+【柱位五行】
+{{pillarElements}}
+
+【十二長生】
+{{lifeStages}}
+
 【日主分析】
 - 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
 - 旺衰：{{strength}} / 格局：{{pattern}}
+- 日主強度V2：{{strengthV2}}
 - 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}}
 
 【十神分佈】
@@ -240,6 +286,9 @@ sections 的 key 必須為：career_analysis, favorable_industries, finance_anal
 
 【神煞】
 {{shenSha}}
+
+【預分析結果】
+{{preAnalysis}}
 
 請依照以下分區輸出分析：
 sections 的 key 必須為：love_personality, ideal_partner, marriage_timing, relationship_advice`,
@@ -270,9 +319,16 @@ sections 的 key 必須為：love_personality, ideal_partner, marriage_timing, r
 - 日柱：{{dayPillar}}（日主）
 - 時柱：{{hourPillar}}（{{hourTenGod}}）
 
+【柱位五行】
+{{pillarElements}}
+
+【十二長生】
+{{lifeStages}}
+
 【日主分析】
 - 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
 - 旺衰：{{strength}}（{{strengthScore}}分）
+- 日主強度V2：{{strengthV2}}
 
 【五行比例】
 木：{{wood}}% / 火：{{fire}}% / 土：{{earth}}% / 金：{{metal}}% / 水：{{water}}%
@@ -282,6 +338,9 @@ sections 的 key 必須為：love_personality, ideal_partner, marriage_timing, r
 
 【大運】
 {{luckPeriods}}
+
+【預分析結果】
+{{preAnalysis}}
 
 請依照以下分區輸出分析：
 sections 的 key 必須為：constitution, organ_analysis, health_risks, wellness_advice`,
@@ -343,6 +402,12 @@ sections 的 key 必須為：constitution, organ_analysis, health_risks, wellnes
 【天干合】{{stemCombination}}
 【地支關係】{{branchRelationships}}
 【五行互補】{{elementComplementarity}}
+
+======== 甲方預分析 ========
+{{preAnalysisA}}
+
+======== 乙方預分析 ========
+{{preAnalysisB}}
 
 請依照以下分區輸出分析：
 sections 的 key 必須為：overall_compatibility, strengths, challenges, advice`,
@@ -908,4 +973,12 @@ export const STRENGTH_ZH: Record<string, string> = {
   neutral: '中和',
   strong: '偏強',
   very_strong: '極強',
+};
+
+export const STRENGTH_V2_ZH: Record<string, string> = {
+  very_weak: '極弱',
+  weak: '偏弱',
+  neutral: '中和',
+  strong: '偏強',
+  very_strong: '極旺',
 };

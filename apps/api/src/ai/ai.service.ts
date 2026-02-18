@@ -16,6 +16,7 @@ import {
   COMPARISON_TYPE_ZH,
   GENDER_ZH,
   STRENGTH_ZH,
+  STRENGTH_V2_ZH,
 } from './prompts';
 
 // ============================================================
@@ -713,6 +714,87 @@ export class AIService implements OnModuleInit {
       result = result.replace(/\{\{elementCounts\}\}/g, ecText);
     }
 
+    // Phase 11A: Life Stages summary
+    const lifeStagesSummary = data['lifeStagesSummary'] as Record<string, string> | undefined;
+    if (lifeStagesSummary) {
+      const lsText = ['year', 'month', 'day', 'hour']
+        .map((p) => {
+          const zh = { year: '年柱', month: '月柱', day: '日柱', hour: '時柱' }[p];
+          return `${zh}：${lifeStagesSummary[p] || '—'}`;
+        })
+        .join('、');
+      result = result.replace(/\{\{lifeStages\}\}/g, lsText);
+    } else {
+      result = result.replace(/\{\{lifeStages\}\}/g, '（資料未提供）');
+    }
+
+    // Phase 11A: Kong Wang summary
+    const kongWangSummary = data['kongWangSummary'] as string[] | string | undefined;
+    if (kongWangSummary) {
+      const kwText = Array.isArray(kongWangSummary)
+        ? kongWangSummary.join('、')
+        : String(kongWangSummary);
+      result = result.replace(/\{\{kongWang\}\}/g, kwText || '無空亡');
+    } else {
+      result = result.replace(/\{\{kongWang\}\}/g, '（資料未提供）');
+    }
+
+    // Phase 11A: Pillar Elements
+    const pillarElements = data['pillarElements'] as Record<string, Record<string, string>> | undefined;
+    if (pillarElements) {
+      const peText = ['year', 'month', 'day', 'hour']
+        .map((p) => {
+          const zh = { year: '年', month: '月', day: '日', hour: '時' }[p];
+          const pe = pillarElements[p];
+          if (!pe) return `${zh}：—`;
+          return `${zh}：${pe['stem']}(${pe['stemElement']}) ${pe['branch']}(${pe['branchElement']})`;
+        })
+        .join(' / ');
+      result = result.replace(/\{\{pillarElements\}\}/g, peText);
+    } else {
+      result = result.replace(/\{\{pillarElements\}\}/g, '（資料未提供）');
+    }
+
+    // Phase 11B: Strength V2
+    const preAnalysis = data['preAnalysis'] as Record<string, unknown> | undefined;
+    const strengthV2 = preAnalysis?.['strengthV2'] as Record<string, unknown> | undefined;
+    if (strengthV2) {
+      const classification = STRENGTH_V2_ZH[(strengthV2['classification'] as string) || ''] || '';
+      const score = strengthV2['score'] || 0;
+      const factors = strengthV2['factors'] as Record<string, number> | undefined;
+      const factorText = factors
+        ? `得令=${factors['deling']}、得地=${factors['dedi']}、得勢=${factors['deshi']}`
+        : '';
+      result = result.replace(/\{\{strengthV2\}\}/g,
+        `${classification}（${score}/100）[${factorText}]`);
+    } else {
+      result = result.replace(/\{\{strengthV2\}\}/g, '（資料未提供）');
+    }
+
+    // Phase 11C: Pre-Analysis (compressed format for AI consumption)
+    if (preAnalysis) {
+      const preAnalysisText = this.formatPreAnalysis(preAnalysis, readingType);
+      result = result.replace(/\{\{preAnalysis\}\}/g, preAnalysisText);
+    } else {
+      result = result.replace(/\{\{preAnalysis\}\}/g, '（本次分析未包含預分析數據）');
+    }
+
+    // Pre-analysis for compatibility charts (A/B)
+    const chartA = data['chartA'] as Record<string, unknown> | undefined;
+    const chartB = data['chartB'] as Record<string, unknown> | undefined;
+    if (chartA?.['preAnalysis']) {
+      result = result.replace(/\{\{preAnalysisA\}\}/g,
+        this.formatPreAnalysis(chartA['preAnalysis'] as Record<string, unknown>, readingType));
+    } else {
+      result = result.replace(/\{\{preAnalysisA\}\}/g, '（資料未提供）');
+    }
+    if (chartB?.['preAnalysis']) {
+      result = result.replace(/\{\{preAnalysisB\}\}/g,
+        this.formatPreAnalysis(chartB['preAnalysis'] as Record<string, unknown>, readingType));
+    } else {
+      result = result.replace(/\{\{preAnalysisB\}\}/g, '（資料未提供）');
+    }
+
     // ZWDS-specific fields
     if (readingType.startsWith('ZWDS_')) {
       result = this.interpolateZwdsFields(result, data, readingType);
@@ -805,6 +887,245 @@ export class AIService implements OnModuleInit {
     }
 
     return result;
+  }
+
+  // ============================================================
+  // Pre-Analysis Formatting (Phase 11C)
+  // ============================================================
+
+  /**
+   * Format the pre-analysis JSON into compressed Chinese text for AI consumption.
+   * Uses abbreviated format to minimize token usage (~200-300 tokens).
+   */
+  private formatPreAnalysis(
+    preAnalysis: Record<string, unknown>,
+    readingType: ReadingType,
+  ): string {
+    const lines: string[] = [];
+
+    // Summary line
+    const summary = preAnalysis['summary'] as string;
+    if (summary) {
+      lines.push(`命格概要：${summary}`);
+    }
+
+    // Key findings (high significance only to save tokens)
+    const keyFindings = preAnalysis['keyFindings'] as Array<Record<string, unknown>>;
+    if (keyFindings?.length) {
+      const highFindings = keyFindings
+        .filter((f) => f['significance'] === 'high' || f['significance'] === 'critical')
+        .map((f) => f['finding'] as string)
+        .filter(Boolean);
+      if (highFindings.length > 0) {
+        lines.push(`重要發現：${highFindings.join('；')}`);
+      }
+    }
+
+    // Stem combinations
+    const pillarRel = preAnalysis['pillarRelationships'] as Record<string, unknown>;
+    if (pillarRel) {
+      const stemCombos = pillarRel['stemCombinations'] as Array<Record<string, unknown>>;
+      if (stemCombos?.length) {
+        const comboText = stemCombos.map((c) => c['description'] as string).filter(Boolean).join('；');
+        lines.push(`天干合化：${comboText}`);
+      }
+
+      const stemClashes = pillarRel['stemClashes'] as Array<Record<string, unknown>>;
+      if (stemClashes?.length) {
+        const clashText = stemClashes.map((c) => c['description'] as string).filter(Boolean).join('；');
+        lines.push(`天干沖：${clashText}`);
+      }
+
+      // Branch relationships
+      const branchRel = pillarRel['branchRelationships'] as Record<string, unknown>;
+      if (branchRel) {
+        const branchParts: string[] = [];
+
+        const harmonies = branchRel['harmonies'] as Array<Record<string, unknown>>;
+        if (harmonies?.length) {
+          branchParts.push(harmonies.map((h) => h['description'] as string).filter(Boolean).join('、'));
+        }
+
+        const clashes = branchRel['clashes'] as Array<Record<string, unknown>>;
+        if (clashes?.length) {
+          branchParts.push(clashes.map((c) =>
+            `${c['description']}${c['pillarEffect'] ? `（${c['pillarEffect']}）` : ''}`
+          ).filter(Boolean).join('、'));
+        }
+
+        const tripleHarmonies = branchRel['tripleHarmonies'] as Array<Record<string, unknown>>;
+        if (tripleHarmonies?.length) {
+          branchParts.push(tripleHarmonies.map((t) => t['description'] as string).filter(Boolean).join('、'));
+        }
+
+        const threeMeetings = branchRel['threeMeetings'] as Array<Record<string, unknown>>;
+        if (threeMeetings?.length) {
+          branchParts.push(threeMeetings.map((m) => m['description'] as string).filter(Boolean).join('、'));
+        }
+
+        const punishments = branchRel['punishments'] as Array<Record<string, unknown>>;
+        if (punishments?.length) {
+          branchParts.push(punishments.map((p) => p['description'] as string).filter(Boolean).join('、'));
+        }
+
+        const harms = branchRel['harms'] as Array<Record<string, unknown>>;
+        if (harms?.length) {
+          branchParts.push(harms.map((h) => h['description'] as string).filter(Boolean).join('、'));
+        }
+
+        if (branchParts.length > 0) {
+          lines.push(`地支關係：${branchParts.join('；')}`);
+        }
+      }
+    }
+
+    // Ten God position analysis (top findings only)
+    const tenGodFindings = preAnalysis['tenGodPositionAnalysis'] as Array<Record<string, unknown>>;
+    if (tenGodFindings?.length) {
+      const topFindings = tenGodFindings
+        .slice(0, 6)  // limit to 6 most important
+        .map((f) => `${f['tenGod']}在${f['pillar']}柱（${f['meaning'] || ''}）`)
+        .filter(Boolean);
+      lines.push(`十神位置：${topFindings.join('；')}`);
+    }
+
+    // 透干 analysis
+    const tougan = preAnalysis['touganAnalysis'] as Array<Record<string, unknown>>;
+    if (tougan?.length) {
+      const touganText = tougan
+        .map((t) => `${t['stem']}${t['isTransparent'] ? '透干' : '藏而不透'}（${t['tenGod']}）`)
+        .filter(Boolean)
+        .join('、');
+      lines.push(`透干分析：${touganText}`);
+    }
+
+    // 從格
+    const congGe = preAnalysis['congGe'] as Record<string, unknown>;
+    if (congGe) {
+      lines.push(`特殊格局：${congGe['name']}（${congGe['description']}）`);
+    }
+
+    // 官殺混雜
+    const guanSha = preAnalysis['guanShaHunza'] as Record<string, unknown>;
+    if (guanSha) {
+      lines.push(`官殺混雜：${guanSha['description']}`);
+    }
+
+    // 用神合絆
+    const yongShenLocked = preAnalysis['yongShenLocked'] as Array<Record<string, unknown>>;
+    if (yongShenLocked?.length) {
+      lines.push(`用神合絆：${yongShenLocked.map((l) => l['description']).join('、')}`);
+    }
+
+    // 墓庫
+    const tombStorage = preAnalysis['tombStorage'] as Array<Record<string, unknown>>;
+    if (tombStorage?.length) {
+      lines.push(`墓庫：${tombStorage.map((t) => t['description'] as string).filter(Boolean).join('、')}`);
+    }
+
+    // Conflict resolution
+    const conflicts = preAnalysis['conflictResolution'] as Array<Record<string, unknown>>;
+    if (conflicts?.length) {
+      lines.push(`衝突調解：${conflicts.map((c) => c['resolution'] as string).filter(Boolean).join('；')}`);
+    }
+
+    // Domain-specific insights
+    const careerInsights = preAnalysis['careerInsights'] as Record<string, unknown>;
+    if (careerInsights) {
+      const industries = (careerInsights['suitableIndustries'] as string[])?.join('、') || '';
+      const workStyle = careerInsights['workStyle'] as string || '';
+      const useful = careerInsights['usefulElement'] as string || '';
+      lines.push(`事業方向：用神${useful}→${industries}（${workStyle}）`);
+    }
+
+    const loveInsights = preAnalysis['loveInsights'] as Record<string, unknown>;
+    if (loveInsights) {
+      const spouseStar = loveInsights['spouseStar'] as string || '';
+      const spousePalaceGod = loveInsights['spousePalaceGod'] as string || '';
+      const challenges = (loveInsights['challenges'] as string[])?.join('、') || '';
+      const loveLines: string[] = [];
+      if (spouseStar) loveLines.push(`配偶星=${spouseStar}`);
+      if (spousePalaceGod) loveLines.push(`配偶宮=${spousePalaceGod}`);
+      if (challenges) loveLines.push(`注意：${challenges}`);
+      if (loveLines.length > 0) {
+        lines.push(`感情提示：${loveLines.join('、')}`);
+      }
+    }
+
+    const healthInsights = preAnalysis['healthInsights'] as Record<string, unknown>;
+    if (healthInsights) {
+      const weakOrgans = (healthInsights['weakOrgans'] as string[])?.join('、') || '';
+      const warnings = (healthInsights['warnings'] as string[])?.join('、') || '';
+      const healthLines: string[] = [];
+      if (weakOrgans) healthLines.push(`弱臟腑：${weakOrgans}`);
+      if (warnings) healthLines.push(warnings);
+      if (healthLines.length > 0) {
+        lines.push(`健康提示：${healthLines.join('；')}`);
+      }
+    }
+
+    // Effective favorable gods (may differ from original if 從格)
+    const effectiveGods = preAnalysis['effectiveFavorableGods'] as Record<string, string>;
+    if (effectiveGods && congGe) {
+      lines.push(`從格用神：${effectiveGods['usefulGod']}（忌=${effectiveGods['tabooGod']}）`);
+    }
+
+    // Special day pillars (Phase 11D)
+    const specialDayPillars = preAnalysis['specialDayPillars'] as Array<Record<string, unknown>>;
+    if (specialDayPillars?.length) {
+      const sdpText = specialDayPillars
+        .map((s) => `${s['name']}：${s['effect'] || s['meaning']}`)
+        .filter(Boolean)
+        .join('；');
+      lines.push(`特殊日柱：${sdpText}`);
+    }
+
+    // Timing insights (Phase 11D)
+    const timingInsights = preAnalysis['timingInsights'] as Record<string, unknown>;
+    if (timingInsights) {
+      const timingLines: string[] = [];
+
+      const currentPeriod = timingInsights['currentPeriod'] as Record<string, unknown>;
+      if (currentPeriod) {
+        const periodInteractions = currentPeriod['interactions'] as Array<Record<string, unknown>>;
+        const intText = periodInteractions?.length
+          ? periodInteractions.slice(0, 3).map((i) => i['description'] as string).filter(Boolean).join('、')
+          : '無特殊互動';
+        timingLines.push(
+          `當前大運：${currentPeriod['stem']}${currentPeriod['branch']}`
+          + `（${currentPeriod['tenGod']}，${currentPeriod['startYear']}-${currentPeriod['endYear']}）`
+          + `→${intText}`
+        );
+      }
+
+      const currentYear = timingInsights['currentYear'] as Record<string, unknown>;
+      if (currentYear) {
+        const yearInteractions = currentYear['interactions'] as Array<Record<string, unknown>>;
+        const yIntText = yearInteractions?.length
+          ? yearInteractions.slice(0, 3).map((i) => i['description'] as string).filter(Boolean).join('、')
+          : '無特殊互動';
+        timingLines.push(
+          `目標流年：${currentYear['stem']}${currentYear['branch']}`
+          + `（${currentYear['tenGod']}）→${yIntText}`
+        );
+
+        const lpInt = currentYear['lpInteraction'] as Array<Record<string, unknown>>;
+        if (lpInt?.length) {
+          timingLines.push(`大運流年交互：${lpInt.map((i) => i['description'] as string).filter(Boolean).join('、')}`);
+        }
+      }
+
+      const sigFindings = timingInsights['significantFindings'] as Array<Record<string, unknown>>;
+      if (sigFindings?.length) {
+        timingLines.push(`時運重要事件：${sigFindings.map((f) => f['description'] as string).filter(Boolean).join('；')}`);
+      }
+
+      if (timingLines.length > 0) {
+        lines.push(`時運分析：${timingLines.join('；')}`);
+      }
+    }
+
+    return lines.join('\n') || '（預分析數據為空）';
   }
 
   // ============================================================

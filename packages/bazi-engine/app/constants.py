@@ -4,7 +4,7 @@ All lookup tables for deterministic Bazi calculation.
 Mirrors the TypeScript constants in packages/shared/src/constants.ts
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Set, Tuple
 
 # ============================================================
 # Heavenly Stems (天干) — 10 Stems
@@ -256,7 +256,7 @@ TIANYI_GUIREN: Dict[str, List[str]] = {
     '丁': ['亥', '酉'],
     '戊': ['丑', '未'],
     '己': ['子', '申'],
-    '庚': ['丑', '未'],
+    '庚': ['寅', '午'],  # Modern practice: "庚辛逢虎馬". Orthodox 《三命通會》: 庚→['丑','未']
     '辛': ['寅', '午'],
     '壬': ['卯', '巳'],
     '癸': ['卯', '巳'],
@@ -319,6 +319,156 @@ YANGREN: Dict[str, str] = {
 # Kong Wang (空亡) — Void, lookup by Day Pillar's Jiazi group
 # Each group of 10 Jiazi pairs shares the same two void branches
 # We compute void branches from the starting stem-branch pair of the Jiazi group
+
+# ============================================================
+# Phase 11D: Expanded Shen Sha (18 new types)
+# ============================================================
+
+# 紅鸞 (Hong Luan / Red Phoenix) — lookup by Year Branch
+# 愛情桃花、婚姻機緣、感情吸引力
+HONGLUAN: Dict[str, str] = {
+    '子': '卯', '丑': '寅', '寅': '丑', '卯': '子',
+    '辰': '亥', '巳': '戌', '午': '酉', '未': '申',
+    '申': '未', '酉': '午', '戌': '巳', '亥': '辰',
+}
+
+# 天喜 (Tian Xi / Heavenly Joy) — 紅鸞對沖位, lookup by Year Branch
+# 喜慶、正面事件、快樂場合
+TIANXI: Dict[str, str] = {
+    '子': '酉', '丑': '申', '寅': '未', '卯': '午',
+    '辰': '巳', '巳': '辰', '午': '卯', '未': '寅',
+    '申': '丑', '酉': '子', '戌': '亥', '亥': '戌',
+}
+
+# 天德貴人 (Tian De Gui Ren) — lookup by Month Branch, check pillar stems
+# 消災解難、逢凶化吉、貴人保護
+TIANDE: Dict[str, str] = {
+    '寅': '丁', '卯': '申', '辰': '壬', '巳': '辛',
+    '午': '亥', '未': '甲', '申': '癸', '酉': '寅',
+    '戌': '丙', '亥': '乙', '子': '巳', '丑': '庚',
+}
+
+# 月德貴人 (Yue De Gui Ren) — lookup by Month Branch (三合化氣)
+# 社交風度、和諧、家庭關係好
+YUEDE: Dict[str, str] = {
+    '寅': '丙', '午': '丙', '戌': '丙',
+    '申': '壬', '子': '壬', '辰': '壬',
+    '亥': '甲', '卯': '甲', '未': '甲',
+    '巳': '庚', '酉': '庚', '丑': '庚',
+}
+
+# 太極貴人 (Tai Ji Gui Ren) — lookup by Day Stem
+# 靈性智慧、哲學深度、神秘能力
+TAIJI: Dict[str, List[str]] = {
+    '甲': ['子', '午'], '乙': ['子', '午'],
+    '丙': ['卯', '酉'], '丁': ['卯', '酉'],
+    '戊': ['辰', '戌', '丑', '未'], '己': ['辰', '戌', '丑', '未'],
+    '庚': ['寅', '亥'], '辛': ['寅', '亥'],
+    '壬': ['巳', '申'], '癸': ['巳', '申'],
+}
+
+# 國印貴人 (Guo Yin Gui Ren) — lookup by Year Stem or Day Stem
+# 政府職位、官方權威、行政能力
+GUOYIN: Dict[str, str] = {
+    '甲': '戌', '乙': '亥', '丙': '丑', '丁': '寅',
+    '戊': '丑', '己': '寅', '庚': '辰', '辛': '巳',
+    '壬': '未', '癸': '申',
+}
+
+# 金輿 (Jin Yu / Golden Carriage) — lookup by Day Stem
+# 財富、車輛/交通、物質豐富
+JINYU: Dict[str, str] = {
+    '甲': '辰', '乙': '巳', '丙': '未', '丁': '申',
+    '戊': '未', '己': '申', '庚': '戌', '辛': '亥',
+    '壬': '丑', '癸': '寅',
+}
+
+# 天醫 (Tian Yi / Heavenly Doctor) — lookup by Month Branch
+# 醫療才能、治癒能力、健康運。適合醫療/諮詢職業
+TIANYI_DOCTOR: Dict[str, str] = {
+    '寅': '丑', '卯': '寅', '辰': '卯', '巳': '辰',
+    '午': '巳', '未': '午', '申': '未', '酉': '申',
+    '戌': '酉', '亥': '戌', '子': '亥', '丑': '子',
+}
+
+# 學堂 (Xue Tang / Academy) — lookup by Day Stem (長生位)
+# 教育、學習才能、研究能力、智力
+XUETANG: Dict[str, str] = {
+    '甲': '亥', '乙': '午', '丙': '寅', '丁': '酉',
+    '戊': '寅', '己': '酉', '庚': '巳', '辛': '子',
+    '壬': '申', '癸': '卯',
+}
+
+# 孤辰 (Gu Chen / Lonely Star) — lookup by Year Branch
+# 孤獨（男性）、婚姻困難、人際關係薄弱
+GUCHEN: Dict[str, str] = {
+    '亥': '寅', '子': '寅', '丑': '寅',
+    '寅': '巳', '卯': '巳', '辰': '巳',
+    '巳': '申', '午': '申', '未': '申',
+    '申': '亥', '酉': '亥', '戌': '亥',
+}
+
+# 寡宿 (Gua Su / Lonely Lodge) — lookup by Year Branch
+# 孤獨（女性）、感情困難、獨處傾向
+GUASU: Dict[str, str] = {
+    '亥': '戌', '子': '戌', '丑': '戌',
+    '寅': '丑', '卯': '丑', '辰': '丑',
+    '巳': '辰', '午': '辰', '未': '辰',
+    '申': '未', '酉': '未', '戌': '未',
+}
+
+# 災煞 (Zai Sha / Disaster Star) — lookup by Year Branch or Day Branch
+# 意外、災難、不幸、傷害
+ZAISHA: Dict[str, str] = {
+    '申': '午', '子': '午', '辰': '午',
+    '亥': '酉', '卯': '酉', '未': '酉',
+    '寅': '子', '午': '子', '戌': '子',
+    '巳': '卯', '酉': '卯', '丑': '卯',
+}
+
+# 劫煞 (Jie Sha / Robbery Star) — lookup by Year Branch or Day Branch
+# 搶劫、盜竊、損失、財務傷害、背叛
+JIESHA: Dict[str, str] = {
+    '申': '巳', '子': '巳', '辰': '巳',
+    '亥': '申', '卯': '申', '未': '申',
+    '寅': '亥', '午': '亥', '戌': '亥',
+    '巳': '寅', '酉': '寅', '丑': '寅',
+}
+
+# 亡神 (Wang Shen / Death God) — lookup by Year Branch or Day Branch
+# 損失、死亡、消亡、衰敗、結束
+WANGSHEN: Dict[str, str] = {
+    '申': '亥', '子': '亥', '辰': '亥',
+    '寅': '巳', '午': '巳', '戌': '巳',
+    '巳': '申', '酉': '申', '丑': '申',
+    '亥': '寅', '卯': '寅', '未': '寅',
+}
+
+# 天羅地網 (Tian Luo Di Wang / Sky Net & Earth Trap)
+# 戌亥 = 天羅 (especially for 火命); 辰巳 = 地網 (especially for 水命)
+TIANLUO_BRANCHES: Set[str] = {'戌', '亥'}
+DIWANG_BRANCHES: Set[str] = {'辰', '巳'}
+
+# ---- Day Pillar Special Combinations ----
+
+# 魁罡日 (Kui Gang) — only check Day Pillar (stem+branch)
+# 極端性格、全有或全無的命運、強大能量、領導力但婚姻摩擦
+KUIGANG_DAYS: Set[str] = {'庚辰', '庚戌', '壬辰', '戊戌'}
+
+# 陰陽差錯日 (Yin Yang Error Day) — only check Day Pillar
+# 婚姻不和、離婚風險、夫妻冷淡、人生逆轉
+YINYANG_ERROR_DAYS: Set[str] = {
+    '丙子', '丁丑', '戊寅', '辛卯', '壬辰', '癸巳',
+    '丙午', '丁未', '戊申', '辛酉', '壬戌', '癸亥',
+}
+
+# 十惡大敗日 (Shi E Da Bai) — only check Day Pillar
+# 完全失敗、難以成功、貧困、不幸
+# Corrected per 《三命通會》: 己丑 (NOT 乙丑)
+SHIE_DABAI_DAYS: Set[str] = {
+    '甲辰', '乙巳', '壬申', '丙申', '丁亥',
+    '庚辰', '戊戌', '癸亥', '辛巳', '己丑',
+}
 
 
 # ============================================================
@@ -703,14 +853,18 @@ MONTH_PROSPEROUS_ELEMENT: Dict[str, str] = {
     '辰': '土', '未': '土', '戌': '土', '丑': '土',  # Earth months
 }
 
-# Day Master strength score adjustments by month
-# 0 = dead season, 1 = very weak, 2 = weak, 3 = neutral, 4 = strong, 5 = prosperous
+# Day Master strength score by month — 旺相休囚死 (Five Qi States)
+# Source: 《子平真詮·論旺相休囚死》, 百度百科, 三命通會卷二
+# Rules: 当令者旺(5), 令生者相(4), 生令者休(3), 克令者囚(2), 令克者死(1)
+# Seasons: Spring(寅卯)=木, Summer(巳午)=火, Earth(辰未戌丑)=土, Autumn(申酉)=金, Winter(亥子)=水
+# Each column sums to 15 (one element per qi state per season)
 SEASON_STRENGTH: Dict[str, Dict[str, int]] = {
-    '木': {'寅': 5, '卯': 5, '辰': 2, '巳': 1, '午': 1, '未': 2, '申': 0, '酉': 0, '戌': 2, '亥': 4, '子': 4, '丑': 2},
-    '火': {'寅': 4, '卯': 4, '辰': 2, '巳': 5, '午': 5, '未': 2, '申': 1, '酉': 1, '戌': 2, '亥': 0, '子': 0, '丑': 2},
-    '土': {'寅': 1, '卯': 1, '辰': 5, '巳': 4, '午': 4, '未': 5, '申': 2, '酉': 2, '戌': 5, '亥': 1, '子': 1, '丑': 5},
-    '金': {'寅': 0, '卯': 0, '辰': 2, '巳': 1, '午': 1, '未': 2, '申': 5, '酉': 5, '戌': 2, '亥': 4, '子': 4, '丑': 2},
-    '水': {'寅': 1, '卯': 1, '辰': 2, '巳': 0, '午': 0, '未': 2, '申': 4, '酉': 4, '戌': 2, '亥': 5, '子': 5, '丑': 2},
+    #           寅(木) 卯(木) 辰(土) 巳(火) 午(火) 未(土) 申(金) 酉(金) 戌(土) 亥(水) 子(水) 丑(土)
+    '木': {'寅': 5, '卯': 5, '辰': 2, '巳': 3, '午': 3, '未': 2, '申': 1, '酉': 1, '戌': 2, '亥': 4, '子': 4, '丑': 2},
+    '火': {'寅': 4, '卯': 4, '辰': 3, '巳': 5, '午': 5, '未': 3, '申': 2, '酉': 2, '戌': 3, '亥': 1, '子': 1, '丑': 3},
+    '土': {'寅': 1, '卯': 1, '辰': 5, '巳': 4, '午': 4, '未': 5, '申': 3, '酉': 3, '戌': 5, '亥': 2, '子': 2, '丑': 5},
+    '金': {'寅': 2, '卯': 2, '辰': 4, '巳': 1, '午': 1, '未': 4, '申': 5, '酉': 5, '戌': 4, '亥': 3, '子': 3, '丑': 4},
+    '水': {'寅': 3, '卯': 3, '辰': 1, '巳': 2, '午': 2, '未': 1, '申': 4, '酉': 4, '戌': 1, '亥': 5, '子': 5, '丑': 1},
 }
 
 # ============================================================
