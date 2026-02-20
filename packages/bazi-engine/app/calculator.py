@@ -30,15 +30,21 @@ from .five_elements import (
     calculate_element_counts,
     determine_favorable_gods,
 )
-from .shen_sha import apply_shen_sha_to_pillars, get_all_shen_sha
+from .shen_sha import apply_shen_sha_to_pillars, detect_special_day_pillars, get_all_shen_sha
 from .life_stages import apply_life_stages_to_pillars
 from .luck_periods import (
     calculate_annual_stars,
     calculate_luck_periods,
     calculate_monthly_stars,
 )
+from .timing_analysis import (
+    analyze_timing_for_annual_stars,
+    analyze_timing_for_luck_periods,
+    generate_timing_insights,
+)
 from .compatibility import calculate_compatibility
-from .constants import PATTERN_TYPES, STEM_ELEMENT
+from .constants import BRANCH_ELEMENT, PATTERN_TYPES, STEM_ELEMENT
+from .interpretation_rules import generate_pre_analysis
 
 
 def calculate_bazi(
@@ -50,6 +56,7 @@ def calculate_bazi(
     birth_longitude: Optional[float] = None,
     birth_latitude: Optional[float] = None,
     target_year: Optional[int] = None,
+    reading_type: Optional[str] = None,
 ) -> Dict:
     """
     Calculate a complete Bazi chart from birth data.
@@ -65,6 +72,7 @@ def calculate_bazi(
         birth_longitude: Optional pre-provided longitude
         birth_latitude: Optional pre-provided latitude
         target_year: Target year for annual readings (default: current year)
+        reading_type: NestJS reading type enum (e.g., 'LIFETIME', 'CAREER_FINANCE')
 
     Returns:
         Complete Bazi calculation result matching BaziCalculationResult TypeScript interface
@@ -147,11 +155,47 @@ def calculate_bazi(
         day_master_stem=day_master_stem,
     )
 
+    # Step 13: Timing Analysis — enrich luck periods and annual stars
+    luck_periods = analyze_timing_for_luck_periods(
+        natal_pillars=pillars,
+        luck_periods=luck_periods,
+        day_master_stem=day_master_stem,
+    )
+    annual_stars = analyze_timing_for_annual_stars(
+        natal_pillars=pillars,
+        annual_stars=annual_stars,
+        luck_periods=luck_periods,
+        day_master_stem=day_master_stem,
+    )
+    timing_insights = generate_timing_insights(
+        natal_pillars=pillars,
+        luck_periods=luck_periods,
+        annual_stars=annual_stars,
+        day_master_stem=day_master_stem,
+        target_year=target_year,
+    )
+
+    # Step 14: Special Day Pillar detection (魁罡日, 陰陽差錯日, 十惡大敗日)
+    special_day_pillars = detect_special_day_pillars(day_master_stem, day_master_branch)
+
+    # Step 15: Generate Pre-Analysis (Layer 2 — deterministic rules)
+    pre_analysis = generate_pre_analysis(
+        pillars=pillars,
+        day_master_stem=day_master_stem,
+        five_elements_balance=five_elements_balance,
+        favorable_gods=favorable_gods,
+        reading_type=reading_type or 'LIFETIME',
+        gender=gender,
+        timing_insights=timing_insights,
+        special_day_pillars=special_day_pillars,
+    )
+
     # Build the complete result
     day_master_result = {
         **day_master_analysis,
         **favorable_gods,
         'pattern': pattern,
+        'strengthScoreV2': pre_analysis['strengthV2'],
     }
 
     # Convert five elements balance to English keys for TypeScript compatibility
@@ -161,6 +205,22 @@ def calculate_bazi(
         'earth': five_elements_balance.get('土', 0),
         'metal': five_elements_balance.get('金', 0),
         'water': five_elements_balance.get('水', 0),
+    }
+
+    # Summary fields for AI consumption (Phase 11A)
+    life_stages_summary = {
+        pname: pillars[pname].get('lifeStage', '')
+        for pname in ['year', 'month', 'day', 'hour']
+    }
+
+    pillar_elements = {
+        pname: {
+            'stem': pillars[pname]['stem'],
+            'stemElement': STEM_ELEMENT.get(pillars[pname]['stem'], ''),
+            'branch': pillars[pname]['branch'],
+            'branchElement': BRANCH_ELEMENT.get(pillars[pname]['branch'], ''),
+        }
+        for pname in ['year', 'month', 'day', 'hour']
     }
 
     result = {
@@ -185,6 +245,14 @@ def calculate_bazi(
             'day': pillar_data['dayGanZhi'],
             'hour': pillar_data['hourGanZhi'],
         },
+        # Phase 11: Pre-analysis layer + summary fields
+        'preAnalysis': pre_analysis,
+        'lifeStagesSummary': life_stages_summary,
+        'kongWangSummary': kong_wang,
+        'pillarElements': pillar_elements,
+        # Phase 11D: Timing analysis + special day pillars
+        'timingInsights': timing_insights,
+        'specialDayPillars': special_day_pillars,
     }
 
     return result

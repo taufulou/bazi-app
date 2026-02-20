@@ -193,14 +193,16 @@ export class BaziService {
       }
     }
 
+    // Cache hit: no credit deduction (user already paid for this interpretation)
     // Master tier: no credit deduction at all (creditsUsed: 0)
     // Free trial: claim free reading (creditsUsed: 0)
     // Regular: deduct service.creditCost credits
-    const creditsUsed = (isMaster || canUseFreeTrial) ? 0 : service.creditCost;
+    const fromCache = !!cachedInterpretation;
+    const creditsUsed = (fromCache || isMaster || canUseFreeTrial) ? 0 : service.creditCost;
 
     const reading = await this.prisma.$transaction(async (tx) => {
-      if (isMaster) {
-        // Master tier: no credit deduction, no free trial claim
+      if (fromCache || isMaster) {
+        // Cache hit or Master tier: no credit deduction
         // Just proceed to create reading
       } else if (canUseFreeTrial) {
         // Atomically claim the free reading — only succeeds if not already used
@@ -240,7 +242,7 @@ export class BaziService {
       });
     });
 
-    return reading;
+    return { ...reading, fromCache };
   }
 
   async getReading(clerkUserId: string, readingId: string) {

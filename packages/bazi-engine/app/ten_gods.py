@@ -164,8 +164,12 @@ def get_prominent_ten_god(pillars: Dict, day_master_stem: str) -> str:
     Determine the most prominent Ten God in the chart.
     Used for pattern (格局) determination.
 
-    Priority: Month pillar's hidden stem main qi (本氣) >
-              Month pillar stem > others
+    Priority (per《子平真詮》— "月支之神，透干者取之"):
+      1. Month branch hidden stems that 透干 (appear as manifest stems in
+         year/month/hour pillars) — the transparent god takes priority
+      2. Month branch main qi (本氣) if no hidden stem is transparent
+      3. Month pillar stem
+      4. Fallback: most frequent Ten God
 
     Args:
         pillars: The four pillars
@@ -177,13 +181,23 @@ def get_prominent_ten_god(pillars: Dict, day_master_stem: str) -> str:
     month_branch = pillars['month']['branch']
     month_stem = pillars['month']['stem']
 
-    # First check month branch's main hidden stem (本氣)
+    # Collect all manifest stems (year/month/hour — skip day stem which is Day Master)
+    manifest_stems = set()
+    for pname in ('year', 'month', 'hour'):
+        manifest_stems.add(pillars[pname]['stem'])
+
+    # Check month branch hidden stems for 透干 (transparency) — Source: 《子平真詮·論格局》
     month_hidden = HIDDEN_STEMS.get(month_branch, [])
+    for hidden_stem in month_hidden:
+        if hidden_stem in manifest_stems:
+            god = derive_ten_god(day_master_stem, hidden_stem)
+            if god not in ('比肩', '劫財'):
+                return god
+
+    # No transparent hidden stem found — use 本氣 directly
     if month_hidden:
         main_qi_stem = month_hidden[0]  # First hidden stem = 本氣
         main_qi_god = derive_ten_god(day_master_stem, main_qi_stem)
-        # If main qi is not 比肩 or 劫財 (same element as Day Master),
-        # it's the pattern-defining god
         if main_qi_god not in ('比肩', '劫財'):
             return main_qi_god
 
