@@ -69,7 +69,7 @@ python -m pytest tests/ -v                                  # Run 121 tests
 ## Bazi Engine Details
 - **Port**: 5001 (port 5000 is used by macOS AirPlay)
 - **Performance**: ~3ms per chart calculation (target was <50ms)
-- **True Solar Time**: Longitude correction + Equation of Time (Spencer's formula) + DST detection for historical dates (e.g., China DST 1986-1991)
+- **True Solar Time**: Code exists for longitude correction + Equation of Time (Spencer's formula) + DST detection, but is **DISABLED by default** — pillar calculations use wall clock time to match all major platforms (科技紫微網, 先知命局, 靈機八字). TST data is still computed and returned in output for informational purposes. Can be re-enabled in `four_pillars.py` for future opt-in.
 - **立春 Year Boundary**: Overrides cnlunar's Lunar New Year boundary with astronomically-computed 立春 using ephem library. Critical for accuracy.
 - **Month Stem Recalculation**: After year correction, month stem is recalculated via 五虎遁月 rule for consistency
 - **City Coordinates**: 60+ pre-coded cities (Taiwan, HK, Malaysia, China, Singapore, etc.) with fallback to user-provided lat/lng
@@ -1151,4 +1151,4 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/  # Next.js (expect
 - **AI readings**: Bazi AI interpretation is fully working (Claude Sonnet 4, validated 100% accuracy). ZWDS AI readings still use mock data on frontend until ZWDS prompts receive the same anti-hallucination treatment. AI interpretation requires API keys in `apps/api/.env`
 - **Sentry**: `@sentry/nextjs` is in next.config.js but runs silently when no SENTRY_AUTH_TOKEN is set
 - **@repo/shared runtime issue**: NestJS files must NOT import from `@repo/shared` at runtime — inline constants instead. See "Worktree Development Guide" above.
-- **ZWDS missing True Solar Time**: The ZWDS engine (iztro via `/api/zwds-calculate`) does NOT use city/longitude for True Solar Time correction — it takes wall clock time directly as the 時辰. The Bazi engine correctly applies TST via `solar_time.py`. Future task: before calling iztro, convert user's birth time to True Solar Time using the city longitude, then derive the iztro time index from the corrected time. Without this fix, ZWDS charts for western China (e.g., 烏魯木齊, 拉薩) may use the wrong 時辰.
+- **True Solar Time disabled**: Both Bazi and ZWDS engines currently use **wall clock time** (standard timezone time) for pillar calculations, matching all major platforms. TST code is preserved in `solar_time.py` and still computed for informational output, but not used for pillar determination. If TST is re-enabled in the future as an opt-in feature, the ZWDS engine (iztro) would also need TST integration — currently iztro takes wall clock time directly as the 時辰.
