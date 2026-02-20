@@ -5,10 +5,10 @@ Shen Sha are special stars derived from various relationships between
 the Day Pillar and other pillars. They indicate auspicious or inauspicious
 influences on the person's destiny.
 
-26 types implemented (Phase 11D expansion from original 8):
+27 types implemented (Phase 11D expansion from original 8, +福星貴人):
 
 Group 1 — Major Auspicious:
-  天乙貴人, 紅鸞, 天喜, 文昌, 將星, 祿神, 華蓋, 驛馬, 桃花, 羊刃
+  天乙貴人, 紅鸞, 天喜, 文昌, 將星, 祿神, 華蓋, 驛馬, 桃花, 羊刃, 福星貴人
 
 Group 2 — Second-Tier Auspicious:
   天德貴人, 月德貴人, 太極貴人, 國印貴人, 金輿, 天醫, 學堂
@@ -29,6 +29,7 @@ from .constants import (
     BRANCH_INDEX,
     DIWANG_BRANCHES,
     EARTHLY_BRANCHES,
+    FUXING,
     GUCHEN,
     GUASU,
     GUOYIN,
@@ -94,6 +95,7 @@ def calculate_shen_sha_for_pillar(
     pillar_name: str,
     pillar_branch: str,
     pillar_stem: str,
+    year_stem: str = '',  # For Year Stem-based lookups (文昌, 學堂, 福星貴人)
 ) -> List[str]:
     """
     Calculate all Shen Sha (神煞) that apply to a given pillar.
@@ -106,6 +108,7 @@ def calculate_shen_sha_for_pillar(
         pillar_name: Name of the pillar ('year', 'month', 'day', 'hour')
         pillar_branch: The pillar's Earthly Branch to check
         pillar_stem: The pillar's Heavenly Stem to check
+        year_stem: Year Heavenly Stem (for dual Day+Year Stem lookups, default '' for backward compat)
 
     Returns:
         List of Shen Sha names that are present in this pillar
@@ -128,8 +131,10 @@ def calculate_shen_sha_for_pillar(
     if pillar_branch == TIANXI.get(year_branch, ''):
         sha_list.append('天喜')
 
-    # 文昌 (Wen Chang / Academic Star) — lookup by Day Stem → check branch
-    if pillar_branch == WENCHANG.get(day_stem, ''):
+    # 文昌 (Wen Chang / Academic Star) — lookup by Day Stem AND Year Stem → check branch
+    # Dual lookup per mainstream practice (元亨利貞網 and most modern Bazi software)
+    if pillar_branch == WENCHANG.get(day_stem, '') or \
+       (year_stem and pillar_branch == WENCHANG.get(year_stem, '')):
         sha_list.append('文昌')
 
     # 將星 (Jiang Xing / General Star) — lookup by Year/Day Branch → check branch
@@ -137,7 +142,10 @@ def calculate_shen_sha_for_pillar(
        pillar_branch == JIANGXING.get(day_branch, ''):
         sha_list.append('將星')
 
-    # 祿神 (Lu Shen / Prosperity) — lookup by Day Stem → check branch
+    # 祿神 (Lu Shen / Prosperity) — lookup by Day Stem ONLY → check branch
+    # Orthodox method: "以日干查四支" (百度百科, 《三命通會》, 元亨利貞網 article)
+    # Note: 元亨利貞網's排盤 also shows [年干]禄神 as supplementary "干禄" info,
+    # but the standard 神煞 lookup is Day Stem only (unlike 文昌/學堂 which use both).
     if pillar_branch == LUSHEN.get(day_stem, ''):
         sha_list.append('祿神')
 
@@ -159,6 +167,12 @@ def calculate_shen_sha_for_pillar(
     # 羊刃 (Yang Ren / Blade) — lookup by Day Stem → check branch
     if pillar_branch == YANGREN.get(day_stem, ''):
         sha_list.append('羊刃')
+
+    # 福星貴人 (Fu Xing / Fortune Star) — lookup by Year Stem (primary) AND Day Stem (secondary)
+    # Source: 《三命通會》卷六 — Year Stem is the canonical lookup method
+    if pillar_branch in FUXING.get(year_stem, []) or \
+       pillar_branch in FUXING.get(day_stem, []):
+        sha_list.append('福星貴人')
 
     # ================================================================
     # Group 2: Second-Tier Auspicious Stars
@@ -195,8 +209,10 @@ def calculate_shen_sha_for_pillar(
     if pillar_branch == TIANYI_DOCTOR.get(month_branch, ''):
         sha_list.append('天醫')
 
-    # 學堂 (Xue Tang / Academy) — lookup by Day Stem → check branch
-    if pillar_branch == XUETANG.get(day_stem, ''):
+    # 學堂 (Xue Tang / Academy) — lookup by Day Stem AND Year Stem → check branch
+    # Dual lookup per mainstream practice
+    if pillar_branch == XUETANG.get(day_stem, '') or \
+       (year_stem and pillar_branch == XUETANG.get(year_stem, '')):
         sha_list.append('學堂')
 
     # ================================================================
@@ -300,6 +316,7 @@ def apply_shen_sha_to_pillars(
     """
     kong_wang = calculate_kong_wang(day_stem, day_branch)
     year_branch = pillars['year']['branch']
+    year_stem = pillars['year']['stem']  # For Year Stem-based Shen Sha lookups
     month_branch = pillars['month']['branch']
 
     for pillar_name in ['year', 'month', 'day', 'hour']:
@@ -312,6 +329,7 @@ def apply_shen_sha_to_pillars(
             pillar_name=pillar_name,
             pillar_branch=pillar['branch'],
             pillar_stem=pillar['stem'],
+            year_stem=year_stem,
         )
         pillar['shenSha'] = sha
 

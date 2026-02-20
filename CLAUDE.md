@@ -39,7 +39,7 @@ packages/
       stem_combinations.py — 天干合化 (5 pairs) + 天干七沖 (4 opposition pairs)
       branch_relationships.py — 地支關係 (六合/六沖/三合/三會/三刑/六害/六破 + 自刑 + 半合)
       timing_analysis.py — 歲運並臨/伏吟/反吟/天剋地沖 + 大運×natal + 流年×natal interactions
-    tests/            — 438 tests (121 original + 210 Phase 11B + 107 Phase 11D), all passing
+    tests/            — 451 tests (121 original + 210 Phase 11B + 107 Phase 11D + 12 Shen Sha fixes + 1 skip), all passing
   ui/           — Shared React UI components
   eslint-config/ — Shared ESLint config
   typescript-config/ — Shared TS configs
@@ -284,17 +284,108 @@ Future (not yet wired):
 ## AI Interpretation Layer
 - **Three-layer architecture**: (1) Python Bazi Engine → raw chart data, (2) Python Pre-Analysis Layer → deterministic rule-based interpretation, (3) AI Narration → Claude/GPT writes compelling narrative from pre-analyzed results
 - **Core principle**: Don't rely on AI to "know" Bazi rules. Compute interpretive insights deterministically, then let AI narrate them. This eliminates hallucination and ensures consistency.
-- **Provider chain**: Claude Sonnet 4.5 (primary) → GPT-4o (fallback) → Gemini 2.0 Flash (fallback)
+- **Provider chain**: Claude Sonnet 4 (primary) → GPT-4o (fallback) → Gemini 2.0 Flash (fallback)
 - **Prompt system**: 6 Bazi + 10 ZWDS + 2 special reading-specific system prompts with template interpolation
 - **Pre-analysis output**: `preAnalysis` JSON with keyFindings, pillarRelationships, tenGodPositionAnalysis, careerInsights, loveInsights, healthInsights, timingInsights
 - **Output format**: Structured JSON with `sections[key].preview` (free users) / `.full` (subscribers)
+- **max_tokens**: 8192 (increased from 4096 to allow full-length readings ~3500-4000 chars across 5 sections)
 - **Caching**: SHA-256 hash of (birthDate + birthTime + city + gender + readingType + targetYear + targetMonth + targetDay + questionText) → Redis (24h) + DB (30d)
 - **Cost tracking**: Every AI call logged to `ai_usage_log` table (tokens, cost, latency, provider)
-- **Admin override**: PromptTemplate DB table allows editing prompts per reading type + provider without deploy
+- **Admin override**: PromptTemplate DB table allows editing prompts per reading type + provider without deploy. **⚠️ CRITICAL: DB templates were deactivated (all 48 rows set `is_active=false`) because they used wrong placeholders (`{{calculation_data}}`) that `interpolateTemplate()` doesn't recognize. If re-activating DB templates, they MUST use the correct placeholders (see "Prompt Placeholder Reference" below).**
 - **Admin AI costs page**: `/admin/ai-costs` shows 30-day aggregates, provider breakdown, daily chart
 - **Graceful degradation**: If all AI providers fail, reading is saved with calculationData only (no AI text)
-- **Current status**: AI keys empty in `.env` — chart calculation works, AI interpretation uses mock data
+- **Current status**: AI interpretation fully working with Claude Sonnet 4. Validated 100% accuracy on real readings.
 - **Tests**: 48 tests for prompts, response parsing, caching, hash generation, provider initialization
+
+### AI Prompt Engineering — Lessons Learned & Rules
+
+These hard-won findings from debugging real AI readings (Roger5-Roger8) must be preserved for future prompt work.
+
+#### Critical Bug History
+| Reading | Bug | Root Cause | Fix |
+|---|---|---|---|
+| Roger5 | AI fabricated wrong pillars (甲 as month stem, 丙 as hour stem) | No anti-hallucination rules in prompt; AI "computed" its own pillars | Added "絕對禁止" + "天干與藏干的區別" sections to BASE_SYSTEM_PROMPT |
+| Roger6 | "please provide data" — empty AI output | DB `prompt_templates` (48 rows) overrode hardcoded prompts with wrong placeholders | Deactivated all 48 DB templates (`is_active=false`) |
+| Roger7 | Used "偏強" instead of correct "中和" | Two conflicting strength fields: legacy `strength=strong` vs V2 `classification=neutral`; AI picked legacy | Reordered V2 first with ⚠️ marker; added "日主強弱判定規則" constraint |
+| Roger8 | ✅ 100% accuracy (58/58 checks) | All fixes applied | — |
+
+#### Anti-Hallucination Rules (in `prompts.ts` BASE_SYSTEM_PROMPT)
+The AI WILL fabricate Bazi data if not explicitly constrained. These rules are MANDATORY:
+
+1. **"絕對禁止" section** — 5 absolute prohibitions:
+   - Never compute/modify Four Pillars (must use provided data verbatim)
+   - Never promote hidden stems (藏干) to manifest stems (天干)
+   - Never fabricate stem+branch combinations
+
+2. **"天干與藏干的區別" section** — Prevents the #1 hallucination pattern:
+   - Only 4 manifest stems exist (年干/月干/日干/時干)
+   - Hidden stems must be labeled "藏於X支"
+   - 格局 is defined by month branch hidden stem (e.g., 申中藏庚→食神格), but 庚 is NOT the month stem
+   - "透干" status must match the preAnalysis `touganAnalysis` list exactly
+
+3. **"日主強弱判定規則" section** — Prevents strength misclassification:
+   - V2 strength (marked with ⚠️) takes absolute priority over legacy strength
+   - AI must use the exact V2 classification term (極弱/偏弱/中和/偏強/極旺)
+   - AI must NEVER override or "reinterpret" the system's strength assessment
+
+4. **"驗證規則" section** — Cross-check rule:
+   - Every pillar reference must match 【四柱排盤】 data exactly
+   - Year/month/day/hour pillar references are individually constrained
+
+#### Prompt Placeholder Reference
+`interpolateTemplate()` in `ai.service.ts` recognizes these placeholders (and ONLY these):
+```
+{{gender}}, {{birthDate}}, {{birthTime}}, {{lunarDate}}, {{trueSolarTime}}
+{{yearPillar}}, {{monthPillar}}, {{dayPillar}}, {{hourPillar}}
+{{yearTenGod}}, {{monthTenGod}}, {{hourTenGod}}
+{{yearHidden}}, {{monthHidden}}, {{dayHidden}}, {{hourHidden}}
+{{pillarElements}}, {{lifeStages}}, {{kongWang}}
+{{dayMaster}}, {{dayMasterElement}}, {{dayMasterYinYang}}
+{{strength}}, {{strengthScore}}, {{strengthV2}}
+{{pattern}}, {{sameParty}}, {{oppositeParty}}
+{{favorableGod}}, {{usefulGod}}, {{tabooGod}}, {{enemyGod}}
+{{wood}}, {{fire}}, {{earth}}, {{metal}}, {{water}}
+{{luckPeriods}}, {{shenSha}}, {{yearNaYin}}, {{dayNaYin}}
+{{preAnalysis}}
+```
+**⚠️ NEVER use `{{calculation_data}}`, `{{name}}`, `{{birth_date}}` — these are NOT recognized and will pass through as literal text, causing the AI to receive no data.**
+
+#### DB Prompt Template Override Behavior
+`buildPrompt()` in `ai.service.ts` (line ~520-531) checks `prompt_templates` DB table FIRST. If an active template exists for the reading type + provider, it COMPLETELY OVERRIDES the hardcoded prompt in `prompts.ts`. This means:
+- DB templates must use the exact same `{{placeholder}}` names as listed above
+- If DB templates have wrong placeholders, AI receives literal `{{calculation_data}}` text instead of actual data
+- Current state: all 48 DB templates are `is_active=false` — system uses hardcoded `prompts.ts` (which is correct and validated)
+- If re-enabling DB templates: copy placeholder format from `prompts.ts` LIFETIME template as reference
+
+#### Output Quality Factors
+These settings collectively ensure high-quality, detailed AI readings (~3500-4000 chars total):
+| Factor | Setting | Location |
+|---|---|---|
+| Token budget | `max_tokens: 8192` | `ai.service.ts` |
+| Per-section length | "full 約500-800字" | `prompts.ts` OUTPUT_FORMAT_INSTRUCTIONS |
+| Minimum length | "至少 300 字 per section" | `prompts.ts` OUTPUT_FORMAT_INSTRUCTIONS |
+| Rich input data | preAnalysis JSON (~200-300 tokens) | `interpretation_rules.py` → `ai.service.ts` `formatPreAnalysis()` |
+| Specificity | Anti-hallucination rules force data citation | `prompts.ts` BASE_SYSTEM_PROMPT |
+
+#### Validation Methodology
+When testing AI reading accuracy, run a comprehensive check covering:
+1. **Structure**: JSON has all expected sections with preview/full, each full ≥300 chars
+2. **Four Pillars**: All 4 correct pillars present, no fabricated pillars
+3. **Stem attribution**: Month/hour stems match data, hidden stems not promoted
+4. **Strength classification**: Uses V2 term (中和/偏強/etc.), no legacy override
+5. **Ten Gods & Pattern**: Correct 格局, correct Ten God per pillar
+6. **Luck periods**: Referenced from data, not fabricated
+7. **透干 handling**: Matches preAnalysis touganAnalysis list
+8. **Anti-hallucination**: No "please provide", no English, no markdown fences
+See `/tmp/validate_roger8.mjs` for a full 58-check validation script template.
+
+#### Cache Clearing After Prompt Changes
+After ANY prompt modification, you MUST clear both cache layers or users will get stale readings:
+```bash
+redis-cli FLUSHALL
+/opt/homebrew/opt/postgresql@15/bin/psql -U bazi_user -d bazi_platform -c "DELETE FROM reading_cache;"
+```
+Then rebuild NestJS: `cd apps/api && ../../node_modules/.bin/nest build`
 
 ## Bazi Interpretation Enhancement Strategy (Phase 11)
 
@@ -359,7 +450,7 @@ Layer 3: AI Narration (enhanced prompts)
   - Runs BEFORE determine_favorable_gods()
 
 #### Tier 2 (Significant Depth)
-- **Shen Sha expansion** (8 → 26 types): Add 紅鸞, 天喜, 天德貴人, 月德貴人, 太極貴人, 國印貴人, 金輿, 天醫, 學堂, 孤辰, 寡宿, 災煞, 劫煞, 亡神, 天羅/地網, 魁罡日, 陰陽差錯日, 十惡大敗日. All have exact lookup tables.
+- **Shen Sha expansion** (8 → 27 types): Add 紅鸞, 天喜, 天德貴人, 月德貴人, 太極貴人, 國印貴人, 金輿, 天醫, 學堂, 孤辰, 寡宿, 災煞, 劫煞, 亡神, 天羅/地網, 魁罡日, 陰陽差錯日, 十惡大敗日, 福星貴人. All have exact lookup tables. 文昌 and 學堂 now check both Day Stem and Year Stem (dual-lookup per mainstream practice, matching 元亨利貞網). This is an enhancement to align with the broader school — the Day-Stem-only school is also valid but less common in modern software. 國印貴人 Year Stem dual-lookup deferred pending 《三命通會》verification.
 - **Special day pillar detection**: 魁罡日 (庚辰/庚戌/壬辰/戊戌), 陰陽差錯日 (12 days), 十惡大敗日 (10 days — 己丑 not 乙丑, confirmed by mathematical proof and 《三命通會》).
 - **Timing analysis with natal chart interaction**: 歲運並臨, 天剋地沖, 伏吟/反吟 + 大運 branch × natal branches (六沖/六合/三合/六害) + 流年 stem × natal stems (天干合/天干沖) + 大運 × 流年 interaction.
 - **Gender-aware Ten God position rules**: Split 40-rule table into male/female versions. Key: Female 正官=husband, 七殺=romance (opposite of male). 官殺混雜 (female only) = severe marriage warning.
@@ -390,13 +481,20 @@ Complete 40-rule database documented in `/Users/roger/.claude/plans/optimized-wa
 - **Health by Five Elements**: 木→肝膽, 火→心小腸, 土→脾胃, 金→肺大腸, 水→腎膀胱 (excess/deficiency symptoms)
 - **Love indicators**: Male: 正財=wife, 偏財=romance; Female: 正官=husband, 偏官=romance; 日支=spouse palace
 
-### AI Prompt Constraints (updated per Phase 11C + reviews)
-1. "所有分析必須完全基於提供的預分析結果和原始數據"
-2. "不要自行推導八字規則，使用系統提供的分析結論"
-3. "重點分析段落必須引用命主具體天干地支，概要段落可適當概括"
-4. "趨勢預測而非絕對事件"
-5. "full 每section至少300字，總計1500-3000字"
-6. "預分析提供基礎框架，但請根據整體命局靈活調整，避免機械套用單一規則"
+### AI Prompt Constraints (updated per Phase 11C + prompt engineering fixes)
+**System prompt rules (BASE_SYSTEM_PROMPT in prompts.ts):**
+1. "絕對不可以自行推算四柱天干地支" — must use provided data verbatim
+2. "絕對不可以將藏干當作天干使用" — hidden stems ≠ manifest stems
+3. "數據中標有⚠️的日主強弱欄位是最終結論" — V2 strength takes absolute priority
+4. "只有在透干清單中被標為透干的才算透干" — no guessing transparency
+5. "驗證規則：提到任何天干地支必須確認與四柱排盤完全一致"
+
+**Content rules:**
+6. "所有分析必須完全基於提供的預分析結果和原始數據"
+7. "重點分析段落必須引用命主具體天干地支，概要段落可適當概括"
+8. "趨勢預測而非絕對事件"
+9. "full 每section約500-800字，至少300字"
+10. "預分析提供基礎框架，但請根據整體命局靈活調整，避免機械套用單一規則"
 
 ### Implementation Priority
 | Phase | What | Impact | Effort |
@@ -404,7 +502,7 @@ Complete 40-rule database documented in `/Users/roger/.claude/plans/optimized-wa
 | A | Send ALL existing data to AI + pillar context | +15% | 1-2 days |
 | B | Pre-analysis layer — stem/branch/ten god/從格/conflict resolution/domain mapping | +40% | 5-7 days |
 | C | Enhanced prompts with pre-analysis + constraints | +25% | 2-3 days |
-| D | Additional Shen Sha (26 types), timing analysis with natal interactions | +15% | 3-5 days |
+| D | Additional Shen Sha (27 types), timing analysis with natal interactions | +15% | 3-5 days |
 | E | Refined Day Master scoring (3-factor `strengthScoreV2`) | +5% | 1-2 days |
 
 ### New Files (Phase 11)
@@ -792,7 +890,7 @@ Recommendation: Store in `calculationData` for now (simplest), split to separate
 - ✅ Phase 9: User Birth Profile Management (profile CRUD, custom dropdown on name field, auto-fill, profile manager page, relationship tags)
 - ✅ Phase 10: Wire Frontend to NestJS API (readings-api.ts, reading page calls NestJS for signed-in users, chart-only fallback for free users, reading history page, subscription management page)
 - ✅ Phase 5: Monetization & Payment (5 revenue streams: Stripe subscriptions, per-reading credits, per-section unlock, rewarded video ads, credit packages. 4 new DB models, 15 payment endpoints, store page, admin monetization dashboard, 33 new test files)
-- ✅ Phase 11: Bazi Interpretation Enhancement (3-layer architecture: Engine → Pre-Analysis → AI Narration. 5 sub-phases: 11A data exposure, 11B pre-analysis layer, 11C AI prompt wiring, 11D Shen Sha 8→26 + timing analysis, 11E Day Master V2 scoring. 317 new tests, 438 engine total — 437 pass, 1 skip)
+- ✅ Phase 11: Bazi Interpretation Enhancement (3-layer architecture: Engine → Pre-Analysis → AI Narration. 5 sub-phases: 11A data exposure, 11B pre-analysis layer, 11C AI prompt wiring, 11D Shen Sha 8→27 + timing analysis, 11E Day Master V2 scoring. 330 new tests, 451 engine total — 450 pass, 1 skip)
 
 ### Phase 11 Details (Bazi Interpretation Enhancement — COMPLETE)
 
@@ -806,10 +904,10 @@ New modules:
 - Bug fixes: TIANYI_GUIREN 庚, SEASON_STRENGTH full 5-element audit, get_prominent_ten_god 透干 priority, 得令 scoring (Life Stage → SEASON_STRENGTH)
 - Tests: 210 (stem_combinations: 34, branch_relationships: 53, interpretation_rules: 49, existing_bugs: 20, real_world_validation: 54)
 
-**Phase 11C — AI Prompt Wiring:** `formatPreAnalysis()` in `ai.service.ts` converts preAnalysis JSON to compressed Chinese-language format (~200-300 tokens). Added `{{preAnalysis}}` to all 6 Bazi prompts. Graceful degradation when preAnalysis absent.
+**Phase 11C — AI Prompt Wiring + Anti-Hallucination:** `formatPreAnalysis()` in `ai.service.ts` converts preAnalysis JSON to compressed Chinese-language format (~200-300 tokens). Added `{{preAnalysis}}` to all 6 Bazi prompts. Graceful degradation when preAnalysis absent. **Prompt engineering fixes:** Added "絕對禁止" (5 absolute prohibitions), "天干與藏干的區別" (hidden vs manifest stem rules), "日主強弱判定規則" (V2 strength priority with ⚠️ marker), "驗證規則" (cross-check every pillar reference). Deactivated 48 stale DB prompt templates. Increased `max_tokens` from 4096 to 8192. Added `repairTruncatedJSON()` and markdown fence stripping in `parseAIResponse()`. Validated 100% accuracy (58/58 checks) on real readings.
 
 **Phase 11D — Shen Sha Expansion + Timing Analysis:**
-- Shen Sha expanded from 8 → 26 types across 4 groups: Major Auspicious (天乙貴人/紅鸞/天喜/文昌/將星/祿神/華蓋/驛馬/桃花/羊刃), Second-Tier Auspicious (天德貴人/月德貴人/太極貴人/國印貴人/金輿/天醫/學堂), Malefic (孤辰/寡宿/災煞/劫煞/亡神/天羅/地網), Special Day Pillars (魁罡日/陰陽差錯日/十惡大敗日)
+- Shen Sha expanded from 8 → 27 types across 4 groups: Major Auspicious (天乙貴人/紅鸞/天喜/文昌/將星/祿神/華蓋/驛馬/桃花/羊刃/福星貴人), Second-Tier Auspicious (天德貴人/月德貴人/太極貴人/國印貴人/金輿/天醫/學堂), Malefic (孤辰/寡宿/災煞/劫煞/亡神/天羅/地網), Special Day Pillars (魁罡日/陰陽差錯日/十惡大敗日). 文昌 and 學堂 now use dual Day+Year Stem lookup (cross-validated against 元亨利貞網).
 - `timing_analysis.py` — 歲運並臨/天剋地沖/伏吟/反吟 detection + 大運×natal branch/stem interactions + 流年×natal interactions + 大運×流年 cross-interactions + `generate_timing_insights()` summary
 - Tests: 107 (test_shen_sha_expanded: 71, test_timing_analysis: 37, minus 1 shared)
 
@@ -882,8 +980,8 @@ Comprehensive end-to-end tests for payment flows, reading creation, section unlo
 #### 4. Production Deployment
 Docker setup, CI/CD, environment configuration, domain setup
 
-## Total Tests: ~955
-- Bazi Engine: 438 tests (121 original + 210 Phase 11B + 107 Phase 11D) — 437 pass, 1 skip
+## Total Tests: ~968
+- Bazi Engine: 451 tests (121 original + 210 Phase 11B + 107 Phase 11D + 12 Shen Sha fixes + 1 skip) — 450 pass, 1 skip
 - NestJS API: 157 tests
 - Frontend: 71 tests
 - ZWDS: 289 tests (209 + 80 Phase 8B)
@@ -979,6 +1077,14 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/  # Next.js (expect
 > Quick fix: `kill -9 $(lsof -ti:3000) 2>/dev/null; sleep 2; cd apps/web && npx next dev --port 3000`
 > This does NOT affect production — `next build` + `next start` serves pre-compiled files with no file watcher or HMR.
 
+> **⚠️ ALSO CHECK NestJS + Next.js TOGETHER: When restarting or checking ANY server, always check BOTH NestJS AND Next.js!**
+> They frequently go down around the same time. If a user reports "can't access", check both ports:
+> ```bash
+> curl -s http://localhost:4000/health && curl -s -o /dev/null -w "HTTP %{http_code}" --max-time 5 http://localhost:3000/
+> ```
+> If NestJS is dead: `cd apps/api && ../../node_modules/.bin/nest build && export ANTHROPIC_API_KEY="$(grep ANTHROPIC_API_KEY .env | cut -d= -f2)" && node --import tsx dist/main.js`
+> If Next.js is dead: `kill -9 $(lsof -ti:3000) 2>/dev/null; sleep 2; cd apps/web && npx next dev --port 3000`
+
 **Next.js stuck on "載入中..." / unresponsive:**
 - **Symptom**: Page shows loading spinner forever, `curl http://localhost:3000/` hangs or times out, browser tab keeps loading
 - **Cause**: Turbopack hot-reload loop — process runs at >100% CPU and stops serving requests. Happens frequently (every 15-30 min) during active code editing. More likely with rapid file changes or long-running sessions.
@@ -1042,7 +1148,7 @@ curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/  # Next.js (expect
 - **Clerk phone requirement**: Phone number is set to "required" in Clerk Dashboard — blocks Google sign-in flow. Should be changed to "optional" in Clerk Dashboard → Configure → Email, Phone, Username
 - **Next.js 16 middleware deprecation**: "middleware" file convention is deprecated, should use "proxy" instead
 - **Joi validation fix**: API env vars use `.allow('')` for optional keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.) to allow empty strings in `.env`
-- **AI mock data**: Both Bazi and ZWDS AI readings use mock data on frontend. Chart calculations are real. AI interpretation requires API keys in `apps/api/.env`
+- **AI readings**: Bazi AI interpretation is fully working (Claude Sonnet 4, validated 100% accuracy). ZWDS AI readings still use mock data on frontend until ZWDS prompts receive the same anti-hallucination treatment. AI interpretation requires API keys in `apps/api/.env`
 - **Sentry**: `@sentry/nextjs` is in next.config.js but runs silently when no SENTRY_AUTH_TOKEN is set
 - **@repo/shared runtime issue**: NestJS files must NOT import from `@repo/shared` at runtime — inline constants instead. See "Worktree Development Guide" above.
 - **ZWDS missing True Solar Time**: The ZWDS engine (iztro via `/api/zwds-calculate`) does NOT use city/longitude for True Solar Time correction — it takes wall clock time directly as the 時辰. The Bazi engine correctly applies TST via `solar_time.py`. Future task: before calling iztro, convert user's birth time to True Solar Time using the city longitude, then derive the iztro time index from the corrected time. Without this fix, ZWDS charts for western China (e.g., 烏魯木齊, 拉薩) may use the wrong 時辰.

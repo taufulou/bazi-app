@@ -375,6 +375,19 @@ GUOYIN: Dict[str, str] = {
     '壬': '未', '癸': '申',
 }
 
+# 福星貴人 (Fu Xing Gui Ren) — primary lookup by Year Stem, secondary by Day Stem
+# Source: 《三命通會》卷六 — "若以日遁則非" (Year Stem is the primary method)
+# 福氣、逢凶化吉、有貴人相助
+# Note: 甲/丙 share ['寅','子'] and 乙/癸 share ['卯','丑'] — verified correct per 《三命通會》卷六,
+# not a copy-paste error (stems are grouped by element affinity in this star's derivation)
+FUXING: Dict[str, List[str]] = {
+    '甲': ['寅', '子'], '乙': ['卯', '丑'],
+    '丙': ['寅', '子'], '丁': ['亥'],
+    '戊': ['申'],       '己': ['未'],
+    '庚': ['午'],       '辛': ['巳'],
+    '壬': ['辰'],       '癸': ['卯', '丑'],
+}
+
 # 金輿 (Jin Yu / Golden Carriage) — lookup by Day Stem
 # 財富、車輛/交通、物質豐富
 JINYU: Dict[str, str] = {

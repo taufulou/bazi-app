@@ -105,6 +105,7 @@ export interface NestJSReadingResponse {
   } | null;
   creditsUsed: number;
   createdAt: string;
+  fromCache?: boolean;
 }
 
 interface ReadingSectionData {

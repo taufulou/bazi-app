@@ -327,7 +327,7 @@ export class AIService implements OnModuleInit {
 
     const response = await this.claudeClient.messages.create({
       model: config.model,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
@@ -356,7 +356,7 @@ export class AIService implements OnModuleInit {
 
     const stream = this.claudeClient.messages.stream({
       model: config.model,
-      max_tokens: 4096,
+      max_tokens: 8192,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
@@ -386,7 +386,7 @@ export class AIService implements OnModuleInit {
 
     const response = await this.openaiClient.chat.completions.create({
       model: config.model,
-      max_tokens: 4096,
+      max_tokens: 8192,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -412,7 +412,7 @@ export class AIService implements OnModuleInit {
 
     const stream = await this.openaiClient.chat.completions.create({
       model: config.model,
-      max_tokens: 4096,
+      max_tokens: 8192,
       stream: true,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -442,6 +442,7 @@ export class AIService implements OnModuleInit {
     const model = this.geminiAI.getGenerativeModel({
       model: config.model,
       systemInstruction: systemPrompt,
+      generationConfig: { maxOutputTokens: 8192 },
     });
 
     const result = await model.generateContent(userPrompt);
@@ -1394,15 +1395,28 @@ export class AIService implements OnModuleInit {
     rawContent: string,
     readingType: ReadingType,
   ): AIInterpretationResult {
+    // Strip markdown code fences if present (```json ... ```)
+    let cleaned = rawContent
+      .replace(/^```(?:json)?\s*\n?/gm, '')
+      .replace(/\n?```\s*$/gm, '')
+      .trim();
+
     // Try to extract JSON from the response
-    const jsonMatch = rawContent.match(/\{[\s\S]*\}/);
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       // Fallback: treat entire response as a single section
       return this.fallbackParse(rawContent, readingType);
     }
 
     try {
-      const parsed = JSON.parse(jsonMatch[0]);
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = JSON.parse(jsonMatch[0]);
+      } catch {
+        // JSON might be truncated (AI ran out of tokens) — try to repair
+        const repaired = this.repairTruncatedJSON(jsonMatch[0]);
+        parsed = JSON.parse(repaired);
+      }
 
       // Validate structure — try { sections: { ... } } wrapper first
       if (parsed.sections && typeof parsed.sections === 'object') {
@@ -1465,6 +1479,74 @@ export class AIService implements OnModuleInit {
     } catch {
       return this.fallbackParse(rawContent, readingType);
     }
+  }
+
+  /**
+   * Attempt to repair truncated JSON from AI that ran out of tokens.
+   * Closes any open strings, arrays, and objects to make it parseable.
+   */
+  private repairTruncatedJSON(json: string): string {
+    let repaired = json.trim();
+
+    // If it ends mid-string, close the string
+    // Count unescaped quotes to see if we're inside a string
+    let inString = false;
+    let lastCharBeforeEnd = '';
+    for (let i = 0; i < repaired.length; i++) {
+      const ch = repaired[i];
+      if (ch === '\\' && inString) {
+        i++; // skip escaped char
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+      }
+      if (i === repaired.length - 1) {
+        lastCharBeforeEnd = ch;
+      }
+    }
+
+    if (inString) {
+      // We're inside an unclosed string — close it
+      // Remove trailing incomplete escape sequence if any
+      if (repaired.endsWith('\\')) {
+        repaired = repaired.slice(0, -1);
+      }
+      repaired += '"';
+    }
+
+    // Now close any open braces/brackets
+    const stack: string[] = [];
+    inString = false;
+    for (let i = 0; i < repaired.length; i++) {
+      const ch = repaired[i];
+      if (ch === '\\' && inString) {
+        i++;
+        continue;
+      }
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (ch === '{') stack.push('}');
+      else if (ch === '[') stack.push(']');
+      else if (ch === '}' || ch === ']') {
+        if (stack.length > 0 && stack[stack.length - 1] === ch) {
+          stack.pop();
+        }
+      }
+    }
+
+    // Remove trailing comma before closing (invalid JSON)
+    repaired = repaired.replace(/,\s*$/, '');
+
+    // Close all open braces/brackets in reverse order
+    while (stack.length > 0) {
+      repaired += stack.pop();
+    }
+
+    return repaired;
   }
 
   /**
@@ -1637,7 +1719,9 @@ export class AIService implements OnModuleInit {
     questionText?: string,
   ): string {
     const crypto = require('crypto');
-    const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}`;
+    // Include preAnalysis version in hash so cache invalidates when rules change
+    const preAnalysisVersion = 'v1.0.0';
+    const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;
     return crypto.createHash('sha256').update(data).digest('hex');
   }
 }

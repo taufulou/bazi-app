@@ -127,6 +127,7 @@ export default function ReadingPage() {
   // State
   const [tab, setTab] = useState<ResultTab>("chart");
   const [isLoading, setIsLoading] = useState(false);
+  const [isAiLoading, setIsAiLoading] = useState(false);
   const [error, setError] = useState<string | undefined>();
   const [chartData, setChartData] = useState<BaziChartData | null>(null);
   const [zwdsChartData, setZwdsChartData] = useState<ZwdsChartData | null>(null);
@@ -161,6 +162,9 @@ export default function ReadingPage() {
   const [hasFreeReading, setHasFreeReading] = useState(false);
   const [isPaidReading, setIsPaidReading] = useState(false);
   const [isChartOnly, setIsChartOnly] = useState(false);
+
+  // Cache hit notification
+  const [cacheToast, setCacheToast] = useState(false);
 
   // Refresh user profile (credits, tier, free reading status)
   const refreshUserProfile = useCallback(async () => {
@@ -260,30 +264,80 @@ export default function ReadingPage() {
 
   // ============================================================
   // NestJS Reading Path (authenticated — chart + AI + credits + DB)
+  // Two-phase: show chart immediately, then fetch AI in background
   // ============================================================
 
   async function callNestJSReading(data: BirthDataFormValues, birthProfileId: string) {
     const token = await getToken();
     if (!token) return;
 
+    // Phase 1: Get chart data immediately via direct engine (fast ~3ms)
+    try {
+      if (isZwds) {
+        const dateParts = data.birthDate.split("-") as [string, string, string];
+        const solarDate = `${parseInt(dateParts[0])}-${parseInt(dateParts[1])}-${parseInt(dateParts[2])}`;
+        const zwdsResponse = await fetch("/api/zwds-calculate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            birthDate: solarDate,
+            birthTime: data.birthTime,
+            gender: data.gender,
+            targetDate: needsDatePicker ? targetDay : undefined,
+          }),
+        });
+        if (zwdsResponse.ok) {
+          const realChart = await zwdsResponse.json();
+          setZwdsChartData(realChart);
+        }
+      } else {
+        const baziResponse = await fetch("/api/bazi-calculate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            birth_date: data.birthDate,
+            birth_time: data.birthTime,
+            birth_city: data.birthCity,
+            birth_timezone: data.birthTimezone,
+            gender: data.gender,
+            target_year: readingType === "annual" ? new Date().getFullYear() : undefined,
+          }),
+        });
+        if (baziResponse.ok) {
+          const baziResult = await baziResponse.json();
+          setChartData(baziResult.data || baziResult);
+        }
+      }
+    } catch {
+      // Chart fetch failed — NestJS response will have it as fallback
+    }
+
+    // Show chart immediately, start AI loading
+    setStep("result");
+    setTab("chart");
+    setIsLoading(false);
+    setIsAiLoading(true);
+
+    // Phase 2: Call NestJS for AI interpretation + credits + DB save (slower)
     try {
       let response: NestJSReadingResponse;
 
       if (isZwds) {
         response = await createZwdsReading(token, {
           birthProfileId,
-          readingType: readingType, // slug → API client maps to ZWDS_CAREER etc.
+          readingType: readingType,
           targetYear: (readingType === "zwds-annual" || readingType === "zwds-monthly")
             ? new Date().getFullYear() : undefined,
           targetMonth: readingType === "zwds-monthly" ? targetMonth : undefined,
           targetDay: readingType === "zwds-daily" ? targetDay : undefined,
           questionText: readingType === "zwds-qa" ? questionText : undefined,
         });
+        // Update chart data with NestJS response (may include additional server-side data)
         setZwdsChartData(response.calculationData as unknown as ZwdsChartData);
       } else {
         response = await createBaziReading(token, {
           birthProfileId,
-          readingType: readingType, // slug → API client maps to LIFETIME etc.
+          readingType: readingType,
           targetYear: readingType === "annual" ? new Date().getFullYear() : undefined,
         });
         setChartData(response.calculationData);
@@ -294,7 +348,6 @@ export default function ReadingPage() {
       if (aiReading) {
         setAiData(aiReading);
       } else {
-        // AI provider not configured or failed — use mock as fallback in development
         if (process.env.NODE_ENV === "development") {
           const mockAI = isZwds
             ? generateMockZwdsReading(readingType as ReadingTypeSlug)
@@ -305,32 +358,32 @@ export default function ReadingPage() {
         }
       }
 
-      // Save reading ID for retry/history
       setCurrentReadingId(response.id);
 
-      // Optimistic credit update using server response
+      // Show cache hit notification (no credits deducted)
+      if (response.fromCache) {
+        setCacheToast(true);
+        setTimeout(() => setCacheToast(false), 5000);
+      }
+
       if (typeof response.creditsUsed === "number" && response.creditsUsed > 0) {
         setUserCredits((prev) => (prev !== null ? prev - response.creditsUsed : prev));
       }
-      // If creditsUsed === 0 and hasFreeReading, the free reading was consumed
-      if (response.creditsUsed === 0 && hasFreeReading) {
+      if (response.creditsUsed === 0 && hasFreeReading && !response.fromCache) {
         setHasFreeReading(false);
       }
-
-      setStep("result");
-      setTab("chart");
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
 
-      // Insufficient credits → show modal (user decides: upgrade or chart-only)
       if (message.includes("Insufficient credits")) {
         setShowCreditsModal(true);
-        setIsLoading(false);
+        setIsAiLoading(false);
         return;
       }
 
-      // Other errors → show Chinese error message
       handleNestJSError(err);
+    } finally {
+      setIsAiLoading(false);
     }
   }
 
@@ -423,6 +476,7 @@ export default function ReadingPage() {
     async (data: BirthDataFormValues, profileId: string | null, saveIntent?: SaveProfileIntent) => {
       setFormValues(data);
       setIsLoading(true);
+      setIsAiLoading(false);
       setError(undefined);
       setShowSubscribeCTA(false);
       setShowCreditsModal(false);
@@ -467,13 +521,15 @@ export default function ReadingPage() {
 
       try {
         if (isSignedIn && birthProfileId) {
-          // Route through NestJS (chart + AI + credits + DB)
+          // Route through NestJS: chart shows immediately, AI loads in background
+          // callNestJSReading manages its own loading states (isLoading + isAiLoading)
           await callNestJSReading(data, birthProfileId);
         } else {
           // Not signed in OR profile creation failed → direct engine (chart only, no AI)
           await callDirectEngine(data);
+          setIsLoading(false);
         }
-      } finally {
+      } catch {
         setIsLoading(false);
       }
     },
@@ -524,6 +580,8 @@ export default function ReadingPage() {
       setShowCreditsModal(false);
       setIsChartOnly(false);
       setIsPaidReading(false);
+      setIsAiLoading(false);
+      setCacheToast(false);
     } else {
       router.push("/dashboard");
     }
@@ -685,9 +743,21 @@ export default function ReadingPage() {
                 {isZwds ? "🌟 紫微命盤" : "📊 命盤排盤"}
               </button>
               <button className={tab === "reading" ? styles.tabActive : styles.tab} onClick={() => setTab("reading")}>
-                📝 AI 解讀
+                {isAiLoading ? (
+                  <><span className={styles.tabSpinner} /> AI 解讀中...</>
+                ) : (
+                  "📝 AI 解讀"
+                )}
               </button>
             </div>
+
+            {cacheToast && (
+              <div className={styles.cacheToast}>
+                <span className={styles.cacheToastIcon}>💡</span>
+                <span>偵測到相同命盤資料，已載入先前的分析結果（未扣除額度）</span>
+                <button className={styles.cacheToastClose} onClick={() => setCacheToast(false)}>✕</button>
+              </div>
+            )}
 
             {error && (
               <div className={styles.errorMessage}>
@@ -721,7 +791,7 @@ export default function ReadingPage() {
                     </Link>
                   </div>
                 )}
-                <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isLoading} />
+                <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} />
               </>
             )}
           </>

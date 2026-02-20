@@ -59,11 +59,11 @@ class TestShenSha:
         assert '華蓋' in sha_names or '天乙貴人' in sha_names
 
     def test_shen_sha_valid_names(self):
-        """All Shen Sha names should be from our known list (26 types + 空亡)."""
+        """All Shen Sha names should be from our known list (27 types + 空亡)."""
         valid_names = {
             # Group 1: Major Auspicious
             '天乙貴人', '紅鸞', '天喜', '文昌', '將星',
-            '祿神', '華蓋', '驛馬', '桃花', '羊刃',
+            '祿神', '華蓋', '驛馬', '桃花', '羊刃', '福星貴人',
             # Group 2: Second-Tier Auspicious
             '天德貴人', '月德貴人', '太極貴人', '國印貴人',
             '金輿', '天醫', '學堂',

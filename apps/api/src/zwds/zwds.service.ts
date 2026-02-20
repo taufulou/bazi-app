@@ -372,12 +372,14 @@ export class ZwdsService {
       }
     }
 
+    // Cache hit: no credit deduction (user already paid for this interpretation)
     // Master tier: creditsUsed = 0; Free trial: creditsUsed = 0; Regular: service.creditCost
-    const creditsUsed = (isMaster || canUseFreeTrial) ? 0 : service.creditCost;
+    const fromCache = !!cachedInterpretation;
+    const creditsUsed = (fromCache || isMaster || canUseFreeTrial) ? 0 : service.creditCost;
 
     const reading = await this.prisma.$transaction(async (tx) => {
-      if (isMaster) {
-        // Master tier: no credit deduction
+      if (fromCache || isMaster) {
+        // Cache hit or Master tier: no credit deduction
       } else if (canUseFreeTrial) {
         const updated = await tx.user.updateMany({
           where: { id: user.id, freeReadingUsed: false },
@@ -417,7 +419,7 @@ export class ZwdsService {
       });
     });
 
-    return reading;
+    return { ...reading, fromCache };
   }
 
   async getReading(clerkUserId: string, readingId: string) {
