@@ -233,6 +233,7 @@ def calculate_bazi(
         'dayMaster': day_master_result,
         'dayMasterStem': day_master_stem,
         'dayMasterBranch': day_master_branch,
+        'gender': gender,
         'tenGodDistribution': ten_god_distribution,
         'luckPeriods': luck_periods,
         'annualStars': annual_stars,

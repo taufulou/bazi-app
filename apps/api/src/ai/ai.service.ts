@@ -1978,4 +1978,24 @@ export class AIService implements OnModuleInit {
     const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;
     return crypto.createHash('sha256').update(data).digest('hex');
   }
+
+  /**
+   * Generate a hash for compatibility comparison cache key.
+   * Profiles are sorted by birth date to ensure A+B == B+A for the same pair.
+   */
+  generateComparisonHash(
+    profileA: { birthDate: string; birthTime: string; birthCity: string; gender: string },
+    profileB: { birthDate: string; birthTime: string; birthCity: string; gender: string },
+    comparisonType: string,
+  ): string {
+    const crypto = require('crypto');
+    const preAnalysisVersion = 'v1.0.0';
+    // Sort profiles to ensure order-independent cache hits (A+B == B+A)
+    const pA = `${profileA.birthDate}|${profileA.birthTime}|${profileA.birthCity}|${profileA.gender}`;
+    const pB = `${profileB.birthDate}|${profileB.birthTime}|${profileB.birthCity}|${profileB.gender}`;
+    const [first, second] = [pA, pB].sort();
+    const year = new Date().getFullYear();
+    const data = `comparison|${first}|${second}|${comparisonType}|${year}|${preAnalysisVersion}`;
+    return crypto.createHash('sha256').update(data).digest('hex');
+  }
 }

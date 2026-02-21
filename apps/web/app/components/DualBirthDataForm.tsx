@@ -9,6 +9,10 @@ import {
 } from "../lib/birth-profiles-api";
 import PersonBirthFields from "./PersonBirthFields";
 import {
+  lunarToSolar,
+  isValidLunarDate,
+} from "../lib/lunar-utils";
+import {
   EMPTY_PERSON_FIELDS,
   toBirthDataFormValues,
   profileToPersonFields,
@@ -182,7 +186,28 @@ export default function DualBirthDataForm({
       // Step 1a: Create Person A profile if needed (rare — usually pre-selected)
       if (!profileAId) {
         const formValues = toBirthDataFormValues(personAFields);
-        const payload = formValuesToPayload(formValues, "SELF");
+
+        // Handle lunar→solar conversion and preserve original lunar date
+        let lunarDateStrA: string | undefined;
+        if (formValues.isLunarDate && personAFields.year && personAFields.month && personAFields.day) {
+          const y = parseInt(personAFields.year);
+          const m = parseInt(personAFields.month);
+          const d = parseInt(personAFields.day);
+          if (!isValidLunarDate(y, m, d, personAFields.isLeapMonth)) {
+            setSubmitError("本人的農曆日期無效，請檢查年月日是否正確");
+            return;
+          }
+          try {
+            const solarDateStr = lunarToSolar(y, m, d, personAFields.isLeapMonth);
+            formValues.birthDate = solarDateStr;
+            lunarDateStrA = `${personAFields.year}-${personAFields.month.padStart(2, "0")}-${personAFields.day.padStart(2, "0")}`;
+          } catch {
+            setSubmitError("本人的農曆日期無效，請檢查年月日是否正確");
+            return;
+          }
+        }
+
+        const payload = formValuesToPayload(formValues, "SELF", lunarDateStrA);
         const newProfile = await createBirthProfile(token, payload);
         profileAId = newProfile.id;
       }
@@ -190,8 +215,29 @@ export default function DualBirthDataForm({
       // Step 1b: Create Person B profile if needed
       if (!profileBId) {
         const formValues = toBirthDataFormValues(personBFields);
+
+        // Handle lunar→solar conversion and preserve original lunar date
+        let lunarDateStrB: string | undefined;
+        if (formValues.isLunarDate && personBFields.year && personBFields.month && personBFields.day) {
+          const y = parseInt(personBFields.year);
+          const m = parseInt(personBFields.month);
+          const d = parseInt(personBFields.day);
+          if (!isValidLunarDate(y, m, d, personBFields.isLeapMonth)) {
+            setSubmitError("對方的農曆日期無效，請檢查年月日是否正確");
+            return;
+          }
+          try {
+            const solarDateStr = lunarToSolar(y, m, d, personBFields.isLeapMonth);
+            formValues.birthDate = solarDateStr;
+            lunarDateStrB = `${personBFields.year}-${personBFields.month.padStart(2, "0")}-${personBFields.day.padStart(2, "0")}`;
+          } catch {
+            setSubmitError("對方的農曆日期無效，請檢查年月日是否正確");
+            return;
+          }
+        }
+
         const tag = wantsSaveB ? relationTag : "FRIEND";
-        const payload = formValuesToPayload(formValues, tag);
+        const payload = formValuesToPayload(formValues, tag, lunarDateStrB);
         const newProfile = await createBirthProfile(token, payload);
         profileBId = newProfile.id;
       }

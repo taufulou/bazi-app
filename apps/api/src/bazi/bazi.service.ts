@@ -341,11 +341,35 @@ export class BaziService {
       );
     }
 
+    // Generate comparison hash for cache lookup (order-independent: A+B == B+A)
+    const comparisonHash = this.aiService.generateComparisonHash(
+      {
+        birthDate: profileA.birthDate.toISOString().split('T')[0],
+        birthTime: profileA.birthTime,
+        birthCity: profileA.birthCity,
+        gender: profileA.gender.toLowerCase(),
+      },
+      {
+        birthDate: profileB.birthDate.toISOString().split('T')[0],
+        birthTime: profileB.birthTime,
+        birthCity: profileB.birthCity,
+        gender: profileB.gender.toLowerCase(),
+      },
+      dto.comparisonType,
+    );
+
+    // Check cache for existing AI interpretation
+    const cachedInterpretation = await this.aiService.getCachedInterpretation(
+      comparisonHash,
+      ReadingType.COMPATIBILITY,
+    );
+    const fromCache = !!cachedInterpretation;
+
     // Acquire distributed lock to prevent concurrent exploit
-    const lockKey = `reading:create:${user.id}`;
+    const lockKey = `comparison:create:${user.id}`;
     const lockAcquired = await this.redis.acquireLock(lockKey, 30);
     if (!lockAcquired) {
-      throw new ConflictException('A reading is already being created. Please wait.');
+      throw new ConflictException('A comparison is already being created. Please wait.');
     }
 
     try {
@@ -365,21 +389,21 @@ export class BaziService {
       let aiModel: string | undefined = undefined;
       let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
 
-      if (!dto.skipAI) {
+      if (fromCache) {
+        this.logger.log(`Cache hit for comparison ${comparisonHash}`);
+        aiInterpretation = cachedInterpretation as unknown as Prisma.InputJsonValue;
+        aiProvider = 'CLAUDE';
+        aiModel = 'cached';
+      } else if (!dto.skipAI) {
         try {
           // Enrich with comparison type and gender for prompt interpolation
+          // Note: chartA/chartB already contain 'gender' from the Python engine
           const enrichedData: Record<string, unknown> = {
             ...calculationData,
             comparisonType: dto.comparisonType.toLowerCase(),
             genderA: profileA.gender.toLowerCase(),
             genderB: profileB.gender.toLowerCase(),
           };
-
-          // Attach gender to chart data for interpolateChartFields
-          const eChartA = enrichedData['chartA'] as Record<string, unknown> | undefined;
-          const eChartB = enrichedData['chartB'] as Record<string, unknown> | undefined;
-          if (eChartA) eChartA['gender'] = profileA.gender.toLowerCase();
-          if (eChartB) eChartB['gender'] = profileB.gender.toLowerCase();
 
           const aiResult = await this.aiService.generateInterpretation(
             enrichedData,
@@ -391,19 +415,30 @@ export class BaziService {
           aiProvider = aiResult.provider;
           aiModel = aiResult.model;
           tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
+
+          // Cache the result asynchronously
+          this.aiService.cacheInterpretation(
+            comparisonHash,
+            ReadingType.COMPATIBILITY,
+            calculationData,
+            aiResult.interpretation,
+          ).catch((err) => this.logger.error(`Comparison cache write failed: ${err}`));
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : 'Unknown error';
           this.logger.error(`AI compatibility interpretation failed: ${message}`);
         }
       }
 
-      // Master tier: creditsUsed = 0; Free trial: creditsUsed = 0; Regular: service.creditCost
-      const creditsUsed = (isMaster || canUseFreeTrial) ? 0 : service.creditCost;
+      // Cache hit: no credit deduction (user already paid for this interpretation)
+      // Master tier: no credit deduction at all
+      // Free trial: claim free reading (creditsUsed: 0)
+      // Regular: deduct service.creditCost credits
+      const creditsUsed = (fromCache || isMaster || canUseFreeTrial) ? 0 : service.creditCost;
 
       // Atomic transaction to prevent double-spend
       const comparison = await this.prisma.$transaction(async (tx) => {
-        if (isMaster) {
-          // Master tier: no credit deduction
+        if (fromCache || isMaster) {
+          // Cache hit or Master tier: no credit deduction
         } else if (canUseFreeTrial) {
           const updated = await tx.user.updateMany({
             where: { id: user.id, freeReadingUsed: false },
@@ -596,17 +631,13 @@ export class BaziService {
     let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
 
     try {
+      // Note: chartA/chartB already contain 'gender' from the Python engine
       const enrichedData: Record<string, unknown> = {
         ...calculationData,
         comparisonType: comparison.comparisonType.toLowerCase(),
         genderA: profileA.gender.toLowerCase(),
         genderB: profileB.gender.toLowerCase(),
       };
-
-      const eChartA = enrichedData['chartA'] as Record<string, unknown> | undefined;
-      const eChartB = enrichedData['chartB'] as Record<string, unknown> | undefined;
-      if (eChartA) eChartA['gender'] = profileA.gender.toLowerCase();
-      if (eChartB) eChartB['gender'] = profileB.gender.toLowerCase();
 
       const aiResult = await this.aiService.generateInterpretation(
         enrichedData,
@@ -720,11 +751,12 @@ export class BaziService {
         genderB: comparison.profileB.gender.toLowerCase(),
       };
 
-      // Attach gender to chart data for interpolateChartFields
+      // Ensure gender in chart data for interpolateChartFields
+      // (backward compat: older records may not have gender in calculationData)
       const eChartA = enrichedData['chartA'] as Record<string, unknown> | undefined;
       const eChartB = enrichedData['chartB'] as Record<string, unknown> | undefined;
-      if (eChartA) eChartA['gender'] = comparison.profileA.gender.toLowerCase();
-      if (eChartB) eChartB['gender'] = comparison.profileB.gender.toLowerCase();
+      if (eChartA && !eChartA['gender']) eChartA['gender'] = comparison.profileA.gender.toLowerCase();
+      if (eChartB && !eChartB['gender']) eChartB['gender'] = comparison.profileB.gender.toLowerCase();
 
       // Call AI service (same pattern as createComparison)
       let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
@@ -743,6 +775,29 @@ export class BaziService {
         aiProvider = aiResult.provider;
         aiModel = aiResult.model;
         tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
+
+        // Cache the AI result for future identical comparisons
+        const comparisonHash = this.aiService.generateComparisonHash(
+          {
+            birthDate: comparison.profileA.birthDate.toISOString().split('T')[0],
+            birthTime: comparison.profileA.birthTime,
+            birthCity: comparison.profileA.birthCity,
+            gender: comparison.profileA.gender.toLowerCase(),
+          },
+          {
+            birthDate: comparison.profileB.birthDate.toISOString().split('T')[0],
+            birthTime: comparison.profileB.birthTime,
+            birthCity: comparison.profileB.birthCity,
+            gender: comparison.profileB.gender.toLowerCase(),
+          },
+          comparison.comparisonType,
+        );
+        this.aiService.cacheInterpretation(
+          comparisonHash,
+          ReadingType.COMPATIBILITY,
+          calcData,
+          aiResult.interpretation,
+        ).catch((err) => this.logger.error(`Comparison cache write failed: ${err}`));
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : 'Unknown error';
         this.logger.error(
