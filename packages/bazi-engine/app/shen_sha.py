@@ -5,16 +5,17 @@ Shen Sha are special stars derived from various relationships between
 the Day Pillar and other pillars. They indicate auspicious or inauspicious
 influences on the person's destiny.
 
-27 types implemented (Phase 11D expansion from original 8, +福星貴人):
+35 types implemented (Phase 11D expansion + Seer cross-check additions):
 
 Group 1 — Major Auspicious:
   天乙貴人, 紅鸞, 天喜, 文昌, 將星, 祿神, 華蓋, 驛馬, 桃花, 羊刃, 福星貴人
 
 Group 2 — Second-Tier Auspicious:
-  天德貴人, 月德貴人, 太極貴人, 國印貴人, 金輿, 天醫, 學堂
+  天德貴人, 月德貴人, 天德合, 月德合, 太極貴人, 國印貴人, 金輿, 天醫, 學堂,
+  德秀貴人, 天廚貴人
 
 Group 3 — Malefic:
-  孤辰, 寡宿, 災煞, 劫煞, 亡神, 天羅/地網
+  孤辰, 寡宿, 災煞, 劫煞, 亡神, 天羅/地網, 勾絞煞, 童子煞
 
 Group 4 — Day Pillar Specials:
   魁罡日, 陰陽差錯日, 十惡大敗日
@@ -25,8 +26,9 @@ Plus: 空亡 (Kong Wang / Void)
 from typing import Dict, List, Set
 
 from .constants import (
-    BRANCH_ELEMENT,
     BRANCH_INDEX,
+    BRANCH_LIUHE,
+    DEXIU,
     DIWANG_BRANCHES,
     EARTHLY_BRANCHES,
     FUXING,
@@ -41,16 +43,21 @@ from .constants import (
     JINYU,
     KUIGANG_DAYS,
     LUSHEN,
+    MONTH_TO_SEASON,
     SHIE_DABAI_DAYS,
-    STEM_ELEMENT,
+    STEM_COMBINATIONS,
     STEM_INDEX,
+    STEM_YINYANG,
     TAIJI,
     TAOHUA,
+    TIANCHU,
     TIANDE,
     TIANXI,
     TIANLUO_BRANCHES,
     TIANYI_DOCTOR,
     TIANYI_GUIREN,
+    TONGZI_NAYIN_TARGETS,
+    TONGZI_SEASON_TARGETS,
     WANGSHEN,
     WENCHANG,
     XUETANG,
@@ -96,6 +103,8 @@ def calculate_shen_sha_for_pillar(
     pillar_branch: str,
     pillar_stem: str,
     year_stem: str = '',  # For Year Stem-based lookups (文昌, 學堂, 福星貴人)
+    gender: str = '',  # For gender-dependent Shen Sha (勾絞煞), default '' skips
+    year_nayin: str = '',  # Year pillar nayin (e.g. '爐中火') for 童子煞, 天羅/地網
 ) -> List[str]:
     """
     Calculate all Shen Sha (神煞) that apply to a given pillar.
@@ -109,6 +118,8 @@ def calculate_shen_sha_for_pillar(
         pillar_branch: The pillar's Earthly Branch to check
         pillar_stem: The pillar's Heavenly Stem to check
         year_stem: Year Heavenly Stem (for dual Day+Year Stem lookups, default '' for backward compat)
+        gender: 'male' or 'female' (for 勾絞煞, default '' skips gender-dependent stars)
+        year_nayin: Year pillar nayin string (for 童子煞 and 天羅/地網 nayin-based lookups)
 
     Returns:
         List of Shen Sha names that are present in this pillar
@@ -193,16 +204,22 @@ def calculate_shen_sha_for_pillar(
     if yuede_stem and pillar_stem == yuede_stem:
         sha_list.append('月德貴人')
 
-    # 太極貴人 (Tai Ji) — lookup by Day Stem → check branch
-    if pillar_branch in TAIJI.get(day_stem, []):
+    # 太極貴人 (Tai Ji) — lookup by Day Stem AND Year Stem → check branch
+    # Dual lookup per Seer/see八字 convention
+    if pillar_branch in TAIJI.get(day_stem, []) or \
+       (year_stem and pillar_branch in TAIJI.get(year_stem, [])):
         sha_list.append('太極貴人')
 
-    # 國印貴人 (Guo Yin) — lookup by Day Stem → check branch
-    if pillar_branch == GUOYIN.get(day_stem, ''):
+    # 國印貴人 (Guo Yin) — lookup by Day Stem AND Year Stem → check branch
+    # Dual lookup per Seer/see八字 convention
+    if pillar_branch == GUOYIN.get(day_stem, '') or \
+       (year_stem and pillar_branch == GUOYIN.get(year_stem, '')):
         sha_list.append('國印貴人')
 
-    # 金輿 (Jin Yu / Golden Carriage) — lookup by Day Stem → check branch
-    if pillar_branch == JINYU.get(day_stem, ''):
+    # 金輿 (Jin Yu / Golden Carriage) — lookup by Day Stem AND Year Stem → check branch
+    # Dual lookup per Seer/see八字 convention (like 文昌/學堂)
+    if pillar_branch == JINYU.get(day_stem, '') or \
+       (year_stem and pillar_branch == JINYU.get(year_stem, '')):
         sha_list.append('金輿')
 
     # 天醫 (Tian Yi / Heavenly Doctor) — lookup by Month Branch → check branch
@@ -214,6 +231,39 @@ def calculate_shen_sha_for_pillar(
     if pillar_branch == XUETANG.get(day_stem, '') or \
        (year_stem and pillar_branch == XUETANG.get(year_stem, '')):
         sha_list.append('學堂')
+
+    # 天德合 (Tian De He) — 六合 partner of 天德 stem/branch
+    tiande_value = TIANDE.get(month_branch, '')
+    if tiande_value:
+        if tiande_value in STEM_INDEX:  # It's a stem
+            tiande_he = STEM_COMBINATIONS.get(tiande_value, '')
+            if tiande_he and pillar_stem == tiande_he:
+                sha_list.append('天德合')
+        elif tiande_value in BRANCH_INDEX:  # It's a branch (卯月→申, 酉月→寅)
+            tiande_he_branch = BRANCH_LIUHE.get(tiande_value, '')
+            if tiande_he_branch and pillar_branch == tiande_he_branch:
+                sha_list.append('天德合')
+
+    # 月德合 (Yue De He) — 六合 partner of 月德 stem
+    yuede_stem = YUEDE.get(month_branch, '')
+    if yuede_stem:
+        yuede_he = STEM_COMBINATIONS.get(yuede_stem, '')
+        if yuede_he and pillar_stem == yuede_he:
+            sha_list.append('月德合')
+
+    # 德秀貴人 (De Xiu Gui Ren) — lookup by Month Branch (三合局) → check pillar stem
+    # Source: 《淵海子平》
+    dexiu_entry = DEXIU.get(month_branch)
+    if dexiu_entry:
+        all_dexiu_stems = dexiu_entry['de'] + dexiu_entry['xiu']
+        if pillar_stem in all_dexiu_stems:
+            sha_list.append('德秀貴人')
+
+    # 天廚貴人 (Tian Chu Gui Ren) — lookup by Year Stem AND Day Stem → check branch
+    # Source: 《三命通會》/ Shenjige version (matches Seer/see八字)
+    if pillar_branch == TIANCHU.get(day_stem, '') or \
+       (year_stem and pillar_branch == TIANCHU.get(year_stem, '')):
+        sha_list.append('天廚貴人')
 
     # ================================================================
     # Group 3: Malefic Stars
@@ -242,16 +292,54 @@ def calculate_shen_sha_for_pillar(
        pillar_branch == WANGSHEN.get(day_branch, ''):
         sha_list.append('亡神')
 
-    # 天羅/地網 (Tian Luo / Di Wang) — element-specific
-    dm_element = STEM_ELEMENT.get(day_stem, '')
-    branch_element = BRANCH_ELEMENT.get(pillar_branch, '')
-    if pillar_branch in TIANLUO_BRANCHES and dm_element == '火':
-        sha_list.append('天羅')
-    if pillar_branch in DIWANG_BRANCHES and dm_element == '水':
-        sha_list.append('地網')
+    # 天羅/地網 (Tian Luo / Di Wang) — based on year nayin element
+    # Source: 《淵海子平》— 火命見戌亥為天羅，水/土命見辰巳為地網，金木免
+    if year_nayin:
+        nayin_element = year_nayin[-1]  # Last char is element (e.g. '爐中火' → '火')
+        if nayin_element == '火' and pillar_branch in TIANLUO_BRANCHES:
+            sha_list.append('天羅')
+        if nayin_element in ('水', '土') and pillar_branch in DIWANG_BRANCHES:
+            sha_list.append('地網')
+
+    # 勾絞煞 (Gou Jiao Sha) — gender-dependent, based on year branch ±3
+    # 陽男/陰女: +3=勾, −3=絞; 陰男/陽女: +3=絞, −3=勾
+    if gender and year_stem:
+        year_yinyang = STEM_YINYANG.get(year_stem, '')
+        year_idx = BRANCH_INDEX.get(year_branch, 0)
+        is_yang_male_or_yin_female = (
+            (gender == 'male' and year_yinyang == '陽') or
+            (gender == 'female' and year_yinyang == '陰')
+        )
+        if is_yang_male_or_yin_female:
+            gou_branch = EARTHLY_BRANCHES[(year_idx + 3) % 12]
+            jiao_branch = EARTHLY_BRANCHES[(year_idx - 3) % 12]
+        else:
+            gou_branch = EARTHLY_BRANCHES[(year_idx - 3) % 12]
+            jiao_branch = EARTHLY_BRANCHES[(year_idx + 3) % 12]
+        if pillar_branch == gou_branch or pillar_branch == jiao_branch:
+            sha_list.append('勾絞煞')
+
+    # 童子煞 (Tongzi Sha) — only on day/hour pillars
+    # Match if either rule triggers: season-based OR year nayin element-based
+    if pillar_name in ('day', 'hour') and year_nayin:
+        has_tongzi = False
+        # Rule 1: Season-based (month branch → season → target branches)
+        season_key = MONTH_TO_SEASON.get(month_branch, '')
+        if season_key:
+            targets = TONGZI_SEASON_TARGETS.get(season_key, [])
+            if pillar_branch in targets:
+                has_tongzi = True
+        # Rule 2: Year nayin element-based
+        if not has_tongzi:
+            nayin_el = year_nayin[-1]
+            nayin_targets = TONGZI_NAYIN_TARGETS.get(nayin_el, [])
+            if pillar_branch in nayin_targets:
+                has_tongzi = True
+        if has_tongzi:
+            sha_list.append('童子煞')
 
     # ================================================================
-    # 空亡 (Kong Wang / Void)
+    # 空亡 (Kong Wang / Void) — day pillar kong wang
     # ================================================================
     void_branches = calculate_kong_wang(day_stem, day_branch)
     if pillar_branch in void_branches and pillar_name != 'day':
@@ -301,7 +389,7 @@ def detect_special_day_pillars(day_stem: str, day_branch: str) -> List[Dict[str,
 
 
 def apply_shen_sha_to_pillars(
-    pillars: Dict, day_stem: str, day_branch: str
+    pillars: Dict, day_stem: str, day_branch: str, gender: str = ''
 ) -> tuple:
     """
     Apply Shen Sha calculations to all four pillars.
@@ -310,6 +398,7 @@ def apply_shen_sha_to_pillars(
         pillars: The four pillars dictionary
         day_stem: Day Heavenly Stem
         day_branch: Day Earthly Branch
+        gender: 'male' or 'female' (for gender-dependent Shen Sha like 勾絞煞)
 
     Returns:
         Tuple of (updated pillars, kong_wang list)
@@ -317,6 +406,7 @@ def apply_shen_sha_to_pillars(
     kong_wang = calculate_kong_wang(day_stem, day_branch)
     year_branch = pillars['year']['branch']
     year_stem = pillars['year']['stem']  # For Year Stem-based Shen Sha lookups
+    year_nayin = pillars['year'].get('naYin', '')  # For nayin-based lookups (童子煞, 天羅/地網)
     month_branch = pillars['month']['branch']
 
     for pillar_name in ['year', 'month', 'day', 'hour']:
@@ -330,6 +420,8 @@ def apply_shen_sha_to_pillars(
             pillar_branch=pillar['branch'],
             pillar_stem=pillar['stem'],
             year_stem=year_stem,
+            gender=gender,
+            year_nayin=year_nayin,
         )
         pillar['shenSha'] = sha
 

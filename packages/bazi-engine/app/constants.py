@@ -462,6 +462,79 @@ WANGSHEN: Dict[str, str] = {
 TIANLUO_BRANCHES: Set[str] = {'戌', '亥'}
 DIWANG_BRANCHES: Set[str] = {'辰', '巳'}
 
+# 天干五合 (Heavenly Stem Combinations / 六合)
+# 甲己合化土, 乙庚合化金, 丙辛合化水, 丁壬合化木, 戊癸合化火
+# Used for 天德合/月德合 derivation
+STEM_COMBINATIONS: Dict[str, str] = {
+    '甲': '己', '己': '甲', '乙': '庚', '庚': '乙',
+    '丙': '辛', '辛': '丙', '丁': '壬', '壬': '丁',
+    '戊': '癸', '癸': '戊',
+}
+
+# 地支六合 (Branch Six Harmonies)
+# Used for 天德合 branch-based cases (卯月→申, 酉月→寅)
+BRANCH_LIUHE: Dict[str, str] = {
+    '子': '丑', '丑': '子', '寅': '亥', '亥': '寅',
+    '卯': '戌', '戌': '卯', '辰': '酉', '酉': '辰',
+    '巳': '申', '申': '巳', '午': '未', '未': '午',
+}
+
+# 德秀貴人 (De Xiu Gui Ren) — lookup by Month Branch (三合局 grouping)
+# 德者，本月生旺之氣；秀者，合天地中和之氣
+# Source: 《淵海子平》
+DEXIU: Dict[str, Dict[str, List[str]]] = {
+    # 寅午戌月: 德=丙丁, 秀=戊癸
+    '寅': {'de': ['丙', '丁'], 'xiu': ['戊', '癸']},
+    '午': {'de': ['丙', '丁'], 'xiu': ['戊', '癸']},
+    '戌': {'de': ['丙', '丁'], 'xiu': ['戊', '癸']},
+    # 申子辰月: 德=壬癸戊己, 秀=丙辛甲己
+    '申': {'de': ['壬', '癸', '戊', '己'], 'xiu': ['丙', '辛', '甲', '己']},
+    '子': {'de': ['壬', '癸', '戊', '己'], 'xiu': ['丙', '辛', '甲', '己']},
+    '辰': {'de': ['壬', '癸', '戊', '己'], 'xiu': ['丙', '辛', '甲', '己']},
+    # 巳酉丑月: 德=庚辛, 秀=乙庚
+    '巳': {'de': ['庚', '辛'], 'xiu': ['乙', '庚']},
+    '酉': {'de': ['庚', '辛'], 'xiu': ['乙', '庚']},
+    '丑': {'de': ['庚', '辛'], 'xiu': ['乙', '庚']},
+    # 亥卯未月: 德=甲乙, 秀=丁壬
+    '亥': {'de': ['甲', '乙'], 'xiu': ['丁', '壬']},
+    '卯': {'de': ['甲', '乙'], 'xiu': ['丁', '壬']},
+    '未': {'de': ['甲', '乙'], 'xiu': ['丁', '壬']},
+}
+
+# 天廚貴人 (Tian Chu Gui Ren) — lookup by Year Stem AND Day Stem → check branch
+# 食神之祿位，主一生食祿豐足
+# Source: 《三命通會》/ Shenjige version (matches Seer/see八字 app)
+# Note: Multiple classical versions exist; this follows Seer/Taiwanese convention
+TIANCHU: Dict[str, str] = {
+    '甲': '巳', '乙': '午', '丙': '巳', '丁': '午',
+    '戊': '申', '己': '未', '庚': '亥', '辛': '子',
+    '壬': '寅', '癸': '卯',
+}
+
+# 童子煞 (Tongzi Sha / Childhood Star)
+# 口訣: 春秋寅子貴，冬夏卯未辰；金木午卯合，水火雞犬多；土命逢辰巳，童子定不錯
+# Two independent checks: season-based + year nayin element-based
+# If day/hour branch matches either rule → 童子煞
+TONGZI_SEASON_TARGETS: Dict[str, List[str]] = {
+    # 春(寅卯辰月) or 秋(申酉戌月) → 寅, 子
+    'spring_autumn': ['寅', '子'],
+    # 夏(巳午未月) or 冬(亥子丑月) → 卯, 未, 辰
+    'summer_winter': ['卯', '未', '辰'],
+}
+MONTH_TO_SEASON: Dict[str, str] = {
+    '寅': 'spring_autumn', '卯': 'spring_autumn', '辰': 'spring_autumn',
+    '巳': 'summer_winter', '午': 'summer_winter', '未': 'summer_winter',
+    '申': 'spring_autumn', '酉': 'spring_autumn', '戌': 'spring_autumn',
+    '亥': 'summer_winter', '子': 'summer_winter', '丑': 'summer_winter',
+}
+TONGZI_NAYIN_TARGETS: Dict[str, List[str]] = {
+    '金': ['午', '卯'],   # 金木午卯合
+    '木': ['午', '卯'],
+    '水': ['酉', '戌'],   # 水火雞犬多 (雞=酉, 犬=戌)
+    '火': ['酉', '戌'],
+    '土': ['辰', '巳'],   # 土命逢辰巳
+}
+
 # ---- Day Pillar Special Combinations ----
 
 # 魁罡日 (Kui Gang) — only check Day Pillar (stem+branch)
