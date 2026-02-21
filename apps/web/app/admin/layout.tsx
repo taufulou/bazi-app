@@ -4,7 +4,7 @@ import { AdminSidebar } from './AdminSidebar';
 import styles from './layout.module.css';
 
 export const metadata = {
-  title: 'Admin | 八字命理平台',
+  title: 'Admin | 天命',
 };
 
 export default async function AdminLayout({

@@ -32,7 +32,7 @@ export default async function DashboardPage() {
       {/* Header */}
       <header className={styles.header}>
         <Link href="/" className={styles.logo}>
-          八字命理平台
+          天命
         </Link>
         <div className={styles.headerRight}>
           <CreditBadge showPricingLink />

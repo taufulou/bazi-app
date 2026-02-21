@@ -5,6 +5,7 @@ const nextConfig = {
   // Enable transpilation of monorepo packages
   transpilePackages: ["@repo/ui", "@repo/shared"],
 
+
   // Output standalone for Docker deployment
   output: "standalone",
 

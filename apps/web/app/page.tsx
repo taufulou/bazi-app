@@ -10,10 +10,10 @@ export default async function Home() {
   return (
     <div className={styles.page}>
       <main className={styles.main}>
-        <h1 className={styles.title}>八字命理</h1>
-        <p className={styles.subtitle}>Bazi Platform</p>
+        <h1 className={styles.title}>天命</h1>
+        <p className={styles.subtitle}>預見你的一生</p>
         <p className={styles.description}>
-          AI-Powered Chinese Astrology &amp; Fortune Analysis
+          AI 驅動的命理分析平台
         </p>
 
         <Link href={ctaHref} className={styles.ctaButton}>

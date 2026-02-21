@@ -21,7 +21,7 @@ export default function SignInPage() {
             fontWeight: 700,
           }}
         >
-          八字命理平台
+          天命
         </h1>
         <p
           style={{
@@ -30,7 +30,7 @@ export default function SignInPage() {
             marginBottom: "2rem",
           }}
         >
-          AI 驅動的八字命理分析
+          預見你的一生
         </p>
         <SignIn
           appearance={{

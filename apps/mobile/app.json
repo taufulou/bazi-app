@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "Bazi Platform",
-    "slug": "bazi-platform",
+    "name": "天命",
+    "slug": "tianming",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "bazi",
+    "scheme": "tianming",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "splash": {
@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.bazi.platform",
+      "bundleIdentifier": "com.tianming.app",
       "infoPlist": {
         "CFBundleAllowMixedLocalizations": true
       }
@@ -25,7 +25,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a1a2e"
       },
-      "package": "com.bazi.platform"
+      "package": "com.tianming.app"
     },
     "web": {
       "bundler": "metro",
