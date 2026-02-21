@@ -44,9 +44,9 @@ export default function HomeScreen() {
         {/* Logo / Branding */}
         <View style={styles.branding}>
           <Text style={styles.logo}>☯</Text>
-          <Text style={styles.title}>八字命理平台</Text>
+          <Text style={styles.title}>天命</Text>
           <Text style={styles.subtitle}>
-            AI 驅動的專業八字命理分析
+            預見你的一生
           </Text>
         </View>
 

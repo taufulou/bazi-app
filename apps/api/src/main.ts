@@ -52,9 +52,9 @@ async function bootstrap() {
   // Swagger API documentation — disabled in production
   if (process.env.NODE_ENV !== 'production') {
     const config = new DocumentBuilder()
-      .setTitle('Bazi Platform API')
+      .setTitle('天命 API')
       .setDescription(
-        '八字命理平台 API — AI-powered Chinese astrology analysis.\n\n' +
+        '天命 API — AI-powered Chinese astrology & fortune analysis.\n\n' +
         '## Authentication\n' +
         'Most endpoints require a Clerk JWT token passed as `Bearer <token>` in the Authorization header.\n\n' +
         '## Rate Limiting\n' +
