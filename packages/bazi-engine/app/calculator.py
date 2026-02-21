@@ -30,7 +30,7 @@ from .five_elements import (
     calculate_element_counts,
     determine_favorable_gods,
 )
-from .shen_sha import apply_shen_sha_to_pillars, detect_special_day_pillars, get_all_shen_sha
+from .shen_sha import apply_shen_sha_to_pillars, calculate_kong_wang, detect_special_day_pillars, get_all_shen_sha
 from .life_stages import apply_life_stages_to_pillars
 from .luck_periods import (
     calculate_annual_stars,
@@ -102,7 +102,7 @@ def calculate_bazi(
     pillars = apply_ten_gods_to_pillars(pillars, day_master_stem)
 
     # Step 3: Apply Shen Sha (special stars)
-    pillars, kong_wang = apply_shen_sha_to_pillars(pillars, day_master_stem, day_master_branch)
+    pillars, kong_wang = apply_shen_sha_to_pillars(pillars, day_master_stem, day_master_branch, gender=gender)
 
     # Step 4: Apply Life Stages
     pillars = apply_life_stages_to_pillars(pillars, day_master_stem)
@@ -225,6 +225,12 @@ def calculate_bazi(
         for pname in ['year', 'month', 'day', 'hour']
     }
 
+    # Per-pillar Kong Wang (each pillar's own void branches)
+    kong_wang_per_pillar = {}
+    for pname in ['year', 'month', 'day', 'hour']:
+        p = pillars[pname]
+        kong_wang_per_pillar[pname] = calculate_kong_wang(p['stem'], p['branch'])
+
     result = {
         'fourPillars': pillars,
         'fiveElementsBalance': five_elements_balance_en,
@@ -241,6 +247,7 @@ def calculate_bazi(
         'trueSolarTime': pillar_data['trueSolarTime'],
         'lunarDate': pillar_data['lunarDate'],
         'kongWang': kong_wang,
+        'kongWangPerPillar': kong_wang_per_pillar,
         'allShenSha': get_all_shen_sha(pillars),
         'ganZhi': {
             'year': pillar_data['yearGanZhi'],

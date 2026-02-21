@@ -346,34 +346,35 @@ class TestWangShen:
 
 
 class TestTianLuoDiWang:
-    """天羅/地網 — element-specific."""
+    """天羅/地網 — based on year nayin element."""
 
-    def test_tianluo_for_fire_dm(self):
-        """火命日主 + 戌/亥 branch = 天羅."""
-        # 丙 = 火日主
+    def test_tianluo_for_fire_nayin(self):
+        """火 year nayin + 戌/亥 branch = 天羅."""
         sha = calculate_shen_sha_for_pillar(
             day_stem='丙', day_branch='寅',
             year_branch='寅', month_branch='寅',
             pillar_name='hour', pillar_branch='戌', pillar_stem='甲',
+            year_nayin='爐中火',
         )
         assert '天羅' in sha
 
-    def test_diwang_for_water_dm(self):
-        """水命日主 + 辰/巳 branch = 地網."""
-        # 壬 = 水日主
+    def test_diwang_for_water_nayin(self):
+        """水 year nayin + 辰/巳 branch = 地網."""
         sha = calculate_shen_sha_for_pillar(
             day_stem='壬', day_branch='子',
             year_branch='寅', month_branch='寅',
             pillar_name='hour', pillar_branch='辰', pillar_stem='甲',
+            year_nayin='大海水',
         )
         assert '地網' in sha
 
-    def test_no_tianluo_for_non_fire(self):
-        """Non-fire Day Master should NOT get 天羅."""
+    def test_no_tianluo_for_wood_nayin(self):
+        """Wood year nayin (金木免) should NOT get 天羅."""
         sha = calculate_shen_sha_for_pillar(
-            day_stem='甲', day_branch='子',  # 甲=木
+            day_stem='甲', day_branch='子',
             year_branch='寅', month_branch='寅',
             pillar_name='hour', pillar_branch='戌', pillar_stem='甲',
+            year_nayin='大林木',
         )
         assert '天羅' not in sha
 
@@ -801,3 +802,526 @@ class TestRoger8Integration:
         # TST should be earlier than clock time for Malaysia (west of 120°E)
         assert tst['totalAdjustment'] < 0
         assert tst['birthCity'] == '吉打'
+
+
+# ============================================================
+# Seer Cross-Check: New Shen Sha, Kong Wang Per-Pillar, Self-Sitting
+# ============================================================
+
+
+class TestTianDeHe:
+    """天德合 — 六合 partner of 天德 stem."""
+
+    def test_tiande_he_stem_case(self):
+        """Month 申, TIANDE[申]=癸, 癸合戊 → pillar stem 戊 = 天德合."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='month', pillar_branch='申', pillar_stem='戊',
+            year_stem='丁',
+        )
+        assert '天德合' in sha
+
+    def test_tiande_he_not_found(self):
+        """Month 申, TIANDE[申]=癸, 癸合戊 → pillar stem 庚 ≠ 戊."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='hour', pillar_branch='申', pillar_stem='庚',
+            year_stem='丁',
+        )
+        assert '天德合' not in sha
+
+    def test_tiande_he_branch_case(self):
+        """Month 卯, TIANDE[卯]=申 (branch!), 申合巳 → pillar branch 巳 = 天德合."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='甲', day_branch='子',
+            year_branch='卯', month_branch='卯',
+            pillar_name='hour', pillar_branch='巳', pillar_stem='丁',
+            year_stem='丁',
+        )
+        assert '天德合' in sha
+
+
+class TestYueDeHe:
+    """月德合 — 六合 partner of 月德 stem."""
+
+    def test_yuede_he_detected(self):
+        """Month 申, YUEDE[申]=壬, 壬合丁 → pillar stem 丁 = 月德合."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='year', pillar_branch='卯', pillar_stem='丁',
+            year_stem='丁',
+        )
+        assert '月德合' in sha
+
+    def test_yuede_he_not_found(self):
+        """Month 申, YUEDE[申]=壬, 壬合丁 → pillar stem 戊 ≠ 丁."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='month', pillar_branch='申', pillar_stem='戊',
+            year_stem='丁',
+        )
+        assert '月德合' not in sha
+
+
+class TestDeXiu:
+    """德秀貴人 — lookup by month branch三合局 → check pillar stem."""
+
+    def test_dexiu_shen_month_wu_stem(self):
+        """Month 申 (申子辰), 德=壬癸戊己, pillar stem 戊 → 德秀貴人."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='month', pillar_branch='申', pillar_stem='戊',
+            year_stem='丁',
+        )
+        assert '德秀貴人' in sha
+
+    def test_dexiu_not_found_wrong_stem(self):
+        """Month 申 (申子辰), pillar stem 丁 not in 德 or 秀 lists."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='year', pillar_branch='卯', pillar_stem='丁',
+            year_stem='丁',
+        )
+        assert '德秀貴人' not in sha
+
+    def test_dexiu_mao_month_jia_stem(self):
+        """Month 卯 (亥卯未), 德=甲乙, pillar stem 甲 → 德秀貴人."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='甲', day_branch='子',
+            year_branch='卯', month_branch='卯',
+            pillar_name='hour', pillar_branch='寅', pillar_stem='甲',
+            year_stem='丁',
+        )
+        assert '德秀貴人' in sha
+
+
+class TestTianChu:
+    """天廚貴人 — lookup by year stem AND day stem → check branch."""
+
+    def test_tianchu_by_day_stem(self):
+        """Day stem 戊→申, pillar branch 申 → 天廚貴人."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='month', pillar_branch='申', pillar_stem='戊',
+            year_stem='丁',
+        )
+        assert '天廚貴人' in sha
+
+    def test_tianchu_by_year_stem(self):
+        """Year stem 丁→午, pillar branch 午 → 天廚貴人."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='day', pillar_branch='午', pillar_stem='戊',
+            year_stem='丁',
+        )
+        assert '天廚貴人' in sha
+
+    def test_tianchu_not_found(self):
+        """Day stem 戊→申, Year stem 丁→午, branch 卯 matches neither."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='year', pillar_branch='卯', pillar_stem='丁',
+            year_stem='丁',
+        )
+        assert '天廚貴人' not in sha
+
+
+class TestGouJiaoSha:
+    """勾絞煞 — gender-dependent, year branch ±3."""
+
+    def test_goujiao_yin_male(self):
+        """丁(Yin) male: +3=絞, -3=勾. Year branch 卯(3), 絞=午(6), 勾=子(0)."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='day', pillar_branch='午', pillar_stem='戊',
+            year_stem='丁', gender='male',
+        )
+        assert '勾絞煞' in sha  # 午 = 絞
+
+    def test_goujiao_yang_male(self):
+        """甲(Yang) male: +3=勾, -3=絞. Year branch 子(0), 勾=卯(3), 絞=酉(9)."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='甲', day_branch='子',
+            year_branch='子', month_branch='寅',
+            pillar_name='month', pillar_branch='卯', pillar_stem='丁',
+            year_stem='甲', gender='male',
+        )
+        assert '勾絞煞' in sha  # 卯 = 勾
+
+    def test_goujiao_not_found_no_gender(self):
+        """Without gender, 勾絞煞 is skipped."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='day', pillar_branch='午', pillar_stem='戊',
+            year_stem='丁',  # No gender param
+        )
+        assert '勾絞煞' not in sha
+
+    def test_goujiao_not_found_wrong_branch(self):
+        """丁(Yin) male: 絞=午, 勾=子. Branch 申 matches neither."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='month', pillar_branch='申', pillar_stem='戊',
+            year_stem='丁', gender='male',
+        )
+        assert '勾絞煞' not in sha
+
+
+class TestJinYuDualLookup:
+    """金輿 — dual lookup (day stem + year stem), matching Seer convention."""
+
+    def test_jinyu_by_year_stem(self):
+        """Year stem 丁→申, pillar branch 申 → 金輿 (not found by day stem 戊→未)."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='午',
+            year_branch='卯', month_branch='申',
+            pillar_name='month', pillar_branch='申', pillar_stem='戊',
+            year_stem='丁',
+        )
+        assert '金輿' in sha
+
+    def test_jinyu_by_day_stem(self):
+        """Day stem 甲→辰, pillar branch 辰 → 金輿."""
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='甲', day_branch='子',
+            year_branch='寅', month_branch='寅',
+            pillar_name='hour', pillar_branch='辰', pillar_stem='庚',
+            year_stem='丙',
+        )
+        assert '金輿' in sha
+
+
+class TestKongWangPerPillar:
+    """Per-pillar Kong Wang — each pillar's own stem+branch void branches."""
+
+    def test_kong_wang_per_pillar_exists(self):
+        """kongWangPerPillar field exists in result."""
+        r = calculate_bazi('1987-09-06', '16:00', '台北市', 'Asia/Taipei', 'male')
+        assert 'kongWangPerPillar' in r
+        assert set(r['kongWangPerPillar'].keys()) == {'year', 'month', 'day', 'hour'}
+
+    def test_kong_wang_per_pillar_values(self):
+        """Per-pillar Kong Wang matches Seer for 丁卯/戊申/戊午/庚申."""
+        r = calculate_bazi('1987-09-06', '16:00', '台北市', 'Asia/Taipei', 'male')
+        kw = r['kongWangPerPillar']
+        # 丁卯 → 戌亥
+        assert set(kw['year']) == {'戌', '亥'}
+        # 戊申 → 寅卯
+        assert set(kw['month']) == {'寅', '卯'}
+        # 戊午 → 子丑
+        assert set(kw['day']) == {'子', '丑'}
+        # 庚申 → 子丑
+        assert set(kw['hour']) == {'子', '丑'}
+
+    def test_kong_wang_backward_compat(self):
+        """Original kongWang (day-pillar only) still present and unchanged."""
+        r = calculate_bazi('1987-09-06', '16:00', '台北市', 'Asia/Taipei', 'male')
+        assert 'kongWang' in r
+        assert len(r['kongWang']) == 2
+        # Day pillar 戊午 → 子丑
+        assert set(r['kongWang']) == {'子', '丑'}
+
+
+class TestSelfSitting:
+    """自坐 — each pillar's own stem life stage on its own branch."""
+
+    def test_self_sitting_exists(self):
+        """selfSitting field exists on each pillar."""
+        r = calculate_bazi('1987-09-06', '16:00', '台北市', 'Asia/Taipei', 'male')
+        for pname in ['year', 'month', 'day', 'hour']:
+            assert 'selfSitting' in r['fourPillars'][pname]
+
+    def test_self_sitting_values(self):
+        """Self-sitting matches Seer for 丁卯/戊申/戊午/庚申."""
+        r = calculate_bazi('1987-09-06', '16:00', '台北市', 'Asia/Taipei', 'male')
+        p = r['fourPillars']
+        # 丁(Yin Fire) on 卯 → 病
+        assert p['year']['selfSitting'] == '病'
+        # 戊(Yang Earth) on 申 → 病
+        assert p['month']['selfSitting'] == '病'
+        # 戊(Yang Earth) on 午 → 帝旺
+        assert p['day']['selfSitting'] == '帝旺'
+        # 庚(Yang Metal) on 申 → 臨官
+        assert p['hour']['selfSitting'] == '臨官'
+
+
+class TestSeerFullCrossCheck:
+    """Full cross-check against Seer app for 1987-09-06 16:00 male."""
+
+    def test_seer_year_pillar_shen_sha(self):
+        """Year pillar (丁卯) Shen Sha: 太極貴人, 月德合, 桃花."""
+        r = calculate_bazi('1987-09-06', '16:00', '台北市', 'Asia/Taipei', 'male')
+        year_sha = set(r['fourPillars']['year']['shenSha'])
+        assert '太極貴人' in year_sha
+        assert '月德合' in year_sha
+        assert '桃花' in year_sha
+
+    def test_seer_month_pillar_shen_sha(self):
+        """Month pillar (戊申) Shen Sha: 文昌, 德秀貴人, 福星貴人, 天廚貴人, 天德合, 驛馬, 金輿, 劫煞."""
+        r = calculate_bazi('1987-09-06', '16:00', '台北市', 'Asia/Taipei', 'male')
+        month_sha = set(r['fourPillars']['month']['shenSha'])
+        assert '文昌' in month_sha
+        assert '德秀貴人' in month_sha
+        assert '福星貴人' in month_sha
+        assert '天廚貴人' in month_sha
+        assert '天德合' in month_sha
+        assert '驛馬' in month_sha
+        assert '金輿' in month_sha
+        assert '劫煞' in month_sha
+
+    def test_seer_day_pillar_shen_sha(self):
+        """Day pillar (戊午) Shen Sha: 德秀貴人, 天廚貴人, 天德合, 勾絞煞, 天喜, 羊刃."""
+        r = calculate_bazi('1987-09-06', '16:00', '台北市', 'Asia/Taipei', 'male')
+        day_sha = set(r['fourPillars']['day']['shenSha'])
+        assert '德秀貴人' in day_sha
+        assert '天廚貴人' in day_sha
+        assert '天德合' in day_sha
+        assert '勾絞煞' in day_sha
+        assert '天喜' in day_sha
+        assert '羊刃' in day_sha
+
+    def test_seer_hour_pillar_shen_sha(self):
+        """Hour pillar (庚申) Shen Sha: 文昌, 福星貴人, 天廚貴人, 驛馬, 金輿, 劫煞."""
+        r = calculate_bazi('1987-09-06', '16:00', '台北市', 'Asia/Taipei', 'male')
+        hour_sha = set(r['fourPillars']['hour']['shenSha'])
+        assert '文昌' in hour_sha
+        assert '福星貴人' in hour_sha
+        assert '天廚貴人' in hour_sha
+        assert '驛馬' in hour_sha
+        assert '金輿' in hour_sha
+        assert '劫煞' in hour_sha
+
+    def test_seer_life_stages(self):
+        """Life stages (星运) match Seer: 沐浴 病 帝旺 病."""
+        r = calculate_bazi('1987-09-06', '16:00', '台北市', 'Asia/Taipei', 'male')
+        p = r['fourPillars']
+        assert p['year']['lifeStage'] == '沐浴'
+        assert p['month']['lifeStage'] == '病'
+        assert p['day']['lifeStage'] == '帝旺'
+        assert p['hour']['lifeStage'] == '病'
+
+    def test_seer_nayin(self):
+        """Nayin (納音) match Seer: 爐中火 大驛土 天上火 石榴木."""
+        r = calculate_bazi('1987-09-06', '16:00', '台北市', 'Asia/Taipei', 'male')
+        p = r['fourPillars']
+        assert p['year']['naYin'] == '爐中火'
+        assert p['month']['naYin'] == '大驛土'
+        assert p['day']['naYin'] == '天上火'
+        assert p['hour']['naYin'] == '石榴木'
+
+
+class TestGuoYinDualLookup:
+    """國印貴人 dual lookup (year stem + day stem) per Seer convention."""
+
+    def test_laopo4_guoyin_on_month_via_year_stem(self):
+        """Laopo4: Year stem 丙→丑, month branch 丑 → 國印貴人 on month pillar."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        month_sha = r['fourPillars']['month']['shenSha']
+        assert '國印貴人' in month_sha
+
+    def test_laopo4_guoyin_on_day_via_day_stem(self):
+        """Laopo4: Day stem 甲→戌, day branch 戌 → 國印貴人 on day pillar."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        day_sha = r['fourPillars']['day']['shenSha']
+        assert '國印貴人' in day_sha
+
+
+class TestTongziSha:
+    """童子煞 tests — season-based + year nayin element-based."""
+
+    def test_laopo4_tongzi_on_day(self):
+        """Laopo4 (丙寅年=爐中火, 辛丑月, 甲戌日): 火nayin→酉/戌, day=戌 → 童子煞."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        day_sha = r['fourPillars']['day']['shenSha']
+        assert '童子煞' in day_sha
+
+    def test_tongzi_not_on_year_month(self):
+        """童子煞 only applies to day/hour pillars."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        year_sha = r['fourPillars']['year']['shenSha']
+        month_sha = r['fourPillars']['month']['shenSha']
+        assert '童子煞' not in year_sha
+        assert '童子煞' not in month_sha
+
+    def test_tongzi_season_based_spring(self):
+        """Spring month (寅月), day branch 寅 → 童子煞 via season rule."""
+        # 1986-02-15 = 丙寅年 庚寅月, need a day with branch 寅
+        # Use calculate_shen_sha_for_pillar directly
+        from app.shen_sha import calculate_shen_sha_for_pillar
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='甲', day_branch='寅',
+            year_branch='寅', month_branch='寅',
+            pillar_name='day', pillar_branch='寅', pillar_stem='甲',
+            year_stem='丙', year_nayin='爐中火',
+        )
+        assert '童子煞' in sha
+
+    def test_tongzi_no_match(self):
+        """No match when neither season nor nayin targets hit."""
+        from app.shen_sha import calculate_shen_sha_for_pillar
+        # Summer (午月), 金 nayin. Season targets: 卯未辰. Nayin targets: 午卯.
+        # Day branch = 申 → no match
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='庚', day_branch='申',
+            year_branch='子', month_branch='午',
+            pillar_name='day', pillar_branch='申', pillar_stem='庚',
+            year_stem='庚', year_nayin='壁上土',
+        )
+        assert '童子煞' not in sha
+
+
+class TestTianLuoDiWangNayin:
+    """天羅/地網 using year nayin element (not day stem element)."""
+
+    def test_laopo4_tianluo_on_day(self):
+        """Laopo4: Year nayin 爐中火(火) + day branch 戌 → 天羅."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        day_sha = r['fourPillars']['day']['shenSha']
+        assert '天羅' in day_sha
+
+    def test_no_tianluo_for_wood_nayin(self):
+        """Wood nayin (金木免) should NOT trigger 天羅/地網."""
+        from app.shen_sha import calculate_shen_sha_for_pillar
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='甲', day_branch='子',
+            year_branch='子', month_branch='寅',
+            pillar_name='day', pillar_branch='戌', pillar_stem='甲',
+            year_stem='甲', year_nayin='大溪水',
+        )
+        # 水 nayin + 戌 branch → 戌 NOT in [辰,巳] → no 地網
+        assert '天羅' not in sha
+        assert '地網' not in sha
+
+    def test_diwang_for_water_nayin(self):
+        """Water nayin + 辰 branch → 地網."""
+        from app.shen_sha import calculate_shen_sha_for_pillar
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='壬', day_branch='辰',
+            year_branch='子', month_branch='寅',
+            pillar_name='day', pillar_branch='辰', pillar_stem='壬',
+            year_stem='壬', year_nayin='大海水',
+        )
+        assert '地網' in sha
+
+    def test_diwang_for_earth_nayin(self):
+        """Earth nayin + 巳 branch → 地網."""
+        from app.shen_sha import calculate_shen_sha_for_pillar
+        sha = calculate_shen_sha_for_pillar(
+            day_stem='戊', day_branch='巳',
+            year_branch='丑', month_branch='寅',
+            pillar_name='day', pillar_branch='巳', pillar_stem='戊',
+            year_stem='己', year_nayin='大驛土',
+        )
+        assert '地網' in sha
+
+
+class TestKongWangInShenSha:
+    """空亡 appears in Shen Sha when pillar branch is in day pillar's kong wang."""
+
+    def test_laopo4_kongwang_on_hour(self):
+        """Laopo4: Hour branch 申 is in day pillar kong wang [申,酉] → 空亡."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        hour_sha = r['fourPillars']['hour']['shenSha']
+        assert '空亡' in hour_sha
+
+    def test_kongwang_not_on_day_itself(self):
+        """Day pillar never shows 空亡 (it defines the kong wang)."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        day_sha = r['fourPillars']['day']['shenSha']
+        assert '空亡' not in day_sha
+
+
+class TestSeerLaopo4FullCrossCheck:
+    """Full cross-check of Laopo4 (1987-01-25 16:00 female) against Seer screenshot."""
+
+    def test_four_pillars(self):
+        """四柱: 丙寅 辛丑 甲戌 壬申."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        p = r['fourPillars']
+        assert p['year']['stem'] + p['year']['branch'] == '丙寅'
+        assert p['month']['stem'] + p['month']['branch'] == '辛丑'
+        assert p['day']['stem'] + p['day']['branch'] == '甲戌'
+        assert p['hour']['stem'] + p['hour']['branch'] == '壬申'
+
+    def test_year_shen_sha(self):
+        """Year pillar (丙寅): 福星貴人, 祿神, 學堂."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        sha = set(r['fourPillars']['year']['shenSha'])
+        assert '福星貴人' in sha
+        assert '祿神' in sha
+        assert '學堂' in sha
+
+    def test_month_shen_sha(self):
+        """Month pillar (辛丑): 天乙貴人, 德秀貴人, 紅鸞, 寡宿, 國印貴人."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        sha = set(r['fourPillars']['month']['shenSha'])
+        assert '天乙貴人' in sha
+        assert '德秀貴人' in sha
+        assert '紅鸞' in sha
+        assert '寡宿' in sha
+        assert '國印貴人' in sha
+
+    def test_day_shen_sha(self):
+        """Day pillar (甲戌): 童子煞, 華蓋, 天羅, 國印貴人."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        sha = set(r['fourPillars']['day']['shenSha'])
+        assert '童子煞' in sha
+        assert '華蓋' in sha
+        assert '天羅' in sha
+        assert '國印貴人' in sha
+
+    def test_hour_shen_sha(self):
+        """Hour pillar (壬申): 文昌, 驛馬, 空亡."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        sha = set(r['fourPillars']['hour']['shenSha'])
+        assert '文昌' in sha
+        assert '驛馬' in sha
+        assert '空亡' in sha
+
+    def test_life_stages(self):
+        """Life stages: 臨官, 冠帶, 養, 絕."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        p = r['fourPillars']
+        assert p['year']['lifeStage'] == '臨官'
+        assert p['month']['lifeStage'] == '冠帶'
+        assert p['day']['lifeStage'] == '養'
+        assert p['hour']['lifeStage'] == '絕'
+
+    def test_self_sitting(self):
+        """Self-sitting: 長生, 養, 養, 長生."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        p = r['fourPillars']
+        assert p['year']['selfSitting'] == '長生'
+        assert p['month']['selfSitting'] == '養'
+        assert p['day']['selfSitting'] == '養'
+        assert p['hour']['selfSitting'] == '長生'
+
+    def test_nayin(self):
+        """Nayin: 爐中火, 壁上土, 山頭火, 劍鋒金."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        p = r['fourPillars']
+        assert p['year']['naYin'] == '爐中火'
+        assert p['month']['naYin'] == '壁上土'
+        assert p['day']['naYin'] == '山頭火'
+        assert p['hour']['naYin'] == '劍鋒金'
+
+    def test_kong_wang_per_pillar(self):
+        """Kong Wang per pillar: 戌亥, 辰巳, 申酉, 戌亥."""
+        r = calculate_bazi('1987-01-25', '16:00', '台北市', 'Asia/Taipei', 'female')
+        kw = r['kongWangPerPillar']
+        assert set(kw['year']) == {'戌', '亥'}
+        assert set(kw['month']) == {'辰', '巳'}
+        assert set(kw['day']) == {'申', '酉'}
+        assert set(kw['hour']) == {'戌', '亥'}
