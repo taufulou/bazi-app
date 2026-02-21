@@ -30,15 +30,23 @@ from .five_elements import (
     calculate_element_counts,
     determine_favorable_gods,
 )
-from .shen_sha import apply_shen_sha_to_pillars, get_all_shen_sha
+from .shen_sha import apply_shen_sha_to_pillars, calculate_kong_wang, detect_special_day_pillars, get_all_shen_sha
 from .life_stages import apply_life_stages_to_pillars
 from .luck_periods import (
     calculate_annual_stars,
     calculate_luck_periods,
     calculate_monthly_stars,
 )
+from .timing_analysis import (
+    analyze_timing_for_annual_stars,
+    analyze_timing_for_luck_periods,
+    generate_timing_insights,
+)
 from .compatibility import calculate_compatibility
-from .constants import PATTERN_TYPES, STEM_ELEMENT
+from .compatibility_enhanced import calculate_enhanced_compatibility
+from .compatibility_preanalysis import generate_compatibility_pre_analysis
+from .constants import BRANCH_ELEMENT, PATTERN_TYPES, STEM_ELEMENT
+from .interpretation_rules import generate_pre_analysis
 
 
 def calculate_bazi(
@@ -50,6 +58,7 @@ def calculate_bazi(
     birth_longitude: Optional[float] = None,
     birth_latitude: Optional[float] = None,
     target_year: Optional[int] = None,
+    reading_type: Optional[str] = None,
 ) -> Dict:
     """
     Calculate a complete Bazi chart from birth data.
@@ -65,6 +74,7 @@ def calculate_bazi(
         birth_longitude: Optional pre-provided longitude
         birth_latitude: Optional pre-provided latitude
         target_year: Target year for annual readings (default: current year)
+        reading_type: NestJS reading type enum (e.g., 'LIFETIME', 'CAREER_FINANCE')
 
     Returns:
         Complete Bazi calculation result matching BaziCalculationResult TypeScript interface
@@ -92,7 +102,7 @@ def calculate_bazi(
     pillars = apply_ten_gods_to_pillars(pillars, day_master_stem)
 
     # Step 3: Apply Shen Sha (special stars)
-    pillars, kong_wang = apply_shen_sha_to_pillars(pillars, day_master_stem, day_master_branch)
+    pillars, kong_wang = apply_shen_sha_to_pillars(pillars, day_master_stem, day_master_branch, gender=gender)
 
     # Step 4: Apply Life Stages
     pillars = apply_life_stages_to_pillars(pillars, day_master_stem)
@@ -147,11 +157,47 @@ def calculate_bazi(
         day_master_stem=day_master_stem,
     )
 
+    # Step 13: Timing Analysis — enrich luck periods and annual stars
+    luck_periods = analyze_timing_for_luck_periods(
+        natal_pillars=pillars,
+        luck_periods=luck_periods,
+        day_master_stem=day_master_stem,
+    )
+    annual_stars = analyze_timing_for_annual_stars(
+        natal_pillars=pillars,
+        annual_stars=annual_stars,
+        luck_periods=luck_periods,
+        day_master_stem=day_master_stem,
+    )
+    timing_insights = generate_timing_insights(
+        natal_pillars=pillars,
+        luck_periods=luck_periods,
+        annual_stars=annual_stars,
+        day_master_stem=day_master_stem,
+        target_year=target_year,
+    )
+
+    # Step 14: Special Day Pillar detection (魁罡日, 陰陽差錯日, 十惡大敗日)
+    special_day_pillars = detect_special_day_pillars(day_master_stem, day_master_branch)
+
+    # Step 15: Generate Pre-Analysis (Layer 2 — deterministic rules)
+    pre_analysis = generate_pre_analysis(
+        pillars=pillars,
+        day_master_stem=day_master_stem,
+        five_elements_balance=five_elements_balance,
+        favorable_gods=favorable_gods,
+        reading_type=reading_type or 'LIFETIME',
+        gender=gender,
+        timing_insights=timing_insights,
+        special_day_pillars=special_day_pillars,
+    )
+
     # Build the complete result
     day_master_result = {
         **day_master_analysis,
         **favorable_gods,
         'pattern': pattern,
+        'strengthScoreV2': pre_analysis['strengthV2'],
     }
 
     # Convert five elements balance to English keys for TypeScript compatibility
@@ -163,6 +209,28 @@ def calculate_bazi(
         'water': five_elements_balance.get('水', 0),
     }
 
+    # Summary fields for AI consumption (Phase 11A)
+    life_stages_summary = {
+        pname: pillars[pname].get('lifeStage', '')
+        for pname in ['year', 'month', 'day', 'hour']
+    }
+
+    pillar_elements = {
+        pname: {
+            'stem': pillars[pname]['stem'],
+            'stemElement': STEM_ELEMENT.get(pillars[pname]['stem'], ''),
+            'branch': pillars[pname]['branch'],
+            'branchElement': BRANCH_ELEMENT.get(pillars[pname]['branch'], ''),
+        }
+        for pname in ['year', 'month', 'day', 'hour']
+    }
+
+    # Per-pillar Kong Wang (each pillar's own void branches)
+    kong_wang_per_pillar = {}
+    for pname in ['year', 'month', 'day', 'hour']:
+        p = pillars[pname]
+        kong_wang_per_pillar[pname] = calculate_kong_wang(p['stem'], p['branch'])
+
     result = {
         'fourPillars': pillars,
         'fiveElementsBalance': five_elements_balance_en,
@@ -171,6 +239,7 @@ def calculate_bazi(
         'dayMaster': day_master_result,
         'dayMasterStem': day_master_stem,
         'dayMasterBranch': day_master_branch,
+        'gender': gender,
         'tenGodDistribution': ten_god_distribution,
         'luckPeriods': luck_periods,
         'annualStars': annual_stars,
@@ -178,6 +247,7 @@ def calculate_bazi(
         'trueSolarTime': pillar_data['trueSolarTime'],
         'lunarDate': pillar_data['lunarDate'],
         'kongWang': kong_wang,
+        'kongWangPerPillar': kong_wang_per_pillar,
         'allShenSha': get_all_shen_sha(pillars),
         'ganZhi': {
             'year': pillar_data['yearGanZhi'],
@@ -185,6 +255,14 @@ def calculate_bazi(
             'day': pillar_data['dayGanZhi'],
             'hour': pillar_data['hourGanZhi'],
         },
+        # Phase 11: Pre-analysis layer + summary fields
+        'preAnalysis': pre_analysis,
+        'lifeStagesSummary': life_stages_summary,
+        'kongWangSummary': kong_wang,
+        'pillarElements': pillar_elements,
+        # Phase 11D: Timing analysis + special day pillars
+        'timingInsights': timing_insights,
+        'specialDayPillars': special_day_pillars,
     }
 
     return result
@@ -194,27 +272,88 @@ def calculate_bazi_compatibility(
     birth_data_a: Dict,
     birth_data_b: Dict,
     comparison_type: str = 'romance',
+    current_year: Optional[int] = None,
 ) -> Dict:
     """
     Calculate compatibility between two people's Bazi charts.
 
+    Uses the enhanced 8-dimension scoring engine with sigmoid amplification,
+    knockout conditions, and full pre-analysis for AI narration.
+
     Args:
         birth_data_a: Birth data for person A (same format as calculate_bazi args)
         birth_data_b: Birth data for person B
-        comparison_type: 'romance', 'business', or 'friendship'
+        comparison_type: 'romance', 'business', 'friendship', or 'parent_child'
+        current_year: Current year for timing analysis (defaults to datetime.now().year)
 
     Returns:
-        Compatibility analysis including both individual charts and comparison
+        Compatibility analysis including:
+        - chartA, chartB: Individual Bazi charts
+        - compatibility: Legacy simple compatibility (for backward compat)
+        - compatibilityEnhanced: 8-dimension enhanced scoring
+        - compatibilityPreAnalysis: Structured pre-analysis for AI narration
     """
+    if current_year is None:
+        current_year = datetime.now().year
+
     # Calculate individual charts
     chart_a = calculate_bazi(**birth_data_a)
     chart_b = calculate_bazi(**birth_data_b)
 
-    # Calculate compatibility
-    compat = calculate_compatibility(chart_a, chart_b, comparison_type)
+    # Extract gender from birth data
+    gender_a = birth_data_a.get('gender', 'male')
+    gender_b = birth_data_b.get('gender', 'male')
+
+    # Legacy compatibility (backward compatibility)
+    compat_legacy = calculate_compatibility(chart_a, chart_b, comparison_type)
+
+    # Extract pre-analysis from charts
+    pre_analysis_a = chart_a.get('preAnalysis', {})
+    pre_analysis_b = chart_b.get('preAnalysis', {})
+
+    # Extract shen sha lists
+    shen_sha_a = chart_a.get('allShenSha', [])
+    shen_sha_b = chart_b.get('allShenSha', [])
+
+    # Extract luck periods
+    luck_periods_a = chart_a.get('luckPeriods', [])
+    luck_periods_b = chart_b.get('luckPeriods', [])
+
+    # Enhanced 8-dimension compatibility
+    compat_enhanced = calculate_enhanced_compatibility(
+        chart_a=chart_a,
+        chart_b=chart_b,
+        pre_analysis_a=pre_analysis_a,
+        pre_analysis_b=pre_analysis_b,
+        gender_a=gender_a,
+        gender_b=gender_b,
+        comparison_type=comparison_type,
+        current_year=current_year,
+        shen_sha_a=shen_sha_a,
+        shen_sha_b=shen_sha_b,
+        luck_periods_a=luck_periods_a,
+        luck_periods_b=luck_periods_b,
+    )
+
+    # Pre-analysis for AI narration (Layer 2)
+    compat_pre_analysis = generate_compatibility_pre_analysis(
+        chart_a=chart_a,
+        chart_b=chart_b,
+        compat_result=compat_enhanced,
+        pre_analysis_a=pre_analysis_a,
+        pre_analysis_b=pre_analysis_b,
+        gender_a=gender_a,
+        gender_b=gender_b,
+        comparison_type=comparison_type,
+        current_year=current_year,
+        shen_sha_a=shen_sha_a,
+        shen_sha_b=shen_sha_b,
+    )
 
     return {
         'chartA': chart_a,
         'chartB': chart_b,
-        'compatibility': compat,
+        'compatibility': compat_legacy,
+        'compatibilityEnhanced': compat_enhanced,
+        'compatibilityPreAnalysis': compat_pre_analysis,
     }

@@ -154,21 +154,57 @@ export class UsersService {
     limit = Math.min(Math.max(limit, 1), 100); // Clamp to 1-100
     const user = await this.ensureUser(clerkUserId);
 
-    const [readings, total] = await Promise.all([
+    // Fetch both individual readings and comparisons
+    const [readings, comparisons, readingCount, comparisonCount] = await Promise.all([
       this.prisma.baziReading.findMany({
         where: { userId: user.id },
         include: {
           birthProfile: { select: { name: true, birthDate: true } },
         },
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * limit,
-        take: limit,
+      }),
+      this.prisma.baziComparison.findMany({
+        where: { userId: user.id },
+        select: {
+          id: true,
+          comparisonType: true,
+          creditsUsed: true,
+          createdAt: true,
+          profileA: { select: { name: true, birthDate: true } },
+          profileB: { select: { name: true, birthDate: true } },
+        },
+        orderBy: { createdAt: 'desc' },
       }),
       this.prisma.baziReading.count({ where: { userId: user.id } }),
+      this.prisma.baziComparison.count({ where: { userId: user.id } }),
     ]);
 
+    // Normalize comparisons into the same shape as readings
+    const normalizedComparisons = comparisons.map((c) => ({
+      id: c.id,
+      readingType: 'COMPATIBILITY',
+      creditsUsed: c.creditsUsed,
+      createdAt: c.createdAt,
+      birthProfile: c.profileA,    // Primary person
+      profileB: c.profileB,        // Second person (extra field for comparisons)
+      comparisonType: c.comparisonType,
+      isComparison: true,
+    }));
+
+    // Merge and sort by date descending
+    const merged = [
+      ...readings.map((r) => ({ ...r, isComparison: false })),
+      ...normalizedComparisons,
+    ].sort((a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+    );
+
+    // Paginate the merged list
+    const total = readingCount + comparisonCount;
+    const paged = merged.slice((page - 1) * limit, page * limit);
+
     return {
-      data: readings,
+      data: paged,
       meta: {
         page,
         limit,

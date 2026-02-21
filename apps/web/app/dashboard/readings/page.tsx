@@ -27,6 +27,13 @@ const ENUM_TO_SLUG: Record<string, string> = {
   ZWDS_QA: "zwds-qa",
 };
 
+// Comparison type labels
+const COMPARISON_TYPE_LABELS: Record<string, { icon: string; label: string }> = {
+  ROMANCE: { icon: "💕", label: "感情合盤" },
+  BUSINESS: { icon: "💼", label: "事業合盤" },
+  FRIENDSHIP: { icon: "🤝", label: "友誼合盤" },
+};
+
 function formatDate(isoString: string): string {
   const d = new Date(isoString);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -102,6 +109,50 @@ export default function ReadingHistoryPage() {
       {!isLoading && !error && readings.length > 0 && (
         <div className={styles.grid}>
           {readings.map((reading) => {
+            // Comparison items use a different link + card layout
+            if (reading.isComparison) {
+              const ctMeta = COMPARISON_TYPE_LABELS[reading.comparisonType || ""] || {
+                icon: "🤝",
+                label: "合盤比較",
+              };
+              return (
+                <Link
+                  key={reading.id}
+                  href={`/reading/compatibility?id=${reading.id}`}
+                  className={styles.cardLink}
+                >
+                  <div className={styles.cardComparison}>
+                    <div className={styles.cardHeader}>
+                      <span className={styles.cardIcon}>{ctMeta.icon}</span>
+                      <span className={styles.cardType}>{ctMeta.label}</span>
+                    </div>
+                    <div className={styles.cardBody}>
+                      <div className={styles.cardName}>
+                        {reading.birthProfile?.name || "未命名"}
+                        <span className={styles.vsLabel}> vs </span>
+                        {reading.profileB?.name || "未命名"}
+                      </div>
+                      <div className={styles.cardDate}>
+                        {formatDate(reading.createdAt)}
+                      </div>
+                    </div>
+                    <div className={styles.cardFooter}>
+                      {reading.creditsUsed > 0 && (
+                        <span className={styles.cardCredits}>
+                          -{reading.creditsUsed} 額度
+                        </span>
+                      )}
+                      {reading.creditsUsed === 0 && (
+                        <span className={styles.cardFree}>免費</span>
+                      )}
+                      <span className={styles.cardAction}>查看 &rarr;</span>
+                    </div>
+                  </div>
+                </Link>
+              );
+            }
+
+            // Regular reading cards
             const slug = ENUM_TO_SLUG[reading.readingType] || "lifetime";
             const meta = READING_TYPE_META[slug as keyof typeof READING_TYPE_META];
             const isZwds = slug.startsWith("zwds-");

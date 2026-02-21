@@ -22,6 +22,9 @@ export interface BirthProfile {
   gender: 'MALE' | 'FEMALE';
   relationshipTag: 'SELF' | 'FAMILY' | 'FRIEND';
   isPrimary: boolean;
+  isLunarDate: boolean;
+  lunarBirthDate: string | null;
+  isLeapMonth: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -35,6 +38,9 @@ export interface CreateBirthProfilePayload {
   gender: 'MALE' | 'FEMALE';
   relationshipTag?: 'SELF' | 'FAMILY' | 'FRIEND';
   isPrimary?: boolean;
+  isLunarDate?: boolean;
+  lunarBirthDate?: string;
+  isLeapMonth?: boolean;
 }
 
 export type UpdateBirthProfilePayload = Partial<CreateBirthProfilePayload>;
@@ -64,6 +70,8 @@ export function profileToFormValues(profile: BirthProfile): BirthDataFormValues 
     birthTime: profile.birthTime,
     birthCity: profile.birthCity,
     birthTimezone: profile.birthTimezone,
+    isLunarDate: profile.isLunarDate ?? false,
+    isLeapMonth: profile.isLeapMonth ?? false,
   };
 }
 
@@ -71,6 +79,7 @@ export function profileToFormValues(profile: BirthProfile): BirthDataFormValues 
 export function formValuesToPayload(
   data: BirthDataFormValues,
   relationshipTag?: string,
+  lunarBirthDate?: string,
 ): CreateBirthProfilePayload {
   return {
     name: data.name,
@@ -80,6 +89,9 @@ export function formValuesToPayload(
     birthTimezone: data.birthTimezone,
     gender: genderToApi(data.gender),
     relationshipTag: (relationshipTag as 'SELF' | 'FAMILY' | 'FRIEND') || 'SELF',
+    isLunarDate: data.isLunarDate || false,
+    lunarBirthDate: data.isLunarDate ? lunarBirthDate : undefined,
+    isLeapMonth: data.isLeapMonth || false,
   };
 }
 

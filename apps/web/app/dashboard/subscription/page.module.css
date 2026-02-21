@@ -1,0 +1,582 @@
+/* ============================================================
+   Subscription Management Page
+   ============================================================ */
+
+.page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+  color: #e0e0e0;
+  padding: 2rem;
+}
+
+/* ---- Header ---- */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.backLink {
+  color: #a0a0a0;
+  text-decoration: none;
+  font-size: 0.9rem;
+  transition: color 0.2s;
+}
+
+.backLink:hover {
+  color: #e8d5b7;
+}
+
+.headerTitle {
+  color: #e8d5b7;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+/* ---- Content ---- */
+.content {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* ---- Loading ---- */
+.loadingWrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 4rem 0;
+}
+
+.spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid rgba(232, 213, 183, 0.2);
+  border-top-color: #e8d5b7;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loadingText {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+}
+
+/* ---- Error Banner ---- */
+.errorBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 0.85rem 1.5rem;
+  background: rgba(244, 67, 54, 0.12);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  border-radius: 10px;
+  color: #ef9a9a;
+  font-size: 0.9rem;
+  margin-bottom: 1.5rem;
+}
+
+.errorClose {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.2rem;
+  cursor: pointer;
+  opacity: 0.7;
+  padding: 0;
+  line-height: 1;
+}
+
+.errorClose:hover {
+  opacity: 1;
+}
+
+/* ---- Plan Card ---- */
+.planCard {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.12);
+  border-radius: 16px;
+  padding: 2rem;
+  margin-bottom: 1.5rem;
+}
+
+.planHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+/* ---- Tier Badges ---- */
+.tierBadge {
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.3rem 0.9rem;
+  border-radius: 20px;
+  letter-spacing: 0.03em;
+}
+
+.tierBadge_free {
+  background: rgba(160, 160, 160, 0.15);
+  color: #a0a0a0;
+  border: 1px solid rgba(160, 160, 160, 0.2);
+}
+
+.tierBadge_basic {
+  background: rgba(76, 175, 80, 0.15);
+  color: #81c784;
+  border: 1px solid rgba(76, 175, 80, 0.25);
+}
+
+.tierBadge_pro {
+  background: rgba(212, 175, 55, 0.15);
+  color: #e8d5b7;
+  border: 1px solid rgba(212, 175, 55, 0.3);
+}
+
+.tierBadge_master {
+  background: linear-gradient(135deg, rgba(212, 175, 55, 0.2), rgba(184, 150, 46, 0.2));
+  color: #d4af37;
+  border: 1px solid rgba(212, 175, 55, 0.4);
+}
+
+.cancelledBadge {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 12px;
+  background: rgba(255, 152, 0, 0.12);
+  color: #ffb74d;
+  border: 1px solid rgba(255, 152, 0, 0.25);
+}
+
+/* ---- Plan Details ---- */
+.planDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.detailRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.detailRow:last-child {
+  border-bottom: none;
+}
+
+.detailLabel {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+}
+
+.detailValue {
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.statusActive {
+  color: #81c784;
+}
+
+.statusCancelled {
+  color: #ffb74d;
+}
+
+/* ---- Action Buttons ---- */
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.portalButton,
+.cancelButton,
+.reactivateButton {
+  width: 100%;
+  padding: 0.85rem 1.5rem;
+  border: none;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+}
+
+.portalButton {
+  background: rgba(232, 213, 183, 0.1);
+  color: #e8d5b7;
+  border: 1px solid rgba(232, 213, 183, 0.25);
+}
+
+.portalButton:hover:not(:disabled) {
+  background: rgba(232, 213, 183, 0.18);
+  border-color: rgba(232, 213, 183, 0.4);
+}
+
+.cancelButton {
+  background: transparent;
+  color: #ef9a9a;
+  border: 1px solid rgba(244, 67, 54, 0.2);
+}
+
+.cancelButton:hover:not(:disabled) {
+  background: rgba(244, 67, 54, 0.08);
+  border-color: rgba(244, 67, 54, 0.35);
+}
+
+.reactivateButton {
+  background: linear-gradient(135deg, #d4af37, #b8962e);
+  color: #1a1a2e;
+}
+
+.reactivateButton:hover:not(:disabled) {
+  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+}
+
+.portalButton:disabled,
+.cancelButton:disabled,
+.reactivateButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnSpinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+/* ---- Links ---- */
+.upgradeLink,
+.changePlanLink {
+  display: block;
+  width: 100%;
+  padding: 0.85rem 1.5rem;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  transition: all 0.2s ease;
+}
+
+.upgradeLink {
+  background: linear-gradient(135deg, #d4af37, #b8962e);
+  color: #1a1a2e;
+}
+
+.upgradeLink:hover {
+  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+}
+
+.changePlanLink {
+  background: transparent;
+  color: #a0a0a0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.changePlanLink:hover {
+  color: #e8d5b7;
+  border-color: rgba(232, 213, 183, 0.2);
+}
+
+/* ---- Confirmation Dialog ---- */
+.confirmOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.confirmDialog {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.15);
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 420px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.confirmTitle {
+  color: #e8d5b7;
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem;
+}
+
+.confirmText {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  margin: 0 0 1.5rem;
+}
+
+.confirmActions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.confirmCancel,
+.confirmProceed {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+}
+
+.confirmCancel {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e0e0e0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.confirmCancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.confirmProceed {
+  background: rgba(244, 67, 54, 0.15);
+  color: #ef9a9a;
+  border: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+.confirmProceed:hover:not(:disabled) {
+  background: rgba(244, 67, 54, 0.25);
+}
+
+.confirmProceed:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---- Invoice Section ---- */
+.invoiceSection {
+  margin-top: 2rem;
+}
+
+.invoiceSectionTitle {
+  color: #e8d5b7;
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0 0 1rem;
+}
+
+.invoiceLoading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.invoiceSkeleton {
+  height: 72px;
+  border-radius: 12px;
+  background: linear-gradient(90deg, rgba(232, 213, 183, 0.04) 25%, rgba(232, 213, 183, 0.08) 50%, rgba(232, 213, 183, 0.04) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.invoiceError {
+  color: #ef9a9a;
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 1rem 0;
+}
+
+.invoiceEmpty {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+.invoiceList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.invoiceCard {
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.08);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  transition: border-color 0.2s;
+}
+
+.invoiceCard:hover {
+  border-color: rgba(232, 213, 183, 0.18);
+}
+
+.invoiceMain {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.invoiceInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.invoiceDate {
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.invoiceNumber {
+  color: #a0a0a0;
+  font-size: 0.78rem;
+  font-family: monospace;
+}
+
+.invoiceDesc {
+  color: #a0a0a0;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.invoiceRight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.3rem;
+  flex-shrink: 0;
+}
+
+.invoiceAmount {
+  color: #e0e0e0;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.invoiceStatus {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.55rem;
+  border-radius: 10px;
+  letter-spacing: 0.02em;
+}
+
+.statusPaid {
+  background: rgba(76, 175, 80, 0.12);
+  color: #81c784;
+  border: 1px solid rgba(76, 175, 80, 0.2);
+}
+
+.statusOpen {
+  background: rgba(255, 152, 0, 0.12);
+  color: #ffb74d;
+  border: 1px solid rgba(255, 152, 0, 0.2);
+}
+
+.statusVoid {
+  background: rgba(160, 160, 160, 0.12);
+  color: #a0a0a0;
+  border: 1px solid rgba(160, 160, 160, 0.2);
+}
+
+.statusUncollectible {
+  background: rgba(244, 67, 54, 0.12);
+  color: #ef9a9a;
+  border: 1px solid rgba(244, 67, 54, 0.2);
+}
+
+.statusDraft {
+  background: rgba(160, 160, 160, 0.08);
+  color: #808080;
+  border: 1px solid rgba(160, 160, 160, 0.15);
+}
+
+.invoiceActions {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.65rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.invoiceLink {
+  color: #e8d5b7;
+  font-size: 0.82rem;
+  text-decoration: none;
+  opacity: 0.8;
+  transition: opacity 0.2s;
+}
+
+.invoiceLink:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 600px) {
+  .page {
+    padding: 1.5rem 1rem;
+  }
+
+  .planCard {
+    padding: 1.5rem;
+  }
+
+  .confirmDialog {
+    padding: 1.5rem;
+  }
+
+  .invoiceDesc {
+    max-width: 160px;
+  }
+
+  .invoiceMain {
+    flex-wrap: wrap;
+  }
+}

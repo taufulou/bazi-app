@@ -205,6 +205,61 @@ export interface AuditLogEntry {
   createdAt: string;
 }
 
+// ============ Credit Packages ============
+
+export interface AdminCreditPackage {
+  id: string;
+  slug: string;
+  nameZhTw: string;
+  nameZhCn: string;
+  creditAmount: number;
+  priceUsd: number;
+  isActive: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MonetizationAnalytics {
+  days: number;
+  creditPackagePurchases: {
+    description: string;
+    totalRevenue: number;
+    count: number;
+    avgAmount: number;
+  }[];
+  adRewardClaims: {
+    rewardType: string;
+    count: number;
+    creditsGranted: number;
+  }[];
+  adRewardDailyTrend: {
+    date: string;
+    count: number;
+  }[];
+  sectionUnlockStats: {
+    sectionKey: string;
+    count: number;
+  }[];
+  activeSubscriptionsByTier: {
+    tier: string;
+    count: number;
+  }[];
+  newSubscriptions: number;
+  cancelledSubscriptions: number;
+  conversionFunnel: {
+    totalUsers: number;
+    usersWithReadings: number;
+    creditPurchasers: number;
+    subscribers: number;
+  };
+  revenueByType: {
+    type: string;
+    total: number;
+    count: number;
+  }[];
+}
+
 // ============ Dashboard ============
 
 export async function getAdminStats(token: string): Promise<DashboardStats> {
@@ -364,6 +419,58 @@ export async function getAICosts(token: string, params?: { days?: number }): Pro
 
 export async function getRevenue(token: string): Promise<Revenue> {
   return apiFetch<Revenue>('/api/admin/revenue', { token });
+}
+
+// ============ Credit Packages ============
+
+export async function listCreditPackages(token: string): Promise<AdminCreditPackage[]> {
+  return apiFetch<AdminCreditPackage[]>('/api/admin/credit-packages', { token });
+}
+
+export async function createCreditPackage(
+  token: string,
+  data: {
+    slug: string;
+    nameZhTw: string;
+    nameZhCn: string;
+    creditAmount: number;
+    priceUsd: number;
+    isActive?: boolean;
+    sortOrder?: number;
+  },
+): Promise<AdminCreditPackage> {
+  return apiFetch<AdminCreditPackage>('/api/admin/credit-packages', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateCreditPackage(
+  token: string,
+  id: string,
+  data: Partial<Pick<AdminCreditPackage, 'nameZhTw' | 'nameZhCn' | 'creditAmount' | 'priceUsd' | 'isActive' | 'sortOrder'>>,
+): Promise<AdminCreditPackage> {
+  return apiFetch<AdminCreditPackage>(`/api/admin/credit-packages/${id}`, {
+    method: 'PATCH',
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+// ============ Monetization Analytics ============
+
+export async function getMonetizationAnalytics(
+  token: string,
+  params?: { days?: number },
+): Promise<MonetizationAnalytics> {
+  const query = new URLSearchParams();
+  if (params?.days) query.set('days', String(params.days));
+  const qs = query.toString();
+  return apiFetch<MonetizationAnalytics>(
+    `/api/admin/monetization-analytics${qs ? `?${qs}` : ''}`,
+    { token },
+  );
 }
 
 // ============ Audit Log ============

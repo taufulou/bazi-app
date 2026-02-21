@@ -8,6 +8,7 @@ import { ReadingType } from '@prisma/client';
 import {
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   InternalServerErrorException,
 } from '@nestjs/common';
 
@@ -145,6 +146,8 @@ describe('Phase 8B — ZwdsService', () => {
       getJson: jest.fn(),
       setJson: jest.fn(),
       del: jest.fn(),
+      acquireLock: jest.fn().mockResolvedValue(true),
+      releaseLock: jest.fn().mockResolvedValue(undefined),
     };
 
     const mockAI = {
@@ -424,29 +427,30 @@ describe('Phase 8B — ZwdsService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw NotFoundException for missing profile', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
-      (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(null);
-
-      await expect(
-        service.createCrossSystemReading('clerk_user_1', { birthProfileId: 'bad-profile' }),
-      ).rejects.toThrow(NotFoundException);
-    });
-
-    it('should throw BadRequestException when insufficient credits and no free trial', async () => {
-      const brokeUser = { ...mockUser, freeReadingUsed: true, credits: 2 }; // needs 3
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(brokeUser);
+    it('should throw ForbiddenException for non-Master user', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser); // FREE tier
       (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(mockProfile);
 
       await expect(
         service.createCrossSystemReading('clerk_user_1', { birthProfileId: 'profile-1' }),
-      ).rejects.toThrow(/Insufficient credits.*3 credits/);
+      ).rejects.toThrow(ForbiddenException);
     });
 
-    it('should allow free trial for cross-system reading', async () => {
-      const freeUser = { ...mockUser, freeReadingUsed: false, credits: 0 };
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(freeUser);
-      (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(mockProfile);
+    it('should throw NotFoundException for missing profile (Master user)', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockMasterUser);
+      (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(null);
+
+      await expect(
+        service.createCrossSystemReading('clerk_master', { birthProfileId: 'bad-profile' }),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('should succeed for Master user (credits bypassed)', async () => {
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockMasterUser);
+      (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue({
+        ...mockProfile,
+        userId: 'user-master',
+      });
 
       // Mock fetch for Bazi engine
       const originalFetch = global.fetch;
@@ -471,7 +475,7 @@ describe('Phase 8B — ZwdsService', () => {
         return fn(tx);
       });
 
-      const result = await service.createCrossSystemReading('clerk_user_1', {
+      const result = await service.createCrossSystemReading('clerk_master', {
         birthProfileId: 'profile-1',
       });
 
@@ -482,8 +486,11 @@ describe('Phase 8B — ZwdsService', () => {
     });
 
     it('should call AI with promptVariant "cross-system"', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
-      (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(mockProfile);
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockMasterUser);
+      (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue({
+        ...mockProfile,
+        userId: 'user-master',
+      });
 
       // Mock fetch for Bazi engine
       const originalFetch = global.fetch;
@@ -508,7 +515,7 @@ describe('Phase 8B — ZwdsService', () => {
         return fn(tx);
       });
 
-      await service.createCrossSystemReading('clerk_user_1', {
+      await service.createCrossSystemReading('clerk_master', {
         birthProfileId: 'profile-1',
       });
 
@@ -516,7 +523,7 @@ describe('Phase 8B — ZwdsService', () => {
       expect(aiService.generateInterpretation as jest.Mock).toHaveBeenCalledWith(
         expect.objectContaining({ system: 'cross-system' }),
         ReadingType.ZWDS_LIFETIME,
-        'user-1',
+        'user-master',
         undefined, // readingId
         'cross-system', // promptVariant
       );
@@ -525,8 +532,11 @@ describe('Phase 8B — ZwdsService', () => {
     });
 
     it('should throw InternalServerErrorException when Bazi engine returns error', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
-      (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(mockProfile);
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockMasterUser);
+      (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue({
+        ...mockProfile,
+        userId: 'user-master',
+      });
 
       const originalFetch = global.fetch;
       global.fetch = jest.fn().mockResolvedValue({
@@ -535,7 +545,7 @@ describe('Phase 8B — ZwdsService', () => {
       }) as any;
 
       await expect(
-        service.createCrossSystemReading('clerk_user_1', { birthProfileId: 'profile-1' }),
+        service.createCrossSystemReading('clerk_master', { birthProfileId: 'profile-1' }),
       ).rejects.toThrow(InternalServerErrorException);
 
       global.fetch = originalFetch;
@@ -560,7 +570,7 @@ describe('Phase 8B — ZwdsService', () => {
 
       await expect(
         service.createDeepStarReading('clerk_user_1', { birthProfileId: 'p1' }),
-      ).rejects.toThrow(/Master-tier subscribers only/);
+      ).rejects.toThrow(ForbiddenException);
     });
 
     it('should reject BASIC subscription tier', async () => {
@@ -568,7 +578,7 @@ describe('Phase 8B — ZwdsService', () => {
 
       await expect(
         service.createDeepStarReading('clerk_user_1', { birthProfileId: 'p1' }),
-      ).rejects.toThrow(/Master-tier subscribers only/);
+      ).rejects.toThrow(ForbiddenException);
     });
 
     it('should reject PRO subscription tier', async () => {
@@ -576,20 +586,39 @@ describe('Phase 8B — ZwdsService', () => {
 
       await expect(
         service.createDeepStarReading('clerk_user_1', { birthProfileId: 'p1' }),
-      ).rejects.toThrow(/Master-tier subscribers only/);
+      ).rejects.toThrow(ForbiddenException);
     });
 
-    it('should reject MASTER user with insufficient credits', async () => {
-      const brokeMaster = { ...mockMasterUser, credits: 1 }; // needs 2
+    it('should allow MASTER user regardless of credit balance (bypass)', async () => {
+      const brokeMaster = { ...mockMasterUser, credits: 0 }; // Master bypasses credits
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(brokeMaster);
       (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue({
         ...mockProfile,
         userId: 'user-master',
       });
 
-      await expect(
-        service.createDeepStarReading('clerk_master', { birthProfileId: 'profile-1' }),
-      ).rejects.toThrow(/Insufficient credits.*2 credits/);
+      (prisma.$transaction as jest.Mock).mockImplementation(async (fn: any) => {
+        const tx = {
+          user: {
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          },
+          baziReading: {
+            create: jest.fn().mockResolvedValue({
+              id: 'ds-reading-bypass',
+              readingType: ReadingType.ZWDS_LIFETIME,
+              creditsUsed: 0,
+            }),
+          },
+        };
+        return fn(tx);
+      });
+
+      const result = await service.createDeepStarReading('clerk_master', {
+        birthProfileId: 'profile-1',
+      });
+
+      expect(result).toBeDefined();
+      expect(result.creditsUsed).toBe(0);
     });
 
     it('should throw NotFoundException for missing profile', async () => {

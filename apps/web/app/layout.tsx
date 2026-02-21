@@ -17,22 +17,28 @@ const geistMono = localFont({
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://bazi-platform.com';
 
 export const metadata: Metadata = {
-  title: "八字命理平台 | Bazi Platform",
-  description: "AI驅動的八字命理分析平台，提供終身運勢、流年運勢、事業財運、愛情姻緣等專業解讀。",
-  keywords: ["八字", "命理", "Bazi", "Chinese astrology", "fortune telling", "AI", "紫微斗數", "命盤"],
+  title: "天命 | AI 命理平台",
+  description: "天命 — AI驅動的命理分析平台，提供八字、紫微斗數、終身運勢、流年運勢、事業財運、愛情姻緣等專業解讀。",
+  keywords: ["天命", "八字", "命理", "紫微斗數", "Chinese astrology", "fortune telling", "AI", "命盤"],
   metadataBase: new URL(BASE_URL),
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
+  },
   openGraph: {
-    title: "八字命理平台 | AI-Powered Bazi Analysis",
-    description: "AI驅動的八字命理分析平台，提供終身運勢、流年運勢、事業財運、愛情姻緣等專業解讀。",
+    title: "天命 | AI 命理平台",
+    description: "天命 — AI驅動的命理分析平台，提供八字、紫微斗數、終身運勢、流年運勢、事業財運、愛情姻緣等專業解讀。",
     url: BASE_URL,
-    siteName: "八字命理平台",
+    siteName: "天命",
     locale: "zh_TW",
     type: "website",
+    images: [{ url: "/logo-1024.png", width: 1024, height: 1024, alt: "天命" }],
   },
   twitter: {
-    card: "summary_large_image",
-    title: "八字命理平台 | AI-Powered Bazi Analysis",
-    description: "AI驅動的八字命理分析平台，提供終身運勢、流年運勢、事業財運、愛情姻緣等專業解讀。",
+    card: "summary",
+    title: "天命 | AI 命理平台",
+    description: "天命 — AI驅動的命理分析平台，提供八字、紫微斗數、終身運勢、流年運勢、事業財運、愛情姻緣等專業解讀。",
+    images: ["/logo-1024.png"],
   },
   robots: {
     index: true,

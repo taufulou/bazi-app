@@ -32,13 +32,10 @@ export default async function DashboardPage() {
       {/* Header */}
       <header className={styles.header}>
         <Link href="/" className={styles.logo}>
-          八字命理平台
+          天命
         </Link>
         <div className={styles.headerRight}>
-          <CreditBadge />
-          <Link href="/pricing" className={styles.pricingLink}>
-            💎 訂閱方案
-          </Link>
+          <CreditBadge showPricingLink />
           <span className={styles.userName}>
             {user.firstName || user.emailAddresses[0]?.emailAddress || "用戶"}
           </span>

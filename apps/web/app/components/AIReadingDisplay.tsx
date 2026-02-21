@@ -58,6 +58,8 @@ const SECTION_THEMES: Record<string, { icon: string; theme: string }> = {
   strengths: { icon: "✨", theme: "overview" },
   challenges: { icon: "⚡", theme: "overview" },
   compatibility_advice: { icon: "💡", theme: "overview" },
+  cross_analysis: { icon: "🔄", theme: "personality" },
+  timing: { icon: "📅", theme: "overview" },
   // ZWDS sections
   life_pattern: { icon: "🌌", theme: "personality" },
   major_periods: { icon: "🔄", theme: "overview" },
@@ -129,6 +131,8 @@ const SECTION_TITLES_ZH: Record<string, string> = {
   strengths: "優勢互補",
   challenges: "挑戰與磨合",
   compatibility_advice: "相處建議",
+  cross_analysis: "十神交叉分析",
+  timing: "時運同步度",
   // ZWDS sections
   life_pattern: "人生格局",
   major_periods: "大限運程",

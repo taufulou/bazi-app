@@ -88,9 +88,13 @@ class CompatibilityInput(BaseModel):
     profile_b: BirthDataInput = Field(..., description="Second person's birth data")
     comparison_type: str = Field(
         "romance",
-        pattern="^(romance|business|friendship)$",
-        description="Type of comparison",
+        pattern="^(romance|business|friendship|parent_child)$",
+        description="Type of comparison: romance, business, friendship, or parent_child",
         examples=["romance"],
+    )
+    current_year: Optional[int] = Field(
+        None,
+        description="Year for timing analysis (defaults to current year if not provided)",
     )
 
 
@@ -172,13 +176,13 @@ async def calculate_compatibility_endpoint(data: CompatibilityInput):
     """
     Calculate compatibility between two Bazi charts.
 
-    Returns both individual charts and a detailed compatibility analysis including:
-    - Overall compatibility score (0-100)
-    - Day Master interaction
-    - Stem combinations (天干合)
-    - Branch relationships (六合/六沖/六害)
-    - Five Elements complementarity
-    - Strengths and challenges
+    Returns both individual charts and a comprehensive compatibility analysis:
+    - compatibility: Legacy simple scoring (backward compat)
+    - compatibilityEnhanced: 8-dimension scoring with sigmoid amplification,
+      knockout conditions, and special label assignment
+    - compatibilityPreAnalysis: Structured pre-analysis for AI narration,
+      including cross-chart Ten God analysis, landmine warnings, attraction
+      analysis, and timing sync — every relationship is pre-computed
     """
     start_time = time.perf_counter()
 
@@ -208,6 +212,7 @@ async def calculate_compatibility_endpoint(data: CompatibilityInput):
             birth_data_a=birth_data_a,
             birth_data_b=birth_data_b,
             comparison_type=data.comparison_type,
+            current_year=data.current_year,
         )
 
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)

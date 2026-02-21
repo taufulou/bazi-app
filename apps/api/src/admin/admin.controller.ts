@@ -177,7 +177,43 @@ export class AdminController {
     return this.adminService.adjustUserCredits(id, data, auth.userId);
   }
 
+  // ============ Credit Packages ============
+
+  @Get('credit-packages')
+  @ApiOperation({ summary: 'List all credit packages (including inactive)' })
+  async listCreditPackages() {
+    return this.adminService.listCreditPackages();
+  }
+
+  @Post('credit-packages')
+  @ApiOperation({ summary: 'Create a new credit package' })
+  async createCreditPackage(
+    @CurrentUser() auth: AuthPayload,
+    @Body() data: { slug: string; nameZhTw: string; nameZhCn: string; creditAmount: number; priceUsd: number; isActive?: boolean; sortOrder?: number },
+  ) {
+    return this.adminService.createCreditPackage(data, auth.userId);
+  }
+
+  @Patch('credit-packages/:id')
+  @ApiOperation({ summary: 'Update a credit package' })
+  async updateCreditPackage(
+    @CurrentUser() auth: AuthPayload,
+    @Param('id') id: string,
+    @Body() data: { nameZhTw?: string; nameZhCn?: string; creditAmount?: number; priceUsd?: number; isActive?: boolean; sortOrder?: number },
+  ) {
+    return this.adminService.updateCreditPackage(id, data, auth.userId);
+  }
+
   // ============ Analytics ============
+
+  @Get('monetization-analytics')
+  @ApiOperation({ summary: 'Get monetization analytics (credit packages, ads, section unlocks, subscriptions)' })
+  @ApiQuery({ name: 'days', required: false, example: 30, description: 'Number of days to look back (1-365, default 30)' })
+  async getMonetizationAnalytics(
+    @Query('days', new DefaultValuePipe(30), ParseIntPipe) days: number,
+  ) {
+    return this.adminService.getMonetizationAnalytics(days);
+  }
 
   @Get('ai-costs')
   @ApiOperation({ summary: 'Get AI usage costs and analytics' })

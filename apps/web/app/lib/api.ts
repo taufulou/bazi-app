@@ -96,11 +96,17 @@ export async function getUserProfile(token: string): Promise<UserProfile> {
 
 /** Shape returned by GET /api/payments/subscription */
 export interface SubscriptionStatus {
-  subscribed: boolean;
-  plan: string | null;
-  status: string | null;
-  currentPeriodEnd: string | null;
-  cancelAtPeriodEnd: boolean;
+  subscriptionTier: 'FREE' | 'BASIC' | 'PRO' | 'MASTER';
+  credits: number;
+  freeReadingUsed: boolean;
+  activeSubscription: {
+    planTier: string;
+    platform: string;
+    currentPeriodStart: string;
+    currentPeriodEnd: string;
+    status: string;
+    cancelledAt: string | null;
+  } | null;
 }
 
 /** A plan object returned by GET /api/payments/plans */
@@ -132,6 +138,17 @@ export interface FreeReadingStatus {
   available: boolean;
 }
 
+/** A credit package returned by GET /api/payments/credit-packages */
+export interface CreditPackage {
+  id: string;
+  slug: string;
+  nameZhTw: string;
+  nameZhCn: string;
+  creditAmount: number;
+  priceUsd: number;
+  sortOrder: number;
+}
+
 /**
  * Get the current user's subscription status.
  * GET /api/payments/subscription
@@ -154,7 +171,13 @@ export async function getActivePlans(): Promise<Plan[]> {
  */
 export async function createSubscriptionCheckout(
   token: string,
-  params: { priceId: string; successUrl: string; cancelUrl: string },
+  params: {
+    planSlug: string;
+    billingCycle: 'monthly' | 'annual';
+    promoCode?: string;
+    successUrl: string;
+    cancelUrl: string;
+  },
 ): Promise<CheckoutSession> {
   return apiFetch<CheckoutSession>('/api/payments/checkout/subscription', {
     method: 'POST',
@@ -164,12 +187,17 @@ export async function createSubscriptionCheckout(
 }
 
 /**
- * Create a Stripe Checkout session for a one-time purchase.
+ * Create a Stripe Checkout session for a one-time purchase (credit package).
  * POST /api/payments/checkout/one-time
  */
 export async function createOneTimeCheckout(
   token: string,
-  params: { priceId: string; successUrl: string; cancelUrl: string },
+  params: {
+    serviceSlug: string;
+    promoCode?: string;
+    successUrl: string;
+    cancelUrl: string;
+  },
 ): Promise<CheckoutSession> {
   return apiFetch<CheckoutSession>('/api/payments/checkout/one-time', {
     method: 'POST',
@@ -197,10 +225,25 @@ export async function createPortalSession(
  * Cancel the current user's subscription (at period end).
  * POST /api/payments/cancel
  */
-export async function cancelSubscription(token: string): Promise<{ message: string }> {
-  return apiFetch<{ message: string }>('/api/payments/cancel', {
+export async function cancelSubscription(token: string): Promise<{ success: boolean; endsAt: string }> {
+  return apiFetch<{ success: boolean; endsAt: string }>('/api/payments/cancel', {
     method: 'POST',
     token,
+  });
+}
+
+/**
+ * Upgrade (or change) subscription to a different plan.
+ * POST /api/payments/upgrade
+ */
+export async function upgradeSubscription(
+  token: string,
+  params: { planSlug: string; billingCycle: 'monthly' | 'annual' },
+): Promise<{ success: boolean; newTier: string }> {
+  return apiFetch<{ success: boolean; newTier: string }>('/api/payments/upgrade', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(params),
   });
 }
 
@@ -208,11 +251,37 @@ export async function cancelSubscription(token: string): Promise<{ message: stri
  * Reactivate a previously-cancelled subscription.
  * POST /api/payments/reactivate
  */
-export async function reactivateSubscription(token: string): Promise<{ message: string }> {
-  return apiFetch<{ message: string }>('/api/payments/reactivate', {
+export async function reactivateSubscription(token: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>('/api/payments/reactivate', {
     method: 'POST',
     token,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Invoice API
+// ---------------------------------------------------------------------------
+
+/** A single invoice from Stripe returned by GET /api/payments/invoices */
+export interface Invoice {
+  id: string;
+  number: string | null;
+  date: string;
+  amountDue: number;
+  amountPaid: number;
+  currency: string;
+  status: string;
+  description: string | null;
+  hostedInvoiceUrl: string | null;
+  invoicePdf: string | null;
+}
+
+/**
+ * Get invoice history for the current user.
+ * GET /api/payments/invoices
+ */
+export async function getInvoices(token: string, limit = 10): Promise<Invoice[]> {
+  return apiFetch<Invoice[]>(`/api/payments/invoices?limit=${limit}`, { token });
 }
 
 /**
@@ -231,5 +300,36 @@ export async function useFreeReading(token: string): Promise<{ message: string }
   return apiFetch<{ message: string }>('/api/payments/free-reading/use', {
     method: 'POST',
     token,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Credit Package API
+// ---------------------------------------------------------------------------
+
+/**
+ * Get all active credit packages (public endpoint).
+ * GET /api/payments/credit-packages
+ */
+export async function getCreditPackages(): Promise<CreditPackage[]> {
+  return apiFetch<CreditPackage[]>('/api/payments/credit-packages');
+}
+
+/**
+ * Create a Stripe Checkout session for a credit package purchase.
+ * POST /api/payments/checkout/credits
+ */
+export async function createCreditCheckout(
+  token: string,
+  params: {
+    packageSlug: string;
+    successUrl: string;
+    cancelUrl: string;
+  },
+): Promise<CheckoutSession> {
+  return apiFetch<CheckoutSession>('/api/payments/checkout/credits', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(params),
   });
 }

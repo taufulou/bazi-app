@@ -29,12 +29,15 @@ model User {
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   // Relations
-  birthProfiles   BirthProfile[]
-  baziReadings    BaziReading[]
-  baziComparisons BaziComparison[]
-  subscriptions   Subscription[]
-  transactions    Transaction[]
-  aiUsageLogs     AIUsageLog[]
+  birthProfiles     BirthProfile[]
+  baziReadings      BaziReading[]
+  baziComparisons   BaziComparison[]
+  subscriptions     Subscription[]
+  transactions      Transaction[]
+  aiUsageLogs       AIUsageLog[]
+  adRewardLogs      AdRewardLog[]
+  sectionUnlocks    SectionUnlock[]
+  monthlyCreditsLogs MonthlyCreditsLog[]
 
   @@map("users")
 }
@@ -56,6 +59,9 @@ model BirthProfile {
   gender          Gender
   relationshipTag RelationshipTag @default(SELF) @map("relationship_tag")
   isPrimary       Boolean   @default(false) @map("is_primary")
+  isLunarDate     Boolean   @default(false) @map("is_lunar_date")
+  lunarBirthDate  String?   @map("lunar_birth_date") // Original lunar date "YYYY-MM-DD" if isLunarDate=true
+  isLeapMonth     Boolean   @default(false) @map("is_leap_month") // Whether the lunar date is in a leap month (閏月)
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
@@ -116,6 +122,7 @@ model BaziComparison {
   aiModel             String?   @map("ai_model")
   tokenUsage          Json?     @map("token_usage")
   creditsUsed         Int       @default(0) @map("credits_used")
+  lastCalculatedYear  Int?      @map("last_calculated_year")
   createdAt           DateTime  @default(now()) @map("created_at")
 
   // Relations
@@ -236,11 +243,12 @@ model Service {
   descriptionZhTw   String    @map("description_zh_tw")
   descriptionZhCn   String    @map("description_zh_cn")
   type              ReadingType
-  creditCost        Int       @map("credit_cost")
-  isActive          Boolean   @default(true) @map("is_active")
-  sortOrder         Int       @default(0) @map("sort_order")
-  createdAt         DateTime  @default(now()) @map("created_at")
-  updatedAt         DateTime  @updatedAt @map("updated_at")
+  creditCost              Int       @map("credit_cost")
+  sectionUnlockCreditCost Int       @default(1) @map("section_unlock_credit_cost") // Admin-configurable per reading type
+  isActive                Boolean   @default(true) @map("is_active")
+  sortOrder               Int       @default(0) @map("sort_order")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
 
   @@map("services")
 }
@@ -255,7 +263,8 @@ model Plan {
   priceAnnual       Decimal   @map("price_annual") @db.Decimal(10, 2)
   currency          String    @default("USD")
   features          Json      // Array of feature strings
-  readingsPerMonth  Int       @map("readings_per_month") // -1 = unlimited
+  readingsPerMonth  Int       @map("readings_per_month") // -1 = unlimited (legacy, use monthlyCredits)
+  monthlyCredits    Int       @default(0) @map("monthly_credits") // Basic:5, Pro:15, Master:-1 (unlimited bypass)
   isActive          Boolean   @default(true) @map("is_active")
   sortOrder         Int       @default(0) @map("sort_order")
   createdAt         DateTime  @default(now()) @map("created_at")
@@ -325,6 +334,91 @@ model AdminAuditLog {
   @@index([createdAt])
   @@index([adminUserId])
   @@map("admin_audit_log")
+}
+
+// ============================================================
+// Credit Packages (bulk purchase — Stream 5)
+// ============================================================
+
+model CreditPackage {
+  id           String   @id @default(uuid())
+  slug         String   @unique
+  nameZhTw     String   @map("name_zh_tw")
+  nameZhCn     String   @map("name_zh_cn")
+  creditAmount Int      @map("credit_amount")
+  priceUsd     Decimal  @map("price_usd") @db.Decimal(10, 2)
+  isActive     Boolean  @default(true) @map("is_active")
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("credit_packages")
+}
+
+// ============================================================
+// Ad Reward Logs (rewarded video ads — Stream 4)
+// ============================================================
+
+model AdRewardLog {
+  id             String       @id @default(uuid())
+  userId         String       @map("user_id")
+  rewardType     AdRewardType @map("reward_type")
+  adNetworkId    String?      @map("ad_network_id")
+  creditsGranted Int          @default(0) @map("credits_granted")
+  sectionKey     String?      @map("section_key")
+  readingId      String?      @map("reading_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  // Relations
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("ad_reward_logs")
+}
+
+// ============================================================
+// Section Unlocks (per-section unlock — Stream 3)
+// ============================================================
+
+model SectionUnlock {
+  id           String       @id @default(uuid())
+  userId       String       @map("user_id")
+  readingId    String       @map("reading_id") // Generic: BaziReading.id OR ZWDS reading ID
+  readingType  String       @default("bazi") @map("reading_type") // "bazi" or "zwds" discriminator
+  sectionKey   String       @map("section_key") // e.g., "personality", "career", "love", "finance", "health"
+  unlockMethod UnlockMethod @map("unlock_method")
+  creditsUsed  Int          @default(0) @map("credits_used")
+  isRefunded   Boolean      @default(false) @map("is_refunded")
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  // Relations
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // NOTE: No FK to BaziReading — readingId is generic to support both Bazi and ZWDS readings.
+  // Ownership validated in application code (section-unlock.service.ts).
+
+  @@unique([userId, readingId, sectionKey])
+  @@index([readingId])
+  @@map("section_unlocks")
+}
+
+// ============================================================
+// Monthly Credits Log (subscription credit grants)
+// ============================================================
+
+model MonthlyCreditsLog {
+  id           String   @id @default(uuid())
+  userId       String   @map("user_id")
+  creditAmount Int      @map("credit_amount")
+  periodStart  DateTime @map("period_start")
+  periodEnd    DateTime @map("period_end")
+  grantedAt    DateTime @default(now()) @map("granted_at")
+
+  // Relations
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, periodStart])
+  @@index([userId])
+  @@map("monthly_credits_logs")
 }
 
 // ============================================================
@@ -408,4 +502,16 @@ enum PaymentPlatform {
   STRIPE
   APPLE_IAP
   GOOGLE_PLAY
+}
+
+enum AdRewardType {
+  CREDIT          // Watch ad → earn 1 credit
+  SECTION_UNLOCK  // Watch ad → unlock 1 section
+  DAILY_HOROSCOPE // Watch ad → view daily horoscope
+}
+
+enum UnlockMethod {
+  CREDIT          // Paid with credits
+  AD_REWARD       // Unlocked via ad
+  SUBSCRIPTION    // Auto-unlocked for subscribers
 }

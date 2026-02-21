@@ -173,6 +173,22 @@
   border-color: rgba(138, 43, 226, 0.35);
 }
 
+.cardComparison {
+  composes: card;
+  border-color: rgba(255, 87, 34, 0.15);
+}
+
+.cardComparison:hover {
+  border-color: rgba(255, 87, 34, 0.35);
+}
+
+.vsLabel {
+  color: #ff9800;
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin: 0 0.15rem;
+}
+
 /* ---- Card Content ---- */
 .cardHeader {
   display: flex;

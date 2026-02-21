@@ -21,7 +21,7 @@ export default function SignUpPage() {
             fontWeight: 700,
           }}
         >
-          八字命理平台
+          天命
         </h1>
         <p
           style={{

@@ -1,0 +1,266 @@
+/* Compatibility Page — self-contained route */
+/* Follows existing reading/[type]/page.module.css patterns */
+
+.pageContainer {
+  min-height: 100vh;
+  background-color: #1a1a2e;
+  color: #e0e0e0;
+  padding: 2rem;
+}
+
+/* ==== Header ==== */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 960px;
+  margin: 0 auto 2rem;
+}
+
+.backLink {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #a0a0a0;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: color 0.2s;
+  text-decoration: none;
+}
+
+.backLink:hover {
+  color: #e8d5b7;
+}
+
+.headerTitle {
+  color: #e8d5b7;
+  font-size: 1.3rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.headerIcon {
+  font-size: 1.5rem;
+}
+
+/* ==== Auth Guard ==== */
+.authGuard {
+  max-width: 400px;
+  margin: 4rem auto;
+  text-align: center;
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.15);
+  border-radius: 16px;
+  padding: 3rem 2rem;
+}
+
+.authTitle {
+  color: #e8d5b7;
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.authSubtitle {
+  color: #a0a0a0;
+  font-size: 0.95rem;
+  margin-bottom: 1.5rem;
+}
+
+.signInBtn {
+  padding: 0.75rem 2rem;
+  background: linear-gradient(135deg, #e8d5b7 0%, #d4af37 100%);
+  border: none;
+  border-radius: 8px;
+  color: #1a1a2e;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.signInBtn:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+/* ==== Loading ==== */
+.loadingSkeleton {
+  max-width: 600px;
+  margin: 4rem auto;
+}
+
+.skeletonTitle {
+  width: 60%;
+  height: 28px;
+  background: rgba(232, 213, 183, 0.08);
+  border-radius: 6px;
+  margin: 0 auto 2rem;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.skeletonBlock {
+  width: 100%;
+  height: 120px;
+  background: rgba(232, 213, 183, 0.05);
+  border-radius: 12px;
+  margin-bottom: 1rem;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+.loadingOverlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 6rem 2rem;
+}
+
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(232, 213, 183, 0.2);
+  border-top-color: #e8d5b7;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.loadingText {
+  color: #a0a0a0;
+  font-size: 0.95rem;
+  margin-top: 1rem;
+}
+
+/* ==== Analyzing State (shown immediately after clicking 開始分析) ==== */
+.analyzingState {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.analyzingCard {
+  max-width: 400px;
+  width: 100%;
+  background: #16213e;
+  border: 1px solid rgba(232, 213, 183, 0.15);
+  border-radius: 20px;
+  padding: 3rem 2rem;
+  text-align: center;
+}
+
+.analyzingIconWrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 80px;
+  height: 80px;
+  margin-bottom: 1.5rem;
+}
+
+.analyzingIcon {
+  font-size: 2.5rem;
+  z-index: 1;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.analyzingRing {
+  position: absolute;
+  inset: 0;
+  border: 3px solid rgba(232, 213, 183, 0.15);
+  border-top-color: #e8d5b7;
+  border-radius: 50%;
+  animation: spin 1.2s linear infinite;
+}
+
+.analyzingTitle {
+  color: #e8d5b7;
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.analyzingSubtitle {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+  margin-bottom: 2rem;
+}
+
+.analyzingSteps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  text-align: left;
+  padding: 0 1rem;
+}
+
+.analyzingStep {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  color: #555;
+  font-size: 0.9rem;
+  transition: color 0.3s;
+}
+
+.analyzingStepActive {
+  color: #e8d5b7;
+}
+
+.stepDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #555;
+  flex-shrink: 0;
+  transition: background 0.3s;
+}
+
+.analyzingStepActive .stepDot {
+  background: #e8d5b7;
+  box-shadow: 0 0 6px rgba(232, 213, 183, 0.4);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ==== Responsive ==== */
+@media (max-width: 768px) {
+  .pageContainer {
+    padding: 1rem;
+  }
+
+  .header {
+    margin-bottom: 1.5rem;
+  }
+
+  .headerTitle {
+    font-size: 1.1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .pageContainer {
+    padding: 0.75rem;
+  }
+
+  .authGuard {
+    padding: 2rem 1.5rem;
+  }
+}

@@ -65,5 +65,7 @@ def apply_life_stages_to_pillars(pillars: Dict, day_master_stem: str) -> Dict:
         pillar = pillars[pillar_name]
         branch = pillar['branch']
         pillar['lifeStage'] = get_life_stage(day_master_stem, branch)
+        # Self-sitting: each pillar's own stem on its own branch
+        pillar['selfSitting'] = get_life_stage(pillar['stem'], branch)
 
     return pillars

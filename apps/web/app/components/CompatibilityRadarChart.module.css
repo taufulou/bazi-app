@@ -1,0 +1,62 @@
+/* CompatibilityRadarChart — hand-rolled SVG heptagon */
+
+.chartContainer {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Data polygon draw animation */
+.dataPolygon {
+  stroke-dasharray: 1200;
+  stroke-dashoffset: 1200;
+  animation: drawPolygon 1.2s ease-out forwards;
+  animation-delay: 0.3s;
+}
+
+@keyframes drawPolygon {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Data point fade-in */
+.dataPoint {
+  opacity: 0;
+  animation: fadeIn 0.4s ease-out forwards;
+  animation-delay: 1.2s;
+}
+
+/* Label styling */
+.axisLabel {
+  font-family: inherit;
+  pointer-events: none;
+  user-select: none;
+}
+
+.scoreText {
+  font-family: inherit;
+  pointer-events: none;
+  user-select: none;
+  opacity: 0;
+  animation: fadeIn 0.4s ease-out forwards;
+  animation-delay: 1.5s;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ==== Responsive ==== */
+@media (max-width: 600px) {
+  .chartContainer {
+    transform: scale(0.85);
+    transform-origin: center center;
+  }
+}

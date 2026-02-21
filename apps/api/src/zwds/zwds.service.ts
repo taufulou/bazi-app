@@ -2,6 +2,8 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ConflictException,
+  ForbiddenException,
   Logger,
   InternalServerErrorException,
 } from '@nestjs/common';
@@ -40,12 +42,15 @@ export class ZwdsService {
 
   /**
    * Generate a ZWDS chart from birth profile data using iztro.
+   * When lunarOptions is provided, uses astrolabeByLunarDate for better accuracy
+   * (avoids solar→lunar→solar double conversion inside iztro).
    */
   async generateChart(
     solarDate: string,
     birthTime: string,
     gender: string,
     targetDate?: string,
+    lunarOptions?: { lunarDate: string; isLeapMonth: boolean },
   ): Promise<ZwdsChartData> {
     const { astro } = await import('iztro');
 
@@ -57,7 +62,15 @@ export class ZwdsService {
 
     let astrolabe: any;
     try {
-      astrolabe = astro.astrolabeBySolarDate(solarDate, timeIndex, iztroGender, true, 'zh-TW');
+      if (lunarOptions) {
+        // Use lunar date directly for better accuracy
+        // iztro expects non-zero-padded format: YYYY-M-D
+        const parts = lunarOptions.lunarDate.split('-');
+        const lunarDateStr = `${parseInt(parts[0])}-${parseInt(parts[1])}-${parseInt(parts[2])}`;
+        astrolabe = astro.astrolabeByLunarDate(lunarDateStr, timeIndex, iztroGender, lunarOptions.isLeapMonth, true, 'zh-TW');
+      } else {
+        astrolabe = astro.astrolabeBySolarDate(solarDate, timeIndex, iztroGender, true, 'zh-TW');
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(`iztro chart generation failed: ${message}`);
@@ -236,16 +249,43 @@ export class ZwdsService {
       throw new BadRequestException('This ZWDS reading type is not currently available');
     }
 
-    const canUseFreeTrial = !user.freeReadingUsed;
+    // Master tier bypass — truly unlimited, skip credit system entirely
+    const isMaster = user.subscriptionTier === 'MASTER';
+    const canUseFreeTrial = !isMaster && !user.freeReadingUsed;
     const hasEnoughCredits = user.credits >= service.creditCost;
 
-    if (!canUseFreeTrial && !hasEnoughCredits) {
+    if (!isMaster && !canUseFreeTrial && !hasEnoughCredits) {
       throw new BadRequestException(
         `Insufficient credits. This reading requires ${service.creditCost} credits. ` +
         `You have ${user.credits} credits.`,
       );
     }
 
+    // Acquire distributed lock to prevent concurrent reading creation exploit
+    const lockKey = `reading:create:${user.id}`;
+    const lockAcquired = await this.redis.acquireLock(lockKey, 30);
+    if (!lockAcquired) {
+      throw new ConflictException('A reading is already being created. Please wait.');
+    }
+
+    try {
+      return await this._executeCreateReading(user, profile, dto, service, isMaster, canUseFreeTrial);
+    } finally {
+      await this.redis.releaseLock(lockKey);
+    }
+  }
+
+  /**
+   * Internal: executes ZWDS reading creation within distributed lock.
+   */
+  private async _executeCreateReading(
+    user: { id: string; credits: number; freeReadingUsed: boolean; subscriptionTier: string },
+    profile: { id: string; birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string; isLunarDate: boolean; lunarBirthDate: string | null; isLeapMonth: boolean },
+    dto: CreateZwdsReadingDto,
+    service: { creditCost: number; type: string },
+    isMaster: boolean,
+    canUseFreeTrial: boolean,
+  ) {
     // Generate birth data hash for cache lookup
     const birthDataHash = this.aiService.generateBirthDataHash(
       profile.birthDate.toISOString().split('T')[0],
@@ -279,6 +319,11 @@ export class ZwdsService {
       const now = new Date();
       targetDate = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
     }
+    // Build lunar options if the profile was entered as a lunar date
+    const lunarOptions = profile.isLunarDate && profile.lunarBirthDate
+      ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
+      : undefined;
+
     let chartData: ZwdsChartData;
     try {
       chartData = await this.generateChart(
@@ -286,6 +331,7 @@ export class ZwdsService {
         profile.birthTime,
         profile.gender.toLowerCase(),
         targetDate,
+        lunarOptions,
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -343,11 +389,15 @@ export class ZwdsService {
       }
     }
 
-    // Deduct credits atomically
-    const creditsUsed = canUseFreeTrial ? 0 : service.creditCost;
+    // Cache hit: no credit deduction (user already paid for this interpretation)
+    // Master tier: creditsUsed = 0; Free trial: creditsUsed = 0; Regular: service.creditCost
+    const fromCache = !!cachedInterpretation;
+    const creditsUsed = (fromCache || isMaster || canUseFreeTrial) ? 0 : service.creditCost;
 
     const reading = await this.prisma.$transaction(async (tx) => {
-      if (canUseFreeTrial) {
+      if (fromCache || isMaster) {
+        // Cache hit or Master tier: no credit deduction
+      } else if (canUseFreeTrial) {
         const updated = await tx.user.updateMany({
           where: { id: user.id, freeReadingUsed: false },
           data: { freeReadingUsed: true },
@@ -386,7 +436,7 @@ export class ZwdsService {
       });
     });
 
-    return reading;
+    return { ...reading, fromCache };
   }
 
   async getReading(clerkUserId: string, readingId: string) {
@@ -456,7 +506,10 @@ export class ZwdsService {
     }
 
     const solarDate = this.formatSolarDate(profile.birthDate);
-    return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase());
+    const lunarOptions = profile.isLunarDate && profile.lunarBirthDate
+      ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
+      : undefined;
+    return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), undefined, lunarOptions);
   }
 
   // ============================================================
@@ -481,7 +534,10 @@ export class ZwdsService {
     }
 
     const solarDate = this.formatSolarDate(profile.birthDate);
-    return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), dto.targetDate);
+    const lunarOptions = profile.isLunarDate && profile.lunarBirthDate
+      ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
+      : undefined;
+    return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), dto.targetDate, lunarOptions);
   }
 
   // ============================================================
@@ -515,107 +571,133 @@ export class ZwdsService {
       throw new BadRequestException('ZWDS compatibility is not currently available');
     }
 
-    const canUseFreeTrial = !user.freeReadingUsed;
+    // Master tier bypass
+    const isMaster = user.subscriptionTier === 'MASTER';
+    const canUseFreeTrial = !isMaster && !user.freeReadingUsed;
     const hasEnoughCredits = user.credits >= service.creditCost;
 
-    if (!canUseFreeTrial && !hasEnoughCredits) {
+    if (!isMaster && !canUseFreeTrial && !hasEnoughCredits) {
       throw new BadRequestException(
         `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
       );
     }
 
-    // Generate both charts
-    let chartA: ZwdsChartData;
-    let chartB: ZwdsChartData;
-    try {
-      [chartA, chartB] = await Promise.all([
-        this.generateChart(
-          this.formatSolarDate(profileA.birthDate),
-          profileA.birthTime,
-          profileA.gender.toLowerCase(),
-        ),
-        this.generateChart(
-          this.formatSolarDate(profileB.birthDate),
-          profileB.birthTime,
-          profileB.gender.toLowerCase(),
-        ),
-      ]);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      this.logger.error(`ZWDS compatibility chart generation failed: ${message}`);
-      throw new InternalServerErrorException('ZWDS compatibility calculation failed.');
+    // Acquire distributed lock
+    const lockKey = `reading:create:${user.id}`;
+    const lockAcquired = await this.redis.acquireLock(lockKey, 30);
+    if (!lockAcquired) {
+      throw new ConflictException('A reading is already being created. Please wait.');
     }
 
-    const calculationData = { chartA, chartB };
-
-    // Generate AI interpretation
-    let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
-    let aiProvider: string | undefined = undefined;
-    let aiModel: string | undefined = undefined;
-    let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
-
     try {
-      const enrichedData = {
-        ...calculationData,
-        system: 'zwds',
-        comparisonType: dto.comparisonType.toLowerCase(),
-      };
+      // Generate both charts
+      const lunarOptionsA = profileA.isLunarDate && profileA.lunarBirthDate
+        ? { lunarDate: profileA.lunarBirthDate, isLeapMonth: profileA.isLeapMonth }
+        : undefined;
+      const lunarOptionsB = profileB.isLunarDate && profileB.lunarBirthDate
+        ? { lunarDate: profileB.lunarBirthDate, isLeapMonth: profileB.isLeapMonth }
+        : undefined;
 
-      const aiResult = await this.aiService.generateInterpretation(
-        enrichedData as any,
-        ReadingType.ZWDS_COMPATIBILITY,
-        user.id,
-      );
-
-      aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
-      aiProvider = aiResult.provider;
-      aiModel = aiResult.model;
-      tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      this.logger.error(`AI ZWDS compatibility interpretation failed: ${message}`);
-    }
-
-    const creditsUsed = canUseFreeTrial ? 0 : service.creditCost;
-
-    const comparison = await this.prisma.$transaction(async (tx) => {
-      if (canUseFreeTrial) {
-        const updated = await tx.user.updateMany({
-          where: { id: user.id, freeReadingUsed: false },
-          data: { freeReadingUsed: true },
-        });
-        if (updated.count === 0) {
-          throw new BadRequestException('Free reading already used');
-        }
-      } else {
-        const updated = await tx.user.updateMany({
-          where: { id: user.id, credits: { gte: service.creditCost } },
-          data: { credits: { decrement: service.creditCost } },
-        });
-        if (updated.count === 0) {
-          throw new BadRequestException(
-            `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
-          );
-        }
+      let chartA: ZwdsChartData;
+      let chartB: ZwdsChartData;
+      try {
+        [chartA, chartB] = await Promise.all([
+          this.generateChart(
+            this.formatSolarDate(profileA.birthDate),
+            profileA.birthTime,
+            profileA.gender.toLowerCase(),
+            undefined,
+            lunarOptionsA,
+          ),
+          this.generateChart(
+            this.formatSolarDate(profileB.birthDate),
+            profileB.birthTime,
+            profileB.gender.toLowerCase(),
+            undefined,
+            lunarOptionsB,
+          ),
+        ]);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.logger.error(`ZWDS compatibility chart generation failed: ${message}`);
+        throw new InternalServerErrorException('ZWDS compatibility calculation failed.');
       }
 
-      return tx.baziComparison.create({
-        data: {
-          userId: user.id,
-          profileAId: profileA.id,
-          profileBId: profileB.id,
-          comparisonType: dto.comparisonType,
-          calculationData: calculationData as unknown as Prisma.InputJsonValue,
-          aiInterpretation,
-          aiProvider: aiProvider as any,
-          aiModel,
-          tokenUsage,
-          creditsUsed,
-        },
-      });
-    });
+      const calculationData = { chartA, chartB };
 
-    return comparison;
+      // Generate AI interpretation
+      let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
+      let aiProvider: string | undefined = undefined;
+      let aiModel: string | undefined = undefined;
+      let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
+
+      try {
+        const enrichedData = {
+          ...calculationData,
+          system: 'zwds',
+          comparisonType: dto.comparisonType.toLowerCase(),
+        };
+
+        const aiResult = await this.aiService.generateInterpretation(
+          enrichedData as any,
+          ReadingType.ZWDS_COMPATIBILITY,
+          user.id,
+        );
+
+        aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
+        aiProvider = aiResult.provider;
+        aiModel = aiResult.model;
+        tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.logger.error(`AI ZWDS compatibility interpretation failed: ${message}`);
+      }
+
+      const creditsUsed = (isMaster || canUseFreeTrial) ? 0 : service.creditCost;
+
+      const comparison = await this.prisma.$transaction(async (tx) => {
+        if (isMaster) {
+          // Master tier: no credit deduction
+        } else if (canUseFreeTrial) {
+          const updated = await tx.user.updateMany({
+            where: { id: user.id, freeReadingUsed: false },
+            data: { freeReadingUsed: true },
+          });
+          if (updated.count === 0) {
+            throw new BadRequestException('Free reading already used');
+          }
+        } else {
+          const updated = await tx.user.updateMany({
+            where: { id: user.id, credits: { gte: service.creditCost } },
+            data: { credits: { decrement: service.creditCost } },
+          });
+          if (updated.count === 0) {
+            throw new BadRequestException(
+              `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
+            );
+          }
+        }
+
+        return tx.baziComparison.create({
+          data: {
+            userId: user.id,
+            profileAId: profileA.id,
+            profileBId: profileB.id,
+            comparisonType: dto.comparisonType,
+            calculationData: calculationData as unknown as Prisma.InputJsonValue,
+            aiInterpretation,
+            aiProvider: aiProvider as any,
+            aiModel,
+            tokenUsage,
+            creditsUsed,
+          },
+        });
+      });
+
+      return comparison;
+    } finally {
+      await this.redis.releaseLock(lockKey);
+    }
   }
 
   // ============================================================
@@ -639,17 +721,23 @@ export class ZwdsService {
       throw new NotFoundException('Birth profile not found');
     }
 
-    // Cross-system costs 3 credits
-    const creditCost = 3;
-    const canUseFreeTrial = !user.freeReadingUsed;
-    const hasEnoughCredits = user.credits >= creditCost;
-
-    if (!canUseFreeTrial && !hasEnoughCredits) {
-      throw new BadRequestException(
-        `Insufficient credits. Cross-system reading requires ${creditCost} credits. You have ${user.credits} credits.`,
-      );
+    // Cross-system requires Master tier
+    if (user.subscriptionTier !== 'MASTER') {
+      throw new ForbiddenException('此功能需要大師版方案');
     }
 
+    // Cross-system costs 3 credits — but Master bypasses credit system
+    const creditCost = 3;
+    const isMaster = true; // Already validated above
+
+    // Acquire distributed lock
+    const lockKey = `reading:create:${user.id}`;
+    const lockAcquired = await this.redis.acquireLock(lockKey, 30);
+    if (!lockAcquired) {
+      throw new ConflictException('A reading is already being created. Please wait.');
+    }
+
+    try {
     // Generate both charts in parallel
     const solarDate = this.formatSolarDate(profile.birthDate);
     const now = new Date();
@@ -678,7 +766,12 @@ export class ZwdsService {
           signal: AbortSignal.timeout(30000),
         }),
         // Generate ZWDS chart
-        this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), targetDate),
+        (() => {
+          const lunarOpts = profile.isLunarDate && profile.lunarBirthDate
+            ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
+            : undefined;
+          return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), targetDate, lunarOpts);
+        })(),
       ]);
 
       if (!baziResponse.ok) {
@@ -726,29 +819,11 @@ export class ZwdsService {
       this.logger.error(`AI cross-system interpretation failed: ${message}`);
     }
 
-    const creditsUsed = canUseFreeTrial ? 0 : creditCost;
+    // Master tier: no credit deduction (creditsUsed: 0)
+    const creditsUsed = 0;
 
     const reading = await this.prisma.$transaction(async (tx) => {
-      if (canUseFreeTrial) {
-        const updated = await tx.user.updateMany({
-          where: { id: user.id, freeReadingUsed: false },
-          data: { freeReadingUsed: true },
-        });
-        if (updated.count === 0) {
-          throw new BadRequestException('Free reading already used');
-        }
-      } else {
-        const updated = await tx.user.updateMany({
-          where: { id: user.id, credits: { gte: creditCost } },
-          data: { credits: { decrement: creditCost } },
-        });
-        if (updated.count === 0) {
-          throw new BadRequestException(
-            `Insufficient credits. This reading requires ${creditCost} credits.`,
-          );
-        }
-      }
-
+      // Master tier: no credit deduction, just create the reading
       return tx.baziReading.create({
         data: {
           userId: user.id,
@@ -765,6 +840,9 @@ export class ZwdsService {
     });
 
     return reading;
+    } finally {
+      await this.redis.releaseLock(lockKey);
+    }
   }
 
   // ============================================================
@@ -782,7 +860,7 @@ export class ZwdsService {
 
     // Require MASTER subscription for deep star analysis
     if (user.subscriptionTier !== 'MASTER') {
-      throw new BadRequestException('Deep star analysis is available for Master-tier subscribers only');
+      throw new ForbiddenException('此功能需要大師版方案');
     }
 
     const profile = await this.prisma.birthProfile.findFirst({
@@ -793,17 +871,24 @@ export class ZwdsService {
       throw new NotFoundException('Birth profile not found');
     }
 
-    const creditCost = 2;
-    if (user.credits < creditCost) {
-      throw new BadRequestException(
-        `Insufficient credits. Deep star analysis requires ${creditCost} credits. You have ${user.credits} credits.`,
-      );
+    // Master tier bypasses credit system entirely — no credit check needed
+
+    // Acquire distributed lock
+    const lockKey = `reading:create:${user.id}`;
+    const lockAcquired = await this.redis.acquireLock(lockKey, 30);
+    if (!lockAcquired) {
+      throw new ConflictException('A reading is already being created. Please wait.');
     }
 
+    try {
     // Generate ZWDS chart with current date horoscope
     const solarDate = this.formatSolarDate(profile.birthDate);
     const now = new Date();
     const targetDate = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+
+    const deepLunarOptions = profile.isLunarDate && profile.lunarBirthDate
+      ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
+      : undefined;
 
     let chartData: ZwdsChartData;
     try {
@@ -812,6 +897,7 @@ export class ZwdsService {
         profile.birthTime,
         profile.gender.toLowerCase(),
         targetDate,
+        deepLunarOptions,
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
@@ -851,17 +937,8 @@ export class ZwdsService {
       this.logger.error(`AI deep star interpretation failed: ${message}`);
     }
 
+    // Master tier: no credit deduction (creditsUsed: 0)
     const reading = await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.user.updateMany({
-        where: { id: user.id, credits: { gte: creditCost } },
-        data: { credits: { decrement: creditCost } },
-      });
-      if (updated.count === 0) {
-        throw new BadRequestException(
-          `Insufficient credits. This reading requires ${creditCost} credits.`,
-        );
-      }
-
       return tx.baziReading.create({
         data: {
           userId: user.id,
@@ -872,12 +949,15 @@ export class ZwdsService {
           aiProvider: aiProvider as any,
           aiModel,
           tokenUsage,
-          creditsUsed: creditCost,
+          creditsUsed: 0,
         },
       });
     });
 
     return reading;
+    } finally {
+      await this.redis.releaseLock(lockKey);
+    }
   }
 
   // ============================================================

@@ -236,7 +236,14 @@ def calculate_four_pillars(
     Returns:
         Dictionary with all four pillars and related data
     """
-    # Step 1: Calculate True Solar Time
+    # Step 1: Calculate True Solar Time (kept for reference data, not used for pillar calculation)
+    # NOTE: TST is DISABLED by default to match industry standard.
+    # Major platforms (科技紫微網, 先知命局, 靈機八字, 卜易居, 非常運勢網) all default
+    # to wall clock time. Using TST silently would produce different results from
+    # what users expect, especially for Taiwan/HK/China markets.
+    # TST data is still computed and returned in the output for informational purposes.
+    # To re-enable TST in the future, set use_tst=True and use true_solar_dt instead
+    # of wall_clock_dt for pillar calculations below.
     solar_time_data = calculate_true_solar_time(
         birth_date=birth_date,
         birth_time=birth_time,
@@ -246,13 +253,13 @@ def calculate_four_pillars(
         birth_latitude=birth_latitude,
     )
 
-    true_solar_dt = solar_time_data['true_solar_datetime']
+    # Use wall clock time (standard timezone time) for pillar calculation
+    # This is what the user's birth certificate / clock shows
+    wall_clock_dt = solar_time_data['clock_datetime']
 
     # Step 2: Use cnlunar to get Month/Day pillars
-    # cnlunar needs a datetime object — we pass the TRUE SOLAR TIME datetime
-    # because cnlunar also determines the Hour Pillar from the time,
-    # and the time affects whether we're in the next/previous day (especially around midnight)
-    lunar = cnlunar.Lunar(true_solar_dt, godType='8char')
+    # cnlunar needs a datetime object — we pass the WALL CLOCK datetime
+    lunar = cnlunar.Lunar(wall_clock_dt, godType='8char')
 
     # Extract Eight Characters (八字) from cnlunar
     # IMPORTANT: cnlunar's year8Char uses Lunar New Year as boundary,
@@ -262,7 +269,7 @@ def calculate_four_pillars(
     hour_gz = lunar.twohour8Char # We'll recalculate this with True Solar Time
 
     # Override year pillar using 立春 boundary
-    year_stem, year_branch, bazi_year = get_bazi_year_stem_branch(true_solar_dt)
+    year_stem, year_branch, bazi_year = get_bazi_year_stem_branch(wall_clock_dt)
     year_gz = f'{year_stem}{year_branch}'
 
     # Month pillar from cnlunar (already uses solar terms correctly)
@@ -281,21 +288,15 @@ def calculate_four_pillars(
     # Day pillar from cnlunar (always correct)
     day_stem, day_branch = day_gz[0], day_gz[1]
 
-    # Step 3: Calculate Hour Pillar using True Solar Time
-    # We use cnlunar's hour pillar as a starting point, but verify with our own calculation
-    true_hour = true_solar_dt.hour
-    true_minute = true_solar_dt.minute
+    # Step 3: Calculate Hour Pillar using wall clock time
+    # NOTE: Previously used True Solar Time here. Now uses wall clock to match
+    # industry standard. To re-enable TST, replace wall_clock_dt with
+    # solar_time_data['true_solar_datetime'] below.
+    clock_hour = wall_clock_dt.hour
+    clock_minute = wall_clock_dt.minute
 
-    hour_branch = get_hour_branch(true_hour, true_minute)
+    hour_branch = get_hour_branch(clock_hour, clock_minute)
     hour_stem = get_hour_stem(day_stem, hour_branch)
-
-    # Verify if cnlunar's hour pillar matches our True Solar Time calculation
-    # If they differ, prefer our True Solar Time calculation
-    cnlunar_hour_stem, cnlunar_hour_branch = hour_gz[0], hour_gz[1]
-    if hour_branch != cnlunar_hour_branch:
-        # True Solar Time gives a different hour — this is expected when
-        # the longitude correction shifts across an hour boundary
-        pass  # We use our calculated values
 
     # Step 4: Get lunar date info
     lunar_year = lunar.lunarYear

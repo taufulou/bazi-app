@@ -16,6 +16,23 @@
   margin: 0 auto 3rem;
 }
 
+.backButton {
+  background: none;
+  border: 1px solid rgba(232, 213, 183, 0.3);
+  color: #e8d5b7;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 1.5rem;
+}
+
+.backButton:hover {
+  background: rgba(232, 213, 183, 0.1);
+  border-color: rgba(232, 213, 183, 0.5);
+}
+
 .pageTitle {
   font-size: 2.5rem;
   font-weight: 800;
@@ -141,6 +158,31 @@
     0 0 30px rgba(212, 175, 55, 0.12),
     0 0 80px rgba(212, 175, 55, 0.06),
     0 12px 40px rgba(0, 0, 0, 0.3);
+}
+
+/* Current Plan Highlight */
+.planCardCurrent {
+  border-color: rgba(76, 175, 80, 0.4);
+  box-shadow: 0 0 15px rgba(76, 175, 80, 0.06);
+}
+
+.planCardCurrent:hover {
+  border-color: rgba(76, 175, 80, 0.5);
+}
+
+.currentBadge {
+  position: absolute;
+  top: -12px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(76, 175, 80, 0.9);
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.3rem 1.2rem;
+  border-radius: 20px;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
 }
 
 .recommendedBadge {
@@ -300,6 +342,164 @@
   transform: translateY(-2px);
 }
 
+.ctaCurrent {
+  background: rgba(76, 175, 80, 0.1);
+  color: #81c784;
+  border: 1px solid rgba(76, 175, 80, 0.25);
+}
+
+.ctaCurrent:hover {
+  background: rgba(76, 175, 80, 0.15);
+  border-color: rgba(76, 175, 80, 0.4);
+}
+
+.ctaDowngrade {
+  background: transparent;
+  color: #a0a0a0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ctaDowngrade:hover {
+  color: #e0e0e0;
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+/* ==== Upgrade Confirmation Modal ==== */
+.upgradeOverlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.upgradeDialog {
+  background: #16213e;
+  border: 1px solid rgba(212, 175, 55, 0.2);
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 440px;
+  width: 100%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.upgradeDialogTitle {
+  color: #e8d5b7;
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 0 0 1rem;
+}
+
+.upgradeDialogText {
+  color: #e0e0e0;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 0 0 1rem;
+}
+
+.upgradeDialogText strong {
+  color: #e8d5b7;
+}
+
+.upgradeDialogPrice {
+  background: rgba(212, 175, 55, 0.08);
+  border: 1px solid rgba(212, 175, 55, 0.15);
+  border-radius: 10px;
+  padding: 0.85rem 1.2rem;
+  color: #d4af37;
+  font-size: 1.05rem;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.upgradeDialogNote {
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin: 0 0 1.5rem;
+}
+
+.upgradeDialogActions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.upgradeDialogCancel,
+.upgradeDialogConfirm {
+  flex: 1;
+  padding: 0.8rem 1rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+}
+
+.upgradeDialogCancel {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e0e0e0;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.upgradeDialogCancel:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.upgradeDialogConfirm {
+  background: linear-gradient(135deg, #d4af37, #b8962e);
+  color: #1a1a2e;
+}
+
+.upgradeDialogConfirm:hover:not(:disabled) {
+  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+}
+
+.upgradeDialogConfirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Downgrade confirm button — subdued style */
+.downgradeDialogConfirm {
+  flex: 1;
+  padding: 0.8rem 1rem;
+  border: none;
+  border-radius: 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 46px;
+  background: rgba(255, 152, 0, 0.15);
+  color: #ffb74d;
+  border: 1px solid rgba(255, 152, 0, 0.3);
+}
+
+.downgradeDialogConfirm:hover:not(:disabled) {
+  background: rgba(255, 152, 0, 0.25);
+  border-color: rgba(255, 152, 0, 0.5);
+}
+
+.downgradeDialogConfirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* ==== Free Tier Section ==== */
 .freeSection {
   max-width: 1100px;
@@ -419,6 +619,129 @@
 
 .bottomNoteLink:hover {
   color: #d4af37;
+  text-decoration: underline;
+}
+
+/* ==== Toast Notification ==== */
+.toast {
+  position: fixed;
+  top: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1.5rem;
+  border-radius: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  animation: slideDown 0.3s ease;
+  max-width: 480px;
+  width: 90%;
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.toastSuccess {
+  background: rgba(76, 175, 80, 0.2);
+  border: 1px solid rgba(76, 175, 80, 0.4);
+  color: #81c784;
+}
+
+.toastInfo {
+  background: rgba(232, 213, 183, 0.15);
+  border: 1px solid rgba(232, 213, 183, 0.3);
+  color: #e8d5b7;
+}
+
+.toastClose {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.3rem;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  padding: 0;
+  line-height: 1;
+}
+
+.toastClose:hover {
+  opacity: 1;
+}
+
+/* ==== Error Banner ==== */
+.errorBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  max-width: 600px;
+  margin: 0 auto 2rem;
+  padding: 0.85rem 1.5rem;
+  background: rgba(244, 67, 54, 0.12);
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  border-radius: 10px;
+  color: #ef9a9a;
+  font-size: 0.9rem;
+}
+
+.errorClose {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 1.2rem;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+  padding: 0;
+  line-height: 1;
+}
+
+.errorClose:hover {
+  opacity: 1;
+}
+
+/* ==== Loading Spinner ==== */
+.ctaLoading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ==== Manage Subscription Link ==== */
+.manageLinkWrapper {
+  text-align: center;
+  margin: 2rem auto;
+}
+
+.manageLink {
+  color: #a0a0a0;
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: color 0.2s;
+}
+
+.manageLink:hover {
+  color: #e8d5b7;
   text-decoration: underline;
 }
 
