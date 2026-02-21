@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Param } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { BaziService } from './bazi.service';
@@ -59,5 +59,47 @@ export class BaziController {
     @Body() dto: CreateComparisonDto,
   ) {
     return this.baziService.createComparison(auth.userId, dto);
+  }
+
+  @Get('comparisons/:id')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get a specific Bazi compatibility comparison' })
+  async getComparison(
+    @CurrentUser() auth: AuthPayload,
+    @Param('id') id: string,
+  ) {
+    return this.baziService.getComparison(auth.userId, id);
+  }
+
+  @Get('comparisons')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Get comparison history for the current user' })
+  async getComparisonHistory(
+    @CurrentUser() auth: AuthPayload,
+    @Query('page') page = 1,
+    @Query('limit') limit = 20,
+  ) {
+    return this.baziService.getComparisonHistory(auth.userId, +page, +limit);
+  }
+
+  @Post('comparisons/:id/recalculate')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Re-calculate comparison with current year timing (1 credit)' })
+  async recalculateComparison(
+    @CurrentUser() auth: AuthPayload,
+    @Param('id') id: string,
+  ) {
+    return this.baziService.recalculateComparison(auth.userId, id);
+  }
+
+  @Post('comparisons/:id/generate-ai')
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: 'Generate AI interpretation for existing comparison' })
+  async generateComparisonAI(
+    @CurrentUser() auth: AuthPayload,
+    @Param('id') id: string,
+  ) {
+    return this.baziService.generateComparisonAI(auth.userId, id);
   }
 }

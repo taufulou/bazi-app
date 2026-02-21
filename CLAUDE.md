@@ -129,6 +129,22 @@ node --import tsx dist/main.js
 
 **npx fails with `spawn sh ENOENT`:** Use direct binary paths: `node_modules/.bin/jest`
 
+## E2E Testing with Clerk Auth
+Clerk cannot be mocked at the API level in Playwright because the SDK validates JWT signatures internally. The workaround is a **cookie-based E2E auth bypass**:
+
+1. **Compatibility page** (`apps/web/app/reading/compatibility/page.tsx`) checks for `__e2e_auth=1` cookie and bypasses `useAuth()` when set
+2. **Playwright tests** set this cookie via `page.context().addCookies()` before navigation
+3. **API mocks** use route interception — actual NestJS URLs:
+   - User profile: `/api/users/me`
+   - Birth profiles: `/api/users/me/birth-profiles`
+   - Comparisons: `/api/bazi/comparisons`
+   - Recalculate: `/api/bazi/comparisons/:id/recalculate`
+4. **Playwright config**: Use `playwright-minimal.config.ts` (no `webServer` block) when servers are already running. The default `playwright.config.ts` tries to auto-start `npm run dev:web` which may hang due to `spawn sh ENOENT`.
+5. **Run E2E tests**: Start servers first, then:
+   ```bash
+   ./node_modules/.bin/playwright test e2e/compatibility.spec.ts --config=playwright-minimal.config.ts --reporter=line
+   ```
+
 ## Known Issues
 - Clerk deprecated props: migrate `afterSignInUrl`/`afterSignUpUrl` to `fallbackRedirectUrl`/`forceRedirectUrl`
 - Clerk phone set to "required" — blocks Google sign-in. Change to "optional" in Clerk Dashboard

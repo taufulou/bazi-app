@@ -359,31 +359,42 @@ export class BaziService {
         throw new InternalServerErrorException('Bazi compatibility calculation failed.');
       }
 
-      // Generate AI interpretation for compatibility
+      // Generate AI interpretation for compatibility (skip when skipAI=true for progressive loading)
       let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
       let aiProvider: string | undefined = undefined;
       let aiModel: string | undefined = undefined;
       let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
 
-      try {
-        const enrichedData = {
-          ...calculationData,
-          comparisonType: dto.comparisonType.toLowerCase(),
-        };
+      if (!dto.skipAI) {
+        try {
+          // Enrich with comparison type and gender for prompt interpolation
+          const enrichedData: Record<string, unknown> = {
+            ...calculationData,
+            comparisonType: dto.comparisonType.toLowerCase(),
+            genderA: profileA.gender.toLowerCase(),
+            genderB: profileB.gender.toLowerCase(),
+          };
 
-        const aiResult = await this.aiService.generateInterpretation(
-          enrichedData,
-          ReadingType.COMPATIBILITY,
-          user.id,
-        );
+          // Attach gender to chart data for interpolateChartFields
+          const eChartA = enrichedData['chartA'] as Record<string, unknown> | undefined;
+          const eChartB = enrichedData['chartB'] as Record<string, unknown> | undefined;
+          if (eChartA) eChartA['gender'] = profileA.gender.toLowerCase();
+          if (eChartB) eChartB['gender'] = profileB.gender.toLowerCase();
 
-        aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
-        aiProvider = aiResult.provider;
-        aiModel = aiResult.model;
-        tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        this.logger.error(`AI compatibility interpretation failed: ${message}`);
+          const aiResult = await this.aiService.generateInterpretation(
+            enrichedData,
+            ReadingType.COMPATIBILITY,
+            user.id,
+          );
+
+          aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
+          aiProvider = aiResult.provider;
+          aiModel = aiResult.model;
+          tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          this.logger.error(`AI compatibility interpretation failed: ${message}`);
+        }
       }
 
       // Master tier: creditsUsed = 0; Free trial: creditsUsed = 0; Regular: service.creditCost
@@ -425,14 +436,395 @@ export class BaziService {
             aiModel,
             tokenUsage,
             creditsUsed,
+            lastCalculatedYear: new Date().getFullYear(),
           },
         });
       });
 
-      return comparison;
+      return this.flattenComparisonResponse(comparison);
     } finally {
       await this.redis.releaseLock(lockKey);
     }
+  }
+
+  async getComparison(clerkUserId: string, comparisonId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const comparison = await this.prisma.baziComparison.findFirst({
+      where: { id: comparisonId, userId: user.id },
+      include: {
+        profileA: true,
+        profileB: true,
+      },
+    });
+
+    if (!comparison) {
+      throw new NotFoundException('Comparison not found');
+    }
+
+    // Server-side paywall: non-subscribers only get preview sections
+    const isSubscriber = user.subscriptionTier !== 'FREE';
+    const isOwnerReading = comparison.creditsUsed > 0 || comparison.userId === user.id;
+
+    if (isSubscriber || isOwnerReading) {
+      return this.flattenComparisonResponse(comparison);
+    }
+
+    // Strip full text, keep only preview for non-subscribers
+    if (comparison.aiInterpretation && typeof comparison.aiInterpretation === 'object') {
+      const interpretation = comparison.aiInterpretation as Record<string, unknown>;
+      const sections = interpretation.sections as Record<string, { preview: string; full: string }> | undefined;
+      if (sections) {
+        const previewOnly: Record<string, { preview: string; full: string }> = {};
+        for (const [key, section] of Object.entries(sections)) {
+          previewOnly[key] = { preview: section.preview, full: section.preview };
+        }
+        return this.flattenComparisonResponse({
+          ...comparison,
+          aiInterpretation: {
+            ...interpretation,
+            sections: previewOnly,
+          },
+        });
+      }
+    }
+
+    return this.flattenComparisonResponse(comparison);
+  }
+
+  async getComparisonHistory(clerkUserId: string, page = 1, limit = 20) {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [data, total] = await Promise.all([
+      this.prisma.baziComparison.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          comparisonType: true,
+          creditsUsed: true,
+          createdAt: true,
+          profileA: {
+            select: { name: true, birthDate: true },
+          },
+          profileB: {
+            select: { name: true, birthDate: true },
+          },
+        },
+      }),
+      this.prisma.baziComparison.count({
+        where: { userId: user.id },
+      }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
+  // ============ Recalculate Comparison ============
+
+  async recalculateComparison(clerkUserId: string, comparisonId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const comparison = await this.prisma.baziComparison.findFirst({
+      where: { id: comparisonId, userId: user.id },
+      include: { profileA: true, profileB: true },
+    });
+    if (!comparison) throw new NotFoundException('Comparison not found');
+
+    const currentYear = new Date().getFullYear();
+
+    // Check if already up-to-date
+    if (comparison.lastCalculatedYear === currentYear) {
+      throw new BadRequestException('此合盤分析已是最新年份');
+    }
+
+    // Charge 1 credit (unless Master tier)
+    const recalcCost = 1;
+    const isMaster = user.subscriptionTier === 'MASTER';
+
+    if (!isMaster && user.credits < recalcCost) {
+      throw new BadRequestException(
+        `Insufficient credits. Re-calculation requires ${recalcCost} credit.`,
+      );
+    }
+
+    // Re-call Python engine with new current_year
+    const profileA = comparison.profileA;
+    const profileB = comparison.profileB;
+    const dto = { comparisonType: comparison.comparisonType } as CreateComparisonDto;
+
+    let calculationData: Record<string, unknown>;
+    try {
+      calculationData = await this.callBaziCompatibility(profileA, profileB, dto) as Record<string, unknown>;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`Bazi recalculation engine call failed: ${message}`);
+      throw new InternalServerErrorException('Bazi re-calculation failed.');
+    }
+
+    // Re-generate AI interpretation
+    let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
+    let aiProvider: string | undefined = undefined;
+    let aiModel: string | undefined = undefined;
+    let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
+
+    try {
+      const enrichedData: Record<string, unknown> = {
+        ...calculationData,
+        comparisonType: comparison.comparisonType.toLowerCase(),
+        genderA: profileA.gender.toLowerCase(),
+        genderB: profileB.gender.toLowerCase(),
+      };
+
+      const eChartA = enrichedData['chartA'] as Record<string, unknown> | undefined;
+      const eChartB = enrichedData['chartB'] as Record<string, unknown> | undefined;
+      if (eChartA) eChartA['gender'] = profileA.gender.toLowerCase();
+      if (eChartB) eChartB['gender'] = profileB.gender.toLowerCase();
+
+      const aiResult = await this.aiService.generateInterpretation(
+        enrichedData,
+        ReadingType.COMPATIBILITY,
+        user.id,
+      );
+
+      aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
+      aiProvider = aiResult.provider;
+      aiModel = aiResult.model;
+      tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      this.logger.error(`AI re-interpretation failed: ${message}`);
+    }
+
+    // Atomic update: deduct credit + update comparison
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (!isMaster) {
+        const deducted = await tx.user.updateMany({
+          where: { id: user.id, credits: { gte: recalcCost } },
+          data: { credits: { decrement: recalcCost } },
+        });
+        if (deducted.count === 0) {
+          throw new BadRequestException('Insufficient credits');
+        }
+      }
+
+      return tx.baziComparison.update({
+        where: { id: comparisonId },
+        data: {
+          calculationData: calculationData as Prisma.InputJsonValue,
+          aiInterpretation,
+          aiProvider: aiProvider as any,
+          aiModel,
+          tokenUsage,
+          lastCalculatedYear: currentYear,
+        },
+        include: { profileA: true, profileB: true },
+      });
+    });
+
+    return this.flattenComparisonResponse(updated);
+  }
+
+  // ============ Generate AI for Existing Comparison ============
+
+  /**
+   * Generate AI interpretation for a comparison that was created with skipAI=true.
+   * Idempotent: returns cached AI if already generated.
+   * Uses distributed lock to prevent concurrent AI generation for the same comparison.
+   * No credits are charged (already deducted during createComparison).
+   */
+  async generateComparisonAI(clerkUserId: string, comparisonId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const comparison = await this.prisma.baziComparison.findFirst({
+      where: { id: comparisonId, userId: user.id },
+      include: { profileA: true, profileB: true },
+    });
+    if (!comparison) throw new NotFoundException('Comparison not found');
+
+    // If AI already exists, return immediately (idempotent)
+    if (comparison.aiInterpretation) {
+      return this.flattenComparisonResponse(comparison);
+    }
+
+    // Acquire distributed lock to prevent concurrent AI generation
+    const lockKey = `ai:generate:comparison:${comparisonId}`;
+    const lockAcquired = await this.redis.acquireLock(lockKey, 60);
+    if (!lockAcquired) {
+      // Another request is already generating AI — poll until done (max 30s)
+      for (let i = 0; i < 10; i++) {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        const check = await this.prisma.baziComparison.findUnique({
+          where: { id: comparisonId },
+          select: { aiInterpretation: true },
+        });
+        if (check?.aiInterpretation) break;
+      }
+      const fresh = await this.prisma.baziComparison.findFirst({
+        where: { id: comparisonId, userId: user.id },
+        include: { profileA: true, profileB: true },
+      });
+      return this.flattenComparisonResponse(fresh || comparison);
+    }
+
+    try {
+      // Double-check AI after acquiring lock (another request may have completed)
+      const freshCheck = await this.prisma.baziComparison.findUnique({
+        where: { id: comparisonId },
+        select: { aiInterpretation: true },
+      });
+      if (freshCheck?.aiInterpretation) {
+        const full = await this.prisma.baziComparison.findFirst({
+          where: { id: comparisonId, userId: user.id },
+          include: { profileA: true, profileB: true },
+        });
+        return this.flattenComparisonResponse(full!);
+      }
+
+      // Reconstruct enriched data from stored calculationData
+      const calcData = comparison.calculationData as Record<string, unknown>;
+      const enrichedData: Record<string, unknown> = {
+        ...calcData,
+        comparisonType: comparison.comparisonType.toLowerCase(),
+        genderA: comparison.profileA.gender.toLowerCase(),
+        genderB: comparison.profileB.gender.toLowerCase(),
+      };
+
+      // Attach gender to chart data for interpolateChartFields
+      const eChartA = enrichedData['chartA'] as Record<string, unknown> | undefined;
+      const eChartB = enrichedData['chartB'] as Record<string, unknown> | undefined;
+      if (eChartA) eChartA['gender'] = comparison.profileA.gender.toLowerCase();
+      if (eChartB) eChartB['gender'] = comparison.profileB.gender.toLowerCase();
+
+      // Call AI service (same pattern as createComparison)
+      let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
+      let aiProvider: string | undefined = undefined;
+      let aiModel: string | undefined = undefined;
+      let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
+
+      try {
+        const aiResult = await this.aiService.generateInterpretation(
+          enrichedData,
+          ReadingType.COMPATIBILITY,
+          user.id,
+        );
+
+        aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
+        aiProvider = aiResult.provider;
+        aiModel = aiResult.model;
+        tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.logger.error(
+          `AI compatibility generation failed for comparison ${comparisonId}: ${message}`,
+        );
+        // Return comparison as-is (no AI)
+        return this.flattenComparisonResponse(comparison);
+      }
+
+      // Update comparison with AI data — ownership-safe via updateMany
+      await this.prisma.baziComparison.updateMany({
+        where: { id: comparisonId, userId: user.id },
+        data: {
+          aiInterpretation: aiInterpretation as any,
+          aiProvider: aiProvider as any,
+          aiModel,
+          tokenUsage,
+        },
+      });
+
+      // Fetch updated record for response
+      const updated = await this.prisma.baziComparison.findFirst({
+        where: { id: comparisonId, userId: user.id },
+        include: { profileA: true, profileB: true },
+      });
+      return this.flattenComparisonResponse(updated!);
+    } finally {
+      await this.redis.releaseLock(lockKey);
+    }
+  }
+
+  // ============ Response Transformation ============
+
+  /**
+   * Flatten compatibility fields into `calculationData` top level
+   * so the frontend receives the expected shape:
+   *   { adjustedScore, knockoutConditions, timingSync, dimensionScores, ... }
+   *
+   * Handles two engine output formats:
+   * 1. Enhanced (8-dimension): { chartA, chartB, compatibilityEnhanced: { adjustedScore, dimensionScores, ... } }
+   * 2. Legacy (simple):        { chartA, chartB, compatibility: { overallScore, ... } }
+   */
+  private flattenComparisonResponse<T extends { calculationData: unknown }>(comparison: T): T {
+    const calcData = comparison.calculationData as Record<string, unknown> | null;
+    if (!calcData) return comparison;
+
+    // Try enhanced first (8-dimension system)
+    const enhanced = calcData['compatibilityEnhanced'] as Record<string, unknown> | undefined;
+    if (enhanced) {
+      return {
+        ...comparison,
+        calculationData: {
+          ...enhanced,
+          chartA: calcData['chartA'],
+          chartB: calcData['chartB'],
+          compatibilityPreAnalysis: calcData['compatibilityPreAnalysis'],
+          comparisonType: enhanced['comparisonType'] || calcData['comparisonType'],
+        },
+      };
+    }
+
+    // Fall back to legacy compatibility format
+    const legacy = calcData['compatibility'] as Record<string, unknown> | undefined;
+    if (legacy) {
+      return {
+        ...comparison,
+        calculationData: {
+          ...legacy,
+          // Map legacy fields to expected frontend fields
+          adjustedScore: legacy['overallScore'],
+          overallScore: legacy['overallScore'],
+          label: legacy['levelZh'] || legacy['level'] || '',
+          labelDescription: '',
+          chartA: calcData['chartA'],
+          chartB: calcData['chartB'],
+          compatibilityPreAnalysis: calcData['compatibilityPreAnalysis'],
+          comparisonType: legacy['comparisonType'] || calcData['comparisonType'],
+        },
+      };
+    }
+
+    return comparison; // Already flat or unrecognized
   }
 
   // ============ Engine Communication ============
@@ -468,8 +860,8 @@ export class BaziService {
   }
 
   private async callBaziCompatibility(
-    profileA: { birthDate: Date; birthTime: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
-    profileB: { birthDate: Date; birthTime: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
+    profileA: { birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
+    profileB: { birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
     dto: CreateComparisonDto,
   ): Promise<Prisma.InputJsonValue> {
     const response = await fetch(`${this.baziEngineUrl}/compatibility`, {
@@ -479,6 +871,7 @@ export class BaziService {
         profile_a: {
           birth_date: profileA.birthDate.toISOString().split('T')[0],
           birth_time: profileA.birthTime,
+          birth_city: profileA.birthCity,
           birth_timezone: profileA.birthTimezone,
           birth_longitude: profileA.birthLongitude,
           birth_latitude: profileA.birthLatitude,
@@ -487,12 +880,14 @@ export class BaziService {
         profile_b: {
           birth_date: profileB.birthDate.toISOString().split('T')[0],
           birth_time: profileB.birthTime,
+          birth_city: profileB.birthCity,
           birth_timezone: profileB.birthTimezone,
           birth_longitude: profileB.birthLongitude,
           birth_latitude: profileB.birthLatitude,
           gender: profileB.gender.toLowerCase(),
         },
         comparison_type: dto.comparisonType.toLowerCase(),
+        current_year: new Date().getFullYear(),
       }),
       signal: AbortSignal.timeout(30000),
     });

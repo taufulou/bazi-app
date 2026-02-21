@@ -1,0 +1,202 @@
+/* PersonBirthFields — controlled birth data field group */
+/* Follows existing BirthDataForm.module.css design patterns */
+
+.fieldsContainer {
+  position: relative;
+}
+
+.fieldsContainer.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.panelLabel {
+  color: #e8d5b7;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.15);
+}
+
+.fieldGroup {
+  position: relative;
+  margin-bottom: 1rem;
+}
+
+.label {
+  display: block;
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  margin-bottom: 0.4rem;
+  font-weight: 500;
+}
+
+/* Input + Select base styles */
+.input,
+.select {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  background: #1a1a2e;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 8px;
+  color: #e0e0e0;
+  font-size: 0.95rem;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.input:focus,
+.select:focus {
+  border-color: #e8d5b7;
+}
+
+.input::placeholder {
+  color: #555;
+}
+
+.select option {
+  background: #1a1a2e;
+  color: #e0e0e0;
+}
+
+.selectSmall {
+  composes: select;
+  width: auto;
+  min-width: 70px;
+}
+
+/* Gender buttons */
+.genderGroup {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.genderOption {
+  flex: 1;
+  padding: 0.6rem;
+  background: #1a1a2e;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 8px;
+  color: #a0a0a0;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.95rem;
+}
+
+.genderOption:hover {
+  border-color: rgba(232, 213, 183, 0.4);
+}
+
+.genderOptionActive {
+  composes: genderOption;
+  border-color: #e8d5b7;
+  color: #e8d5b7;
+  background: rgba(232, 213, 183, 0.1);
+}
+
+/* Calendar type toggle */
+.calendarTypeGroup {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.calType {
+  flex: 1;
+  padding: 0.5rem;
+  background: #1a1a2e;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+  border-radius: 8px;
+  color: #a0a0a0;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.85rem;
+}
+
+.calType:hover {
+  border-color: rgba(232, 213, 183, 0.4);
+}
+
+.calTypeActive {
+  composes: calType;
+  border-color: #e8d5b7;
+  color: #e8d5b7;
+  background: rgba(232, 213, 183, 0.1);
+}
+
+.leapMonthLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+  cursor: pointer;
+}
+
+.leapMonthLabel input[type="checkbox"] {
+  accent-color: #e8d5b7;
+}
+
+/* Date row — 3-column grid */
+.dateRow {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 0.5rem;
+}
+
+/* Time row — 3-column grid */
+.timeRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 80px;
+  gap: 0.5rem;
+}
+
+/* Quick mode toggle */
+.quickModeLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.quickModeLabel input[type="checkbox"] {
+  accent-color: #e8d5b7;
+}
+
+/* Region, City & Timezone — 3-column row matching BirthDataForm */
+.regionCityRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+/* ==== Responsive ==== */
+
+@media (max-width: 600px) {
+  .dateRow {
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 0.4rem;
+  }
+
+  .timeRow {
+    grid-template-columns: 1fr 1fr 70px;
+    gap: 0.4rem;
+  }
+
+  .regionCityRow {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
+  }
+
+  .input,
+  .select {
+    padding: 0.55rem 0.65rem;
+    font-size: 0.9rem;
+  }
+}

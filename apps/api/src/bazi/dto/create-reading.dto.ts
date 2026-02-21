@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsInt, IsBoolean, Min, Max } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { ReadingType, ComparisonType } from '@prisma/client';
 
@@ -31,4 +31,9 @@ export class CreateComparisonDto {
   @ApiProperty({ enum: ['ROMANCE', 'BUSINESS', 'FRIENDSHIP'] })
   @IsEnum(ComparisonType)
   comparisonType!: ComparisonType;
+
+  @ApiProperty({ required: false, description: 'Skip AI interpretation (return calculation data only)' })
+  @IsOptional()
+  @IsBoolean()
+  skipAI?: boolean;
 }

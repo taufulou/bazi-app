@@ -17,6 +17,16 @@ import {
   getLeapMonthInYear,
   isValidLunarDate,
 } from "../lib/lunar-utils";
+import {
+  getDaysInMonth,
+  to12Hour,
+  to24Hour,
+  CURRENT_YEAR,
+  YEAR_OPTIONS,
+  MONTH_OPTIONS,
+  HOUR_12_OPTIONS,
+  MINUTE_OPTIONS,
+} from "../lib/date-time-utils";
 import styles from "./BirthDataForm.module.css";
 
 export interface BirthDataFormValues {
@@ -71,38 +81,6 @@ interface BirthDataFormProps {
   showSaveOption?: boolean;
   onSaveProfile?: (data: BirthDataFormValues, relationshipTag: string, existingProfileId?: string) => void;
   savedProfiles?: BirthProfile[];
-}
-
-/** Get number of days in a given month (handles leap years) */
-function getDaysInMonth(year: string, month: string): number {
-  if (!year || !month) return 31;
-  return new Date(parseInt(year), parseInt(month), 0).getDate();
-}
-
-const CURRENT_YEAR = new Date().getFullYear();
-const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 1920 + 1 }, (_, i) => CURRENT_YEAR - i);
-const MONTH_OPTIONS = Array.from({ length: 12 }, (_, i) => i + 1);
-const HOUR_12_OPTIONS = Array.from({ length: 12 }, (_, i) => i + 1); // 1-12
-const MINUTE_OPTIONS = Array.from({ length: 60 }, (_, i) => i);
-
-/** Convert 24-hour string (e.g. "14") to 12-hour + period */
-function to12Hour(hour24: string): { hour12: string; period: "AM" | "PM" } {
-  if (hour24 === "") return { hour12: "", period: "AM" };
-  const h = parseInt(hour24);
-  if (h === 0) return { hour12: "12", period: "AM" };
-  if (h < 12) return { hour12: String(h), period: "AM" };
-  if (h === 12) return { hour12: "12", period: "PM" };
-  return { hour12: String(h - 12), period: "PM" };
-}
-
-/** Convert 12-hour + period to 24-hour zero-padded string */
-function to24Hour(hour12: string, period: "AM" | "PM"): string {
-  if (hour12 === "") return "";
-  const h = parseInt(hour12);
-  if (period === "AM") {
-    return String(h === 12 ? 0 : h).padStart(2, "0");
-  }
-  return String(h === 12 ? 12 : h + 12).padStart(2, "0");
 }
 
 export default function BirthDataForm({

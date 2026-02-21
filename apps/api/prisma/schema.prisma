@@ -122,6 +122,7 @@ model BaziComparison {
   aiModel             String?   @map("ai_model")
   tokenUsage          Json?     @map("token_usage")
   creditsUsed         Int       @default(0) @map("credits_used")
+  lastCalculatedYear  Int?      @map("last_calculated_year")
   createdAt           DateTime  @default(now()) @map("created_at")
 
   // Relations

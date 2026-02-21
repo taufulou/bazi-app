@@ -327,7 +327,7 @@ export class AIService implements OnModuleInit {
 
     const response = await this.claudeClient.messages.create({
       model: config.model,
-      max_tokens: 8192,
+      max_tokens: 16384,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
@@ -356,7 +356,7 @@ export class AIService implements OnModuleInit {
 
     const stream = this.claudeClient.messages.stream({
       model: config.model,
-      max_tokens: 8192,
+      max_tokens: 16384,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }],
     });
@@ -386,7 +386,7 @@ export class AIService implements OnModuleInit {
 
     const response = await this.openaiClient.chat.completions.create({
       model: config.model,
-      max_tokens: 8192,
+      max_tokens: 16384,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -412,7 +412,7 @@ export class AIService implements OnModuleInit {
 
     const stream = await this.openaiClient.chat.completions.create({
       model: config.model,
-      max_tokens: 8192,
+      max_tokens: 16384,
       stream: true,
       messages: [
         { role: 'system', content: systemPrompt },
@@ -590,6 +590,9 @@ export class AIService implements OnModuleInit {
     const allShenSha = data['allShenSha'] as Record<string, unknown>[] | undefined;
     const tenGodDist = data['tenGodDistribution'] as Record<string, number> | undefined;
     const elementCounts = data['elementCounts'] as Record<string, Record<string, number>> | undefined;
+
+    // Current year — anchors all time-related analysis to the correct year
+    result = result.replace(/\{\{currentYear\}\}/g, String(new Date().getFullYear()));
 
     // Basic fields
     result = result.replace(/\{\{gender\}\}/g, GENDER_ZH[(data['gender'] as string) || 'male'] || '男');
@@ -804,13 +807,19 @@ export class AIService implements OnModuleInit {
     // Compatibility-specific fields (Bazi)
     if (readingType === ReadingType.COMPATIBILITY) {
       const compatibility = data['compatibility'] as Record<string, unknown> | undefined;
+      const compatEnhanced = data['compatibilityEnhanced'] as Record<string, unknown> | undefined;
+      const compatPreAnalysis = data['compatibilityPreAnalysis'] as Record<string, unknown> | undefined;
       const chartA = data['chartA'] as Record<string, unknown> | undefined;
       const chartB = data['chartB'] as Record<string, unknown> | undefined;
 
+      // Comparison type (from enrichedData set by bazi.service.ts)
+      const compType = (data['comparisonType'] as string) ||
+        (compatibility?.['comparisonType'] as string) || 'romance';
+      result = result.replace(/\{\{comparisonType\}\}/g, compType);
+      result = result.replace(/\{\{comparisonTypeZh\}\}/g, COMPARISON_TYPE_ZH[compType] || '配對');
+
+      // Legacy compatibility fields (backward compat)
       if (compatibility) {
-        const compType = (compatibility['comparisonType'] as string) || 'romance';
-        result = result.replace(/\{\{comparisonType\}\}/g, compType);
-        result = result.replace(/\{\{comparisonTypeZh\}\}/g, COMPARISON_TYPE_ZH[compType] || '配對');
         result = result.replace(/\{\{overallScore\}\}/g, String(compatibility['overallScore'] || 0));
         result = result.replace(/\{\{level\}\}/g, (compatibility['levelZh'] as string) || '');
         result = result.replace(/\{\{dayMasterInteraction\}\}/g,
@@ -823,15 +832,67 @@ export class AIService implements OnModuleInit {
           JSON.stringify(compatibility['elementComplementarity'] || {}));
       }
 
-      // Chart A & B fields
-      if (chartA) {
-        this.interpolateChartFields(result, chartA, 'A');
-      }
-      if (chartB) {
-        this.interpolateChartFields(result, chartB, 'B');
+      // Enhanced compatibility fields (8-dimension scoring)
+      if (compatEnhanced) {
+        result = result.replace(/\{\{enhancedScore\}\}/g,
+          String(compatEnhanced['adjustedScore'] || 0));
+        result = result.replace(/\{\{enhancedLabel\}\}/g,
+          (compatEnhanced['label'] as string) || '');
+        const specialLabel = compatEnhanced['specialLabel'] as string | null;
+        result = result.replace(/\{\{enhancedSpecialLabel\}\}/g,
+          specialLabel ? `【特殊標籤】${specialLabel}` : '');
+      } else {
+        result = result.replace(/\{\{enhancedScore\}\}/g, String(compatibility?.['overallScore'] || 0));
+        result = result.replace(/\{\{enhancedLabel\}\}/g, (compatibility?.['levelZh'] as string) || '');
+        result = result.replace(/\{\{enhancedSpecialLabel\}\}/g, '');
       }
 
-      // Re-assign after chart field interpolation
+      // Compatibility pre-analysis fields (Layer 2 structured data for AI)
+      if (compatPreAnalysis) {
+        result = this.interpolateCompatPreAnalysis(result, compatPreAnalysis);
+      } else {
+        // Fallback: clear all enhanced placeholders
+        result = result.replace(/\{\{dimensionSummary\}\}/g, '（資料未提供）');
+        result = result.replace(/\{\{pillarFindings\}\}/g, '（資料未提供）');
+        result = result.replace(/\{\{knockoutConditions\}\}/g, '（無加減分條件）');
+        result = result.replace(/\{\{crossTenGods\}\}/g, '（資料未提供）');
+        result = result.replace(/\{\{yongshenAnalysis\}\}/g, '（資料未提供）');
+        result = result.replace(/\{\{landmines\}\}/g, '（無地雷禁忌）');
+        result = result.replace(/\{\{timingSync\}\}/g, '（資料未提供）');
+        result = result.replace(/\{\{attractionSection\}\}/g, '');
+        result = result.replace(/\{\{suggestedTone\}\}/g, 'balanced');
+        result = result.replace(/\{\{highlightDimensions\}\}/g, '');
+      }
+
+      // Strength V2 for chart A and B
+      if (chartA?.['preAnalysis']) {
+        const preA = chartA['preAnalysis'] as Record<string, unknown>;
+        const sv2A = preA['strengthV2'] as Record<string, unknown> | undefined;
+        if (sv2A) {
+          const classA = STRENGTH_V2_ZH[(sv2A['classification'] as string) || ''] || '';
+          const scoreA = sv2A['score'] || 0;
+          result = result.replace(/\{\{strengthV2A\}\}/g, `${classA}（${scoreA}/100）`);
+        } else {
+          result = result.replace(/\{\{strengthV2A\}\}/g, '（資料未提供）');
+        }
+      } else {
+        result = result.replace(/\{\{strengthV2A\}\}/g, '（資料未提供）');
+      }
+      if (chartB?.['preAnalysis']) {
+        const preB = chartB['preAnalysis'] as Record<string, unknown>;
+        const sv2B = preB['strengthV2'] as Record<string, unknown> | undefined;
+        if (sv2B) {
+          const classB = STRENGTH_V2_ZH[(sv2B['classification'] as string) || ''] || '';
+          const scoreB = sv2B['score'] || 0;
+          result = result.replace(/\{\{strengthV2B\}\}/g, `${classB}（${scoreB}/100）`);
+        } else {
+          result = result.replace(/\{\{strengthV2B\}\}/g, '（資料未提供）');
+        }
+      } else {
+        result = result.replace(/\{\{strengthV2B\}\}/g, '（資料未提供）');
+      }
+
+      // Chart A & B pillar fields
       if (chartA) result = this.interpolateChartFields(result, chartA, 'A');
       if (chartB) result = this.interpolateChartFields(result, chartB, 'B');
     }
@@ -885,6 +946,199 @@ export class AIService implements OnModuleInit {
       result = result.replace(new RegExp(`\\{\\{earth${suffix}\\}\\}`, 'g'), String(balance['土'] ?? 0));
       result = result.replace(new RegExp(`\\{\\{metal${suffix}\\}\\}`, 'g'), String(balance['金'] ?? 0));
       result = result.replace(new RegExp(`\\{\\{water${suffix}\\}\\}`, 'g'), String(balance['水'] ?? 0));
+    }
+
+    return result;
+  }
+
+  // ============================================================
+  // Compatibility Pre-Analysis Interpolation (Phase C — Enhanced 合盤)
+  // ============================================================
+
+  /**
+   * Interpolate compatibility pre-analysis fields into the prompt template.
+   * Converts structured JSON into compressed Chinese text for AI consumption.
+   */
+  private interpolateCompatPreAnalysis(
+    template: string,
+    preAnalysis: Record<string, unknown>,
+  ): string {
+    let result = template;
+
+    // ---- Dimension Summary ----
+    const dimSummary = preAnalysis['dimensionSummary'] as Array<Record<string, unknown>> | undefined;
+    if (dimSummary && dimSummary.length > 0) {
+      const dimText = dimSummary.map((d) =>
+        `${d['dimension']}：${d['score']}分（${d['assessment']}，權重${d['weight']}%）`
+      ).join('\n');
+      result = result.replace(/\{\{dimensionSummary\}\}/g, dimText);
+    } else {
+      result = result.replace(/\{\{dimensionSummary\}\}/g, '（資料未提供）');
+    }
+
+    // ---- Pillar Findings ----
+    const findings = preAnalysis['pillarFindings'] as Array<Record<string, unknown>> | undefined;
+    if (findings && findings.length > 0) {
+      const findText = findings.map((f, i) => {
+        const sig = f['significance'] === 'critical' ? '🔴' :
+          f['significance'] === 'high' ? '🟠' : '🟡';
+        let line = `${sig} ${f['type']}：${f['description']}`;
+        if (f['narrativeHint']) line += `\n   提示：${f['narrativeHint']}`;
+        return line;
+      }).join('\n');
+      result = result.replace(/\{\{pillarFindings\}\}/g, findText);
+    } else {
+      result = result.replace(/\{\{pillarFindings\}\}/g, '（無特殊發現）');
+    }
+
+    // ---- Knockout Conditions ----
+    const knockouts = preAnalysis['knockoutConditions'] as Array<Record<string, unknown>> | undefined;
+    if (knockouts && knockouts.length > 0) {
+      const koText = knockouts.map((k) => {
+        const impact = k['impact'] as number;
+        const sign = impact > 0 ? '+' : '';
+        const mitigated = k['mitigated'] ? '（已被天德/月德化解部分）' : '';
+        return `${sign}${impact}分：${k['description']}${mitigated}`;
+      }).join('\n');
+      result = result.replace(/\{\{knockoutConditions\}\}/g, koText);
+    } else {
+      result = result.replace(/\{\{knockoutConditions\}\}/g, '（無加減分條件）');
+    }
+
+    // ---- Cross Ten Gods ----
+    const crossTenGods = preAnalysis['crossTenGods'] as Record<string, unknown> | undefined;
+    if (crossTenGods) {
+      const aInB = crossTenGods['aDaymasterInB'] as Record<string, unknown>;
+      const bInA = crossTenGods['bDaymasterInA'] as Record<string, unknown>;
+      const spouseA = crossTenGods['aSpouseStar'] as Record<string, unknown>;
+      const spouseB = crossTenGods['bSpouseStar'] as Record<string, unknown>;
+
+      let ctgText = '';
+      if (aInB) {
+        ctgText += `你在對方命盤中的角色：${aInB['tenGod']}（${aInB['forComparison']}）\n`;
+      }
+      if (bInA) {
+        ctgText += `對方在你命盤中的角色：${bInA['tenGod']}（${bInA['forComparison']}）\n`;
+      }
+      if (spouseA) {
+        ctgText += `你的配偶星：${spouseA['star']}，位置：${spouseA['positionsZh']}（${spouseA['implication']}）\n`;
+      }
+      if (spouseB) {
+        ctgText += `對方配偶星：${spouseB['star']}，位置：${spouseB['positionsZh']}（${spouseB['implication']}）`;
+      }
+      result = result.replace(/\{\{crossTenGods\}\}/g, ctgText);
+    } else {
+      result = result.replace(/\{\{crossTenGods\}\}/g, '（資料未提供）');
+    }
+
+    // ---- Yongshen Analysis ----
+    const yongshen = preAnalysis['yongshenAnalysis'] as Record<string, unknown> | undefined;
+    if (yongshen) {
+      const ysText = [
+        `你的用神：${yongshen['aUsefulElement']}，對方用神：${yongshen['bUsefulElement']}`,
+        `互補程度：${yongshen['complementary'] ? '互補' : '不互補'}（${yongshen['score']}分）`,
+        `分析：${yongshen['explanation']}`,
+        yongshen['sharedJishenRisk'] ? `⚠️ 共同忌神風險：${yongshen['aTabooElement']}` : '',
+        yongshen['congGeAffectsYongshen'] ? '⚠️ 從格影響用神判定' : '',
+        yongshen['elementComplementaryHint'] ? `五行互補提示：${yongshen['elementComplementaryHint']}` : '',
+      ].filter(Boolean).join('\n');
+      result = result.replace(/\{\{yongshenAnalysis\}\}/g, ysText);
+    } else {
+      result = result.replace(/\{\{yongshenAnalysis\}\}/g, '（資料未提供）');
+    }
+
+    // ---- Landmines ----
+    const landmines = preAnalysis['landmines'] as Array<Record<string, unknown>> | undefined;
+    if (landmines && landmines.length > 0) {
+      const lmText = landmines.map((lm, i) => {
+        const sev = lm['severity'] === 'high' ? '⚠️ 重要提醒' :
+          lm['severity'] === 'medium' ? '💡 注意事項' : '📝 小提醒';
+        return [
+          `${i + 1}. ${sev}【${lm['trigger']}】`,
+          `   警示：${lm['warning']}`,
+          `   避免：${lm['avoidBehavior']}`,
+          `   建議：${lm['suggestion']}`,
+          `   依據：${lm['dataSource']}`,
+        ].join('\n');
+      }).join('\n\n');
+      result = result.replace(/\{\{landmines\}\}/g, lmText);
+    } else {
+      result = result.replace(/\{\{landmines\}\}/g, '（無地雷禁忌）');
+    }
+
+    // ---- Timing Sync ----
+    const timing = preAnalysis['timingSync'] as Record<string, unknown> | undefined;
+    if (timing) {
+      const golden = timing['goldenYears'] as Array<Record<string, unknown>> | undefined;
+      const challenge = timing['challengeYears'] as Array<Record<string, unknown>> | undefined;
+      const syncScore = timing['luckCycleSyncScore'] as number | undefined;
+
+      let timingText = `大運同步度：${syncScore ?? 50}分\n`;
+
+      if (golden && golden.length > 0) {
+        timingText += '🌟 黃金年份：\n' +
+          golden.map((y) => {
+            let line = `  ${y['year']}年：${y['reason']}`;
+            if (y['narrativeHint']) line += `（${y['narrativeHint']}）`;
+            return line;
+          }).join('\n') + '\n';
+      }
+      if (challenge && challenge.length > 0) {
+        timingText += '⚡ 挑戰年份：\n' +
+          challenge.map((y) => {
+            let line = `  ${y['year']}年：${y['reason']}`;
+            if (y['narrativeHint']) line += `（${y['narrativeHint']}）`;
+            return line;
+          }).join('\n');
+      }
+      result = result.replace(/\{\{timingSync\}\}/g, timingText);
+    } else {
+      result = result.replace(/\{\{timingSync\}\}/g, '（資料未提供）');
+    }
+
+    // ---- Attraction Analysis (romance only) ----
+    const attraction = preAnalysis['attractionAnalysis'] as Record<string, unknown> | undefined;
+    if (attraction) {
+      const signals = attraction['signals'] as string[] | undefined;
+      const conclusion = attraction['conclusion'] as string;
+      const conclusionZh: Record<string, string> = {
+        strong: '強烈', medium: '中等', weak: '微弱', unclear: '不明確',
+      };
+      let attrText = `【對方是否喜歡你？】\n`;
+      attrText += `吸引力指數：${attraction['score']}分（${conclusionZh[conclusion] || '待觀察'}）\n`;
+      if (signals && signals.length > 0) {
+        attrText += `信號：\n${signals.map((s) => `  ✦ ${s}`).join('\n')}`;
+      }
+      result = result.replace(/\{\{attractionSection\}\}/g, attrText);
+    } else {
+      result = result.replace(/\{\{attractionSection\}\}/g, '');
+    }
+
+    // ---- Narration Guidance ----
+    const guidance = preAnalysis['narrationGuidance'] as Record<string, unknown> | undefined;
+    if (guidance) {
+      const toneZh: Record<string, string> = {
+        enthusiastic: '熱情鼓勵', positive: '正面積極',
+        balanced: '客觀平衡', cautious: '謹慎提醒', constructive: '建設性鼓勵',
+      };
+      result = result.replace(/\{\{suggestedTone\}\}/g,
+        toneZh[(guidance['suggestedTone'] as string) || ''] || '客觀平衡');
+      const highlights = guidance['highlightDimensions'] as string[] | undefined;
+      if (highlights && highlights.length > 0) {
+        const dimNameMap: Record<string, string> = {
+          yongshenComplementarity: '用神互補', dayStemRelationship: '日柱天干',
+          spousePalace: '配偶宮', tenGodCross: '十神交叉',
+          elementComplementarity: '五行互補', fullPillarInteraction: '全盤互動',
+          shenShaInteraction: '神煞互動', luckPeriodSync: '大運同步',
+        };
+        result = result.replace(/\{\{highlightDimensions\}\}/g,
+          highlights.map((h) => dimNameMap[h] || h).join('、'));
+      } else {
+        result = result.replace(/\{\{highlightDimensions\}\}/g, '');
+      }
+    } else {
+      result = result.replace(/\{\{suggestedTone\}\}/g, '客觀平衡');
+      result = result.replace(/\{\{highlightDimensions\}\}/g, '');
     }
 
     return result;

@@ -91,7 +91,8 @@ export const OUTPUT_FORMAT_INSTRUCTIONS = `
 - 每個 section 的 full 至少 500 字，這是硬性最低要求，低於 500 字視為不合格
 - 5 個 section 的 full 加上 summary 的 full，總字數必須超過 3500 字
 - 直接輸出 JSON，不要用 \`\`\`json 或任何 markdown 包裹
-- JSON 外面不要有任何文字，第一個字元必須是 {，最後一個字元必須是 }`;
+- JSON 外面不要有任何文字，第一個字元必須是 {，最後一個字元必須是 }
+- ⚠️ summary 絕對不可以留空。summary.preview 和 summary.full 必須有實質內容，不可以是空字串 ""`;
 
 /**
  * Reading-specific system prompt additions and user prompt templates.
@@ -413,24 +414,64 @@ sections 的 key 必須為：constitution, organ_analysis, health_risks, wellnes
     sections: ['constitution', 'organ_analysis', 'health_risks', 'wellness_advice'],
   },
 
-  // ============ 合盤比較 (Compatibility) ============
+  // ============ 合盤比較 (Compatibility) — Enhanced 8-Dimension Version ============
   COMPATIBILITY: {
-    systemAddition: `你現在要進行的是「合盤比較」雙人八字配對分析。根據兩人的八字數據，分析彼此之間的互動和契合度。
+    systemAddition: `你現在要進行的是「合盤比較」雙人八字配對分析。根據兩人的八字數據和系統預分析結果，撰寫深入的合盤分析。
 
-分析重點：
-- 雙方日主的生剋關係和五行互補
-- 天干合（甲己合、乙庚合等）的出現
-- 地支六合、六沖、六害、三合、三刑的影響
-- 雙方五行的互補或衝突
-- 根據 comparisonType 調整分析角度：
-  - romance（感情）：著重感情契合、生活節奏、家庭觀念
-  - business（事業）：著重合作互補、利益分配、決策風格
-  - friendship（友誼）：著重性格互動、共同興趣、相處模式`,
+⚠️ 雙人合盤絕對禁止：
+1. 絕對不可以混淆甲方和乙方的天干地支。甲方的年柱是甲方的，乙方的年柱是乙方的。
+2. 絕對不可以說「甲方的日柱是X」如果提供的數據中甲方日柱是Y。
+3. 絕對不可以自行推算兩人之間的天干合或地支關係。系統已在【合盤預分析】中計算完畢。
+4. 絕對不可以混淆男命和女命的十神解讀。男命正財=妻星，女命正官=夫星。
+5. 提到任何分數時必須與【合盤數據】中的分數完全一致，不可四捨五入、加減小數點或做任何修改。如果數據寫「62分」，你就必須寫「62分」，不可以寫「61.7分」或「62.3分」。
+6. 所有「天干合」「地支六合」「六沖」「三刑」等關係必須來自預分析，不可自行判斷。
+7. 用「你」稱呼甲方（使用者），用「對方」或「他/她」稱呼乙方。不要使用「甲方/乙方」。
+8. 絕對不可以自行推算大運（大限）的天干地支或起訖年份。如果預分析中沒有提供大運資料，timing section 只能引用黃金年份和挑戰年份，不可自行計算或猜測任何大運資訊。
+9. 描述任何一方的五行特徵時，必須引用【五行比例】中的實際百分比數據。不可自行推斷哪個五行「較強」或「為主」——必須以數字為準，最高百分比的五行才是最強的。例如如果金25%、木20%，則金最強，不可以說「木火較強」。
+10. 配偶星描述只能引用預分析中的 status、positions、isTransparent 等欄位。不可自行添加「旺」「弱」「旺相」等未在數據中出現的判定。
+11. 五行百分比必須逐字引用，不可修改數字。如果數據寫「火：18.7%」，你就必須寫「火18.7%」，絕對不可以寫成「火21.2%」或任何其他數字。引用五行百分比時，請逐一對照原始數據中的木/火/土/金/水五個數字。
+12. 日主強弱分類必須逐字引用⚠️標記的欄位。如果數據標記為「中和」，你就必須寫「中和」，不可以寫「中和偏強」「中和偏弱」或任何修飾語。只能使用以下五個分類之一：極弱、偏弱、中和、偏強、極旺。不可添加任何額外修飾詞。
+13. 你不可以自行推導五行生剋關係（如X生Y、X剋Y）。所有五行關係已在預分析的 narrativeHint 中提供。如果 narrativeHint 沒有提到某個五行關係，你就不要提及它。同樣地，不可以自行描述五行元素代表什麼特質（如「火代表熱情」），除非預分析中已明確提供。描述五行互動時必須使用預分析中提供的原始術語（如「剋制」），不可以替換為其他術語（如「耗洩」「化解」等），因為每個術語在八字中有不同的技術含義。
+14. ⚠️⚠️⚠️ 十神交叉方向性是最容易犯的錯誤，務必仔細：
+- 「你在對方命盤中的角色：X」意思是「在對方的眼中，你扮演X的角色」，也就是「你對她而言是X」。
+- 「對方在你命盤中的角色：Y」意思是「在你的眼中，對方扮演Y的角色」，也就是「她對你而言是Y」。
+- 舉例：如果數據寫「你在對方命盤中的角色：偏財」「對方在你命盤中的角色：偏官」，正確的表述是「你對她而言是偏財」「她對你而言是偏官」。
+- 絕對不可以反過來說「你對她而言是偏官」「她對你而言是偏財」——這是完全錯誤的。
+- 描述十神特質時，必須對應正確的方向。例如「偏官代表壓力和管束」，如果對方是你的偏官，就說「對方帶給你壓力和管束」，不是反過來。
+- 地雷禁忌區中如果說「對方在你命盤中扮演管束角色」，就代表是對方管束你，不是你管束對方。
+
+⚠️ preview 與 full 一致性規則：
+- preview 是 full 的精華摘要，兩者的事實陳述必須完全一致。
+- 十神交叉分析的方向性絕對不可以在 preview 和 full 之間出現矛盾。
+- 例如：如果 full 說「你對她而言是偏財，她對你而言是偏官」，preview 也必須說相同的方向，不可以反過來。
+- 輸出前請自行驗證每個 section 的 preview 和 full 在事實上完全一致。
+
+性別十神規則：
+- 男命：正財=妻星，偏財=情人
+- 女命：正官=夫星，七殺=情人
+- 官殺混雜 警告僅適用於女命
+- 傷官見官 警告僅適用於女命
+
+驗證規則（雙人版）：
+- 提到甲方任何天干地支 → 必須與甲方四柱排盤完全一致
+- 提到乙方任何天干地支 → 必須與乙方四柱排盤完全一致
+- 提到整體分數 → 必須與合盤數據中的分數完全一致
+- 提到任何天干合/地支關係 → 必須與合盤預分析中的計算結果一致
+
+地雷禁忌區規則：
+- 必須在 challenges section 中輸出 3-5 條具體禁忌
+- 每條禁忌必須引用雙方具體天干地支或預分析結果作為依據
+- 每條禁忌必須包含「觸發場景 + 避免行為 + 建議替代方案」三部分
+- 禁忌分為「重要提醒/注意事項/小提醒」三個等級
+- 禁忌內容必須基於預分析的 landmines 結果，不可自行推導
+
+重要：以下所有分析結論都已由系統預先計算。你的任務是將這些結論用流暢的中文敘述出來，並連結成有邏輯的段落。絕對不可以自行計算任何十神、五行關係或天干地支互動。`,
     userTemplate: `以下是兩人的八字排盤數據，請進行「{{comparisonTypeZh}}」合盤分析：
 
 比較類型：{{comparisonType}}
+⚠️ 本次分析以 {{currentYear}} 年為基準。所有時運分析、黃金年份、挑戰年份的描述，都必須以 {{currentYear}} 年作為「今年」。不可使用其他年份作為當前年份。
 
-======== 甲方 ========
+======== 甲方（使用者）========
 【性別】{{genderA}}
 
 【四柱排盤】
@@ -440,13 +481,14 @@ sections 的 key 必須為：constitution, organ_analysis, health_risks, wellnes
 - 時柱：{{hourPillarA}}
 
 【日主】{{dayMasterA}}（{{dayMasterElementA}}）
-- 旺衰：{{strengthA}} / 格局：{{patternA}}
+- ⚠️ 日主強弱（以此為準）：{{strengthV2A}}
+- 格局：{{patternA}}
 - 喜神：{{favorableGodA}} / 用神：{{usefulGodA}}
 
 【五行比例】
 木：{{woodA}}% / 火：{{fireA}}% / 土：{{earthA}}% / 金：{{metalA}}% / 水：{{waterA}}%
 
-======== 乙方 ========
+======== 乙方（對方）========
 【性別】{{genderB}}
 
 【四柱排盤】
@@ -456,18 +498,12 @@ sections 的 key 必須為：constitution, organ_analysis, health_risks, wellnes
 - 時柱：{{hourPillarB}}
 
 【日主】{{dayMasterB}}（{{dayMasterElementB}}）
-- 旺衰：{{strengthB}} / 格局：{{patternB}}
+- ⚠️ 日主強弱（以此為準）：{{strengthV2B}}
+- 格局：{{patternB}}
 - 喜神：{{favorableGodB}} / 用神：{{usefulGodB}}
 
 【五行比例】
 木：{{woodB}}% / 火：{{fireB}}% / 土：{{earthB}}% / 金：{{metalB}}% / 水：{{waterB}}%
-
-======== 合盤數據 ========
-【整體相容分數】{{overallScore}}/100（{{level}}）
-【日主互動】{{dayMasterInteraction}}
-【天干合】{{stemCombination}}
-【地支關係】{{branchRelationships}}
-【五行互補】{{elementComplementarity}}
 
 ======== 甲方預分析 ========
 {{preAnalysisA}}
@@ -475,9 +511,64 @@ sections 的 key 必須為：constitution, organ_analysis, health_risks, wellnes
 ======== 乙方預分析 ========
 {{preAnalysisB}}
 
+======== 合盤數據（8維度評分系統）========
+【整體分數】{{enhancedScore}}/100
+【評價標籤】{{enhancedLabel}}
+{{enhancedSpecialLabel}}
+
+【各維度得分】
+{{dimensionSummary}}
+
+【特殊發現】
+{{pillarFindings}}
+
+【加減分條件】
+{{knockoutConditions}}
+
+======== 合盤預分析（已預先計算，不可自行推導）========
+
+【十神交叉分析】
+{{crossTenGods}}
+
+【用神互補分析】
+{{yongshenAnalysis}}
+
+【地雷禁忌區】
+{{landmines}}
+
+【時運同步分析】
+{{timingSync}}
+
+{{attractionSection}}
+
+【建議語氣】{{suggestedTone}}
+【重點維度】{{highlightDimensions}}
+
 請依照以下分區輸出分析：
-sections 的 key 必須為：overall_compatibility, strengths, challenges, advice`,
-    sections: ['overall_compatibility', 'strengths', 'challenges', 'advice'],
+sections 的 key 必須為：overall_compatibility, cross_analysis, strengths, challenges, timing, advice
+- overall_compatibility：整體概述，引用分數和標籤，簡述十神交叉角色
+- cross_analysis：詳細的十神交叉分析 + 配偶星分析 + 用神互補說明
+- strengths：具體優勢，引用天干合/地支合/三合等正面發現
+- challenges：地雷禁忌區，每條引用預分析的 landmines，包含觸發場景+避免行為+建議
+- timing：時運同步度，引用黃金年份和挑戰年份，說明大運同步分數
+- advice：具體可行的相處建議，基於以上所有分析
+
+⚠️ timing section 是必填欄位，不可省略：
+- timing.preview：概述時運同步度分數、最近的黃金年和挑戰年（約100字）
+- timing.full：詳細分析每個黃金年和挑戰年的意義，以及大運同步分數代表的含義（約500-700字）
+- 必須引用【時運同步分析】中的所有黃金年份和挑戰年份
+- 不可自行添加任何未在數據中出現的年份
+
+⚠️ advice section 是必填欄位，不可省略：
+- advice.preview：3條最關鍵的相處建議摘要（約100字）
+- advice.full：基於以上所有分析的具體可行建議，包含日常相處、溝通技巧、衝突化解方法（約500-700字）
+
+⚠️⚠️⚠️ summary 是必填欄位，絕對不可以留空（這是最高優先級規則）：
+- summary.preview：用一句話概括這對組合的核心特徵（約50字）。絕對不可以輸出空字串 ""。
+- summary.full：綜合總結所有分析要點，包含優勢、挑戰、建議（約300-400字）。絕對不可以輸出空字串 ""。
+- 如果 summary.preview 或 summary.full 為空字串，整個輸出視為不合格。
+- summary 必須在所有 sections 之後輸出，作為整篇分析的收尾總結。`,
+    sections: ['overall_compatibility', 'cross_analysis', 'strengths', 'challenges', 'timing', 'advice'],
   },
 };
 
@@ -1020,6 +1111,7 @@ export const COMPARISON_TYPE_ZH: Record<string, string> = {
   romance: '感情配對',
   business: '事業合作',
   friendship: '友誼互動',
+  parent_child: '親子關係',
 };
 
 /**

@@ -29,6 +29,12 @@ const READING_TYPE_MAP: Record<string, string> = {
 // Note: compatibility, zwds-compatibility, cross-system, deep-stars
 // use different endpoints — not in this map.
 
+const COMPARISON_TYPE_MAP: Record<string, string> = {
+  romance: 'ROMANCE',
+  business: 'BUSINESS',
+  friendship: 'FRIENDSHIP',
+};
+
 // ============================================================
 // Section Title Map (backend key → zh-TW display title)
 // ============================================================
@@ -56,6 +62,8 @@ const SECTION_TITLE_MAP: Record<string, string> = {
   strengths: '優勢互補',
   challenges: '挑戰與磨合',
   compatibility_advice: '相處建議',
+  cross_analysis: '十神交叉分析',
+  timing: '時運同步度',
   // ZWDS sections
   life_pattern: '人生格局分析',
   major_periods: '大限走勢分析',
@@ -129,6 +137,13 @@ export interface ReadingHistoryItem {
     name: string;
     birthDate: string;
   };
+  // Comparison-specific fields (present when isComparison = true)
+  isComparison?: boolean;
+  comparisonType?: string;
+  profileB?: {
+    name: string;
+    birthDate: string;
+  };
 }
 
 export interface ReadingHistoryResponse {
@@ -139,6 +154,60 @@ export interface ReadingHistoryResponse {
     total: number;
     totalPages: number;
   };
+}
+
+// Compatibility-specific types
+export type ComparisonType = 'ROMANCE' | 'BUSINESS' | 'FRIENDSHIP';
+
+export interface CompatibilityDimensionScore {
+  rawScore: number;
+  amplifiedScore: number;
+  weightedScore: number;
+  weight: number;
+  findings?: Array<Record<string, unknown>>;
+}
+
+export interface KnockoutCondition {
+  type: string;
+  severity: string;
+  description: string;
+  scoreImpact: number;
+  mitigated?: boolean;
+  originalImpact?: number;
+}
+
+export interface CompatibilityCalculationData {
+  overallScore: number;
+  adjustedScore: number;
+  label: string;
+  specialLabel: string | null;
+  labelDescription: string;
+  dimensionScores: Record<string, CompatibilityDimensionScore>;
+  knockoutConditions: KnockoutCondition[];
+  specialFindings: Record<string, unknown>;
+  timingSync: {
+    goldenYears: Array<{ year: number; reason: string }>;
+    challengeYears: Array<{ year: number; reason: string }>;
+    luckCycleSyncScore: number;
+  };
+  comparisonType: string;
+  chartA: Record<string, unknown>;
+  chartB: Record<string, unknown>;
+}
+
+export interface CompatibilityResponse {
+  id: string;
+  comparisonType: string;
+  calculationData: CompatibilityCalculationData;
+  aiInterpretation: {
+    sections: Record<string, { preview: string; full: string }>;
+    summary?: { preview: string; full: string };
+  } | null;
+  creditsUsed: number;
+  lastCalculatedYear?: number;
+  createdAt: string;
+  profileA?: { name: string; birthDate: string };
+  profileB?: { name: string; birthDate: string };
 }
 
 // ============================================================
@@ -248,4 +317,87 @@ export function transformAIResponse(
     : undefined;
 
   return { sections, summary };
+}
+
+// ============================================================
+// Compatibility API Functions
+// ============================================================
+
+/**
+ * Create a Bazi compatibility comparison via NestJS (chart + AI + credits + DB).
+ * Frontend slug → backend enum mapping happens internally.
+ */
+export async function createBaziCompatibility(
+  token: string,
+  params: {
+    profileAId: string;
+    profileBId: string;
+    comparisonType: string; // frontend slug: 'romance' | 'business' | 'friendship'
+    skipAI?: boolean;
+  },
+): Promise<CompatibilityResponse> {
+  return apiFetch<CompatibilityResponse>('/api/bazi/comparisons', {
+    method: 'POST',
+    token,
+    body: JSON.stringify({
+      profileAId: params.profileAId,
+      profileBId: params.profileBId,
+      comparisonType: COMPARISON_TYPE_MAP[params.comparisonType] || params.comparisonType,
+      ...(params.skipAI && { skipAI: true }),
+    }),
+  });
+}
+
+/**
+ * Fetch a saved compatibility comparison by ID.
+ */
+export async function getCompatibility(
+  token: string,
+  id: string,
+): Promise<CompatibilityResponse> {
+  return apiFetch<CompatibilityResponse>(`/api/bazi/comparisons/${id}`, { token });
+}
+
+/**
+ * Fetch compatibility comparison history for the current user.
+ */
+export async function getCompatibilityHistory(
+  token: string,
+  page = 1,
+  limit = 20,
+): Promise<ReadingHistoryResponse> {
+  return apiFetch<ReadingHistoryResponse>(
+    `/api/users/me/comparisons?page=${page}&limit=${limit}`,
+    { token },
+  );
+}
+
+/**
+ * Re-calculate a compatibility comparison with the current year's timing.
+ * Costs 1 credit. Updates the existing record in-place.
+ */
+export async function recalculateCompatibility(
+  token: string,
+  id: string,
+): Promise<CompatibilityResponse> {
+  return apiFetch<CompatibilityResponse>(`/api/bazi/comparisons/${id}/recalculate`, {
+    method: 'POST',
+    token,
+  });
+}
+
+/**
+ * Generate AI interpretation for an existing comparison (created with skipAI=true).
+ * No additional credits charged. Supports AbortSignal for cancellation.
+ */
+export async function generateCompatibilityAI(
+  token: string,
+  id: string,
+  signal?: AbortSignal,
+): Promise<CompatibilityResponse> {
+  return apiFetch<CompatibilityResponse>(`/api/bazi/comparisons/${id}/generate-ai`, {
+    method: 'POST',
+    token,
+    signal,
+  });
 }

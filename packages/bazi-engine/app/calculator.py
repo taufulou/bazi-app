@@ -43,6 +43,8 @@ from .timing_analysis import (
     generate_timing_insights,
 )
 from .compatibility import calculate_compatibility
+from .compatibility_enhanced import calculate_enhanced_compatibility
+from .compatibility_preanalysis import generate_compatibility_pre_analysis
 from .constants import BRANCH_ELEMENT, PATTERN_TYPES, STEM_ELEMENT
 from .interpretation_rules import generate_pre_analysis
 
@@ -262,27 +264,88 @@ def calculate_bazi_compatibility(
     birth_data_a: Dict,
     birth_data_b: Dict,
     comparison_type: str = 'romance',
+    current_year: Optional[int] = None,
 ) -> Dict:
     """
     Calculate compatibility between two people's Bazi charts.
 
+    Uses the enhanced 8-dimension scoring engine with sigmoid amplification,
+    knockout conditions, and full pre-analysis for AI narration.
+
     Args:
         birth_data_a: Birth data for person A (same format as calculate_bazi args)
         birth_data_b: Birth data for person B
-        comparison_type: 'romance', 'business', or 'friendship'
+        comparison_type: 'romance', 'business', 'friendship', or 'parent_child'
+        current_year: Current year for timing analysis (defaults to datetime.now().year)
 
     Returns:
-        Compatibility analysis including both individual charts and comparison
+        Compatibility analysis including:
+        - chartA, chartB: Individual Bazi charts
+        - compatibility: Legacy simple compatibility (for backward compat)
+        - compatibilityEnhanced: 8-dimension enhanced scoring
+        - compatibilityPreAnalysis: Structured pre-analysis for AI narration
     """
+    if current_year is None:
+        current_year = datetime.now().year
+
     # Calculate individual charts
     chart_a = calculate_bazi(**birth_data_a)
     chart_b = calculate_bazi(**birth_data_b)
 
-    # Calculate compatibility
-    compat = calculate_compatibility(chart_a, chart_b, comparison_type)
+    # Extract gender from birth data
+    gender_a = birth_data_a.get('gender', 'male')
+    gender_b = birth_data_b.get('gender', 'male')
+
+    # Legacy compatibility (backward compatibility)
+    compat_legacy = calculate_compatibility(chart_a, chart_b, comparison_type)
+
+    # Extract pre-analysis from charts
+    pre_analysis_a = chart_a.get('preAnalysis', {})
+    pre_analysis_b = chart_b.get('preAnalysis', {})
+
+    # Extract shen sha lists
+    shen_sha_a = chart_a.get('allShenSha', [])
+    shen_sha_b = chart_b.get('allShenSha', [])
+
+    # Extract luck periods
+    luck_periods_a = chart_a.get('luckPeriods', [])
+    luck_periods_b = chart_b.get('luckPeriods', [])
+
+    # Enhanced 8-dimension compatibility
+    compat_enhanced = calculate_enhanced_compatibility(
+        chart_a=chart_a,
+        chart_b=chart_b,
+        pre_analysis_a=pre_analysis_a,
+        pre_analysis_b=pre_analysis_b,
+        gender_a=gender_a,
+        gender_b=gender_b,
+        comparison_type=comparison_type,
+        current_year=current_year,
+        shen_sha_a=shen_sha_a,
+        shen_sha_b=shen_sha_b,
+        luck_periods_a=luck_periods_a,
+        luck_periods_b=luck_periods_b,
+    )
+
+    # Pre-analysis for AI narration (Layer 2)
+    compat_pre_analysis = generate_compatibility_pre_analysis(
+        chart_a=chart_a,
+        chart_b=chart_b,
+        compat_result=compat_enhanced,
+        pre_analysis_a=pre_analysis_a,
+        pre_analysis_b=pre_analysis_b,
+        gender_a=gender_a,
+        gender_b=gender_b,
+        comparison_type=comparison_type,
+        current_year=current_year,
+        shen_sha_a=shen_sha_a,
+        shen_sha_b=shen_sha_b,
+    )
 
     return {
         'chartA': chart_a,
         'chartB': chart_b,
-        'compatibility': compat,
+        'compatibility': compat_legacy,
+        'compatibilityEnhanced': compat_enhanced,
+        'compatibilityPreAnalysis': compat_pre_analysis,
     }
