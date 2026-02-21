@@ -35,7 +35,7 @@ export const metadata: Metadata = {
     images: [{ url: "/logo-1024.png", width: 1024, height: 1024, alt: "天命" }],
   },
   twitter: {
-    card: "summary_large_image",
+    card: "summary",
     title: "天命 | AI 命理平台",
     description: "天命 — AI驅動的命理分析平台，提供八字、紫微斗數、終身運勢、流年運勢、事業財運、愛情姻緣等專業解讀。",
     images: ["/logo-1024.png"],
