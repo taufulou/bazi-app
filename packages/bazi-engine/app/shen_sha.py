@@ -26,7 +26,6 @@ Plus: 空亡 (Kong Wang / Void)
 from typing import Dict, List, Set
 
 from .constants import (
-    BRANCH_ELEMENT,
     BRANCH_INDEX,
     BRANCH_LIUHE,
     DEXIU,
@@ -47,7 +46,6 @@ from .constants import (
     MONTH_TO_SEASON,
     SHIE_DABAI_DAYS,
     STEM_COMBINATIONS,
-    STEM_ELEMENT,
     STEM_INDEX,
     STEM_YINYANG,
     TAIJI,
@@ -322,7 +320,7 @@ def calculate_shen_sha_for_pillar(
             sha_list.append('勾絞煞')
 
     # 童子煞 (Tongzi Sha) — only on day/hour pillars
-    # Two independent rules: season-based + year nayin element-based
+    # Match if either rule triggers: season-based OR year nayin element-based
     if pillar_name in ('day', 'hour') and year_nayin:
         has_tongzi = False
         # Rule 1: Season-based (month branch → season → target branches)

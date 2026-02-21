@@ -70,8 +70,8 @@ python -m pytest tests/ -v
 - ✅ Phases 1-11 complete (Foundation → Bazi Engine → AI → Frontend → Admin → ZWDS → Profiles → Wiring → Monetization → Bazi Interpretation Enhancement)
 - Next: Phase 12 (Bazi accuracy: 三合/三會 scoring, 從格+三合, 生化鏈) — see `docs/phase-12-specs.md`
 
-## Total Tests: ~968
-- Bazi Engine: 451 (450 pass, 1 skip) | NestJS API: 157 | Frontend: 71 | ZWDS: 289
+## Total Tests: ~1276
+- Bazi Engine: 759 (758 pass, 1 skip) | NestJS API: 157 | Frontend: 71 | ZWDS: 289
 
 ## Reading Types
 18 total: 6 Bazi + 10 ZWDS + 2 Special. Credits: 1-3 per reading. See `docs/monetization.md` for pricing.
