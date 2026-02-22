@@ -46,6 +46,16 @@
   border-color: rgba(232, 213, 183, 0.12);
 }
 
+.readingSection[data-theme="family"] {
+  background: linear-gradient(135deg, #2a2a1e 0%, #16213e 100%);
+  border-color: rgba(255, 183, 77, 0.15);
+}
+
+.readingSection[data-theme="timing"] {
+  background: linear-gradient(135deg, #1e2a3e 0%, #16213e 100%);
+  border-color: rgba(100, 181, 246, 0.15);
+}
+
 /* ==== Section Header ==== */
 .sectionHeader {
   display: flex;
@@ -233,6 +243,51 @@
   100% { background-position: 200% 0; }
 }
 
+/* ==== Streaming indicator + section skeletons ==== */
+.streamingIndicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #e8d5b7;
+  font-size: 0.875rem;
+  padding: 0.75rem 0;
+  margin-top: 0.5rem;
+}
+
+.streamingDot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e8d5b7;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.2); }
+}
+
+.skeletonContent {
+  padding: 0.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.skeletonLine {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.03) 25%,
+    rgba(255, 255, 255, 0.06) 37%,
+    rgba(255, 255, 255, 0.03) 63%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+  height: 14px;
+}
+
 /* ==== Disclaimer ==== */
 .disclaimer {
   background: rgba(255, 255, 255, 0.03);
@@ -318,6 +373,291 @@
   font-weight: 600;
 }
 
+/* ==== V2 Deterministic Data Cards ==== */
+.detCard {
+  border: 1px solid rgba(232, 213, 183, 0.1);
+  border-radius: 14px;
+  padding: 1.25rem;
+  margin-bottom: 1.5rem;
+  position: relative;
+}
+
+.detCard[data-theme="finance"] {
+  background: linear-gradient(135deg, #2a2a1e 0%, #16213e 100%);
+  border-color: rgba(255, 152, 0, 0.15);
+}
+
+.detCard[data-theme="career"] {
+  background: linear-gradient(135deg, #1a2a3e 0%, #16213e 100%);
+  border-color: rgba(33, 150, 243, 0.15);
+}
+
+.detCard[data-theme="love"] {
+  background: linear-gradient(135deg, #2a1a2e 0%, #16213e 100%);
+  border-color: rgba(233, 30, 99, 0.15);
+}
+
+.detCard[data-theme="family"] {
+  background: linear-gradient(135deg, #2a2a1e 0%, #16213e 100%);
+  border-color: rgba(255, 183, 77, 0.15);
+}
+
+.detCard[data-theme="timing"] {
+  background: linear-gradient(135deg, #1e2a3e 0%, #16213e 100%);
+  border-color: rgba(100, 181, 246, 0.15);
+}
+
+.detCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.06);
+}
+
+.detCardIcon {
+  font-size: 1.2rem;
+}
+
+.detCardTitle {
+  color: #e8d5b7;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.detCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.detRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.detLabel {
+  color: #a0a0a0;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-transform: none;
+}
+
+.detBlurred {
+  color: #888;
+  font-size: 0.85rem;
+  filter: blur(3px);
+  user-select: none;
+}
+
+.detNote {
+  color: #8a8a8a;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+/* Chip styles */
+.chipGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.chipPositive {
+  display: inline-block;
+  background: rgba(76, 175, 80, 0.12);
+  color: #81c784;
+  border: 1px solid rgba(76, 175, 80, 0.25);
+  border-radius: 20px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.chipNegative {
+  display: inline-block;
+  background: rgba(244, 67, 54, 0.1);
+  color: #ef9a9a;
+  border: 1px solid rgba(244, 67, 54, 0.2);
+  border-radius: 20px;
+  padding: 0.25rem 0.65rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.chipNeutral {
+  display: inline-block;
+  background: rgba(232, 213, 183, 0.06);
+  color: #c0b090;
+  border: 1px solid rgba(232, 213, 183, 0.12);
+  border-radius: 20px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.75rem;
+}
+
+.chipMore {
+  display: inline-block;
+  color: #888;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.4rem;
+}
+
+.yearChip {
+  display: inline-block;
+  background: rgba(233, 30, 99, 0.1);
+  color: #f48fb1;
+  border: 1px solid rgba(233, 30, 99, 0.2);
+  border-radius: 8px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.yearChipWarn {
+  display: inline-block;
+  background: rgba(255, 152, 0, 0.1);
+  color: #ffb74d;
+  border: 1px solid rgba(255, 152, 0, 0.2);
+  border-radius: 8px;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+/* Career direction list */
+.careerDirList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.careerDirItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.careerDirAnchor {
+  color: #e8d5b7;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.careerDirCategory {
+  color: #90a0b0;
+  font-size: 0.78rem;
+}
+
+/* ==== Luck Period Timeline ==== */
+.timelineContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.timelinePeriod {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 10px;
+  transition: background-color 0.15s;
+}
+
+.timelinePeriod:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.timelineCurrent {
+  background: rgba(100, 181, 246, 0.06);
+  border: 1px solid rgba(100, 181, 246, 0.12);
+}
+
+.timelineBest {
+  border: 1px solid rgba(76, 175, 80, 0.2);
+}
+
+.timelineBar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.timelineBarFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s ease-out;
+}
+
+.timelineLabel {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.timelineGanzhi {
+  color: #e8d5b7;
+  font-size: 0.9rem;
+  font-weight: 600;
+  min-width: 2.5rem;
+}
+
+.timelineAge {
+  color: #a0a0a0;
+  font-size: 0.78rem;
+}
+
+.timelineYear {
+  color: #808080;
+  font-size: 0.75rem;
+}
+
+.timelineScore {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.timelineCurrentBadge {
+  background: rgba(100, 181, 246, 0.15);
+  color: #64b5f6;
+  border: 1px solid rgba(100, 181, 246, 0.3);
+  border-radius: 10px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.timelineBestBadge {
+  background: rgba(76, 175, 80, 0.15);
+  color: #81c784;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  border-radius: 10px;
+  padding: 0.1rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.timelineInteractions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.15rem;
+}
+
+.interactionChip {
+  display: inline-block;
+  background: rgba(232, 213, 183, 0.05);
+  color: #9a8a7a;
+  border: 1px solid rgba(232, 213, 183, 0.08);
+  border-radius: 6px;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+}
+
 /* ==== Responsive ==== */
 @media (max-width: 600px) {
   .readingSection {
@@ -331,5 +671,17 @@
 
   .crossSellGrid {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .detCard {
+    padding: 1rem;
+  }
+
+  .timelineLabel {
+    gap: 0.4rem;
+  }
+
+  .careerDirList {
+    gap: 0.5rem;
   }
 }

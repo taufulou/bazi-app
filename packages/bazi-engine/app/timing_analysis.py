@@ -23,6 +23,7 @@ from .branch_relationships import (
     HARMONY_LOOKUP,
     SIX_CLASHES,
     SIX_HARMONIES,
+    THREE_PUNISHMENTS,
     TRIPLE_HARMONIES,
 )
 from .constants import (
@@ -234,7 +235,7 @@ def analyze_branch_natal_interactions(
     """
     Check a period/annual branch against all 4 natal branches for relationships.
 
-    Checks: 六沖, 六合, 三合 (partial), 六害.
+    Checks: 六沖, 六合, 三合 (partial), 六害, 三刑 (partial).
 
     Args:
         period_branch: The LP or annual branch
@@ -291,6 +292,23 @@ def analyze_branch_natal_interactions(
                     f'（{PILLAR_DOMAIN_ZH[pname]}受害）'
                 ),
             })
+
+        # 三刑 (partial — check pair against all punishment patterns)
+        for punishment in THREE_PUNISHMENTS:
+            for partial in punishment.get('partials', []):
+                if pair == partial:
+                    interactions.append({
+                        'type': '三刑',
+                        'pillar': pname,
+                        'branches': [period_branch, natal_branch],
+                        'name': punishment['name'],
+                        'severity': punishment['severity'],
+                        'description': (
+                            f'{period_branch}{natal_branch}刑'
+                            f'（{punishment["name"]}，{PILLAR_DOMAIN_ZH[pname]}受刑）'
+                        ),
+                    })
+                    break
 
     # Check for 三合 (partial or full)
     # Collect all natal branches + period branch, check if any triple is formed

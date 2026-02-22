@@ -3,26 +3,15 @@
 import Link from "next/link";
 import styles from "./AIReadingDisplay.module.css";
 import { ENTERTAINMENT_DISCLAIMER } from "@repo/shared";
+import type {
+  AIReadingData,
+  LifetimeV2DeterministicData,
+  LuckPeriodDetailData,
+} from "../lib/readings-api";
 
 // ============================================================
 // Types
 // ============================================================
-
-interface ReadingSectionData {
-  key: string;
-  title: string;
-  preview: string;
-  full: string;
-}
-
-interface ReadingSummary {
-  text: string;
-}
-
-interface AIReadingData {
-  sections: ReadingSectionData[];
-  summary?: ReadingSummary;
-}
 
 interface AIReadingDisplayProps {
   data: AIReadingData | null;
@@ -48,6 +37,20 @@ const SECTION_THEMES: Record<string, { icon: string; theme: string }> = {
   relationship_advice: { icon: "❤️", theme: "love" },
   finance: { icon: "💰", theme: "finance" },
   health: { icon: "🏥", theme: "health" },
+  // V2 Lifetime sections
+  chart_identity: { icon: "🎴", theme: "personality" },
+  finance_pattern: { icon: "💰", theme: "finance" },
+  career_pattern: { icon: "💼", theme: "career" },
+  boss_strategy: { icon: "🤝", theme: "career" },
+  love_pattern: { icon: "💕", theme: "love" },
+  children_analysis: { icon: "👶", theme: "family" },
+  parents_analysis: { icon: "👨‍👩‍👧", theme: "family" },
+  current_period: { icon: "📊", theme: "timing" },
+  best_period: { icon: "🌟", theme: "timing" },
+  annual_love: { icon: "💕", theme: "love" },
+  annual_career: { icon: "💼", theme: "career" },
+  annual_finance: { icon: "💰", theme: "finance" },
+  annual_health: { icon: "🏥", theme: "health" },
   constitution: { icon: "🫀", theme: "health" },
   wellness_advice: { icon: "🌿", theme: "health" },
   health_timing: { icon: "📅", theme: "health" },
@@ -121,6 +124,20 @@ const SECTION_TITLES_ZH: Record<string, string> = {
   relationship_advice: "感情建議",
   finance: "一生財運分析",
   health: "先天健康分析",
+  // V2 Lifetime sections
+  chart_identity: "先天命格解讀",
+  finance_pattern: "財運格局解讀",
+  career_pattern: "事業格局解讀",
+  boss_strategy: "應對上司之道",
+  love_pattern: "感情格局解讀",
+  children_analysis: "子女分析",
+  parents_analysis: "父母情況分析",
+  current_period: "當前大運詳解",
+  best_period: "有利大運把握",
+  annual_love: "本年感情運勢",
+  annual_career: "本年事業運勢",
+  annual_finance: "本年財運運勢",
+  annual_health: "本年健康運勢",
   constitution: "先天體質分析",
   wellness_advice: "養生保健建議",
   health_timing: "健康注意時期",
@@ -209,6 +226,27 @@ const ZWDS_CROSS_SELL = [
 // Component
 // ============================================================
 
+// ============================================================
+// V2 section groups (for inserting deterministic cards between sections)
+// ============================================================
+
+/** After which AI section key should we insert the corresponding deterministic card */
+const V2_DETERMINISTIC_INSERTIONS: Record<string, string> = {
+  finance_pattern: 'investments',    // After 財運格局 → show investment lists
+  career_pattern: 'career_data',     // After 事業格局 → show career directions + benefactors
+  love_pattern: 'love_data',         // After 感情格局 → show romance years + partner zodiacs
+  parents_analysis: 'family_data',   // After 父母分析 → show parent health years
+  best_period: 'luck_timeline',      // After 有利大運 → show luck period timeline
+};
+
+/** V2 section keys in expected order (for skeleton placeholders during streaming) */
+const V2_ALL_SECTION_KEYS = [
+  'chart_identity', 'finance_pattern', 'career_pattern', 'boss_strategy',
+  'love_pattern', 'health', 'children_analysis', 'parents_analysis',
+  'current_period', 'best_period',
+  'annual_love', 'annual_career', 'annual_finance', 'annual_health',
+];
+
 export default function AIReadingDisplay({
   data,
   readingType,
@@ -216,11 +254,14 @@ export default function AIReadingDisplay({
   isLoading = false,
   isStreaming = false,
 }: AIReadingDisplayProps) {
-  if (isLoading) {
+  // During streaming with V2 data: show arrived sections + skeletons for remaining
+  const isStreamingWithData = isStreaming && data?.isV2 && data.deterministic != null;
+
+  if (isLoading && !isStreamingWithData) {
     return <LoadingSkeleton />;
   }
 
-  if (!data || !data.sections || data.sections.length === 0) {
+  if (!data || (!data.sections?.length && !isStreamingWithData)) {
     return (
       <div className={styles.readingContainer}>
         <div className={styles.summaryCard}>
@@ -230,6 +271,8 @@ export default function AIReadingDisplay({
     );
   }
 
+  const isV2 = data.isV2 === true && data.deterministic != null;
+  const det = data.deterministic;
   const isZwds = readingType.startsWith("zwds-");
   const crossSellItems = isZwds ? ZWDS_CROSS_SELL : BAZI_CROSS_SELL;
   const crossSellFiltered = crossSellItems.filter(
@@ -255,57 +298,97 @@ export default function AIReadingDisplay({
         const titleZh =
           SECTION_TITLES_ZH[section.key] || section.title || section.key;
 
+        // Determine which deterministic card to insert after this section
+        const deterministicKey = isV2 ? V2_DETERMINISTIC_INSERTIONS[section.key] : undefined;
+
         return (
-          <div
-            key={section.key || index}
-            className={styles.readingSection}
-            data-theme={themeInfo.theme}
-          >
-            <div className={styles.sectionHeader}>
-              <span className={styles.sectionIcon}>{themeInfo.icon}</span>
-              <h3 className={styles.sectionTitle}>{titleZh}</h3>
+          <div key={section.key || index}>
+            <div
+              className={styles.readingSection}
+              data-theme={themeInfo.theme}
+            >
+              <div className={styles.sectionHeader}>
+                <span className={styles.sectionIcon}>{themeInfo.icon}</span>
+                <h3 className={styles.sectionTitle}>{titleZh}</h3>
+              </div>
+
+              {isSubscriber ? (
+                <div className={styles.sectionContent}>
+                  {section.full}
+                  {isStreaming && index === data.sections.length - 1 && (
+                    <span className={styles.streamingCursor} />
+                  )}
+                </div>
+              ) : (
+                <div className={styles.paywallWrapper}>
+                  <div className={styles.previewContent}>{section.preview}</div>
+                  {section.full && section.full !== section.preview && (
+                    <>
+                      <div className={styles.paywallBlur}>
+                        {section.full.slice(
+                          section.preview.length,
+                          section.preview.length + 300,
+                        )}
+                      </div>
+                      <div className={styles.paywallOverlay}>
+                        <div className={styles.paywallIcon}>🔒</div>
+                        <div className={styles.paywallMessage}>
+                          訂閱解鎖完整內容
+                        </div>
+                        <div className={styles.paywallSubtext}>
+                          升級會員查看詳細分析與建議
+                        </div>
+                        <button className={styles.paywallBtn}>立即訂閱</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
 
-            {isSubscriber ? (
-              /* Subscriber: show full content */
-              <div className={styles.sectionContent}>
-                {section.full}
-                {isStreaming && index === data.sections.length - 1 && (
-                  <span className={styles.streamingCursor} />
-                )}
-              </div>
-            ) : (
-              /* Free user: show preview + paywall */
-              <div className={styles.paywallWrapper}>
-                {/* Preview text (visible) */}
-                <div className={styles.previewContent}>{section.preview}</div>
-
-                {/* Blurred full text behind paywall */}
-                {section.full && section.full !== section.preview && (
-                  <>
-                    <div className={styles.paywallBlur}>
-                      {section.full.slice(
-                        section.preview.length,
-                        section.preview.length + 300,
-                      )}
-                    </div>
-                    <div className={styles.paywallOverlay}>
-                      <div className={styles.paywallIcon}>🔒</div>
-                      <div className={styles.paywallMessage}>
-                        訂閱解鎖完整內容
-                      </div>
-                      <div className={styles.paywallSubtext}>
-                        升級會員查看詳細分析與建議
-                      </div>
-                      <button className={styles.paywallBtn}>立即訂閱</button>
-                    </div>
-                  </>
-                )}
-              </div>
+            {/* Insert deterministic data card after specific sections */}
+            {deterministicKey && det && (
+              <DeterministicCard
+                cardType={deterministicKey}
+                data={det}
+                isSubscriber={isSubscriber}
+              />
             )}
           </div>
         );
       })}
+
+      {/* Streaming: skeleton placeholders for sections not yet arrived */}
+      {isStreamingWithData && (() => {
+        const arrivedKeys = new Set(data.sections.map(s => s.key));
+        const remainingKeys = V2_ALL_SECTION_KEYS.filter(k => !arrivedKeys.has(k));
+        return remainingKeys.length > 0 ? (
+          <>
+            <div className={styles.streamingIndicator}>
+              <span className={styles.streamingDot} />
+              AI 生成中...
+            </div>
+            {remainingKeys.map(key => {
+              const themeInfo = SECTION_THEMES[key] || { icon: '📜', theme: 'default' };
+              const titleZh = SECTION_TITLES_ZH[key] || key;
+              return (
+                <div key={`skeleton-${key}`} className={styles.readingSection} data-theme={themeInfo.theme}>
+                  <div className={styles.sectionHeader}>
+                    <span className={styles.sectionIcon}>{themeInfo.icon}</span>
+                    <h3 className={styles.sectionTitle}>{titleZh}</h3>
+                  </div>
+                  <div className={styles.skeletonContent}>
+                    <div className={styles.skeletonLine} style={{ width: '90%' }} />
+                    <div className={styles.skeletonLine} style={{ width: '75%' }} />
+                    <div className={styles.skeletonLine} style={{ width: '85%' }} />
+                    <div className={styles.skeletonLine} style={{ width: '60%' }} />
+                  </div>
+                </div>
+              );
+            })}
+          </>
+        ) : null;
+      })()}
 
       {/* Entertainment Disclaimer */}
       <div className={styles.disclaimer}>
@@ -338,6 +421,336 @@ export default function AIReadingDisplay({
       )}
     </div>
   );
+}
+
+// ============================================================
+// V2 Deterministic Data Cards
+// ============================================================
+
+function DeterministicCard({
+  cardType,
+  data,
+  isSubscriber,
+}: {
+  cardType: string;
+  data: LifetimeV2DeterministicData;
+  isSubscriber: boolean;
+}) {
+  switch (cardType) {
+    case "investments":
+      return (
+        <div className={styles.detCard} data-theme="finance">
+          <div className={styles.detCardHeader}>
+            <span className={styles.detCardIcon}>📈</span>
+            <h4 className={styles.detCardTitle}>投資理財方向</h4>
+          </div>
+          <div className={styles.detCardBody}>
+            <div className={styles.detRow}>
+              <span className={styles.detLabel}>有利投資</span>
+              {isSubscriber ? (
+                <div className={styles.chipGroup}>
+                  {data.favorableInvestments.map((item) => (
+                    <span key={item} className={styles.chipPositive}>{item}</span>
+                  ))}
+                </div>
+              ) : (
+                <span className={styles.detBlurred}>
+                  {data.favorableInvestments.length} 項有利投資方向
+                </span>
+              )}
+            </div>
+            <div className={styles.detRow}>
+              <span className={styles.detLabel}>不利投資</span>
+              {isSubscriber ? (
+                <div className={styles.chipGroup}>
+                  {data.unfavorableInvestments.map((item) => (
+                    <span key={item} className={styles.chipNegative}>{item}</span>
+                  ))}
+                </div>
+              ) : (
+                <span className={styles.detBlurred}>
+                  {data.unfavorableInvestments.length} 項需注意投資
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+
+    case "career_data":
+      return (
+        <div className={styles.detCard} data-theme="career">
+          <div className={styles.detCardHeader}>
+            <span className={styles.detCardIcon}>🧭</span>
+            <h4 className={styles.detCardTitle}>事業發展數據</h4>
+          </div>
+          <div className={styles.detCardBody}>
+            {/* Career directions */}
+            {data.careerDirections.length > 0 && (
+              <div className={styles.detRow}>
+                <span className={styles.detLabel}>職業方向</span>
+                {isSubscriber ? (
+                  <div className={styles.careerDirList}>
+                    {data.careerDirections.map((dir) => (
+                      <div key={dir.category} className={styles.careerDirItem}>
+                        <span className={styles.careerDirAnchor}>{dir.anchor}</span>
+                        <span className={styles.careerDirCategory}>{dir.category}</span>
+                        <div className={styles.chipGroup}>
+                          {dir.industries.slice(0, 5).map((ind) => (
+                            <span key={ind} className={styles.chipNeutral}>{ind}</span>
+                          ))}
+                          {dir.industries.length > 5 && (
+                            <span className={styles.chipMore}>+{dir.industries.length - 5}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <span className={styles.detBlurred}>
+                    {data.careerDirections.length} 大職業方向
+                  </span>
+                )}
+              </div>
+            )}
+            {/* Favorable direction */}
+            <div className={styles.detRow}>
+              <span className={styles.detLabel}>有利方位</span>
+              {isSubscriber ? (
+                <span className={styles.chipPositive}>{data.favorableDirection}</span>
+              ) : (
+                <span className={styles.detBlurred}>方位資訊</span>
+              )}
+            </div>
+            {/* Benefactors */}
+            <div className={styles.detRow}>
+              <span className={styles.detLabel}>事業貴人五行</span>
+              {isSubscriber ? (
+                <div className={styles.chipGroup}>
+                  {data.careerBenefactorsElement.map((el) => (
+                    <span key={el} className={styles.chipPositive}>{el}</span>
+                  ))}
+                </div>
+              ) : (
+                <span className={styles.detBlurred}>貴人五行</span>
+              )}
+            </div>
+            <div className={styles.detRow}>
+              <span className={styles.detLabel}>事業貴人生肖</span>
+              {isSubscriber ? (
+                <div className={styles.chipGroup}>
+                  {data.careerBenefactorsZodiac.map((z) => (
+                    <span key={z} className={styles.chipPositive}>{z}</span>
+                  ))}
+                </div>
+              ) : (
+                <span className={styles.detBlurred}>貴人生肖</span>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+
+    case "love_data":
+      return (
+        <div className={styles.detCard} data-theme="love">
+          <div className={styles.detCardHeader}>
+            <span className={styles.detCardIcon}>💞</span>
+            <h4 className={styles.detCardTitle}>感情數據分析</h4>
+          </div>
+          <div className={styles.detCardBody}>
+            <div className={styles.detRow}>
+              <span className={styles.detLabel}>正緣桃花年份</span>
+              {isSubscriber ? (
+                <div className={styles.chipGroup}>
+                  {data.romanceYears.map((y) => (
+                    <span key={y} className={styles.yearChip}>{y}</span>
+                  ))}
+                </div>
+              ) : (
+                <span className={styles.detBlurred}>
+                  未來有 {data.romanceYears.length} 個桃花年份
+                </span>
+              )}
+            </div>
+            <div className={styles.detRow}>
+              <span className={styles.detLabel}>擇偶建議五行</span>
+              {isSubscriber ? (
+                <div className={styles.chipGroup}>
+                  {data.partnerElement.map((el) => (
+                    <span key={el} className={styles.chipPositive}>{el}</span>
+                  ))}
+                </div>
+              ) : (
+                <span className={styles.detBlurred}>五行建議</span>
+              )}
+            </div>
+            <div className={styles.detRow}>
+              <span className={styles.detLabel}>擇偶建議生肖</span>
+              {isSubscriber ? (
+                <div className={styles.chipGroup}>
+                  {data.partnerZodiac.map((z) => (
+                    <span key={z} className={styles.chipPositive}>{z}</span>
+                  ))}
+                </div>
+              ) : (
+                <span className={styles.detBlurred}>生肖建議</span>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+
+    case "family_data":
+      return (
+        <div className={styles.detCard} data-theme="family">
+          <div className={styles.detCardHeader}>
+            <span className={styles.detCardIcon}>🏠</span>
+            <h4 className={styles.detCardTitle}>父母健康提點</h4>
+          </div>
+          <div className={styles.detCardBody}>
+            <div className={styles.detRow}>
+              <span className={styles.detLabel}>父親健康注意年份</span>
+              {isSubscriber ? (
+                <div className={styles.chipGroup}>
+                  {data.parentHealthYears.father.length > 0 ? (
+                    data.parentHealthYears.father.map((y) => (
+                      <span key={y} className={styles.yearChipWarn}>{y}</span>
+                    ))
+                  ) : (
+                    <span className={styles.detNote}>近15年無特別注意年份</span>
+                  )}
+                </div>
+              ) : (
+                <span className={styles.detBlurred}>
+                  {data.parentHealthYears.father.length} 個注意年份
+                </span>
+              )}
+            </div>
+            <div className={styles.detRow}>
+              <span className={styles.detLabel}>母親健康注意年份</span>
+              {isSubscriber ? (
+                <div className={styles.chipGroup}>
+                  {data.parentHealthYears.mother.length > 0 ? (
+                    data.parentHealthYears.mother.map((y) => (
+                      <span key={y} className={styles.yearChipWarn}>{y}</span>
+                    ))
+                  ) : (
+                    <span className={styles.detNote}>近15年無特別注意年份</span>
+                  )}
+                </div>
+              ) : (
+                <span className={styles.detBlurred}>
+                  {data.parentHealthYears.mother.length} 個注意年份
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+
+    case "luck_timeline":
+      return (
+        <LuckPeriodTimeline
+          periods={data.luckPeriodsEnriched}
+          bestPeriod={data.bestPeriod}
+          isSubscriber={isSubscriber}
+        />
+      );
+
+    default:
+      return null;
+  }
+}
+
+// ============================================================
+// Luck Period Timeline
+// ============================================================
+
+function LuckPeriodTimeline({
+  periods,
+  bestPeriod,
+  isSubscriber,
+}: {
+  periods: LuckPeriodDetailData[];
+  bestPeriod: LuckPeriodDetailData | null;
+  isSubscriber: boolean;
+}) {
+  if (!periods || periods.length === 0) return null;
+
+  return (
+    <div className={styles.detCard} data-theme="timing">
+      <div className={styles.detCardHeader}>
+        <span className={styles.detCardIcon}>📈</span>
+        <h4 className={styles.detCardTitle}>大運評分時間軸</h4>
+      </div>
+      <div className={styles.timelineContainer}>
+        {periods.map((period) => {
+          const isBest = bestPeriod &&
+            period.startYear === bestPeriod.startYear &&
+            period.endYear === bestPeriod.endYear;
+          const scoreColor = getScoreColor(period.score);
+
+          return (
+            <div
+              key={`${period.startYear}-${period.endYear}`}
+              className={`${styles.timelinePeriod} ${period.isCurrent ? styles.timelineCurrent : ""} ${isBest ? styles.timelineBest : ""}`}
+            >
+              <div className={styles.timelineBar}>
+                <div
+                  className={styles.timelineBarFill}
+                  style={{
+                    width: isSubscriber ? `${period.score}%` : "50%",
+                    backgroundColor: isSubscriber ? scoreColor : "#555",
+                  }}
+                />
+              </div>
+              <div className={styles.timelineLabel}>
+                <span className={styles.timelineGanzhi}>
+                  {period.stem}{period.branch}
+                </span>
+                <span className={styles.timelineAge}>
+                  {period.startAge}-{period.endAge}歲
+                </span>
+                <span className={styles.timelineYear}>
+                  {period.startYear}-{period.endYear}
+                </span>
+                {isSubscriber && (
+                  <span
+                    className={styles.timelineScore}
+                    style={{ color: scoreColor }}
+                  >
+                    {period.score}分
+                  </span>
+                )}
+                {period.isCurrent && (
+                  <span className={styles.timelineCurrentBadge}>當前</span>
+                )}
+                {isBest && isSubscriber && (
+                  <span className={styles.timelineBestBadge}>最佳</span>
+                )}
+              </div>
+              {isSubscriber && period.interactions.length > 0 && (
+                <div className={styles.timelineInteractions}>
+                  {period.interactions.map((interaction, i) => (
+                    <span key={i} className={styles.interactionChip}>{interaction}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function getScoreColor(score: number): string {
+  if (score >= 75) return "#4caf50";
+  if (score >= 60) return "#8bc34a";
+  if (score >= 45) return "#ff9800";
+  if (score >= 30) return "#ff5722";
+  return "#f44336";
 }
 
 // ============================================================

@@ -39,8 +39,8 @@ const COMPARISON_TYPE_MAP: Record<string, string> = {
 // Section Title Map (backend key → zh-TW display title)
 // ============================================================
 
-const SECTION_TITLE_MAP: Record<string, string> = {
-  // Bazi sections
+export const SECTION_TITLE_MAP: Record<string, string> = {
+  // Bazi sections (V1)
   personality: '命格性格分析',
   career: '事業發展分析',
   career_analysis: '事業深度分析',
@@ -64,6 +64,20 @@ const SECTION_TITLE_MAP: Record<string, string> = {
   compatibility_advice: '相處建議',
   cross_analysis: '十神交叉分析',
   timing: '時運同步度',
+  // Bazi Lifetime V2 sections
+  chart_identity: '先天命格解讀',
+  finance_pattern: '財運格局解讀',
+  career_pattern: '事業格局解讀',
+  boss_strategy: '應對上司之道',
+  love_pattern: '感情格局解讀',
+  children_analysis: '子女分析',
+  parents_analysis: '父母情況分析',
+  current_period: '當前大運詳解',
+  best_period: '有利大運把握',
+  annual_love: '本年感情運勢',
+  annual_career: '本年事業運勢',
+  annual_finance: '本年財運運勢',
+  annual_health: '本年健康運勢',
   // ZWDS sections
   life_pattern: '人生格局分析',
   major_periods: '大限走勢分析',
@@ -103,17 +117,62 @@ const SECTION_TITLE_MAP: Record<string, string> = {
 // Types
 // ============================================================
 
+/** Career direction entry from deterministic data */
+export interface CareerDirectionData {
+  anchor: string;
+  category: string;
+  industries: string[];
+}
+
+/** Enriched luck period from deterministic data */
+export interface LuckPeriodDetailData {
+  stem: string;
+  branch: string;
+  startAge: number;
+  endAge: number;
+  startYear: number;
+  endYear: number;
+  score: number;
+  stemPhase: string;
+  branchPhase: string;
+  interactions: string[];
+  isCurrent: boolean;
+}
+
+/** V2 deterministic data (not AI-generated) */
+export interface LifetimeV2DeterministicData {
+  favorableInvestments: string[];
+  unfavorableInvestments: string[];
+  careerDirections: CareerDirectionData[];
+  favorableDirection: string;
+  careerBenefactorsElement: string[];
+  careerBenefactorsZodiac: string[];
+  partnerElement: string[];
+  partnerZodiac: string[];
+  romanceYears: number[];
+  parentHealthYears: { father: number[]; mother: number[] };
+  luckPeriodsEnriched: LuckPeriodDetailData[];
+  bestPeriod: LuckPeriodDetailData | null;
+  annualTenGod: string;
+}
+
 export interface NestJSReadingResponse {
   id: string;
   readingType: string;
   calculationData: Record<string, unknown>;
   aiInterpretation: {
+    schemaVersion?: 'v2';
     sections: Record<string, { preview: string; full: string }>;
     summary?: { preview: string; full: string };
+    deterministic?: LifetimeV2DeterministicData;
   } | null;
   creditsUsed: number;
   createdAt: string;
   fromCache?: boolean;
+  /** Present when stream=true was requested and AI will be streamed via SSE */
+  streamReady?: boolean;
+  /** Deterministic data returned immediately for streaming requests */
+  deterministic?: LifetimeV2DeterministicData;
 }
 
 interface ReadingSectionData {
@@ -126,6 +185,8 @@ interface ReadingSectionData {
 export interface AIReadingData {
   sections: ReadingSectionData[];
   summary?: { text: string };
+  isV2?: boolean;
+  deterministic?: LifetimeV2DeterministicData;
 }
 
 export interface ReadingHistoryItem {
@@ -224,6 +285,7 @@ export async function createBaziReading(
     birthProfileId: string;
     readingType: string; // frontend slug e.g. "lifetime"
     targetYear?: number;
+    stream?: boolean;
   },
 ): Promise<NestJSReadingResponse> {
   return apiFetch<NestJSReadingResponse>('/api/bazi/readings', {
@@ -233,6 +295,7 @@ export async function createBaziReading(
       birthProfileId: params.birthProfileId,
       readingType: READING_TYPE_MAP[params.readingType], // slug → enum
       targetYear: params.targetYear,
+      ...(params.stream && { stream: true }),
     }),
   });
 }
@@ -296,27 +359,184 @@ export async function getReadingHistory(
 // ============================================================
 
 /**
+ * V2 section display order (controls rendering sequence).
+ * Sections not in this list are appended at the end.
+ */
+const V2_SECTION_ORDER = [
+  'chart_identity',
+  'finance_pattern',
+  'career_pattern',
+  'boss_strategy',
+  'love_pattern',
+  'health',
+  'children_analysis',
+  'parents_analysis',
+  'current_period',
+  'best_period',
+  'annual_love',
+  'annual_career',
+  'annual_finance',
+  'annual_health',
+];
+
+/**
  * Transform backend AI response (object keyed) → frontend array format.
  * Backend returns: { sections: { personality: { preview, full }, ... }, summary? }
  * Frontend expects: { sections: [{ key, title, preview, full }], summary? }
+ *
+ * V2 lifetime readings also carry deterministic data and schemaVersion.
  */
 export function transformAIResponse(
   ai: NestJSReadingResponse['aiInterpretation'],
 ): AIReadingData | null {
   if (!ai || !ai.sections) return null;
 
-  const sections = Object.entries(ai.sections).map(([key, { preview, full }]) => ({
-    key,
-    title: SECTION_TITLE_MAP[key] || key,
-    preview,
-    full,
-  }));
+  const isV2 = ai.schemaVersion === 'v2';
+
+  // Build sections array — V2 uses explicit order, V1 preserves insertion order
+  let sections: ReadingSectionData[];
+  if (isV2) {
+    const sectionEntries = Object.entries(ai.sections);
+    const ordered: ReadingSectionData[] = [];
+    const seen = new Set<string>();
+
+    for (const key of V2_SECTION_ORDER) {
+      const entry = sectionEntries.find(([k]) => k === key);
+      if (entry) {
+        ordered.push({
+          key: entry[0],
+          title: SECTION_TITLE_MAP[entry[0]] || entry[0],
+          preview: entry[1].preview,
+          full: entry[1].full,
+        });
+        seen.add(entry[0]);
+      }
+    }
+
+    // Append any sections not in the explicit order
+    for (const [key, { preview, full }] of sectionEntries) {
+      if (!seen.has(key)) {
+        ordered.push({ key, title: SECTION_TITLE_MAP[key] || key, preview, full });
+      }
+    }
+
+    sections = ordered;
+  } else {
+    sections = Object.entries(ai.sections).map(([key, { preview, full }]) => ({
+      key,
+      title: SECTION_TITLE_MAP[key] || key,
+      preview,
+      full,
+    }));
+  }
 
   const summary = ai.summary
     ? { text: ai.summary.full || ai.summary.preview }
     : undefined;
 
-  return { sections, summary };
+  return {
+    sections,
+    summary,
+    isV2,
+    deterministic: isV2 ? ai.deterministic : undefined,
+  };
+}
+
+// ============================================================
+// SSE Streaming Client
+// ============================================================
+
+/**
+ * Stream AI interpretation for a LIFETIME reading via SSE.
+ * Uses fetch() + ReadableStream (NOT EventSource) for proper auth headers.
+ * Returns a cleanup handle to abort the stream.
+ */
+export function streamBaziReading(
+  token: string,
+  readingId: string,
+  callbacks: {
+    onSectionComplete: (key: string, section: { preview: string; full: string }) => void;
+    onCallComplete: (callNumber: number) => void;
+    onSummary: (summary: { preview: string; full: string }) => void;
+    onDone: (info: { totalSections: number; latencyMs: number }) => void;
+    onError: (error: { message: string; partial?: boolean }) => void;
+  },
+): { close: () => void } {
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const url = `${API_BASE}/api/bazi/readings/${readingId}/stream`;
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'text/event-stream',
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        callbacks.onError({ message: (err as Record<string, string>).message || `HTTP ${response.status}` });
+        return;
+      }
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE events from buffer (events separated by double newline)
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || ''; // Keep incomplete event in buffer
+
+        for (const eventStr of events) {
+          if (!eventStr.trim() || eventStr.startsWith(':')) continue; // Skip heartbeats/comments
+          const typeMatch = eventStr.match(/^event:\s*(.+)$/m);
+          const dataMatch = eventStr.match(/^data:\s*(.+)$/m);
+          if (!dataMatch) continue;
+
+          const type = typeMatch?.[1]?.trim() || 'message';
+          if (type === 'heartbeat') continue;
+
+          try {
+            const data = JSON.parse(dataMatch[1]?.trim() || '{}');
+            switch (type) {
+              case 'section_complete':
+                callbacks.onSectionComplete(data.key, data);
+                break;
+              case 'call_complete':
+                callbacks.onCallComplete(data.call);
+                break;
+              case 'summary':
+                callbacks.onSummary(data);
+                break;
+              case 'done':
+                callbacks.onDone(data);
+                break;
+              case 'error':
+                callbacks.onError(data);
+                break;
+            }
+          } catch {
+            // Malformed JSON in event data, skip
+          }
+        }
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        callbacks.onError({ message: (err as Error).message || 'Stream failed' });
+      }
+    }
+  })();
+
+  return { close: () => controller.abort() };
 }
 
 // ============================================================

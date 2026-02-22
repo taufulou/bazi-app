@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
@@ -24,7 +24,9 @@ import {
   createBaziReading,
   createZwdsReading,
   getReading,
+  streamBaziReading,
   transformAIResponse,
+  SECTION_TITLE_MAP,
   type NestJSReadingResponse,
   type AIReadingData,
 } from "../../lib/readings-api";
@@ -166,6 +168,12 @@ export default function ReadingPage() {
 
   // Cache hit notification
   const [cacheToast, setCacheToast] = useState(false);
+
+  // SSE stream cleanup ref (for LIFETIME streaming)
+  const streamCleanupRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    return () => { streamCleanupRef.current?.(); };
+  }, []);
 
   // Refresh user profile (credits, tier, free reading status)
   const refreshUserProfile = useCallback(async () => {
@@ -340,11 +348,68 @@ export default function ReadingPage() {
           birthProfileId,
           readingType: readingType,
           targetYear: readingType === "annual" ? new Date().getFullYear() : undefined,
+          stream: readingType === "lifetime", // opt-in SSE streaming for LIFETIME
         });
         setChartData(response.calculationData);
       }
 
-      // Transform AI response (object→array) for AIReadingDisplay
+      setCurrentReadingId(response.id);
+
+      // Handle streaming path for LIFETIME readings
+      if (response.streamReady && response.deterministic) {
+        // Show deterministic data immediately + empty sections (filled by stream)
+        setAiData({
+          sections: [],
+          isV2: true,
+          deterministic: response.deterministic,
+        });
+        setTab("reading"); // Auto-switch so user sees deterministic data
+
+        // Start SSE stream
+        const stream = streamBaziReading(token, response.id, {
+          onSectionComplete: (key, section) => {
+            setAiData((prev) => ({
+              ...prev!,
+              sections: [
+                ...(prev?.sections || []),
+                {
+                  key,
+                  title: SECTION_TITLE_MAP[key] || key,
+                  preview: section.preview,
+                  full: section.full,
+                },
+              ],
+            }));
+          },
+          onSummary: (summary) => {
+            setAiData((prev) => ({
+              ...prev!,
+              summary: { text: summary.full || summary.preview },
+            }));
+          },
+          onDone: () => {
+            setIsAiLoading(false);
+          },
+          onError: (err) => {
+            if (!err.partial) setError(err.message);
+            setIsAiLoading(false);
+          },
+          onCallComplete: () => {},
+        });
+
+        streamCleanupRef.current = () => stream.close();
+
+        // Update credits
+        if (typeof response.creditsUsed === "number" && response.creditsUsed > 0) {
+          setUserCredits((prev) => (prev !== null ? prev - response.creditsUsed : prev));
+        }
+        if (response.creditsUsed === 0 && hasFreeReading && !response.fromCache) {
+          setHasFreeReading(false);
+        }
+        return; // Don't fall through to non-streaming path
+      }
+
+      // Non-streaming path: transform AI response (object→array) for AIReadingDisplay
       const aiReading = transformAIResponse(response.aiInterpretation);
       if (aiReading) {
         setAiData(aiReading);
@@ -358,8 +423,6 @@ export default function ReadingPage() {
           setAiData(null);
         }
       }
-
-      setCurrentReadingId(response.id);
 
       // Show cache hit notification (no credits deducted)
       if (response.fromCache) {
@@ -801,7 +864,7 @@ export default function ReadingPage() {
                     </Link>
                   </div>
                 )}
-                <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} />
+                <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} />
               </>
             )}
           </>

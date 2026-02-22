@@ -102,8 +102,8 @@ export const READING_PROMPTS: Record<string, {
   userTemplate: string;
   sections: string[];
 }> = {
-  // ============ 八字終身運 (Lifetime) ============
-  LIFETIME: {
+  // ============ 八字終身運 V1 (Lifetime — fallback) ============
+  LIFETIME_V1: {
     systemAddition: `你現在要進行的是「八字終身運」全面分析。這是最完整的八字解讀，涵蓋命主的性格特質、一生大運走向、事業方向、財運格局、感情婚姻和健康提醒。
 
 分析重點：
@@ -571,6 +571,10 @@ sections 的 key 必須為：overall_compatibility, cross_analysis, strengths, c
     sections: ['overall_compatibility', 'cross_analysis', 'strengths', 'challenges', 'timing', 'advice'],
   },
 };
+
+// Alias: LIFETIME → LIFETIME_V1 for backward compatibility
+// When V2 multi-call fails, the system falls back to V1 via READING_PROMPTS['LIFETIME']
+READING_PROMPTS.LIFETIME = READING_PROMPTS.LIFETIME_V1;
 
 // ============================================================
 // ZWDS (紫微斗數) AI Prompt Templates
@@ -1139,4 +1143,257 @@ export const STRENGTH_V2_ZH: Record<string, string> = {
   neutral: '中和',
   strong: '偏強',
   very_strong: '極旺',
+};
+
+// ============================================================
+// LIFETIME V2 — Multi-Call Prompt Templates
+// ============================================================
+
+/**
+ * V2 system prompt addition shared by both calls.
+ * Carries forward ALL existing anti-hallucination rules + new V2 rules.
+ */
+const LIFETIME_V2_SYSTEM_ADDITION = `你現在要進行的是「八字終身運」V2 全面分析。這是最完整的八字解讀，涵蓋命主的先天命格、事業、財運、感情、健康、家庭、大運和流年。
+
+⚠️ V2 版本新增規則（在原有所有規則之上）：
+
+格局錨定規則：
+- chart_identity 必須基於提供的【格局解讀】數據（patternNarrative）建構敘述鏈，不可自行推導格局邏輯。
+- patternNarrative 包含格局名稱、推導邏輯、日主與格局關係、主導十神。你必須逐項引用這些內容。
+
+大運評分規則：
+- 任何大運評分必須與提供的評分數據完全一致，不可自行給分。
+- 大運前5年天干主導、後5年地支主導，但地支本氣全程活躍。分段描述時注意這一區別。
+
+流年互動規則：
+- 所有沖/合/刑/害的發現必須來自提供的互動數據，不可自行推算。
+- 在提及具體年份時，只能引用提供數據中出現的年份，不可推算或猜測其他年份。
+
+家庭分析規則：
+- 年干代表父親之星、年支本氣代表母親之星。必須使用提供的 parentsInsights 數據。
+- 子女分析必須使用提供的 childrenInsights 數據，區分顯現食傷（manifest）與潛藏食傷（latent），不可混淆。
+
+從格特殊規則：
+- 若偵測到從格（congGe 不為 null），子女分析和父母分析必須反映從格子類型的特殊解讀。
+
+確定性數據分離：
+- AI 不生成投資類型、職業方向、生肖匹配、桃花年份或父母健康年份——這些由系統另行注入。
+- 上司分析必須使用提供的 bossCompatibility 數據，不可自行發明性格原型。
+
+分析風格 — 正負面平衡：
+- 每個 section 必須包含「正面優勢」和「負面警示」兩個方面，不可只報喜不報憂。
+- 正面分析和負面警示比例約 6:4，確保讀者同時知道自己的優勢和雷區。
+- personality（chart_identity）要指出最明顯的性格缺陷和盲點。
+- career（career_pattern）要明確列出「最不適合從事」的行業方向（基於忌神五行）。
+- love（love_pattern）要直言感情中最可能出現的問題模式。
+- finance（finance_pattern）要指出最容易破財的方式。
+- health 要直白指出最脆弱的器官系統和最需要定期檢查的項目。
+- 忌神和仇神代表的五行是命主的「命理地雷」，必須在每個相關 section 中指出這些五行帶來的具體負面影響。
+
+神煞分析規則：
+- 【神煞】中列出的每一個神煞都必須在分析中被提及並解讀，不可遺漏。
+- 將神煞融入對應的 section（文昌→chart_identity/career_pattern，桃花→love_pattern，驛馬→career_pattern，天醫→health，羊刃→chart_identity/health，將星→career_pattern，劫煞→health/finance_pattern）。
+
+其他原則：
+1. 所有分析必須完全基於提供的預分析結果和原始八字排盤數據
+2. 使用繁體中文回答
+3. 提供務實可行的建議，而非模糊的玄學說法
+4. 趨勢預測而非絕對事件
+5. 不要提及任何競爭對手或其他算命服務`;
+
+/**
+ * V2 output format for Call 1 (Core Life Domains)
+ */
+const LIFETIME_V2_OUTPUT_FORMAT_CALL1 = `
+請以下列 JSON 格式回覆，不要添加任何其他文字或 markdown 標記：
+
+{
+  "sections": {
+    "chart_identity": { "preview": "先天命格精華摘要（60-80字）", "full": "先天命格完整解讀（200-250字）" },
+    "finance_pattern": { "preview": "財運格局精華摘要（60-80字）", "full": "財運格局完整解讀（300-400字）" },
+    "career_pattern": { "preview": "事業格局精華摘要（60-80字）", "full": "事業格局完整解讀（350-450字）" },
+    "boss_strategy": { "preview": "應對上司精華摘要（50-70字）", "full": "應對上司之道完整解讀（200-300字）" },
+    "love_pattern": { "preview": "感情格局精華摘要（60-80字）", "full": "感情格局完整解讀（350-450字）" },
+    "health": { "preview": "一生健康精華摘要（50-70字）", "full": "一生健康完整解讀（150-200字）" },
+    "children_analysis": { "preview": "子女分析精華摘要（50-70字）", "full": "子女分析完整解讀（300-400字）" },
+    "parents_analysis": { "preview": "父母情況精華摘要（50-70字）", "full": "父母情況完整解讀（200-250字）" }
+  },
+  "summary": {
+    "preview": "整體命格一句話概要（30-50字）",
+    "full": "整體命格綜合總結（150-200字）"
+  }
+}
+
+⚠️ 字數控制是硬性要求：
+- 每個 section 的 full 必須嚴格控制在上述指定字數範圍內，不可超出上限
+- 超過上限字數的回覆視為不合格，寧短勿長，精煉為要
+- preview 控制在指定字數內，一句話精華，吸引讀者想看完整內容
+- full 包含完整分析，不需重複 preview 的內容
+- 直接輸出 JSON，不要用 \`\`\`json 或任何 markdown 包裹
+- JSON 外面不要有任何文字，第一個字元必須是 {，最後一個字元必須是 }
+- ⚠️ summary 絕對不可以留空。summary.preview 和 summary.full 必須有實質內容，不可以是空字串 ""`;
+
+/**
+ * V2 output format for Call 2 (Timing & Fortune)
+ */
+const LIFETIME_V2_OUTPUT_FORMAT_CALL2 = `
+請以下列 JSON 格式回覆，不要添加任何其他文字或 markdown 標記：
+
+{
+  "sections": {
+    "current_period": { "preview": "當前大運精華摘要（60-80字）", "full": "當前大運詳解（400-500字）" },
+    "best_period": { "preview": "有利大運精華摘要（50-70字）", "full": "有利大運把握策略（150-200字）" },
+    "annual_love": { "preview": "本年感情運勢摘要（50-70字）", "full": "本年感情運勢詳解（150-200字）" },
+    "annual_career": { "preview": "本年事業運勢摘要（50-70字）", "full": "本年事業運勢詳解（150-200字）" },
+    "annual_finance": { "preview": "本年財運運勢摘要（50-70字）", "full": "本年財運運勢詳解（200-250字）" },
+    "annual_health": { "preview": "本年健康運勢摘要（40-60字）", "full": "本年健康運勢詳解（80-150字）" }
+  }
+}
+
+⚠️ 字數控制是硬性要求：
+- 每個 section 的 full 必須嚴格控制在上述指定字數範圍內，不可超出上限
+- 超過上限字數的回覆視為不合格，寧短勿長，精煉為要
+- preview 控制在指定字數內，一句話精華，吸引讀者想看完整內容
+- full 包含完整分析，不需重複 preview 的內容
+- 直接輸出 JSON，不要用 \`\`\`json 或任何 markdown 包裹
+- JSON 外面不要有任何文字，第一個字元必須是 {，最後一個字元必須是 }
+- 如無足夠大運數據（如命主年紀極小），則省略 best_period 段落，將其 preview 和 full 設為簡短說明`;
+
+/**
+ * LIFETIME V2 multi-call prompt configuration.
+ * Call 1: Core Life Domains (chart_identity through parents_analysis + summary)
+ * Call 2: Timing & Fortune (current_period through annual_health)
+ */
+export const LIFETIME_V2_PROMPTS = {
+  systemAddition: LIFETIME_V2_SYSTEM_ADDITION,
+
+  /** Call 1 user prompt — full chart data + pattern narrative + children/parents/boss insights */
+  userTemplateCall1: `以下是命主的八字排盤數據，請進行「八字終身運」V2 核心命局分析（第一部分）：
+
+【命主資料】
+- 性別：{{gender}}
+- 公曆生日：{{birthDate}} {{birthTime}}
+- 農曆日期：{{lunarDate}}
+- 真太陽時：{{trueSolarTime}}
+
+【四柱排盤】
+- 年柱：{{yearPillar}}（{{yearTenGod}}）
+- 月柱：{{monthPillar}}（{{monthTenGod}}）
+- 日柱：{{dayPillar}}（日主）
+- 時柱：{{hourPillar}}（{{hourTenGod}}）
+
+【藏干】
+- 年支藏干：{{yearHidden}}
+- 月支藏干：{{monthHidden}}
+- 日支藏干：{{dayHidden}}
+- 時支藏干：{{hourHidden}}
+
+【柱位五行】
+{{pillarElements}}
+
+【十二長生】
+{{lifeStages}}
+
+【空亡】
+{{kongWang}}
+
+【日主分析】
+- 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
+- ⚠️ 日主強弱（以此為準）：{{strengthV2}}
+- 舊版旺衰（僅供參考，與上方不同時以上方為準）：{{strength}}（{{strengthScore}}分）
+- 格局：{{pattern}}
+- 同黨：{{sameParty}}% / 異黨：{{oppositeParty}}%
+- 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}} / 仇神：{{enemyGod}}
+
+【五行比例】
+木：{{wood}}% / 火：{{fire}}% / 土：{{earth}}% / 金：{{metal}}% / 水：{{water}}%
+
+【納音】
+年柱納音：{{yearNaYin}} / 日柱納音：{{dayNaYin}}
+
+【神煞】
+{{shenSha}}
+
+【預分析結果】
+{{preAnalysis}}
+
+【格局解讀（V2 — 必須嚴格依據）】
+{{patternNarrative}}
+
+【子女分析數據（V2 — 必須嚴格依據）】
+{{childrenInsights}}
+
+【父母分析數據（V2 — 必須嚴格依據）】
+{{parentsInsights}}
+
+【上司應對數據（V2 — 必須嚴格依據）】
+{{bossCompatibility}}
+
+請依照以下分區輸出分析：
+sections 的 key 必須為：chart_identity, finance_pattern, career_pattern, boss_strategy, love_pattern, health, children_analysis, parents_analysis
+另外必須包含 summary（整體命格總結）`,
+
+  /** Call 2 user prompt — timing data + context bridge + enriched luck periods */
+  userTemplateCall2: `以下是命主的八字排盤數據，請進行「八字終身運」V2 運程分析（第二部分）：
+
+【命主核心摘要（確定性數據，不可修改）】
+{{contextBridge}}
+
+【四柱排盤】
+- 年柱：{{yearPillar}}（{{yearTenGod}}）
+- 月柱：{{monthPillar}}（{{monthTenGod}}）
+- 日柱：{{dayPillar}}（日主）
+- 時柱：{{hourPillar}}（{{hourTenGod}}）
+
+【日主分析】
+- 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
+- ⚠️ 日主強弱（以此為準）：{{strengthV2}}
+- 格局：{{pattern}}
+- 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}} / 仇神：{{enemyGod}}
+
+【五行比例】
+木：{{wood}}% / 火：{{fire}}% / 土：{{earth}}% / 金：{{metal}}% / 水：{{water}}%
+
+【神煞】
+{{shenSha}}
+
+【大運總覽（含評分）】
+{{enrichedLuckPeriods}}
+
+【當前大運詳情】
+{{currentPeriodDetail}}
+
+【前一大運】
+{{previousPeriodDetail}}
+
+【下一大運】
+{{nextPeriodDetail}}
+
+【最有利大運】
+{{bestPeriodDetail}}
+
+【流年資料】
+{{annualStarDetail}}
+
+【今年流年天干十神：{{annualTenGod}}（與日主關係）】
+⚠️ annual_finance 必須以此十神為錨點：
+- 食傷/財星 = 有利求財之年
+- 比劫 = 爭財、破財風險
+- 官殺 = 耗財、壓力
+- 印星 = 消財但利學習投資
+AI 必須引用 annualTenGod 並解釋其如何影響本年財運動態。
+
+【預分析結果】
+{{preAnalysis}}
+
+請依照以下分區輸出分析：
+sections 的 key 必須為：current_period, best_period, annual_love, annual_career, annual_finance, annual_health
+注意：不需要 summary（summary 已在第一部分輸出）`,
+
+  outputFormatCall1: LIFETIME_V2_OUTPUT_FORMAT_CALL1,
+  outputFormatCall2: LIFETIME_V2_OUTPUT_FORMAT_CALL2,
+
+  /** All section keys for both calls (used by fallbackParse) */
+  call1Sections: ['chart_identity', 'finance_pattern', 'career_pattern', 'boss_strategy', 'love_pattern', 'health', 'children_analysis', 'parents_analysis'],
+  call2Sections: ['current_period', 'best_period', 'annual_love', 'annual_career', 'annual_finance', 'annual_health'],
 };

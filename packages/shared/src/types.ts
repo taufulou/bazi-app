@@ -185,8 +185,9 @@ export interface InterpretationSection {
   full: string;     // Complete text, shown to subscribers
 }
 
-/** Structured AI interpretation output */
-export interface AIInterpretation {
+/** V1 Structured AI interpretation output (flat section keys) */
+export interface AIInterpretationV1 {
+  schemaVersion?: undefined;             // V1 has no version field (backward compat)
   personality?: InterpretationSection;   // 命格性格分析
   career?: InterpretationSection;        // 事業發展分析
   love?: InterpretationSection;          // 感情婚姻分析
@@ -195,6 +196,56 @@ export interface AIInterpretation {
   compatibility?: InterpretationSection; // 合盤比較 (only for compatibility readings)
   summary?: InterpretationSection;       // Overall summary
 }
+
+/** Enriched luck period detail for V2 lifetime reading */
+export interface LuckPeriodDetail {
+  stem: string;
+  branch: string;
+  startAge: number;
+  endAge: number;
+  startYear: number;
+  endYear: number;
+  score: number;           // 0-100, formula-computed
+  stemPhase: string;       // narrative hint for years 1-5
+  branchPhase: string;     // narrative hint for years 6-10
+  interactions: string[];  // pre-computed interactions (六沖, 三刑, etc.)
+  isCurrent: boolean;
+}
+
+/** Career direction entry with conceptual anchor and industries */
+export interface CareerDirection {
+  anchor: string;
+  category: string;
+  industries: string[];
+}
+
+/** Deterministic data for V2 lifetime reading (not AI-generated) */
+export interface LifetimeV2Deterministic {
+  favorableInvestments: string[];
+  unfavorableInvestments: string[];
+  careerDirections: CareerDirection[];
+  favorableDirection: string;
+  careerBenefactorsElement: string[];
+  careerBenefactorsZodiac: string[];
+  partnerElement: string[];
+  partnerZodiac: string[];
+  romanceYears: number[];
+  parentHealthYears: { father: number[]; mother: number[] };
+  luckPeriodsEnriched: LuckPeriodDetail[];
+  bestPeriod: LuckPeriodDetail | null;
+  annualTenGod: string;
+}
+
+/** V2 Structured AI interpretation output (multi-call, rich sections) */
+export interface AIInterpretationV2 {
+  schemaVersion: 'v2';
+  sections: Record<string, InterpretationSection>; // flat map of all section keys
+  summary: InterpretationSection;
+  deterministic: LifetimeV2Deterministic;
+}
+
+/** Discriminated union for V1/V2 AI interpretation */
+export type AIInterpretation = AIInterpretationV1 | AIInterpretationV2;
 
 /** Token usage tracking */
 export interface TokenUsage {

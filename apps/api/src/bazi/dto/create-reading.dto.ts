@@ -17,6 +17,11 @@ export class CreateReadingDto {
   @Min(1900)
   @Max(2100)
   targetYear?: number;
+
+  @ApiProperty({ required: false, description: 'Enable SSE streaming for LIFETIME readings' })
+  @IsOptional()
+  @IsBoolean()
+  stream?: boolean;
 }
 
 export class CreateComparisonDto {

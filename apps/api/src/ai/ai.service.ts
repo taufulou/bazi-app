@@ -2,8 +2,10 @@ import {
   Injectable,
   Logger,
   OnModuleInit,
+  type MessageEvent,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Observable, Subscriber } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
@@ -17,6 +19,7 @@ import {
   GENDER_ZH,
   STRENGTH_ZH,
   STRENGTH_V2_ZH,
+  LIFETIME_V2_PROMPTS,
 } from './prompts';
 
 // ============================================================
@@ -45,6 +48,14 @@ export interface AIGenerationResult {
   };
   latencyMs: number;
   isCacheHit: boolean;
+}
+
+/** V2 multi-call result with schema version and deterministic data */
+export interface AIGenerationResultV2 extends AIGenerationResult {
+  schemaVersion: 'v2';
+  interpretation: AIInterpretationResult & {
+    deterministic: Record<string, unknown>;
+  };
 }
 
 interface ProviderConfig {
@@ -91,7 +102,7 @@ export class AIService implements OnModuleInit {
     if (claudeKey) {
       this.providers.push({
         provider: AIProvider.CLAUDE,
-        model: this.configService.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-20250514',
+        model: this.configService.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929',
         apiKey: claudeKey,
         timeoutMs: 30000,
         costPerInputToken: 3 / 1_000_000,   // $3 per 1M input tokens
@@ -273,6 +284,815 @@ export class AIService implements OnModuleInit {
   }
 
   // ============================================================
+  // Lifetime V2 Multi-Call Generation
+  // ============================================================
+
+  /**
+   * Generate a V2 Lifetime interpretation using parallel AI calls.
+   * Call 1: Core Life Domains (chart_identity through parents_analysis + summary)
+   * Call 2: Timing & Fortune (current_period through annual_health)
+   *
+   * Both calls receive deterministic data — no data dependency between them.
+   * Uses Promise.allSettled for partial failure resilience.
+   *
+   * On total V2 failure, falls back to V1 single-call via generateInterpretation().
+   */
+  async generateLifetimeV2Interpretation(
+    calculationData: Record<string, unknown>,
+    userId?: string,
+    readingId?: string,
+  ): Promise<AIGenerationResult> {
+    if (this.providers.length === 0) {
+      throw new Error('No AI providers configured');
+    }
+
+    const timeoutMs = parseInt(
+      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '60000',
+      10,
+    );
+
+    // Build both prompts from calculation data
+    const { systemPrompt, userPromptCall1, userPromptCall2 } =
+      this.buildLifetimeV2Prompts(calculationData);
+
+    // Fire both calls in parallel via Promise.allSettled
+    const providerConfig = this.providers[0]; // Primary provider
+
+    const call1Promise = this.callProviderWithTimeout(
+      providerConfig, systemPrompt, userPromptCall1, timeoutMs,
+    );
+    const call2Promise = this.callProviderWithTimeout(
+      providerConfig, systemPrompt, userPromptCall2, timeoutMs,
+    );
+
+    const startTime = Date.now();
+    const [result1, result2] = await Promise.allSettled([call1Promise, call2Promise]);
+    const latencyMs = Date.now() - startTime;
+
+    const call1Success = result1.status === 'fulfilled';
+    const call2Success = result2.status === 'fulfilled';
+
+    if (!call1Success) {
+      this.logger.warn(`Lifetime V2 Call 1 failed: ${(result1 as PromiseRejectedResult).reason}`);
+    }
+    if (!call2Success) {
+      this.logger.warn(`Lifetime V2 Call 2 failed: ${(result2 as PromiseRejectedResult).reason}`);
+    }
+
+    // Partial success strategy
+    if (!call1Success && !call2Success) {
+      // Both failed → fall back to V1 single-call
+      this.logger.warn('Lifetime V2 both calls failed — falling back to V1');
+      return this.generateInterpretation(
+        calculationData,
+        ReadingType.LIFETIME,
+        userId,
+        readingId,
+      );
+    }
+
+    // Parse successful results
+    let sections: Record<string, InterpretationSection> = {};
+    let summary: InterpretationSection = { preview: '', full: '' };
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+
+    if (call1Success) {
+      const r1 = (result1 as PromiseFulfilledResult<{ content: string; inputTokens: number; outputTokens: number }>).value;
+      totalInputTokens += r1.inputTokens;
+      totalOutputTokens += r1.outputTokens;
+
+      const parsed1 = this.parseLifetimeV2CallResponse(r1.content, 'call1');
+      sections = { ...sections, ...parsed1.sections };
+      if (parsed1.summary && (parsed1.summary.preview || parsed1.summary.full)) {
+        summary = parsed1.summary;
+      }
+
+      // Log Call 1 usage
+      this.logUsage(userId, readingId, providerConfig, {
+        interpretation: { sections: parsed1.sections, summary: parsed1.summary },
+        provider: providerConfig.provider,
+        model: providerConfig.model,
+        tokenUsage: {
+          inputTokens: r1.inputTokens,
+          outputTokens: r1.outputTokens,
+          totalTokens: r1.inputTokens + r1.outputTokens,
+          estimatedCostUsd: 0,
+        },
+        latencyMs,
+        isCacheHit: false,
+      }, 'LIFETIME' as ReadingType).catch(() => {});
+    }
+
+    if (call2Success) {
+      const r2 = (result2 as PromiseFulfilledResult<{ content: string; inputTokens: number; outputTokens: number }>).value;
+      totalInputTokens += r2.inputTokens;
+      totalOutputTokens += r2.outputTokens;
+
+      const parsed2 = this.parseLifetimeV2CallResponse(r2.content, 'call2');
+      sections = { ...sections, ...parsed2.sections };
+
+      // Log Call 2 usage
+      this.logUsage(userId, readingId, providerConfig, {
+        interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
+        provider: providerConfig.provider,
+        model: providerConfig.model,
+        tokenUsage: {
+          inputTokens: r2.inputTokens,
+          outputTokens: r2.outputTokens,
+          totalTokens: r2.inputTokens + r2.outputTokens,
+          estimatedCostUsd: 0,
+        },
+        latencyMs,
+        isCacheHit: false,
+      }, 'LIFETIME' as ReadingType).catch(() => {});
+    } else if (call1Success) {
+      // Call 1 succeeded, Call 2 failed — return Call 1 sections only (still valuable)
+      this.logger.warn('Lifetime V2 Call 2 failed — returning Call 1 sections only');
+    }
+
+    // Merge with deterministic data from lifetimeEnhancedInsights
+    // Python engine returns snake_case keys; convert to camelCase for frontend
+    const enhancedInsights = calculationData['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
+    const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+    const deterministic: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(rawDeterministic)) {
+      const camelKey = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+      deterministic[camelKey] = value;
+    }
+
+    const totalCost =
+      totalInputTokens * providerConfig.costPerInputToken +
+      totalOutputTokens * providerConfig.costPerOutputToken;
+
+    const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
+      sections,
+      summary,
+      deterministic,
+      schemaVersion: 'v2',
+    };
+
+    this.logger.log(
+      `Lifetime V2 generated via ${providerConfig.provider} in ${latencyMs}ms, ` +
+      `${totalInputTokens}+${totalOutputTokens} tokens (total), $${totalCost.toFixed(4)}, ` +
+      `call1=${call1Success ? 'ok' : 'FAIL'}, call2=${call2Success ? 'ok' : 'FAIL'}`,
+    );
+
+    return {
+      interpretation,
+      provider: providerConfig.provider,
+      model: providerConfig.model,
+      tokenUsage: {
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        totalTokens: totalInputTokens + totalOutputTokens,
+        estimatedCostUsd: Math.round(totalCost * 1_000_000) / 1_000_000,
+      },
+      latencyMs,
+      isCacheHit: false,
+    };
+  }
+
+  /**
+   * Call a provider with a timeout. Passes AbortController signal to SDK.
+   */
+  private async callProviderWithTimeout(
+    config: ProviderConfig,
+    systemPrompt: string,
+    userPrompt: string,
+    timeoutMs: number,
+  ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      return await this.callProvider(config, systemPrompt, userPrompt, controller.signal);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  // ============================================================
+  // Lifetime V2 SSE Streaming
+  // ============================================================
+
+  /**
+   * Stream Lifetime V2 AI interpretation via SSE Observable.
+   * Call 1 streams with progressive brace-depth section extraction.
+   * Call 2 runs non-streaming in parallel; sections flushed after Call 1.
+   */
+  streamLifetimeV2(
+    calculationData: Record<string, unknown>,
+    readingId: string,
+  ): Observable<MessageEvent> {
+    return new Observable((subscriber: Subscriber<MessageEvent>) => {
+      this._executeStreamLifetimeV2(calculationData, readingId, subscriber)
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Stream failed';
+          subscriber.next({
+            data: JSON.stringify({ message }),
+            type: 'error',
+          } as MessageEvent);
+          subscriber.complete();
+        });
+    });
+  }
+
+  private async _executeStreamLifetimeV2(
+    calculationData: Record<string, unknown>,
+    readingId: string,
+    subscriber: Subscriber<MessageEvent>,
+  ) {
+    const startTime = Date.now();
+    // Streaming V2 timeout: default 180s (sections are capped at ~200-450 chars each)
+    const timeoutMs = parseInt(
+      this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
+      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '180000',
+      10,
+    );
+
+    if (this.providers.length === 0) {
+      throw new Error('No AI providers configured');
+    }
+
+    const providerConfig = this.providers[0];
+    const { systemPrompt, userPromptCall1, userPromptCall2 } =
+      this.buildLifetimeV2Prompts(calculationData);
+
+    // Heartbeat every 15s to prevent proxy timeouts
+    const heartbeatInterval = setInterval(() => {
+      try {
+        subscriber.next({ data: '', type: 'heartbeat' } as MessageEvent);
+      } catch {
+        // subscriber already closed
+      }
+    }, 15000);
+
+    const call1Controller = new AbortController();
+    const call2Controller = new AbortController();
+
+    // Set up abort timeouts
+    const call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
+    const call2Timeout = setTimeout(() => call2Controller.abort(), timeoutMs);
+
+    let totalSections = 0;
+
+    try {
+      // Fire Call 2 (non-streaming) in parallel
+      const call2Promise = this.callProvider(
+        providerConfig, systemPrompt, userPromptCall2, call2Controller.signal,
+      ).catch((err) => {
+        this.logger.warn(`Stream Call 2 failed: ${err instanceof Error ? err.message : err}`);
+        return null;
+      });
+
+      // Call 1: streaming with progressive section extraction
+      const call1Sections: Record<string, InterpretationSection> = {};
+      let call1Summary: InterpretationSection = { preview: '', full: '' };
+      let call1Buffer = '';
+      let call1InputTokens = 0;
+      let call1OutputTokens = 0;
+
+      try {
+        const streamGen = this.streamProvider(
+          providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
+        );
+
+        const extractedKeys = new Set<string>();
+
+        for await (const chunk of streamGen) {
+          call1Buffer += chunk;
+
+          // Progressive extraction: try to extract completed sections
+          const newSections = this.extractCompletedSections(
+            call1Buffer,
+            LIFETIME_V2_PROMPTS.call1Sections,
+            extractedKeys,
+          );
+
+          for (const [key, section] of Object.entries(newSections)) {
+            call1Sections[key] = section;
+            totalSections++;
+            subscriber.next({
+              data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+              type: 'section_complete',
+            } as MessageEvent);
+          }
+        }
+
+        // Parse any remaining sections from the complete buffer
+        const finalParsed = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
+        for (const [key, section] of Object.entries(finalParsed.sections)) {
+          if (!call1Sections[key]) {
+            call1Sections[key] = section;
+            totalSections++;
+            subscriber.next({
+              data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+              type: 'section_complete',
+            } as MessageEvent);
+          }
+        }
+        if (finalParsed.summary && (finalParsed.summary.preview || finalParsed.summary.full)) {
+          call1Summary = finalParsed.summary;
+        }
+
+        // Estimate tokens from buffer length (approximation for streaming)
+        call1OutputTokens = Math.ceil(call1Buffer.length / 3);
+        call1InputTokens = 0; // Not available from streaming
+
+        subscriber.next({
+          data: JSON.stringify({ call: 1 }),
+          type: 'call_complete',
+        } as MessageEvent);
+
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Call 1 stream failed';
+        this.logger.warn(`Stream Call 1 failed: ${message}`);
+        subscriber.next({
+          data: JSON.stringify({ message, partial: true }),
+          type: 'error',
+        } as MessageEvent);
+      }
+
+      // Await Call 2 result and flush sections
+      const call2Result = await call2Promise;
+      if (call2Result) {
+        const parsed2 = this.parseLifetimeV2CallResponse(call2Result.content, 'call2');
+        for (const [key, section] of Object.entries(parsed2.sections)) {
+          totalSections++;
+          subscriber.next({
+            data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+            type: 'section_complete',
+          } as MessageEvent);
+        }
+
+        subscriber.next({
+          data: JSON.stringify({ call: 2 }),
+          type: 'call_complete',
+        } as MessageEvent);
+      }
+
+      // Emit summary
+      if (call1Summary.preview || call1Summary.full) {
+        subscriber.next({
+          data: JSON.stringify({ preview: call1Summary.preview, full: call1Summary.full }),
+          type: 'summary',
+        } as MessageEvent);
+      }
+
+      // Merge all sections for DB update
+      const allSections: Record<string, InterpretationSection> = { ...call1Sections };
+      if (call2Result) {
+        const parsed2 = this.parseLifetimeV2CallResponse(call2Result.content, 'call2');
+        Object.assign(allSections, parsed2.sections);
+      }
+
+      // Build deterministic data
+      const enhancedInsights = calculationData['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
+      const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+      const deterministic: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(rawDeterministic)) {
+        const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+        deterministic[camelKey] = value;
+      }
+
+      const aiInterpretation = {
+        schemaVersion: 'v2',
+        sections: allSections,
+        summary: call1Summary,
+        deterministic,
+      };
+
+      // Update DB record with complete AI interpretation
+      try {
+        await this.prisma.baziReading.update({
+          where: { id: readingId },
+          data: {
+            aiInterpretation: aiInterpretation as unknown as Prisma.InputJsonValue,
+            aiProvider: providerConfig.provider as any,
+            aiModel: providerConfig.model,
+          },
+        });
+      } catch (dbErr) {
+        this.logger.error(`Failed to update reading ${readingId} with AI: ${dbErr}`);
+      }
+
+      // Cache the result for future requests
+      const birthDataHash = this.generateBirthDataHash(
+        calculationData['birthDate'] as string || '',
+        calculationData['birthTime'] as string || '',
+        '', // birthCity not available here
+        calculationData['gender'] as string || '',
+        ReadingType.LIFETIME,
+      );
+      this.cacheInterpretation(
+        birthDataHash,
+        ReadingType.LIFETIME,
+        calculationData,
+        aiInterpretation as unknown as AIInterpretationResult,
+      ).catch((err) => this.logger.error(`Stream cache write failed: ${err}`));
+
+      const latencyMs = Date.now() - startTime;
+      this.logger.log(
+        `Stream Lifetime V2 completed in ${latencyMs}ms, ${totalSections} sections delivered`,
+      );
+
+      // Done event
+      subscriber.next({
+        data: JSON.stringify({ totalSections, latencyMs }),
+        type: 'done',
+      } as MessageEvent);
+
+    } finally {
+      clearInterval(heartbeatInterval);
+      clearTimeout(call1Timeout);
+      clearTimeout(call2Timeout);
+      subscriber.complete();
+    }
+  }
+
+  /**
+   * Extract completed JSON sections from a streaming buffer using brace-depth tracking.
+   * Handles escaped characters and string contexts properly.
+   *
+   * For each known section key, scans the buffer for `"KEY":` followed by `{`,
+   * then tracks brace depth. When depth returns to 0, the section object is complete.
+   */
+  private extractCompletedSections(
+    buffer: string,
+    expectedKeys: readonly string[],
+    alreadyExtracted: Set<string>,
+  ): Record<string, InterpretationSection> {
+    const result: Record<string, InterpretationSection> = {};
+
+    for (const key of expectedKeys) {
+      if (alreadyExtracted.has(key)) continue;
+
+      // Find the key's object start: "key": {
+      const keyPattern = `"${key}"`;
+      const keyIdx = buffer.indexOf(keyPattern);
+      if (keyIdx === -1) continue;
+
+      // Find the opening brace after the key
+      let i = keyIdx + keyPattern.length;
+      // Skip whitespace and colon
+      while (i < buffer.length && (buffer[i] === ' ' || buffer[i] === ':' || buffer[i] === '\n' || buffer[i] === '\r' || buffer[i] === '\t')) {
+        i++;
+      }
+      if (i >= buffer.length || buffer[i] !== '{') continue;
+
+      // Track brace depth with string awareness
+      const startBrace = i;
+      let depth = 0;
+      let inString = false;
+      let escaped = false;
+
+      for (let j = startBrace; j < buffer.length; j++) {
+        const ch = buffer[j];
+
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+
+        if (ch === '\\') {
+          escaped = true;
+          continue;
+        }
+
+        if (ch === '"') {
+          inString = !inString;
+          continue;
+        }
+
+        if (!inString) {
+          if (ch === '{') depth++;
+          else if (ch === '}') {
+            depth--;
+            if (depth === 0) {
+              // Complete section object found
+              const sectionJson = buffer.substring(startBrace, j + 1);
+              try {
+                const parsed = JSON.parse(sectionJson);
+                if (parsed.preview !== undefined && parsed.full !== undefined) {
+                  result[key] = { preview: parsed.preview, full: parsed.full };
+                  alreadyExtracted.add(key);
+                }
+              } catch {
+                // JSON not valid yet — possibly truncated string content
+                // Skip this key for now, will retry next chunk
+              }
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
+   * Build system + user prompts for both V2 calls.
+   * Context bridge for Call 2 is assembled from deterministic pre-analysis data.
+   */
+  private buildLifetimeV2Prompts(
+    calculationData: Record<string, unknown>,
+  ): { systemPrompt: string; userPromptCall1: string; userPromptCall2: string } {
+    const systemPrompt = BASE_SYSTEM_PROMPT + '\n\n' + LIFETIME_V2_PROMPTS.systemAddition;
+
+    // Interpolate shared placeholders for both calls
+    let call1Template = LIFETIME_V2_PROMPTS.userTemplateCall1;
+    let call2Template = LIFETIME_V2_PROMPTS.userTemplateCall2;
+
+    // Apply standard interpolation (reuses existing logic)
+    call1Template = this.interpolateTemplate(call1Template, calculationData, ReadingType.LIFETIME);
+    call2Template = this.interpolateTemplate(call2Template, calculationData, ReadingType.LIFETIME);
+
+    // Interpolate V2-specific placeholders
+    call1Template = this.interpolateLifetimeV2Fields(call1Template, calculationData);
+    call2Template = this.interpolateLifetimeV2Fields(call2Template, calculationData);
+
+    // Build deterministic context bridge for Call 2
+    call2Template = this.interpolateContextBridge(call2Template, calculationData);
+
+    // Interpolate enriched luck periods for Call 2
+    call2Template = this.interpolateEnrichedLuckPeriods(call2Template, calculationData);
+
+    // Append output format instructions
+    const userPromptCall1 = call1Template + '\n\n' + LIFETIME_V2_PROMPTS.outputFormatCall1;
+    const userPromptCall2 = call2Template + '\n\n' + LIFETIME_V2_PROMPTS.outputFormatCall2;
+
+    return { systemPrompt, userPromptCall1, userPromptCall2 };
+  }
+
+  /**
+   * Interpolate V2-specific placeholders (patternNarrative, childrenInsights, etc.)
+   */
+  private interpolateLifetimeV2Fields(
+    template: string,
+    data: Record<string, unknown>,
+  ): string {
+    let result = template;
+    const enhanced = data['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
+
+    // Pattern Narrative
+    const patternNarrative = enhanced?.['patternNarrative'] as Record<string, unknown> | undefined;
+    if (patternNarrative) {
+      const pnText = [
+        `格局名稱：${patternNarrative['patternName']}`,
+        `推導邏輯：${patternNarrative['patternLogic']}`,
+        `日主與格局關係：${patternNarrative['patternStrengthRelation']}`,
+        `主導十神：${(patternNarrative['dominantTenGods'] as string[] || []).join('、')}`,
+      ].join('\n');
+      result = result.replace(/\{\{patternNarrative\}\}/g, pnText);
+    } else {
+      result = result.replace(/\{\{patternNarrative\}\}/g, '（資料未提供）');
+    }
+
+    // Children Insights
+    const childrenInsights = enhanced?.['childrenInsights'] as Record<string, unknown> | undefined;
+    if (childrenInsights) {
+      const ciText = [
+        `食傷顯現數（天干中）：${childrenInsights['shishanManifestCount']}`,
+        `食傷潛藏數（地支本氣）：${childrenInsights['shishanLatentCount']}`,
+        `食傷透干：${(childrenInsights['shishanTransparent'] as string[] || []).join('、') || '無'}`,
+        `時柱十神：${childrenInsights['hourPillarTenGod']}`,
+        `食傷被印制：${childrenInsights['isShishanSuppressed'] ? '是' : '否'}`,
+        `時支十二長生：${childrenInsights['hourBranchLifeStage']}`,
+      ].join('\n');
+      result = result.replace(/\{\{childrenInsights\}\}/g, ciText);
+    } else {
+      result = result.replace(/\{\{childrenInsights\}\}/g, '（資料未提供）');
+    }
+
+    // Parents Insights
+    const parentsInsights = enhanced?.['parentsInsights'] as Record<string, unknown> | undefined;
+    if (parentsInsights) {
+      const piText = [
+        `年干十神（父星）：${parentsInsights['fatherStar']}`,
+        `年支本氣十神（母星）：${parentsInsights['motherStar']}`,
+        `父親五行（財星）：${parentsInsights['fatherElement']}`,
+        `母親五行（印星）：${parentsInsights['motherElement']}`,
+        `年柱生剋關係：${parentsInsights['yearPillarRelation']}`,
+        `年柱喜忌：${parentsInsights['yearPillarFavorability']}`,
+      ].join('\n');
+      result = result.replace(/\{\{parentsInsights\}\}/g, piText);
+    } else {
+      result = result.replace(/\{\{parentsInsights\}\}/g, '（資料未提供）');
+    }
+
+    // Boss Compatibility
+    const bossCompat = enhanced?.['bossCompatibility'] as Record<string, unknown> | undefined;
+    if (bossCompat) {
+      const bcText = [
+        `主導風格：${bossCompat['dominantStyle']}`,
+        `理想上司類型：${bossCompat['idealBossType']}`,
+        `職場優勢：${(bossCompat['workplaceStrengths'] as string[] || []).join('、')}`,
+        `職場警示：${(bossCompat['workplaceWarnings'] as string[] || []).join('、')}`,
+      ].join('\n');
+      result = result.replace(/\{\{bossCompatibility\}\}/g, bcText);
+    } else {
+      result = result.replace(/\{\{bossCompatibility\}\}/g, '（資料未提供）');
+    }
+
+    // Annual Ten God
+    const deterministic = enhanced?.['deterministic'] as Record<string, unknown> | undefined;
+    const annualTenGod = deterministic?.['annualTenGod'] as string || '（資料未提供）';
+    result = result.replace(/\{\{annualTenGod\}\}/g, annualTenGod);
+
+    return result;
+  }
+
+  /**
+   * Build deterministic context bridge for Call 2.
+   * Assembled from pre-analysis data (NOT from Call 1 AI output) — enables true parallel execution.
+   */
+  private interpolateContextBridge(
+    template: string,
+    data: Record<string, unknown>,
+  ): string {
+    const preAnalysis = data['preAnalysis'] as Record<string, unknown> | undefined;
+    const dayMaster = data['dayMaster'] as Record<string, unknown> | undefined;
+    const enhanced = data['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
+    const patternNarrative = enhanced?.['patternNarrative'] as Record<string, unknown> | undefined;
+
+    const bridgeParts: string[] = [];
+
+    // DM element + strength
+    const dmStem = data['dayMasterStem'] as string || '';
+    const dmElement = dayMaster?.['element'] as string || '';
+    const strengthV2 = preAnalysis?.['strengthV2'] as Record<string, unknown> | undefined;
+    const classification = STRENGTH_V2_ZH[(strengthV2?.['classification'] as string) || ''] || '';
+    bridgeParts.push(`日主${dmStem}（${dmElement}），${classification}`);
+
+    // 用神/忌神
+    const effectiveGods = preAnalysis?.['effectiveFavorableGods'] as Record<string, string> | undefined;
+    if (effectiveGods) {
+      bridgeParts.push(`用神=${effectiveGods['usefulGod']}，喜神=${effectiveGods['favorableGod']}，忌神=${effectiveGods['tabooGod']}，仇神=${effectiveGods['enemyGod']}`);
+    }
+
+    // 格局
+    const patternName = patternNarrative?.['patternName'] as string || dayMaster?.['pattern'] as string || '';
+    bridgeParts.push(`格局：${patternName}`);
+
+    // Pattern strength relation
+    const strengthRelation = patternNarrative?.['patternStrengthRelation'] as string || '';
+    if (strengthRelation) {
+      bridgeParts.push(`格局與日主：${strengthRelation}`);
+    }
+
+    const bridge = bridgeParts.join('。');
+    return template.replace(/\{\{contextBridge\}\}/g, bridge);
+  }
+
+  /**
+   * Interpolate enriched luck periods and annual star details for Call 2.
+   */
+  private interpolateEnrichedLuckPeriods(
+    template: string,
+    data: Record<string, unknown>,
+  ): string {
+    let result = template;
+    const enhanced = data['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
+    const deterministic = enhanced?.['deterministic'] as Record<string, unknown> | undefined;
+    // Python engine returns snake_case keys; handle both conventions
+    const enrichedPeriods = (deterministic?.['luck_periods_enriched'] || deterministic?.['luckPeriodsEnriched']) as Array<Record<string, unknown>> | undefined;
+    const bestPeriod = (deterministic?.['best_period'] || deterministic?.['bestPeriod']) as Record<string, unknown> | null | undefined;
+
+    // Enriched luck periods overview
+    if (enrichedPeriods?.length) {
+      const lpText = enrichedPeriods.map((lp, idx) => {
+        const current = lp['isCurrent'] ? ' ← 目前' : '';
+        const interactions = (lp['interactions'] as string[] || []).join('、') || '無特殊互動';
+        const tenGodLabel = lp['tenGod'] ? `（${lp['tenGod']}）` : '';
+        return `[${idx + 1}/${enrichedPeriods.length}] ${lp['startAge']}-${lp['endAge']}歲（${lp['startYear']}-${lp['endYear']}）：` +
+          `${lp['stem']}${lp['branch']}${tenGodLabel}，評分${lp['score']}/100${current}\n` +
+          `  天干階段：${lp['stemPhase']}\n` +
+          `  地支階段：${lp['branchPhase']}\n` +
+          `  互動：${interactions}`;
+      }).join('\n\n');
+      result = result.replace(/\{\{enrichedLuckPeriods\}\}/g, lpText);
+
+      // Current period detail
+      const current = enrichedPeriods.find((lp) => lp['isCurrent']);
+      const currentIdx = enrichedPeriods.findIndex((lp) => lp['isCurrent']);
+      if (current) {
+        result = result.replace(/\{\{currentPeriodDetail\}\}/g, this.formatPeriodDetail(current, currentIdx, enrichedPeriods.length));
+
+        // Previous period
+        if (currentIdx > 0) {
+          result = result.replace(/\{\{previousPeriodDetail\}\}/g,
+            this.formatPeriodDetail(enrichedPeriods[currentIdx - 1], currentIdx - 1, enrichedPeriods.length));
+        } else {
+          result = result.replace(/\{\{previousPeriodDetail\}\}/g, '（無前一大運）');
+        }
+
+        // Next period
+        if (currentIdx < enrichedPeriods.length - 1) {
+          result = result.replace(/\{\{nextPeriodDetail\}\}/g,
+            this.formatPeriodDetail(enrichedPeriods[currentIdx + 1], currentIdx + 1, enrichedPeriods.length));
+        } else {
+          result = result.replace(/\{\{nextPeriodDetail\}\}/g, '（無下一大運）');
+        }
+      } else {
+        result = result.replace(/\{\{currentPeriodDetail\}\}/g, '（未找到當前大運）');
+        result = result.replace(/\{\{previousPeriodDetail\}\}/g, '（無資料）');
+        result = result.replace(/\{\{nextPeriodDetail\}\}/g, '（無資料）');
+      }
+    } else {
+      result = result.replace(/\{\{enrichedLuckPeriods\}\}/g, '（無大運資料）');
+      result = result.replace(/\{\{currentPeriodDetail\}\}/g, '（無資料）');
+      result = result.replace(/\{\{previousPeriodDetail\}\}/g, '（無資料）');
+      result = result.replace(/\{\{nextPeriodDetail\}\}/g, '（無資料）');
+    }
+
+    // Best period
+    if (bestPeriod) {
+      const bestTenGodLabel = bestPeriod['tenGod'] ? `（${bestPeriod['tenGod']}）` : '';
+      result = result.replace(/\{\{bestPeriodDetail\}\}/g,
+        `${bestPeriod['stem']}${bestPeriod['branch']}${bestTenGodLabel}大運（${bestPeriod['startAge']}-${bestPeriod['endAge']}歲），` +
+        `評分${bestPeriod['score']}/100，天干階段：${bestPeriod['stemPhase']}，地支階段：${bestPeriod['branchPhase']}`);
+    } else {
+      result = result.replace(/\{\{bestPeriodDetail\}\}/g, '（大運數據不足，無法判定最有利大運）');
+    }
+
+    // Annual star detail
+    const annualStars = data['annualStars'] as Array<Record<string, unknown>> | undefined;
+    const targetYear = data['targetYear'] as number || new Date().getFullYear();
+    const annualStar = annualStars?.find((s) => s['year'] === targetYear);
+    if (annualStar) {
+      const natalInteractions = annualStar['natalInteractions'] as Array<Record<string, unknown>> | undefined;
+      const intText = natalInteractions?.length
+        ? natalInteractions.map((i) => i['description'] as string).filter(Boolean).join('、')
+        : '無特殊互動';
+      result = result.replace(/\{\{annualStarDetail\}\}/g,
+        `${targetYear}年：${annualStar['stem']}${annualStar['branch']}（${annualStar['tenGod']}）\n互動：${intText}`);
+    } else {
+      result = result.replace(/\{\{annualStarDetail\}\}/g, `${targetYear}年：（資料未提供）`);
+    }
+
+    return result;
+  }
+
+  /**
+   * Format a single luck period into detail text.
+   */
+  private formatPeriodDetail(
+    period: Record<string, unknown>,
+    index: number,
+    total: number,
+  ): string {
+    const interactions = (period['interactions'] as string[] || []).join('、') || '無特殊互動';
+    const tenGodLabel = period['tenGod'] ? `（${period['tenGod']}）` : '';
+    return `[${index + 1}/${total}] ${period['stem']}${period['branch']}${tenGodLabel}大運（${period['startAge']}-${period['endAge']}歲，${period['startYear']}-${period['endYear']}），` +
+      `評分${period['score']}/100\n` +
+      `天干階段（前5年）：${period['stemPhase']}\n` +
+      `地支階段（後5年）：${period['branchPhase']}\n` +
+      `互動：${interactions}`;
+  }
+
+  /**
+   * Parse a single V2 call response into sections.
+   */
+  private parseLifetimeV2CallResponse(
+    rawContent: string,
+    callLabel: 'call1' | 'call2',
+  ): AIInterpretationResult {
+    const expectedKeys = callLabel === 'call1'
+      ? LIFETIME_V2_PROMPTS.call1Sections
+      : LIFETIME_V2_PROMPTS.call2Sections;
+
+    // Try strict JSON parse first
+    try {
+      return this.parseAIResponse(rawContent, ReadingType.LIFETIME);
+    } catch {
+      // Fall through to regex extraction
+    }
+
+    // If standard parse worked but returned empty sections, try regex per section key
+    const parsed = this.parseAIResponse(rawContent, ReadingType.LIFETIME);
+    if (Object.keys(parsed.sections).length > 0) {
+      return parsed;
+    }
+
+    // Regex fallback: try to extract each expected section key
+    const sections: Record<string, InterpretationSection> = {};
+    for (const key of expectedKeys) {
+      const regex = new RegExp(`"${key}"\\s*:\\s*\\{[^}]*"preview"\\s*:\\s*"([^"]*)"[^}]*"full"\\s*:\\s*"([^"]*)"`, 's');
+      const match = rawContent.match(regex);
+      if (match) {
+        sections[key] = { preview: match[1] || '', full: match[2] || '' };
+      }
+    }
+
+    return {
+      sections,
+      summary: parsed.summary || { preview: '', full: '' },
+    };
+  }
+
+  // ============================================================
   // Provider Calls
   // ============================================================
 
@@ -280,14 +1100,15 @@ export class AIService implements OnModuleInit {
     config: ProviderConfig,
     systemPrompt: string,
     userPrompt: string,
+    signal?: AbortSignal,
   ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
     switch (config.provider) {
       case AIProvider.CLAUDE:
-        return this.callClaude(config, systemPrompt, userPrompt);
+        return this.callClaude(config, systemPrompt, userPrompt, signal);
       case AIProvider.GPT:
-        return this.callGPT(config, systemPrompt, userPrompt);
+        return this.callGPT(config, systemPrompt, userPrompt, signal);
       case AIProvider.GEMINI:
-        return this.callGemini(config, systemPrompt, userPrompt);
+        return this.callGemini(config, systemPrompt, userPrompt, signal);
       default:
         throw new Error(`Unknown provider: ${config.provider}`);
     }
@@ -297,16 +1118,17 @@ export class AIService implements OnModuleInit {
     config: ProviderConfig,
     systemPrompt: string,
     userPrompt: string,
+    signal?: AbortSignal,
   ): AsyncGenerator<string> {
     switch (config.provider) {
       case AIProvider.CLAUDE:
-        yield* this.streamClaude(config, systemPrompt, userPrompt);
+        yield* this.streamClaude(config, systemPrompt, userPrompt, signal);
         break;
       case AIProvider.GPT:
-        yield* this.streamGPT(config, systemPrompt, userPrompt);
+        yield* this.streamGPT(config, systemPrompt, userPrompt, signal);
         break;
       case AIProvider.GEMINI:
-        yield* this.streamGemini(config, systemPrompt, userPrompt);
+        yield* this.streamGemini(config, systemPrompt, userPrompt, signal);
         break;
       default:
         throw new Error(`Unknown provider: ${config.provider}`);
@@ -319,18 +1141,22 @@ export class AIService implements OnModuleInit {
     config: ProviderConfig,
     systemPrompt: string,
     userPrompt: string,
+    signal?: AbortSignal,
   ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
     if (!this.claudeClient) {
       const { default: Anthropic } = await import('@anthropic-ai/sdk');
       this.claudeClient = new Anthropic({ apiKey: config.apiKey });
     }
 
-    const response = await this.claudeClient.messages.create({
-      model: config.model,
-      max_tokens: 16384,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    });
+    const response = await this.claudeClient.messages.create(
+      {
+        model: config.model,
+        max_tokens: 16384,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      },
+      signal ? { signal } : undefined,
+    );
 
     const content = response.content
       .filter((block: { type: string }) => block.type === 'text')
@@ -348,18 +1174,22 @@ export class AIService implements OnModuleInit {
     config: ProviderConfig,
     systemPrompt: string,
     userPrompt: string,
+    signal?: AbortSignal,
   ): AsyncGenerator<string> {
     if (!this.claudeClient) {
       const { default: Anthropic } = await import('@anthropic-ai/sdk');
       this.claudeClient = new Anthropic({ apiKey: config.apiKey });
     }
 
-    const stream = this.claudeClient.messages.stream({
-      model: config.model,
-      max_tokens: 16384,
-      system: systemPrompt,
-      messages: [{ role: 'user', content: userPrompt }],
-    });
+    const stream = this.claudeClient.messages.stream(
+      {
+        model: config.model,
+        max_tokens: 16384,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      },
+      signal ? { signal } : undefined,
+    );
 
     for await (const event of stream) {
       if (
@@ -378,6 +1208,7 @@ export class AIService implements OnModuleInit {
     config: ProviderConfig,
     systemPrompt: string,
     userPrompt: string,
+    signal?: AbortSignal,
   ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
     if (!this.openaiClient) {
       const { default: OpenAI } = await import('openai');
@@ -391,7 +1222,7 @@ export class AIService implements OnModuleInit {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-    });
+    }, signal ? { signal } : undefined);
 
     return {
       content: response.choices[0]?.message?.content || '',
@@ -404,6 +1235,7 @@ export class AIService implements OnModuleInit {
     config: ProviderConfig,
     systemPrompt: string,
     userPrompt: string,
+    signal?: AbortSignal,
   ): AsyncGenerator<string> {
     if (!this.openaiClient) {
       const { default: OpenAI } = await import('openai');
@@ -418,7 +1250,7 @@ export class AIService implements OnModuleInit {
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-    });
+    }, signal ? { signal } : undefined);
 
     for await (const chunk of stream) {
       const text = chunk.choices[0]?.delta?.content;
@@ -434,6 +1266,7 @@ export class AIService implements OnModuleInit {
     config: ProviderConfig,
     systemPrompt: string,
     userPrompt: string,
+    _signal?: AbortSignal,
   ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
     if (!this.geminiAI) {
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
@@ -459,6 +1292,7 @@ export class AIService implements OnModuleInit {
     config: ProviderConfig,
     systemPrompt: string,
     userPrompt: string,
+    _signal?: AbortSignal,
   ): AsyncGenerator<string> {
     if (!this.geminiAI) {
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
@@ -1974,7 +2808,8 @@ export class AIService implements OnModuleInit {
   ): string {
     const crypto = require('crypto');
     // Include preAnalysis version in hash so cache invalidates when rules change
-    const preAnalysisVersion = 'v1.0.0';
+    // LIFETIME uses v2.0.0 (V2 multi-call format), all others use v1.0.0
+    const preAnalysisVersion = readingType === ReadingType.LIFETIME ? 'v2.0.0' : 'v1.0.0';
     const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;
     return crypto.createHash('sha256').update(data).digest('hex');
   }

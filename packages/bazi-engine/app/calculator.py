@@ -47,6 +47,7 @@ from .compatibility_enhanced import calculate_enhanced_compatibility
 from .compatibility_preanalysis import generate_compatibility_pre_analysis
 from .constants import BRANCH_ELEMENT, PATTERN_TYPES, STEM_ELEMENT
 from .interpretation_rules import generate_pre_analysis
+from .lifetime_enhanced import generate_lifetime_enhanced_insights
 
 
 def calculate_bazi(
@@ -192,6 +193,25 @@ def calculate_bazi(
         special_day_pillars=special_day_pillars,
     )
 
+    # Step 16: Lifetime Enhanced Insights (V2 — only for lifetime reading type)
+    lifetime_enhanced = None
+    if reading_type and reading_type.upper() == 'LIFETIME':
+        lifetime_enhanced = generate_lifetime_enhanced_insights(
+            pillars=pillars,
+            day_master_stem=day_master_stem,
+            gender=gender,
+            five_elements_balance=five_elements_balance,
+            effective_gods=pre_analysis['effectiveFavorableGods'],
+            prominent_god=prominent_god,
+            strength_v2=pre_analysis['strengthV2'],
+            cong_ge=pre_analysis.get('congGe'),
+            tougan_analysis=pre_analysis.get('touganAnalysis', []),
+            ten_god_position_analysis=pre_analysis.get('tenGodPositionAnalysis', []),
+            luck_periods=luck_periods,
+            annual_stars=annual_stars,
+            kong_wang=kong_wang,
+        )
+
     # Build the complete result
     day_master_result = {
         **day_master_analysis,
@@ -264,6 +284,10 @@ def calculate_bazi(
         'timingInsights': timing_insights,
         'specialDayPillars': special_day_pillars,
     }
+
+    # Conditionally include lifetime enhanced insights
+    if lifetime_enhanced is not None:
+        result['lifetimeEnhancedInsights'] = lifetime_enhanced
 
     return result
 

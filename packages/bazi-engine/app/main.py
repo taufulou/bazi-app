@@ -80,6 +80,11 @@ class BirthDataInput(BaseModel):
         description="Target year for annual forecast (default: current year)",
         examples=[2026],
     )
+    reading_type: Optional[str] = Field(
+        None,
+        description="Reading type for conditional computation (e.g., 'lifetime' for enhanced insights)",
+        examples=["lifetime"],
+    )
 
 
 class CompatibilityInput(BaseModel):
@@ -153,6 +158,7 @@ async def calculate_bazi_endpoint(data: BirthDataInput):
             birth_longitude=data.birth_longitude,
             birth_latitude=data.birth_latitude,
             target_year=data.target_year,
+            reading_type=data.reading_type,
         )
 
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)

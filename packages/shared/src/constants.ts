@@ -134,7 +134,7 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'Lifetime Destiny',
     icon: '🌟',
     themeColor: '#FFD700',
-    creditCost: 2,
+    creditCost: 3,
     description: {
       'zh-TW': '全面分析您的八字命盤，深入了解一生的命運走向',
       'zh-CN': '全面分析您的八字命盘，深入了解一生的命运走向',

@@ -62,7 +62,7 @@ const mockService = {
   descriptionZhTw: '',
   descriptionZhCn: '',
   type: ReadingType.LIFETIME,
-  creditCost: 2,
+  creditCost: 3,
   isActive: true,
   sortOrder: 1,
   createdAt: new Date(),
@@ -100,6 +100,7 @@ describe('AI Failure Graceful Degradation', () => {
       generateBirthDataHash: jest.fn().mockReturnValue('hash-test'),
       getCachedInterpretation: jest.fn().mockResolvedValue(null),
       generateInterpretation: jest.fn(),
+      generateLifetimeV2Interpretation: jest.fn(),
       cacheInterpretation: jest.fn().mockResolvedValue(undefined),
     };
 
@@ -136,6 +137,9 @@ describe('AI Failure Graceful Degradation', () => {
     aiService.generateInterpretation.mockRejectedValue(
       new Error('All AI providers failed'),
     );
+    aiService.generateLifetimeV2Interpretation.mockRejectedValue(
+      new Error('All AI providers failed'),
+    );
 
     prisma.user.findUnique.mockResolvedValue(mockUser);
     prisma.birthProfile.findFirst.mockResolvedValue(mockProfile);
@@ -167,7 +171,7 @@ describe('AI Failure Graceful Degradation', () => {
     // Calculation data should still be present
     expect(savedReadingData.calculationData).toBeDefined();
     // Credits should still be deducted (user chose to create reading)
-    expect(savedReadingData.creditsUsed).toBe(2);
+    expect(savedReadingData.creditsUsed).toBe(3);
   });
 
   it('should include AI interpretation when AI succeeds', async () => {
@@ -182,7 +186,7 @@ describe('AI Failure Graceful Degradation', () => {
       tokenUsage: { inputTokens: 1000, outputTokens: 1500 },
     };
 
-    aiService.generateInterpretation.mockResolvedValue(mockAIResult);
+    aiService.generateLifetimeV2Interpretation.mockResolvedValue(mockAIResult);
 
     prisma.user.findUnique.mockResolvedValue(mockUser);
     prisma.birthProfile.findFirst.mockResolvedValue(mockProfile);
@@ -210,11 +214,14 @@ describe('AI Failure Graceful Degradation', () => {
     expect(result).toBeDefined();
     expect(savedReadingData.aiInterpretation).toBeDefined();
     expect(savedReadingData.aiProvider).toBe('CLAUDE');
-    expect(savedReadingData.creditsUsed).toBe(2);
+    expect(savedReadingData.creditsUsed).toBe(3);
   });
 
   it('should release lock even when AI fails', async () => {
     aiService.generateInterpretation.mockRejectedValue(
+      new Error('AI provider timeout'),
+    );
+    aiService.generateLifetimeV2Interpretation.mockRejectedValue(
       new Error('AI provider timeout'),
     );
 
@@ -225,7 +232,7 @@ describe('AI Failure Graceful Degradation', () => {
       return fn({
         user: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
         baziReading: {
-          create: jest.fn().mockResolvedValue({ id: 'reading-3', creditsUsed: 2 }),
+          create: jest.fn().mockResolvedValue({ id: 'reading-3', creditsUsed: 3 }),
         },
       });
     });
@@ -269,8 +276,9 @@ describe('AI Failure Graceful Degradation', () => {
       readingType: ReadingType.LIFETIME,
     });
 
-    // Should NOT call generateInterpretation when cache hit
+    // Should NOT call generateInterpretation or V2 when cache hit
     expect(aiService.generateInterpretation).not.toHaveBeenCalled();
+    expect(aiService.generateLifetimeV2Interpretation).not.toHaveBeenCalled();
     // Should use cached interpretation
     expect(savedReadingData.aiInterpretation).toEqual(cachedInterpretation);
     expect(savedReadingData.aiModel).toBe('cached');

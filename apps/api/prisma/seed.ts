@@ -9,7 +9,7 @@ async function main() {
 
   // Seed Services (Reading Types)
   const services = [
-    { slug: 'lifetime', nameZhTw: '八字終身運', nameZhCn: '八字终身运', descriptionZhTw: '全面分析您的八字命盤，深入了解一生的命運走向', descriptionZhCn: '全面分析您的八字命盘，深入了解一生的命运走向', type: ReadingType.LIFETIME, creditCost: 2, sortOrder: 1 },
+    { slug: 'lifetime', nameZhTw: '八字終身運', nameZhCn: '八字终身运', descriptionZhTw: '全面分析您的八字命盤，深入了解一生的命運走向', descriptionZhCn: '全面分析您的八字命盘，深入了解一生的命运走向', type: ReadingType.LIFETIME, creditCost: 3, sortOrder: 1 },
     { slug: 'annual', nameZhTw: '八字流年運勢', nameZhCn: '八字流年运势', descriptionZhTw: '預測您今年的運勢變化，掌握每月吉凶', descriptionZhCn: '预测您今年的运势变化，掌握每月吉凶', type: ReadingType.ANNUAL, creditCost: 2, sortOrder: 2 },
     { slug: 'career', nameZhTw: '事業財運', nameZhCn: '事业财运', descriptionZhTw: '分析事業發展方向與財運走勢，找到最佳機遇', descriptionZhCn: '分析事业发展方向与财运走势，找到最佳机遇', type: ReadingType.CAREER, creditCost: 2, sortOrder: 3 },
     { slug: 'love', nameZhTw: '愛情姻緣', nameZhCn: '爱情姻缘', descriptionZhTw: '探索感情運勢，了解理想伴侶特質與姻緣時機', descriptionZhCn: '探索感情运势，了解理想伴侣特质与姻缘时机', type: ReadingType.LOVE, creditCost: 2, sortOrder: 4 },

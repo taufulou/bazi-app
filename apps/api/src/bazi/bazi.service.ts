@@ -5,8 +5,10 @@ import {
   ConflictException,
   Logger,
   InternalServerErrorException,
+  type MessageEvent,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Observable, Subscriber } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AIService } from '../ai/ai.service';
@@ -145,6 +147,11 @@ export class BaziService {
       throw new InternalServerErrorException('Bazi calculation failed. Please try again.');
     }
 
+    // Streaming path: LIFETIME + stream=true + no cache → skip AI, return streamReady
+    const isStreamingRequest = dto.stream === true
+      && dto.readingType === ReadingType.LIFETIME
+      && !cachedInterpretation;
+
     // Generate AI interpretation (or use cache)
     let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
     let aiProvider: string | undefined = undefined;
@@ -156,7 +163,8 @@ export class BaziService {
       aiInterpretation = cachedInterpretation as unknown as Prisma.InputJsonValue;
       aiProvider = 'CLAUDE'; // Original provider unknown for cached results
       aiModel = 'cached';
-    } else {
+    } else if (!isStreamingRequest) {
+      // Non-streaming: generate AI inline (existing behavior)
       try {
         // Add birth info to calculation data for prompt interpolation
         const enrichedData = {
@@ -167,11 +175,17 @@ export class BaziService {
           targetYear: dto.targetYear,
         };
 
-        const aiResult = await this.aiService.generateInterpretation(
-          enrichedData,
-          dto.readingType,
-          user.id,
-        );
+        // Route LIFETIME to V2 multi-call; all others use V1 single-call
+        const aiResult = dto.readingType === ReadingType.LIFETIME
+          ? await this.aiService.generateLifetimeV2Interpretation(
+              enrichedData,
+              user.id,
+            )
+          : await this.aiService.generateInterpretation(
+              enrichedData,
+              dto.readingType,
+              user.id,
+            );
 
         aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
         aiProvider = aiResult.provider;
@@ -192,6 +206,7 @@ export class BaziService {
         // The frontend can request AI interpretation later
       }
     }
+    // else: streaming request — aiInterpretation stays null, will be populated by SSE endpoint
 
     // Cache hit: no credit deduction (user already paid for this interpretation)
     // Master tier: no credit deduction at all (creditsUsed: 0)
@@ -241,6 +256,20 @@ export class BaziService {
         },
       });
     });
+
+    // For streaming requests, include streamReady flag and deterministic data
+    if (isStreamingRequest) {
+      const enhancedInsights = calculationData['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
+      const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+      // Convert snake_case to camelCase for frontend
+      const deterministic: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(rawDeterministic)) {
+        const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+        deterministic[camelKey] = value;
+      }
+
+      return { ...reading, fromCache, streamReady: true, deterministic };
+    }
 
     return { ...reading, fromCache };
   }
@@ -294,6 +323,133 @@ export class BaziService {
     }
 
     return reading;
+  }
+
+  // ============ SSE Streaming ============
+
+  /**
+   * Stream AI interpretation for a LIFETIME reading via SSE.
+   * Returns an Observable<MessageEvent> consumed by the @Sse endpoint.
+   */
+  streamReading(clerkUserId: string, readingId: string): Observable<MessageEvent> {
+    return new Observable((subscriber: Subscriber<MessageEvent>) => {
+      this._setupStream(clerkUserId, readingId, subscriber).catch((err) => {
+        const message = err instanceof Error ? err.message : 'Stream setup failed';
+        subscriber.next({
+          data: JSON.stringify({ message }),
+          type: 'error',
+        } as MessageEvent);
+        subscriber.complete();
+      });
+    });
+  }
+
+  private async _setupStream(
+    clerkUserId: string,
+    readingId: string,
+    subscriber: Subscriber<MessageEvent>,
+  ) {
+    this.logger.log(`[Stream] Setup starting for reading=${readingId}, user=${clerkUserId}`);
+
+    // 1. Verify user owns this reading
+    const user = await this.prisma.user.findUnique({ where: { clerkUserId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const reading = await this.prisma.baziReading.findFirst({
+      where: { id: readingId, userId: user.id },
+      include: { birthProfile: true },
+    });
+    if (!reading) throw new NotFoundException('Reading not found');
+
+    this.logger.log(`[Stream] Reading found, hasAI=${!!reading.aiInterpretation}, hasCalc=${!!reading.calculationData}`);
+
+    // 2. If AI already populated (cache hit or re-fetch), emit static sections
+    if (reading.aiInterpretation) {
+      this.emitStaticSections(
+        reading.aiInterpretation as Record<string, unknown>,
+        subscriber,
+      );
+      return;
+    }
+
+    // 3. Check concurrent stream limit (max 2 per user)
+    const activeKey = `stream:active:${user.id}`;
+    const active = await this.redis.incrementRateLimit(activeKey, 300); // 5 min TTL safety
+    if (active > 2) {
+      await this.redis.getClient().decr(activeKey);
+      throw new ConflictException('Maximum concurrent streams reached');
+    }
+
+    try {
+      // 4. Rebuild enriched data from stored calculationData
+      const enrichedData: Record<string, unknown> = {
+        ...(reading.calculationData as Record<string, unknown>),
+        gender: reading.birthProfile?.gender?.toLowerCase(),
+        birthDate: reading.birthProfile?.birthDate?.toISOString().split('T')[0],
+        birthTime: reading.birthProfile?.birthTime,
+      };
+
+      // 5. Delegate to AI service streaming
+      const aiObservable = this.aiService.streamLifetimeV2(
+        enrichedData,
+        readingId,
+      );
+      aiObservable.subscribe({
+        next: (event) => subscriber.next(event),
+        error: (err) => {
+          this.redis.getClient().decr(activeKey).catch(() => {});
+          const message = err instanceof Error ? err.message : 'Stream error';
+          subscriber.next({
+            data: JSON.stringify({ message }),
+            type: 'error',
+          } as MessageEvent);
+          subscriber.complete();
+        },
+        complete: () => {
+          this.redis.getClient().decr(activeKey).catch(() => {});
+          subscriber.complete();
+        },
+      });
+    } catch (err) {
+      // Decrement on setup error
+      await this.redis.getClient().decr(activeKey);
+      throw err;
+    }
+  }
+
+  /**
+   * Emit already-existing AI interpretation as static SSE events.
+   * Used when a reading already has AI data (e.g., client reconnects after completion).
+   */
+  private emitStaticSections(
+    aiInterpretation: Record<string, unknown>,
+    subscriber: Subscriber<MessageEvent>,
+  ) {
+    const sections = aiInterpretation['sections'] as Record<string, { preview: string; full: string }> | undefined;
+    const summary = aiInterpretation['summary'] as { preview: string; full: string } | undefined;
+
+    if (sections) {
+      for (const [key, section] of Object.entries(sections)) {
+        subscriber.next({
+          data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+          type: 'section_complete',
+        } as MessageEvent);
+      }
+    }
+
+    if (summary) {
+      subscriber.next({
+        data: JSON.stringify({ preview: summary.preview, full: summary.full }),
+        type: 'summary',
+      } as MessageEvent);
+    }
+
+    subscriber.next({
+      data: JSON.stringify({ totalSections: sections ? Object.keys(sections).length : 0, latencyMs: 0 }),
+      type: 'done',
+    } as MessageEvent);
+
+    subscriber.complete();
   }
 
   // ============ Comparisons ============

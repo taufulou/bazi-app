@@ -1,6 +1,7 @@
-import { Controller, Get, Post, Body, Param, Query } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, Sse, MessageEvent } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
+import { Observable } from 'rxjs';
 import { BaziService } from './bazi.service';
 import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto';
 import { CurrentUser, AuthPayload } from '../auth/current-user.decorator';
@@ -48,6 +49,16 @@ export class BaziController {
     @Param('id') id: string,
   ) {
     return this.baziService.getReading(auth.userId, id);
+  }
+
+  @Sse('readings/:id/stream')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Stream AI interpretation for a lifetime reading via SSE' })
+  streamReading(
+    @CurrentUser() auth: AuthPayload,
+    @Param('id') id: string,
+  ): Observable<MessageEvent> {
+    return this.baziService.streamReading(auth.userId, id);
   }
 
   @Post('comparisons')
