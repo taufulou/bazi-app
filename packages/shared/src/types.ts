@@ -103,18 +103,34 @@ export interface FiveElementsBalance {
   water: number;
 }
 
+/** Strength score V2 (得令/得地/得勢 3-factor model) */
+export interface StrengthScoreV2 {
+  score: number;           // 0-100
+  classification: 'very_weak' | 'weak' | 'neutral' | 'strong' | 'very_strong';
+  factors: {
+    deling: number;        // 得令 (seasonal) up to ~50
+    dedi: number;          // 得地 (root depth) up to 30
+    deshi: number;         // 得勢 (support) up to 20
+  };
+  lifeStage: string;       // e.g. '帝旺', '衰'
+}
+
 /** Day Master analysis */
 export interface DayMasterAnalysis {
   element: FiveElement;
   yinYang: YinYang;
   strength: 'very_weak' | 'weak' | 'neutral' | 'strong' | 'very_strong';
-  strengthScore: number; // 0-100
+  strengthScore: number; // 0-100 (V1 legacy)
   pattern: string; // 格局 e.g. 食神格, 正官格
   favorableGod: FiveElement;   // 喜神
   usefulGod: FiveElement;      // 用神
   idleGod: FiveElement;        // 閒神
   tabooGod: FiveElement;       // 忌神
   enemyGod: FiveElement;       // 仇神
+  // V2 additions:
+  strengthScoreV2?: StrengthScoreV2;
+  sameParty?: number;          // % same element party
+  oppositeParty?: number;      // % opposing element party
 }
 
 /** Luck Period (大運) */
@@ -163,7 +179,11 @@ export interface BaziCalculationResult {
   fourPillars: FourPillars;
   fiveElementsBalance: FiveElementsBalance;
   fiveElementsBalanceRaw?: FiveElementsBalance;
+  fiveElementsBalanceZh?: Record<FiveElement, number>;
   dayMaster: DayMasterAnalysis;
+  dayMasterStem?: string;
+  dayMasterBranch?: string;
+  gender?: string;
   luckPeriods: LuckPeriod[];
   annualStars: AnnualStar[];
   monthlyStars: MonthlyStar[];
@@ -173,6 +193,22 @@ export interface BaziCalculationResult {
     month: number;
     day: number;
     isLeapMonth: boolean;
+  };
+  kongWang?: string[];
+  kongWangPerPillar?: Record<string, string[]>;
+  elementCounts?: {
+    stems: Record<string, number>;
+    branches: Record<string, number>;
+    hidden: Record<string, number>;
+    total: Record<string, number>;
+  };
+  tenGodDistribution?: Record<string, number>;
+  preAnalysis?: Record<string, unknown>;
+  lifetimeEnhancedInsights?: {
+    patternNarrative?: Record<string, unknown>;
+    narrativeAnchors?: Record<string, string[]>;
+    deterministic?: Record<string, unknown>;
+    [key: string]: unknown;
   };
 }
 

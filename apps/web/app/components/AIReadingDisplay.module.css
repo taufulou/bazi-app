@@ -426,6 +426,13 @@
   font-weight: 600;
 }
 
+.detCardDisclaimer {
+  font-size: 0.75rem;
+  color: #a0a0a0;
+  margin-left: 0.5rem;
+  font-weight: 400;
+}
+
 .detCardBody {
   display: flex;
   flex-direction: column;

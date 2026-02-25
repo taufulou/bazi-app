@@ -315,146 +315,160 @@ export class AIService implements OnModuleInit {
     const { systemPrompt, userPromptCall1, userPromptCall2 } =
       this.buildLifetimeV2Prompts(calculationData);
 
-    // Fire both calls in parallel via Promise.allSettled
-    const providerConfig = this.providers[0]; // Primary provider
+    // Try each provider in order (fallback chain: Claude → GPT-4o → Gemini)
+    let lastError: Error | undefined;
 
-    const call1Promise = this.callProviderWithTimeout(
-      providerConfig, systemPrompt, userPromptCall1, timeoutMs,
-    );
-    const call2Promise = this.callProviderWithTimeout(
-      providerConfig, systemPrompt, userPromptCall2, timeoutMs,
-    );
+    for (const providerConfig of this.providers) {
+      try {
+        // Fire both calls in parallel via Promise.allSettled
+        const call1Promise = this.callProviderWithTimeout(
+          providerConfig, systemPrompt, userPromptCall1, timeoutMs,
+        );
+        const call2Promise = this.callProviderWithTimeout(
+          providerConfig, systemPrompt, userPromptCall2, timeoutMs,
+        );
 
-    const startTime = Date.now();
-    const [result1, result2] = await Promise.allSettled([call1Promise, call2Promise]);
-    const latencyMs = Date.now() - startTime;
+        const startTime = Date.now();
+        const [result1, result2] = await Promise.allSettled([call1Promise, call2Promise]);
+        const latencyMs = Date.now() - startTime;
 
-    const call1Success = result1.status === 'fulfilled';
-    const call2Success = result2.status === 'fulfilled';
+        const call1Success = result1.status === 'fulfilled';
+        const call2Success = result2.status === 'fulfilled';
 
-    if (!call1Success) {
-      this.logger.warn(`Lifetime V2 Call 1 failed: ${(result1 as PromiseRejectedResult).reason}`);
-    }
-    if (!call2Success) {
-      this.logger.warn(`Lifetime V2 Call 2 failed: ${(result2 as PromiseRejectedResult).reason}`);
-    }
+        if (!call1Success) {
+          this.logger.warn(`Lifetime V2 Call 1 failed (${providerConfig.provider}): ${(result1 as PromiseRejectedResult).reason}`);
+        }
+        if (!call2Success) {
+          this.logger.warn(`Lifetime V2 Call 2 failed (${providerConfig.provider}): ${(result2 as PromiseRejectedResult).reason}`);
+        }
 
-    // Partial success strategy
-    if (!call1Success && !call2Success) {
-      // Both failed → fall back to V1 single-call
-      this.logger.warn('Lifetime V2 both calls failed — falling back to V1');
-      return this.generateInterpretation(
-        calculationData,
-        ReadingType.LIFETIME,
-        userId,
-        readingId,
-      );
-    }
+        // Both failed for this provider — try next provider
+        if (!call1Success && !call2Success) {
+          lastError = new Error(`Provider ${providerConfig.provider}: both V2 calls failed`);
+          this.logger.warn(`V2 provider ${providerConfig.provider} both calls failed. Trying next...`);
+          continue;
+        }
 
-    // Parse successful results
-    let sections: Record<string, InterpretationSection> = {};
-    let summary: InterpretationSection = { preview: '', full: '' };
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
+        // At least one call succeeded — parse and merge results
+        let sections: Record<string, InterpretationSection> = {};
+        let summary: InterpretationSection = { preview: '', full: '' };
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
 
-    if (call1Success) {
-      const r1 = (result1 as PromiseFulfilledResult<{ content: string; inputTokens: number; outputTokens: number }>).value;
-      totalInputTokens += r1.inputTokens;
-      totalOutputTokens += r1.outputTokens;
+        if (call1Success) {
+          const r1 = (result1 as PromiseFulfilledResult<{ content: string; inputTokens: number; outputTokens: number }>).value;
+          totalInputTokens += r1.inputTokens;
+          totalOutputTokens += r1.outputTokens;
 
-      const parsed1 = this.parseLifetimeV2CallResponse(r1.content, 'call1');
-      // Apply auto-fix before merging
-      const { result: fixed1 } = this.autoFixAllSections(parsed1, calculationData);
-      sections = { ...sections, ...fixed1.sections };
-      if (fixed1.summary && (fixed1.summary.preview || fixed1.summary.full)) {
-        summary = fixed1.summary;
+          const parsed1 = this.parseLifetimeV2CallResponse(r1.content, 'call1');
+          // Apply auto-fix before merging
+          const { result: fixed1 } = this.autoFixAllSections(parsed1, calculationData);
+          sections = { ...sections, ...fixed1.sections };
+          if (fixed1.summary && (fixed1.summary.preview || fixed1.summary.full)) {
+            summary = fixed1.summary;
+          }
+
+          // Log Call 1 usage
+          this.logUsage(userId, readingId, providerConfig, {
+            interpretation: { sections: fixed1.sections, summary: fixed1.summary },
+            provider: providerConfig.provider,
+            model: providerConfig.model,
+            tokenUsage: {
+              inputTokens: r1.inputTokens,
+              outputTokens: r1.outputTokens,
+              totalTokens: r1.inputTokens + r1.outputTokens,
+              estimatedCostUsd: 0,
+            },
+            latencyMs,
+            isCacheHit: false,
+          }, 'LIFETIME' as ReadingType).catch(() => {});
+        }
+
+        if (call2Success) {
+          const r2 = (result2 as PromiseFulfilledResult<{ content: string; inputTokens: number; outputTokens: number }>).value;
+          totalInputTokens += r2.inputTokens;
+          totalOutputTokens += r2.outputTokens;
+
+          const parsed2 = this.parseLifetimeV2CallResponse(r2.content, 'call2');
+          // Apply auto-fix before merging
+          const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
+          sections = { ...sections, ...fixed2.sections };
+
+          // Log Call 2 usage
+          this.logUsage(userId, readingId, providerConfig, {
+            interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
+            provider: providerConfig.provider,
+            model: providerConfig.model,
+            tokenUsage: {
+              inputTokens: r2.inputTokens,
+              outputTokens: r2.outputTokens,
+              totalTokens: r2.inputTokens + r2.outputTokens,
+              estimatedCostUsd: 0,
+            },
+            latencyMs,
+            isCacheHit: false,
+          }, 'LIFETIME' as ReadingType).catch(() => {});
+        } else if (call1Success) {
+          // Call 1 succeeded, Call 2 failed — return Call 1 sections only (still valuable)
+          this.logger.warn('Lifetime V2 Call 2 failed — returning Call 1 sections only');
+        }
+
+        // Merge with deterministic data from lifetimeEnhancedInsights
+        // Python engine returns snake_case keys; convert to camelCase for frontend
+        const enhancedInsights = calculationData['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
+        const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+        const deterministic: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(rawDeterministic)) {
+          const camelKey = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+          deterministic[camelKey] = value;
+        }
+
+        const totalCost =
+          totalInputTokens * providerConfig.costPerInputToken +
+          totalOutputTokens * providerConfig.costPerOutputToken;
+
+        const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
+          sections,
+          summary,
+          deterministic,
+          schemaVersion: 'v2',
+        };
+
+        this.logger.log(
+          `Lifetime V2 generated via ${providerConfig.provider} in ${latencyMs}ms, ` +
+          `${totalInputTokens}+${totalOutputTokens} tokens (total), $${totalCost.toFixed(4)}, ` +
+          `call1=${call1Success ? 'ok' : 'FAIL'}, call2=${call2Success ? 'ok' : 'FAIL'}`,
+        );
+
+        return {
+          interpretation,
+          provider: providerConfig.provider,
+          model: providerConfig.model,
+          tokenUsage: {
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            totalTokens: totalInputTokens + totalOutputTokens,
+            estimatedCostUsd: Math.round(totalCost * 1_000_000) / 1_000_000,
+          },
+          latencyMs,
+          isCacheHit: false,
+        };
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        this.logger.warn(
+          `V2 provider ${providerConfig.provider} failed: ${lastError.message}. Trying next...`,
+        );
       }
-
-      // Log Call 1 usage
-      this.logUsage(userId, readingId, providerConfig, {
-        interpretation: { sections: fixed1.sections, summary: fixed1.summary },
-        provider: providerConfig.provider,
-        model: providerConfig.model,
-        tokenUsage: {
-          inputTokens: r1.inputTokens,
-          outputTokens: r1.outputTokens,
-          totalTokens: r1.inputTokens + r1.outputTokens,
-          estimatedCostUsd: 0,
-        },
-        latencyMs,
-        isCacheHit: false,
-      }, 'LIFETIME' as ReadingType).catch(() => {});
     }
 
-    if (call2Success) {
-      const r2 = (result2 as PromiseFulfilledResult<{ content: string; inputTokens: number; outputTokens: number }>).value;
-      totalInputTokens += r2.inputTokens;
-      totalOutputTokens += r2.outputTokens;
-
-      const parsed2 = this.parseLifetimeV2CallResponse(r2.content, 'call2');
-      // Apply auto-fix before merging
-      const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
-      sections = { ...sections, ...fixed2.sections };
-
-      // Log Call 2 usage
-      this.logUsage(userId, readingId, providerConfig, {
-        interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
-        provider: providerConfig.provider,
-        model: providerConfig.model,
-        tokenUsage: {
-          inputTokens: r2.inputTokens,
-          outputTokens: r2.outputTokens,
-          totalTokens: r2.inputTokens + r2.outputTokens,
-          estimatedCostUsd: 0,
-        },
-        latencyMs,
-        isCacheHit: false,
-      }, 'LIFETIME' as ReadingType).catch(() => {});
-    } else if (call1Success) {
-      // Call 1 succeeded, Call 2 failed — return Call 1 sections only (still valuable)
-      this.logger.warn('Lifetime V2 Call 2 failed — returning Call 1 sections only');
-    }
-
-    // Merge with deterministic data from lifetimeEnhancedInsights
-    // Python engine returns snake_case keys; convert to camelCase for frontend
-    const enhancedInsights = calculationData['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
-    const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
-    const deterministic: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(rawDeterministic)) {
-      const camelKey = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-      deterministic[camelKey] = value;
-    }
-
-    const totalCost =
-      totalInputTokens * providerConfig.costPerInputToken +
-      totalOutputTokens * providerConfig.costPerOutputToken;
-
-    const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
-      sections,
-      summary,
-      deterministic,
-      schemaVersion: 'v2',
-    };
-
-    this.logger.log(
-      `Lifetime V2 generated via ${providerConfig.provider} in ${latencyMs}ms, ` +
-      `${totalInputTokens}+${totalOutputTokens} tokens (total), $${totalCost.toFixed(4)}, ` +
-      `call1=${call1Success ? 'ok' : 'FAIL'}, call2=${call2Success ? 'ok' : 'FAIL'}`,
+    // All providers exhausted for V2 → fall back to V1 single-call
+    this.logger.warn(`Lifetime V2 all providers failed (last: ${lastError?.message}) — falling back to V1`);
+    return this.generateInterpretation(
+      calculationData,
+      ReadingType.LIFETIME,
+      userId,
+      readingId,
     );
-
-    return {
-      interpretation,
-      provider: providerConfig.provider,
-      model: providerConfig.model,
-      tokenUsage: {
-        inputTokens: totalInputTokens,
-        outputTokens: totalOutputTokens,
-        totalTokens: totalInputTokens + totalOutputTokens,
-        estimatedCostUsd: Math.round(totalCost * 1_000_000) / 1_000_000,
-      },
-      latencyMs,
-      isCacheHit: false,
-    };
   }
 
   /**
@@ -519,7 +533,6 @@ export class AIService implements OnModuleInit {
       throw new Error('No AI providers configured');
     }
 
-    const providerConfig = this.providers[0];
     const { systemPrompt, userPromptCall1, userPromptCall2 } =
       this.buildLifetimeV2Prompts(calculationData);
 
@@ -532,179 +545,216 @@ export class AIService implements OnModuleInit {
       }
     }, 15000);
 
-    const call1Controller = new AbortController();
-    const call2Controller = new AbortController();
-
-    // Set up abort timeouts
-    const call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
-    const call2Timeout = setTimeout(() => call2Controller.abort(), timeoutMs);
-
+    // Declare timeout handles outside loop so finally can reference the latest pair
+    let call1Timeout: ReturnType<typeof setTimeout> | undefined;
+    let call2Timeout: ReturnType<typeof setTimeout> | undefined;
     let totalSections = 0;
 
     try {
-      // Fire Call 2 (non-streaming) in parallel
-      const call2Promise = this.callProvider(
-        providerConfig, systemPrompt, userPromptCall2, call2Controller.signal,
-      ).catch((err) => {
-        this.logger.warn(`Stream Call 2 failed: ${err instanceof Error ? err.message : err}`);
-        return null;
-      });
+      // Try each provider in order (fallback chain: Claude → GPT-4o → Gemini)
+      let v2Succeeded = false;
+      let activeProviderConfig = this.providers[0]; // track for DB/logging
 
-      // Call 1: streaming with progressive section extraction
-      const call1Sections: Record<string, InterpretationSection> = {};
-      let call1Summary: InterpretationSection = { preview: '', full: '' };
-      let call1Buffer = '';
-      let call1InputTokens = 0;
-      let call1OutputTokens = 0;
+      for (const providerConfig of this.providers) {
+        // Fresh AbortControllers per provider attempt
+        const call1Controller = new AbortController();
+        const call2Controller = new AbortController();
+        call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
+        call2Timeout = setTimeout(() => call2Controller.abort(), timeoutMs);
+        activeProviderConfig = providerConfig;
 
-      try {
-        const streamGen = this.streamProvider(
-          providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
-        );
+        try {
+          // Fire Call 2 (non-streaming) in parallel
+          const call2Promise = this.callProvider(
+            providerConfig, systemPrompt, userPromptCall2, call2Controller.signal,
+          ).catch((err) => {
+            this.logger.warn(`Stream Call 2 failed (${providerConfig.provider}): ${err instanceof Error ? err.message : err}`);
+            return null;
+          });
 
-        const extractedKeys = new Set<string>();
+          // Call 1: streaming with progressive section extraction
+          const call1Sections: Record<string, InterpretationSection> = {};
+          let call1Summary: InterpretationSection = { preview: '', full: '' };
+          let call1Buffer = '';
+          let call1OutputTokens = 0;
 
-        for await (const chunk of streamGen) {
-          call1Buffer += chunk;
+          try {
+            const streamGen = this.streamProvider(
+              providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
+            );
 
-          // Progressive extraction: try to extract completed sections
-          const newSections = this.extractCompletedSections(
-            call1Buffer,
-            LIFETIME_V2_PROMPTS.call1Sections,
-            extractedKeys,
+            const extractedKeys = new Set<string>();
+
+            for await (const chunk of streamGen) {
+              call1Buffer += chunk;
+
+              // Progressive extraction: try to extract completed sections
+              const newSections = this.extractCompletedSections(
+                call1Buffer,
+                LIFETIME_V2_PROMPTS.call1Sections,
+                extractedKeys,
+              );
+
+              for (const [key, rawSection] of Object.entries(newSections)) {
+                // Apply auto-fix before emitting
+                const { section } = this.autoFixSection(key, rawSection, calculationData);
+                call1Sections[key] = section;
+                totalSections++;
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+
+            // Parse any remaining sections from the complete buffer
+            const finalParsed = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
+            for (const [key, rawSection] of Object.entries(finalParsed.sections)) {
+              if (!call1Sections[key]) {
+                // Apply auto-fix before emitting
+                const { section } = this.autoFixSection(key, rawSection, calculationData);
+                call1Sections[key] = section;
+                totalSections++;
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+            if (finalParsed.summary && (finalParsed.summary.preview || finalParsed.summary.full)) {
+              call1Summary = finalParsed.summary;
+            }
+
+            // Estimate tokens from buffer length (approximation for streaming)
+            call1OutputTokens = Math.ceil(call1Buffer.length / 3);
+
+            subscriber.next({
+              data: JSON.stringify({ call: 1 }),
+              type: 'call_complete',
+            } as MessageEvent);
+
+          } catch (err) {
+            const message = err instanceof Error ? err.message : 'Call 1 stream failed';
+            this.logger.warn(`Stream Call 1 failed (${providerConfig.provider}): ${message}`);
+            subscriber.next({
+              data: JSON.stringify({ message, partial: true }),
+              type: 'error',
+            } as MessageEvent);
+          }
+
+          // Await Call 2 result and flush sections
+          // Parse once, cache result for both emit + DB (avoid redundant double-parse)
+          const call2Result = await call2Promise;
+          const call2Parsed = call2Result
+            ? this.parseLifetimeV2CallResponse(call2Result.content, 'call2')
+            : null;
+
+          // Build auto-fixed Call 2 sections for both emit and DB consistency
+          const call2FixedSections: Record<string, InterpretationSection> = {};
+          if (call2Parsed) {
+            for (const [key, rawSection] of Object.entries(call2Parsed.sections)) {
+              const { section } = this.autoFixSection(key, rawSection, calculationData);
+              call2FixedSections[key] = section;
+              totalSections++;
+              subscriber.next({
+                data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                type: 'section_complete',
+              } as MessageEvent);
+            }
+
+            subscriber.next({
+              data: JSON.stringify({ call: 2 }),
+              type: 'call_complete',
+            } as MessageEvent);
+          }
+
+          // Emit summary
+          if (call1Summary.preview || call1Summary.full) {
+            subscriber.next({
+              data: JSON.stringify({ preview: call1Summary.preview, full: call1Summary.full }),
+              type: 'summary',
+            } as MessageEvent);
+          }
+
+          // Merge all sections for DB update (use auto-fixed Call 2 sections for consistency)
+          const allSections: Record<string, InterpretationSection> = {
+            ...call1Sections,
+            ...call2FixedSections,
+          };
+
+          // Build deterministic data
+          const enhancedInsights = calculationData['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
+          const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+          const deterministic: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(rawDeterministic)) {
+            const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+            deterministic[camelKey] = value;
+          }
+
+          const aiInterpretation = {
+            schemaVersion: 'v2',
+            sections: allSections,
+            summary: call1Summary,
+            deterministic,
+          };
+
+          // Update DB record with complete AI interpretation
+          try {
+            await this.prisma.baziReading.update({
+              where: { id: readingId },
+              data: {
+                aiInterpretation: aiInterpretation as unknown as Prisma.InputJsonValue,
+                aiProvider: providerConfig.provider as any,
+                aiModel: providerConfig.model,
+              },
+            });
+          } catch (dbErr) {
+            this.logger.error(`Failed to update reading ${readingId} with AI: ${dbErr}`);
+          }
+
+          // Cache the result for future requests
+          const birthDataHash = this.generateBirthDataHash(
+            calculationData['birthDate'] as string || '',
+            calculationData['birthTime'] as string || '',
+            '', // birthCity not available here
+            calculationData['gender'] as string || '',
+            ReadingType.LIFETIME,
           );
+          this.cacheInterpretation(
+            birthDataHash,
+            ReadingType.LIFETIME,
+            calculationData,
+            aiInterpretation as unknown as AIInterpretationResult,
+          ).catch((err) => this.logger.error(`Stream cache write failed: ${err}`));
 
-          for (const [key, rawSection] of Object.entries(newSections)) {
-            // Apply auto-fix before emitting
-            const { section } = this.autoFixSection(key, rawSection, calculationData);
-            call1Sections[key] = section;
-            totalSections++;
-            subscriber.next({
-              data: JSON.stringify({ key, preview: section.preview, full: section.full }),
-              type: 'section_complete',
-            } as MessageEvent);
+          v2Succeeded = true;
+          break; // success, exit provider loop
+
+        } catch (err) {
+          this.logger.warn(
+            `Stream V2 provider ${providerConfig.provider} failed: ${err instanceof Error ? err.message : err}. Trying next...`,
+          );
+          // Clean up this iteration's timeouts before retrying
+          clearTimeout(call1Timeout);
+          clearTimeout(call2Timeout);
+          // If some sections were already streamed, accept partial results — don't retry
+          if (totalSections > 0) {
+            v2Succeeded = true;
+            break;
           }
         }
+      }
 
-        // Parse any remaining sections from the complete buffer
-        const finalParsed = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
-        for (const [key, rawSection] of Object.entries(finalParsed.sections)) {
-          if (!call1Sections[key]) {
-            // Apply auto-fix before emitting
-            const { section } = this.autoFixSection(key, rawSection, calculationData);
-            call1Sections[key] = section;
-            totalSections++;
-            subscriber.next({
-              data: JSON.stringify({ key, preview: section.preview, full: section.full }),
-              type: 'section_complete',
-            } as MessageEvent);
-          }
-        }
-        if (finalParsed.summary && (finalParsed.summary.preview || finalParsed.summary.full)) {
-          call1Summary = finalParsed.summary;
-        }
-
-        // Estimate tokens from buffer length (approximation for streaming)
-        call1OutputTokens = Math.ceil(call1Buffer.length / 3);
-        call1InputTokens = 0; // Not available from streaming
-
+      if (!v2Succeeded) {
         subscriber.next({
-          data: JSON.stringify({ call: 1 }),
-          type: 'call_complete',
-        } as MessageEvent);
-
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Call 1 stream failed';
-        this.logger.warn(`Stream Call 1 failed: ${message}`);
-        subscriber.next({
-          data: JSON.stringify({ message, partial: true }),
+          data: JSON.stringify({ message: 'All V2 providers failed' }),
           type: 'error',
         } as MessageEvent);
       }
 
-      // Await Call 2 result and flush sections
-      const call2Result = await call2Promise;
-      if (call2Result) {
-        const parsed2 = this.parseLifetimeV2CallResponse(call2Result.content, 'call2');
-        for (const [key, rawSection] of Object.entries(parsed2.sections)) {
-          // Apply auto-fix before emitting
-          const { section } = this.autoFixSection(key, rawSection, calculationData);
-          totalSections++;
-          subscriber.next({
-            data: JSON.stringify({ key, preview: section.preview, full: section.full }),
-            type: 'section_complete',
-          } as MessageEvent);
-        }
-
-        subscriber.next({
-          data: JSON.stringify({ call: 2 }),
-          type: 'call_complete',
-        } as MessageEvent);
-      }
-
-      // Emit summary
-      if (call1Summary.preview || call1Summary.full) {
-        subscriber.next({
-          data: JSON.stringify({ preview: call1Summary.preview, full: call1Summary.full }),
-          type: 'summary',
-        } as MessageEvent);
-      }
-
-      // Merge all sections for DB update
-      const allSections: Record<string, InterpretationSection> = { ...call1Sections };
-      if (call2Result) {
-        const parsed2 = this.parseLifetimeV2CallResponse(call2Result.content, 'call2');
-        Object.assign(allSections, parsed2.sections);
-      }
-
-      // Build deterministic data
-      const enhancedInsights = calculationData['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
-      const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
-      const deterministic: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(rawDeterministic)) {
-        const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-        deterministic[camelKey] = value;
-      }
-
-      const aiInterpretation = {
-        schemaVersion: 'v2',
-        sections: allSections,
-        summary: call1Summary,
-        deterministic,
-      };
-
-      // Update DB record with complete AI interpretation
-      try {
-        await this.prisma.baziReading.update({
-          where: { id: readingId },
-          data: {
-            aiInterpretation: aiInterpretation as unknown as Prisma.InputJsonValue,
-            aiProvider: providerConfig.provider as any,
-            aiModel: providerConfig.model,
-          },
-        });
-      } catch (dbErr) {
-        this.logger.error(`Failed to update reading ${readingId} with AI: ${dbErr}`);
-      }
-
-      // Cache the result for future requests
-      const birthDataHash = this.generateBirthDataHash(
-        calculationData['birthDate'] as string || '',
-        calculationData['birthTime'] as string || '',
-        '', // birthCity not available here
-        calculationData['gender'] as string || '',
-        ReadingType.LIFETIME,
-      );
-      this.cacheInterpretation(
-        birthDataHash,
-        ReadingType.LIFETIME,
-        calculationData,
-        aiInterpretation as unknown as AIInterpretationResult,
-      ).catch((err) => this.logger.error(`Stream cache write failed: ${err}`));
-
       const latencyMs = Date.now() - startTime;
       this.logger.log(
-        `Stream Lifetime V2 completed in ${latencyMs}ms, ${totalSections} sections delivered`,
+        `Stream Lifetime V2 completed via ${activeProviderConfig.provider} in ${latencyMs}ms, ${totalSections} sections delivered`,
       );
 
       // Done event
@@ -714,10 +764,11 @@ export class AIService implements OnModuleInit {
       } as MessageEvent);
 
     } finally {
+      // CRITICAL: This MUST stay at outermost scope — cleans up regardless of loop outcome
       clearInterval(heartbeatInterval);
-      clearTimeout(call1Timeout);
-      clearTimeout(call2Timeout);
-      subscriber.complete();
+      clearTimeout(call1Timeout!);
+      clearTimeout(call2Timeout!);
+      subscriber.complete(); // ALWAYS closes the SSE stream
     }
   }
 
@@ -1106,6 +1157,9 @@ export class AIService implements OnModuleInit {
 
   /**
    * Parse a single V2 call response into sections.
+   *
+   * parseAIResponse() never throws (it always falls back to fallbackParse),
+   * so we check for empty sections and fall through to regex extraction.
    */
   private parseLifetimeV2CallResponse(
     rawContent: string,
@@ -1115,20 +1169,16 @@ export class AIService implements OnModuleInit {
       ? LIFETIME_V2_PROMPTS.call1Sections
       : LIFETIME_V2_PROMPTS.call2Sections;
 
-    // Try strict JSON parse first
-    try {
-      return this.parseAIResponse(rawContent, ReadingType.LIFETIME);
-    } catch {
-      // Fall through to regex extraction
-    }
-
-    // If standard parse worked but returned empty sections, try regex per section key
+    // Stage 1: Standard JSON parse (never throws — always returns via fallbackParse)
     const parsed = this.parseAIResponse(rawContent, ReadingType.LIFETIME);
     if (Object.keys(parsed.sections).length > 0) {
       return parsed;
     }
 
-    // Regex fallback: try to extract each expected section key
+    // Stage 2: Regex fallback — extract each expected section key individually.
+    // NOTE: This regex is a best-effort last resort. It may fail for section values
+    // containing literal { or } characters. For more robust extraction, consider
+    // using extractCompletedSections() which uses brace-depth tracking.
     const sections: Record<string, InterpretationSection> = {};
     for (const key of expectedKeys) {
       const regex = new RegExp(`"${key}"\\s*:\\s*\\{[^}]*"preview"\\s*:\\s*"([^"]*)"[^}]*"full"\\s*:\\s*"([^"]*)"`, 's');

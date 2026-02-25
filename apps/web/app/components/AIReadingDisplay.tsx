@@ -447,6 +447,7 @@ function DeterministicCard({
           <div className={styles.detCardHeader}>
             <span className={styles.detCardIcon}>📈</span>
             <h4 className={styles.detCardTitle}>投資理財方向</h4>
+            <span className={styles.detCardDisclaimer}>（僅供參考，非投資建議）</span>
           </div>
           <div className={styles.detCardBody}>
             <div className={styles.detRow}>
