@@ -22,15 +22,18 @@ from .constants import (
     FIVE_ELEMENTS,
     HIDDEN_STEMS,
     HIDDEN_STEM_WEIGHTS,
+    SEASON_MULTIPLIER,
     SEASON_STRENGTH,
     STEM_ELEMENT,
     STEM_YINYANG,
 )
 
 
-def calculate_five_elements_balance(pillars: Dict) -> Dict[str, float]:
+def _accumulate_raw_element_scores(pillars: Dict) -> Dict[str, float]:
     """
-    Calculate the Five Elements balance as percentages.
+    Shared raw score accumulation (stems + hidden stems).
+
+    Used by both raw and seasonal balance functions to avoid code duplication.
 
     Scoring method:
     - Each manifest stem contributes 1.0 point to its element
@@ -41,37 +44,78 @@ def calculate_five_elements_balance(pillars: Dict) -> Dict[str, float]:
         pillars: The four pillars dictionary
 
     Returns:
-        Dictionary with element → percentage (0-100, sums to ~100)
+        Dictionary with element → raw score (not normalized)
     """
     element_scores: Dict[str, float] = {e: 0.0 for e in FIVE_ELEMENTS}
 
     for pillar_name in ['year', 'month', 'day', 'hour']:
         pillar = pillars[pillar_name]
-        stem = pillar['stem']
-        branch = pillar['branch']
-
-        # Manifest stem contributes 1.0 to its element
-        stem_element = STEM_ELEMENT[stem]
+        stem_element = STEM_ELEMENT[pillar['stem']]
         element_scores[stem_element] += 1.0
 
-        # Hidden stems contribute with weights
-        hidden = HIDDEN_STEMS.get(branch, [])
-        weights = HIDDEN_STEM_WEIGHTS.get(branch, [])
+        hidden = HIDDEN_STEMS.get(pillar['branch'], [])
+        weights = HIDDEN_STEM_WEIGHTS.get(pillar['branch'], [])
         for i, hs in enumerate(hidden):
             weight = weights[i] if i < len(weights) else 0.2
-            hs_element = STEM_ELEMENT[hs]
-            element_scores[hs_element] += weight
+            element_scores[STEM_ELEMENT[hs]] += weight
 
-    # Convert to percentages
+    return element_scores
+
+
+def calculate_five_elements_balance(pillars: Dict) -> Dict[str, float]:
+    """
+    Calculate the raw Five Elements balance as percentages (no seasonal adjustment).
+
+    Used for analytical decisions (從格 detection, etc.) where seasonal influence
+    is already accounted for by strength_v2 via SEASON_DELING_SCORE.
+
+    Args:
+        pillars: The four pillars dictionary
+
+    Returns:
+        Dictionary with element → percentage (0-100, sums to ~100)
+    """
+    element_scores = _accumulate_raw_element_scores(pillars)
+
     total = sum(element_scores.values())
     if total == 0:
         return {e: 20.0 for e in FIVE_ELEMENTS}
 
-    percentages: Dict[str, float] = {}
-    for e in FIVE_ELEMENTS:
-        percentages[e] = round(element_scores[e] / total * 100, 1)
+    return {e: round(element_scores[e] / total * 100, 1) for e in FIVE_ELEMENTS}
 
-    return percentages
+
+def calculate_five_elements_balance_seasonal(pillars: Dict) -> Dict[str, float]:
+    """
+    Calculate seasonally-adjusted Five Elements balance for display/narration.
+
+    Applies 旺相休囚死 (Five Qi States) multipliers based on the birth month branch.
+    This matches major reference sites (易安居, 水墨先生, 神巴巴).
+
+    Note: This is for DISPLAY/NARRATION only. Analytical decisions (從格 detection,
+    DM strength) use the raw balance from calculate_five_elements_balance() to avoid
+    double-counting seasonal influence (strength_v2 already incorporates seasonal
+    factors via SEASON_DELING_SCORE).
+
+    Args:
+        pillars: The four pillars dictionary
+
+    Returns:
+        Dictionary with element → percentage (0-100, sums to ~100)
+    """
+    element_scores = _accumulate_raw_element_scores(pillars)
+
+    # Apply seasonal multiplier based on birth month branch
+    month_branch = pillars['month']['branch']
+    for element in FIVE_ELEMENTS:
+        season_score = SEASON_STRENGTH.get(element, {}).get(month_branch, 3)
+        multiplier = SEASON_MULTIPLIER.get(season_score, 1.0)
+        element_scores[element] *= multiplier
+
+    total = sum(element_scores.values())
+    if total == 0:
+        return {e: 20.0 for e in FIVE_ELEMENTS}
+
+    return {e: round(element_scores[e] / total * 100, 1) for e in FIVE_ELEMENTS}
 
 
 def calculate_element_counts(pillars: Dict) -> Dict[str, Dict[str, int]]:

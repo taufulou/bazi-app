@@ -60,58 +60,110 @@ def calculate_luck_period_direction(
         return 1 if year_yinyang == '陰' else -1
 
 
+def _get_jie_solar_term_dates(year: int) -> List[datetime]:
+    """
+    Get exact dates of the 12 "節" (jie) solar terms for a given year
+    using the cnlunar library for astronomical accuracy.
+
+    The 12 節 terms define Bazi month boundaries:
+    小寒→丑月, 立春→寅月, 驚蟄→卯月, 清明→辰月, 立夏→巳月, 芒種→午月,
+    小暑→未月, 立秋→申月, 白露→酉月, 寒露→戌月, 立冬→亥月, 大雪→子月
+
+    Args:
+        year: Calendar year
+
+    Returns:
+        Sorted list of datetime objects for all 12 節 terms in that year
+    """
+    import cnlunar
+
+    # The 12 "節" (jie) terms — these are the month-boundary terms
+    # (as opposed to "氣" (qi) terms which are the mid-month terms)
+    JIE_TERM_NAMES = [
+        '小寒', '立春', '惊蛰', '清明', '立夏', '芒种',
+        '小暑', '立秋', '白露', '寒露', '立冬', '大雪',
+    ]
+
+    # Use a mid-year date to get all solar terms for this year
+    mid_year = datetime(year, 6, 15)
+    lunar = cnlunar.Lunar(mid_year, godType='8char')
+    terms_dict = lunar.thisYearSolarTermsDic
+
+    jie_dates = []
+    for name in JIE_TERM_NAMES:
+        if name in terms_dict:
+            month, day = terms_dict[name]
+            jie_dates.append(datetime(year, month, day))
+
+    return sorted(jie_dates)
+
+
 def calculate_luck_period_start_age(
     birth_datetime: datetime,
     direction: int,
-) -> float:
+) -> int:
     """
-    Calculate the starting age for the first Luck Period.
+    Calculate the starting age for the first Luck Period (大運起運歲數).
 
-    Method:
-    - Count the number of days from birth to the next (forward) or previous (backward) solar term
-    - Divide by 3 → each 3 days ≈ 1 year of life
-    - Result is the starting age (rounded to nearest whole number)
+    Method (standard 子平真詮 algorithm):
+    1. Determine LP direction: forward (順) or backward (逆)
+    2. If forward: count days from birth to the NEXT 節 (jie) solar term
+       If backward: count days from birth to the PREVIOUS 節 solar term
+    3. Divide by 3 → each 3 days ≈ 1 year of life
+    4. Round to nearest integer
 
-    Simplified calculation: We use an approximation based on the birth month.
-    For precise calculation, we'd need exact solar term dates.
+    Uses cnlunar library for exact astronomical solar term dates,
+    matching results from established sites like 易安居, 神巴巴, Seer etc.
 
     Args:
         birth_datetime: Birth date and time
-        direction: +1 (forward to next term) or -1 (backward to previous term)
+        direction: +1 (forward to next jie term) or -1 (backward to previous jie term)
 
     Returns:
-        Starting age as a float (then typically rounded)
+        Starting age as an integer (rounded)
     """
-    # Approximate solar term dates (every ~15 days)
-    # Solar terms occur roughly on the 4th-8th and 19th-23rd of each month
-    day = birth_datetime.day
-    month = birth_datetime.month
+    birth_year = birth_datetime.year
+    birth_date_only = datetime(birth_year, birth_datetime.month, birth_datetime.day)
 
+    # Collect jie solar term dates from surrounding years to handle year boundaries
+    # (e.g., birth in early January needs previous year's 大雪, or late December
+    #  needs next year's 小寒)
+    all_jie_dates = []
+    for y in [birth_year - 1, birth_year, birth_year + 1]:
+        try:
+            all_jie_dates.extend(_get_jie_solar_term_dates(y))
+        except Exception:
+            pass
+
+    all_jie_dates.sort()
+
+    # Find the previous and next jie terms surrounding the birth date
+    prev_jie = None
+    next_jie = None
+    for jie_dt in all_jie_dates:
+        if jie_dt <= birth_date_only:
+            prev_jie = jie_dt
+        elif next_jie is None:
+            next_jie = jie_dt
+
+    # Calculate days to the relevant solar term based on direction
     if direction == 1:
-        # Forward: count days to NEXT solar term (節)
-        # Approximate: next term is around the 5th of the next month
-        # or the 20th of current month if before the 20th
-        if day < 6:
-            days_to_term = 6 - day
-        elif day < 21:
-            days_to_term = 21 - day
+        # Forward: count days to NEXT 節
+        if next_jie is not None:
+            days_to_term = (next_jie - birth_date_only).days
         else:
-            # Next term is around 6th of next month
-            days_to_term = (30 - day) + 6
+            days_to_term = 15  # Fallback (should never happen)
     else:
-        # Backward: count days to PREVIOUS solar term
-        if day > 21:
-            days_to_term = day - 21
-        elif day > 6:
-            days_to_term = day - 6
+        # Backward: count days to PREVIOUS 節
+        if prev_jie is not None:
+            days_to_term = (birth_date_only - prev_jie).days
         else:
-            # Previous term was around 21st of last month
-            days_to_term = day + (30 - 21)
+            days_to_term = 15  # Fallback (should never happen)
 
-    # 3 days ≈ 1 year
+    # Standard formula: 3 days ≈ 1 year
     start_age = round(days_to_term / 3.0)
 
-    # Minimum start age is 1, maximum is typically around 10
+    # Clamp to valid range (minimum 1, maximum 10)
     start_age = max(1, min(10, start_age))
 
     return start_age

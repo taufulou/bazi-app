@@ -820,6 +820,7 @@ def generate_pre_analysis(
     gender: str = 'male',
     timing_insights: Optional[Dict] = None,
     special_day_pillars: Optional[List[Dict]] = None,
+    five_elements_balance_seasonal: Optional[Dict[str, float]] = None,
 ) -> Dict:
     """
     Generate the complete pre-analysis for a Bazi chart.
@@ -829,12 +830,14 @@ def generate_pre_analysis(
     Args:
         pillars: Four pillars dict with stems, branches, and ten god labels
         day_master_stem: Day Master stem
-        five_elements_balance: Five Elements balance percentages
+        five_elements_balance: Raw Five Elements balance (for check_cong_ge analytics)
         favorable_gods: Favorable gods from determine_favorable_gods()
         reading_type: NestJS reading type enum string
         gender: 'male' or 'female'
         timing_insights: Timing analysis from timing_analysis.py (Phase 11D)
         special_day_pillars: Special day pillar findings (Phase 11D)
+        five_elements_balance_seasonal: Seasonally-adjusted balance (for health display).
+            Falls back to raw balance if not provided (backward compat).
 
     Returns:
         Complete pre-analysis dict (versioned, domain-filtered)
@@ -1020,8 +1023,11 @@ def generate_pre_analysis(
         )
 
     if 'health' in domains:
+        # Use seasonal balance for health display (matches reference sites),
+        # fall back to raw if seasonal not provided (backward compatibility)
+        health_balance = five_elements_balance_seasonal or five_elements_balance
         result['healthInsights'] = generate_health_insights(
-            five_elements_balance, STEM_ELEMENT[day_master_stem],
+            health_balance, STEM_ELEMENT[day_master_stem],
         )
 
     return result

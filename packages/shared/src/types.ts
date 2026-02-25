@@ -162,6 +162,7 @@ export interface TrueSolarTime {
 export interface BaziCalculationResult {
   fourPillars: FourPillars;
   fiveElementsBalance: FiveElementsBalance;
+  fiveElementsBalanceRaw?: FiveElementsBalance;
   dayMaster: DayMasterAnalysis;
   luckPeriods: LuckPeriod[];
   annualStars: AnnualStar[];

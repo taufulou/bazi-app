@@ -436,8 +436,12 @@ function DeterministicCard({
   data: LifetimeV2DeterministicData;
   isSubscriber: boolean;
 }) {
+  // Guard: if deterministic data is incomplete, don't render
+  if (!data) return null;
+
   switch (cardType) {
     case "investments":
+      if (!data.favorableInvestments || !data.unfavorableInvestments) return null;
       return (
         <div className={styles.detCard} data-theme="finance">
           <div className={styles.detCardHeader}>
@@ -478,6 +482,7 @@ function DeterministicCard({
       );
 
     case "career_data":
+      if (!data.careerDirections || !data.careerBenefactorsElement || !data.careerBenefactorsZodiac) return null;
       return (
         <div className={styles.detCard} data-theme="career">
           <div className={styles.detCardHeader}>
@@ -552,6 +557,7 @@ function DeterministicCard({
       );
 
     case "love_data":
+      if (!data.romanceYears || !data.partnerElement || !data.partnerZodiac) return null;
       return (
         <div className={styles.detCard} data-theme="love">
           <div className={styles.detCardHeader}>
@@ -602,6 +608,7 @@ function DeterministicCard({
       );
 
     case "family_data":
+      if (!data.parentHealthYears?.father || !data.parentHealthYears?.mother) return null;
       return (
         <div className={styles.detCard} data-theme="family">
           <div className={styles.detCardHeader}>
@@ -650,6 +657,7 @@ function DeterministicCard({
       );
 
     case "luck_timeline":
+      if (!data.luckPeriodsEnriched) return null;
       return (
         <LuckPeriodTimeline
           periods={data.luckPeriodsEnriched}

@@ -351,4 +351,200 @@ describe('SSE Streaming — Phase E', () => {
       expect(errorEvent).toBeDefined();
     }, 15000);
   });
+
+  // ============================================================
+  // Auto-Fix Validation Layer
+  // ============================================================
+
+  describe('autoFixSection (post-processing validator)', () => {
+    // Access private method via type assertion
+    function autoFix(
+      sectionKey: string,
+      section: { preview: string; full: string },
+      calculationData: Record<string, unknown>,
+    ) {
+      return (service as any).autoFixSection(sectionKey, section, calculationData);
+    }
+
+    const baseCalcData = {
+      dayMaster: {
+        element: '木',
+        tabooGod: '金',
+        enemyGod: '土',
+      },
+      dayMasterStem: '甲',
+      pillars: {
+        year: { stem: '丙', branch: '寅' },
+        month: { stem: '辛', branch: '丑' },
+        day: { stem: '甲', branch: '戌' },
+        hour: { stem: '壬', branch: '申' },
+      },
+      lifetimeEnhancedInsights: {
+        childrenInsights: {
+          hourPillarTenGod: '偏官',
+          shishanManifestCount: 1,
+          shishanTransparent: ['食神'],
+          shishanLatentCount: 0,
+          isShishanSuppressed: false,
+        },
+      },
+    };
+
+    it('should fix 忌神/仇神 mislabeling: "忌神土" → "仇神土"', () => {
+      const section = {
+        preview: '命主忌神土帶來壓力',
+        full: '忌神土五行使命主脾胃容易受損，忌神金則直接克制命主',
+      };
+      const { section: fixed, fixes } = autoFix('health', section, baseCalcData);
+
+      expect(fixed.preview).toBe('命主仇神土帶來壓力');
+      expect(fixed.full).toContain('仇神土五行');
+      expect(fixed.full).toContain('忌神金'); // 金 IS the real 忌神, should stay
+      expect(fixes.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should fix parenthesized variant: "忌神（土）" → "仇神（土）"', () => {
+      const section = {
+        preview: '正常預覽',
+        full: '需注意忌神（土）五行帶來的消化問題',
+      };
+      const { section: fixed, fixes } = autoFix('health', section, baseCalcData);
+
+      expect(fixed.full).toContain('仇神（土）');
+      expect(fixes.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should NOT touch correct labels', () => {
+      const section = {
+        preview: '忌神金克制日主',
+        full: '忌神金帶來壓力，仇神土也有不利影響',
+      };
+      const { section: fixed, fixes } = autoFix('health', section, baseCalcData);
+
+      expect(fixed.full).toBe(section.full); // No changes
+      expect(fixed.preview).toBe(section.preview);
+      expect(fixes.length).toBe(0);
+    });
+
+    it('should fix "時支本氣為偏印" → "時支本氣為偏官" in children_analysis', () => {
+      const section = {
+        preview: '子女分析摘要',
+        full: '時支本氣為偏印，子女性格偏向孤僻獨立',
+      };
+      const { section: fixed, fixes } = autoFix('children_analysis', section, baseCalcData);
+
+      expect(fixed.full).toContain('時支本氣為偏官');
+      expect(fixes.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should fix "時柱十神為偏印" → "時柱十神為偏官" in children_analysis', () => {
+      const section = {
+        preview: '子女分析摘要',
+        full: '時柱十神為偏印，反映子女宮能量',
+      };
+      const { section: fixed, fixes } = autoFix('children_analysis', section, baseCalcData);
+
+      expect(fixed.full).toContain('時柱十神為偏官');
+      expect(fixes.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should fix transparent/latent contradiction in children_analysis', () => {
+      const section = {
+        preview: '子女分析摘要',
+        full: '丙火食神透於年干但藏而不透，子女緣分尚可',
+      };
+      const { section: fixed, fixes } = autoFix('children_analysis', section, baseCalcData);
+
+      expect(fixed.full).not.toContain('藏而不透');
+      expect(fixed.full).toContain('顯現食傷');
+      expect(fixes.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('should handle multiple fixes in one section', () => {
+      const section = {
+        preview: '忌神土帶來壓力',
+        full: '忌神土影響脾胃，時支本氣為偏印，丙火食神透於年干但藏而不透',
+      };
+      const { section: fixed, fixes } = autoFix('children_analysis', section, baseCalcData);
+
+      expect(fixed.preview).toContain('仇神土');
+      expect(fixed.full).toContain('仇神土');
+      expect(fixed.full).toContain('時支本氣為偏官');
+      expect(fixed.full).not.toContain('藏而不透');
+      expect(fixes.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('should return empty fixes when no errors detected', () => {
+      const section = {
+        preview: '正常的預覽文字',
+        full: '正常的完整分析文字，沒有任何錯誤',
+      };
+      const { section: fixed, fixes } = autoFix('career_pattern', section, baseCalcData);
+
+      expect(fixed).toEqual(section);
+      expect(fixes.length).toBe(0);
+    });
+
+    it('should not fix when tabooGod === enemyGod', () => {
+      const sameGodData = {
+        ...baseCalcData,
+        dayMaster: { element: '木', tabooGod: '金', enemyGod: '金' },
+      };
+      const section = {
+        preview: '忌神金',
+        full: '忌神金克制命主',
+      };
+      const { fixes } = autoFix('health', section, sameGodData);
+      expect(fixes.length).toBe(0); // No fix needed
+    });
+  });
+
+  describe('autoFixAllSections (batch processor)', () => {
+    function autoFixAll(
+      parsed: { sections: Record<string, { preview: string; full: string }>; summary: { preview: string; full: string } },
+      calculationData: Record<string, unknown>,
+    ) {
+      return (service as any).autoFixAllSections(parsed, calculationData);
+    }
+
+    it('should process all sections and aggregate fixes', () => {
+      const parsed = {
+        sections: {
+          health: {
+            preview: '忌神土',
+            full: '忌神土影響健康',
+          },
+          career_pattern: {
+            preview: '忌神土行業',
+            full: '忌神土相關行業不宜從事',
+          },
+          finance_pattern: {
+            preview: '正常',
+            full: '正常分析無錯誤',
+          },
+        },
+        summary: { preview: '總結', full: '總結全文' },
+      };
+
+      const calcData = {
+        dayMaster: { element: '木', tabooGod: '金', enemyGod: '土' },
+        dayMasterStem: '甲',
+        lifetimeEnhancedInsights: {},
+      };
+
+      const { result, allFixes } = autoFixAll(parsed, calcData);
+
+      // health and career_pattern should be fixed
+      expect(result.sections['health'].preview).toContain('仇神土');
+      expect(result.sections['health'].full).toContain('仇神土');
+      expect(result.sections['career_pattern'].preview).toContain('仇神土');
+      expect(result.sections['career_pattern'].full).toContain('仇神土');
+      // finance_pattern should be unchanged
+      expect(result.sections['finance_pattern'].full).toBe('正常分析無錯誤');
+      // Summary should be preserved
+      expect(result.summary).toEqual(parsed.summary);
+      // Multiple fixes aggregated
+      expect(allFixes.length).toBeGreaterThanOrEqual(4);
+    });
+  });
 });

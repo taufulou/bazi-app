@@ -27,6 +27,7 @@ from .ten_gods import (
 from .five_elements import (
     analyze_day_master_strength,
     calculate_five_elements_balance,
+    calculate_five_elements_balance_seasonal,
     calculate_element_counts,
     determine_favorable_gods,
 )
@@ -108,8 +109,10 @@ def calculate_bazi(
     # Step 4: Apply Life Stages
     pillars = apply_life_stages_to_pillars(pillars, day_master_stem)
 
-    # Step 5: Calculate Five Elements balance
+    # Step 5: Calculate Five Elements balance (raw — for analytical decisions)
     five_elements_balance = calculate_five_elements_balance(pillars)
+    # Step 5b: Seasonally-adjusted balance (for display/narration)
+    five_elements_balance_seasonal = calculate_five_elements_balance_seasonal(pillars)
     element_counts = calculate_element_counts(pillars)
 
     # Step 6: Analyze Day Master strength
@@ -191,6 +194,7 @@ def calculate_bazi(
         gender=gender,
         timing_insights=timing_insights,
         special_day_pillars=special_day_pillars,
+        five_elements_balance_seasonal=five_elements_balance_seasonal,
     )
 
     # Step 16: Lifetime Enhanced Insights (V2 — only for lifetime reading type)
@@ -210,6 +214,8 @@ def calculate_bazi(
             luck_periods=luck_periods,
             annual_stars=annual_stars,
             kong_wang=kong_wang,
+            branch_relationships=pre_analysis.get('pillarRelationships', {}).get('branchRelationships'),
+            birth_year=birth_year,
         )
 
     # Build the complete result
@@ -220,13 +226,13 @@ def calculate_bazi(
         'strengthScoreV2': pre_analysis['strengthV2'],
     }
 
-    # Convert five elements balance to English keys for TypeScript compatibility
+    # Convert seasonal balance to English keys for TypeScript compatibility (display)
     five_elements_balance_en = {
-        'wood': five_elements_balance.get('木', 0),
-        'fire': five_elements_balance.get('火', 0),
-        'earth': five_elements_balance.get('土', 0),
-        'metal': five_elements_balance.get('金', 0),
-        'water': five_elements_balance.get('水', 0),
+        'wood': five_elements_balance_seasonal.get('木', 0),
+        'fire': five_elements_balance_seasonal.get('火', 0),
+        'earth': five_elements_balance_seasonal.get('土', 0),
+        'metal': five_elements_balance_seasonal.get('金', 0),
+        'water': five_elements_balance_seasonal.get('水', 0),
     }
 
     # Summary fields for AI consumption (Phase 11A)
@@ -254,7 +260,8 @@ def calculate_bazi(
     result = {
         'fourPillars': pillars,
         'fiveElementsBalance': five_elements_balance_en,
-        'fiveElementsBalanceZh': five_elements_balance,
+        'fiveElementsBalanceZh': five_elements_balance_seasonal,
+        'fiveElementsBalanceRaw': five_elements_balance,
         'elementCounts': element_counts,
         'dayMaster': day_master_result,
         'dayMasterStem': day_master_stem,

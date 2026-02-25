@@ -363,14 +363,16 @@ export class AIService implements OnModuleInit {
       totalOutputTokens += r1.outputTokens;
 
       const parsed1 = this.parseLifetimeV2CallResponse(r1.content, 'call1');
-      sections = { ...sections, ...parsed1.sections };
-      if (parsed1.summary && (parsed1.summary.preview || parsed1.summary.full)) {
-        summary = parsed1.summary;
+      // Apply auto-fix before merging
+      const { result: fixed1 } = this.autoFixAllSections(parsed1, calculationData);
+      sections = { ...sections, ...fixed1.sections };
+      if (fixed1.summary && (fixed1.summary.preview || fixed1.summary.full)) {
+        summary = fixed1.summary;
       }
 
       // Log Call 1 usage
       this.logUsage(userId, readingId, providerConfig, {
-        interpretation: { sections: parsed1.sections, summary: parsed1.summary },
+        interpretation: { sections: fixed1.sections, summary: fixed1.summary },
         provider: providerConfig.provider,
         model: providerConfig.model,
         tokenUsage: {
@@ -390,7 +392,9 @@ export class AIService implements OnModuleInit {
       totalOutputTokens += r2.outputTokens;
 
       const parsed2 = this.parseLifetimeV2CallResponse(r2.content, 'call2');
-      sections = { ...sections, ...parsed2.sections };
+      // Apply auto-fix before merging
+      const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
+      sections = { ...sections, ...fixed2.sections };
 
       // Log Call 2 usage
       this.logUsage(userId, readingId, providerConfig, {
@@ -570,7 +574,9 @@ export class AIService implements OnModuleInit {
             extractedKeys,
           );
 
-          for (const [key, section] of Object.entries(newSections)) {
+          for (const [key, rawSection] of Object.entries(newSections)) {
+            // Apply auto-fix before emitting
+            const { section } = this.autoFixSection(key, rawSection, calculationData);
             call1Sections[key] = section;
             totalSections++;
             subscriber.next({
@@ -582,8 +588,10 @@ export class AIService implements OnModuleInit {
 
         // Parse any remaining sections from the complete buffer
         const finalParsed = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
-        for (const [key, section] of Object.entries(finalParsed.sections)) {
+        for (const [key, rawSection] of Object.entries(finalParsed.sections)) {
           if (!call1Sections[key]) {
+            // Apply auto-fix before emitting
+            const { section } = this.autoFixSection(key, rawSection, calculationData);
             call1Sections[key] = section;
             totalSections++;
             subscriber.next({
@@ -618,7 +626,9 @@ export class AIService implements OnModuleInit {
       const call2Result = await call2Promise;
       if (call2Result) {
         const parsed2 = this.parseLifetimeV2CallResponse(call2Result.content, 'call2');
-        for (const [key, section] of Object.entries(parsed2.sections)) {
+        for (const [key, rawSection] of Object.entries(parsed2.sections)) {
+          // Apply auto-fix before emitting
+          const { section } = this.autoFixSection(key, rawSection, calculationData);
           totalSections++;
           subscriber.next({
             data: JSON.stringify({ key, preview: section.preview, full: section.full }),
@@ -850,36 +860,51 @@ export class AIService implements OnModuleInit {
       result = result.replace(/\{\{patternNarrative\}\}/g, '（資料未提供）');
     }
 
-    // Children Insights
-    const childrenInsights = enhanced?.['childrenInsights'] as Record<string, unknown> | undefined;
-    if (childrenInsights) {
-      const ciText = [
-        `食傷顯現數（天干中）：${childrenInsights['shishanManifestCount']}`,
-        `食傷潛藏數（地支本氣）：${childrenInsights['shishanLatentCount']}`,
-        `食傷透干：${(childrenInsights['shishanTransparent'] as string[] || []).join('、') || '無'}`,
-        `時柱十神：${childrenInsights['hourPillarTenGod']}`,
-        `食傷被印制：${childrenInsights['isShishanSuppressed'] ? '是' : '否'}`,
-        `時支十二長生：${childrenInsights['hourBranchLifeStage']}`,
-      ].join('\n');
+    // Children Insights — now uses narrative anchors (self-narrating sentences)
+    const narrativeAnchors = enhanced?.['narrativeAnchors'] as Record<string, string[]> | undefined;
+    const childrenAnchors = narrativeAnchors?.['children_analysis'] as string[] | undefined;
+    if (childrenAnchors && childrenAnchors.length > 0) {
+      const ciText = childrenAnchors.map((a, i) => `${i + 1}. ${a}`).join('\n');
       result = result.replace(/\{\{childrenInsights\}\}/g, ciText);
     } else {
-      result = result.replace(/\{\{childrenInsights\}\}/g, '（資料未提供）');
+      // Fallback to old format if narrative anchors not available
+      const childrenInsights = enhanced?.['childrenInsights'] as Record<string, unknown> | undefined;
+      if (childrenInsights) {
+        const ciText = [
+          `食傷顯現數（天干中）：${childrenInsights['shishanManifestCount']}`,
+          `食傷潛藏數（地支本氣）：${childrenInsights['shishanLatentCount']}`,
+          `食傷透干：${(childrenInsights['shishanTransparent'] as string[] || []).join('、') || '無'}`,
+          `時支本氣十神（非時干）：${childrenInsights['hourPillarTenGod']}`,
+          `食傷被印制：${childrenInsights['isShishanSuppressed'] ? '是' : '否'}`,
+          `時支十二長生：${childrenInsights['hourBranchLifeStage']}`,
+        ].join('\n');
+        result = result.replace(/\{\{childrenInsights\}\}/g, ciText);
+      } else {
+        result = result.replace(/\{\{childrenInsights\}\}/g, '（資料未提供）');
+      }
     }
 
-    // Parents Insights
-    const parentsInsights = enhanced?.['parentsInsights'] as Record<string, unknown> | undefined;
-    if (parentsInsights) {
-      const piText = [
-        `年干十神（父星）：${parentsInsights['fatherStar']}`,
-        `年支本氣十神（母星）：${parentsInsights['motherStar']}`,
-        `父親五行（財星）：${parentsInsights['fatherElement']}`,
-        `母親五行（印星）：${parentsInsights['motherElement']}`,
-        `年柱生剋關係：${parentsInsights['yearPillarRelation']}`,
-        `年柱喜忌：${parentsInsights['yearPillarFavorability']}`,
-      ].join('\n');
+    // Parents Insights — now uses narrative anchors (self-narrating sentences)
+    const parentsAnchors = narrativeAnchors?.['parents_analysis'] as string[] | undefined;
+    if (parentsAnchors && parentsAnchors.length > 0) {
+      const piText = parentsAnchors.map((a, i) => `${i + 1}. ${a}`).join('\n');
       result = result.replace(/\{\{parentsInsights\}\}/g, piText);
     } else {
-      result = result.replace(/\{\{parentsInsights\}\}/g, '（資料未提供）');
+      // Fallback to old format if narrative anchors not available
+      const parentsInsights = enhanced?.['parentsInsights'] as Record<string, unknown> | undefined;
+      if (parentsInsights) {
+        const piText = [
+          `年干十神（父星）：${parentsInsights['fatherStar']}`,
+          `年支本氣十神（母星）：${parentsInsights['motherStar']}`,
+          `父親五行（財星）：${parentsInsights['fatherElement']}`,
+          `母親五行（印星）：${parentsInsights['motherElement']}`,
+          `年柱生剋關係：${parentsInsights['yearPillarRelation']}`,
+          `年柱喜忌：${parentsInsights['yearPillarFavorability']}`,
+        ].join('\n');
+        result = result.replace(/\{\{parentsInsights\}\}/g, piText);
+      } else {
+        result = result.replace(/\{\{parentsInsights\}\}/g, '（資料未提供）');
+      }
     }
 
     // Boss Compatibility
@@ -894,6 +919,33 @@ export class AIService implements OnModuleInit {
       result = result.replace(/\{\{bossCompatibility\}\}/g, bcText);
     } else {
       result = result.replace(/\{\{bossCompatibility\}\}/g, '（資料未提供）');
+    }
+
+    // Per-section narrative anchors — Call 1 (chart_identity, finance_pattern, career_pattern, love_pattern, health, boss_strategy)
+    const anchorSections = ['chart_identity', 'finance_pattern', 'career_pattern', 'love_pattern', 'health', 'boss_strategy'];
+    for (const section of anchorSections) {
+      const sectionAnchors = narrativeAnchors?.[section] as string[] | undefined;
+      const placeholder = `{{anchors_${section}}}`;
+      if (sectionAnchors && sectionAnchors.length > 0) {
+        const anchorText = sectionAnchors.map((a, i) => `${i + 1}. ${a}`).join('\n');
+        result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), anchorText);
+      } else {
+        result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), '（錨點資料未提供）');
+      }
+    }
+
+    // Per-section narrative anchors — Call 2 (current_period, best_period, annual_finance, annual_career, annual_love, annual_health)
+    const call2Anchors = enhanced?.['call2NarrativeAnchors'] as Record<string, string[]> | undefined;
+    const call2Sections = ['current_period', 'best_period', 'annual_finance', 'annual_career', 'annual_love', 'annual_health'];
+    for (const section of call2Sections) {
+      const sectionAnchors = call2Anchors?.[section] as string[] | undefined;
+      const placeholder = `{{anchors_${section}}}`;
+      if (sectionAnchors && sectionAnchors.length > 0) {
+        const anchorText = sectionAnchors.map((a, i) => `${i + 1}. ${a}`).join('\n');
+        result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), anchorText);
+      } else {
+        result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), '（錨點資料未提供）');
+      }
     }
 
     // Annual Ten God
@@ -1089,6 +1141,164 @@ export class AIService implements OnModuleInit {
     return {
       sections,
       summary: parsed.summary || { preview: '', full: '' },
+    };
+  }
+
+  // ============================================================
+  // Post-Processing Auto-Fix Validation Layer
+  // ============================================================
+
+  /**
+   * Auto-fix common AI errors in a single section based on ground truth data.
+   *
+   * Rule-based detection + string replacement. No AI call needed.
+   * Returns { text, fixes } where fixes is an array of applied corrections.
+   */
+  private autoFixSection(
+    sectionKey: string,
+    section: InterpretationSection,
+    calculationData: Record<string, unknown>,
+  ): { section: InterpretationSection; fixes: string[] } {
+    const fixes: string[] = [];
+    let previewText = section.preview;
+    let fullText = section.full;
+
+    const enhanced = calculationData['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
+    const dayMaster = calculationData['dayMaster'] as Record<string, unknown> | undefined;
+    const tabooGod = (dayMaster?.['tabooGod'] as string) || '';
+    const enemyGod = (dayMaster?.['enemyGod'] as string) || '';
+
+    if (!tabooGod || !enemyGod || tabooGod === enemyGod) {
+      return { section, fixes };
+    }
+
+    // ---- Fix 1: 忌神/仇神 mislabeling ----
+    // If AI calls the enemyGod element "忌神" instead of "仇神", fix it.
+    // Pattern: "忌神{enemyGod}" should be "仇神{enemyGod}" when enemyGod ≠ tabooGod
+    const wrongLabel = `忌神${enemyGod}`;
+    const correctLabel = `仇神${enemyGod}`;
+    if (fullText.includes(wrongLabel)) {
+      fullText = fullText.split(wrongLabel).join(correctLabel);
+      fixes.push(`Fixed: "${wrongLabel}" → "${correctLabel}" in ${sectionKey}.full`);
+    }
+    if (previewText.includes(wrongLabel)) {
+      previewText = previewText.split(wrongLabel).join(correctLabel);
+      fixes.push(`Fixed: "${wrongLabel}" → "${correctLabel}" in ${sectionKey}.preview`);
+    }
+
+    // Also check for variant patterns like "忌神（土）" when 土 is enemyGod
+    const wrongLabelParen = `忌神（${enemyGod}）`;
+    const correctLabelParen = `仇神（${enemyGod}）`;
+    if (fullText.includes(wrongLabelParen)) {
+      fullText = fullText.split(wrongLabelParen).join(correctLabelParen);
+      fixes.push(`Fixed: "${wrongLabelParen}" → "${correctLabelParen}" in ${sectionKey}.full`);
+    }
+    if (previewText.includes(wrongLabelParen)) {
+      previewText = previewText.split(wrongLabelParen).join(correctLabelParen);
+      fixes.push(`Fixed: "${wrongLabelParen}" → "${correctLabelParen}" in ${sectionKey}.preview`);
+    }
+
+    // Variant: "忌神 土" with space
+    const wrongLabelSpace = `忌神 ${enemyGod}`;
+    const correctLabelSpace = `仇神 ${enemyGod}`;
+    if (fullText.includes(wrongLabelSpace)) {
+      fullText = fullText.split(wrongLabelSpace).join(correctLabelSpace);
+      fixes.push(`Fixed: "${wrongLabelSpace}" → "${correctLabelSpace}" in ${sectionKey}.full`);
+    }
+
+    // ---- Fix 2: Children section — wrong hourPillarTenGod reference ----
+    if (sectionKey === 'children_analysis') {
+      const childrenInsights = enhanced?.['childrenInsights'] as Record<string, unknown> | undefined;
+      if (childrenInsights) {
+        const correctHourTenGod = childrenInsights['hourPillarTenGod'] as string;
+
+        // Detect if AI references the STEM's ten god instead of the BRANCH main qi's ten god
+        // We can identify this by checking if the AI mentions a different ten god for 時支/時柱
+        // when describing children's personality/traits
+        const pillars = calculationData['pillars'] as Record<string, Record<string, string>> | undefined;
+        if (pillars && correctHourTenGod) {
+          const hourStem = pillars['hour']?.['stem'] || '';
+          const dayMasterStem = calculationData['dayMasterStem'] as string || '';
+
+          if (hourStem && dayMasterStem) {
+            // Calculate what the WRONG ten god would be (from hour stem)
+            // We can't call derive_ten_god here (Python), so we check common patterns
+            // The key pattern: if AI says "時支本氣為{wrongTG}" or "時柱為{wrongTG}"
+            // when it should be correctHourTenGod
+            const wrongTenGods = ['比肩', '劫財', '食神', '傷官', '偏財', '正財', '偏官', '正官', '偏印', '正印']
+              .filter(tg => tg !== correctHourTenGod);
+
+            for (const wrongTG of wrongTenGods) {
+              // Pattern: "時支本氣為{wrong}" or "時支{branch}本氣為{wrong}"
+              const wrongPatterns = [
+                `時支本氣為${wrongTG}`,
+                `時柱十神為${wrongTG}`,
+                `時柱為${wrongTG}`,
+              ];
+              for (const wp of wrongPatterns) {
+                const cp = wp.replace(wrongTG, correctHourTenGod);
+                if (fullText.includes(wp)) {
+                  fullText = fullText.split(wp).join(cp);
+                  fixes.push(`Fixed: "${wp}" → "${cp}" in children_analysis.full`);
+                }
+              }
+            }
+          }
+        }
+
+        // Fix transparent/latent contradiction
+        // Pattern: "X透於Y干但藏而不透" — self-contradictory
+        const transparentPattern = /([甲乙丙丁戊己庚辛壬癸][火木金水土]?(?:食神|傷官))透[於出]([年月時])干[，、但而].*?藏而不透/g;
+        const transparentMatch = fullText.match(transparentPattern);
+        if (transparentMatch) {
+          for (const match of transparentMatch) {
+            // The stem is transparent (透), so it should NOT say "藏而不透"
+            // Remove the contradictory part
+            const fixed = match.replace(/[，、但而].*?藏而不透/, '，屬顯現食傷');
+            fullText = fullText.replace(match, fixed);
+            fixes.push(`Fixed self-contradiction: "${match.substring(0, 30)}..." → removed "藏而不透" (it IS transparent)`);
+          }
+        }
+      }
+    }
+
+    if (fixes.length > 0) {
+      return {
+        section: { preview: previewText, full: fullText },
+        fixes,
+      };
+    }
+
+    return { section, fixes };
+  }
+
+  /**
+   * Apply auto-fix to all sections in a parsed result.
+   * Returns the fixed result and a log of all applied fixes.
+   */
+  private autoFixAllSections(
+    parsed: AIInterpretationResult,
+    calculationData: Record<string, unknown>,
+  ): { result: AIInterpretationResult; allFixes: string[] } {
+    const allFixes: string[] = [];
+    const fixedSections: Record<string, InterpretationSection> = {};
+
+    for (const [key, section] of Object.entries(parsed.sections)) {
+      const { section: fixedSection, fixes } = this.autoFixSection(key, section, calculationData);
+      fixedSections[key] = fixedSection;
+      allFixes.push(...fixes);
+    }
+
+    if (allFixes.length > 0) {
+      this.logger.log(`Auto-fix applied ${allFixes.length} corrections: ${allFixes.join('; ')}`);
+    }
+
+    return {
+      result: {
+        sections: fixedSections,
+        summary: parsed.summary,
+      },
+      allFixes,
     };
   }
 
