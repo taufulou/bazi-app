@@ -3068,8 +3068,8 @@ export class AIService implements OnModuleInit {
   ): string {
     const crypto = require('crypto');
     // Include preAnalysis version in hash so cache invalidates when rules change
-    // LIFETIME uses v2.0.0 (V2 multi-call format), all others use v1.0.0
-    const preAnalysisVersion = readingType === ReadingType.LIFETIME ? 'v2.0.0' : 'v1.0.0';
+    // LIFETIME uses v2.0.0 (V2 multi-call format), all others use v1.1.0 (seasonal balance 旺相休囚死)
+    const preAnalysisVersion = readingType === ReadingType.LIFETIME ? 'v2.0.0' : 'v1.1.0';
     const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;
     return crypto.createHash('sha256').update(data).digest('hex');
   }
@@ -3084,7 +3084,7 @@ export class AIService implements OnModuleInit {
     comparisonType: string,
   ): string {
     const crypto = require('crypto');
-    const preAnalysisVersion = 'v1.0.0';
+    const preAnalysisVersion = 'v1.1.0'; // bumped: seasonal balance change (旺相休囚死)
     // Sort profiles to ensure order-independent cache hits (A+B == B+A)
     const pA = `${profileA.birthDate}|${profileA.birthTime}|${profileA.birthCity}|${profileA.gender}`;
     const pB = `${profileB.birthDate}|${profileB.birthTime}|${profileB.birthCity}|${profileB.gender}`;
