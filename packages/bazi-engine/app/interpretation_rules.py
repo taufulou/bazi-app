@@ -839,6 +839,8 @@ def generate_pre_analysis(
         special_day_pillars: Special day pillar findings (Phase 11D)
         five_elements_balance_seasonal: Seasonally-adjusted balance (for health display).
             Falls back to raw balance if not provided (backward compat).
+        strength_v2: Pre-computed V2 strength result from calculate_strength_score_v2().
+            Falls back to computing internally if not provided.
 
     Returns:
         Complete pre-analysis dict (versioned, domain-filtered)

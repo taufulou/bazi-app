@@ -11,7 +11,6 @@ import type { LuckPeriodDetailData } from "../lib/readings-api";
 
 interface LuckPeriodChartProps {
   periods: LuckPeriodDetailData[];
-  bestPeriod?: LuckPeriodDetailData | null;
   isSubscriber: boolean;
 }
 
@@ -31,6 +30,7 @@ const PAD_TOP = 25;
 const PAD_BOTTOM = 80;
 const CHART_W = SVG_W - PAD_LEFT - PAD_RIGHT;
 const CHART_H = SVG_H - PAD_TOP - PAD_BOTTOM;
+const MIN_LABEL_Y = 8; // labels must stay below this y to avoid viewBox clipping
 
 export default function LuckPeriodChart({
   periods,
@@ -169,6 +169,12 @@ export default function LuckPeriodChart({
         {/* Dots for each period */}
         {periods.map((p, i) => {
           const isCurrent = p.isCurrent;
+          const rawScoreY = getY(p.score) - 10;
+          const rawCurrentY = getY(p.score) - (isSubscriber ? 30 : 18);
+          const currentLabelY = Math.max(MIN_LABEL_Y, rawCurrentY);
+          const scoreLabelY = isCurrent
+            ? Math.max(rawScoreY, currentLabelY + 16)
+            : rawScoreY;
 
           return (
             <g key={`${p.stem}${p.branch}-${i}`}>
@@ -190,7 +196,7 @@ export default function LuckPeriodChart({
               {isCurrent && (
                 <text
                   x={getX(i)}
-                  y={getY(p.score) - (isSubscriber ? 30 : 18)}
+                  y={currentLabelY}
                   textAnchor="middle"
                   fontSize="11"
                   fontWeight="700"
@@ -204,7 +210,7 @@ export default function LuckPeriodChart({
               {isSubscriber && (
                 <text
                   x={getX(i)}
-                  y={getY(p.score) - 10}
+                  y={scoreLabelY}
                   textAnchor="middle"
                   fill={getScoreColor(p.score)}
                   fontSize="11"

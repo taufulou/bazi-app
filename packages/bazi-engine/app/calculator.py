@@ -233,13 +233,14 @@ def calculate_bazi(
         )
 
     # Build the complete result
+    _v2 = pre_analysis['strengthV2']  # single canonical source for output
     day_master_result = {
         **day_master_analysis,  # V1 base (sameParty, oppositeParty, element, yinYang)
         **favorable_gods,
         'pattern': pattern,
-        'strength': strength_v2_result['classification'],       # Override V1 with V2
-        'strengthScore': round(strength_v2_result['score']),    # Override V1 with V2 (int)
-        'strengthScoreV2': pre_analysis['strengthV2'],
+        'strength': _v2['classification'],
+        'strengthScore': round(_v2['score']),
+        'strengthScoreV2': _v2,
     }
 
     # Convert seasonal balance to English keys for TypeScript compatibility (display)

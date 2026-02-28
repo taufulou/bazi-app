@@ -681,7 +681,6 @@ function DeterministicCard({
         <>
           <LuckPeriodChart
             periods={data.luckPeriodsEnriched}
-            bestPeriod={data.bestPeriod ?? null}
             isSubscriber={isSubscriber}
           />
           <LuckPeriodTimeline

@@ -1514,11 +1514,11 @@ class TestLuckPeriodEnrichment:
             assert lp['score'] <= best['score']
 
     def test_roger8_favorable_lp_scores_higher(self, roger8_enhanced):
-        """LP with 用神(水)/喜神(金) elements should score higher than average."""
+        """LP with 喜神(火) elements should score higher than average."""
         det = roger8_enhanced['deterministic']
         scores = [lp['score'] for lp in det['luck_periods_enriched']]
         avg = sum(scores) / len(scores) if scores else 50
-        # 丙午 (火/火) should score well (V2: 用=土, 喜=火)
+        # 丙午 (火/火) — 喜神(火) elements, should score above average
         for lp in det['luck_periods_enriched']:
             if lp['stem'] == '丙' and lp['branch'] == '午':
                 assert lp['score'] > avg, f"丙午 LP score {lp['score']} should be above avg {avg}"
