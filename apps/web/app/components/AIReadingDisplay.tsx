@@ -48,6 +48,7 @@ const SECTION_THEMES: Record<string, { icon: string; theme: string }> = {
   children_analysis: { icon: "👶", theme: "family" },
   parents_analysis: { icon: "👨‍👩‍👧", theme: "family" },
   current_period: { icon: "📊", theme: "timing" },
+  next_period: { icon: "🔮", theme: "timing" },
   best_period: { icon: "🌟", theme: "timing" },
   annual_love: { icon: "💕", theme: "love" },
   annual_career: { icon: "💼", theme: "career" },
@@ -135,6 +136,7 @@ const SECTION_TITLES_ZH: Record<string, string> = {
   children_analysis: "子女分析",
   parents_analysis: "父母情況分析",
   current_period: "當前大運詳解",
+  next_period: "下一大運詳解",
   best_period: "有利大運把握",
   annual_love: "本年感情運勢",
   annual_career: "本年事業運勢",
@@ -245,7 +247,7 @@ const V2_DETERMINISTIC_INSERTIONS: Record<string, string> = {
 const V2_ALL_SECTION_KEYS = [
   'chart_identity', 'finance_pattern', 'career_pattern', 'boss_strategy',
   'love_pattern', 'health', 'children_analysis', 'parents_analysis',
-  'current_period', 'best_period',
+  'current_period', 'next_period', 'best_period',
   'annual_love', 'annual_career', 'annual_finance', 'annual_health',
 ];
 
@@ -449,7 +451,7 @@ function DeterministicCard({
           <div className={styles.detCardHeader}>
             <span className={styles.detCardIcon}>📈</span>
             <h4 className={styles.detCardTitle}>投資理財方向</h4>
-            <span className={styles.detCardDisclaimer}>（僅供參考，非投資建議）</span>
+            <span className={styles.detCardDisclaimer}>投資有風險，此測算結果內容僅供參考，絕不構成任何投資建議或承諾</span>
           </div>
           <div className={styles.detCardBody}>
             <div className={styles.detRow}>

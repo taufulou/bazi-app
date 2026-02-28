@@ -2042,10 +2042,10 @@ class TestV2Call2Anchors:
         """Call 2 narrative anchors should exist in enhanced insights."""
         assert 'call2NarrativeAnchors' in roger8_enhanced
 
-    def test_call2_has_all_6_sections(self, roger8_enhanced):
-        """Call 2 should have all 6 section keys."""
+    def test_call2_has_all_7_sections(self, roger8_enhanced):
+        """Call 2 should have all 7 section keys."""
         c2 = roger8_enhanced['call2NarrativeAnchors']
-        for section in ['current_period', 'best_period', 'annual_finance', 'annual_career', 'annual_love', 'annual_health']:
+        for section in ['current_period', 'next_period', 'best_period', 'annual_finance', 'annual_career', 'annual_love', 'annual_health']:
             assert section in c2, f'Missing Call 2 section: {section}'
 
     def test_call2_current_period_has_score(self, roger8_enhanced):
@@ -2054,6 +2054,36 @@ class TestV2Call2Anchors:
         if anchors:  # May be empty if no current period
             combined = '\n'.join(anchors)
             assert '評分' in combined or '分' in combined
+
+    def test_call2_next_period_has_score(self, roger8_enhanced):
+        """next_period should include score and ten god."""
+        anchors = roger8_enhanced['call2NarrativeAnchors']['next_period']
+        if anchors and '最後一個大運' not in anchors[0]:
+            combined = '\n'.join(anchors)
+            assert '評分' in combined or '分' in combined
+
+    def test_call2_next_period_has_transition_year(self, roger8_enhanced):
+        """next_period should include transition year anchor."""
+        anchors = roger8_enhanced['call2NarrativeAnchors']['next_period']
+        if anchors and '最後一個大運' not in anchors[0]:
+            combined = '\n'.join(anchors)
+            assert '交運年' in combined
+
+    def test_call2_next_period_has_element_comparison(self, roger8_enhanced):
+        """next_period should include qualitative element or ten god comparison."""
+        anchors = roger8_enhanced['call2NarrativeAnchors']['next_period']
+        if anchors and '最後一個大運' not in anchors[0]:
+            combined = '\n'.join(anchors)
+            # Should have either element shift or ten god shift
+            assert '五行從' in combined or '十神主題從' in combined
+
+    def test_call2_next_period_has_two_stages(self, roger8_enhanced):
+        """next_period should include two-stage split anchors."""
+        anchors = roger8_enhanced['call2NarrativeAnchors']['next_period']
+        if anchors and '最後一個大運' not in anchors[0]:
+            combined = '\n'.join(anchors)
+            assert '第一階段' in combined
+            assert '第二階段' in combined
 
     def test_call2_best_period_has_info(self, roger8_enhanced):
         """best_period should describe why it's the best."""
@@ -2107,7 +2137,7 @@ class TestV2Call2AnchorsLaopo:
 
     def test_laopo_call2_has_all_sections(self, laopo_enhanced):
         c2 = laopo_enhanced['call2NarrativeAnchors']
-        for section in ['current_period', 'best_period', 'annual_finance', 'annual_career', 'annual_love', 'annual_health']:
+        for section in ['current_period', 'next_period', 'best_period', 'annual_finance', 'annual_career', 'annual_love', 'annual_health']:
             assert section in c2
 
     def test_laopo_annual_love_female_star(self, laopo_enhanced):
@@ -2118,6 +2148,91 @@ class TestV2Call2AnchorsLaopo:
             # If there's spouse star detection, should be female-specific
             if '配偶星' in combined or '夫星' in combined:
                 assert '正官' in combined or '偏官' in combined
+
+
+# ============================================================
+# Next Period Edge Case Tests
+# ============================================================
+
+class TestNextPeriodEdgeCases:
+    """Test next_period anchor edge cases (last period, cong-ge branch check)."""
+
+    def test_call2_next_period_last_period_edge_case(self):
+        """When user is in their last luck period, next_period should have explicit message."""
+        # Use a birth date far enough in the past that the current year falls in the last period
+        # Person born 1940 — by 2026, likely in last luck period (age ~86)
+        chart = calculate_bazi(
+            '1940-01-15', '08:00', '台北市', 'Asia/Taipei', 'male',
+            reading_type='LIFETIME',
+        )
+        enhanced = chart.get('lifetimeEnhancedInsights')
+        if enhanced and 'call2NarrativeAnchors' in enhanced:
+            anchors = enhanced['call2NarrativeAnchors']['next_period']
+            # Should either be the last-period message or valid anchors
+            assert isinstance(anchors, list)
+            if len(anchors) == 1 and '最後一個大運' in anchors[0]:
+                pass  # Expected edge case
+            else:
+                # Not the last period — that's fine, just verify it's a valid list
+                assert len(anchors) >= 1
+
+    def test_cong_ge_branch_ten_god_check(self):
+        """Verify cong-ge catastrophe checks branchTenGod, not just stem tenGod."""
+        from app.lifetime_enhanced import build_call2_narrative_anchors
+        from app.constants import STEM_ELEMENT, HIDDEN_STEMS
+        from app.ten_gods import derive_ten_god
+
+        # Create a minimal enriched luck period structure
+        # where stem tenGod is safe but branchTenGod triggers cong-ge warning
+        mock_pillars = {
+            'year': {'stem': '甲', 'branch': '子'},
+            'month': {'stem': '丙', 'branch': '寅'},
+            'day': {'stem': '甲', 'branch': '午'},
+            'hour': {'stem': '丙', 'branch': '寅'},
+        }
+        mock_enriched = [
+            {
+                'stem': '壬', 'branch': '申', 'startAge': 10, 'endAge': 19,
+                'startYear': 2000, 'endYear': 2009,
+                'tenGod': '偏印',  # In cong_jishen_tgs
+                'stemTenGod': '偏印', 'branchTenGod': '偏官',
+                'score': 45, 'stemPhase': '前5年', 'branchPhase': '後5年',
+                'interactions': [], 'isCurrent': True,
+            },
+            {
+                'stem': '丁', 'branch': '巳', 'startAge': 20, 'endAge': 29,
+                'startYear': 2010, 'endYear': 2019,
+                'tenGod': '傷官',  # NOT in cong_jishen_tgs
+                'stemTenGod': '傷官', 'branchTenGod': '比肩',  # branchTenGod IS in set
+                'score': 55, 'stemPhase': '前5年', 'branchPhase': '後5年',
+                'interactions': [], 'isCurrent': False,
+            },
+        ]
+        cong_ge = {'name': '從財格', 'type': 'wealth'}
+
+        result = build_call2_narrative_anchors(
+            pillars=mock_pillars,
+            day_master_stem='甲',
+            gender='male',
+            effective_gods={'usefulGod': '土', 'favorableGod': '金', 'tabooGod': '木', 'enemyGod': '水'},
+            prominent_god='偏財',
+            strength_v2={'classification': 'very_weak'},
+            cong_ge=cong_ge,
+            luck_periods_enriched=mock_enriched,
+            best_period=mock_enriched[0],
+            annual_stars=[],
+            kong_wang=['子', '丑'],
+            all_shen_sha=[],
+            branch_relationships=None,
+            five_elements_balance={'木': 20, '火': 20, '土': 20, '金': 20, '水': 20},
+            tougan_analysis=[],
+        )
+
+        # next_period anchors should contain cong-ge warning due to branchTenGod=比肩
+        next_anchors = result['next_period']
+        combined = '\n'.join(next_anchors)
+        assert '從財格' in combined and '根基動搖' in combined, \
+            f"Cong-ge warning missing for branchTenGod=比肩. Anchors: {next_anchors}"
 
 
 # ============================================================

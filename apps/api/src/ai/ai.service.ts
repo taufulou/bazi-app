@@ -984,9 +984,9 @@ export class AIService implements OnModuleInit {
       }
     }
 
-    // Per-section narrative anchors — Call 2 (current_period, best_period, annual_finance, annual_career, annual_love, annual_health)
+    // Per-section narrative anchors — Call 2 (current_period, next_period, best_period, annual_finance, annual_career, annual_love, annual_health)
     const call2Anchors = enhanced?.['call2NarrativeAnchors'] as Record<string, string[]> | undefined;
-    const call2Sections = ['current_period', 'best_period', 'annual_finance', 'annual_career', 'annual_love', 'annual_health'];
+    const call2Sections = ['current_period', 'next_period', 'best_period', 'annual_finance', 'annual_career', 'annual_love', 'annual_health'];
     for (const section of call2Sections) {
       const sectionAnchors = call2Anchors?.[section] as string[] | undefined;
       const placeholder = `{{anchors_${section}}}`;
