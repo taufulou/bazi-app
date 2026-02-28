@@ -1754,6 +1754,8 @@ export class AIService implements OnModuleInit {
         .map(([elem, state]) => `${elem}${state}`)
         .join('、');
       result = result.replace(/\{\{seasonalStates\}\}/g, `五行旺衰：${stateText}`);
+    } else {
+      result = result.replace(/\{\{seasonalStates\}\}/g, '');
     }
 
     // Luck Periods

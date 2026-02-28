@@ -3290,6 +3290,7 @@ def build_call2_narrative_anchors(
     branch_relationships: Optional[Dict],
     five_elements_balance: Dict[str, float],
     tougan_analysis: List[Dict],
+    current_year: Optional[int] = None,
 ) -> Dict[str, List[str]]:
     """
     Build narrative anchors for all 6 Call 2 sections (timing/fortune).
@@ -3310,7 +3311,7 @@ def build_call2_narrative_anchors(
     anchors: Dict[str, List[str]] = {}
 
     # Determine current year's annual star
-    current_year = datetime.now().year
+    current_year = current_year if current_year else datetime.now().year
     current_annual = None
     for star in annual_stars:
         if star.get('year') == current_year:
@@ -3626,6 +3627,7 @@ def generate_lifetime_enhanced_insights(
     kong_wang: List[str],
     branch_relationships: Optional[Dict] = None,
     birth_year: int = 0,
+    current_year: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Generate all enhanced deterministic insights for lifetime V2 reading.
@@ -3640,6 +3642,7 @@ def generate_lifetime_enhanced_insights(
       - deterministic data (investments, careers, directions, benefactors, etc.)
       - luck_periods_enriched
     """
+    resolved_year = current_year if current_year else datetime.now().year
     dm_element = STEM_ELEMENT[day_master_stem]
     useful_god = effective_gods.get('usefulGod', '')
     favorable_god = effective_gods.get('favorableGod', '')
@@ -3675,8 +3678,7 @@ def generate_lifetime_enhanced_insights(
         day_branch, annual_stars, kong_wang, birth_year=birth_year,
     )
     # Pre-filter to future years for anchor display
-    now_year = datetime.now().year
-    warning_years_future = [y for y in romance_warning_years if y >= now_year] if romance_warning_years else []
+    warning_years_future = [y for y in romance_warning_years if y >= resolved_year] if romance_warning_years else []
 
     # Narrative anchors — pre-narrated facts for AI to embed (v2: enhanced with 2D conditioning)
     narrative_anchors = build_narrative_anchors(
@@ -3725,17 +3727,16 @@ def generate_lifetime_enhanced_insights(
         partner_elements.append(favorable_god)
 
     # Romance years (filtered to 1 most recent past + next 10 years)
-    current_year = datetime.now().year
     romance_years = compute_romance_years(
         gender, day_master_stem, day_branch, year_branch,
         annual_stars, kong_wang, birth_year=birth_year,
-        current_year=current_year,
+        current_year=resolved_year,
     )
 
     # Parent health years (dual output: full for AI, future-filtered for display)
     parent_health_years = compute_parent_health_years(
         day_master_stem, annual_stars, birth_year=birth_year,
-        current_year=current_year,
+        current_year=resolved_year,
     )
 
     # Stars in 空亡 — flag key natal stars whose branches fall in 空亡
@@ -3765,10 +3766,9 @@ def generate_lifetime_enhanced_insights(
         best_period = max(luck_periods_enriched, key=lambda p: p['score'])
 
     # Annual Ten God (for Call 2 annual_finance anchor)
-    current_year = datetime.now().year
     annual_ten_god = ''
     for star in annual_stars:
-        if star['year'] == current_year:
+        if star['year'] == resolved_year:
             annual_ten_god = derive_ten_god(day_master_stem, star['stem'])
             break
 
@@ -3789,6 +3789,7 @@ def generate_lifetime_enhanced_insights(
         branch_relationships=branch_relationships,
         five_elements_balance=five_elements_balance,
         tougan_analysis=tougan_analysis,
+        current_year=resolved_year,
     )
 
     return {

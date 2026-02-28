@@ -18,6 +18,7 @@ Luck Periods (大運), Annual Stars (流年), Monthly Stars (流月) Calculator
 """
 
 import logging
+import math
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
@@ -200,61 +201,12 @@ def _get_ephem_jie_datetimes(birth_datetime: datetime, direction: int) -> Option
 
     # Get sun's ecliptic longitude at birth
     sun.compute(birth_ephem)
-    birth_lon = float(sun.hlong) * 180.0 / 3.14159265358979  # radians to degrees
+    birth_lon = float(sun.hlong) * 180.0 / math.pi  # radians to degrees
 
     # Find which jie longitudes to target
     jie_lons = sorted(_JIE_LONGITUDES.keys())
 
-    if direction == 1:
-        # Find next jie after birth longitude
-        target_lons = [l for l in jie_lons if l > birth_lon]
-        if not target_lons:
-            target_lons = [jie_lons[0]]  # Wrap around (e.g., past 大雪 315° → 小寒 285°→ 立春 315°)
-            # Actually need the smallest longitude in next cycle
-            target_lon = jie_lons[0]
-        else:
-            target_lon = target_lons[0]
-    else:
-        # Find previous jie before birth longitude
-        target_lons = [l for l in jie_lons if l < birth_lon]
-        if not target_lons:
-            target_lon = jie_lons[-1]  # Wrap around
-        else:
-            target_lon = target_lons[-1]
-
-    # Binary search for the exact time when sun reaches target_lon
-    # Start with a search window of ±45 days from birth
-    target_rad = target_lon * 3.14159265358979 / 180.0
-    step = 15.0  # days
-    current = birth_ephem
-
-    if direction == 1:
-        # Search forward
-        for _ in range(60):
-            sun.compute(current)
-            current_lon = float(sun.hlong)
-            # Check if we've passed the target
-            diff = (target_rad - current_lon) % (2 * 3.14159265358979)
-            if diff < 0.01:  # Close enough, refine
-                break
-            current = ephem.Date(current + step)
-            if step > 0.5:
-                step *= 0.5
-    else:
-        # Search backward
-        for _ in range(60):
-            sun.compute(current)
-            current_lon = float(sun.hlong)
-            diff = (current_lon - target_rad) % (2 * 3.14159265358979)
-            if diff < 0.01:
-                break
-            current = ephem.Date(current - step)
-            if step > 0.5:
-                step *= 0.5
-
-    # Use ephem's next_solstice/equinox approach — actually, let's use a simpler
-    # and more reliable approach: iterate through ephem dates to find exact crossing
-    # Reset and use a proper algorithm
+    # Scan through ±45 day window to find the nearest jie crossing
     search_start = birth_ephem if direction == 1 else ephem.Date(birth_ephem - 45)
     search_end = ephem.Date(birth_ephem + 45) if direction == 1 else birth_ephem
 
@@ -266,7 +218,7 @@ def _get_ephem_jie_datetimes(birth_datetime: datetime, direction: int) -> Option
     prev_lon = None
     while scan <= search_end:
         sun.compute(scan)
-        cur_lon = float(sun.hlong) * 180.0 / 3.14159265358979
+        cur_lon = float(sun.hlong) * 180.0 / math.pi
 
         if prev_lon is not None:
             # Check if target_lon was crossed between prev and current
@@ -285,7 +237,7 @@ def _get_ephem_jie_datetimes(birth_datetime: datetime, direction: int) -> Option
                     for _ in range(30):  # ~30 iterations → sub-second precision
                         mid = ephem.Date((float(lo) + float(hi)) / 2)
                         sun.compute(mid)
-                        mid_lon = float(sun.hlong) * 180.0 / 3.14159265358979
+                        mid_lon = float(sun.hlong) * 180.0 / math.pi
                         # Normalize difference
                         diff = (mid_lon - tl) % 360
                         if diff > 180:

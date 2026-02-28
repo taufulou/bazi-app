@@ -225,6 +225,7 @@ def calculate_bazi(
             kong_wang=kong_wang,
             branch_relationships=pre_analysis.get('pillarRelationships', {}).get('branchRelationships'),
             birth_year=birth_year,
+            current_year=target_year,
         )
 
     # Build the complete result
