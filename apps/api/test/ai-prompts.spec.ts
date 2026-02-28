@@ -7,7 +7,6 @@ import {
   OUTPUT_FORMAT_INSTRUCTIONS,
   COMPARISON_TYPE_ZH,
   GENDER_ZH,
-  STRENGTH_ZH,
 } from '../src/ai/prompts';
 
 // ============================================================
@@ -218,12 +217,5 @@ describe('AI Prompts', () => {
       expect(GENDER_ZH['female']).toBe('女');
     });
 
-    it('STRENGTH_ZH should map all strength levels', () => {
-      expect(STRENGTH_ZH['very_weak']).toBe('極弱');
-      expect(STRENGTH_ZH['weak']).toBe('偏弱');
-      expect(STRENGTH_ZH['neutral']).toBe('中和');
-      expect(STRENGTH_ZH['strong']).toBe('偏強');
-      expect(STRENGTH_ZH['very_strong']).toBe('極強');
-    });
   });
 });

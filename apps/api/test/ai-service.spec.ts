@@ -66,6 +66,14 @@ const SAMPLE_CALCULATION = {
     hidden: { '木': 2, '火': 2, '土': 3, '金': 1, '水': 1 },
     total: { '木': 2, '火': 4, '土': 5, '金': 3, '水': 3 },
   },
+  preAnalysis: {
+    strengthV2: {
+      score: 55,
+      classification: 'neutral',
+      factors: { deling: 25, dedi: 15, deshi: 15 },
+      lifeStage: '長生',
+    },
+  },
 };
 
 // ============================================================

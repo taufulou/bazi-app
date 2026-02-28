@@ -173,9 +173,9 @@ class TestPatternNarrative:
         assert '食神' in logic
 
     def test_roger8_strength_relation(self, roger8_enhanced):
-        """Should mention 用神 水."""
+        """Should mention 用神 土 (V2: neutral → support path)."""
         relation = roger8_enhanced['patternNarrative']['patternStrengthRelation']
-        assert '水' in relation
+        assert '土' in relation
 
     def test_roger8_dominant_ten_gods(self, roger8_enhanced):
         """食神 should be #1 (月令), 比肩 likely #2."""
@@ -393,9 +393,9 @@ class TestParentsInsights:
         assert pi['motherElement'] == '火'
 
     def test_roger8_year_pillar_favorability(self, roger8_enhanced):
-        """Year stem 丁=火=仇神 → should be 忌神."""
+        """Year stem 丁=火=喜神 (V2: neutral → 喜神=印=火)."""
         pi = roger8_enhanced['parentsInsights']
-        assert pi['yearPillarFavorability'] == '忌神'
+        assert pi['yearPillarFavorability'] == '喜神'
 
 
 # ============================================================
@@ -431,10 +431,10 @@ class TestBossCompatibility:
 
 class TestBenefactors:
     def test_roger8_benefactor_elements(self, roger8_enhanced):
-        """用神=水, 喜神=金 → benefactor elements = ['水', '金']."""
+        """用神=土, 喜神=火 → benefactor elements = ['土', '火'] (V2 neutral)."""
         det = roger8_enhanced['deterministic']
-        assert '水' in det['career_benefactors_element']
-        assert '金' in det['career_benefactors_element']
+        assert '土' in det['career_benefactors_element']
+        assert '火' in det['career_benefactors_element']
 
     def test_roger8_benefactor_zodiacs(self, roger8_enhanced):
         """Roger8 年支=卯(兔) → 三合 亥卯未=豬,羊 + 六合 卯→戌=狗."""
@@ -1518,10 +1518,10 @@ class TestLuckPeriodEnrichment:
         det = roger8_enhanced['deterministic']
         scores = [lp['score'] for lp in det['luck_periods_enriched']]
         avg = sum(scores) / len(scores) if scores else 50
-        # 庚子 (金/水) should score well
+        # 丙午 (火/火) should score well (V2: 用=土, 喜=火)
         for lp in det['luck_periods_enriched']:
-            if lp['stem'] == '庚' and lp['branch'] == '子':
-                assert lp['score'] > avg, f"庚子 LP score {lp['score']} should be above avg {avg}"
+            if lp['stem'] == '丙' and lp['branch'] == '午':
+                assert lp['score'] > avg, f"丙午 LP score {lp['score']} should be above avg {avg}"
 
 
 # ============================================================
@@ -1540,22 +1540,22 @@ class TestDeterministicData:
         assert len(det['unfavorable_investments']) >= 3
 
     def test_roger8_career_directions(self, roger8_enhanced):
-        """用神=水 → 5 career direction categories."""
+        """用神=土 → 5 career direction categories (V2 neutral)."""
         det = roger8_enhanced['deterministic']
         assert len(det['career_directions']) == 5
-        # First anchor should be 水-related
-        assert '水' in det['career_directions'][0]['anchor']
+        # First anchor should be 土-related
+        assert '土' in det['career_directions'][0]['anchor']
 
     def test_roger8_favorable_direction(self, roger8_enhanced):
-        """用神=水 → 北方."""
+        """用神=土 → 中央 (V2 neutral)."""
         det = roger8_enhanced['deterministic']
-        assert det['favorable_direction'] == '北方'
+        assert det['favorable_direction'] == '中央'
 
     def test_roger8_partner_elements(self, roger8_enhanced):
-        """用神=水, 喜神=金."""
+        """用神=土, 喜神=火 (V2 neutral)."""
         det = roger8_enhanced['deterministic']
-        assert '水' in det['partner_element']
-        assert '金' in det['partner_element']
+        assert '土' in det['partner_element']
+        assert '火' in det['partner_element']
 
     def test_roger8_annual_ten_god(self, roger8_enhanced):
         """annualTenGod for current year should be a valid Ten God."""

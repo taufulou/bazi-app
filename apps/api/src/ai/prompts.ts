@@ -28,7 +28,6 @@ export const BASE_SYSTEM_PROMPT = `你是一位擁有三十年以上實戰經驗
 
 日主強弱判定規則：
 - 數據中標有「⚠️ 日主強弱（以此為準）」的欄位是系統計算的最終結論，你必須使用該欄位的分類（極弱/偏弱/中和/偏強/極旺）。
-- 「舊版旺衰」僅供參考，當兩者不同時，以標有⚠️的為準。
 - 絕對不可以自行改變日主強弱的判定。如果系統說「中和」，你就必須說「中和」，不可以改成「偏強」或「偏弱」。
 
 驗證規則：當你在文中提到任何天干地支時，必須確認它與【四柱排盤】完全一致：
@@ -154,7 +153,7 @@ export const READING_PROMPTS: Record<string, {
 【日主分析】
 - 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
 - ⚠️ 日主強弱（以此為準）：{{strengthV2}}
-- 舊版旺衰（僅供參考，與上方不同時以上方為準）：{{strength}}（{{strengthScore}}分）
+
 - 格局：{{pattern}}
 - 同黨：{{sameParty}}% / 異黨：{{oppositeParty}}%
 - 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}} / 仇神：{{enemyGod}}
@@ -216,7 +215,7 @@ sections 的 key 必須為：personality, career, love, finance, health`,
 【日主分析】
 - 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
 - ⚠️ 日主強弱（以此為準）：{{strengthV2}} / 格局：{{pattern}}
-- 舊版旺衰（僅供參考）：{{strength}}
+
 - 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}}
 
 【五行比例】
@@ -278,7 +277,7 @@ sections 的 key 必須為：annual_overview, monthly_forecast, career_annual, l
 【日主分析】
 - 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
 - ⚠️ 日主強弱（以此為準）：{{strengthV2}} / 格局：{{pattern}}
-- 舊版旺衰（僅供參考）：{{strength}}
+
 - 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}}
 
 【十神分佈】
@@ -339,7 +338,7 @@ sections 的 key 必須為：career_analysis, favorable_industries, finance_anal
 【日主分析】
 - 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
 - ⚠️ 日主強弱（以此為準）：{{strengthV2}} / 格局：{{pattern}}
-- 舊版旺衰（僅供參考）：{{strength}}
+
 - 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}}
 
 【十神分佈】
@@ -395,7 +394,6 @@ sections 的 key 必須為：love_personality, ideal_partner, marriage_timing, r
 【日主分析】
 - 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
 - ⚠️ 日主強弱（以此為準）：{{strengthV2}}
-- 舊版旺衰（僅供參考）：{{strength}}（{{strengthScore}}分）
 
 【五行比例】
 木：{{wood}}% / 火：{{fire}}% / 土：{{earth}}% / 金：{{metal}}% / 水：{{water}}%
@@ -1127,16 +1125,8 @@ export const GENDER_ZH: Record<string, string> = {
 };
 
 /**
- * Map strength to Chinese
+ * Map strength to Chinese (V2 unified)
  */
-export const STRENGTH_ZH: Record<string, string> = {
-  very_weak: '極弱',
-  weak: '偏弱',
-  neutral: '中和',
-  strong: '偏強',
-  very_strong: '極強',
-};
-
 export const STRENGTH_V2_ZH: Record<string, string> = {
   very_weak: '極弱',
   weak: '偏弱',
@@ -1325,7 +1315,7 @@ export const LIFETIME_V2_PROMPTS = {
 【日主分析】
 - 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
 - ⚠️ 日主強弱（以此為準）：{{strengthV2}}
-- 舊版旺衰（僅供參考，與上方不同時以上方為準）：{{strength}}（{{strengthScore}}分）
+
 - 格局：{{pattern}}
 - 同黨：{{sameParty}}% / 異黨：{{oppositeParty}}%
 - 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}} / 仇神：{{enemyGod}}

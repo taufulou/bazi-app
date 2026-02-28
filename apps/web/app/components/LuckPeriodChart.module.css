@@ -18,7 +18,13 @@
   letter-spacing: 0.05em;
 }
 
+.chartScroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 .chartSvg {
+  min-width: 700px;
   width: 100%;
   height: auto;
   display: block;
@@ -93,4 +99,14 @@
 
 .currentDot {
   animation: pulse 2s ease-in-out infinite;
+}
+
+.currentLabel {
+  fill: #e8d5b7;
+  animation: labelPulse 2s ease-in-out infinite;
+}
+
+@keyframes labelPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }

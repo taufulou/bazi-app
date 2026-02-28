@@ -120,7 +120,7 @@ export interface DayMasterAnalysis {
   element: FiveElement;
   yinYang: YinYang;
   strength: 'very_weak' | 'weak' | 'neutral' | 'strong' | 'very_strong';
-  strengthScore: number; // 0-100 (V1 legacy)
+  strengthScore: number; // 0-100 (V2 3-factor score, rounded to int)
   pattern: string; // 格局 e.g. 食神格, 正官格
   favorableGod: FiveElement;   // 喜神
   usefulGod: FiveElement;      // 用神

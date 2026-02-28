@@ -821,6 +821,7 @@ def generate_pre_analysis(
     timing_insights: Optional[Dict] = None,
     special_day_pillars: Optional[List[Dict]] = None,
     five_elements_balance_seasonal: Optional[Dict[str, float]] = None,
+    strength_v2: Optional[Dict] = None,
 ) -> Dict:
     """
     Generate the complete pre-analysis for a Bazi chart.
@@ -844,8 +845,9 @@ def generate_pre_analysis(
     """
     domains = READING_TYPE_DOMAINS.get(reading_type, ['career', 'love', 'health', 'timing'])
 
-    # Day Master Strength V2
-    strength_v2 = calculate_strength_score_v2(pillars, day_master_stem)
+    # Day Master Strength V2 — use pre-computed if provided, else compute
+    if strength_v2 is None:
+        strength_v2 = calculate_strength_score_v2(pillars, day_master_stem)
 
     # Stem analysis
     stem_analysis = analyze_stem_relationships(pillars, day_master_stem)

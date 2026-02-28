@@ -79,33 +79,71 @@ python -m pytest tests/ -v
 ## Worktree Development Guide
 When working in a git worktree (`.claude/worktrees/`):
 
-### 1. Copy environment files
+**IMPORTANT**: `npm install` fails in worktrees due to Clerk postinstall ESM errors. Use symlinks instead.
+**IMPORTANT**: `npx` often fails with `spawn sh ENOENT` in Claude Code shell. Always use direct binary paths.
+
+### 1. Setup worktree (symlinks + env files)
+Run all of these before starting any server. `$WT` = worktree root, `$MAIN` = main repo root.
 ```bash
 MAIN="/Users/roger/Documents/Python/Bazi_Plotting"
-cp "$MAIN/apps/web/.env.local" apps/web/.env.local
-cp "$MAIN/apps/api/.env" apps/api/.env
+WT="$MAIN/.claude/worktrees/<worktree-name>"
+
+# Copy env files
+cp "$MAIN/apps/web/.env.local" "$WT/apps/web/.env.local"
+cp "$MAIN/apps/api/.env" "$WT/apps/api/.env"
+
+# Symlink node_modules (DO NOT run npm install — it fails on Clerk postinstall)
+ln -sf "$MAIN/node_modules" "$WT/node_modules"
+ln -sf "$MAIN/apps/api/node_modules" "$WT/apps/api/node_modules"
+ln -sf "$MAIN/apps/web/node_modules" "$WT/apps/web/node_modules"
+
+# Symlink Python venv
+ln -sf "$MAIN/packages/bazi-engine/.venv" "$WT/packages/bazi-engine/.venv"
 ```
 
 ### 2. Generate Prisma client
+Must use direct binary path (npx fails). Run from `apps/api/`:
 ```bash
-cd apps/api
-npx prisma@6 generate && npx prisma@6 migrate deploy
+cd $WT/apps/api
+../../node_modules/.bin/prisma generate
+```
+`npx prisma@6 generate` will NOT work — use the binary path above.
+
+### 3. Start Bazi Engine (port 5001)
+```bash
+cd $WT/packages/bazi-engine && source .venv/bin/activate
+uvicorn app.main:app --host 0.0.0.0 --port 5001 --reload
 ```
 
-### 3. Start NestJS API
+### 4. Start NestJS API (port 4000)
+Must build first, then run with tsx loader. Always export ANTHROPIC_API_KEY from .env (Claude Code sets it empty in shell).
 ```bash
-cd apps/api
+cd $WT/apps/api
+export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
+export ANTHROPIC_API_KEY="$(grep ANTHROPIC_API_KEY .env | cut -d= -f2)"
 ../../node_modules/.bin/nest build
 node --import tsx dist/main.js
 ```
 The `tsx` loader resolves extensionless `.ts` imports in `@repo/shared`. Other approaches fail — see `docs/phase-details.md` for details.
 
-### 4. Start Next.js
+### 5. Start Next.js (port 3000)
 ```bash
-cd apps/web && npx next dev --port 3000
+cd $WT/apps/web
+export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
+npx next dev --port 3000
 ```
 
-### 5. PostgreSQL CLI
+### 6. Verify all servers
+```bash
+lsof -iTCP:3000 -iTCP:4000 -iTCP:5001 -sTCP:LISTEN -P
+```
+
+### 7. Kill all servers
+```bash
+kill $(lsof -ti:3000) $(lsof -ti:4000) $(lsof -ti:5001) 2>/dev/null
+```
+
+### 8. PostgreSQL CLI
 ```bash
 /opt/homebrew/opt/postgresql@15/bin/psql -U bazi_user -d bazi_platform
 ```

@@ -11,7 +11,7 @@ import type { LuckPeriodDetailData } from "../lib/readings-api";
 
 interface LuckPeriodChartProps {
   periods: LuckPeriodDetailData[];
-  bestPeriod: LuckPeriodDetailData | null;
+  bestPeriod?: LuckPeriodDetailData | null;
   isSubscriber: boolean;
 }
 
@@ -24,17 +24,16 @@ interface TooltipState {
 
 // SVG layout constants
 const SVG_W = 800;
-const SVG_H = 300;
+const SVG_H = 320;
 const PAD_LEFT = 45;
 const PAD_RIGHT = 20;
 const PAD_TOP = 25;
-const PAD_BOTTOM = 60;
+const PAD_BOTTOM = 80;
 const CHART_W = SVG_W - PAD_LEFT - PAD_RIGHT;
 const CHART_H = SVG_H - PAD_TOP - PAD_BOTTOM;
 
 export default function LuckPeriodChart({
   periods,
-  bestPeriod,
   isSubscriber,
 }: LuckPeriodChartProps) {
   const [tooltip, setTooltip] = useState<TooltipState>({
@@ -81,6 +80,7 @@ export default function LuckPeriodChart({
     <div className={styles.chartContainer}>
       <div className={styles.chartTitle}>大運走勢圖</div>
 
+      <div className={styles.chartScroll}>
       <svg
         className={styles.chartSvg}
         viewBox={`0 0 ${SVG_W} ${SVG_H}`}
@@ -169,10 +169,6 @@ export default function LuckPeriodChart({
         {/* Dots for each period */}
         {periods.map((p, i) => {
           const isCurrent = p.isCurrent;
-          const isBest =
-            bestPeriod &&
-            p.stem === bestPeriod.stem &&
-            p.branch === bestPeriod.branch;
 
           return (
             <g key={`${p.stem}${p.branch}-${i}`}>
@@ -190,16 +186,17 @@ export default function LuckPeriodChart({
                 style={{ cursor: isSubscriber ? "pointer" : "default" }}
               />
 
-              {/* Best period star */}
-              {isBest && (
+              {/* "當前" label above current period */}
+              {isCurrent && (
                 <text
                   x={getX(i)}
-                  y={getY(p.score) - 12}
+                  y={getY(p.score) - (isSubscriber ? 30 : 18)}
                   textAnchor="middle"
-                  fontSize="14"
-                  fill="#ffd700"
+                  fontSize="11"
+                  fontWeight="700"
+                  className={styles.currentLabel}
                 >
-                  ⭐
+                  當前
                 </text>
               )}
 
@@ -212,7 +209,6 @@ export default function LuckPeriodChart({
                   fill={getScoreColor(p.score)}
                   fontSize="11"
                   fontWeight="600"
-                  dy={isBest ? -10 : 0}
                 >
                   {p.score}
                 </text>
@@ -221,10 +217,10 @@ export default function LuckPeriodChart({
               {/* X-axis label: 干支 */}
               <text
                 x={getX(i)}
-                y={PAD_TOP + CHART_H + 18}
+                y={PAD_TOP + CHART_H + 20}
                 textAnchor="middle"
                 fill="#e8d5b7"
-                fontSize="12"
+                fontSize="14"
                 fontWeight="600"
               >
                 {p.stem}{p.branch}
@@ -233,10 +229,10 @@ export default function LuckPeriodChart({
               {/* X-axis sub-label: year range */}
               <text
                 x={getX(i)}
-                y={PAD_TOP + CHART_H + 34}
+                y={PAD_TOP + CHART_H + 40}
                 textAnchor="middle"
                 fill="#777"
-                fontSize="9"
+                fontSize="12"
               >
                 {p.startYear}-{p.endYear}
               </text>
@@ -244,10 +240,10 @@ export default function LuckPeriodChart({
               {/* X-axis sub-label: age range */}
               <text
                 x={getX(i)}
-                y={PAD_TOP + CHART_H + 47}
+                y={PAD_TOP + CHART_H + 57}
                 textAnchor="middle"
-                fill="#555"
-                fontSize="9"
+                fill="#666"
+                fontSize="12"
               >
                 ({p.startAge}-{p.endAge}歲)
               </text>
@@ -255,6 +251,7 @@ export default function LuckPeriodChart({
           );
         })}
       </svg>
+      </div>
 
       {/* HTML tooltip (positioned outside SVG for better rendering) */}
       {tooltip.visible && tooltip.period && isSubscriber && (

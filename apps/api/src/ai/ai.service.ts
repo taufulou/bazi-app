@@ -17,7 +17,6 @@ import {
   OUTPUT_FORMAT_INSTRUCTIONS,
   COMPARISON_TYPE_ZH,
   GENDER_ZH,
-  STRENGTH_ZH,
   STRENGTH_V2_ZH,
   LIFETIME_V2_PROMPTS,
 } from './prompts';
@@ -1725,8 +1724,6 @@ export class AIService implements OnModuleInit {
       result = result.replace(/\{\{dayMaster\}\}/g, (data['dayMasterStem'] as string) || '');
       result = result.replace(/\{\{dayMasterElement\}\}/g, (dayMaster['element'] as string) || '');
       result = result.replace(/\{\{dayMasterYinYang\}\}/g, (dayMaster['yinYang'] as string) || '');
-      result = result.replace(/\{\{strength\}\}/g, STRENGTH_ZH[(dayMaster['strength'] as string) || ''] || '');
-      result = result.replace(/\{\{strengthScore\}\}/g, String(dayMaster['strengthScore'] || 0));
       result = result.replace(/\{\{pattern\}\}/g, (dayMaster['pattern'] as string) || '');
       result = result.replace(/\{\{sameParty\}\}/g, String(dayMaster['sameParty'] || 0));
       result = result.replace(/\{\{oppositeParty\}\}/g, String(dayMaster['oppositeParty'] || 0));
@@ -2035,8 +2032,6 @@ export class AIService implements OnModuleInit {
         (chart['dayMasterStem'] as string) || '');
       result = result.replace(new RegExp(`\\{\\{dayMasterElement${suffix}\\}\\}`, 'g'),
         (dayMaster['element'] as string) || '');
-      result = result.replace(new RegExp(`\\{\\{strength${suffix}\\}\\}`, 'g'),
-        STRENGTH_ZH[(dayMaster['strength'] as string) || ''] || '');
       result = result.replace(new RegExp(`\\{\\{pattern${suffix}\\}\\}`, 'g'),
         (dayMaster['pattern'] as string) || '');
       result = result.replace(new RegExp(`\\{\\{favorableGod${suffix}\\}\\}`, 'g'),

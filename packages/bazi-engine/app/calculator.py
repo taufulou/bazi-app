@@ -56,7 +56,7 @@ from .compatibility import calculate_compatibility
 from .compatibility_enhanced import calculate_enhanced_compatibility
 from .compatibility_preanalysis import generate_compatibility_pre_analysis
 from .constants import BRANCH_ELEMENT, PATTERN_TYPES, STEM_ELEMENT
-from .interpretation_rules import generate_pre_analysis
+from .interpretation_rules import calculate_strength_score_v2, generate_pre_analysis
 from .lifetime_enhanced import generate_lifetime_enhanced_insights
 
 
@@ -124,13 +124,16 @@ def calculate_bazi(
     five_elements_balance_seasonal = calculate_five_elements_balance_seasonal(pillars)
     element_counts = calculate_element_counts(pillars)
 
-    # Step 6: Analyze Day Master strength
+    # Step 6: Analyze Day Master strength (V1 — kept for sameParty/oppositeParty display)
     day_master_analysis = analyze_day_master_strength(pillars, day_master_stem)
 
-    # Step 7: Determine favorable gods
+    # Step 6.5: V2 strength — authoritative classification (得令/得地/得勢 3-factor model)
+    strength_v2_result = calculate_strength_score_v2(pillars, day_master_stem)
+
+    # Step 7: Determine favorable gods (uses V2 classification)
     favorable_gods = determine_favorable_gods(
         day_master_stem,
-        day_master_analysis['strength'],
+        strength_v2_result['classification'],
     )
 
     # Step 8: Determine pattern (格局)
@@ -204,6 +207,7 @@ def calculate_bazi(
         timing_insights=timing_insights,
         special_day_pillars=special_day_pillars,
         five_elements_balance_seasonal=five_elements_balance_seasonal,
+        strength_v2=strength_v2_result,
     )
 
     # Step 16: Lifetime Enhanced Insights (V2 — only for lifetime reading type)
@@ -230,9 +234,11 @@ def calculate_bazi(
 
     # Build the complete result
     day_master_result = {
-        **day_master_analysis,
+        **day_master_analysis,  # V1 base (sameParty, oppositeParty, element, yinYang)
         **favorable_gods,
         'pattern': pattern,
+        'strength': strength_v2_result['classification'],       # Override V1 with V2
+        'strengthScore': round(strength_v2_result['score']),    # Override V1 with V2 (int)
         'strengthScoreV2': pre_analysis['strengthV2'],
     }
 
