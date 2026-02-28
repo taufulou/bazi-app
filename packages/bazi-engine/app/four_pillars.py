@@ -15,12 +15,14 @@ import cnlunar
 from .constants import (
     BRANCH_ELEMENT,
     BRANCH_INDEX,
+    BRANCH_LIUHE,
     DAY_STEM_TO_HOUR_STEM_START,
     EARTHLY_BRANCHES,
     HEAVENLY_STEMS,
     HIDDEN_STEMS,
     HOUR_BRANCHES,
     NAYIN,
+    STEM_COMBINATIONS,
     STEM_ELEMENT,
     STEM_INDEX,
     STEM_YINYANG,
@@ -207,6 +209,83 @@ def get_nayin(stem: str, branch: str) -> str:
     """
     key = stem + branch
     return NAYIN.get(key, '')
+
+
+def calculate_tai_yuan(month_stem: str, month_branch: str) -> Dict[str, str]:
+    """
+    Calculate 胎元 (Tai Yuan / Conception Pillar).
+
+    Formula: stem = month_stem + 1 (next in cycle), branch = month_branch + 3.
+    Classical basis: Conception occurs ~3 months before birth month.
+
+    Args:
+        month_stem: Month pillar's Heavenly Stem
+        month_branch: Month pillar's Earthly Branch
+
+    Returns:
+        Dictionary with stem, branch, naYin
+    """
+    stem_idx = (STEM_INDEX[month_stem] + 1) % 10
+    branch_idx = (BRANCH_INDEX[month_branch] + 3) % 12
+    stem = HEAVENLY_STEMS[stem_idx]
+    branch = EARTHLY_BRANCHES[branch_idx]
+    return {'stem': stem, 'branch': branch, 'naYin': get_nayin(stem, branch)}
+
+
+def calculate_ming_gong(month_branch: str, hour_branch: str, year_stem: str) -> Dict[str, str]:
+    """
+    Calculate 命宮 (Ming Gong / Life Palace).
+
+    Branch formula: (5 - month_branch_index - hour_branch_index) % 12
+    Stem: derived via 五虎遁 from year stem applied to the 命宮 branch position.
+
+    Classical basis: 命宮 represents the ascendant-like fixed position.
+
+    Args:
+        month_branch: Month pillar's Earthly Branch
+        hour_branch: Hour pillar's Earthly Branch
+        year_stem: Year pillar's Heavenly Stem
+
+    Returns:
+        Dictionary with stem, branch, naYin
+    """
+    m_idx = BRANCH_INDEX[month_branch]
+    h_idx = BRANCH_INDEX[hour_branch]
+    mg_branch_idx = (5 - m_idx - h_idx) % 12
+    branch = EARTHLY_BRANCHES[mg_branch_idx]
+
+    # Derive stem via 五虎遁 (same logic as month stem derivation)
+    year_stem_idx = STEM_INDEX[year_stem]
+    month_stem_start = YEAR_STEM_TO_MONTH_STEM_START[year_stem_idx]
+    # Find position of mg_branch in month cycle (寅=0, 卯=1, ...)
+    mg_branch_in_cycle = MONTH_BRANCHES.index(branch) if branch in MONTH_BRANCHES else 0
+    stem_idx = (month_stem_start + mg_branch_in_cycle) % 10
+    stem = HEAVENLY_STEMS[stem_idx]
+
+    return {'stem': stem, 'branch': branch, 'naYin': get_nayin(stem, branch)}
+
+
+def calculate_tai_xi(day_stem: str, day_branch: str) -> Dict[str, str]:
+    """
+    Calculate 胎息 (Tai Xi / Embryonic Breath).
+
+    Derived from DAY PILLAR using:
+    - Stem: 天干五合 (Heavenly Stem Combination partner of day stem)
+    - Branch: 地支六合 (Earthly Branch Harmony partner of day branch)
+
+    Classical basis: 胎息 represents the breathing rhythm of the embryo,
+    derived from the day of birth's complementary energies.
+
+    Args:
+        day_stem: Day pillar's Heavenly Stem
+        day_branch: Day pillar's Earthly Branch
+
+    Returns:
+        Dictionary with stem, branch, naYin
+    """
+    stem = STEM_COMBINATIONS.get(day_stem, day_stem)
+    branch = BRANCH_LIUHE.get(day_branch, day_branch)
+    return {'stem': stem, 'branch': branch, 'naYin': get_nayin(stem, branch)}
 
 
 def calculate_four_pillars(

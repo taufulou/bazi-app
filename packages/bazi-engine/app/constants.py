@@ -953,6 +953,9 @@ SEASON_STRENGTH: Dict[str, Dict[str, int]] = {
     '水': {'寅': 3, '卯': 3, '辰': 1, '巳': 2, '午': 2, '未': 1, '申': 4, '酉': 4, '戌': 1, '亥': 5, '子': 5, '丑': 1},
 }
 
+# 旺相休囚死 seasonal state labels — maps score to display label
+SEASON_STATE_LABELS: Dict[int, str] = {5: '旺', 4: '相', 3: '休', 2: '囚', 1: '死'}
+
 # Seasonal multiplier for Five Elements Balance display (旺相休囚死)
 # Applied to element raw scores based on birth month branch for UI display.
 # Based on classical 《子平真詮 卷二 論旺相休囚死》 — engineering approximation.

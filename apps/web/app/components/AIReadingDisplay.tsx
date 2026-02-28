@@ -8,6 +8,8 @@ import type {
   LifetimeV2DeterministicData,
   LuckPeriodDetailData,
 } from "../lib/readings-api";
+import { getScoreColor } from "../lib/score-utils";
+import LuckPeriodChart from "./LuckPeriodChart";
 
 // ============================================================
 // Types
@@ -580,6 +582,22 @@ function DeterministicCard({
                 </span>
               )}
             </div>
+            {data.romanceWarningYears && data.romanceWarningYears.length > 0 && (
+              <div className={styles.detRow}>
+                <span className={styles.detLabel}>⚠️ 感情波動年</span>
+                {isSubscriber ? (
+                  <div className={styles.chipGroup}>
+                    {data.romanceWarningYears.map((y) => (
+                      <span key={y} className={styles.yearChipWarn}>{y}</span>
+                    ))}
+                  </div>
+                ) : (
+                  <span className={styles.detBlurred}>
+                    有 {data.romanceWarningYears.length} 個波動年份
+                  </span>
+                )}
+              </div>
+            )}
             <div className={styles.detRow}>
               <span className={styles.detLabel}>擇偶建議五行</span>
               {isSubscriber ? (
@@ -660,11 +678,18 @@ function DeterministicCard({
     case "luck_timeline":
       if (!data.luckPeriodsEnriched) return null;
       return (
-        <LuckPeriodTimeline
-          periods={data.luckPeriodsEnriched}
-          bestPeriod={data.bestPeriod}
-          isSubscriber={isSubscriber}
-        />
+        <>
+          <LuckPeriodChart
+            periods={data.luckPeriodsEnriched}
+            bestPeriod={data.bestPeriod ?? null}
+            isSubscriber={isSubscriber}
+          />
+          <LuckPeriodTimeline
+            periods={data.luckPeriodsEnriched}
+            bestPeriod={data.bestPeriod}
+            isSubscriber={isSubscriber}
+          />
+        </>
       );
 
     default:
@@ -754,13 +779,7 @@ function LuckPeriodTimeline({
   );
 }
 
-function getScoreColor(score: number): string {
-  if (score >= 75) return "#4caf50";
-  if (score >= 60) return "#8bc34a";
-  if (score >= 45) return "#ff9800";
-  if (score >= 30) return "#ff5722";
-  return "#f44336";
-}
+// getScoreColor imported from ../lib/score-utils
 
 // ============================================================
 // Loading Skeleton

@@ -403,11 +403,29 @@ def build_pattern_narrative(
                 transparent_info = f'，{prominent_god}（{tg["stem"]}）在{tg["sourcePillar"]}支透出於{tg["transparentPillar"]}干'
                 break
 
-        pattern_logic = (
-            f'月令{month_branch}藏干{month_main_qi}為{month_main_ten_god}（格局）'
-            f'{transparent_info}。'
-            f'日主{dm_element}（{day_master_stem}），強度{strength_v2["score"]}分'
-        )
+        if prominent_god == month_main_ten_god:
+            # 本氣 is the格局 itself (e.g., 子月 壬 透干)
+            pattern_logic = (
+                f'月令{month_branch}藏干{month_main_qi}為{month_main_ten_god}（格局）'
+                f'{transparent_info}。'
+                f'日主{dm_element}（{day_master_stem}），強度{strength_v2["score"]}分'
+            )
+        elif transparent_info:
+            # 本氣 ≠ 格局, but there IS a transparent stem (雜氣格 typical case)
+            pattern_logic = (
+                f'月令{month_branch}藏干{month_main_qi}為{month_main_ten_god}，'
+                f'但取透干{prominent_god}為格局'
+                f'{transparent_info}。'
+                f'日主{dm_element}（{day_master_stem}），強度{strength_v2["score"]}分'
+            )
+        else:
+            # No transparency — fallback (月干 or frequency-based prominent_god)
+            # Per 《子平真詮》: 無透干則取本氣或月干
+            pattern_logic = (
+                f'月令{month_branch}藏干{month_main_qi}為{month_main_ten_god}，'
+                f'取{prominent_god}為格局。'
+                f'日主{dm_element}（{day_master_stem}），強度{strength_v2["score"]}分'
+            )
 
     # Strength relation
     classification = strength_v2['classification']
@@ -556,11 +574,12 @@ def build_children_insights(
     for pname in ('year', 'month', 'day', 'hour'):
         branch = pillars[pname]['branch']
         hidden = HIDDEN_STEMS.get(branch, [])
-        if hidden:
-            main_qi = hidden[0]
-            main_qi_el = STEM_ELEMENT[main_qi]
-            if main_qi_el == shishan_element and main_qi not in transparent_stems:
+        for hs in hidden:
+            hs_el = STEM_ELEMENT.get(hs, '')
+            if hs_el == shishan_element and hs not in transparent_stems:
                 latent_count += 1
+                # break: each branch counts at most once (no branch has 2 hidden stems of same element)
+                break
 
     # Hour branch 本氣's Ten God
     hour_branch = pillars['hour']['branch']
@@ -676,14 +695,39 @@ def build_parents_insights(
     """Build parentsInsights — year pillar + Ten God data."""
     dm_element = STEM_ELEMENT[day_master_stem]
 
-    # Year stem = father star
+    # Year stem positional ten god (NOT the father star archetype)
     year_stem = pillars['year']['stem']
-    father_star = derive_ten_god(day_master_stem, year_stem)
+    year_stem_ten_god = derive_ten_god(day_master_stem, year_stem)  # Positional
+    # 子平真詮 standard: 偏財=父, 正印=母 (gender-neutral, all DMs)
+    # Note: 滴天髓 school sometimes uses 正財=父, but this platform follows 子平真詮 consistently
+    father_star = '偏財'  # Classical archetype — ALWAYS 偏財
 
-    # Year branch 本氣 = mother star
+    # Year branch 本氣 positional ten god (NOT the mother star archetype)
     year_branch = pillars['year']['branch']
     year_hidden = HIDDEN_STEMS.get(year_branch, [])
-    mother_star = derive_ten_god(day_master_stem, year_hidden[0]) if year_hidden else ''
+    year_branch_main_ten_god = derive_ten_god(day_master_stem, year_hidden[0]) if year_hidden else ''
+    mother_star = '正印'  # Classical archetype — ALWAYS 正印
+
+    # Count father star (偏財) occurrences in chart
+    # No dedup — each position (surface + hidden) is independent
+    father_star_count = 0
+    for pname in ('year', 'month', 'hour'):
+        if derive_ten_god(day_master_stem, pillars[pname]['stem']) == '偏財':
+            father_star_count += 1
+    for pname in ('year', 'month', 'day', 'hour'):
+        for hs in HIDDEN_STEMS.get(pillars[pname]['branch'], []):
+            if derive_ten_god(day_master_stem, hs) == '偏財':
+                father_star_count += 1
+
+    # Count mother star (正印) occurrences in chart
+    mother_star_count = 0
+    for pname in ('year', 'month', 'hour'):
+        if derive_ten_god(day_master_stem, pillars[pname]['stem']) == '正印':
+            mother_star_count += 1
+    for pname in ('year', 'month', 'day', 'hour'):
+        for hs in HIDDEN_STEMS.get(pillars[pname]['branch'], []):
+            if derive_ten_god(day_master_stem, hs) == '正印':
+                mother_star_count += 1
 
     # Father element = 財星 element (element DM overcomes) — gender-neutral per 《子平真詮》
     father_element = ELEMENT_OVERCOMES[dm_element]
@@ -719,10 +763,14 @@ def build_parents_insights(
         favorability = '中性'
 
     return {
-        'fatherStar': father_star,
-        'motherStar': mother_star,
+        'fatherStar': father_star,            # '偏財' (classical archetype)
+        'motherStar': mother_star,            # '正印' (classical archetype)
+        'yearStemTenGod': year_stem_ten_god,  # Positional ten god of year stem
+        'yearBranchMainTenGod': year_branch_main_ten_god,  # Positional ten god of year branch 本氣
         'fatherElement': father_element,
         'motherElement': mother_element,
+        'fatherStarCount': father_star_count,
+        'motherStarCount': mother_star_count,
         'yearPillarRelation': year_pillar_relation,
         'yearPillarFavorability': favorability,
     }
@@ -920,6 +968,7 @@ def _compute_romance_candidates(
     # Collect candidates with priority
     primary = []
     secondary_a = []
+    secondary_a2 = []  # hidden stem spouse star (R2)
     secondary_b = []
     secondary_c = []
     secondary_d = []
@@ -938,57 +987,78 @@ def _compute_romance_candidates(
         if annual_branch in kong_wang:
             continue
 
-        # Filter: 三刑 with day branch (danger, not romance)
-        if _check_sanxing_pair(annual_branch, day_branch):
-            continue
+        # 三刑 flag — don't skip entirely; secondary_a2 (hidden stem) still needs detection
+        # Classical: 「刑中帶官星，感情來路不正或有爭端中得配偶」(《三命通會》)
+        has_sanxing = _check_sanxing_pair(annual_branch, day_branch)
 
-        # Primary: 六合 with day branch
-        if annual_branch == liuhe_partner:
-            primary.append({'year': year, 'tier': 'primary', 'signal': TIER_INFO['primary']})
+        # Primary: 六合 with day branch (skip if 三刑)
+        # Note: 六合 and 三刑 branch pairs never overlap, but guard kept for safety
+        if not has_sanxing:
+            if annual_branch == liuhe_partner:
+                primary.append({'year': year, 'tier': 'primary', 'signal': TIER_INFO['primary']})
 
-        # Secondary A: stem carries spouse star element
-        if STEM_ELEMENT.get(annual_stem) == spouse_star_element:
-            if not any(p['year'] == year for p in primary):
-                secondary_a.append({'year': year, 'tier': 'secondary_a', 'signal': TIER_INFO['secondary_a']})
+        # Secondary A: stem carries spouse star element (skip if 三刑)
+        if not has_sanxing:
+            if STEM_ELEMENT.get(annual_stem) == spouse_star_element:
+                if not any(p['year'] == year for p in primary):
+                    secondary_a.append({'year': year, 'tier': 'secondary_a', 'signal': TIER_INFO['secondary_a']})
 
-        # Secondary B: 三合 with day branch
-        for harmony in TRIPLE_HARMONIES:
-            if day_branch in harmony['branches'] and annual_branch in harmony['branches']:
-                if annual_branch != day_branch and not any(p['year'] == year for p in primary):
-                    secondary_b.append({'year': year, 'tier': 'secondary_b', 'signal': TIER_INFO['secondary_b']})
+        # Secondary A2: annual branch hidden stems contain spouse star element
+        # ALLOW with annotation when 三刑 — hidden stem is a weak signal that needs every detection path
+        branch_hidden = HIDDEN_STEMS.get(annual_branch, [])
+        for hs in branch_hidden:
+            if STEM_ELEMENT.get(hs) == spouse_star_element:
+                if not any(p['year'] == year for p in primary) \
+                        and not any(p['year'] == year for p in secondary_a):
+                    is_benqi = (hs == branch_hidden[0])
+                    signal = '配偶星藏干(本氣)' if is_benqi else '配偶星藏干'
+                    if has_sanxing:
+                        signal += '(三刑沖突)'
+                    secondary_a2.append({'year': year, 'tier': 'secondary_a2', 'signal': signal})
                 break
 
-        # Secondary C: 天干合日主 — annual stem forms 五合 with DM
-        if annual_stem == dm_combine_partner:
-            if not any(p['year'] == year for p in primary) \
-                    and not any(p['year'] == year for p in secondary_a) \
-                    and not any(p['year'] == year for p in secondary_b):
-                secondary_c.append({'year': year, 'tier': 'secondary_c', 'signal': TIER_INFO['secondary_c']})
+        # Secondary B: 三合 with day branch (skip if 三刑)
+        if not has_sanxing:
+            for harmony in TRIPLE_HARMONIES:
+                if day_branch in harmony['branches'] and annual_branch in harmony['branches']:
+                    if annual_branch != day_branch and not any(p['year'] == year for p in primary):
+                        secondary_b.append({'year': year, 'tier': 'secondary_b', 'signal': TIER_INFO['secondary_b']})
+                    break
 
-        # Secondary D: 紅鸞星動 — stronger marriage signal than generic 桃花
-        if annual_branch == hongluan_branch:
-            if not any(p['year'] == year for p in primary) \
-                    and not any(p['year'] == year for p in secondary_a) \
-                    and not any(p['year'] == year for p in secondary_b) \
-                    and not any(p['year'] == year for p in secondary_c):
-                secondary_d.append({'year': year, 'tier': 'secondary_d', 'signal': TIER_INFO['secondary_d']})
+        # Secondary C: 天干合日主 — annual stem forms 五合 with DM (skip if 三刑)
+        if not has_sanxing:
+            if annual_stem == dm_combine_partner:
+                if not any(p['year'] == year for p in primary) \
+                        and not any(p['year'] == year for p in secondary_a) \
+                        and not any(p['year'] == year for p in secondary_b):
+                    secondary_c.append({'year': year, 'tier': 'secondary_c', 'signal': TIER_INFO['secondary_c']})
 
-        # Supplementary: 桃花/天喜 (紅鸞 excluded — already in secondary_d)
-        if annual_branch in (taohua_branch, tianxi_branch):
-            if not any(p['year'] == year for p in primary) \
-                    and not any(p['year'] == year for p in secondary_a) \
-                    and not any(p['year'] == year for p in secondary_b) \
-                    and not any(p['year'] == year for p in secondary_c) \
-                    and not any(p['year'] == year for p in secondary_d):
-                signal = TIER_INFO['supplementary_taohua'] if annual_branch == taohua_branch else TIER_INFO['supplementary_tianxi']
-                supplementary.append({'year': year, 'tier': 'supplementary', 'signal': signal})
+        # Secondary D: 紅鸞星動 — stronger marriage signal than generic 桃花 (skip if 三刑)
+        if not has_sanxing:
+            if annual_branch == hongluan_branch:
+                if not any(p['year'] == year for p in primary) \
+                        and not any(p['year'] == year for p in secondary_a) \
+                        and not any(p['year'] == year for p in secondary_b) \
+                        and not any(p['year'] == year for p in secondary_c):
+                    secondary_d.append({'year': year, 'tier': 'secondary_d', 'signal': TIER_INFO['secondary_d']})
+
+        # Supplementary: 桃花/天喜 (紅鸞 excluded — already in secondary_d) (skip if 三刑)
+        if not has_sanxing:
+            if annual_branch in (taohua_branch, tianxi_branch):
+                if not any(p['year'] == year for p in primary) \
+                        and not any(p['year'] == year for p in secondary_a) \
+                        and not any(p['year'] == year for p in secondary_b) \
+                        and not any(p['year'] == year for p in secondary_c) \
+                        and not any(p['year'] == year for p in secondary_d):
+                    signal = TIER_INFO['supplementary_taohua'] if annual_branch == taohua_branch else TIER_INFO['supplementary_tianxi']
+                    supplementary.append({'year': year, 'tier': 'supplementary', 'signal': signal})
 
     # Combine with priority, deduplicate, sort chronologically
     # When current_year is set, collect more candidates before filtering by time window
     collect_cap = 20 if current_year else 5
     all_candidates: List[Dict[str, Any]] = []
     seen: Set[int] = set()
-    for candidate_list in [primary, secondary_a, secondary_b, secondary_c, secondary_d, supplementary]:
+    for candidate_list in [primary, secondary_a, secondary_a2, secondary_b, secondary_c, secondary_d, supplementary]:
         for c in candidate_list:
             if c['year'] not in seen:
                 all_candidates.append(c)
@@ -1333,19 +1403,23 @@ def compute_parent_health_years(
     day_master_stem: str,
     annual_stars: List[Dict],
     birth_year: int = 0,
+    current_year: int = 0,
 ) -> Dict[str, List[int]]:
     """
     Compute danger years for parents based on Ten God elements.
     Father = 財星 element (DM overcomes), Mother = 印星 element (produces DM).
     Gender-neutral per 《子平真詮》.
 
-    Checks BOTH annual stem (天干) AND branch primary hidden stem (地支本氣).
-    Classical basis: 「判斷流年總體好壞，以流年地支本氣為主」
-    — the branch's dominant energy is more substantial than the stem.
+    Classical basis: 「天干不主吉凶，地支本氣為主」
+    — Stem shows event TYPE but NOT actual outcomes. Only branch 本氣 governs
+    real-world impact. Stem-only threats are therefore DROPPED entirely.
 
-    Priority: stem+branch both threatening > stem-only > branch-only.
-    Years with both stem and branch threats are collected first.
+    Priority: stem+branch both threatening > branch-only.
     Filters out years before birth_year (if provided).
+
+    Returns dual output:
+    - father/mother: Full list (for AI narration context)
+    - father_future/mother_future: Filtered to years >= current_year (for display)
     """
     dm_element = STEM_ELEMENT[day_master_stem]
     father_element = ELEMENT_OVERCOMES[dm_element]  # 財星 element
@@ -1355,12 +1429,11 @@ def compute_parent_health_years(
     father_threat = ELEMENT_OVERCOME_BY[father_element]  # What 克 father
     mother_threat = ELEMENT_OVERCOME_BY[mother_element]  # What 克 mother
 
-    # Collect with priority: both(stem+branch) > stem-only > branch-only
+    # Collect with priority: both(stem+branch) > branch-only
+    # Stem-only dropped per classical 「天干不主吉凶」
     father_both = []    # stem AND branch 本氣 both threaten (天克地沖 type)
-    father_stem = []    # stem only
     father_branch = []  # branch 本氣 only
     mother_both = []
-    mother_stem = []
     mother_branch = []
 
     for star in annual_stars:
@@ -1380,19 +1453,15 @@ def compute_parent_health_years(
         stem_mother = (stem_el == mother_threat)
         branch_mother = (branch_el == mother_threat)
 
-        # Father danger
+        # Father danger — only include if branch 本氣 matches threat
         if stem_father and branch_father:
             father_both.append(year)
-        elif stem_father:
-            father_stem.append(year)
         elif branch_father:
             father_branch.append(year)
 
-        # Mother danger
+        # Mother danger — only include if branch 本氣 matches threat
         if stem_mother and branch_mother:
             mother_both.append(year)
-        elif stem_mother:
-            mother_stem.append(year)
         elif branch_mother:
             mother_branch.append(year)
 
@@ -1409,10 +1478,20 @@ def compute_parent_health_years(
                     return sorted(result)
         return sorted(result)
 
-    return {
-        'father': _combine_priority(father_both, father_stem, father_branch),
-        'mother': _combine_priority(mother_both, mother_stem, mother_branch),
+    father_all = _combine_priority(father_both, father_branch)
+    mother_all = _combine_priority(mother_both, mother_branch)
+
+    result = {
+        'father': father_all,
+        'mother': mother_all,
     }
+
+    # Add future-filtered lists for display (years >= current_year)
+    if current_year > 0:
+        result['father_future'] = [y for y in father_all if y >= current_year]
+        result['mother_future'] = [y for y in mother_all if y >= current_year]
+
+    return result
 
 
 # ============================================================
@@ -1557,6 +1636,28 @@ def compute_stars_in_kong_wang(
     return results
 
 
+def _classify_element_favorability(element: str, effective_gods: Dict) -> str:
+    """5-way element favorability classification for AI narration.
+
+    Note: Related to but distinct from _is_element_favorable() which returns
+    'favorable'/'unfavorable'/'neutral'. This function provides 5-way Chinese
+    labels distinguishing 用神/喜神/忌神/仇神/閒神.
+
+    Works correctly for 從格 charts because effective_gods is already overridden
+    by interpretation_rules.py (favorableGod==usefulGod for 從格, DM element
+    becomes taboo).
+    """
+    if element == effective_gods.get('usefulGod'):
+        return '為用神，運勢有利'
+    if element == effective_gods.get('favorableGod'):
+        return '為喜神，運勢順利'
+    if element == effective_gods.get('tabooGod'):
+        return '為忌神，運勢受阻'
+    if element == effective_gods.get('enemyGod'):
+        return '為仇神，暗中消耗'
+    return '為閒神，影響平淡'
+
+
 # ============================================================
 # Luck Period Enrichment
 # ============================================================
@@ -1675,9 +1776,18 @@ def enrich_luck_periods(
         # Cap [0, 100]
         score = max(0, min(100, score))
 
-        # Phase split description
-        stem_phase = f'前5年{stem}（{stem_el}）主導'
-        branch_phase = f'後5年{branch}（{branch_main_el}）主導'
+        # Compute stem/branch ten gods for phase description
+        stem_tg = derive_ten_god(day_master_stem, stem) or ''
+        branch_main_stem = branch_hidden[0] if branch_hidden else ''
+        branch_tg = derive_ten_god(day_master_stem, branch_main_stem) if branch_main_stem else ''
+
+        # Determine favorability (5-way classification)
+        stem_fav = _classify_element_favorability(stem_el, effective_gods)
+        branch_fav = _classify_element_favorability(branch_main_el, effective_gods)
+
+        # Phase split description (enriched with ten god + favorability)
+        stem_phase = f'前5年{stem}（{stem_el}）{stem_tg}主導，{stem_fav}'
+        branch_phase = f'後5年{branch}（{branch_main_el}）{branch_tg}主導，{branch_fav}'
 
         enriched.append({
             'stem': stem,
@@ -1687,6 +1797,8 @@ def enrich_luck_periods(
             'startYear': lp.get('startYear', 0),
             'endYear': lp.get('endYear', 0),
             'tenGod': lp.get('tenGod', ''),
+            'stemTenGod': stem_tg,
+            'branchTenGod': branch_tg,
             'score': round(score),
             'stemPhase': stem_phase,
             'branchPhase': branch_phase,
@@ -2334,11 +2446,14 @@ def _count_spouse_stars(
     pillars: Dict,
     day_master_stem: str,
     gender: str,
-    tougan_analysis: List[Dict],
 ) -> Dict[str, Any]:
-    """
-    Count spouse stars including transparent hidden stems.
-    Issue #9 from Bazi Master Review.
+    """Count ALL spouse star occurrences across the entire chart.
+
+    Counts surface stems (year/month/hour) + ALL hidden stems in ALL branches
+    independently. No deduplication — a stem appearing as both surface and hidden
+    represents two distinct energy sources (明透 vs 藏), consistent with
+    tenGodDistribution's counting methodology.
+    # 子平真詮: 配偶星計算包含天干及所有地支藏干
 
     Male: 正財=正妻星, 偏財=偏妻星
     Female: 正官=正夫星, 偏官=偏夫星
@@ -2352,30 +2467,36 @@ def _count_spouse_stars(
 
     zheng_count = 0
     pian_count = 0
-    hidden_stars: List[str] = []
+    star_details: List[str] = []
 
-    # Count in heavenly stems (year, month, hour — not day)
+    # 1. Count surface stems (year, month, hour — not day)
     for pname in ('year', 'month', 'hour'):
         stem = pillars[pname]['stem']
         tg = derive_ten_god(day_master_stem, stem)
         if tg == zheng_star:
             zheng_count += 1
+            pillar_zh = PILLAR_NAME_ZH.get(pname, pname)
+            star_details.append(f'{stem}（{zheng_star}，{pillar_zh}干）')
         elif tg == pian_star:
             pian_count += 1
+            pillar_zh = PILLAR_NAME_ZH.get(pname, pname)
+            star_details.append(f'{stem}（{pian_star}，{pillar_zh}干）')
 
-    # Count transparent hidden stems (Issue #9: previously missed)
-    # Skip self-rooted entries (sourcePillar == transparentPillar) to avoid
-    # double-counting stems already counted in the surface loop above.
-    for tg_item in tougan_analysis:
-        if tg_item['status'] == 'transparent':
-            if tg_item.get('sourcePillar') == tg_item.get('transparentPillar'):
-                continue  # Self-rooted: same stem already counted above
-            if tg_item['tenGod'] == zheng_star:
-                zheng_count += 1
-                hidden_stars.append(f'{tg_item["stem"]}（{zheng_star}，藏於{tg_item["sourcePillar"]}支透出）')
-            elif tg_item['tenGod'] == pian_star:
-                pian_count += 1
-                hidden_stars.append(f'{tg_item["stem"]}（{pian_star}，藏於{tg_item["sourcePillar"]}支透出）')
+    # 2. Count ALL hidden stems in ALL branches — NO deduplication
+    # Each hidden stem is an independent energy source regardless of surface stems
+    for pname in ('year', 'month', 'day', 'hour'):
+        branch = pillars[pname]['branch']
+        hidden = HIDDEN_STEMS.get(branch, [])
+        for idx, hs in enumerate(hidden):
+            tg = derive_ten_god(day_master_stem, hs)
+            if tg in (zheng_star, pian_star):
+                pillar_zh = PILLAR_NAME_ZH.get(pname, pname)
+                qi_type = '本氣' if idx == 0 else ('中氣' if idx == 1 else '餘氣')
+                if tg == zheng_star:
+                    zheng_count += 1
+                else:
+                    pian_count += 1
+                star_details.append(f'{hs}（{tg}，藏於{pillar_zh}支{qi_type}）')
 
     mixed = zheng_count > 0 and pian_count > 0
 
@@ -2383,7 +2504,7 @@ def _count_spouse_stars(
         'zheng_count': zheng_count,
         'pian_count': pian_count,
         'mixed': mixed,
-        'hidden_stars': hidden_stars,
+        'hidden_stars': star_details,
         'zheng_name': zheng_star,
         'pian_name': pian_star,
     }
@@ -2561,6 +2682,7 @@ def build_narrative_anchors(
     branch_relationships: Optional[Dict] = None,
     kong_wang: Optional[List[str]] = None,
     all_shen_sha: Optional[List[Dict]] = None,
+    romance_warning_years: Optional[List[int]] = None,
 ) -> Dict[str, List[str]]:
     """
     Build pre-narrated anchor sentences for each AI section.
@@ -2664,6 +2786,21 @@ def build_narrative_anchors(
                 chart_anchors.append(
                     f'{PILLAR_NAME_ZH.get(sha_pillar, "")}柱帶{sha_name}：{interp[sha_pillar]}'
                 )
+
+    # ── Defensive: explicit 神煞 pillar mapping to prevent AI misattribution ──
+    if all_shen_sha:
+        valid_sha = [sha for sha in all_shen_sha
+                     if _shen_sha_is_valid(sha.get('name', ''), sha.get('branch', ''),
+                                           kong_wang or [], clashed_branches)]
+        if valid_sha:
+            sha_map_parts = []
+            for sha in valid_sha:  # ALL valid shen sha, no cap
+                pillar_zh = PILLAR_NAME_ZH.get(sha.get('pillar', ''), '')
+                sha_map_parts.append(f'{sha["name"]}在{pillar_zh}柱')
+            chart_anchors.append(
+                f'⚠️ 神煞位置（有效）：{"、".join(sha_map_parts)}。'
+                f'AI必須按此位置描述，不可將神煞歸於非其所在之柱位，不可自行推斷未列出之神煞'
+            )
 
     # ── Personality anchors (4-layer model) ──
     personality_anchors = _build_personality_anchors(
@@ -2839,7 +2976,7 @@ def build_narrative_anchors(
         love_anchors.append(f'配偶宮（日支{day_branch}）本氣十神為{day_branch_tg}')
 
     # NEW: Spouse star count with hidden stems (Issue #9)
-    spouse_data = _count_spouse_stars(pillars, day_master_stem, gender, tougan_analysis)
+    spouse_data = _count_spouse_stars(pillars, day_master_stem, gender)
     total_spouse = spouse_data['zheng_count'] + spouse_data['pian_count']
     love_anchors.append(
         f'命局中{spouse_data["zheng_name"]}{spouse_data["zheng_count"]}個、'
@@ -2848,7 +2985,7 @@ def build_narrative_anchors(
     if spouse_data['mixed']:
         love_anchors.append('⚠️ 正偏混雜：正偏配偶星同時出現，感情較複雜')
     if spouse_data['hidden_stars']:
-        love_anchors.append(f'透干配偶星：{"、".join(spouse_data["hidden_stars"])}')
+        love_anchors.append(f'配偶星分佈：{"、".join(spouse_data["hidden_stars"])}')
 
     # NEW: Day branch 空亡 check with god conditioning (Issue #1)
     if day_branch in kong_wang:
@@ -2886,6 +3023,18 @@ def build_narrative_anchors(
                         love_anchors.append(f'配偶宮{day_branch}被沖，但沖走忌神五行{other_el}，反為吉')
                     elif fav == 'favorable':
                         love_anchors.append(f'配偶宮{day_branch}被沖，沖走用神五行{other_el}，婚姻損失較大')
+
+    # Romance warning years — framed as a STRUCTURAL pattern of the chart, not timing prediction
+    # Classical: 「日支逢沖之命，一生婚姻多波折」(《子平真詮》)
+    # Note: romance_warning_years is pre-filtered to future-only by caller
+    if romance_warning_years:
+        clash_branch = CLASH_LOOKUP.get(day_branch, '')
+        years_str = '、'.join(str(y) for y in romance_warning_years[:3])
+        love_anchors.append(
+            f'配偶宮{day_branch}與{clash_branch}相沖，'
+            f'每逢{clash_branch}年（如{years_str}）均有感情波動風險，'
+            f'已婚者須防感情不穩，未婚者反可能觸發婚期'
+        )
 
     anchors['love_pattern'] = god_system_anchors + love_anchors
 
@@ -2979,20 +3128,22 @@ def _build_children_anchors(
         for pname in ('year', 'month', 'day', 'hour'):
             branch = pillars[pname]['branch']
             hidden = HIDDEN_STEMS.get(branch, [])
-            if hidden:
-                main_qi = hidden[0]
-                main_qi_el = STEM_ELEMENT[main_qi]
-                if main_qi_el == shishan_element and main_qi not in transparent_stems:
-                    tg = derive_ten_god(day_master_stem, main_qi)
+            for idx, hs in enumerate(hidden):
+                hs_el = STEM_ELEMENT.get(hs, '')
+                if hs_el == shishan_element and hs not in transparent_stems:
+                    tg = derive_ten_god(day_master_stem, hs)
                     pillar_zh = PILLAR_NAME_ZH[pname]
-                    latent_details.append(f'{pillar_zh}支{branch}本氣{main_qi}（{tg}）')
+                    qi_type = '本氣' if idx == 0 else ('中氣' if idx == 1 else '餘氣')
+                    latent_details.append(f'{pillar_zh}支{branch}{qi_type}{hs}（{tg}）')
+                    # break: each branch counts at most once (no branch has 2 hidden stems of same element)
+                    break
         if latent_details:
             anchors.append(
-                f'食傷潛藏（地支本氣未透干）共{latent_count}個：{"、".join(latent_details)}'
+                f'食傷潛藏（地支藏干未透干）共{latent_count}支含食傷：{"、".join(latent_details)}'
                 f' ← 這些是藏於地支未透出的食傷，可說「藏而不透」'
             )
     else:
-        anchors.append('食傷潛藏（地支本氣未透干）：0個')
+        anchors.append('食傷潛藏（地支藏干未透干）：0支')
 
     # 4. Hour pillar ten god — CRITICAL disambiguation
     hour_pillar_ten_god = children_insights.get('hourPillarTenGod', '')
@@ -3052,23 +3203,40 @@ def _build_parents_anchors(
 
     father_star = parents_insights.get('fatherStar', '')
     mother_star = parents_insights.get('motherStar', '')
+    year_stem_ten_god = parents_insights.get('yearStemTenGod', '')
+    year_branch_main_ten_god = parents_insights.get('yearBranchMainTenGod', '')
     father_element = parents_insights.get('fatherElement', '')
     mother_element = parents_insights.get('motherElement', '')
+    father_star_count = parents_insights.get('fatherStarCount', 0)
+    mother_star_count = parents_insights.get('motherStarCount', 0)
     year_relation = parents_insights.get('yearPillarRelation', '')
     favorability = parents_insights.get('yearPillarFavorability', '')
 
     anchors = []
 
-    # 1. Father star identification
+    # 1. Father: archetype = 偏財, position = year stem
     anchors.append(
-        f'年干{year_stem}相對日主{day_master_stem}為「{father_star}」，此為父星'
+        f'年干{year_stem}相對日主{day_master_stem}為「{year_stem_ten_god}」（年柱代表父母宮位）；'
+        f'父星為「{father_star}」（{father_element}五行）'
     )
 
-    # 2. Mother star identification
+    # 2. Mother: archetype = 正印, position = year branch
     if year_main_qi:
         anchors.append(
-            f'年支{year_branch}本氣{year_main_qi}相對日主{day_master_stem}為「{mother_star}」，此為母星'
+            f'年支{year_branch}本氣{year_main_qi}相對日主{day_master_stem}為「{year_branch_main_ten_god}」（年支宮位）；'
+            f'母星為「{mother_star}」（{mother_element}五行）'
         )
+
+    # 2b. Parent star count/location
+    if father_star_count == 0:
+        anchors.append(f'命局中無偏財（父星缺位），父緣較薄或早年離父')
+    else:
+        anchors.append(f'命局中偏財（父星）出現{father_star_count}次')
+
+    if mother_star_count == 0:
+        anchors.append(f'命局中無正印（母星缺位），母緣較薄')
+    else:
+        anchors.append(f'命局中正印（母星）出現{mother_star_count}次')
 
     # 3. Father/mother element
     anchors.append(
@@ -3169,11 +3337,22 @@ def build_call2_narrative_anchors(
             f'當前大運：{current_lp.get("stem", "")}{current_lp.get("branch", "")}，'
             f'十神{current_lp.get("tenGod", "")}，評分{current_lp.get("score", 0)}分'
         )
-        # Front/back 5-year phases (data stores as stemPhase/branchPhase strings)
-        stem_phase = current_lp.get('stemPhase', '')
-        branch_phase = current_lp.get('branchPhase', '')
-        if stem_phase and branch_phase:
-            period_anchors.append(f'前後五年：{stem_phase}；{branch_phase}')
+        # Explicit two-stage anchors (matching rival's format)
+        stem_tg = current_lp.get('stemTenGod', '')
+        branch_tg = current_lp.get('branchTenGod', '')
+        stem_el = STEM_ELEMENT.get(current_lp.get('stem', ''), '')
+        lp_branch_hidden = HIDDEN_STEMS.get(current_lp.get('branch', ''), [])
+        branch_el = STEM_ELEMENT.get(lp_branch_hidden[0], '') if lp_branch_hidden else ''
+        mid_year = current_lp.get('startYear', 0) + 5
+
+        period_anchors.append(
+            f'第一階段（{current_lp["startYear"]}-{mid_year - 1}）：'
+            f'{current_lp["stem"]}（{stem_el}）{stem_tg}主導 — {current_lp.get("stemPhase", "")}'
+        )
+        period_anchors.append(
+            f'第二階段（{mid_year}-{current_lp["endYear"]}）：'
+            f'{current_lp["branch"]}（{branch_el}）{branch_tg}主導 — {current_lp.get("branchPhase", "")}'
+        )
 
         # Interactions with natal chart (with favorability, Issue #6)
         interactions = current_lp.get('interactions', [])
@@ -3489,6 +3668,16 @@ def generate_lifetime_enhanced_insights(
     # Compute all shen sha internally (no new parameter needed)
     all_shen_sha = get_all_shen_sha(pillars)
 
+    # Romance warning years (六沖日支 — spouse palace clash)
+    # Computed BEFORE anchors so it can be passed to build_narrative_anchors()
+    day_branch = pillars['day']['branch']
+    romance_warning_years = compute_romance_warning_years(
+        day_branch, annual_stars, kong_wang, birth_year=birth_year,
+    )
+    # Pre-filter to future years for anchor display
+    now_year = datetime.now().year
+    warning_years_future = [y for y in romance_warning_years if y >= now_year] if romance_warning_years else []
+
     # Narrative anchors — pre-narrated facts for AI to embed (v2: enhanced with 2D conditioning)
     narrative_anchors = build_narrative_anchors(
         pillars, day_master_stem, gender, five_elements_balance,
@@ -3498,6 +3687,7 @@ def generate_lifetime_enhanced_insights(
         branch_relationships=branch_relationships,
         kong_wang=kong_wang,
         all_shen_sha=all_shen_sha,
+        romance_warning_years=warning_years_future,
     )
 
     # Deterministic data: investments
@@ -3542,14 +3732,10 @@ def generate_lifetime_enhanced_insights(
         current_year=current_year,
     )
 
-    # Romance warning years (六沖日支 — spouse palace clash)
-    romance_warning_years = compute_romance_warning_years(
-        day_branch, annual_stars, kong_wang, birth_year=birth_year,
-    )
-
-    # Parent health years
+    # Parent health years (dual output: full for AI, future-filtered for display)
     parent_health_years = compute_parent_health_years(
         day_master_stem, annual_stars, birth_year=birth_year,
+        current_year=current_year,
     )
 
     # Stars in 空亡 — flag key natal stars whose branches fall in 空亡

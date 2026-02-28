@@ -196,6 +196,18 @@ export interface BaziCalculationResult {
   };
   kongWang?: string[];
   kongWangPerPillar?: Record<string, string[]>;
+  kongWangDisplay?: { day: string[]; year: string[] };
+  seasonalStates?: Record<string, string>;
+  taiYuan?: { stem: string; branch: string; naYin: string };
+  mingGong?: { stem: string; branch: string; naYin: string };
+  taiXi?: { stem: string; branch: string; naYin: string };
+  luckPeriodStartInfo?: {
+    startAge: number;
+    startDate: string;
+    yearsMonths: string;
+    daysToTerm: number;
+    direction: number;
+  };
   elementCounts?: {
     stems: Record<string, number>;
     branches: Record<string, number>;
@@ -242,6 +254,9 @@ export interface LuckPeriodDetail {
   endAge: number;
   startYear: number;
   endYear: number;
+  tenGod?: string;          // ten god of LP stem relative to DM
+  stemTenGod?: string;      // ten god of LP stem
+  branchTenGod?: string;    // ten god of LP branch main qi
   score: number;           // 0-100, formula-computed
   stemPhase: string;       // narrative hint for years 1-5
   branchPhase: string;     // narrative hint for years 6-10
@@ -267,6 +282,7 @@ export interface LifetimeV2Deterministic {
   partnerElement: string[];
   partnerZodiac: string[];
   romanceYears: number[];
+  romanceWarningYears?: number[];
   parentHealthYears: { father: number[]; mother: number[] };
   luckPeriodsEnriched: LuckPeriodDetail[];
   bestPeriod: LuckPeriodDetail | null;

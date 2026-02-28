@@ -18,7 +18,12 @@ This is the single entry point for the FastAPI endpoints.
 from datetime import datetime
 from typing import Dict, Optional
 
-from .four_pillars import calculate_four_pillars
+from .four_pillars import (
+    calculate_four_pillars,
+    calculate_ming_gong,
+    calculate_tai_xi,
+    calculate_tai_yuan,
+)
 from .ten_gods import (
     apply_ten_gods_to_pillars,
     get_prominent_ten_god,
@@ -30,11 +35,15 @@ from .five_elements import (
     calculate_five_elements_balance_seasonal,
     calculate_element_counts,
     determine_favorable_gods,
+    get_seasonal_state_labels,
 )
 from .shen_sha import apply_shen_sha_to_pillars, calculate_kong_wang, detect_special_day_pillars, get_all_shen_sha
 from .life_stages import apply_life_stages_to_pillars
 from .luck_periods import (
     calculate_annual_stars,
+    calculate_luck_period_direction,
+    calculate_luck_period_start_age,
+    calculate_luck_period_start_info,
     calculate_luck_periods,
     calculate_monthly_stars,
 )
@@ -257,6 +266,27 @@ def calculate_bazi(
         p = pillars[pname]
         kong_wang_per_pillar[pname] = calculate_kong_wang(p['stem'], p['branch'])
 
+    # R1: 旺相休囚死 seasonal state labels
+    seasonal_states = get_seasonal_state_labels(month_branch)
+
+    # F1: 胎元/命宮/胎息
+    tai_yuan = calculate_tai_yuan(month_stem, month_branch)
+    ming_gong = calculate_ming_gong(month_branch, pillars['hour']['branch'], year_stem)
+    tai_xi = calculate_tai_xi(day_master_stem, day_master_branch)
+
+    # F2: Precise 起運 date calculation
+    lp_direction = calculate_luck_period_direction(year_stem, gender)
+    lp_start_age = calculate_luck_period_start_age(birth_dt, lp_direction)
+    luck_period_start_info = calculate_luck_period_start_info(
+        birth_dt, lp_direction, lp_start_age,
+    )
+
+    # R5: 空亡 display — day (primary per《神白經》) + year (secondary per 祿命法)
+    kong_wang_display = {
+        'day': kong_wang_per_pillar['day'],
+        'year': kong_wang_per_pillar['year'],
+    }
+
     result = {
         'fourPillars': pillars,
         'fiveElementsBalance': five_elements_balance_en,
@@ -282,6 +312,15 @@ def calculate_bazi(
             'day': pillar_data['dayGanZhi'],
             'hour': pillar_data['hourGanZhi'],
         },
+        # Seasonal state labels (旺相休囚死) and Kong Wang display
+        'seasonalStates': seasonal_states,
+        'kongWangDisplay': kong_wang_display,
+        # 胎元/命宮/胎息
+        'taiYuan': tai_yuan,
+        'mingGong': ming_gong,
+        'taiXi': tai_xi,
+        # 起運 precise date
+        'luckPeriodStartInfo': luck_period_start_info,
         # Phase 11: Pre-analysis layer + summary fields
         'preAnalysis': pre_analysis,
         'lifeStagesSummary': life_stages_summary,

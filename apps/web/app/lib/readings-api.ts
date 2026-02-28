@@ -132,6 +132,9 @@ export interface LuckPeriodDetailData {
   endAge: number;
   startYear: number;
   endYear: number;
+  tenGod?: string;
+  stemTenGod?: string;
+  branchTenGod?: string;
   score: number;
   stemPhase: string;
   branchPhase: string;
@@ -150,6 +153,7 @@ export interface LifetimeV2DeterministicData {
   partnerElement: string[];
   partnerZodiac: string[];
   romanceYears: number[];
+  romanceWarningYears?: number[];
   parentHealthYears: { father: number[]; mother: number[] };
   luckPeriodsEnriched: LuckPeriodDetailData[];
   bestPeriod: LuckPeriodDetailData | null;

@@ -17,8 +17,11 @@ Luck Periods (大運), Annual Stars (流年), Monthly Stars (流月) Calculator
 - Month boundaries are defined by solar terms (節氣)
 """
 
-from datetime import datetime
+import logging
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
+
+import ephem
 
 from .constants import (
     BRANCH_INDEX,
@@ -167,6 +170,217 @@ def calculate_luck_period_start_age(
     start_age = max(1, min(10, start_age))
 
     return start_age
+
+
+logger = logging.getLogger(__name__)
+
+# 節 (Jie) solar term ecliptic longitudes (degrees)
+# These are the 12 month-boundary solar terms used for 大運 calculation
+_JIE_LONGITUDES = {
+    315: '立春', 345: '驚蟄', 15: '清明', 45: '立夏',
+    75: '芒種', 105: '小暑', 135: '立秋', 165: '白露',
+    195: '寒露', 225: '立冬', 255: '大雪', 285: '小寒',
+}
+
+
+def _get_ephem_jie_datetimes(birth_datetime: datetime, direction: int) -> Optional[datetime]:
+    """
+    Find the exact datetime of the nearest 節 solar term using ephem library.
+
+    Args:
+        birth_datetime: Full birth datetime (with hours/minutes)
+        direction: +1 = find next jie, -1 = find previous jie
+
+    Returns:
+        datetime of the nearest jie solar term, or None on failure
+    """
+    sun = ephem.Sun()
+    # Convert birth datetime to ephem date
+    birth_ephem = ephem.Date(birth_datetime)
+
+    # Get sun's ecliptic longitude at birth
+    sun.compute(birth_ephem)
+    birth_lon = float(sun.hlong) * 180.0 / 3.14159265358979  # radians to degrees
+
+    # Find which jie longitudes to target
+    jie_lons = sorted(_JIE_LONGITUDES.keys())
+
+    if direction == 1:
+        # Find next jie after birth longitude
+        target_lons = [l for l in jie_lons if l > birth_lon]
+        if not target_lons:
+            target_lons = [jie_lons[0]]  # Wrap around (e.g., past 大雪 315° → 小寒 285°→ 立春 315°)
+            # Actually need the smallest longitude in next cycle
+            target_lon = jie_lons[0]
+        else:
+            target_lon = target_lons[0]
+    else:
+        # Find previous jie before birth longitude
+        target_lons = [l for l in jie_lons if l < birth_lon]
+        if not target_lons:
+            target_lon = jie_lons[-1]  # Wrap around
+        else:
+            target_lon = target_lons[-1]
+
+    # Binary search for the exact time when sun reaches target_lon
+    # Start with a search window of ±45 days from birth
+    target_rad = target_lon * 3.14159265358979 / 180.0
+    step = 15.0  # days
+    current = birth_ephem
+
+    if direction == 1:
+        # Search forward
+        for _ in range(60):
+            sun.compute(current)
+            current_lon = float(sun.hlong)
+            # Check if we've passed the target
+            diff = (target_rad - current_lon) % (2 * 3.14159265358979)
+            if diff < 0.01:  # Close enough, refine
+                break
+            current = ephem.Date(current + step)
+            if step > 0.5:
+                step *= 0.5
+    else:
+        # Search backward
+        for _ in range(60):
+            sun.compute(current)
+            current_lon = float(sun.hlong)
+            diff = (current_lon - target_rad) % (2 * 3.14159265358979)
+            if diff < 0.01:
+                break
+            current = ephem.Date(current - step)
+            if step > 0.5:
+                step *= 0.5
+
+    # Use ephem's next_solstice/equinox approach — actually, let's use a simpler
+    # and more reliable approach: iterate through ephem dates to find exact crossing
+    # Reset and use a proper algorithm
+    search_start = birth_ephem if direction == 1 else ephem.Date(birth_ephem - 45)
+    search_end = ephem.Date(birth_ephem + 45) if direction == 1 else birth_ephem
+
+    best_date = None
+    best_diff = float('inf')
+
+    # Scan in 1-day increments first
+    scan = search_start
+    prev_lon = None
+    while scan <= search_end:
+        sun.compute(scan)
+        cur_lon = float(sun.hlong) * 180.0 / 3.14159265358979
+
+        if prev_lon is not None:
+            # Check if target_lon was crossed between prev and current
+            for tl in jie_lons:
+                crossed = False
+                if prev_lon < cur_lon:
+                    crossed = prev_lon <= tl < cur_lon
+                else:
+                    # Crossed 0°/360° boundary
+                    crossed = prev_lon <= tl or tl < cur_lon
+
+                if crossed:
+                    # Refine with binary search between scan-1 and scan
+                    lo = ephem.Date(scan - 1)
+                    hi = scan
+                    for _ in range(30):  # ~30 iterations → sub-second precision
+                        mid = ephem.Date((float(lo) + float(hi)) / 2)
+                        sun.compute(mid)
+                        mid_lon = float(sun.hlong) * 180.0 / 3.14159265358979
+                        # Normalize difference
+                        diff = (mid_lon - tl) % 360
+                        if diff > 180:
+                            diff -= 360
+                        if diff < 0:
+                            lo = mid
+                        else:
+                            hi = mid
+
+                    result_ephem = ephem.Date((float(lo) + float(hi)) / 2)
+                    result_dt = ephem.Date(result_ephem).datetime()
+
+                    if direction == 1 and result_dt > birth_datetime:
+                        delta = (result_dt - birth_datetime).total_seconds()
+                        if delta < best_diff:
+                            best_diff = delta
+                            best_date = result_dt
+                    elif direction == -1 and result_dt < birth_datetime:
+                        delta = (birth_datetime - result_dt).total_seconds()
+                        if delta < best_diff:
+                            best_diff = delta
+                            best_date = result_dt
+
+        prev_lon = cur_lon
+        scan = ephem.Date(scan + 1)
+
+    return best_date
+
+
+def calculate_luck_period_start_info(
+    birth_datetime: datetime,
+    direction: int,
+    start_age: int,
+) -> Dict:
+    """
+    Calculate precise luck period start info using ephem for exact solar term times.
+
+    Takes start_age from the existing calculate_luck_period_start_age() function
+    to ensure consistency with the LP timeline. Uses ephem for the precise date only.
+
+    Args:
+        birth_datetime: Full birth datetime (with hours and minutes)
+        direction: +1 (forward/順) or -1 (backward/逆)
+        start_age: Canonical start age from calculate_luck_period_start_age()
+
+    Returns:
+        Dictionary with startAge, startDate, yearsMonths, daysToTerm, direction
+    """
+    jie_dt = _get_ephem_jie_datetimes(birth_datetime, direction)
+
+    if jie_dt is None:
+        # Fallback: use start_age to estimate
+        start_date = birth_datetime + timedelta(days=start_age * 365.2422)
+        return {
+            'startAge': start_age,
+            'startDate': start_date.strftime('%Y-%m-%d'),
+            'yearsMonths': f'{start_age}年0月',
+            'daysToTerm': start_age * 3.0,
+            'direction': direction,
+        }
+
+    # Calculate days between birth and jie term
+    if direction == 1:
+        delta = jie_dt - birth_datetime
+    else:
+        delta = birth_datetime - jie_dt
+
+    days_to_term = delta.total_seconds() / 86400.0
+
+    # Continuous formula for precise start date
+    # 3 days of birth-to-term = 1 year of life
+    precise_years = days_to_term / 3.0
+    start_date = birth_datetime + timedelta(days=precise_years * 365.2422)
+
+    # Discrete formula for display string
+    years = int(days_to_term / 3)
+    remaining_days = days_to_term % 3
+    months = int(remaining_days * 4)  # Each remaining day ≈ 4 months
+    years_months = f'{years}年{months}月'
+
+    # Validation: check ephem-based age ≈ cnlunar-based start_age
+    ephem_age = round(days_to_term / 3.0)
+    if abs(ephem_age - start_age) > 1:
+        logger.warning(
+            f'起運 age divergence: ephem={ephem_age}, cnlunar={start_age}, '
+            f'days_to_term={days_to_term:.1f}'
+        )
+
+    return {
+        'startAge': start_age,
+        'startDate': start_date.strftime('%Y-%m-%d'),
+        'yearsMonths': years_months,
+        'daysToTerm': round(days_to_term, 2),
+        'direction': direction,
+    }
 
 
 def calculate_luck_periods(

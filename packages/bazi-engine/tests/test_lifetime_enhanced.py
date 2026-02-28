@@ -369,14 +369,18 @@ class TestPianyinDuoshi:
 
 class TestParentsInsights:
     def test_roger8_father_star(self, roger8_enhanced):
-        """Year stem 丁 → derive_ten_god(戊, 丁) = 正印."""
+        """Father star is always 偏財 per 子平真詮 (not year stem's ten god)."""
         pi = roger8_enhanced['parentsInsights']
-        assert pi['fatherStar'] == '正印'
+        assert pi['fatherStar'] == '偏財'
+        # Positional ten god should be stored separately
+        assert pi['yearStemTenGod'] == '正印'  # 戊→丁 = 正印
 
     def test_roger8_mother_star(self, roger8_enhanced):
-        """Year branch 卯 本氣=乙 → derive_ten_god(戊, 乙) = 正官."""
+        """Mother star is always 正印 per 子平真詮 (not year branch's ten god)."""
         pi = roger8_enhanced['parentsInsights']
-        assert pi['motherStar'] == '正官'
+        assert pi['motherStar'] == '正印'
+        # Positional ten god should be stored separately
+        assert pi['yearBranchMainTenGod'] == '正官'  # 戊→乙 = 正官
 
     def test_roger8_father_element(self, roger8_enhanced):
         """Father = 財星 element = element DM(戊/土) overcomes = 水."""
@@ -863,6 +867,83 @@ class TestRomanceYears:
 
 
 # ============================================================
+# 三刑 Filter Fix Tests (桃花年 2033 for Laopo11)
+# ============================================================
+
+class TestSanxingRomanceFilter:
+    """三刑 should block all tiers EXCEPT secondary_a2 (hidden stem spouse star)."""
+
+    def test_laopo11_2033_detected_with_sanxing_annotation(self):
+        """Laopo11 (甲木女, day_branch=戌): 2033 癸丑 should be detected.
+        丑-戌 is 三刑, but 丑 hides 辛(金)=正官=spouse star for 甲女.
+        secondary_a2 should still detect it with (三刑沖突) annotation."""
+        chart = calculate_bazi('1987-01-25', '16:45', '台北市', 'Asia/Taipei', 'female')
+        pillars = chart['fourPillars']
+        enriched = compute_romance_years_enriched(
+            'female', pillars['day']['stem'], pillars['day']['branch'],
+            pillars['year']['branch'], chart['annualStars'], chart['kongWang'],
+            birth_year=1987, current_year=2026
+        )
+        y2033 = [e for e in enriched if e['year'] == 2033]
+        assert len(y2033) == 1, f"2033 should be detected, got {y2033}"
+        assert y2033[0]['tier'] == 'secondary_a2'
+        assert '三刑沖突' in y2033[0]['signal']
+
+    def test_sanxing_blocks_when_no_spouse_star_in_hidden(self):
+        """三刑 + no spouse star in hidden stems → year completely blocked."""
+        # 丑-戌 三刑 pair: annual=丑, day=戌
+        annual_stars = [
+            {'year': 2033, 'stem': '癸', 'branch': '丑'},
+        ]
+        # For 庚 male: spouse star = 木 (ELEMENT_OVERCOME[金]=木 → 正財/偏財)
+        # 丑 hidden stems: [己(土), 癸(水), 辛(金)] — no 木 → secondary_a2 won't match
+        # 癸=水 ≠ 木 → secondary_a won't match
+        # 三刑 blocks all other tiers → year should be completely absent
+        enriched = compute_romance_years_enriched(
+            'male', '庚', '戌', '卯',
+            annual_stars, [],
+            birth_year=1987, current_year=2026
+        )
+        y2033 = [e for e in enriched if e['year'] == 2033]
+        assert len(y2033) == 0, f"三刑 should block 2033 for 庚 male (no spouse star in 丑 hidden), got {y2033}"
+
+    def test_sanxing_allows_a2_with_spouse_star_hidden(self):
+        """Year with 三刑 + spouse star in hidden stems → detected with annotation."""
+        # 甲女: spouse star = 金 (ELEMENT_OVERCOME_BY[木]=金 → 正官/偏官)
+        # 丑 hidden stems: [己, 癸, 辛] — 辛=金 → matches!
+        annual_stars = [
+            {'year': 2033, 'stem': '癸', 'branch': '丑'},
+        ]
+        enriched = compute_romance_years_enriched(
+            'female', '甲', '戌', '寅',
+            annual_stars, [],
+            birth_year=1987, current_year=2026
+        )
+        y2033 = [e for e in enriched if e['year'] == 2033]
+        assert len(y2033) == 1
+        assert y2033[0]['tier'] == 'secondary_a2'
+        assert '配偶星藏干' in y2033[0]['signal']
+        assert '三刑沖突' in y2033[0]['signal']
+
+    def test_no_sanxing_no_annotation(self):
+        """Year WITHOUT 三刑 should NOT have (三刑沖突) in signal."""
+        # 甲女 with day_branch=午 (no 三刑 with 丑)
+        annual_stars = [
+            {'year': 2033, 'stem': '癸', 'branch': '丑'},
+        ]
+        enriched = compute_romance_years_enriched(
+            'female', '甲', '午', '寅',
+            annual_stars, [],
+            birth_year=1987, current_year=2026
+        )
+        y2033 = [e for e in enriched if e['year'] == 2033]
+        # 丑 hidden stems: [己, 癸, 辛] — 辛=金=spouse star for 甲女
+        if y2033:
+            assert '三刑沖突' not in y2033[0]['signal'], \
+                "Without 三刑, should not have 三刑沖突 annotation"
+
+
+# ============================================================
 # Romance Years Enriched + 大運 Tagging Tests
 # ============================================================
 
@@ -887,7 +968,7 @@ class TestRomanceYearsEnriched:
             assert 'tier' in item
             assert 'signal' in item
             assert item['tier'] in (
-                'primary', 'secondary_a', 'secondary_b',
+                'primary', 'secondary_a', 'secondary_a2', 'secondary_b',
                 'secondary_c', 'secondary_d', 'supplementary',
             )
 
@@ -1176,26 +1257,28 @@ class TestParentHealthYears:
         assert len(father_years) >= 1
 
     def test_parent_health_years_birth_year_filter(self):
-        """Parent health years should not include years before birth_year."""
+        """Parent health years should not include years before birth_year.
+        Stem-only years are dropped per classical 「天干不主吉凶」."""
         # 己 DM: father=水 (overcomes水), threat=土 (overcomes水)
-        # 戊/己 stems = 土 element → father danger
+        # Branch 本氣 must be 土 to count as danger (stem-only is dropped)
         annual_stars = [
-            {'year': 2018, 'stem': '戊', 'branch': '戌'},  # 土 stem → father danger, but before birth
-            {'year': 2019, 'stem': '己', 'branch': '亥'},  # 土 stem → father danger, but before birth
-            {'year': 2021, 'stem': '辛', 'branch': '丑'},  # 金 stem → not danger
+            {'year': 2018, 'stem': '戊', 'branch': '戌'},  # branch本氣=戊=土 → BOTH, but before birth
+            {'year': 2019, 'stem': '己', 'branch': '亥'},  # branch本氣=壬=水 → stem-only (DROPPED)
+            {'year': 2021, 'stem': '辛', 'branch': '丑'},  # branch本氣=己=土 → branch-only father danger
             {'year': 2022, 'stem': '壬', 'branch': '寅'},  # 水 stem → not danger
-            {'year': 2028, 'stem': '戊', 'branch': '申'},  # 土 stem → father danger, AFTER birth
+            {'year': 2028, 'stem': '戊', 'branch': '申'},  # branch本氣=庚=金 → stem-only (DROPPED)
         ]
         result = compute_parent_health_years('己', annual_stars, birth_year=2021)
         for y in result['father']:
             assert y >= 2021, f"Father health year {y} is before birth year 2021"
         for y in result['mother']:
             assert y >= 2021, f"Mother health year {y} is before birth year 2021"
-        # 2028 should be in father danger list (戊=土, which 克 水=father element)
-        assert 2028 in result['father']
-        # 2018, 2019 should NOT be in list
+        # 2021 has branch本氣=己=土 which threatens father (水), should be in list
+        assert 2021 in result['father']
+        # 2018 before birth year, 2019/2028 are stem-only → all excluded
         assert 2018 not in result['father']
         assert 2019 not in result['father']
+        assert 2028 not in result['father']
 
     def test_branch_benqi_father_danger(self):
         """Branch 本氣 should also detect father danger years.
@@ -1239,25 +1322,24 @@ class TestParentHealthYears:
         # 2031 has no 土 → not danger
         assert 2031 not in result['father']
 
-    def test_priority_both_before_stem_only(self):
-        """Years with both stem+branch threat should appear before stem-only years.
+    def test_priority_both_before_branch_only(self):
+        """Years with both stem+branch threat should appear before branch-only years.
         DM=戊(土): father threat=土, mother threat=金.
-        Both: stem=土 + branch本氣=土 → strongest signal, should be prioritized."""
+        Both: stem=土 + branch本氣=土 → strongest signal, should be prioritized.
+        Stem-only years (e.g., 2029 己酉: stem=土 but branch本氣=金) are DROPPED
+        per classical 「天干不主吉凶」."""
         annual_stars = [
-            {'year': 2029, 'stem': '己', 'branch': '酉'},   # stem=土, branch=金 → stem-only father
+            {'year': 2029, 'stem': '己', 'branch': '酉'},   # stem=土, branch=金 → stem-only (DROPPED)
             {'year': 2030, 'stem': '庚', 'branch': '戌'},   # stem=金, branch=土 → branch-only father
             {'year': 2035, 'stem': '乙', 'branch': '卯'},   # stem=木, branch=木 → no father threat
             {'year': 2039, 'stem': '己', 'branch': '未'},   # stem=土, branch=土 → BOTH father
         ]
         result = compute_parent_health_years('戊', annual_stars)
-        # All three (2029 stem-only, 2030 branch-only, 2039 both) should be in list
+        # Only branch-relevant years should appear (2029 is stem-only, dropped)
         assert 2039 in result['father']
-        assert 2029 in result['father']
         assert 2030 in result['father']
-        # "Both" years should appear first in sorted output
-        # Since _combine_priority returns sorted(), and 2039 > 2030 > 2029,
-        # we just verify all are present
-        assert len(result['father']) == 3
+        assert 2029 not in result['father']  # stem-only → dropped per 「天干不主吉凶」
+        assert len(result['father']) == 2
 
     def test_jenna_parent_health_years_after_birth(self):
         """Jenna (born 2021): all parent health years must be >= 2021."""
@@ -1840,37 +1922,50 @@ class TestV2HelperFunctions:
     def test_count_spouse_stars_male(self):
         from app.lifetime_enhanced import _count_spouse_stars
         # Roger8 pillars: 年丁卯/月戊申/日戊午/時庚申
-        # DM = 戊(Earth), male: 正財=木(壬/癸 NO, 甲/乙 YES... wait)
-        # Actually for 戊 male: wealth stars. 戊 overcomes 水? No, 戊 overcomes 木? No.
-        # Element overcomes: 土克水. So 正財/偏財 are 水 elements.
-        # Year stem 丁(火)→偏印. Month stem 戊(土)→比肩. Hour stem 庚(金)→食神.
-        # No 水 in stems → 0 spouse stars in stems
+        # DM = 戊(Earth), male: 正財/偏財 are 水 elements (土克水)
+        # Surface stems: 丁=正印, 戊=比肩, 庚=食神 → 0 spouse stars
+        # Hidden stems (NO dedup — all counted independently):
+        #   卯[乙]: 正官 → skip
+        #   申[庚,壬,戊]: 壬=偏財 → +1
+        #   午[丁,己]: skip
+        #   申[庚,壬,戊]: 壬=偏財 → +1 (hour branch also 申)
+        # Total: zheng=0, pian=2
         pillars = {
             'year': {'stem': '丁', 'branch': '卯'},
             'month': {'stem': '戊', 'branch': '申'},
             'day': {'stem': '戊', 'branch': '午'},
             'hour': {'stem': '庚', 'branch': '申'},
         }
-        result = _count_spouse_stars(pillars, '戊', 'male', [])
+        result = _count_spouse_stars(pillars, '戊', 'male')
         assert result['zheng_name'] == '正財'
         assert result['pian_name'] == '偏財'
         assert result['zheng_count'] == 0
-        assert result['pian_count'] == 0
-        assert result['mixed'] is False
+        assert result['pian_count'] == 2  # 壬 in both 申 hidden stems
+        assert result['mixed'] is False  # Only pian, no zheng
 
-    def test_count_spouse_stars_with_transparent(self):
+    def test_count_spouse_stars_all_hidden(self):
+        """Verify all hidden stems are counted (not just transparent ones)."""
         from app.lifetime_enhanced import _count_spouse_stars
+        # Laopo12 pillars: 年丙寅/月辛丑/日甲戌/時壬申
+        # DM = 甲(Wood), female: 正官/偏官 (金 elements)
+        # Surface: 辛(month)=正官 → zheng=1
+        # Hidden:
+        #   寅[甲,丙,戊]: no spouse stars
+        #   丑[己,辛,癸] or [己,癸,辛]: 辛=正官 → zheng=2
+        #   戌[戊,辛,丁]: 辛=正官 → zheng=3
+        #   申[庚,壬,戊]: 庚=偏官 → pian=1
+        # Total: zheng=3, pian=1
         pillars = {
-            'year': {'stem': '丁', 'branch': '卯'},
-            'month': {'stem': '戊', 'branch': '申'},
-            'day': {'stem': '戊', 'branch': '午'},
-            'hour': {'stem': '庚', 'branch': '申'},
+            'year': {'stem': '丙', 'branch': '寅'},
+            'month': {'stem': '辛', 'branch': '丑'},
+            'day': {'stem': '甲', 'branch': '戌'},
+            'hour': {'stem': '壬', 'branch': '申'},
         }
-        # Simulate transparent 正財 (壬=水 for 戊 DM)
-        tougan = [{'status': 'transparent', 'tenGod': '正財', 'stem': '壬', 'sourcePillar': 'hour', 'transparentPillar': 'year'}]
-        result = _count_spouse_stars(pillars, '戊', 'male', tougan)
-        assert result['zheng_count'] == 1
-        assert len(result['hidden_stars']) == 1
+        result = _count_spouse_stars(pillars, '甲', 'female')
+        assert result['zheng_count'] == 3  # 正官: 辛(月干) + 辛(丑hidden) + 辛(戌hidden)
+        assert result['pian_count'] == 1   # 偏官: 庚(申hidden)
+        assert result['mixed'] is True
+        assert len(result['hidden_stars']) > 0
 
 
 # ============================================================

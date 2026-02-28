@@ -23,6 +23,7 @@ from .constants import (
     HIDDEN_STEMS,
     HIDDEN_STEM_WEIGHTS,
     SEASON_MULTIPLIER,
+    SEASON_STATE_LABELS,
     SEASON_STRENGTH,
     STEM_ELEMENT,
     STEM_YINYANG,
@@ -116,6 +117,24 @@ def calculate_five_elements_balance_seasonal(pillars: Dict) -> Dict[str, float]:
         return {e: 20.0 for e in FIVE_ELEMENTS}
 
     return {e: round(element_scores[e] / total * 100, 1) for e in FIVE_ELEMENTS}
+
+
+def get_seasonal_state_labels(month_branch: str) -> Dict[str, str]:
+    """
+    Return the 旺相休囚死 seasonal state label for each element given a birth month branch.
+
+    Example for 丑月: {木: '囚', 火: '休', 土: '旺', 金: '相', 水: '死'}
+
+    Args:
+        month_branch: The birth month's Earthly Branch
+
+    Returns:
+        Dictionary with element → seasonal state label (旺/相/休/囚/死)
+    """
+    return {
+        e: SEASON_STATE_LABELS.get(SEASON_STRENGTH.get(e, {}).get(month_branch, 3), '休')
+        for e in FIVE_ELEMENTS
+    }
 
 
 def calculate_element_counts(pillars: Dict) -> Dict[str, Dict[str, int]]:
@@ -303,6 +322,13 @@ def determine_favorable_gods(
     - 仇神 (Enemy): Element I overcome (財 — wastes my energy)
 
     When NEUTRAL: Similar to weak but less pronounced.
+
+    Note: Two competing conventions exist for 忌神/仇神 mapping.
+    System A (this engine): 忌神 = element that 克 用神. Standard 旺衰派 (Taiwan/HK mainstream).
+      Example: 甲木(weak) → 用神=木, 忌神=金(克木), 仇神=土(生金).
+    System B (some apps):   忌神 = most detrimental element overall (cascading harm).
+      Example: 甲木(weak) → 忌神=土(drains 印水+strongest element), 仇神=金(克木).
+    Both are valid; we follow System A per 旺衰派 tradition.
 
     Args:
         day_master_stem: Day Master's Heavenly Stem

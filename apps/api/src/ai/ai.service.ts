@@ -945,8 +945,8 @@ export class AIService implements OnModuleInit {
       const parentsInsights = enhanced?.['parentsInsights'] as Record<string, unknown> | undefined;
       if (parentsInsights) {
         const piText = [
-          `年干十神（父星）：${parentsInsights['fatherStar']}`,
-          `年支本氣十神（母星）：${parentsInsights['motherStar']}`,
+          `年干${parentsInsights['yearStemTenGod'] || ''}；父星（古典）：${parentsInsights['fatherStar']}`,
+          `年支本氣${parentsInsights['yearBranchMainTenGod'] || ''}；母星（古典）：${parentsInsights['motherStar']}`,
           `父親五行（財星）：${parentsInsights['fatherElement']}`,
           `母親五行（印星）：${parentsInsights['motherElement']}`,
           `年柱生剋關係：${parentsInsights['yearPillarRelation']}`,
@@ -1745,6 +1745,15 @@ export class AIService implements OnModuleInit {
       result = result.replace(/\{\{earth\}\}/g, String(elemData['土'] ?? elemData['earth'] ?? 0));
       result = result.replace(/\{\{metal\}\}/g, String(elemData['金'] ?? elemData['metal'] ?? 0));
       result = result.replace(/\{\{water\}\}/g, String(elemData['水'] ?? elemData['water'] ?? 0));
+    }
+
+    // Seasonal state labels (旺相休囚死)
+    const seasonalStates = data['seasonalStates'] as Record<string, string> | undefined;
+    if (seasonalStates) {
+      const stateText = Object.entries(seasonalStates)
+        .map(([elem, state]) => `${elem}${state}`)
+        .join('、');
+      result = result.replace(/\{\{seasonalStates\}\}/g, `五行旺衰：${stateText}`);
     }
 
     // Luck Periods
