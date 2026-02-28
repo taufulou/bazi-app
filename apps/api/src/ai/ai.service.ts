@@ -984,9 +984,9 @@ export class AIService implements OnModuleInit {
       }
     }
 
-    // Per-section narrative anchors — Call 2 (current_period, next_period, best_period, annual_finance, annual_career, annual_love, annual_health)
+    // Per-section narrative anchors — Call 2 (current_period, next_period, best_period, annual_love, annual_career, annual_finance, annual_health)
     const call2Anchors = enhanced?.['call2NarrativeAnchors'] as Record<string, string[]> | undefined;
-    const call2Sections = ['current_period', 'next_period', 'best_period', 'annual_finance', 'annual_career', 'annual_love', 'annual_health'];
+    const call2Sections = ['current_period', 'next_period', 'best_period', 'annual_love', 'annual_career', 'annual_finance', 'annual_health'];
     for (const section of call2Sections) {
       const sectionAnchors = call2Anchors?.[section] as string[] | undefined;
       const placeholder = `{{anchors_${section}}}`;
@@ -3074,8 +3074,8 @@ export class AIService implements OnModuleInit {
   ): string {
     const crypto = require('crypto');
     // Include preAnalysis version in hash so cache invalidates when rules change
-    // LIFETIME uses v2.0.0 (V2 multi-call format), all others use v1.1.0 (seasonal balance 旺相休囚死)
-    const preAnalysisVersion = readingType === ReadingType.LIFETIME ? 'v2.0.0' : 'v1.1.0';
+    // LIFETIME uses v2.1.0 (V2 multi-call + next_period section), all others use v1.1.0 (seasonal balance 旺相休囚死)
+    const preAnalysisVersion = readingType === ReadingType.LIFETIME ? 'v2.1.0' : 'v1.1.0';
     const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;
     return crypto.createHash('sha256').update(data).digest('hex');
   }

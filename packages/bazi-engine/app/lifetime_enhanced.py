@@ -49,6 +49,7 @@ from .branch_relationships import (
     THREE_PUNISHMENTS,
     TRIPLE_HARMONIES,
 )
+from .stem_combinations import STEM_CLASH_LOOKUP
 from .life_stages import get_life_stage
 from .shen_sha import get_all_shen_sha
 from .ten_gods import derive_ten_god
@@ -3429,6 +3430,7 @@ def build_call2_narrative_anchors(
     # Normal case: next period exists
     elif lp_idx_for_next is not None and lp_idx_for_next < len(luck_periods_enriched) - 1:
         next_lp = luck_periods_enriched[lp_idx_for_next + 1]
+        next_branch = next_lp.get('branch', '')
 
         # 1. Basic info
         next_period_anchors.append(
@@ -3482,7 +3484,6 @@ def build_call2_narrative_anchors(
         if current_lp:
             transition_year = current_lp.get('endYear', 0) + 1
             curr_branch = current_lp.get('branch', '')
-            next_branch = next_lp.get('branch', '')
             curr_stem = current_lp.get('stem', '')
             next_stem = next_lp.get('stem', '')
 
@@ -3492,17 +3493,11 @@ def build_call2_narrative_anchors(
                 transition_notes.append('地支六沖，交接震盪劇烈')
             if _check_sanxing_pair(curr_branch, next_branch):
                 transition_notes.append('地支三刑，交接帶刑罰壓力')
-            # Six Harms check — use inline lookup (same data as timing_analysis.HARM_LOOKUP)
-            harm_pairs = {
-                '子': '未', '未': '子', '丑': '午', '午': '丑',
-                '寅': '巳', '巳': '寅', '卯': '辰', '辰': '卯',
-                '申': '亥', '亥': '申', '酉': '戌', '戌': '酉',
-            }
-            if harm_pairs.get(curr_branch) == next_branch:
+            # Six Harms check (uses SIX_HARMS from branch_relationships)
+            if frozenset({curr_branch, next_branch}) in SIX_HARMS:
                 transition_notes.append('地支六害，交接暗藏不順')
 
             # Check stem clash (天干沖)
-            from .stem_combinations import STEM_CLASH_LOOKUP
             if STEM_CLASH_LOOKUP.get(curr_stem) == next_stem:
                 transition_notes.append('天干相沖，能量急轉')
 
@@ -3522,12 +3517,12 @@ def build_call2_narrative_anchors(
             star_year = star.get('year', 0)
             if star_year >= next_start_year and star_year <= next_start_year + 1:
                 star_branch = star.get('branch', '')
-                next_branch = next_lp.get('branch', '')
                 # Check significant interactions
                 if CLASH_LOOKUP.get(star_branch) == next_branch:
-                    star_tg = derive_ten_god(day_master_stem, star.get('stem', ''))
+                    star_stem = star.get('stem', '')
+                    tg_part = f'（{derive_ten_god(day_master_stem, star_stem)}）' if star_stem else ''
                     next_period_anchors.append(
-                        f'下一大運初期（{star_year}年），流年{star_branch}與大運{next_branch}六沖'
+                        f'下一大運初期（{star_year}年），流年{star_branch}{tg_part}與大運{next_branch}六沖'
                     )
                 elif HARMONY_LOOKUP.get(star_branch) == next_branch:
                     next_period_anchors.append(
