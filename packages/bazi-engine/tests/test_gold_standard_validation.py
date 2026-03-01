@@ -457,3 +457,383 @@ class TestHistoricalFigureFiveElements:
             f"Zhou wood+fire {wood_fire}% should be >= {expectations['wood_plus_fire_min_pct']}%"
         assert metal_water <= expectations['metal_plus_water_max_pct'], \
             f"Zhou metal+water {metal_water}% should be <= {expectations['metal_plus_water_max_pct']}%"
+
+
+# ============================================================
+# Published Master Analysis Charts — Famous figures with
+# professional Bazi master analyses for engine comparison
+# ============================================================
+
+class TestPublishedMasterPillars:
+    """Verify pillar accuracy for charts from published Bazi master analyses."""
+
+    def _calc(self, chart):
+        dt = chart['birthDatetime'].split('T')
+        return calculate_bazi(dt[0], dt[1][:5], "台北市", "Asia/Taipei", chart['gender'])
+
+    def _get_chart(self, gold_data, chart_id):
+        return next(c for c in gold_data['published_master_charts'] if c['id'] == chart_id)
+
+    def test_sun_yatsen_pillars(self, gold_data):
+        """孫中山: 乙丑/丁亥/丁酉/壬寅 — 《千里命稿》"""
+        chart = self._get_chart(gold_data, 'sun_yatsen')
+        result = self._calc(chart)
+        expected = chart['expected']['ganZhi']
+        for p in ['year', 'month', 'day', 'hour']:
+            assert result['ganZhi'][p] == expected[p], \
+                f"Sun Yat-sen {p}: {result['ganZhi'][p]} != {expected[p]}"
+
+    def test_li_ka_shing_pillars(self, gold_data):
+        """李嘉誠: 戊辰/己未/庚午/丁亥"""
+        chart = self._get_chart(gold_data, 'li_ka_shing')
+        result = self._calc(chart)
+        expected = chart['expected']['ganZhi']
+        for p in ['year', 'month', 'day', 'hour']:
+            assert result['ganZhi'][p] == expected[p], \
+                f"Li Ka-shing {p}: {result['ganZhi'][p]} != {expected[p]}"
+
+    def test_lee_teng_hui_pillars(self, gold_data):
+        """李登輝: 壬戌/癸丑/戊子/甲寅"""
+        chart = self._get_chart(gold_data, 'lee_teng_hui')
+        result = self._calc(chart)
+        expected = chart['expected']['ganZhi']
+        for p in ['year', 'month', 'day', 'hour']:
+            assert result['ganZhi'][p] == expected[p], \
+                f"Lee Teng-hui {p}: {result['ganZhi'][p]} != {expected[p]}"
+
+    def test_lee_kuan_yew_pillars(self, gold_data):
+        """李光耀: 癸亥/辛酉/壬辰/壬寅"""
+        chart = self._get_chart(gold_data, 'lee_kuan_yew')
+        result = self._calc(chart)
+        expected = chart['expected']['ganZhi']
+        for p in ['year', 'month', 'day', 'hour']:
+            assert result['ganZhi'][p] == expected[p], \
+                f"Lee Kuan Yew {p}: {result['ganZhi'][p]} != {expected[p]}"
+
+    def test_bill_gates_pillars(self, gold_data):
+        """Bill Gates: 乙未/丙戌/壬戌/庚戌"""
+        chart = self._get_chart(gold_data, 'bill_gates')
+        result = self._calc(chart)
+        expected = chart['expected']['ganZhi']
+        for p in ['year', 'month', 'day', 'hour']:
+            assert result['ganZhi'][p] == expected[p], \
+                f"Bill Gates {p}: {result['ganZhi'][p]} != {expected[p]}"
+
+    def test_warren_buffett_pillars(self, gold_data):
+        """Warren Buffett: 庚午/甲申/壬子/壬寅"""
+        chart = self._get_chart(gold_data, 'warren_buffett')
+        result = self._calc(chart)
+        expected = chart['expected']['ganZhi']
+        for p in ['year', 'month', 'day', 'hour']:
+            assert result['ganZhi'][p] == expected[p], \
+                f"Warren Buffett {p}: {result['ganZhi'][p]} != {expected[p]}"
+
+    def test_steve_jobs_pillars(self, gold_data):
+        """Steve Jobs: 乙未/戊寅/丙辰/辛卯"""
+        chart = self._get_chart(gold_data, 'steve_jobs')
+        result = self._calc(chart)
+        expected = chart['expected']['ganZhi']
+        for p in ['year', 'month', 'day', 'hour']:
+            assert result['ganZhi'][p] == expected[p], \
+                f"Steve Jobs {p}: {result['ganZhi'][p]} != {expected[p]}"
+
+
+class TestPublishedMasterTenGods:
+    """Ten god labels for published master charts — deterministic."""
+
+    def _calc(self, chart):
+        dt = chart['birthDatetime'].split('T')
+        return calculate_bazi(dt[0], dt[1][:5], "台北市", "Asia/Taipei", chart['gender'])
+
+    def _get_chart(self, gold_data, chart_id):
+        return next(c for c in gold_data['published_master_charts'] if c['id'] == chart_id)
+
+    def test_sun_yatsen_ten_gods(self, gold_data):
+        chart = self._get_chart(gold_data, 'sun_yatsen')
+        result = self._calc(chart)
+        expected = chart['expected']['tenGods']
+        assert result['fourPillars']['year']['tenGod'] == expected['year_stem']
+        assert result['fourPillars']['month']['tenGod'] == expected['month_stem']
+        assert result['fourPillars']['hour']['tenGod'] == expected['hour_stem']
+
+    def test_li_ka_shing_ten_gods(self, gold_data):
+        chart = self._get_chart(gold_data, 'li_ka_shing')
+        result = self._calc(chart)
+        expected = chart['expected']['tenGods']
+        assert result['fourPillars']['year']['tenGod'] == expected['year_stem']
+        assert result['fourPillars']['month']['tenGod'] == expected['month_stem']
+        assert result['fourPillars']['hour']['tenGod'] == expected['hour_stem']
+
+    def test_bill_gates_ten_gods(self, gold_data):
+        chart = self._get_chart(gold_data, 'bill_gates')
+        result = self._calc(chart)
+        expected = chart['expected']['tenGods']
+        assert result['fourPillars']['year']['tenGod'] == expected['year_stem']
+        assert result['fourPillars']['month']['tenGod'] == expected['month_stem']
+        assert result['fourPillars']['hour']['tenGod'] == expected['hour_stem']
+
+    def test_warren_buffett_ten_gods(self, gold_data):
+        chart = self._get_chart(gold_data, 'warren_buffett')
+        result = self._calc(chart)
+        expected = chart['expected']['tenGods']
+        assert result['fourPillars']['year']['tenGod'] == expected['year_stem']
+        assert result['fourPillars']['month']['tenGod'] == expected['month_stem']
+        assert result['fourPillars']['hour']['tenGod'] == expected['hour_stem']
+
+    def test_steve_jobs_ten_gods(self, gold_data):
+        chart = self._get_chart(gold_data, 'steve_jobs')
+        result = self._calc(chart)
+        expected = chart['expected']['tenGods']
+        assert result['fourPillars']['year']['tenGod'] == expected['year_stem']
+        assert result['fourPillars']['month']['tenGod'] == expected['month_stem']
+        assert result['fourPillars']['hour']['tenGod'] == expected['hour_stem']
+
+
+class TestPublishedMasterHiddenStems:
+    """Hidden stems for published master charts — standard lookup."""
+
+    def _calc(self, chart):
+        dt = chart['birthDatetime'].split('T')
+        return calculate_bazi(dt[0], dt[1][:5], "台北市", "Asia/Taipei", chart['gender'])
+
+    def _get_chart(self, gold_data, chart_id):
+        return next(c for c in gold_data['published_master_charts'] if c['id'] == chart_id)
+
+    def test_sun_yatsen_hidden_stems(self, gold_data):
+        chart = self._get_chart(gold_data, 'sun_yatsen')
+        result = self._calc(chart)
+        expected = chart['expected']['hiddenStems']
+        for pillar in ['year', 'month', 'day', 'hour']:
+            actual = result['fourPillars'][pillar]['hiddenStems']
+            assert actual == expected[pillar], \
+                f"Sun Yat-sen {pillar}: {actual} != {expected[pillar]}"
+
+    def test_bill_gates_hidden_stems(self, gold_data):
+        chart = self._get_chart(gold_data, 'bill_gates')
+        result = self._calc(chart)
+        expected = chart['expected']['hiddenStems']
+        for pillar in ['year', 'month', 'day', 'hour']:
+            actual = result['fourPillars'][pillar]['hiddenStems']
+            assert actual == expected[pillar], \
+                f"Bill Gates {pillar}: {actual} != {expected[pillar]}"
+
+    def test_steve_jobs_hidden_stems(self, gold_data):
+        chart = self._get_chart(gold_data, 'steve_jobs')
+        result = self._calc(chart)
+        expected = chart['expected']['hiddenStems']
+        for pillar in ['year', 'month', 'day', 'hour']:
+            actual = result['fourPillars'][pillar]['hiddenStems']
+            assert actual == expected[pillar], \
+                f"Steve Jobs {pillar}: {actual} != {expected[pillar]}"
+
+
+class TestPublishedMasterStrength:
+    """DM strength validation for published master charts."""
+
+    def _calc(self, chart):
+        dt = chart['birthDatetime'].split('T')
+        return calculate_bazi(dt[0], dt[1][:5], "台北市", "Asia/Taipei", chart['gender'])
+
+    def _get_chart(self, gold_data, chart_id):
+        return next(c for c in gold_data['published_master_charts'] if c['id'] == chart_id)
+
+    def test_sun_yatsen_very_weak(self, gold_data):
+        """孫中山 should be very_weak — 丁火 in 亥月, water dominant."""
+        chart = self._get_chart(gold_data, 'sun_yatsen')
+        result = self._calc(chart)
+        v2 = result['dayMaster']['strengthScoreV2']
+        expected_range = chart['expected']['dayMasterStrength']['our_v2_expected_range']
+        assert v2['classification'] in ('weak', 'very_weak'), \
+            f"Sun Yat-sen should be weak/very_weak, got {v2['classification']}"
+        assert expected_range['min'] <= v2['score'] <= expected_range['max'], \
+            f"Sun Yat-sen V2 score {v2['score']} outside [{expected_range['min']}, {expected_range['max']}]"
+
+    def test_li_ka_shing_neutral(self, gold_data):
+        """李嘉誠 should be neutral — 庚金 with strong earth support."""
+        chart = self._get_chart(gold_data, 'li_ka_shing')
+        result = self._calc(chart)
+        v2 = result['dayMaster']['strengthScoreV2']
+        expected_range = chart['expected']['dayMasterStrength']['our_v2_expected_range']
+        assert expected_range['min'] <= v2['score'] <= expected_range['max'], \
+            f"Li Ka-shing V2 score {v2['score']} outside [{expected_range['min']}, {expected_range['max']}]"
+
+    def test_lee_teng_hui_strong(self, gold_data):
+        """李登輝 should be strong — 戊土 born in 丑月 (earth season)."""
+        chart = self._get_chart(gold_data, 'lee_teng_hui')
+        result = self._calc(chart)
+        v2 = result['dayMaster']['strengthScoreV2']
+        expected_range = chart['expected']['dayMasterStrength']['our_v2_expected_range']
+        assert v2['classification'] in ('strong', 'very_strong'), \
+            f"Lee Teng-hui should be strong, got {v2['classification']}"
+        assert expected_range['min'] <= v2['score'] <= expected_range['max'], \
+            f"Lee Teng-hui V2 score {v2['score']} outside [{expected_range['min']}, {expected_range['max']}]"
+
+    def test_lee_kuan_yew_strong(self, gold_data):
+        """李光耀 should be strong — 壬水 in 酉月 with metal+water support."""
+        chart = self._get_chart(gold_data, 'lee_kuan_yew')
+        result = self._calc(chart)
+        v2 = result['dayMaster']['strengthScoreV2']
+        expected_range = chart['expected']['dayMasterStrength']['our_v2_expected_range']
+        assert v2['classification'] in ('strong', 'very_strong'), \
+            f"Lee Kuan Yew should be strong, got {v2['classification']}"
+        assert expected_range['min'] <= v2['score'] <= expected_range['max'], \
+            f"Lee Kuan Yew V2 score {v2['score']} outside [{expected_range['min']}, {expected_range['max']}]"
+
+    def test_bill_gates_very_weak(self, gold_data):
+        """Bill Gates should be very_weak — 壬水 with three 戌 earth overwhelming."""
+        chart = self._get_chart(gold_data, 'bill_gates')
+        result = self._calc(chart)
+        v2 = result['dayMaster']['strengthScoreV2']
+        expected_range = chart['expected']['dayMasterStrength']['our_v2_expected_range']
+        assert v2['classification'] == 'very_weak', \
+            f"Bill Gates should be very_weak, got {v2['classification']}"
+        assert expected_range['min'] <= v2['score'] <= expected_range['max'], \
+            f"Bill Gates V2 score {v2['score']} outside [{expected_range['min']}, {expected_range['max']}]"
+
+    def test_warren_buffett_strong(self, gold_data):
+        """Warren Buffett should be strong — 壬水 in 申月 with water roots."""
+        chart = self._get_chart(gold_data, 'warren_buffett')
+        result = self._calc(chart)
+        v2 = result['dayMaster']['strengthScoreV2']
+        expected_range = chart['expected']['dayMasterStrength']['our_v2_expected_range']
+        assert v2['classification'] in ('strong', 'very_strong'), \
+            f"Warren Buffett should be strong, got {v2['classification']}"
+        assert expected_range['min'] <= v2['score'] <= expected_range['max'], \
+            f"Warren Buffett V2 score {v2['score']} outside [{expected_range['min']}, {expected_range['max']}]"
+
+    def test_steve_jobs_neutral(self, gold_data):
+        """Steve Jobs should be neutral — 丙火 in 寅月 with strong wood support."""
+        chart = self._get_chart(gold_data, 'steve_jobs')
+        result = self._calc(chart)
+        v2 = result['dayMaster']['strengthScoreV2']
+        expected_range = chart['expected']['dayMasterStrength']['our_v2_expected_range']
+        assert expected_range['min'] <= v2['score'] <= expected_range['max'], \
+            f"Steve Jobs V2 score {v2['score']} outside [{expected_range['min']}, {expected_range['max']}]"
+
+
+class TestPublishedMasterFiveElements:
+    """Five element balance for published master charts."""
+
+    def _calc(self, chart):
+        dt = chart['birthDatetime'].split('T')
+        return calculate_bazi(dt[0], dt[1][:5], "台北市", "Asia/Taipei", chart['gender'])
+
+    def _get_chart(self, gold_data, chart_id):
+        return next(c for c in gold_data['published_master_charts'] if c['id'] == chart_id)
+
+    def test_sun_yatsen_water_dominant(self, gold_data):
+        """孫中山: water ≥25%, wood ≥20%, fire ≤20%."""
+        chart = self._get_chart(gold_data, 'sun_yatsen')
+        result = self._calc(chart)
+        balance = result['fiveElementsBalanceZh']
+        exp = chart['expected']['fiveElements_expectations']
+        assert balance['水'] >= exp['water_min_pct'], \
+            f"Sun water {balance['水']}% < {exp['water_min_pct']}%"
+        assert balance['木'] >= exp['wood_min_pct'], \
+            f"Sun wood {balance['木']}% < {exp['wood_min_pct']}%"
+        assert balance['火'] <= exp['fire_max_pct'], \
+            f"Sun fire {balance['火']}% > {exp['fire_max_pct']}%"
+
+    def test_li_ka_shing_earth_dominant(self, gold_data):
+        """李嘉誠: earth ≥45%, metal ≤20%."""
+        chart = self._get_chart(gold_data, 'li_ka_shing')
+        result = self._calc(chart)
+        balance = result['fiveElementsBalanceZh']
+        exp = chart['expected']['fiveElements_expectations']
+        assert balance['土'] >= exp['earth_min_pct'], \
+            f"Li earth {balance['土']}% < {exp['earth_min_pct']}%"
+        assert balance['金'] <= exp['metal_max_pct'], \
+            f"Li metal {balance['金']}% > {exp['metal_max_pct']}%"
+
+    def test_bill_gates_earth_fire_dominant(self, gold_data):
+        """Bill Gates: earth ≥35%, water ≤10%, fire+earth ≥55%."""
+        chart = self._get_chart(gold_data, 'bill_gates')
+        result = self._calc(chart)
+        balance = result['fiveElementsBalanceZh']
+        exp = chart['expected']['fiveElements_expectations']
+        assert balance['土'] >= exp['earth_min_pct'], \
+            f"Gates earth {balance['土']}% < {exp['earth_min_pct']}%"
+        assert balance['水'] <= exp['water_max_pct'], \
+            f"Gates water {balance['水']}% > {exp['water_max_pct']}%"
+        combined = balance['火'] + balance['土']
+        assert combined >= exp['fire_plus_earth_min_pct'], \
+            f"Gates fire+earth {combined}% < {exp['fire_plus_earth_min_pct']}%"
+
+    def test_warren_buffett_water_metal_dominant(self, gold_data):
+        """Warren Buffett: water ≥35%, metal ≥20%."""
+        chart = self._get_chart(gold_data, 'warren_buffett')
+        result = self._calc(chart)
+        balance = result['fiveElementsBalanceZh']
+        exp = chart['expected']['fiveElements_expectations']
+        assert balance['水'] >= exp['water_min_pct'], \
+            f"Buffett water {balance['水']}% < {exp['water_min_pct']}%"
+        assert balance['金'] >= exp['metal_min_pct'], \
+            f"Buffett metal {balance['金']}% < {exp['metal_min_pct']}%"
+
+    def test_steve_jobs_wood_dominant(self, gold_data):
+        """Steve Jobs: wood ≥45%, fire ≥15%."""
+        chart = self._get_chart(gold_data, 'steve_jobs')
+        result = self._calc(chart)
+        balance = result['fiveElementsBalanceZh']
+        exp = chart['expected']['fiveElements_expectations']
+        assert balance['木'] >= exp['wood_min_pct'], \
+            f"Jobs wood {balance['木']}% < {exp['wood_min_pct']}%"
+        assert balance['火'] >= exp['fire_min_pct'], \
+            f"Jobs fire {balance['火']}% < {exp['fire_min_pct']}%"
+
+
+class TestPublishedMasterPatternComparison:
+    """Compare engine patterns with published master analyses.
+
+    These tests document the discrepancies between our engine's pattern
+    classification and published Bazi master analyses. They serve as
+    baseline documentation — not pass/fail for the engine, but tracking
+    how our pattern detection compares with professional consensus.
+    """
+
+    def _calc(self, chart):
+        dt = chart['birthDatetime'].split('T')
+        return calculate_bazi(dt[0], dt[1][:5], "台北市", "Asia/Taipei", chart['gender'])
+
+    def _get_chart(self, gold_data, chart_id):
+        return next(c for c in gold_data['published_master_charts'] if c['id'] == chart_id)
+
+    def test_sun_yatsen_pattern_matches(self, gold_data):
+        """孫中山: Both engine and masters agree on 正官格."""
+        chart = self._get_chart(gold_data, 'sun_yatsen')
+        result = self._calc(chart)
+        pattern_info = chart['expected']['pattern']
+        assert result['dayMaster']['pattern'] == pattern_info['engine_value']
+        assert pattern_info['match'] is True, "Engine should match master for Sun Yat-sen"
+
+    def test_pattern_discrepancy_tracking(self, gold_data):
+        """Document all pattern discrepancies between engine and masters.
+
+        Expected discrepancies (engine vs master):
+        - Li Ka-shing: 正印格 vs 從殺格
+        - Lee Teng-hui: 正財格 vs 七殺格
+        - Bill Gates: 偏官格 vs 偏財格
+        - Warren Buffett: 偏印格 vs 食神制殺格
+        - Steve Jobs: 食神格 vs 印綬格
+        """
+        discrepancies = []
+        for chart in gold_data['published_master_charts']:
+            pattern_info = chart['expected']['pattern']
+            if not pattern_info.get('match', True):
+                result = self._calc(chart)
+                actual = result['dayMaster']['pattern']
+                discrepancies.append({
+                    'id': chart['id'],
+                    'engine': actual,
+                    'master': pattern_info['master_value'],
+                    'engine_matches_fixture': actual == pattern_info['engine_value']
+                })
+
+        # Verify engine outputs match what we recorded
+        for d in discrepancies:
+            assert d['engine_matches_fixture'], \
+                f"{d['id']}: engine now returns {d['engine']}, expected {d['engine']}"
+
+        # Document: we expect exactly 5 discrepancies
+        assert len(discrepancies) == 5, \
+            f"Expected 5 pattern discrepancies, found {len(discrepancies)}"

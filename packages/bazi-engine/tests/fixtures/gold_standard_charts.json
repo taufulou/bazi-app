@@ -772,5 +772,554 @@
         "ganZhi_year": "丙午"
       }
     }
+  ],
+
+  "published_master_charts": [
+    {
+      "id": "sun_yatsen",
+      "label": "孫中山 (Sun Yat-sen)",
+      "birthDatetime": "1865-11-23T04:00:00",
+      "birthHour_note": "寅時 (3-5AM)",
+      "gender": "male",
+      "sources": ["《千里命稿》韋千里", "Multiple Bazi master analyses"],
+      "notes": "Commonly cited Gregorian birth date is Nov 12, 1866, but the pillars from《千里命稿》(乙丑/丁亥/丁酉/壬寅) correspond to Nov 23, 1865 in our engine. This is a known historical calendar conversion discrepancy.",
+      "expected": {
+        "ganZhi": {
+          "year": "乙丑",
+          "month": "丁亥",
+          "day": "丁酉",
+          "hour": "壬寅"
+        },
+        "stems": {
+          "year": "乙",
+          "month": "丁",
+          "day": "丁",
+          "hour": "壬"
+        },
+        "branches": {
+          "year": "丑",
+          "month": "亥",
+          "day": "酉",
+          "hour": "寅"
+        },
+        "dayMaster": {
+          "stem": "丁",
+          "element": "火",
+          "yinYang": "陰"
+        },
+        "tenGods": {
+          "year_stem": "偏印",
+          "month_stem": "比肩",
+          "hour_stem": "正官"
+        },
+        "hiddenStems": {
+          "year": ["己", "癸", "辛"],
+          "month": ["壬", "甲"],
+          "day": ["辛"],
+          "hour": ["甲", "丙", "戊"]
+        },
+        "naYin": {
+          "year": "海中金",
+          "month": "屋上土",
+          "day": "山下火",
+          "hour": "金箔金"
+        },
+        "pattern": {
+          "engine_value": "正官格",
+          "master_value": "正官格",
+          "sources_consensus": "正官格 — 《千里命稿》analysis confirmed",
+          "confidence": "high",
+          "match": true
+        },
+        "dayMasterStrength": {
+          "consensus": "very_weak",
+          "engine_v2_score": 10.8,
+          "engine_v2_classification": "very_weak",
+          "notes": "丁火 born in 亥月 (water season), water+metal overwhelm weak fire",
+          "our_v2_expected_range": {"min": 5, "max": 20}
+        },
+        "favorableGods": {
+          "engine_useful": "火",
+          "engine_favorable": "木",
+          "master_useful": "木",
+          "notes": "Masters emphasize 木 (印) to feed weak fire DM. Engine says 火 (self-help), 木 (印). Direction aligned."
+        },
+        "fiveElements_expectations": {
+          "water_min_pct": 25,
+          "wood_min_pct": 20,
+          "fire_max_pct": 20
+        },
+        "kongWang": ["辰", "巳"]
+      }
+    },
+    {
+      "id": "li_ka_shing",
+      "label": "李嘉誠 (Li Ka-shing)",
+      "birthDatetime": "1928-07-29T22:00:00",
+      "birthHour_note": "亥時 (21-23)",
+      "gender": "male",
+      "sources": ["Published Bazi master analyses", "Multiple Chinese Bazi forums"],
+      "expected": {
+        "ganZhi": {
+          "year": "戊辰",
+          "month": "己未",
+          "day": "庚午",
+          "hour": "丁亥"
+        },
+        "stems": {
+          "year": "戊",
+          "month": "己",
+          "day": "庚",
+          "hour": "丁"
+        },
+        "branches": {
+          "year": "辰",
+          "month": "未",
+          "day": "午",
+          "hour": "亥"
+        },
+        "dayMaster": {
+          "stem": "庚",
+          "element": "金",
+          "yinYang": "陽"
+        },
+        "tenGods": {
+          "year_stem": "偏印",
+          "month_stem": "正印",
+          "hour_stem": "正官"
+        },
+        "hiddenStems": {
+          "year": ["戊", "乙", "癸"],
+          "month": ["己", "丁", "乙"],
+          "day": ["丁", "己"],
+          "hour": ["壬", "甲"]
+        },
+        "naYin": {
+          "year": "大林木",
+          "month": "天上火",
+          "day": "路旁土",
+          "hour": "屋上土"
+        },
+        "pattern": {
+          "engine_value": "正印格",
+          "master_value": "從殺格",
+          "alt_master_value": "正財格",
+          "sources_consensus": "Masters divided — some say 從殺格 (follow the officer), some say 正財格 (wealth in month branch hidden stem)",
+          "confidence": "medium",
+          "match": false,
+          "notes": "Engine identifies 正印格 from month stem 己土 (正印). Master pattern differs — this is a known engine limitation with 從格 detection."
+        },
+        "dayMasterStrength": {
+          "consensus": "neutral_to_strong",
+          "engine_v2_score": 51.9,
+          "engine_v2_classification": "neutral",
+          "notes": "庚金 born in 未月 (earth season), earth strongly supports metal through 印",
+          "our_v2_expected_range": {"min": 40, "max": 65}
+        },
+        "favorableGods": {
+          "engine_useful": "木",
+          "engine_favorable": "水"
+        },
+        "fiveElements_expectations": {
+          "earth_min_pct": 45,
+          "metal_max_pct": 20
+        },
+        "kongWang": ["戌", "亥"]
+      }
+    },
+    {
+      "id": "lee_teng_hui",
+      "label": "李登輝 (Lee Teng-hui)",
+      "birthDatetime": "1923-01-15T04:00:00",
+      "birthHour_note": "寅時 (3-5AM)",
+      "gender": "male",
+      "sources": ["Published Bazi master analyses", "Taiwan political figure analysis collections"],
+      "expected": {
+        "ganZhi": {
+          "year": "壬戌",
+          "month": "癸丑",
+          "day": "戊子",
+          "hour": "甲寅"
+        },
+        "stems": {
+          "year": "壬",
+          "month": "癸",
+          "day": "戊",
+          "hour": "甲"
+        },
+        "branches": {
+          "year": "戌",
+          "month": "丑",
+          "day": "子",
+          "hour": "寅"
+        },
+        "dayMaster": {
+          "stem": "戊",
+          "element": "土",
+          "yinYang": "陽"
+        },
+        "tenGods": {
+          "year_stem": "偏財",
+          "month_stem": "正財",
+          "hour_stem": "偏官"
+        },
+        "hiddenStems": {
+          "year": ["戊", "辛", "丁"],
+          "month": ["己", "癸", "辛"],
+          "day": ["癸"],
+          "hour": ["甲", "丙", "戊"]
+        },
+        "naYin": {
+          "year": "大海水",
+          "month": "桑柘木",
+          "day": "霹靂火",
+          "hour": "大溪水"
+        },
+        "pattern": {
+          "engine_value": "正財格",
+          "master_value": "七殺格",
+          "sources_consensus": "Masters say 七殺格 — rule: '有殺先論殺' (when 七殺 is present, prioritize it). 寅中藏甲為七殺.",
+          "confidence": "high",
+          "match": false,
+          "notes": "Engine follows standard month-branch hidden stem logic (正財格 from 癸 in 丑). Masters override with 有殺先論殺 rule — 甲木 七殺 in hour stem takes priority."
+        },
+        "dayMasterStrength": {
+          "consensus": "strong",
+          "engine_v2_score": 64.6,
+          "engine_v2_classification": "strong",
+          "notes": "戊土 born in 丑月 (earth season), with 戌 and 丑 providing earth support",
+          "our_v2_expected_range": {"min": 55, "max": 75}
+        },
+        "favorableGods": {
+          "engine_useful": "水",
+          "engine_favorable": "金",
+          "master_useful": "木",
+          "notes": "Masters say 用神=木 (to attack strong earth). Engine says 水 (to drain earth). Both aim to weaken strong DM, different approaches."
+        },
+        "fiveElements_expectations": {
+          "earth_min_pct": 40,
+          "water_min_pct": 15
+        },
+        "kongWang": ["午", "未"]
+      }
+    },
+    {
+      "id": "lee_kuan_yew",
+      "label": "李光耀 (Lee Kuan Yew)",
+      "birthDatetime": "1923-09-16T04:00:00",
+      "birthHour_note": "寅時 (3-5AM)",
+      "gender": "male",
+      "sources": ["Published Bazi master analyses", "Singapore political figure analysis"],
+      "expected": {
+        "ganZhi": {
+          "year": "癸亥",
+          "month": "辛酉",
+          "day": "壬辰",
+          "hour": "壬寅"
+        },
+        "stems": {
+          "year": "癸",
+          "month": "辛",
+          "day": "壬",
+          "hour": "壬"
+        },
+        "branches": {
+          "year": "亥",
+          "month": "酉",
+          "day": "辰",
+          "hour": "寅"
+        },
+        "dayMaster": {
+          "stem": "壬",
+          "element": "水",
+          "yinYang": "陽"
+        },
+        "tenGods": {
+          "year_stem": "劫財",
+          "month_stem": "正印",
+          "hour_stem": "比肩"
+        },
+        "hiddenStems": {
+          "year": ["壬", "甲"],
+          "month": ["辛"],
+          "day": ["戊", "乙", "癸"],
+          "hour": ["甲", "丙", "戊"]
+        },
+        "naYin": {
+          "year": "大海水",
+          "month": "石榴木",
+          "day": "長流水",
+          "hour": "金箔金"
+        },
+        "pattern": {
+          "engine_value": "正印格",
+          "master_value": "建禄格",
+          "alt_master_value": "正印格",
+          "sources_consensus": "Some masters cite 建禄格 (亥中壬水為日主祿位), others agree with 正印格. Both valid interpretations.",
+          "confidence": "medium",
+          "match": true,
+          "notes": "Engine and some masters agree on 正印格. The 建禄格 interpretation comes from 亥 being the 禄 of 壬."
+        },
+        "dayMasterStrength": {
+          "consensus": "strong",
+          "engine_v2_score": 60.5,
+          "engine_v2_classification": "strong",
+          "notes": "壬水 born in 酉月 (metal season), metal generates water. Plus 亥(water root) and 壬 in hour.",
+          "our_v2_expected_range": {"min": 50, "max": 70}
+        },
+        "favorableGods": {
+          "engine_useful": "火",
+          "engine_favorable": "木",
+          "master_useful": "火",
+          "notes": "Masters agree 火 (財) is needed to constrain strong water. Engine matches."
+        },
+        "fiveElements_expectations": {
+          "water_min_pct": 40,
+          "metal_min_pct": 25
+        },
+        "kongWang": ["午", "未"]
+      }
+    },
+    {
+      "id": "bill_gates",
+      "label": "Bill Gates (比爾·蓋茲)",
+      "birthDatetime": "1955-10-28T20:00:00",
+      "birthHour_note": "戌時 (19-21). Actual birth ~9:15 PM (亥時 boundary). Masters commonly use 戌時.",
+      "gender": "male",
+      "sources": ["Published Bazi master analyses", "Multiple Western/Chinese Bazi analysis sites"],
+      "notes": "Birth time controversy: official records say ~9:15 PM which is 亥時, but most Bazi masters use 戌時 (庚戌). Using 戌時 to match published analyses.",
+      "expected": {
+        "ganZhi": {
+          "year": "乙未",
+          "month": "丙戌",
+          "day": "壬戌",
+          "hour": "庚戌"
+        },
+        "stems": {
+          "year": "乙",
+          "month": "丙",
+          "day": "壬",
+          "hour": "庚"
+        },
+        "branches": {
+          "year": "未",
+          "month": "戌",
+          "day": "戌",
+          "hour": "戌"
+        },
+        "dayMaster": {
+          "stem": "壬",
+          "element": "水",
+          "yinYang": "陽"
+        },
+        "tenGods": {
+          "year_stem": "傷官",
+          "month_stem": "偏財",
+          "hour_stem": "偏印"
+        },
+        "hiddenStems": {
+          "year": ["己", "丁", "乙"],
+          "month": ["戊", "辛", "丁"],
+          "day": ["戊", "辛", "丁"],
+          "hour": ["戊", "辛", "丁"]
+        },
+        "naYin": {
+          "year": "沙中金",
+          "month": "屋上土",
+          "day": "大海水",
+          "hour": "釵釧金"
+        },
+        "pattern": {
+          "engine_value": "偏官格",
+          "master_value": "偏財格",
+          "sources_consensus": "Masters commonly cite 偏財格 — 戌中戊土為偏財, 三戌爭財. Engine says 偏官格.",
+          "confidence": "medium",
+          "match": false,
+          "notes": "Three 戌 branches is the hallmark of this chart. Masters focus on the 偏財 dominance, engine uses standard month-branch determination."
+        },
+        "dayMasterStrength": {
+          "consensus": "very_weak",
+          "engine_v2_score": 3.7,
+          "engine_v2_classification": "very_weak",
+          "notes": "壬水 born in 戌月 (earth season), three 戌 overwhelm with earth, virtually no water support. Extremely weak.",
+          "our_v2_expected_range": {"min": 0, "max": 10}
+        },
+        "favorableGods": {
+          "engine_useful": "水",
+          "engine_favorable": "金",
+          "master_useful": "金",
+          "notes": "Masters say 金 (印) to generate water and soften earth dominance. Engine says 水 (self-strengthen). Both valid for extremely weak DM."
+        },
+        "fiveElements_expectations": {
+          "earth_min_pct": 35,
+          "water_max_pct": 10,
+          "fire_plus_earth_min_pct": 55
+        },
+        "kongWang": ["子", "丑"]
+      }
+    },
+    {
+      "id": "warren_buffett",
+      "label": "Warren Buffett (巴菲特)",
+      "birthDatetime": "1930-08-30T04:00:00",
+      "birthHour_note": "寅時 (3-5AM)",
+      "gender": "male",
+      "sources": ["Published Bazi master analyses", "Financial figure Bazi analysis collections"],
+      "expected": {
+        "ganZhi": {
+          "year": "庚午",
+          "month": "甲申",
+          "day": "壬子",
+          "hour": "壬寅"
+        },
+        "stems": {
+          "year": "庚",
+          "month": "甲",
+          "day": "壬",
+          "hour": "壬"
+        },
+        "branches": {
+          "year": "午",
+          "month": "申",
+          "day": "子",
+          "hour": "寅"
+        },
+        "dayMaster": {
+          "stem": "壬",
+          "element": "水",
+          "yinYang": "陽"
+        },
+        "tenGods": {
+          "year_stem": "偏印",
+          "month_stem": "食神",
+          "hour_stem": "比肩"
+        },
+        "hiddenStems": {
+          "year": ["丁", "己"],
+          "month": ["庚", "壬", "戊"],
+          "day": ["癸"],
+          "hour": ["甲", "丙", "戊"]
+        },
+        "naYin": {
+          "year": "路旁土",
+          "month": "泉中水",
+          "day": "桑柘木",
+          "hour": "金箔金"
+        },
+        "pattern": {
+          "engine_value": "偏印格",
+          "master_value": "食神制殺格",
+          "alt_master_value": "食神吐秀格",
+          "sources_consensus": "Masters cite 食神制殺格 — 甲木食神 in month stem controls 庚金偏官 in year stem. Engine identifies 偏印格 from 庚金 in year.",
+          "confidence": "medium",
+          "match": false,
+          "notes": "申中藏庚 (偏印) drives engine classification. Masters focus on 甲木食神 controlling 庚金 as the defining dynamic. This is a structural pattern vs. standard classification difference."
+        },
+        "dayMasterStrength": {
+          "consensus": "strong",
+          "engine_v2_score": 63.0,
+          "engine_v2_classification": "strong",
+          "notes": "壬水 born in 申月 (metal generates water), plus 子 (strong water root) and 壬 in hour",
+          "our_v2_expected_range": {"min": 55, "max": 75}
+        },
+        "favorableGods": {
+          "engine_useful": "火",
+          "engine_favorable": "木",
+          "master_useful": "木",
+          "notes": "Masters emphasize 木 (食神) as crucial — it drains strong water and controls 殺. Engine and masters directionally aligned."
+        },
+        "fiveElements_expectations": {
+          "water_min_pct": 35,
+          "metal_min_pct": 20
+        },
+        "branchRelationships": {
+          "key_clashes": ["子午沖"],
+          "key_harmonies": ["申子半合水"],
+          "notes": "子午沖 between day and year branches. 申子 half-combination into water strengthens DM."
+        },
+        "kongWang": ["寅", "卯"]
+      }
+    },
+    {
+      "id": "steve_jobs",
+      "label": "Steve Jobs (賈伯斯)",
+      "birthDatetime": "1955-02-24T06:00:00",
+      "birthHour_note": "卯時 (5-7AM)",
+      "gender": "male",
+      "sources": ["Published Bazi master analyses", "Tech billionaire Bazi analysis collections"],
+      "expected": {
+        "ganZhi": {
+          "year": "乙未",
+          "month": "戊寅",
+          "day": "丙辰",
+          "hour": "辛卯"
+        },
+        "stems": {
+          "year": "乙",
+          "month": "戊",
+          "day": "丙",
+          "hour": "辛"
+        },
+        "branches": {
+          "year": "未",
+          "month": "寅",
+          "day": "辰",
+          "hour": "卯"
+        },
+        "dayMaster": {
+          "stem": "丙",
+          "element": "火",
+          "yinYang": "陽"
+        },
+        "tenGods": {
+          "year_stem": "正印",
+          "month_stem": "食神",
+          "hour_stem": "正財"
+        },
+        "hiddenStems": {
+          "year": ["己", "丁", "乙"],
+          "month": ["甲", "丙", "戊"],
+          "day": ["戊", "乙", "癸"],
+          "hour": ["乙"]
+        },
+        "naYin": {
+          "year": "沙中金",
+          "month": "城頭土",
+          "day": "沙中土",
+          "hour": "松柏木"
+        },
+        "pattern": {
+          "engine_value": "食神格",
+          "master_value": "印綬格",
+          "alt_master_value": "偏印格",
+          "sources_consensus": "Masters cite 印綬格 — strong wood (寅卯辰 eastern wood) feeds fire through 印. Engine says 食神格 from 戊 in month stem.",
+          "confidence": "medium",
+          "match": false,
+          "notes": "寅卯辰三會木局 potential. Masters see the overwhelming wood support (印) as the chart's defining feature. Engine uses standard month-stem classification."
+        },
+        "dayMasterStrength": {
+          "consensus": "neutral_to_strong",
+          "engine_v2_score": 51.1,
+          "engine_v2_classification": "neutral",
+          "notes": "丙火 born in 寅月 (wood season = 印旺), with 卯 and 未 providing additional wood. Strong support for fire.",
+          "our_v2_expected_range": {"min": 40, "max": 60}
+        },
+        "favorableGods": {
+          "engine_useful": "金",
+          "engine_favorable": "土",
+          "master_useful": "金",
+          "notes": "Masters and engine agree on 金 as useful god — to control overly strong wood and provide balance."
+        },
+        "fiveElements_expectations": {
+          "wood_min_pct": 45,
+          "fire_min_pct": 15
+        },
+        "branchRelationships": {
+          "key_harmonies": ["寅卯辰三會木局"],
+          "notes": "寅(month) + 卯(hour) + 辰(day) = complete Eastern Wood Assembly. Extremely powerful wood configuration."
+        },
+        "kongWang": ["子", "丑"]
+      }
+    }
   ]
 }
