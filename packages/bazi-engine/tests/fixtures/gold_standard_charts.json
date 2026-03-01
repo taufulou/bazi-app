@@ -1,0 +1,776 @@
+{
+  "_metadata": {
+    "description": "Gold standard Bazi reference charts for engine validation",
+    "version": "1.0.0",
+    "lastUpdated": "2026-02-26",
+    "notes": [
+      "Pillars, ten gods, and hidden stems are deterministic — must match 100%",
+      "DM strength varies by school — record for regression, not absolute truth",
+      "Pattern and useful god have school variations — match 2/3 sources = pass",
+      "Online calculators mostly use JavaScript rendering; data verified via Joey Yap PDF, rival seer app, and web research"
+    ]
+  },
+
+  "personal_charts": [
+    {
+      "id": "laopo",
+      "label": "Subject A — Laopo",
+      "birthDatetime": "1987-01-25T16:44:00",
+      "gender": "female",
+      "birthCity": "台北市",
+      "sources": ["Joey Yap BaZi Profiling PDF", "Rival seer app (八字終身運)", "Our engine"],
+      "expected": {
+        "ganZhi": {
+          "year": "丙寅",
+          "month": "辛丑",
+          "day": "甲戌",
+          "hour": "壬申"
+        },
+        "stems": {
+          "year": "丙",
+          "month": "辛",
+          "day": "甲",
+          "hour": "壬"
+        },
+        "branches": {
+          "year": "寅",
+          "month": "丑",
+          "day": "戌",
+          "hour": "申"
+        },
+        "dayMaster": {
+          "stem": "甲",
+          "element": "木",
+          "yinYang": "陽"
+        },
+        "tenGods": {
+          "year_stem": "食神",
+          "month_stem": "正官",
+          "hour_stem": "偏印"
+        },
+        "hiddenStems": {
+          "year": ["甲", "丙", "戊"],
+          "month": ["己", "癸", "辛"],
+          "day": ["戊", "辛", "丁"],
+          "hour": ["庚", "壬", "戊"]
+        },
+        "hiddenStemTenGods": {
+          "year": [
+            {"stem": "甲", "tenGod": "比肩"},
+            {"stem": "丙", "tenGod": "食神"},
+            {"stem": "戊", "tenGod": "偏財"}
+          ],
+          "month": [
+            {"stem": "己", "tenGod": "正財"},
+            {"stem": "癸", "tenGod": "正印"},
+            {"stem": "辛", "tenGod": "正官"}
+          ],
+          "day": [
+            {"stem": "戊", "tenGod": "偏財"},
+            {"stem": "辛", "tenGod": "正官"},
+            {"stem": "丁", "tenGod": "傷官"}
+          ],
+          "hour": [
+            {"stem": "庚", "tenGod": "偏官"},
+            {"stem": "壬", "tenGod": "偏印"},
+            {"stem": "戊", "tenGod": "偏財"}
+          ]
+        },
+        "naYin": {
+          "year": "爐中火",
+          "month": "壁上土",
+          "day": "山頭火",
+          "hour": "劍鋒金"
+        },
+        "pattern": {
+          "value": "正官格",
+          "sources": {
+            "joey_yap": "正官格 (95%)",
+            "our_engine": "正官格",
+            "rival_seer": "正官格"
+          },
+          "confidence": "high"
+        },
+        "dayMasterStrength": {
+          "v1_classification": "weak",
+          "v1_score": 38,
+          "v2_classification": "very_weak",
+          "v2_score": 20.6,
+          "v2_factors": {
+            "deling": 12,
+            "dedi": 2.7,
+            "deshi": 5.9
+          },
+          "sources_consensus": "weak/very_weak — all sources agree DM is weak"
+        },
+        "favorableGods": {
+          "favorableGod": "水",
+          "usefulGod": "木",
+          "idleGod": "火",
+          "tabooGod": "金",
+          "enemyGod": "土",
+          "sources": {
+            "our_engine": "用神=木, 喜神=水, 忌神=金, 仇神=土",
+            "rival_seer": "confirmed match"
+          }
+        },
+        "kongWang": {
+          "day": ["申", "酉"],
+          "year": ["戌", "亥"]
+        },
+        "fiveElements": {
+          "weighted": {"木": 12.6, "火": 15.7, "土": 32.4, "金": 31.5, "水": 7.9},
+          "raw": {"木": 20.0, "火": 17.5, "土": 20.0, "金": 25.0, "水": 17.5}
+        },
+        "shenSha": {
+          "year": ["祿神", "福星貴人", "學堂"],
+          "month": ["天乙貴人", "紅鸞", "國印貴人", "德秀貴人", "寡宿"],
+          "day": ["華蓋", "國印貴人", "天羅", "童子煞"],
+          "hour": ["文昌", "驛馬", "空亡"]
+        },
+        "shenSha_verified": {
+          "桃花": "卯",
+          "驛馬": "申",
+          "天乙貴人": ["未", "丑"],
+          "sources": "Joey Yap confirmed all three"
+        },
+        "branchRelationships": {
+          "six_clashes": ["寅申沖"],
+          "punishments": ["寅申半刑（無恩之刑）", "丑戌半刑（持勢之刑）"],
+          "stem_combinations": ["丙辛合化水（合而不化）"],
+          "stem_clashes": ["丙壬沖"]
+        },
+        "lifeStages": {
+          "year": "臨官",
+          "month": "冠帶",
+          "day": "養",
+          "hour": "絕"
+        },
+        "lunarDate": {
+          "year": 1986,
+          "month": 12,
+          "day": 26,
+          "isLeapMonth": false
+        }
+      }
+    },
+    {
+      "id": "roger",
+      "label": "Subject B — Roger",
+      "birthDatetime": "1987-09-06T16:11:00",
+      "gender": "male",
+      "birthCity": "台北市",
+      "sources": ["Joey Yap BaZi Profiling PDF", "Our engine"],
+      "expected": {
+        "ganZhi": {
+          "year": "丁卯",
+          "month": "戊申",
+          "day": "戊午",
+          "hour": "庚申"
+        },
+        "stems": {
+          "year": "丁",
+          "month": "戊",
+          "day": "戊",
+          "hour": "庚"
+        },
+        "branches": {
+          "year": "卯",
+          "month": "申",
+          "day": "午",
+          "hour": "申"
+        },
+        "dayMaster": {
+          "stem": "戊",
+          "element": "土",
+          "yinYang": "陽"
+        },
+        "tenGods": {
+          "year_stem": "正印",
+          "month_stem": "比肩",
+          "hour_stem": "食神"
+        },
+        "hiddenStems": {
+          "year": ["乙"],
+          "month": ["庚", "壬", "戊"],
+          "day": ["丁", "己"],
+          "hour": ["庚", "壬", "戊"]
+        },
+        "hiddenStemTenGods": {
+          "year": [
+            {"stem": "乙", "tenGod": "正官"}
+          ],
+          "month": [
+            {"stem": "庚", "tenGod": "食神"},
+            {"stem": "壬", "tenGod": "偏財"},
+            {"stem": "戊", "tenGod": "比肩"}
+          ],
+          "day": [
+            {"stem": "丁", "tenGod": "正印"},
+            {"stem": "己", "tenGod": "劫財"}
+          ],
+          "hour": [
+            {"stem": "庚", "tenGod": "食神"},
+            {"stem": "壬", "tenGod": "偏財"},
+            {"stem": "戊", "tenGod": "比肩"}
+          ]
+        },
+        "naYin": {
+          "year": "爐中火",
+          "month": "大驛土",
+          "day": "天上火",
+          "hour": "石榴木"
+        },
+        "pattern": {
+          "value": "食神格",
+          "sources": {
+            "joey_yap": "食神格 (100%)",
+            "our_engine": "食神格"
+          },
+          "confidence": "high"
+        },
+        "dayMasterStrength": {
+          "v1_classification": "strong",
+          "v1_score": 57,
+          "v2_classification": "neutral",
+          "v2_score": 40.6,
+          "v2_factors": {
+            "deling": 25,
+            "dedi": 6.0,
+            "deshi": 9.6
+          },
+          "sources_consensus": "neutral/moderate — not extremely strong or weak"
+        },
+        "favorableGods": {
+          "favorableGod": "金",
+          "usefulGod": "水",
+          "idleGod": "木",
+          "tabooGod": "土",
+          "enemyGod": "火"
+        },
+        "kongWang": {
+          "day": ["子", "丑"],
+          "year": ["戌", "亥"]
+        },
+        "fiveElements": {
+          "weighted": {"木": 5.6, "火": 13.4, "土": 30.3, "金": 44.4, "水": 6.3},
+          "raw": {"木": 12.5, "火": 21.2, "土": 33.8, "金": 27.5, "水": 5.0}
+        },
+        "shenSha": {
+          "year": ["將星", "桃花", "太極貴人", "月德合"],
+          "month": ["文昌", "驛馬", "福星貴人", "金輿", "天德合", "德秀貴人", "天廚貴人", "劫煞"],
+          "day": ["天喜", "將星", "羊刃", "天德合", "德秀貴人", "天廚貴人", "勾絞煞"],
+          "hour": ["文昌", "驛馬", "福星貴人", "金輿", "天廚貴人", "劫煞"]
+        },
+        "shenSha_verified": {
+          "桃花": "卯",
+          "驛馬": "申",
+          "天乙貴人": ["未", "丑"],
+          "sources": "Joey Yap confirmed all three"
+        },
+        "branchRelationships": {
+          "six_clashes": [],
+          "punishments": ["申申自刑"],
+          "stem_combinations": [],
+          "stem_clashes": [],
+          "notes": "卯午破 (year-day break) detected by some schools"
+        },
+        "luck_periods": {
+          "values": ["丁未", "丙午", "乙巳", "甲辰", "癸卯", "壬寅", "辛丑", "庚子"],
+          "sources": "Joey Yap confirmed match"
+        },
+        "lifeStages": {
+          "year": "沐浴",
+          "month": "病",
+          "day": "帝旺",
+          "hour": "病"
+        },
+        "lunarDate": {
+          "year": 1987,
+          "month": 7,
+          "day": 14,
+          "isLeapMonth": false
+        }
+      }
+    },
+    {
+      "id": "test_1990",
+      "label": "Subject C — Standard Test (1990-05-15)",
+      "birthDatetime": "1990-05-15T14:30:00",
+      "gender": "male",
+      "birthCity": "台北市",
+      "sources": ["Our engine", "test_four_pillars.py reference"],
+      "expected": {
+        "ganZhi": {
+          "year": "庚午",
+          "month": "辛巳",
+          "day": "庚辰",
+          "hour": "癸未"
+        },
+        "stems": {
+          "year": "庚",
+          "month": "辛",
+          "day": "庚",
+          "hour": "癸"
+        },
+        "branches": {
+          "year": "午",
+          "month": "巳",
+          "day": "辰",
+          "hour": "未"
+        },
+        "dayMaster": {
+          "stem": "庚",
+          "element": "金",
+          "yinYang": "陽"
+        },
+        "tenGods": {
+          "year_stem": "比肩",
+          "month_stem": "劫財",
+          "hour_stem": "傷官"
+        },
+        "hiddenStems": {
+          "year": ["丁", "己"],
+          "month": ["丙", "庚", "戊"],
+          "day": ["戊", "乙", "癸"],
+          "hour": ["己", "丁", "乙"]
+        },
+        "hiddenStemTenGods": {
+          "year": [
+            {"stem": "丁", "tenGod": "正官"},
+            {"stem": "己", "tenGod": "正印"}
+          ],
+          "month": [
+            {"stem": "丙", "tenGod": "偏官"},
+            {"stem": "庚", "tenGod": "比肩"},
+            {"stem": "戊", "tenGod": "偏印"}
+          ],
+          "day": [
+            {"stem": "戊", "tenGod": "偏印"},
+            {"stem": "乙", "tenGod": "正財"},
+            {"stem": "癸", "tenGod": "傷官"}
+          ],
+          "hour": [
+            {"stem": "己", "tenGod": "正印"},
+            {"stem": "丁", "tenGod": "正官"},
+            {"stem": "乙", "tenGod": "正財"}
+          ]
+        },
+        "naYin": {
+          "year": "路旁土",
+          "month": "白蠟金",
+          "day": "白蠟金",
+          "hour": "楊柳木"
+        },
+        "pattern": {
+          "value": "偏官格",
+          "sources": {
+            "our_engine": "偏官格"
+          },
+          "confidence": "medium"
+        },
+        "dayMasterStrength": {
+          "v1_classification": "neutral",
+          "v1_score": 45,
+          "v2_classification": "very_weak",
+          "v2_score": 14.0,
+          "v2_factors": {
+            "deling": 0,
+            "dedi": 2.1,
+            "deshi": 11.9
+          },
+          "notes": "V1 and V2 disagree — V2 considers 巳月 as dead season for 庚金"
+        },
+        "favorableGods": {
+          "favorableGod": "土",
+          "usefulGod": "金",
+          "idleGod": "水",
+          "tabooGod": "火",
+          "enemyGod": "木"
+        },
+        "kongWang": {
+          "day": ["申", "酉"],
+          "month": ["申", "酉"]
+        },
+        "fiveElements": {
+          "weighted": {"木": 5.1, "火": 34.1, "土": 30.1, "金": 20.2, "水": 10.6},
+          "raw": {"木": 5.0, "火": 18.7, "土": 21.3, "金": 40.0, "水": 15.0}
+        }
+      }
+    }
+  ],
+
+  "historical_charts": [
+    {
+      "id": "mao_zedong",
+      "label": "毛澤東 (Mao Zedong)",
+      "birthDatetime": "1893-12-26T07:30:00",
+      "birthHour_note": "辰時 (7-9AM), exact minute unknown",
+      "gender": "male",
+      "sources": ["《千里命稿》韋千里", "Getit01", "Douban", "cafengshuinet.com", "test_real_world_validation.py"],
+      "expected": {
+        "ganZhi": {
+          "year": "癸巳",
+          "month": "甲子",
+          "day": "丁酉",
+          "hour": "甲辰"
+        },
+        "dayMaster": {
+          "stem": "丁",
+          "element": "火",
+          "yinYang": "陰"
+        },
+        "tenGods": {
+          "year_stem": "偏官",
+          "month_stem": "正印",
+          "hour_stem": "正印"
+        },
+        "hiddenStems": {
+          "year": ["丙", "庚", "戊"],
+          "month": ["癸"],
+          "day": ["辛"],
+          "hour": ["戊", "乙", "癸"]
+        },
+        "pattern": {
+          "value": "七殺格",
+          "alt": "殺印相生",
+          "sources_consensus": "七殺格 — overwhelming professional consensus",
+          "confidence": "high"
+        },
+        "dayMasterStrength": {
+          "consensus": "extremely_weak",
+          "notes": "丁火 born in 子月 (water season), water overwhelmingly strong",
+          "our_v2_expected_range": {"min": 0, "max": 25}
+        },
+        "favorableGods": {
+          "consensus_useful": "木",
+          "consensus_favorable": "火",
+          "notes": "Wood (印) feeds weak Fire DM; Fire self-strengthens"
+        },
+        "fiveElements_expectations": {
+          "water_min_pct": 15,
+          "fire_less_than_water": true
+        },
+        "branchRelationships": {
+          "key_harmonies": ["辰酉合金", "巳酉半合金", "子辰半合水"],
+          "notes": "Three metal/water harmonies compound the DM weakness"
+        },
+        "luck_periods": ["癸亥", "壬戌", "辛酉", "庚申", "己未", "戊午", "丁巳", "丙辰"],
+        "luck_period_ages": [8, 18, 28, 38, 48, 58, 68, 78]
+      }
+    },
+    {
+      "id": "chiang_kai_shek",
+      "label": "蔣介石 (Chiang Kai-shek)",
+      "birthDatetime": "1887-10-31T12:00:00",
+      "birthHour_note": "午時 (11AM-1PM), exact minute unknown",
+      "gender": "male",
+      "sources": ["Guoyi360", "Douban", "《千里命稿》韋千里", "test_real_world_validation.py"],
+      "expected": {
+        "ganZhi": {
+          "year": "丁亥",
+          "month": "庚戌",
+          "day": "己巳",
+          "hour": "庚午"
+        },
+        "dayMaster": {
+          "stem": "己",
+          "element": "土",
+          "yinYang": "陰"
+        },
+        "tenGods": {
+          "year_stem": "偏印",
+          "month_stem": "傷官",
+          "hour_stem": "傷官"
+        },
+        "pattern": {
+          "value": "傷官佩印格",
+          "alt": "金神入火鄉",
+          "sources_consensus": "傷官佩印格 — 《千里命稿》 analysis",
+          "confidence": "high"
+        },
+        "dayMasterStrength": {
+          "consensus": "moderately_strong",
+          "notes": "己土 with fire+earth support, NOT following pattern. Engine V2: 70.3 (very_strong)",
+          "our_v2_expected_range": {"min": 35, "max": 75}
+        },
+        "favorableGods": {
+          "consensus_useful": "水",
+          "notes": "亥水 潤土養金 — water moistens and balances"
+        },
+        "fiveElements_expectations": {
+          "earth_plus_fire_min_pct": 35
+        },
+        "branchRelationships": {
+          "key_clashes": ["巳亥沖"],
+          "key_harmonies": ["午戌半合火", "巳午連珠"],
+          "notes": "Two 傷官(庚金) in month and hour stems"
+        },
+        "luck_periods": ["己酉", "戊申", "丁未", "丙午", "乙巳", "甲辰", "癸卯", "壬寅", "辛丑"]
+      }
+    },
+    {
+      "id": "deng_xiaoping",
+      "label": "鄧小平 (Deng Xiaoping)",
+      "birthDatetime": "1904-08-22T00:00:00",
+      "birthHour_note": "子時 (midnight), exact time debated",
+      "gender": "male",
+      "sources": ["大紀元 Epochtimes", "test_real_world_validation.py"],
+      "expected": {
+        "ganZhi": {
+          "year": "甲辰",
+          "month": "壬申",
+          "day": "戊子",
+          "hour": "壬子"
+        },
+        "dayMaster": {
+          "stem": "戊",
+          "element": "土",
+          "yinYang": "陽"
+        },
+        "tenGods": {
+          "year_stem": "偏官",
+          "month_stem": "偏財",
+          "hour_stem": "偏財"
+        },
+        "pattern": {
+          "value": "從財格",
+          "alt": "龍歸大海",
+          "sources_consensus": "從財格 most commonly cited; 申子辰三合水局 is defining feature",
+          "confidence": "medium",
+          "notes": "Birth month debated — our test uses 壬申; Epochtimes cites 癸酉. The 壬申 version gives 申子辰三合水局"
+        },
+        "dayMasterStrength": {
+          "consensus": "extremely_weak",
+          "notes": "戊土 with water overwhelmingly dominant, fire nearly absent",
+          "our_v2_expected_range": {"min": 0, "max": 20}
+        },
+        "fiveElements_expectations": {
+          "water_min_pct": 35,
+          "fire_max_pct": 5
+        },
+        "branchRelationships": {
+          "key_harmonies": ["申子辰三合水局"],
+          "notes": "Complete Water Trinity — the hallmark of this chart"
+        }
+      }
+    },
+    {
+      "id": "zhou_enlai",
+      "label": "周恩來 (Zhou Enlai)",
+      "birthDatetime": "1898-03-05T12:00:00",
+      "birthHour_note": "午時 (11AM-1PM) commonly cited",
+      "gender": "male",
+      "sources": ["Nongli.com", "Multiple Bazi master analyses", "test_real_world_validation.py"],
+      "notes": "Published sources cite 甲寅 month (assuming Mar 5 is before 驚蟄); our engine calculates 乙卯 (solar term boundary for 1898). The published pillar version is used in test_real_world_validation.py with manual pillar construction.",
+      "expected": {
+        "ganZhi": {
+          "year": "戊戌",
+          "month": "乙卯",
+          "day": "丁卯",
+          "hour": "丙午"
+        },
+        "dayMaster": {
+          "stem": "丁",
+          "element": "火",
+          "yinYang": "陰"
+        },
+        "tenGods": {
+          "year_stem": "傷官",
+          "month_stem": "偏印",
+          "hour_stem": "劫財"
+        },
+        "tenGods_note": "month_stem is 偏印(乙) per engine calc; published sources say 正印(甲) with 甲寅 month",
+        "pattern": {
+          "value": "從強格",
+          "alt": "傷官傷盡格",
+          "sources_consensus": "從強格 — wood+fire overwhelmingly dominant",
+          "confidence": "high"
+        },
+        "dayMasterStrength": {
+          "consensus": "extremely_strong",
+          "notes": "丁火 with wood+fire dominance. Engine V2: 59.2 (strong). Note: engine month=乙卯 differs from published 甲寅, affecting strength calc",
+          "our_v2_expected_range": {"min": 50, "max": 100}
+        },
+        "fiveElements_expectations": {
+          "wood_plus_fire_min_pct": 55,
+          "metal_plus_water_max_pct": 15
+        },
+        "branchRelationships": {
+          "key_harmonies": ["寅午戌三合火局", "卯戌合火"],
+          "notes": "Complete Fire Trinity + Six Harmony into Fire — extremely powerful fire configuration"
+        }
+      }
+    }
+  ],
+
+  "celebrity_couples": [
+    {
+      "id": "jay_hannah",
+      "label": "周杰倫 + 昆凌 (Happy Marriage)",
+      "status": "happy",
+      "person_a": {
+        "name": "周杰倫 (Jay Chou)",
+        "birthDate": "1979-01-18",
+        "gender": "male",
+        "ganZhi": {"year": "戊午", "month": "乙丑", "day": "乙酉"},
+        "dayMaster": "乙"
+      },
+      "person_b": {
+        "name": "昆凌 (Hannah Quinlivan)",
+        "birthDate": "1993-08-12",
+        "gender": "female",
+        "ganZhi": {"year": "癸酉", "month": "庚申", "day": "乙丑"},
+        "dayMaster": "乙"
+      },
+      "key_interactions": [
+        "Same Day Master (乙木) = 比和",
+        "Year Stem: 戊癸合 (Heaven stem five combination)",
+        "Identical 用神 system → strong 用神互補"
+      ],
+      "expected_score": "HIGHEST among all couples"
+    },
+    {
+      "id": "bigs_wang",
+      "label": "大S + 汪小菲 (Divorced)",
+      "status": "divorced",
+      "person_a": {
+        "name": "大S (徐熙媛)",
+        "birthDate": "1976-10-06",
+        "gender": "female",
+        "ganZhi": {"year": "丙辰", "month": "丁酉", "day": "辛卯"},
+        "dayMaster": "辛"
+      },
+      "person_b": {
+        "name": "汪小菲 (Wang Xiaofei)",
+        "birthDate": "1981-06-27",
+        "gender": "male",
+        "ganZhi": {"year": "辛酉", "month": "甲午", "day": "丙子"},
+        "dayMaster": "丙"
+      },
+      "key_interactions": [
+        "Year Pillar 天合地合: 丙辛合 + 辰酉合",
+        "Day Stems: 辛+丙 = 丙辛合 (威制之合)",
+        "BOTH have unstable marriage palaces (day branch clashed by month branch)",
+        "Big S: 卯酉沖 (severity 80), Wang: 子午沖 (severity 90)",
+        "Both have 陰陽差錯日"
+      ],
+      "expected_score": "< 45 (very low)",
+      "knockouts": ["both_unstable_marriage_palaces", "both_yinyang_cuocuo"]
+    },
+    {
+      "id": "tse_cheung",
+      "label": "謝霆鋒 + 張柏芝 (Divorced)",
+      "status": "divorced",
+      "person_a": {
+        "name": "謝霆鋒 (Nicholas Tse)",
+        "birthDate": "1980-08-29",
+        "gender": "male",
+        "ganZhi": {"year": "庚申", "month": "甲申", "day": "甲戌"},
+        "dayMaster": "甲"
+      },
+      "person_b": {
+        "name": "張柏芝 (Cecilia Cheung)",
+        "birthDate": "1980-05-24",
+        "gender": "female",
+        "ganZhi": {"year": "庚申", "month": "辛巳", "day": "丁酉"},
+        "dayMaster": "丁"
+      },
+      "key_interactions": [
+        "Same Year Pillar: 庚申",
+        "Day Branches: 戌 vs 酉 = 六害",
+        "用神互補 conflict (yongshen_conflict knockout)"
+      ],
+      "expected_score": "<= 55"
+    },
+    {
+      "id": "wong_tse",
+      "label": "王菲 + 謝霆鋒 (Separated)",
+      "status": "divorced",
+      "person_a": {
+        "name": "王菲 (Faye Wong)",
+        "birthDate": "1969-08-08",
+        "gender": "female",
+        "ganZhi": {"year": "己酉", "month": "壬申", "day": "乙卯"},
+        "dayMaster": "乙"
+      },
+      "person_b": {
+        "name": "謝霆鋒 (Nicholas Tse)",
+        "birthDate": "1980-08-29",
+        "gender": "male",
+        "ganZhi": {"year": "庚申", "month": "甲申", "day": "甲戌"},
+        "dayMaster": "甲"
+      },
+      "key_interactions": [
+        "Day Branch: 卯(Wong) + 戌(Tse) = 六合",
+        "11-year age gap",
+        "Same Wood element DMs"
+      ],
+      "expected_score": "moderate (卯戌六合 helps spouse palace)"
+    },
+    {
+      "id": "huang_ab",
+      "label": "黃曉明 + Angelababy (Divorced)",
+      "status": "divorced",
+      "person_a": {
+        "name": "黃曉明 (Huang Xiaoming)",
+        "birthDate": "1977-11-13",
+        "gender": "male",
+        "ganZhi": {"year": "丁巳", "month": "辛亥", "day": "甲戌"},
+        "dayMaster": "甲"
+      },
+      "person_b": {
+        "name": "Angelababy (楊穎)",
+        "birthDate": "1989-02-28",
+        "gender": "female",
+        "ganZhi": {"year": "己巳", "month": "丙寅", "day": "己未"},
+        "dayMaster": "己"
+      },
+      "key_interactions": [
+        "Day Stems: 甲+己 = 甲己合 (中正之合, highest quality)",
+        "BUT 用神互補 severely conflicting (rawYongshenScore < -50)",
+        "Huang: 丁巳(year) vs 辛亥(month) = 天克地冲 (inherent marriage instability)",
+        "Knockout: tiangan_wuhe_adverse (合而不利)"
+      ],
+      "expected_score": "<= 55"
+    }
+  ],
+
+  "boundary_test_charts": [
+    {
+      "id": "pre_lichun_1990",
+      "label": "1990-01-15 14:00 (Before 立春 — year boundary test)",
+      "birthDatetime": "1990-01-15T14:00:00",
+      "gender": "male",
+      "note": "1990 立春 is Feb 4; this date is BEFORE 立春, so year should be 己巳 not 庚午",
+      "sources": ["Engine calculation confirmed", "Web search confirmed year+month"],
+      "expected": {
+        "ganZhi": {
+          "year": "己巳",
+          "month": "丁丑",
+          "day": "庚辰",
+          "hour": "癸未"
+        },
+        "notes": "Year 己巳 (pre-lichun), month 丁丑 (confirmed)"
+      }
+    },
+    {
+      "id": "lichun_before_2026",
+      "label": "2026-02-03 (Just before 立春 2026)",
+      "birthDatetime": "2026-02-03T12:00:00",
+      "gender": "male",
+      "expected": {
+        "ganZhi_year": "乙巳"
+      }
+    },
+    {
+      "id": "lichun_after_2026",
+      "label": "2026-02-05 (Just after 立春 2026)",
+      "birthDatetime": "2026-02-05T12:00:00",
+      "gender": "male",
+      "expected": {
+        "ganZhi_year": "丙午"
+      }
+    }
+  ]
+}
