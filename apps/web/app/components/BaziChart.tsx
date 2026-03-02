@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import styles from "./BaziChart.module.css";
 import { ELEMENT_COLORS } from "@repo/shared";
 
@@ -84,6 +85,7 @@ interface BaziChartProps {
   name?: string;
   birthDate?: string;
   birthTime?: string;
+  visibleSections?: number; // 0-6. undefined = all visible (backwards compatible)
 }
 
 // ============================================================
@@ -102,11 +104,24 @@ const STRENGTH_LABELS: Record<string, string> = {
   very_strong: "極強",
 };
 
+// Contextual loading messages for staged reveal (index = visibleSections value)
+const REVEAL_MESSAGES: Record<number, string> = {
+  1: "正在排列四柱...",
+  2: "正在分析五行能量...",
+  3: "正在解讀日主強弱...",
+  4: "正在推算大運走勢...",
+  5: "正在排列神煞...",
+};
+
+// SVG ring constants for Five Elements animation
+const RING_RADIUS = 28;
+const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+
 // ============================================================
 // Component
 // ============================================================
 
-export default function BaziChart({ data, name, birthDate, birthTime }: BaziChartProps) {
+export default function BaziChart({ data, name, birthDate, birthTime, visibleSections }: BaziChartProps) {
   const { fourPillars: fp, dayMaster: dm, lunarDate, trueSolarTime } = data;
   const pillars = [
     { key: "hour", label: "時柱", data: fp.hour },
@@ -115,245 +130,279 @@ export default function BaziChart({ data, name, birthDate, birthTime }: BaziChar
     { key: "year", label: "年柱", data: fp.year },
   ];
 
+  // Staged reveal: whether a section at the given index should be visible
+  const isVisible = (index: number) =>
+    visibleSections === undefined || visibleSections > index;
+  const isRevealing = visibleSections !== undefined;
+
+  // Five Elements SVG ring animation trigger
+  const [animateElements, setAnimateElements] = useState(false);
+  useEffect(() => {
+    if (animateElements) return; // Already triggered — don't re-arm
+    if (visibleSections === undefined || visibleSections > 2) {
+      const t = setTimeout(() => setAnimateElements(true), 100);
+      return () => clearTimeout(t);
+    }
+  }, [visibleSections, animateElements]);
+
+  // Helper: wrap content in reveal animation div when staged reveal is active
+  const revealWrap = (content: React.ReactNode) =>
+    isRevealing ? <div className={styles.revealSection}>{content}</div> : content;
+
   return (
     <div className={styles.chartContainer}>
-      {/* Profile Header */}
-      <div className={styles.profileHeader}>
-        {name && <div className={styles.profileName}>{name} 的八字命盤</div>}
-        <div className={styles.profileDates}>
-          {birthDate && <>公曆：{birthDate} {birthTime}<br /></>}
-          農曆：{lunarDate.year}年{lunarDate.isLeapMonth ? "閏" : ""}
-          {lunarDate.month}月{lunarDate.day}日
-        </div>
-        {trueSolarTime && (
-          <div className={styles.solarTimeNote}>
-            真太陽時：{trueSolarTime.true_solar_time}
-            {trueSolarTime.total_adjustment !== undefined &&
-              `（校正 ${trueSolarTime.total_adjustment > 0 ? "+" : ""}${Math.round(trueSolarTime.total_adjustment)}分鐘）`}
+      {/* Section 0: Profile Header */}
+      {isVisible(0) && revealWrap(
+        <div className={styles.profileHeader}>
+          {name && <div className={styles.profileName}>{name} 的八字命盤</div>}
+          <div className={styles.profileDates}>
+            {birthDate && <>公曆：{birthDate} {birthTime}<br /></>}
+            農曆：{lunarDate.year}年{lunarDate.isLeapMonth ? "閏" : ""}
+            {lunarDate.month}月{lunarDate.day}日
           </div>
-        )}
-      </div>
+          {trueSolarTime && (
+            <div className={styles.solarTimeNote}>
+              真太陽時：{trueSolarTime.true_solar_time}
+              {trueSolarTime.total_adjustment !== undefined &&
+                `（校正 ${trueSolarTime.total_adjustment > 0 ? "+" : ""}${Math.round(trueSolarTime.total_adjustment)}分鐘）`}
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Four Pillars Table */}
-      <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>四柱排盤</h3>
-        <table className={styles.pillarsTable}>
-          <thead>
-            <tr>
-              <th></th>
-              {pillars.map((p) => (
-                <th key={p.key}>{p.label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {/* Ten Gods row */}
-            <tr>
-              <td className={styles.pillarLabel}>主星</td>
-              {pillars.map((p) => (
-                <td key={p.key} className={styles.tenGodCell}>
-                  {p.data.tenGod || "—"}
-                </td>
-              ))}
-            </tr>
-            {/* Heavenly Stems */}
-            <tr>
-              <td className={styles.pillarLabel}>天干</td>
-              {pillars.map((p) => (
-                <td
-                  key={p.key}
-                  className={styles.stemCell}
-                  style={{ color: getElementColor(p.data.stemElement) }}
-                >
-                  {p.data.stem}
-                </td>
-              ))}
-            </tr>
-            {/* Earthly Branches */}
-            <tr>
-              <td className={styles.pillarLabel}>地支</td>
-              {pillars.map((p) => (
-                <td
-                  key={p.key}
-                  className={styles.branchCell}
-                  style={{ color: getElementColor(p.data.branchElement) }}
-                >
-                  {p.data.branch}
-                </td>
-              ))}
-            </tr>
-            {/* Hidden Stems */}
-            <tr>
-              <td className={styles.pillarLabel}>藏干</td>
-              {pillars.map((p) => (
-                <td key={p.key} className={styles.hiddenStemsCell}>
-                  {p.data.hiddenStems.map((hs, i) => (
-                    <span
-                      key={i}
-                      className={styles.hiddenStem}
-                      style={{
-                        color: getElementColor(
-                          getHiddenStemElement(hs),
-                        ),
-                        opacity: i === 0 ? 1 : 0.7,
-                      }}
-                    >
-                      {hs}
-                    </span>
-                  ))}
-                </td>
-              ))}
-            </tr>
-            {/* Na Yin */}
-            <tr>
-              <td className={styles.pillarLabel}>納音</td>
-              {pillars.map((p) => (
-                <td key={p.key} className={styles.nayinCell}>
-                  {p.data.naYin}
-                </td>
-              ))}
-            </tr>
-            {/* Life Stage */}
-            {fp.year.lifeStage && (
+      {/* Section 1: Four Pillars Table */}
+      {isVisible(1) && revealWrap(
+        <div className={styles.section}>
+          <h3 className={styles.sectionTitle}>四柱排盤</h3>
+          <table className={styles.pillarsTable}>
+            <thead>
               <tr>
-                <td className={styles.pillarLabel}>長生</td>
+                <th></th>
                 {pillars.map((p) => (
-                  <td key={p.key} className={styles.lifeStageCell}>
-                    {p.data.lifeStage || "—"}
+                  <th key={p.key}>{p.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {/* Ten Gods row */}
+              <tr>
+                <td className={styles.pillarLabel}>主星</td>
+                {pillars.map((p) => (
+                  <td key={p.key} className={styles.tenGodCell}>
+                    {p.data.tenGod || "—"}
                   </td>
                 ))}
               </tr>
-            )}
-            {/* Shen Sha per pillar */}
-            <tr>
-              <td className={styles.pillarLabel}>神煞</td>
-              {pillars.map((p) => (
-                <td key={p.key} className={styles.shenShaCell}>
-                  {p.data.shenSha.length > 0
-                    ? p.data.shenSha.join("、")
-                    : "—"}
-                </td>
-              ))}
-            </tr>
-            {/* Day Master badge */}
-            <tr>
-              <td></td>
-              {pillars.map((p) => (
-                <td key={p.key}>
-                  {p.key === "day" && (
-                    <span className={styles.dayMasterBadge}>日主</span>
-                  )}
-                </td>
-              ))}
-            </tr>
-          </tbody>
-        </table>
-      </div>
+              {/* Heavenly Stems */}
+              <tr>
+                <td className={styles.pillarLabel}>天干</td>
+                {pillars.map((p) => (
+                  <td
+                    key={p.key}
+                    className={styles.stemCell}
+                    style={{ color: getElementColor(p.data.stemElement) }}
+                  >
+                    {p.data.stem}
+                  </td>
+                ))}
+              </tr>
+              {/* Earthly Branches */}
+              <tr>
+                <td className={styles.pillarLabel}>地支</td>
+                {pillars.map((p) => (
+                  <td
+                    key={p.key}
+                    className={styles.branchCell}
+                    style={{ color: getElementColor(p.data.branchElement) }}
+                  >
+                    {p.data.branch}
+                  </td>
+                ))}
+              </tr>
+              {/* Hidden Stems */}
+              <tr>
+                <td className={styles.pillarLabel}>藏干</td>
+                {pillars.map((p) => (
+                  <td key={p.key} className={styles.hiddenStemsCell}>
+                    {p.data.hiddenStems.map((hs, i) => (
+                      <span
+                        key={i}
+                        className={styles.hiddenStem}
+                        style={{
+                          color: getElementColor(
+                            getHiddenStemElement(hs),
+                          ),
+                          opacity: i === 0 ? 1 : 0.7,
+                        }}
+                      >
+                        {hs}
+                      </span>
+                    ))}
+                  </td>
+                ))}
+              </tr>
+              {/* Na Yin */}
+              <tr>
+                <td className={styles.pillarLabel}>納音</td>
+                {pillars.map((p) => (
+                  <td key={p.key} className={styles.nayinCell}>
+                    {p.data.naYin}
+                  </td>
+                ))}
+              </tr>
+              {/* Life Stage */}
+              {fp.year.lifeStage && (
+                <tr>
+                  <td className={styles.pillarLabel}>長生</td>
+                  {pillars.map((p) => (
+                    <td key={p.key} className={styles.lifeStageCell}>
+                      {p.data.lifeStage || "—"}
+                    </td>
+                  ))}
+                </tr>
+              )}
+              {/* Shen Sha per pillar */}
+              <tr>
+                <td className={styles.pillarLabel}>神煞</td>
+                {pillars.map((p) => (
+                  <td key={p.key} className={styles.shenShaCell}>
+                    {p.data.shenSha.length > 0
+                      ? p.data.shenSha.join("、")
+                      : "—"}
+                  </td>
+                ))}
+              </tr>
+              {/* Day Master badge */}
+              <tr>
+                <td></td>
+                {pillars.map((p) => (
+                  <td key={p.key}>
+                    {p.key === "day" && (
+                      <span className={styles.dayMasterBadge}>日主</span>
+                    )}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
 
-      {/* Five Elements Balance */}
-      <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>五行能量</h3>
-        <div className={styles.elementsGrid}>
-          {(["木", "火", "土", "金", "水"] as const).map((element) => {
-            const pct = data.fiveElementsBalanceZh[element] || 0;
-            const color = getElementColor(element);
-            return (
-              <div key={element} className={styles.elementBar}>
+      {/* Section 2: Five Elements Balance (SVG Ring Animation) */}
+      {isVisible(2) && revealWrap(
+        <div className={styles.section}>
+          <h3 className={styles.sectionTitle}>五行能量</h3>
+          <div className={styles.elementsGrid}>
+            {(["木", "火", "土", "金", "水"] as const).map((element) => {
+              const pct = data.fiveElementsBalanceZh[element] || 0;
+              const color = getElementColor(element);
+              return (
+                <div key={element} className={styles.elementBar}>
+                  <div className={styles.elementRingWrap}>
+                    <svg viewBox="0 0 70 70" className={styles.elementRingSvg}>
+                      {/* Background ring */}
+                      <circle cx="35" cy="35" r={RING_RADIUS} fill="none"
+                        stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
+                      {/* Animated progress ring */}
+                      <circle cx="35" cy="35" r={RING_RADIUS} fill="none"
+                        stroke={color} strokeWidth="4" strokeLinecap="round"
+                        strokeDasharray={CIRCUMFERENCE}
+                        strokeDashoffset={animateElements ? CIRCUMFERENCE * (1 - pct / 100) : CIRCUMFERENCE}
+                        transform="rotate(-90 35 35)"
+                        className={styles.elementProgressRing} />
+                    </svg>
+                    {/* CJK character overlaid — NOT SVG <text> for font consistency on iOS Safari */}
+                    <span className={styles.elementRingChar} style={{ color }}>{element}</span>
+                  </div>
+                  <div className={styles.elementPercent}>
+                    {pct.toFixed(1)}%
+                  </div>
+                  <div className={styles.elementName}>
+                    {ELEMENT_ENGLISH_MAP[element]}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Section 3: Day Master Analysis */}
+      {isVisible(3) && revealWrap(
+        <div className={styles.section}>
+          <h3 className={styles.sectionTitle}>日主分析</h3>
+          <div className={styles.dayMasterCard}>
+            <div className={styles.dmItem}>
+              <span className={styles.dmLabel}>日主</span>
+              <span
+                className={styles.dmValue}
+                style={{ color: getElementColor(dm.element) }}
+              >
+                {data.dayMasterStem}（{dm.element}{dm.yinYang}）
+              </span>
+            </div>
+            <div className={styles.dmItem}>
+              <span className={styles.dmLabel}>旺衰</span>
+              <span className={styles.dmValue}>
+                {STRENGTH_LABELS[dm.strength] || dm.strength}
+                （{dm.strengthScore}分）
+              </span>
+            </div>
+            <div className={styles.dmItem}>
+              <span className={styles.dmLabel}>格局</span>
+              <span className={styles.dmValue}>{dm.pattern}</span>
+            </div>
+            <div className={styles.dmItem}>
+              <span className={styles.dmLabel}>陰陽</span>
+              <span className={styles.dmValue}>{dm.yinYang}</span>
+            </div>
+
+            {/* Strength Bar */}
+            <div className={styles.strengthBar}>
+              <div className={styles.strengthBarInner}>
                 <div
-                  className={styles.elementCircle}
-                  style={{
-                    background: `conic-gradient(${color} ${pct * 3.6}deg, rgba(255,255,255,0.08) 0deg)`,
-                    border: `2px solid ${color}`,
-                  }}
+                  className={styles.strengthSame}
+                  style={{ width: `${dm.sameParty}%` }}
                 >
-                  <span style={{ fontSize: "1.2rem" }}>{element}</span>
+                  {dm.sameParty}%
                 </div>
-                <div className={styles.elementPercent}>
-                  {pct.toFixed(1)}%
-                </div>
-                <div className={styles.elementName}>
-                  {ELEMENT_ENGLISH_MAP[element]}
+                <div
+                  className={styles.strengthOpposite}
+                  style={{ width: `${dm.oppositeParty}%` }}
+                >
+                  {dm.oppositeParty}%
                 </div>
               </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Day Master Analysis */}
-      <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>日主分析</h3>
-        <div className={styles.dayMasterCard}>
-          <div className={styles.dmItem}>
-            <span className={styles.dmLabel}>日主</span>
-            <span
-              className={styles.dmValue}
-              style={{ color: getElementColor(dm.element) }}
-            >
-              {data.dayMasterStem}（{dm.element}{dm.yinYang}）
-            </span>
-          </div>
-          <div className={styles.dmItem}>
-            <span className={styles.dmLabel}>旺衰</span>
-            <span className={styles.dmValue}>
-              {STRENGTH_LABELS[dm.strength] || dm.strength}
-              （{dm.strengthScore}分）
-            </span>
-          </div>
-          <div className={styles.dmItem}>
-            <span className={styles.dmLabel}>格局</span>
-            <span className={styles.dmValue}>{dm.pattern}</span>
-          </div>
-          <div className={styles.dmItem}>
-            <span className={styles.dmLabel}>陰陽</span>
-            <span className={styles.dmValue}>{dm.yinYang}</span>
-          </div>
-
-          {/* Strength Bar */}
-          <div className={styles.strengthBar}>
-            <div className={styles.strengthBarInner}>
-              <div
-                className={styles.strengthSame}
-                style={{ width: `${dm.sameParty}%` }}
-              >
-                {dm.sameParty}%
-              </div>
-              <div
-                className={styles.strengthOpposite}
-                style={{ width: `${dm.oppositeParty}%` }}
-              >
-                {dm.oppositeParty}%
+              <div className={styles.strengthLabels}>
+                <span>同黨（比劫印）</span>
+                <span>異黨（食傷財官）</span>
               </div>
             </div>
-            <div className={styles.strengthLabels}>
-              <span>同黨（比劫印）</span>
-              <span>異黨（食傷財官）</span>
+
+            {/* Gods */}
+            <div className={styles.godsRow}>
+              <span className={styles.godTagFavorable}>
+                喜神：{dm.favorableGod}
+              </span>
+              <span className={styles.godTagUseful}>
+                用神：{dm.usefulGod}
+              </span>
+              <span className={styles.godTagIdle}>
+                閒神：{dm.idleGod}
+              </span>
+              <span className={styles.godTagTaboo}>
+                忌神：{dm.tabooGod}
+              </span>
+              <span className={styles.godTagEnemy}>
+                仇神：{dm.enemyGod}
+              </span>
             </div>
           </div>
-
-          {/* Gods */}
-          <div className={styles.godsRow}>
-            <span className={styles.godTagFavorable}>
-              喜神：{dm.favorableGod}
-            </span>
-            <span className={styles.godTagUseful}>
-              用神：{dm.usefulGod}
-            </span>
-            <span className={styles.godTagIdle}>
-              閒神：{dm.idleGod}
-            </span>
-            <span className={styles.godTagTaboo}>
-              忌神：{dm.tabooGod}
-            </span>
-            <span className={styles.godTagEnemy}>
-              仇神：{dm.enemyGod}
-            </span>
-          </div>
         </div>
-      </div>
+      )}
 
-      {/* Luck Periods */}
-      {data.luckPeriods.length > 0 && (
+      {/* Section 4: Luck Periods */}
+      {isVisible(4) && data.luckPeriods.length > 0 && revealWrap(
         <div className={styles.section}>
           <h3 className={styles.sectionTitle}>大運</h3>
           <div className={styles.timelineScroll}>
@@ -396,37 +445,47 @@ export default function BaziChart({ data, name, birthDate, birthTime }: BaziChar
         </div>
       )}
 
-      {/* Shen Sha & Kong Wang */}
-      <div className={styles.section}>
-        <h3 className={styles.sectionTitle}>神煞</h3>
-        {data.allShenSha.length > 0 ? (
-          <div className={styles.shenShaList}>
-            {data.allShenSha.map((sha, i) => (
-              <span key={i} className={styles.shenShaTag}>
-                {sha.name}（{sha.pillar}·{sha.branch}）
-              </span>
-            ))}
-          </div>
-        ) : (
-          <p style={{ color: "#a0a0a0", fontSize: "0.9rem" }}>
-            此命盤無特殊神煞
-          </p>
-        )}
-
-        {data.kongWang && data.kongWang.length > 0 && (
-          <div style={{ marginTop: "1rem" }}>
-            <span className={styles.kongWangText}>
-              空亡：
-              {data.kongWang.map((kw, i) => (
-                <span key={i} className={styles.kongWangBranch}>
-                  {kw}
-                  {i < data.kongWang.length - 1 ? "、" : ""}
+      {/* Section 5: Shen Sha & Kong Wang */}
+      {isVisible(5) && revealWrap(
+        <div className={styles.section}>
+          <h3 className={styles.sectionTitle}>神煞</h3>
+          {data.allShenSha.length > 0 ? (
+            <div className={styles.shenShaList}>
+              {data.allShenSha.map((sha, i) => (
+                <span key={i} className={styles.shenShaTag}>
+                  {sha.name}（{sha.pillar}·{sha.branch}）
                 </span>
               ))}
-            </span>
-          </div>
-        )}
-      </div>
+            </div>
+          ) : (
+            <p style={{ color: "#a0a0a0", fontSize: "0.9rem" }}>
+              此命盤無特殊神煞
+            </p>
+          )}
+
+          {data.kongWang && data.kongWang.length > 0 && (
+            <div style={{ marginTop: "1rem" }}>
+              <span className={styles.kongWangText}>
+                空亡：
+                {data.kongWang.map((kw, i) => (
+                  <span key={i} className={styles.kongWangBranch}>
+                    {kw}
+                    {i < data.kongWang.length - 1 ? "、" : ""}
+                  </span>
+                ))}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Loading placeholder for next section during staged reveal */}
+      {isRevealing && visibleSections! < 6 && (
+        <div className={styles.revealPlaceholder} data-reveal-placeholder>
+          <span className={styles.revealSpinner} />
+          <span className={styles.revealMessage}>{REVEAL_MESSAGES[visibleSections!]}</span>
+        </div>
+      )}
     </div>
   );
 }

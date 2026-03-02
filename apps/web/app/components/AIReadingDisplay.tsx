@@ -21,6 +21,7 @@ interface AIReadingDisplayProps {
   isSubscriber: boolean;
   isLoading?: boolean;
   isStreaming?: boolean;
+  summaryPosition?: 'top' | 'bottom'; // default 'top'
 }
 
 // ============================================================
@@ -257,6 +258,7 @@ export default function AIReadingDisplay({
   isSubscriber,
   isLoading = false,
   isStreaming = false,
+  summaryPosition = 'top',
 }: AIReadingDisplayProps) {
   // During streaming with V2 data: show arrived sections + skeletons for remaining
   const isStreamingWithData = isStreaming && data?.isV2 && data.deterministic != null;
@@ -266,10 +268,12 @@ export default function AIReadingDisplay({
   }
 
   if (!data || (!data.sections?.length && !isStreamingWithData)) {
+    // If still loading, show skeleton instead of "no data" message
+    if (isLoading) return <LoadingSkeleton />;
     return (
       <div className={styles.readingContainer}>
         <div className={styles.summaryCard}>
-          <p style={{ color: "#a0a0a0" }}>暫無 AI 解讀資料</p>
+          <p style={{ color: "#a0a0a0" }}>暫無解讀資料</p>
         </div>
       </div>
     );
@@ -285,8 +289,8 @@ export default function AIReadingDisplay({
 
   return (
     <div className={styles.readingContainer}>
-      {/* Summary */}
-      {data.summary && (
+      {/* Summary (top position — default for non-lifetime readings) */}
+      {summaryPosition !== 'bottom' && data.summary && (
         <div className={styles.summaryCard}>
           <h3 className={styles.summaryTitle}>命理總覽</h3>
           <div className={styles.summaryText}>{data.summary.text}</div>
@@ -319,9 +323,6 @@ export default function AIReadingDisplay({
               {isSubscriber ? (
                 <div className={styles.sectionContent}>
                   {section.full}
-                  {isStreaming && index === data.sections.length - 1 && (
-                    <span className={styles.streamingCursor} />
-                  )}
                 </div>
               ) : (
                 <div className={styles.paywallWrapper}>
@@ -362,37 +363,43 @@ export default function AIReadingDisplay({
         );
       })}
 
-      {/* Streaming: skeleton placeholders for sections not yet arrived */}
+      {/* Streaming: skeleton placeholder for the NEXT expected section only */}
       {isStreamingWithData && (() => {
         const arrivedKeys = new Set(data.sections.map(s => s.key));
         const remainingKeys = V2_ALL_SECTION_KEYS.filter(k => !arrivedKeys.has(k));
-        return remainingKeys.length > 0 ? (
+        const nextKey = remainingKeys[0];
+        if (!nextKey) return null;
+        const themeInfo = SECTION_THEMES[nextKey] || { icon: '📜', theme: 'default' };
+        const titleZh = SECTION_TITLES_ZH[nextKey] || nextKey;
+        return (
           <>
             <div className={styles.streamingIndicator}>
               <span className={styles.streamingDot} />
-              AI 生成中...
+              正在分析{titleZh}...
             </div>
-            {remainingKeys.map(key => {
-              const themeInfo = SECTION_THEMES[key] || { icon: '📜', theme: 'default' };
-              const titleZh = SECTION_TITLES_ZH[key] || key;
-              return (
-                <div key={`skeleton-${key}`} className={styles.readingSection} data-theme={themeInfo.theme}>
-                  <div className={styles.sectionHeader}>
-                    <span className={styles.sectionIcon}>{themeInfo.icon}</span>
-                    <h3 className={styles.sectionTitle}>{titleZh}</h3>
-                  </div>
-                  <div className={styles.skeletonContent}>
-                    <div className={styles.skeletonLine} style={{ width: '90%' }} />
-                    <div className={styles.skeletonLine} style={{ width: '75%' }} />
-                    <div className={styles.skeletonLine} style={{ width: '85%' }} />
-                    <div className={styles.skeletonLine} style={{ width: '60%' }} />
-                  </div>
-                </div>
-              );
-            })}
+            <div key={`skeleton-${nextKey}`} className={styles.readingSection} data-theme={themeInfo.theme}>
+              <div className={styles.sectionHeader}>
+                <span className={styles.sectionIcon}>{themeInfo.icon}</span>
+                <h3 className={styles.sectionTitle}>{titleZh}</h3>
+              </div>
+              <div className={styles.skeletonContent}>
+                <div className={styles.skeletonLine} style={{ width: '90%' }} />
+                <div className={styles.skeletonLine} style={{ width: '75%' }} />
+                <div className={styles.skeletonLine} style={{ width: '85%' }} />
+                <div className={styles.skeletonLine} style={{ width: '60%' }} />
+              </div>
+            </div>
           </>
-        ) : null;
+        );
       })()}
+
+      {/* Summary (bottom position — lifetime readings, acts as conclusion) */}
+      {summaryPosition === 'bottom' && data.summary && (
+        <div className={`${styles.summaryCard} ${styles.summaryFadeIn}`}>
+          <h3 className={styles.summaryTitle}>命理總覽</h3>
+          <div className={styles.summaryText}>{data.summary.text}</div>
+        </div>
+      )}
 
       {/* Entertainment Disclaimer */}
       <div className={styles.disclaimer}>
