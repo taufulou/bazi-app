@@ -245,7 +245,7 @@ const V2_DETERMINISTIC_INSERTIONS: Record<string, string> = {
 };
 
 /** V2 section keys in expected order (for skeleton placeholders during streaming) */
-const V2_ALL_SECTION_KEYS = [
+export const V2_ALL_SECTION_KEYS = [
   'chart_identity', 'finance_pattern', 'career_pattern', 'boss_strategy',
   'love_pattern', 'health', 'children_analysis', 'parents_analysis',
   'current_period', 'next_period', 'best_period',
@@ -267,9 +267,11 @@ export default function AIReadingDisplay({
     return <LoadingSkeleton />;
   }
 
+  // Note: When isStreamingWithData is true, data is guaranteed non-null
+  // (isStreamingWithData = isStreaming && data?.isV2 && data.deterministic != null)
+  // and the !isStreamingWithData clause makes this condition false,
+  // so we never show "no data" during V2 streaming.
   if (!data || (!data.sections?.length && !isStreamingWithData)) {
-    // If still loading, show skeleton instead of "no data" message
-    if (isLoading) return <LoadingSkeleton />;
     return (
       <div className={styles.readingContainer}>
         <div className={styles.summaryCard}>
@@ -323,6 +325,9 @@ export default function AIReadingDisplay({
               {isSubscriber ? (
                 <div className={styles.sectionContent}>
                   {section.full}
+                  {/* Streaming cursor was removed — lifetime readings use
+                      the next-section skeleton indicator instead. If non-lifetime
+                      readings adopt V2 SSE streaming, re-add a cursor here. */}
                 </div>
               ) : (
                 <div className={styles.paywallWrapper}>

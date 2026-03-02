@@ -10,7 +10,7 @@ import BirthDataForm, {
 } from "../../components/BirthDataForm";
 import BaziChart from "../../components/BaziChart";
 import ZwdsChart from "../../components/ZwdsChart";
-import AIReadingDisplay from "../../components/AIReadingDisplay";
+import AIReadingDisplay, { V2_ALL_SECTION_KEYS } from "../../components/AIReadingDisplay";
 import { getUserProfile } from "../../lib/api";
 import InsufficientCreditsModal from "../../components/InsufficientCreditsModal";
 import {
@@ -114,8 +114,6 @@ export default function ReadingPage() {
 
   // Check for ?id=xxx query param (reading history deep link)
   const readingIdParam = searchParams.get("id");
-  // DEV: ?mock=1 enables mock streaming (skip real AI calls)
-  const isMockMode = searchParams.get("mock") === "1";
 
   useEffect(() => {
     if (isLoaded && step === null) {
@@ -203,83 +201,10 @@ export default function ReadingPage() {
     revealNext();
   }
 
-  // DEV: Mock streaming — simulates SSE delivery of AI sections
-  const mockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  function startMockStreaming() {
-    const MOCK_V2_SECTIONS = [
-      { key: 'chart_identity', title: '先天命格解讀', text: '此命盤日主為庚金，坐下辰土為正印，得月令金氣之助。庚金剛健之質，如秋天之利斧，具有果斷、堅毅的性格特質。命主天生具有領導才能，做事有魄力且正直。' },
-      { key: 'finance_pattern', title: '財運格局解讀', text: '庚金日主以木為財星，命局中甲木偏財透出天干，食神生財格局成立。一生財運中等偏上，35歲後財運明顯提升，適合穩健投資而非投機取巧。' },
-      { key: 'career_pattern', title: '事業格局解讀', text: '正官偏官交替出現於命局，適合在組織中穩步發展。食神生財的格局也利於創業，尤其在金、水相關行業。35-44歲走正財大運，為事業黃金期。' },
-      { key: 'boss_strategy', title: '應對上司之道', text: '命局正官星為丁火，偏官為丙火。建議以柔克剛，用正印化煞的策略來應對工作壓力。在職場中保持謙遜，但不失原則。' },
-      { key: 'love_pattern', title: '感情格局解讀', text: '日柱庚辰，自坐正印，暗示另一半溫和體貼、知書達禮。夫妻宮坐辰土印星，婚姻根基穩固。最佳結婚時機在正財運期間，28-35歲為黃金期。' },
-      { key: 'health', title: '先天健康分析', text: '五行以金、土為主，金主肺與大腸，需注意呼吸系統保養。火旺之年易克金，應特別關注肺部健康。建議多食白色食物以潤肺。' },
-      { key: 'children_analysis', title: '子女分析', text: '時柱食神坐長生，子女聰明伶俐，與子女緣分深厚。子女星得生旺之氣，未來有出息。建議在30-38歲之間考慮生育。' },
-      { key: 'parents_analysis', title: '父母情況分析', text: '年柱印星旺相，父母對命主有很好的庇護。母親尤其疼愛，父親在事業上給予支持。中年後需關注父母健康。' },
-      { key: 'current_period', title: '當前大運詳解', text: '當前大運走正印運，學業或進修運佳，適合充實自我。工作上有貴人扶持，但需防範小人。財運平穩，不宜大手筆投資。' },
-      { key: 'next_period', title: '下一大運詳解', text: '下一大運走偏財運，事業有重大突破的機會。財運明顯提升，投資機會增多。但需注意控制慾望，避免過度擴張。' },
-      { key: 'best_period', title: '有利大運把握', text: '35-44歲正財大運為一生最佳事業期，宜積極拓展事業版圖。45-54歲食神大運為創意高峰期，適合發展副業或轉型。' },
-      { key: 'annual_love', title: '本年感情運勢', text: '今年桃花運中等，已婚者感情穩定。單身者在下半年有望遇到心儀對象，尤其在社交場合。農曆八月、十一月桃花最旺。' },
-      { key: 'annual_career', title: '本年事業運勢', text: '今年事業運穩中有升，上半年適合穩紮穩打，下半年可嘗試新項目。貴人運在農曆三月和九月最旺，注意把握機會。' },
-      { key: 'annual_finance', title: '本年財運運勢', text: '今年正財運佳，工資收入穩定增長。偏財運在下半年較旺，可適度投資。農曆六月需注意意外支出，建議預留應急資金。' },
-      { key: 'annual_health', title: '本年健康運勢', text: '今年整體健康運平穩，但需注意呼吸系統和腸胃。春季易感冒，秋季注意皮膚過敏。建議保持規律運動，每週至少三次。' },
-    ];
-
-    setIsAiLoading(true);
-    // Set initial empty V2 data structure with mock deterministic data
-    setAiData({
-      sections: [],
-      isV2: true,
-      deterministic: {
-        favorableInvestments: ['穩健型基金', '黃金', '科技股'],
-        unfavorableInvestments: ['期貨', '高風險衍生品'],
-        careerDirections: [
-          { anchor: '正官', category: '管理行政', industries: ['企業管理', '公務員', '法律顧問'] },
-          { anchor: '食神', category: '創意文化', industries: ['設計', '寫作', '教育培訓'] },
-        ],
-        favorableDirection: '西北方',
-        careerBenefactorsElement: ['土', '金'],
-        careerBenefactorsZodiac: ['牛', '龍', '雞'],
-        romanceYears: [2027, 2029, 2031],
-        romanceWarningYears: [2028],
-        partnerElement: ['土', '水'],
-        partnerZodiac: ['牛', '鼠', '猴'],
-        parentHealthYears: { father: [2030], mother: [2032] },
-        luckPeriodsEnriched: null,
-        bestPeriod: null,
-      },
-    });
-    setIsPaidReading(true);
-
-    // Deliver sections one by one with 800ms intervals (starts after chart reveal ~7.2s)
-    let sectionIdx = 0;
-    function deliverNext() {
-      if (sectionIdx >= MOCK_V2_SECTIONS.length) {
-        // Deliver summary last
-        mockTimerRef.current = setTimeout(() => {
-          setAiData(prev => ({ ...prev!, summary: { text: '綜合八字命盤分析，命主庚金日主得令有氣，格局清正。一生事業穩健向上，35-44歲為黃金發展期。財運中等偏上，宜穩健投資。感情方面，日柱自坐正印，婚姻根基穩固。健康上需注意肺部保養。整體而言，此命格屬中上等格局，把握有利大運即可事業有成、家庭美滿。' } }));
-          setIsAiLoading(false);
-        }, 600);
-        return;
-      }
-      const s = MOCK_V2_SECTIONS[sectionIdx];
-      mockTimerRef.current = setTimeout(() => {
-        setAiData(prev => ({
-          ...prev!,
-          sections: [...(prev?.sections || []), { key: s.key, title: s.title, preview: s.text, full: s.text }],
-        }));
-        sectionIdx++;
-        deliverNext();
-      }, 800);
-    }
-    // Start delivering after a short delay (simulates NestJS processing)
-    mockTimerRef.current = setTimeout(deliverNext, 1500);
-  }
-
   // Cleanup reveal timer on unmount
   useEffect(() => {
     return () => {
       if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
-      if (mockTimerRef.current) clearTimeout(mockTimerRef.current);
     };
   }, []);
 
@@ -744,15 +669,7 @@ export default function ReadingPage() {
       setLastSaveIntent(saveIntent);
 
       try {
-        // DEV: Mock mode — get real chart data but simulate AI streaming
-        // Read directly from URL to avoid stale useCallback closure
-        const isMock = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('mock') === '1';
-        if (isMock && isLifetime) {
-          await callDirectEngine(data, lunarDate);
-          setIsChartOnly(false); // Override — we'll provide mock AI data
-          startMockStreaming();
-          setIsLoading(false);
-        } else if (isSignedIn && birthProfileId) {
+        if (isSignedIn && birthProfileId) {
           // Route through NestJS: chart shows immediately, AI loads in background
           // callNestJSReading manages its own loading states (isLoading + isAiLoading)
           await callNestJSReading(data, birthProfileId);
@@ -802,9 +719,8 @@ export default function ReadingPage() {
 
   const handleBack = () => {
     if (step === "result") {
-      // Cancel reveal timer + mock timer + SSE stream to prevent stale callbacks
+      // Cancel reveal timer + SSE stream to prevent stale callbacks
       if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
-      if (mockTimerRef.current) clearTimeout(mockTimerRef.current);
       setIsRevealing(false);
       setRevealedSections(0);
       if (streamCleanupRef.current) {
@@ -911,10 +827,10 @@ export default function ReadingPage() {
             </>
           ) : (isAiLoading && (aiData?.sections?.length ?? 0) > 0) ? (
             <>
-              <span className={styles.revealProgressLabel}>📝 命理解讀 {aiData?.sections?.length ?? 0}/15</span>
+              <span className={styles.revealProgressLabel}>📝 命理解讀 {aiData?.sections?.length ?? 0}/{V2_ALL_SECTION_KEYS.length}</span>
               <div className={styles.revealProgressBar}>
                 <div className={styles.revealProgressFill}
-                     style={{ width: `${((aiData?.sections?.length ?? 0) / 15) * 100}%` }} />
+                     style={{ width: `${((aiData?.sections?.length ?? 0) / V2_ALL_SECTION_KEYS.length) * 100}%` }} />
               </div>
             </>
           ) : null}

@@ -86,7 +86,7 @@ describe('AIReadingDisplay', () => {
           isSubscriber={false}
         />,
       );
-      expect(screen.getByText('暫無 AI 解讀資料')).toBeInTheDocument();
+      expect(screen.getByText('暫無解讀資料')).toBeInTheDocument();
     });
 
     it('should show empty message when sections are empty', () => {
@@ -97,7 +97,7 @@ describe('AIReadingDisplay', () => {
           isSubscriber={false}
         />,
       );
-      expect(screen.getByText('暫無 AI 解讀資料')).toBeInTheDocument();
+      expect(screen.getByText('暫無解讀資料')).toBeInTheDocument();
     });
   });
 
@@ -230,38 +230,6 @@ describe('AIReadingDisplay', () => {
       );
       const subtexts = screen.getAllByText('升級會員查看詳細分析與建議');
       expect(subtexts.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe('Streaming Cursor', () => {
-    it('should show streaming cursor on last section when streaming', () => {
-      const { container } = render(
-        <AIReadingDisplay
-          data={SAMPLE_READING_DATA}
-          readingType="lifetime"
-          isSubscriber={true}
-          isStreaming={true}
-        />,
-      );
-      const cursors = container.querySelectorAll(
-        '[class*="streamingCursor"]',
-      );
-      expect(cursors.length).toBe(1);
-    });
-
-    it('should NOT show cursor when not streaming', () => {
-      const { container } = render(
-        <AIReadingDisplay
-          data={SAMPLE_READING_DATA}
-          readingType="lifetime"
-          isSubscriber={true}
-          isStreaming={false}
-        />,
-      );
-      const cursors = container.querySelectorAll(
-        '[class*="streamingCursor"]',
-      );
-      expect(cursors.length).toBe(0);
     });
   });
 
