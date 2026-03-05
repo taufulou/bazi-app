@@ -25,7 +25,6 @@ interface AIReadingDisplayProps {
   isStreaming?: boolean;
   summaryPosition?: 'top' | 'bottom'; // default 'top'
   chartData?: Record<string, unknown> | null; // Bazi calculation data for technical reference card
-  readingStyle?: string; // guide | expert | metaphor | chat
 }
 
 // ============================================================
@@ -523,9 +522,8 @@ export default function AIReadingDisplay({
   isStreaming = false,
   summaryPosition = 'top',
   chartData = null,
-  readingStyle,
 }: AIReadingDisplayProps) {
-  const isGuide = readingStyle === 'guide';
+  const isGuide = readingType === 'lifetime'; // LIFETIME always uses guide style
   // During streaming with V2 data: show arrived sections + skeletons for remaining
   const isStreamingWithData = isStreaming && data?.isV2 && data.deterministic != null;
 

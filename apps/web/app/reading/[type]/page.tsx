@@ -167,7 +167,6 @@ export default function ReadingPage() {
   const [hasFreeReading, setHasFreeReading] = useState(false);
   const [isPaidReading, setIsPaidReading] = useState(false);
   const [isChartOnly, setIsChartOnly] = useState(false);
-  const [readingStyle, setReadingStyle] = useState<string | undefined>(undefined);
 
   // Cache hit notification
   const [cacheToast, setCacheToast] = useState(false);
@@ -303,9 +302,6 @@ export default function ReadingPage() {
         setChartData(reading.calculationData);
       }
 
-      // Recover readingStyle from saved calculationData
-      setReadingStyle((reading.calculationData as Record<string, unknown>)?.readingStyle as string || undefined);
-
       // Transform and set AI data
       const aiReading = transformAIResponse(reading.aiInterpretation);
       setAiData(aiReading);
@@ -390,14 +386,6 @@ export default function ReadingPage() {
     // onDone/onError callbacks own isAiLoading, not the finally block.
     let streamingStarted = false;
 
-    // Read optional style param early (used for both API call and SSE title mapping)
-    const styleParam = searchParams.get("style");
-    const validStyles = ["expert", "metaphor", "chat", "guide"] as const;
-    const currentStyle = validStyles.includes(styleParam as typeof validStyles[number])
-      ? (styleParam as typeof validStyles[number])
-      : undefined;
-    if (!isZwds) setReadingStyle(currentStyle);
-
     // Phase 2: Call NestJS for AI interpretation + credits + DB save (slower)
     try {
       let response: NestJSReadingResponse;
@@ -420,7 +408,6 @@ export default function ReadingPage() {
           readingType: readingType,
           targetYear: readingType === "annual" ? new Date().getFullYear() : undefined,
           stream: readingType === "lifetime", // opt-in SSE streaming for LIFETIME
-          readingStyle: currentStyle,
         });
         setChartData(response.calculationData);
       }
@@ -442,7 +429,7 @@ export default function ReadingPage() {
         // Start SSE stream
         const stream = streamBaziReading(token, response.id, {
           onSectionComplete: (key, section) => {
-            const titleMap = currentStyle === 'guide' ? GUIDE_SECTION_TITLE_MAP : {};
+            const titleMap = GUIDE_SECTION_TITLE_MAP;
             setAiData((prev) => ({
               ...prev!,
               sections: [
@@ -1022,9 +1009,9 @@ export default function ReadingPage() {
             {/* AI Reading — hidden during reveal for lifetime, tab-gated for others */}
             {(isLifetime || tab === "reading") && (
               isLifetime ? (
-                !isRevealing && (aiData || isAiLoading) && <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} summaryPosition="bottom" chartData={chartData} readingStyle={readingStyle} />
+                !isRevealing && (aiData || isAiLoading) && <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} summaryPosition="bottom" chartData={chartData} />
               ) : (
-                <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} chartData={chartData} readingStyle={readingStyle} />
+                <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} chartData={chartData} />
               )
             )}
           </>
