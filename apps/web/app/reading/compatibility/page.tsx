@@ -342,7 +342,7 @@ export default function CompatibilityPage() {
     <div className={styles.pageContainer}>
       {/* Header */}
       <div className={styles.header}>
-        <Link href="/dashboard" className={styles.backLink}>
+        <Link href="/" className={styles.backLink}>
           ← 返回
         </Link>
         <h1 className={styles.headerTitle}>

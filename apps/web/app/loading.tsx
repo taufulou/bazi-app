@@ -1,4 +1,4 @@
-export default function DashboardLoading() {
+export default function HomeLoading() {
   return (
     <div
       style={{

@@ -4,8 +4,8 @@
 
 .page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-  color: #e0e0e0;
+  background: linear-gradient(180deg, #FFF3E0 0%, #FFFBF5 100%);
+  color: var(--text-primary);
   padding: 2rem;
 }
 
@@ -21,20 +21,21 @@
 }
 
 .backLink {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   text-decoration: none;
   font-size: 0.9rem;
   transition: color 0.2s;
 }
 
 .backLink:hover {
-  color: #e8d5b7;
+  color: var(--text-accent);
 }
 
 .headerTitle {
-  color: #e8d5b7;
+  color: var(--text-accent);
   font-size: 1.2rem;
   font-weight: 700;
+  font-family: var(--font-noto-serif-tc), serif;
 }
 
 /* ---- Content ---- */
@@ -55,8 +56,8 @@
 .spinner {
   width: 32px;
   height: 32px;
-  border: 3px solid rgba(232, 213, 183, 0.2);
-  border-top-color: #e8d5b7;
+  border: 3px solid rgba(var(--color-red-rgb), 0.15);
+  border-top-color: var(--color-red);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -66,7 +67,7 @@
 }
 
 .loadingText {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 
@@ -77,10 +78,10 @@
   justify-content: center;
   gap: 1rem;
   padding: 0.85rem 1.5rem;
-  background: rgba(244, 67, 54, 0.12);
-  border: 1px solid rgba(244, 67, 54, 0.3);
+  background: rgba(244, 67, 54, 0.08);
+  border: 1px solid rgba(244, 67, 54, 0.2);
   border-radius: 10px;
-  color: #ef9a9a;
+  color: #c62828;
   font-size: 0.9rem;
   margin-bottom: 1.5rem;
 }
@@ -102,11 +103,12 @@
 
 /* ---- Plan Card ---- */
 .planCard {
-  background: #16213e;
-  border: 1px solid rgba(232, 213, 183, 0.12);
-  border-radius: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
   padding: 2rem;
   margin-bottom: 1.5rem;
+  box-shadow: var(--shadow-warm);
 }
 
 .planHeader {
@@ -126,36 +128,36 @@
 }
 
 .tierBadge_free {
-  background: rgba(160, 160, 160, 0.15);
-  color: #a0a0a0;
-  border: 1px solid rgba(160, 160, 160, 0.2);
+  background: var(--tier-free-bg);
+  color: var(--tier-free-text);
+  border: 1px solid rgba(117, 117, 117, 0.2);
 }
 
 .tierBadge_basic {
-  background: rgba(76, 175, 80, 0.15);
-  color: #81c784;
-  border: 1px solid rgba(76, 175, 80, 0.25);
+  background: var(--tier-basic-bg);
+  color: var(--tier-basic-text);
+  border: 1px solid rgba(25, 118, 210, 0.2);
 }
 
 .tierBadge_pro {
-  background: rgba(212, 175, 55, 0.15);
-  color: #e8d5b7;
-  border: 1px solid rgba(212, 175, 55, 0.3);
+  background: var(--tier-pro-bg);
+  color: var(--tier-pro-text);
+  border: 1px solid rgba(123, 31, 162, 0.2);
 }
 
 .tierBadge_master {
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.2), rgba(184, 150, 46, 0.2));
-  color: #d4af37;
-  border: 1px solid rgba(212, 175, 55, 0.4);
+  background: var(--tier-master-bg);
+  color: var(--tier-master-text);
+  border: 1px solid var(--tier-master-border);
 }
 
 .cancelledBadge {
   font-size: 0.75rem;
   padding: 0.2rem 0.65rem;
   border-radius: 12px;
-  background: rgba(255, 152, 0, 0.12);
-  color: #ffb74d;
-  border: 1px solid rgba(255, 152, 0, 0.25);
+  background: rgba(255, 152, 0, 0.1);
+  color: #e65100;
+  border: 1px solid rgba(255, 152, 0, 0.2);
 }
 
 /* ---- Plan Details ---- */
@@ -170,7 +172,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 0.5rem 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(var(--color-gold-rgb), 0.08);
 }
 
 .detailRow:last-child {
@@ -178,22 +180,22 @@
 }
 
 .detailLabel {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 
 .detailValue {
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   font-weight: 600;
 }
 
 .statusActive {
-  color: #81c784;
+  color: #2e7d32;
 }
 
 .statusCancelled {
-  color: #ffb74d;
+  color: #e65100;
 }
 
 /* ---- Clickable Credit Value ---- */
@@ -207,12 +209,12 @@
 }
 
 .creditValueLink:hover .detailValue {
-  color: #e8d5b7;
+  color: var(--text-accent);
 }
 
 .creditBuyHint {
   font-size: 0.75rem;
-  color: #64b5f6;
+  color: var(--color-info);
 }
 
 /* ---- Buy Credits Link ---- */
@@ -220,20 +222,20 @@
   display: block;
   width: 100%;
   padding: 0.85rem 1.5rem;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   font-size: 0.95rem;
   font-weight: 600;
   text-align: center;
   text-decoration: none;
   background: transparent;
-  color: #64b5f6;
-  border: 1px solid rgba(100, 181, 246, 0.35);
+  color: var(--color-info);
+  border: 1px solid rgba(33, 150, 243, 0.25);
   transition: all 0.2s ease;
 }
 
 .buyCreditsLink:hover {
-  background: rgba(100, 181, 246, 0.08);
-  border-color: rgba(100, 181, 246, 0.55);
+  background: rgba(33, 150, 243, 0.06);
+  border-color: rgba(33, 150, 243, 0.4);
 }
 
 /* ---- Action Buttons ---- */
@@ -249,7 +251,7 @@
   width: 100%;
   padding: 0.85rem 1.5rem;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
@@ -261,34 +263,35 @@
 }
 
 .portalButton {
-  background: rgba(232, 213, 183, 0.1);
-  color: #e8d5b7;
-  border: 1px solid rgba(232, 213, 183, 0.25);
+  background: rgba(var(--color-gold-rgb), 0.08);
+  color: var(--text-primary);
+  border: 1px solid var(--border-medium);
 }
 
 .portalButton:hover:not(:disabled) {
-  background: rgba(232, 213, 183, 0.18);
-  border-color: rgba(232, 213, 183, 0.4);
+  background: rgba(var(--color-gold-rgb), 0.15);
+  border-color: var(--color-gold);
 }
 
 .cancelButton {
   background: transparent;
-  color: #ef9a9a;
+  color: #c62828;
   border: 1px solid rgba(244, 67, 54, 0.2);
 }
 
 .cancelButton:hover:not(:disabled) {
-  background: rgba(244, 67, 54, 0.08);
+  background: rgba(244, 67, 54, 0.06);
   border-color: rgba(244, 67, 54, 0.35);
 }
 
 .reactivateButton {
-  background: linear-gradient(135deg, #d4af37, #b8962e);
-  color: #1a1a2e;
+  background: var(--color-red);
+  color: var(--text-on-red);
 }
 
 .reactivateButton:hover:not(:disabled) {
-  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+  background: var(--color-red-dark);
+  box-shadow: 0 4px 15px rgba(var(--color-red-rgb), 0.25);
 }
 
 .portalButton:disabled,
@@ -314,7 +317,7 @@
   display: block;
   width: 100%;
   padding: 0.85rem 1.5rem;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   font-size: 0.95rem;
   font-weight: 600;
   text-align: center;
@@ -323,23 +326,24 @@
 }
 
 .upgradeLink {
-  background: linear-gradient(135deg, #d4af37, #b8962e);
-  color: #1a1a2e;
+  background: var(--color-red);
+  color: var(--text-on-red);
 }
 
 .upgradeLink:hover {
-  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+  background: var(--color-red-dark);
+  box-shadow: 0 4px 15px rgba(var(--color-red-rgb), 0.25);
 }
 
 .changePlanLink {
   background: transparent;
-  color: #a0a0a0;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
 }
 
 .changePlanLink:hover {
-  color: #e8d5b7;
-  border-color: rgba(232, 213, 183, 0.2);
+  color: var(--text-accent);
+  border-color: var(--border-medium);
 }
 
 /* ---- Confirmation Dialog ---- */
@@ -349,7 +353,7 @@
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.4);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -358,24 +362,24 @@
 }
 
 .confirmDialog {
-  background: #16213e;
-  border: 1px solid rgba(232, 213, 183, 0.15);
-  border-radius: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
   padding: 2rem;
   max-width: 420px;
   width: 100%;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
 }
 
 .confirmTitle {
-  color: #e8d5b7;
+  color: var(--text-primary);
   font-size: 1.1rem;
   font-weight: 700;
   margin: 0 0 0.75rem;
 }
 
 .confirmText {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   line-height: 1.6;
   margin: 0 0 1.5rem;
@@ -403,23 +407,23 @@
 }
 
 .confirmCancel {
-  background: rgba(255, 255, 255, 0.06);
-  color: #e0e0e0;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(var(--color-gold-rgb), 0.08);
+  color: var(--text-primary);
+  border: 1px solid var(--border-light);
 }
 
 .confirmCancel:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(var(--color-gold-rgb), 0.15);
 }
 
 .confirmProceed {
-  background: rgba(244, 67, 54, 0.15);
-  color: #ef9a9a;
-  border: 1px solid rgba(244, 67, 54, 0.3);
+  background: rgba(244, 67, 54, 0.08);
+  color: #c62828;
+  border: 1px solid rgba(244, 67, 54, 0.2);
 }
 
 .confirmProceed:hover:not(:disabled) {
-  background: rgba(244, 67, 54, 0.25);
+  background: rgba(244, 67, 54, 0.15);
 }
 
 .confirmProceed:disabled {
@@ -433,10 +437,13 @@
 }
 
 .invoiceSectionTitle {
-  color: #e8d5b7;
-  font-size: 1.1rem;
+  color: var(--text-accent);
+  font-size: 1.15rem;
   font-weight: 700;
   margin: 0 0 1rem;
+  padding-left: 1rem;
+  border-left: 4px solid var(--color-red);
+  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .invoiceLoading {
@@ -447,8 +454,8 @@
 
 .invoiceSkeleton {
   height: 72px;
-  border-radius: 12px;
-  background: linear-gradient(90deg, rgba(232, 213, 183, 0.04) 25%, rgba(232, 213, 183, 0.08) 50%, rgba(232, 213, 183, 0.04) 75%);
+  border-radius: var(--radius-md);
+  background: linear-gradient(90deg, rgba(var(--color-gold-rgb), 0.06) 25%, rgba(var(--color-gold-rgb), 0.12) 50%, rgba(var(--color-gold-rgb), 0.06) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
@@ -459,14 +466,14 @@
 }
 
 .invoiceError {
-  color: #ef9a9a;
+  color: #c62828;
   font-size: 0.9rem;
   text-align: center;
   padding: 1rem 0;
 }
 
 .invoiceEmpty {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   text-align: center;
   padding: 2rem 0;
@@ -479,15 +486,16 @@
 }
 
 .invoiceCard {
-  background: #16213e;
-  border: 1px solid rgba(232, 213, 183, 0.08);
-  border-radius: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
   padding: 1rem 1.25rem;
   transition: border-color 0.2s;
+  box-shadow: var(--shadow-warm);
 }
 
 .invoiceCard:hover {
-  border-color: rgba(232, 213, 183, 0.18);
+  border-color: var(--border-medium);
 }
 
 .invoiceMain {
@@ -505,19 +513,19 @@
 }
 
 .invoiceDate {
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   font-weight: 600;
 }
 
 .invoiceNumber {
-  color: #a0a0a0;
+  color: var(--text-muted);
   font-size: 0.78rem;
   font-family: monospace;
 }
 
 .invoiceDesc {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.82rem;
   white-space: nowrap;
   overflow: hidden;
@@ -534,7 +542,7 @@
 }
 
 .invoiceAmount {
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.95rem;
   font-weight: 700;
 }
@@ -548,32 +556,32 @@
 }
 
 .statusPaid {
-  background: rgba(76, 175, 80, 0.12);
-  color: #81c784;
+  background: rgba(76, 175, 80, 0.1);
+  color: #2e7d32;
   border: 1px solid rgba(76, 175, 80, 0.2);
 }
 
 .statusOpen {
-  background: rgba(255, 152, 0, 0.12);
-  color: #ffb74d;
+  background: rgba(255, 152, 0, 0.1);
+  color: #e65100;
   border: 1px solid rgba(255, 152, 0, 0.2);
 }
 
 .statusVoid {
-  background: rgba(160, 160, 160, 0.12);
-  color: #a0a0a0;
+  background: rgba(160, 160, 160, 0.1);
+  color: #616161;
   border: 1px solid rgba(160, 160, 160, 0.2);
 }
 
 .statusUncollectible {
-  background: rgba(244, 67, 54, 0.12);
-  color: #ef9a9a;
+  background: rgba(244, 67, 54, 0.08);
+  color: #c62828;
   border: 1px solid rgba(244, 67, 54, 0.2);
 }
 
 .statusDraft {
   background: rgba(160, 160, 160, 0.08);
-  color: #808080;
+  color: #757575;
   border: 1px solid rgba(160, 160, 160, 0.15);
 }
 
@@ -582,11 +590,11 @@
   gap: 1rem;
   margin-top: 0.65rem;
   padding-top: 0.5rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
+  border-top: 1px solid rgba(var(--color-gold-rgb), 0.08);
 }
 
 .invoiceLink {
-  color: #e8d5b7;
+  color: var(--text-accent);
   font-size: 0.82rem;
   text-decoration: none;
   opacity: 0.8;

@@ -143,7 +143,7 @@ export default function CreditStorePage() {
 
       {/* Header */}
       <header className={styles.header}>
-        <Link href="/dashboard" className={styles.backLink}>
+        <Link href="/" className={styles.backLink}>
           &larr; 返回儀表板
         </Link>
         <h1 className={styles.pageTitle}>購買點數</h1>

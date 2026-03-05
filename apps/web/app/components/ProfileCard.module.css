@@ -2,11 +2,12 @@
 
 .card {
   position: relative;
-  background: #16213e;
-  border: 1px solid rgba(232, 213, 183, 0.1);
-  border-radius: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
   padding: 1rem;
   transition: all 0.2s ease;
+  box-shadow: var(--shadow-warm);
 }
 
 .cardClickable {
@@ -14,14 +15,14 @@
 }
 
 .cardClickable:hover {
-  border-color: rgba(232, 213, 183, 0.3);
+  border-color: var(--border-medium);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-warm-lg);
 }
 
 .cardSelected {
-  border-color: #e8d5b7;
-  box-shadow: 0 0 0 1px #e8d5b7;
+  border-color: var(--color-red);
+  box-shadow: 0 0 0 1px var(--color-red);
 }
 
 .cardCompact {
@@ -44,12 +45,12 @@
 }
 
 .primaryStar {
-  color: #e8d5b7;
+  color: var(--color-gold);
   font-size: 0.9rem;
 }
 
 .name {
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-weight: 600;
   font-size: 1rem;
 }
@@ -62,7 +63,7 @@
 .actionBtn {
   background: none;
   border: none;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   cursor: pointer;
   padding: 0.2rem 0.35rem;
@@ -71,13 +72,13 @@
 }
 
 .actionBtn:hover {
-  color: #e8d5b7;
-  background: rgba(232, 213, 183, 0.1);
+  color: var(--text-accent);
+  background: rgba(var(--color-red-rgb), 0.06);
 }
 
 .deleteBtn:hover {
-  color: #ef5350;
-  background: rgba(239, 83, 80, 0.1);
+  color: #c62828;
+  background: rgba(244, 67, 54, 0.06);
 }
 
 /* ==== Info ==== */
@@ -87,12 +88,12 @@
 }
 
 .date {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.85rem;
 }
 
 .meta {
-  color: #808080;
+  color: var(--text-muted);
   font-size: 0.8rem;
   margin-bottom: 0.5rem;
 }
@@ -109,29 +110,29 @@
   font-size: 0.7rem;
   padding: 0.15rem 0.5rem;
   border-radius: 10px;
-  border: 1px solid rgba(232, 213, 183, 0.3);
-  color: #e8d5b7;
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
 }
 
 .badgeSELF {
-  border-color: rgba(232, 213, 183, 0.4);
-  color: #e8d5b7;
+  border-color: rgba(var(--color-red-rgb), 0.3);
+  color: var(--text-accent);
 }
 
 .badgeFAMILY {
-  border-color: rgba(33, 150, 243, 0.4);
-  color: #64b5f6;
+  border-color: rgba(33, 150, 243, 0.3);
+  color: #1565c0;
 }
 
 .badgeFRIEND {
-  border-color: rgba(76, 175, 80, 0.4);
-  color: #81c784;
+  border-color: rgba(76, 175, 80, 0.3);
+  color: #2e7d32;
 }
 
 .badgePrimary {
-  border-color: rgba(232, 213, 183, 0.5);
-  background: rgba(232, 213, 183, 0.1);
-  color: #e8d5b7;
+  border-color: var(--border-medium);
+  background: rgba(var(--color-gold-rgb), 0.08);
+  color: var(--text-primary);
 }
 
 /* ==== Inline Delete Confirmation ==== */
@@ -139,8 +140,8 @@
 .confirmOverlay {
   position: absolute;
   inset: 0;
-  background: rgba(22, 33, 62, 0.95);
-  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -150,7 +151,7 @@
 }
 
 .confirmText {
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
 }
 
@@ -160,9 +161,9 @@
 }
 
 .confirmYes {
-  background: rgba(239, 83, 80, 0.15);
-  border: 1px solid #ef5350;
-  color: #ef5350;
+  background: rgba(244, 67, 54, 0.08);
+  border: 1px solid #c62828;
+  color: #c62828;
   padding: 0.35rem 1rem;
   border-radius: 6px;
   cursor: pointer;
@@ -171,13 +172,13 @@
 }
 
 .confirmYes:hover {
-  background: rgba(239, 83, 80, 0.25);
+  background: rgba(244, 67, 54, 0.15);
 }
 
 .confirmNo {
-  background: rgba(160, 160, 160, 0.1);
-  border: 1px solid rgba(160, 160, 160, 0.3);
-  color: #a0a0a0;
+  background: rgba(var(--color-gold-rgb), 0.06);
+  border: 1px solid var(--border-medium);
+  color: var(--text-secondary);
   padding: 0.35rem 1rem;
   border-radius: 6px;
   cursor: pointer;
@@ -186,7 +187,7 @@
 }
 
 .confirmNo:hover {
-  background: rgba(160, 160, 160, 0.2);
+  background: rgba(var(--color-gold-rgb), 0.12);
 }
 
 /* ==== Responsive ==== */

@@ -745,7 +745,7 @@ export default function ReadingPage() {
       setIsAiLoading(false);
       setCacheToast(false);
     } else {
-      router.push("/dashboard");
+      router.push("/");
     }
   };
 
@@ -1055,7 +1055,7 @@ function InvalidTypePage() {
         <div className={styles.invalidIcon}>🔮</div>
         <h2 className={styles.invalidTitle}>找不到此分析類型</h2>
         <p className={styles.invalidText}>請從控制台選擇一個有效的分析類型</p>
-        <Link href="/dashboard" className={styles.dashboardLink}>返回控制台</Link>
+        <Link href="/" className={styles.dashboardLink}>返回控制台</Link>
       </div>
     </div>
   );

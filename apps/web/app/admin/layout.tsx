@@ -20,7 +20,7 @@ export default async function AdminLayout({
 
   const role = (user.publicMetadata as Record<string, unknown>)?.role;
   if (role !== 'admin') {
-    redirect('/dashboard');
+    redirect('/');
   }
 
   const adminName = user.firstName || user.emailAddresses[0]?.emailAddress || 'Admin';

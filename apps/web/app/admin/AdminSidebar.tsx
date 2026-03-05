@@ -55,7 +55,7 @@ export function AdminSidebar({ adminName }: { adminName: string }) {
           <UserButton afterSignOutUrl="/" />
           <span className={styles.adminName}>{adminName}</span>
         </div>
-        <Link href="/dashboard" className={styles.backLink}>
+        <Link href="/" className={styles.backLink}>
           Back to Site
         </Link>
       </div>

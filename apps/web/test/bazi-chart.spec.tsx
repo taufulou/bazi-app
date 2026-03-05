@@ -181,7 +181,7 @@ describe('BaziChart', () => {
   describe('Four Pillars Table', () => {
     it('should display section title', () => {
       render(<BaziChart data={SAMPLE_CHART_DATA} />);
-      expect(screen.getByText('四柱排盤')).toBeInTheDocument();
+      expect(screen.getByText(/八字命格/)).toBeInTheDocument();
     });
 
     it('should display pillar labels', () => {
@@ -222,17 +222,16 @@ describe('BaziChart', () => {
       expect(shangGuanCells.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('should display "—" for day pillar ten god (null)', () => {
+    it('should display 日元 for day pillar ten god', () => {
       render(<BaziChart data={SAMPLE_CHART_DATA} />);
-      // Day pillar tenGod is null, should show —
-      const dashCells = screen.getAllByText('—');
-      expect(dashCells.length).toBeGreaterThanOrEqual(1);
+      // Day pillar shows 日元 instead of tenGod value
+      expect(screen.getByText('日元')).toBeInTheDocument();
     });
 
     it('should display hidden stems', () => {
       render(<BaziChart data={SAMPLE_CHART_DATA} />);
-      // Hidden stems 丁 appears in year and hour hidden stems
-      const dingCells = screen.getAllByText('丁');
+      // Hidden stems now render as stem+element (e.g., 丁火), use regex partial match
+      const dingCells = screen.getAllByText(/丁/);
       expect(dingCells.length).toBeGreaterThanOrEqual(2);
     });
 
@@ -251,18 +250,17 @@ describe('BaziChart', () => {
       expect(huagaiCells.length).toBeGreaterThanOrEqual(1);
     });
 
-    it('should display day master badge', () => {
+    it('should display day master label in analysis section', () => {
       render(<BaziChart data={SAMPLE_CHART_DATA} />);
-      // 日主 appears as badge in table AND as label in day master section
+      // 日主 appears as label in day master analysis section
       const riZhuCells = screen.getAllByText('日主');
-      expect(riZhuCells.length).toBeGreaterThanOrEqual(2);
+      expect(riZhuCells.length).toBeGreaterThanOrEqual(1);
     });
 
     it('should display life stage row when available', () => {
       render(<BaziChart data={SAMPLE_CHART_DATA} />);
-      // 長生 is both the life stage label (row header) and a life stage value
-      const changShengCells = screen.getAllByText('長生');
-      expect(changShengCells.length).toBeGreaterThanOrEqual(1);
+      // Row label is now 十二運; 長生 appears as a data value in the cell
+      expect(screen.getByText('十二運')).toBeInTheDocument();
       expect(screen.getByText('沐浴')).toBeInTheDocument();
     });
   });
@@ -275,11 +273,12 @@ describe('BaziChart', () => {
 
     it('should display all five elements', () => {
       render(<BaziChart data={SAMPLE_CHART_DATA} />);
-      expect(screen.getByText('Wood')).toBeInTheDocument();
-      expect(screen.getByText('Fire')).toBeInTheDocument();
-      expect(screen.getByText('Earth')).toBeInTheDocument();
-      expect(screen.getByText('Metal')).toBeInTheDocument();
-      expect(screen.getByText('Water')).toBeInTheDocument();
+      // Elements shown as CJK characters inside SVG ring overlays
+      expect(screen.getAllByText('木').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('火').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('土').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('金').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getAllByText('水').length).toBeGreaterThanOrEqual(1);
     });
 
     it('should display percentages', () => {

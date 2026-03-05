@@ -7,10 +7,10 @@
 .select {
   flex: 1;
   padding: 0.75rem 0.5rem;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
-  border-radius: 8px;
-  color: #e0e0e0;
+  background: var(--bg-secondary, #FFFBF5);
+  border: 1px solid var(--border-light, rgba(212, 160, 23, 0.15));
+  border-radius: var(--radius-sm, 8px);
+  color: var(--text-primary, #3C2415);
   font-size: 1rem;
   outline: none;
   transition: border-color 0.2s;
@@ -19,16 +19,16 @@
 }
 
 .select:focus {
-  border-color: #e8d5b7;
+  border-color: var(--color-red, #E23D28);
 }
 
 .select option {
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: var(--bg-card, #FFFFFF);
+  color: var(--text-primary, #3C2415);
 }
 
 .separator {
-  color: #a0a0a0;
+  color: var(--text-secondary, #6B5940);
   font-size: 1.2rem;
   font-weight: 600;
   user-select: none;
@@ -39,10 +39,10 @@
   flex-shrink: 0;
   width: auto;
   padding: 0.75rem 0.4rem;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
-  border-radius: 8px;
-  color: #e8d5b7;
+  background: var(--bg-secondary, #FFFBF5);
+  border: 1px solid var(--border-light, rgba(212, 160, 23, 0.15));
+  border-radius: var(--radius-sm, 8px);
+  color: var(--text-accent, #C41E3A);
   font-size: 0.85rem;
   font-weight: 600;
   outline: none;
@@ -52,10 +52,10 @@
 }
 
 .periodSelect:focus {
-  border-color: #e8d5b7;
+  border-color: var(--color-red, #E23D28);
 }
 
 .periodSelect option {
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: var(--bg-card, #FFFFFF);
+  color: var(--text-primary, #3C2415);
 }

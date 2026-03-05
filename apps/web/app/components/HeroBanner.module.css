@@ -1,0 +1,159 @@
+/* HeroBanner — Dashboard carousel/banner */
+/* All slide text uses #FFFFFF — NEVER use --color-gold for text (WCAG violation) */
+
+.banner {
+  position: relative;
+  margin-bottom: 2rem;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-warm-lg);
+  min-height: 180px; /* prevent layout shift during hydration */
+}
+
+.track {
+  display: flex;
+  overflow-x: scroll;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  /* Hide scrollbar */
+  scrollbar-width: none;
+}
+
+.track::-webkit-scrollbar {
+  display: none;
+}
+
+.slide {
+  flex: 0 0 100%; /* not width:100% — avoids scrollbar-gutter subtraction */
+  scroll-snap-align: start;
+  position: relative;
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2.5rem 2rem;
+  overflow: hidden;
+}
+
+.ornament {
+  position: absolute;
+  right: 2rem;
+  bottom: -0.5rem;
+  font-size: 8rem;
+  font-family: var(--font-noto-serif-tc), serif; /* explicit — ensures rendering on Android */
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.12);
+  line-height: 1;
+  pointer-events: none;
+  user-select: none;
+}
+
+.slideContent {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  max-width: 500px;
+}
+
+.slideTitle {
+  color: #FFFFFF;
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-family: var(--font-noto-serif-tc), serif;
+  margin-bottom: 0.5rem;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.slideSubtitle {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 1rem;
+}
+
+.slideCta {
+  display: inline-block;
+  padding: 0.6rem 1.5rem;
+  background: rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(4px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-sm);
+  color: #FFFFFF;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.slideCta:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
+}
+
+/* Dot indicators */
+.dots {
+  position: absolute;
+  bottom: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.5rem;
+  z-index: 2;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 0;
+  transition: all 0.3s;
+}
+
+.dotActive {
+  background: #FFFFFF;
+  width: 20px;
+  border-radius: 4px;
+}
+
+/* Accessibility: suppress ALL motion for reduced-motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .track {
+    scroll-behavior: auto;
+    transition: none;
+  }
+
+  .slide {
+    transition: none;
+    animation: none;
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .slide {
+    min-height: 150px;
+    padding: 2rem 1.5rem;
+  }
+
+  .slideTitle {
+    font-size: 1.3rem;
+  }
+
+  .slideSubtitle {
+    font-size: 0.85rem;
+  }
+
+  .ornament {
+    font-size: 5rem;
+    right: 1rem;
+  }
+
+  .banner {
+    min-height: 150px;
+  }
+}

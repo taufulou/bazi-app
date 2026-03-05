@@ -57,7 +57,7 @@ describe('Payment API Client', () => {
       const result = await createSubscriptionCheckout('token-123', {
         planSlug: 'pro',
         billingCycle: 'annual',
-        successUrl: '/dashboard?subscription=success',
+        successUrl: '/?subscription=success',
         cancelUrl: '/pricing?cancelled=true',
       });
 

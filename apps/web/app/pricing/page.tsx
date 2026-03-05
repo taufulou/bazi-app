@@ -218,7 +218,7 @@ export default function PricingPage() {
         const session = await createSubscriptionCheckout(token, {
           planSlug: planKey,
           billingCycle: isAnnual ? "annual" : "monthly",
-          successUrl: `${origin}/dashboard?subscription=success`,
+          successUrl: `${origin}/?subscription=success`,
           cancelUrl: `${origin}/pricing?cancelled=true`,
         });
 

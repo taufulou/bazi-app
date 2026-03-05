@@ -614,11 +614,11 @@ export default function AIReadingDisplay({
 
               {isSubscriber ? (
                 <div className={styles.sectionContent}>
-                  {postProcessSectionText(section.full || '')}
+                  {renderFormattedContent(section.full || '')}
                 </div>
               ) : (
                 <div className={styles.paywallWrapper}>
-                  <div className={styles.previewContent}>{postProcessSectionText(section.preview || '')}</div>
+                  <div className={styles.previewContent}>{renderFormattedContent(section.preview || '')}</div>
                   {section.full && section.full !== section.preview && (
                     <>
                       <div className={styles.paywallBlur}>
@@ -1162,6 +1162,66 @@ function postProcessSectionText(text: string): string {
     '$1\n',
   );
   return result;
+}
+
+/**
+ * Parse AI-generated text into styled React elements:
+ * - Lines starting with "- " become gold-dot list items
+ * - Emoji sub-headers (🔥 強項 etc.) become styled sub-headers
+ * - Other text becomes paragraphs
+ */
+function renderFormattedContent(text: string): React.ReactNode {
+  const processed = postProcessSectionText(text);
+  const lines = processed.split('\n');
+  const elements: React.ReactNode[] = [];
+  let bulletBuffer: string[] = [];
+  let key = 0;
+
+  const flushBullets = () => {
+    if (bulletBuffer.length === 0) return;
+    elements.push(
+      <ul key={key++} className={styles.goldBulletList}>
+        {bulletBuffer.map((item, i) => (
+          <li key={i} className={styles.goldBulletItem}>{item}</li>
+        ))}
+      </ul>
+    );
+    bulletBuffer = [];
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Bullet line: starts with "- " or "– "
+    if (/^[-–]\s+/.test(trimmed)) {
+      bulletBuffer.push(trimmed.replace(/^[-–]\s+/, ''));
+      continue;
+    }
+
+    // Non-bullet line — flush any pending bullets first
+    flushBullets();
+
+    // Empty line
+    if (trimmed === '') continue;
+
+    // Emoji sub-header (🔥 強項, ⚠️ 注意事項, 💡 實戰建議, etc.)
+    if (/^(?:🔥|⚠️|⚠|💡|📍|◆|🔹|⭐|🌟|💎|🎯|💰|💼|💕|🏥|📊|🔮)/.test(trimmed)) {
+      elements.push(
+        <div key={key++} className={styles.contentSubHeader}>{trimmed}</div>
+      );
+      continue;
+    }
+
+    // Regular text paragraph
+    elements.push(
+      <p key={key++} className={styles.contentParagraph}>{trimmed}</p>
+    );
+  }
+
+  // Flush remaining bullets
+  flushBullets();
+
+  return <>{elements}</>;
 }
 
 function numberToChinese(n: number): string {

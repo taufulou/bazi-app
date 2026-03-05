@@ -67,134 +67,140 @@ export default function ReadingHistoryPage() {
 
   return (
     <div className={styles.page}>
-      {/* Header */}
-      <header className={styles.header}>
-        <Link href="/dashboard" className={styles.backLink}>
-          &larr; 返回控制台
-        </Link>
-        <span className={styles.headerTitle}>歷史分析記錄</span>
-      </header>
-
-      {/* Title */}
-      <div className={styles.titleSection}>
-        <h1 className={styles.pageTitle}>歷史分析記錄</h1>
-        <p className={styles.pageSubtitle}>查看您過去的命理分析結果</p>
-      </div>
-
-      {/* Content */}
-      {isLoading && (
-        <div className={styles.loadingState}>
-          <div className={styles.spinner} />
-          <p className={styles.loadingText}>載入中...</p>
-        </div>
-      )}
-
-      {error && (
-        <div className={styles.errorState}>
-          <p className={styles.errorText}>{error}</p>
-        </div>
-      )}
-
-      {!isLoading && !error && readings.length === 0 && (
-        <div className={styles.emptyState}>
-          <div className={styles.emptyIcon}>📋</div>
-          <h3 className={styles.emptyTitle}>尚無分析記錄</h3>
-          <p className={styles.emptyText}>開始一項命理分析，結果會自動儲存在這裡</p>
-          <Link href="/dashboard" className={styles.startLink}>
-            開始分析 &rarr;
+      <div className={styles.inner}>
+        {/* Header */}
+        <header className={styles.header}>
+          <Link href="/" className={styles.backLink}>
+            &larr; 返回控制台
           </Link>
-        </div>
-      )}
+          <h1 className={styles.headerTitle}>歷史分析記錄</h1>
+        </header>
 
-      {!isLoading && !error && readings.length > 0 && (
-        <div className={styles.grid}>
-          {readings.map((reading) => {
-            // Comparison items use a different link + card layout
-            if (reading.isComparison) {
-              const ctMeta = COMPARISON_TYPE_LABELS[reading.comparisonType || ""] || {
-                icon: "🤝",
-                label: "合盤比較",
-              };
-              return (
-                <Link
-                  key={reading.id}
-                  href={`/reading/compatibility?id=${reading.id}`}
-                  className={styles.cardLink}
-                >
-                  <div className={styles.cardComparison}>
-                    <div className={styles.cardHeader}>
-                      <span className={styles.cardIcon}>{ctMeta.icon}</span>
-                      <span className={styles.cardType}>{ctMeta.label}</span>
-                    </div>
-                    <div className={styles.cardBody}>
-                      <div className={styles.cardName}>
-                        {reading.birthProfile?.name || "未命名"}
-                        <span className={styles.vsLabel}> vs </span>
-                        {reading.profileB?.name || "未命名"}
+        {/* Loading */}
+        {isLoading && (
+          <div className={styles.loadingState}>
+            <div className={styles.spinner} />
+            <p className={styles.loadingText}>載入中...</p>
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div className={styles.errorState}>
+            <p className={styles.errorText}>{error}</p>
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!isLoading && !error && readings.length === 0 && (
+          <div className={styles.emptyState}>
+            <div className={styles.emptyIcon}>📋</div>
+            <h3 className={styles.emptyTitle}>尚無分析記錄</h3>
+            <p className={styles.emptyText}>開始一項命理分析，結果會自動儲存在這裡</p>
+            <Link href="/" className={styles.startLink}>
+              開始分析 &rarr;
+            </Link>
+          </div>
+        )}
+
+        {/* Reading cards */}
+        {!isLoading && !error && readings.length > 0 && (
+          <>
+            <h2 className={styles.sectionLabel}>分析記錄</h2>
+            <div className={styles.grid}>
+              {readings.map((reading) => {
+                // Comparison cards
+                if (reading.isComparison) {
+                  const ctMeta = COMPARISON_TYPE_LABELS[reading.comparisonType || ""] || {
+                    icon: "🤝",
+                    label: "合盤比較",
+                  };
+                  return (
+                    <Link
+                      key={reading.id}
+                      href={`/reading/compatibility?id=${reading.id}`}
+                      className={styles.cardLink}
+                    >
+                      <div className={styles.cardComparison}>
+                        <span className={styles.cardIcon}>{ctMeta.icon}</span>
+                        <div className={styles.cardBody}>
+                          <div className={styles.cardTitle}>{ctMeta.label}</div>
+                          <div className={styles.cardMeta}>
+                            <span>{reading.birthProfile?.name || "未命名"}</span>
+                            <span className={styles.vsLabel}>vs</span>
+                            <span>{reading.profileB?.name || "未命名"}</span>
+                            <span className={styles.metaDot}>·</span>
+                            <span className={styles.cardDate}>
+                              {formatDate(reading.createdAt)}
+                            </span>
+                            {reading.creditsUsed > 0 ? (
+                              <>
+                                <span className={styles.metaDot}>·</span>
+                                <span className={styles.creditsBadge}>
+                                  -{reading.creditsUsed} 額度
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span className={styles.metaDot}>·</span>
+                                <span className={styles.freeBadge}>免費</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                        <span className={styles.cardArrow}>&rarr;</span>
                       </div>
-                      <div className={styles.cardDate}>
-                        {formatDate(reading.createdAt)}
+                    </Link>
+                  );
+                }
+
+                // Regular reading cards
+                const slug = ENUM_TO_SLUG[reading.readingType] || "lifetime";
+                const meta = READING_TYPE_META[slug as keyof typeof READING_TYPE_META];
+                const isZwds = slug.startsWith("zwds-");
+
+                return (
+                  <Link
+                    key={reading.id}
+                    href={`/reading/${slug}?id=${reading.id}`}
+                    className={styles.cardLink}
+                  >
+                    <div className={isZwds ? styles.cardZwds : styles.card}>
+                      <span className={styles.cardIcon}>{meta?.icon || "🔮"}</span>
+                      <div className={styles.cardBody}>
+                        <div className={styles.cardTitle}>
+                          {meta?.nameZhTw || reading.readingType}
+                        </div>
+                        <div className={styles.cardMeta}>
+                          <span>{reading.birthProfile?.name || "未命名"}</span>
+                          <span className={styles.metaDot}>·</span>
+                          <span className={styles.cardDate}>
+                            {formatDate(reading.createdAt)}
+                          </span>
+                          {reading.creditsUsed > 0 ? (
+                            <>
+                              <span className={styles.metaDot}>·</span>
+                              <span className={styles.creditsBadge}>
+                                -{reading.creditsUsed} 額度
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <span className={styles.metaDot}>·</span>
+                              <span className={styles.freeBadge}>免費</span>
+                            </>
+                          )}
+                        </div>
                       </div>
+                      <span className={styles.cardArrow}>&rarr;</span>
                     </div>
-                    <div className={styles.cardFooter}>
-                      {reading.creditsUsed > 0 && (
-                        <span className={styles.cardCredits}>
-                          -{reading.creditsUsed} 額度
-                        </span>
-                      )}
-                      {reading.creditsUsed === 0 && (
-                        <span className={styles.cardFree}>免費</span>
-                      )}
-                      <span className={styles.cardAction}>查看 &rarr;</span>
-                    </div>
-                  </div>
-                </Link>
-              );
-            }
-
-            // Regular reading cards
-            const slug = ENUM_TO_SLUG[reading.readingType] || "lifetime";
-            const meta = READING_TYPE_META[slug as keyof typeof READING_TYPE_META];
-            const isZwds = slug.startsWith("zwds-");
-
-            return (
-              <Link
-                key={reading.id}
-                href={`/reading/${slug}?id=${reading.id}`}
-                className={styles.cardLink}
-              >
-                <div className={isZwds ? styles.cardZwds : styles.card}>
-                  <div className={styles.cardHeader}>
-                    <span className={styles.cardIcon}>{meta?.icon || "🔮"}</span>
-                    <span className={styles.cardType}>
-                      {meta?.nameZhTw || reading.readingType}
-                    </span>
-                  </div>
-                  <div className={styles.cardBody}>
-                    <div className={styles.cardName}>
-                      {reading.birthProfile?.name || "未命名"}
-                    </div>
-                    <div className={styles.cardDate}>
-                      {formatDate(reading.createdAt)}
-                    </div>
-                  </div>
-                  <div className={styles.cardFooter}>
-                    {reading.creditsUsed > 0 && (
-                      <span className={styles.cardCredits}>
-                        -{reading.creditsUsed} 額度
-                      </span>
-                    )}
-                    {reading.creditsUsed === 0 && (
-                      <span className={styles.cardFree}>免費</span>
-                    )}
-                    <span className={styles.cardAction}>查看 &rarr;</span>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      )}
+                  </Link>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

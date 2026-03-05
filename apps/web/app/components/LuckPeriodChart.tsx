@@ -94,7 +94,7 @@ export default function LuckPeriodChart({
               y1={getY(v)}
               x2={SVG_W - PAD_RIGHT}
               y2={getY(v)}
-              stroke="rgba(232, 213, 183, 0.1)"
+              stroke="rgba(212, 160, 23, 0.15)"
               strokeDasharray="4 4"
             />
             {isSubscriber && (
@@ -102,7 +102,7 @@ export default function LuckPeriodChart({
                 x={PAD_LEFT - 8}
                 y={getY(v) + 4}
                 textAnchor="end"
-                fill="#666"
+                fill="#8B7355"
                 fontSize="11"
               >
                 {v}
@@ -119,7 +119,7 @@ export default function LuckPeriodChart({
               x={PAD_LEFT - 8}
               y={getY(v) + 4}
               textAnchor="end"
-              fill="#555"
+              fill="#8B7355"
               fontSize="11"
             >
               ??
@@ -132,7 +132,7 @@ export default function LuckPeriodChart({
           y1={PAD_TOP}
           x2={PAD_LEFT}
           y2={PAD_TOP + CHART_H}
-          stroke="rgba(232, 213, 183, 0.2)"
+          stroke="rgba(212, 160, 23, 0.2)"
         />
 
         {/* X-axis line */}
@@ -141,14 +141,14 @@ export default function LuckPeriodChart({
           y1={PAD_TOP + CHART_H}
           x2={SVG_W - PAD_RIGHT}
           y2={PAD_TOP + CHART_H}
-          stroke="rgba(232, 213, 183, 0.2)"
+          stroke="rgba(212, 160, 23, 0.2)"
         />
 
         {/* Gradient fill under the line */}
         <defs>
           <linearGradient id="chartGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#e8d5b7" stopOpacity="0.2" />
-            <stop offset="100%" stopColor="#e8d5b7" stopOpacity="0.02" />
+            <stop offset="0%" stopColor="#E23D28" stopOpacity="0.15" />
+            <stop offset="100%" stopColor="#E23D28" stopOpacity="0.02" />
           </linearGradient>
         </defs>
         <polygon
@@ -160,7 +160,7 @@ export default function LuckPeriodChart({
         <polyline
           points={points}
           fill="none"
-          stroke="#e8d5b7"
+          stroke="#E23D28"
           strokeWidth="2.5"
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -225,7 +225,7 @@ export default function LuckPeriodChart({
                 x={getX(i)}
                 y={PAD_TOP + CHART_H + 20}
                 textAnchor="middle"
-                fill="#e8d5b7"
+                fill="#3C2415"
                 fontSize="14"
                 fontWeight="600"
               >
@@ -237,7 +237,7 @@ export default function LuckPeriodChart({
                 x={getX(i)}
                 y={PAD_TOP + CHART_H + 40}
                 textAnchor="middle"
-                fill="#777"
+                fill="#6B5940"
                 fontSize="12"
               >
                 {p.startYear}-{p.endYear}
@@ -248,7 +248,7 @@ export default function LuckPeriodChart({
                 x={getX(i)}
                 y={PAD_TOP + CHART_H + 57}
                 textAnchor="middle"
-                fill="#666"
+                fill="#8B7355"
                 fontSize="12"
               >
                 ({p.startAge}-{p.endAge}歲)
@@ -295,12 +295,12 @@ export default function LuckPeriodChart({
           )}
           {tooltip.period.interactions &&
             tooltip.period.interactions.length > 0 && (
-              <div style={{ marginTop: "0.3rem", borderTop: "1px solid rgba(232,213,183,0.15)", paddingTop: "0.3rem" }}>
+              <div style={{ marginTop: "0.3rem", borderTop: "1px solid rgba(212,160,23,0.15)", paddingTop: "0.3rem" }}>
                 <div className={styles.tooltipLabel} style={{ marginBottom: "0.15rem" }}>
                   命局互動
                 </div>
                 {tooltip.period.interactions.slice(0, 3).map((inter, idx) => (
-                  <div key={idx} style={{ fontSize: "0.72rem", color: "#ccc" }}>
+                  <div key={idx} style={{ fontSize: "0.72rem", color: "#6B5940" }}>
                     {inter}
                   </div>
                 ))}

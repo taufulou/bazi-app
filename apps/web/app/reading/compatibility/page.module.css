@@ -1,10 +1,10 @@
 /* Compatibility Page — self-contained route */
-/* Follows existing reading/[type]/page.module.css patterns */
+/* Warm light theme matching BirthDataForm design */
 
 .pageContainer {
   min-height: 100vh;
-  background-color: #1a1a2e;
-  color: #e0e0e0;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
   padding: 2rem;
 }
 
@@ -21,7 +21,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   cursor: pointer;
   transition: color 0.2s;
@@ -29,11 +29,11 @@
 }
 
 .backLink:hover {
-  color: #e8d5b7;
+  color: var(--text-accent);
 }
 
 .headerTitle {
-  color: #e8d5b7;
+  color: var(--text-accent);
   font-size: 1.3rem;
   font-weight: 700;
   display: flex;
@@ -50,31 +50,32 @@
   max-width: 400px;
   margin: 4rem auto;
   text-align: center;
-  background: #16213e;
-  border: 1px solid rgba(232, 213, 183, 0.15);
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-light);
   border-radius: 16px;
   padding: 3rem 2rem;
+  box-shadow: var(--shadow-warm);
 }
 
 .authTitle {
-  color: #e8d5b7;
+  color: var(--text-primary);
   font-size: 1.5rem;
   font-weight: 700;
   margin-bottom: 0.75rem;
 }
 
 .authSubtitle {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.95rem;
   margin-bottom: 1.5rem;
 }
 
 .signInBtn {
   padding: 0.75rem 2rem;
-  background: linear-gradient(135deg, #e8d5b7 0%, #d4af37 100%);
+  background: var(--color-red);
   border: none;
-  border-radius: 8px;
-  color: #1a1a2e;
+  border-radius: 12px;
+  color: #FFFFFF;
   font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
@@ -84,6 +85,7 @@
 .signInBtn:hover {
   opacity: 0.9;
   transform: translateY(-1px);
+  box-shadow: var(--shadow-warm);
 }
 
 /* ==== Loading ==== */
@@ -95,7 +97,7 @@
 .skeletonTitle {
   width: 60%;
   height: 28px;
-  background: rgba(232, 213, 183, 0.08);
+  background: rgba(212, 160, 23, 0.08);
   border-radius: 6px;
   margin: 0 auto 2rem;
   animation: pulse 1.5s ease-in-out infinite;
@@ -104,7 +106,7 @@
 .skeletonBlock {
   width: 100%;
   height: 120px;
-  background: rgba(232, 213, 183, 0.05);
+  background: rgba(212, 160, 23, 0.05);
   border-radius: 12px;
   margin-bottom: 1rem;
   animation: pulse 1.5s ease-in-out infinite;
@@ -121,14 +123,14 @@
 .spinner {
   width: 40px;
   height: 40px;
-  border: 3px solid rgba(232, 213, 183, 0.2);
-  border-top-color: #e8d5b7;
+  border: 3px solid var(--border-light);
+  border-top-color: var(--color-red);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
 
 .loadingText {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.95rem;
   margin-top: 1rem;
 }
@@ -145,11 +147,12 @@
 .analyzingCard {
   max-width: 400px;
   width: 100%;
-  background: #16213e;
-  border: 1px solid rgba(232, 213, 183, 0.15);
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-light);
   border-radius: 20px;
   padding: 3rem 2rem;
   text-align: center;
+  box-shadow: var(--shadow-warm);
 }
 
 .analyzingIconWrap {
@@ -171,21 +174,21 @@
 .analyzingRing {
   position: absolute;
   inset: 0;
-  border: 3px solid rgba(232, 213, 183, 0.15);
-  border-top-color: #e8d5b7;
+  border: 3px solid var(--border-light);
+  border-top-color: var(--color-red);
   border-radius: 50%;
   animation: spin 1.2s linear infinite;
 }
 
 .analyzingTitle {
-  color: #e8d5b7;
+  color: var(--text-primary);
   font-size: 1.3rem;
   font-weight: 700;
   margin-bottom: 0.5rem;
 }
 
 .analyzingSubtitle {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   margin-bottom: 2rem;
 }
@@ -202,27 +205,27 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  color: #555;
+  color: var(--text-muted, #999);
   font-size: 0.9rem;
   transition: color 0.3s;
 }
 
 .analyzingStepActive {
-  color: #e8d5b7;
+  color: var(--text-accent);
 }
 
 .stepDot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #555;
+  background: var(--text-muted, #999);
   flex-shrink: 0;
   transition: background 0.3s;
 }
 
 .analyzingStepActive .stepDot {
-  background: #e8d5b7;
-  box-shadow: 0 0 6px rgba(232, 213, 183, 0.4);
+  background: var(--color-red);
+  box-shadow: 0 0 6px rgba(196, 30, 58, 0.3);
   animation: pulse 1.5s ease-in-out infinite;
 }
 

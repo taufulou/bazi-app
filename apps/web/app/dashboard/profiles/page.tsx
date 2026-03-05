@@ -145,15 +145,17 @@ export default function ProfileManagerPage() {
   if (!isLoaded || isLoading) {
     return (
       <div className={styles.page}>
-        <header className={styles.header}>
-          <Link href="/dashboard" className={styles.backLink}>
-            &larr; 返回控制台
-          </Link>
-          <span className={styles.headerTitle}>出生資料管理</span>
-        </header>
-        <div className={styles.loadingState}>
-          <div className={styles.spinner} />
-          <p className={styles.loadingText}>載入中...</p>
+        <div className={styles.inner}>
+          <header className={styles.header}>
+            <Link href="/" className={styles.backLink}>
+              &larr; 返回控制台
+            </Link>
+            <h1 className={styles.headerTitle}>出生資料管理</h1>
+          </header>
+          <div className={styles.loadingState}>
+            <div className={styles.spinner} />
+            <p className={styles.loadingText}>載入中...</p>
+          </div>
         </div>
       </div>
     );
@@ -161,116 +163,112 @@ export default function ProfileManagerPage() {
 
   return (
     <div className={styles.page}>
-      {/* Header */}
-      <header className={styles.header}>
-        <Link href="/dashboard" className={styles.backLink}>
-          &larr; 返回控制台
-        </Link>
-        <span className={styles.headerTitle}>出生資料管理</span>
-      </header>
+      <div className={styles.inner}>
+        {/* Header */}
+        <header className={styles.header}>
+          <Link href="/" className={styles.backLink}>
+            &larr; 返回控制台
+          </Link>
+          <h1 className={styles.headerTitle}>出生資料管理</h1>
+        </header>
 
-      {/* Title Section */}
-      <div className={styles.titleSection}>
-        <h1 className={styles.pageTitle}>出生資料管理</h1>
-        <p className={styles.pageSubtitle}>
-          管理您的出生資料，快速開始各項命理分析
-        </p>
-      </div>
+        {/* Notifications */}
+        {error && <div className={styles.notificationError}>{error}</div>}
+        {success && <div className={styles.notificationSuccess}>{success}</div>}
 
-      {/* Notifications */}
-      {error && <div className={styles.notificationError}>{error}</div>}
-      {success && <div className={styles.notificationSuccess}>{success}</div>}
-
-      {/* Inline Create/Edit Form */}
-      {mode === "create" && (
-        <div className={styles.formSection}>
-          <div className={styles.formHeader}>
-            <span className={styles.formTitle}>新增出生資料</span>
-            <button className={styles.cancelBtn} onClick={handleCancel}>
-              取消
-            </button>
-          </div>
-          <BirthDataForm
-            title=""
-            subtitle=""
-            submitLabel="儲存"
-            onSubmit={handleCreate}
-            isLoading={isSaving}
-          />
-        </div>
-      )}
-
-      {mode === "edit" && editingProfile && (
-        <div className={styles.formSection}>
-          <div className={styles.formHeader}>
-            <span className={styles.formTitle}>
-              編輯「{editingProfile.name}」
-            </span>
-            <button className={styles.cancelBtn} onClick={handleCancel}>
-              取消
-            </button>
-          </div>
-          <BirthDataForm
-            key={editingProfile.id}
-            title=""
-            subtitle=""
-            submitLabel="更新"
-            initialValues={profileToFormValues(editingProfile)}
-            onSubmit={handleUpdate}
-            isLoading={isSaving}
-          />
-        </div>
-      )}
-
-      {/* Actions Bar (only in list mode) */}
-      {mode === "list" && profiles.length > 0 && (
-        <div className={styles.actionsBar}>
-          <button
-            className={styles.createBtn}
-            onClick={() => {
-              clearNotifications();
-              setMode("create");
-            }}
-          >
-            + 新增出生資料
-          </button>
-        </div>
-      )}
-
-      {/* Profile Grid */}
-      {profiles.length > 0 ? (
-        <div className={styles.profileGrid}>
-          {profiles.map((profile) => (
-            <ProfileCard
-              key={profile.id}
-              profile={profile}
-              onEdit={() => handleEdit(profile)}
-              onDelete={() => handleDelete(profile)}
-              onSetPrimary={() => handleSetPrimary(profile)}
+        {/* Inline Create Form */}
+        {mode === "create" && (
+          <div className={styles.formSection}>
+            <div className={styles.formHeader}>
+              <span className={styles.formTitle}>新增出生資料</span>
+              <button className={styles.cancelBtn} onClick={handleCancel}>
+                取消
+              </button>
+            </div>
+            <BirthDataForm
+              title=""
+              subtitle=""
+              submitLabel="儲存"
+              onSubmit={handleCreate}
+              isLoading={isSaving}
             />
-          ))}
-        </div>
-      ) : (
-        !isLoading &&
-        mode === "list" && (
-          <div className={styles.emptyState}>
-            <div className={styles.emptyIcon}>📋</div>
-            <h3 className={styles.emptyTitle}>尚未儲存任何出生資料</h3>
-            <p className={styles.emptyText}>
-              新增出生資料後，您可以快速選擇開始各項命理分析
-            </p>
+          </div>
+        )}
+
+        {/* Inline Edit Form */}
+        {mode === "edit" && editingProfile && (
+          <div className={styles.formSection}>
+            <div className={styles.formHeader}>
+              <span className={styles.formTitle}>
+                編輯「{editingProfile.name}」
+              </span>
+              <button className={styles.cancelBtn} onClick={handleCancel}>
+                取消
+              </button>
+            </div>
+            <BirthDataForm
+              key={editingProfile.id}
+              title=""
+              subtitle=""
+              submitLabel="更新"
+              initialValues={profileToFormValues(editingProfile)}
+              onSubmit={handleUpdate}
+              isLoading={isSaving}
+            />
+          </div>
+        )}
+
+        {/* Actions Bar with section label (list mode, has profiles) */}
+        {mode === "list" && profiles.length > 0 && (
+          <div className={styles.actionsBar}>
+            <h2 className={styles.sectionLabel}>已儲存的資料</h2>
             <button
-              className={styles.emptyBtn}
+              className={styles.createBtn}
               onClick={() => {
                 clearNotifications();
                 setMode("create");
               }}
             >
-              + 新增出生資料
+              + 新增
             </button>
           </div>
-        )
-      )}
+        )}
+
+        {/* Profile Grid */}
+        {profiles.length > 0 ? (
+          <div className={styles.profileGrid}>
+            {profiles.map((profile) => (
+              <ProfileCard
+                key={profile.id}
+                profile={profile}
+                onEdit={() => handleEdit(profile)}
+                onDelete={() => handleDelete(profile)}
+                onSetPrimary={() => handleSetPrimary(profile)}
+              />
+            ))}
+          </div>
+        ) : (
+          !isLoading &&
+          mode === "list" && (
+            <div className={styles.emptyState}>
+              <div className={styles.emptyIcon}>📋</div>
+              <h3 className={styles.emptyTitle}>尚未儲存任何出生資料</h3>
+              <p className={styles.emptyText}>
+                新增出生資料後，您可以快速選擇開始各項命理分析
+              </p>
+              <button
+                className={styles.emptyBtn}
+                onClick={() => {
+                  clearNotifications();
+                  setMode("create");
+                }}
+              >
+                + 新增出生資料
+              </button>
+            </div>
+          )
+        )}
+      </div>
     </div>
   );
 }

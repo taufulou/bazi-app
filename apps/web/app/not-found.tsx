@@ -8,24 +8,24 @@ export default function NotFound() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#1a1a2e',
-        color: '#e0e0e0',
+        background: '#FFF3E0',
+        color: '#3C2415',
         padding: 24,
       }}
     >
       <div style={{ textAlign: 'center', maxWidth: 480 }}>
-        <h1 style={{ fontSize: 72, color: '#e8d5b7', marginBottom: 8, fontWeight: 700 }}>404</h1>
-        <p style={{ fontSize: 18, color: '#a0a0a0', marginBottom: 32 }}>
+        <h1 style={{ fontSize: 72, color: '#C41E3A', marginBottom: 8, fontWeight: 700 }}>404</h1>
+        <p style={{ fontSize: 18, color: '#6B5940', marginBottom: 32 }}>
           Page not found
         </p>
         <Link
-          href="/dashboard"
+          href="/"
           style={{
             padding: '12px 24px',
-            background: '#e8d5b7',
-            color: '#1a1a2e',
+            background: '#E23D28',
+            color: '#FFFFFF',
             border: 'none',
-            borderRadius: 8,
+            borderRadius: 12,
             fontSize: 14,
             fontWeight: 600,
             textDecoration: 'none',

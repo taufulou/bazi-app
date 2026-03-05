@@ -35,7 +35,7 @@ function StaticCTA() {
   );
 }
 
-export default function AccountPanel() {
+export default function AccountPanel({ compact = false }: { compact?: boolean }) {
   const { getToken, isSignedIn, isLoaded } = useAuth();
   const [credits, setCredits] = useState<number | null>(null);
   const [tier, setTier] = useState<string>("FREE");
@@ -91,22 +91,24 @@ export default function AccountPanel() {
   const showFreeTrial = !freeReadingUsed;
 
   return (
-    <section className={styles.panel}>
-      {/* Row 1: Tier + Credits */}
-      <div className={styles.topRow}>
-        <span className={`${styles.tierBadge} ${styles[tierStyleKey]}`}>
-          {TIER_LABELS[tier] || "免費方案"}
-        </span>
-        <Link
-          href="/store"
-          className={styles.creditDisplayLink}
-          aria-label={`購買點數（目前餘額：${credits} 點）`}
-        >
-          <span className={styles.creditIcon}>💎</span>
-          <span className={styles.creditCount}>{credits}</span>
-          <span className={styles.creditLabel}>點數</span>
-        </Link>
-      </div>
+    <section className={`${styles.panel} ${compact ? styles.panelCompact : ""}`}>
+      {/* Row 1: Tier + Credits — hidden in compact mode (header CreditBadge shows this) */}
+      {!compact && (
+        <div className={styles.topRow}>
+          <span className={`${styles.tierBadge} ${styles[tierStyleKey]}`}>
+            {TIER_LABELS[tier] || "免費方案"}
+          </span>
+          <Link
+            href="/store"
+            className={styles.creditDisplayLink}
+            aria-label={`購買點數（目前餘額：${credits} 點）`}
+          >
+            <span className={styles.creditIcon}>💎</span>
+            <span className={styles.creditCount}>{credits}</span>
+            <span className={styles.creditLabel}>點數</span>
+          </Link>
+        </div>
+      )}
 
       {/* Row 2: Conditional alerts */}
       {showFreeTrial && (

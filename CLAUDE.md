@@ -16,7 +16,7 @@ AI-powered Bazi (八字) + ZWDS (紫微斗數) fortune-telling SaaS platform. Tw
 
 ## Project Structure
 ```
-apps/web/     — Next.js 16 (ClerkProvider, dark theme, zh-TW)
+apps/web/     — Next.js 16 (ClerkProvider, warm light theme, zh-TW)
 apps/api/     — NestJS 11 (28+ endpoints, Clerk JWT guard, Swagger)
 apps/mobile/  — Expo React Native
 packages/shared/      — TypeScript types + constants
@@ -46,10 +46,69 @@ python -m pytest tests/ -v
 - PostgreSQL user: `bazi_user` / database: `bazi_platform`
 - PostgreSQL@15 (not @16 — @16 has startup errors on this machine)
 
-## Design Theme
-- Background: `#1a1a2e`, Accent: `#e8d5b7`, Card BG: `#16213e`
-- Text: `#e0e0e0` (primary), `#a0a0a0` (secondary)
-- Target: Taiwan, Hong Kong, Malaysia. Primary language: zh-TW
+## Design Theme & Visual Direction
+
+### Design Philosophy
+**Premium, Elegant, Modern with Traditional Chinese Elements** — The platform targets a discerning Chinese-speaking audience (Taiwan, Hong Kong, Malaysia). The design conveys trustworthiness, cultural authenticity, and sophistication. Primary language: zh-TW.
+
+- **Premium**: Clean layouts, generous whitespace, subtle shadows, high-quality typography
+- **Elegant**: Warm color palette (reds, golds, ambers), refined borders, smooth animations
+- **Modern**: Rounded corners (16px cards), CSS Modules, responsive mobile-first design
+- **Traditional touch**: Noto Serif TC for headings/CJK characters, red-gold gradient accents inspired by Chinese fortune-telling aesthetics, decorative diamond (◆) ornaments
+
+### Design Reference
+- **`docs/design-preview.html`** — The canonical design system reference. All new UI components and pages should visually align with this file's patterns, spacing, colors, and component styles. Open it in a browser to see the full design system.
+- **Styling**: CSS Modules only (no Tailwind). All variables defined in `apps/web/app/globals.css`.
+
+### Color System (Warm & Inviting Theme)
+Migrated from dark theme (`#1a1a2e`) to warm light theme. All CSS variables in `apps/web/app/globals.css`.
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `--bg-primary` | `#FFF3E0` | Page background (warm cream) |
+| `--bg-secondary` | `#FFFBF5` | Subtle alternate background |
+| `--bg-card` | `#FFFFFF` | Card/section backgrounds |
+| `--color-red` | `#E23D28` | Primary accent, CTAs, hero gradients |
+| `--color-gold` | `#D4A017` | Decorative accents only (NOT text on light bg — fails WCAG) |
+| `--color-orange` | `#F5A623` | Gradient endpoint, warm accents |
+| `--text-primary` | `#3C2415` | Main body text (dark brown) |
+| `--text-secondary` | `#6B5940` | Secondary/muted text |
+| `--text-accent` | `#C41E3A` | Section titles, emphasis (crimson) |
+| `--text-muted` | `#8B7355` | Tertiary text, captions |
+| `--border-light` | `rgba(212,160,23,0.15)` | Subtle card/table borders |
+| `--shadow-warm` | `0 4px 20px rgba(226,61,40,0.08)` | Card elevation |
+
+### Five Element Colors (Bazi Chart)
+Darker, richer colors optimized for light backgrounds (defined in `BaziChart.tsx` as `CHART_ELEMENT_COLORS`):
+
+| Element | Color | Hex |
+|---------|-------|-----|
+| 木 Wood | Dark green | `#2E7D32` |
+| 火 Fire | Dark red | `#D32F2F` |
+| 土 Earth | Brown | `#8D6E63` |
+| 金 Metal | Dark gold | `#B8860B` |
+| 水 Water | Dark blue | `#1565C0` |
+
+These colors are used consistently across the Bazi table, Five Elements rings, Day Master analysis, and Luck Periods sections.
+
+### Typography
+- **Headings / CJK characters**: `Noto Serif TC` (serif) — conveys traditional authority
+- **Body text**: System font stack (`-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`)
+- **Section titles**: `--text-accent` (#C41E3A) with left red border accent
+
+### Key UI Patterns
+- **Cards**: White bg, 16px border-radius, warm shadow, gold-tinted borders
+- **Gradient headers**: Red→orange linear gradients for hero banners and section headers (e.g., ◆八字命格◆)
+- **Pill tags**: Small rounded tags with subtle background tint + border (e.g., 生肖 zodiac labels, 神煞 tags)
+- **Tables**: Edge-to-edge within cards (no padding gap), warm cream header row (#FFF8F0)
+- **God tags**: Color-coded pills — green (喜神), blue (用神), grey (閒神), red (忌神), purple (仇神)
+- **SVG ring charts**: Animated progress rings for Five Elements with subtle grey background track
+- **Staged reveal**: Sequential section loading animation with contextual Chinese loading messages
+
+### ZWDS Visual Distinction
+ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's red-gold theme:
+- `--color-zwds`: `#8B5CF6` (purple)
+- `--color-zwds-bg`: `rgba(139,92,246,0.08)`
 
 ## Important Notes
 - Docker NOT available — use Homebrew services (PostgreSQL, Redis)
@@ -191,6 +250,7 @@ Clerk cannot be mocked at the API level in Playwright because the SDK validates 
 - `@repo/shared` runtime issue: NestJS files must NOT import from `@repo/shared` at runtime
 
 ## Detailed Documentation (read on demand)
+- `docs/design-preview.html` — **Canonical design system reference** (open in browser). All UI components should match this file's visual patterns, colors, spacing, and component styles
 - `docs/ai-prompt-engineering.md` — Anti-hallucination rules, prompt placeholders, validation, cache clearing
 - `docs/monetization.md` — Competitor pricing, 5 revenue streams, subscription plans, content access matrix
 - `docs/phase-11-bazi-interpretation.md` — Three-layer architecture, engine bugs fixed, pre-analysis rules, domain mapping

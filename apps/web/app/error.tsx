@@ -20,24 +20,24 @@ export default function Error({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: '#1a1a2e',
-        color: '#e0e0e0',
+        background: '#FFF3E0',
+        color: '#3C2415',
         padding: 24,
       }}
     >
       <div style={{ textAlign: 'center', maxWidth: 480 }}>
-        <h1 style={{ fontSize: 48, color: '#e8d5b7', marginBottom: 16 }}>Oops</h1>
-        <p style={{ fontSize: 16, color: '#a0a0a0', marginBottom: 24 }}>
+        <h1 style={{ fontSize: 48, color: '#C41E3A', marginBottom: 16 }}>Oops</h1>
+        <p style={{ fontSize: 16, color: '#6B5940', marginBottom: 24 }}>
           Something went wrong. Please try again.
         </p>
         <button
           onClick={reset}
           style={{
             padding: '12px 24px',
-            background: '#e8d5b7',
-            color: '#1a1a2e',
+            background: '#E23D28',
+            color: '#FFFFFF',
             border: 'none',
-            borderRadius: 8,
+            borderRadius: 12,
             fontSize: 14,
             fontWeight: 600,
             cursor: 'pointer',

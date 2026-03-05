@@ -436,10 +436,10 @@ test.describe('Credit Store - Responsive', () => {
 });
 
 // ============================================================
-// Dark Theme Tests
+// Theme Verification Tests
 // ============================================================
 
-test.describe('Credit Store - Dark Theme', () => {
+test.describe('Credit Store - Theme Verification', () => {
   test.beforeEach(async ({ page }) => {
     await interceptCreditPackages(page);
     await page.route('**/api/users/me', (route) =>
@@ -451,7 +451,7 @@ test.describe('Credit Store - Dark Theme', () => {
     );
   });
 
-  test('has dark background', async ({ page }) => {
+  test('has bright background', async ({ page }) => {
     await page.goto('/store');
 
     const bgColor = await page.evaluate(() => {
@@ -459,17 +459,18 @@ test.describe('Credit Store - Dark Theme', () => {
       return window.getComputedStyle(el).backgroundColor;
     });
 
-    // Background should be dark (RGB values low)
+    // Background should be bright (warm cream)
+    // #FFF3E0 = rgb(255, 243, 224)
     const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
     if (match) {
       const r = parseInt(match[1]);
       const g = parseInt(match[2]);
       const b = parseInt(match[3]);
-      expect(r + g + b).toBeLessThan(200);
+      expect(r + g + b).toBeGreaterThan(600);
     }
   });
 
-  test('package cards have dark background', async ({ page }) => {
+  test('package cards have bright background', async ({ page }) => {
     await page.goto('/store');
 
     const cardBg = await page.evaluate(() => {
@@ -477,12 +478,13 @@ test.describe('Credit Store - Dark Theme', () => {
       return card ? window.getComputedStyle(card).backgroundColor : '';
     });
 
+    // Cards should be white (#FFFFFF)
     const match = cardBg.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
     if (match) {
       const r = parseInt(match[1]);
       const g = parseInt(match[2]);
       const b = parseInt(match[3]);
-      expect(r + g + b).toBeLessThan(200);
+      expect(r + g + b).toBeGreaterThan(700);
     }
   });
 });

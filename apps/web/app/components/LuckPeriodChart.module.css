@@ -4,15 +4,16 @@
   position: relative;
   width: 100%;
   margin: 0.5rem 0 1rem;
-  background: rgba(22, 33, 62, 0.6);
-  border-radius: 12px;
+  background: var(--bg-card, #FFFFFF);
+  border-radius: var(--radius-lg, 16px);
   padding: 1rem 0.5rem 0.5rem;
-  border: 1px solid rgba(232, 213, 183, 0.1);
+  border: 1px solid var(--border-light, rgba(212, 160, 23, 0.15));
+  box-shadow: var(--shadow-warm, 0 4px 20px rgba(226, 61, 40, 0.08));
 }
 
 .chartTitle {
   font-size: 0.85rem;
-  color: #a0a0a0;
+  color: var(--text-secondary, #6B5940);
   text-align: center;
   margin-bottom: 0.5rem;
   letter-spacing: 0.05em;
@@ -34,22 +35,22 @@
 .tooltip {
   position: absolute;
   z-index: 100;
-  background: #16213e;
-  border: 1px solid rgba(232, 213, 183, 0.3);
-  border-radius: 8px;
+  background: var(--bg-card, #FFFFFF);
+  border: 1px solid var(--border-medium, rgba(212, 160, 23, 0.3));
+  border-radius: var(--radius-sm, 8px);
   padding: 0.6rem 0.8rem;
   font-size: 0.78rem;
-  color: #e0e0e0;
+  color: var(--text-primary, #3C2415);
   pointer-events: none;
   min-width: 160px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-warm-lg, 0 8px 32px rgba(226, 61, 40, 0.12));
   transform: translate(-50%, -100%);
   margin-top: -12px;
 }
 
 .tooltipTitle {
   font-weight: 700;
-  color: #e8d5b7;
+  color: var(--text-accent, #C41E3A);
   margin-bottom: 0.3rem;
   font-size: 0.85rem;
 }
@@ -62,7 +63,7 @@
 }
 
 .tooltipLabel {
-  color: #a0a0a0;
+  color: var(--text-secondary, #6B5940);
 }
 
 .tooltipValue {
@@ -79,16 +80,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(26, 26, 46, 0.7);
-  border-radius: 12px;
+  background: rgba(255, 243, 224, 0.85);
+  border-radius: var(--radius-lg, 16px);
   z-index: 10;
+  backdrop-filter: blur(4px);
 }
 
 .blurOverlayText {
-  color: #e8d5b7;
+  color: var(--text-accent, #C41E3A);
   font-size: 0.9rem;
   text-align: center;
   padding: 0.5rem 1rem;
+  font-weight: 600;
 }
 
 /* Pulsing dot animation */
@@ -102,7 +105,7 @@
 }
 
 .currentLabel {
-  fill: #e8d5b7;
+  fill: var(--color-red, #E23D28);
   animation: labelPulse 2s ease-in-out infinite;
 }
 

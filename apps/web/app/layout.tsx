@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { zhTW } from "@clerk/localizations";
 import localFont from "next/font/local";
+import { Noto_Serif_TC } from "next/font/google";
 import { PostHogProvider } from "./providers";
 import "./globals.css";
 
@@ -12,6 +13,13 @@ const geistSans = localFont({
 const geistMono = localFont({
   src: "./fonts/GeistMonoVF.woff",
   variable: "--font-geist-mono",
+});
+
+const notoSerifTC = Noto_Serif_TC({
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  display: "swap",
+  variable: "--font-noto-serif-tc",
 });
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://bazi-platform.com';
@@ -44,6 +52,9 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
+  other: {
+    "theme-color": "#FFF3E0",
+  },
 };
 
 export default function RootLayout({
@@ -56,27 +67,16 @@ export default function RootLayout({
       localization={zhTW}
       appearance={{
         variables: {
-          colorPrimary: "#e8d5b7",
-          colorBackground: "#1a1a2e",
-          colorText: "#e0e0e0",
-          colorInputBackground: "#16213e",
-          colorInputText: "#e0e0e0",
-        },
-        elements: {
-          formButtonPrimary:
-            "bg-[#e8d5b7] text-[#1a1a2e] hover:bg-[#d4c4a8]",
-          card: "bg-[#16213e] border-[#e8d5b7]/20",
-          headerTitle: "text-[#e8d5b7]",
-          headerSubtitle: "text-[#a0a0a0]",
-          socialButtonsBlockButton:
-            "border-[#e8d5b7]/30 text-[#e0e0e0] hover:bg-[#1a1a2e]",
-          formFieldLabel: "text-[#a0a0a0]",
-          footerActionLink: "text-[#e8d5b7] hover:text-[#d4c4a8]",
+          colorPrimary: "#E23D28",
+          colorBackground: "#FFFBF5",
+          colorText: "#3C2415",
+          colorInputBackground: "#FFFFFF",
+          colorInputText: "#3C2415",
         },
       }}
     >
       <html lang="zh-TW">
-        <body className={`${geistSans.variable} ${geistMono.variable}`}>
+        <body className={`${geistSans.variable} ${geistMono.variable} ${notoSerifTC.variable}`}>
           <PostHogProvider>{children}</PostHogProvider>
         </body>
       </html>

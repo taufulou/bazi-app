@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(4px);
   animation: fadeIn 0.2s ease;
 }
@@ -15,12 +15,13 @@
 .modal {
   max-width: 420px;
   width: 100%;
-  background: #16213e;
-  border-radius: 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
   padding: 2rem;
-  border: 1px solid rgba(232, 213, 183, 0.2);
+  border: 1px solid var(--border-light);
   text-align: center;
   animation: scaleUp 0.2s ease;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
 }
 
 .icon {
@@ -29,21 +30,22 @@
 }
 
 .title {
-  color: #e8d5b7;
+  color: var(--text-accent);
   font-size: 1.3rem;
   font-weight: 700;
   margin-bottom: 0.75rem;
+  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .body {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.95rem;
   line-height: 1.6;
   margin-bottom: 1.5rem;
 }
 
 .body strong {
-  color: #e8d5b7;
+  color: var(--text-primary);
 }
 
 .actions {
@@ -55,47 +57,48 @@
 .primaryBtn {
   display: block;
   padding: 0.75rem 2rem;
-  background: linear-gradient(135deg, #d4af37, #b8962e);
-  color: #1a1a2e;
+  background: var(--color-red);
+  color: var(--text-on-red);
   font-weight: 700;
   font-size: 1rem;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   text-decoration: none;
   text-align: center;
   transition: all 0.2s;
 }
 
 .primaryBtn:hover {
-  opacity: 0.9;
+  background: var(--color-red-dark);
   transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(var(--color-red-rgb), 0.25);
 }
 
 .primaryBtn:focus-visible {
-  outline: 2px solid #e8d5b7;
+  outline: 2px solid var(--color-red);
   outline-offset: 2px;
 }
 
 .buyCreditsBtn {
   display: block;
   padding: 0.75rem 2rem;
-  background: rgba(100, 181, 246, 0.12);
-  border: 1px solid rgba(100, 181, 246, 0.35);
-  color: #64b5f6;
+  background: rgba(33, 150, 243, 0.06);
+  border: 1px solid rgba(33, 150, 243, 0.25);
+  color: var(--color-info);
   font-weight: 600;
   font-size: 0.95rem;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   text-decoration: none;
   text-align: center;
   transition: all 0.2s;
 }
 
 .buyCreditsBtn:hover {
-  background: rgba(100, 181, 246, 0.2);
-  border-color: rgba(100, 181, 246, 0.5);
+  background: rgba(33, 150, 243, 0.12);
+  border-color: rgba(33, 150, 243, 0.4);
 }
 
 .buyCreditsBtn:focus-visible {
-  outline: 2px solid #64b5f6;
+  outline: 2px solid var(--color-info);
   outline-offset: 2px;
 }
 
@@ -103,11 +106,11 @@
   display: block;
   width: 100%;
   padding: 0.6rem 1rem;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #666;
+  background: rgba(var(--color-gold-rgb), 0.04);
+  border: 1px solid var(--border-light);
+  color: var(--text-muted);
   font-size: 0.8rem;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: not-allowed;
   opacity: 0.5;
   text-align: center;
@@ -117,22 +120,22 @@
   display: block;
   padding: 0.75rem 2rem;
   background: transparent;
-  border: 1px solid rgba(232, 213, 183, 0.3);
-  color: #e8d5b7;
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
   font-weight: 600;
   font-size: 0.9rem;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .secondaryBtn:hover {
-  background: rgba(232, 213, 183, 0.08);
-  border-color: rgba(232, 213, 183, 0.5);
+  background: rgba(var(--color-gold-rgb), 0.08);
+  border-color: var(--color-gold);
 }
 
 .secondaryBtn:focus-visible {
-  outline: 2px solid #e8d5b7;
+  outline: 2px solid var(--color-gold);
   outline-offset: 2px;
 }
 

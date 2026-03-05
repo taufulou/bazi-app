@@ -2,11 +2,16 @@
 
 import { useState, useEffect } from "react";
 import styles from "./BaziChart.module.css";
-import { ELEMENT_COLORS } from "@repo/shared";
 
 // ============================================================
 // Types (matching Python engine output)
 // ============================================================
+
+interface HiddenStemGod {
+  stem: string;
+  element: string;
+  tenGod: string;
+}
 
 interface PillarData {
   stem: string;
@@ -14,6 +19,7 @@ interface PillarData {
   stemElement: string;
   branchElement: string;
   hiddenStems: string[];
+  hiddenStemGods?: HiddenStemGod[];
   tenGod: string | null;
   naYin: string;
   shenSha: string[];
@@ -92,9 +98,25 @@ interface BaziChartProps {
 // Helper
 // ============================================================
 
-function getElementColor(element: string): string {
-  return (ELEMENT_COLORS as Record<string, string>)[element] || "#e0e0e0";
+/** Darker element colors for light background (matches design-preview.html) */
+const CHART_ELEMENT_COLORS: Record<string, string> = {
+  "木": "#2E7D32",
+  "火": "#D32F2F",
+  "土": "#8D6E63",
+  "金": "#B8860B",
+  "水": "#1565C0",
+};
+
+function getChartElementColor(element: string): string {
+  return CHART_ELEMENT_COLORS[element] || "#8D6E63";
 }
+
+/** Earthly Branch → Chinese Zodiac Animal */
+const BRANCH_ZODIAC: Record<string, string> = {
+  "子": "鼠", "丑": "牛", "寅": "虎", "卯": "兔",
+  "辰": "龍", "巳": "蛇", "午": "馬", "未": "羊",
+  "申": "猴", "酉": "雞", "戌": "狗", "亥": "豬",
+};
 
 const STRENGTH_LABELS: Record<string, string> = {
   very_weak: "極弱",
@@ -172,8 +194,15 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
 
       {/* Section 1: Four Pillars Table */}
       {isVisible(1) && revealWrap(
-        <div className={styles.section}>
-          <h3 className={styles.sectionTitle}>四柱排盤</h3>
+        <div className={styles.pillarsSection}>
+          {/* ◆八字命格◆ Gradient Header */}
+          <div className={styles.chartHeader}>
+            <span className={styles.chartHeaderTitle}>
+              <span className={styles.chartHeaderDiamond}>◆</span>
+              八字命格
+              <span className={styles.chartHeaderDiamond}>◆</span>
+            </span>
+          </div>
           <table className={styles.pillarsTable}>
             <thead>
               <tr>
@@ -186,61 +215,85 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
             <tbody>
               {/* Ten Gods row */}
               <tr>
-                <td className={styles.pillarLabel}>主星</td>
+                <td className={styles.pillarLabel}>十神</td>
                 {pillars.map((p) => (
                   <td key={p.key} className={styles.tenGodCell}>
-                    {p.data.tenGod || "—"}
+                    {p.key === "day" ? "日元" : (p.data.tenGod || "—")}
                   </td>
                 ))}
               </tr>
-              {/* Heavenly Stems */}
+              {/* Combined Heavenly Stems + Earthly Branches */}
               <tr>
-                <td className={styles.pillarLabel}>天干</td>
+                <td className={styles.pillarLabel}>天干<br/>地支</td>
                 {pillars.map((p) => (
-                  <td
-                    key={p.key}
-                    className={styles.stemCell}
-                    style={{ color: getElementColor(p.data.stemElement) }}
-                  >
-                    {p.data.stem}
+                  <td key={p.key} className={styles.stemBranchCell}>
+                    <div
+                      className={styles.stemChar}
+                      style={{ color: getChartElementColor(p.data.stemElement) }}
+                    >
+                      {p.data.stem}
+                    </div>
+                    <div className={styles.branchWrap}>
+                      <span
+                        className={styles.branchChar}
+                        style={{ color: getChartElementColor(p.data.branchElement) }}
+                      >
+                        {p.data.branch}
+                      </span>
+                      <span className={styles.zodiacLabel}>
+                        {BRANCH_ZODIAC[p.data.branch] || ""}
+                      </span>
+                    </div>
                   </td>
                 ))}
               </tr>
-              {/* Earthly Branches */}
-              <tr>
-                <td className={styles.pillarLabel}>地支</td>
-                {pillars.map((p) => (
-                  <td
-                    key={p.key}
-                    className={styles.branchCell}
-                    style={{ color: getElementColor(p.data.branchElement) }}
-                  >
-                    {p.data.branch}
-                  </td>
-                ))}
-              </tr>
-              {/* Hidden Stems */}
+              {/* Hidden Stems with inline 副星 */}
               <tr>
                 <td className={styles.pillarLabel}>藏干</td>
                 {pillars.map((p) => (
                   <td key={p.key} className={styles.hiddenStemsCell}>
-                    {p.data.hiddenStems.map((hs, i) => (
-                      <span
-                        key={i}
-                        className={styles.hiddenStem}
-                        style={{
-                          color: getElementColor(
-                            getHiddenStemElement(hs),
-                          ),
-                          opacity: i === 0 ? 1 : 0.7,
-                        }}
-                      >
-                        {hs}
-                      </span>
-                    ))}
+                    {(p.data.hiddenStemGods || []).length > 0
+                      ? p.data.hiddenStemGods!.map((hsg, i) => (
+                          <span
+                            key={i}
+                            className={styles.hiddenStem}
+                          >
+                            <span style={{
+                              color: getChartElementColor(hsg.element || STEM_ELEMENT[hsg.stem] || "土"),
+                              opacity: i === 0 ? 1 : 0.7,
+                            }}>
+                              {hsg.stem}{hsg.element || STEM_ELEMENT[hsg.stem]}
+                            </span>
+                            <span className={styles.hiddenStemGod}>（{hsg.tenGod}）</span>
+                          </span>
+                        ))
+                      : (p.data.hiddenStems || []).map((hs, i) => (
+                          <span
+                            key={i}
+                            className={styles.hiddenStem}
+                            style={{
+                              color: getChartElementColor(getHiddenStemElement(hs)),
+                              opacity: i === 0 ? 1 : 0.7,
+                            }}
+                          >
+                            {hs}{STEM_ELEMENT[hs]}
+                          </span>
+                        ))
+                    }
                   </td>
                 ))}
               </tr>
+              {/* Life Stage (十二運) */}
+              {fp.year.lifeStage && (
+                <tr>
+                  <td className={styles.pillarLabel}>十二運</td>
+                  {pillars.map((p) => (
+                    <td key={p.key} className={styles.lifeStageCell}>
+                      {p.data.lifeStage || "—"}
+                    </td>
+                  ))}
+                </tr>
+              )}
               {/* Na Yin */}
               <tr>
                 <td className={styles.pillarLabel}>納音</td>
@@ -250,36 +303,16 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
                   </td>
                 ))}
               </tr>
-              {/* Life Stage */}
-              {fp.year.lifeStage && (
-                <tr>
-                  <td className={styles.pillarLabel}>長生</td>
-                  {pillars.map((p) => (
-                    <td key={p.key} className={styles.lifeStageCell}>
-                      {p.data.lifeStage || "—"}
-                    </td>
-                  ))}
-                </tr>
-              )}
               {/* Shen Sha per pillar */}
               <tr>
                 <td className={styles.pillarLabel}>神煞</td>
                 {pillars.map((p) => (
                   <td key={p.key} className={styles.shenShaCell}>
                     {p.data.shenSha.length > 0
-                      ? p.data.shenSha.join("、")
+                      ? p.data.shenSha.map((sha, i) => (
+                          <span key={i} className={styles.shenShaItem}>{sha}</span>
+                        ))
                       : "—"}
-                  </td>
-                ))}
-              </tr>
-              {/* Day Master badge */}
-              <tr>
-                <td></td>
-                {pillars.map((p) => (
-                  <td key={p.key}>
-                    {p.key === "day" && (
-                      <span className={styles.dayMasterBadge}>日主</span>
-                    )}
                   </td>
                 ))}
               </tr>
@@ -295,14 +328,14 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
           <div className={styles.elementsGrid}>
             {(["木", "火", "土", "金", "水"] as const).map((element) => {
               const pct = data.fiveElementsBalanceZh[element] || 0;
-              const color = getElementColor(element);
+              const color = getChartElementColor(element);
               return (
                 <div key={element} className={styles.elementBar}>
                   <div className={styles.elementRingWrap}>
                     <svg viewBox="0 0 70 70" className={styles.elementRingSvg}>
                       {/* Background ring */}
                       <circle cx="35" cy="35" r={RING_RADIUS} fill="none"
-                        stroke="rgba(255,255,255,0.08)" strokeWidth="4" />
+                        stroke="rgba(0,0,0,0.06)" strokeWidth="4" />
                       {/* Animated progress ring */}
                       <circle cx="35" cy="35" r={RING_RADIUS} fill="none"
                         stroke={color} strokeWidth="4" strokeLinecap="round"
@@ -316,9 +349,6 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
                   </div>
                   <div className={styles.elementPercent}>
                     {pct.toFixed(1)}%
-                  </div>
-                  <div className={styles.elementName}>
-                    {ELEMENT_ENGLISH_MAP[element]}
                   </div>
                 </div>
               );
@@ -336,7 +366,7 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
               <span className={styles.dmLabel}>日主</span>
               <span
                 className={styles.dmValue}
-                style={{ color: getElementColor(dm.element) }}
+                style={{ color: getChartElementColor(dm.element) }}
               >
                 {data.dayMasterStem}（{dm.element}{dm.yinYang}）
               </span>
@@ -425,7 +455,7 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
                   <div
                     className={styles.periodStemBranch}
                     style={{
-                      color: getElementColor(
+                      color: getChartElementColor(
                         getStemElement(lp.stem),
                       ),
                     }}
@@ -458,7 +488,7 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
               ))}
             </div>
           ) : (
-            <p style={{ color: "#a0a0a0", fontSize: "0.9rem" }}>
+            <p style={{ color: "var(--text-secondary)", fontSize: "0.9rem" }}>
               此命盤無特殊神煞
             </p>
           )}
@@ -497,10 +527,6 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
 const STEM_ELEMENT: Record<string, string> = {
   "甲": "木", "乙": "木", "丙": "火", "丁": "火", "戊": "土",
   "己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水",
-};
-
-const ELEMENT_ENGLISH_MAP: Record<string, string> = {
-  "木": "Wood", "火": "Fire", "土": "Earth", "金": "Metal", "水": "Water",
 };
 
 function getStemElement(stem: string): string {

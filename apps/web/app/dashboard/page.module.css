@@ -4,8 +4,8 @@
 
 .page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-  color: #e0e0e0;
+  background: linear-gradient(180deg, #FFF3E0 0%, #FFFBF5 100%);
+  color: var(--text-primary);
   padding: 2rem;
 }
 
@@ -16,14 +16,15 @@
   align-items: center;
   margin-bottom: 3rem;
   padding-bottom: 1rem;
-  border-bottom: 1px solid rgba(232, 213, 183, 0.2);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .logo {
-  color: #e8d5b7;
+  color: var(--text-accent);
   font-size: 1.5rem;
   font-weight: 700;
   text-decoration: none;
+  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .headerRight {
@@ -33,7 +34,7 @@
 }
 
 .userName {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 
@@ -43,13 +44,15 @@
 }
 
 .welcomeTitle {
-  color: #e8d5b7;
+  color: var(--text-primary);
   font-size: 1.8rem;
   margin-bottom: 0.5rem;
+  font-family: var(--font-noto-serif-tc), serif;
+  font-weight: 700;
 }
 
 .welcomeSubtitle {
-  color: #a0a0a0;
+  color: var(--text-secondary);
 }
 
 /* ---- Profile Management Link ---- */
@@ -60,18 +63,18 @@
   max-width: 100%;
   padding: 1rem 1.25rem;
   margin-bottom: 2rem;
-  background: #16213e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
-  border-radius: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
   text-decoration: none;
   color: inherit;
   transition: all 0.2s;
 }
 
 .profileLink:hover {
-  border-color: rgba(232, 213, 183, 0.4);
+  border-color: var(--border-medium);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--shadow-warm);
 }
 
 .profileLinkIcon {
@@ -80,13 +83,13 @@
 
 .profileLinkText {
   flex: 1;
-  color: #e8d5b7;
+  color: var(--text-primary);
   font-size: 0.95rem;
   font-weight: 500;
 }
 
 .profileLinkArrow {
-  color: #a0a0a0;
+  color: var(--text-muted);
   font-size: 1rem;
 }
 
@@ -114,19 +117,20 @@
 }
 
 .card {
-  background-color: #16213e;
-  border-radius: 12px;
+  background-color: var(--bg-card);
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
-  border: 1px solid rgba(232, 213, 183, 0.1);
+  border: 1px solid var(--border-light);
   cursor: pointer;
   transition: all 0.2s ease;
   height: 100%;
+  box-shadow: var(--shadow-warm);
 }
 
 .card:hover {
-  border-color: rgba(232, 213, 183, 0.3);
+  border-color: var(--border-medium);
   transform: translateY(-2px);
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-warm-lg);
 }
 
 .cardIcon {
@@ -135,14 +139,14 @@
 }
 
 .cardTitle {
-  color: #e8d5b7;
+  color: var(--text-primary);
   font-size: 1.2rem;
   margin-bottom: 0.5rem;
   font-weight: 600;
 }
 
 .cardDescription {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   line-height: 1.5;
 }
@@ -155,30 +159,31 @@
 }
 
 .cardAction {
-  color: #e8d5b7;
+  color: var(--color-gold);
   font-size: 0.85rem;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 /* ---- Section Label ---- */
 .sectionLabel {
-  color: #e8d5b7;
+  color: var(--text-accent);
   font-size: 1.1rem;
   font-weight: 600;
   margin-bottom: 1rem;
   padding-left: 0.25rem;
+  font-family: var(--font-noto-serif-tc), serif;
 }
 
 /* ---- ZWDS Card (purple accent instead of gold) ---- */
 .cardZwds {
   composes: card;
-  border-color: rgba(156, 39, 176, 0.15);
+  border-color: var(--color-zwds-border);
 }
 
 .cardZwds:hover {
-  border-color: rgba(156, 39, 176, 0.35);
+  border-color: rgba(var(--color-zwds-rgb), 0.4);
   transform: translateY(-2px);
-  box-shadow: 0 4px 20px rgba(156, 39, 176, 0.15);
+  box-shadow: 0 4px 20px rgba(var(--color-zwds-rgb), 0.1);
 }
 
 /* ---- Responsive ---- */

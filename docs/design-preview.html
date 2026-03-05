@@ -1,0 +1,1608 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#FFF3E0">
+  <title>天命 Design System — Warm & Inviting Theme</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+TC:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    /* ============================================
+       DESIGN SYSTEM — CSS VARIABLES
+       ============================================ */
+    :root {
+      /* Primary */
+      --color-red: #E23D28;
+      --color-red-dark: #C4311F;
+      --color-red-light: #F5564A;
+      --color-red-rgb: 226, 61, 40;
+
+      /* Gold & Warm Accents */
+      --color-gold: #D4A017;
+      --color-gold-light: #F5C842;
+      --color-gold-rgb: 212, 160, 23;
+      --color-amber: #E8B86D;
+      --color-orange: #F5A623;
+
+      /* Backgrounds */
+      --bg-primary: #FFF3E0;
+      --bg-secondary: #FFFBF5;
+      --bg-card: #FFFFFF;
+      --bg-hero-start: #E23D28;
+      --bg-hero-end: #F5A623;
+
+      /* Text */
+      --text-primary: #3C2415;
+      --text-secondary: #6B5940;
+      --text-on-red: #FFFFFF;
+      --text-on-gold: #3C2415;
+      --text-accent: #C41E3A;
+      --text-muted: #8B7355;
+
+      /* Borders & Shadows */
+      --border-light: rgba(212, 160, 23, 0.15);
+      --border-medium: rgba(212, 160, 23, 0.3);
+      --shadow-warm: 0 4px 20px rgba(226, 61, 40, 0.08);
+      --shadow-warm-lg: 0 8px 32px rgba(226, 61, 40, 0.12);
+      --shadow-gold: 0 4px 16px rgba(212, 160, 23, 0.15);
+
+      /* Radius */
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+
+      /* ZWDS accent */
+      --color-zwds: #8B5CF6;
+      --color-zwds-light: #A78BFA;
+      --color-zwds-rgb: 139, 92, 246;
+      --color-zwds-bg: rgba(139, 92, 246, 0.08);
+      --color-zwds-border: rgba(139, 92, 246, 0.2);
+
+      /* Functional */
+      --color-success: #4caf50;
+      --color-warning: #ffc107;
+      --color-error: #f44336;
+      --color-info: #2196f3;
+
+      /* Tier badges */
+      --tier-free-text: #757575;
+      --tier-free-bg: rgba(117, 117, 117, 0.12);
+      --tier-basic-text: #1976D2;
+      --tier-basic-bg: rgba(25, 118, 210, 0.10);
+      --tier-pro-text: #7B1FA2;
+      --tier-pro-bg: rgba(123, 31, 162, 0.10);
+      --tier-master-text: #B8860B;
+      --tier-master-bg: rgba(184, 134, 11, 0.12);
+      --tier-master-border: #D4A017;
+    }
+
+    /* ============================================
+       GLOBAL RESET & BASE
+       ============================================ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: var(--text-primary);
+      background: var(--bg-primary);
+      line-height: 1.6;
+    }
+
+    /* ============================================
+       LAYOUT
+       ============================================ */
+    .page-container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    .section {
+      margin-bottom: 4rem;
+    }
+
+    .section-title {
+      font-family: 'Noto Serif TC', serif;
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--text-accent);
+      margin-bottom: 0.5rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 2px solid rgba(var(--color-gold-rgb), 0.3);
+    }
+
+    .section-subtitle {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      margin-bottom: 2rem;
+    }
+
+    .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5rem; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5rem; }
+
+    @media (max-width: 768px) {
+      .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+    }
+
+    /* ============================================
+       HERO / HEADER
+       ============================================ */
+    .hero-banner {
+      background: linear-gradient(135deg, var(--bg-hero-start) 0%, var(--color-orange) 50%, var(--color-gold-light) 100%);
+      border-radius: var(--radius-xl);
+      padding: 3rem 2.5rem;
+      margin-bottom: 3rem;
+      color: var(--text-on-red);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-banner::before {
+      content: '';
+      position: absolute;
+      top: -50%;
+      right: -20%;
+      width: 60%;
+      height: 200%;
+      background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+      pointer-events: none;
+    }
+
+    .hero-banner::after {
+      content: '';
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 40%;
+      background: linear-gradient(to top, rgba(0,0,0,0.08), transparent);
+      pointer-events: none;
+    }
+
+    .hero-title {
+      font-family: 'Noto Serif TC', serif;
+      font-size: 2.8rem;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      position: relative;
+      z-index: 1;
+      text-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+
+    .hero-subtitle {
+      font-size: 1.15rem;
+      opacity: 0.92;
+      margin-bottom: 2rem;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* ============================================
+       NAV / APP HEADER
+       ============================================ */
+    .app-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 2rem;
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border-light);
+      border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+      margin-bottom: 2rem;
+      box-shadow: 0 2px 12px rgba(var(--color-red-rgb), 0.04);
+    }
+
+    .app-logo {
+      font-family: 'Noto Serif TC', serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--color-red);
+      text-decoration: none;
+    }
+
+    .app-logo span {
+      color: var(--color-gold);
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .credit-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.4rem 0.85rem;
+      background: rgba(var(--color-gold-rgb), 0.1);
+      border: 1px solid rgba(var(--color-gold-rgb), 0.25);
+      border-radius: 999px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--color-gold);
+    }
+
+    .user-avatar {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--color-red), var(--color-orange));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+
+    /* ============================================
+       COLOR PALETTE
+       ============================================ */
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 1rem;
+    }
+
+    .color-swatch {
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      box-shadow: var(--shadow-warm);
+      background: var(--bg-card);
+    }
+
+    .swatch-color {
+      height: 72px;
+      display: flex;
+      align-items: flex-end;
+      padding: 0.5rem;
+    }
+
+    .swatch-label {
+      padding: 0.6rem 0.75rem;
+      font-size: 0.78rem;
+    }
+
+    .swatch-name {
+      font-weight: 600;
+      color: var(--text-primary);
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    .swatch-value {
+      color: var(--text-secondary);
+      font-family: monospace;
+      font-size: 0.72rem;
+    }
+
+    .swatch-contrast {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      display: block;
+      margin-top: 2px;
+    }
+
+    /* ============================================
+       TYPOGRAPHY
+       ============================================ */
+    .typo-sample {
+      margin-bottom: 1.5rem;
+      padding: 1.5rem;
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border-light);
+    }
+
+    .typo-label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 0.5rem;
+    }
+
+    .typo-hero {
+      font-family: 'Noto Serif TC', serif;
+      font-size: 3rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      line-height: 1.2;
+    }
+
+    .typo-section {
+      font-family: 'Noto Serif TC', serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-accent);
+    }
+
+    .typo-card-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .typo-body {
+      font-size: 1rem;
+      color: var(--text-primary);
+      line-height: 1.6;
+    }
+
+    .typo-secondary {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+    }
+
+    .typo-caption {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    /* ============================================
+       BUTTONS
+       ============================================ */
+    .btn-row {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 1.5rem;
+      border-radius: var(--radius-md);
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: none;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      text-decoration: none;
+      line-height: 1;
+    }
+
+    .btn-primary {
+      background: var(--color-red);
+      color: var(--text-on-red);
+      box-shadow: 0 2px 8px rgba(var(--color-red-rgb), 0.2);
+    }
+    .btn-primary:hover {
+      background: var(--color-red-dark);
+      transform: translateY(-1px);
+      box-shadow: 0 4px 16px rgba(var(--color-red-rgb), 0.3);
+    }
+
+    .btn-secondary {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-medium);
+    }
+    .btn-secondary:hover {
+      background: rgba(var(--color-gold-rgb), 0.1);
+      border-color: var(--color-gold);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-accent);
+      padding: 0.75rem 1rem;
+    }
+    .btn-ghost:hover {
+      text-decoration: underline;
+    }
+
+    .btn-disabled {
+      background: #E8E0D8;
+      color: #A09080;
+      cursor: not-allowed;
+    }
+
+    .btn-sm {
+      padding: 0.5rem 1rem;
+      font-size: 0.85rem;
+    }
+
+    .btn-lg {
+      padding: 1rem 2.5rem;
+      font-size: 1.1rem;
+    }
+
+    /* ============================================
+       CARDS
+       ============================================ */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-lg);
+      padding: 1.5rem;
+      box-shadow: var(--shadow-warm);
+      transition: all 0.25s ease;
+    }
+
+    .card:hover {
+      border-color: var(--border-medium);
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-warm-lg);
+    }
+
+    .card-icon {
+      font-size: 2rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .card-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 0.5rem;
+    }
+
+    .card-desc {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+    }
+
+    .card-credit {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      margin-top: 0.75rem;
+      font-size: 0.8rem;
+      color: var(--color-gold);
+      font-weight: 600;
+    }
+
+    /* ZWDS Card variant */
+    .card-zwds {
+      border-color: var(--color-zwds-border);
+    }
+    .card-zwds:hover {
+      border-color: rgba(var(--color-zwds-rgb), 0.4);
+      box-shadow: 0 4px 20px rgba(var(--color-zwds-rgb), 0.1);
+    }
+    .card-zwds .card-title {
+      color: var(--color-zwds);
+    }
+
+    /* ============================================
+       TIER BADGES
+       ============================================ */
+    .tier-badge {
+      display: inline-block;
+      padding: 0.25rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .tier-free {
+      color: var(--tier-free-text);
+      background: var(--tier-free-bg);
+    }
+
+    .tier-basic {
+      color: var(--tier-basic-text);
+      background: var(--tier-basic-bg);
+    }
+
+    .tier-pro {
+      color: var(--tier-pro-text);
+      background: var(--tier-pro-bg);
+    }
+
+    .tier-master {
+      color: var(--tier-master-text);
+      background: var(--tier-master-bg);
+      border: 1px solid var(--tier-master-border);
+    }
+
+    /* ============================================
+       PRICING CARDS
+       ============================================ */
+    .pricing-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-xl);
+      padding: 2rem;
+      text-align: center;
+      box-shadow: var(--shadow-warm);
+      transition: all 0.3s ease;
+      position: relative;
+    }
+
+    .pricing-card:hover {
+      transform: translateY(-4px);
+      box-shadow: var(--shadow-warm-lg);
+    }
+
+    .pricing-card.featured {
+      border-color: var(--color-gold);
+      border-width: 2px;
+      box-shadow: var(--shadow-gold);
+    }
+
+    .pricing-card.featured::before {
+      content: '推薦方案';
+      position: absolute;
+      top: -12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: linear-gradient(90deg, var(--color-red), var(--color-orange));
+      color: white;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.3rem 1rem;
+      border-radius: 999px;
+      letter-spacing: 0.05em;
+    }
+
+    .pricing-plan-name {
+      font-family: 'Noto Serif TC', serif;
+      font-size: 1.3rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 0.25rem;
+    }
+
+    .pricing-price {
+      font-size: 2.5rem;
+      font-weight: 700;
+      color: var(--text-accent);
+      margin: 1rem 0;
+    }
+
+    .pricing-price .currency {
+      font-size: 1.2rem;
+      vertical-align: super;
+    }
+
+    .pricing-price .period {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      font-weight: 400;
+    }
+
+    .pricing-features {
+      list-style: none;
+      text-align: left;
+      margin: 1.5rem 0;
+    }
+
+    .pricing-features li {
+      padding: 0.5rem 0;
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      border-bottom: 1px solid rgba(var(--color-gold-rgb), 0.08);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .pricing-features li::before {
+      content: '✓';
+      color: var(--color-success);
+      font-weight: 700;
+    }
+
+    /* ============================================
+       BAZI CHART TABLE
+       ============================================ */
+    .bazi-chart-container {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-warm);
+      overflow: hidden;
+      border: 1px solid var(--border-light);
+    }
+
+    .bazi-chart-header {
+      background: linear-gradient(90deg, var(--color-red), var(--color-orange));
+      padding: 0.85rem 1.5rem;
+      text-align: center;
+    }
+
+    .bazi-chart-header h3 {
+      font-family: 'Noto Serif TC', serif;
+      color: var(--text-on-red);
+      font-size: 1.15rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+    }
+
+    .bazi-chart-header .diamond {
+      color: var(--color-gold-light);
+      margin: 0 0.5rem;
+    }
+
+    .bazi-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .bazi-table th, .bazi-table td {
+      padding: 0.7rem 0.5rem;
+      text-align: center;
+      border: 1px solid rgba(var(--color-gold-rgb), 0.15);
+      font-size: 0.9rem;
+    }
+
+    .bazi-table th {
+      background: #FFF8F0;
+      color: var(--text-accent);
+      font-weight: 600;
+      font-size: 0.82rem;
+    }
+
+    .bazi-table .row-label {
+      background: #FFF8F0;
+      color: var(--text-accent);
+      font-weight: 600;
+      font-size: 0.82rem;
+      width: 60px;
+    }
+
+    .bazi-table .tiangan {
+      font-family: 'Noto Serif TC', serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    .bazi-table .dizhi {
+      font-family: 'Noto Serif TC', serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    /* Five Element Colors */
+    .el-wood { color: #2E7D32; }
+    .el-fire { color: #D32F2F; }
+    .el-earth { color: #8D6E63; }
+    .el-metal { color: #B8860B; }
+    .el-water { color: #1565C0; }
+
+    .bazi-table .canggan {
+      font-size: 0.82rem;
+      line-height: 1.6;
+    }
+
+    .bazi-table .shishen {
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      line-height: 1.4;
+    }
+
+    /* ============================================
+       READING RESULT CARDS (Scrolling)
+       ============================================ */
+    .reading-section {
+      background: var(--bg-card);
+      border-radius: var(--radius-lg);
+      padding: 2rem;
+      margin-bottom: 1.5rem;
+      box-shadow: var(--shadow-warm);
+      border: 1px solid var(--border-light);
+      animation: fadeInUp 0.5s ease both;
+    }
+
+    .reading-section-title {
+      font-family: 'Noto Serif TC', serif;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-accent);
+      margin-bottom: 1rem;
+      padding-left: 1rem;
+      border-left: 3px solid var(--color-red);
+    }
+
+    .reading-content {
+      font-size: 1rem;
+      color: var(--text-primary);
+      line-height: 1.8;
+    }
+
+    .reading-content p {
+      margin-bottom: 1rem;
+    }
+
+    .reading-divider {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin: 2rem 0;
+    }
+
+    .reading-divider::before,
+    .reading-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(var(--color-gold-rgb), 0.3), transparent);
+    }
+
+    .reading-divider .diamond {
+      color: var(--color-gold);
+      font-size: 0.8rem;
+    }
+
+    /* Paywall blur effect */
+    .reading-paywall {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .reading-paywall .reading-content {
+      filter: blur(4px);
+      user-select: none;
+    }
+
+    .reading-paywall-overlay {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 70%;
+      background: linear-gradient(to bottom, transparent, rgba(255,243,224,0.95));
+      display: flex;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 2rem;
+    }
+
+    /* ============================================
+       DASHBOARD MOCK
+       ============================================ */
+    .dashboard-welcome {
+      margin-bottom: 2rem;
+    }
+
+    .dashboard-welcome h2 {
+      font-family: 'Noto Serif TC', serif;
+      font-size: 1.6rem;
+      font-weight: 700;
+      color: var(--text-primary);
+      margin-bottom: 0.25rem;
+    }
+
+    .dashboard-welcome p {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+    }
+
+    .section-label {
+      font-family: 'Noto Serif TC', serif;
+      font-size: 1.15rem;
+      font-weight: 600;
+      color: var(--text-accent);
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .section-label::before {
+      content: '';
+      width: 4px;
+      height: 1.2em;
+      background: var(--color-red);
+      border-radius: 2px;
+    }
+
+    .profile-link {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1rem 1.25rem;
+      margin-bottom: 2rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      text-decoration: none;
+      color: inherit;
+      transition: all 0.2s;
+    }
+
+    .profile-link:hover {
+      border-color: var(--border-medium);
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-warm);
+    }
+
+    .profile-link-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      background: rgba(var(--color-red-rgb), 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+    }
+
+    .profile-link-text {
+      flex: 1;
+    }
+
+    .profile-link-name {
+      font-weight: 600;
+      color: var(--text-primary);
+      font-size: 0.95rem;
+    }
+
+    .profile-link-detail {
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+    }
+
+    .profile-link-arrow {
+      color: var(--text-muted);
+      font-size: 1.2rem;
+    }
+
+    /* ============================================
+       SUBSCRIPTION MOCK
+       ============================================ */
+    .sub-status-card {
+      background: var(--bg-card);
+      border: 2px solid var(--color-gold);
+      border-radius: var(--radius-xl);
+      padding: 2rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow-gold);
+    }
+
+    .sub-plan-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    .sub-plan-name {
+      font-family: 'Noto Serif TC', serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .sub-usage-bar {
+      height: 8px;
+      background: rgba(var(--color-gold-rgb), 0.15);
+      border-radius: 999px;
+      overflow: hidden;
+      margin-top: 0.75rem;
+    }
+
+    .sub-usage-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--color-gold), var(--color-orange));
+      border-radius: 999px;
+      transition: width 0.5s ease;
+    }
+
+    .sub-usage-text {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      margin-top: 0.5rem;
+    }
+
+    /* ============================================
+       ANIMATIONS
+       ============================================ */
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+
+    .skeleton {
+      background: linear-gradient(90deg, #f0e6d6 25%, #fff3e0 50%, #f0e6d6 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s infinite;
+      border-radius: var(--radius-md);
+    }
+
+    /* ============================================
+       PAGE NAV
+       ============================================ */
+    .page-nav {
+      position: fixed;
+      top: 50%;
+      right: 1.5rem;
+      transform: translateY(-50%);
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      z-index: 100;
+    }
+
+    .page-nav a {
+      display: block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: rgba(var(--color-red-rgb), 0.2);
+      transition: all 0.2s;
+      text-indent: -9999px;
+    }
+
+    .page-nav a:hover,
+    .page-nav a.active {
+      background: var(--color-red);
+      transform: scale(1.3);
+    }
+
+    @media (max-width: 768px) {
+      .page-nav { display: none; }
+    }
+
+    /* ============================================
+       QUICK LINKS ROW
+       ============================================ */
+    .quick-links {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 2rem;
+      flex-wrap: wrap;
+    }
+
+    .quick-link {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.6rem 1.2rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      font-size: 0.88rem;
+      color: var(--text-primary);
+      text-decoration: none;
+      transition: all 0.2s;
+      font-weight: 500;
+    }
+
+    .quick-link:hover {
+      border-color: var(--border-medium);
+      box-shadow: var(--shadow-warm);
+      transform: translateY(-1px);
+    }
+
+    /* ============================================
+       TOGGLE SWITCH
+       ============================================ */
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      justify-content: center;
+      margin-bottom: 2rem;
+    }
+
+    .toggle-label {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+
+    .toggle-label.active {
+      color: var(--text-primary);
+      font-weight: 600;
+    }
+
+    .toggle-switch {
+      width: 48px;
+      height: 26px;
+      border-radius: 13px;
+      background: rgba(var(--color-red-rgb), 0.15);
+      position: relative;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    .toggle-switch.active {
+      background: var(--color-red);
+    }
+
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: white;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+      transition: transform 0.3s;
+    }
+
+    .toggle-switch.active::after {
+      transform: translateX(22px);
+    }
+  </style>
+</head>
+<body>
+
+<!-- Side navigation dots -->
+<nav class="page-nav">
+  <a href="#palette" title="Color Palette">Colors</a>
+  <a href="#typography" title="Typography">Typography</a>
+  <a href="#buttons" title="Buttons">Buttons</a>
+  <a href="#cards" title="Cards">Cards</a>
+  <a href="#dashboard" title="Dashboard">Dashboard</a>
+  <a href="#pricing" title="Pricing">Pricing</a>
+  <a href="#bazi-chart" title="Bazi Chart">Chart</a>
+  <a href="#reading" title="Reading">Reading</a>
+</nav>
+
+<div class="page-container">
+
+  <!-- ==================== HERO ==================== -->
+  <div class="hero-banner">
+    <div class="hero-title">天命 Design System</div>
+    <div class="hero-subtitle">Warm & Inviting Theme — 命理分析平台設計語言</div>
+    <button class="btn btn-lg" style="background:white; color:var(--color-red); font-weight:700;">
+      開始探索 →
+    </button>
+  </div>
+
+  <!-- ==================== COLOR PALETTE ==================== -->
+  <section id="palette" class="section">
+    <h2 class="section-title">色彩系統 Color Palette</h2>
+    <p class="section-subtitle">All text colors verified ≥ 4.5:1 contrast ratio (WCAG AA)</p>
+
+    <h3 style="font-size:1rem; color:var(--text-accent); margin-bottom:0.75rem; font-weight:600;">Primary & Accent</h3>
+    <div class="color-grid" style="margin-bottom:1.5rem;">
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#E23D28;"><span style="color:white;font-size:0.7rem;">Primary</span></div>
+        <div class="swatch-label"><span class="swatch-name">Red</span><span class="swatch-value">#E23D28</span></div>
+      </div>
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#C4311F;"><span style="color:white;font-size:0.7rem;">Hover</span></div>
+        <div class="swatch-label"><span class="swatch-name">Red Dark</span><span class="swatch-value">#C4311F</span></div>
+      </div>
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#C41E3A;"><span style="color:white;font-size:0.7rem;">Text</span></div>
+        <div class="swatch-label"><span class="swatch-name">Text Accent</span><span class="swatch-value">#C41E3A</span><span class="swatch-contrast">5.8:1 on white</span></div>
+      </div>
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#D4A017;"><span style="color:white;font-size:0.7rem;">Gold</span></div>
+        <div class="swatch-label"><span class="swatch-name">Gold</span><span class="swatch-value">#D4A017</span><span class="swatch-contrast">Decorative only</span></div>
+      </div>
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#F5A623;"></div>
+        <div class="swatch-label"><span class="swatch-name">Orange</span><span class="swatch-value">#F5A623</span></div>
+      </div>
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#F5C842;"></div>
+        <div class="swatch-label"><span class="swatch-name">Gold Light</span><span class="swatch-value">#F5C842</span></div>
+      </div>
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#8B5CF6;"><span style="color:white;font-size:0.7rem;">ZWDS</span></div>
+        <div class="swatch-label"><span class="swatch-name">ZWDS Purple</span><span class="swatch-value">#8B5CF6</span></div>
+      </div>
+    </div>
+
+    <h3 style="font-size:1rem; color:var(--text-accent); margin-bottom:0.75rem; font-weight:600;">Backgrounds</h3>
+    <div class="color-grid" style="margin-bottom:1.5rem;">
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#FFF3E0; border:1px solid #eee;"></div>
+        <div class="swatch-label"><span class="swatch-name">Page BG</span><span class="swatch-value">#FFF3E0</span></div>
+      </div>
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#FFFBF5; border:1px solid #eee;"></div>
+        <div class="swatch-label"><span class="swatch-name">Secondary BG</span><span class="swatch-value">#FFFBF5</span></div>
+      </div>
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#FFFFFF; border:1px solid #eee;"></div>
+        <div class="swatch-label"><span class="swatch-name">Card BG</span><span class="swatch-value">#FFFFFF</span></div>
+      </div>
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#FFF8F0; border:1px solid #eee;"></div>
+        <div class="swatch-label"><span class="swatch-name">Table Row</span><span class="swatch-value">#FFF8F0</span></div>
+      </div>
+    </div>
+
+    <h3 style="font-size:1rem; color:var(--text-accent); margin-bottom:0.75rem; font-weight:600;">Text Colors (on Cream BG)</h3>
+    <div class="color-grid">
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#FFF3E0;border:1px solid #eee;display:flex;align-items:center;justify-content:center;"><span style="color:#3C2415;font-size:1.1rem;font-weight:600;">Aa</span></div>
+        <div class="swatch-label"><span class="swatch-name">Primary Text</span><span class="swatch-value">#3C2415</span><span class="swatch-contrast">10.5:1 ratio</span></div>
+      </div>
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#FFF3E0;border:1px solid #eee;display:flex;align-items:center;justify-content:center;"><span style="color:#6B5940;font-size:1.1rem;font-weight:600;">Aa</span></div>
+        <div class="swatch-label"><span class="swatch-name">Secondary Text</span><span class="swatch-value">#6B5940</span><span class="swatch-contrast">5.0:1 WCAG AA</span></div>
+      </div>
+      <div class="color-swatch">
+        <div class="swatch-color" style="background:#FFFFFF;border:1px solid #eee;display:flex;align-items:center;justify-content:center;"><span style="color:#8B7355;font-size:1.3rem;font-weight:600;">Aa</span></div>
+        <div class="swatch-label"><span class="swatch-name">Muted (lg text)</span><span class="swatch-value">#8B7355</span><span class="swatch-contrast">3.6:1 (large only)</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== TYPOGRAPHY ==================== -->
+  <section id="typography" class="section">
+    <h2 class="section-title">字體排版 Typography</h2>
+    <p class="section-subtitle">Noto Serif TC for headers, system sans-serif for body</p>
+
+    <div class="typo-sample">
+      <div class="typo-label">Hero Title — Noto Serif TC 700, 3rem</div>
+      <div class="typo-hero">探索命運之美</div>
+    </div>
+    <div class="typo-sample">
+      <div class="typo-label">Section Title — Noto Serif TC 700, 1.5rem</div>
+      <div class="typo-section">◆ 八字命格分析 ◆</div>
+    </div>
+    <div class="typo-sample">
+      <div class="typo-label">Card Title — Sans 600, 1.2rem</div>
+      <div class="typo-card-title">終身運勢解讀</div>
+    </div>
+    <div class="typo-sample">
+      <div class="typo-label">Body — Sans 400, 1rem</div>
+      <div class="typo-body">日主甲木，出生在丑土月令，財星當旺。月幹辛金透出，正官出位。命局五行流通，格局清奇，主一生運勢平穩向上。</div>
+    </div>
+    <div class="typo-sample">
+      <div class="typo-label">Secondary — Sans 400, 0.9rem</div>
+      <div class="typo-secondary">AI 分析結果僅供參考與娛樂用途，不構成任何專業建議。</div>
+    </div>
+    <div class="typo-sample">
+      <div class="typo-label">Caption — Sans 400, 0.85rem</div>
+      <div class="typo-caption">消耗 1 點數 · 約 30 秒生成</div>
+    </div>
+  </section>
+
+  <!-- ==================== BUTTONS ==================== -->
+  <section id="buttons" class="section">
+    <h2 class="section-title">按鈕元件 Buttons</h2>
+    <p class="section-subtitle">Rounded rectangle (12px radius), solid fill</p>
+
+    <h3 style="font-size:1rem; color:var(--text-accent); margin-bottom:0.75rem; margin-top:1.5rem;">Standard Sizes</h3>
+    <div class="btn-row">
+      <button class="btn btn-primary">開始分析</button>
+      <button class="btn btn-secondary">查看詳情</button>
+      <button class="btn btn-ghost">了解更多 →</button>
+      <button class="btn btn-disabled">已完成</button>
+    </div>
+
+    <h3 style="font-size:1rem; color:var(--text-accent); margin-bottom:0.75rem; margin-top:1.5rem;">Large CTA</h3>
+    <div class="btn-row">
+      <button class="btn btn-primary btn-lg">立即訂閱 Pro 方案</button>
+      <button class="btn btn-secondary btn-lg">免費體驗</button>
+    </div>
+
+    <h3 style="font-size:1rem; color:var(--text-accent); margin-bottom:0.75rem; margin-top:1.5rem;">Small</h3>
+    <div class="btn-row">
+      <button class="btn btn-primary btn-sm">購買</button>
+      <button class="btn btn-secondary btn-sm">取消</button>
+      <button class="btn btn-ghost btn-sm">返回</button>
+    </div>
+  </section>
+
+  <!-- ==================== CARDS ==================== -->
+  <section id="cards" class="section">
+    <h2 class="section-title">卡片元件 Cards</h2>
+    <p class="section-subtitle">White cards with warm shadows on cream background. Hover to see elevation.</p>
+
+    <div class="grid-3" style="margin-bottom:2rem;">
+      <div class="card">
+        <div class="card-icon">🏛️</div>
+        <div class="card-title">八字終身運</div>
+        <div class="card-desc">全面剖析您的八字命盤，了解一生運勢走向與關鍵轉折。</div>
+        <div class="card-credit">🪙 1 點數</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">📅</div>
+        <div class="card-title">流年運勢</div>
+        <div class="card-desc">解讀您今年的運勢走向，把握關鍵時機。</div>
+        <div class="card-credit">🪙 1 點數</div>
+      </div>
+      <div class="card card-zwds">
+        <div class="card-icon">🌟</div>
+        <div class="card-title">紫微斗數終身</div>
+        <div class="card-desc">透過紫微星盤揭示命運全貌，深度解讀人生各面向。</div>
+        <div class="card-credit">🪙 2 點數</div>
+      </div>
+    </div>
+
+    <h3 style="font-size:1rem; color:var(--text-accent); margin-bottom:0.75rem;">Tier Badges</h3>
+    <div class="btn-row">
+      <span class="tier-badge tier-free">FREE</span>
+      <span class="tier-badge tier-basic">BASIC</span>
+      <span class="tier-badge tier-pro">PRO</span>
+      <span class="tier-badge tier-master">MASTER</span>
+    </div>
+
+    <h3 style="font-size:1rem; color:var(--text-accent); margin-bottom:0.75rem; margin-top:1.5rem;">Loading Skeleton</h3>
+    <div class="grid-3">
+      <div style="height:140px;" class="skeleton"></div>
+      <div style="height:140px;" class="skeleton"></div>
+      <div style="height:140px;" class="skeleton"></div>
+    </div>
+  </section>
+
+  <!-- ==================== DASHBOARD MOCK ==================== -->
+  <section id="dashboard" class="section">
+    <h2 class="section-title">儀表板 Dashboard Mock</h2>
+    <p class="section-subtitle">Full dashboard layout with header, profile, cards</p>
+
+    <!-- App Header -->
+    <div class="app-header">
+      <a class="app-logo" href="#">天<span>命</span></a>
+      <div class="header-right">
+        <div class="credit-badge">🪙 15 點數</div>
+        <span style="font-size:0.88rem; color:var(--text-secondary);">王小明</span>
+        <div class="user-avatar">王</div>
+      </div>
+    </div>
+
+    <!-- Welcome -->
+    <div class="dashboard-welcome">
+      <h2>歡迎回來，小明</h2>
+      <p>選擇一種命理服務開始探索您的運勢</p>
+    </div>
+
+    <!-- Quick Links -->
+    <div class="quick-links">
+      <a href="#" class="quick-link">📋 我的檔案</a>
+      <a href="#" class="quick-link">📖 歷史紀錄</a>
+      <a href="#" class="quick-link">💳 訂閱方案</a>
+    </div>
+
+    <!-- Profile -->
+    <a href="#" class="profile-link">
+      <div class="profile-link-icon">👤</div>
+      <div class="profile-link-text">
+        <div class="profile-link-name">王小明</div>
+        <div class="profile-link-detail">1990年3月15日 14時 · 男</div>
+      </div>
+      <div class="profile-link-arrow">→</div>
+    </a>
+
+    <!-- Reading Types -->
+    <div class="section-label">八字命理</div>
+    <div class="grid-3" style="margin-bottom:2rem;">
+      <div class="card">
+        <div class="card-icon">🏛️</div>
+        <div class="card-title">終身運勢</div>
+        <div class="card-desc">全面剖析一生運勢走向</div>
+        <div class="card-credit">🪙 1 點數</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">📅</div>
+        <div class="card-title">流年運勢</div>
+        <div class="card-desc">今年運勢走向解讀</div>
+        <div class="card-credit">🪙 1 點數</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">💼</div>
+        <div class="card-title">事業財運</div>
+        <div class="card-desc">職場發展與財富機運</div>
+        <div class="card-credit">🪙 1 點數</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">❤️</div>
+        <div class="card-title">愛情姻緣</div>
+        <div class="card-desc">感情運勢深度解讀</div>
+        <div class="card-credit">🪙 1 點數</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">🏥</div>
+        <div class="card-title">健康運勢</div>
+        <div class="card-desc">養生保健運勢建議</div>
+        <div class="card-credit">🪙 1 點數</div>
+      </div>
+      <div class="card">
+        <div class="card-icon">💑</div>
+        <div class="card-title">八字合盤</div>
+        <div class="card-desc">雙人八字相容度分析</div>
+        <div class="card-credit">🪙 2 點數</div>
+      </div>
+    </div>
+
+    <div class="section-label" style="color:var(--color-zwds);">紫微斗數</div>
+    <div class="grid-3">
+      <div class="card card-zwds">
+        <div class="card-icon">🌟</div>
+        <div class="card-title">紫微終身</div>
+        <div class="card-desc">紫微星盤深度命理分析</div>
+        <div class="card-credit">🪙 2 點數</div>
+      </div>
+      <div class="card card-zwds">
+        <div class="card-icon">🔮</div>
+        <div class="card-title">紫微流年</div>
+        <div class="card-desc">今年紫微運勢走向</div>
+        <div class="card-credit">🪙 1 點數</div>
+      </div>
+      <div class="card card-zwds">
+        <div class="card-icon">💫</div>
+        <div class="card-title">紫微事業</div>
+        <div class="card-desc">紫微星盤事業分析</div>
+        <div class="card-credit">🪙 1 點數</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== PRICING MOCK ==================== -->
+  <section id="pricing" class="section">
+    <h2 class="section-title">訂閱方案 Pricing</h2>
+    <p class="section-subtitle">Tier comparison with featured plan highlight</p>
+
+    <div class="toggle-container">
+      <span class="toggle-label">月繳</span>
+      <div class="toggle-switch active"></div>
+      <span class="toggle-label active">年繳 <span style="color:var(--color-red);font-weight:600;">省 20%</span></span>
+    </div>
+
+    <div class="grid-4">
+      <div class="pricing-card">
+        <span class="tier-badge tier-free" style="margin-bottom:1rem;">FREE</span>
+        <div class="pricing-plan-name">免費體驗</div>
+        <div class="pricing-price"><span class="currency">NT$</span>0<span class="period">/月</span></div>
+        <ul class="pricing-features">
+          <li>每月 2 次免費解讀</li>
+          <li>基礎八字排盤</li>
+          <li>預覽版 AI 解讀</li>
+        </ul>
+        <button class="btn btn-secondary" style="width:100%;">目前方案</button>
+      </div>
+
+      <div class="pricing-card">
+        <span class="tier-badge tier-basic" style="margin-bottom:1rem;">BASIC</span>
+        <div class="pricing-plan-name">基礎方案</div>
+        <div class="pricing-price"><span class="currency">NT$</span>199<span class="period">/月</span></div>
+        <ul class="pricing-features">
+          <li>每月 10 次解讀</li>
+          <li>完整八字分析</li>
+          <li>完整 AI 解讀</li>
+          <li>歷史紀錄保存</li>
+        </ul>
+        <button class="btn btn-primary" style="width:100%;">升級方案</button>
+      </div>
+
+      <div class="pricing-card featured">
+        <span class="tier-badge tier-pro" style="margin-bottom:1rem;">PRO</span>
+        <div class="pricing-plan-name">專業方案</div>
+        <div class="pricing-price"><span class="currency">NT$</span>499<span class="period">/月</span></div>
+        <ul class="pricing-features">
+          <li>每月 30 次解讀</li>
+          <li>八字 + 紫微斗數</li>
+          <li>深度 AI 專業分析</li>
+          <li>合盤分析功能</li>
+          <li>優先客服支援</li>
+        </ul>
+        <button class="btn btn-primary" style="width:100%;">立即訂閱</button>
+      </div>
+
+      <div class="pricing-card">
+        <span class="tier-badge tier-master" style="margin-bottom:1rem;">MASTER</span>
+        <div class="pricing-plan-name">大師方案</div>
+        <div class="pricing-price"><span class="currency">NT$</span>999<span class="period">/月</span></div>
+        <ul class="pricing-features">
+          <li>無限次解讀</li>
+          <li>所有命理服務</li>
+          <li>大師級深度分析</li>
+          <li>專屬顧問服務</li>
+          <li>API 存取權限</li>
+          <li>優先新功能體驗</li>
+        </ul>
+        <button class="btn btn-primary" style="width:100%;">聯繫我們</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== SUBSCRIPTION MOCK ==================== -->
+  <section id="subscription" class="section">
+    <h2 class="section-title">訂閱管理 Subscription</h2>
+    <p class="section-subtitle">Current plan status with usage bar</p>
+
+    <div class="sub-status-card">
+      <div class="sub-plan-row">
+        <div>
+          <div class="sub-plan-name">Pro 專業方案</div>
+          <div style="color:var(--text-secondary);font-size:0.88rem;">下次續費：2026-04-05</div>
+        </div>
+        <span class="tier-badge tier-pro">PRO</span>
+      </div>
+      <div style="font-size:0.9rem; color:var(--text-primary); margin-bottom:0.25rem;">本月已使用點數</div>
+      <div class="sub-usage-bar">
+        <div class="sub-usage-fill" style="width:60%;"></div>
+      </div>
+      <div class="sub-usage-text">
+        <span>18 / 30 次</span>
+        <span>剩餘 12 次</span>
+      </div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <div class="card-title">升級方案</div>
+        <div class="card-desc">升級至 Master 方案，享受無限次解讀與專屬顧問服務。</div>
+        <button class="btn btn-primary btn-sm" style="margin-top:1rem;">查看升級選項</button>
+      </div>
+      <div class="card">
+        <div class="card-title">購買點數</div>
+        <div class="card-desc">需要額外點數？可單次購買點數包。</div>
+        <button class="btn btn-secondary btn-sm" style="margin-top:1rem;">前往商店</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== BAZI CHART ==================== -->
+  <section id="bazi-chart" class="section">
+    <h2 class="section-title">八字命盤 Bazi Chart</h2>
+    <p class="section-subtitle">Modern-traditional table with gradient header and element colors</p>
+
+    <div class="bazi-chart-container" style="max-width:640px;">
+      <div class="bazi-chart-header">
+        <h3><span class="diamond">◆</span>八字命格<span class="diamond">◆</span></h3>
+      </div>
+      <table class="bazi-table">
+        <thead>
+          <tr>
+            <th></th>
+            <th>年柱</th>
+            <th>月柱</th>
+            <th>日柱</th>
+            <th>時柱</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="row-label">十神</td>
+            <td class="shishen">食神</td>
+            <td class="shishen">正官</td>
+            <td class="shishen">日元</td>
+            <td class="shishen">偏印</td>
+          </tr>
+          <tr>
+            <td class="row-label">天干<br>地支</td>
+            <td>
+              <div class="tiangan el-fire">丙</div>
+              <div class="dizhi el-wood">寅</div>
+            </td>
+            <td>
+              <div class="tiangan el-metal">辛</div>
+              <div class="dizhi el-earth">丑</div>
+            </td>
+            <td>
+              <div class="tiangan el-wood">甲</div>
+              <div class="dizhi el-earth">戌</div>
+            </td>
+            <td>
+              <div class="tiangan el-water">壬</div>
+              <div class="dizhi el-metal">申</div>
+            </td>
+          </tr>
+          <tr>
+            <td class="row-label">藏干</td>
+            <td class="canggan">
+              <span class="el-wood">甲木</span><br>
+              <span class="el-fire">丙火</span><br>
+              <span class="el-earth">戊土</span>
+            </td>
+            <td class="canggan">
+              <span class="el-earth">己土</span><br>
+              <span class="el-water">癸水</span><br>
+              <span class="el-metal">辛金</span>
+            </td>
+            <td class="canggan">
+              <span class="el-earth">戊土</span><br>
+              <span class="el-metal">辛金</span><br>
+              <span class="el-fire">丁火</span>
+            </td>
+            <td class="canggan">
+              <span class="el-metal">庚金</span><br>
+              <span class="el-water">壬水</span><br>
+              <span class="el-earth">戊土</span>
+            </td>
+          </tr>
+          <tr>
+            <td class="row-label">副星</td>
+            <td class="shishen">比肩<br>食神<br>偏財</td>
+            <td class="shishen">正財<br>正印<br>正官</td>
+            <td class="shishen">偏財<br>正官<br>傷官</td>
+            <td class="shishen">七殺<br>偏印<br>偏財</td>
+          </tr>
+          <tr>
+            <td class="row-label">十二運</td>
+            <td>臨官</td>
+            <td>冠帶</td>
+            <td>養</td>
+            <td>絕</td>
+          </tr>
+          <tr>
+            <td class="row-label">納音</td>
+            <td>爐中火</td>
+            <td>壁上土</td>
+            <td>山頭火</td>
+            <td>劍鋒金</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ==================== READING RESULT ==================== -->
+  <section id="reading" class="section">
+    <h2 class="section-title">解讀結果 Reading Result</h2>
+    <p class="section-subtitle">Scrolling cards with decorative dividers and paywall blur</p>
+
+    <!-- Section 1: Open -->
+    <div class="reading-section" style="animation-delay:0s;">
+      <div class="reading-section-title">命格總論</div>
+      <div class="reading-content">
+        <p>日主甲木，生於丑月（土旺之時），財星當令。甲木為參天大樹，根基深厚，志向高遠。丑月出生，土旺木休，但寅中甲木本氣透出年柱，得根有力。</p>
+        <p>月幹辛金正官透出，官星清正，為人端莊有禮，適合從事管理或公職方面發展。時柱壬水偏印坐申金長生，學識涵養深厚。</p>
+      </div>
+    </div>
+
+    <!-- Decorative Divider -->
+    <div class="reading-divider">
+      <span class="diamond">◆</span>
+    </div>
+
+    <!-- Section 2: Open -->
+    <div class="reading-section" style="animation-delay:0.1s;">
+      <div class="reading-section-title">五行分析</div>
+      <div class="reading-content">
+        <p>命局五行分布：木(2)、火(1)、土(3)、金(3)、水(1)。土金偏旺，木火稍弱。喜用神為木火，忌神為土金。</p>
+        <p>整體而言，命局五行雖有偏重，但藏干暗合通關，格局尚稱清奇。建議在日常生活中多接觸綠色與紅色系的事物。</p>
+      </div>
+    </div>
+
+    <!-- Decorative Divider -->
+    <div class="reading-divider">
+      <span class="diamond">◆</span>
+    </div>
+
+    <!-- Section 3: Paywalled -->
+    <div class="reading-section reading-paywall" style="animation-delay:0.2s;">
+      <div class="reading-section-title">🔒 事業運勢</div>
+      <div class="reading-content">
+        <p>正官透月幹，事業發展穩健。中年後大運走木火之地，事業將有顯著提升。正財偏財並見，理財能力不俗。</p>
+        <p>建議在35-45歲期間積極把握事業機會，此階段運勢最為旺盛，適合創業或升遷。</p>
+      </div>
+      <div class="reading-paywall-overlay">
+        <button class="btn btn-primary btn-lg">🔓 解鎖完整內容</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== FOOTER ==================== -->
+  <div style="text-align:center; padding:3rem 0; color:var(--text-muted); font-size:0.85rem;">
+    <p>天命 Design System — Warm & Inviting Theme Preview</p>
+    <p style="margin-top:0.5rem;">本服務僅供參考與娛樂用途，不構成任何專業建議</p>
+  </div>
+
+</div>
+
+</body>
+</html>

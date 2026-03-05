@@ -1,18 +1,19 @@
 /* DualBirthDataForm — dual-person comparison input form */
-/* Follows existing BirthDataForm.module.css design patterns */
+/* Follows existing BirthDataForm.module.css design patterns (warm light theme) */
 
 .formWrapper {
-  background: #16213e;
-  border: 1px solid rgba(232, 213, 183, 0.15);
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-light);
   border-radius: 16px;
   padding: 2rem;
   max-width: 960px;
   width: 100%;
   margin: 0 auto;
+  box-shadow: var(--shadow-warm);
 }
 
 .formTitle {
-  color: #e8d5b7;
+  color: var(--text-primary);
   font-size: 1.5rem;
   font-weight: 700;
   margin-bottom: 0.5rem;
@@ -20,7 +21,7 @@
 }
 
 .formSubtitle {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   text-align: center;
   margin-bottom: 1.5rem;
@@ -41,42 +42,58 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.75rem 0.5rem;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
   border-radius: 10px;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   cursor: pointer;
   transition: all 0.2s;
 }
 
 .typeBtn:hover {
-  border-color: rgba(232, 213, 183, 0.4);
-  color: #e0e0e0;
+  border-color: var(--border-medium);
+  color: var(--text-primary);
 }
 
 .typeBtnActive {
-  border-color: #e8d5b7;
-  color: #e8d5b7;
-  background: rgba(232, 213, 183, 0.08);
+  border-color: var(--color-red);
+  color: var(--color-red);
+  background: rgba(var(--color-red-rgb), 0.06);
+}
+
+.typeBtnActive:hover {
+  border-color: var(--color-red);
 }
 
 /* Comparison type accent colors (active state) */
 .type_romance.typeBtnActive {
-  border-color: #e91e63;
-  color: #e91e63;
-  background: rgba(233, 30, 99, 0.08);
+  border-color: #c41e3a;
+  color: #c41e3a;
+  background: rgba(196, 30, 58, 0.06);
+}
+
+.type_romance.typeBtnActive:hover {
+  border-color: #c41e3a;
 }
 
 .type_business.typeBtnActive {
-  border-color: #2196f3;
-  color: #2196f3;
-  background: rgba(33, 150, 243, 0.08);
+  border-color: #1565c0;
+  color: #1565c0;
+  background: rgba(21, 101, 192, 0.06);
+}
+
+.type_business.typeBtnActive:hover {
+  border-color: #1565c0;
 }
 
 .type_friendship.typeBtnActive {
-  border-color: #4caf50;
-  color: #4caf50;
-  background: rgba(76, 175, 80, 0.08);
+  border-color: #2e7d32;
+  color: #2e7d32;
+  background: rgba(46, 125, 50, 0.06);
+}
+
+.type_friendship.typeBtnActive:hover {
+  border-color: #2e7d32;
 }
 
 .typeBtnIcon {
@@ -99,8 +116,8 @@
 }
 
 .panel {
-  background: rgba(26, 26, 46, 0.5);
-  border: 1px solid rgba(232, 213, 183, 0.1);
+  background: rgba(212, 160, 23, 0.03);
+  border: 1px solid var(--border-light);
   border-radius: 12px;
   padding: 1.25rem;
 }
@@ -126,10 +143,10 @@
 .profileDropdown {
   width: 100%;
   padding: 0.6rem 0.75rem;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   outline: none;
   transition: border-color 0.2s;
@@ -137,12 +154,12 @@
 }
 
 .profileDropdown:focus {
-  border-color: #e8d5b7;
+  border-color: var(--color-red);
 }
 
 .profileDropdown option {
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary);
 }
 
 /* ==== Save Section (Person B) ==== */
@@ -150,22 +167,22 @@
 .saveSection {
   margin-top: 1rem;
   padding: 0.75rem;
-  background: rgba(232, 213, 183, 0.05);
+  background: rgba(212, 160, 23, 0.04);
   border-radius: 8px;
-  border: 1px solid rgba(232, 213, 183, 0.1);
+  border: 1px solid var(--border-light);
 }
 
 .saveLabel {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   cursor: pointer;
 }
 
 .saveLabel input[type="checkbox"] {
-  accent-color: #e8d5b7;
+  accent-color: var(--color-red);
   width: 16px;
   height: 16px;
 }
@@ -179,10 +196,10 @@
 .tagBtn {
   flex: 1;
   padding: 0.45rem;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
@@ -190,35 +207,39 @@
 }
 
 .tagBtn:hover {
-  border-color: rgba(232, 213, 183, 0.4);
+  border-color: var(--border-medium);
 }
 
 .tagBtnActive {
   composes: tagBtn;
-  border-color: #e8d5b7;
-  color: #e8d5b7;
-  background: rgba(232, 213, 183, 0.1);
+  border-color: var(--color-red);
+  color: var(--color-red);
+  background: rgba(var(--color-red-rgb), 0.06);
+}
+
+.tagBtnActive:hover {
+  border-color: var(--color-red);
 }
 
 /* ==== Error & Warning ==== */
 
 .errorMsg {
-  color: #f44336;
+  color: #c62828;
   font-size: 0.85rem;
   text-align: center;
   margin-bottom: 0.75rem;
   padding: 0.5rem;
-  background: rgba(244, 67, 54, 0.08);
+  background: rgba(244, 67, 54, 0.06);
   border-radius: 6px;
 }
 
 .creditWarning {
-  color: #ff9800;
+  color: #e65100;
   font-size: 0.85rem;
   text-align: center;
   margin-bottom: 0.75rem;
   padding: 0.5rem;
-  background: rgba(255, 152, 0, 0.08);
+  background: rgba(255, 152, 0, 0.06);
   border-radius: 6px;
 }
 
@@ -229,7 +250,7 @@
 }
 
 .creditInfo {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.8rem;
   margin-bottom: 0.75rem;
 }
@@ -238,10 +259,10 @@
   width: 100%;
   max-width: 320px;
   padding: 0.9rem 2rem;
-  background: linear-gradient(135deg, #e8d5b7 0%, #d4af37 100%);
+  background: var(--color-red);
   border: none;
-  border-radius: 8px;
-  color: #1a1a2e;
+  border-radius: 12px;
+  color: #FFFFFF;
   font-size: 1.1rem;
   font-weight: 700;
   cursor: pointer;
@@ -251,6 +272,7 @@
 .submitBtn:hover {
   opacity: 0.9;
   transform: translateY(-1px);
+  box-shadow: var(--shadow-warm);
 }
 
 .submitBtn:disabled {

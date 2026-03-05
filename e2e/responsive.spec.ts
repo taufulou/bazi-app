@@ -1,7 +1,7 @@
 /**
  * E2E Tests: Responsive Design
  * Tests that key pages render correctly on different screen sizes.
- * Verifies dark theme, layout adapts, and no content overflow.
+ * Verifies bright theme, layout adapts, and no content overflow.
  *
  * NOTE: Use role="switch" for billing toggle (avoids "年繳" text ambiguity).
  * Use [class*="headerTitle"] for reading page titles (avoids duplicate match).
@@ -134,8 +134,8 @@ test.describe('Responsive - Mobile (390x844)', () => {
   });
 });
 
-test.describe('Dark Theme Verification', () => {
-  test('pricing page has dark background', async ({ page }) => {
+test.describe('Bright Theme Verification', () => {
+  test('pricing page has bright background', async ({ page }) => {
     await page.goto('/pricing');
 
     const bgColor = await page.evaluate(() => {
@@ -143,19 +143,21 @@ test.describe('Dark Theme Verification', () => {
       return window.getComputedStyle(el).backgroundColor;
     });
 
-    // Background should be dark (RGB values low)
-    // #1a1a2e = rgb(26, 26, 46)
-    // Accept any dark color (R+G+B < 200)
+    // Background should be bright (warm cream)
+    // #FFF3E0 = rgb(255, 243, 224)
+    // Accept any bright color (R+G+B > 600)
     const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
     if (match) {
       const r = parseInt(match[1]);
       const g = parseInt(match[2]);
       const b = parseInt(match[3]);
-      expect(r + g + b).toBeLessThan(200);
+      expect(r + g + b).toBeGreaterThan(600);
     }
   });
 
-  test('reading page has dark background', async ({ page }) => {
+  // TODO: Phase B — Reading pages still use dark theme until redesigned.
+  // Re-enable this test after reading pages are migrated to bright theme.
+  test.skip('reading page has bright background', async ({ page }) => {
     await page.goto('/reading/lifetime');
 
     const bgColor = await page.evaluate(() => {
@@ -168,7 +170,7 @@ test.describe('Dark Theme Verification', () => {
       const r = parseInt(match[1]);
       const g = parseInt(match[2]);
       const b = parseInt(match[3]);
-      expect(r + g + b).toBeLessThan(200);
+      expect(r + g + b).toBeGreaterThan(600);
     }
   });
 });

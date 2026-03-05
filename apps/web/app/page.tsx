@@ -1,123 +1,115 @@
 import Link from "next/link";
-import { auth } from "@clerk/nextjs/server";
+import Image from "next/image";
+import { UserButton } from "@clerk/nextjs";
+import { currentUser } from "@clerk/nextjs/server";
+import { redirect } from "next/navigation";
+import { READING_TYPE_META } from "@repo/shared";
+import CreditBadge from "./components/CreditBadge";
+import AccountPanel from "./components/AccountPanel";
+import HeroBanner from "./components/HeroBanner";
 import styles from "./page.module.css";
 
-export default async function Home() {
-  const { userId } = await auth();
-  const ctaHref = userId ? "/dashboard" : "/sign-in";
-  const ctaLabel = userId ? "進入控制台" : "免費開始";
+export default async function HomePage() {
+  const user = await currentUser();
+
+  if (!user) {
+    redirect("/sign-in");
+  }
+
+  // Build reading types from shared constants, separated by system
+  const allTypes = (
+    Object.entries(READING_TYPE_META) as [string, (typeof READING_TYPE_META)[keyof typeof READING_TYPE_META]][]
+  ).map(([slug, meta]) => ({
+    slug,
+    icon: meta.icon,
+    name: meta.nameZhTw,
+    description: meta.description["zh-TW"],
+  }));
+
+  const baziTypes = allTypes.filter(
+    (t) => !t.slug.startsWith("zwds-") && t.slug !== "health"
+  );
+  // ZWDS types hidden for now — will re-enable in Phase B
+  // const zwdsTypes = allTypes.filter((t) => t.slug.startsWith("zwds-"));
 
   return (
     <div className={styles.page}>
-      <main className={styles.main}>
-        <h1 className={styles.title}>天命</h1>
-        <p className={styles.subtitle}>預見你的一生</p>
-        <p className={styles.description}>
-          AI 驅動的命理分析平台
-        </p>
+      <div className={styles.inner}>
+        {/* Header */}
+        <header className={styles.header}>
+          <Link href="/" className={styles.logo}>
+            <Image
+              src="/logo-1024.png"
+              alt="天命"
+              width={40}
+              height={40}
+              className={styles.logoImage}
+            />
+          </Link>
+          <div className={styles.headerRight}>
+            <CreditBadge showPricingLink />
+            <span className={styles.userName}>
+              {user.firstName || user.emailAddresses[0]?.emailAddress || "用戶"}
+            </span>
+            <UserButton
+              afterSignOutUrl="/"
+              appearance={{
+                elements: {
+                  avatarBox: "w-10 h-10",
+                },
+              }}
+            />
+          </div>
+        </header>
 
-        <Link href={ctaHref} className={styles.ctaButton}>
-          {ctaLabel}
-        </Link>
-
-        {/* Bazi Section */}
-        <h2 className={styles.sectionTitle}>八字命理分析</h2>
-        <div className={styles.features}>
-          <Link href={ctaHref} className={styles.featureLink}>
-            <div className={styles.feature}>
-              <span className={styles.featureIcon}>&#127963;&#65039;</span>
-              <h3>八字終身運</h3>
-              <p>Lifetime Destiny Analysis</p>
-            </div>
-          </Link>
-          <Link href={ctaHref} className={styles.featureLink}>
-            <div className={styles.feature}>
-              <span className={styles.featureIcon}>&#128197;</span>
-              <h3>流年運勢</h3>
-              <p>Annual Fortune Forecast</p>
-            </div>
-          </Link>
-          <Link href={ctaHref} className={styles.featureLink}>
-            <div className={styles.feature}>
-              <span className={styles.featureIcon}>&#128188;</span>
-              <h3>事業財運</h3>
-              <p>Career &amp; Finance</p>
-            </div>
-          </Link>
-          <Link href={ctaHref} className={styles.featureLink}>
-            <div className={styles.feature}>
-              <span className={styles.featureIcon}>&#10084;&#65039;</span>
-              <h3>愛情姻緣</h3>
-              <p>Love &amp; Marriage</p>
-            </div>
-          </Link>
-          <Link href={ctaHref} className={styles.featureLink}>
-            <div className={styles.feature}>
-              <span className={styles.featureIcon}>&#127807;</span>
-              <h3>健康分析</h3>
-              <p>Health Analysis</p>
-            </div>
-          </Link>
-          <Link href={ctaHref} className={styles.featureLink}>
-            <div className={styles.feature}>
-              <span className={styles.featureIcon}>&#129309;</span>
-              <h3>合盤比較</h3>
-              <p>Compatibility</p>
-            </div>
-          </Link>
+        {/* Welcome Row — greeting + quick link pills */}
+        <div className={styles.welcomeRow}>
+          <h2 className={styles.welcomeTitle}>
+            歡迎回來{user.firstName ? `，${user.firstName}` : ""}
+          </h2>
+          <div className={styles.quickLinks}>
+            <Link href="/dashboard/profiles" className={styles.quickLink}>
+              <span className={styles.quickLinkIcon}>👤</span>
+              <span>出生資料</span>
+            </Link>
+            <Link href="/dashboard/readings" className={styles.quickLink}>
+              <span className={styles.quickLinkIcon}>📋</span>
+              <span>歷史記錄</span>
+            </Link>
+          </div>
         </div>
 
-        {/* ZWDS Section */}
-        <h2 className={styles.sectionTitle}>紫微斗數分析</h2>
-        <div className={styles.features}>
-          <Link href={ctaHref} className={styles.featureLink}>
-            <div className={styles.featureZwds}>
-              <span className={styles.featureIcon}>&#127776;</span>
-              <h3>紫微終身命盤</h3>
-              <p>Lifetime Star Chart</p>
-            </div>
-          </Link>
-          <Link href={ctaHref} className={styles.featureLink}>
-            <div className={styles.featureZwds}>
-              <span className={styles.featureIcon}>&#128302;</span>
-              <h3>紫微流年運</h3>
-              <p>Annual Star Forecast</p>
-            </div>
-          </Link>
-          <Link href={ctaHref} className={styles.featureLink}>
-            <div className={styles.featureZwds}>
-              <span className={styles.featureIcon}>&#128188;</span>
-              <h3>紫微事業運</h3>
-              <p>Career Star Analysis</p>
-            </div>
-          </Link>
-          <Link href={ctaHref} className={styles.featureLink}>
-            <div className={styles.featureZwds}>
-              <span className={styles.featureIcon}>&#128150;</span>
-              <h3>紫微愛情運</h3>
-              <p>Love Star Analysis</p>
-            </div>
-          </Link>
-          <Link href={ctaHref} className={styles.featureLink}>
-            <div className={styles.featureZwds}>
-              <span className={styles.featureIcon}>&#127774;</span>
-              <h3>紫微流月運</h3>
-              <p>Monthly Star Forecast</p>
-            </div>
-          </Link>
-          <Link href={ctaHref} className={styles.featureLink}>
-            <div className={styles.featureZwds}>
-              <span className={styles.featureIcon}>&#128171;</span>
-              <h3>紫微每日運勢</h3>
-              <p>Daily Star Fortune</p>
-            </div>
-          </Link>
-        </div>
+        {/* Hero Banner / Carousel */}
+        <HeroBanner />
 
-        <Link href={ctaHref} className={styles.ctaButton}>
-          {ctaLabel}
-        </Link>
-      </main>
+        {/* Bazi Reading Types */}
+        <section className={styles.readingsSection} id="readings">
+          <h3 className={styles.sectionLabel}>八字命理分析</h3>
+          <div className={styles.grid}>
+            {baziTypes.map((reading) => (
+              <Link
+                key={reading.slug}
+                href={`/reading/${reading.slug}`}
+                className={styles.cardLink}
+              >
+                <div className={styles.card}>
+                  <span className={styles.cardIcon}>{reading.icon}</span>
+                  <div className={styles.cardBody}>
+                    <h3 className={styles.cardTitle}>{reading.name}</h3>
+                    <p className={styles.cardDescription}>{reading.description}</p>
+                  </div>
+                  <span className={styles.cardArrow}>&rarr;</span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        {/* ZWDS Reading Types — hidden for now, will re-enable in Phase B */}
+
+        {/* Account Panel — compact mode hides duplicate tier/credits */}
+        <AccountPanel compact />
+      </div>
     </div>
   );
 }

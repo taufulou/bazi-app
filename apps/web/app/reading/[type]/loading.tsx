@@ -3,7 +3,7 @@ export default function ReadingLoading() {
     <div
       style={{
         minHeight: '100vh',
-        background: '#1a1a2e',
+        background: '#FFF3E0',
         padding: 24,
       }}
     >
@@ -23,7 +23,7 @@ export default function ReadingLoading() {
               style={{
                 height: 32,
                 width: 120,
-                background: '#16213e',
+                background: 'rgba(212, 160, 23, 0.12)',
                 borderRadius: 16,
                 animation: 'pulse 1.5s ease-in-out infinite',
               }}
@@ -34,9 +34,11 @@ export default function ReadingLoading() {
         {/* Form skeleton */}
         <div
           style={{
-            background: '#16213e',
-            borderRadius: 12,
+            background: '#FFFFFF',
+            borderRadius: 16,
             padding: 32,
+            border: '1px solid rgba(212, 160, 23, 0.15)',
+            boxShadow: '0 4px 20px rgba(226, 61, 40, 0.08)',
             animation: 'pulse 1.5s ease-in-out infinite',
           }}
         >
@@ -45,7 +47,7 @@ export default function ReadingLoading() {
             style={{
               height: 24,
               width: '40%',
-              background: '#1a1a2e',
+              background: 'rgba(212, 160, 23, 0.1)',
               borderRadius: 4,
               marginBottom: 24,
             }}
@@ -58,7 +60,7 @@ export default function ReadingLoading() {
                 style={{
                   height: 14,
                   width: 80,
-                  background: '#1a1a2e',
+                  background: 'rgba(212, 160, 23, 0.1)',
                   borderRadius: 4,
                   marginBottom: 8,
                 }}
@@ -67,8 +69,8 @@ export default function ReadingLoading() {
                 style={{
                   height: 40,
                   width: '100%',
-                  background: '#1a1a2e',
-                  borderRadius: 6,
+                  background: 'rgba(212, 160, 23, 0.06)',
+                  borderRadius: 8,
                 }}
               />
             </div>
@@ -79,8 +81,8 @@ export default function ReadingLoading() {
             style={{
               height: 44,
               width: 160,
-              background: '#1a1a2e',
-              borderRadius: 8,
+              background: 'rgba(226, 61, 40, 0.12)',
+              borderRadius: 12,
               marginTop: 12,
             }}
           />

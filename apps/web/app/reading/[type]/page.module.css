@@ -1,7 +1,7 @@
 .pageContainer {
   min-height: 100vh;
-  background-color: #1a1a2e;
-  color: #e0e0e0;
+  background: linear-gradient(180deg, #FFF3E0 0%, #FFFBF5 100%);
+  color: var(--text-primary);
   padding: 2rem;
 }
 
@@ -18,7 +18,7 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   cursor: pointer;
   transition: color 0.2s;
@@ -28,13 +28,14 @@
 }
 
 .backLink:hover {
-  color: #e8d5b7;
+  color: var(--text-accent);
 }
 
 .headerTitle {
-  color: #e8d5b7;
+  color: var(--text-primary);
   font-size: 1.3rem;
   font-weight: 700;
+  font-family: var(--font-noto-serif-tc), serif;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -57,13 +58,13 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: #555;
+  color: var(--text-muted);
   font-size: 0.85rem;
 }
 
 .stepActive {
   composes: step;
-  color: #e8d5b7;
+  color: var(--color-red);
 }
 
 .stepCompleted {
@@ -75,7 +76,7 @@
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(212, 160, 23, 0.05);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -84,9 +85,9 @@
 }
 
 .stepActive .stepNumber {
-  background: rgba(232, 213, 183, 0.15);
-  color: #e8d5b7;
-  border: 2px solid #e8d5b7;
+  background: rgba(var(--color-red-rgb), 0.1);
+  color: var(--color-red);
+  border: 2px solid var(--color-red);
 }
 
 .stepCompleted .stepNumber {
@@ -98,13 +99,13 @@
 .stepLine {
   width: 40px;
   height: 2px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border-light);
   align-self: center;
 }
 
 .stepLineActive {
   composes: stepLine;
-  background: rgba(232, 213, 183, 0.3);
+  background: rgba(var(--color-red-rgb), 0.3);
 }
 
 /* ==== Content Area ==== */
@@ -131,7 +132,7 @@
 }
 
 .retryBtn {
-  background: rgba(244, 67, 54, 0.15);
+  background: rgba(244, 67, 54, 0.1);
   color: #F44336;
   border: 1px solid rgba(244, 67, 54, 0.3);
   padding: 0.6rem 1.5rem;
@@ -142,7 +143,7 @@
 }
 
 .retryBtn:hover {
-  background: rgba(244, 67, 54, 0.25);
+  background: rgba(244, 67, 54, 0.18);
 }
 
 /* ==== Cache Toast ==== */
@@ -153,10 +154,10 @@
   max-width: 900px;
   margin: 0 auto 1rem;
   padding: 0.75rem 1rem;
-  background: rgba(76, 175, 80, 0.12);
-  border: 1px solid rgba(76, 175, 80, 0.3);
+  background: rgba(76, 175, 80, 0.08);
+  border: 1px solid rgba(76, 175, 80, 0.25);
   border-radius: 8px;
-  color: #a5d6a7;
+  color: #2e7d32;
   font-size: 0.85rem;
   line-height: 1.4;
   animation: slideDown 0.3s ease-out;
@@ -171,7 +172,7 @@
   margin-left: auto;
   background: none;
   border: none;
-  color: #a5d6a7;
+  color: #2e7d32;
   cursor: pointer;
   padding: 0.2rem 0.4rem;
   font-size: 0.9rem;
@@ -201,16 +202,17 @@
   gap: 0;
   max-width: 900px;
   margin: 0 auto 1.5rem;
-  border: 1px solid rgba(232, 213, 183, 0.1);
-  border-radius: 12px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
   overflow: hidden;
+  background: var(--bg-card);
 }
 
 .tab {
   flex: 1;
   padding: 0.75rem 1rem;
   text-align: center;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   cursor: pointer;
   transition: all 0.2s;
@@ -221,22 +223,22 @@
 
 .tabActive {
   composes: tab;
-  background: rgba(232, 213, 183, 0.1);
-  color: #e8d5b7;
+  background: rgba(var(--color-red-rgb), 0.08);
+  color: var(--color-red);
   font-weight: 600;
 }
 
 .tab:hover {
-  color: #d0d0d0;
-  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+  background: rgba(212, 160, 23, 0.05);
 }
 
 .tabSpinner {
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 2px solid rgba(232, 213, 183, 0.2);
-  border-top-color: #e8d5b7;
+  border: 2px solid rgba(var(--color-red-rgb), 0.15);
+  border-top-color: var(--color-red);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   vertical-align: middle;
@@ -255,23 +257,24 @@
 }
 
 .invalidTitle {
-  color: #e8d5b7;
+  color: var(--text-primary);
   font-size: 1.5rem;
+  font-family: var(--font-noto-serif-tc), serif;
   margin-bottom: 0.5rem;
 }
 
 .invalidText {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   margin-bottom: 1.5rem;
 }
 
 .dashboardLink {
   display: inline-block;
-  background: linear-gradient(135deg, #d4af37, #b8962e);
-  color: #1a1a2e;
+  background: var(--color-red);
+  color: #FFFFFF;
   padding: 0.75rem 2rem;
-  border-radius: 25px;
+  border-radius: var(--radius-md);
   font-weight: 700;
   text-decoration: none;
   transition: all 0.2s;
@@ -279,7 +282,7 @@
 
 .dashboardLink:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+  box-shadow: var(--shadow-warm);
 }
 
 /* ==== Save Warning ==== */
@@ -295,15 +298,15 @@
   max-width: 600px;
   margin: 4rem auto;
   text-align: center;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 
 .skeletonSpinner {
   width: 32px;
   height: 32px;
-  border: 3px solid rgba(232, 213, 183, 0.15);
-  border-top-color: #e8d5b7;
+  border: 3px solid rgba(var(--color-red-rgb), 0.15);
+  border-top-color: var(--color-red);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
   margin: 0 auto 1rem;
@@ -320,7 +323,7 @@
 
 .extraInputLabel {
   display: block;
-  color: #e8d5b7;
+  color: var(--text-accent);
   font-size: 0.85rem;
   font-weight: 600;
   margin-bottom: 0.5rem;
@@ -334,41 +337,41 @@
 .extraInputSelect {
   flex: 1;
   padding: 0.65rem 0.75rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(232, 213, 183, 0.2);
-  border-radius: 8px;
-  color: #e0e0e0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
   font-size: 0.9rem;
 }
 
 .extraInputSelect:focus {
   outline: none;
-  border-color: rgba(232, 213, 183, 0.5);
+  border-color: var(--border-medium);
 }
 
 .extraInputDate {
   width: 100%;
   padding: 0.65rem 0.75rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(232, 213, 183, 0.2);
-  border-radius: 8px;
-  color: #e0e0e0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
   font-size: 0.9rem;
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 .extraInputDate:focus {
   outline: none;
-  border-color: rgba(232, 213, 183, 0.5);
+  border-color: var(--border-medium);
 }
 
 .extraInputTextarea {
   width: 100%;
   padding: 0.75rem;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(232, 213, 183, 0.2);
-  border-radius: 8px;
-  color: #e0e0e0;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
   font-size: 0.9rem;
   font-family: inherit;
   resize: vertical;
@@ -377,15 +380,15 @@
 
 .extraInputTextarea:focus {
   outline: none;
-  border-color: rgba(232, 213, 183, 0.5);
+  border-color: var(--border-medium);
 }
 
 .extraInputTextarea::placeholder {
-  color: #666;
+  color: var(--text-muted);
 }
 
 .extraInputHint {
-  color: #666;
+  color: var(--text-muted);
   font-size: 0.75rem;
   text-align: right;
   margin-top: 0.25rem;
@@ -412,9 +415,10 @@
   text-align: center;
   padding: 2.5rem 2rem;
   margin-bottom: 1.5rem;
-  background: linear-gradient(135deg, rgba(232, 213, 183, 0.08), rgba(212, 175, 55, 0.05));
-  border: 1px solid rgba(232, 213, 183, 0.15);
-  border-radius: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-warm);
 }
 
 .subscribeCTAIcon {
@@ -423,14 +427,15 @@
 }
 
 .subscribeCTATitle {
-  color: #e8d5b7;
+  color: var(--text-primary);
   font-size: 1.2rem;
   font-weight: 700;
+  font-family: var(--font-noto-serif-tc), serif;
   margin-bottom: 0.5rem;
 }
 
 .subscribeCTAText {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   margin-bottom: 1.25rem;
   max-width: 400px;
@@ -440,10 +445,10 @@
 
 .subscribeCTAButton {
   display: inline-block;
-  background: linear-gradient(135deg, #d4af37, #b8962e);
-  color: #1a1a2e;
+  background: var(--color-red);
+  color: #FFFFFF;
   padding: 0.7rem 2rem;
-  border-radius: 25px;
+  border-radius: var(--radius-md);
   font-weight: 700;
   font-size: 0.9rem;
   text-decoration: none;
@@ -452,7 +457,7 @@
 
 .subscribeCTAButton:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.3);
+  box-shadow: var(--shadow-warm);
 }
 
 /* ==== AI Divider (lifetime single-page layout) ==== */
@@ -461,11 +466,13 @@
   align-items: center;
   gap: 0.5rem;
   margin: 2rem 0 1.5rem;
-  padding: 0.75rem 0;
-  border-top: 1px solid rgba(232, 213, 183, 0.15);
-  color: #e8d5b7;
-  font-size: 1.1rem;
-  font-weight: 600;
+  padding: 0.75rem 0 0.75rem 1rem;
+  border-left: 4px solid var(--color-red);
+  border-top: none;
+  color: var(--text-accent);
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .aiDividerIcon {
@@ -480,14 +487,14 @@
   max-width: 900px;
   margin: 0 auto 1rem;
   padding: 0.5rem 1rem;
-  background: rgba(232, 213, 183, 0.05);
-  border: 1px solid rgba(232, 213, 183, 0.1);
+  background: rgba(212, 160, 23, 0.05);
+  border: 1px solid var(--border-light);
   border-radius: 10px;
   animation: slideDown 0.3s ease-out;
 }
 
 .revealProgressLabel {
-  color: #e8d5b7;
+  color: var(--text-accent);
   font-size: 0.85rem;
   font-weight: 500;
   white-space: nowrap;
@@ -496,14 +503,14 @@
 .revealProgressBar {
   flex: 1;
   height: 4px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(212, 160, 23, 0.1);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .revealProgressFill {
   height: 100%;
-  background: linear-gradient(90deg, #e8d5b7, #d4af37);
+  background: linear-gradient(90deg, var(--color-gold), var(--color-gold-light));
   border-radius: 2px;
   transition: width 0.5s ease-out;
 }

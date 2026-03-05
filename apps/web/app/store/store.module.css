@@ -1,11 +1,11 @@
 /* ============================================================
-   Credit Store — Dark Theme with Gold Accents
+   Credit Store — Warm & Inviting Bright Theme
    ============================================================ */
 
 .pageContainer {
   min-height: 100vh;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
-  color: #e0e0e0;
+  background: linear-gradient(180deg, #FFF3E0 0%, #FFFBF5 100%);
+  color: var(--text-primary);
   padding: 3rem 1.5rem 5rem;
 }
 
@@ -18,7 +18,7 @@
 
 .backLink {
   display: inline-block;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   text-decoration: none;
   font-size: 0.9rem;
   margin-bottom: 1rem;
@@ -26,7 +26,7 @@
 }
 
 .backLink:hover {
-  color: #e8d5b7;
+  color: var(--text-accent);
 }
 
 .pageTitle {
@@ -34,15 +34,13 @@
   font-weight: 800;
   letter-spacing: 0.05em;
   margin: 0 0 0.75rem;
-  background: linear-gradient(135deg, #e8d5b7 0%, #c4a882 50%, #d4af37 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--text-accent);
+  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .pageSubtitle {
   font-size: 1.05rem;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   margin: 0;
   line-height: 1.6;
 }
@@ -56,25 +54,26 @@
   max-width: 500px;
   margin: 0 auto 3rem;
   padding: 1.25rem 2rem;
-  background: rgba(232, 213, 183, 0.06);
-  border: 1px solid rgba(232, 213, 183, 0.15);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: 14px;
+  box-shadow: var(--shadow-warm);
 }
 
 .balanceLabel {
   font-size: 0.95rem;
-  color: #a0a0a0;
+  color: var(--text-secondary);
 }
 
 .balanceValue {
   font-size: 1.8rem;
   font-weight: 800;
-  color: #e8d5b7;
+  color: var(--text-accent);
 }
 
 .balanceUnit {
   font-size: 0.9rem;
-  color: #c4a882;
+  color: var(--text-secondary);
   margin-left: 0.25rem;
 }
 
@@ -91,35 +90,35 @@
 /* ==== Package Card ==== */
 .packageCard {
   position: relative;
-  background: #16213e;
-  border: 1px solid rgba(232, 213, 183, 0.1);
-  border-radius: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
   padding: 2rem 1.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   transition: all 0.3s ease;
+  box-shadow: var(--shadow-warm);
 }
 
 .packageCard:hover {
   transform: translateY(-4px);
-  border-color: rgba(232, 213, 183, 0.2);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  border-color: var(--border-medium);
+  box-shadow: var(--shadow-warm-lg);
 }
 
 .packageCardBestValue {
-  border-color: rgba(212, 175, 55, 0.45);
+  border-color: rgba(var(--color-red-rgb), 0.3);
   box-shadow:
-    0 0 20px rgba(212, 175, 55, 0.08),
-    0 0 60px rgba(212, 175, 55, 0.04);
+    0 0 20px rgba(var(--color-red-rgb), 0.06),
+    var(--shadow-warm);
 }
 
 .packageCardBestValue:hover {
-  border-color: rgba(212, 175, 55, 0.6);
+  border-color: rgba(var(--color-red-rgb), 0.5);
   box-shadow:
-    0 0 30px rgba(212, 175, 55, 0.12),
-    0 0 80px rgba(212, 175, 55, 0.06),
-    0 12px 40px rgba(0, 0, 0, 0.3);
+    0 0 30px rgba(var(--color-red-rgb), 0.1),
+    var(--shadow-warm-lg);
 }
 
 .bestValueBadge {
@@ -127,8 +126,8 @@
   top: -12px;
   left: 50%;
   transform: translateX(-50%);
-  background: linear-gradient(135deg, #d4af37, #b8962e);
-  color: #1a1a2e;
+  background: var(--color-red);
+  color: var(--text-on-red);
   font-size: 0.75rem;
   font-weight: 700;
   padding: 0.25rem 1rem;
@@ -141,14 +140,14 @@
 .creditAmount {
   font-size: 3rem;
   font-weight: 800;
-  color: #e8d5b7;
+  color: var(--text-accent);
   line-height: 1;
   margin-bottom: 0.25rem;
 }
 
 .creditLabel {
   font-size: 0.9rem;
-  color: #c4a882;
+  color: var(--text-secondary);
   margin-bottom: 1rem;
 }
 
@@ -156,7 +155,7 @@
 .packageName {
   font-size: 1rem;
   font-weight: 600;
-  color: #e0e0e0;
+  color: var(--text-primary);
   margin: 0 0 0.5rem;
   text-align: center;
 }
@@ -165,18 +164,18 @@
 .priceTag {
   font-size: 1.8rem;
   font-weight: 700;
-  color: #e8d5b7;
+  color: var(--text-primary);
   margin-bottom: 0.25rem;
 }
 
 .perCreditPrice {
   font-size: 0.8rem;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   margin-bottom: 1.5rem;
 }
 
 .perCreditHighlight {
-  color: #4CAF50;
+  color: #2e7d32;
   font-weight: 600;
 }
 
@@ -186,34 +185,35 @@
   width: 100%;
   padding: 0.85rem 1.5rem;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   font-size: 0.95rem;
   font-weight: 700;
   cursor: pointer;
   text-align: center;
   transition: all 0.3s ease;
   letter-spacing: 0.02em;
-  background: rgba(232, 213, 183, 0.1);
-  color: #e8d5b7;
-  border: 1px solid rgba(232, 213, 183, 0.25);
+  background: rgba(var(--color-gold-rgb), 0.08);
+  color: var(--text-primary);
+  border: 1px solid var(--border-medium);
   margin-top: auto;
 }
 
 .buyButton:hover {
-  background: rgba(232, 213, 183, 0.15);
-  border-color: rgba(232, 213, 183, 0.4);
+  background: rgba(var(--color-gold-rgb), 0.15);
+  border-color: var(--color-gold);
   transform: translateY(-2px);
 }
 
 .buyButtonPrimary {
-  background: linear-gradient(135deg, #d4af37, #b8962e);
-  color: #1a1a2e;
+  background: var(--color-red);
+  color: var(--text-on-red);
   border: none;
-  box-shadow: 0 4px 15px rgba(212, 175, 55, 0.25);
+  box-shadow: 0 4px 15px rgba(var(--color-red-rgb), 0.25);
 }
 
 .buyButtonPrimary:hover {
-  box-shadow: 0 6px 25px rgba(212, 175, 55, 0.35);
+  background: var(--color-red-dark);
+  box-shadow: 0 6px 25px rgba(var(--color-red-rgb), 0.35);
   transform: translateY(-2px);
 }
 
@@ -233,7 +233,7 @@
 }
 
 .loadingText {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
 }
 
@@ -241,8 +241,8 @@
   display: inline-block;
   width: 24px;
   height: 24px;
-  border: 2px solid rgba(232, 213, 183, 0.2);
-  border-top-color: #e8d5b7;
+  border: 2px solid rgba(var(--color-red-rgb), 0.15);
+  border-top-color: var(--color-red);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
@@ -269,10 +269,10 @@
   max-width: 600px;
   margin: 0 auto 2rem;
   padding: 0.85rem 1.5rem;
-  background: rgba(244, 67, 54, 0.12);
-  border: 1px solid rgba(244, 67, 54, 0.3);
+  background: rgba(244, 67, 54, 0.08);
+  border: 1px solid rgba(244, 67, 54, 0.2);
   border-radius: 10px;
-  color: #ef9a9a;
+  color: #c62828;
   font-size: 0.9rem;
 }
 
@@ -303,10 +303,10 @@
   align-items: center;
   gap: 1rem;
   padding: 0.85rem 1.5rem;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   font-size: 0.9rem;
   font-weight: 600;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
   animation: slideDown 0.3s ease;
   max-width: 480px;
   width: 90%;
@@ -318,9 +318,9 @@
 }
 
 .toastSuccess {
-  background: rgba(76, 175, 80, 0.2);
-  border: 1px solid rgba(76, 175, 80, 0.4);
-  color: #81c784;
+  background: rgba(76, 175, 80, 0.1);
+  border: 1px solid rgba(76, 175, 80, 0.25);
+  color: #2e7d32;
 }
 
 .toastClose {
@@ -345,13 +345,14 @@
   max-width: 500px;
   margin: 2rem auto;
   padding: 2rem;
-  background: rgba(232, 213, 183, 0.04);
-  border: 1px solid rgba(232, 213, 183, 0.1);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: 14px;
+  box-shadow: var(--shadow-warm);
 }
 
 .signInText {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.95rem;
   margin: 0 0 1rem;
 }
@@ -359,8 +360,8 @@
 .signInLink {
   display: inline-block;
   padding: 0.75rem 2rem;
-  background: linear-gradient(135deg, #d4af37, #b8962e);
-  color: #1a1a2e;
+  background: var(--color-red);
+  color: var(--text-on-red);
   border-radius: 10px;
   text-decoration: none;
   font-weight: 700;
@@ -369,7 +370,8 @@
 }
 
 .signInLink:hover {
-  box-shadow: 0 6px 25px rgba(212, 175, 55, 0.35);
+  background: var(--color-red-dark);
+  box-shadow: 0 6px 25px rgba(var(--color-red-rgb), 0.35);
   transform: translateY(-2px);
 }
 
@@ -380,14 +382,14 @@
 }
 
 .subscriptionLink {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   text-decoration: none;
   transition: color 0.2s;
 }
 
 .subscriptionLink:hover {
-  color: #e8d5b7;
+  color: var(--text-accent);
   text-decoration: underline;
 }
 
@@ -396,18 +398,18 @@
   margin: 2rem auto 0;
   text-align: center;
   font-size: 0.85rem;
-  color: #666;
+  color: var(--text-secondary);
   line-height: 1.7;
 }
 
 .bottomNoteLink {
-  color: #e8d5b7;
+  color: var(--text-accent);
   text-decoration: none;
   transition: color 0.2s;
 }
 
 .bottomNoteLink:hover {
-  color: #d4af37;
+  color: var(--color-red-dark);
   text-decoration: underline;
 }
 

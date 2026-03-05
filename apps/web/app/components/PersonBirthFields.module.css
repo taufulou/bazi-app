@@ -1,5 +1,5 @@
 /* PersonBirthFields — controlled birth data field group */
-/* Follows existing BirthDataForm.module.css design patterns */
+/* Follows existing BirthDataForm.module.css design patterns (warm light theme) */
 
 .fieldsContainer {
   position: relative;
@@ -11,12 +11,12 @@
 }
 
 .panelLabel {
-  color: #e8d5b7;
+  color: var(--color-red, #c41e3a);
   font-size: 1.1rem;
   font-weight: 600;
   margin-bottom: 1rem;
   padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(232, 213, 183, 0.15);
+  border-bottom: 1px solid var(--border-light);
 }
 
 .fieldGroup {
@@ -26,7 +26,7 @@
 
 .label {
   display: block;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   margin-bottom: 0.4rem;
   font-weight: 500;
@@ -37,10 +37,10 @@
 .select {
   width: 100%;
   padding: 0.65rem 0.75rem;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.95rem;
   outline: none;
   transition: border-color 0.2s;
@@ -48,16 +48,16 @@
 
 .input:focus,
 .select:focus {
-  border-color: #e8d5b7;
+  border-color: var(--color-red);
 }
 
 .input::placeholder {
-  color: #555;
+  color: var(--text-muted, #999);
 }
 
 .select option {
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary);
 }
 
 .selectSmall {
@@ -75,10 +75,10 @@
 .genderOption {
   flex: 1;
   padding: 0.6rem;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
@@ -86,14 +86,18 @@
 }
 
 .genderOption:hover {
-  border-color: rgba(232, 213, 183, 0.4);
+  border-color: var(--border-medium);
 }
 
 .genderOptionActive {
   composes: genderOption;
-  border-color: #e8d5b7;
-  color: #e8d5b7;
-  background: rgba(232, 213, 183, 0.1);
+  border-color: var(--color-red);
+  color: var(--color-red);
+  background: rgba(var(--color-red-rgb), 0.06);
+}
+
+.genderOptionActive:hover {
+  border-color: var(--color-red);
 }
 
 /* Calendar type toggle */
@@ -105,10 +109,10 @@
 .calType {
   flex: 1;
   padding: 0.5rem;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
@@ -116,28 +120,32 @@
 }
 
 .calType:hover {
-  border-color: rgba(232, 213, 183, 0.4);
+  border-color: var(--border-medium);
 }
 
 .calTypeActive {
   composes: calType;
-  border-color: #e8d5b7;
-  color: #e8d5b7;
-  background: rgba(232, 213, 183, 0.1);
+  border-color: var(--color-red);
+  color: var(--color-red);
+  background: rgba(var(--color-red-rgb), 0.06);
+}
+
+.calTypeActive:hover {
+  border-color: var(--color-red);
 }
 
 .leapMonthLabel {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   margin-top: 0.5rem;
   cursor: pointer;
 }
 
 .leapMonthLabel input[type="checkbox"] {
-  accent-color: #e8d5b7;
+  accent-color: var(--color-red);
 }
 
 /* Date row — 3-column grid */
@@ -159,13 +167,13 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   cursor: pointer;
 }
 
 .quickModeLabel input[type="checkbox"] {
-  accent-color: #e8d5b7;
+  accent-color: var(--color-red);
 }
 
 /* Region, City & Timezone — 3-column row matching BirthDataForm */

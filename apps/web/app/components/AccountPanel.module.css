@@ -1,11 +1,16 @@
 /* AccountPanel — Dashboard bottom panel */
 
 .panel {
-  background: linear-gradient(135deg, rgba(212, 175, 55, 0.1) 0%, rgba(232, 213, 183, 0.05) 100%);
-  border: 1px solid rgba(212, 175, 55, 0.2);
-  border-radius: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
   padding: 2rem;
   text-align: center;
+  box-shadow: var(--shadow-warm);
+}
+
+.panelCompact {
+  padding: 1.25rem;
 }
 
 /* ---- Top Row: Tier + Credits ---- */
@@ -27,27 +32,27 @@
 }
 
 .tierFREE {
-  border-color: rgba(160, 160, 160, 0.4);
-  color: #a0a0a0;
-  background: rgba(160, 160, 160, 0.15);
+  border-color: rgba(117, 117, 117, 0.3);
+  color: var(--tier-free-text);
+  background: var(--tier-free-bg);
 }
 
 .tierBASIC {
-  border-color: rgba(100, 181, 246, 0.4);
-  color: #64b5f6;
-  background: rgba(100, 181, 246, 0.15);
+  border-color: rgba(25, 118, 210, 0.3);
+  color: var(--tier-basic-text);
+  background: var(--tier-basic-bg);
 }
 
 .tierPRO {
-  border-color: rgba(156, 39, 176, 0.4);
-  color: #ce93d8;
-  background: rgba(156, 39, 176, 0.15);
+  border-color: rgba(123, 31, 162, 0.3);
+  color: var(--tier-pro-text);
+  background: var(--tier-pro-bg);
 }
 
 .tierMASTER {
-  border-color: rgba(232, 213, 183, 0.4);
-  color: #e8d5b7;
-  background: rgba(232, 213, 183, 0.15);
+  border-color: var(--tier-master-border);
+  color: var(--tier-master-text);
+  background: var(--tier-master-bg);
 }
 
 .creditDisplay {
@@ -63,12 +68,12 @@
 .creditCount {
   font-size: 1.5rem;
   font-weight: 700;
-  color: #e8d5b7;
+  color: var(--text-accent);
 }
 
 .creditLabel {
   font-size: 0.85rem;
-  color: #a0a0a0;
+  color: var(--text-secondary);
 }
 
 /* ---- Clickable Credit Display ---- */
@@ -91,17 +96,17 @@
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
-  background: rgba(255, 152, 0, 0.1);
-  border: 1px solid rgba(255, 152, 0, 0.3);
-  color: #ffb74d;
-  border-radius: 8px;
+  background: rgba(255, 152, 0, 0.08);
+  border: 1px solid rgba(255, 152, 0, 0.2);
+  color: #e65100;
+  border-radius: var(--radius-sm);
   padding: 0.5rem 1rem;
   margin-bottom: 1rem;
   font-size: 0.85rem;
 }
 
 .warningBuyLink {
-  color: #ffb74d;
+  color: #e65100;
   font-size: 0.85rem;
   font-weight: 600;
   text-decoration: none;
@@ -110,15 +115,15 @@
 }
 
 .warningBuyLink:hover {
-  color: #ffa726;
+  color: #bf360c;
   text-decoration: underline;
 }
 
 .freeTrialBar {
-  background: rgba(76, 175, 80, 0.1);
-  border: 1px solid rgba(76, 175, 80, 0.3);
-  color: #81c784;
-  border-radius: 8px;
+  background: rgba(76, 175, 80, 0.08);
+  border: 1px solid rgba(76, 175, 80, 0.2);
+  color: #2e7d32;
+  border-radius: var(--radius-sm);
   padding: 0.5rem 1rem;
   margin-bottom: 1rem;
   font-size: 0.85rem;
@@ -128,36 +133,37 @@
 .ctaBtn {
   display: inline-block;
   padding: 0.75rem 2rem;
-  background: linear-gradient(135deg, #d4af37, #b8962e);
-  color: #1a1a2e;
+  background: var(--color-red);
+  color: var(--text-on-red);
   font-weight: 600;
   font-size: 1rem;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   text-decoration: none;
   transition: all 0.2s;
 }
 
 .ctaBtn:hover {
-  opacity: 0.9;
+  background: var(--color-red-dark);
   transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(var(--color-red-rgb), 0.25);
 }
 
 .ctaBtnOutline {
   display: inline-block;
   padding: 0.75rem 2rem;
   background: transparent;
-  border: 1px solid rgba(212, 175, 55, 0.4);
-  color: #d4af37;
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
   font-weight: 600;
   font-size: 1rem;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   text-decoration: none;
   transition: all 0.2s;
 }
 
 .ctaBtnOutline:hover {
-  background: rgba(212, 175, 55, 0.1);
-  border-color: rgba(212, 175, 55, 0.6);
+  background: rgba(var(--color-gold-rgb), 0.08);
+  border-color: var(--color-gold);
 }
 
 .ctaRow {
@@ -172,24 +178,24 @@
   display: inline-block;
   padding: 0.75rem 2rem;
   background: transparent;
-  border: 1px solid rgba(100, 181, 246, 0.35);
-  color: #64b5f6;
+  border: 1px solid rgba(33, 150, 243, 0.25);
+  color: var(--color-info);
   font-weight: 600;
   font-size: 1rem;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   text-decoration: none;
   transition: all 0.2s;
 }
 
 .buyCreditsBtn:hover {
-  background: rgba(100, 181, 246, 0.08);
-  border-color: rgba(100, 181, 246, 0.55);
+  background: rgba(33, 150, 243, 0.06);
+  border-color: rgba(33, 150, 243, 0.4);
 }
 
 .buyCreditsSecondary {
   flex-basis: 100%;
   text-align: center;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   text-decoration: none;
   margin-top: 0.25rem;
@@ -197,19 +203,20 @@
 }
 
 .buyCreditsSecondary:hover {
-  color: #64b5f6;
+  color: var(--color-info);
   text-decoration: underline;
 }
 
 /* ---- Static CTA fallback ---- */
 .staticTitle {
-  color: #e8d5b7;
+  color: var(--text-accent);
   font-size: 1.4rem;
   margin-bottom: 0.75rem;
+  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .staticText {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.95rem;
   line-height: 1.6;
   margin-bottom: 1.5rem;
@@ -231,7 +238,7 @@
   width: 80px;
   height: 28px;
   border-radius: 20px;
-  background: linear-gradient(90deg, rgba(232, 213, 183, 0.08) 25%, rgba(232, 213, 183, 0.15) 50%, rgba(232, 213, 183, 0.08) 75%);
+  background: linear-gradient(90deg, rgba(var(--color-gold-rgb), 0.06) 25%, rgba(var(--color-gold-rgb), 0.12) 50%, rgba(var(--color-gold-rgb), 0.06) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
@@ -240,7 +247,7 @@
   width: 100px;
   height: 36px;
   border-radius: 8px;
-  background: linear-gradient(90deg, rgba(232, 213, 183, 0.08) 25%, rgba(232, 213, 183, 0.15) 50%, rgba(232, 213, 183, 0.08) 75%);
+  background: linear-gradient(90deg, rgba(var(--color-gold-rgb), 0.06) 25%, rgba(var(--color-gold-rgb), 0.12) 50%, rgba(var(--color-gold-rgb), 0.06) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }
@@ -250,7 +257,7 @@
   height: 42px;
   border-radius: 8px;
   margin: 0 auto;
-  background: linear-gradient(90deg, rgba(232, 213, 183, 0.08) 25%, rgba(232, 213, 183, 0.15) 50%, rgba(232, 213, 183, 0.08) 75%);
+  background: linear-gradient(90deg, rgba(var(--color-gold-rgb), 0.06) 25%, rgba(var(--color-gold-rgb), 0.12) 50%, rgba(var(--color-gold-rgb), 0.06) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.5s infinite;
 }

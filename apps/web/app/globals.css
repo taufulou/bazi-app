@@ -1,8 +1,74 @@
 :root {
-  --background: #1a1a2e;
-  --foreground: #e8d5b7;
-  --accent: #d4af37;
-  --muted: #8a7a6a;
+  /* Primary */
+  --color-red: #E23D28;
+  --color-red-dark: #C4311F;
+  --color-red-light: #F5564A;
+  --color-red-rgb: 226, 61, 40;
+
+  /* Gold & Warm Accents — DECORATIVE ONLY, never as text on light bg */
+  --color-gold: #D4A017;
+  --color-gold-light: #F5C842;
+  --color-gold-rgb: 212, 160, 23;
+  --color-amber: #E8B86D;
+  --color-orange: #F5A623;
+
+  /* Backgrounds */
+  --bg-primary: #FFF3E0;
+  --bg-secondary: #FFFBF5;
+  --bg-card: #FFFFFF;
+  --bg-hero-start: #E23D28;
+  --bg-hero-end: #F5A623;
+
+  /* Text — WCAG AA compliant */
+  --text-primary: #3C2415;
+  --text-secondary: #6B5940;
+  --text-on-red: #FFFFFF;
+  --text-on-gold: #3C2415;
+  --text-accent: #C41E3A;
+  --text-muted: #8B7355;
+
+  /* Borders & Shadows */
+  --border-light: rgba(212, 160, 23, 0.15);
+  --border-medium: rgba(212, 160, 23, 0.3);
+  --shadow-warm: 0 4px 20px rgba(226, 61, 40, 0.08);
+  --shadow-warm-lg: 0 8px 32px rgba(226, 61, 40, 0.12);
+  --shadow-gold: 0 4px 16px rgba(212, 160, 23, 0.15);
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  /* ZWDS accent */
+  --color-zwds: #8B5CF6;
+  --color-zwds-light: #A78BFA;
+  --color-zwds-rgb: 139, 92, 246;
+  --color-zwds-bg: rgba(139, 92, 246, 0.08);
+  --color-zwds-border: rgba(139, 92, 246, 0.2);
+
+  /* Functional colors — DO NOT CHANGE with theme */
+  --color-success: #4caf50;
+  --color-warning: #ffc107;
+  --color-error: #f44336;
+  --color-info: #2196f3;
+
+  /* Tier badge colors */
+  --tier-free-text: #757575;
+  --tier-free-bg: rgba(117, 117, 117, 0.12);
+  --tier-basic-text: #1976D2;
+  --tier-basic-bg: rgba(25, 118, 210, 0.10);
+  --tier-pro-text: #7B1FA2;
+  --tier-pro-bg: rgba(123, 31, 162, 0.10);
+  --tier-master-text: #B8860B;
+  --tier-master-bg: rgba(184, 134, 11, 0.12);
+  --tier-master-border: #D4A017;
+
+  /* Legacy aliases (for gradual migration) */
+  --background: #FFF3E0;
+  --foreground: #3C2415;
+  --accent: #E23D28;
+  --muted: #6B5940;
 }
 
 html,
@@ -12,8 +78,8 @@ body {
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
+  color: var(--text-primary);
+  background: var(--bg-primary);
   font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 

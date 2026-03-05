@@ -1,23 +1,25 @@
 .formWrapper {
-  background: #16213e;
-  border: 1px solid rgba(232, 213, 183, 0.15);
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
   border-radius: 16px;
   padding: 2rem;
   max-width: 600px;
   width: 100%;
   margin: 0 auto;
+  box-shadow: var(--shadow-warm);
 }
 
 .formTitle {
-  color: #e8d5b7;
+  color: var(--text-primary);
   font-size: 1.5rem;
   font-weight: 700;
   margin-bottom: 0.5rem;
   text-align: center;
+  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .formSubtitle {
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   text-align: center;
   margin-bottom: 1.5rem;
@@ -30,7 +32,7 @@
 
 .label {
   display: block;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.85rem;
   margin-bottom: 0.4rem;
   font-weight: 500;
@@ -40,10 +42,10 @@
 .select {
   width: 100%;
   padding: 0.75rem 1rem;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 1rem;
   outline: none;
   transition: border-color 0.2s;
@@ -51,16 +53,16 @@
 
 .input:focus,
 .select:focus {
-  border-color: #e8d5b7;
+  border-color: var(--color-red);
 }
 
 .input::placeholder {
-  color: #555;
+  color: var(--text-muted);
 }
 
 .select option {
-  background: #1a1a2e;
-  color: #e0e0e0;
+  background: #FFFFFF;
+  color: var(--text-primary);
 }
 
 .row {
@@ -83,10 +85,10 @@
 .genderOption {
   flex: 1;
   padding: 0.75rem;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
@@ -94,23 +96,27 @@
 }
 
 .genderOption:hover {
-  border-color: rgba(232, 213, 183, 0.4);
+  border-color: var(--border-medium);
 }
 
 .genderOptionActive {
   composes: genderOption;
-  border-color: #e8d5b7;
-  color: #e8d5b7;
-  background: rgba(232, 213, 183, 0.1);
+  border-color: var(--color-red);
+  color: var(--color-red);
+  background: rgba(var(--color-red-rgb), 0.06);
+}
+
+.genderOptionActive:hover {
+  border-color: var(--color-red);
 }
 
 .submitBtn {
   width: 100%;
   padding: 0.9rem;
-  background: linear-gradient(135deg, #e8d5b7 0%, #d4af37 100%);
+  background: var(--color-red);
   border: none;
-  border-radius: 8px;
-  color: #1a1a2e;
+  border-radius: 12px;
+  color: #FFFFFF;
   font-size: 1.1rem;
   font-weight: 700;
   cursor: pointer;
@@ -121,6 +127,7 @@
 .submitBtn:hover {
   opacity: 0.9;
   transform: translateY(-1px);
+  box-shadow: var(--shadow-warm);
 }
 
 .submitBtn:disabled {
@@ -135,7 +142,7 @@
   padding: 0.65rem;
   background: transparent;
   border: none;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 0.9rem;
   cursor: pointer;
   transition: color 0.2s;
@@ -144,7 +151,7 @@
 }
 
 .secondaryBtn:hover {
-  color: #e8d5b7;
+  color: var(--text-accent);
 }
 
 .secondaryBtn:disabled {
@@ -176,7 +183,7 @@
   right: 0.5rem;
   background: none;
   border: none;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   font-size: 1rem;
   cursor: pointer;
   padding: 0.5rem;
@@ -185,7 +192,7 @@
 }
 
 .dropdownToggle:hover {
-  color: #e8d5b7;
+  color: var(--text-accent);
 }
 
 .profileDropdown {
@@ -197,10 +204,10 @@
   list-style: none;
   margin: 0.25rem 0 0;
   padding: 0.25rem 0;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.3);
+  background: #FFFFFF;
+  border: 1px solid var(--border-medium);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-warm);
   max-height: 200px;
   overflow-y: auto;
 }
@@ -213,7 +220,7 @@
   padding: 0.65rem 1rem;
   background: none;
   border: none;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.95rem;
   cursor: pointer;
   text-align: left;
@@ -221,7 +228,7 @@
 }
 
 .profileDropdownItem:hover {
-  background: rgba(232, 213, 183, 0.1);
+  background: rgba(212, 160, 23, 0.08);
 }
 
 .profileDropdownName {
@@ -236,8 +243,8 @@
 }
 
 .tagSELF {
-  color: #e8d5b7;
-  background: rgba(232, 213, 183, 0.12);
+  color: var(--color-red);
+  background: rgba(var(--color-red-rgb), 0.1);
 }
 
 .tagFAMILY {
@@ -255,22 +262,22 @@
 .saveProfileGroup {
   margin-bottom: 1.25rem;
   padding: 0.75rem 1rem;
-  background: rgba(232, 213, 183, 0.05);
+  background: rgba(212, 160, 23, 0.05);
   border-radius: 8px;
-  border: 1px solid rgba(232, 213, 183, 0.1);
+  border: 1px solid var(--border-light);
 }
 
 .checkboxLabel {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.9rem;
   cursor: pointer;
 }
 
 .checkbox {
-  accent-color: #e8d5b7;
+  accent-color: var(--color-red);
   width: 16px;
   height: 16px;
 }
@@ -287,10 +294,10 @@
 .tagOption {
   flex: 1;
   padding: 0.5rem;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
@@ -298,14 +305,18 @@
 }
 
 .tagOption:hover {
-  border-color: rgba(232, 213, 183, 0.4);
+  border-color: var(--border-medium);
 }
 
 .tagOptionActive {
   composes: tagOption;
-  border-color: #e8d5b7;
-  color: #e8d5b7;
-  background: rgba(232, 213, 183, 0.1);
+  border-color: var(--color-red);
+  color: var(--color-red);
+  background: rgba(var(--color-red-rgb), 0.06);
+}
+
+.tagOptionActive:hover {
+  border-color: var(--color-red);
 }
 
 /* ==== Calendar Type Toggle ==== */
@@ -318,10 +329,10 @@
 .calendarTypeOption {
   flex: 1;
   padding: 0.75rem;
-  background: #1a1a2e;
-  border: 1px solid rgba(232, 213, 183, 0.2);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-light);
   border-radius: 8px;
-  color: #a0a0a0;
+  color: var(--text-secondary);
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
@@ -329,14 +340,18 @@
 }
 
 .calendarTypeOption:hover {
-  border-color: rgba(232, 213, 183, 0.4);
+  border-color: var(--border-medium);
 }
 
 .calendarTypeOptionActive {
   composes: calendarTypeOption;
-  border-color: #e8d5b7;
-  color: #e8d5b7;
-  background: rgba(232, 213, 183, 0.1);
+  border-color: var(--color-red);
+  color: var(--color-red);
+  background: rgba(var(--color-red-rgb), 0.06);
+}
+
+.calendarTypeOptionActive:hover {
+  border-color: var(--color-red);
 }
 
 .leapMonthRow {
@@ -347,13 +362,13 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  color: #e0e0e0;
+  color: var(--text-primary);
   font-size: 0.85rem;
   cursor: pointer;
 }
 
 .leapMonthHint {
-  color: #a0a0a0;
+  color: var(--text-muted);
   font-size: 0.75rem;
   margin-top: 0.25rem;
 }
