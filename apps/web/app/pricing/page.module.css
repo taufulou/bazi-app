@@ -727,6 +727,71 @@
   to { transform: rotate(360deg); }
 }
 
+/* ==== Credit Store CTA ==== */
+.creditStoreCta {
+  max-width: 700px;
+  margin: 0 auto 3rem;
+}
+
+.creditStoreInner {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 1.5rem 2rem;
+  background: rgba(100, 181, 246, 0.06);
+  border: 1px solid rgba(100, 181, 246, 0.2);
+  border-radius: 14px;
+  transition: border-color 0.2s;
+}
+
+.creditStoreInner:hover {
+  border-color: rgba(100, 181, 246, 0.35);
+}
+
+.creditStoreIcon {
+  font-size: 2rem;
+  flex-shrink: 0;
+}
+
+.creditStoreText {
+  flex: 1;
+  min-width: 0;
+}
+
+.creditStoreTitle {
+  color: #e0e0e0;
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 0.25rem;
+}
+
+.creditStoreDesc {
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.creditStoreBtn {
+  flex-shrink: 0;
+  padding: 0.65rem 1.5rem;
+  background: rgba(100, 181, 246, 0.12);
+  border: 1px solid rgba(100, 181, 246, 0.35);
+  color: #64b5f6;
+  font-weight: 600;
+  font-size: 0.9rem;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.creditStoreBtn:hover {
+  background: rgba(100, 181, 246, 0.2);
+  border-color: rgba(100, 181, 246, 0.5);
+  transform: translateY(-1px);
+}
+
 /* ==== Manage Subscription Link ==== */
 .manageLinkWrapper {
   text-align: center;
@@ -798,5 +863,16 @@
   .comparisonTable tbody td {
     padding: 0.65rem 0.5rem;
     font-size: 0.8rem;
+  }
+
+  .creditStoreInner {
+    flex-direction: column;
+    text-align: center;
+    padding: 1.25rem;
+  }
+
+  .creditStoreBtn {
+    width: 100%;
+    text-align: center;
   }
 }

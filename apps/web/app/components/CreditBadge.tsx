@@ -81,20 +81,32 @@ const CreditBadge = forwardRef<CreditBadgeHandle, CreditBadgeProps>(function Cre
 
   return (
     <>
-      <Link href="/dashboard/subscription" className={styles.badgeLink}>
-        <div className={styles.badgeContainer}>
+      <div className={styles.badgeContainer}>
+        <Link
+          href="/dashboard/subscription"
+          className={styles.tierLink}
+          aria-label={`管理訂閱方案（目前：${TIER_LABELS[tier] || "免費"}）`}
+        >
           <span className={`${styles.tierBadge} ${tierClass}`}>
             {TIER_LABELS[tier] || "免費"}
           </span>
+        </Link>
+        <Link
+          href="/store"
+          className={styles.creditLink}
+          aria-label={`購買點數（目前餘額：${credits} 點）`}
+        >
           <span className={styles.creditBadge}>
             <span className={styles.creditIcon}>💎</span>
             <span className={styles.creditCount}>{credits}</span>
           </span>
-          {!freeReadingUsed && (
+        </Link>
+        {!freeReadingUsed && (
+          <Link href="/store" className={styles.freeBadgeLink} aria-label="免費體驗可用">
             <span className={styles.freeBadge} title="免費體驗可用">🎁</span>
-          )}
-        </div>
-      </Link>
+          </Link>
+        )}
+      </div>
       {showPricing && (
         <Link href="/pricing" className={styles.pricingLink}>
           {pricingLabel}

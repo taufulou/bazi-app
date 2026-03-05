@@ -471,6 +471,20 @@ export default function PricingPage() {
         </div>
       </section>
 
+      {/* ---- Credit Store CTA ---- */}
+      <div className={styles.creditStoreCta}>
+        <div className={styles.creditStoreInner}>
+          <span className={styles.creditStoreIcon}>💎</span>
+          <div className={styles.creditStoreText}>
+            <h3 className={styles.creditStoreTitle}>只需要點數？</h3>
+            <p className={styles.creditStoreDesc}>
+              不想訂閱也能使用 — 直接購買點數套餐，大量購買更優惠
+            </p>
+          </div>
+          <Link href="/store" className={styles.creditStoreBtn}>購買點數 →</Link>
+        </div>
+      </div>
+
       {/* ---- Subscription Management Link (for logged-in users) ---- */}
       {isSignedIn && (
         <div className={styles.manageLinkWrapper}>
