@@ -187,8 +187,8 @@
 }
 
 .buyCreditsSecondary {
-  display: block;
-  width: 100%;
+  flex-basis: 100%;
+  text-align: center;
   color: #a0a0a0;
   font-size: 0.85rem;
   text-decoration: none;

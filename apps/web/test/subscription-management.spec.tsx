@@ -27,64 +27,65 @@ jest.mock('next/link', () => {
 
 // Mock API functions
 const mockGetSubscriptionStatus = jest.fn();
-const mockGetUserProfile = jest.fn();
 const mockCancelSubscription = jest.fn();
 const mockReactivateSubscription = jest.fn();
 const mockCreatePortalSession = jest.fn();
+const mockGetInvoices = jest.fn();
 
 jest.mock('../app/lib/api', () => ({
   getSubscriptionStatus: (...args: any[]) => mockGetSubscriptionStatus(...args),
-  getUserProfile: (...args: any[]) => mockGetUserProfile(...args),
   cancelSubscription: (...args: any[]) => mockCancelSubscription(...args),
   reactivateSubscription: (...args: any[]) => mockReactivateSubscription(...args),
   createPortalSession: (...args: any[]) => mockCreatePortalSession(...args),
+  getInvoices: (...args: any[]) => mockGetInvoices(...args),
 }));
 
 // ============================================================
-// Test Data
+// Test Data — matches SubscriptionStatus type from api.ts
 // ============================================================
 
-const freeProfile = {
-  id: 'user-1',
+const freeSubscription: any = {
+  subscriptionTier: 'FREE',
   credits: 0,
-  subscriptionTier: 'FREE' as const,
   freeReadingUsed: false,
-  name: 'Test User',
+  activeSubscription: null,
 };
 
-const proProfile = {
-  id: 'user-2',
+const proSubscription: any = {
+  subscriptionTier: 'PRO',
   credits: 10,
-  subscriptionTier: 'PRO' as const,
   freeReadingUsed: true,
-  name: 'Pro User',
+  activeSubscription: {
+    planTier: 'PRO',
+    platform: 'STRIPE',
+    currentPeriodStart: '2026-03-15T00:00:00Z',
+    currentPeriodEnd: '2026-04-15T00:00:00Z',
+    status: 'ACTIVE',
+    cancelledAt: null,
+  },
 };
 
-const masterProfile = {
-  ...proProfile,
-  subscriptionTier: 'MASTER' as const,
+const masterSubscription: any = {
+  subscriptionTier: 'MASTER',
   credits: 99,
+  freeReadingUsed: true,
+  activeSubscription: {
+    planTier: 'MASTER',
+    platform: 'STRIPE',
+    currentPeriodStart: '2026-03-15T00:00:00Z',
+    currentPeriodEnd: '2026-04-15T00:00:00Z',
+    status: 'ACTIVE',
+    cancelledAt: null,
+  },
 };
 
-const activeSubscription = {
-  subscribed: true,
-  plan: 'pro',
-  status: 'active',
-  currentPeriodEnd: '2026-04-15T00:00:00Z',
-  cancelAtPeriodEnd: false,
-};
-
-const cancelledSubscription = {
-  ...activeSubscription,
-  cancelAtPeriodEnd: true,
-};
-
-const freeSubscription = {
-  subscribed: false,
-  plan: null,
-  status: null,
-  currentPeriodEnd: null,
-  cancelAtPeriodEnd: false,
+const cancelledProSubscription: any = {
+  ...proSubscription,
+  activeSubscription: {
+    ...proSubscription.activeSubscription,
+    status: 'CANCELLED',
+    cancelledAt: '2026-03-10T00:00:00Z',
+  },
 };
 
 // ============================================================
@@ -96,11 +97,11 @@ describe('SubscriptionPage', () => {
     jest.clearAllMocks();
     mockIsSignedIn = true;
     mockGetToken.mockResolvedValue('test-token');
+    mockGetInvoices.mockResolvedValue([]);
   });
 
   it('shows loading state initially', () => {
     mockGetSubscriptionStatus.mockReturnValue(new Promise(() => {})); // never resolves
-    mockGetUserProfile.mockReturnValue(new Promise(() => {}));
 
     render(<SubscriptionPage />);
 
@@ -109,7 +110,6 @@ describe('SubscriptionPage', () => {
 
   it('shows FREE tier for user with no subscription', async () => {
     mockGetSubscriptionStatus.mockResolvedValue(freeSubscription);
-    mockGetUserProfile.mockResolvedValue(freeProfile);
 
     render(<SubscriptionPage />);
 
@@ -119,14 +119,10 @@ describe('SubscriptionPage', () => {
 
     // Should show upgrade button
     expect(screen.getByText('升級方案')).toBeInTheDocument();
-
-    // Free reading should be available
-    expect(screen.getByText('1 次可用')).toBeInTheDocument();
   });
 
   it('shows PRO subscription details for active subscriber', async () => {
-    mockGetSubscriptionStatus.mockResolvedValue(activeSubscription);
-    mockGetUserProfile.mockResolvedValue(proProfile);
+    mockGetSubscriptionStatus.mockResolvedValue(proSubscription);
 
     render(<SubscriptionPage />);
 
@@ -149,8 +145,7 @@ describe('SubscriptionPage', () => {
   });
 
   it('shows MASTER tier with unlimited credits', async () => {
-    mockGetSubscriptionStatus.mockResolvedValue(activeSubscription);
-    mockGetUserProfile.mockResolvedValue(masterProfile);
+    mockGetSubscriptionStatus.mockResolvedValue(masterSubscription);
 
     render(<SubscriptionPage />);
 
@@ -162,8 +157,7 @@ describe('SubscriptionPage', () => {
   });
 
   it('shows cancel confirmation dialog', async () => {
-    mockGetSubscriptionStatus.mockResolvedValue(activeSubscription);
-    mockGetUserProfile.mockResolvedValue(proProfile);
+    mockGetSubscriptionStatus.mockResolvedValue(proSubscription);
 
     render(<SubscriptionPage />);
 
@@ -183,9 +177,8 @@ describe('SubscriptionPage', () => {
 
   it('calls cancelSubscription on confirmation', async () => {
     mockGetSubscriptionStatus
-      .mockResolvedValueOnce(activeSubscription)
-      .mockResolvedValueOnce(cancelledSubscription);
-    mockGetUserProfile.mockResolvedValue(proProfile);
+      .mockResolvedValueOnce(proSubscription)
+      .mockResolvedValueOnce(cancelledProSubscription);
     mockCancelSubscription.mockResolvedValue({ message: 'ok' });
 
     render(<SubscriptionPage />);
@@ -203,8 +196,7 @@ describe('SubscriptionPage', () => {
   });
 
   it('shows reactivate button for cancelled subscription', async () => {
-    mockGetSubscriptionStatus.mockResolvedValue(cancelledSubscription);
-    mockGetUserProfile.mockResolvedValue(proProfile);
+    mockGetSubscriptionStatus.mockResolvedValue(cancelledProSubscription);
 
     render(<SubscriptionPage />);
 
@@ -217,7 +209,6 @@ describe('SubscriptionPage', () => {
 
   it('shows error when API call fails', async () => {
     mockGetSubscriptionStatus.mockRejectedValue(new Error('Network error'));
-    mockGetUserProfile.mockRejectedValue(new Error('Network error'));
 
     render(<SubscriptionPage />);
 

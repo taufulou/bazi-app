@@ -14,8 +14,7 @@
   transition: opacity 0.15s ease;
 }
 
-.tierLink:hover,
-.creditLink:hover {
+.tierLink:hover {
   opacity: 0.85;
 }
 
@@ -91,9 +90,18 @@
   font-weight: 700;
 }
 
+.freeBadgeLink {
+  text-decoration: none;
+  display: inline-flex;
+  transition: opacity 0.15s ease;
+}
+
+.freeBadgeLink:hover {
+  opacity: 0.85;
+}
+
 .freeBadge {
   font-size: 0.85rem;
-  cursor: default;
 }
 
 .pricingLink {

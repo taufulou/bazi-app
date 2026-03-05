@@ -102,7 +102,9 @@ const CreditBadge = forwardRef<CreditBadgeHandle, CreditBadgeProps>(function Cre
           </span>
         </Link>
         {!freeReadingUsed && (
-          <span className={styles.freeBadge} title="免費體驗可用">🎁</span>
+          <Link href="/store" className={styles.freeBadgeLink} aria-label="免費體驗可用">
+            <span className={styles.freeBadge} title="免費體驗可用">🎁</span>
+          </Link>
         )}
       </div>
       {showPricing && (
