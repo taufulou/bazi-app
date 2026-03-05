@@ -559,7 +559,7 @@ export default function AIReadingDisplay({
       {summaryPosition !== 'bottom' && data.summary && (
         <div className={styles.summaryCard}>
           <h3 className={styles.summaryTitle}>命理總覽</h3>
-          <div className={styles.summaryText}>{postProcessSectionText(data.summary.text)}</div>
+          <div className={styles.summaryText}>{renderFormattedContent(data.summary.text)}</div>
         </div>
       )}
 
@@ -698,7 +698,7 @@ export default function AIReadingDisplay({
       {summaryPosition === 'bottom' && data.summary && (
         <div className={`${styles.summaryCard} ${styles.summaryFadeIn}`}>
           <h3 className={styles.summaryTitle}>命理總覽</h3>
-          <div className={styles.summaryText}>{postProcessSectionText(data.summary.text)}</div>
+          <div className={styles.summaryText}>{renderFormattedContent(data.summary.text)}</div>
         </div>
       )}
 

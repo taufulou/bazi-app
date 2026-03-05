@@ -120,6 +120,11 @@
   border-radius: 4px;
 }
 
+/* Slide gradient backgrounds — uses CSS variables instead of hardcoded hex in JS */
+.slideWelcome { background: linear-gradient(135deg, var(--color-red) 0%, var(--color-orange) 100%); }
+.slidePromo { background: linear-gradient(135deg, #B8860B 0%, var(--color-gold) 100%); }
+.slideCompat { background: linear-gradient(135deg, var(--text-accent) 0%, var(--color-red) 100%); }
+
 /* Accessibility: suppress ALL motion for reduced-motion preference */
 @media (prefers-reduced-motion: reduce) {
   .track {

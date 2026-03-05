@@ -6,7 +6,6 @@ import styles from "./HeroBanner.module.css";
 
 interface Slide {
   id: string;
-  gradient: string;
   title: string;
   subtitle: string;
   cta?: { label: string; href: string };
@@ -16,7 +15,6 @@ interface Slide {
 const SLIDES: Slide[] = [
   {
     id: "welcome",
-    gradient: "linear-gradient(135deg, #E23D28 0%, #F5A623 100%)",
     title: "AI 命理，精準解命",
     subtitle: "結合八字與紫微斗數，為您提供專業的命理分析",
     cta: { label: "開始分析", href: "#readings" },
@@ -24,7 +22,6 @@ const SLIDES: Slide[] = [
   },
   {
     id: "promo-credits",
-    gradient: "linear-gradient(135deg, #D4A017 0%, #F5C842 100%)",
     title: "新用戶專享體驗",
     subtitle: "首次分析免費，立即探索您的命運密碼",
     cta: { label: "了解更多", href: "/pricing" },
@@ -32,7 +29,6 @@ const SLIDES: Slide[] = [
   },
   {
     id: "compatibility",
-    gradient: "linear-gradient(135deg, #C41E3A 0%, #E23D28 100%)",
     title: "合盤分析上線",
     subtitle: "比較兩人八字，探索感情與事業的契合度",
     cta: { label: "立即體驗", href: "/reading/compatibility" },
@@ -40,12 +36,22 @@ const SLIDES: Slide[] = [
   },
 ];
 
+// Type-safe gradient class mapping — avoids fragile dynamic styles[key] lookup
+const SLIDE_BG_CLASSES: Record<string, string> = {
+  welcome: styles.slideWelcome,
+  "promo-credits": styles.slidePromo,
+  compatibility: styles.slideCompat,
+};
+
 const AUTO_PLAY_INTERVAL = 5000;
 
 export default function HeroBanner() {
   const [activeIndex, setActiveIndex] = useState(0);
   const trackRef = useRef<HTMLDivElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Once user clicks a CTA, permanently disable autoplay (intentional — no need to
+  // auto-advance while user has scrolled away from the banner)
+  const userInteractedRef = useRef(false);
 
   // Scroll to a specific slide
   const scrollToSlide = useCallback((index: number) => {
@@ -109,9 +115,17 @@ export default function HeroBanner() {
     return stopAutoPlay;
   }, [startAutoPlay, stopAutoPlay]);
 
-  // Hover pause/resume
+  // Hover pause/resume (only resume if user hasn't clicked a CTA)
   const handleMouseEnter = useCallback(() => stopAutoPlay(), [stopAutoPlay]);
-  const handleMouseLeave = useCallback(() => startAutoPlay(), [startAutoPlay]);
+  const handleMouseLeave = useCallback(() => {
+    if (!userInteractedRef.current) startAutoPlay();
+  }, [startAutoPlay]);
+
+  // CTA click — permanently stop autoplay (user navigated away from banner)
+  const handleCtaClick = useCallback(() => {
+    userInteractedRef.current = true;
+    stopAutoPlay();
+  }, [stopAutoPlay]);
 
   // Dot click — user takes permanent control
   const handleDotClick = (index: number) => {
@@ -132,9 +146,8 @@ export default function HeroBanner() {
         {SLIDES.map((slide, i) => (
           <div
             key={slide.id}
-            className={styles.slide}
+            className={`${styles.slide} ${SLIDE_BG_CLASSES[slide.id] || ""}`}
             data-index={i}
-            style={{ background: slide.gradient }}
             role="group"
             aria-roledescription="slide"
             aria-label={`第 ${i + 1} 張，共 ${SLIDES.length} 張`}
@@ -146,7 +159,7 @@ export default function HeroBanner() {
               <h2 className={styles.slideTitle}>{slide.title}</h2>
               <p className={styles.slideSubtitle}>{slide.subtitle}</p>
               {slide.cta && (
-                <Link href={slide.cta.href} className={styles.slideCta}>
+                <Link href={slide.cta.href} className={styles.slideCta} onClick={handleCtaClick}>
                   {slide.cta.label} &rarr;
                 </Link>
               )}

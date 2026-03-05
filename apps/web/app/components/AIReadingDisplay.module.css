@@ -383,7 +383,6 @@ li.goldBulletItem {
   color: var(--text-primary);
   font-size: 0.95rem;
   line-height: 1.8;
-  white-space: pre-wrap;
 }
 
 /* ==== Cross-sell grid ==== */
@@ -976,7 +975,7 @@ li.goldBulletItem {
 .techRefCategory {
   grid-column: 1 / -1;
   font-size: 0.72rem;
-  color: var(--color-gold, #D4A017);
+  color: var(--text-muted);
   font-weight: 600;
   margin-bottom: 0.15rem;
   padding: 0.2rem 0.5rem;
