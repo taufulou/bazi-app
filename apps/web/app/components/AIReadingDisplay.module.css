@@ -407,6 +407,82 @@
   border-color: rgba(100, 181, 246, 0.15);
 }
 
+/* ==== Luck Period Header (above AI narrative) ==== */
+.luckPeriodHeader {
+  background: linear-gradient(135deg, #1e2a3e 0%, #16213e 100%);
+  border: 1px solid rgba(100, 181, 246, 0.2);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1rem;
+}
+
+.lphTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.lphOrdinal {
+  color: #64b5f6;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.lphGanzhi {
+  color: #e8d5b7;
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.lphYears {
+  color: #a0a0a0;
+  font-size: 0.85rem;
+}
+
+.lphPhases {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-bottom: 0.75rem;
+}
+
+.lphPhase {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.lphPhaseLabel {
+  color: #64b5f6;
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.lphPhaseDesc {
+  color: #e0e0e0;
+  font-size: 0.85rem;
+}
+
+.lphScore {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(232, 213, 183, 0.08);
+}
+
+.lphScoreLabel {
+  color: #a0a0a0;
+  font-size: 0.8rem;
+}
+
+.lphScoreValue {
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
 .detCardHeader {
   display: flex;
   align-items: center;
@@ -443,6 +519,14 @@
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
+}
+
+.detExplain {
+  color: #a0a0a0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  margin: 0.15rem 0 0 0;
+  padding: 0;
 }
 
 .detLabel {
@@ -684,6 +768,23 @@
     padding: 1rem;
   }
 
+  .luckPeriodHeader {
+    padding: 0.75rem 1rem;
+  }
+
+  .lphTitle {
+    flex-wrap: wrap;
+  }
+
+  .lphGanzhi {
+    font-size: 1.1rem;
+  }
+
+  .lphPhase {
+    flex-direction: column;
+    gap: 0.2rem;
+  }
+
   .timelineLabel {
     gap: 0.4rem;
   }
@@ -706,5 +807,348 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* ============================================================
+   Technical Reference Card (collapsible)
+   ============================================================ */
+
+.techRef {
+  margin-top: 12px;
+  border-top: 1px solid rgba(232, 213, 183, 0.1);
+  padding-top: 8px;
+}
+
+.techRefToggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  border: none;
+  color: #a0a0a0;
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 4px 0;
+  transition: color 0.2s;
+  width: 100%;
+  text-align: left;
+}
+
+.techRefToggle:hover {
+  color: #e8d5b7;
+}
+
+.techRefArrow {
+  font-size: 0.7rem;
+  width: 12px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.techRefLabel {
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+.techRefContent {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: rgba(22, 33, 62, 0.5);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.techRefRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.techRefKey {
+  color: #a0a0a0;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.techRefKey::after {
+  content: "：";
+}
+
+.techRefValue {
+  color: #e0e0e0;
+  word-break: break-word;
+}
+
+.techRefGroup {
+  margin-bottom: 8px;
+}
+
+.techRefGroup:last-child {
+  margin-bottom: 0;
+}
+
+.techRefCategory {
+  font-size: 0.75rem;
+  color: #e8d5b7;
+  font-weight: 600;
+  margin-bottom: 4px;
+  letter-spacing: 0.5px;
+}
+
+/* ==== Star Rating ==== */
+.starRating {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-bottom: 0.75rem;
+  padding: 0.25rem 0;
+}
+
+.starFull {
+  color: #ffd700;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.starEmpty {
+  color: #555;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.starHalf {
+  position: relative;
+  display: inline-block;
+  font-size: 1.25rem;
+  line-height: 1;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.starHalfEmpty {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #555;
+  z-index: 0;
+}
+
+.starHalfFilled {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  width: 50%;
+  color: #ffd700;
+  z-index: 1;
+}
+
+.starScore {
+  margin-left: 0.5rem;
+  font-size: 0.85rem;
+  color: #a0a0a0;
+  font-weight: 500;
+}
+
+/* ==== Character Card (Guide Style) ==== */
+.characterCard {
+  border: 1px solid rgba(232, 213, 183, 0.25);
+  border-radius: 16px;
+  margin-bottom: 1.5rem;
+  overflow: hidden;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #1a2a3e 100%);
+}
+
+.characterCardHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.1);
+  background: rgba(232, 213, 183, 0.05);
+}
+
+.characterCardTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #e8d5b7;
+}
+
+.characterCardIcon {
+  font-size: 1.5rem;
+}
+
+.zodiacBadge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 20px;
+  background: rgba(232, 213, 183, 0.12);
+  color: #e8d5b7;
+  font-size: 0.85rem;
+  font-weight: 500;
+  border: 1px solid rgba(232, 213, 183, 0.2);
+}
+
+.characterCardBody {
+  padding: 1.25rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.characterArchetype {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: rgba(232, 213, 183, 0.08);
+  border-radius: 12px;
+  border: 1px solid rgba(232, 213, 183, 0.1);
+}
+
+.archetypeLabel {
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.archetypeValue {
+  color: #e8d5b7;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.characterLayers {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.characterLayer {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid rgba(232, 213, 183, 0.05);
+}
+
+.characterLayer:last-child {
+  border-bottom: none;
+}
+
+.layerLabel {
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width: 100px;
+}
+
+.layerValue {
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.characterZodiac {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: rgba(255, 215, 0, 0.05);
+  border-radius: 12px;
+  border: 1px solid rgba(255, 215, 0, 0.1);
+}
+
+.characterStats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.statItem {
+  padding: 0.5rem 0.75rem;
+  background: rgba(232, 213, 183, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(232, 213, 183, 0.08);
+}
+
+.statLabel {
+  display: block;
+  color: #a0a0a0;
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.statValue {
+  display: block;
+  color: #e0e0e0;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.characterShensha {
+  padding-top: 0.5rem;
+}
+
+.shenshaLabel {
+  display: block;
+  color: #a0a0a0;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.shenshaTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.shenshaTag {
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  background: rgba(232, 213, 183, 0.1);
+  color: #e8d5b7;
+  font-size: 0.8rem;
+  border: 1px solid rgba(232, 213, 183, 0.15);
+}
+
+/* ==== Responsive: Character Card ==== */
+@media (max-width: 600px) {
+  .characterStats {
+    grid-template-columns: 1fr;
+  }
+
+  .characterLayer {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .layerLabel {
+    min-width: auto;
+  }
+
+  .characterZodiac {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .techRefContent {
+    padding: 8px;
+  }
+
+  .techRefRow {
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .techRefKey {
+    white-space: normal;
   }
 }

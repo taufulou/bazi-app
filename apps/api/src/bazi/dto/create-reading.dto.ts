@@ -1,6 +1,8 @@
-import { IsEnum, IsOptional, IsString, IsInt, IsBoolean, Min, Max } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsInt, IsBoolean, IsIn, Min, Max } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { ReadingType, ComparisonType } from '@prisma/client';
+
+export type ReadingStyleType = 'expert' | 'metaphor' | 'chat' | 'guide';
 
 export class CreateReadingDto {
   @ApiProperty({ description: 'Birth profile ID' })
@@ -22,6 +24,15 @@ export class CreateReadingDto {
   @IsOptional()
   @IsBoolean()
   stream?: boolean;
+
+  @ApiProperty({
+    required: false,
+    enum: ['expert', 'metaphor', 'chat', 'guide'],
+    description: 'AI narration style. expert=traditional, metaphor=storytelling, chat=conversational, guide=gamified',
+  })
+  @IsOptional()
+  @IsIn(['expert', 'metaphor', 'chat', 'guide'])
+  readingStyle?: ReadingStyleType;
 }
 
 export class CreateComparisonDto {

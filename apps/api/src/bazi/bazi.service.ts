@@ -12,6 +12,7 @@ import { Observable, Subscriber } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AIService } from '../ai/ai.service';
+import type { ReadingStyle } from '../ai/prompts';
 import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto';
 import { Prisma, ReadingType } from '@prisma/client';
 
@@ -129,6 +130,10 @@ export class BaziService {
       profile.gender.toLowerCase(),
       dto.readingType,
       dto.targetYear,
+      undefined, // targetMonth
+      undefined, // targetDay
+      undefined, // questionText
+      dto.readingStyle, // different styles must produce separate cache entries
     );
 
     // Check cache for existing interpretation
@@ -145,6 +150,11 @@ export class BaziService {
       const message = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(`Bazi engine call failed: ${message}`);
       throw new InternalServerErrorException('Bazi calculation failed. Please try again.');
+    }
+
+    // Store readingStyle in calculationData for streaming path retrieval
+    if (dto.readingStyle) {
+      calculationData['readingStyle'] = dto.readingStyle;
     }
 
     // Streaming path: LIFETIME + stream=true + no cache → skip AI, return streamReady
@@ -180,6 +190,8 @@ export class BaziService {
           ? await this.aiService.generateLifetimeV2Interpretation(
               enrichedData,
               user.id,
+              undefined, // readingId
+              dto.readingStyle,
             )
           : await this.aiService.generateInterpretation(
               enrichedData,
@@ -390,9 +402,11 @@ export class BaziService {
       };
 
       // 5. Delegate to AI service streaming
+      const readingStyle = ((enrichedData['readingStyle'] as string) || 'expert') as ReadingStyle;
       const aiObservable = this.aiService.streamLifetimeV2(
         enrichedData,
         readingId,
+        readingStyle,
       );
       aiObservable.subscribe({
         next: (event) => subscriber.next(event),

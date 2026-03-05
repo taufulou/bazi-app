@@ -514,7 +514,7 @@ def check_guan_sha_hunza(
     gender: str,
 ) -> Optional[Dict]:
     """
-    Check for 官殺混雜 — both 正官 AND 七殺/偏官 present in manifest stems.
+    Check for 官殺混雜 — both 正官 AND 七殺/偏官 present in chart (天干 or 藏干).
 
     This is a severe marriage warning for female charts only.
     Does NOT affect career domain readings.
@@ -528,12 +528,21 @@ def check_guan_sha_hunza(
     has_zhengguan = False
     has_qisha = False
 
+    # Check manifest stems (天干)
     for pname in ('year', 'month', 'hour'):
         ten_god = derive_ten_god(day_master_stem, pillars[pname]['stem'])
         if ten_god == '正官':
             has_zhengguan = True
         elif ten_god == '偏官':
             has_qisha = True
+
+    # Also check hidden stems (藏干)
+    for pname in ('year', 'month', 'day', 'hour'):
+        for hsg in pillars[pname].get('hiddenStemGods', []):
+            if hsg['tenGod'] == '正官':
+                has_zhengguan = True
+            elif hsg['tenGod'] == '偏官':
+                has_qisha = True
 
     if has_zhengguan and has_qisha:
         return {

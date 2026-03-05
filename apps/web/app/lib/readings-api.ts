@@ -114,6 +114,21 @@ export const SECTION_TITLE_MAP: Record<string, string> = {
   analysis: '命盤分析',
 };
 
+/** Guide-style section title overrides (人生攻略 framing) */
+export const GUIDE_SECTION_TITLE_MAP: Record<string, string> = {
+  chart_identity: '你的先天屬性',
+  finance_pattern: '財富攻略',
+  career_pattern: '事業發展路線',
+  boss_strategy: '應對上司之道',
+  love_pattern: '愛情攻略',
+  health: '健康管理',
+  children_analysis: '子女關係',
+  parents_analysis: '父母關係',
+  current_period: '當前大運詳解',
+  next_period: '下一大運預覽',
+  best_period: '最佳大運攻略',
+};
+
 // ============================================================
 // Types
 // ============================================================
@@ -141,6 +156,9 @@ export interface LuckPeriodDetailData {
   branchPhase: string;
   interactions: string[];
   isCurrent: boolean;
+  periodOrdinal?: number;  // 1-based period ordinal (第N大運)
+  stemElement?: string;    // Five-element of stem (木/火/土/金/水)
+  branchElement?: string;  // Five-element of branch main qi
 }
 
 /** V2 deterministic data (not AI-generated) */
@@ -167,7 +185,7 @@ export interface NestJSReadingResponse {
   calculationData: Record<string, unknown>;
   aiInterpretation: {
     schemaVersion?: 'v2';
-    sections: Record<string, { preview: string; full: string }>;
+    sections: Record<string, { preview: string; full: string; score?: number }>;
     summary?: { preview: string; full: string };
     deterministic?: LifetimeV2DeterministicData;
   } | null;
@@ -185,6 +203,7 @@ interface ReadingSectionData {
   title: string;
   preview: string;
   full: string;
+  score?: number;
 }
 
 export interface AIReadingData {
@@ -291,6 +310,7 @@ export async function createBaziReading(
     readingType: string; // frontend slug e.g. "lifetime"
     targetYear?: number;
     stream?: boolean;
+    readingStyle?: 'expert' | 'metaphor' | 'chat' | 'guide';
   },
 ): Promise<NestJSReadingResponse> {
   return apiFetch<NestJSReadingResponse>('/api/bazi/readings', {
@@ -301,6 +321,7 @@ export async function createBaziReading(
       readingType: READING_TYPE_MAP[params.readingType], // slug → enum
       targetYear: params.targetYear,
       ...(params.stream && { stream: true }),
+      ...(params.readingStyle && { readingStyle: params.readingStyle }),
     }),
   });
 }
@@ -414,25 +435,27 @@ export function transformAIResponse(
           title: SECTION_TITLE_MAP[entry[0]] || entry[0],
           preview: entry[1].preview,
           full: entry[1].full,
+          score: entry[1].score,
         });
         seen.add(entry[0]);
       }
     }
 
     // Append any sections not in the explicit order
-    for (const [key, { preview, full }] of sectionEntries) {
+    for (const [key, { preview, full, score }] of sectionEntries) {
       if (!seen.has(key)) {
-        ordered.push({ key, title: SECTION_TITLE_MAP[key] || key, preview, full });
+        ordered.push({ key, title: SECTION_TITLE_MAP[key] || key, preview, full, score });
       }
     }
 
     sections = ordered;
   } else {
-    sections = Object.entries(ai.sections).map(([key, { preview, full }]) => ({
+    sections = Object.entries(ai.sections).map(([key, { preview, full, score }]) => ({
       key,
       title: SECTION_TITLE_MAP[key] || key,
       preview,
       full,
+      score,
     }));
   }
 
@@ -461,7 +484,7 @@ export function streamBaziReading(
   token: string,
   readingId: string,
   callbacks: {
-    onSectionComplete: (key: string, section: { preview: string; full: string }) => void;
+    onSectionComplete: (key: string, section: { preview: string; full: string; score?: number }) => void;
     onCallComplete: (callNumber: number) => void;
     onSummary: (summary: { preview: string; full: string }) => void;
     onDone: (info: { totalSections: number; latencyMs: number }) => void;

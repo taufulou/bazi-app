@@ -19,7 +19,7 @@ Source: Plan at /Users/roger/.claude/plans/jaunty-petting-unicorn.md
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, TypedDict
 
 from .constants import (
     BRANCH_ELEMENT,
@@ -1684,7 +1684,7 @@ def enrich_luck_periods(
     enemy_god = effective_gods.get('enemyGod', '')
 
     enriched = []
-    for lp in luck_periods:
+    for idx, lp in enumerate(luck_periods):
         score = 50.0  # Base
 
         stem = lp['stem']
@@ -1806,6 +1806,9 @@ def enrich_luck_periods(
             'branchPhase': branch_phase,
             'interactions': interactions_summary,
             'isCurrent': lp.get('isCurrent', False),
+            'periodOrdinal': idx + 1,
+            'stemElement': stem_el,
+            'branchElement': branch_main_el,
         })
 
     return enriched
@@ -1821,6 +1824,18 @@ ELEMENT_HEALTH_ORGANS: Dict[str, Dict[str, str]] = {
     '土': {'organs': '脾胃、消化系統', 'excess': '消化不良、肥胖、痰濕', 'deficiency': '食慾差、營養吸收差、肌肉無力'},
     '金': {'organs': '肺、呼吸系統、大腸', 'excess': '皮膚過敏、呼吸急促、便秘', 'deficiency': '免疫力差、易感冒、氣虛'},
     '水': {'organs': '腎、膀胱、泌尿生殖系統', 'excess': '水腫、泌尿問題、虛寒', 'deficiency': '腰膝酸軟、記憶力差、耳鳴'},
+}
+
+# ============================================================
+# Lookup Tables — Lifestyle Advice by Element (for health section)
+# ============================================================
+
+ELEMENT_LIFESTYLE_ADVICE: Dict[str, str] = {
+    '木': '適合早起活動、親近大自然、散步、瑜珈等舒展筋骨的運動，宜多食綠色蔬菜',
+    '火': '適合社交活動、曬太陽、有氧運動，宜保持樂觀心態，飲食避免過寒涼',
+    '土': '適合規律作息、固定運動時間、保養脾胃，宜少食甜膩、多食五穀雜糧',
+    '金': '適合呼吸鍛鍊、游泳、太極，宜注意空氣品質和呼吸道保養，飲食偏清淡',
+    '水': '適合冥想、泡澡或溫泉水療、充足睡眠，宜保養腎臟、避免熬夜，飲食宜溫不宜冷',
 }
 
 
@@ -2216,6 +2231,81 @@ CONG_GE_FINANCE_ARCHETYPE: Dict[str, Dict[str, str]] = {
 
 
 # ============================================================
+# 財庫 (Wealth Treasury) — maps wealth element to its treasury branch
+# Derived from 三合 墓庫 roles in branch_relationships.py
+# ============================================================
+
+WEALTH_TREASURY: Dict[str, Optional[str]] = {
+    '水': '辰',  # 申子辰三合水局, 辰 = 墓庫
+    '木': '未',  # 亥卯未三合木局, 未 = 墓庫
+    '火': '戌',  # 寅午戌三合火局, 戌 = 墓庫
+    '金': '丑',  # 巳酉丑三合金局, 丑 = 墓庫
+    '土': None,  # 跳過：木日主財星為土，辰戌丑未均為土庫，無從區分單一財庫
+}
+
+
+# ============================================================
+# PG_STRENGTH_CONDITION — Prominent God's condition by actual strength
+# 10 ten gods × 3 strength levels (旺/中/弱)
+# Describes the god's CONDITION (管道暢通/力量不足), NOT outcomes
+# Outcomes depend on DM strength (handled by existing PATTERN_FINANCE_ARCHETYPE)
+# ============================================================
+
+PG_STRENGTH_CONDITION: Dict[str, Dict[str, str]] = {
+    '食神': {
+        '旺': '食神力量充沛，才華輸出管道暢通',
+        '中': '食神力量適中，才華管道穩定但不突出',
+        '弱': '食神力量不足，才華管道較窄，需刻意培養',
+    },
+    '傷官': {
+        '旺': '傷官力量充沛，表達與創新管道暢通',
+        '中': '傷官力量適中，表達管道穩定但需合適舞台',
+        '弱': '傷官力量不足，創意能量未被充分釋放',
+    },
+    '正財': {
+        '旺': '正財力量充沛，穩定收入管道密集',
+        '中': '正財力量適中，收入管道穩定但增長有限',
+        '弱': '正財力量不足，穩定收入管道較窄',
+    },
+    '偏財': {
+        '旺': '偏財力量充沛，機會型收入管道多',
+        '中': '偏財力量適中，機會型收入偶爾出現',
+        '弱': '偏財力量不足，橫財管道有限',
+    },
+    '正官': {
+        '旺': '正官力量充沛，體制約束力與晉升通路明確',
+        '中': '正官力量適中，體制加持穩定但不突出',
+        '弱': '正官力量不足，體制紅利有限',
+    },
+    '偏官': {
+        '旺': '偏官力量充沛，外部壓力驅動管道明確',
+        '中': '偏官力量適中，外部壓力可控',
+        '弱': '偏官力量不足，外部驅動力有限',
+    },
+    '正印': {
+        '旺': '正印力量充沛，學習與專業認證管道暢通',
+        '中': '正印力量適中，專業加持穩定但需持續進修',
+        '弱': '正印力量不足，學歷與專業對財運助力有限',
+    },
+    '偏印': {
+        '旺': '偏印力量充沛，獨特技能管道多元',
+        '中': '偏印力量適中，冷門技能有一定市場但受眾有限',
+        '弱': '偏印力量不足，獨門技能管道尚待開發',
+    },
+    '比肩': {
+        '旺': '比肩力量充沛，同輩競爭壓力大，財富分流管道多',
+        '中': '比肩力量適中，競爭存在但不致白熱化',
+        '弱': '比肩力量不足，同輩助力有限，競爭壓力雖小但合作資源也少',
+    },
+    '劫財': {
+        '旺': '劫財力量充沛，財富外流管道多，合夥借貸風險高',
+        '中': '劫財力量適中，人際間的財務風險可控',
+        '弱': '劫財力量不足，人際財務風險雖低但借力管道也有限',
+    },
+}
+
+
+# ============================================================
 # Lookup Tables — Annual Ten God Finance (2D: ten_god x strength)
 # Issue #10 HIGH from Bazi Master Review
 # ============================================================
@@ -2357,6 +2447,78 @@ def _get_strength_class(classification: str) -> str:
     elif classification in ('weak', 'very_weak'):
         return 'weak'
     return 'neutral'
+
+
+class ProminentGodCount(TypedDict):
+    manifest: int
+    hidden: int
+    total: int
+    quality: str   # One of: 天透地藏, 天透微根, 天透無根, 藏而不透, 完全缺失
+    strength: str  # One of: 旺, 中, 弱
+
+
+def _count_prominent_god(
+    pillars: Dict,
+    day_master_stem: str,
+    prominent_god: str,
+) -> ProminentGodCount:
+    """
+    Count the prominent god's actual presence in manifest stems and hidden stems.
+
+    Manifest: year/month/hour stems only (day stem = DM, skip).
+    Hidden: ALL 4 pillars' hiddenStemGods (day branch included — it's branch energy, not DM).
+    Matching by tenGod label, not stem identity.
+
+    Note: For 比肩/劫財 as prominent god, hidden counting overlaps with DM roots.
+    This is intentional — the data provides visibility/distribution info.
+    """
+    # Manifest (天干): year/month/hour, skip day=DM
+    pg_manifest = 0
+    for pname in ('year', 'month', 'hour'):
+        tg = derive_ten_god(day_master_stem, pillars[pname]['stem'])
+        if tg == prominent_god:
+            pg_manifest += 1
+
+    # Hidden (藏干): all 4 pillars, track qi position for quality check
+    pg_hidden = 0
+    has_strong_root = False  # True if any hidden match is at 本氣(idx=0) or 中氣(idx=1)
+    for pname in ('year', 'month', 'day', 'hour'):
+        for idx, hsg in enumerate(pillars[pname].get('hiddenStemGods', [])):
+            if hsg['tenGod'] == prominent_god:
+                pg_hidden += 1
+                if idx <= 1:  # 本氣 (idx=0) or 中氣 (idx=1)
+                    has_strong_root = True
+
+    pg_total = pg_manifest + pg_hidden
+
+    # Quality: transparency + root quality classification
+    if pg_manifest >= 1 and pg_hidden >= 1:
+        if has_strong_root:
+            quality = '天透地藏'
+        else:
+            quality = '天透微根'  # Only 餘氣 roots — weak grounding
+    elif pg_manifest >= 1:
+        quality = '天透無根'
+    elif pg_hidden >= 1:
+        quality = '藏而不透'
+    else:
+        quality = '完全缺失'
+
+    # Strength: quantitative classification
+    if pg_total >= 3 or pg_manifest >= 2:
+        strength = '旺'
+    elif pg_total >= 2:
+        strength = '中'
+    else:
+        strength = '弱'
+
+    return {
+        'manifest': pg_manifest,
+        'hidden': pg_hidden,
+        'total': pg_total,
+        'quality': quality,
+        'strength': strength,
+    }
 
 
 def _is_element_favorable(element: str, effective_gods: Dict[str, str]) -> str:
@@ -2660,6 +2822,169 @@ def _build_personality_anchors(
 
 
 # ============================================================
+# Summary Anchors Builder — Pre-narrated facts for 命理總覽
+# ============================================================
+# NOTE: This is separate from build_narrative_anchors() because summary
+# anchors require luck_periods_enriched and best_period, which are computed
+# AFTER build_narrative_anchors() in the orchestrator function.
+
+
+def build_summary_anchors(
+    day_master_stem: str,
+    effective_gods: Dict[str, str],
+    prominent_god: str,
+    strength_v2: Dict,
+    cong_ge: Optional[Dict],
+    luck_periods_enriched: List[Dict],
+    best_period: Optional[Dict],
+    current_year: int,
+) -> List[str]:
+    """
+    Build deterministic anchor sentences for the summary (命理總覽) section.
+
+    These anchors prevent AI hallucination in the summary by providing
+    verified facts about core identity, current 大運 status, forward trend,
+    and best period framing.
+
+    Returns a list of 1-4 anchor sentences depending on data availability.
+    """
+    dm_element = STEM_ELEMENT.get(day_master_stem, '')
+    useful_god = effective_gods.get('usefulGod', '')
+    favorable_god = effective_gods.get('favorableGod', '')
+    taboo_god = effective_gods.get('tabooGod', '')
+    enemy_god = effective_gods.get('enemyGod', '')
+    classification = strength_v2.get('classification', '')
+    score = strength_v2.get('score', 0)
+
+    strength_zh = {
+        'very_strong': '極旺', 'strong': '偏旺', 'neutral': '中和',
+        'weak': '偏弱', 'very_weak': '極弱',
+    }.get(classification, classification)
+
+    anchors: List[str] = []
+
+    # --- Anchor 1: Core identity + god system (always present) ---
+    gods_parts = []
+    if useful_god:
+        gods_parts.append(f'用神{useful_god}')
+    if favorable_god:
+        gods_parts.append(f'喜神{favorable_god}')
+    if taboo_god:
+        gods_parts.append(f'忌神{taboo_god}')
+    if enemy_god:
+        gods_parts.append(f'仇神{enemy_god}')
+    gods_str = '、'.join(gods_parts) if gods_parts else ''
+
+    if cong_ge and cong_ge.get('name') and cong_ge.get('dominantElement'):
+        identity = (
+            f'命主日主{day_master_stem}（{dm_element}），'
+            f'為{cong_ge["name"]}，順從{cong_ge["dominantElement"]}勢，'
+            f'日主強度{score}分（{strength_zh}）'
+        )
+    else:
+        identity = (
+            f'命主日主{day_master_stem}（{dm_element}），'
+            f'{prominent_god}格，日主強度{score}分（{strength_zh}）'
+        )
+
+    if gods_str:
+        anchors.append(f'{identity}。{gods_str}')
+    else:
+        anchors.append(identity)
+
+    # --- Anchor 2: Current 大運 status (omitted if no current period) ---
+    current_period = next(
+        (p for p in luck_periods_enriched if p.get('isCurrent')), None
+    )
+    next_period = None
+
+    if current_period:
+        current_ordinal = current_period.get('periodOrdinal', 0)
+        current_score = current_period.get('score', 0)
+        start_age = current_period.get('startAge', '')
+        end_age = current_period.get('endAge', '')
+
+        period_text = (
+            f'目前正處於第{current_ordinal}步大運'
+            f'（{start_age}-{end_age}歲），大運評分{current_score}/100'
+        )
+
+        if current_score >= 70:
+            period_text += '，屬有利運勢，宜積極把握'
+        elif current_score >= 40:
+            period_text += '，屬平穩運勢，宜穩扎穩打'
+        else:
+            period_text += '，屬挑戰期，宜守成避險、蓄積實力'
+
+        anchors.append(period_text)
+
+        # Find next period for forward trend
+        next_period = next(
+            (p for p in luck_periods_enriched
+             if p.get('periodOrdinal') == current_ordinal + 1),
+            None,
+        )
+
+    # --- Anchor 3: Forward trend (omitted if no current or no next period) ---
+    if current_period and next_period:
+        current_score = current_period.get('score', 0)
+        next_score = next_period.get('score', 0)
+        next_start = next_period.get('startAge', '')
+        next_end = next_period.get('endAge', '')
+        diff = next_score - current_score
+
+        if diff > 5:
+            anchors.append(
+                f'下一步大運（{next_start}-{next_end}歲）'
+                f'評分{next_score}/100，運勢呈上升趨勢'
+            )
+        elif diff < -5:
+            anchors.append(
+                f'下一步大運（{next_start}-{next_end}歲）'
+                f'評分{next_score}/100，宜提前部署轉型準備'
+            )
+        else:
+            anchors.append(
+                f'下一步大運運勢持平（{next_score}/100）'
+            )
+
+    # --- Anchor 4: Best period framing (omitted if no best_period) ---
+    if best_period:
+        best_start_age = best_period.get('startAge', '')
+        best_end_age = best_period.get('endAge', '')
+        best_score = best_period.get('score', 0)
+        best_start_year = best_period.get('startYear', 0)
+        best_end_year = best_period.get('endYear', 0)
+        best_ordinal = best_period.get('periodOrdinal', 0)
+
+        current_ordinal = current_period.get('periodOrdinal', 0) if current_period else 0
+
+        if current_period and best_ordinal == current_ordinal:
+            anchors.append(
+                f'命主目前正值最佳大運'
+                f'（{best_start_age}-{best_end_age}歲，{best_score}分），應全力衝刺'
+            )
+        elif best_start_year > current_year:
+            anchors.append(
+                f'命主最佳大運在{best_start_age}-{best_end_age}歲'
+                f'（{best_score}分），未來可期'
+            )
+        elif best_end_year < current_year:
+            anchors.append(
+                f'命主最佳大運已於{best_start_age}-{best_end_age}歲度過'
+                f'（{best_score}分），當前應專注於現有運勢的最大化'
+            )
+        else:
+            # Edge case: best period spans current year but isn't marked isCurrent
+            anchors.append(
+                f'命主最佳大運為{best_start_age}-{best_end_age}歲'
+                f'（{best_score}分）'
+            )
+
+    return anchors
+
+
+# ============================================================
 # Narrative Anchors Builder — Pre-narrated facts for AI
 # ============================================================
 
@@ -2817,7 +3142,7 @@ def build_narrative_anchors(
     finance_anchors = [
         f'有利財運的五行方向：{useful_god}（用神）和{favorable_god}（喜神）',
         f'不利財運的五行方向：{taboo_god}（忌神，最不利）和{enemy_god}（仇神，次不利）',
-        f'最容易破財的方式與{taboo_god}五行相關產業或投機行為有關',
+        f'命格最容易破財的根本原因：{taboo_god}五行為忌神，逢{taboo_god}五行強旺的時期（大運/流年）財運易受損，且在衝動消費或投機行為中最易破財',
     ]
 
     # NEW: Pattern-specific finance archetype (2D lookup, Issue #14 CRITICAL)
@@ -2832,22 +3157,63 @@ def build_narrative_anchors(
     else:
         fin_archetype = PATTERN_FINANCE_ARCHETYPE.get(prominent_god, {}).get(strength_class, {})
         if fin_archetype:
+            # G1: 2D mechanism — AUGMENT old mechanism with prominent god's actual distribution
+            pg_info = _count_prominent_god(pillars, day_master_stem, prominent_god)
+            pg_condition = PG_STRENGTH_CONDITION.get(prominent_god, {}).get(
+                pg_info['strength'], ''  # fallback to empty if constant missing
+            )
+
+            if pg_info['quality'] != '完全缺失':
+                # Normal: PG distribution + PG condition + old DM-aware mechanism (APPEND)
+                dynamic_part = (
+                    f'{prominent_god}{pg_info["quality"]}'
+                    f'（天干{pg_info["manifest"]}個、藏干{pg_info["hidden"]}個），'
+                    f'格局主星力量偏{pg_info["strength"]}'
+                )
+                if pg_condition:
+                    dynamic_part += f'——{pg_condition}'
+                # APPEND old mechanism after separator
+                mechanism_text = f'{dynamic_part}。{fin_archetype["mechanism"]}'
+            else:
+                # Edge case: pattern from monthly decree but god not visible in chart
+                mechanism_text = (
+                    f'{prominent_god}由月令定格但命局未見'
+                    f'（天干0個、藏干0個），'
+                    f'格局主星力量偏弱。{fin_archetype["mechanism"]}'
+                )
+
             finance_anchors.append(
-                f'{prominent_god}格{strength_zh}的理財型態：{fin_archetype["archetype"]}——{fin_archetype["mechanism"]}'
+                f'{prominent_god}格{strength_zh}的理財型態：'
+                f'{fin_archetype["archetype"]}——{mechanism_text}'
             )
             finance_anchors.append(f'理財風險：{fin_archetype["risk"]}')
 
-    # NEW: 正財/偏財 distribution count
-    zhengcai_count = 0
-    piancai_count = 0
+    # NEW: 正財/偏財 distribution count (天干 + 藏干)
+    zhengcai_tiangan = 0
+    piancai_tiangan = 0
+    zhengcai_canggan = 0
+    piancai_canggan = 0
     for pname in ('year', 'month', 'hour'):
         stem = pillars[pname]['stem']
         tg = derive_ten_god(day_master_stem, stem)
         if tg == '正財':
-            zhengcai_count += 1
+            zhengcai_tiangan += 1
         elif tg == '偏財':
-            piancai_count += 1
-    finance_anchors.append(f'命局天干中正財{zhengcai_count}個、偏財{piancai_count}個')
+            piancai_tiangan += 1
+    for pname in ('year', 'month', 'day', 'hour'):
+        for hsg in pillars[pname].get('hiddenStemGods', []):
+            if hsg['tenGod'] == '正財':
+                zhengcai_canggan += 1
+            elif hsg['tenGod'] == '偏財':
+                piancai_canggan += 1
+    zhengcai_total = zhengcai_tiangan + zhengcai_canggan
+    piancai_total = piancai_tiangan + piancai_canggan
+    anchor_parts = [f'天干正財{zhengcai_tiangan}個、偏財{piancai_tiangan}個']
+    if zhengcai_canggan or piancai_canggan:
+        anchor_parts.append(f'藏干另有正財{zhengcai_canggan}個、偏財{piancai_canggan}個')
+    if zhengcai_total == 0 and piancai_total == 0:
+        anchor_parts.append('命局完全無財星')
+    finance_anchors.append(f'命局財星分布：{"；".join(anchor_parts)}')
 
     # NEW: 食傷生財 chain with blocking check (Issue #7)
     chain = _detect_food_wealth_chain(five_elements_balance, tougan_analysis, effective_gods, day_master_stem)
@@ -2856,6 +3222,172 @@ def build_narrative_anchors(
             finance_anchors.append(f'食傷生財鏈受阻：{chain["reason"]}')
         else:
             finance_anchors.append('食傷生財鏈暢通：食傷星可透過才華轉化為財富')
+
+    # ── F1: 財庫 (Wealth Treasury) Detection ──
+    wealth_element = ELEMENT_OVERCOMES[dm_element]
+    treasury_branch = WEALTH_TREASURY.get(wealth_element)
+    if treasury_branch is not None:
+        is_cong_cai = bool(cong_ge and cong_ge.get('type') == 'cong_cai')
+        for pname in ('year', 'month', 'day', 'hour'):
+            if pillars[pname]['branch'] == treasury_branch:
+                pillar_zh = PILLAR_NAME_ZH.get(pname, pname)
+                treasury_clashed = treasury_branch in clashed_branches
+                if is_cong_cai:
+                    if treasury_clashed:
+                        finance_anchors.append(
+                            f'⚠️ 從財格財庫逢沖（{treasury_branch}在{pillar_zh}柱被沖），'
+                            f'格局根基動搖，財運受到根本性衝擊'
+                        )
+                    else:
+                        finance_anchors.append(
+                            f'從財格命帶財庫（{treasury_branch}在{pillar_zh}柱），'
+                            f'格局穩固，天生聚財能力極強'
+                        )
+                else:
+                    if treasury_clashed:
+                        finance_anchors.append(
+                            f'命帶財庫（{treasury_branch}在{pillar_zh}柱），且逢沖開庫'
+                            f'——財富有庫可藏，且有機會大量釋出'
+                        )
+                    else:
+                        finance_anchors.append(
+                            f'命帶財庫（{treasury_branch}在{pillar_zh}柱），但未逢沖'
+                            f'——財富有儲蓄能力，但不易大量流動'
+                        )
+                break  # Only first treasury branch generates an anchor
+
+    # ── F2: 財星被沖 (Wealth Root Clashed) Detection ──
+    # Use hiddenStemGods to find wealth-rooting branches (not BRANCH_ELEMENT)
+    for pname in ('year', 'month', 'day', 'hour'):
+        branch = pillars[pname]['branch']
+        if branch not in clashed_branches:
+            continue
+        has_wealth_root = False
+        for hsg in pillars[pname].get('hiddenStemGods', []):
+            if hsg['tenGod'] in ('正財', '偏財'):
+                has_wealth_root = True
+                break
+        if has_wealth_root:
+            pillar_zh = PILLAR_NAME_ZH.get(pname, pname)
+            clash_partner = CLASH_LOOKUP.get(branch, '?')
+            if cong_ge and cong_ge.get('type') == 'cong_cai':
+                finance_anchors.append(
+                    f'⚠️ 從財格財星根基被沖（{branch}被{clash_partner}沖），'
+                    f'格局破損，財運受到根本性破壞'
+                )
+            else:
+                finance_anchors.append(
+                    f'財星根基被沖（{pillar_zh}支{branch}藏有財星，被{clash_partner}沖），'
+                    f'財運有動盪波動的先天結構'
+                )
+            break  # Only first wealth-clashed branch generates an anchor
+
+    # ── F3: 財官通氣 (Wealth-Officer Bridge) — fresh four-way count ──
+    # Wealth in 天干 (year/month/hour stems, day = 日主 skip)
+    cai_in_tiangan = 0
+    for pname in ('year', 'month', 'hour'):
+        tg = derive_ten_god(day_master_stem, pillars[pname]['stem'])
+        if tg in ('正財', '偏財'):
+            cai_in_tiangan += 1
+    # Wealth in 藏干 (all 4 pillars)
+    cai_in_canggan = 0
+    for pname in ('year', 'month', 'day', 'hour'):
+        for hsg in pillars[pname].get('hiddenStemGods', []):
+            if hsg['tenGod'] in ('正財', '偏財'):
+                cai_in_canggan += 1
+    # Officer in 天干
+    guan_in_tiangan = 0
+    for pname in ('year', 'month', 'hour'):
+        tg = derive_ten_god(day_master_stem, pillars[pname]['stem'])
+        if tg in ('正官', '偏官'):
+            guan_in_tiangan += 1
+    # Officer in 藏干
+    guan_in_canggan = 0
+    for pname in ('year', 'month', 'day', 'hour'):
+        for hsg in pillars[pname].get('hiddenStemGods', []):
+            if hsg['tenGod'] in ('正官', '偏官'):
+                guan_in_canggan += 1
+
+    has_cai = (cai_in_tiangan + cai_in_canggan) > 0
+    has_guan = (guan_in_tiangan + guan_in_canggan) > 0
+    if has_cai and has_guan:
+        if cai_in_tiangan > 0 and guan_in_tiangan > 0:
+            # Tier 1: 雙透天干 — both wealth and officer transparent in stems
+            finance_anchors.append(
+                '命帶財官通氣（雙透天干）——財星與官星同見，'
+                '仕途與財運相輔相成，格局清正'
+            )
+        elif (cai_in_tiangan > 0 and guan_in_tiangan == 0 and guan_in_canggan > 0) or \
+             (guan_in_tiangan > 0 and cai_in_tiangan == 0 and cai_in_canggan > 0):
+            # Tier 2: 天透地藏 — one transparent, the other in hidden stems
+            finance_anchors.append(
+                '命帶財官通氣（天透地藏）——財官有通路，'
+                '力量雖不如雙透但仍有效'
+            )
+        else:
+            # Tier 3: 藏而不露 — both exist only in hidden stems
+            finance_anchors.append(
+                '財官有通路但藏而不露，需大運引動才能完全發揮'
+            )
+
+    # ── F4: 比劫奪財 (Rob-Wealth Structural Risk) ──
+    # Guard 1: Skip if chart IS 比肩格/劫財格 — PATTERN_FINANCE_ARCHETYPE already covers
+    # Guard 2: Skip if DM is weak/very_weak — 比劫 is beneficial (比劫助身), not risk
+    if prominent_god not in ('比肩', '劫財') and classification not in ('weak', 'very_weak'):
+        # Count manifest 比劫 (天干: year/month/hour, day stem = 日主 skip)
+        manifest_bijie = 0
+        for pname in ('year', 'month', 'hour'):
+            tg = derive_ten_god(day_master_stem, pillars[pname]['stem'])
+            if tg in ('比肩', '劫財'):
+                manifest_bijie += 1
+        # Guard 3: Must have at least 1 manifest 比劫 before hidden stems contribute
+        if manifest_bijie >= 1:
+            # Count hidden 比劫 (藏干: all 4 pillars)
+            hidden_bijie = 0
+            for pname in ('year', 'month', 'day', 'hour'):
+                for hsg in pillars[pname].get('hiddenStemGods', []):
+                    if hsg['tenGod'] in ('比肩', '劫財'):
+                        hidden_bijie += 1
+            total_bijie = manifest_bijie + hidden_bijie
+            # Threshold check based on 5-level classification
+            bijie_anchor = None
+            if classification == 'very_strong' and total_bijie >= 2:
+                bijie_anchor = '比劫奪財風險高——身極旺比劫重，財富易被分散、合作易生糾紛'
+            elif classification == 'strong' and total_bijie >= 3:
+                bijie_anchor = '比劫奪財風險高——身旺比劫重，財富易被分散、競爭壓力大'
+            elif classification == 'neutral' and total_bijie >= 3:
+                bijie_anchor = '比劫奪財風險中等——競爭壓力存在但可控'
+            if bijie_anchor:
+                finance_anchors.append(bijie_anchor)
+
+    # ── F5: 財多身弱 / 身旺財弱 (DM-Wealth Structural Balance) ──
+    # Guard: Skip for 從格 — extreme element distributions make % comparisons misleading
+    if not cong_ge:
+        wealth_pct = five_elements_balance.get(wealth_element, 0)
+        classification_zh_f5 = {
+            'very_strong': '極旺', 'strong': '偏強', 'neutral': '中和',
+            'weak': '偏弱', 'very_weak': '極弱',
+        }.get(classification, classification)
+        if wealth_pct >= 22 and classification in ('weak', 'very_weak'):
+            finance_anchors.append(
+                f'財多身弱格局——財星{wealth_element}佔命局{wealth_pct:.0f}%，'
+                f'日主{classification_zh_f5}擔不住，見財難守、機會多但把握不住'
+            )
+        elif wealth_pct >= 22 and classification in ('strong', 'very_strong'):
+            finance_anchors.append(
+                f'身旺財旺格局——財星{wealth_element}佔{wealth_pct:.0f}%'
+                f'且日主{classification_zh_f5}，能扛財能守財'
+            )
+        elif wealth_pct <= 5 and classification in ('strong', 'very_strong'):
+            finance_anchors.append(
+                f'身旺財弱格局——日主{classification_zh_f5}但財星{wealth_element}'
+                f'僅佔{wealth_pct:.0f}%，需靠大運補充財星'
+            )
+        elif wealth_pct <= 5 and classification in ('weak', 'very_weak'):
+            finance_anchors.append(
+                '身弱財弱格局——日主與財星均弱，'
+                '財運需大運同時補強日主與財星'
+            )
 
     anchors['finance_pattern'] = god_system_anchors + finance_anchors
 
@@ -2958,6 +3490,80 @@ def build_narrative_anchors(
                         f'{PILLAR_NAME_ZH.get(sha["pillar"], "")}柱帶天醫：{interp[sha["pillar"]]}'
                     )
 
+    # H5a: DM strength health structural assessment
+    # Reuse children_insights for consistent 食傷 count across sections (#12)
+    total_shishan_health = children_insights.get('shishanManifestCount', 0) + children_insights.get('shishanLatentCount', 0)
+
+    if not cong_ge:
+        # Count 官殺 (pressure/stress sources) — exclude day branch (#10: day = spouse palace)
+        guan_sha_count = sum(
+            1 for pname in ('year', 'month', 'hour')
+            if derive_ten_god(day_master_stem, pillars[pname]['stem']) in ('正官', '偏官')
+        ) + sum(
+            1 for pname in ('year', 'month', 'hour')  # NOT 'day'
+            for hsg in pillars[pname].get('hiddenStemGods', [])
+            if hsg['tenGod'] in ('正官', '偏官')
+        )
+
+        if classification in ('weak', 'very_weak'):
+            if guan_sha_count >= 3:
+                health_anchors.append(
+                    f'健康結構：身{strength_zh}且官殺多（{guan_sha_count}個），'
+                    f'壓力承受力不足，長期高壓易引發慢性疲勞或免疫系統問題'
+                )
+            elif total_shishan_health >= 3:
+                health_anchors.append(
+                    f'健康結構：身{strength_zh}且食傷多（{total_shishan_health}個），'
+                    f'精力過度外散，易出現氣虛體弱、精神不集中、體力透支'
+                )
+            elif guan_sha_count >= 2 and total_shishan_health >= 2:
+                health_anchors.append(
+                    f'健康結構：身{strength_zh}且官殺{guan_sha_count}個食傷{total_shishan_health}個，'
+                    f'內外交耗，壓力與精力消耗雙重夾擊，體質偏弱須特別養護'
+                )
+            else:
+                health_anchors.append(
+                    f'健康結構：身{strength_zh}，整體抵抗力偏弱，宜注重補養元氣'
+                )
+        elif classification in ('strong', 'very_strong'):
+            # #11: Focus on behavioral/lifestyle pattern unique to strong DMs
+            # (organ-specific excess warnings already covered by existing excess/deficiency anchors)
+            health_anchors.append(
+                f'健康結構：身{strength_zh}，生命力充沛恢復力強，但容易過度逞強、忽視身體訊號，'
+                f'須防過勞和急性發炎，定期健檢比日常養生更重要'
+            )
+        else:  # neutral
+            health_anchors.append(
+                '健康結構：身中和，先天體質平衡，五行偏枯之處為主要保養重點'
+            )
+    else:  # cong_ge chart (#14 HIGH fix)
+        dominant_el = cong_ge.get('dominantElement', '')
+        cong_name = cong_ge.get('name', '從格')
+        dm_health = ELEMENT_HEALTH_ORGANS.get(dm_element, {})
+        dominant_health = ELEMENT_HEALTH_ORGANS.get(dominant_el, {})
+        health_anchors.append(
+            f'健康結構：{cong_name}命局，日主{dm_element}五行極弱，'
+            f'對應{dm_health.get("organs", "")}先天較脆弱。'
+            f'整體健康依附於{dominant_el}五行旺勢，'
+            f'大運流年如逢破格（剋制{dominant_el}），健康容易急劇下滑'
+        )
+
+    # H5b: Lifestyle direction based on useful god element
+    lifestyle = ELEMENT_LIFESTYLE_ADVICE.get(useful_god, '')
+    if lifestyle:
+        health_anchors.append(f'養生方向以補{useful_god}五行為主：{lifestyle}')
+
+    # H5c: Health-negative shen sha (羊刃 = accident-prone)
+    for sha in all_shen_sha:
+        if sha['name'] == '羊刃':
+            interp = SHEN_SHA_PILLAR_INTERPRETATIONS.get('羊刃', {})
+            if interp and sha['pillar'] in interp:
+                if _shen_sha_is_valid('羊刃', sha['branch'], kong_wang, clashed_branches):
+                    health_anchors.append(
+                        f'{PILLAR_NAME_ZH.get(sha["pillar"], "")}柱帶羊刃，性格衝動急躁，'
+                        f'須防意外傷害、手術或血光之災'
+                    )
+
     anchors['health'] = god_system_anchors + health_anchors
 
     # ==== LOVE_PATTERN ANCHORS (7-9 anchors) ====
@@ -2970,6 +3576,16 @@ def build_narrative_anchors(
         love_anchors.append('女命看正官為夫星、偏官為情緣星')
         spouse_star_el = ELEMENT_OVERCOME_BY[dm_element]
         love_anchors.append(f'夫星五行為{spouse_star_el}（克日主{dm_element}之五行）')
+
+    # Spouse star favorability — core love assessment factor
+    spouse_fav = _is_element_favorable(spouse_star_el, effective_gods)
+    star_name = '妻星' if gender == 'male' else '夫星'
+    if spouse_fav == 'favorable':
+        love_anchors.append(f'{star_name}五行{spouse_star_el}為喜用神，感情運整體有利，配偶對命主有正面助力')
+    elif spouse_fav == 'unfavorable':
+        love_anchors.append(f'{star_name}五行{spouse_star_el}為忌仇神，感情易受阻礙，需注意擇偶方向')
+    else:
+        love_anchors.append(f'{star_name}五行{spouse_star_el}為閒神，感情運平穩，配偶影響中性')
 
     # Day branch (spouse palace) info
     day_hidden = HIDDEN_STEMS.get(day_branch, [])
@@ -2988,6 +3604,29 @@ def build_narrative_anchors(
         love_anchors.append('⚠️ 正偏混雜：正偏配偶星同時出現，感情較複雜')
     if spouse_data['hidden_stars']:
         love_anchors.append(f'配偶星分佈：{"、".join(spouse_data["hidden_stars"])}')
+
+    # DM strength vs spouse star balance — structural love pattern
+    # Skip for 從格 (has its own structural logic — same pattern as finance)
+    if not cong_ge:
+        if classification in ('weak', 'very_weak'):
+            if gender == 'female' and total_spouse >= 3:
+                love_anchors.append(f'感情結構：身弱官殺多（{total_spouse}個），感情機緣雖多但良莠不齊，婚前感情較為波折')
+            elif gender == 'male' and total_spouse >= 3:
+                love_anchors.append(f'感情結構：身弱財多（{total_spouse}個），感情機會多但難以把握，容易在感情中消耗精力')
+            elif total_spouse >= 2:
+                love_anchors.append(f'感情結構：身弱配偶星{total_spouse}個，核心能量不足以承載感情壓力，需注意感情中的被動局面')
+        elif classification in ('strong', 'very_strong'):
+            if total_spouse == 0:
+                love_anchors.append('感情結構：身旺無配偶星，感情機緣較少，需要主動經營')
+            elif total_spouse <= 1:
+                love_anchors.append(f'感情結構：身旺配偶星少（{total_spouse}個），有能力經營感情但機緣不算多')
+            else:
+                love_anchors.append(f'感情結構：身旺配偶星{total_spouse}個，有足夠能量承載感情，婚姻基礎穩固')
+        else:  # neutral
+            if total_spouse >= 2:
+                love_anchors.append(f'感情結構：身中和配偶星{total_spouse}個，感情運勢均衡，配偶關係相對和諧')
+            else:
+                love_anchors.append(f'感情結構：身中和配偶星{total_spouse}個，感情穩定但機緣需要主動把握')
 
     # NEW: Day branch 空亡 check with god conditioning (Issue #1)
     if day_branch in kong_wang:
@@ -3043,12 +3682,21 @@ def build_narrative_anchors(
     # ==== CHILDREN_ANALYSIS ANCHORS ====
     children_anchors = _build_children_anchors(
         pillars, day_master_stem, children_insights, tougan_analysis,
+        strength_v2=strength_v2,
+        cong_ge=cong_ge,
+        effective_gods=effective_gods,
+        kong_wang=kong_wang,
+        clashed_branches=clashed_branches,
     )
     anchors['children_analysis'] = god_system_anchors + children_anchors
 
     # ==== PARENTS_ANALYSIS ANCHORS ====
     parents_anchors = _build_parents_anchors(
         pillars, day_master_stem, parents_insights, effective_gods,
+        strength_v2=strength_v2,
+        cong_ge=cong_ge,
+        kong_wang=kong_wang,
+        clashed_branches=clashed_branches,
     )
     anchors['parents_analysis'] = god_system_anchors + parents_anchors
 
@@ -3082,6 +3730,12 @@ def _build_children_anchors(
     day_master_stem: str,
     children_insights: Dict[str, Any],
     tougan_analysis: List[Dict],
+    # NEW parameters for structural assessment:
+    strength_v2: Optional[Dict] = None,
+    cong_ge: Optional[Dict] = None,
+    effective_gods: Optional[Dict[str, str]] = None,
+    kong_wang: Optional[List[str]] = None,
+    clashed_branches: Optional[Set[str]] = None,
 ) -> List[str]:
     """Build detailed, self-narrating anchor sentences for children_analysis."""
     dm_element = STEM_ELEMENT[day_master_stem]
@@ -3187,6 +3841,135 @@ def _build_children_anchors(
     if life_stage:
         anchors.append(f'日主在時支為「{life_stage}」，反映命主晚年及子女宮的能量狀態')
 
+    # C5a: DM strength vs 食傷 structural balance
+    # NOTE: Platform uses 食傷 as gender-neutral children indicator per design decision.
+    # Classical male charts use 官殺 as primary children star — deferred to future phase.
+    strength_v2 = strength_v2 or {}
+    effective_gods = effective_gods or {}
+    kong_wang = kong_wang or []
+    clashed_branches = clashed_branches or set()
+    c_classification = strength_v2.get('classification', '')
+    c_strength_zh = {
+        'very_strong': '極旺', 'strong': '偏旺', 'neutral': '中和',
+        'weak': '偏弱', 'very_weak': '極弱',
+    }.get(c_classification, c_classification)
+    total_shishan = manifest_count + latent_count
+
+    if not cong_ge:
+        if c_classification in ('weak', 'very_weak'):
+            # #6: Primary threshold on manifest_count (visible, stronger influence)
+            if manifest_count >= 2 or total_shishan >= 3:
+                anchors.append(
+                    f'子女結構：身{c_strength_zh}且食傷多（顯現{manifest_count}個，含潛藏共{total_shishan}個），'
+                    f'子女緣分不缺但養育過程消耗大，命主易因子女事務過度操心'
+                )
+            elif total_shishan >= 1:
+                anchors.append(
+                    f'子女結構：身{c_strength_zh}食傷{total_shishan}個，'
+                    f'子女緣分正常，但養育過程需注意自身精力分配'
+                )
+            else:
+                anchors.append(
+                    f'子女結構：身{c_strength_zh}且食傷缺位，子女緣分較薄'
+                )
+        elif c_classification in ('strong', 'very_strong'):
+            if total_shishan == 0:
+                anchors.append(
+                    f'子女結構：身{c_strength_zh}但食傷完全缺位，'
+                    f'子女緣分較淡或來得較遲'
+                )
+            elif manifest_count == 0 and latent_count >= 1:
+                # #6: All latent, no manifest — weaker affinity
+                anchors.append(
+                    f'子女結構：身{c_strength_zh}食傷{total_shishan}個但均潛藏未透，'
+                    f'子女緣分潛在但需要時機啟動'
+                )
+            elif total_shishan <= 1:
+                anchors.append(
+                    f'子女結構：身{c_strength_zh}食傷少（{total_shishan}個），'
+                    f'子女不多但命主有足夠能量照顧好'
+                )
+            else:
+                anchors.append(
+                    f'子女結構：身{c_strength_zh}食傷{total_shishan}個，'
+                    f'精力充沛足以支撐子女教養，子女關係較順'
+                )
+        else:  # neutral
+            if total_shishan >= 2:
+                anchors.append(
+                    f'子女結構：身中和食傷{total_shishan}個，子女緣分均衡，親子關係相對和諧'
+                )
+            else:
+                anchors.append(
+                    f'子女結構：身中和食傷{total_shishan}個，子女緣分正常，需主動經營'
+                )
+    else:  # cong_ge chart (#15 HIGH fix)
+        cong_name = cong_ge.get('name', '從格')
+        cong_type = cong_ge.get('type', '')
+        dominant_el = cong_ge.get('dominantElement', '')
+        shishan_el_cg = ELEMENT_PRODUCES[dm_element]
+        if cong_type == 'cong_er' or dominant_el == shishan_el_cg:
+            # 從兒格 — following 食傷 → strongest children affinity
+            anchors.append(
+                f'子女結構：{cong_name}，命局順從食傷（{shishan_el_cg}）之勢，'
+                f'子女緣分極強，子女為命主人生重要核心'
+            )
+        else:
+            anchors.append(
+                f'子女結構：{cong_name}，命局能量集中於{dominant_el}五行，'
+                f'子女緣分依從格順逆而定'
+            )
+
+    # C5b: Hour branch 空亡 — children palace empty
+    if hour_branch in kong_wang:
+        hour_branch_el = BRANCH_ELEMENT.get(hour_branch, '')
+        fav = _is_element_favorable(hour_branch_el, effective_gods)
+        base = '子女宮（時支）空亡，子女緣分較薄或子女不在身邊發展'
+        if fav == 'unfavorable':
+            anchors.append(f'{base}，但空亡位為忌神五行，凶性減半，實際影響不大')
+        elif fav == 'favorable':
+            anchors.append(f'{base}，且空亡位為用神五行，子女助力減弱')
+        else:
+            anchors.append(base)
+
+    # C5c: Hour branch clash — identify specific clashing pillar
+    hour_clash_partner = CLASH_LOOKUP.get(hour_branch, '')
+    if hour_clash_partner:
+        clashing_pillars = []
+        for pname in ('year', 'month', 'day'):
+            if pillars[pname]['branch'] == hour_clash_partner:
+                clashing_pillars.append(PILLAR_NAME_ZH[pname])
+        if clashing_pillars:
+            pillar_str = '、'.join(clashing_pillars)
+            anchors.append(
+                f'子女宮（時支{hour_branch}）被{pillar_str}柱{hour_clash_partner}沖，'
+                f'子女成長過程中可能經歷較多變動，或命主與子女間易有衝突摩擦'
+            )
+
+    # C5d: 傷官見官 — conditioned on 正官 favorability (#8)
+    has_shangguan = False
+    has_zhengguan = False
+    for pname in ('year', 'month', 'hour'):
+        tg = derive_ten_god(day_master_stem, pillars[pname]['stem'])
+        if tg == '傷官':
+            has_shangguan = True
+        elif tg == '正官':
+            has_zhengguan = True
+    if has_shangguan and has_zhengguan:
+        guan_el = ELEMENT_OVERCOME_BY[dm_element]  # 官殺 element
+        guan_fav = _is_element_favorable(guan_el, effective_gods)
+        if guan_fav == 'favorable':
+            anchors.append(
+                '命局傷官見官（正官為喜用），命主內心有叛逆與自律的衝突，'
+                '教養子女時容易在嚴格與放任之間搖擺，須注意一致性'
+            )
+        elif guan_fav == 'unfavorable':
+            anchors.append(
+                '命局傷官見官（正官為忌），命主天生不受規則束縛，'
+                '教養子女時傾向開放式教育，但須注意給予適度規範'
+            )
+        # If neutral, skip (weak effect)
+
     return anchors
 
 
@@ -3195,6 +3978,11 @@ def _build_parents_anchors(
     day_master_stem: str,
     parents_insights: Dict[str, Any],
     effective_gods: Dict[str, str],
+    # NEW parameters for structural assessment:
+    strength_v2: Optional[Dict] = None,
+    cong_ge: Optional[Dict] = None,
+    kong_wang: Optional[List[str]] = None,
+    clashed_branches: Optional[Set[str]] = None,
 ) -> List[str]:
     """Build detailed, self-narrating anchor sentences for parents_analysis."""
     dm_element = STEM_ELEMENT[day_master_stem]
@@ -3268,6 +4056,128 @@ def _build_parents_anchors(
             anchors.append(f'年柱整體為忌，幼年家庭環境不利於命主發展')
     else:
         anchors.append('年柱整體為中性，幼年家庭環境影響不顯著')
+
+    # P5a: Father star (偏財) element favorability (#9: element-level assessment)
+    kong_wang = kong_wang or []
+    clashed_branches = clashed_branches or set()
+    father_fav = _is_element_favorable(father_element, effective_gods)
+    if father_fav == 'favorable':
+        anchors.append(f'父星（偏財）五行{father_element}屬於喜用方向，父親的影響力對命主整體有利')
+    elif father_fav == 'unfavorable':
+        anchors.append(f'父星（偏財）五行{father_element}屬於忌仇方向，父親影響帶有壓力或限制，關係需經營')
+    else:
+        anchors.append(f'父星（偏財）五行{father_element}為閒神方向，父親影響中性')
+
+    # P5a-2: Mother star (正印) element favorability
+    mother_fav = _is_element_favorable(mother_element, effective_gods)
+    if mother_fav == 'favorable':
+        anchors.append(f'母星（正印）五行{mother_element}屬於喜用方向，母親對命主有深厚支持')
+    elif mother_fav == 'unfavorable':
+        anchors.append(f'母星（正印）五行{mother_element}屬於忌仇方向，母親關愛方式可能造成壓力')
+    else:
+        anchors.append(f'母星（正印）五行{mother_element}為閒神方向，母親影響中性')
+
+    # P5b: Year branch 空亡 — early separation from parents
+    if year_branch in kong_wang:
+        year_branch_el = BRANCH_ELEMENT.get(year_branch, '')
+        fav = _is_element_favorable(year_branch_el, effective_gods)
+        base = '年支空亡，幼年與父母或祖輩緣分較薄，可能有分離或缺少陪伴的情況'
+        if fav == 'unfavorable':
+            anchors.append(f'{base}。但空亡位為忌神五行，凶性減半')
+        elif fav == 'favorable':
+            anchors.append(f'{base}。且空亡位為用神五行，失去的助力較大')
+        else:
+            anchors.append(base)
+
+    # P5c: Year branch clash — identify specific clashing pillar (#13)
+    year_clash_partner = CLASH_LOOKUP.get(year_branch, '')
+    if year_clash_partner:
+        for other_pname in ('month', 'day', 'hour'):
+            other_branch = pillars[other_pname]['branch']
+            if other_branch == year_clash_partner:
+                if other_pname == 'month':
+                    anchors.append(
+                        f'年月支{year_branch}{other_branch}相沖，'
+                        f'父母關係有衝突或幼年家庭環境動盪'
+                    )
+                elif other_pname == 'day':
+                    anchors.append(
+                        f'年日支{year_branch}{other_branch}相沖，'
+                        f'命主與父母價值觀有較大分歧，成長中漸行漸遠'
+                    )
+                elif other_pname == 'hour':
+                    anchors.append(
+                        f'年時支{year_branch}{other_branch}相沖，'
+                        f'祖輩與後代之間有代際張力，家族關係有裂隙'
+                    )
+                break  # Only one clash partner per branch
+
+    # P5d: DM strength conditioning on parent relationships
+    strength_v2 = strength_v2 or {}
+    p_classification = strength_v2.get('classification', '')
+    p_strength_zh = {
+        'very_strong': '極旺', 'strong': '偏旺', 'neutral': '中和',
+        'weak': '偏弱', 'very_weak': '極弱',
+    }.get(p_classification, p_classification)
+
+    if not cong_ge:
+        if p_classification in ('weak', 'very_weak'):
+            if mother_star_count >= 2:
+                anchors.append(
+                    f'父母結構：身{p_strength_zh}且印星（母星）多（{mother_star_count}個），'
+                    f'命主對母親依賴較深，母親是重要精神支柱'
+                )
+            elif father_star_count >= 2 and mother_star_count == 0:
+                anchors.append(
+                    f'父母結構：身{p_strength_zh}，財星（父星）多但印星（母星）缺位，'
+                    f'父親影響力大但母親支持不足'
+                )
+            else:
+                anchors.append(
+                    f'父母結構：身{p_strength_zh}，需要父母的支持來補充核心能量'
+                )
+        elif p_classification in ('strong', 'very_strong'):
+            if mother_star_count >= 2:
+                anchors.append(
+                    f'父母結構：身{p_strength_zh}且印星（母星）多（{mother_star_count}個），'
+                    f'母親的關懷充足但可能讓命主感到束縛'
+                )
+            elif father_star_count >= 2:  # #4 fix
+                anchors.append(
+                    f'父母結構：身{p_strength_zh}且財星（父星）多（{father_star_count}個），'
+                    f'父親影響力大但命主未必需要，容易產生管教方面的摩擦'
+                )
+            elif father_star_count == 0 and mother_star_count == 0:
+                anchors.append(
+                    '父母結構：父星母星均缺位，與父母緣分較薄，需主動維繫'
+                )
+            else:
+                anchors.append(
+                    f'父母結構：身{p_strength_zh}，獨立性強，與父母關係中較為主導'
+                )
+        else:  # neutral
+            anchors.append(
+                f'父母結構：身中和，與父母關係均衡，家庭互動相對和諧'
+            )
+    else:  # cong_ge chart (#15 HIGH fix)
+        cong_name = cong_ge.get('name', '從格')
+        dominant_el = cong_ge.get('dominantElement', '')
+        if dominant_el == mother_element:
+            # 從強格 with heavy 印星 → extreme mother dependence
+            anchors.append(
+                f'父母結構：{cong_name}，命局順從印星（{mother_element}）能量，'
+                f'母親是命主生命中極重要的支撐力量'
+            )
+        elif dominant_el == father_element:
+            anchors.append(
+                f'父母結構：{cong_name}，命局順從財星（{father_element}）能量，'
+                f'父親在命主人生中扮演關鍵角色'
+            )
+        else:
+            anchors.append(
+                f'父母結構：{cong_name}，命局能量集中於{dominant_el}五行，'
+                f'與父母的關係取決於父母星是否順應這股能量'
+            )
 
     return anchors
 
@@ -3914,7 +4824,7 @@ def generate_lifetime_enhanced_insights(
     romance_data_enriched = compute_romance_years_enriched(
         gender, day_master_stem, day_branch, year_branch,
         annual_stars, kong_wang, birth_year=birth_year,
-        current_year=current_year,
+        current_year=resolved_year,
     )
     romance_years_dayun_context = tag_romance_years_with_dayun(
         romance_data_enriched, annual_stars, luck_periods_enriched,
@@ -3952,6 +4862,22 @@ def generate_lifetime_enhanced_insights(
         tougan_analysis=tougan_analysis,
         current_year=resolved_year,
     )
+
+    # Summary anchors — built AFTER luck periods because they reference current/best period.
+    # This intentionally mutates narrative_anchors dict in-place before it is returned.
+    # (Cannot be built inside build_narrative_anchors() due to ordering dependency on
+    # enrich_luck_periods() and best_period computation.)
+    summary_anchors = build_summary_anchors(
+        day_master_stem=day_master_stem,
+        effective_gods=effective_gods,
+        prominent_god=prominent_god,
+        strength_v2=strength_v2,
+        cong_ge=cong_ge,
+        luck_periods_enriched=luck_periods_enriched,
+        best_period=best_period,
+        current_year=resolved_year,
+    )
+    narrative_anchors['summary'] = summary_anchors
 
     return {
         'patternNarrative': pattern_narrative,

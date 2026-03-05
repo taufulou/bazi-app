@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useMemo } from "react";
 import Link from "next/link";
 import styles from "./AIReadingDisplay.module.css";
 import { ENTERTAINMENT_DISCLAIMER } from "@repo/shared";
@@ -10,6 +11,7 @@ import type {
 } from "../lib/readings-api";
 import { getScoreColor } from "../lib/score-utils";
 import LuckPeriodChart from "./LuckPeriodChart";
+import { SECTION_TECH_BUILDERS } from "./techRefBuilders";
 
 // ============================================================
 // Types
@@ -22,6 +24,8 @@ interface AIReadingDisplayProps {
   isLoading?: boolean;
   isStreaming?: boolean;
   summaryPosition?: 'top' | 'bottom'; // default 'top'
+  chartData?: Record<string, unknown> | null; // Bazi calculation data for technical reference card
+  readingStyle?: string; // guide | expert | metaphor | chat
 }
 
 // ============================================================
@@ -204,6 +208,265 @@ const SECTION_TITLES_ZH: Record<string, string> = {
   life_strategy: "人生策略建議",
 };
 
+/** Guide-style overrides for section titles (人生攻略 framing) */
+const GUIDE_SECTION_TITLES_ZH: Record<string, string> = {
+  chart_identity: "你的先天屬性",
+  finance_pattern: "財富攻略",
+  career_pattern: "事業發展路線",
+  boss_strategy: "應對上司之道",
+  love_pattern: "愛情攻略",
+  health: "健康管理",
+  children_analysis: "子女關係",
+  parents_analysis: "父母關係",
+  current_period: "當前大運詳解",
+  next_period: "下一大運預覽",
+  best_period: "最佳大運攻略",
+};
+
+// ============================================================
+// StarRating Component (visual half-star support)
+// ============================================================
+
+function StarRating({ score }: { score: number }) {
+  const stars = [];
+  const clamped = Math.max(0, Math.min(5, score));
+  for (let i = 1; i <= 5; i++) {
+    if (i <= Math.floor(clamped)) {
+      // Full star
+      stars.push(<span key={i} className={styles.starFull}>★</span>);
+    } else if (i === Math.ceil(clamped) && clamped % 1 !== 0) {
+      // Half star — overlapping spans
+      stars.push(
+        <span key={i} className={styles.starHalf}>
+          <span className={styles.starHalfEmpty}>★</span>
+          <span className={styles.starHalfFilled}>★</span>
+        </span>
+      );
+    } else {
+      // Empty star
+      stars.push(<span key={i} className={styles.starEmpty}>★</span>);
+    }
+  }
+  return (
+    <div className={styles.starRating}>
+      {stars}
+      <span className={styles.starScore}>{clamped.toFixed(1)}</span>
+    </div>
+  );
+}
+
+// ============================================================
+// CharacterCard Reference Tables (deterministic, guide-style only)
+// ============================================================
+
+const DAY_MASTER_PERSONALITY: Record<string, { archetype: string; traits: string }> = {
+  '甲': { archetype: '參天大樹', traits: '正直堅毅、有領導力、不善變通、固執但值得信賴' },
+  '乙': { archetype: '藤蔓花草', traits: '柔韌靈活、善於適應、溫和細膩、但容易依賴他人' },
+  '丙': { archetype: '太陽烈火', traits: '熱情開朗、光明磊落、樂觀進取、但性急易燃易滅' },
+  '丁': { archetype: '燈燭星火', traits: '內斂溫暖、心思細密、善解人意、但容易多慮優柔' },
+  '戊': { archetype: '高山土壤', traits: '沉著穩重、講求實際、忠厚誠懇、但行動緩慢缺乏靈活' },
+  '己': { archetype: '田園沃土', traits: '包容務實、善於蓄積、謹慎低調、但有時過於保守' },
+  '庚': { archetype: '精鋼利刃', traits: '果斷剛毅、重義氣、行動力強、但過於剛硬易傷人' },
+  '辛': { archetype: '珠寶首飾', traits: '精緻敏銳、審美獨到、注重品質、但有潔癖和完美主義' },
+  '壬': { archetype: '江河大海', traits: '智慧深沉、思維開闊、足智多謀、但容易飄忽不定' },
+  '癸': { archetype: '雨露甘霖', traits: '聰慧靈敏、洞察力強、善於感知、但容易多疑內耗' },
+};
+
+const TEN_GOD_PERSONALITY: Record<string, {
+  core: string; external: string; internal: string; motivation: string;
+}> = {
+  '比肩': { core: '獨立自主、重視平等、不喜依賴', external: '表現得自信獨立、不卑不亢', internal: '內心追求公平對等的關係', motivation: '渴望建立平等互助的人際圈' },
+  '劫財': { core: '積極進取、競爭意識強、敢冒險', external: '表現得積極主動、喜歡社交', internal: '內心有強烈的得失心', motivation: '追求突破限制、贏得認可' },
+  '食神': { core: '溫和聰慧、注重生活品味、有藝術天賦', external: '表現得隨和親切、談吐優雅', internal: '內心追求精神滿足、重視生活品質', motivation: '渴望自在表達、享受創造與分享的過程' },
+  '傷官': { core: '才華橫溢、叛逆不羈、追求完美', external: '表現得鋒芒畢露、言辭犀利', internal: '內心極度追求自我表達', motivation: '渴望被認可為獨一無二的存在' },
+  '偏財': { core: '慷慨大方、善於交際、投資直覺好', external: '表現得八面玲瓏、出手闊綽', internal: '內心對物質和自由有強烈渴望', motivation: '追求財富自由和多元體驗' },
+  '正財': { core: '勤勉踏實、理財能力佳、注重穩定', external: '表現得穩重可靠、有責任感', internal: '內心重視安全感和穩定收入', motivation: '渴望建立穩固的經濟基礎' },
+  '偏官': { core: '果敢強勢、領導力強、抗壓力佳', external: '表現得嚴肅有威嚴、行動迅速', internal: '內心有改變世界的野心', motivation: '渴望掌控局面、征服挑戰' },
+  '正官': { core: '正直守規、責任感強、注重名譽', external: '表現得端正有禮、自律嚴謹', internal: '內心重視社會認可和道德標準', motivation: '渴望成為受人尊敬的典範' },
+  '偏印': { core: '思維獨特、直覺敏銳、興趣廣泛', external: '表現得安靜內斂、有些神秘', internal: '內心世界豐富、追求精神層面探索', motivation: '渴望發現常人看不到的真理' },
+  '正印': { core: '仁慈寬厚、學習力強、重視傳承', external: '表現得溫和包容、有學者氣質', internal: '內心追求知識和智慧的累積', motivation: '渴望透過學習成長來幫助他人' },
+};
+
+const STRENGTH_MODIFIER: Record<string, string> = {
+  'very_strong': '能量極旺——行動力爆表但需防過剛',
+  'strong': '能量偏強——實力穩固但需注意調和',
+  'neutral': '能量中和——靈活應變是你的優勢',
+  'weak': '能量偏弱——借力使力是你的生存智慧',
+  'very_weak': '能量極弱——順勢而為反而能成大事',
+};
+
+const BRANCH_ZODIAC: Record<string, string> = {
+  '子': '鼠', '丑': '牛', '寅': '虎', '卯': '兔',
+  '辰': '龍', '巳': '蛇', '午': '馬', '未': '羊',
+  '申': '猴', '酉': '雞', '戌': '狗', '亥': '豬',
+};
+
+const ZODIAC_PERSONALITY: Record<string, string> = {
+  '鼠': '機靈敏銳、善於觀察、適應力強，擅長在變化中找到機會',
+  '牛': '踏實穩重、耐力驚人、值得信賴，但有時過於固執',
+  '虎': '自信果斷、有領袖魅力、勇於冒險，但容易衝動',
+  '兔': '溫文儒雅、善於交際、品味不凡，但容易逃避衝突',
+  '龍': '氣場強大、志向遠大、天生領袖，但有時過於自信',
+  '蛇': '深謀遠慮、洞察力強、神秘魅力，但容易多疑',
+  '馬': '活力充沛、熱情奔放、追求自由，但容易三分鐘熱度',
+  '羊': '溫柔體貼、藝術天份、善良和順，但容易優柔寡斷',
+  '猴': '聰明靈活、創意無限、多才多藝，但容易心浮氣躁',
+  '雞': '精明幹練、眼光獨到、追求完美，但容易挑剔',
+  '狗': '忠誠正直、有正義感、值得信賴，但容易杞人憂天',
+  '豬': '樂觀豁達、寬容大度、享受生活，但容易缺乏警覺',
+};
+
+// ============================================================
+// CharacterCard Component (guide-style only)
+// ============================================================
+
+function CharacterCard({ chartData }: { chartData: Record<string, unknown> }) {
+  const dm = chartData?.dayMaster as {
+    element?: string; yinYang?: string; strength?: string;
+    pattern?: string; favorableGod?: string; usefulGod?: string;
+    tabooGod?: string; enemyGod?: string;
+  } | undefined;
+  const dayMasterStem = chartData?.dayMasterStem as string | undefined;
+  const fp = chartData?.fourPillars as Record<string, {
+    stem?: string; branch?: string; tenGod?: string;
+    hiddenStemGods?: Array<{ stem: string; tenGod: string }>;
+    shenSha?: string[];
+  }> | undefined;
+
+  if (!dm || !dayMasterStem || !fp) return null;
+
+  const personality = DAY_MASTER_PERSONALITY[dayMasterStem];
+  if (!personality) return null;
+
+  // Layer 1: Core essence from day master
+  const coreTrait = personality;
+
+  // Layer 2: External impression from month pillar ten god
+  const monthGod = fp.month?.tenGod;
+  const monthPersonality = monthGod ? TEN_GOD_PERSONALITY[monthGod] : null;
+  const externalTrait = monthGod === '比肩'
+    ? `外在形象與本質一致——${coreTrait.traits.split('、')[0]}`
+    : monthPersonality?.external;
+
+  // Layer 3: Internal character from day branch hidden stem main qi
+  const dayHiddenGods = fp.day?.hiddenStemGods;
+  const dayMainQiGod = dayHiddenGods?.[0]?.tenGod;
+  const internalTrait = dayMainQiGod ? TEN_GOD_PERSONALITY[dayMainQiGod]?.internal : undefined;
+
+  // Layer 4: Driving force from hour pillar ten god
+  const hourGod = fp.hour?.tenGod;
+  const motivationTrait = hourGod ? TEN_GOD_PERSONALITY[hourGod]?.motivation : undefined;
+
+  // Zodiac from year branch
+  const yearBranch = fp.year?.branch;
+  const zodiac = yearBranch ? BRANCH_ZODIAC[yearBranch] : undefined;
+  const zodiacTrait = zodiac ? ZODIAC_PERSONALITY[zodiac] : undefined;
+
+  // Strength modifier
+  const strengthText = dm.strength ? STRENGTH_MODIFIER[dm.strength] : undefined;
+
+  // Key shensha (collect all)
+  const allShenSha: string[] = [];
+  for (const pillar of Object.values(fp)) {
+    if (pillar?.shenSha) allShenSha.push(...pillar.shenSha);
+  }
+  const keyShenSha = [...new Set(allShenSha)].slice(0, 5);
+
+  return (
+    <div className={styles.characterCard}>
+      <div className={styles.characterCardHeader}>
+        <div className={styles.characterCardTitle}>
+          <span className={styles.characterCardIcon}>🎴</span>
+          你的角色卡
+        </div>
+        {zodiac && <span className={styles.zodiacBadge}>{zodiac}年生</span>}
+      </div>
+
+      <div className={styles.characterCardBody}>
+        {/* Archetype */}
+        <div className={styles.characterArchetype}>
+          <span className={styles.archetypeLabel}>核心屬性</span>
+          <span className={styles.archetypeValue}>{coreTrait.archetype}</span>
+        </div>
+
+        {/* Personality layers */}
+        <div className={styles.characterLayers}>
+          <div className={styles.characterLayer}>
+            <span className={styles.layerLabel}>🌟 本質</span>
+            <span className={styles.layerValue}>{coreTrait.traits}</span>
+          </div>
+          {externalTrait && (
+            <div className={styles.characterLayer}>
+              <span className={styles.layerLabel}>🎭 外在印象</span>
+              <span className={styles.layerValue}>{externalTrait}</span>
+            </div>
+          )}
+          {internalTrait && (
+            <div className={styles.characterLayer}>
+              <span className={styles.layerLabel}>💎 內在性格</span>
+              <span className={styles.layerValue}>{internalTrait}</span>
+            </div>
+          )}
+          {motivationTrait && (
+            <div className={styles.characterLayer}>
+              <span className={styles.layerLabel}>🔥 核心驅動力</span>
+              <span className={styles.layerValue}>{motivationTrait}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Zodiac */}
+        {zodiacTrait && (
+          <div className={styles.characterZodiac}>
+            <span className={styles.layerLabel}>🐾 生肖特質（{zodiac}）</span>
+            <span className={styles.layerValue}>{zodiacTrait}</span>
+          </div>
+        )}
+
+        {/* Stats row */}
+        <div className={styles.characterStats}>
+          {dm.pattern && (
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>角色定位</span>
+              <span className={styles.statValue}>{dm.pattern}</span>
+            </div>
+          )}
+          {strengthText && (
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>能量狀態</span>
+              <span className={styles.statValue}>{strengthText}</span>
+            </div>
+          )}
+          {dm.usefulGod && (
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>最強加持</span>
+              <span className={styles.statValue}>{dm.usefulGod}</span>
+            </div>
+          )}
+          {dm.tabooGod && (
+            <div className={styles.statItem}>
+              <span className={styles.statLabel}>隱藏地雷</span>
+              <span className={styles.statValue}>{dm.tabooGod}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Key shensha */}
+        {keyShenSha.length > 0 && (
+          <div className={styles.characterShensha}>
+            <span className={styles.shenshaLabel}>特殊天賦/標記</span>
+            <div className={styles.shenshaTags}>
+              {keyShenSha.map(s => (
+                <span key={s} className={styles.shenshaTag}>{s}</span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // Cross-sell reading types (show other reading types)
 const BAZI_CROSS_SELL = [
   { slug: "lifetime", icon: "🌟", name: "八字終身運" },
@@ -259,7 +522,10 @@ export default function AIReadingDisplay({
   isLoading = false,
   isStreaming = false,
   summaryPosition = 'top',
+  chartData = null,
+  readingStyle,
 }: AIReadingDisplayProps) {
+  const isGuide = readingStyle === 'guide';
   // During streaming with V2 data: show arrived sections + skeletons for remaining
   const isStreamingWithData = isStreaming && data?.isV2 && data.deterministic != null;
 
@@ -295,9 +561,12 @@ export default function AIReadingDisplay({
       {summaryPosition !== 'bottom' && data.summary && (
         <div className={styles.summaryCard}>
           <h3 className={styles.summaryTitle}>命理總覽</h3>
-          <div className={styles.summaryText}>{data.summary.text}</div>
+          <div className={styles.summaryText}>{postProcessSectionText(data.summary.text)}</div>
         </div>
       )}
+
+      {/* CharacterCard — guide style only, rendered before all sections */}
+      {isGuide && chartData && <CharacterCard chartData={chartData} />}
 
       {/* Sections */}
       {data.sections.map((section, index) => {
@@ -306,7 +575,8 @@ export default function AIReadingDisplay({
           theme: "default",
         };
         const titleZh =
-          SECTION_TITLES_ZH[section.key] || section.title || section.key;
+          (isGuide ? GUIDE_SECTION_TITLES_ZH[section.key] : undefined)
+          || SECTION_TITLES_ZH[section.key] || section.title || section.key;
 
         // Determine which deterministic card to insert after this section
         const deterministicKey = isV2 ? V2_DETERMINISTIC_INSERTIONS[section.key] : undefined;
@@ -322,16 +592,35 @@ export default function AIReadingDisplay({
                 <h3 className={styles.sectionTitle}>{titleZh}</h3>
               </div>
 
+              {/* Star rating for guide style (skip for timing sections — score shown in LuckPeriodHeader) */}
+              {isGuide && typeof section.score === 'number'
+                && !['current_period', 'next_period', 'best_period'].includes(section.key)
+                && (<StarRating score={section.score} />)}
+
+              {/* LuckPeriodHeader — timing sections only */}
+              {isGuide && ['current_period', 'next_period', 'best_period'].includes(section.key) && data.deterministic && (() => {
+                const det = data.deterministic as LifetimeV2DeterministicData;
+                const result = getLuckPeriodForSection(
+                  section.key,
+                  det.luckPeriodsEnriched || [],
+                  det.bestPeriod,
+                );
+                return result ? (
+                  <LuckPeriodHeader
+                    period={result.period}
+                    ordinalLabel={result.ordinalLabel}
+                    isSubscriber={isSubscriber}
+                  />
+                ) : null;
+              })()}
+
               {isSubscriber ? (
                 <div className={styles.sectionContent}>
-                  {section.full}
-                  {/* Streaming cursor was removed — lifetime readings use
-                      the next-section skeleton indicator instead. If non-lifetime
-                      readings adopt V2 SSE streaming, re-add a cursor here. */}
+                  {postProcessSectionText(section.full || '')}
                 </div>
               ) : (
                 <div className={styles.paywallWrapper}>
-                  <div className={styles.previewContent}>{section.preview}</div>
+                  <div className={styles.previewContent}>{postProcessSectionText(section.preview || '')}</div>
                   {section.full && section.full !== section.preview && (
                     <>
                       <div className={styles.paywallBlur}>
@@ -354,6 +643,14 @@ export default function AIReadingDisplay({
                   )}
                 </div>
               )}
+
+              {/* Collapsible technical reference at bottom of each section */}
+              {chartData && (
+                <TechnicalReferenceCard
+                  sectionKey={section.key}
+                  chartData={chartData}
+                />
+              )}
             </div>
 
             {/* Insert deterministic data card after specific sections */}
@@ -362,6 +659,7 @@ export default function AIReadingDisplay({
                 cardType={deterministicKey}
                 data={det}
                 isSubscriber={isSubscriber}
+                chartData={chartData}
               />
             )}
           </div>
@@ -402,7 +700,7 @@ export default function AIReadingDisplay({
       {summaryPosition === 'bottom' && data.summary && (
         <div className={`${styles.summaryCard} ${styles.summaryFadeIn}`}>
           <h3 className={styles.summaryTitle}>命理總覽</h3>
-          <div className={styles.summaryText}>{data.summary.text}</div>
+          <div className={styles.summaryText}>{postProcessSectionText(data.summary.text)}</div>
         </div>
       )}
 
@@ -440,6 +738,57 @@ export default function AIReadingDisplay({
 }
 
 // ============================================================
+// Technical Reference Card (collapsible, per-section)
+// ============================================================
+
+function TechnicalReferenceCard({
+  sectionKey,
+  chartData,
+}: {
+  sectionKey: string;
+  chartData: Record<string, unknown>;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Memoize builder result — chartData is a stable reference set once
+  const groups = useMemo(() => {
+    const builder = SECTION_TECH_BUILDERS[sectionKey];
+    if (!builder || !chartData) return [];
+    return builder(chartData);
+  }, [sectionKey, chartData]);
+
+  if (groups.length === 0) return null;
+
+  return (
+    <div className={styles.techRef} data-expanded={expanded}>
+      <button
+        className={styles.techRefToggle}
+        onClick={() => setExpanded(!expanded)}
+        type="button"
+      >
+        <span className={styles.techRefArrow}>{expanded ? '▾' : '▸'}</span>
+        <span className={styles.techRefLabel}>專業命理依據</span>
+      </button>
+      {expanded && (
+        <div className={styles.techRefContent}>
+          {groups.map((group) => (
+            <div key={group.category} className={styles.techRefGroup}>
+              <div className={styles.techRefCategory}>{group.category}</div>
+              {group.items.map((item, idx) => (
+                <div key={`${group.category}-${idx}`} className={styles.techRefRow}>
+                  <span className={styles.techRefKey}>{item.label}</span>
+                  <span className={styles.techRefValue}>{item.value}</span>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // V2 Deterministic Data Cards
 // ============================================================
 
@@ -447,10 +796,12 @@ function DeterministicCard({
   cardType,
   data,
   isSubscriber,
+  chartData,
 }: {
   cardType: string;
   data: LifetimeV2DeterministicData;
   isSubscriber: boolean;
+  chartData?: Record<string, unknown> | null;
 }) {
   // Guard: if deterministic data is incomplete, don't render
   if (!data) return null;
@@ -498,13 +849,16 @@ function DeterministicCard({
         </div>
       );
 
-    case "career_data":
+    case "career_data": {
       if (!data.careerDirections || !data.careerBenefactorsElement || !data.careerBenefactorsZodiac) return null;
+      const fp = (chartData?.fourPillars ?? null) as { year?: { branch?: string } } | null;
+      const yearBranch = fp?.year?.branch;
+      const userZodiac = (yearBranch ? BRANCH_ZODIAC[yearBranch] : null) || null;
       return (
         <div className={styles.detCard} data-theme="career">
           <div className={styles.detCardHeader}>
             <span className={styles.detCardIcon}>🧭</span>
-            <h4 className={styles.detCardTitle}>事業發展數據</h4>
+            <h4 className={styles.detCardTitle}>有利發展的職業方向</h4>
           </div>
           <div className={styles.detCardBody}>
             {/* Career directions */}
@@ -536,75 +890,120 @@ function DeterministicCard({
               </div>
             )}
             {/* Favorable direction */}
-            <div className={styles.detRow}>
-              <span className={styles.detLabel}>有利方位</span>
-              {isSubscriber ? (
-                <span className={styles.chipPositive}>{data.favorableDirection}</span>
-              ) : (
-                <span className={styles.detBlurred}>方位資訊</span>
-              )}
-            </div>
-            {/* Benefactors */}
-            <div className={styles.detRow}>
-              <span className={styles.detLabel}>事業貴人五行</span>
-              {isSubscriber ? (
-                <div className={styles.chipGroup}>
-                  {data.careerBenefactorsElement.map((el) => (
-                    <span key={el} className={styles.chipPositive}>{el}</span>
-                  ))}
-                </div>
-              ) : (
-                <span className={styles.detBlurred}>貴人五行</span>
-              )}
-            </div>
-            <div className={styles.detRow}>
-              <span className={styles.detLabel}>事業貴人生肖</span>
-              {isSubscriber ? (
-                <div className={styles.chipGroup}>
-                  {data.careerBenefactorsZodiac.map((z) => (
-                    <span key={z} className={styles.chipPositive}>{z}</span>
-                  ))}
-                </div>
-              ) : (
-                <span className={styles.detBlurred}>貴人生肖</span>
-              )}
-            </div>
+            {data.favorableDirection ? (
+              <div className={styles.detRow}>
+                <span className={styles.detLabel}>有利方位</span>
+                {isSubscriber ? (
+                  <>
+                    <div className={styles.chipGroup}>
+                      <span className={styles.chipPositive}>{data.favorableDirection}</span>
+                    </div>
+                    <p className={styles.detExplain}>
+                      {data.favorableDirection === '中央'
+                        ? '根據你的命格，適合在出生地或家鄉附近發展。若已固定了工作的城市，選擇市中心區域會比較有利。'
+                        : `根據你的命格，有利於職業發展的方位為出生地的${data.favorableDirection}。若已固定了工作的城市，則可選擇往該城市的${data.favorableDirection}發展。`
+                      }
+                    </p>
+                  </>
+                ) : (
+                  <span className={styles.detBlurred}>方位資訊</span>
+                )}
+              </div>
+            ) : null}
+            {/* Benefactors by element */}
+            {data.careerBenefactorsElement && data.careerBenefactorsElement.length > 0 ? (
+              <div className={styles.detRow}>
+                <span className={styles.detLabel}>事業貴人五行</span>
+                {isSubscriber ? (
+                  <>
+                    <div className={styles.chipGroup}>
+                      {data.careerBenefactorsElement.map((el) => (
+                        <span key={el} className={styles.chipPositive}>{el}</span>
+                      ))}
+                    </div>
+                    <p className={styles.detExplain}>
+                      和五行屬性為{data.careerBenefactorsElement.join('、')}的人共事或合作，會比較有利於你的事業發展，能起到幫扶的作用。
+                    </p>
+                  </>
+                ) : (
+                  <span className={styles.detBlurred}>貴人五行</span>
+                )}
+              </div>
+            ) : null}
+            {/* Benefactors by zodiac */}
+            {data.careerBenefactorsZodiac && data.careerBenefactorsZodiac.length > 0 ? (
+              <div className={styles.detRow}>
+                <span className={styles.detLabel}>事業貴人生肖</span>
+                {isSubscriber ? (
+                  <>
+                    <div className={styles.chipGroup}>
+                      {data.careerBenefactorsZodiac.map((z) => (
+                        <span key={z} className={styles.chipPositive}>{z}</span>
+                      ))}
+                    </div>
+                    <p className={styles.detExplain}>
+                      {userZodiac ? `你的生肖為${userZodiac}，` : ''}在事業上與屬{data.careerBenefactorsZodiac.join('、屬')}的人共事比較合拍，互相生旺，對你的發展有扶助作用。
+                    </p>
+                  </>
+                ) : (
+                  <span className={styles.detBlurred}>貴人生肖</span>
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
       );
+    }
 
-    case "love_data":
+    case "love_data": {
       if (!data.romanceYears || !data.partnerElement || !data.partnerZodiac) return null;
+      const lfp = (chartData?.fourPillars ?? null) as { year?: { branch?: string } } | null;
+      const lYearBranch = lfp?.year?.branch;
+      const lUserZodiac = (lYearBranch ? BRANCH_ZODIAC[lYearBranch] : null) || null;
       return (
         <div className={styles.detCard} data-theme="love">
           <div className={styles.detCardHeader}>
             <span className={styles.detCardIcon}>💞</span>
-            <h4 className={styles.detCardTitle}>感情數據分析</h4>
+            <h4 className={styles.detCardTitle}>感情時機與擇偶方向</h4>
           </div>
           <div className={styles.detCardBody}>
-            <div className={styles.detRow}>
-              <span className={styles.detLabel}>正緣桃花年份</span>
-              {isSubscriber ? (
-                <div className={styles.chipGroup}>
-                  {data.romanceYears.map((y) => (
-                    <span key={y} className={styles.yearChip}>{y}</span>
-                  ))}
-                </div>
-              ) : (
-                <span className={styles.detBlurred}>
-                  未來有 {data.romanceYears.length} 個桃花年份
-                </span>
-              )}
-            </div>
+            {/* Romance years */}
+            {data.romanceYears.length > 0 && (
+              <div className={styles.detRow}>
+                <span className={styles.detLabel}>桃花姻緣年份</span>
+                {isSubscriber ? (
+                  <>
+                    <div className={styles.chipGroup}>
+                      {data.romanceYears.map((y) => (
+                        <span key={y} className={styles.yearChip}>{y}</span>
+                      ))}
+                    </div>
+                    <p className={styles.detExplain}>
+                      這些年份的流年與你的感情宮或配偶星產生共振，是感情出現機緣的高機率時段。單身者可積極把握社交機會。
+                    </p>
+                  </>
+                ) : (
+                  <span className={styles.detBlurred}>
+                    未來有 {data.romanceYears.length} 個桃花年份
+                  </span>
+                )}
+              </div>
+            )}
+            {/* Warning years */}
             {data.romanceWarningYears && data.romanceWarningYears.length > 0 && (
               <div className={styles.detRow}>
                 <span className={styles.detLabel}>⚠️ 感情波動年</span>
                 {isSubscriber ? (
-                  <div className={styles.chipGroup}>
-                    {data.romanceWarningYears.map((y) => (
-                      <span key={y} className={styles.yearChipWarn}>{y}</span>
-                    ))}
-                  </div>
+                  <>
+                    <div className={styles.chipGroup}>
+                      {data.romanceWarningYears.map((y) => (
+                        <span key={y} className={styles.yearChipWarn}>{y}</span>
+                      ))}
+                    </div>
+                    <p className={styles.detExplain}>
+                      這些年份流年沖擊感情宮，感情較易出現波動或考驗。已有伴侶者須特別注意溝通與維繫，單身者感情宮被觸動，姻緣或有變化，但順逆須結合整體運勢判斷。
+                    </p>
+                  </>
                 ) : (
                   <span className={styles.detBlurred}>
                     有 {data.romanceWarningYears.length} 個波動年份
@@ -612,33 +1011,50 @@ function DeterministicCard({
                 )}
               </div>
             )}
-            <div className={styles.detRow}>
-              <span className={styles.detLabel}>擇偶建議五行</span>
-              {isSubscriber ? (
-                <div className={styles.chipGroup}>
-                  {data.partnerElement.map((el) => (
-                    <span key={el} className={styles.chipPositive}>{el}</span>
-                  ))}
-                </div>
-              ) : (
-                <span className={styles.detBlurred}>五行建議</span>
-              )}
-            </div>
-            <div className={styles.detRow}>
-              <span className={styles.detLabel}>擇偶建議生肖</span>
-              {isSubscriber ? (
-                <div className={styles.chipGroup}>
-                  {data.partnerZodiac.map((z) => (
-                    <span key={z} className={styles.chipPositive}>{z}</span>
-                  ))}
-                </div>
-              ) : (
-                <span className={styles.detBlurred}>生肖建議</span>
-              )}
-            </div>
+            {/* Partner element */}
+            {data.partnerElement && data.partnerElement.length > 0 ? (
+              <div className={styles.detRow}>
+                <span className={styles.detLabel}>擇偶建議五行</span>
+                {isSubscriber ? (
+                  <>
+                    <div className={styles.chipGroup}>
+                      {data.partnerElement.map((el) => (
+                        <span key={el} className={styles.chipPositive}>{el}</span>
+                      ))}
+                    </div>
+                    <p className={styles.detExplain}>
+                      和五行屬性為{data.partnerElement.join('、')}的人在一起，對方的五行能量對你有扶助作用，感情較為和諧穩定。
+                    </p>
+                  </>
+                ) : (
+                  <span className={styles.detBlurred}>五行建議</span>
+                )}
+              </div>
+            ) : null}
+            {/* Partner zodiac */}
+            {data.partnerZodiac && data.partnerZodiac.length > 0 ? (
+              <div className={styles.detRow}>
+                <span className={styles.detLabel}>擇偶建議生肖</span>
+                {isSubscriber ? (
+                  <>
+                    <div className={styles.chipGroup}>
+                      {data.partnerZodiac.map((z) => (
+                        <span key={z} className={styles.chipPositive}>{z}</span>
+                      ))}
+                    </div>
+                    <p className={styles.detExplain}>
+                      {lUserZodiac ? `你的生肖為${lUserZodiac}，` : ''}與屬{data.partnerZodiac.join('、屬')}的人在感情上比較投緣，相處融洽。
+                    </p>
+                  </>
+                ) : (
+                  <span className={styles.detBlurred}>生肖建議</span>
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
       );
+    }
 
     case "family_data":
       if (!data.parentHealthYears?.father || !data.parentHealthYears?.mother) return null;
@@ -708,6 +1124,138 @@ function DeterministicCard({
     default:
       return null;
   }
+}
+
+// ============================================================
+// Luck Period Header (deterministic card above AI narrative)
+// ============================================================
+
+/** Ten-god guide-friendly labels — must match prompts.ts 術語翻譯 first variant */
+const TEN_GOD_GUIDE_LABELS: Record<string, string> = {
+  '食神': '創造力天賦',
+  '傷官': '叛逆創意天賦',
+  '正財': '穩定收入天賦',
+  '偏財': '意外收入天賦',
+  '正官': '自律管理天賦',
+  '偏官': '壓力驅動力',
+  '正印': '貴人支援',
+  '偏印': '獨特才華',
+  '比肩': '同伴屬性',
+  '劫財': '資源競爭風險',
+};
+
+/**
+ * Post-process AI section text before display:
+ * 1) Rename legacy "攻略秘技" → "實戰建議" in cached readings
+ * 2) Collapse extra blank lines after sub-headers (🔥 強項, ⚠️ 注意事項, 💡 實戰建議)
+ * 3) Collapse extra blank lines after 大運 sub-headers (📍 總述, ◆/🔹 第一/第二階段, 💡 階段總結與建議)
+ */
+function postProcessSectionText(text: string): string {
+  // 0) Rename legacy label from cached readings
+  let result = text.replace(/💡\s*攻略秘技/g, '💡 實戰建議');
+  // 1) Standard section sub-headers: collapse extra \n after 🔥 強項, ⚠️ 注意事項, 💡 實戰建議
+  result = result.replace(
+    /((?:🔥|⚠️|⚠|💡)\s*(?:強項|注意事項|實戰建議))\n{2,}/g,
+    '$1\n',
+  );
+  // 2) 大運 sub-headers: 📍 總述, ◆/🔹 第一階段/第二階段 (with trailing content), 💡 階段總結與建議
+  result = result.replace(
+    /((?:📍|◆|🔹|💡)\s*(?:總述|第一階段|第二階段|階段總結與建議).*)\n{2,}/g,
+    '$1\n',
+  );
+  return result;
+}
+
+function numberToChinese(n: number): string {
+  const digits = ['零','一','二','三','四','五','六','七','八','九','十'];
+  if (n <= 10) return digits[n];
+  if (n < 20) return `十${digits[n - 10]}`;
+  const tens = Math.floor(n / 10);
+  const ones = n % 10;
+  return `${digits[tens]}十${ones ? digits[ones] : ''}`;
+}
+
+/** Extract the luck period and ordinal label for a timing section key */
+function getLuckPeriodForSection(
+  sectionKey: string,
+  periods: LuckPeriodDetailData[],
+  bestPeriod: LuckPeriodDetailData | null,
+): { period: LuckPeriodDetailData; ordinalLabel: string } | null {
+  if (sectionKey === 'current_period') {
+    const p = periods.find(p => p.isCurrent);
+    if (!p) return null;
+    return {
+      period: p,
+      ordinalLabel: p.periodOrdinal ? `第${numberToChinese(p.periodOrdinal)}大運` : '',
+    };
+  }
+  if (sectionKey === 'next_period') {
+    const currentIdx = periods.findIndex(p => p.isCurrent);
+    if (currentIdx < 0 || currentIdx + 1 >= periods.length) return null;
+    const p = periods[currentIdx + 1];
+    return {
+      period: p,
+      ordinalLabel: p.periodOrdinal ? `第${numberToChinese(p.periodOrdinal)}大運` : '',
+    };
+  }
+  if (sectionKey === 'best_period') {
+    if (!bestPeriod) return null;
+    return {
+      period: bestPeriod,
+      ordinalLabel: bestPeriod.periodOrdinal ? `第${numberToChinese(bestPeriod.periodOrdinal)}大運` : '',
+    };
+  }
+  return null;
+}
+
+function LuckPeriodHeader({
+  period,
+  ordinalLabel,
+  isSubscriber,
+}: {
+  period: LuckPeriodDetailData;
+  ordinalLabel: string;
+  isSubscriber: boolean;
+}) {
+  const scoreColor = getScoreColor(period.score);
+  const midYear = period.startYear + 5;
+
+  const stemTgLabel = TEN_GOD_GUIDE_LABELS[period.stemTenGod || ''] || period.stemTenGod || '';
+  const branchTgLabel = TEN_GOD_GUIDE_LABELS[period.branchTenGod || ''] || period.branchTenGod || '';
+  const stemEl = period.stemElement || '';
+  const branchEl = period.branchElement || '';
+
+  return (
+    <div className={styles.luckPeriodHeader} data-theme="timing">
+      <div className={styles.lphTitle}>
+        {ordinalLabel && <span className={styles.lphOrdinal}>{ordinalLabel}</span>}
+        <span className={styles.lphGanzhi}>{period.stem}{period.branch}運</span>
+        <span className={styles.lphYears}>{period.startYear}-{period.endYear}</span>
+      </div>
+      <div className={styles.lphPhases}>
+        <div className={styles.lphPhase}>
+          <span className={styles.lphPhaseLabel}>🔹 第一階段</span>
+          <span className={styles.lphPhaseDesc}>
+            {period.stem}{stemEl}{stemTgLabel}（{period.startYear}-{midYear - 1}）
+          </span>
+        </div>
+        <div className={styles.lphPhase}>
+          <span className={styles.lphPhaseLabel}>🔹 第二階段</span>
+          <span className={styles.lphPhaseDesc}>
+            {period.branch}{branchEl}{branchTgLabel}（{midYear}-{period.endYear}）
+          </span>
+        </div>
+      </div>
+      {isSubscriber && (
+        <div className={styles.lphScore}>
+          <span className={styles.lphScoreLabel}>綜合評分</span>
+          <span className={styles.lphScoreValue} style={{ color: scoreColor }}>
+            {period.score}分
+          </span>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ============================================================

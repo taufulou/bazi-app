@@ -338,6 +338,31 @@ describe('AIService', () => {
 
       expect(hash).toMatch(/^[0-9a-f]{64}$/);
     });
+
+    it('should generate different hash for different readingStyle', () => {
+      const hash1 = service.generateBirthDataHash(
+        '1990-05-15', '14:30', '台北市', 'male', ReadingType.LIFETIME,
+        undefined, undefined, undefined, undefined, 'expert',
+      );
+      const hash2 = service.generateBirthDataHash(
+        '1990-05-15', '14:30', '台北市', 'male', ReadingType.LIFETIME,
+        undefined, undefined, undefined, undefined, 'chat',
+      );
+
+      expect(hash1).not.toBe(hash2);
+    });
+
+    it('should generate different hash when readingStyle is provided vs omitted', () => {
+      const hash1 = service.generateBirthDataHash(
+        '1990-05-15', '14:30', '台北市', 'male', ReadingType.LIFETIME,
+      );
+      const hash2 = service.generateBirthDataHash(
+        '1990-05-15', '14:30', '台北市', 'male', ReadingType.LIFETIME,
+        undefined, undefined, undefined, undefined, 'expert',
+      );
+
+      expect(hash1).not.toBe(hash2);
+    });
   });
 
   // ============================================================

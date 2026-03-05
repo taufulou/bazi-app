@@ -19,6 +19,9 @@ import {
   GENDER_ZH,
   STRENGTH_V2_ZH,
   LIFETIME_V2_PROMPTS,
+  buildBaseSystemPrompt,
+  STYLE_RULES,
+  type ReadingStyle,
 } from './prompts';
 
 // ============================================================
@@ -28,6 +31,7 @@ import {
 export interface InterpretationSection {
   preview: string;
   full: string;
+  score?: number;
 }
 
 export interface AIInterpretationResult {
@@ -300,6 +304,7 @@ export class AIService implements OnModuleInit {
     calculationData: Record<string, unknown>,
     userId?: string,
     readingId?: string,
+    style: ReadingStyle = 'expert',
   ): Promise<AIGenerationResult> {
     if (this.providers.length === 0) {
       throw new Error('No AI providers configured');
@@ -312,7 +317,7 @@ export class AIService implements OnModuleInit {
 
     // Build both prompts from calculation data
     const { systemPrompt, userPromptCall1, userPromptCall2 } =
-      this.buildLifetimeV2Prompts(calculationData);
+      this.buildLifetimeV2Prompts(calculationData, style);
 
     // Try each provider in order (fallback chain: Claude → GPT-4o → Gemini)
     let lastError: Error | undefined;
@@ -501,9 +506,10 @@ export class AIService implements OnModuleInit {
   streamLifetimeV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    style: ReadingStyle = 'expert',
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
-      this._executeStreamLifetimeV2(calculationData, readingId, subscriber)
+      this._executeStreamLifetimeV2(calculationData, readingId, subscriber, style)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -519,6 +525,7 @@ export class AIService implements OnModuleInit {
     calculationData: Record<string, unknown>,
     readingId: string,
     subscriber: Subscriber<MessageEvent>,
+    style: ReadingStyle = 'expert',
   ) {
     const startTime = Date.now();
     // Streaming V2 timeout: default 180s (sections are capped at ~200-450 chars each)
@@ -533,7 +540,7 @@ export class AIService implements OnModuleInit {
     }
 
     const { systemPrompt, userPromptCall1, userPromptCall2 } =
-      this.buildLifetimeV2Prompts(calculationData);
+      this.buildLifetimeV2Prompts(calculationData, style);
 
     // Heartbeat every 15s to prevent proxy timeouts
     const heartbeatInterval = setInterval(() => {
@@ -600,7 +607,7 @@ export class AIService implements OnModuleInit {
                 call1Sections[key] = section;
                 totalSections++;
                 subscriber.next({
-                  data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
                   type: 'section_complete',
                 } as MessageEvent);
               }
@@ -615,7 +622,7 @@ export class AIService implements OnModuleInit {
                 call1Sections[key] = section;
                 totalSections++;
                 subscriber.next({
-                  data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
                   type: 'section_complete',
                 } as MessageEvent);
               }
@@ -656,7 +663,7 @@ export class AIService implements OnModuleInit {
               call2FixedSections[key] = section;
               totalSections++;
               subscriber.next({
-                data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
                 type: 'section_complete',
               } as MessageEvent);
             }
@@ -718,6 +725,8 @@ export class AIService implements OnModuleInit {
             '', // birthCity not available here
             calculationData['gender'] as string || '',
             ReadingType.LIFETIME,
+            undefined, undefined, undefined, undefined,
+            style, // use the direct `style` parameter from _executeStreamLifetimeV2
           );
           this.cacheInterpretation(
             birthDataHash,
@@ -835,7 +844,11 @@ export class AIService implements OnModuleInit {
               try {
                 const parsed = JSON.parse(sectionJson);
                 if (parsed.preview !== undefined && parsed.full !== undefined) {
-                  result[key] = { preview: parsed.preview, full: parsed.full };
+                  result[key] = {
+                    preview: parsed.preview,
+                    full: parsed.full,
+                    score: typeof parsed.score === 'number' ? parsed.score : undefined,
+                  };
                   alreadyExtracted.add(key);
                 }
               } catch {
@@ -858,8 +871,11 @@ export class AIService implements OnModuleInit {
    */
   private buildLifetimeV2Prompts(
     calculationData: Record<string, unknown>,
+    style: ReadingStyle = 'expert',
   ): { systemPrompt: string; userPromptCall1: string; userPromptCall2: string } {
-    const systemPrompt = BASE_SYSTEM_PROMPT + '\n\n' + LIFETIME_V2_PROMPTS.systemAddition;
+    const basePrompt = buildBaseSystemPrompt(style);
+    const styleRules = STYLE_RULES[style];
+    const systemPrompt = basePrompt + '\n\n' + LIFETIME_V2_PROMPTS.systemAddition + (styleRules ? '\n' + styleRules : '');
 
     // Interpolate shared placeholders for both calls
     let call1Template = LIFETIME_V2_PROMPTS.userTemplateCall1;
@@ -879,9 +895,22 @@ export class AIService implements OnModuleInit {
     // Interpolate enriched luck periods for Call 2
     call2Template = this.interpolateEnrichedLuckPeriods(call2Template, calculationData);
 
-    // Append output format instructions
-    const userPromptCall1 = call1Template + '\n\n' + LIFETIME_V2_PROMPTS.outputFormatCall1;
-    const userPromptCall2 = call2Template + '\n\n' + LIFETIME_V2_PROMPTS.outputFormatCall2;
+    // Append output format instructions (guide style gets score field)
+    let outputFormatCall1 = LIFETIME_V2_PROMPTS.outputFormatCall1;
+    let outputFormatCall2 = LIFETIME_V2_PROMPTS.outputFormatCall2;
+    if (style === 'guide') {
+      // Inject "score" field into JSON format examples for guide style
+      outputFormatCall1 = outputFormatCall1.replace(
+        /{ "preview"/g,
+        '{ "score": <1-5的數字，支持0.5如3.5>, "preview"',
+      );
+      outputFormatCall2 = outputFormatCall2.replace(
+        /{ "preview"/g,
+        '{ "score": <1-5的數字，支持0.5如3.5>, "preview"',
+      );
+    }
+    const userPromptCall1 = call1Template + '\n\n' + outputFormatCall1;
+    const userPromptCall2 = call2Template + '\n\n' + outputFormatCall2;
 
     return { systemPrompt, userPromptCall1, userPromptCall2 };
   }
@@ -971,8 +1000,8 @@ export class AIService implements OnModuleInit {
       result = result.replace(/\{\{bossCompatibility\}\}/g, '（資料未提供）');
     }
 
-    // Per-section narrative anchors — Call 1 (chart_identity, finance_pattern, career_pattern, love_pattern, health, boss_strategy)
-    const anchorSections = ['chart_identity', 'finance_pattern', 'career_pattern', 'love_pattern', 'health', 'boss_strategy'];
+    // Per-section narrative anchors — Call 1 (chart_identity, finance_pattern, career_pattern, love_pattern, health, boss_strategy, summary)
+    const anchorSections = ['chart_identity', 'finance_pattern', 'career_pattern', 'love_pattern', 'health', 'boss_strategy', 'summary'];
     for (const section of anchorSections) {
       const sectionAnchors = narrativeAnchors?.[section] as string[] | undefined;
       const placeholder = `{{anchors_${section}}}`;
@@ -1311,9 +1340,12 @@ export class AIService implements OnModuleInit {
       }
     }
 
-    if (fixes.length > 0) {
+    // Strip 📊 綜合評分 text line from full (guide style outputs score as JSON field instead)
+    fullText = fullText.replace(/📊\s*綜合評分[：:]\s*[★☆]+\n?/g, '');
+
+    if (fixes.length > 0 || fullText !== section.full) {
       return {
-        section: { preview: previewText, full: fullText },
+        section: { preview: previewText, full: fullText, score: section.score },
         fixes,
       };
     }
@@ -1688,7 +1720,11 @@ export class AIService implements OnModuleInit {
     result = result.replace(/\{\{currentYear\}\}/g, String(new Date().getFullYear()));
 
     // Basic fields
-    result = result.replace(/\{\{gender\}\}/g, GENDER_ZH[(data['gender'] as string) || 'male'] || '男');
+    const genderRaw = data['gender'] as string;
+    if (!genderRaw) {
+      this.logger.warn('Gender missing in calculation data, defaulting to male');
+    }
+    result = result.replace(/\{\{gender\}\}/g, GENDER_ZH[genderRaw || 'male'] || '男');
     result = result.replace(/\{\{birthDate\}\}/g, (data['birthDate'] as string) || '');
     result = result.replace(/\{\{birthTime\}\}/g, (data['birthTime'] as string) || '');
 
@@ -2777,10 +2813,11 @@ export class AIService implements OnModuleInit {
         const sections: Record<string, InterpretationSection> = {};
 
         for (const [key, value] of Object.entries(parsed.sections)) {
-          const section = value as Record<string, string>;
+          const section = value as Record<string, unknown>;
           sections[key] = {
-            preview: section.preview || '',
-            full: section.full || section.preview || '',
+            preview: (section.preview as string) || '',
+            full: (section.full as string) || (section.preview as string) || '',
+            ...(typeof section.score === 'number' && { score: section.score }),
           };
         }
 
@@ -2811,10 +2848,11 @@ export class AIService implements OnModuleInit {
         const sections: Record<string, InterpretationSection> = {};
 
         for (const key of sectionLikeKeys) {
-          const section = parsed[key] as Record<string, string>;
+          const section = parsed[key] as Record<string, unknown>;
           sections[key] = {
-            preview: section.preview || '',
-            full: section.full || section.preview || '',
+            preview: (section.preview as string) || '',
+            full: (section.full as string) || (section.preview as string) || '',
+            ...(typeof section.score === 'number' && { score: section.score }),
           };
         }
 
@@ -3071,12 +3109,13 @@ export class AIService implements OnModuleInit {
     targetMonth?: number,
     targetDay?: string,
     questionText?: string,
+    readingStyle?: string,
   ): string {
     const crypto = require('crypto');
     // Include preAnalysis version in hash so cache invalidates when rules change
-    // LIFETIME uses v2.1.0 (V2 multi-call + next_period section), all others use v1.1.0 (seasonal balance 旺相休囚死)
-    const preAnalysisVersion = readingType === ReadingType.LIFETIME ? 'v2.1.0' : 'v1.1.0';
-    const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;
+    // LIFETIME uses v2.2.0 (summary anchors + per-section narrative anchors + reading styles), all others use v1.1.0 (seasonal balance 旺相休囚死)
+    const preAnalysisVersion = readingType === ReadingType.LIFETIME ? 'v2.2.0' : 'v1.1.0';
+    const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}|${readingStyle || ''}`;
     return crypto.createHash('sha256').update(data).digest('hex');
   }
 
