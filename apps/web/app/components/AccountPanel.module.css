@@ -71,8 +71,26 @@
   color: #a0a0a0;
 }
 
+/* ---- Clickable Credit Display ---- */
+.creditDisplayLink {
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  transition: opacity 0.15s ease;
+}
+
+.creditDisplayLink:hover {
+  opacity: 0.85;
+}
+
 /* ---- Conditional Bars ---- */
 .warningBar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
   background: rgba(255, 152, 0, 0.1);
   border: 1px solid rgba(255, 152, 0, 0.3);
   color: #ffb74d;
@@ -80,6 +98,20 @@
   padding: 0.5rem 1rem;
   margin-bottom: 1rem;
   font-size: 0.85rem;
+}
+
+.warningBuyLink {
+  color: #ffb74d;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.warningBuyLink:hover {
+  color: #ffa726;
+  text-decoration: underline;
 }
 
 .freeTrialBar {
@@ -126,6 +158,47 @@
 .ctaBtnOutline:hover {
   background: rgba(212, 175, 55, 0.1);
   border-color: rgba(212, 175, 55, 0.6);
+}
+
+.ctaRow {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.buyCreditsBtn {
+  display: inline-block;
+  padding: 0.75rem 2rem;
+  background: transparent;
+  border: 1px solid rgba(100, 181, 246, 0.35);
+  color: #64b5f6;
+  font-weight: 600;
+  font-size: 1rem;
+  border-radius: 8px;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.buyCreditsBtn:hover {
+  background: rgba(100, 181, 246, 0.08);
+  border-color: rgba(100, 181, 246, 0.55);
+}
+
+.buyCreditsSecondary {
+  display: block;
+  width: 100%;
+  color: #a0a0a0;
+  font-size: 0.85rem;
+  text-decoration: none;
+  margin-top: 0.25rem;
+  transition: color 0.2s;
+}
+
+.buyCreditsSecondary:hover {
+  color: #64b5f6;
+  text-decoration: underline;
 }
 
 /* ---- Static CTA fallback ---- */

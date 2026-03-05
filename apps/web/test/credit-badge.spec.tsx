@@ -23,6 +23,13 @@ jest.mock('@clerk/nextjs', () => ({
   }),
 }));
 
+// Mock next/link to avoid router context requirement
+jest.mock('next/link', () => {
+  return jest.fn(({ href, children, className, ...rest }: any) => (
+    <a href={href} className={className} {...rest}>{children}</a>
+  ));
+});
+
 const mockGetUserProfile = jest.fn();
 
 jest.mock('../app/lib/api', () => ({
@@ -61,6 +68,40 @@ describe('CreditBadge', () => {
     await waitFor(() => {
       expect(screen.getByText('專業')).toBeInTheDocument();
       expect(screen.getByText('10')).toBeInTheDocument();
+    });
+  });
+
+  it('tier badge links to subscription management', async () => {
+    render(<CreditBadge />);
+
+    await waitFor(() => {
+      const tierLink = screen.getByText('專業').closest('a');
+      expect(tierLink).toHaveAttribute('href', '/dashboard/subscription');
+    });
+  });
+
+  it('credit count links to store', async () => {
+    render(<CreditBadge />);
+
+    await waitFor(() => {
+      const creditLink = screen.getByText('10').closest('a');
+      expect(creditLink).toHaveAttribute('href', '/store');
+    });
+  });
+
+  it('MASTER tier credit count links to store', async () => {
+    mockGetUserProfile.mockResolvedValue({
+      credits: 999,
+      subscriptionTier: 'MASTER',
+      freeReadingUsed: true,
+    });
+    render(<CreditBadge />);
+
+    await waitFor(() => {
+      expect(screen.getByText('大師')).toBeInTheDocument();
+      expect(screen.getByText('999')).toBeInTheDocument();
+      const creditLink = screen.getByText('999').closest('a');
+      expect(creditLink).toHaveAttribute('href', '/store');
     });
   });
 

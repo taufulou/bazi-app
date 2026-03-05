@@ -87,7 +87,7 @@ export default function AccountPanel() {
   if (hasError || credits === null) return <StaticCTA />;
 
   const tierStyleKey = TIER_STYLES[tier] || "tierFREE";
-  const showLowWarning = credits <= 3 && (tier === "FREE" || tier === "BASIC");
+  const showLowWarning = credits <= 3;
   const showFreeTrial = !freeReadingUsed;
 
   return (
@@ -97,11 +97,15 @@ export default function AccountPanel() {
         <span className={`${styles.tierBadge} ${styles[tierStyleKey]}`}>
           {TIER_LABELS[tier] || "免費方案"}
         </span>
-        <div className={styles.creditDisplay}>
+        <Link
+          href="/store"
+          className={styles.creditDisplayLink}
+          aria-label={`購買點數（目前餘額：${credits} 點）`}
+        >
           <span className={styles.creditIcon}>💎</span>
           <span className={styles.creditCount}>{credits}</span>
           <span className={styles.creditLabel}>點數</span>
-        </div>
+        </Link>
       </div>
 
       {/* Row 2: Conditional alerts */}
@@ -112,20 +116,25 @@ export default function AccountPanel() {
       )}
       {showLowWarning && !showFreeTrial && (
         <div className={styles.warningBar}>
-          ⚠️ 點數即將用完
+          <span>⚠️ 點數即將用完</span>
+          <Link href="/store" className={styles.warningBuyLink}>立即購買 →</Link>
         </div>
       )}
 
       {/* Row 3: CTA */}
-      {tier === "FREE" ? (
-        <Link href="/pricing" className={styles.ctaBtn}>
-          升級方案
-        </Link>
-      ) : (
-        <Link href="/dashboard/subscription" className={styles.ctaBtnOutline}>
-          管理訂閱
-        </Link>
-      )}
+      <div className={styles.ctaRow}>
+        {tier === "FREE" ? (
+          <>
+            <Link href="/pricing" className={styles.ctaBtn}>升級方案</Link>
+            <Link href="/store" className={styles.buyCreditsSecondary}>或直接購買點數</Link>
+          </>
+        ) : (
+          <>
+            <Link href="/dashboard/subscription" className={styles.ctaBtnOutline}>管理訂閱</Link>
+            <Link href="/store" className={styles.buyCreditsBtn}>💎 購買點數</Link>
+          </>
+        )}
+      </div>
     </section>
   );
 }

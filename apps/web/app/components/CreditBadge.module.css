@@ -1,21 +1,27 @@
 /* CreditBadge — Header credit display */
 
-.badgeLink {
-  text-decoration: none;
-  color: inherit;
-  display: inline-flex;
-}
-
-.badgeLink:hover .badgeContainer {
-  opacity: 0.85;
-}
-
 .badgeContainer {
-  cursor: pointer;
-  transition: opacity 0.15s ease;
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.tierLink,
+.creditLink {
+  text-decoration: none;
+  color: inherit;
+  display: inline-flex;
+  transition: opacity 0.15s ease;
+}
+
+.tierLink:hover,
+.creditLink:hover {
+  opacity: 0.85;
+}
+
+.creditLink:hover .creditBadge {
+  border-color: rgba(232, 213, 183, 0.55);
+  background: rgba(232, 213, 183, 0.15);
 }
 
 .skeleton {
