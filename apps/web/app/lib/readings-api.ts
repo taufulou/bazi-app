@@ -310,7 +310,6 @@ export async function createBaziReading(
     readingType: string; // frontend slug e.g. "lifetime"
     targetYear?: number;
     stream?: boolean;
-    readingStyle?: 'expert' | 'metaphor' | 'chat' | 'guide';
   },
 ): Promise<NestJSReadingResponse> {
   return apiFetch<NestJSReadingResponse>('/api/bazi/readings', {
@@ -321,7 +320,6 @@ export async function createBaziReading(
       readingType: READING_TYPE_MAP[params.readingType], // slug → enum
       targetYear: params.targetYear,
       ...(params.stream && { stream: true }),
-      ...(params.readingStyle && { readingStyle: params.readingStyle }),
     }),
   });
 }

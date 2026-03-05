@@ -19,9 +19,8 @@ import {
   GENDER_ZH,
   STRENGTH_V2_ZH,
   LIFETIME_V2_PROMPTS,
-  buildBaseSystemPrompt,
-  STYLE_RULES,
-  type ReadingStyle,
+  buildLifetimeSystemPrompt,
+  GUIDE_STYLE_RULES,
 } from './prompts';
 
 // ============================================================
@@ -304,7 +303,6 @@ export class AIService implements OnModuleInit {
     calculationData: Record<string, unknown>,
     userId?: string,
     readingId?: string,
-    style: ReadingStyle = 'expert',
   ): Promise<AIGenerationResult> {
     if (this.providers.length === 0) {
       throw new Error('No AI providers configured');
@@ -317,7 +315,7 @@ export class AIService implements OnModuleInit {
 
     // Build both prompts from calculation data
     const { systemPrompt, userPromptCall1, userPromptCall2 } =
-      this.buildLifetimeV2Prompts(calculationData, style);
+      this.buildLifetimeV2Prompts(calculationData);
 
     // Try each provider in order (fallback chain: Claude → GPT-4o → Gemini)
     let lastError: Error | undefined;
@@ -506,10 +504,9 @@ export class AIService implements OnModuleInit {
   streamLifetimeV2(
     calculationData: Record<string, unknown>,
     readingId: string,
-    style: ReadingStyle = 'expert',
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
-      this._executeStreamLifetimeV2(calculationData, readingId, subscriber, style)
+      this._executeStreamLifetimeV2(calculationData, readingId, subscriber)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -525,7 +522,6 @@ export class AIService implements OnModuleInit {
     calculationData: Record<string, unknown>,
     readingId: string,
     subscriber: Subscriber<MessageEvent>,
-    style: ReadingStyle = 'expert',
   ) {
     const startTime = Date.now();
     // Streaming V2 timeout: default 180s (sections are capped at ~200-450 chars each)
@@ -540,7 +536,7 @@ export class AIService implements OnModuleInit {
     }
 
     const { systemPrompt, userPromptCall1, userPromptCall2 } =
-      this.buildLifetimeV2Prompts(calculationData, style);
+      this.buildLifetimeV2Prompts(calculationData);
 
     // Heartbeat every 15s to prevent proxy timeouts
     const heartbeatInterval = setInterval(() => {
@@ -725,8 +721,6 @@ export class AIService implements OnModuleInit {
             '', // birthCity not available here
             calculationData['gender'] as string || '',
             ReadingType.LIFETIME,
-            undefined, undefined, undefined, undefined,
-            style, // use the direct `style` parameter from _executeStreamLifetimeV2
           );
           this.cacheInterpretation(
             birthDataHash,
@@ -871,11 +865,9 @@ export class AIService implements OnModuleInit {
    */
   private buildLifetimeV2Prompts(
     calculationData: Record<string, unknown>,
-    style: ReadingStyle = 'expert',
   ): { systemPrompt: string; userPromptCall1: string; userPromptCall2: string } {
-    const basePrompt = buildBaseSystemPrompt(style);
-    const styleRules = STYLE_RULES[style];
-    const systemPrompt = basePrompt + '\n\n' + LIFETIME_V2_PROMPTS.systemAddition + (styleRules ? '\n' + styleRules : '');
+    const basePrompt = buildLifetimeSystemPrompt();
+    const systemPrompt = basePrompt + '\n\n' + LIFETIME_V2_PROMPTS.systemAddition + '\n' + GUIDE_STYLE_RULES;
 
     // Interpolate shared placeholders for both calls
     let call1Template = LIFETIME_V2_PROMPTS.userTemplateCall1;
@@ -895,20 +887,15 @@ export class AIService implements OnModuleInit {
     // Interpolate enriched luck periods for Call 2
     call2Template = this.interpolateEnrichedLuckPeriods(call2Template, calculationData);
 
-    // Append output format instructions (guide style gets score field)
-    let outputFormatCall1 = LIFETIME_V2_PROMPTS.outputFormatCall1;
-    let outputFormatCall2 = LIFETIME_V2_PROMPTS.outputFormatCall2;
-    if (style === 'guide') {
-      // Inject "score" field into JSON format examples for guide style
-      outputFormatCall1 = outputFormatCall1.replace(
-        /{ "preview"/g,
-        '{ "score": <1-5的數字，支持0.5如3.5>, "preview"',
-      );
-      outputFormatCall2 = outputFormatCall2.replace(
-        /{ "preview"/g,
-        '{ "score": <1-5的數字，支持0.5如3.5>, "preview"',
-      );
-    }
+    // Append output format instructions with score field (guide style always active)
+    const outputFormatCall1 = LIFETIME_V2_PROMPTS.outputFormatCall1.replace(
+      /{ "preview"/g,
+      '{ "score": <1-5的數字，支持0.5如3.5>, "preview"',
+    );
+    const outputFormatCall2 = LIFETIME_V2_PROMPTS.outputFormatCall2.replace(
+      /{ "preview"/g,
+      '{ "score": <1-5的數字，支持0.5如3.5>, "preview"',
+    );
     const userPromptCall1 = call1Template + '\n\n' + outputFormatCall1;
     const userPromptCall2 = call2Template + '\n\n' + outputFormatCall2;
 
@@ -3109,13 +3096,12 @@ export class AIService implements OnModuleInit {
     targetMonth?: number,
     targetDay?: string,
     questionText?: string,
-    readingStyle?: string,
   ): string {
     const crypto = require('crypto');
     // Include preAnalysis version in hash so cache invalidates when rules change
-    // LIFETIME uses v2.2.0 (summary anchors + per-section narrative anchors + reading styles), all others use v1.1.0 (seasonal balance 旺相休囚死)
-    const preAnalysisVersion = readingType === ReadingType.LIFETIME ? 'v2.2.0' : 'v1.1.0';
-    const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}|${readingStyle || ''}`;
+    // LIFETIME uses v2.3.0 (guide style only + summary anchors), all others use v1.1.0 (seasonal balance 旺相休囚死)
+    const preAnalysisVersion = readingType === ReadingType.LIFETIME ? 'v2.3.0' : 'v1.1.0';
+    const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;
     return crypto.createHash('sha256').update(data).digest('hex');
   }
 
