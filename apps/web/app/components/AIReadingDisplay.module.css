@@ -1254,7 +1254,7 @@ li.goldBulletItem {
   background: linear-gradient(135deg, rgba(226,61,40,0.08), rgba(245,166,35,0.08));
   border: 1px dashed rgba(212,160,23,0.3);
   border-radius: 12px;
-  font-family: var(--font-noto-serif-tc), 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 0.95rem;
   color: var(--text-secondary);
   cursor: default;

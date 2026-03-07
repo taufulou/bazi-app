@@ -5,7 +5,7 @@
   box-shadow: var(--shadow-warm);
   margin: 0 1.5rem 1rem;
   position: relative;
-  background: #fff;
+  background: var(--bg-card);
 }
 
 .scrollArea {
@@ -58,4 +58,11 @@
 
 .swipeHintHidden {
   opacity: 0;
+}
+
+@media (max-width: 600px) {
+  .mascotContainer {
+    margin: 0 1rem 0.75rem;
+    border-radius: 12px;
+  }
 }

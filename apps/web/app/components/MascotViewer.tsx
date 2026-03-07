@@ -27,12 +27,18 @@ export default function MascotViewer({
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>();
   const activeViewRef = useRef<MascotView>("full");
+  const onViewChangeRef = useRef(onViewChange);
+
+  // Keep ref in sync with latest callback (no effect re-subscription needed)
+  useEffect(() => {
+    onViewChangeRef.current = onViewChange;
+  });
 
   // Resolve image paths
   const fullImagePath = getMascotImagePath(stem, gender, "full");
   const halfImagePath = getMascotImagePath(stem, gender, "half");
 
-  // Attach scroll listener once — read activeView from ref to avoid re-subscriptions
+  // Attach scroll listener once — read activeView and callback from refs
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -48,7 +54,7 @@ export default function MascotViewer({
           activeViewRef.current = newView;
           setActiveView(newView);
           setHasInteracted(true);
-          onViewChange?.(newView);
+          onViewChangeRef.current?.(newView);
         }
       }, 150);
     };
@@ -58,7 +64,8 @@ export default function MascotViewer({
       el.removeEventListener("scroll", handleScroll);
       if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     };
-  }, [onViewChange]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- scroll listener subscribes once; callback read via onViewChangeRef
+  }, []);
 
   // If invalid stem (paths are null), render nothing
   if (!fullImagePath || !halfImagePath) return null;
