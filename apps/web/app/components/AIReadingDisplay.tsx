@@ -11,6 +11,8 @@ import type {
 } from "../lib/readings-api";
 import { getScoreColor } from "../lib/score-utils";
 import LuckPeriodChart from "./LuckPeriodChart";
+import MascotViewer from "./MascotViewer";
+import { isValidStem } from "../lib/mascot-utils";
 import { SECTION_TECH_BUILDERS } from "./techRefBuilders";
 
 // ============================================================
@@ -332,6 +334,9 @@ function CharacterCard({ chartData }: { chartData: Record<string, unknown> }) {
     shenSha?: string[];
   }> | undefined;
 
+  // Extract gender from chartData (works for both form-based and deep-linked saved readings)
+  const gender = (chartData?.gender as string) === 'female' ? 'female' as const : 'male' as const;
+
   if (!dm || !dayMasterStem || !fp) return null;
 
   const personality = DAY_MASTER_PERSONALITY[dayMasterStem];
@@ -380,6 +385,11 @@ function CharacterCard({ chartData }: { chartData: Record<string, unknown> }) {
         </div>
         {zodiac && <span className={styles.zodiacBadge}>{zodiac}年生</span>}
       </div>
+
+      {/* Mascot hero image — swipeable full/half body viewer */}
+      {dayMasterStem && isValidStem(dayMasterStem) && (
+        <MascotViewer stem={dayMasterStem} gender={gender} />
+      )}
 
       <div className={styles.characterCardBody}>
         {/* Archetype */}
@@ -461,6 +471,12 @@ function CharacterCard({ chartData }: { chartData: Record<string, unknown> }) {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Share button placeholder — full implementation in future session */}
+      <div className={styles.shareButtonPlaceholder}>
+        <span>✦ 分享我的角色卡 ✦</span>
+        <span className={styles.comingSoon}>即將推出</span>
       </div>
     </div>
   );

@@ -1,0 +1,61 @@
+.mascotContainer {
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-warm);
+  margin: 0 1.5rem 1rem;
+  position: relative;
+  background: #fff;
+}
+
+.scrollArea {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.scrollArea::-webkit-scrollbar {
+  display: none;
+}
+
+.imageSlide {
+  flex: 0 0 100%;
+  scroll-snap-align: start;
+  position: relative;
+  aspect-ratio: 5 / 4;
+  min-height: 200px;
+}
+
+.dotIndicator {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-light);
+  transition: background 0.3s;
+}
+
+.dotActive {
+  background: var(--color-red);
+}
+
+.swipeHint {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding-bottom: 8px;
+  opacity: 1;
+  transition: opacity 0.5s;
+}
+
+.swipeHintHidden {
+  opacity: 0;
+}

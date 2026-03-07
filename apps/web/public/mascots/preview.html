@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<title>Mascot Preview — All 40 Characters</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #fff; font-family: -apple-system, sans-serif; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 10px; font-size: 28px; }
+  .subtitle { text-align: center; color: #888; margin-bottom: 30px; }
+  .section { margin-bottom: 40px; }
+  .section h2 {
+    font-size: 20px; margin-bottom: 15px; padding: 8px 16px;
+    background: linear-gradient(90deg, #E23D28, #F5A623);
+    border-radius: 8px; display: inline-block;
+  }
+  .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .card {
+    background: #2a2a3e; border-radius: 12px; overflow: hidden;
+    border: 1px solid #333; transition: transform 0.2s;
+  }
+  .card:hover { transform: scale(1.02); border-color: #E23D28; }
+  .card img { width: 100%; height: auto; display: block; }
+  .card .label {
+    padding: 8px 12px; font-size: 13px; text-align: center;
+    background: #222; color: #ccc;
+  }
+  .card .label strong { color: #F5A623; }
+  .stats {
+    text-align: center; padding: 15px; background: #2a2a3e;
+    border-radius: 8px; margin-bottom: 30px; color: #888;
+  }
+  .stats strong { color: #4CAF50; }
+</style>
+</head>
+<body>
+
+<h1>🎴 Bazi Mascot Preview</h1>
+<p class="subtitle">All 40 Characters — 10 Day Masters x 2 Genders x 2 Views</p>
+
+<div class="stats">
+  Total: <strong>40 images</strong> | Size: <strong>32 MB optimized</strong> (was 68 MB) | Resolution: <strong>1200x960</strong> each
+</div>
+
+<script>
+const masters = [
+  { pinyin: 'jia',  cn: '甲木', name: 'Towering Tree' },
+  { pinyin: 'yi',   cn: '乙木', name: 'Climbing Vines' },
+  { pinyin: 'bing', cn: '丙火', name: 'Blazing Sun' },
+  { pinyin: 'ding', cn: '丁火', name: 'Candlelight' },
+  { pinyin: 'wu',   cn: '戊土', name: 'Mountain Earth' },
+  { pinyin: 'ji',   cn: '己土', name: 'Garden Earth' },
+  { pinyin: 'geng', cn: '庚金', name: 'Steel Blade' },
+  { pinyin: 'xin',  cn: '辛金', name: 'Jewels' },
+  { pinyin: 'ren',  cn: '壬水', name: 'Ocean' },
+  { pinyin: 'gui',  cn: '癸水', name: 'Rain & Dew' },
+];
+
+masters.forEach(m => {
+  const section = document.createElement('div');
+  section.className = 'section';
+  section.innerHTML = `<h2>${m.cn} — ${m.name}</h2>`;
+
+  const grid = document.createElement('div');
+  grid.className = 'grid';
+
+  const variants = [
+    { gender: 'male', view: 'full', label: 'Male Full' },
+    { gender: 'male', view: 'half', label: 'Male Half' },
+    { gender: 'female', view: 'full', label: 'Female Full' },
+    { gender: 'female', view: 'half', label: 'Female Half' },
+  ];
+
+  variants.forEach(v => {
+    const filename = `${m.pinyin}-${v.gender}-${v.view}.png`;
+    grid.innerHTML += `
+      <div class="card">
+        <img src="${filename}" alt="${m.cn} ${v.label}" loading="lazy">
+        <div class="label"><strong>${v.label}</strong> — ${filename}</div>
+      </div>
+    `;
+  });
+
+  section.appendChild(grid);
+  document.body.appendChild(section);
+});
+</script>
+
+</body>
+</html>

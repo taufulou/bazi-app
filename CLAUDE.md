@@ -257,3 +257,110 @@ Clerk cannot be mocked at the API level in Playwright because the SDK validates 
 - `docs/phase-12-specs.md` — 三合/三會 scoring, 從格+三合 detection, 生化鏈 analysis
 - `docs/future-enhancements.md` — Phase 13 deep pre-analysis for AI consistency
 - `docs/phase-details.md` — Phase 5/10 implementation details, frontend UI components, ZWDS engine
+
+---
+
+## Day Master Mascot Design Bible — 日主角色卡吉祥物設計規範
+
+**Purpose**: 10 (×2 genders = 20) iconic humanoid mascots for "你的角色卡". Each represents a day master's 本質 in Chinese ink wash style. Goal: maximize shareability.
+
+### Core Style
+- **Art style**: Chinese ink wash sumi-e (水墨畫風), semi-realistic
+- **Core concept**: Body CONSTRUCTED FROM the element — "element became human form", NOT "human wearing element clothes"
+- **Body ratio**: ~60% element / 40% human — like a wire sculpture made of the element's material
+- **Tone**: 令人覺得厲害的 (awe-inspiring), premium collectible card feel
+
+### Universal Template Rules
+- ONE single full-body character per image (never multiple views)
+- Half-robe/sash with waist belt, ink-wash rendered
+- Gold kintsugi-style foil lines along major body seams
+- Eyes = bright element-colored, most vivid color point
+- Hair = element-specific growth detail (unique per day master)
+- Face = clearly defined with sharp ink lines
+- Background = plain white xuan paper (BG done separately)
+- Ink splatter dots around the figure
+- Full body head-to-feet visible
+- **NO** weapons or armor
+- **NO** neon/glow effects (keep organic watercolor)
+- **NO** seal stamp
+- **NO** chest watercolor wash
+- 本質 must be visually prominent
+
+### Gender Strategy
+- 20 total: 10 male + 10 female. Show matching gender to each user.
+- Phase 1: All 10 male first → Phase 2: Female versions
+
+### Yang vs Yin Contrast
+| | Yang (甲丙戊庚壬) | Yin (乙丁己辛癸) |
+|--|--|--|
+| Energy | Outward, grounded | Inward, floating/rising |
+| Build | Athletic, broader | Lean, slender |
+| Pose | Grounded, stable | Lighter, dynamic, may float |
+| Lines | Bold, thick strokes | Thinner, delicate strokes |
+
+### All 10 Male Versions — ✅ LOCKED
+Full prompts saved in: `.claude/plans/soft-crafting-fiddle.md`
+
+| # | Day Master | Unique Silhouette | Key Visual |
+|---|-----------|-------------------|------------|
+| 甲木 | 參天大樹 | Tall straight trunk, top-knot with leaves | Bark body, roots gripping ground |
+| 乙木 | 藤蔓花草 | Lean floating, one foot lifted | Vine wire-sculpture body, pink cherry blossoms |
+| 丙火 | 太陽烈火 | Wide radiating, hands on hips | Flame body, solar corona hair, **cheerful smile** |
+| 丁火 | 燈燭星火 | Thin smoke wisp | Smoke body, only 2 flame points (hand + head) |
+| 戊土 | 高山土壤 | **Widest/heaviest**, blocky boulder | Stone body, serene Buddha calm, prominent gold kintsugi |
+| 己土 | 田園沃土 | **Shortest/roundest, bald** | Soil body, stone garden statue form, cupping green seedling |
+| 庚金 | 精鋼利刃 | Blade-fin shoulders, **only one in motion** | Forged iron body, decisive stride, open hand forward |
+| 辛金 | 珠寶首飾 | Ornate jewelry crown | Jade+gem mosaic body, gold filigree, **most beautiful face** |
+| 壬水 | 江河大海 | Shoulder waves + vortex cape | Water body, hands behind back, calm strategist |
+| 癸水 | 雨露甘霖 | **Rain drop halo** orbiting body | Water body, gentle knowing smile, floating, dew in palm |
+
+### Prompt Engineering Lessons
+- Say "body CONSTRUCTED FROM" not "wearing robe with texture"
+- Say "like wire sculpture made of real [element]" to avoid decorative tattoo patterns
+- Limit colored accents to 2-3 organic placements (少而精)
+- Always specify exact build type per day master
+- Emphasize "BOLD confident brush strokes" to avoid manga/sketch look
+- Each day master pair must have UNIQUE differentiators (e.g., 甲=roots DOWN vs 乙=tendrils UP)
+- "metal plates" always looks like armor → use "one continuous forged piece"
+- "raw crystals" looks like minerals → say "POLISHED CUT gems in GOLD FILIGREE settings"
+- "mist/vapor/ethereal/translucent" makes body invisible → use solid body + ethereal surroundings
+- For metal/gem subjects lacking 水墨: add 皴法, "Song dynasty painting style", NOT comic/manga/Western/digital
+- Always say "NO red seal stamp" and "ONE single character never multiple views"
+
+### Element Eye Colors (from app design system)
+| Element | Hex | Day Masters |
+|---------|-----|-------------|
+| 木 Wood | `#2E7D32` | 甲乙 |
+| 火 Fire | `#D32F2F` | 丙丁 |
+| 土 Earth | `#8D6E63` | 戊己 |
+| 金 Metal | `#B8860B` | 庚辛 |
+| 水 Water | `#1565C0` | 壬癸 |
+
+### Mascot Implementation Status
+- **40 images** (10 stems x 2 genders x 2 views) stored in `apps/web/public/mascots/` (~32 MB, optimized)
+- **File naming**: `{pinyin}-{gender}-{view}.png` (e.g., `jia-male-full.png`, `gui-female-half.png`)
+- **MascotViewer component**: `apps/web/app/components/MascotViewer.tsx` — swipeable full/half body viewer
+- **Utility**: `apps/web/app/lib/mascot-utils.ts` — stem-to-pinyin mapping, image path helper, validation
+- **Integration**: Wired into `CharacterCard` in `AIReadingDisplay.tsx`, gender extracted from `chartData.gender`
+- **Share button**: Placeholder with "即將推出" — full implementation deferred to sharing session
+
+### Sharing Foundation — Requirements for Future Session (分享我的角色卡)
+
+The sharing feature allows users to export their character card as a shareable PNG image (LINE, Facebook, WhatsApp, Instagram, WeChat). Full design details in `.claude/plans/soft-crafting-fiddle.md` Section 13.
+
+**Components to build:**
+1. **`ShareableCharacterCard`** component (1200x1600, 3:4 ratio) — mascot zone (top 60%) + info zone (bottom 40%) + brand footer with QR code
+2. **Image export pipeline** — `html2canvas` or `dom-to-image-more` to render as PNG at 1200x1600
+3. **Share flow** — `navigator.share({ files: [pngBlob] })` for mobile, download for desktop
+4. **Share card data** — mascot image (from `MascotViewer.activeView`), personality layers, stats, shensha tags, branding
+
+**Key files to create:**
+- `apps/web/app/components/ShareableCharacterCard.tsx` + `.module.css`
+- `apps/web/app/lib/share-utils.ts` (export + share logic)
+- Replace share button placeholder in `AIReadingDisplay.tsx` with real button
+
+**Technical notes:**
+- `MascotViewer` already exposes `onViewChange` callback for tracking active view
+- Gender is from `chartData.gender` (already wired)
+- QR code: use `qrcode` npm package or pre-generated static image
+- Deep link: `baziapp.com/share?stem=甲&ref=card`
