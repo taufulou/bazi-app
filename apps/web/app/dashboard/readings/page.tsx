@@ -116,10 +116,10 @@ export default function ReadingHistoryPage() {
                     icon: "🤝",
                     label: "合盤比較",
                   };
-                  const isCompFree = reading.creditsUsed === 0;
                   // Both Bazi (3) and ZWDS (3) compatibility cost 3.
                   // Backend normalizes all comparisons to readingType: 'COMPATIBILITY'.
                   const compCost = READING_TYPE_META.compatibility.creditCost;
+                  const isCompFree = reading.creditsUsed === 0 || compCost === 0;
                   return (
                     <Link
                       key={reading.id}

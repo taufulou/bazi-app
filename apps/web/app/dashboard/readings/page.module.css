@@ -4,7 +4,7 @@
 
 .page {
   min-height: 100vh;
-  background: linear-gradient(180deg, #FFF3E0 0%, #FFFBF5 100%);
+  background: linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
   color: var(--text-primary);
   padding: 1.5rem 2rem 3rem;
 }
@@ -110,20 +110,20 @@
 
 .cardZwds {
   composes: card;
-  border-color: rgba(139, 92, 246, 0.15);
+  border-color: rgba(var(--color-zwds-rgb), 0.15);
 }
 
 .cardZwds:hover {
-  border-color: rgba(139, 92, 246, 0.35);
+  border-color: rgba(var(--color-zwds-rgb), 0.35);
 }
 
 .cardComparison {
   composes: card;
-  border-color: rgba(255, 87, 34, 0.15);
+  border-color: rgba(var(--color-red-rgb), 0.15);
 }
 
 .cardComparison:hover {
-  border-color: rgba(255, 87, 34, 0.35);
+  border-color: rgba(var(--color-red-rgb), 0.35);
 }
 
 /* ---- Card Parts ---- */
@@ -154,7 +154,7 @@
 }
 
 .vsLabel {
-  color: #ff9800;
+  color: var(--color-orange);
   font-weight: 700;
   font-size: 0.8rem;
 }
@@ -168,13 +168,13 @@
 }
 
 .creditsBadge {
-  color: #ff9800;
+  color: var(--color-orange);
   font-weight: 500;
   font-size: 0.75rem;
 }
 
 .freeBadge {
-  color: #4CAF50;
+  color: var(--color-success);
   font-weight: 500;
   font-size: 0.75rem;
 }
@@ -223,7 +223,7 @@
 }
 
 .errorText {
-  color: #F44336;
+  color: var(--color-error);
   font-size: 1rem;
 }
 
@@ -259,7 +259,7 @@
 .startLink {
   display: inline-block;
   background: var(--color-red);
-  color: #FFFFFF;
+  color: var(--text-on-red);
   padding: 0.6rem 1.5rem;
   border-radius: 20px;
   font-weight: 600;
