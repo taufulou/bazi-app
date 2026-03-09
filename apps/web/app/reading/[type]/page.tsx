@@ -18,6 +18,7 @@ import {
   updateBirthProfile,
   formValuesToPayload,
   fetchBirthProfiles,
+  genderFromApi,
   type BirthProfile,
 } from "../../lib/birth-profiles-api";
 import {
@@ -310,7 +311,7 @@ export default function ReadingPage() {
           name: bp.name,
           birthDate: bp.birthDate.substring(0, 10),
           birthTime: bp.birthTime,
-          gender: bp.gender.toLowerCase() as 'male' | 'female',
+          gender: genderFromApi(bp.gender),
           birthCity: bp.birthCity,
           birthTimezone: bp.birthTimezone,
           isLunarDate: bp.isLunarDate,

@@ -144,7 +144,7 @@ const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 // ============================================================
 
 export default function BaziChart({ data, name, birthDate, birthTime, visibleSections }: BaziChartProps) {
-  const { fourPillars: fp, dayMaster: dm, lunarDate, trueSolarTime } = data;
+  const { fourPillars: fp, dayMaster: dm, lunarDate } = data;
   const pillars = [
     { key: "hour", label: "時柱", data: fp.hour },
     { key: "day", label: "日柱", data: fp.day },

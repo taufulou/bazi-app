@@ -201,7 +201,7 @@ export interface NestJSReadingResponse {
     name: string;
     birthDate: string;
     birthTime: string;
-    gender: string;
+    gender: 'MALE' | 'FEMALE';
     birthCity: string;
     birthTimezone: string;
     isLunarDate: boolean;
