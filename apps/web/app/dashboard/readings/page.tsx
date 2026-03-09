@@ -116,6 +116,10 @@ export default function ReadingHistoryPage() {
                     icon: "🤝",
                     label: "合盤比較",
                   };
+                  const isCompFree = reading.creditsUsed === 0;
+                  // Both Bazi (3) and ZWDS (3) compatibility cost 3.
+                  // Backend normalizes all comparisons to readingType: 'COMPATIBILITY'.
+                  const compCost = READING_TYPE_META.compatibility.creditCost;
                   return (
                     <Link
                       key={reading.id}
@@ -134,17 +138,17 @@ export default function ReadingHistoryPage() {
                             <span className={styles.cardDate}>
                               {formatDate(reading.createdAt)}
                             </span>
-                            {reading.creditsUsed > 0 ? (
+                            {isCompFree ? (
                               <>
                                 <span className={styles.metaDot}>·</span>
-                                <span className={styles.creditsBadge}>
-                                  -{reading.creditsUsed} 額度
-                                </span>
+                                <span className={styles.freeBadge}>免費</span>
                               </>
                             ) : (
                               <>
                                 <span className={styles.metaDot}>·</span>
-                                <span className={styles.freeBadge}>免費</span>
+                                <span className={styles.creditsBadge}>
+                                  -{compCost} 額度
+                                </span>
                               </>
                             )}
                           </div>
@@ -159,6 +163,8 @@ export default function ReadingHistoryPage() {
                 const slug = ENUM_TO_SLUG[reading.readingType] || "lifetime";
                 const meta = READING_TYPE_META[slug as keyof typeof READING_TYPE_META];
                 const isZwds = slug.startsWith("zwds-");
+                const typeCost = meta?.creditCost ?? 0;
+                const isActuallyFree = reading.creditsUsed === 0 || typeCost === 0;
 
                 return (
                   <Link
@@ -178,17 +184,17 @@ export default function ReadingHistoryPage() {
                           <span className={styles.cardDate}>
                             {formatDate(reading.createdAt)}
                           </span>
-                          {reading.creditsUsed > 0 ? (
+                          {isActuallyFree ? (
                             <>
                               <span className={styles.metaDot}>·</span>
-                              <span className={styles.creditsBadge}>
-                                -{reading.creditsUsed} 額度
-                              </span>
+                              <span className={styles.freeBadge}>免費</span>
                             </>
                           ) : (
                             <>
                               <span className={styles.metaDot}>·</span>
-                              <span className={styles.freeBadge}>免費</span>
+                              <span className={styles.creditsBadge}>
+                                -{typeCost} 額度
+                              </span>
                             </>
                           )}
                         </div>
