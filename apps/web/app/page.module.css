@@ -7,11 +7,56 @@
   background: linear-gradient(180deg, #FFF3E0 0%, #FFFBF5 100%);
   color: var(--text-primary);
   padding: 1.5rem 2rem 3rem;
+  position: relative;
+}
+
+/* Decorative background image — horse/clouds Chinese illustration */
+.page::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 3840px;
+  height: clamp(320px, 35vh, 450px);
+  z-index: 0;
+  pointer-events: none;
+  background-color: #FFF3E0;
+  background-image: url('/backgrounds/dashboard-hero-bg.webp');
+  background-size: cover;
+  background-position: center 30%;
+  background-repeat: no-repeat;
+  -webkit-mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 50%, transparent 100%);
+}
+
+/* Contrast overlay — ensures text readability over the background image */
+/* Stacks above ::before via CSS spec DOM order (both z-index: 0) */
+.page::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 3840px;
+  height: clamp(320px, 35vh, 450px);
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 243, 224, 0.2) 0%,
+    rgba(255, 243, 224, 0.15) 60%,
+    transparent 100%
+  );
 }
 
 .inner {
   max-width: 900px;
   margin: 0 auto;
+  position: relative;
+  z-index: 1;
 }
 
 /* ---- Header ---- */
@@ -65,6 +110,7 @@
   font-family: var(--font-noto-serif-tc), serif;
   font-weight: 700;
   margin: 0;
+  text-shadow: 0 1px 8px rgba(255, 243, 224, 0.9);
 }
 
 /* ---- Quick Links (horizontal pills) ---- */
@@ -79,7 +125,7 @@
   gap: 0.4rem;
   padding: 0.6rem 1rem;
   min-height: 44px; /* WCAG 2.5.5 touch target */
-  background: var(--bg-card);
+  background: rgba(255, 255, 255, 0.55);
   border: 1px solid var(--border-light);
   border-radius: 20px;
   text-decoration: none;
@@ -90,6 +136,7 @@
 }
 
 .quickLink:hover {
+  background: rgba(255, 255, 255, 0.75);
   border-color: var(--border-medium);
   color: var(--text-primary);
   box-shadow: var(--shadow-warm);
@@ -205,6 +252,22 @@
 @media (max-width: 768px) {
   .page {
     padding: 1rem 1rem 2rem;
+  }
+
+  .page::before {
+    background-size: 100% auto;
+    background-position: center top;
+    -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 85%);
+    mask-image: linear-gradient(to bottom, black 40%, transparent 85%);
+  }
+
+  .page::after {
+    background: linear-gradient(
+      to bottom,
+      rgba(255, 243, 224, 0.2) 0%,
+      rgba(255, 243, 224, 0.15) 50%,
+      rgba(255, 243, 224, 1) 85%
+    );
   }
 
   .header {

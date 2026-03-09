@@ -255,7 +255,8 @@ export default function PricingPage() {
 
       {/* ---- Back Button ---- */}
       <button className={styles.backButton} onClick={() => router.back()} aria-label="返回上一頁">
-        ← 返回
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="10 2 4 8 10 14" /></svg>
+        返回
       </button>
 
       {/* ---- Header ---- */}

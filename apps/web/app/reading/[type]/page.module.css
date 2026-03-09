@@ -17,18 +17,30 @@
 .backLink {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.4rem;
   color: var(--text-secondary);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: color 0.2s;
-  background: none;
-  border: none;
-  padding: 0.5rem;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--border-light);
+  border-radius: 18px;
+  padding: 0.4rem 1rem 0.4rem 0.75rem;
+  height: 36px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: background 0.2s, box-shadow 0.2s, color 0.2s;
 }
 
 .backLink:hover {
   color: var(--text-accent);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.backLink svg {
+  flex-shrink: 0;
 }
 
 .headerTitle {
@@ -551,5 +563,119 @@
 
   .stepLine {
     width: 20px;
+  }
+
+}
+
+/* ============================================================
+   Lifetime reading background (八字終身運)
+   ORDERING: Must appear AFTER .pageContainer to win specificity
+   ============================================================ */
+.pageContainerLifetime {
+  position: relative;
+  overflow: hidden;
+}
+
+.pageContainerLifetime::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 3840px;
+  height: clamp(380px, 50vh, 560px);
+  z-index: 0;
+  pointer-events: none;
+  background-color: #FFF3E0;
+  background-image: url('/backgrounds/reading-lifetime-bg.webp');
+  background-size: cover;
+  background-position: center 30%;
+  background-repeat: no-repeat;
+  -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+}
+
+.pageContainerLifetime::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 3840px;
+  height: clamp(380px, 50vh, 560px);
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgba(255, 243, 224, 0.1) 0%,
+    rgba(255, 243, 224, 0.15) 70%,
+    rgba(255, 243, 224, 0.8) 100%
+  );
+}
+
+.pageContainerLifetime .header,
+.pageContainerLifetime .stepIndicator,
+.pageContainerLifetime .contentArea,
+.pageContainerLifetime .tabBar,
+.pageContainerLifetime .cacheToast,
+.pageContainerLifetime .revealProgress,
+.pageContainerLifetime .loadingSkeleton {
+  position: relative;
+  z-index: 1;
+}
+
+.pageContainerLifetime .headerTitle {
+  color: #FFFFFF;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.3);
+}
+
+.pageContainerLifetime .backLink {
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  text-shadow: none;
+}
+
+.pageContainerLifetime .backLink:hover {
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+
+.pageContainerLifetime .stepIndicator {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.pageContainerLifetime .stepActive {
+  color: #FFFFFF;
+}
+
+.pageContainerLifetime .stepActive .stepNumber {
+  background: rgba(255, 255, 255, 0.25);
+  color: #FFFFFF;
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+/* Mobile overrides — MUST appear AFTER desktop lifetime rules */
+@media (max-width: 600px) {
+  .pageContainerLifetime::before {
+    height: clamp(280px, 40vh, 400px);
+    background-size: 100% auto;
+    background-position: center top;
+    -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 85%);
+    mask-image: linear-gradient(to bottom, black 40%, transparent 85%);
+  }
+
+  .pageContainerLifetime::after {
+    height: clamp(280px, 40vh, 400px);
+    background: linear-gradient(
+      to bottom,
+      rgba(255, 243, 224, 0.05) 0%,
+      rgba(255, 243, 224, 0.3) 50%,
+      rgba(255, 243, 224, 1) 85%
+    );
   }
 }

@@ -148,7 +148,8 @@ export default function ProfileManagerPage() {
         <div className={styles.inner}>
           <header className={styles.header}>
             <Link href="/" className={styles.backLink}>
-              &larr; 返回控制台
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="10 2 4 8 10 14" /></svg>
+              返回控制台
             </Link>
             <h1 className={styles.headerTitle}>出生資料管理</h1>
           </header>

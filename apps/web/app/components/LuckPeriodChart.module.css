@@ -83,6 +83,7 @@
   background: rgba(255, 243, 224, 0.85);
   border-radius: var(--radius-lg, 16px);
   z-index: 10;
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
 }
 

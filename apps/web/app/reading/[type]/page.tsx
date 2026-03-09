@@ -780,7 +780,7 @@ export default function ReadingPage() {
   // Loading state while Clerk auth resolves
   if (step === null) {
     return (
-      <div className={styles.pageContainer}>
+      <div className={`${styles.pageContainer} ${isLifetime ? styles.pageContainerLifetime : ''}`}>
         <div className={styles.loadingSkeleton}>
           <div className={styles.skeletonSpinner} />
           載入中...
@@ -790,11 +790,14 @@ export default function ReadingPage() {
   }
 
   return (
-    <div className={styles.pageContainer}>
+    <div className={`${styles.pageContainer} ${isLifetime ? styles.pageContainerLifetime : ''}`}>
       {/* Header */}
       <div className={styles.header}>
         <button className={styles.backLink} onClick={handleBack}>
-          ← {step === "result" ? "重新輸入" : "返回"}
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="10 2 4 8 10 14" />
+          </svg>
+          {step === "result" ? "重新輸入" : "返回"}
         </button>
         <div className={styles.headerTitle}>
           <span className={styles.headerIcon}>{meta.icon}</span>

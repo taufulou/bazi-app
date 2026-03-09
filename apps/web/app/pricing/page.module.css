@@ -17,21 +17,33 @@
 }
 
 .backButton {
-  background: none;
-  border: 1px solid var(--border-medium);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   color: var(--text-secondary);
-  font-size: 0.9rem;
-  padding: 0.4rem 0.8rem;
-  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--border-light);
+  border-radius: 18px;
+  padding: 0.4rem 1rem 0.4rem 0.75rem;
+  height: 36px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: background 0.2s, box-shadow 0.2s, color 0.2s;
   margin-bottom: 1.5rem;
 }
 
 .backButton:hover {
-  background: rgba(var(--color-gold-rgb), 0.08);
-  border-color: var(--color-gold);
-  color: var(--text-primary);
+  color: var(--text-accent);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.backButton svg {
+  flex-shrink: 0;
 }
 
 .pageTitle {
