@@ -15,7 +15,7 @@
 }
 
 .backLink {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   color: var(--text-secondary);
@@ -30,7 +30,7 @@
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  transition: background 0.2s, box-shadow 0.2s, color 0.2s;
+  transition: background 0.2s, box-shadow 0.2s, color 0.2s, border-color 0.2s;
 }
 
 .backLink:hover {
@@ -587,7 +587,7 @@
   height: clamp(380px, 50vh, 560px);
   z-index: 0;
   pointer-events: none;
-  background-color: #FFF3E0;
+  background-color: var(--bg-primary);
   background-image: url('/backgrounds/reading-lifetime-bg.webp');
   background-size: cover;
   background-position: center 30%;
@@ -609,9 +609,9 @@
   pointer-events: none;
   background: linear-gradient(
     to bottom,
-    rgba(255, 243, 224, 0.1) 0%,
-    rgba(255, 243, 224, 0.15) 70%,
-    rgba(255, 243, 224, 0.8) 100%
+    rgba(var(--bg-primary-rgb), 0.1) 0%,
+    rgba(var(--bg-primary-rgb), 0.15) 70%,
+    rgba(var(--bg-primary-rgb), 0.8) 100%
   );
 }
 
@@ -627,12 +627,14 @@
 }
 
 .pageContainerLifetime .headerTitle {
-  color: #FFFFFF;
-  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.3);
+  color: #FFFFFF; /* White for readability over background image */
+  text-shadow:
+    0 1px 16px rgba(0, 0, 0, 0.6),
+    0 0 4px rgba(0, 0, 0, 0.3);
 }
 
 .pageContainerLifetime .backLink {
-  color: #FFFFFF;
+  color: #FFFFFF; /* White for readability over background image */
   background: rgba(255, 255, 255, 0.15);
   border-color: rgba(255, 255, 255, 0.3);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
@@ -640,7 +642,7 @@
 }
 
 .pageContainerLifetime .backLink:hover {
-  color: #FFFFFF;
+  color: #FFFFFF; /* White for readability over background image */
   background: rgba(255, 255, 255, 0.25);
   border-color: rgba(255, 255, 255, 0.45);
 }
@@ -650,12 +652,12 @@
 }
 
 .pageContainerLifetime .stepActive {
-  color: #FFFFFF;
+  color: #FFFFFF; /* White for readability over background image */
 }
 
 .pageContainerLifetime .stepActive .stepNumber {
   background: rgba(255, 255, 255, 0.25);
-  color: #FFFFFF;
+  color: #FFFFFF; /* White for readability over background image */
   border-color: rgba(255, 255, 255, 0.6);
 }
 
@@ -673,9 +675,9 @@
     height: clamp(280px, 40vh, 400px);
     background: linear-gradient(
       to bottom,
-      rgba(255, 243, 224, 0.05) 0%,
-      rgba(255, 243, 224, 0.3) 50%,
-      rgba(255, 243, 224, 1) 85%
+      rgba(var(--bg-primary-rgb), 0.05) 0%,
+      rgba(var(--bg-primary-rgb), 0.3) 50%,
+      rgba(var(--bg-primary-rgb), 1) 85%
     );
   }
 }

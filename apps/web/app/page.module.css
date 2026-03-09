@@ -22,7 +22,7 @@
   height: clamp(320px, 35vh, 450px);
   z-index: 0;
   pointer-events: none;
-  background-color: #FFF3E0;
+  background-color: var(--bg-primary);
   background-image: url('/backgrounds/dashboard-hero-bg.webp');
   background-size: cover;
   background-position: center 30%;
@@ -46,8 +46,8 @@
   pointer-events: none;
   background: linear-gradient(
     to bottom,
-    rgba(255, 243, 224, 0.2) 0%,
-    rgba(255, 243, 224, 0.15) 60%,
+    rgba(var(--bg-primary-rgb), 0.2) 0%,
+    rgba(var(--bg-primary-rgb), 0.15) 60%,
     transparent 100%
   );
 }
@@ -110,7 +110,7 @@
   font-family: var(--font-noto-serif-tc), serif;
   font-weight: 700;
   margin: 0;
-  text-shadow: 0 1px 8px rgba(255, 243, 224, 0.9);
+  text-shadow: 0 1px 8px rgba(var(--bg-primary-rgb), 0.9); /* Warm cream glow for text over background image */
 }
 
 /* ---- Quick Links (horizontal pills) ---- */
@@ -125,7 +125,7 @@
   gap: 0.4rem;
   padding: 0.6rem 1rem;
   min-height: 44px; /* WCAG 2.5.5 touch target */
-  background: rgba(255, 255, 255, 0.55);
+  background: rgba(255, 255, 255, 0.55); /* Semi-transparent white — intentional for frosted glass over background image */
   border: 1px solid var(--border-light);
   border-radius: 20px;
   text-decoration: none;
@@ -255,6 +255,7 @@
   }
 
   .page::before {
+    height: clamp(240px, 30vh, 350px);
     background-size: 100% auto;
     background-position: center top;
     -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 85%);
@@ -262,11 +263,12 @@
   }
 
   .page::after {
+    height: clamp(240px, 30vh, 350px);
     background: linear-gradient(
       to bottom,
-      rgba(255, 243, 224, 0.2) 0%,
-      rgba(255, 243, 224, 0.15) 50%,
-      rgba(255, 243, 224, 1) 85%
+      rgba(var(--bg-primary-rgb), 0.2) 0%,
+      rgba(var(--bg-primary-rgb), 0.15) 50%,
+      rgba(var(--bg-primary-rgb), 1) 85%
     );
   }
 
