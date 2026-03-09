@@ -196,6 +196,17 @@ export interface NestJSReadingResponse {
   streamReady?: boolean;
   /** Deterministic data returned immediately for streaming requests */
   deterministic?: LifetimeV2DeterministicData;
+  /** Birth profile data — present when fetching a saved reading (via Prisma include) */
+  birthProfile?: {
+    name: string;
+    birthDate: string;
+    birthTime: string;
+    gender: string;
+    birthCity: string;
+    birthTimezone: string;
+    isLunarDate: boolean;
+    isLeapMonth: boolean;
+  };
 }
 
 interface ReadingSectionData {

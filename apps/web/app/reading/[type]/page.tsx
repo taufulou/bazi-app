@@ -137,6 +137,7 @@ export default function ReadingPage() {
   const [zwdsChartData, setZwdsChartData] = useState<ZwdsChartData | null>(null);
   const [aiData, setAiData] = useState<AIReadingData | null>(null);
   const [formValues, setFormValues] = useState<BirthDataFormValues | null>(null);
+  const [loadedFromHistory, setLoadedFromHistory] = useState(false);
 
   // Phase 10: New state for NestJS integration
   const [lastProfileId, setLastProfileId] = useState<string | null>(null);
@@ -302,6 +303,21 @@ export default function ReadingPage() {
         setChartData(reading.calculationData);
       }
 
+      // Populate formValues from birth profile so BaziChart/ZwdsChart header shows name + 公曆
+      const bp = reading.birthProfile;
+      if (bp) {
+        setFormValues({
+          name: bp.name,
+          birthDate: bp.birthDate.substring(0, 10),
+          birthTime: bp.birthTime,
+          gender: bp.gender.toLowerCase() as 'male' | 'female',
+          birthCity: bp.birthCity,
+          birthTimezone: bp.birthTimezone,
+          isLunarDate: bp.isLunarDate,
+          isLeapMonth: bp.isLeapMonth,
+        });
+      }
+
       // Transform and set AI data
       const aiReading = transformAIResponse(reading.aiInterpretation);
       setAiData(aiReading);
@@ -311,6 +327,7 @@ export default function ReadingPage() {
       setIsPaidReading(true);
 
       setCurrentReadingId(reading.id);
+      setLoadedFromHistory(true);
       setStep("result");
       setTab("chart");
       if (isLifetime) {
@@ -731,11 +748,21 @@ export default function ReadingPage() {
         streamCleanupRef.current = null;
       }
 
+      if (loadedFromHistory) {
+        // Came from history — navigate back to history page.
+        // No need to reset component state since Next.js App Router will
+        // remount the component when navigating away.
+        router.push("/dashboard/readings");
+        return;
+      }
+
+      // Normal flow: go back to input form
       setStep("input");
       setTab("chart");
       setChartData(null);
       setZwdsChartData(null);
       setAiData(null);
+      setFormValues(null);
       setCurrentReadingId(null);
       setLastProfileId(null);
       setShowSubscribeCTA(false);
@@ -744,6 +771,7 @@ export default function ReadingPage() {
       setIsPaidReading(false);
       setIsAiLoading(false);
       setCacheToast(false);
+      setLoadedFromHistory(false);
     } else {
       router.push("/");
     }
@@ -797,7 +825,7 @@ export default function ReadingPage() {
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="10 2 4 8 10 14" />
           </svg>
-          {step === "result" ? "重新輸入" : "返回"}
+          {step === "result" ? (loadedFromHistory ? "返回記錄" : "重新輸入") : "返回"}
         </button>
         <div className={styles.headerTitle}>
           <span className={styles.headerIcon}>{meta.icon}</span>
@@ -805,20 +833,22 @@ export default function ReadingPage() {
         </div>
       </div>
 
-      {/* Step Indicator */}
-      <div className={styles.stepIndicator}>
-        <div className={step === "input" ? styles.stepActive : styles.stepCompleted}>
-          <span className={styles.stepNumber}>
-            {step === "input" ? "1" : "✓"}
-          </span>
-          輸入資料
+      {/* Step Indicator — hide when viewing from history (no form step was completed) */}
+      {!loadedFromHistory && (
+        <div className={styles.stepIndicator}>
+          <div className={step === "input" ? styles.stepActive : styles.stepCompleted}>
+            <span className={styles.stepNumber}>
+              {step === "input" ? "1" : "✓"}
+            </span>
+            輸入資料
+          </div>
+          <div className={step === "result" ? styles.stepLineActive : styles.stepLine} />
+          <div className={step === "result" ? styles.stepActive : styles.step}>
+            <span className={styles.stepNumber}>2</span>
+            查看結果
+          </div>
         </div>
-        <div className={step === "result" ? styles.stepLineActive : styles.stepLine} />
-        <div className={step === "result" ? styles.stepActive : styles.step}>
-          <span className={styles.stepNumber}>2</span>
-          查看結果
-        </div>
-      </div>
+      )}
 
       {/* Progress bar (lifetime reveal) */}
       {isLifetime && step === "result" && (isRevealing || isAiLoading) && (

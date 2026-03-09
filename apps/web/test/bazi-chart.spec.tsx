@@ -171,11 +171,6 @@ describe('BaziChart', () => {
       expect(screen.getByText(/4月21日/)).toBeInTheDocument();
     });
 
-    it('should display true solar time with adjustment', () => {
-      render(<BaziChart data={SAMPLE_CHART_DATA} />);
-      expect(screen.getByText(/真太陽時：14:24/)).toBeInTheDocument();
-      expect(screen.getByText(/校正/)).toBeInTheDocument();
-    });
   });
 
   describe('Four Pillars Table', () => {

@@ -182,13 +182,6 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
             農曆：{lunarDate.year}年{lunarDate.isLeapMonth ? "閏" : ""}
             {lunarDate.month}月{lunarDate.day}日
           </div>
-          {trueSolarTime && (
-            <div className={styles.solarTimeNote}>
-              真太陽時：{trueSolarTime.true_solar_time}
-              {trueSolarTime.total_adjustment !== undefined &&
-                `（校正 ${trueSolarTime.total_adjustment > 0 ? "+" : ""}${Math.round(trueSolarTime.total_adjustment)}分鐘）`}
-            </div>
-          )}
         </div>
       )}
 
