@@ -24,15 +24,20 @@ The relationship is determined by:
 from typing import Dict, List, Optional
 
 from .constants import (
+    BRANCH_ELEMENT,
     ELEMENT_OVERCOMES,
     ELEMENT_PRODUCES,
     ELEMENT_OVERCOME_BY,
     ELEMENT_PRODUCED_BY,
     HIDDEN_STEMS,
+    HIDDEN_STEM_WEIGHTS,
+    SEASON_MULTIPLIER,
+    SEASON_STRENGTH,
     STEM_ELEMENT,
     STEM_YINYANG,
-    TEN_GODS_SAME_POLARITY,
     TEN_GODS_DIFF_POLARITY,
+    TEN_GODS_LIST,
+    TEN_GODS_SAME_POLARITY,
 )
 
 
@@ -217,3 +222,149 @@ def get_prominent_ten_god(pillars: Dict, day_master_stem: str) -> str:
 
     # Ultimate fallback
     return '比肩'
+
+
+# ============================================================
+# Weighted Ten Gods for Career Pre-Analysis
+# ============================================================
+
+# Ten God → Capability mapping (classically grounded categorical associations)
+TEN_GOD_CAPABILITIES: Dict[str, List[str]] = {
+    '比肩': ['獨立能力', '動手能力', '合夥協作能力'],
+    '劫財': ['談判能力', '競爭力', '行動力'],
+    '食神': ['審美能力', '文學天賦', '藝術審美能力'],
+    '傷官': ['口才表達力', '創新能力', '精湛技能'],
+    '正財': ['理財能力', '實幹能力', '系統規劃力'],
+    '偏財': ['投資眼光', '交際能力', '商業敏銳度'],
+    '正官': ['領導能力', '組織協調力', '管理能力'],
+    '偏官': ['危機處理能力', '開拓能力', '抗壓力'],
+    '正印': ['學習能力', '知識傳授力', '服務能力'],
+    '偏印': ['謀略能力', '精算能力', '另類思維力'],
+}
+
+# Also known as 七殺 — alias for display
+TEN_GOD_ALIASES: Dict[str, str] = {
+    '偏官': '七殺',
+}
+
+# Level thresholds for ten god strength
+TEN_GOD_LEVEL_THRESHOLDS = [
+    (3.0, '很弱'),
+    (8.0, '弱'),
+    (15.0, '一般'),
+    (25.0, '強'),
+    (100.0, '很強'),
+]
+
+
+def _get_ten_god_level(percentage: float) -> str:
+    """Get ten god strength level label from percentage."""
+    for threshold, label in TEN_GOD_LEVEL_THRESHOLDS:
+        if percentage < threshold:
+            return label
+    return '很強'
+
+
+def calculate_weighted_ten_gods(
+    day_master_stem: str,
+    pillars: Dict,
+    month_branch: str,
+    branch_interactions: Optional[Dict] = None,
+) -> Dict[str, Dict]:
+    """
+    Calculate weighted Ten Gods (十神比重) for career pre-analysis.
+
+    Uses 4 pillars only (conservative/traditional approach).
+    Day master stem is excluded from counting.
+
+    Algorithm:
+    1. For each manifest stem (except day master): derive ten god,
+       add 1.0 × seasonal multiplier for that stem's element
+    2. For each branch hidden stem: derive ten god,
+       add hidden_stem_weight × seasonal multiplier
+    3. Optionally adjust for branch interactions (六沖 reduces, etc.)
+    4. Normalize to percentages
+
+    Args:
+        day_master_stem: The Day Master's Heavenly Stem
+        pillars: The four pillars dictionary
+        month_branch: Birth month's Earthly Branch
+        branch_interactions: Optional branch relationship data for adjustments
+
+    Returns:
+        Dictionary with ten_god → { percentage, level, capabilities } per ten god
+    """
+    ten_god_scores: Dict[str, float] = {tg: 0.0 for tg in TEN_GODS_LIST}
+
+    def _get_seasonal_multiplier(stem: str) -> float:
+        """Get the seasonal multiplier for a stem's element."""
+        element = STEM_ELEMENT[stem]
+        season_score = SEASON_STRENGTH.get(element, {}).get(month_branch, 3)
+        return SEASON_MULTIPLIER.get(season_score, 1.0)
+
+    # Step 1 & 2: Accumulate from four pillars
+    for pillar_name in ['year', 'month', 'day', 'hour']:
+        pillar = pillars[pillar_name]
+
+        # Manifest stem (skip day master)
+        if pillar_name != 'day':
+            ten_god = derive_ten_god(day_master_stem, pillar['stem'])
+            multiplier = _get_seasonal_multiplier(pillar['stem'])
+            ten_god_scores[ten_god] += 1.0 * multiplier
+
+        # Hidden stems
+        hidden = HIDDEN_STEMS.get(pillar['branch'], [])
+        weights = HIDDEN_STEM_WEIGHTS.get(pillar['branch'], [])
+        for i, hs in enumerate(hidden):
+            ten_god = derive_ten_god(day_master_stem, hs)
+            weight = weights[i] if i < len(weights) else 0.1
+            multiplier = _get_seasonal_multiplier(hs)
+            ten_god_scores[ten_god] += weight * multiplier
+
+    # Step 3: Optional branch interaction adjustments
+    if branch_interactions:
+        # 六沖: clashed branches lose ~50% effective weight
+        for clash in branch_interactions.get('clashes', []):
+            branches = clash.get('branches', ())
+            for branch in branches:
+                # Reduce the hidden stems' ten god scores for clashed branches
+                hidden = HIDDEN_STEMS.get(branch, [])
+                for hs in hidden:
+                    ten_god = derive_ten_god(day_master_stem, hs)
+                    ten_god_scores[ten_god] -= 0.15
+                    if ten_god_scores[ten_god] < 0:
+                        ten_god_scores[ten_god] = 0.0
+
+        # 三合/三會: combined element gains bonus
+        for triple in branch_interactions.get('tripleHarmonies', []):
+            result_element = triple.get('resultElement')
+            if result_element:
+                # Find which ten gods correspond to this element
+                # by checking against day master
+                for stem in ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']:
+                    if STEM_ELEMENT[stem] == result_element:
+                        ten_god = derive_ten_god(day_master_stem, stem)
+                        ten_god_scores[ten_god] += 0.1
+                        break
+
+    # Step 4: Normalize to percentages
+    total = sum(ten_god_scores.values())
+    if total == 0:
+        percentages = {tg: 10.0 for tg in TEN_GODS_LIST}
+    else:
+        percentages = {
+            tg: round(ten_god_scores[tg] / total * 100, 1)
+            for tg in TEN_GODS_LIST
+        }
+
+    # Build result
+    result = {}
+    for ten_god in TEN_GODS_LIST:
+        pct = percentages[ten_god]
+        result[ten_god] = {
+            'percentage': pct,
+            'level': _get_ten_god_level(pct),
+            'capabilities': TEN_GOD_CAPABILITIES.get(ten_god, []),
+        }
+
+    return result

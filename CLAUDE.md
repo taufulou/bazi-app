@@ -257,6 +257,51 @@ Clerk cannot be mocked at the API level in Playwright because the SDK validates 
 - `docs/phase-12-specs.md` — 三合/三會 scoring, 從格+三合 detection, 生化鏈 analysis
 - `docs/future-enhancements.md` — Phase 13 deep pre-analysis for AI consistency
 - `docs/phase-details.md` — Phase 5/10 implementation details, frontend UI components, ZWDS engine
+- `docs/career-reading-research.md` — **事業詳批 research findings, calculation strategy & decisions** (weight systems, 格局-conditional scoring, 大運+流年 matrix, 財庫逢沖開庫, career shensha, classical source validation). Implementation plan: `.claude/plans/radiant-petting-frost.md`
+
+## 事業詳批 Calculation Strategy — Differences from 八字終身運
+
+The career reading (事業詳批) introduced several calculation refinements that differ from the original 八字終身運 (lifetime reading). These are documented here so future sessions can evaluate whether to backport them to 八字終身運.
+
+### Shared Constants (affect BOTH readings)
+
+These constants in `constants.py` are shared across all reading types. Changes here affect 八字終身運 too:
+
+| Constant | Old Value | New Value (R5) | Rationale |
+|----------|-----------|----------------|-----------|
+| `HIDDEN_STEM_WEIGHTS` (藏干比重) | 60/20/20 (本氣/中氣/餘氣) for 3-stem branches | **60/30/10** | Mainstream 子平 standard (邵偉華, 易子力量計分法). Old 60/20/20 incorrectly equalized 中氣 and 餘氣. |
+| `SEASON_MULTIPLIER` (旺相休囚死) | 旺=1.8, 相=1.4, 休=1.0, 囚=0.7, 死=0.5 (ratio 3.6×) | **旺=1.5, 相=1.3, 休=1.0, 囚=0.8, 死=0.6 (ratio 2.5×)** | Old 3.6× spread over-distorted ten god distribution (e.g., 食神 inflated to 50.1% vs expected ~38%). Calibrated against Seer app and 易子力量計分法. |
+| Fallback weight (`else 0.2`) | 0.2 in 5 locations | **0.1** | Defensive alignment with 餘氣=0.1 standard. Locations: `five_elements.py` (3×), `ten_gods.py` (1×), `interpretation_rules.py` (1×). |
+
+**Impact on 八字終身運**: Roger's DM strength dropped from 40.6 (中和) → 39.0 (偏弱) after R5. This is because 戊(DM) as 餘氣 in 申 branches lost weight (0.2→0.1). The classification change cascades into personality anchors and finance pattern archetypes. All affected tests were updated.
+
+### Career-Specific Calculations (NOT in 八字終身運)
+
+| Feature | Career (事業詳批) | Lifetime (八字終身運) | Consider Backporting? |
+|---------|------------------|---------------------|----------------------|
+| **Weighted Five Elements (五行比重)** | `calculate_weighted_five_elements()` — 4 pillars + extra pillars at 0.5× + seasonal multiplier + 地支合沖 adjustment. Displayed as bar chart with seasonal subtitle. | `calculate_five_elements_balance_seasonal()` — 4 pillars only with seasonal multiplier. Displayed as ring chart. | Maybe — the extra pillar inclusion and 地支合沖 adjustment could improve lifetime's ring chart accuracy |
+| **Weighted Ten Gods (十神比重)** | `calculate_weighted_ten_gods()` — **4 pillars only** (no extra pillars, conservative/traditional) + seasonal multiplier + 地支合沖 adjustment. | Not computed — lifetime uses raw `get_ten_god_distribution()` count only. | Maybe — could add as a new deterministic section |
+| **Career Scoring Functions** | Use **raw ten god count** (presence + position) for classical analysis — NOT weighted percentages. Seasonal influence enters indirectly through 用神/忌神 system and sub-score seasonal lookups. | Similar approach via narrative anchors — presence-based, not percentage-based. | N/A — same philosophy |
+| **Monthly Forecasts** | **Independent assessment** per month (R4-5). Each month's auspiciousness is self-contained based on its ten god + branch interactions (伏吟/六合/六沖). Annual context shown as reference only. | N/A — lifetime doesn't have monthly forecasts. | N/A |
+| **Annual Forecasts** | **大運+流年 combined matrix** with nuanced labels (大吉/吉/吉中有凶/平/小凶/凶中有吉/凶中帶機/凶/大凶). Uses element role (用神 vs 喜神) for finer grading within 凶中有吉. | Lifetime has annual stars but simpler auspiciousness. | Yes — the nuanced matrix and 大運+流年 combined analysis could improve lifetime's timing section |
+| **身宮 (Body Palace)** | Added `calculate_shen_gong()` — shown alongside 命宮/胎元/胎息 in BaziChart. | Not shown (though function exists). | Yes — easy to add to lifetime chart display |
+
+### Key Architecture Decisions
+
+1. **Display (weighted %) vs Analysis (raw count)**: The percentage bar charts (五行比重, 十神比重) are **deterministic display only** — the AI never writes these sections. The AI career analysis functions use raw ten god presence/position, which is the correct classical methodology. This separation is intentional.
+
+2. **Seasonal multiplier scope**: Applied to display charts and 用神/忌神 determination. NOT applied to career scoring functions like positions/entrepreneurship/partnership which use raw counts. This mirrors how traditional masters assess charts — they check "is 七殺 present?" not "what's 七殺's weighted percentage?"
+
+3. **Ten god weights: 4 pillars only**: After competitor analysis (Seer), we confirmed mainstream practice uses 4 pillars only for ten god weights (no 胎元/命宮/身宮). Five element weights DO include extra pillars at 0.5× because element balance assessment traditionally considers the broader chart.
+
+4. **Seer comparison gap**: Our 食神 lands at ~43.8% vs Seer's 38.15% for Roger's chart. The ~5.6pp gap exists because Seer appears to drop 餘氣 entirely (70/30 model for 3-stem branches), while we use the mainstream 60/30/10. Our approach is more defensible but won't exactly match Seer.
+
+### Files Reference
+- Shared constants: `packages/bazi-engine/app/constants.py` (HIDDEN_STEM_WEIGHTS, SEASON_MULTIPLIER)
+- Career pre-analysis: `packages/bazi-engine/app/career_enhanced.py`
+- Career weighted elements: `packages/bazi-engine/app/five_elements.py` → `calculate_weighted_five_elements()`
+- Career weighted ten gods: `packages/bazi-engine/app/ten_gods.py` → `calculate_weighted_ten_gods()`
+- Full implementation plan: `.claude/plans/radiant-petting-frost.md` (R5 section at ~line 3942)
 
 ---
 

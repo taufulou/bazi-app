@@ -153,15 +153,15 @@ export const READING_TYPE_META: Record<ReadingType, {
     },
   },
   career: {
-    nameZhTw: '事業財運',
-    nameZhCn: '事业财运',
-    nameEn: 'Career & Finance',
+    nameZhTw: '事業詳批',
+    nameZhCn: '事业详批',
+    nameEn: 'Career Detailed Reading',
     icon: '💼',
     themeColor: '#2196F3',
-    creditCost: 2,
+    creditCost: 3,
     description: {
-      'zh-TW': '分析事業發展方向與財運走勢，找到最佳機遇',
-      'zh-CN': '分析事业发展方向与财运走势，找到最佳机遇',
+      'zh-TW': '詳細批算你的事業運，幫你找到最佳職業方向、財富格局和發展時機',
+      'zh-CN': '详细批算你的事业运，帮你找到最佳职业方向、财富格局和发展时机',
     },
   },
   love: {

@@ -104,20 +104,26 @@ HIDDEN_STEMS: Dict[str, List[str]] = {
     '亥': ['壬', '甲'],
 }
 
-# Hidden stem weights (本氣/中氣/餘氣 — Main/Secondary/Residual)
-# Weights used for Five Elements balance calculation
+# Hidden Stem Weights (藏干力量比重)
+# Standard ratios from mainstream 子平 practice:
+#   - Single hidden stem (子/卯/酉): 100% to 本氣
+#   - Two hidden stems (午/亥): 70% 本氣, 30% 中氣
+#   - Three hidden stems: 60% 本氣, 30% 中氣, 10% 餘氣
+# Reference: 60/30/10 is the most widely cited system across
+# 邵偉華, 易子力量計分法, and major Chinese Bazi software.
+# Previous ratio (60/20/20) incorrectly equalized 中氣 and 餘氣.
 HIDDEN_STEM_WEIGHTS: Dict[str, List[float]] = {
     '子': [1.0],
-    '丑': [0.6, 0.2, 0.2],
-    '寅': [0.6, 0.2, 0.2],
+    '丑': [0.6, 0.3, 0.1],
+    '寅': [0.6, 0.3, 0.1],
     '卯': [1.0],
-    '辰': [0.6, 0.2, 0.2],
-    '巳': [0.6, 0.2, 0.2],
+    '辰': [0.6, 0.3, 0.1],
+    '巳': [0.6, 0.3, 0.1],
     '午': [0.7, 0.3],
-    '未': [0.6, 0.2, 0.2],
-    '申': [0.6, 0.2, 0.2],
+    '未': [0.6, 0.3, 0.1],
+    '申': [0.6, 0.3, 0.1],
     '酉': [1.0],
-    '戌': [0.6, 0.2, 0.2],
+    '戌': [0.6, 0.3, 0.1],
     '亥': [0.7, 0.3],
 }
 
@@ -959,15 +965,17 @@ SEASON_STATE_LABELS: Dict[int, str] = {5: '旺', 4: '相', 3: '休', 2: '囚', 1
 # Seasonal multiplier for Five Elements Balance display (旺相休囚死)
 # Applied to element raw scores based on birth month branch for UI display.
 # Based on classical 《子平真詮 卷二 論旺相休囚死》 — engineering approximation.
-# 旺/死 ratio = 3.6x (calibrated against 易安居, 水墨先生, 神巴巴 reference sites).
-# Multiplicative approach chosen: preserves manifest stem > hidden stem weighting
-# (天干 represent active energy, receive proportionally larger seasonal boost).
+# 旺/死 ratio = 2.5x (calibrated against Seer app, 易子力量計分法 published ratios).
+# Previous ratio 3.6x (1.8/0.5) over-distorted ten god distribution:
+#   - 金旺 in 申月 inflated 食神 to 50.1% (expected ~38%)
+#   - Proportionally crushed all other ten gods' relative shares
+# New ratio 2.5x (1.5/0.6) produces distribution closer to industry standard.
 SEASON_MULTIPLIER: Dict[int, float] = {
-    5: 1.8,   # 旺 — element is in season (peak)
-    4: 1.4,   # 相 — element is produced by season
+    5: 1.5,   # 旺 — element is in season (peak)
+    4: 1.3,   # 相 — element is produced by season
     3: 1.0,   # 休 — element produces the season (baseline)
-    2: 0.7,   # 囚 — element overcomes the season (suppressed)
-    1: 0.5,   # 死 — element is overcome by the season (weakest)
+    2: 0.8,   # 囚 — element overcomes the season (suppressed)
+    1: 0.6,   # 死 — element is overcome by the season (weakest)
 }
 
 # ============================================================

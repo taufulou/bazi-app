@@ -265,6 +265,51 @@ def calculate_ming_gong(month_branch: str, hour_branch: str, year_stem: str) -> 
     return {'stem': stem, 'branch': branch, 'naYin': get_nayin(stem, branch)}
 
 
+def calculate_shen_gong(month_branch: str, hour_branch: str, year_stem: str) -> Dict[str, str]:
+    """
+    Calculate 身宮 (Shen Gong / Body Palace).
+
+    身宮 represents acquired fortune and career development (後天運),
+    particularly influential after ~age 35. Its relationship to the
+    Day Master provides secondary career/destiny indicators.
+
+    Formula: 身宮 branch = 六合 partner of 命宮 branch.
+    Mathematically equivalent to: (month_branch_idx + hour_branch_idx - 4) % 12
+
+    Stem: derived via 五虎遁 from year stem (same logic as 命宮/month stem).
+
+    Classical basis: 命宮 and 身宮 are complementary — 命宮 represents
+    innate destiny (先天), while 身宮 represents acquired fortune (後天).
+    They are linked through 六合 (Earthly Branch Harmony).
+
+    Args:
+        month_branch: Month pillar's Earthly Branch
+        hour_branch: Hour pillar's Earthly Branch
+        year_stem: Year pillar's Heavenly Stem
+
+    Returns:
+        Dictionary with stem, branch, naYin
+    """
+    # Step 1: Calculate 命宮 branch (same formula as calculate_ming_gong)
+    m_idx = BRANCH_INDEX[month_branch]
+    h_idx = BRANCH_INDEX[hour_branch]
+    mg_branch_idx = (5 - m_idx - h_idx) % 12
+    mg_branch = EARTHLY_BRANCHES[mg_branch_idx]
+
+    # Step 2: 身宮 branch = 六合 partner of 命宮 branch
+    branch = BRANCH_LIUHE[mg_branch]
+
+    # Step 3: Derive stem via 五虎遁 (same logic as month/命宮 stem derivation)
+    year_stem_idx = STEM_INDEX[year_stem]
+    month_stem_start = YEAR_STEM_TO_MONTH_STEM_START[year_stem_idx]
+    # Find position of 身宮 branch in the month cycle (寅=0, 卯=1, ...)
+    sg_branch_in_cycle = MONTH_BRANCHES.index(branch) if branch in MONTH_BRANCHES else 0
+    stem_idx = (month_stem_start + sg_branch_in_cycle) % 10
+    stem = HEAVENLY_STEMS[stem_idx]
+
+    return {'stem': stem, 'branch': branch, 'naYin': get_nayin(stem, branch)}
+
+
 def calculate_tai_xi(day_stem: str, day_branch: str) -> Dict[str, str]:
     """
     Calculate 胎息 (Tai Xi / Embryonic Breath).

@@ -144,6 +144,10 @@ li.goldBulletItem {
   line-height: 1.8;
 }
 
+li.goldBulletItemCategory {
+  margin-left: 1rem;
+}
+
 .goldBulletItem::before {
   content: '';
   position: absolute;
@@ -153,6 +157,26 @@ li.goldBulletItem {
   height: 5px;
   border-radius: 50%;
   background: var(--color-gold, #D4A017);
+}
+
+/* Category:Items pattern (e.g., "傳媒與娛樂：傳媒業、廣告、演藝") */
+.bulletCategory {
+  display: inline-block;
+  font-weight: 700;
+  color: var(--color-gold, #B8860B);
+  font-family: var(--font-noto-serif-tc), serif;
+  margin-right: 0.15rem;
+}
+
+.bulletCategory::after {
+  content: '：';
+  color: var(--text-muted, #8B7355);
+  font-weight: 400;
+}
+
+.bulletCategoryItems {
+  display: inline;
+  color: var(--text-secondary, #6B5940);
 }
 
 /* ==== Paywall Overlay ==== */
@@ -1038,6 +1062,144 @@ li.goldBulletItem {
   font-size: 0.85rem;
   color: var(--text-secondary);
   font-weight: 500;
+}
+
+.starIndicator {
+  margin-left: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* ==== Career Sub-Header (Verdict & Summary badges redesigned as section sub-headers) ==== */
+/* ==== Career Verdict Banner (go/no-go — prominent card) ==== */
+.verdictBanner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.7rem 1rem;
+  margin: 0.25rem 0 1rem 0;
+  border-radius: 12px;
+  font-family: var(--font-noto-serif-tc, serif);
+}
+
+.verdictBannerPositive {
+  background: linear-gradient(135deg, #f0faf0 0%, #e8f5e8 100%);
+  border: 1px solid rgba(46, 125, 50, 0.2);
+}
+.verdictBannerNegative {
+  background: linear-gradient(135deg, #fef5f3 0%, #fdecec 100%);
+  border: 1px solid rgba(211, 47, 47, 0.18);
+}
+.verdictBannerNeutral {
+  background: linear-gradient(135deg, #fdf8ee 0%, #faf3e0 100%);
+  border: 1px solid rgba(184, 134, 11, 0.18);
+}
+
+.verdictBannerLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.verdictBannerIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.verdictBannerPositive .verdictBannerIcon {
+  background: #2E7D32;
+  color: #fff;
+}
+.verdictBannerNegative .verdictBannerIcon {
+  background: #D32F2F;
+  color: #fff;
+}
+.verdictBannerNeutral .verdictBannerIcon {
+  background: var(--color-gold, #D4A017);
+  color: #fff;
+}
+
+.verdictBannerLabel {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.verdictBannerPositive .verdictBannerLabel { color: #2E7D32; }
+.verdictBannerNegative .verdictBannerLabel { color: #C62828; }
+.verdictBannerNeutral .verdictBannerLabel { color: #B8860B; }
+
+.verdictBannerRight {
+  margin-left: auto;
+}
+
+.verdictBannerScore {
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-family: var(--font-noto-serif-tc, serif);
+}
+.verdictBannerPositive .verdictBannerScore { color: #2E7D32; }
+.verdictBannerNegative .verdictBannerScore { color: #C62828; }
+.verdictBannerNeutral .verdictBannerScore { color: #B8860B; }
+.verdictBannerScore small {
+  font-size: 0.7rem;
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+.verdictBannerMeta {
+  width: 100%;
+  font-size: 0.82rem;
+  color: var(--text-muted, #8B7355);
+  margin-top: 0.15rem;
+  padding-left: 2.1rem;
+}
+
+/* ==== Career Info Strip (compact data row for pattern/positions/industry sections) ==== */
+.infoStrip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0;
+  margin: 0 0 0.6rem 0;
+}
+
+.infoStripTag {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  background: rgba(60, 36, 21, 0.06);
+  color: var(--text-primary, #3C2415);
+  white-space: nowrap;
+  font-family: var(--font-noto-serif-tc, serif);
+}
+.infoStrip[data-tone="positive"] .infoStripTag {
+  background: rgba(46, 125, 50, 0.08);
+  color: #2E7D32;
+}
+.infoStrip[data-tone="negative"] .infoStripTag {
+  background: rgba(211, 47, 47, 0.08);
+  color: #C62828;
+}
+
+.infoStripValue {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--color-gold, #D4A017);
+  font-family: var(--font-noto-serif-tc, serif);
+}
+
+.infoStripDetail {
+  font-size: 0.82rem;
+  color: var(--text-muted, #8B7355);
 }
 
 /* ==== Character Card (Guide Style) ==== */

@@ -569,4 +569,86 @@
   .pillarsSection {
     padding: 0;
   }
+
+  .extraPalaces {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .palaceItem {
+    padding: 0.35rem 0.5rem;
+  }
+}
+
+/* ==== Extra Palaces (命宮/身宮/胎元/胎息) ==== */
+
+.extraPalaces {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid rgba(212, 160, 23, 0.1);
+}
+
+.palaceItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.4rem 0.5rem;
+  background: rgba(212, 160, 23, 0.04);
+  border-radius: var(--radius-sm);
+}
+
+.palaceLabel {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.palaceStem {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.palaceBranch {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.palaceNayin {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+
+/* ==== Seasonal States (旺相休囚死) ==== */
+
+.seasonalStates {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  border-top: 1px solid rgba(212, 160, 23, 0.1);
+}
+
+.seasonalLabel {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.seasonalItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.seasonalState {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  font-weight: 400;
 }

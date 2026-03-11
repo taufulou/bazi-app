@@ -483,22 +483,31 @@ def calculate_monthly_stars(
     year_stem_idx = (year - 4) % 10
     month_stem_start = YEAR_STEM_TO_MONTH_STEM_START[year_stem_idx]
 
-    # Approximate solar term dates for each month
+    # Approximate solar term dates and names for each month
     # These are the "節" (jie) solar terms that start each Bazi month
+    # Each entry: (month, day, solarTermName)
     solar_term_approx = [
-        (2, 4),    # 立春 → Month 1 (寅) ~Feb 4
-        (3, 6),    # 驚蟄 → Month 2 (卯) ~Mar 6
-        (4, 5),    # 清明 → Month 3 (辰) ~Apr 5
-        (5, 6),    # 立夏 → Month 4 (巳) ~May 6
-        (6, 6),    # 芒種 → Month 5 (午) ~Jun 6
-        (7, 7),    # 小暑 → Month 6 (未) ~Jul 7
-        (8, 7),    # 立秋 → Month 7 (申) ~Aug 7
-        (9, 8),    # 白露 → Month 8 (酉) ~Sep 8
-        (10, 8),   # 寒露 → Month 9 (戌) ~Oct 8
-        (11, 7),   # 立冬 → Month 10 (亥) ~Nov 7
-        (12, 7),   # 大雪 → Month 11 (子) ~Dec 7
-        (1, 6),    # 小寒 → Month 12 (丑) ~Jan 6 (of NEXT year)
+        (2, 4, '立春'),     # Month 1 (寅) ~Feb 4
+        (3, 6, '驚蟄'),     # Month 2 (卯) ~Mar 6
+        (4, 5, '清明'),     # Month 3 (辰) ~Apr 5
+        (5, 6, '立夏'),     # Month 4 (巳) ~May 6
+        (6, 6, '芒種'),     # Month 5 (午) ~Jun 6
+        (7, 7, '小暑'),     # Month 6 (未) ~Jul 7
+        (8, 7, '立秋'),     # Month 7 (申) ~Aug 7
+        (9, 8, '白露'),     # Month 8 (酉) ~Sep 8
+        (10, 8, '寒露'),    # Month 9 (戌) ~Oct 8
+        (11, 7, '立冬'),    # Month 10 (亥) ~Nov 7
+        (12, 7, '大雪'),    # Month 11 (子) ~Dec 7
+        (1, 6, '小寒'),     # Month 12 (丑) ~Jan 6 (of NEXT year)
     ]
+
+    # Seasonal element energy labels per month
+    season_element_labels = {
+        '寅': '木旺', '卯': '木旺', '辰': '土旺',
+        '巳': '火旺', '午': '火旺', '未': '土旺',
+        '申': '金旺', '酉': '金旺', '戌': '土旺',
+        '亥': '水旺', '子': '水旺', '丑': '土旺',
+    }
 
     months: List[Dict] = []
     for i in range(12):
@@ -508,17 +517,28 @@ def calculate_monthly_stars(
 
         ten_god = derive_ten_god(day_master_stem, month_stem)
 
-        solar_month, solar_day = solar_term_approx[i]
+        solar_month, solar_day, solar_term_name = solar_term_approx[i]
         # Handle month 12 (丑) which starts in January of the NEXT year
         term_year = year + 1 if i == 11 else year
         solar_term_date = f"{term_year}-{solar_month:02d}-{solar_day:02d}"
 
+        # Compute end date (= start of next month - 1 day approx)
+        next_idx = (i + 1) % 12
+        next_month, next_day, _ = solar_term_approx[next_idx]
+        next_year = year + 1 if next_idx == 11 else year
+        if next_idx == 0:
+            next_year = year + 1  # Month 12→1 crosses into next year
+        solar_term_end_date = f"{next_year}-{next_month:02d}-{next_day:02d}"
+
         months.append({
             'month': i + 1,
+            'solarTermName': solar_term_name,
             'solarTermDate': solar_term_date,
+            'solarTermEndDate': solar_term_end_date,
             'stem': month_stem,
             'branch': month_branch,
             'tenGod': ten_god,
+            'seasonElement': season_element_labels.get(month_branch, ''),
         })
 
     return months

@@ -245,14 +245,14 @@ class TestSeasonalMultiplier:
         )
 
     def test_earth_month_branch_boost(self):
-        """Earth months (辰/未/戌/丑): 土 should get 旺(1.8x) boost."""
+        """Earth months (辰/未/戌/丑): 土 should get 旺(1.5x) boost."""
         # 丑月 (January birth)
         pillars_chou = self._get_pillars(self.LAOPO)
         assert pillars_chou['month']['branch'] == '丑'
         seasonal_chou = calculate_five_elements_balance_seasonal(pillars_chou)
         raw_chou = calculate_five_elements_balance(pillars_chou)
         # 土 should have a higher relative share in seasonal vs raw
-        # due to 旺(1.8x) boost in earth months
+        # due to 旺(1.5x) boost in earth months
         earth_raw_ratio = raw_chou['土'] / 100.0
         earth_seasonal_ratio = seasonal_chou['土'] / 100.0
         assert earth_seasonal_ratio > earth_raw_ratio, (

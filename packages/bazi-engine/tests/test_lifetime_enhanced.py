@@ -2316,11 +2316,11 @@ class TestPersonalityAnchors:
 
     # ── Test 6: Roger8 strength modifier ──
     def test_roger8_personality_anchors_strength(self, roger8_enhanced):
-        """Roger (neutral/40.6) → '日主中和' modifier."""
+        """Roger (weak/39.0) → '日主偏弱' modifier (after R5 hidden stem ratio fix)."""
         anchors = roger8_enhanced['narrativeAnchors']['chart_identity']
         combined = '\n'.join(anchors)
-        assert '日主中和' in combined, "Roger should have 中和 strength"
-        assert '性格表現適中平穩' in combined, "Should have neutral modifier text"
+        assert '日主偏弱' in combined, "Roger should have 偏弱 strength (after R5 ratio fix)"
+        assert '性格特質表現較為含蓄' in combined, "Should have weak modifier text"
 
     # ── Test 7: Integration — chart_identity contains personality anchors ──
     def test_personality_anchors_in_chart_identity(self, roger8_enhanced):
@@ -2769,11 +2769,13 @@ class TestDeepFinanceAnchors:
         assert '藏而不露' not in combined, "Should skip when no officer"
 
     # ── F4: 比劫奪財 (Rob-Wealth Risk) ──
-    def test_f4_roger8_medium_risk(self, roger8_enhanced):
-        """F4 integration: Roger8 has manifest 比肩 + hidden 比劫 → medium risk."""
+    def test_f4_roger8_weak_no_bijie_risk(self, roger8_enhanced):
+        """F4 integration: Roger8 weak DM → F4 guard excludes weak, no 比劫奪財 anchor."""
         anchors = roger8_enhanced['narrativeAnchors']['finance_pattern']
         combined = '\n'.join(anchors)
-        assert '比劫奪財風險中等' in combined, "Roger8 neutral+4 bijie should be medium risk"
+        # After R5: DM score dropped from 40.6 (neutral) to 39.0 (weak).
+        # F4 guard excludes weak/very_weak classifications from 比劫奪財 analysis.
+        assert '比劫奪財' not in combined, "Roger8 weak DM should not have 比劫奪財 anchor"
 
     def test_f4_very_strong_high_risk(self):
         """F4: very_strong + total ≥ 2 → high risk."""
@@ -3196,12 +3198,13 @@ class TestG1DynamicMechanism:
         assert '天干1個' in combined, "Should show manifest count = 1"
 
     def test_roger8_old_mechanism_preserved(self, roger8_enhanced):
-        """APPEND approach: old DM-aware mechanism text must still be present."""
+        """APPEND approach: old DM-aware mechanism text must still be present.
+        After R5: DM is weak → 食神格 weak mechanism = '食神洩身太過'."""
         anchors = roger8_enhanced['narrativeAnchors']['finance_pattern']
         combined = '\n'.join(anchors)
-        # Old mechanism for 食神格 neutral: "靠技能與品味穩定獲利"
-        assert '靠技能與品味穩定獲利' in combined, \
-            "APPEND must preserve old DM-aware mechanism text"
+        # After R5: 食神格 weak mechanism replaces neutral mechanism
+        assert '食神洩身太過' in combined, \
+            "APPEND must preserve DM-aware mechanism text (weak after R5)"
 
     def test_roger8_has_pg_condition(self, roger8_enhanced):
         """Roger8 anchor should contain PG condition from PG_STRENGTH_CONDITION."""
@@ -3210,16 +3213,16 @@ class TestG1DynamicMechanism:
         assert '食神力量充沛' in combined, "Should contain PG condition for 旺 strength"
 
     def test_roger8_still_has_archetype(self, roger8_enhanced):
-        """Archetype name '創意理財型' must be preserved."""
+        """Archetype name '耗洩過度型' for weak DM (after R5 ratio fix)."""
         anchors = roger8_enhanced['narrativeAnchors']['finance_pattern']
         combined = '\n'.join(anchors)
-        assert '創意理財型' in combined, "Archetype name should be preserved"
+        assert '耗洩過度型' in combined, "Archetype name should match weak classification after R5"
 
     def test_roger8_still_has_risk(self, roger8_enhanced):
-        """Risk text '安於小確幸' must be preserved."""
+        """Risk text '入不敷出' for weak DM (after R5 ratio fix)."""
         anchors = roger8_enhanced['narrativeAnchors']['finance_pattern']
         combined = '\n'.join(anchors)
-        assert '安於小確幸' in combined, "Risk text should be preserved"
+        assert '入不敷出' in combined, "Risk text should match weak classification after R5"
 
     def test_cong_ge_not_affected(self):
         """從格 chart should still use CONG_GE_FINANCE_ARCHETYPE, no 2D."""

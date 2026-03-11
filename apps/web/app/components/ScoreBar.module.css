@@ -1,0 +1,57 @@
+.container {
+  margin-bottom: 1rem;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 0.35rem;
+}
+
+.label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.score {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-accent);
+}
+
+.tier {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-left: 0.25rem;
+}
+
+.track {
+  position: relative;
+  height: 10px;
+  background: rgba(212, 160, 23, 0.12);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--color-gold) 0%, var(--color-orange) 100%);
+  transition: width 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  min-width: 4px;
+}
+
+.levels {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.25rem;
+  padding: 0 2px;
+}
+
+.levelLabel {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}

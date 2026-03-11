@@ -10,7 +10,7 @@ Also determines Day Master strength (旺衰) based on:
 3. Hidden stem contributions
 """
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from .constants import (
     BRANCH_ELEMENT,
@@ -39,7 +39,7 @@ def _accumulate_raw_element_scores(pillars: Dict) -> Dict[str, float]:
     Scoring method:
     - Each manifest stem contributes 1.0 point to its element
     - Each branch contributes through its hidden stems with weights
-      (本氣=0.6~1.0, 中氣=0.2~0.3, 餘氣=0.2)
+      (本氣=0.6~1.0, 中氣=0.3, 餘氣=0.1)
 
     Args:
         pillars: The four pillars dictionary
@@ -57,7 +57,7 @@ def _accumulate_raw_element_scores(pillars: Dict) -> Dict[str, float]:
         hidden = HIDDEN_STEMS.get(pillar['branch'], [])
         weights = HIDDEN_STEM_WEIGHTS.get(pillar['branch'], [])
         for i, hs in enumerate(hidden):
-            weight = weights[i] if i < len(weights) else 0.2
+            weight = weights[i] if i < len(weights) else 0.1
             element_scores[STEM_ELEMENT[hs]] += weight
 
     return element_scores
@@ -135,6 +135,135 @@ def get_seasonal_state_labels(month_branch: str) -> Dict[str, str]:
         e: SEASON_STATE_LABELS.get(SEASON_STRENGTH.get(e, {}).get(month_branch, 3), '休')
         for e in FIVE_ELEMENTS
     }
+
+
+# ============================================================
+# Weighted Five Elements for Career Pre-Analysis
+# ============================================================
+
+# Element → Talent mapping (matches Seer's commercial format)
+ELEMENT_TALENTS: Dict[str, List[str]] = {
+    '木': ['學習能力', '自愈能力', '協調能力'],
+    '火': ['情緒感知力', '探索能力', '表現力'],
+    '土': ['自律能力', '自控力', '責任承擔力'],
+    '金': ['實操能力', '掌控力', '應變能力'],
+    '水': ['邏輯思維', '細節處理能力', '專注力'],
+}
+
+# Level thresholds
+ELEMENT_LEVEL_THRESHOLDS = [
+    (5.0, '很弱'),
+    (15.0, '弱'),
+    (25.0, '一般'),
+    (40.0, '強'),
+    (100.0, '很強'),
+]
+
+
+def _get_element_level(percentage: float) -> str:
+    """Get element strength level label from percentage."""
+    for threshold, label in ELEMENT_LEVEL_THRESHOLDS:
+        if percentage < threshold:
+            return label
+    return '很強'
+
+
+def calculate_weighted_five_elements(
+    pillars: Dict,
+    month_branch: str,
+    extra_pillars: Optional[List[Dict[str, str]]] = None,
+    branch_interactions: Optional[Dict] = None,
+) -> Dict[str, Dict]:
+    """
+    Calculate weighted Five Elements (五行比重) for career pre-analysis.
+
+    Uses System A "Equal Base" — the most commonly used system across
+    commercial Bazi sites (易安居, 水墨先生, 神巴巴).
+
+    Algorithm:
+    1. Accumulate raw element scores from four pillars
+       (stems=1.0, branches via hidden stem weights: 60:30:10 / 70:30 / 100%)
+    2. Add extra pillars (胎元/命宮/身宮) at 0.5× weight
+    3. Apply 旺相休囚死 seasonal multiplier (1.5/1.3/1.0/0.8/0.6)
+    4. Optionally adjust for 地支合沖 interactions
+    5. Normalize to percentages and map to levels/talents
+
+    Args:
+        pillars: The four pillars dictionary
+        month_branch: Birth month's Earthly Branch
+        extra_pillars: Optional list of supplementary pillars (胎元/命宮/身宮),
+                       each with 'stem' and 'branch' keys. Weighted at 0.5×.
+        branch_interactions: Optional dict from analyze_branch_relationships()
+                            for 六合/六沖 adjustments.
+
+    Returns:
+        Dictionary with element → { percentage, level, talents } per element
+    """
+    # Step 1: Base raw element scores from four pillars
+    element_scores = _accumulate_raw_element_scores(pillars)
+
+    # Step 2: Add extra pillar contributions at 0.5× weight
+    if extra_pillars:
+        for ep in extra_pillars:
+            if not ep or 'stem' not in ep or 'branch' not in ep:
+                continue
+            # Stem contribution at 0.5×
+            stem_element = STEM_ELEMENT.get(ep['stem'])
+            if stem_element:
+                element_scores[stem_element] += 0.5
+
+            # Branch hidden stems at 0.5×
+            hidden = HIDDEN_STEMS.get(ep['branch'], [])
+            weights = HIDDEN_STEM_WEIGHTS.get(ep['branch'], [])
+            for i, hs in enumerate(hidden):
+                weight = weights[i] if i < len(weights) else 0.1
+                hs_element = STEM_ELEMENT.get(hs)
+                if hs_element:
+                    element_scores[hs_element] += weight * 0.5
+
+    # Step 3: Apply 旺相休囚死 seasonal multiplier
+    for element in FIVE_ELEMENTS:
+        season_score = SEASON_STRENGTH.get(element, {}).get(month_branch, 3)
+        multiplier = SEASON_MULTIPLIER.get(season_score, 1.0)
+        element_scores[element] *= multiplier
+
+    # Step 4: Optional branch interaction adjustments
+    if branch_interactions:
+        # 六合 that transforms: boost the transformed element
+        for harmony in branch_interactions.get('harmonies', []):
+            result_element = harmony.get('resultElement')
+            if result_element and result_element in element_scores:
+                element_scores[result_element] += 0.3
+
+        # 六沖: reduce clashed branches' effective contribution
+        for clash in branch_interactions.get('clashes', []):
+            branches = clash.get('branches', ())
+            for branch in branches:
+                branch_element = BRANCH_ELEMENT.get(branch)
+                if branch_element and branch_element in element_scores:
+                    element_scores[branch_element] -= 0.15
+                    # Ensure non-negative
+                    if element_scores[branch_element] < 0:
+                        element_scores[branch_element] = 0.0
+
+    # Step 5: Normalize to percentages
+    total = sum(element_scores.values())
+    if total == 0:
+        percentages = {e: 20.0 for e in FIVE_ELEMENTS}
+    else:
+        percentages = {e: round(element_scores[e] / total * 100, 1) for e in FIVE_ELEMENTS}
+
+    # Build result with level and talent mapping
+    result = {}
+    for element in FIVE_ELEMENTS:
+        pct = percentages[element]
+        result[element] = {
+            'percentage': pct,
+            'level': _get_element_level(pct),
+            'talents': ELEMENT_TALENTS.get(element, []),
+        }
+
+    return result
 
 
 def calculate_element_counts(pillars: Dict) -> Dict[str, Dict[str, int]]:
@@ -245,7 +374,7 @@ def analyze_day_master_strength(
         hidden = HIDDEN_STEMS.get(branch, [])
         weights = HIDDEN_STEM_WEIGHTS.get(branch, [])
         for i, hs in enumerate(hidden):
-            weight = weights[i] if i < len(weights) else 0.2
+            weight = weights[i] if i < len(weights) else 0.1
             hs_element = STEM_ELEMENT[hs]
             if hs_element == supporting_element or hs_element == producing_element:
                 support_score += weight

@@ -370,6 +370,7 @@ describe('AIService', () => {
       const cached = {
         sections: { personality: { preview: 'DB', full: 'DBFull' } },
         summary: { preview: 'S', full: 'SF' },
+        schemaVersion: 'v2',
       };
       mockPrisma.readingCache.findFirst.mockResolvedValue({
         interpretationJson: cached,
@@ -398,7 +399,7 @@ describe('AIService', () => {
       );
 
       expect(mockRedis.setJson).toHaveBeenCalledWith(
-        'reading_cache:abc123:LIFETIME',
+        'reading_cache:abc123:LIFETIME:v2',
         interpretation,
         86400,
       );

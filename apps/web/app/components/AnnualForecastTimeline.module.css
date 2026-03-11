@@ -1,0 +1,305 @@
+.container {
+  margin-bottom: 1.5rem;
+}
+
+/* Luck Period context bar */
+.luckPeriodBar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: linear-gradient(135deg, rgba(226, 61, 40, 0.06) 0%, rgba(245, 166, 35, 0.06) 100%);
+  border: 1px solid rgba(212, 160, 23, 0.15);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 1rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.lpLabel {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.lpPillar {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-accent);
+}
+
+.lpTenGod {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.lpYears {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+/* Timeline cards */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
+  cursor: default;
+  transition: box-shadow 0.2s, border-color 0.2s;
+  box-shadow: var(--shadow-warm);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.yearInfo {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+}
+
+.year {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ganZhi {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.tenGod {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.badge {
+  display: inline-block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.2rem 0.65rem;
+  border-radius: 16px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+/* Indicator badges */
+.indicators {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+
+.indicator {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 10px;
+  border: 1px solid;
+}
+
+.indicator[data-favorable="true"] {
+  color: #2E7D32;
+  background: rgba(46, 125, 50, 0.08);
+  border-color: rgba(46, 125, 50, 0.2);
+}
+
+.indicator[data-favorable="false"] {
+  color: #D32F2F;
+  background: rgba(211, 47, 47, 0.08);
+  border-color: rgba(211, 47, 47, 0.2);
+}
+
+.indicatorNeutral {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* Expanded content */
+.expandedContent {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.interactionsRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-bottom: 0.6rem;
+}
+
+.interactionsLabel {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.interactionTag {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  background: rgba(212, 160, 23, 0.08);
+  border: 1px solid rgba(212, 160, 23, 0.15);
+  border-radius: 8px;
+  padding: 0.1rem 0.4rem;
+}
+
+.narrative {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  line-height: 1.8;
+}
+
+/* Gold bullet list (matching AIReadingDisplay pattern) */
+.goldBulletList {
+  list-style: none;
+  margin: 0 0 0.8rem 0;
+  padding: 0;
+}
+
+li.goldBulletItem {
+  position: relative;
+  padding-left: 0.55rem;
+  margin-bottom: 0.8rem;
+  line-height: 1.8;
+}
+
+li.goldBulletItemCategory {
+  margin-left: 1rem;
+}
+
+.goldBulletItem::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.7em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #D4A017, #F5A623);
+  box-shadow: 0 0 3px rgba(212, 160, 23, 0.4);
+}
+
+.contentSubHeader {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-accent, #C41E3A);
+  margin: 1rem 0 0.4rem 0;
+  font-family: var(--font-noto-serif-tc), serif;
+}
+
+.contentParagraph {
+  margin: 0 0 0.6rem 0;
+  line-height: 1.8;
+}
+
+.bulletCategory {
+  display: inline-block;
+  font-weight: 700;
+  color: var(--color-gold, #B8860B);
+  font-family: var(--font-noto-serif-tc), serif;
+  margin-right: 0.15rem;
+}
+
+.bulletCategory::after {
+  content: '：';
+  color: var(--text-muted, #8B7355);
+  font-weight: 400;
+}
+
+.bulletCategoryItems {
+  display: inline;
+  color: var(--text-secondary, #6B5940);
+  font-size: 0.90em;
+}
+
+@media (max-width: 600px) {
+  .luckPeriodBar {
+    padding: 0.5rem 0.75rem;
+    gap: 0.35rem;
+  }
+
+  .lpYears {
+    margin-left: 0;
+  }
+
+  .card {
+    padding: 0.75rem;
+  }
+
+  .year {
+    font-size: 1rem;
+  }
+
+  .badge {
+    font-size: 0.72rem;
+    padding: 0.15rem 0.5rem;
+  }
+}
+
+/* Badge + Stars row */
+.badgeRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Inline star rating */
+.starsInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: 0.2rem;
+}
+
+.starFull {
+  color: #ffd700;
+  font-size: 0.95rem;
+}
+
+.starEmpty {
+  color: #d0c4b0;
+  font-size: 0.95rem;
+}
+
+.starHalf {
+  position: relative;
+  display: inline-block;
+  font-size: 0.95rem;
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.starHalfEmpty {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #d0c4b0;
+}
+
+.starHalfFilled {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  width: 50%;
+  color: #ffd700;
+}

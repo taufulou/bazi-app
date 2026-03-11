@@ -1,0 +1,130 @@
+.container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1rem;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--shadow-warm);
+}
+
+.header {
+  margin-bottom: 1rem;
+  padding-left: 1rem;
+  border-left: 3px solid var(--color-red);
+}
+
+.title {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1rem;
+  color: var(--text-accent);
+  margin: 0;
+}
+
+.subtitle {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 4px 0 0 0;
+  line-height: 1.4;
+}
+
+.chartList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.rowHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.tenGodName {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 36px;
+}
+
+.groupLabel {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding: 0.05rem 0.3rem;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 3px;
+}
+
+.percentage {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-left: auto;
+  min-width: 44px;
+  text-align: right;
+}
+
+.level {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  padding: 0.1rem 0.35rem;
+  background: rgba(212, 160, 23, 0.08);
+  border-radius: 4px;
+  min-width: 30px;
+  text-align: center;
+}
+
+.barTrack {
+  height: 7px;
+  background: rgba(0, 0, 0, 0.05);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--color-gold) 0%, var(--color-orange) 100%);
+  transition: width 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  min-width: 2px;
+}
+
+.capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  padding-left: 1px;
+}
+
+.capTag {
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+  background: rgba(212, 160, 23, 0.06);
+  border: 1px solid rgba(212, 160, 23, 0.12);
+  border-radius: 10px;
+  padding: 0.1rem 0.45rem;
+}
+
+@media (max-width: 600px) {
+  .container {
+    padding: 1rem 0.75rem;
+  }
+
+  .tenGodName {
+    font-size: 0.8rem;
+    min-width: 30px;
+  }
+
+  .groupLabel {
+    display: none;
+  }
+
+  .percentage {
+    font-size: 0.8rem;
+  }
+}

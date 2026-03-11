@@ -1,0 +1,205 @@
+.container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  padding: 1.75rem 1.5rem;
+  margin: 1.5rem 0;
+  box-shadow: var(--shadow-warm-lg);
+  text-align: center;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.headerIcon {
+  font-size: 1.5rem;
+}
+
+.headerTitle {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1.25rem;
+  color: var(--text-accent);
+  margin: 0;
+}
+
+.featureList {
+  margin-bottom: 1.5rem;
+}
+
+.featureIntro {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+}
+
+.featureGrid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.featureItem {
+  display: inline-block;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  background: rgba(212, 160, 23, 0.08);
+  border: 1px solid rgba(212, 160, 23, 0.15);
+  border-radius: 20px;
+  padding: 0.3rem 0.75rem;
+}
+
+.actionArea {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.unlockBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.85rem 2rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-red) 0%, var(--color-orange) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+  box-shadow: 0 4px 16px rgba(226, 61, 40, 0.25);
+  min-width: 260px;
+}
+
+.unlockBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(226, 61, 40, 0.35);
+}
+
+.unlockBtn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.unlockBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.unlockBtn.disabled {
+  background: linear-gradient(135deg, #999 0%, #aaa 100%);
+  box-shadow: none;
+}
+
+.costBadge {
+  display: inline-block;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.freeBadge {
+  display: inline-block;
+  background: rgba(76, 175, 80, 0.9);
+  border-radius: 12px;
+  padding: 0.15rem 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.spinner {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.creditsInfo {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.creditsLinks {
+  display: flex;
+  gap: 1.5rem;
+  margin-top: 0.25rem;
+}
+
+.creditsLink {
+  font-size: 0.85rem;
+  color: var(--text-accent);
+  font-weight: 500;
+  transition: opacity 0.15s;
+}
+
+.creditsLink:hover {
+  opacity: 0.8;
+}
+
+.loginBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.85rem 2rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #fff;
+  background: linear-gradient(135deg, var(--color-red) 0%, var(--color-orange) 100%);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 4px 16px rgba(226, 61, 40, 0.25);
+  min-width: 260px;
+  text-decoration: none;
+}
+
+.loginBtn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(226, 61, 40, 0.35);
+}
+
+.loginHint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+@media (max-width: 600px) {
+  .container {
+    padding: 1.25rem 1rem;
+    margin: 1rem 0;
+  }
+
+  .unlockBtn,
+  .loginBtn {
+    min-width: unset;
+    width: 100%;
+  }
+
+  .featureGrid {
+    gap: 0.35rem;
+  }
+
+  .featureItem {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.6rem;
+  }
+}

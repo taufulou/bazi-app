@@ -147,9 +147,11 @@ export class BaziService {
       throw new InternalServerErrorException('Bazi calculation failed. Please try again.');
     }
 
-    // Streaming path: LIFETIME + stream=true + no cache → skip AI, return streamReady
+    // Streaming path: V2 reading types + stream=true + no cache → skip AI, return streamReady
+    const isV2Reading = dto.readingType === ReadingType.LIFETIME
+      || dto.readingType === ReadingType.CAREER;
     const isStreamingRequest = dto.stream === true
-      && dto.readingType === ReadingType.LIFETIME
+      && isV2Reading
       && !cachedInterpretation;
 
     // Generate AI interpretation (or use cache)
@@ -175,17 +177,25 @@ export class BaziService {
           targetYear: dto.targetYear,
         };
 
-        // Route LIFETIME to V2 multi-call; all others use V1 single-call
-        const aiResult = dto.readingType === ReadingType.LIFETIME
-          ? await this.aiService.generateLifetimeV2Interpretation(
-              enrichedData,
-              user.id,
-            )
-          : await this.aiService.generateInterpretation(
-              enrichedData,
-              dto.readingType,
-              user.id,
-            );
+        // Route V2 reading types to their multi-call generators; all others use V1
+        let aiResult;
+        if (dto.readingType === ReadingType.LIFETIME) {
+          aiResult = await this.aiService.generateLifetimeV2Interpretation(
+            enrichedData,
+            user.id,
+          );
+        } else if (dto.readingType === ReadingType.CAREER) {
+          aiResult = await this.aiService.generateCareerV2Interpretation(
+            enrichedData,
+            user.id,
+          );
+        } else {
+          aiResult = await this.aiService.generateInterpretation(
+            enrichedData,
+            dto.readingType,
+            user.id,
+          );
+        }
 
         aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
         aiProvider = aiResult.provider;
@@ -259,7 +269,11 @@ export class BaziService {
 
     // For streaming requests, include streamReady flag and deterministic data
     if (isStreamingRequest) {
-      const enhancedInsights = calculationData['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
+      // Extract deterministic data from the appropriate enhanced insights key
+      const insightsKey = dto.readingType === ReadingType.CAREER
+        ? 'careerEnhancedInsights'
+        : 'lifetimeEnhancedInsights';
+      const enhancedInsights = calculationData[insightsKey] as Record<string, unknown> | undefined;
       const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
       // Convert snake_case to camelCase for frontend
       const deterministic: Record<string, unknown> = {};
@@ -389,9 +403,10 @@ export class BaziService {
         birthTime: reading.birthProfile?.birthTime,
       };
 
-      // 5. Delegate to AI service streaming
-      // Always use guide style — readingStyle is no longer configurable
-      const aiObservable = this.aiService.streamLifetimeV2(enrichedData, readingId);
+      // 5. Delegate to correct V2 streamer based on reading type
+      const aiObservable = reading.readingType === 'CAREER'
+        ? this.aiService.streamCareerV2(enrichedData, readingId)
+        : this.aiService.streamLifetimeV2(enrichedData, readingId);
       aiObservable.subscribe({
         next: (event) => subscriber.next(event),
         error: (err) => {
@@ -1056,7 +1071,7 @@ export class BaziService {
         reading_type: dto.readingType.toLowerCase(),
         target_year: dto.targetYear,
       }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(dto.readingType === ReadingType.CAREER ? 45000 : 30000),
     });
 
     if (!response.ok) {

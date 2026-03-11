@@ -79,6 +79,14 @@ export const SECTION_TITLE_MAP: Record<string, string> = {
   annual_career: '本年事業運勢',
   annual_finance: '本年財運運勢',
   annual_health: '本年健康運勢',
+  // Bazi Career V2 sections
+  suitable_positions: '適合職位分析',
+  career_directions_favorable: '有利行業方向',
+  career_directions_unfavorable: '不利行業方向',
+  company_type_fit: '公司類型適配',
+  entrepreneurship: '創業適合度分析',
+  partnership: '合夥適合度分析',
+  career_allies: '職場貴人與小人',
   // ZWDS sections
   life_pattern: '人生格局分析',
   major_periods: '大限走勢分析',
@@ -116,6 +124,7 @@ export const SECTION_TITLE_MAP: Record<string, string> = {
 
 /** Guide-style section title overrides (人生攻略 framing) */
 export const GUIDE_SECTION_TITLE_MAP: Record<string, string> = {
+  // Lifetime V2
   chart_identity: '你的先天屬性',
   finance_pattern: '財富攻略',
   career_pattern: '事業發展路線',
@@ -127,6 +136,14 @@ export const GUIDE_SECTION_TITLE_MAP: Record<string, string> = {
   current_period: '當前大運詳解',
   next_period: '下一大運預覽',
   best_period: '最佳大運攻略',
+  // Career V2
+  suitable_positions: '適合你的職位',
+  career_directions_favorable: '有利行業方向',
+  career_directions_unfavorable: '需要注意的行業',
+  company_type_fit: '適合的公司類型',
+  entrepreneurship: '創業潛力分析',
+  partnership: '合夥經營評估',
+  career_allies: '職場貴人與小人',
 };
 
 // ============================================================
@@ -161,7 +178,7 @@ export interface LuckPeriodDetailData {
   branchElement?: string;  // Five-element of branch main qi
 }
 
-/** V2 deterministic data (not AI-generated) */
+/** V2 deterministic data (not AI-generated) — Lifetime */
 export interface LifetimeV2DeterministicData {
   favorableInvestments: string[];
   unfavorableInvestments: string[];
@@ -179,6 +196,67 @@ export interface LifetimeV2DeterministicData {
   annualTenGod: string;
 }
 
+/** V2 deterministic data (not AI-generated) — Career */
+export interface CareerV2DeterministicData {
+  weightedElements: Record<string, { percentage: number; level: string; talents: string[] }>;
+  weightedTenGods: Record<string, { percentage: number; level: string; capabilities: string[] }>;
+  reputationScore: { score: number; level: string; subScores: Record<string, number> };
+  wealthScore: { score: number; tier: string; subScores: Record<string, number> };
+  fiveQiStates: Record<string, string>;
+  pattern: string;
+  patternType: string;
+  activeLuckPeriod: {
+    stem: string;
+    branch: string;
+    tenGod: string;
+    startYear: number;
+    endYear: number;
+  } | null;
+  suitablePositions: Array<{ label: string; description: string; anchors: string[] }>;
+  companyTypeFit: { type: string; label: string; description: string };
+  entrepreneurshipFit: { score: number; type: string; reasons: string[] };
+  partnershipFit: { score: number; suitable: boolean; reasons: string[] };
+  careerAllies: {
+    nobles: Array<{ type: string; branch: string; description: string }>;
+    careerShensha: Array<{ name: string; description: string }>;
+    allies: string[];
+    mobilityBringers: string[];
+    enemies: string[];
+    antagonists: Array<{ type: string; description: string }>;
+    elementHelpers: string[];
+  };
+  annualForecasts: Array<{
+    year: number;
+    stem: string;
+    branch: string;
+    tenGod: string;
+    luckPeriodStem: string;
+    luckPeriodBranch: string;
+    luckPeriodTenGod: string;
+    auspiciousness: string;
+    branchInteractions: string[];
+    kongWangAnalysis?: { hit: boolean; effect: string; favorable: boolean };
+    yimaAnalysis?: { hit: boolean; favorable: boolean; type: string };
+    careerIndicators: string[];
+  }>;
+  monthlyForecasts: Array<{
+    month: number;
+    stem: string;
+    branch: string;
+    tenGod: string;
+    auspiciousness: string;
+    monthName: string;
+    solarTermDate: string;
+    solarTermEndDate?: string;
+    seasonElement: string;
+  }>;
+  favorableIndustries: string[];
+  unfavorableIndustries: string[];
+}
+
+/** Union type for V2 deterministic data */
+export type V2DeterministicData = LifetimeV2DeterministicData | CareerV2DeterministicData;
+
 export interface NestJSReadingResponse {
   id: string;
   readingType: string;
@@ -187,7 +265,7 @@ export interface NestJSReadingResponse {
     schemaVersion?: 'v2';
     sections: Record<string, { preview: string; full: string; score?: number }>;
     summary?: { preview: string; full: string };
-    deterministic?: LifetimeV2DeterministicData;
+    deterministic?: V2DeterministicData;
   } | null;
   creditsUsed: number;
   createdAt: string;
@@ -195,7 +273,7 @@ export interface NestJSReadingResponse {
   /** Present when stream=true was requested and AI will be streamed via SSE */
   streamReady?: boolean;
   /** Deterministic data returned immediately for streaming requests */
-  deterministic?: LifetimeV2DeterministicData;
+  deterministic?: V2DeterministicData;
   /** Birth profile data — present when fetching a saved reading (via Prisma include) */
   birthProfile?: {
     name: string;
@@ -221,7 +299,7 @@ export interface AIReadingData {
   sections: ReadingSectionData[];
   summary?: { text: string };
   isV2?: boolean;
-  deterministic?: LifetimeV2DeterministicData;
+  deterministic?: V2DeterministicData;
 }
 
 export interface ReadingHistoryItem {
@@ -394,7 +472,36 @@ export async function getReadingHistory(
 // ============================================================
 
 /**
- * V2 section display order (controls rendering sequence).
+ * Career V2 section display order (controls rendering sequence).
+ * Annual and monthly forecast sections are dynamically matched by prefix.
+ */
+export const CAREER_V2_SECTION_ORDER = [
+  'career_pattern',
+  'suitable_positions',
+  'career_directions_favorable',
+  'career_directions_unfavorable',
+  'company_type_fit',
+  'entrepreneurship',
+  'partnership',
+  'career_allies',
+  // annual_forecast_YYYY and monthly_forecast_MM are appended dynamically
+];
+
+/** All expected career V2 section keys (for progress tracking) */
+export const CAREER_V2_ALL_SECTION_KEYS = [
+  'career_pattern',
+  'suitable_positions',
+  'career_directions_favorable',
+  'career_directions_unfavorable',
+  'company_type_fit',
+  'entrepreneurship',
+  'partnership',
+  'career_allies',
+  // 5 annual + 12 monthly = 17 dynamic keys added at runtime
+];
+
+/**
+ * Lifetime V2 section display order (controls rendering sequence).
  * Sections not in this list are appended at the end.
  */
 const V2_SECTION_ORDER = [
@@ -416,11 +523,26 @@ const V2_SECTION_ORDER = [
 ];
 
 /**
+ * Generate a display title for dynamic section keys (annual/monthly forecasts).
+ * e.g., "annual_forecast_2026" → "2026 年度事業運勢"
+ * e.g., "monthly_forecast_03" → "3月運勢"
+ */
+export function getDynamicSectionTitle(key: string): string | null {
+  const annualMatch = key.match(/^annual_forecast_(\d{4})$/);
+  if (annualMatch) return `${annualMatch[1]} 年度事業運勢`;
+
+  const monthlyMatch = key.match(/^monthly_forecast_(\d{1,2})$/);
+  if (monthlyMatch) return `${parseInt(monthlyMatch[1], 10)}月運勢`;
+
+  return null;
+}
+
+/**
  * Transform backend AI response (object keyed) → frontend array format.
  * Backend returns: { sections: { personality: { preview, full }, ... }, summary? }
  * Frontend expects: { sections: [{ key, title, preview, full }], summary? }
  *
- * V2 lifetime readings also carry deterministic data and schemaVersion.
+ * V2 readings (lifetime, career) also carry deterministic data and schemaVersion.
  */
 export function transformAIResponse(
   ai: NestJSReadingResponse['aiInterpretation'],
@@ -432,16 +554,25 @@ export function transformAIResponse(
   // Build sections array — V2 uses explicit order, V1 preserves insertion order
   let sections: ReadingSectionData[];
   if (isV2) {
+    const sectionKeys = Object.keys(ai.sections);
+    // Detect career V2 by presence of career-specific section keys
+    const isCareerV2 = sectionKeys.some(k =>
+      k === 'suitable_positions' || k === 'company_type_fit' || k === 'entrepreneurship'
+    );
+    const orderList = isCareerV2 ? CAREER_V2_SECTION_ORDER : V2_SECTION_ORDER;
+
     const sectionEntries = Object.entries(ai.sections);
     const ordered: ReadingSectionData[] = [];
     const seen = new Set<string>();
 
-    for (const key of V2_SECTION_ORDER) {
+    // First: add sections in the explicit order
+    for (const key of orderList) {
       const entry = sectionEntries.find(([k]) => k === key);
       if (entry) {
+        const title = getDynamicSectionTitle(entry[0]) || SECTION_TITLE_MAP[entry[0]] || entry[0];
         ordered.push({
           key: entry[0],
-          title: SECTION_TITLE_MAP[entry[0]] || entry[0],
+          title,
           preview: entry[1].preview,
           full: entry[1].full,
           score: entry[1].score,
@@ -450,10 +581,31 @@ export function transformAIResponse(
       }
     }
 
-    // Append any sections not in the explicit order
+    // For career V2: append annual forecasts sorted by year, then monthly sorted by month
+    if (isCareerV2) {
+      const annuals = sectionEntries
+        .filter(([k]) => k.startsWith('annual_forecast_') && !seen.has(k))
+        .sort(([a], [b]) => a.localeCompare(b));
+      const monthlies = sectionEntries
+        .filter(([k]) => k.startsWith('monthly_forecast_') && !seen.has(k))
+        .sort(([a], [b]) => {
+          const ma = parseInt(a.replace('monthly_forecast_', ''), 10);
+          const mb = parseInt(b.replace('monthly_forecast_', ''), 10);
+          return ma - mb;
+        });
+
+      for (const [key, { preview, full, score }] of [...annuals, ...monthlies]) {
+        const title = getDynamicSectionTitle(key) || SECTION_TITLE_MAP[key] || key;
+        ordered.push({ key, title, preview, full, score });
+        seen.add(key);
+      }
+    }
+
+    // Append any remaining sections not in the explicit order
     for (const [key, { preview, full, score }] of sectionEntries) {
       if (!seen.has(key)) {
-        ordered.push({ key, title: SECTION_TITLE_MAP[key] || key, preview, full, score });
+        const title = getDynamicSectionTitle(key) || SECTION_TITLE_MAP[key] || key;
+        ordered.push({ key, title, preview, full, score });
       }
     }
 

@@ -13,6 +13,7 @@ import ZwdsChart from "../../components/ZwdsChart";
 import AIReadingDisplay, { V2_ALL_SECTION_KEYS } from "../../components/AIReadingDisplay";
 import { getUserProfile } from "../../lib/api";
 import InsufficientCreditsModal from "../../components/InsufficientCreditsModal";
+import CareerPaywallCTA from "../../components/CareerPaywallCTA";
 import {
   createBirthProfile,
   updateBirthProfile,
@@ -109,9 +110,21 @@ export default function ReadingPage() {
   const meta = READING_TYPE_META[readingType as ReadingTypeSlug];
   const isZwds = isZwdsType(readingType);
   const isLifetime = readingType === "lifetime";
+  const isCareer = readingType === "career";
+  const isFullPageLayout = isLifetime || isCareer;
 
   // Auth — wait for Clerk to resolve before deciding initial step
-  const { getToken, isSignedIn, isLoaded } = useAuth();
+  const clerkAuth = useAuth();
+
+  // E2E test mode: bypass Clerk auth when __e2e_auth cookie is set
+  // This allows Playwright to test authenticated flows without real Clerk sessions
+  const isE2ETestMode =
+    typeof window !== "undefined" && document.cookie.includes("__e2e_auth=1");
+  const isSignedIn = isE2ETestMode || clerkAuth.isSignedIn;
+  const isLoaded = isE2ETestMode || clerkAuth.isLoaded;
+  const getToken = isE2ETestMode
+    ? async () => "e2e-mock-token"
+    : clerkAuth.getToken;
   const [step, setStep] = useState<ViewStep | null>(null);
 
   // Check for ?id=xxx query param (reading history deep link)
@@ -172,6 +185,10 @@ export default function ReadingPage() {
 
   // Cache hit notification
   const [cacheToast, setCacheToast] = useState(false);
+
+  // Career V2 two-phase state
+  const [showCareerPaywall, setShowCareerPaywall] = useState(false);
+  const [isUnlocking, setIsUnlocking] = useState(false);
 
   // SSE stream cleanup ref (for LIFETIME streaming)
   const streamCleanupRef = useRef<(() => void) | null>(null);
@@ -331,7 +348,7 @@ export default function ReadingPage() {
       setLoadedFromHistory(true);
       setStep("result");
       setTab("chart");
-      if (isLifetime) {
+      if (isFullPageLayout) {
         window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
       }
     } catch {
@@ -348,7 +365,11 @@ export default function ReadingPage() {
   // Two-phase: show chart immediately, then fetch AI in background
   // ============================================================
 
-  async function callNestJSReading(data: BirthDataFormValues, birthProfileId: string) {
+  async function callNestJSReading(
+    data: BirthDataFormValues,
+    birthProfileId: string,
+    options?: { onReadingCreated?: (id: string) => void },
+  ) {
     const token = await getToken();
     if (!token) return;
 
@@ -396,7 +417,7 @@ export default function ReadingPage() {
     // Show chart immediately, start AI loading
     setStep("result");
     setTab("chart");
-    if (isLifetime) startChartReveal();
+    if (isFullPageLayout) startChartReveal();
     setIsLoading(false);
     setIsAiLoading(true);
 
@@ -425,12 +446,13 @@ export default function ReadingPage() {
           birthProfileId,
           readingType: readingType,
           targetYear: readingType === "annual" ? new Date().getFullYear() : undefined,
-          stream: readingType === "lifetime", // opt-in SSE streaming for LIFETIME
+          stream: readingType === "lifetime" || readingType === "career", // V2 streaming for both
         });
         setChartData(response.calculationData);
       }
 
       setCurrentReadingId(response.id);
+      options?.onReadingCreated?.(response.id);
 
       // Handle streaming path for LIFETIME readings
       if (response.streamReady && response.deterministic) {
@@ -440,8 +462,8 @@ export default function ReadingPage() {
           isV2: true,
           deterministic: response.deterministic,
         });
-        if (!isLifetime) {
-          setTab("reading"); // Auto-switch so user sees deterministic data (not needed for lifetime single-page layout)
+        if (!isFullPageLayout) {
+          setTab("reading"); // Auto-switch so user sees deterministic data (not needed for full-page layout)
         }
 
         // Start SSE stream
@@ -597,15 +619,18 @@ export default function ReadingPage() {
     }
 
     // Direct engine: show mock AI sections with paywall overlay
-    const mockAI = isZwds
-      ? generateMockZwdsReading(readingType as ReadingTypeSlug)
-      : generateMockReading(readingType as ReadingTypeSlug);
-    setAiData(mockAI);
+    // For career: don't set mock AI — career paywall CTA handles the unlock flow
+    if (!isCareer) {
+      const mockAI = isZwds
+        ? generateMockZwdsReading(readingType as ReadingTypeSlug)
+        : generateMockReading(readingType as ReadingTypeSlug);
+      setAiData(mockAI);
+    }
     setIsChartOnly(true);
 
     setStep("result");
     setTab("chart");
-    if (isLifetime) startChartReveal();
+    if (isFullPageLayout) startChartReveal();
   }
 
   // ============================================================
@@ -690,7 +715,15 @@ export default function ReadingPage() {
       setLastSaveIntent(saveIntent);
 
       try {
-        if (isSignedIn && birthProfileId) {
+        if (isCareer) {
+          // Career Phase 1: Chart only (no reading_type sent, no pre-analysis)
+          // Shows chart + paywall CTA, regardless of auth status
+          await callDirectEngine(data, lunarDate);
+          // Store form values for refresh resilience
+          try { sessionStorage.setItem('career_form', JSON.stringify(data)); } catch { /* quota */ }
+          setShowCareerPaywall(true);
+          setIsLoading(false);
+        } else if (isSignedIn && birthProfileId) {
           // Route through NestJS: chart shows immediately, AI loads in background
           // callNestJSReading manages its own loading states (isLoading + isAiLoading)
           await callNestJSReading(data, birthProfileId);
@@ -806,10 +839,162 @@ export default function ReadingPage() {
     [readingType, isZwds, needsDatePicker, targetDay],
   );
 
+  // ============================================================
+  // Career Phase 2: Unlock handler (deduct credits → stream AI)
+  // ============================================================
+
+  async function handleCareerUnlock() {
+    setIsUnlocking(true);
+    // NOTE: Do NOT hide paywall yet — only hide after successful credit deduction
+
+    try {
+      // Ensure we have a birth profile (create if needed)
+      let profileId = lastProfileId;
+      if (!profileId && formValues) {
+        const token = await getToken();
+        if (token) {
+          const profile = await createBirthProfile(token, formValuesToPayload(formValues, 'SELF'));
+          profileId = profile.id;
+          setLastProfileId(profileId);
+        }
+      }
+
+      if (!profileId || !formValues) {
+        throw new Error('無法建立個人檔案');
+      }
+
+      // Phase 2: keep chart visible, enable AI sections below
+      // Do NOT reset revealedSections — chart stays from Phase 1
+      setIsChartOnly(false);
+
+      // This calls NestJS: credits deducted + AI streamed
+      // Use onReadingCreated callback to capture reading ID (React state is async)
+      await callNestJSReading(formValues, profileId, {
+        onReadingCreated: (id: string) => {
+          try { sessionStorage.setItem('career_reading_id', id); } catch { /* quota */ }
+        },
+      });
+
+      // Only hide paywall AFTER successful call
+      setShowCareerPaywall(false);
+      // Clean up sessionStorage since reading is now saved
+      try {
+        sessionStorage.removeItem('career_form');
+      } catch { /* ignore */ }
+    } catch (err) {
+      // Re-show paywall + show error
+      setShowCareerPaywall(true);
+      setIsChartOnly(true);
+      const message = err instanceof Error ? err.message : '解鎖失敗，請再試一次';
+      if (message.includes("Insufficient credits")) {
+        setShowCreditsModal(true);
+      } else {
+        setError(message);
+      }
+    } finally {
+      setIsUnlocking(false);
+    }
+  }
+
+  // ============================================================
+  // Career refresh resilience — recover chart + reading after page reload
+  // ============================================================
+
+  useEffect(() => {
+    if (!isCareer || step !== null) return;
+
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem('career_form'); } catch { /* ignore */ }
+    if (!raw) return;
+
+    let savedForm: BirthDataFormValues;
+    try {
+      savedForm = JSON.parse(raw);
+    } catch {
+      try { sessionStorage.removeItem('career_form'); } catch { /* ignore */ }
+      return;
+    }
+
+    // Re-submit Phase 1 (free chart)
+    setFormValues(savedForm);
+    setIsLoading(true);
+    callDirectEngine(savedForm).then(() => {
+      setStep('result');
+      setIsLoading(false);
+
+      // Check if a reading was already created (credits already deducted before refresh)
+      let savedReadingId: string | null = null;
+      try { savedReadingId = sessionStorage.getItem('career_reading_id'); } catch { /* ignore */ }
+      if (savedReadingId && isSignedIn) {
+        recoverCareerReading(savedReadingId);
+      } else {
+        setShowCareerPaywall(true);
+      }
+    }).catch(() => {
+      setIsLoading(false);
+      setStep('input');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCareer, isLoaded]);
+
+  async function recoverCareerReading(readingId: string) {
+    const token = await getToken();
+    if (!token) { setShowCareerPaywall(true); return; }
+
+    try {
+      const existing = await getReading(token, readingId);
+      const transformed = transformAIResponse(existing.aiInterpretation);
+      if (transformed && transformed.sections && transformed.sections.length > 0) {
+        // Reading exists with AI data → render it (no re-charge)
+        setAiData(transformed);
+        setChartData(existing.calculationData);
+        setIsChartOnly(false);
+        setIsPaidReading(true);
+        setShowCareerPaywall(false);
+        // Clean up sessionStorage
+        try {
+          sessionStorage.removeItem('career_form');
+          sessionStorage.removeItem('career_reading_id');
+        } catch { /* ignore */ }
+      } else {
+        // Reading saved but AI streaming interrupted → re-trigger stream
+        setIsAiLoading(true);
+        const stream = streamBaziReading(token, readingId, {
+          onSectionComplete: (key, section) => {
+            setAiData((prev) => ({
+              ...prev!,
+              sections: [
+                ...(prev?.sections || []),
+                {
+                  key,
+                  title: GUIDE_SECTION_TITLE_MAP[key] || SECTION_TITLE_MAP[key] || key,
+                  preview: section.preview,
+                  full: section.full,
+                  score: section.score,
+                },
+              ],
+            }));
+          },
+          onSummary: (summary) => {
+            setAiData((prev) => ({ ...prev!, summary: { text: summary.full || summary.preview } }));
+          },
+          onDone: () => { setIsAiLoading(false); setShowCareerPaywall(false); },
+          onError: () => { setIsAiLoading(false); setShowCareerPaywall(true); },
+          onCallComplete: () => {},
+        });
+        streamCleanupRef.current = () => stream.close();
+      }
+    } catch {
+      // Reading not found or error → show paywall again
+      setShowCareerPaywall(true);
+      try { sessionStorage.removeItem('career_reading_id'); } catch { /* ignore */ }
+    }
+  }
+
   // Loading state while Clerk auth resolves
   if (step === null) {
     return (
-      <div className={`${styles.pageContainer} ${isLifetime ? styles.pageContainerLifetime : ''}`}>
+      <div className={`${styles.pageContainer} ${isFullPageLayout ? styles.pageContainerLifetime : ''}`}>
         <div className={styles.loadingSkeleton}>
           <div className={styles.skeletonSpinner} />
           載入中...
@@ -819,7 +1004,7 @@ export default function ReadingPage() {
   }
 
   return (
-    <div className={`${styles.pageContainer} ${isLifetime ? styles.pageContainerLifetime : ''}`}>
+    <div className={`${styles.pageContainer} ${isFullPageLayout ? styles.pageContainerLifetime : ''}`}>
       {/* Header */}
       <div className={styles.header}>
         <button className={styles.backLink} onClick={handleBack}>
@@ -885,14 +1070,15 @@ export default function ReadingPage() {
             title={`${meta.nameZhTw} — 輸入出生資料`}
             subtitle={meta.description["zh-TW"]}
             submitLabel={
+              isCareer ? "開始排盤" :
               !isSignedIn ? "開始分析" :
               meta.creditCost === 0 ? (<>完整解讀<span className={styles.btnCreditFree}>免費</span></>) :
               hasFreeReading ? (<>完整解讀<span className={styles.btnCreditFree}>首次免費</span></>) :
               userCredits !== null ? (<>完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點・剩 {userCredits}</span></>) :
               (<>完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點</span></>)
             }
-            onSecondarySubmit={isSignedIn ? (data, _pid, lunarDate) => handleFreeChart(data, _pid, lunarDate) : undefined}
-            secondaryLabel={isSignedIn ? "查看免費命盤 →" : undefined}
+            onSecondarySubmit={isSignedIn && !isCareer ? (data, _pid, lunarDate) => handleFreeChart(data, _pid, lunarDate) : undefined}
+            secondaryLabel={isSignedIn && !isCareer ? "查看免費命盤 →" : undefined}
             savedProfiles={isSignedIn ? savedProfiles : undefined}
             showSaveOption={isSignedIn === true}
             onSaveProfile={() => {
@@ -957,8 +1143,8 @@ export default function ReadingPage() {
 
         {step === "result" && (
           <>
-            {/* Tab bar — only for non-lifetime reading types */}
-            {!isLifetime && (
+            {/* Tab bar — only for non-full-page reading types */}
+            {!isFullPageLayout && (
               <div className={styles.tabBar}>
                 <button className={tab === "chart" ? styles.tabActive : styles.tab} onClick={() => setTab("chart")}>
                   {isZwds ? "🌟 紫微命盤" : "📊 命盤排盤"}
@@ -973,8 +1159,8 @@ export default function ReadingPage() {
               </div>
             )}
 
-            {/* Cache toast — above tab bar for non-lifetime */}
-            {!isLifetime && cacheToast && (
+            {/* Cache toast — above tab bar for non-full-page */}
+            {!isFullPageLayout && cacheToast && (
               <div className={styles.cacheToast}>
                 <span className={styles.cacheToastIcon}>💡</span>
                 <span>偵測到相同命盤資料，已載入先前的分析結果（未扣除額度）</span>
@@ -990,22 +1176,36 @@ export default function ReadingPage() {
               </div>
             )}
 
-            {/* Chart: always visible for lifetime, tab-gated for others */}
-            {(isLifetime || tab === "chart") && isZwds && zwdsChartData && (
+            {/* Chart: always visible for full-page layout, tab-gated for others */}
+            {(isFullPageLayout || tab === "chart") && isZwds && zwdsChartData && (
               <ZwdsChart data={zwdsChartData} name={formValues?.name} birthDate={formValues?.birthDate} birthTime={formValues?.birthTime} />
             )}
-            {(isLifetime || tab === "chart") && !isZwds && chartData && (
+            {(isFullPageLayout || tab === "chart") && !isZwds && chartData && (
               <BaziChart
                 data={chartData}
                 name={formValues?.name}
                 birthDate={formValues?.birthDate}
                 birthTime={formValues?.birthTime}
-                visibleSections={isLifetime && isRevealing ? revealedSections : undefined}
+                visibleSections={isFullPageLayout && isRevealing ? revealedSections : undefined}
               />
             )}
 
-            {/* AI Divider — lifetime only, hidden during chart reveal */}
-            {isLifetime && !isRevealing && (aiData || isAiLoading) && (
+            {/* Career Paywall CTA — below chart, before AI sections */}
+            {isCareer && showCareerPaywall && !isAiLoading && (
+              <CareerPaywallCTA
+                creditCost={meta?.creditCost ?? 3}
+                currentCredits={userCredits}
+                hasFreeReading={hasFreeReading}
+                isSubscriber={isSubscriber}
+                isSignedIn={!!isSignedIn}
+                onUnlock={handleCareerUnlock}
+                isUnlocking={isUnlocking}
+                onCreditsRefresh={refreshUserProfile}
+              />
+            )}
+
+            {/* AI Divider — full-page layout only, hidden during chart reveal */}
+            {isFullPageLayout && !isRevealing && !showCareerPaywall && (aiData || isAiLoading) && (
               <div className={`${styles.aiDivider} ${styles.fadeInSection}`}>
                 <span className={styles.aiDividerIcon} aria-hidden="true">📝</span>
                 <span>命理解讀</span>
@@ -1013,8 +1213,8 @@ export default function ReadingPage() {
               </div>
             )}
 
-            {/* Cache toast — below AI divider for lifetime (semantically about AI cache) */}
-            {isLifetime && cacheToast && (
+            {/* Cache toast — below AI divider for full-page layout (semantically about AI cache) */}
+            {isFullPageLayout && cacheToast && (
               <div className={styles.cacheToast}>
                 <span className={styles.cacheToastIcon}>💡</span>
                 <span>偵測到相同命盤資料，已載入先前的分析結果（未扣除額度）</span>
@@ -1022,8 +1222,8 @@ export default function ReadingPage() {
               </div>
             )}
 
-            {/* Subscribe CTA — below divider for lifetime, inside reading tab for others */}
-            {(isLifetime ? (!isRevealing && showSubscribeCTA) : (tab === "reading" && showSubscribeCTA)) && (
+            {/* Subscribe CTA — below divider for full-page layout, inside reading tab for others */}
+            {(isFullPageLayout ? (!isRevealing && showSubscribeCTA) : (tab === "reading" && showSubscribeCTA)) && (
               <div className={styles.subscribeCTA}>
                 <div className={styles.subscribeCTAIcon}>🔒</div>
                 <h3 className={styles.subscribeCTATitle}>
@@ -1040,10 +1240,10 @@ export default function ReadingPage() {
               </div>
             )}
 
-            {/* AI Reading — hidden during reveal for lifetime, tab-gated for others */}
-            {(isLifetime || tab === "reading") && (
-              isLifetime ? (
-                !isRevealing && (aiData || isAiLoading) && <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} summaryPosition="bottom" chartData={chartData} />
+            {/* AI Reading — hidden during reveal for full-page layout, tab-gated for others */}
+            {(isFullPageLayout || tab === "reading") && (
+              isFullPageLayout ? (
+                !isRevealing && !showCareerPaywall && (aiData || isAiLoading) && <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} summaryPosition="bottom" chartData={chartData} />
               ) : (
                 <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} chartData={chartData} />
               )

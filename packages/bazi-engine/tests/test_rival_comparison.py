@@ -12,7 +12,7 @@ from datetime import datetime
 
 from app.calculator import calculate_bazi
 from app.five_elements import get_seasonal_state_labels
-from app.four_pillars import calculate_tai_yuan, calculate_ming_gong, calculate_tai_xi
+from app.four_pillars import calculate_tai_yuan, calculate_ming_gong, calculate_shen_gong, calculate_tai_xi
 from app.lifetime_enhanced import compute_parent_health_years
 from app.luck_periods import (
     calculate_luck_period_direction,
@@ -146,13 +146,97 @@ class TestTaiYuanMingGongTaiXi:
         assert result['branch'] == '巳'
 
     def test_integration_laopo10(self, laopo10_chart):
-        """Integration: verify 胎元/命宮/胎息 in full chart output."""
+        """Integration: verify 胎元/命宮/胎息/身宮 in full chart output."""
         assert laopo10_chart['taiYuan']['stem'] == '壬'
         assert laopo10_chart['taiYuan']['branch'] == '辰'
         assert laopo10_chart['mingGong']['stem'] == '丙'
         assert laopo10_chart['mingGong']['branch'] == '申'
         assert laopo10_chart['taiXi']['stem'] == '己'
         assert laopo10_chart['taiXi']['branch'] == '卯'
+        # 身宮: 六合(命宮申) = 巳, year丙 → 癸巳(長流水)
+        assert laopo10_chart['shenGong']['branch'] == '巳'
+        assert laopo10_chart['shenGong']['stem'] == '癸'
+
+
+# ============================================================
+# F1b: 身宮 (Body Palace) — NEW
+# ============================================================
+
+class TestShenGong:
+    """身宮 = 六合 partner of 命宮 branch, stem via 五虎遁."""
+
+    def test_shen_gong_laopo10(self):
+        """Laopo10: 命宮=申, 六合(申)=巳, year丙 → 癸巳(長流水)."""
+        result = calculate_shen_gong('丑', '申', '丙')
+        assert result['branch'] == '巳'
+        assert result['stem'] == '癸'
+        assert result['naYin'] == '長流水'
+
+    def test_shen_gong_zi_zi(self):
+        """子月+子時: 命宮=巳, 六合(巳)=申, year甲 → 壬申(劍鋒金)."""
+        result = calculate_shen_gong('子', '子', '甲')
+        assert result['branch'] == '申'
+        # year甲 → start=丙(2), 申 in MONTH_BRANCHES idx=6 → (2+6)%10=8 → 壬
+        assert result['stem'] == '壬'
+        assert result['naYin'] == '劍鋒金'
+
+    def test_shen_gong_hai_hai(self):
+        """亥月+亥時: 命宮=未, 六合(未)=午, year甲 → 庚午(路旁土)."""
+        result = calculate_shen_gong('亥', '亥', '甲')
+        assert result['branch'] == '午'
+        # year甲 → start=丙(2), 午 in MONTH_BRANCHES idx=4 → (2+4)%10=6 → 庚
+        assert result['stem'] == '庚'
+        assert result['naYin'] == '路旁土'
+
+    def test_shen_gong_yin_yin(self):
+        """寅月+寅時: 命宮=丑, 六合(丑)=子, year甲 → 丙子(澗下水)."""
+        result = calculate_shen_gong('寅', '寅', '甲')
+        assert result['branch'] == '子'
+        # year甲 → start=丙(2), 子 in MONTH_BRANCHES idx=10 → (2+10)%10=2 → 丙
+        # Wait: 子 in MONTH_BRANCHES = ['寅','卯','辰','巳','午','未','申','酉','戌','亥','子','丑']
+        # 子 is at index 10 → (2+10)%10 = 12%10 = 2 → 丙
+        assert result['stem'] == '丙'
+
+    def test_shen_gong_mao_you(self):
+        """卯月+酉時: 命宮=巳, 六合(巳)=申, year甲 → 壬申(劍鋒金)."""
+        result = calculate_shen_gong('卯', '酉', '甲')
+        assert result['branch'] == '申'
+        assert result['stem'] == '壬'
+        assert result['naYin'] == '劍鋒金'
+
+    def test_shen_gong_wu_wu(self):
+        """午月+午時: 命宮=(5-6-6)%12=5=巳, 六合(巳)=申."""
+        result = calculate_shen_gong('午', '午', '乙')
+        assert result['branch'] == '申'
+        # year乙 → start=戊(4), 申 in MONTH_BRANCHES idx=6 → (4+6)%10=0 → 甲
+        assert result['stem'] == '甲'
+
+    def test_shen_gong_chen_chou(self):
+        """辰月+丑時: 命宮=(5-4-1)%12=0=子, 六合(子)=丑."""
+        result = calculate_shen_gong('辰', '丑', '甲')
+        assert result['branch'] == '丑'
+        # year甲 → start=丙(2), 丑 in MONTH_BRANCHES idx=11 → (2+11)%10=3 → 丁
+        assert result['stem'] == '丁'
+
+    def test_shen_gong_different_year_stems(self):
+        """Test 五虎遁 stem derivation across all 5 year stem groups."""
+        # Same month/hour (丑/申) → 身宮 branch always 巳 (idx 3 in MONTH_BRANCHES)
+        # 巳 at MONTH_BRANCHES idx=3
+        # 甲/己 → start=丙(2): (2+3)%10=5 → 己
+        assert calculate_shen_gong('丑', '申', '甲')['stem'] == '己'
+        assert calculate_shen_gong('丑', '申', '己')['stem'] == '己'
+        # 乙/庚 → start=戊(4): (4+3)%10=7 → 辛
+        assert calculate_shen_gong('丑', '申', '乙')['stem'] == '辛'
+        assert calculate_shen_gong('丑', '申', '庚')['stem'] == '辛'
+        # 丙/辛 → start=庚(6): (6+3)%10=9 → 癸
+        assert calculate_shen_gong('丑', '申', '丙')['stem'] == '癸'
+        assert calculate_shen_gong('丑', '申', '辛')['stem'] == '癸'
+        # 丁/壬 → start=壬(8): (8+3)%10=1 → 乙
+        assert calculate_shen_gong('丑', '申', '丁')['stem'] == '乙'
+        assert calculate_shen_gong('丑', '申', '壬')['stem'] == '乙'
+        # 戊/癸 → start=甲(0): (0+3)%10=3 → 丁
+        assert calculate_shen_gong('丑', '申', '戊')['stem'] == '丁'
+        assert calculate_shen_gong('丑', '申', '癸')['stem'] == '丁'
 
 
 # ============================================================

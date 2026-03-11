@@ -7,13 +7,23 @@ import { ENTERTAINMENT_DISCLAIMER } from "@repo/shared";
 import type {
   AIReadingData,
   LifetimeV2DeterministicData,
+  CareerV2DeterministicData,
   LuckPeriodDetailData,
+} from "../lib/readings-api";
+import {
+  CAREER_V2_ALL_SECTION_KEYS,
+  getDynamicSectionTitle,
 } from "../lib/readings-api";
 import { getScoreColor } from "../lib/score-utils";
 import LuckPeriodChart from "./LuckPeriodChart";
 import MascotViewer from "./MascotViewer";
 import { isValidStem } from "../lib/mascot-utils";
 import { SECTION_TECH_BUILDERS } from "./techRefBuilders";
+import ScoreBar from "./ScoreBar";
+import ElementCapabilityChart from "./ElementCapabilityChart";
+import TenGodCapabilityChart from "./TenGodCapabilityChart";
+import AnnualForecastTimeline from "./AnnualForecastTimeline";
+import MonthlyFortuneGrid from "./MonthlyFortuneGrid";
 
 // ============================================================
 // Types
@@ -119,7 +129,23 @@ const SECTION_THEMES: Record<string, { icon: string; theme: string }> = {
   mutagen_analysis: { icon: "🔄", theme: "personality" },
   special_formations: { icon: "✨", theme: "overview" },
   life_strategy: { icon: "🎯", theme: "overview" },
+  // Career V2 sections
+  suitable_positions: { icon: "💼", theme: "career" },
+  career_directions_favorable: { icon: "🧭", theme: "career" },
+  career_directions_unfavorable: { icon: "⚠️", theme: "career" },
+  company_type_fit: { icon: "🏢", theme: "career" },
+  entrepreneurship: { icon: "🚀", theme: "career" },
+  partnership: { icon: "🤝", theme: "career" },
+  career_allies: { icon: "👥", theme: "overview" },
 };
+
+/** Resolve section theme for dynamic keys (annual_forecast_YYYY, monthly_forecast_MM) */
+function getSectionTheme(key: string): { icon: string; theme: string } {
+  if (SECTION_THEMES[key]) return SECTION_THEMES[key];
+  if (key.startsWith('annual_forecast_')) return { icon: "📅", theme: "timing" };
+  if (key.startsWith('monthly_forecast_')) return { icon: "📆", theme: "timing" };
+  return { icon: "📜", theme: "default" };
+}
 
 const SECTION_TITLES_ZH: Record<string, string> = {
   personality: "命格性格分析",
@@ -228,7 +254,7 @@ const GUIDE_SECTION_TITLES_ZH: Record<string, string> = {
 // StarRating Component (visual half-star support)
 // ============================================================
 
-function StarRating({ score }: { score: number }) {
+function StarRating({ score, indicatorLabel }: { score: number; indicatorLabel?: string }) {
   const stars = [];
   const clamped = Math.max(0, Math.min(5, score));
   for (let i = 1; i <= 5; i++) {
@@ -252,9 +278,236 @@ function StarRating({ score }: { score: number }) {
     <div className={styles.starRating}>
       {stars}
       <span className={styles.starScore}>{clamped.toFixed(1)}</span>
+      {indicatorLabel && (
+        <span className={styles.starIndicator}>· {indicatorLabel}</span>
+      )}
     </div>
   );
 }
+
+// ============================================================
+// Career Verdict Banner (go/no-go + categorical — prominent card)
+// ============================================================
+
+const CAREER_VERDICT_SECTIONS = new Set(['company_type_fit', 'entrepreneurship', 'partnership']);
+
+type VerdictTone = 'positive' | 'negative' | 'neutral';
+
+function CareerVerdictBadge({ sectionKey, det }: { sectionKey: string; det: CareerV2DeterministicData }) {
+  let verdictLabel = '';
+  let verdictMeta = '';
+  let score: number | null = null;
+  let tone: VerdictTone = 'neutral';
+
+  switch (sectionKey) {
+    case 'company_type_fit': {
+      const comp = det.companyTypeFit;
+      if (!comp) return null;
+      verdictLabel = comp.label || comp.type || '穩定型';
+      verdictMeta = comp.description || '大型企業、政府機構、傳統產業';
+      score = (det as any)?.companyTypeFit?.score ?? null;
+      tone = 'neutral';
+      break;
+    }
+    case 'entrepreneurship': {
+      const ent = det.entrepreneurshipFit;
+      if (!ent) return null;
+      const typeLabels: Record<string, string> = {
+        'technical_founder': '適合技術型創業',
+        'business_founder': '適合商業型創業',
+        'freelancer': '適合自由業型',
+        'not_recommended': '不建議創業',
+      };
+      verdictLabel = typeLabels[ent.type] || ent.type;
+      score = ent.score;
+      tone = ent.type !== 'not_recommended' ? 'positive' : 'negative';
+      break;
+    }
+    case 'partnership': {
+      const part = det.partnershipFit;
+      if (!part) return null;
+      verdictLabel = part.suitable ? '適合合夥經營' : '不建議合夥經營';
+      score = part.score;
+      tone = part.suitable ? 'positive' : 'negative';
+      break;
+    }
+    default:
+      return null;
+  }
+
+  const toneClass = tone === 'positive' ? styles.verdictBannerPositive
+    : tone === 'negative' ? styles.verdictBannerNegative
+    : styles.verdictBannerNeutral;
+
+  return (
+    <div className={`${styles.verdictBanner} ${toneClass}`}>
+      <div className={styles.verdictBannerLeft}>
+        <span className={styles.verdictBannerIcon}>
+          {tone === 'positive' ? '✓' : tone === 'negative' ? '✗' : '◆'}
+        </span>
+        <span className={styles.verdictBannerLabel}>{verdictLabel}</span>
+      </div>
+      <div className={styles.verdictBannerRight}>
+        {score !== null && <span className={styles.verdictBannerScore}>{score}<small>/100</small></span>}
+      </div>
+      {verdictMeta && <div className={styles.verdictBannerMeta}>{verdictMeta}</div>}
+    </div>
+  );
+}
+
+/** Returns an indicator label for career star-rated sections. */
+function getCareerStarLabel(
+  sectionKey: string,
+  det: CareerV2DeterministicData | undefined,
+): string | undefined {
+  if (!det) return undefined;
+
+  switch (sectionKey) {
+    case 'career_pattern': {
+      const rep = det.reputationScore;
+      return rep ? rep.level : undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+// ============================================================
+// Career Info Strip (compact data row — replaces stars for info sections)
+// ============================================================
+
+const CAREER_SUMMARY_SECTIONS = new Set([
+  'career_pattern',
+  'suitable_positions',
+  'career_directions_favorable',
+  'career_directions_unfavorable',
+  'career_allies',
+]);
+
+function CareerSummaryBadge({ sectionKey, det }: { sectionKey: string; det: CareerV2DeterministicData }) {
+  switch (sectionKey) {
+    case 'career_pattern': {
+      const pattern = det.pattern;
+      if (!pattern) return null;
+      const rep = det.reputationScore;
+      return (
+        <div className={styles.infoStrip}>
+          <span className={styles.infoStripTag}>{pattern}格局</span>
+          {rep && <span className={styles.infoStripValue}>{rep.level}（{rep.score}/100）</span>}
+        </div>
+      );
+    }
+    case 'suitable_positions': {
+      const positions = det.suitablePositions;
+      if (!positions || !Array.isArray(positions) || positions.length === 0) return null;
+      const types = positions.slice(0, 3)
+        .map((p: any) => String(p?.pattern || p?.label || ''))
+        .filter((s: string) => s.length > 0);
+      return (
+        <div className={styles.infoStrip}>
+          <span className={styles.infoStripTag}>{positions.length}類適合職位</span>
+          {types.length > 0 && <span className={styles.infoStripDetail}>{types.join('、')}</span>}
+        </div>
+      );
+    }
+    case 'career_directions_favorable': {
+      const industries = det.favorableIndustries;
+      if (!industries || !Array.isArray(industries) || industries.length === 0) return null;
+      const elements = industries.map((ind: any) => ind?.element || '').filter(Boolean);
+      return (
+        <div className={styles.infoStrip} data-tone="positive">
+          <span className={styles.infoStripTag}>{industries.length}個有利方向</span>
+          {elements.length > 0 && <span className={styles.infoStripDetail}>{elements.join('、')}屬性</span>}
+        </div>
+      );
+    }
+    case 'career_directions_unfavorable': {
+      const industries = det.unfavorableIndustries;
+      if (!industries || !Array.isArray(industries) || industries.length === 0) return null;
+      const elements = industries.map((ind: any) => ind?.element || '').filter(Boolean);
+      return (
+        <div className={styles.infoStrip} data-tone="negative">
+          <span className={styles.infoStripTag}>{industries.length}個需注意方向</span>
+          {elements.length > 0 && <span className={styles.infoStripDetail}>{elements.join('、')}屬性</span>}
+        </div>
+      );
+    }
+    case 'career_allies':
+      return null; // just suppress stars
+  }
+  return null;
+}
+
+// ============================================================
+// Normalize ActiveLuckPeriod (bridge snake_case from NestJS shallow conversion)
+// ============================================================
+
+interface ActiveLuckPeriodNormalized {
+  stem: string;
+  branch: string;
+  tenGod: string;
+  startYear: number;
+  endYear: number;
+}
+
+function normalizeActiveLuckPeriod(raw: Record<string, unknown> | null | undefined): ActiveLuckPeriodNormalized | null {
+  if (!raw || (!(raw as any).stem && !(raw as any).branch)) return null;
+  return {
+    stem: ((raw as any).stem || '') as string,
+    branch: ((raw as any).branch || '') as string,
+    tenGod: ((raw as any).tenGod || (raw as any).ten_god || '') as string,
+    startYear: ((raw as any).startYear || (raw as any).start_year || 0) as number,
+    endYear: ((raw as any).endYear || (raw as any).end_year || 0) as number,
+  };
+}
+
+// ============================================================
+// Normalize Career Deterministic Data (bridge snake_case from NestJS shallow conversion)
+// NestJS snakeToCamelCase only converts top-level keys. Nested object keys and
+// some top-level fields arrive as snake_case. This function normalizes all fields
+// used by CareerSummaryBadge, CareerVerdictBadge, and the career rendering block.
+// ============================================================
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+function normalizeCareerDeterministic(raw: any): CareerV2DeterministicData {
+  if (!raw) return raw;
+
+  // Helper: try camelCase first, then snake_case
+  const get = (obj: any, camel: string, snake: string) =>
+    obj[camel] !== undefined ? obj[camel] : obj[snake];
+
+  return {
+    ...raw,
+    // Top-level fields that may arrive as snake_case
+    weightedElements: get(raw, 'weightedElements', 'weighted_elements'),
+    weightedTenGods: get(raw, 'weightedTenGods', 'weighted_ten_gods'),
+    reputationScore: get(raw, 'reputationScore', 'reputation_score'),
+    wealthScore: get(raw, 'wealthScore', 'wealth_score'),
+    fiveQiStates: get(raw, 'fiveQiStates', 'five_qi_states'),
+    pattern: get(raw, 'pattern', 'pattern'),
+    patternType: get(raw, 'patternType', 'pattern_type'),
+    activeLuckPeriod: get(raw, 'activeLuckPeriod', 'active_luck_period'),
+    suitablePositions: get(raw, 'suitablePositions', 'suitable_positions') || [],
+    companyTypeFit: get(raw, 'companyTypeFit', 'company_type_fit'),
+    entrepreneurshipFit: get(raw, 'entrepreneurshipFit', 'entrepreneurship_fit'),
+    partnershipFit: get(raw, 'partnershipFit', 'partnership_fit'),
+    careerAllies: get(raw, 'careerAllies', 'career_allies'),
+    annualForecasts: get(raw, 'annualForecasts', 'annual_forecasts') || [],
+    monthlyForecasts: ((get(raw, 'monthlyForecasts', 'monthly_forecasts') || []) as any[]).map((mf: any) => ({
+      ...mf,
+      monthName: mf.monthName || mf.month_name || '',
+      tenGod: mf.tenGod || mf.ten_god || '',
+      solarTermDate: mf.solarTermDate || mf.solar_term_date || '',
+      solarTermEndDate: mf.solarTermEndDate || mf.solar_term_end_date || '',
+      seasonElement: mf.seasonElement || mf.season_element || '',
+      annualContext: mf.annualContext || mf.annual_context || '',
+      branchInteractions: mf.branchInteractions || mf.branch_interactions || [],
+    })),
+    favorableIndustries: get(raw, 'favorableIndustries', 'favorable_industries') || [],
+    unfavorableIndustries: get(raw, 'unfavorableIndustries', 'unfavorable_industries') || [],
+  };
+}
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ============================================================
 // CharacterCard Reference Tables (deterministic, guide-style only)
@@ -486,7 +739,7 @@ function CharacterCard({ chartData }: { chartData: Record<string, unknown> }) {
 const BAZI_CROSS_SELL = [
   { slug: "lifetime", icon: "🌟", name: "八字終身運" },
   { slug: "annual", icon: "📅", name: "八字流年運勢" },
-  { slug: "career", icon: "💼", name: "事業財運" },
+  { slug: "career", icon: "💼", name: "事業詳批" },
   { slug: "love", icon: "💕", name: "愛情姻緣" },
   { slug: "health", icon: "🏥", name: "先天健康分析" },
   { slug: "compatibility", icon: "🤝", name: "合盤比較" },
@@ -540,6 +793,7 @@ export default function AIReadingDisplay({
   chartData = null,
 }: AIReadingDisplayProps) {
   const isGuide = readingType === 'lifetime'; // LIFETIME always uses guide style
+  const isCareerV2 = readingType === 'career' && data?.isV2 === true;
   // During streaming with V2 data: show arrived sections + skeletons for remaining
   const isStreamingWithData = isStreaming && data?.isV2 && data.deterministic != null;
 
@@ -573,24 +827,84 @@ export default function AIReadingDisplay({
     <div className={styles.readingContainer}>
       {/* Summary (top position — default for non-lifetime readings) */}
       {summaryPosition !== 'bottom' && data.summary && (
-        <div className={styles.summaryCard}>
-          <h3 className={styles.summaryTitle}>命理總覽</h3>
-          <div className={styles.summaryText}>{renderFormattedContent(data.summary.text)}</div>
+        <div className={styles.readingSection} data-theme="overview">
+          <div className={styles.sectionHeader}>
+            <span className={styles.sectionIcon}>📋</span>
+            <h3 className={styles.sectionTitle}>命理總覽</h3>
+          </div>
+          <div className={styles.sectionContent}>
+            {renderFormattedContent(data.summary.text)}
+          </div>
         </div>
       )}
 
       {/* CharacterCard — guide style only, rendered before all sections */}
       {isGuide && chartData && <CharacterCard chartData={chartData} />}
 
+      {/* Career V2 deterministic data cards — before AI sections */}
+      {isCareerV2 && det && (() => {
+        const cdet = normalizeCareerDeterministic(det);
+        return (
+          <>
+            {/* Scores */}
+            {(cdet.reputationScore || cdet.wealthScore) && (
+              <div className={styles.readingSection} data-theme="career">
+                <div className={styles.sectionHeader}>
+                  <span className={styles.sectionIcon}>📊</span>
+                  <h3 className={styles.sectionTitle}>事業格局評分</h3>
+                </div>
+                <div style={{ padding: '0 0.5rem' }}>
+                  {cdet.reputationScore && (
+                    <ScoreBar
+                      label="名聲地位"
+                      score={cdet.reputationScore.score}
+                      tier={cdet.reputationScore.level}
+                    />
+                  )}
+                  {cdet.wealthScore && (
+                    <ScoreBar
+                      label="財富格局"
+                      score={cdet.wealthScore.score}
+                      tier={cdet.wealthScore.tier}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Five Elements Capability */}
+            {cdet.weightedElements && (
+              <ElementCapabilityChart data={cdet.weightedElements} />
+            )}
+
+            {/* Ten God Capability */}
+            {cdet.weightedTenGods && (
+              <TenGodCapabilityChart data={cdet.weightedTenGods} />
+            )}
+          </>
+        );
+      })()}
+
       {/* Sections */}
       {data.sections.map((section, index) => {
-        const themeInfo = SECTION_THEMES[section.key] || {
-          icon: "📜",
-          theme: "default",
-        };
-        const titleZh =
-          (isGuide ? GUIDE_SECTION_TITLES_ZH[section.key] : undefined)
-          || SECTION_TITLES_ZH[section.key] || section.title || section.key;
+        // Skip individual annual/monthly forecast AI sections for career V2 —
+        // these are rendered as grouped AnnualForecastTimeline + MonthlyFortuneGrid below
+        if (isCareerV2 && (
+          section.key.startsWith('annual_forecast_') ||
+          section.key.startsWith('monthly_forecast_')
+        )) {
+          return null;
+        }
+
+        const themeInfo = getSectionTheme(section.key);
+        // Use dynamic titles for career annual/monthly forecast sections
+        const titleZh = isCareerV2
+          ? (getDynamicSectionTitle(section.key)
+            || GUIDE_SECTION_TITLES_ZH[section.key]
+            || SECTION_TITLES_ZH[section.key]
+            || section.title || section.key)
+          : ((isGuide ? GUIDE_SECTION_TITLES_ZH[section.key] : undefined)
+            || SECTION_TITLES_ZH[section.key] || section.title || section.key);
 
         // Determine which deterministic card to insert after this section
         const deterministicKey = isV2 ? V2_DETERMINISTIC_INSERTIONS[section.key] : undefined;
@@ -606,10 +920,22 @@ export default function AIReadingDisplay({
                 <h3 className={styles.sectionTitle}>{titleZh}</h3>
               </div>
 
-              {/* Star rating for guide style (skip for timing sections — score shown in LuckPeriodHeader) */}
-              {isGuide && typeof section.score === 'number'
+              {/* Star rating — guide style + career V2 (skip timing, verdict, and summary sections) */}
+              {(isGuide || isCareerV2) && typeof section.score === 'number'
                 && !['current_period', 'next_period', 'best_period'].includes(section.key)
-                && (<StarRating score={section.score} />)}
+                && !CAREER_VERDICT_SECTIONS.has(section.key)
+                && !CAREER_SUMMARY_SECTIONS.has(section.key)
+                && (<StarRating score={section.score} indicatorLabel={isCareerV2 ? getCareerStarLabel(section.key, normalizeCareerDeterministic(det)) : undefined} />)}
+
+              {/* Summary badge — career V2 categorical/list sections */}
+              {isCareerV2 && CAREER_SUMMARY_SECTIONS.has(section.key) && det && (
+                <CareerSummaryBadge sectionKey={section.key} det={normalizeCareerDeterministic(det)} />
+              )}
+
+              {/* Verdict badge — career V2 only (go-no-go sections) */}
+              {isCareerV2 && CAREER_VERDICT_SECTIONS.has(section.key) && det && (
+                <CareerVerdictBadge sectionKey={section.key} det={normalizeCareerDeterministic(det)} />
+              )}
 
               {/* LuckPeriodHeader — timing sections only */}
               {isGuide && ['current_period', 'next_period', 'best_period'].includes(section.key) && data.deterministic && (() => {
@@ -668,10 +994,10 @@ export default function AIReadingDisplay({
             </div>
 
             {/* Insert deterministic data card after specific sections */}
-            {deterministicKey && det && (
+            {deterministicKey && det && !isCareerV2 && (
               <DeterministicCard
                 cardType={deterministicKey}
-                data={det}
+                data={det as LifetimeV2DeterministicData}
                 isSubscriber={isSubscriber}
                 chartData={chartData}
               />
@@ -683,11 +1009,15 @@ export default function AIReadingDisplay({
       {/* Streaming: skeleton placeholder for the NEXT expected section only */}
       {isStreamingWithData && (() => {
         const arrivedKeys = new Set(data.sections.map(s => s.key));
-        const remainingKeys = V2_ALL_SECTION_KEYS.filter(k => !arrivedKeys.has(k));
+        // Use career section keys for career V2, lifetime keys otherwise
+        const allKeys = isCareerV2 ? CAREER_V2_ALL_SECTION_KEYS : V2_ALL_SECTION_KEYS;
+        const remainingKeys = allKeys.filter(k => !arrivedKeys.has(k));
         const nextKey = remainingKeys[0];
         if (!nextKey) return null;
-        const themeInfo = SECTION_THEMES[nextKey] || { icon: '📜', theme: 'default' };
-        const titleZh = SECTION_TITLES_ZH[nextKey] || nextKey;
+        const themeInfo = getSectionTheme(nextKey);
+        const titleZh = getDynamicSectionTitle(nextKey)
+          || GUIDE_SECTION_TITLES_ZH[nextKey]
+          || SECTION_TITLES_ZH[nextKey] || nextKey;
         return (
           <>
             <div className={styles.streamingIndicator}>
@@ -710,11 +1040,64 @@ export default function AIReadingDisplay({
         );
       })()}
 
+      {/* Career V2: Annual Forecast Timeline + Monthly Grid (after all AI sections) */}
+      {isCareerV2 && det && (() => {
+        const cdet = normalizeCareerDeterministic(det);
+
+        // Collect AI narratives from sections for annual/monthly
+        const annualNarratives: Record<string, string> = {};
+        const monthlyNarratives: Record<string, string> = {};
+        for (const section of data.sections) {
+          if (section.key.startsWith('annual_forecast_')) {
+            annualNarratives[section.key] = section.full || section.preview || '';
+          }
+          if (section.key.startsWith('monthly_forecast_')) {
+            monthlyNarratives[section.key] = section.full || section.preview || '';
+          }
+        }
+
+        return (
+          <>
+            {cdet.annualForecasts && cdet.annualForecasts.length > 0 && (
+              <div className={styles.readingSection} data-theme="timing">
+                <div className={styles.sectionHeader}>
+                  <span className={styles.sectionIcon}>📅</span>
+                  <h3 className={styles.sectionTitle}>未來五年事業運勢</h3>
+                </div>
+                <AnnualForecastTimeline
+                  forecasts={cdet.annualForecasts}
+                  activeLuckPeriod={normalizeActiveLuckPeriod(cdet.activeLuckPeriod as any)}
+                  narratives={isSubscriber ? annualNarratives : undefined}
+                />
+              </div>
+            )}
+
+            {cdet.monthlyForecasts && cdet.monthlyForecasts.length > 0 && (
+              <div className={styles.readingSection} data-theme="timing">
+                <div className={styles.sectionHeader}>
+                  <span className={styles.sectionIcon}>📆</span>
+                  <h3 className={styles.sectionTitle}>{cdet.annualForecasts?.[0]?.year || new Date().getFullYear()}年 每月事業運程</h3>
+                </div>
+                <MonthlyFortuneGrid
+                  forecasts={cdet.monthlyForecasts}
+                  narratives={isSubscriber ? monthlyNarratives : undefined}
+                />
+              </div>
+            )}
+          </>
+        );
+      })()}
+
       {/* Summary (bottom position — lifetime readings, acts as conclusion) */}
       {summaryPosition === 'bottom' && data.summary && (
-        <div className={`${styles.summaryCard} ${styles.summaryFadeIn}`}>
-          <h3 className={styles.summaryTitle}>命理總覽</h3>
-          <div className={styles.summaryText}>{renderFormattedContent(data.summary.text)}</div>
+        <div className={`${styles.readingSection} ${styles.summaryFadeIn}`} data-theme="overview">
+          <div className={styles.sectionHeader}>
+            <span className={styles.sectionIcon}>📋</span>
+            <h3 className={styles.sectionTitle}>命理總覽</h3>
+          </div>
+          <div className={styles.sectionContent}>
+            {renderFormattedContent(data.summary.text)}
+          </div>
         </div>
       )}
 
@@ -1197,9 +1580,26 @@ function renderFormattedContent(text: string): React.ReactNode {
     if (bulletBuffer.length === 0) return;
     elements.push(
       <ul key={key++} className={styles.goldBulletList}>
-        {bulletBuffer.map((item, i) => (
-          <li key={i} className={styles.goldBulletItem}>{item}</li>
-        ))}
+        {bulletBuffer.map((item, i) => {
+          // Detect category:items pattern (e.g., "傳媒與娛樂：傳媒業、廣告、演藝")
+          // Only apply when colon is NOT at position 0, and content after colon has comma-separated items
+          const colonIdx = item.indexOf('：');
+          if (colonIdx > 0 && colonIdx < item.length - 1) {
+            const afterColon = item.slice(colonIdx + 1).trim();
+            // Heuristic: if after-colon part has Chinese commas (頓號) → category:items pattern
+            if (afterColon.includes('、')) {
+              const category = item.slice(0, colonIdx);
+              const items = afterColon;
+              return (
+                <li key={i} className={`${styles.goldBulletItem} ${styles.goldBulletItemCategory}`}>
+                  <span className={styles.bulletCategory}>{category}</span>
+                  <span className={styles.bulletCategoryItems}>{items}</span>
+                </li>
+              );
+            }
+          }
+          return <li key={i} className={styles.goldBulletItem}>{item}</li>;
+        })}
       </ul>
     );
     bulletBuffer = [];
@@ -1208,9 +1608,9 @@ function renderFormattedContent(text: string): React.ReactNode {
   for (const line of lines) {
     const trimmed = line.trim();
 
-    // Bullet line: starts with "- " or "– "
-    if (/^[-–]\s+/.test(trimmed)) {
-      bulletBuffer.push(trimmed.replace(/^[-–]\s+/, ''));
+    // Bullet line: starts with "- ", "– ", "·", "‧", or "・"
+    if (/^[-–·‧・]\s*/.test(trimmed)) {
+      bulletBuffer.push(trimmed.replace(/^[-–·‧・]\s*/, ''));
       continue;
     }
 
@@ -1242,11 +1642,11 @@ function renderFormattedContent(text: string): React.ReactNode {
 
 function numberToChinese(n: number): string {
   const digits = ['零','一','二','三','四','五','六','七','八','九','十'];
-  if (n <= 10) return digits[n];
-  if (n < 20) return `十${digits[n - 10]}`;
+  if (n <= 10) return digits[n] ?? String(n);
+  if (n < 20) return `十${digits[n - 10] ?? ''}`;
   const tens = Math.floor(n / 10);
   const ones = n % 10;
-  return `${digits[tens]}十${ones ? digits[ones] : ''}`;
+  return `${digits[tens] ?? ''}十${ones ? (digits[ones] ?? '') : ''}`;
 }
 
 /** Extract the luck period and ordinal label for a timing section key */
@@ -1267,6 +1667,7 @@ function getLuckPeriodForSection(
     const currentIdx = periods.findIndex(p => p.isCurrent);
     if (currentIdx < 0 || currentIdx + 1 >= periods.length) return null;
     const p = periods[currentIdx + 1];
+    if (!p) return null;
     return {
       period: p,
       ordinalLabel: p.periodOrdinal ? `第${numberToChinese(p.periodOrdinal)}大運` : '',

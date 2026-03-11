@@ -21,6 +21,10 @@ import {
   LIFETIME_V2_PROMPTS,
   buildLifetimeSystemPrompt,
   GUIDE_STYLE_RULES,
+  CAREER_V2_PROMPTS,
+  buildCareerSystemPrompt,
+  CAREER_V2_STYLE_RULES,
+  TEN_GOD_CAREER_TRANSLATION,
 } from './prompts';
 
 // ============================================================
@@ -473,6 +477,185 @@ export class AIService implements OnModuleInit {
     );
   }
 
+  // ============================================================
+  // Career V2 Multi-Call (Non-Streaming)
+  // ============================================================
+
+  /**
+   * Generate Career V2 AI interpretation using 2 parallel calls.
+   * Call 1: Core career analysis (8 sections + summary)
+   * Call 2: Timing forecasts (5 annual + 12 monthly)
+   */
+  async generateCareerV2Interpretation(
+    calculationData: Record<string, unknown>,
+    userId?: string,
+    readingId?: string,
+  ): Promise<AIGenerationResult> {
+    if (this.providers.length === 0) {
+      throw new Error('No AI providers configured');
+    }
+
+    const timeoutMs = parseInt(
+      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '60000',
+      10,
+    );
+
+    const { systemPrompt, userPromptCall1, userPromptCall2 } =
+      this.buildCareerV2Prompts(calculationData);
+
+    let lastError: Error | undefined;
+
+    for (const providerConfig of this.providers) {
+      try {
+        const call1Promise = this.callProviderWithTimeout(
+          providerConfig, systemPrompt, userPromptCall1, timeoutMs,
+        );
+        const call2Promise = this.callProviderWithTimeout(
+          providerConfig, systemPrompt, userPromptCall2, timeoutMs,
+        );
+
+        const startTime = Date.now();
+        const [result1, result2] = await Promise.allSettled([call1Promise, call2Promise]);
+        const latencyMs = Date.now() - startTime;
+
+        const call1Success = result1.status === 'fulfilled';
+        const call2Success = result2.status === 'fulfilled';
+
+        if (!call1Success) {
+          this.logger.warn(`Career V2 Call 1 failed (${providerConfig.provider}): ${(result1 as PromiseRejectedResult).reason}`);
+        }
+        if (!call2Success) {
+          this.logger.warn(`Career V2 Call 2 failed (${providerConfig.provider}): ${(result2 as PromiseRejectedResult).reason}`);
+        }
+
+        if (!call1Success && !call2Success) {
+          lastError = new Error(`Provider ${providerConfig.provider}: both career V2 calls failed`);
+          continue;
+        }
+
+        let sections: Record<string, InterpretationSection> = {};
+        let summary: InterpretationSection = { preview: '', full: '' };
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
+
+        if (call1Success) {
+          const r1 = (result1 as PromiseFulfilledResult<{ content: string; inputTokens: number; outputTokens: number }>).value;
+          totalInputTokens += r1.inputTokens;
+          totalOutputTokens += r1.outputTokens;
+
+          const parsed1 = this.parseLifetimeV2CallResponse(r1.content, 'call1');
+          const { result: fixed1 } = this.autoFixAllSections(parsed1, calculationData);
+          // Apply career-specific fixes to Call 1 sections
+          for (const [key, section] of Object.entries(fixed1.sections)) {
+            const { section: careerFixed } = this.autoFixCareerSection(key, section, calculationData);
+            fixed1.sections[key] = careerFixed;
+          }
+          sections = { ...sections, ...fixed1.sections };
+          if (fixed1.summary && (fixed1.summary.preview || fixed1.summary.full)) {
+            summary = fixed1.summary;
+          }
+
+          this.logUsage(userId, readingId, providerConfig, {
+            interpretation: { sections: fixed1.sections, summary: fixed1.summary },
+            provider: providerConfig.provider,
+            model: providerConfig.model,
+            tokenUsage: {
+              inputTokens: r1.inputTokens,
+              outputTokens: r1.outputTokens,
+              totalTokens: r1.inputTokens + r1.outputTokens,
+              estimatedCostUsd: 0,
+            },
+            latencyMs,
+            isCacheHit: false,
+          }, 'CAREER' as ReadingType).catch(() => {});
+        }
+
+        if (call2Success) {
+          const r2 = (result2 as PromiseFulfilledResult<{ content: string; inputTokens: number; outputTokens: number }>).value;
+          totalInputTokens += r2.inputTokens;
+          totalOutputTokens += r2.outputTokens;
+
+          const parsed2 = this.parseLifetimeV2CallResponse(r2.content, 'call2');
+          const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
+          // Apply career-specific fixes to Call 2 sections
+          for (const [key, section] of Object.entries(fixed2.sections)) {
+            const { section: careerFixed } = this.autoFixCareerSection(key, section, calculationData);
+            fixed2.sections[key] = careerFixed;
+          }
+          sections = { ...sections, ...fixed2.sections };
+
+          this.logUsage(userId, readingId, providerConfig, {
+            interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
+            provider: providerConfig.provider,
+            model: providerConfig.model,
+            tokenUsage: {
+              inputTokens: r2.inputTokens,
+              outputTokens: r2.outputTokens,
+              totalTokens: r2.inputTokens + r2.outputTokens,
+              estimatedCostUsd: 0,
+            },
+            latencyMs,
+            isCacheHit: false,
+          }, 'CAREER' as ReadingType).catch(() => {});
+        }
+
+        // Merge with deterministic data from careerEnhancedInsights
+        const enhancedInsights = calculationData['careerEnhancedInsights'] as Record<string, unknown> | undefined;
+        const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+        const deterministic: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(rawDeterministic)) {
+          const camelKey = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+          deterministic[camelKey] = value;
+        }
+
+        const totalCost =
+          totalInputTokens * providerConfig.costPerInputToken +
+          totalOutputTokens * providerConfig.costPerOutputToken;
+
+        const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
+          sections,
+          summary,
+          deterministic,
+          schemaVersion: 'v2',
+        };
+
+        this.logger.log(
+          `Career V2 generated via ${providerConfig.provider} in ${latencyMs}ms, ` +
+          `${totalInputTokens}+${totalOutputTokens} tokens, $${totalCost.toFixed(4)}, ` +
+          `call1=${call1Success ? 'ok' : 'FAIL'}, call2=${call2Success ? 'ok' : 'FAIL'}`,
+        );
+
+        return {
+          interpretation,
+          provider: providerConfig.provider,
+          model: providerConfig.model,
+          tokenUsage: {
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            totalTokens: totalInputTokens + totalOutputTokens,
+            estimatedCostUsd: Math.round(totalCost * 1_000_000) / 1_000_000,
+          },
+          latencyMs,
+          isCacheHit: false,
+        };
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        this.logger.warn(
+          `Career V2 provider ${providerConfig.provider} failed: ${lastError.message}. Trying next...`,
+        );
+      }
+    }
+
+    // All providers exhausted for Career V2 → fall back to V1
+    this.logger.warn(`Career V2 all providers failed (last: ${lastError?.message}) — falling back to V1`);
+    return this.generateInterpretation(
+      calculationData,
+      ReadingType.CAREER,
+      userId,
+      readingId,
+    );
+  }
+
   /**
    * Call a provider with a timeout. Passes AbortController signal to SDK.
    */
@@ -774,6 +957,281 @@ export class AIService implements OnModuleInit {
     }
   }
 
+  // ============================================================
+  // Career V2 SSE Streaming
+  // ============================================================
+
+  /**
+   * Stream Career V2 AI interpretation via SSE Observable.
+   * Reuses the same streaming infrastructure as Lifetime V2.
+   * Call 1 streams core career sections; Call 2 runs annual+monthly in parallel.
+   */
+  streamCareerV2(
+    calculationData: Record<string, unknown>,
+    readingId: string,
+  ): Observable<MessageEvent> {
+    return new Observable((subscriber: Subscriber<MessageEvent>) => {
+      this._executeStreamCareerV2(calculationData, readingId, subscriber)
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Stream failed';
+          subscriber.next({
+            data: JSON.stringify({ message }),
+            type: 'error',
+          } as MessageEvent);
+          subscriber.complete();
+        });
+    });
+  }
+
+  private async _executeStreamCareerV2(
+    calculationData: Record<string, unknown>,
+    readingId: string,
+    subscriber: Subscriber<MessageEvent>,
+  ) {
+    const startTime = Date.now();
+    const timeoutMs = parseInt(
+      this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
+      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '180000',
+      10,
+    );
+
+    if (this.providers.length === 0) {
+      throw new Error('No AI providers configured');
+    }
+
+    const { systemPrompt, userPromptCall1, userPromptCall2 } =
+      this.buildCareerV2Prompts(calculationData);
+
+    // Build dynamic section keys for Call 2 extraction
+    const call2ExpectedKeys: string[] = [];
+    const enhancedInsights = calculationData['careerEnhancedInsights'] as Record<string, unknown> | undefined;
+    const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+    const annualForecasts = (rawDeterministic['annual_forecasts'] || rawDeterministic['annualForecasts'] || []) as Array<{ year: number }>;
+    for (const af of annualForecasts) {
+      call2ExpectedKeys.push(`annual_forecast_${af.year}`);
+    }
+    for (let m = 1; m <= 12; m++) {
+      call2ExpectedKeys.push(`monthly_forecast_${String(m).padStart(2, '0')}`);
+    }
+
+    // Heartbeat to keep SSE alive
+    const heartbeatInterval = setInterval(() => {
+      subscriber.next({ data: '', type: 'heartbeat' } as MessageEvent);
+    }, 15000);
+
+    let call1Timeout!: ReturnType<typeof setTimeout>;
+    let call2Timeout!: ReturnType<typeof setTimeout>;
+
+    try {
+      let v2Succeeded = false;
+      let totalSections = 0;
+      let activeProviderConfig = this.providers[0]!;
+
+      for (const providerConfig of this.providers) {
+        activeProviderConfig = providerConfig;
+
+        try {
+          // === Call 1: Stream core career sections ===
+          const call1Sections: Record<string, InterpretationSection> = {};
+          let call1Summary: InterpretationSection = { preview: '', full: '' };
+          let call1Buffer = '';
+
+          // Set up abort controllers for timeouts
+          const call1Controller = new AbortController();
+          call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
+
+          // === Call 2: Non-streaming parallel (annual + monthly forecasts) ===
+          const call2Promise = this.callProviderWithTimeout(
+            providerConfig, systemPrompt, userPromptCall2, timeoutMs,
+          ).catch((err) => {
+            this.logger.warn(`Career V2 Call 2 failed (${providerConfig.provider}): ${err instanceof Error ? err.message : err}`);
+            return null;
+          });
+
+          const call1ExtractedKeys = new Set<string>();
+          const call1Keys = CAREER_V2_PROMPTS.call1Sections;
+
+          try {
+            const streamGen = this.streamProvider(
+              providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
+            );
+
+            for await (const chunk of streamGen) {
+              call1Buffer += chunk;
+
+              // Try to extract completed sections
+              const newSections = this.extractCompletedSections(
+                call1Buffer, call1Keys, call1ExtractedKeys,
+              );
+
+              for (const [key, rawSection] of Object.entries(newSections)) {
+                const { section: autoFixed } = this.autoFixSection(key, rawSection, calculationData);
+                const { section } = this.autoFixCareerSection(key, autoFixed, calculationData);
+                call1Sections[key] = section;
+                totalSections++;
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+
+            // Parse any remaining from complete buffer
+            const finalParsed = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
+            for (const [key, rawSection] of Object.entries(finalParsed.sections)) {
+              if (!call1Sections[key]) {
+                const { section: autoFixed } = this.autoFixSection(key, rawSection, calculationData);
+                const { section } = this.autoFixCareerSection(key, autoFixed, calculationData);
+                call1Sections[key] = section;
+                totalSections++;
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+            if (finalParsed.summary && (finalParsed.summary.preview || finalParsed.summary.full)) {
+              call1Summary = finalParsed.summary;
+            }
+          } catch (streamErr) {
+            if ((streamErr as Error).name !== 'AbortError') {
+              this.logger.warn(`Career V2 Call 1 stream error: ${streamErr instanceof Error ? streamErr.message : streamErr}`);
+            }
+          }
+          clearTimeout(call1Timeout);
+
+          // Emit Call 1 complete
+          subscriber.next({
+            data: JSON.stringify({ call: 1 }),
+            type: 'call_complete',
+          } as MessageEvent);
+
+          // Wait for Call 2 to finish
+          let call2FixedSections: Record<string, InterpretationSection> = {};
+          const call2Result = await call2Promise;
+          if (call2Result) {
+            const parsed2 = this.parseLifetimeV2CallResponse(call2Result.content, 'call2');
+            const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
+            // Apply career-specific fixes to Call 2 sections
+            for (const [key, section] of Object.entries(fixed2.sections)) {
+              const { section: careerFixed } = this.autoFixCareerSection(key, section, calculationData);
+              fixed2.sections[key] = careerFixed;
+            }
+            call2FixedSections = fixed2.sections;
+
+            for (const [key, section] of Object.entries(call2FixedSections)) {
+              totalSections++;
+              subscriber.next({
+                data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
+                type: 'section_complete',
+              } as MessageEvent);
+            }
+          }
+
+          // Emit Call 2 complete
+          subscriber.next({
+            data: JSON.stringify({ call: 2 }),
+            type: 'call_complete',
+          } as MessageEvent);
+
+          // Emit summary
+          if (call1Summary.preview || call1Summary.full) {
+            subscriber.next({
+              data: JSON.stringify({ preview: call1Summary.preview, full: call1Summary.full }),
+              type: 'summary',
+            } as MessageEvent);
+          }
+
+          // Merge all sections for DB update
+          const allSections: Record<string, InterpretationSection> = {
+            ...call1Sections,
+            ...call2FixedSections,
+          };
+
+          // Build deterministic data (uses careerEnhancedInsights, NOT lifetimeEnhancedInsights)
+          const deterministic: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(rawDeterministic)) {
+            const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+            deterministic[camelKey] = value;
+          }
+
+          const aiInterpretation = {
+            schemaVersion: 'v2',
+            sections: allSections,
+            summary: call1Summary,
+            deterministic,
+          };
+
+          // Update DB record
+          try {
+            await this.prisma.baziReading.update({
+              where: { id: readingId },
+              data: {
+                aiInterpretation: aiInterpretation as unknown as Prisma.InputJsonValue,
+                aiProvider: providerConfig.provider as any,
+                aiModel: providerConfig.model,
+              },
+            });
+          } catch (dbErr) {
+            this.logger.error(`Failed to update career reading ${readingId} with AI: ${dbErr}`);
+          }
+
+          // Cache the result
+          const birthDataHash = this.generateBirthDataHash(
+            calculationData['birthDate'] as string || '',
+            calculationData['birthTime'] as string || '',
+            '',
+            calculationData['gender'] as string || '',
+            ReadingType.CAREER,
+          );
+          this.cacheInterpretation(
+            birthDataHash,
+            ReadingType.CAREER,
+            calculationData,
+            aiInterpretation as unknown as AIInterpretationResult,
+          ).catch((err) => this.logger.error(`Career stream cache write failed: ${err}`));
+
+          v2Succeeded = true;
+          break;
+
+        } catch (err) {
+          this.logger.warn(
+            `Career Stream V2 provider ${providerConfig.provider} failed: ${err instanceof Error ? err.message : err}. Trying next...`,
+          );
+          clearTimeout(call1Timeout);
+          clearTimeout(call2Timeout);
+          if (totalSections > 0) {
+            v2Succeeded = true;
+            break;
+          }
+        }
+      }
+
+      if (!v2Succeeded) {
+        subscriber.next({
+          data: JSON.stringify({ message: 'All Career V2 providers failed' }),
+          type: 'error',
+        } as MessageEvent);
+      }
+
+      const latencyMs = Date.now() - startTime;
+      this.logger.log(
+        `Stream Career V2 completed via ${activeProviderConfig.provider} in ${latencyMs}ms, ${totalSections} sections delivered`,
+      );
+
+      subscriber.next({
+        data: JSON.stringify({ totalSections, latencyMs }),
+        type: 'done',
+      } as MessageEvent);
+
+    } finally {
+      clearInterval(heartbeatInterval);
+      clearTimeout(call1Timeout!);
+      clearTimeout(call2Timeout!);
+      subscriber.complete();
+    }
+  }
+
   /**
    * Extract completed JSON sections from a streaming buffer using brace-depth tracking.
    * Handles escaped characters and string contexts properly.
@@ -900,6 +1358,411 @@ export class AIService implements OnModuleInit {
     const userPromptCall2 = call2Template + '\n\n' + outputFormatCall2;
 
     return { systemPrompt, userPromptCall1, userPromptCall2 };
+  }
+
+  /**
+   * Build system + user prompts for both Career V2 calls.
+   * Interpolates career-specific pre-analysis data into templates.
+   */
+  private buildCareerV2Prompts(
+    calculationData: Record<string, unknown>,
+  ): { systemPrompt: string; userPromptCall1: string; userPromptCall2: string } {
+    const basePrompt = buildCareerSystemPrompt();
+    const systemPrompt = basePrompt + '\n\n' + CAREER_V2_PROMPTS.systemAddition + '\n' + CAREER_V2_STYLE_RULES;
+
+    // Interpolate shared placeholders for both calls
+    let call1Template = CAREER_V2_PROMPTS.userTemplateCall1;
+    let call2Template = CAREER_V2_PROMPTS.userTemplateCall2;
+
+    // Apply standard interpolation (reuses existing logic)
+    call1Template = this.interpolateTemplate(call1Template, calculationData, ReadingType.CAREER);
+    call2Template = this.interpolateTemplate(call2Template, calculationData, ReadingType.CAREER);
+
+    // Interpolate career-specific placeholders
+    call1Template = this.interpolateCareerV2Fields(call1Template, calculationData);
+    call2Template = this.interpolateCareerV2Fields(call2Template, calculationData);
+
+    // Append output format instructions with score field
+    const outputFormatCall1 = CAREER_V2_PROMPTS.outputFormatCall1.replace(
+      /{ "preview"/g,
+      '{ "score": <1-5的數字，支持0.5如3.5>, "preview"',
+    );
+
+    // Call 2 output format needs dynamic year substitution
+    let outputFormatCall2 = CAREER_V2_PROMPTS.outputFormatCall2;
+    const enhancedInsights = calculationData['careerEnhancedInsights'] as Record<string, unknown> | undefined;
+    const rawDet = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+    const annualForecasts = (rawDet['annual_forecasts'] || rawDet['annualForecasts'] || []) as Array<{ year: number }>;
+    if (annualForecasts.length > 0) {
+      const years = annualForecasts.map(af => af.year);
+      for (let i = 0; i < Math.min(5, years.length); i++) {
+        outputFormatCall2 = outputFormatCall2.replace(
+          new RegExp(`YYYY${i + 1}`, 'g'),
+          String(years[i]),
+        );
+      }
+    }
+    outputFormatCall2 = outputFormatCall2.replace(
+      /{ "preview"/g,
+      '{ "score": <1-5的數字，支持0.5如3.5>, "preview"',
+    );
+
+    const userPromptCall1 = call1Template + '\n\n' + outputFormatCall1;
+    const userPromptCall2 = call2Template + '\n\n' + outputFormatCall2;
+
+    return { systemPrompt, userPromptCall1, userPromptCall2 };
+  }
+
+  /**
+   * Interpolate Career V2-specific placeholders into templates.
+   */
+  private interpolateCareerV2Fields(
+    template: string,
+    data: Record<string, unknown>,
+  ): string {
+    let result = template;
+    const enhanced = data['careerEnhancedInsights'] as Record<string, unknown> | undefined;
+    // Read from full enhanced insights (camelCase keys), NOT just the deterministic subset.
+    // The deterministic sub-object is for frontend rendering only; AI needs all career data.
+    const det = (enhanced || {}) as Record<string, unknown>;
+
+    // Career pre-analysis (Call 1)
+    if (result.includes('{{careerPreAnalysis}}')) {
+      const lines: string[] = [];
+
+      // DM Strength — prominent anchor (prevents AI self-diagnosis)
+      const preAnalysis = data['preAnalysis'] as Record<string, unknown> | undefined;
+      const strengthV2Data = preAnalysis?.['strengthV2'] as Record<string, unknown> | undefined;
+      if (strengthV2Data) {
+        const cls = STRENGTH_V2_ZH[(strengthV2Data['classification'] as string) || ''] || '';
+        const sc = strengthV2Data['score'] || 0;
+        lines.push(`⚠️ 日主強弱分類（以此為準，不可自行判斷）：${cls}（${sc}/100）`);
+      }
+
+      // Pattern & scores
+      lines.push(`⚠️ 格局（以此為準）：${det['pattern'] || '（未提供）'}`);
+      lines.push(`格局類型：${det['pattern_type'] || det['patternType'] || '標準格'}`);
+
+      const rep = det['reputation_score'] || det['reputationScore'];
+      if (rep && typeof rep === 'object') {
+        const r = rep as Record<string, unknown>;
+        lines.push(`名聲地位評分：${r['score']}分（等級：${r['level']}）`);
+      }
+
+      const wea = det['wealth_score'] || det['wealthScore'];
+      if (wea && typeof wea === 'object') {
+        const w = wea as Record<string, unknown>;
+        lines.push(`財富格局評分：${w['score']}分（等級：${w['tier']}）`);
+      }
+
+      // Suitable positions
+      const positions = (det['suitable_positions'] || det['suitablePositions'] || []) as Array<Record<string, unknown>>;
+      if (positions.length > 0) {
+        lines.push('\n適合職位：');
+        for (const p of positions) {
+          lines.push(`- ${p['pattern']}（${p['source']}）：${(p['positions'] as string[] || []).join('、')}`);
+        }
+      }
+
+      // Company type
+      const company = (det['company_type_fit'] || det['companyTypeFit']) as Record<string, unknown> | undefined;
+      if (company) {
+        lines.push(`\n公司類型適配：${company['label']}（${company['description']}）`);
+      }
+
+      // Entrepreneurship
+      const entre = (det['entrepreneurship_fit'] || det['entrepreneurshipFit']) as Record<string, unknown> | undefined;
+      if (entre) {
+        lines.push(`\n創業適合度：${entre['score']}分（類型：${entre['type']}）`);
+        lines.push(`原因：${(entre['reasons'] as string[] || []).join('；')}`);
+      }
+
+      // Partnership
+      const partner = (det['partnership_fit'] || det['partnershipFit']) as Record<string, unknown> | undefined;
+      if (partner) {
+        lines.push(`\n合夥適合度：${partner['score']}分（${partner['suitable'] ? '適合' : '不適合'}）`);
+        lines.push(`原因：${(partner['reasons'] as string[] || []).join('；')}`);
+      }
+
+      // Career allies
+      const allies = (det['career_allies'] || det['careerAllies']) as Record<string, unknown> | undefined;
+      if (allies) {
+        const nobles = (allies['nobles'] || []) as Array<Record<string, unknown>>;
+        if (nobles.length > 0) {
+          lines.push('\n貴人：');
+          for (const n of nobles) {
+            lines.push(`- ${n['name']}（${n['branch']}${n['zodiac'] ? ' ' + n['zodiac'] : ''}）`);
+          }
+        }
+        const antags = (allies['antagonists'] || []) as Array<Record<string, unknown>>;
+        if (antags.length > 0) {
+          lines.push('小人：');
+          for (const a of antags) {
+            lines.push(`- ${a['label']}：${a['description']}`);
+          }
+        }
+        const allyList = (allies['allies'] || []) as Array<Record<string, unknown>>;
+        if (allyList.length > 0) {
+          lines.push(`三合/六合貴人生肖：${allyList.map(al => al['zodiac'] || al['branch']).join('、')}`);
+        }
+        const enemyList = (allies['enemies'] || []) as Array<Record<string, unknown>>;
+        if (enemyList.length > 0) {
+          lines.push(`六沖/刑/害 不合生肖：${enemyList.map(e => e['zodiac'] || e['branch']).join('、')}`);
+        }
+        // Career-specific shensha (將星, 太極貴人, etc.)
+        const careerShensha = (allies['career_shensha'] || allies['careerShensha'] || []) as Array<Record<string, unknown>>;
+        if (careerShensha.length > 0) {
+          lines.push('事業貴星：');
+          for (const cs of careerShensha) {
+            lines.push(`- ${cs['name']}（${cs['branch']}${cs['zodiac'] ? ' ' + cs['zodiac'] : ''}）`);
+          }
+        }
+        // Mobility bringers (驛馬 sources)
+        const mobilityBringers = (allies['mobility_bringers'] || allies['mobilityBringers'] || []) as Array<Record<string, unknown>>;
+        if (mobilityBringers.length > 0) {
+          const uniqueZodiacs = [...new Set(mobilityBringers.map(mb => (mb['zodiac'] || mb['branch']) as string))];
+          lines.push(`驛馬來源生肖：${uniqueZodiacs.join('、')}`);
+        }
+      }
+
+      // Industries (Python returns Array<{element, anchor, category, industries: string[]}>)
+      const favInd = (det['favorable_industries'] || det['favorableIndustries'] || []) as Array<Record<string, unknown>>;
+      if (favInd.length > 0) {
+        lines.push('\n有利行業：');
+        for (const cat of favInd) {
+          const indList = (cat['industries'] as string[] || []).join('、');
+          lines.push(`- ${cat['element']}（${cat['category']}）：${indList}`);
+        }
+      }
+      const unfavInd = (det['unfavorable_industries'] || det['unfavorableIndustries'] || []) as Array<Record<string, unknown>>;
+      if (unfavInd.length > 0) {
+        lines.push('不利行業：');
+        for (const cat of unfavInd) {
+          const indList = (cat['industries'] as string[] || []).join('、');
+          lines.push(`- ${cat['element']}（${cat['category']}）：${indList}`);
+        }
+      }
+
+      // Five Qi States
+      const fiveQi = (det['five_qi_states'] || det['fiveQiStates']) as Record<string, string> | undefined;
+      if (fiveQi) {
+        lines.push(`\n旺相休囚死：${Object.entries(fiveQi).map(([e, s]) => `${e}=${s}`).join('、')}`);
+      }
+
+      // Weighted Five Elements (career-specific, with seasonal multipliers)
+      const weightedElem = det['weightedElements'] as Record<string, Record<string, unknown>> | undefined;
+      if (weightedElem) {
+        const elemLines = Object.entries(weightedElem)
+          .map(([elem, info]) => `${elem}=${(info as Record<string, unknown>)['percentage']}%（${(info as Record<string, unknown>)['level']}）`)
+          .join('、');
+        lines.push(`\n加權五行比重（含季節調整）：${elemLines}`);
+      }
+
+      result = result.replace(/\{\{careerPreAnalysis\}\}/g, lines.join('\n'));
+    }
+
+    // Call 1 Anchors: suitable_positions (numbered fact lines AI must weave into narrative)
+    if (result.includes('{{anchors_suitable_positions}}')) {
+      const positions = (det['suitablePositions'] || []) as Array<Record<string, unknown>>;
+      const anchorLines: string[] = [];
+      let idx = 1;
+      for (const p of positions) {
+        const positionList = (p['positions'] as string[] || []).join('、');
+        anchorLines.push(`${idx}. ${p['pattern']}（${p['source']}）適合職位：${positionList}`);
+        idx++;
+      }
+      if (anchorLines.length === 0) anchorLines.push('1. （無適合職位數據）');
+      result = result.replace(/\{\{anchors_suitable_positions\}\}/g, anchorLines.join('\n'));
+    }
+
+    // Call 1 Anchors: career_directions_favorable
+    if (result.includes('{{anchors_career_directions_favorable}}')) {
+      const favInd = (det['favorableIndustries'] || []) as Array<Record<string, unknown>>;
+      const anchorLines: string[] = [];
+      let idx = 1;
+      for (const cat of favInd) {
+        const industries = (cat['industries'] as string[] || []);
+        anchorLines.push(`${idx}. 有利行業（${cat['element']}/${cat['category']}）：${industries.join('、')}`);
+        idx++;
+      }
+      if (anchorLines.length === 0) anchorLines.push('1. （無有利行業數據）');
+      result = result.replace(/\{\{anchors_career_directions_favorable\}\}/g, anchorLines.join('\n'));
+    }
+
+    // Call 1 Anchors: career_directions_unfavorable
+    if (result.includes('{{anchors_career_directions_unfavorable}}')) {
+      const unfavInd = (det['unfavorableIndustries'] || []) as Array<Record<string, unknown>>;
+      const anchorLines: string[] = [];
+      let idx = 1;
+      for (const cat of unfavInd) {
+        const industries = (cat['industries'] as string[] || []);
+        anchorLines.push(`${idx}. 不利行業（${cat['element']}/${cat['category']}）：${industries.join('、')}`);
+        idx++;
+      }
+      if (anchorLines.length === 0) anchorLines.push('1. （無不利行業數據）');
+      result = result.replace(/\{\{anchors_career_directions_unfavorable\}\}/g, anchorLines.join('\n'));
+    }
+
+    // Career context bridge (Call 2)
+    if (result.includes('{{careerContextBridge}}')) {
+      const bridgeLines: string[] = [];
+      // DM Strength for Call 2 context bridge (self-contained, no shared vars with careerPreAnalysis block)
+      const preAnalysis2 = data['preAnalysis'] as Record<string, unknown> | undefined;
+      const sv2 = preAnalysis2?.['strengthV2'] as Record<string, unknown> | undefined;
+      if (sv2) {
+        const cls2 = STRENGTH_V2_ZH[(sv2['classification'] as string) || ''] || '';
+        const sc2 = sv2['score'] || 0;
+        bridgeLines.push(`⚠️ 日主強弱（以此為準）：${cls2}（${sc2}/100）`);
+      }
+      bridgeLines.push(`格局：${det['pattern'] || '（未提供）'}`);
+      const rep = det['reputation_score'] || det['reputationScore'];
+      if (rep && typeof rep === 'object') {
+        bridgeLines.push(`名聲地位：${(rep as Record<string, unknown>)['score']}分`);
+      }
+      const wea = det['wealth_score'] || det['wealthScore'];
+      if (wea && typeof wea === 'object') {
+        bridgeLines.push(`財富格局：${(wea as Record<string, unknown>)['score']}分`);
+      }
+      result = result.replace(/\{\{careerContextBridge\}\}/g, bridgeLines.join('\n'));
+    }
+
+    // Call 2 Anchors: annual forecasts (numbered fact lines — AI must state auspiciousness labels exactly)
+    if (result.includes('{{anchors_annual_forecasts}}')) {
+      const annuals = (det['annualForecasts'] || []) as Array<Record<string, unknown>>;
+      const anchorLines: string[] = [];
+      let idx = 1;
+      for (const af of annuals) {
+        const yearTG = (af['tenGod'] as string) || '';
+        const yearTGTrans = TEN_GOD_CAREER_TRANSLATION[yearTG] || yearTG;
+        const lpTG = (af['luckPeriodTenGod'] as string) || '';
+        const lpTGTrans = TEN_GOD_CAREER_TRANSLATION[lpTG] || lpTG;
+        anchorLines.push(
+          `${idx}. ⚠️ ${af['year']}年：流年十神為「${yearTG}」（翻譯：${yearTGTrans}），` +
+          `大運十神為「${lpTG}」（翻譯：${lpTGTrans}），` +
+          `吉凶判定為「${af['auspiciousness']}」——此吉凶等級不可更改`,
+        );
+        idx++;
+      }
+      if (anchorLines.length === 0) anchorLines.push('1. （無年度預測數據）');
+      result = result.replace(/\{\{anchors_annual_forecasts\}\}/g, anchorLines.join('\n'));
+    }
+
+    // Call 2 Anchors: monthly forecasts (ten god translation + auspiciousness labels)
+    if (result.includes('{{anchors_monthly_forecasts}}')) {
+      const monthlies = (det['monthlyForecasts'] || []) as Array<Record<string, unknown>>;
+      const anchorLines: string[] = [];
+      let idx = 1;
+      for (const mf of monthlies) {
+        const mfTG = (mf['tenGod'] as string) || '';
+        const mfTGTrans = TEN_GOD_CAREER_TRANSLATION[mfTG] || mfTG;
+
+        let anchorLine = `${idx}. ${mf['month']}月（${mf['monthName'] || ''}）：` +
+          `十神為「${mfTG}」（翻譯：${mfTGTrans}），吉凶為「${mf['auspiciousness']}」`;
+
+        // Branch interactions in anchor
+        const monthBranchInt = (mf['branchInteractions'] || mf['branch_interactions'] || []) as Array<Record<string, unknown>>;
+        if (monthBranchInt.length > 0) {
+          const intText = monthBranchInt.map(bi => `${bi['type']}（${bi['effect']}）`).join('、');
+          anchorLine += `，地支互動：${intText}`;
+        }
+
+        anchorLines.push(anchorLine);
+        idx++;
+      }
+      if (anchorLines.length === 0) anchorLines.push('1. （無月度預測數據）');
+      result = result.replace(/\{\{anchors_monthly_forecasts\}\}/g, anchorLines.join('\n'));
+    }
+
+    // Active luck period (Call 2)
+    if (result.includes('{{careerActiveLuckPeriod}}')) {
+      const lp = (det['active_luck_period'] || det['activeLuckPeriod']) as Record<string, unknown> | undefined;
+      if (lp) {
+        const lpActiveTG = lp['tenGod'] as string;
+        const lpActiveTGTrans = TEN_GOD_CAREER_TRANSLATION[lpActiveTG] || lpActiveTG;
+        result = result.replace(/\{\{careerActiveLuckPeriod\}\}/g,
+          `${lp['stem']}${lp['branch']}大運（${lp['startYear']}-${lp['endYear']}），十神：${lpActiveTG}（→${lpActiveTGTrans}）`);
+      } else {
+        result = result.replace(/\{\{careerActiveLuckPeriod\}\}/g, '（未提供）');
+      }
+    }
+
+    // Annual forecasts (Call 2)
+    if (result.includes('{{careerAnnualForecasts}}')) {
+      const annuals = (det['annual_forecasts'] || det['annualForecasts'] || []) as Array<Record<string, unknown>>;
+      const afLines: string[] = [];
+      for (const af of annuals) {
+        const yearTenGod = (af['ten_god'] || af['tenGod']) as string;
+        const yearTGTrans = TEN_GOD_CAREER_TRANSLATION[yearTenGod] || yearTenGod;
+        const lpTenGod = (af['luck_period_ten_god'] || af['luckPeriodTenGod']) as string;
+        const lpTGTrans = TEN_GOD_CAREER_TRANSLATION[lpTenGod] || lpTenGod;
+        const line = [
+          `${af['year']}年（${af['stem']}${af['branch']}年）`,
+          `流年十神：${yearTenGod}（→${yearTGTrans}）`,
+          `大運：${af['luck_period_stem'] || af['luckPeriodStem']}${af['luck_period_branch'] || af['luckPeriodBranch']}`,
+          `大運十神：${lpTenGod}（→${lpTGTrans}）`,
+          `吉凶：${af['auspiciousness']}`,
+        ];
+        const interactions = (af['branch_interactions'] || af['branchInteractions'] || []) as string[];
+        if (interactions.length > 0) line.push(`地支互動：${interactions.join('、')}`);
+        const kong = af['kong_wang_analysis'] || af['kongWangAnalysis'];
+        if (kong && typeof kong === 'object') {
+          const k = kong as Record<string, unknown>;
+          if (k['hit']) {
+            const kongLabel = k['favorable'] === true ? '吉' : k['favorable'] === false ? '凶' : '平';
+            line.push(`空亡：${k['effect']}（${kongLabel}）`);
+          }
+        }
+        const yima = af['yima_analysis'] || af['yimaAnalysis'];
+        if (yima && typeof yima === 'object') {
+          const y = yima as Record<string, unknown>;
+          if (y['hit']) {
+            const yimaLabel = y['favorable'] === true ? '有利變動' : y['favorable'] === false ? '被迫變動' : '中性變動';
+            line.push(`驛馬：${y['type']}（${yimaLabel}）`);
+          }
+        }
+        const indicators = (af['career_indicators'] || af['careerIndicators'] || []) as Array<Record<string, unknown>>;
+        if (indicators.length > 0) {
+          const indicatorText = indicators.map(ind => `${ind['label']}（${ind['description']}）`).join('、');
+          line.push(`事業指標：${indicatorText}`);
+        }
+        afLines.push(line.join(' / '));
+      }
+      result = result.replace(/\{\{careerAnnualForecasts\}\}/g, afLines.join('\n'));
+    }
+
+    // Monthly forecasts (Call 2)
+    if (result.includes('{{careerMonthlyForecasts}}')) {
+      const monthlies = (det['monthly_forecasts'] || det['monthlyForecasts'] || []) as Array<Record<string, unknown>>;
+      const mfLines: string[] = [];
+      for (const mf of monthlies) {
+        const mfTenGod = (mf['ten_god'] || mf['tenGod']) as string;
+        const mfTGTrans = TEN_GOD_CAREER_TRANSLATION[mfTenGod] || mfTenGod;
+
+        let line = `${mf['month']}月（${mf['month_name'] || mf['monthName']}，${mf['stem']}${mf['branch']}）` +
+          ` / 十神：${mfTenGod}（→${mfTGTrans}）` +
+          ` / 吉凶：${mf['auspiciousness']}` +
+          ` / 季節能量：${mf['season_element'] || mf['seasonElement'] || ''}` +
+          ` / 公曆：${mf['solar_term_date'] || mf['solarTermDate'] || ''} 起`;
+
+        // Branch interactions
+        const monthBranchInt = (mf['branchInteractions'] || mf['branch_interactions'] || []) as Array<Record<string, unknown>>;
+        if (monthBranchInt.length > 0) {
+          const intText = monthBranchInt.map(bi => `${bi['type']}（${bi['effect']}）`).join('、');
+          line += ` / 地支互動：${intText}`;
+        }
+
+        // Annual context
+        const annCtx = (mf['annualContext'] || mf['annual_context'] || '') as string;
+        if (annCtx) {
+          line += ` / 年度背景：${annCtx}`;
+        }
+
+        mfLines.push(line);
+      }
+      result = result.replace(/\{\{careerMonthlyForecasts\}\}/g, mfLines.join('\n'));
+    }
+
+    return result;
   }
 
   /**
@@ -1368,6 +2231,107 @@ export class AIService implements OnModuleInit {
       },
       allFixes,
     };
+  }
+
+  /**
+   * Career-specific auto-fix: corrects ten god translation swaps, DM strength mislabeling,
+   * and raw Bazi term leaks. Applied AFTER generic autoFixSection().
+   */
+  private autoFixCareerSection(
+    sectionKey: string,
+    section: InterpretationSection,
+    calculationData: Record<string, unknown>,
+  ): { section: InterpretationSection; fixes: string[] } {
+    const fixes: string[] = [];
+    let fullText = section.full;
+    let previewText = section.preview;
+
+    const enhanced = calculationData['careerEnhancedInsights'] as Record<string, unknown> | undefined;
+    if (!enhanced) return { section, fixes };
+
+    // ---- Fix 1: 偏印↔正印 translation swap (section-aware) ----
+    // Only apply when the section's ten god is known from pre-analysis data
+    const annuals = (enhanced['annualForecasts'] || []) as Array<Record<string, unknown>>;
+    const monthlies = (enhanced['monthlyForecasts'] || []) as Array<Record<string, unknown>>;
+
+    let sectionTenGod: string | null = null;
+
+    // Match annual_forecast_YYYY → look up that year's ten god
+    const yearMatch = sectionKey.match(/^annual_forecast_(\d{4})$/);
+    if (yearMatch) {
+      const year = parseInt(yearMatch[1], 10);
+      const af = annuals.find(a => a['year'] === year);
+      if (af) {
+        sectionTenGod = (af['tenGod'] as string) || null;
+      }
+    }
+
+    // Match monthly_forecast_MM → look up that month's ten god
+    const monthMatch = sectionKey.match(/^monthly_forecast_(\d{2})$/);
+    if (monthMatch) {
+      const monthNum = parseInt(monthMatch[1], 10);
+      const mf = monthlies.find(m => m['month'] === monthNum);
+      if (mf) {
+        sectionTenGod = (mf['tenGod'] as string) || null;
+      }
+    }
+
+    if (sectionTenGod) {
+      // If section's ten god is 偏印 but AI wrote 學習力 (正印's translation), fix it
+      if (sectionTenGod === '偏印' && fullText.includes('學習力') && !fullText.includes('獨特才華')) {
+        fullText = fullText.split('學習力').join('獨特才華');
+        fixes.push(`Fixed 偏印 translation: "學習力" → "獨特才華" in ${sectionKey}.full`);
+      }
+      if (sectionTenGod === '偏印' && previewText.includes('學習力') && !previewText.includes('獨特才華')) {
+        previewText = previewText.split('學習力').join('獨特才華');
+        fixes.push(`Fixed 偏印 translation: "學習力" → "獨特才華" in ${sectionKey}.preview`);
+      }
+      // If section's ten god is 正印 but AI wrote 獨特才華 (偏印's translation), fix it
+      if (sectionTenGod === '正印' && fullText.includes('獨特才華') && !fullText.includes('學習力')) {
+        fullText = fullText.split('獨特才華').join('學習力');
+        fixes.push(`Fixed 正印 translation: "獨特才華" → "學習力" in ${sectionKey}.full`);
+      }
+      if (sectionTenGod === '正印' && previewText.includes('獨特才華') && !previewText.includes('學習力')) {
+        previewText = previewText.split('獨特才華').join('學習力');
+        fixes.push(`Fixed 正印 translation: "獨特才華" → "學習力" in ${sectionKey}.preview`);
+      }
+    }
+
+    // ---- Fix 2: DM strength mislabeling (anchored regex, scoped to DM context) ----
+    const preAnalysis = calculationData['preAnalysis'] as Record<string, unknown> | undefined;
+    const sv2 = preAnalysis?.['strengthV2'] as Record<string, unknown> | undefined;
+    if (sv2) {
+      const correctClass = STRENGTH_V2_ZH[(sv2['classification'] as string) || ''] || '';
+      if (correctClass) {
+        const wrongLabels = ['極弱', '偏弱', '中和', '偏強', '極旺'].filter(l => l !== correctClass);
+        for (const wrong of wrongLabels) {
+          // Only match in DM-strength context: "核心屬性" within 6 chars of the wrong label
+          // Use .replace() directly — no .test() guard to avoid g-flag lastIndex drift
+          fullText = fullText.replace(
+            new RegExp(`(核心屬性.{0,6})${wrong}`, 'g'),
+            `$1${correctClass}`,
+          );
+        }
+      }
+    }
+
+    // ---- Fix 3: Raw Bazi term leak stripping ----
+    // Remove leaked stem parenthetical references like （甲）（丙）（戊土）
+    // But preserve legitimate parenthetical content (longer phrases, scores, etc.)
+    fullText = fullText.replace(/（[甲乙丙丁戊己庚辛壬癸][木火土金水]?）/g, '');
+    previewText = previewText.replace(/（[甲乙丙丁戊己庚辛壬癸][木火土金水]?）/g, '');
+
+    if (fixes.length > 0 || fullText !== section.full || previewText !== section.preview) {
+      if (fixes.length > 0) {
+        this.logger.log(`Career auto-fix applied: ${fixes.join('; ')}`);
+      }
+      return {
+        section: { preview: previewText, full: fullText, score: section.score },
+        fixes,
+      };
+    }
+
+    return { section, fixes };
   }
 
   // ============================================================
@@ -3006,13 +3970,22 @@ export class AIService implements OnModuleInit {
   /**
    * Get a cached interpretation for identical birth data + reading type.
    */
+  /**
+   * Build a versioned cache key. V2 reading types use ':v2' suffix
+   * to avoid collision with old V1 format entries.
+   */
+  private buildCacheKey(hash: string, readingType: ReadingType): string {
+    const isV2 = readingType === ReadingType.LIFETIME || readingType === ReadingType.CAREER;
+    return `reading_cache:${hash}:${readingType}${isV2 ? ':v2' : ''}`;
+  }
+
   async getCachedInterpretation(
     birthDataHash: string,
     readingType: ReadingType,
   ): Promise<AIInterpretationResult | null> {
     try {
-      // Try Redis first (fast)
-      const cacheKey = `reading_cache:${birthDataHash}:${readingType}`;
+      // Try Redis first (fast) — uses versioned cache key
+      const cacheKey = this.buildCacheKey(birthDataHash, readingType);
       const cached = await this.redis.getJson<AIInterpretationResult>(cacheKey);
       if (cached) {
         return cached;
@@ -3028,8 +4001,14 @@ export class AIService implements OnModuleInit {
       });
 
       if (dbCache?.interpretationJson) {
-        // Populate Redis cache for next time
         const interpretation = dbCache.interpretationJson as unknown as AIInterpretationResult;
+        // Reject stale V1 entries for V2 reading types
+        const isV2Type = readingType === ReadingType.LIFETIME || readingType === ReadingType.CAREER;
+        if (isV2Type && (interpretation as unknown as Record<string, unknown>).schemaVersion !== 'v2') {
+          // Stale V1 entry — let it expire naturally (30-day TTL)
+          return null;
+        }
+        // Populate Redis cache for next time
         await this.redis.setJson(cacheKey, interpretation, 86400); // 24h in Redis
         return interpretation;
       }
@@ -3050,8 +4029,8 @@ export class AIService implements OnModuleInit {
     interpretation: AIInterpretationResult,
   ): Promise<void> {
     try {
-      // Redis cache (24h)
-      const cacheKey = `reading_cache:${birthDataHash}:${readingType}`;
+      // Redis cache (24h) — uses versioned cache key
+      const cacheKey = this.buildCacheKey(birthDataHash, readingType);
       await this.redis.setJson(cacheKey, interpretation, 86400);
 
       // DB cache (30 days)
@@ -3099,8 +4078,12 @@ export class AIService implements OnModuleInit {
   ): string {
     const crypto = require('crypto');
     // Include preAnalysis version in hash so cache invalidates when rules change
-    // LIFETIME uses v2.3.0 (guide style only + summary anchors), all others use v1.1.0 (seasonal balance 旺相休囚死)
-    const preAnalysisVersion = readingType === ReadingType.LIFETIME ? 'v2.3.0' : 'v1.1.0';
+    // LIFETIME uses v2.3.0, CAREER uses v2.1.0, all others use v1.1.0
+    const preAnalysisVersion = readingType === ReadingType.LIFETIME
+      ? 'v2.3.0'
+      : readingType === ReadingType.CAREER
+        ? 'v2.1.0'
+        : 'v1.1.0';
     const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;
     return crypto.createHash('sha256').update(data).digest('hex');
   }

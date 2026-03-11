@@ -1,0 +1,121 @@
+.container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1rem;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--shadow-warm);
+}
+
+.header {
+  margin-bottom: 1rem;
+  padding-left: 1rem;
+  border-left: 3px solid var(--color-red);
+}
+
+.title {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1rem;
+  color: var(--text-accent);
+  margin: 0;
+}
+
+.subtitle {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 4px 0 0 0;
+  line-height: 1.4;
+}
+
+.chartList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.rowHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.elementBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.85rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.percentage {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-width: 48px;
+}
+
+.level {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 0.1rem 0.4rem;
+  background: rgba(212, 160, 23, 0.08);
+  border-radius: 4px;
+}
+
+.barTrack {
+  height: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  min-width: 3px;
+}
+
+.talents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding-left: 2px;
+}
+
+.talentTag {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  background: rgba(212, 160, 23, 0.06);
+  border: 1px solid rgba(212, 160, 23, 0.12);
+  border-radius: 12px;
+  padding: 0.15rem 0.5rem;
+}
+
+@media (max-width: 600px) {
+  .container {
+    padding: 1rem 0.75rem;
+  }
+
+  .elementBadge {
+    width: 24px;
+    height: 24px;
+    font-size: 0.75rem;
+  }
+
+  .percentage {
+    font-size: 0.8rem;
+    min-width: 40px;
+  }
+}

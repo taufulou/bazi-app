@@ -84,6 +84,13 @@ interface BaziChartData {
   allShenSha: ShenShaData[];
   kongWang: string[];
   ganZhi?: string;
+  // Extra palaces (optional — returned by engine)
+  taiYuan?: { stem: string; branch: string; naYin: string };
+  mingGong?: { stem: string; branch: string; naYin: string };
+  taiXi?: { stem: string; branch: string; naYin: string };
+  shenGong?: { stem: string; branch: string; naYin: string };
+  // Seasonal states (旺相休囚死)
+  seasonalStates?: Record<string, string>;
 }
 
 interface BaziChartProps {
@@ -311,6 +318,48 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
               </tr>
             </tbody>
           </table>
+
+          {/* Extra Palaces: 命宮, 身宮, 胎元, 胎息 */}
+          {(data.mingGong || data.shenGong || data.taiYuan || data.taiXi) && (
+            <div className={styles.extraPalaces}>
+              {[
+                { label: "命宮", data: data.mingGong },
+                { label: "身宮", data: data.shenGong },
+                { label: "胎元", data: data.taiYuan },
+                { label: "胎息", data: data.taiXi },
+              ].filter((p) => p.data != null).map((palace) => (
+                <div key={palace.label} className={styles.palaceItem}>
+                  <span className={styles.palaceLabel}>{palace.label}</span>
+                  <span
+                    className={styles.palaceStem}
+                    style={{ color: getChartElementColor(getStemElement(palace.data!.stem)) }}
+                  >
+                    {palace.data!.stem}
+                  </span>
+                  <span
+                    className={styles.palaceBranch}
+                    style={{ color: getChartElementColor(getBranchElement(palace.data!.branch)) }}
+                  >
+                    {palace.data!.branch}
+                  </span>
+                  <span className={styles.palaceNayin}>{palace.data!.naYin}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* 旺相休囚死 Seasonal States */}
+          {data.seasonalStates && Object.keys(data.seasonalStates).length > 0 && (
+            <div className={styles.seasonalStates}>
+              <span className={styles.seasonalLabel}>旺相休囚死：</span>
+              {Object.entries(data.seasonalStates).map(([element, state]) => (
+                <span key={element} className={styles.seasonalItem}>
+                  <span style={{ color: getChartElementColor(element) }}>{element}</span>
+                  <span className={styles.seasonalState}>{state}</span>
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -528,4 +577,14 @@ function getStemElement(stem: string): string {
 
 function getHiddenStemElement(stem: string): string {
   return STEM_ELEMENT[stem] || "土";
+}
+
+const BRANCH_ELEMENT: Record<string, string> = {
+  "子": "水", "丑": "土", "寅": "木", "卯": "木",
+  "辰": "土", "巳": "火", "午": "火", "未": "土",
+  "申": "金", "酉": "金", "戌": "土", "亥": "水",
+};
+
+function getBranchElement(branch: string): string {
+  return BRANCH_ELEMENT[branch] || "土";
 }

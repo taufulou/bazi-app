@@ -289,12 +289,30 @@ export interface LifetimeV2Deterministic {
   annualTenGod: string;
 }
 
+/** Deterministic data for V2 career reading (not AI-generated) */
+export interface CareerV2Deterministic {
+  weightedElements: Record<string, { percentage: number; level: string; talents: string[] }>;
+  weightedTenGods: Record<string, { percentage: number; level: string; capabilities: string[] }>;
+  reputationScore: { score: number; level: string; subScores: Record<string, number> };
+  wealthScore: { score: number; tier: string; subScores: Record<string, number> };
+  fiveQiStates: Record<string, string>;
+  pattern: string;
+  patternType: string;
+  activeLuckPeriod: {
+    stem: string;
+    branch: string;
+    tenGod: string;
+    startYear: number;
+    endYear: number;
+  } | null;
+}
+
 /** V2 Structured AI interpretation output (multi-call, rich sections) */
 export interface AIInterpretationV2 {
   schemaVersion: 'v2';
   sections: Record<string, InterpretationSection>; // flat map of all section keys
   summary: InterpretationSection;
-  deterministic: LifetimeV2Deterministic;
+  deterministic: LifetimeV2Deterministic | CareerV2Deterministic;
 }
 
 /** Discriminated union for V1/V2 AI interpretation */

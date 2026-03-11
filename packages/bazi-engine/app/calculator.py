@@ -21,6 +21,7 @@ from typing import Dict, Optional
 from .four_pillars import (
     calculate_four_pillars,
     calculate_ming_gong,
+    calculate_shen_gong,
     calculate_tai_xi,
     calculate_tai_yuan,
 )
@@ -57,6 +58,7 @@ from .compatibility_enhanced import calculate_enhanced_compatibility
 from .compatibility_preanalysis import generate_compatibility_pre_analysis
 from .constants import BRANCH_ELEMENT, PATTERN_TYPES, STEM_ELEMENT
 from .interpretation_rules import calculate_strength_score_v2, generate_pre_analysis
+from .career_enhanced import generate_career_pre_analysis
 from .lifetime_enhanced import generate_lifetime_enhanced_insights
 
 
@@ -277,10 +279,11 @@ def calculate_bazi(
     # R1: 旺相休囚死 seasonal state labels
     seasonal_states = get_seasonal_state_labels(month_branch)
 
-    # F1: 胎元/命宮/胎息
+    # F1: 胎元/命宮/胎息/身宮
     tai_yuan = calculate_tai_yuan(month_stem, month_branch)
     ming_gong = calculate_ming_gong(month_branch, pillars['hour']['branch'], year_stem)
     tai_xi = calculate_tai_xi(day_master_stem, day_master_branch)
+    shen_gong = calculate_shen_gong(month_branch, pillars['hour']['branch'], year_stem)
 
     # F2: Precise 起運 date calculation
     lp_direction = calculate_luck_period_direction(year_stem, gender)
@@ -288,6 +291,30 @@ def calculate_bazi(
     luck_period_start_info = calculate_luck_period_start_info(
         birth_dt, lp_direction, lp_start_age,
     )
+
+    # Step 17: Career Enhanced Insights (V2 — only for CAREER reading type)
+    career_enhanced = None
+    if reading_type and reading_type.upper() == 'CAREER':
+        career_enhanced = generate_career_pre_analysis(
+            pillars=pillars,
+            day_master_stem=day_master_stem,
+            gender=gender,
+            five_elements_balance=five_elements_balance,
+            effective_gods=pre_analysis['effectiveFavorableGods'],
+            prominent_god=prominent_god,
+            strength_v2=pre_analysis['strengthV2'],
+            cong_ge=pre_analysis.get('congGe'),
+            luck_periods=luck_periods,
+            annual_stars=annual_stars,
+            monthly_stars=monthly_stars,
+            kong_wang=kong_wang,
+            branch_relationships=pre_analysis.get('pillarRelationships', {}).get('branchRelationships'),
+            tai_yuan=tai_yuan,
+            ming_gong=ming_gong,
+            shen_gong=shen_gong,
+            birth_year=birth_year,
+            current_year=target_year,
+        )
 
     # R5: 空亡 display — day (primary per《神白經》) + year (secondary per 祿命法)
     kong_wang_display = {
@@ -323,10 +350,11 @@ def calculate_bazi(
         # Seasonal state labels (旺相休囚死) and Kong Wang display
         'seasonalStates': seasonal_states,
         'kongWangDisplay': kong_wang_display,
-        # 胎元/命宮/胎息
+        # 胎元/命宮/胎息/身宮
         'taiYuan': tai_yuan,
         'mingGong': ming_gong,
         'taiXi': tai_xi,
+        'shenGong': shen_gong,
         # 起運 precise date
         'luckPeriodStartInfo': luck_period_start_info,
         # Phase 11: Pre-analysis layer + summary fields
@@ -342,6 +370,10 @@ def calculate_bazi(
     # Conditionally include lifetime enhanced insights
     if lifetime_enhanced is not None:
         result['lifetimeEnhancedInsights'] = lifetime_enhanced
+
+    # Conditionally include career enhanced insights
+    if career_enhanced is not None:
+        result['careerEnhancedInsights'] = career_enhanced
 
     return result
 

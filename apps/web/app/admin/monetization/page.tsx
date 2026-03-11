@@ -234,7 +234,7 @@ export default function AdminMonetizationPage() {
             const maxCount = Math.max(...steps.map((s) => s.count), 1);
             return steps.map((step, i) => {
               const pct = (step.count / maxCount) * 100;
-              const prev = i > 0 ? steps[i - 1].count : 0;
+              const prev = i > 0 ? steps[i - 1]!.count : 0;
               const rate = prev > 0 ? ((step.count / prev) * 100).toFixed(1) : '';
               return (
                 <div key={step.label} className={pageStyles.funnelStep}>

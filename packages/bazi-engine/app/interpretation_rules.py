@@ -49,7 +49,8 @@ from .ten_gods import derive_ten_god, get_prominent_ten_god
 READING_TYPE_DOMAINS: Dict[str, List[str]] = {
     'LIFETIME':        ['career', 'love', 'health', 'timing'],
     'ANNUAL':          ['career', 'love', 'health', 'timing'],
-    'CAREER_FINANCE':  ['career', 'timing'],
+    'CAREER':          ['career', 'timing'],           # NEW — matches NestJS enum
+    'CAREER_FINANCE':  ['career', 'timing'],           # KEPT for backward compatibility
     'LOVE':            ['love', 'timing'],
     'HEALTH':          ['health', 'timing'],
     'COMPATIBILITY':   ['love'],
@@ -125,7 +126,7 @@ def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
         hidden_stems = HIDDEN_STEMS.get(branch, [])
         hidden_weights = HIDDEN_STEM_WEIGHTS.get(branch, [])
         for i, hs_stem in enumerate(hidden_stems):
-            hs_weight = hidden_weights[i] if i < len(hidden_weights) else 0.2
+            hs_weight = hidden_weights[i] if i < len(hidden_weights) else 0.1
             if STEM_ELEMENT[hs_stem] == dm_element:
                 root_score += weight * hs_weight
     dedi = min(root_score * 30, 30)  # Cap at 30
