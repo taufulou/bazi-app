@@ -901,7 +901,7 @@ export class AIService implements OnModuleInit {
           const birthDataHash = this.generateBirthDataHash(
             calculationData['birthDate'] as string || '',
             calculationData['birthTime'] as string || '',
-            '', // birthCity not available here
+            calculationData['birthCity'] as string || '',
             calculationData['gender'] as string || '',
             ReadingType.LIFETIME,
           );
@@ -1020,7 +1020,6 @@ export class AIService implements OnModuleInit {
     }, 15000);
 
     let call1Timeout!: ReturnType<typeof setTimeout>;
-    let call2Timeout!: ReturnType<typeof setTimeout>;
 
     try {
       let v2Succeeded = false;
@@ -1180,7 +1179,7 @@ export class AIService implements OnModuleInit {
           const birthDataHash = this.generateBirthDataHash(
             calculationData['birthDate'] as string || '',
             calculationData['birthTime'] as string || '',
-            '',
+            calculationData['birthCity'] as string || '',
             calculationData['gender'] as string || '',
             ReadingType.CAREER,
           );
@@ -1199,7 +1198,6 @@ export class AIService implements OnModuleInit {
             `Career Stream V2 provider ${providerConfig.provider} failed: ${err instanceof Error ? err.message : err}. Trying next...`,
           );
           clearTimeout(call1Timeout);
-          clearTimeout(call2Timeout);
           if (totalSections > 0) {
             v2Succeeded = true;
             break;
@@ -1227,7 +1225,6 @@ export class AIService implements OnModuleInit {
     } finally {
       clearInterval(heartbeatInterval);
       clearTimeout(call1Timeout!);
-      clearTimeout(call2Timeout!);
       subscriber.complete();
     }
   }

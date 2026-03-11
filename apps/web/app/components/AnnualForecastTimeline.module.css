@@ -194,7 +194,7 @@ li.goldBulletItemCategory {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #D4A017, #F5A623);
+  background: linear-gradient(135deg, var(--color-gold), var(--color-orange));
   box-shadow: 0 0 3px rgba(212, 160, 23, 0.4);
 }
 

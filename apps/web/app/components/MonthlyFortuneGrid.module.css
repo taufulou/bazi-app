@@ -114,7 +114,7 @@ li.goldBulletItemCategory {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #D4A017, #F5A623);
+  background: linear-gradient(135deg, var(--color-gold), var(--color-orange));
   box-shadow: 0 0 3px rgba(212, 160, 23, 0.4);
 }
 
@@ -168,7 +168,7 @@ li.goldBulletItemCategory {
 /* 伏吟 = amber (doubling energy) */
 .branchBadge[data-type="伏吟"] {
   background: rgba(184, 134, 11, 0.1);
-  color: #B8860B;
+  color: var(--color-gold);
   border: 1px solid rgba(184, 134, 11, 0.2);
 }
 

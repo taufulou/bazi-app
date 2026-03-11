@@ -1,7 +1,8 @@
 // ============================================================
 // AI Prompt Templates for Bazi Readings
 // ============================================================
-// These are the DEFAULT prompts. Admin can override via PromptTemplate DB table.
+// These are the ACTIVE prompts used for all readings.
+// DB PromptTemplate table exists but all rows are is_active=false.
 // Each reading type has a system prompt and a user prompt template.
 
 // ============================================================

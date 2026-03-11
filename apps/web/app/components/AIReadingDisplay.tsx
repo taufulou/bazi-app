@@ -809,7 +809,7 @@ export default function AIReadingDisplay({
     return (
       <div className={styles.readingContainer}>
         <div className={styles.summaryCard}>
-          <p style={{ color: "#a0a0a0" }}>暫無解讀資料</p>
+          <p style={{ color: "var(--text-muted)" }}>暫無解讀資料</p>
         </div>
       </div>
     );
@@ -1771,7 +1771,7 @@ function LuckPeriodTimeline({
                   className={styles.timelineBarFill}
                   style={{
                     width: isSubscriber ? `${period.score}%` : "50%",
-                    backgroundColor: isSubscriber ? scoreColor : "#555",
+                    backgroundColor: isSubscriber ? scoreColor : "var(--text-muted)",
                   }}
                 />
               </div>

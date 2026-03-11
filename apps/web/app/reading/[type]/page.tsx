@@ -454,7 +454,7 @@ export default function ReadingPage() {
       setCurrentReadingId(response.id);
       options?.onReadingCreated?.(response.id);
 
-      // Handle streaming path for LIFETIME readings
+      // Handle streaming path for V2 readings (LIFETIME + CAREER)
       if (response.streamReady && response.deterministic) {
         // Show deterministic data immediately + empty sections (filled by stream)
         setAiData({
@@ -863,10 +863,6 @@ export default function ReadingPage() {
         throw new Error('無法建立個人檔案');
       }
 
-      // Phase 2: keep chart visible, enable AI sections below
-      // Do NOT reset revealedSections — chart stays from Phase 1
-      setIsChartOnly(false);
-
       // This calls NestJS: credits deducted + AI streamed
       // Use onReadingCreated callback to capture reading ID (React state is async)
       await callNestJSReading(formValues, profileId, {
@@ -875,7 +871,9 @@ export default function ReadingPage() {
         },
       });
 
-      // Only hide paywall AFTER successful call
+      // Only update UI state AFTER successful call
+      // Do NOT reset revealedSections — chart stays from Phase 1
+      setIsChartOnly(false);
       setShowCareerPaywall(false);
       // Clean up sessionStorage since reading is now saved
       try {
@@ -959,6 +957,15 @@ export default function ReadingPage() {
       } else {
         // Reading saved but AI streaming interrupted → re-trigger stream
         setIsAiLoading(true);
+        // Initialize aiData before streaming — mirrors normal flow (lines 460-464)
+        // Use undefined for deterministic — the recovery DB record has snake_case keys
+        // while the frontend expects camelCase. The deterministic sections will render
+        // once the stream completes and provides properly-transformed data.
+        setAiData({
+          sections: [],
+          isV2: true,
+          deterministic: undefined,
+        });
         const stream = streamBaziReading(token, readingId, {
           onSectionComplete: (key, section) => {
             setAiData((prev) => ({

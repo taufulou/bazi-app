@@ -401,6 +401,7 @@ export class BaziService {
         gender: reading.birthProfile?.gender?.toLowerCase(),
         birthDate: reading.birthProfile?.birthDate?.toISOString().split('T')[0],
         birthTime: reading.birthProfile?.birthTime,
+        birthCity: reading.birthProfile?.birthCity || '',
       };
 
       // 5. Delegate to correct V2 streamer based on reading type
