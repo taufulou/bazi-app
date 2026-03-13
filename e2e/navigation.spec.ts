@@ -27,7 +27,7 @@ test.describe('Navigation - Public Routes', () => {
 
   test('reading page back button works', async ({ page }) => {
     await page.goto('/reading/career');
-    await expect(page.locator('[class*="headerTitle"]')).toContainText('事業詳批');
+    await expect(page.locator('[class*="headerTitle"]')).toContainText('八字事業詳批');
 
     // Click back button (has CSS class backLink)
     const backBtn = page.locator('button[class*="backLink"]');

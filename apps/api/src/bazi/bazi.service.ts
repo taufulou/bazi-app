@@ -14,6 +14,7 @@ import { RedisService } from '../redis/redis.service';
 import { AIService } from '../ai/ai.service';
 import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto';
 import { Prisma, ReadingType } from '@prisma/client';
+import { deepCamelCase } from '../common/deep-camel-case';
 
 @Injectable()
 export class BaziService {
@@ -149,7 +150,8 @@ export class BaziService {
 
     // Streaming path: V2 reading types + stream=true + no cache → skip AI, return streamReady
     const isV2Reading = dto.readingType === ReadingType.LIFETIME
-      || dto.readingType === ReadingType.CAREER;
+      || dto.readingType === ReadingType.CAREER
+      || dto.readingType === ReadingType.ANNUAL;
     const isStreamingRequest = dto.stream === true
       && isV2Reading
       && !cachedInterpretation;
@@ -186,6 +188,11 @@ export class BaziService {
           );
         } else if (dto.readingType === ReadingType.CAREER) {
           aiResult = await this.aiService.generateCareerV2Interpretation(
+            enrichedData,
+            user.id,
+          );
+        } else if (dto.readingType === ReadingType.ANNUAL) {
+          aiResult = await this.aiService.generateAnnualV2Interpretation(
             enrichedData,
             user.id,
           );
@@ -270,16 +277,28 @@ export class BaziService {
     // For streaming requests, include streamReady flag and deterministic data
     if (isStreamingRequest) {
       // Extract deterministic data from the appropriate enhanced insights key
-      const insightsKey = dto.readingType === ReadingType.CAREER
-        ? 'careerEnhancedInsights'
-        : 'lifetimeEnhancedInsights';
+      const INSIGHTS_KEY_MAP: Record<string, string> = {
+        CAREER: 'careerEnhancedInsights',
+        ANNUAL: 'annualEnhancedInsights',
+        LIFETIME: 'lifetimeEnhancedInsights',
+      };
+      const insightsKey = INSIGHTS_KEY_MAP[dto.readingType] || 'lifetimeEnhancedInsights';
       const enhancedInsights = calculationData[insightsKey] as Record<string, unknown> | undefined;
-      const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
-      // Convert snake_case to camelCase for frontend
-      const deterministic: Record<string, unknown> = {};
-      for (const [key, value] of Object.entries(rawDeterministic)) {
-        const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-        deterministic[camelKey] = value;
+
+      // For ANNUAL V2: pass the full enhancedInsights (not just the compact 'deterministic' sub-key)
+      // so the frontend has access to taiSui, career, finance, health, monthly aspects etc.
+      // For other types: keep using the compact 'deterministic' sub-key.
+      let deterministic: Record<string, unknown>;
+      if (dto.readingType === 'ANNUAL' && enhancedInsights) {
+        deterministic = deepCamelCase(enhancedInsights) as Record<string, unknown>;
+      } else {
+        const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+        // Shallow convert for non-annual types (preserves existing behavior)
+        deterministic = {};
+        for (const [key, value] of Object.entries(rawDeterministic)) {
+          const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+          deterministic[camelKey] = value;
+        }
       }
 
       return { ...reading, fromCache, streamReady: true, deterministic };
@@ -405,9 +424,18 @@ export class BaziService {
       };
 
       // 5. Delegate to correct V2 streamer based on reading type
-      const aiObservable = reading.readingType === 'CAREER'
-        ? this.aiService.streamCareerV2(enrichedData, readingId)
-        : this.aiService.streamLifetimeV2(enrichedData, readingId);
+      let aiObservable;
+      switch (reading.readingType) {
+        case 'CAREER':
+          aiObservable = this.aiService.streamCareerV2(enrichedData, readingId);
+          break;
+        case 'ANNUAL':
+          aiObservable = this.aiService.streamAnnualV2(enrichedData, readingId);
+          break;
+        default:
+          aiObservable = this.aiService.streamLifetimeV2(enrichedData, readingId);
+          break;
+      }
       aiObservable.subscribe({
         next: (event) => subscriber.next(event),
         error: (err) => {

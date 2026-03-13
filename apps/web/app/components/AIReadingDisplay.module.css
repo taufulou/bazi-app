@@ -1429,3 +1429,61 @@ li.goldBulletItemCategory {
   border-radius: 10px;
   color: var(--text-muted);
 }
+
+/* ==== Annual V2 Section Group Headers ==== */
+.sectionGroupHeader {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 2rem 0 1rem;
+  padding: 0 0.5rem;
+}
+
+.sectionGroupLine {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--color-red), var(--color-gold), var(--color-red), transparent);
+  opacity: 0.4;
+}
+
+.sectionGroupLabel {
+  font-family: var(--font-noto-serif-tc), serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-accent);
+  white-space: nowrap;
+  letter-spacing: 0.15em;
+}
+
+/* ============================================================
+   Annual V2 — Monthly 4-Aspect Chips
+   ============================================================ */
+
+.monthlyAspects {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.monthlyAspectCard {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+}
+
+.monthlyAspectLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.monthlyAspectValue {
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  font-weight: 500;
+  margin-top: 1px;
+}

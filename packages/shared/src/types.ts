@@ -33,7 +33,7 @@ export type Language = 'zh-TW' | 'zh-CN';
 export type ReadingType =
   | 'lifetime'           // 八字終身運
   | 'annual'             // 八字流年運勢
-  | 'career'             // 事業財運
+  | 'career'             // 八字事業詳批
   | 'love'               // 愛情姻緣
   | 'health'             // 先天健康分析
   | 'compatibility'      // 八字合盤比較

@@ -55,7 +55,7 @@ test('debug career submit', async ({ page }) => {
   const hasResult = await page.getByText('查看結果').isVisible().catch(() => false);
   console.log(`HAS_RESULT: ${hasResult}`);
 
-  const hasPaywall = await page.getByText('事業詳批完整報告').isVisible().catch(() => false);
+  const hasPaywall = await page.getByText('八字事業詳批完整報告').isVisible().catch(() => false);
   console.log(`HAS_PAYWALL: ${hasPaywall}`);
 
   // Force fail to see output

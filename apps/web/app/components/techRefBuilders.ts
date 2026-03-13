@@ -81,6 +81,34 @@ function extractEnhanced(cd: Record<string, unknown>): Record<string, unknown> |
   return cd?.lifetimeEnhancedInsights as Record<string, unknown> | undefined;
 }
 
+function extractAnnualEnhanced(cd: Record<string, unknown>): Record<string, unknown> | undefined {
+  return cd?.annualEnhancedInsights as Record<string, unknown> | undefined;
+}
+
+// --- Annual English→Chinese translation maps (Python engine returns English enums) ---
+const IMPACT_ZH: Record<string, string> = {
+  'positive': '有利', 'negative': '不利', 'very_positive': '非常有利',
+  'very_negative': '非常不利', 'mixed': '吉凶參半',
+};
+
+const TRACK_TYPE_ZH: Record<string, string> = {
+  'romance': '桃花', 'celebration': '喜慶',
+};
+
+const VITALITY_ZH: Record<string, string> = {
+  'peak': '高峰', 'strong': '充沛', 'strengthening': '增強', 'rising': '上升',
+  'nurturing': '調養', 'renewing': '更新', 'unstable': '不穩', 'declining': '下降',
+  'dormant': '蟄伏', 'weak': '虛弱', 'very_weak': '極弱', 'critical': '危急', 'unknown': '未知',
+};
+
+const DANGER_LEVEL_ZH: Record<string, string> = {
+  'none': '無', 'low': '低', 'high': '高', 'critical': '危急',
+};
+
+const ROMANCE_LEVEL_ZH: Record<string, string> = {
+  'very_strong': '極旺', 'strong': '偏強', 'moderate': '中等', 'quiet': '平靜',
+};
+
 function extractFourPillars(cd: Record<string, unknown>): Record<string, PillarData> | undefined {
   return cd?.fourPillars as Record<string, PillarData> | undefined;
 }
@@ -1018,7 +1046,7 @@ function buildNextPeriod(cd: Record<string, unknown>): TechRefGroup[] {
   if (periods) {
     const current = periods.find((p) => p.isCurrent);
     if (current && current.periodOrdinal != null) {
-      const next = periods.find((p) => p.periodOrdinal === current.periodOrdinal + 1);
+      const next = periods.find((p) => p.periodOrdinal === current.periodOrdinal! + 1);
       if (next) return buildPeriodGroups(next);
     }
   }
@@ -1041,29 +1069,218 @@ function buildBestPeriod(cd: Record<string, unknown>): TechRefGroup[] {
 }
 
 // ============================================================
-// Builder: annual sections
+// Builder: annual sections (V2 — uses annualEnhancedInsights)
 // ============================================================
 
+/** Shared annual base: flow year core + gods system */
 function buildAnnualBase(cd: Record<string, unknown>): TechRefGroup[] {
   const groups: TechRefGroup[] = [];
-  const enhanced = extractEnhanced(cd);
-  const det = enhanced?.deterministic as Record<string, unknown> | undefined;
-  const annualTenGod = det?.annualTenGod as string | undefined;
+  const enhanced = extractAnnualEnhanced(cd);
   const gods = getEffectiveGods(cd);
 
-  // 【流年核心】
+  // Extract flow year data from annualEnhancedInsights
+  const flowYear = enhanced?.flowYear as { stem?: string; branch?: string; tenGod?: string; auspiciousness?: string; year?: number } | undefined;
+  const flowYearHarmony = enhanced?.flowYearHarmony as { pattern?: string; description?: string } | undefined;
+  const career = enhanced?.career as { tenGodRole?: string } | undefined;
+  const luYangRen = enhanced?.luYangRen as {
+    luShen?: { active?: boolean; favorable?: boolean };
+    yangRen?: { active?: boolean; favorable?: boolean; dangerLevel?: string };
+  } | undefined;
+
+  // 【流年干支】
+  if (flowYear) {
+    groups.push(
+      ...filterNull([
+        buildGroup('【流年干支】', [
+          {
+            label: '流年',
+            value: `${flowYear.stem || ''}${flowYear.branch || ''}年（${flowYear.year || ''}）`,
+          },
+          {
+            label: '流年天干十神',
+            value: flowYear.tenGod
+              ? `${flowYear.tenGod}${career?.tenGodRole ? `（${career.tenGodRole}）` : ''}`
+              : '',
+          },
+          {
+            label: '流年吉凶',
+            value: flowYear.auspiciousness || '',
+          },
+        ]),
+      ]),
+    );
+  }
+
+  // 【干支關係】
+  if (flowYearHarmony?.pattern) {
+    groups.push(
+      ...filterNull([
+        buildGroup('【干支關係】', [
+          {
+            label: '天干地支關係',
+            value: `${flowYearHarmony.pattern}${flowYearHarmony.description ? ` — ${flowYearHarmony.description}` : ''}`,
+          },
+        ]),
+      ]),
+    );
+  }
+
+  // 【用忌神對照】
   groups.push(
     ...filterNull([
-      buildGroup('【流年核心】', [
+      buildGroup('【用忌神對照】', [
+        { label: '用神', value: gods.usefulGod },
+        { label: '喜神', value: gods.favorableGod },
+        { label: '忌神', value: gods.tabooGod },
+        { label: '仇神', value: gods.enemyGod },
+      ]),
+    ]),
+  );
+
+  // 【祿神/羊刃】
+  if (luYangRen) {
+    const items: TechRefItem[] = [];
+    if (luYangRen.luShen?.active) {
+      items.push({
+        label: '祿神',
+        value: `到位${luYangRen.luShen.favorable ? '（有利）' : '（不利）'}`,
+      });
+    }
+    if (luYangRen.yangRen?.active) {
+      items.push({
+        label: '羊刃',
+        value: `到位${luYangRen.yangRen.favorable ? '（有利）' : '（不利）'}${luYangRen.yangRen.dangerLevel ? ` · 危險度：${DANGER_LEVEL_ZH[luYangRen.yangRen.dangerLevel || ''] || luYangRen.yangRen.dangerLevel || ''}` : ''}`,
+      });
+    }
+    if (items.length > 0) {
+      groups.push(...filterNull([buildGroup('【祿神/羊刃】', items)]));
+    }
+  }
+
+  return groups;
+}
+
+/** annual_overview — flow year overview */
+function buildAnnualOverview(cd: Record<string, unknown>): TechRefGroup[] {
+  const groups = buildAnnualBase(cd);
+  const enhanced = extractAnnualEnhanced(cd);
+
+  // Add taiSui summary to overview
+  const taiSui = enhanced?.taiSui as { hasTaiSui?: boolean; summary?: string } | undefined;
+  if (taiSui) {
+    groups.push(
+      ...filterNull([
+        buildGroup('【太歲概要】', [
+          { label: '犯太歲', value: taiSui.hasTaiSui ? '是' : '否' },
+          { label: '太歲摘要', value: taiSui.summary || '' },
+        ]),
+      ]),
+    );
+  }
+
+  return groups;
+}
+
+/** annual_tai_sui — per-pillar tai sui analysis */
+function buildAnnualTaiSui(cd: Record<string, unknown>): TechRefGroup[] {
+  const groups: TechRefGroup[] = [];
+  const enhanced = extractAnnualEnhanced(cd);
+  const taiSui = enhanced?.taiSui as {
+    hasTaiSui?: boolean;
+    summary?: string;
+    pillarResults?: Array<{
+      pillar?: string;
+      types?: string[];
+      branchRole?: string;
+      isActuallyFavorable?: boolean;
+      is_actually_favorable?: boolean;
+      affectedPalace?: string;
+      affected_palace?: string;
+    }>;
+  } | undefined;
+
+  if (!taiSui) {
+    const fallback = buildBasicGodsGroup(cd);
+    return fallback ? [fallback] : [];
+  }
+
+  // 【太歲總覽】
+  groups.push(
+    ...filterNull([
+      buildGroup('【太歲總覽】', [
+        { label: '犯太歲', value: taiSui.hasTaiSui ? '是' : '否' },
+        { label: '摘要', value: taiSui.summary || '' },
+      ]),
+    ]),
+  );
+
+  // 【四柱犯太歲明細】
+  const pillarResults = taiSui.pillarResults;
+  if (pillarResults && pillarResults.length > 0) {
+    const items: TechRefItem[] = pillarResults.map(pr => {
+      const types = pr.types?.join('、') || '';
+      const favorable = (pr.isActuallyFavorable ?? pr.is_actually_favorable) ? '有利' : '不利';
+      const palace = pr.affectedPalace || pr.affected_palace || '';
+      return {
+        label: `${pr.pillar || ''}柱`,
+        value: `${types}（${favorable}）${palace ? ` · ${palace}` : ''} · 地支角色：${pr.branchRole || ''}`,
+      };
+    });
+    groups.push(...filterNull([buildGroup('【四柱犯太歲明細】', items)]));
+  }
+
+  return groups;
+}
+
+/** annual_dayun_context — major period background */
+function buildAnnualDayunContext(cd: Record<string, unknown>): TechRefGroup[] {
+  const groups: TechRefGroup[] = [];
+  const enhanced = extractAnnualEnhanced(cd);
+  const dayun = enhanced?.dayunContext as {
+    available?: boolean;
+    stem?: string;
+    branch?: string;
+    tenGod?: string;
+    role?: string;
+    favorability?: string;
+    startYear?: number;
+    endYear?: number;
+    start_year?: number;
+    end_year?: number;
+  } | undefined;
+
+  if (!dayun?.available) {
+    groups.push(...filterNull([buildGroup('【大運背景】', [
+      { label: '狀態', value: '尚無大運（大運未起）' },
+    ])]));
+    return groups;
+  }
+
+  groups.push(
+    ...filterNull([
+      buildGroup('【大運背景】', [
         {
-          label: '流年天干十神',
-          value: annualTenGod ? `${annualTenGod}（與日主關係）` : '',
+          label: '當前大運',
+          value: `${dayun.stem || ''}${dayun.branch || ''}`,
+        },
+        {
+          label: '大運十神',
+          value: dayun.tenGod ? `${dayun.tenGod}${dayun.role ? `（${dayun.role}）` : ''}` : '',
+        },
+        {
+          label: '大運年份',
+          value: `${dayun.startYear || dayun.start_year || ''}-${dayun.endYear || dayun.end_year || ''}`,
+        },
+        {
+          label: '大運有利度',
+          value: dayun.favorability || '',
         },
       ]),
     ]),
   );
 
-  // 【用忌神對照】
+  // Add base gods for context
+  const gods = getEffectiveGods(cd);
   groups.push(
     ...filterNull([
       buildGroup('【用忌神對照】', [
@@ -1076,45 +1293,417 @@ function buildAnnualBase(cd: Record<string, unknown>): TechRefGroup[] {
   return groups;
 }
 
-function buildAnnualFinance(cd: Record<string, unknown>): TechRefGroup[] {
-  const groups = buildAnnualBase(cd);
-  const shensha = buildShenShaGroup(cd, 'finance');
-  if (shensha) groups.push(shensha);
-  return groups;
-}
-
+/** annual_career — enriched career section */
 function buildAnnualCareer(cd: Record<string, unknown>): TechRefGroup[] {
   const groups = buildAnnualBase(cd);
-  const shensha = buildShenShaGroup(cd, 'career');
-  if (shensha) groups.push(shensha);
+  const enhanced = extractAnnualEnhanced(cd);
+  const career = enhanced?.career as {
+    flowYearTenGod?: string;
+    tenGodRole?: string;
+    auspiciousness?: string;
+    signals?: Array<{ type?: string; impact?: string }>;
+    shenShaSignals?: string[];
+    shen_sha_signals?: string[];
+  } | undefined;
+
+  if (career) {
+    // 【事業十神角色】
+    groups.push(
+      ...filterNull([
+        buildGroup('【事業十神角色】', [
+          { label: '流年十神', value: career.flowYearTenGod || '' },
+          { label: '十神角色', value: career.tenGodRole || '' },
+          { label: '事業吉凶', value: career.auspiciousness || '' },
+        ]),
+      ]),
+    );
+
+    // 【事業信號】
+    if (career.signals && career.signals.length > 0) {
+      const items: TechRefItem[] = career.signals.map((s, i) => ({
+        label: `信號${i + 1}`,
+        value: `${s.type || ''}（${IMPACT_ZH[s.impact || ''] || s.impact || ''}）`,
+      }));
+      groups.push(...filterNull([buildGroup('【事業信號】', items)]));
+    }
+
+    // 【事業神煞】
+    const shenSha = career.shenShaSignals || career.shen_sha_signals;
+    if (shenSha && shenSha.length > 0) {
+      groups.push(...filterNull([buildGroup('【事業神煞】', [
+        { label: '神煞', value: shenSha.join('、') },
+      ])]));
+    }
+  }
+
+  // Natal shensha
+  const natShensha = buildShenShaGroup(cd, 'career');
+  if (natShensha) groups.push(natShensha);
+
   return groups;
 }
 
-function buildAnnualLove(cd: Record<string, unknown>): TechRefGroup[] {
+/** annual_finance — enriched finance section */
+function buildAnnualFinance(cd: Record<string, unknown>): TechRefGroup[] {
   const groups = buildAnnualBase(cd);
+  const enhanced = extractAnnualEnhanced(cd);
+  const finance = enhanced?.finance as {
+    wealthPresent?: boolean;
+    wealth_present?: boolean;
+    wealthCondition?: string;
+    wealth_condition?: string;
+    signals?: Array<{ type?: string; impact?: string; detail?: string }>;
+  } | undefined;
 
-  // 【配偶宮互動】 — check if day branch has interactions this year
-  const pa = extractPreAnalysis(cd);
-  const loveInsights = pa?.loveInsights as { spousePalaceGod?: string } | undefined;
-  if (loveInsights?.spousePalaceGod) {
+  if (finance) {
+    const wealthPresent = finance.wealthPresent ?? finance.wealth_present;
+    const wealthCondition = finance.wealthCondition || finance.wealth_condition || '';
+
+    // 【財星狀態】
     groups.push(
       ...filterNull([
-        buildGroup('【配偶宮（日支）】', [
-          { label: '配偶宮十神', value: loveInsights.spousePalaceGod },
+        buildGroup('【財星狀態】', [
+          { label: '財星到位', value: wealthPresent ? '是' : '否' },
+          {
+            label: '身財關係',
+            value: wealthCondition === 'strong_dm' ? '身強扛財' : wealthCondition === 'weak_dm' ? '身弱財壓' : wealthCondition,
+          },
+        ]),
+      ]),
+    );
+
+    // 【財運信號】
+    if (finance.signals && finance.signals.length > 0) {
+      const items: TechRefItem[] = finance.signals.map((s, i) => ({
+        label: `信號${i + 1}`,
+        value: `${s.type || ''}（${IMPACT_ZH[s.impact || ''] || s.impact || ''}）${s.detail ? ` — ${s.detail}` : ''}`,
+      }));
+      groups.push(...filterNull([buildGroup('【財運信號】', items)]));
+    }
+  }
+
+  const natShensha = buildShenShaGroup(cd, 'finance');
+  if (natShensha) groups.push(natShensha);
+
+  return groups;
+}
+
+/** annual_relationships — palace relationships */
+function buildAnnualRelationships(cd: Record<string, unknown>): TechRefGroup[] {
+  const groups = buildAnnualBase(cd);
+  const enhanced = extractAnnualEnhanced(cd);
+  const relationships = enhanced?.relationships as {
+    palaceRelationships?: Record<string, {
+      palace?: string;
+      status?: string;
+      interactions?: Array<{ type?: string; detail?: string }>;
+    }>;
+    palace_relationships?: Record<string, {
+      palace?: string;
+      status?: string;
+      interactions?: Array<{ type?: string; detail?: string }>;
+    }>;
+  } | undefined;
+
+  const palaces = relationships?.palaceRelationships || relationships?.palace_relationships;
+  if (palaces) {
+    const items: TechRefItem[] = [];
+    for (const [key, palace] of Object.entries(palaces)) {
+      const interactions = palace.interactions?.map(i => `${i.type || ''}${i.detail ? `(${i.detail})` : ''}`).join('、') || '';
+      items.push({
+        label: `${palace.palace || key}`,
+        value: `${palace.status || ''}${interactions ? ` · ${interactions}` : ''}`,
+      });
+    }
+    if (items.length > 0) {
+      groups.push(...filterNull([buildGroup('【四柱宮位互動】', items)]));
+    }
+  }
+
+  return groups;
+}
+
+/** annual_love — enriched love/marriage section */
+function buildAnnualLove(cd: Record<string, unknown>): TechRefGroup[] {
+  const groups = buildAnnualBase(cd);
+  const enhanced = extractAnnualEnhanced(cd);
+  const marriage = enhanced?.marriageStar as {
+    romanceLevel?: string;
+    romance_level?: string;
+    romanceScore?: number;
+    romance_score?: number;
+    trackCount?: number;
+    track_count?: number;
+    tracks?: Array<{ track?: string; active?: boolean; trackType?: string; track_type?: string; detail?: string }>;
+  } | undefined;
+
+  if (marriage) {
+    const romanceLevel = marriage.romanceLevel || marriage.romance_level || '';
+    const romanceScore = marriage.romanceScore ?? marriage.romance_score;
+
+    // 【桃花活躍度】
+    groups.push(
+      ...filterNull([
+        buildGroup('【桃花活躍度】', [
+          {
+            label: '桃花等級',
+            value: romanceLevel
+              ? `${ROMANCE_LEVEL_ZH[romanceLevel] || romanceLevel}${romanceScore != null ? `（${romanceScore}分）` : ''}`
+              : '',
+          },
+          {
+            label: '姻緣信號數',
+            value: `${marriage.trackCount ?? marriage.track_count ?? 0}個`,
+          },
+        ]),
+      ]),
+    );
+
+    // 【姻緣軌道】
+    if (marriage.tracks && marriage.tracks.length > 0) {
+      const items: TechRefItem[] = marriage.tracks.map(t => ({
+        label: t.track || '',
+        value: `${t.active ? '✓ 活躍' : '✗ 不活躍'}${(t.trackType || t.track_type) ? ` · ${TRACK_TYPE_ZH[t.trackType || t.track_type || ''] || t.trackType || t.track_type || ''}` : ''}${t.detail ? ` — ${t.detail}` : ''}`,
+      }));
+      groups.push(...filterNull([buildGroup('【姻緣軌道（五軌分析）】', items)]));
+    }
+  }
+
+  // 【配偶宮互動】
+  const spousePalace = enhanced?.spousePalace as {
+    interactions?: Array<{ type?: string; detail?: string }>;
+  } | undefined;
+  if (spousePalace?.interactions && spousePalace.interactions.length > 0) {
+    groups.push(...filterNull([buildGroup('【配偶宮互動】', spousePalace.interactions.map((i, idx) => ({
+      label: `互動${idx + 1}`,
+      value: `${i.type || ''}${i.detail ? ` — ${i.detail}` : ''}`,
+    })))]));
+  }
+
+  const natShensha = buildShenShaGroup(cd, 'love');
+  if (natShensha) groups.push(natShensha);
+
+  return groups;
+}
+
+/** annual_family — seal star + hour pillar */
+function buildAnnualFamily(cd: Record<string, unknown>): TechRefGroup[] {
+  const groups = buildAnnualBase(cd);
+  const enhanced = extractAnnualEnhanced(cd);
+  const sealStar = enhanced?.sealStar as {
+    isSealYear?: boolean;
+    is_seal_year?: boolean;
+    sealRole?: string;
+    seal_role?: string;
+    signals?: Array<{ type?: string; impact?: string }>;
+  } | undefined;
+
+  if (sealStar) {
+    const isSealYear = sealStar.isSealYear ?? sealStar.is_seal_year;
+    const sealRole = sealStar.sealRole || sealStar.seal_role || '';
+
+    // 【印星分析】
+    groups.push(
+      ...filterNull([
+        buildGroup('【印星分析】', [
+          { label: '印星年', value: isSealYear ? '是' : '否' },
+          { label: '印星角色', value: sealRole || '—' },
+        ]),
+      ]),
+    );
+
+    if (sealStar.signals && sealStar.signals.length > 0) {
+      const items: TechRefItem[] = sealStar.signals.map((s, i) => ({
+        label: `信號${i + 1}`,
+        value: `${s.type || ''}（${IMPACT_ZH[s.impact || ''] || s.impact || ''}）`,
+      }));
+      groups.push(...filterNull([buildGroup('【印星信號】', items)]));
+    }
+  }
+
+  // Hour pillar (子女宮) status from relationships
+  const relationships = enhanced?.relationships as {
+    palaceRelationships?: Record<string, { palace?: string; status?: string; interactions?: Array<{ type?: string; detail?: string }> }>;
+    palace_relationships?: Record<string, { palace?: string; status?: string; interactions?: Array<{ type?: string; detail?: string }> }>;
+  } | undefined;
+  const palaces = relationships?.palaceRelationships || relationships?.palace_relationships;
+  const hourPalace = palaces?.hour;
+  if (hourPalace) {
+    groups.push(...filterNull([buildGroup('【時柱（子女宮）】', [
+      { label: '時柱狀態', value: hourPalace.status || '' },
+      {
+        label: '時柱互動',
+        value: hourPalace.interactions?.map(i => `${i.type || ''}${i.detail ? `(${i.detail})` : ''}`).join('、') || '無',
+      },
+    ])]));
+  }
+
+  return groups;
+}
+
+/** annual_health — enriched health section */
+function buildAnnualHealth(cd: Record<string, unknown>): TechRefGroup[] {
+  const groups = buildAnnualBase(cd);
+  const enhanced = extractAnnualEnhanced(cd);
+  const health = enhanced?.health as {
+    lifeStage?: string;
+    life_stage?: string;
+    healthVitality?: { vitality?: string; label?: string };
+    health_vitality?: { vitality?: string; label?: string };
+    yangrenDanger?: boolean;
+    yangren_danger?: boolean;
+    riskOrgans?: Array<{ element?: string; organs?: string; source?: string }>;
+    risk_organs?: Array<{ element?: string; organs?: string; source?: string }>;
+    elementWarnings?: Array<{ element?: string; condition?: string; source?: string; detail?: string }>;
+    element_warnings?: Array<{ element?: string; condition?: string; source?: string; detail?: string }>;
+  } | undefined;
+
+  if (health) {
+    const vitality = health.healthVitality || health.health_vitality;
+    const lifeStage = health.lifeStage || health.life_stage || '';
+    const yangrenDanger = health.yangrenDanger ?? health.yangren_danger;
+    const riskOrgans = health.riskOrgans || health.risk_organs || [];
+    const elementWarnings = health.elementWarnings || health.element_warnings || [];
+
+    // 【十二長生】
+    groups.push(
+      ...filterNull([
+        buildGroup('【十二長生】', [
+          { label: '生命階段', value: lifeStage },
+          {
+            label: '精力狀態',
+            value: vitality ? `${VITALITY_ZH[vitality.vitality || ''] || vitality.vitality || ''}${vitality.label ? ` — ${vitality.label}` : ''}` : '',
+          },
+        ]),
+      ]),
+    );
+
+    // 【風險臟腑】
+    if (riskOrgans.length > 0) {
+      const items: TechRefItem[] = riskOrgans.map(r => ({
+        label: `${r.element || ''}行`,
+        value: `${r.organs || ''}（${r.source || ''}）`,
+      }));
+      groups.push(...filterNull([buildGroup('【風險臟腑】', items)]));
+    }
+
+    // 【五行警報】
+    if (elementWarnings.length > 0) {
+      const items: TechRefItem[] = elementWarnings.map(w => ({
+        label: `${w.element || ''}行`,
+        value: `${w.condition || ''}${w.source ? `（${w.source}）` : ''}${w.detail ? ` — ${w.detail}` : ''}`,
+      }));
+      groups.push(...filterNull([buildGroup('【五行警報】', items)]));
+    }
+
+    // 【羊刃危險】
+    groups.push(
+      ...filterNull([
+        buildGroup('【羊刃危險】', [
+          { label: '羊刃高危', value: yangrenDanger ? '⚠ 是' : '否' },
         ]),
       ]),
     );
   }
 
-  const shensha = buildShenShaGroup(cd, 'love');
-  if (shensha) groups.push(shensha);
+  const natShensha = buildShenShaGroup(cd, 'health');
+  if (natShensha) groups.push(natShensha);
+
   return groups;
 }
 
-function buildAnnualHealth(cd: Record<string, unknown>): TechRefGroup[] {
-  const groups = buildAnnualBase(cd);
-  const shensha = buildShenShaGroup(cd, 'health');
-  if (shensha) groups.push(shensha);
+/** monthly_XX — per-month tech ref */
+function buildAnnualMonthly(cd: Record<string, unknown>, monthIndex: number): TechRefGroup[] {
+  const groups: TechRefGroup[] = [];
+  const enhanced = extractAnnualEnhanced(cd);
+  const forecasts = enhanced?.monthlyForecasts as Array<{
+    monthIndex?: number;
+    month_index?: number;
+    monthStem?: string;
+    month_stem?: string;
+    monthBranch?: string;
+    month_branch?: string;
+    monthTenGod?: string;
+    month_ten_god?: string;
+    auspiciousness?: string;
+    isKongWang?: boolean;
+    is_kong_wang?: boolean;
+    stemBase?: string;
+    stem_base?: string;
+    branchBase?: string;
+    branch_base?: string;
+    aspects?: {
+      career?: { tenGod?: string; ten_god?: string; signals?: string[] };
+      finance?: { signals?: string[] };
+      romance?: { signals?: string[] };
+      health?: { signals?: string[] };
+    };
+  }> | undefined;
+
+  if (!forecasts) {
+    const fallback = buildBasicGodsGroup(cd);
+    return fallback ? [fallback] : [];
+  }
+
+  const month = forecasts.find(m => (m.monthIndex ?? m.month_index) === monthIndex);
+  if (!month) {
+    const fallback = buildBasicGodsGroup(cd);
+    return fallback ? [fallback] : [];
+  }
+
+  const stem = month.monthStem || month.month_stem || '';
+  const branch = month.monthBranch || month.month_branch || '';
+  const tenGod = month.monthTenGod || month.month_ten_god || '';
+  const isKongWang = month.isKongWang ?? month.is_kong_wang;
+
+  // 【月份概要】
+  groups.push(
+    ...filterNull([
+      buildGroup('【月份概要】', [
+        { label: '月柱', value: `${stem}${branch}` },
+        { label: '月十神', value: tenGod },
+        { label: '月吉凶', value: month.auspiciousness || '' },
+        { label: '空亡', value: isKongWang ? '是（力量減弱）' : '否' },
+      ]),
+    ]),
+  );
+
+  // 【四大面向信號】
+  const aspects = month.aspects;
+  if (aspects) {
+    const items: TechRefItem[] = [];
+    const careerTenGod = aspects.career?.tenGod || aspects.career?.ten_god || '';
+    if (careerTenGod || (aspects.career?.signals && aspects.career.signals.length > 0)) {
+      items.push({
+        label: '💼 事業',
+        value: [careerTenGod, ...(aspects.career?.signals || [])].filter(Boolean).join('、'),
+      });
+    }
+    if (aspects.finance?.signals && aspects.finance.signals.length > 0) {
+      items.push({ label: '💰 財運', value: aspects.finance.signals.join('、') });
+    }
+    if (aspects.romance?.signals && aspects.romance.signals.length > 0) {
+      items.push({ label: '💕 感情', value: aspects.romance.signals.join('、') });
+    }
+    if (aspects.health?.signals && aspects.health.signals.length > 0) {
+      items.push({ label: '🏥 健康', value: aspects.health.signals.join('、') });
+    }
+    if (items.length > 0) {
+      groups.push(...filterNull([buildGroup('【四大面向信號】', items)]));
+    }
+  }
+
+  // Add base gods for context
+  const gods = getEffectiveGods(cd);
+  groups.push(
+    ...filterNull([
+      buildGroup('【用忌神對照】', [
+        { label: '用神', value: gods.usefulGod },
+        { label: '忌神', value: gods.tabooGod },
+      ]),
+    ]),
+  );
+
   return groups;
 }
 
@@ -1142,8 +1731,21 @@ export const SECTION_TECH_BUILDERS: Record<string, TechRefBuilder> = {
   current_period: buildCurrentPeriod,
   next_period: buildNextPeriod,
   best_period: buildBestPeriod,
-  annual_finance: buildAnnualFinance,
+  // Annual V2 sections
+  annual_overview: buildAnnualOverview,
+  annual_tai_sui: buildAnnualTaiSui,
+  annual_dayun_context: buildAnnualDayunContext,
   annual_career: buildAnnualCareer,
+  annual_finance: buildAnnualFinance,
+  annual_relationships: buildAnnualRelationships,
   annual_love: buildAnnualLove,
+  annual_family: buildAnnualFamily,
   annual_health: buildAnnualHealth,
+  // Monthly sections (1-based monthIndex to match Python engine)
+  ...Object.fromEntries(
+    Array.from({ length: 12 }, (_, i) => [
+      `monthly_${String(i + 1).padStart(2, '0')}`,
+      (cd: Record<string, unknown>) => buildAnnualMonthly(cd, i + 1),
+    ])
+  ),
 };

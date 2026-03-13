@@ -36,7 +36,7 @@ jest.mock('@repo/shared', () => ({
     lifetime: { icon: '🏛️', nameZhTw: '八字終身運' },
     'zwds-lifetime': { icon: '⭐', nameZhTw: '紫微終身命盤' },
     annual: { icon: '📅', nameZhTw: '八字流年運勢' },
-    career: { icon: '💼', nameZhTw: '事業財運' },
+    career: { icon: '💼', nameZhTw: '八字事業詳批' },
   },
 }));
 

@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import Link from "next/link";
 import styles from "./CareerPaywallCTA.module.css";
 
-interface CareerPaywallCTAProps {
+interface AnnualPaywallCTAProps {
   creditCost: number;
   currentCredits: number | null;
   hasFreeReading: boolean;
@@ -15,7 +15,7 @@ interface CareerPaywallCTAProps {
   onCreditsRefresh: () => void;
 }
 
-export default function CareerPaywallCTA({
+export default function AnnualPaywallCTA({
   creditCost,
   currentCredits,
   hasFreeReading,
@@ -24,8 +24,7 @@ export default function CareerPaywallCTA({
   onUnlock,
   isUnlocking,
   onCreditsRefresh,
-}: CareerPaywallCTAProps) {
-  // Re-fetch credits when user returns from /pricing tab
+}: AnnualPaywallCTAProps) {
   useEffect(() => {
     function handleVisibilityChange() {
       if (document.visibilityState === "visible") {
@@ -46,37 +45,36 @@ export default function CareerPaywallCTA({
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <span className={styles.headerIcon}>📊</span>
-        <h3 className={styles.headerTitle}>八字事業詳批完整報告</h3>
+        <span className={styles.headerIcon}>📅</span>
+        <h3 className={styles.headerTitle}>八字流年運勢完整報告</h3>
       </div>
 
       <div className={styles.featureList}>
         <p className={styles.featureIntro}>包含以下深度分析：</p>
         <div className={styles.featureGrid}>
-          <span className={styles.featureItem}>事業格局分析</span>
-          <span className={styles.featureItem}>職業能力分析</span>
-          <span className={styles.featureItem}>行業方向建議</span>
-          <span className={styles.featureItem}>創業適合度</span>
-          <span className={styles.featureItem}>合夥適合度</span>
-          <span className={styles.featureItem}>事業貴人分析</span>
-          <span className={styles.featureItem}>未來五年運勢</span>
-          <span className={styles.featureItem}>十二月運氣</span>
+          <span className={styles.featureItem}>流年總述</span>
+          <span className={styles.featureItem}>太歲分析</span>
+          <span className={styles.featureItem}>事業運勢</span>
+          <span className={styles.featureItem}>財運分析</span>
+          <span className={styles.featureItem}>人際關係</span>
+          <span className={styles.featureItem}>愛情姻緣</span>
+          <span className={styles.featureItem}>家庭關係</span>
+          <span className={styles.featureItem}>健康狀況</span>
+          <span className={styles.featureItem}>十二月運程</span>
         </div>
       </div>
 
       <div className={styles.actionArea}>
         {!isSignedIn ? (
-          /* Unauthenticated user: show login link */
           <>
-            <Link href="/sign-in?redirect_url=/reading/career" className={styles.loginBtn}>
+            <Link href="/sign-in?redirect_url=/reading/annual" className={styles.loginBtn}>
               登入以解鎖完整報告
             </Link>
             <p className={styles.loginHint}>
-              登入後即可使用點數解鎖完整事業分析報告
+              登入後即可使用點數解鎖完整流年運勢報告
             </p>
           </>
         ) : hasEnoughCredits ? (
-          /* Authenticated with enough credits: show unlock */
           <>
             <button
               className={styles.unlockBtn}
@@ -105,7 +103,6 @@ export default function CareerPaywallCTA({
             )}
           </>
         ) : (
-          /* Authenticated but insufficient credits */
           <>
             <button
               className={`${styles.unlockBtn} ${styles.disabled}`}

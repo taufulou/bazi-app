@@ -25,7 +25,9 @@ import {
   buildCareerSystemPrompt,
   CAREER_V2_STYLE_RULES,
   TEN_GOD_CAREER_TRANSLATION,
+  ANNUAL_V2_PROMPTS,
 } from './prompts';
+import { deepCamelCase } from '../common/deep-camel-case';
 
 // ============================================================
 // Types
@@ -1229,6 +1231,818 @@ export class AIService implements OnModuleInit {
     }
   }
 
+  // ============================================================
+  // Annual V2 — Two-call architecture (mirrors Career V2)
+  // ============================================================
+
+  async generateAnnualV2Interpretation(
+    calculationData: Record<string, unknown>,
+    userId?: string,
+    readingId?: string,
+  ): Promise<AIGenerationResult> {
+    if (this.providers.length === 0) {
+      throw new Error('No AI providers configured');
+    }
+
+    const timeoutMs = parseInt(
+      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '60000',
+      10,
+    );
+
+    const { systemPrompt, userPromptCall1, userPromptCall2 } =
+      this.buildAnnualV2Prompts(calculationData);
+
+    let lastError: Error | undefined;
+
+    for (const providerConfig of this.providers) {
+      try {
+        const call1Promise = this.callProviderWithTimeout(
+          providerConfig, systemPrompt, userPromptCall1, timeoutMs,
+        );
+        const call2Promise = this.callProviderWithTimeout(
+          providerConfig, systemPrompt, userPromptCall2, timeoutMs,
+        );
+
+        const startTime = Date.now();
+        const [result1, result2] = await Promise.allSettled([call1Promise, call2Promise]);
+        const latencyMs = Date.now() - startTime;
+
+        const call1Success = result1.status === 'fulfilled';
+        const call2Success = result2.status === 'fulfilled';
+
+        if (!call1Success) {
+          this.logger.warn(`Annual V2 Call 1 failed (${providerConfig.provider}): ${(result1 as PromiseRejectedResult).reason}`);
+        }
+        if (!call2Success) {
+          this.logger.warn(`Annual V2 Call 2 failed (${providerConfig.provider}): ${(result2 as PromiseRejectedResult).reason}`);
+        }
+
+        if (!call1Success && !call2Success) {
+          lastError = new Error(`Provider ${providerConfig.provider}: both annual V2 calls failed`);
+          continue;
+        }
+
+        let sections: Record<string, InterpretationSection> = {};
+        let summary: InterpretationSection = { preview: '', full: '' };
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
+
+        if (call1Success) {
+          const r1 = (result1 as PromiseFulfilledResult<{ content: string; inputTokens: number; outputTokens: number }>).value;
+          totalInputTokens += r1.inputTokens;
+          totalOutputTokens += r1.outputTokens;
+
+          // Use parseAIResponse directly (generic JSON parser) — avoid parseLifetimeV2CallResponse
+          // which falls back to LIFETIME_V2_PROMPTS keys (wrong for Annual V2)
+          const parsed1 = this.parseAIResponse(r1.content, ReadingType.ANNUAL);
+          // If Stage 1 failed, use brace-depth extraction with correct annual keys
+          if (Object.keys(parsed1.sections).length === 0) {
+            const extracted = this.extractCompletedSections(r1.content, ANNUAL_V2_PROMPTS.call1Sections, new Set<string>());
+            Object.assign(parsed1.sections, extracted);
+          }
+          const { result: fixed1 } = this.autoFixAllSections(parsed1, calculationData);
+          sections = { ...sections, ...fixed1.sections };
+          if (fixed1.summary && (fixed1.summary.preview || fixed1.summary.full)) {
+            summary = fixed1.summary;
+          }
+
+          this.logUsage(userId, readingId, providerConfig, {
+            interpretation: { sections: fixed1.sections, summary: fixed1.summary },
+            provider: providerConfig.provider,
+            model: providerConfig.model,
+            tokenUsage: {
+              inputTokens: r1.inputTokens,
+              outputTokens: r1.outputTokens,
+              totalTokens: r1.inputTokens + r1.outputTokens,
+              estimatedCostUsd: 0,
+            },
+            latencyMs,
+            isCacheHit: false,
+          }, 'ANNUAL' as ReadingType).catch(() => {});
+        }
+
+        if (call2Success) {
+          const r2 = (result2 as PromiseFulfilledResult<{ content: string; inputTokens: number; outputTokens: number }>).value;
+          totalInputTokens += r2.inputTokens;
+          totalOutputTokens += r2.outputTokens;
+
+          const parsed2 = this.parseAnnualV2Call2Response(r2.content);
+          const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
+          sections = { ...sections, ...fixed2.sections };
+
+          this.logUsage(userId, readingId, providerConfig, {
+            interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
+            provider: providerConfig.provider,
+            model: providerConfig.model,
+            tokenUsage: {
+              inputTokens: r2.inputTokens,
+              outputTokens: r2.outputTokens,
+              totalTokens: r2.inputTokens + r2.outputTokens,
+              estimatedCostUsd: 0,
+            },
+            latencyMs,
+            isCacheHit: false,
+          }, 'ANNUAL' as ReadingType).catch(() => {});
+        }
+
+        // Merge with full annualEnhancedInsights as deterministic data
+        // (not just the compact 'deterministic' sub-key — frontend needs full data for sub-header badges)
+        const enhancedInsights = calculationData['annualEnhancedInsights'] as Record<string, unknown> | undefined;
+        const deterministic = (enhancedInsights ? deepCamelCase(enhancedInsights) : {}) as Record<string, unknown>;
+
+        const totalCost =
+          totalInputTokens * providerConfig.costPerInputToken +
+          totalOutputTokens * providerConfig.costPerOutputToken;
+
+        const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
+          sections,
+          summary,
+          deterministic,
+          schemaVersion: 'v2',
+        };
+
+        this.logger.log(
+          `Annual V2 generated via ${providerConfig.provider} in ${latencyMs}ms, ` +
+          `${totalInputTokens}+${totalOutputTokens} tokens, $${totalCost.toFixed(4)}, ` +
+          `call1=${call1Success ? 'ok' : 'FAIL'}, call2=${call2Success ? 'ok' : 'FAIL'}`,
+        );
+
+        return {
+          interpretation,
+          provider: providerConfig.provider,
+          model: providerConfig.model,
+          tokenUsage: {
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            totalTokens: totalInputTokens + totalOutputTokens,
+            estimatedCostUsd: Math.round(totalCost * 1_000_000) / 1_000_000,
+          },
+          latencyMs,
+          isCacheHit: false,
+        };
+      } catch (err) {
+        lastError = err instanceof Error ? err : new Error(String(err));
+        this.logger.warn(
+          `Annual V2 provider ${providerConfig.provider} failed: ${lastError.message}. Trying next...`,
+        );
+      }
+    }
+
+    // All providers exhausted — fall back to V1
+    this.logger.warn(`Annual V2 all providers failed (last: ${lastError?.message}) — falling back to V1`);
+    return this.generateInterpretation(
+      calculationData,
+      ReadingType.ANNUAL,
+      userId,
+      readingId,
+    );
+  }
+
+  streamAnnualV2(
+    calculationData: Record<string, unknown>,
+    readingId: string,
+  ): Observable<MessageEvent> {
+    return new Observable((subscriber: Subscriber<MessageEvent>) => {
+      this._executeStreamAnnualV2(calculationData, readingId, subscriber)
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Stream failed';
+          subscriber.next({
+            data: JSON.stringify({ message }),
+            type: 'error',
+          } as MessageEvent);
+          subscriber.complete();
+        });
+    });
+  }
+
+  private async _executeStreamAnnualV2(
+    calculationData: Record<string, unknown>,
+    readingId: string,
+    subscriber: Subscriber<MessageEvent>,
+  ) {
+    const startTime = Date.now();
+    const timeoutMs = parseInt(
+      this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
+      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '180000',
+      10,
+    );
+
+    if (this.providers.length === 0) {
+      throw new Error('No AI providers configured');
+    }
+
+    const { systemPrompt, userPromptCall1, userPromptCall2 } =
+      this.buildAnnualV2Prompts(calculationData);
+
+    // Build dynamic section keys for Call 2
+    const call2ExpectedKeys: string[] = [];
+    for (let m = 1; m <= 12; m++) {
+      call2ExpectedKeys.push(`monthly_${String(m).padStart(2, '0')}`);
+    }
+
+    // Extract full enhanced insights as deterministic data (not just compact sub-key)
+    const enhancedInsights = calculationData['annualEnhancedInsights'] as Record<string, unknown> | undefined;
+
+    // Heartbeat to keep SSE alive
+    const heartbeatInterval = setInterval(() => {
+      subscriber.next({ data: '', type: 'heartbeat' } as MessageEvent);
+    }, 15000);
+
+    let call1Timeout!: ReturnType<typeof setTimeout>;
+
+    try {
+      let v2Succeeded = false;
+      let totalSections = 0;
+      let activeProviderConfig = this.providers[0]!;
+
+      for (const providerConfig of this.providers) {
+        activeProviderConfig = providerConfig;
+
+        try {
+          // === Call 1: Stream core annual sections ===
+          const call1Sections: Record<string, InterpretationSection> = {};
+          let call1Summary: InterpretationSection = { preview: '', full: '' };
+          let call1Buffer = '';
+
+          const call1Controller = new AbortController();
+          call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
+
+          // === Call 2: Non-streaming parallel (12 monthly forecasts) ===
+          const call2Promise = this.callProviderWithTimeout(
+            providerConfig, systemPrompt, userPromptCall2, timeoutMs,
+          ).catch((err) => {
+            this.logger.warn(`Annual V2 Call 2 failed (${providerConfig.provider}): ${err instanceof Error ? err.message : err}`);
+            return null;
+          });
+
+          const call1ExtractedKeys = new Set<string>();
+          const call1Keys = ANNUAL_V2_PROMPTS.call1Sections;
+
+          try {
+            const streamGen = this.streamProvider(
+              providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
+            );
+
+            for await (const chunk of streamGen) {
+              call1Buffer += chunk;
+
+              const newSections = this.extractCompletedSections(
+                call1Buffer, call1Keys, call1ExtractedKeys,
+              );
+
+              for (const [key, rawSection] of Object.entries(newSections)) {
+                const { section: autoFixed } = this.autoFixSection(key, rawSection, calculationData);
+                call1Sections[key] = autoFixed;
+                totalSections++;
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: autoFixed.preview, full: autoFixed.full }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+
+            // Parse remaining from complete buffer using correct annual keys
+            const finalExtracted = this.extractCompletedSections(call1Buffer, call1Keys, call1ExtractedKeys);
+            for (const [key, rawSection] of Object.entries(finalExtracted)) {
+              if (!call1Sections[key]) {
+                const { section: autoFixed } = this.autoFixSection(key, rawSection, calculationData);
+                call1Sections[key] = autoFixed;
+                totalSections++;
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: autoFixed.preview, full: autoFixed.full }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+            // Extract summary using same brace-depth method
+            const summaryExtracted = this.extractCompletedSections(call1Buffer, ['summary'], new Set<string>());
+            if (summaryExtracted['summary'] && (summaryExtracted['summary'].preview || summaryExtracted['summary'].full)) {
+              call1Summary = summaryExtracted['summary'];
+            }
+          } catch (streamErr) {
+            if ((streamErr as Error).name !== 'AbortError') {
+              this.logger.warn(`Annual V2 Call 1 stream error: ${streamErr instanceof Error ? streamErr.message : streamErr}`);
+            }
+          }
+          clearTimeout(call1Timeout);
+
+          subscriber.next({
+            data: JSON.stringify({ call: 1 }),
+            type: 'call_complete',
+          } as MessageEvent);
+
+          // Wait for Call 2
+          let call2FixedSections: Record<string, InterpretationSection> = {};
+          const call2Result = await call2Promise;
+          if (!call2Result) {
+            this.logger.warn(`Annual V2 Call 2 returned null — monthly sections will be missing`);
+          }
+          if (call2Result) {
+            this.logger.log(`Annual V2 Call 2 completed: ${call2Result.content.length} chars`);
+            const parsed2 = this.parseAnnualV2Call2Response(call2Result.content);
+            const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
+            call2FixedSections = fixed2.sections;
+
+            for (const [key, section] of Object.entries(call2FixedSections)) {
+              totalSections++;
+              subscriber.next({
+                data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                type: 'section_complete',
+              } as MessageEvent);
+            }
+          }
+
+          subscriber.next({
+            data: JSON.stringify({ call: 2 }),
+            type: 'call_complete',
+          } as MessageEvent);
+
+          // Emit summary
+          if (call1Summary.preview || call1Summary.full) {
+            subscriber.next({
+              data: JSON.stringify({ preview: call1Summary.preview, full: call1Summary.full }),
+              type: 'summary',
+            } as MessageEvent);
+          }
+
+          // Merge all sections for DB update
+          const allSections: Record<string, InterpretationSection> = {
+            ...call1Sections,
+            ...call2FixedSections,
+          };
+
+          // Store full enhanced insights with deep camelCase as deterministic
+          const deterministic = (enhancedInsights ? deepCamelCase(enhancedInsights) : {}) as Record<string, unknown>;
+
+          const aiInterpretation = {
+            schemaVersion: 'v2',
+            sections: allSections,
+            summary: call1Summary,
+            deterministic,
+          };
+
+          // Update DB record
+          try {
+            await this.prisma.baziReading.update({
+              where: { id: readingId },
+              data: {
+                aiInterpretation: aiInterpretation as unknown as Prisma.InputJsonValue,
+                aiProvider: providerConfig.provider as any,
+                aiModel: providerConfig.model,
+              },
+            });
+          } catch (dbErr) {
+            this.logger.error(`Failed to update annual reading ${readingId} with AI: ${dbErr}`);
+          }
+
+          // Cache the result
+          const birthDataHash = this.generateBirthDataHash(
+            calculationData['birthDate'] as string || '',
+            calculationData['birthTime'] as string || '',
+            calculationData['birthCity'] as string || '',
+            calculationData['gender'] as string || '',
+            ReadingType.ANNUAL,
+          );
+          this.cacheInterpretation(
+            birthDataHash,
+            ReadingType.ANNUAL,
+            calculationData,
+            aiInterpretation as unknown as AIInterpretationResult,
+          ).catch((err) => this.logger.error(`Annual stream cache write failed: ${err}`));
+
+          v2Succeeded = true;
+          break;
+
+        } catch (err) {
+          this.logger.warn(
+            `Annual Stream V2 provider ${providerConfig.provider} failed: ${err instanceof Error ? err.message : err}. Trying next...`,
+          );
+          clearTimeout(call1Timeout);
+          if (totalSections > 0) {
+            v2Succeeded = true;
+            break;
+          }
+        }
+      }
+
+      if (!v2Succeeded) {
+        subscriber.next({
+          data: JSON.stringify({ message: 'All Annual V2 providers failed' }),
+          type: 'error',
+        } as MessageEvent);
+      }
+
+      const latencyMs = Date.now() - startTime;
+      this.logger.log(
+        `Stream Annual V2 completed via ${activeProviderConfig.provider} in ${latencyMs}ms, ${totalSections} sections delivered`,
+      );
+
+      subscriber.next({
+        data: JSON.stringify({ totalSections, latencyMs }),
+        type: 'done',
+      } as MessageEvent);
+
+    } finally {
+      clearInterval(heartbeatInterval);
+      clearTimeout(call1Timeout!);
+      subscriber.complete();
+    }
+  }
+
+  private buildAnnualV2Prompts(
+    calculationData: Record<string, unknown>,
+  ): { systemPrompt: string; userPromptCall1: string; userPromptCall2: string } {
+    const systemPrompt = BASE_SYSTEM_PROMPT + '\n\n' + ANNUAL_V2_PROMPTS.systemAddition;
+
+    let call1Template = ANNUAL_V2_PROMPTS.userTemplateCall1;
+    let call2Template = ANNUAL_V2_PROMPTS.userTemplateCall2;
+
+    // Apply standard interpolation
+    call1Template = this.interpolateTemplate(call1Template, calculationData, ReadingType.ANNUAL);
+    call2Template = this.interpolateTemplate(call2Template, calculationData, ReadingType.ANNUAL);
+
+    // Interpolate annual-specific placeholders
+    call1Template = this.interpolateAnnualV2Fields(call1Template, calculationData);
+    call2Template = this.interpolateAnnualV2Fields(call2Template, calculationData);
+
+    const userPromptCall1 = call1Template + '\n\n' + ANNUAL_V2_PROMPTS.outputFormatCall1;
+    const userPromptCall2 = call2Template + '\n\n' + ANNUAL_V2_PROMPTS.outputFormatCall2;
+
+    return { systemPrompt, userPromptCall1, userPromptCall2 };
+  }
+
+  /**
+   * Interpolate Annual V2-specific placeholders into templates.
+   * Formats annualEnhancedInsights data as anchor text for AI consumption.
+   */
+  private interpolateAnnualV2Fields(
+    template: string,
+    data: Record<string, unknown>,
+  ): string {
+    let result = template;
+    const insights = data['annualEnhancedInsights'] as Record<string, unknown> | undefined;
+    if (!insights) {
+      // Clear all annual placeholders
+      result = result.replace(/\{\{flowYearHarmony\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{annualTaiSui\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{dayunContext\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{annualPillarImpacts\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{annualLuYangRen\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{annualCareerAnchors\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{annualFinanceAnchors\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{annualRelationshipAnchors\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{annualSpousePalace\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{annualMarriageStar\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{annualSealStar\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{annualHealthAnchors\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{annualContextBridge\}\}/g, '（預分析數據未提供）');
+      result = result.replace(/\{\{annualMonthlyForecasts\}\}/g, '（預分析數據未提供）');
+      return result;
+    }
+
+    // Read from full enhanced insights, NOT just the deterministic subset.
+    // The deterministic sub-object is for frontend rendering only; AI needs all annual data.
+    const det = insights as Record<string, unknown>;
+
+    // {{flowYearHarmony}}
+    const fyh = det['flowYearHarmony'] || det['flow_year_harmony'];
+    if (fyh && typeof fyh === 'object') {
+      const h = fyh as Record<string, unknown>;
+      result = result.replace(/\{\{flowYearHarmony\}\}/g,
+        `${h['flowYearLabel'] || ''}干支關係：${h['pattern'] || ''}（${h['description'] || ''}）`);
+    } else {
+      result = result.replace(/\{\{flowYearHarmony\}\}/g, '（無數據）');
+    }
+
+    // {{annualTaiSui}}
+    const taiSui = det['taiSui'] || det['tai_sui'];
+    if (taiSui && typeof taiSui === 'object') {
+      const ts = taiSui as Record<string, unknown>;
+      const pillarResults = (ts['pillarResults'] || []) as Array<Record<string, unknown>>;
+      const lines: string[] = [];
+      lines.push(`太歲總結：${ts['summary'] || '（無）'}`);
+      for (const pr of pillarResults) {
+        const types = (pr['types'] as string[]) || [];
+        if (types.length > 0) {
+          const roleLabel = pr['isActuallyFavorable'] ? '⚠️ 沖去忌神反而有利' : '不利影響';
+          lines.push(`${pr['pillar']}柱(${pr['affectedPalace']}) ${pr['branch']}：${types.join('、')}，此支為${pr['branchRole']}，${roleLabel}`);
+        }
+      }
+      result = result.replace(/\{\{annualTaiSui\}\}/g, lines.join('\n'));
+    } else {
+      result = result.replace(/\{\{annualTaiSui\}\}/g, '今年未犯太歲');
+    }
+
+    // {{dayunContext}}
+    const dayun = det['dayunContext'] || det['dayun_context'];
+    if (dayun && typeof dayun === 'object') {
+      const d = dayun as Record<string, unknown>;
+      const lines: string[] = [];
+      if (d['available']) {
+        lines.push(`目前大運：${d['stem']}${d['branch']}（${d['tenGod']}），${d['startYear']}-${d['endYear']}年`);
+        lines.push(`大運角色：${d['role']}，對命主${d['favorability']}`);
+        lines.push(`「流年為君，大運為臣 — 流年運勢以當年干支為主，大運提供背景影響。如需深入了解您的大運走勢，請參考八字終身運分析。」`);
+      } else {
+        lines.push('目前尚無大運（年紀尚輕），流年分析以命盤本身為主。');
+      }
+      result = result.replace(/\{\{dayunContext\}\}/g, lines.join('\n'));
+    } else {
+      result = result.replace(/\{\{dayunContext\}\}/g, '（大運數據未提供）');
+    }
+
+    // {{annualPillarImpacts}}
+    const pillarImpacts = det['pillarImpacts'] || det['pillar_impacts'];
+    if (Array.isArray(pillarImpacts)) {
+      const lines: string[] = [];
+      for (const pi of pillarImpacts) {
+        const p = pi as Record<string, unknown>;
+        const interactions = (p['interactions'] as Array<Record<string, unknown>>) || [];
+        if (interactions.length > 0) {
+          const interStr = interactions.map(i => `${i['type']}（${i['detail']}）`).join('、');
+          lines.push(`${p['pillar']}柱(${p['palace']})${p['natalStem']}${p['natalBranch']}：${interStr}`);
+        } else {
+          lines.push(`${p['pillar']}柱(${p['palace']})${p['natalStem']}${p['natalBranch']}：無特殊交互`);
+        }
+      }
+      result = result.replace(/\{\{annualPillarImpacts\}\}/g, lines.join('\n'));
+    } else {
+      result = result.replace(/\{\{annualPillarImpacts\}\}/g, '（無數據）');
+    }
+
+    // {{annualLuYangRen}}
+    const luYangRen = det['luYangRen'] || det['lu_yangren'];
+    if (luYangRen && typeof luYangRen === 'object') {
+      const ly = luYangRen as Record<string, unknown>;
+      const luShen = ly['luShen'] as Record<string, unknown> | undefined;
+      const yangRen = ly['yangRen'] as Record<string, unknown> | undefined;
+      const lines: string[] = [];
+      if (luShen?.['active']) {
+        lines.push(`祿神：流年見祿，${luShen['favorable'] ? '有利（增加收入/支持）' : '不利（身強忌祿）'}`);
+        const warnings = (luShen['warnings'] as string[]) || [];
+        if (warnings.length > 0) lines.push(`  注意：${warnings.join('、')}`);
+      } else {
+        lines.push('祿神：今年未見祿');
+      }
+      if (yangRen?.['active']) {
+        lines.push(`羊刃：流年見羊刃，${yangRen['favorable'] ? '有利（身弱得助）' : `不利（危險等級：${yangRen['dangerLevel']}）`}`);
+        const warnings = (yangRen['warnings'] as string[]) || [];
+        if (warnings.length > 0) lines.push(`  ⚠️ ${warnings.join('、')}`);
+      } else {
+        lines.push('羊刃：今年未見羊刃');
+      }
+      result = result.replace(/\{\{annualLuYangRen\}\}/g, lines.join('\n'));
+    } else {
+      result = result.replace(/\{\{annualLuYangRen\}\}/g, '（無數據）');
+    }
+
+    // {{annualCareerAnchors}}
+    const career = det['career'] || det['annual_career'];
+    if (career && typeof career === 'object') {
+      const c = career as Record<string, unknown>;
+      const lines: string[] = [];
+      lines.push(`流年十神：${c['flowYearTenGod']}（角色：${c['tenGodRole']}）`);
+      const monthInter = (c['monthBranchInteractions'] as string[]) || [];
+      if (monthInter.length > 0) lines.push(`事業宮互動：${monthInter.join('、')}`);
+      const signals = (c['signals'] as Array<Record<string, unknown>>) || [];
+      for (const s of signals) {
+        lines.push(`${s['type']}（${s['impact']}）：${s['detail']}`);
+      }
+      result = result.replace(/\{\{annualCareerAnchors\}\}/g, lines.join('\n'));
+    } else {
+      result = result.replace(/\{\{annualCareerAnchors\}\}/g, '（無數據）');
+    }
+
+    // {{annualFinanceAnchors}}
+    const finance = det['finance'] || det['annual_finance'];
+    if (finance && typeof finance === 'object') {
+      const f = finance as Record<string, unknown>;
+      const lines: string[] = [];
+      lines.push(`財星出現：${f['wealthPresent'] ? '是' : '否'}（${f['wealthType'] || '無'}）`);
+      if (f['caikuFengChong']) {
+        const ck = f['caikuFengChong'] as Record<string, unknown>;
+        lines.push(`財庫逢沖：${ck['active'] ? `${ck['treasury']}被沖 — ${ck['interpretation']}` : '未觸發'}`);
+      }
+      const signals = (f['signals'] as Array<Record<string, unknown>>) || [];
+      for (const s of signals) {
+        lines.push(`${s['type']}（${s['impact']}）：${s['detail']}`);
+      }
+      result = result.replace(/\{\{annualFinanceAnchors\}\}/g, lines.join('\n'));
+    } else {
+      result = result.replace(/\{\{annualFinanceAnchors\}\}/g, '（無數據）');
+    }
+
+    // {{annualRelationshipAnchors}}
+    const relationships = det['relationships'] || det['annual_relationships'];
+    if (relationships && typeof relationships === 'object') {
+      const r = relationships as Record<string, unknown>;
+      const palaces = (r['palaceAnalysis'] as Array<Record<string, unknown>>) || [];
+      const lines: string[] = [];
+      for (const p of palaces) {
+        const interactions = (p['interactions'] as Array<Record<string, unknown>>) || [];
+        if (interactions.length > 0) {
+          const interStr = interactions.map(i => `${i['type']}`).join('、');
+          lines.push(`${p['palace']}：${interStr}`);
+        }
+      }
+      result = result.replace(/\{\{annualRelationshipAnchors\}\}/g,
+        lines.length > 0 ? lines.join('\n') : '各宮位無特殊人際互動');
+    } else {
+      result = result.replace(/\{\{annualRelationshipAnchors\}\}/g, '（無數據）');
+    }
+
+    // {{annualSpousePalace}}
+    const spouse = det['spousePalace'] || det['spouse_palace'];
+    if (spouse && typeof spouse === 'object') {
+      const sp = spouse as Record<string, unknown>;
+      const signals = (sp['signals'] as Array<Record<string, unknown>>) || [];
+      const lines: string[] = [];
+      if (sp['tianDiYuanYang']) {
+        lines.push('⚠️ 天地鴛鴦合（流年干合日干 + 流年支合日支）— 極強婚姻信號');
+      }
+      for (const s of signals) {
+        lines.push(`${s['type']}：${s['detail']}`);
+      }
+      result = result.replace(/\{\{annualSpousePalace\}\}/g,
+        lines.length > 0 ? lines.join('\n') : '夫妻宮今年無特殊變化');
+    } else {
+      result = result.replace(/\{\{annualSpousePalace\}\}/g, '（無數據）');
+    }
+
+    // {{annualMarriageStar}}
+    const marriage = det['marriageStar'] || det['marriage_star'];
+    if (marriage && typeof marriage === 'object') {
+      const m = marriage as Record<string, unknown>;
+      const tracks = (m['tracks'] as Array<Record<string, unknown>>) || [];
+      const lines: string[] = [];
+      const ROMANCE_LEVEL_ZH: Record<string, string> = {
+        very_strong: '極旺', strong: '偏強', moderate: '中等', quiet: '平靜',
+      };
+      const romanceLevelRaw = (m['romanceLevel'] as string) || 'quiet';
+      lines.push(`姻緣活躍度：${ROMANCE_LEVEL_ZH[romanceLevelRaw] || '中等'}`);
+      for (const t of tracks) {
+        if (t['active']) {
+          const trackLabel = t['trackType'] === 'celebration' ? `${t['track']}（喜慶星）` : t['track'];
+          lines.push(`${trackLabel}：${t['detail']}`);
+        }
+      }
+      result = result.replace(/\{\{annualMarriageStar\}\}/g,
+        lines.length > 0 ? lines.join('\n') : '今年姻緣平靜');
+    } else {
+      result = result.replace(/\{\{annualMarriageStar\}\}/g, '（無數據）');
+    }
+
+    // {{annualSealStar}}
+    const seal = det['sealStar'] || det['seal_star'];
+    if (seal && typeof seal === 'object') {
+      const s = seal as Record<string, unknown>;
+      const lines: string[] = [];
+      if (s['isSealYear']) {
+        lines.push(`印星出現：${s['flowYearTenGod']}（角色：${s['sealRole']}）`);
+        const sealSignals = (s['signals'] as Array<Record<string, unknown>>) || [];
+        for (const sig of sealSignals) {
+          lines.push(`${sig['type']}：${sig['detail']}`);
+        }
+      } else {
+        lines.push('今年流年未見印星');
+      }
+      result = result.replace(/\{\{annualSealStar\}\}/g, lines.join('\n'));
+    } else {
+      result = result.replace(/\{\{annualSealStar\}\}/g, '（無數據）');
+    }
+
+    // {{annualHealthAnchors}}
+    const healthData = det['health'] || det['annual_health'];
+    if (healthData && typeof healthData === 'object') {
+      const h = healthData as Record<string, unknown>;
+      const lines: string[] = [];
+      // Vitality (十二長生)
+      const healthVitality = h['healthVitality'] as Record<string, unknown> | undefined;
+      const lifeStage = h['lifeStage'] as string | undefined;
+      if (lifeStage && healthVitality) {
+        lines.push(`十二長生位：${lifeStage}（${healthVitality['label']}）`);
+      }
+      // Organ risk warnings (riskOrgans — flow year)
+      const riskOrgans = (h['riskOrgans'] as Array<Record<string, unknown>>) || [];
+      for (const w of riskOrgans) {
+        lines.push(`【流年健康風險】${w['reason']}：${w['element']}行（${w['organs']}）— ${w['symptoms']}`);
+      }
+      // Element excess/deficiency warnings (natal constitution)
+      const elementWarnings = (h['elementWarnings'] as Array<Record<string, unknown>>) || [];
+      for (const ew of elementWarnings) {
+        const sourceLabel = ew['source'] === 'natal' ? '【先天體質】' : '【流年風險】';
+        lines.push(`${sourceLabel} ${ew['element']}${ew['condition']}：${ew['detail']}`);
+      }
+      // Yang Ren danger
+      if (h['yangrenDanger']) {
+        lines.push('⚠️ 流年見羊刃 — 注意血光之災/手術/意外');
+      }
+      // Stem body parts
+      const stemBodyParts = h['stemBodyParts'] as string | undefined;
+      if (stemBodyParts) {
+        lines.push(`流年天干對應身體部位：${stemBodyParts}`);
+      }
+      result = result.replace(/\{\{annualHealthAnchors\}\}/g,
+        lines.length > 0 ? lines.join('\n') : '健康方面無特殊警示');
+    } else {
+      result = result.replace(/\{\{annualHealthAnchors\}\}/g, '（無數據）');
+    }
+
+    // {{annualIndirectEffects}} — cross-section indirect effect chains
+    const indirect = det['indirectEffects'] || det['indirect_effects'];
+    if (indirect && typeof indirect === 'object') {
+      const ie = indirect as Record<string, Array<Record<string, unknown>>>;
+      const indirectLines: string[] = [];
+      const sectionCN: Record<string, string> = {
+        health: '健康', career: '事業', finance: '財運', relationships: '人際',
+      };
+      for (const [section, effects] of Object.entries(ie)) {
+        for (const e of (effects || [])) {
+          indirectLines.push(`[間接效應→${sectionCN[section] || section}] ${e['type']}（${e['impact']}）：${e['detail']}`);
+        }
+      }
+      result = result.replace(/\{\{annualIndirectEffects\}\}/g,
+        indirectLines.length > 0 ? indirectLines.join('\n') : '無間接效應');
+    } else {
+      result = result.replace(/\{\{annualIndirectEffects\}\}/g, '無間接效應');
+    }
+
+    // {{annualContextBridge}} — Call 2 summary of Call 1 findings
+    const contextLines: string[] = [];
+    if (taiSui && typeof taiSui === 'object') {
+      const ts = taiSui as Record<string, unknown>;
+      contextLines.push(`太歲：${ts['summary']}`);
+    }
+    if (fyh && typeof fyh === 'object') {
+      const h = fyh as Record<string, unknown>;
+      contextLines.push(`流年干支：${h['pattern']}（${h['description']}）`);
+    }
+    if (career && typeof career === 'object') {
+      const c = career as Record<string, unknown>;
+      contextLines.push(`流年十神：${c['flowYearTenGod']}（${c['tenGodRole']}）`);
+    }
+    if (dayun && typeof dayun === 'object') {
+      const dCtx = dayun as Record<string, unknown>;
+      if (dCtx['available']) {
+        const hiddenStems = (dCtx['hiddenStems'] as Array<Record<string, unknown>>) || [];
+        const hiddenStr = hiddenStems.map(
+          (h: Record<string, unknown>) => `${h['stem']}=${h['tenGod']}(${h['role']})`
+        ).join('、');
+        contextLines.push(
+          `大運背景：${dCtx['stem']}${dCtx['branch']}（${dCtx['tenGod']}），${dCtx['favorability']}` +
+          (hiddenStr ? `；藏干：${hiddenStr}` : '')
+        );
+      }
+    }
+    result = result.replace(/\{\{annualContextBridge\}\}/g,
+      contextLines.length > 0 ? contextLines.join('\n') : '（核心摘要未提供）');
+
+    // {{annualMonthlyForecasts}} — all 12 months' deterministic data
+    const pillarCN: Record<string, string> = { year: '年', month: '月', day: '日', hour: '時' };
+    const monthly = det['monthlyForecasts'] || det['monthly_forecasts'];
+    if (Array.isArray(monthly)) {
+      const lines: string[] = [];
+      for (const m of monthly) {
+        const mo = m as Record<string, unknown>;
+        const monthNum = String(mo['monthIndex'] || mo['monthLabel'] || '').padStart(2, '0');
+        const aspects = mo['aspects'] as Record<string, unknown> | undefined;
+        const branchInter = (mo['branchInteractions'] as Array<Record<string, unknown>>) || [];
+        const interStr = branchInter.length > 0
+          ? branchInter.map(bi => `${bi['type']}(${pillarCN[bi['pillar'] as string] || bi['pillar']}柱)`).join('、')
+          : '無特殊';
+        const kongWang = mo['isKongWang'] ? '⚠️空亡' : '';
+        const stemBase = mo['stemBase'] || '';
+        const branchBase = mo['branchBase'] || '';
+        const baseDetail = (stemBase || branchBase) ? `，基礎判定：地支=${branchBase}，天干=${stemBase}` : '';
+        lines.push(`${monthNum}月（${mo['monthStem']}${mo['monthBranch']}）：十神=${mo['monthTenGod']}，吉凶=${mo['auspiciousness']}${baseDetail}，地支=${interStr} ${kongWang}`);
+        if (aspects) {
+          // Career aspect has tenGod + signals + monthPillarInteractions
+          const careerAspect = (aspects['career'] as Record<string, unknown>) || {};
+          const careerSignals = (careerAspect['signals'] as string[]) || [];
+          const careerInteractions = (careerAspect['monthPillarInteractions'] as string[]) || [];
+          const careerParts = [`${careerAspect['tenGod'] || ''}`];
+          if (careerSignals.length > 0) careerParts.push(careerSignals.join('、'));
+          if (careerInteractions.length > 0) careerParts.push(`月柱交互=${careerInteractions.join('、')}`);
+          lines.push(`  事業：${careerParts.filter(Boolean).join('，') || '無特殊'}`);
+          // Finance/romance/health only have signals array
+          const financeAspect = (aspects['finance'] as Record<string, unknown>) || {};
+          const financeSignals = (financeAspect['signals'] as string[]) || [];
+          lines.push(`  財運：${financeSignals.join('、') || '無特殊'}`);
+          const romanceAspect = (aspects['romance'] as Record<string, unknown>) || {};
+          const romanceSignals = (romanceAspect['signals'] as string[]) || [];
+          lines.push(`  感情：${romanceSignals.join('、') || '無特殊'}`);
+          const healthAspect = (aspects['health'] as Record<string, unknown>) || {};
+          const healthSignals = (healthAspect['signals'] as string[]) || [];
+          lines.push(`  健康：${healthSignals.join('、') || '無特殊'}`);
+        }
+      }
+      result = result.replace(/\{\{annualMonthlyForecasts\}\}/g, lines.join('\n'));
+    } else {
+      result = result.replace(/\{\{annualMonthlyForecasts\}\}/g, '（月度預分析數據未提供）');
+    }
+
+    return result;
+  }
+
   /**
    * Extract completed JSON sections from a streaming buffer using brace-depth tracking.
    * Handles escaped characters and string contexts properly.
@@ -1292,10 +2106,10 @@ export class AIService implements OnModuleInit {
               const sectionJson = buffer.substring(startBrace, j + 1);
               try {
                 const parsed = JSON.parse(sectionJson);
-                if (parsed.preview !== undefined && parsed.full !== undefined) {
+                if (parsed.full !== undefined) {
                   result[key] = {
-                    preview: parsed.preview,
-                    full: parsed.full,
+                    preview: parsed.preview ?? '',
+                    full: parsed.full ?? parsed.preview ?? '',
                     score: typeof parsed.score === 'number' ? parsed.score : undefined,
                   };
                   alreadyExtracted.add(key);
@@ -2062,6 +2876,30 @@ export class AIService implements OnModuleInit {
         sections[key] = { preview: match[1] || '', full: match[2] || '' };
       }
     }
+
+    return {
+      sections,
+      summary: parsed.summary || { preview: '', full: '' },
+    };
+  }
+
+  /**
+   * Parse Annual V2 Call 2 response (12 monthly sections).
+   * Stage 1: Standard JSON parse. Stage 2: brace-depth tracking fallback.
+   */
+  private parseAnnualV2Call2Response(rawContent: string): AIInterpretationResult {
+    // Stage 1: Standard JSON parse
+    const parsed = this.parseAIResponse(rawContent, ReadingType.ANNUAL);
+    if (Object.keys(parsed.sections).length > 0) {
+      return parsed;
+    }
+
+    // Stage 2: Use brace-depth tracking (extractCompletedSections) — handles } inside strings
+    const monthlyKeys = Array.from({ length: 12 }, (_, i) =>
+      `monthly_${String(i + 1).padStart(2, '0')}`,
+    );
+    const alreadyExtracted = new Set<string>();
+    const sections = this.extractCompletedSections(rawContent, monthlyKeys, alreadyExtracted);
 
     return {
       sections,

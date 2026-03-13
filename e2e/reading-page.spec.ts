@@ -147,7 +147,7 @@ test.describe('Reading Page - Bazi Types', () => {
 
   test('career reading page loads', async ({ page }) => {
     await page.goto('/reading/career');
-    await expect(page.locator('[class*="headerTitle"]')).toContainText('事業詳批');
+    await expect(page.locator('[class*="headerTitle"]')).toContainText('八字事業詳批');
   });
 
   test('love reading page loads', async ({ page }) => {

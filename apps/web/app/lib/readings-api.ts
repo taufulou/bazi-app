@@ -87,6 +87,19 @@ export const SECTION_TITLE_MAP: Record<string, string> = {
   entrepreneurship: '創業適合度分析',
   partnership: '合夥適合度分析',
   career_allies: '職場貴人與小人',
+  // Bazi Annual V2 sections (keys not already in V1 lifetime above)
+  annual_tai_sui: '太歲分析',
+  annual_dayun_context: '大運背景',
+  annual_relationships: '人際關係',
+  annual_family: '家庭關係',
+  monthly_01: '一月運程', monthly_02: '二月運程', monthly_03: '三月運程',
+  monthly_04: '四月運程', monthly_05: '五月運程', monthly_06: '六月運程',
+  monthly_07: '七月運程', monthly_08: '八月運程', monthly_09: '九月運程',
+  monthly_10: '十月運程', monthly_11: '十一月運程', monthly_12: '十二月運程',
+  // V1 legacy keys (for existing cached readings)
+  career_annual: '事業運勢',
+  love_annual: '感情運勢',
+  health_annual: '健康運勢',
   // ZWDS sections
   life_pattern: '人生格局分析',
   major_periods: '大限走勢分析',
@@ -136,6 +149,16 @@ export const GUIDE_SECTION_TITLE_MAP: Record<string, string> = {
   current_period: '當前大運詳解',
   next_period: '下一大運預覽',
   best_period: '最佳大運攻略',
+  // Annual V2
+  annual_overview: '流年總述',
+  annual_tai_sui: '太歲分析',
+  annual_dayun_context: '大運背景',
+  annual_career: '事業運勢',
+  annual_finance: '財運收入',
+  annual_relationships: '人際關係',
+  annual_love: '愛情姻緣',
+  annual_family: '家庭關係',
+  annual_health: '健康狀況',
   // Career V2
   suitable_positions: '適合你的職位',
   career_directions_favorable: '有利行業方向',
@@ -254,8 +277,101 @@ export interface CareerV2DeterministicData {
   unfavorableIndustries: string[];
 }
 
+/** V2 deterministic data (not AI-generated) — Annual */
+export interface AnnualV2DeterministicData {
+  flowYear: {
+    stem: string;
+    branch: string;
+    year: number;
+    tenGod: string;
+    auspiciousness: string;
+  };
+  flowYearHarmony: {
+    pattern: string;
+    description: string;
+  };
+  taiSui: {
+    hasTaiSui: boolean;
+    summary: string;
+    pillarResults: Array<{
+      pillar: string;
+      types: string[];
+      branchRole: string;
+      isActuallyFavorable: boolean;
+      affectedPalace: string;
+    }>;
+  };
+  dayunContext: {
+    available: boolean;
+    stem: string;
+    branch: string;
+    tenGod: string;
+    role: string;
+    favorability: string;
+    startYear: number;
+    endYear: number;
+  };
+  career: {
+    flowYearTenGod: string;
+    tenGodRole: string;
+    auspiciousness: string;
+    signals: Array<{ type: string; impact: string }>;
+    shenShaSignals: string[];
+  };
+  finance: {
+    wealthPresent: boolean;
+    wealthCondition: string;
+    signals: Array<{ type: string; impact: string; detail: string }>;
+  };
+  marriageStar: {
+    romanceLevel: string;
+    romanceScore: number;
+    trackCount: number;
+    tracks: Array<{ track: string; active: boolean; trackType: string; detail: string }>;
+  };
+  relationships: {
+    palaceRelationships: Record<string, {
+      palace: string;
+      status: string;
+      interactions: Array<{ type: string; detail: string }>;
+    }>;
+  };
+  sealStar: {
+    isSealYear: boolean;
+    sealRole: string;
+    signals: Array<{ type: string; impact: string }>;
+  };
+  health: {
+    lifeStage: string;
+    healthVitality: { vitality: string; label: string };
+    yangrenDanger: boolean;
+    riskOrgans: Array<{ element: string; organs: string; source: string }>;
+    elementWarnings: Array<{ element: string; condition: string; source: string; detail: string }>;
+  };
+  luYangRen: {
+    luShen: { active: boolean; favorable: boolean };
+    yangRen: { active: boolean; favorable: boolean; dangerLevel: string };
+  };
+  monthlyForecasts: Array<{
+    monthIndex: number;
+    monthStem: string;
+    monthBranch: string;
+    monthTenGod: string;
+    auspiciousness: string;
+    isKongWang: boolean;
+    stemBase: string;
+    branchBase: string;
+    aspects: {
+      career: { tenGod: string; signals: string[] };
+      finance: { signals: string[] };
+      romance: { signals: string[] };
+      health: { signals: string[] };
+    };
+  }>;
+}
+
 /** Union type for V2 deterministic data */
-export type V2DeterministicData = LifetimeV2DeterministicData | CareerV2DeterministicData;
+export type V2DeterministicData = LifetimeV2DeterministicData | CareerV2DeterministicData | AnnualV2DeterministicData;
 
 export interface NestJSReadingResponse {
   id: string;
@@ -500,6 +616,22 @@ export const CAREER_V2_ALL_SECTION_KEYS = [
   // 5 annual + 12 monthly = 17 dynamic keys added at runtime
 ];
 
+/** Annual V2 section display order (controls rendering sequence). */
+export const ANNUAL_V2_SECTION_ORDER = [
+  'annual_overview',
+  'annual_tai_sui',
+  'annual_dayun_context',
+  'annual_career',
+  'annual_finance',
+  'annual_relationships',
+  'annual_love',
+  'annual_family',
+  'annual_health',
+  'monthly_01', 'monthly_02', 'monthly_03', 'monthly_04',
+  'monthly_05', 'monthly_06', 'monthly_07', 'monthly_08',
+  'monthly_09', 'monthly_10', 'monthly_11', 'monthly_12',
+];
+
 /**
  * Lifetime V2 section display order (controls rendering sequence).
  * Sections not in this list are appended at the end.
@@ -532,7 +664,15 @@ export function getDynamicSectionTitle(key: string): string | null {
   if (annualMatch) return `${annualMatch[1]} 年度事業運勢`;
 
   const monthlyMatch = key.match(/^monthly_forecast_(\d{1,2})$/);
-  if (monthlyMatch) return `${parseInt(monthlyMatch[1], 10)}月運勢`;
+  if (monthlyMatch?.[1]) return `${parseInt(monthlyMatch[1], 10)}月運勢`;
+
+  // Annual V2 monthly sections: monthly_01 → 一月運程
+  const MONTH_NAMES = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'];
+  const annualMonthlyMatch = key.match(/^monthly_(\d{2})$/);
+  if (annualMonthlyMatch?.[1]) {
+    const monthNum = parseInt(annualMonthlyMatch[1], 10);
+    if (monthNum >= 1 && monthNum <= 12) return `${MONTH_NAMES[monthNum - 1]}月運程`;
+  }
 
   return null;
 }
@@ -559,7 +699,13 @@ export function transformAIResponse(
     const isCareerV2 = sectionKeys.some(k =>
       k === 'suitable_positions' || k === 'company_type_fit' || k === 'entrepreneurship'
     );
-    const orderList = isCareerV2 ? CAREER_V2_SECTION_ORDER : V2_SECTION_ORDER;
+    // Detect annual V2 by presence of annual-specific section keys
+    const isAnnualV2 = sectionKeys.some(k =>
+      k === 'annual_overview' || k === 'annual_tai_sui' || k === 'annual_dayun_context'
+    );
+    const orderList = isCareerV2 ? CAREER_V2_SECTION_ORDER
+      : isAnnualV2 ? ANNUAL_V2_SECTION_ORDER
+      : V2_SECTION_ORDER;
 
     const sectionEntries = Object.entries(ai.sections);
     const ordered: ReadingSectionData[] = [];
@@ -630,6 +776,49 @@ export function transformAIResponse(
     isV2,
     deterministic: isV2 ? ai.deterministic : undefined,
   };
+}
+
+// ============================================================
+// Annual V2 Deterministic Data Normalization
+// ============================================================
+
+/**
+ * Deep camelCase converter for objects from Python → NestJS pipeline.
+ * NestJS only shallow-converts top-level keys; nested keys from Python
+ * (e.g., is_actually_favorable, health_vitality, palace_relationships)
+ * may remain in snake_case.
+ */
+function deepCamelCase(obj: unknown): unknown {
+  if (Array.isArray(obj)) {
+    return obj.map(deepCamelCase);
+  }
+  if (obj !== null && typeof obj === 'object') {
+    const result: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
+      const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+      result[camelKey] = deepCamelCase(value);
+    }
+    return result;
+  }
+  return obj;
+}
+
+/**
+ * Normalize raw annual V2 deterministic data from the API.
+ * Applies deep camelCase conversion and returns a typed object.
+ * Returns null if the data doesn't look like annual V2 deterministic.
+ */
+export function normalizeAnnualDeterministic(
+  raw: Record<string, unknown> | undefined,
+): AnnualV2DeterministicData | null {
+  if (!raw) return null;
+  // Detect: annual V2 has flowYear + taiSui + monthlyForecasts
+  const hasFlowYear = 'flowYear' in raw || 'flow_year' in raw;
+  const hasTaiSui = 'taiSui' in raw || 'tai_sui' in raw;
+  const hasMonthly = 'monthlyForecasts' in raw || 'monthly_forecasts' in raw;
+  if (!hasFlowYear && !hasTaiSui && !hasMonthly) return null;
+
+  return deepCamelCase(raw) as AnnualV2DeterministicData;
 }
 
 // ============================================================

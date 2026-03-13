@@ -442,7 +442,7 @@ enum SubscriptionStatus {
 enum ReadingType {
   LIFETIME           // 八字終身運
   ANNUAL             // 八字流年運勢
-  CAREER             // 事業財運
+  CAREER             // 八字事業詳批
   LOVE               // 愛情姻緣
   HEALTH             // 先天健康分析
   COMPATIBILITY      // 合盤比較

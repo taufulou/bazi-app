@@ -613,9 +613,9 @@ sections 的 key 必須為：annual_overview, monthly_forecast, career_annual, l
     sections: ['annual_overview', 'monthly_forecast', 'career_annual', 'love_annual', 'health_annual'],
   },
 
-  // ============ 事業財運 (Career & Finance) ============
+  // ============ 八字事業詳批 (Career & Finance) ============
   CAREER: {
-    systemAddition: `你現在要進行的是「事業財運」專項分析。重點關注命主的事業發展和財富格局。
+    systemAddition: `你現在要進行的是「八字事業詳批」專項分析。重點關注命主的事業發展和財富格局。
 
 分析重點：
 - 正官/偏官/正財/偏財的強弱與組合
@@ -628,7 +628,7 @@ sections 的 key 必須為：annual_overview, monthly_forecast, career_annual, l
 - 最容易破財的方式和需要避免的投資類型
 - 職場上最容易遇到的困難和人際問題
 - 大運中事業低谷期的明確警示`,
-    userTemplate: `以下是命主的八字排盤數據，請進行「事業財運」專項分析：
+    userTemplate: `以下是命主的八字排盤數據，請進行「八字事業詳批」專項分析：
 
 【命主資料】
 - 性別：{{gender}}
@@ -2238,4 +2238,271 @@ sections 的 key 必須為對應的 annual_forecast_YYYY 和 monthly_forecast_MM
   call1Sections: ['career_pattern', 'suitable_positions', 'career_directions_favorable', 'career_directions_unfavorable', 'company_type_fit', 'entrepreneurship', 'partnership', 'career_allies'],
   // call2Sections are dynamic: annual_forecast_YYYY × 5 + monthly_forecast_MM × 12
   call2SectionPrefixes: ['annual_forecast_', 'monthly_forecast_'],
+};
+
+
+// ============================================================================
+// 八字流年運勢 V2 — Annual Fortune Reading (Multi-call Architecture)
+// ============================================================================
+
+/**
+ * Annual V2 System Addition — Anti-hallucination rules for annual fortune
+ */
+const ANNUAL_V2_SYSTEM_ADDITION = `
+你現在要進行的是「八字流年運勢」V2 年度運勢分析。
+核心原則：「流年為君，大運為臣」— 本分析以流年干支為主軸。
+
+分析架構：流年總述 → 太歲分析 → 大運背景 → 外部分析（事業/財運/人際） → 內部分析（愛情/家庭/健康） → 十二月運程。
+
+⚠️ 流年運勢 V2 特殊規則：
+
+1. 流年天干代表外在表現（別人看到的），流年地支代表內在根源（實際影響力更大）。兩者並行描述，不可分上下半年
+2. 所有分析必須以預分析錨點為依據，不可自行推演八字規則
+3. 犯太歲不代表自動凶險，需看受影響地支的用神/忌神角色。預分析已標注每個犯太歲是否「實際有利」
+4. 每月運勢獨立評估，不受大運影響。月度吉凶可因伏吟/六合/六沖而升降
+5. 日主強弱分類必須使用預分析中的⚠️標籤值，禁止自行推算
+6. 禁止給出具體投資建議或具體金額
+7. 禁止做出絕對性預測（用「傾向」「可能」而非「一定」「必須」）
+8. 所有神煞引用必須來自預分析數據，禁止自行編造
+9. 格局必須嚴格引用預分析提供的格局名稱，不可自行判斷
+
+⚠️ 風格規則：
+- 每個核心 section（annual_overview 至 annual_health）的 full 必須使用結構化格式：
+
+  🔥 機會與優勢
+  - 要點一（20-40字，具體可操作）
+  - 要點二
+
+  ⚠️ 注意事項
+  - 要點一
+  - 要點二
+
+  💡 行動建議
+  - 具體建議一（要說「何時做什麼」，如「三月適合投遞履歷」）
+  - 具體建議二
+
+- preview 保持一句話精華（不需結構化格式）
+- ⚠️ 不要在 full 內容中輸出「📊 綜合評分」或星號評分行
+- annual_dayun_context 不使用三段式，保持簡潔段落即可
+- 用詞親切但專業，避免恐嚇性語言（即使是凶月也給出化解建議）
+- 十神翻譯以數據中「→」符號後的翻譯為唯一正確翻譯
+- 用神=「升級加持」、忌神=「負面拖累」、喜神=「輔助力量」、仇神=「隱性干擾」
+
+10. ⚠️ 大運背景：預分析已提供完整大運數據（干支、十神、角色）。若數據標明大運存在，絕不可寫「命主尚無大運」或「年紀尚輕」。必須原文引用預分析的大運干支和角色描述
+11. 正負面平衡 — 即使是凶月也需包含化解建議，吉月也需提醒注意事項（約6:4比例）
+12. 每月運程第一句必須包含預分析中的吉凶等級（大吉/吉/吉中有凶/平/小凶/凶中有吉/凶/大凶），不可自行更改
+13. ⚠️ 所有神煞名稱必須嚴格來自預分析白名單，禁止引用未在數據中出現的神煞
+14. 忌神和仇神是兩個不同概念，絕對不可混用。描述時必須使用預分析中標示的正確名稱
+15. 天喜星屬紫微斗數的喜慶星，非正統子平桃花（咸池）。若預分析標記 trackType=celebration，描述時應強調「喜慶」而非「戀愛桃花」。印星間接利財：身弱命主流年見喜用印星時，雖無直接財星，但日主得印星扶助後增強扛財能力。描述時說「間接利財」，不可說「財星到位」
+16. 間接效應鏈：預分析提供跨區域間接效應信號（如印星→利健康、比劫→利事業）。這些信號應融入對應 section 敘述中作為補充，不可單獨成段
+17. 健康分析區分「先天體質提醒」（命局五行偏旺/偏弱的長期注意事項）與「流年健康風險」（當年忌神帶來的短期風險）。兩者分開描述
+18. ⚠️ 語氣規則：
+- 像一位智慧的朋友在做年度規劃建議，不是算命先生在下判詞
+- 使用「你」而非「命主」
+- 建議要具體可行（「三月適合面試或轉職」而非「把握機會」）
+- 避免空泛套話（「前途光明」「大展宏圖」等不帶信息量的修辭）
+- 凶月重點放在具體化解策略，而非渲染危險
+19. ⚠️ 月度敘述必須分四段，每段以 emoji 類別標題開頭（💼 事業 / 💰 財運 / 💕 感情 / 🏥 健康），禁止使用「事業：...財運：...」行內格式
+
+⚠️ 敘述錨點規則（Narrative Anchors）：
+- 每個 section 的數據區塊中包含預分析生成的事實
+- AI 必須將每條錨點事實融入該 section 的敘述中，不可忽略、不可篡改
+- AI 的角色是將硬事實編織成流暢的年度運勢報告，而非自行推算結論`;
+
+/**
+ * Annual V2 output format for Call 1 (Core Annual Analysis — 10 sections + summary)
+ */
+const ANNUAL_V2_OUTPUT_FORMAT_CALL1 = `
+請以下列 JSON 格式回覆，不要添加任何其他文字或 markdown 標記：
+
+{
+  "sections": {
+    "annual_overview": { "preview": "流年總述精華摘要（80-120字）", "full": "流年總述完整分析（350-500字，使用🔥/⚠️/💡結構化格式）" },
+    "annual_tai_sui": { "preview": "太歲分析精華摘要（50-80字）", "full": "太歲分析完整解讀（200-350字，使用🔥/⚠️/💡結構化格式）" },
+    "annual_dayun_context": { "preview": "大運背景（120-180字，preview 與 full 內容相同，簡潔段落即可）", "full": "大運背景（120-180字，preview 與 full 內容相同，簡潔段落即可）" },
+    "annual_career": { "preview": "事業運勢精華摘要（60-80字）", "full": "事業運勢完整解讀（350-500字，使用🔥/⚠️/💡結構化格式）" },
+    "annual_finance": { "preview": "財運收入精華摘要（60-80字）", "full": "財運收入完整解讀（350-500字，使用🔥/⚠️/💡結構化格式）" },
+    "annual_relationships": { "preview": "人際關係精華摘要（60-80字）", "full": "人際關係完整解讀（250-400字，使用🔥/⚠️/💡結構化格式）" },
+    "annual_love": { "preview": "愛情姻緣精華摘要（60-80字）", "full": "愛情姻緣完整解讀（350-500字，使用🔥/⚠️/💡結構化格式）" },
+    "annual_family": { "preview": "家庭關係精華摘要（60-80字）", "full": "家庭關係完整解讀（250-400字，使用🔥/⚠️/💡結構化格式）" },
+    "annual_health": { "preview": "健康狀況精華摘要（50-70字）", "full": "健康狀況完整解讀（300-450字，使用🔥/⚠️/💡結構化格式）" }
+  },
+  "summary": {
+    "preview": "流年運勢一句話概要（30-50字）",
+    "full": "流年運勢綜合總結（200-300字）"
+  }
+}
+
+⚠️ 字數控制是硬性要求：
+- 每個 section 的 full 必須嚴格控制在上述指定字數範圍內
+- preview 控制在指定字數內，一句話精華
+- full 包含完整分析，不需重複 preview 的內容
+- annual_dayun_context 的 preview 和 full 內容完全相同（此段不設付費牆），不使用結構化格式
+- 直接輸出 JSON，不要用 \`\`\`json 或任何 markdown 包裹
+- JSON 外面不要有任何文字，第一個字元必須是 {，最後一個字元必須是 }
+- ⚠️ summary 絕對不可以留空
+
+⚠️ 格式要求：
+- 除 annual_dayun_context 外，每個 section 的 full 必須使用 emoji 子標題（🔥 機會與優勢 / ⚠️ 注意事項 / 💡 行動建議）+ 要點列表格式
+- 要點使用「- 」開頭，每條要點 20-40 字
+- 不要寫成一整段文字`;
+
+/**
+ * Annual V2 output format for Call 2 (12 Monthly Forecasts — 4-aspect per month)
+ */
+const ANNUAL_V2_OUTPUT_FORMAT_CALL2 = `
+請以下列 JSON 格式回覆，不要添加任何其他文字或 markdown 標記：
+
+{
+  "sections": {
+    "monthly_01": { "full": "正月運程（300-450字，四大面向分段）" },
+    "monthly_02": { "full": "二月運程（300-450字，四大面向分段）" },
+    "monthly_03": { "full": "三月運程（300-450字，四大面向分段）" },
+    "monthly_04": { "full": "四月運程（300-450字，四大面向分段）" },
+    "monthly_05": { "full": "五月運程（300-450字，四大面向分段）" },
+    "monthly_06": { "full": "六月運程（300-450字，四大面向分段）" },
+    "monthly_07": { "full": "七月運程（300-450字，四大面向分段）" },
+    "monthly_08": { "full": "八月運程（300-450字，四大面向分段）" },
+    "monthly_09": { "full": "九月運程（300-450字，四大面向分段）" },
+    "monthly_10": { "full": "十月運程（300-450字，四大面向分段）" },
+    "monthly_11": { "full": "十一月運程（300-450字，四大面向分段）" },
+    "monthly_12": { "full": "十二月運程（300-450字，四大面向分段）" }
+  }
+}
+
+⚠️ 月度格式要求：
+- 第一句：吉凶總評（必須引用預分析中的吉凶等級 + 簡述本月重點）
+- 接下來分四段，每段以 emoji 類別標題開頭，每段是完整段落（不是一句話）：
+
+  💼 事業（60-100字：具體分析 + 可操作建議）
+  💰 財運（60-100字：收入/支出/投資傾向）
+  💕 感情（60-100字：人際/桃花/伴侶互動）
+  🏥 健康（40-80字：需注意的身體部位 + 養生建議）
+
+- 語氣像月度生活規劃建議，實用親切
+- 凶月仍需給出具體化解策略，不只是說「注意安全」
+- 月度吉凶為獨立評估，可簡要提及年度背景但不受年度大勢限制
+- 月度可額外出現因伏吟/六合/六沖而升降的結果（吉中有凶/凶中有吉/大吉/大凶等）
+- ⚠️ 每月第一句必須引用預分析中的吉凶等級，不可自行修改
+- 月份不需要 preview（月運僅付費用戶可見）
+- 直接輸出 JSON，不要用 \`\`\`json 或任何 markdown 包裹
+- JSON 外面不要有任何文字，第一個字元必須是 {，最後一個字元必須是 }
+- 注意：不需要 summary（summary 已在第一部分輸出）
+- 預分析數據中已提供大運背景，月度敘述可引用但不影響月度獨立吉凶評估`;
+
+/**
+ * Annual V2 Prompts — Two-call architecture
+ * Call 1: Core streamed (10 sections + summary)
+ * Call 2: Monthly forecasts (12 months × 4 aspects)
+ */
+export const ANNUAL_V2_PROMPTS = {
+  systemAddition: ANNUAL_V2_SYSTEM_ADDITION,
+
+  /** Call 1 user prompt — core annual analysis */
+  userTemplateCall1: `以下是命主的八字排盤數據，請進行「八字流年運勢」V2 核心運勢分析（第一部分）：
+
+【命主資料】
+- 性別：{{gender}}
+- 公曆生日：{{birthDate}} {{birthTime}}
+- 農曆日期：{{lunarDate}}
+
+【四柱排盤】
+- 年柱：{{yearPillar}}（{{yearTenGod}}）
+- 月柱：{{monthPillar}}（{{monthTenGod}}）
+- 日柱：{{dayPillar}}（日主）
+- 時柱：{{hourPillar}}（{{hourTenGod}}）
+
+【日主分析】
+- 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
+- ⚠️ 日主強弱（以此為準）：{{strengthV2}}
+- 格局：{{pattern}}
+- 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}} / 仇神：{{enemyGod}}
+
+【五行比例】
+木：{{wood}}% / 火：{{fire}}% / 土：{{earth}}% / 金：{{metal}}% / 水：{{water}}%
+
+【神煞】
+{{shenSha}}
+
+⚠️ 本次分析以 {{targetYear}} 年為基準。所有分析描述都必須以 {{targetYear}} 年作為「今年」。
+
+【{{targetYear}}年流年運勢預分析結果（確定性數據，不可修改）】
+
+▶ 流年干支關係：
+{{flowYearHarmony}}
+
+▶ 太歲分析（⚠️ 犯太歲吉凶以預分析判定為準，不可一概而論為凶）：
+{{annualTaiSui}}
+
+▶ 大運背景（用於 annual_dayun_context section）：
+{{dayunContext}}
+
+▶ 四柱交互分析（各宮位受流年影響）：
+{{annualPillarImpacts}}
+
+▶ 祿神/羊刃分析：
+{{annualLuYangRen}}
+
+▶ 事業運勢錨點：
+{{annualCareerAnchors}}
+
+▶ 財運收入錨點：
+{{annualFinanceAnchors}}
+
+▶ 人際關係錨點：
+{{annualRelationshipAnchors}}
+
+▶ 夫妻宮分析：
+{{annualSpousePalace}}
+
+▶ 姻緣星5軌道分析：
+{{annualMarriageStar}}
+
+▶ 印星/家庭分析：
+{{annualSealStar}}
+
+▶ 健康狀況錨點：
+{{annualHealthAnchors}}
+
+▶ 間接效應鏈（跨區域補充信號，融入對應 section）：
+{{annualIndirectEffects}}
+
+請依照以下分區輸出分析：
+sections 的 key 必須為：annual_overview, annual_tai_sui, annual_dayun_context, annual_career, annual_finance, annual_relationships, annual_love, annual_family, annual_health
+另外必須包含 summary（流年運勢總結）`,
+
+  /** Call 2 user prompt — 12 monthly forecasts */
+  userTemplateCall2: `以下是命主的八字排盤數據，請進行「八字流年運勢」V2 十二月運程預測（第二部分）：
+
+⚠️ 本次分析以 {{targetYear}} 年為基準。
+
+【命主核心摘要（確定性數據，不可修改）】
+{{annualContextBridge}}
+
+【四柱排盤】
+- 年柱：{{yearPillar}}（{{yearTenGod}}）
+- 月柱：{{monthPillar}}（{{monthTenGod}}）
+- 日柱：{{dayPillar}}（日主）
+- 時柱：{{hourPillar}}（{{hourTenGod}}）
+
+【日主分析】
+- 性別：{{gender}}
+- 日主：{{dayMaster}}（{{dayMasterElement}}{{dayMasterYinYang}}）
+- ⚠️ 日主強弱（以此為準）：{{strengthV2}}
+- 格局：{{pattern}}
+- 喜神：{{favorableGod}} / 用神：{{usefulGod}} / 忌神：{{tabooGod}} / 仇神：{{enemyGod}}
+
+【十二月運程預分析（確定性數據，每月吉凶判定不可修改）】
+{{annualMonthlyForecasts}}
+
+請依照以下分區輸出分析：
+sections 的 key 必須為：monthly_01, monthly_02, monthly_03, monthly_04, monthly_05, monthly_06, monthly_07, monthly_08, monthly_09, monthly_10, monthly_11, monthly_12
+注意：不需要 summary（summary 已在第一部分輸出）`,
+
+  outputFormatCall1: ANNUAL_V2_OUTPUT_FORMAT_CALL1,
+  outputFormatCall2: ANNUAL_V2_OUTPUT_FORMAT_CALL2,
+
+  /** All section keys for both calls */
+  call1Sections: ['annual_overview', 'annual_tai_sui', 'annual_dayun_context', 'annual_career', 'annual_finance', 'annual_relationships', 'annual_love', 'annual_family', 'annual_health'],
+  call2SectionPrefixes: ['monthly_'],
 };

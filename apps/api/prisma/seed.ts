@@ -10,8 +10,8 @@ async function main() {
   // Seed Services (Reading Types)
   const services = [
     { slug: 'lifetime', nameZhTw: '八字終身運', nameZhCn: '八字终身运', descriptionZhTw: '全面分析您的八字命盤，深入了解一生的命運走向', descriptionZhCn: '全面分析您的八字命盘，深入了解一生的命运走向', type: ReadingType.LIFETIME, creditCost: 3, sortOrder: 1 },
-    { slug: 'annual', nameZhTw: '八字流年運勢', nameZhCn: '八字流年运势', descriptionZhTw: '預測您今年的運勢變化，掌握每月吉凶', descriptionZhCn: '预测您今年的运势变化，掌握每月吉凶', type: ReadingType.ANNUAL, creditCost: 2, sortOrder: 2 },
-    { slug: 'career', nameZhTw: '事業財運', nameZhCn: '事业财运', descriptionZhTw: '分析事業發展方向與財運走勢，找到最佳機遇', descriptionZhCn: '分析事业发展方向与财运走势，找到最佳机遇', type: ReadingType.CAREER, creditCost: 2, sortOrder: 3 },
+    { slug: 'annual', nameZhTw: '八字流年運勢', nameZhCn: '八字流年运势', descriptionZhTw: '預測您今年的運勢變化，掌握每月吉凶', descriptionZhCn: '预测您今年的运势变化，掌握每月吉凶', type: ReadingType.ANNUAL, creditCost: 3, sortOrder: 2 },
+    { slug: 'career', nameZhTw: '八字事業詳批', nameZhCn: '八字事业详批', descriptionZhTw: '詳細批算你的事業運，幫你找到最佳職業方向、財富格局和發展時機', descriptionZhCn: '详细批算你的事业运，帮你找到最佳职业方向、财富格局和发展时机', type: ReadingType.CAREER, creditCost: 3, sortOrder: 3 },
     { slug: 'love', nameZhTw: '愛情姻緣', nameZhCn: '爱情姻缘', descriptionZhTw: '探索感情運勢，了解理想伴侶特質與姻緣時機', descriptionZhCn: '探索感情运势，了解理想伴侣特质与姻缘时机', type: ReadingType.LOVE, creditCost: 2, sortOrder: 4 },
     { slug: 'health', nameZhTw: '先天健康分析', nameZhCn: '先天健康分析', descriptionZhTw: '根據五行分析先天體質，提供養生保健建議', descriptionZhCn: '根据五行分析先天体质，提供养生保健建议', type: ReadingType.HEALTH, creditCost: 2, sortOrder: 5 },
     { slug: 'compatibility', nameZhTw: '合盤比較', nameZhCn: '合盘比较', descriptionZhTw: '比較兩人八字，分析感情或事業合作的契合度', descriptionZhCn: '比较两人八字，分析感情或事业合作的契合度', type: ReadingType.COMPATIBILITY, creditCost: 3, sortOrder: 6 },
@@ -130,7 +130,7 @@ async function main() {
   const typeRequests: Record<string, string> = {
     LIFETIME: '「八字終身運」分析，包含：性格特點、一生運勢走向、事業財運、感情姻緣、健康分析。',
     ANNUAL: '「八字流年運勢」分析（目標年份：{{target_year}}），包含：年度整體運勢、每月運勢概要、重要月份提醒。',
-    CAREER: '「事業財運」分析，包含：事業方向建議、適合的行業、財運走勢、職場人際關係。',
+    CAREER: '「八字事業詳批」分析，包含：事業方向建議、適合的行業、財運走勢、職場人際關係。',
     LOVE: '「愛情姻緣」分析，包含：感情性格、理想伴侶特質、姻緣時機、感情經營建議。',
     HEALTH: '「先天健康」分析，包含：先天體質分析、五行與健康的關係、養生保健建議。',
     COMPATIBILITY: '「合盤比較」分析。\n\n第二位用戶的八字命盤數據：\n{{calculation_data_b}}\n\n比較類型：{{comparison_type}}\n\n請分析兩人的契合度，包含：整體匹配度評分、優勢互補、潛在衝突、和諧相處建議。',

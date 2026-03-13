@@ -271,7 +271,7 @@ describe('AIReadingDisplay', () => {
       // Should show other types but NOT lifetime (八字終身運)
       // The cross-sell should contain 5 items (all except current)
       expect(screen.getByText('八字流年運勢')).toBeInTheDocument();
-      expect(screen.getByText('事業財運')).toBeInTheDocument();
+      expect(screen.getByText('八字事業詳批')).toBeInTheDocument();
       expect(screen.getByText('愛情姻緣')).toBeInTheDocument();
       expect(screen.getByText('先天健康分析')).toBeInTheDocument();
       expect(screen.getByText('合盤比較')).toBeInTheDocument();

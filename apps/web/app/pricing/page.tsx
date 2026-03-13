@@ -75,7 +75,7 @@ const COMPARISON_ROWS: [string, ComparisonValue, ComparisonValue, ComparisonValu
   ["每月解讀次數", "1 次（終身）", "5 次", "15 次", "無限"],
   ["八字終身運", "預覽", true, true, true],
   ["流年運勢", false, "基礎", "進階", "進階"],
-  ["事業財運分析", false, false, true, true],
+  ["八字事業詳批", false, false, true, true],
   ["愛情姻緣分析", false, false, true, true],
   ["先天健康分析", false, false, true, true],
   ["合盤比較", false, false, true, true],

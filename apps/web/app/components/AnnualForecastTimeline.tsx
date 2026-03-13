@@ -1,5 +1,6 @@
 import React from "react";
 import styles from "./AnnualForecastTimeline.module.css";
+import { AUSPICIOUSNESS_TO_STARS } from "../lib/bazi-utils";
 
 /** Parse AI narrative text into styled React elements with golden dot bullets */
 function renderNarrativeContent(text: string): React.ReactNode {
@@ -99,22 +100,6 @@ const AUSPICIOUSNESS_CONFIG: Record<string, { label: string; color: string; bg: 
   "小凶": { label: "小凶", color: "#E65100", bg: "rgba(230,81,0,0.1)" },
   "凶": { label: "凶", color: "#E65100", bg: "rgba(230,81,0,0.1)" },
   "大凶": { label: "大凶", color: "#E65100", bg: "rgba(230,81,0,0.1)" },
-};
-
-const AUSPICIOUSNESS_TO_STARS: Record<string, number> = {
-  // Primary 5-level (produced by R6-2 流年-only for annual)
-  '大吉': 5.0,
-  '吉': 4.0,
-  '平': 3.0,
-  '凶': 2.0,
-  '大凶': 1.0,
-  // Legacy/monthly labels (kept for backward compatibility)
-  '吉中有凶': 3.5,
-  '小凶': 2.5,
-  '凶中有吉': 2.5,
-  '凶中帶機': 1.5,
-  '曇花一現': 3.5,
-  '凶上加凶': 0.5,
 };
 
 function StarRatingInline({ score }: { score: number }) {

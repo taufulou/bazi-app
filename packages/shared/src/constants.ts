@@ -146,15 +146,15 @@ export const READING_TYPE_META: Record<ReadingType, {
     nameEn: 'Annual Fortune',
     icon: '📅',
     themeColor: '#9C27B0',
-    creditCost: 2,
+    creditCost: 3,
     description: {
       'zh-TW': '預測您今年的運勢變化，掌握每月吉凶',
       'zh-CN': '预测您今年的运势变化，掌握每月吉凶',
     },
   },
   career: {
-    nameZhTw: '事業詳批',
-    nameZhCn: '事业详批',
+    nameZhTw: '八字事業詳批',
+    nameZhCn: '八字事业详批',
     nameEn: 'Career Detailed Reading',
     icon: '💼',
     themeColor: '#2196F3',

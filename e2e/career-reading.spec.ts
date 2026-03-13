@@ -1,5 +1,5 @@
 /**
- * E2E Tests: Career Detailed Reading (事業詳批)
+ * E2E Tests: Career Detailed Reading (八字事業詳批)
  *
  * Tests the complete two-phase career reading flow:
  *   Phase 1 (Free): Form → Chart renders → CareerPaywallCTA shown
@@ -424,8 +424,8 @@ test.describe('Career Reading — Form Page UI', () => {
     await page.goto('/reading/career');
     await page.waitForLoadState('domcontentloaded');
 
-    // Page title should show 事業詳批 (header has icon prefix)
-    await expect(page.getByText('💼事業詳批')).toBeVisible();
+    // Page title should show 八字事業詳批 (header has icon prefix)
+    await expect(page.getByText('💼八字事業詳批')).toBeVisible();
 
     // Step indicator shows "輸入資料" as active
     await expect(page.getByText('輸入資料')).toBeVisible();
@@ -483,7 +483,7 @@ test.describe('Career Reading — Unauthenticated Flow', () => {
     await expect(page.locator('[class*="tabBar"]')).not.toBeVisible();
 
     // CareerPaywallCTA should show with login link (not unlock button)
-    await expect(page.getByText('事業詳批完整報告')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('八字事業詳批完整報告')).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('登入以解鎖完整報告')).toBeVisible();
 
     // Unlock button should NOT be visible for unauthenticated users
@@ -515,7 +515,7 @@ test.describe('Career Reading — Unauthenticated Flow', () => {
     await page.getByRole('button', { name: /開始排盤/ }).click();
 
     // Wait for paywall CTA
-    await expect(page.getByText('事業詳批完整報告')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('八字事業詳批完整報告')).toBeVisible({ timeout: 15000 });
 
     // Verify all 8 feature items are listed
     const features = [
@@ -545,7 +545,7 @@ test.describe('Career Reading — Authenticated Phase 1', () => {
 
     // Wait for chart + paywall
     await expect(page.getByText('查看結果')).toBeVisible({ timeout: 15000 });
-    await expect(page.getByText('事業詳批完整報告')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('八字事業詳批完整報告')).toBeVisible({ timeout: 10000 });
 
     // Unlock button should be visible with cost
     await expect(page.getByRole('button', { name: /解鎖完整報告/ })).toBeVisible();
@@ -562,7 +562,7 @@ test.describe('Career Reading — Authenticated Phase 1', () => {
     await page.getByRole('button', { name: /開始排盤/ }).click();
 
     // Wait for paywall
-    await expect(page.getByText('事業詳批完整報告')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('八字事業詳批完整報告')).toBeVisible({ timeout: 15000 });
 
     // Should show credit cost badge
     await expect(page.getByText('💎 3 點')).toBeVisible();
@@ -582,7 +582,7 @@ test.describe('Career Reading — Authenticated Phase 1', () => {
     await page.getByRole('button', { name: /開始排盤/ }).click();
 
     // Wait for paywall
-    await expect(page.getByText('事業詳批完整報告')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('八字事業詳批完整報告')).toBeVisible({ timeout: 15000 });
 
     // Free reading badge should be shown
     await expect(page.getByText('免費')).toBeVisible();
@@ -607,13 +607,13 @@ test.describe('Career Reading — Authenticated Phase 2 (Unlock)', () => {
     // Phase 1: submit form and get chart
     await fillBirthForm(page);
     await page.getByRole('button', { name: /開始排盤/ }).click();
-    await expect(page.getByText('事業詳批完整報告')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('八字事業詳批完整報告')).toBeVisible({ timeout: 15000 });
 
     // Phase 2: click unlock
     await page.getByRole('button', { name: /解鎖完整報告/ }).click();
 
     // Paywall should disappear after successful unlock
-    await expect(page.getByText('事業詳批完整報告')).not.toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('八字事業詳批完整報告')).not.toBeVisible({ timeout: 15000 });
   });
 
   test('unlock shows spinner while processing', async ({ page }) => {
@@ -638,7 +638,7 @@ test.describe('Career Reading — Authenticated Phase 2 (Unlock)', () => {
 
     await fillBirthForm(page);
     await page.getByRole('button', { name: /開始排盤/ }).click();
-    await expect(page.getByText('事業詳批完整報告')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('八字事業詳批完整報告')).toBeVisible({ timeout: 15000 });
 
     // Click unlock and check for spinner text
     await page.getByRole('button', { name: /解鎖完整報告/ }).click();
@@ -662,7 +662,7 @@ test.describe('Career Reading — Insufficient Credits', () => {
     await page.getByRole('button', { name: /開始排盤/ }).click();
 
     // Wait for paywall
-    await expect(page.getByText('事業詳批完整報告')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('八字事業詳批完整報告')).toBeVisible({ timeout: 15000 });
 
     // Should show disabled button with insufficient message
     await expect(page.getByText(/額度不足/)).toBeVisible();
@@ -685,7 +685,7 @@ test.describe('Career Reading — Insufficient Credits', () => {
 
     await fillBirthForm(page);
     await page.getByRole('button', { name: /開始排盤/ }).click();
-    await expect(page.getByText('事業詳批完整報告')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('八字事業詳批完整報告')).toBeVisible({ timeout: 15000 });
 
     // Try to unlock → should fail with insufficient credits
     await page.getByRole('button', { name: /解鎖完整報告/ }).click();
@@ -785,7 +785,7 @@ test.describe('Career Reading — Deep Link', () => {
     await expect(page.locator('body')).toBeVisible({ timeout: 15000 });
 
     // Should NOT show the career paywall (reading already paid for)
-    await expect(page.getByText('事業詳批完整報告')).not.toBeVisible({ timeout: 5000 }).catch(() => {
+    await expect(page.getByText('八字事業詳批完整報告')).not.toBeVisible({ timeout: 5000 }).catch(() => {
       // May briefly appear during loading — that's acceptable
     });
   });

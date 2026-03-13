@@ -12,7 +12,7 @@ import {
 const readingTypes = [
   { slug: 'lifetime', icon: '🌟', name: '八字終身運', description: '全面分析您的八字命盤', credits: 2 },
   { slug: 'annual', icon: '📅', name: '八字流年運勢', description: '預測您今年的運勢變化', credits: 2 },
-  { slug: 'career', icon: '💼', name: '事業財運', description: '分析事業發展與財運走勢', credits: 2 },
+  { slug: 'career', icon: '💼', name: '八字事業詳批', description: '分析事業發展與財運走勢', credits: 3 },
   { slug: 'love', icon: '💕', name: '愛情姻緣', description: '探索感情運勢與姻緣時機', credits: 2 },
   { slug: 'health', icon: '🏥', name: '先天健康分析', description: '五行體質與養生保健建議', credits: 2 },
   { slug: 'compatibility', icon: '🤝', name: '合盤比較', description: '兩人八字契合度分析', credits: 3 },

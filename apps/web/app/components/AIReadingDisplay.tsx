@@ -8,12 +8,22 @@ import type {
   AIReadingData,
   LifetimeV2DeterministicData,
   CareerV2DeterministicData,
+  AnnualV2DeterministicData,
   LuckPeriodDetailData,
 } from "../lib/readings-api";
 import {
   CAREER_V2_ALL_SECTION_KEYS,
   getDynamicSectionTitle,
+  normalizeAnnualDeterministic,
 } from "../lib/readings-api";
+import {
+  AUSPICIOUSNESS_TO_STARS,
+  ROMANCE_LEVEL_STARS,
+  ROMANCE_LEVEL_ZH,
+  VITALITY_TO_STARS,
+  VITALITY_TONE,
+  type VerdictTone,
+} from "../lib/bazi-utils";
 import { getScoreColor } from "../lib/score-utils";
 import LuckPeriodChart from "./LuckPeriodChart";
 import MascotViewer from "./MascotViewer";
@@ -70,6 +80,10 @@ const SECTION_THEMES: Record<string, { icon: string; theme: string }> = {
   annual_career: { icon: "💼", theme: "career" },
   annual_finance: { icon: "💰", theme: "finance" },
   annual_health: { icon: "🏥", theme: "health" },
+  annual_tai_sui: { icon: "⚡", theme: "overview" },
+  annual_dayun_context: { icon: "🔄", theme: "timing" },
+  annual_relationships: { icon: "🤝", theme: "overview" },
+  annual_family: { icon: "👨‍👩‍👧", theme: "family" },
   constitution: { icon: "🫀", theme: "health" },
   wellness_advice: { icon: "🌿", theme: "health" },
   health_timing: { icon: "📅", theme: "health" },
@@ -144,6 +158,7 @@ function getSectionTheme(key: string): { icon: string; theme: string } {
   if (SECTION_THEMES[key]) return SECTION_THEMES[key];
   if (key.startsWith('annual_forecast_')) return { icon: "📅", theme: "timing" };
   if (key.startsWith('monthly_forecast_')) return { icon: "📆", theme: "timing" };
+  if (key.startsWith('monthly_')) return { icon: "📆", theme: "timing" };
   return { icon: "📜", theme: "default" };
 }
 
@@ -177,7 +192,11 @@ const SECTION_TITLES_ZH: Record<string, string> = {
   constitution: "先天體質分析",
   wellness_advice: "養生保健建議",
   health_timing: "健康注意時期",
-  annual_overview: "年度總覽",
+  annual_overview: "流年總述",
+  annual_tai_sui: "太歲分析",
+  annual_dayun_context: "大運背景",
+  annual_relationships: "人際關係",
+  annual_family: "家庭關係",
   monthly_forecast: "每月運勢",
   key_opportunities: "關鍵機遇",
   overall_compatibility: "整體契合度",
@@ -250,6 +269,19 @@ const GUIDE_SECTION_TITLES_ZH: Record<string, string> = {
   best_period: "最佳大運攻略",
 };
 
+/** Annual V2 section title overrides */
+const ANNUAL_V2_SECTION_TITLES_ZH: Record<string, string> = {
+  annual_overview: '流年總述',
+  annual_tai_sui: '太歲分析',
+  annual_dayun_context: '大運背景',
+  annual_career: '事業運勢',
+  annual_finance: '財運收入',
+  annual_relationships: '人際關係',
+  annual_love: '愛情姻緣',
+  annual_family: '家庭關係',
+  annual_health: '健康狀況',
+};
+
 // ============================================================
 // StarRating Component (visual half-star support)
 // ============================================================
@@ -290,8 +322,6 @@ function StarRating({ score, indicatorLabel }: { score: number; indicatorLabel?:
 // ============================================================
 
 const CAREER_VERDICT_SECTIONS = new Set(['company_type_fit', 'entrepreneurship', 'partnership']);
-
-type VerdictTone = 'positive' | 'negative' | 'neutral';
 
 function CareerVerdictBadge({ sectionKey, det }: { sectionKey: string; det: CareerV2DeterministicData }) {
   let verdictLabel = '';
@@ -435,6 +465,406 @@ function CareerSummaryBadge({ sectionKey, det }: { sectionKey: string; det: Care
     case 'career_allies':
       return null; // just suppress stars
   }
+  return null;
+}
+
+// ============================================================
+// Annual V2 Section Sub-Header Components
+// ============================================================
+
+/** Compact info strip: [Tag] Value · Detail */
+function AnnualInfoStrip({ tag, value, detail, tone }: {
+  tag: string;
+  value?: string;
+  detail?: string;
+  tone?: VerdictTone;
+}) {
+  return (
+    <div className={styles.infoStrip} data-tone={tone || undefined}>
+      <span className={styles.infoStripTag}>{tag}</span>
+      {value && <span className={styles.infoStripValue}>{value}</span>}
+      {detail && <span className={styles.infoStripDetail}>{detail}</span>}
+    </div>
+  );
+}
+
+/** Verdict banner with ✓/✗/◆ icon, label, score and meta line */
+function AnnualVerdictBanner({ label, meta, score, scoreUnit, tone }: {
+  label: string;
+  meta?: string;
+  score?: number | null;
+  scoreUnit?: '/5' | '/100';
+  tone: VerdictTone;
+}) {
+  const toneClass = tone === 'positive' ? styles.verdictBannerPositive
+    : tone === 'negative' ? styles.verdictBannerNegative
+    : styles.verdictBannerNeutral;
+
+  return (
+    <div className={`${styles.verdictBanner} ${toneClass}`}>
+      <div className={styles.verdictBannerLeft}>
+        <span className={styles.verdictBannerIcon}>
+          {tone === 'positive' ? '✓' : tone === 'negative' ? '✗' : '◆'}
+        </span>
+        <span className={styles.verdictBannerLabel}>{label}</span>
+      </div>
+      <div className={styles.verdictBannerRight}>
+        {score != null && (
+          <span className={styles.verdictBannerScore}>
+            {scoreUnit === '/5' ? score.toFixed(1) : score}
+            <small>{scoreUnit || '/100'}</small>
+          </span>
+        )}
+      </div>
+      {meta && <div className={styles.verdictBannerMeta}>{meta}</div>}
+    </div>
+  );
+}
+
+/** Monthly 4-aspect 2×2 grid */
+function MonthlyAspectChips({ aspects }: {
+  aspects: {
+    career: { tenGod: string; signals: string[] };
+    finance: { signals: string[] };
+    romance: { signals: string[] };
+    health: { signals: string[] };
+  };
+}) {
+  const careerLabel = aspects.career?.signals?.[0] || aspects.career?.tenGod || '—';
+  const financeLabel = aspects.finance?.signals?.[0] || '平';
+  const romanceLabel = aspects.romance?.signals?.[0] || '平';
+  const healthLabel = aspects.health?.signals?.[0] || '平';
+
+  const items = [
+    { icon: '💼', label: '事業', value: careerLabel },
+    { icon: '💰', label: '財運', value: financeLabel },
+    { icon: '💕', label: '感情', value: romanceLabel },
+    { icon: '🏥', label: '健康', value: healthLabel },
+  ];
+
+  return (
+    <div className={styles.monthlyAspects}>
+      {items.map(item => (
+        <div key={item.label} className={styles.monthlyAspectCard}>
+          <span className={styles.monthlyAspectLabel}>{item.icon} {item.label}</span>
+          <span className={styles.monthlyAspectValue}>{item.value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Helper: derive finance star rating from signal impacts */
+function getFinanceStarScore(finance: AnnualV2DeterministicData['finance']): number {
+  if (!finance?.signals) return 3.0;
+  const positiveCount = finance.signals.filter(s =>
+    s.impact === 'positive' || s.impact === 'very_positive'
+  ).length;
+  const negativeCount = finance.signals.filter(s =>
+    s.impact === 'negative' || s.impact === 'very_negative'
+  ).length;
+  // 'mixed' impact treated as neutral — adds 0 to both counts
+
+  let score: number;
+  if (positiveCount >= 3 && negativeCount === 0) score = 5.0;
+  else if (positiveCount >= 2 && negativeCount === 0) score = 4.0;
+  else if (positiveCount >= 1 && negativeCount === 0) score = 3.5;
+  else if (positiveCount === 0 && negativeCount === 0) score = 3.0;
+  else if (positiveCount === 0 && negativeCount >= 1) score = 2.0;
+  else score = 3.0; // mixed
+
+  // Adjust: wealth present + favorable condition
+  if (finance.wealthPresent && finance.wealthCondition === 'strong_dm') score = Math.min(5.0, score + 0.5);
+  return score;
+}
+
+/** Helper: derive finance auspiciousness label from star score */
+function getFinanceLabel(score: number): string {
+  if (score >= 4.5) return '大吉';
+  if (score >= 3.5) return '吉';
+  if (score >= 2.5) return '平';
+  if (score >= 1.5) return '凶';
+  return '大凶';
+}
+
+/** Helper: derive relationship overall status */
+function getRelationshipStatus(relationships: AnnualV2DeterministicData['relationships']): string {
+  if (!relationships?.palaceRelationships) return '人際平穩';
+  let negativeCount = 0;
+  for (const palace of Object.values(relationships.palaceRelationships)) {
+    if (palace?.interactions) {
+      for (const interaction of palace.interactions) {
+        if (interaction.type?.includes('沖') || interaction.type?.includes('刑') || interaction.type?.includes('害')) {
+          negativeCount++;
+        }
+      }
+    }
+  }
+  if (negativeCount === 0) return '人際平穩';
+  if (negativeCount === 1) return '人際小變動';
+  return '人際動盪';
+}
+
+/** Helper: get notable relationship interactions for InfoStrip detail */
+function getRelationshipDetails(relationships: AnnualV2DeterministicData['relationships']): string {
+  if (!relationships?.palaceRelationships) return '';
+  const PALACE_ZH: Record<string, string> = { year: '長輩宮', month: '事業宮', day: '夫妻宮', hour: '子女宮' };
+  const details: string[] = [];
+  for (const [pillar, palace] of Object.entries(relationships.palaceRelationships)) {
+    const palaceName = PALACE_ZH[pillar] || pillar;
+    if (palace?.status) {
+      details.push(`${palaceName}${palace.status}`);
+    }
+  }
+  return details.slice(0, 3).join(' · ');
+}
+
+/** Helper: derive relationship star score from palace statuses */
+function getRelationshipScore(palaces?: Record<string, { status?: string; interactions?: Array<{ type?: string }> }>): number {
+  if (!palaces) return 3.0;
+  // Status values from Python engine (annual_enhanced.py lines 863-870)
+  const STATUS_SCORE: Record<string, number> = {
+    '有助力': 0.5, '平穩': 0, '吉凶參半': -0.5, '需留意': -1.0,
+  };
+  let total = 0;
+  for (const palace of Object.values(palaces)) {
+    total += STATUS_SCORE[palace.status || ''] ?? 0;
+  }
+  // Base 3.5, ±per palace (range: 1.0–5.0)
+  return Math.max(1.0, Math.min(5.0, 3.5 + total));
+}
+
+/** Helper: derive family star score from seal star role */
+function getFamilyScore(sealStar?: AnnualV2DeterministicData['sealStar']): number {
+  if (!sealStar) return 3.0;
+  const ROLE_SCORE: Record<string, number> = {
+    '用神': 5.0, '喜神': 4.0, '閒神': 3.0, '忌神': 2.0, '仇神': 1.5,
+  };
+  let score = ROLE_SCORE[sealStar.sealRole || ''] ?? 3.0;
+  if (!sealStar.isSealYear) score = 3.0; // No seal star activation = neutral
+  // Adjust by signal count
+  const positiveSignals = (sealStar.signals || []).filter(s => s.impact === 'positive').length;
+  const negativeSignals = (sealStar.signals || []).filter(s => s.impact === 'negative').length;
+  score = Math.max(1.0, Math.min(5.0, score + (positiveSignals - negativeSignals) * 0.5));
+  return score;
+}
+
+/** Master dispatcher — renders appropriate sub-header badges per annual section */
+function AnnualSectionBadge({ sectionKey, det }: { sectionKey: string; det: AnnualV2DeterministicData }) {
+  // === annual_overview ===
+  if (sectionKey === 'annual_overview') {
+    const auspiciousness = det.flowYear?.auspiciousness;
+    const starScore = AUSPICIOUSNESS_TO_STARS[auspiciousness] ?? 3.0;
+    const tag = `${det.flowYear?.stem || ''}${det.flowYear?.branch || ''}年`;
+    const tenGodValue = det.flowYear?.tenGod
+      ? `${det.flowYear.tenGod}${det.career?.tenGodRole ? `(${det.career.tenGodRole})` : ''}`
+      : '';
+    const harmonyDetail = det.flowYearHarmony?.pattern || '';
+    return (
+      <>
+        <StarRating score={starScore} indicatorLabel={auspiciousness} />
+        <AnnualInfoStrip tag={tag} value={tenGodValue} detail={harmonyDetail} />
+      </>
+    );
+  }
+
+  // === annual_tai_sui ===
+  if (sectionKey === 'annual_tai_sui') {
+    const ts = det.taiSui;
+    if (!ts) return null;
+    if (!ts.hasTaiSui) {
+      return (
+        <AnnualVerdictBanner
+          label="今年未犯太歲"
+          meta="四柱與太歲無刑沖破害"
+          tone="positive"
+        />
+      );
+    }
+    const results = ts.pillarResults || [];
+    const allFavorable = results.every(r => r.isActuallyFavorable);
+    const allUnfavorable = results.every(r => !r.isActuallyFavorable);
+    const tone: VerdictTone = allFavorable ? 'positive' : allUnfavorable ? 'negative' : 'neutral';
+    const PILLAR_ZH: Record<string, string> = { year: '年柱', month: '月柱', day: '日柱', hour: '時柱' };
+    const metaParts = results.map(r => {
+      const pillarName = PILLAR_ZH[r.pillar] || r.pillar;
+      const typeStr = (r.types || []).join('');
+      const favorStr = r.isActuallyFavorable ? '(去忌有利)' : '(需防)';
+      return `${pillarName}${typeStr}太歲${favorStr}`;
+    });
+    return (
+      <AnnualVerdictBanner
+        label={ts.summary || `犯太歲${results.length}處`}
+        meta={metaParts.join(' · ')}
+        tone={tone}
+      />
+    );
+  }
+
+  // === annual_dayun_context ===
+  if (sectionKey === 'annual_dayun_context') {
+    const dc = det.dayunContext;
+    if (!dc?.available) {
+      return <AnnualInfoStrip tag="尚無大運" />;
+    }
+    const tag = `大運${dc.stem || ''}${dc.branch || ''}`;
+    const value = dc.tenGod ? `${dc.tenGod}(${dc.role || '閒神'})` : '';
+    const detail = `${dc.startYear || ''}–${dc.endYear || ''} · ${dc.favorability === '有利' ? '背景有利' : dc.favorability === '不利' ? '背景不利' : '背景中性'}`;
+    const tone: VerdictTone = dc.favorability === '有利' ? 'positive' : dc.favorability === '不利' ? 'negative' : 'neutral';
+    return <AnnualInfoStrip tag={tag} value={value} detail={detail} tone={tone} />;
+  }
+
+  // === annual_career ===
+  if (sectionKey === 'annual_career') {
+    const c = det.career;
+    if (!c) return null;
+    const starScore = AUSPICIOUSNESS_TO_STARS[c.auspiciousness] ?? 3.0;
+    const tag = `${c.flowYearTenGod || ''}年`;
+    const ROLE_ZH: Record<string, string> = { '喜神': '喜神助力', '用神': '用神強力', '忌神': '忌神壓力', '仇神': '仇神阻礙', '閒神': '閒神中性' };
+    const value = ROLE_ZH[c.tenGodRole] || c.tenGodRole || '';
+    const detail = c.signals?.[0]?.type || c.shenShaSignals?.[0] || '';
+    return (
+      <>
+        <StarRating score={starScore} indicatorLabel={c.auspiciousness} />
+        <AnnualInfoStrip tag={tag} value={value} detail={detail} />
+      </>
+    );
+  }
+
+  // === annual_finance ===
+  if (sectionKey === 'annual_finance') {
+    const f = det.finance;
+    if (!f) return null;
+    const financeScore = getFinanceStarScore(f);
+    const financeLabel = getFinanceLabel(financeScore);
+    const tag = f.wealthPresent ? '財星到位' : '無直接財星';
+    const positiveSignal = f.signals?.find(s => s.impact === 'positive');
+    const negativeSignal = f.signals?.find(s => s.impact === 'negative');
+    const value = positiveSignal?.type || negativeSignal?.type || '';
+    const conditionLabels: Record<string, string> = {
+      'strong_dm': '身強扛財', 'weak_dm': '穩守為主', 'neutral': '量力而行',
+    };
+    const detail = conditionLabels[f.wealthCondition] || '';
+    return (
+      <>
+        <StarRating score={financeScore} indicatorLabel={financeLabel} />
+        <AnnualInfoStrip tag={tag} value={value} detail={detail} />
+      </>
+    );
+  }
+
+  // === annual_relationships ===
+  if (sectionKey === 'annual_relationships') {
+    const palaces = det.relationships?.palaceRelationships;
+    const relationshipScore = getRelationshipScore(palaces);
+    const relationshipLabel = getFinanceLabel(relationshipScore);
+    const tag = getRelationshipStatus(det.relationships);
+    const detail = getRelationshipDetails(det.relationships);
+    return (
+      <>
+        <StarRating score={relationshipScore} indicatorLabel={relationshipLabel} />
+        <AnnualInfoStrip tag={tag} detail={detail} />
+      </>
+    );
+  }
+
+  // === annual_love ===
+  if (sectionKey === 'annual_love') {
+    const ms = det.marriageStar;
+    if (!ms) return null;
+    const starScore = ROMANCE_LEVEL_STARS[ms.romanceLevel] ?? 3.0;
+    const starLabel = ROMANCE_LEVEL_ZH[ms.romanceLevel] || ms.romanceLevel || '';
+    const tag = `${ms.trackCount || 0}個姻緣信號`;
+    const activeTracks = (ms.tracks || [])
+      .filter(t => t.active)
+      .map(t => t.trackType === 'celebration' ? `${t.track}(喜慶星)` : t.track);
+    const detail = activeTracks.slice(0, 3).join(' · ');
+    return (
+      <>
+        <StarRating score={starScore} indicatorLabel={starLabel} />
+        <AnnualInfoStrip tag={tag} detail={detail} />
+      </>
+    );
+  }
+
+  // === annual_family ===
+  if (sectionKey === 'annual_family') {
+    const ss = det.sealStar;
+    const familyScore = getFamilyScore(ss);
+    const familyLabel = getFinanceLabel(familyScore);
+    const sealTag = ss?.signals?.[0]?.type
+      ?? (ss?.isSealYear ? `印星為${ss.sealRole || '用'}` : '無印星年');
+    const tone: VerdictTone = ss?.sealRole === '用神' || ss?.sealRole === '喜神' ? 'positive'
+      : ss?.sealRole === '忌神' || ss?.sealRole === '仇神' ? 'negative'
+      : 'neutral';
+    const hourPalace = det.relationships?.palaceRelationships?.hour;
+    const detail = hourPalace?.status ? `子女宮${hourPalace.status}` : '';
+    return (
+      <>
+        <StarRating score={familyScore} indicatorLabel={familyLabel} />
+        <AnnualInfoStrip tag={sealTag} detail={detail} tone={tone} />
+      </>
+    );
+  }
+
+  // === annual_health ===
+  if (sectionKey === 'annual_health') {
+    const h = det.health;
+    if (!h) return null;
+    const vitality = h.healthVitality?.vitality || '';
+    const vitalityLabel = h.healthVitality?.label || '';
+    const vitalityScore = VITALITY_TO_STARS[vitality] ?? 3.0;
+    const vitalityTone = VITALITY_TONE[vitality] || 'neutral';
+    const lifeStage = h.lifeStage ? `十二長生：${h.lifeStage}` : '';
+
+    const riskCount = (h.riskOrgans?.length || 0) + (h.elementWarnings?.length || 0);
+    const riskTag = riskCount > 0 ? `注意${riskCount}處` : '無特別風險';
+    const riskDetails: string[] = [];
+    if (h.riskOrgans) {
+      for (const r of h.riskOrgans.slice(0, 2)) {
+        riskDetails.push(`${r.source || ''}(${r.organs || ''})`);
+      }
+    }
+    if (h.yangrenDanger) {
+      riskDetails.push('⚠ 羊刃高危');
+    } else {
+      riskDetails.push('羊刃無危險');
+    }
+
+    return (
+      <>
+        <AnnualVerdictBanner
+          label={vitalityLabel || `精力${vitality}`}
+          meta={lifeStage}
+          score={vitalityScore}
+          scoreUnit="/5"
+          tone={vitalityTone}
+        />
+        <AnnualInfoStrip tag={riskTag} detail={riskDetails.join(' · ')} />
+      </>
+    );
+  }
+
+  // === monthly_01 to monthly_12 ===
+  const monthMatch = sectionKey.match(/^monthly_(\d{2})$/);
+  if (monthMatch?.[1]) {
+    const monthNum = parseInt(monthMatch[1], 10);
+    const forecast = det.monthlyForecasts?.find(m => m.monthIndex === monthNum);
+    if (!forecast) return null;
+
+    const starScore = AUSPICIOUSNESS_TO_STARS[forecast.auspiciousness] ?? 3.0;
+    const tag = `${forecast.monthStem || ''}${forecast.monthBranch || ''}·${forecast.monthTenGod || ''}`;
+    const kongWangSuffix = forecast.isKongWang ? '(空亡)' : '';
+
+    return (
+      <>
+        <StarRating score={starScore} indicatorLabel={forecast.auspiciousness} />
+        <AnnualInfoStrip tag={`${tag}${kongWangSuffix}`} />
+        {forecast.aspects && <MonthlyAspectChips aspects={forecast.aspects} />}
+      </>
+    );
+  }
+
   return null;
 }
 
@@ -739,7 +1169,7 @@ function CharacterCard({ chartData }: { chartData: Record<string, unknown> }) {
 const BAZI_CROSS_SELL = [
   { slug: "lifetime", icon: "🌟", name: "八字終身運" },
   { slug: "annual", icon: "📅", name: "八字流年運勢" },
-  { slug: "career", icon: "💼", name: "事業詳批" },
+  { slug: "career", icon: "💼", name: "八字事業詳批" },
   { slug: "love", icon: "💕", name: "愛情姻緣" },
   { slug: "health", icon: "🏥", name: "先天健康分析" },
   { slug: "compatibility", icon: "🤝", name: "合盤比較" },
@@ -783,6 +1213,23 @@ export const V2_ALL_SECTION_KEYS = [
   'annual_love', 'annual_career', 'annual_finance', 'annual_health',
 ];
 
+/** Annual V2 section keys in expected order */
+export const ANNUAL_V2_ALL_SECTION_KEYS = [
+  'annual_overview', 'annual_tai_sui', 'annual_dayun_context',
+  'annual_career', 'annual_finance', 'annual_relationships',
+  'annual_love', 'annual_family', 'annual_health',
+  'monthly_01', 'monthly_02', 'monthly_03', 'monthly_04',
+  'monthly_05', 'monthly_06', 'monthly_07', 'monthly_08',
+  'monthly_09', 'monthly_10', 'monthly_11', 'monthly_12',
+];
+
+/** Annual V2 section group headers */
+const ANNUAL_V2_GROUP_HEADERS: Record<string, string> = {
+  annual_career: '外部分析',
+  annual_love: '內部分析',
+  monthly_01: '十二月運程',
+};
+
 export default function AIReadingDisplay({
   data,
   readingType,
@@ -794,6 +1241,7 @@ export default function AIReadingDisplay({
 }: AIReadingDisplayProps) {
   const isGuide = readingType === 'lifetime'; // LIFETIME always uses guide style
   const isCareerV2 = readingType === 'career' && data?.isV2 === true;
+  const isAnnualV2 = readingType === 'annual' && data?.isV2 === true;
   // During streaming with V2 data: show arrived sections + skeletons for remaining
   const isStreamingWithData = isStreaming && data?.isV2 && data.deterministic != null;
 
@@ -903,14 +1351,33 @@ export default function AIReadingDisplay({
             || GUIDE_SECTION_TITLES_ZH[section.key]
             || SECTION_TITLES_ZH[section.key]
             || section.title || section.key)
-          : ((isGuide ? GUIDE_SECTION_TITLES_ZH[section.key] : undefined)
-            || SECTION_TITLES_ZH[section.key] || section.title || section.key);
+          : (isAnnualV2
+            ? (getDynamicSectionTitle(section.key) || ANNUAL_V2_SECTION_TITLES_ZH[section.key] || SECTION_TITLES_ZH[section.key] || section.title || section.key)
+            : ((isGuide ? GUIDE_SECTION_TITLES_ZH[section.key] : undefined)
+              || SECTION_TITLES_ZH[section.key] || section.title || section.key));
 
         // Determine which deterministic card to insert after this section
         const deterministicKey = isV2 ? V2_DETERMINISTIC_INSERTIONS[section.key] : undefined;
 
+        // annual_dayun_context: no paywall — both paid and unpaid see full content
+        const isNoPaywallSection = section.key === 'annual_dayun_context';
+        // monthly sections (monthly_01-12) only have full content, no preview
+        const isMonthlySection = section.key.startsWith('monthly_') && isAnnualV2;
+
+        // Annual V2 group header (外部分析/內部分析/十二月運程)
+        const groupHeader = isAnnualV2 ? ANNUAL_V2_GROUP_HEADERS[section.key] : undefined;
+
         return (
           <div key={section.key || index}>
+            {/* Group header divider for annual V2 */}
+            {groupHeader && (
+              <div className={styles.sectionGroupHeader}>
+                <span className={styles.sectionGroupLine} />
+                <span className={styles.sectionGroupLabel}>{groupHeader}</span>
+                <span className={styles.sectionGroupLine} />
+              </div>
+            )}
+
             <div
               className={styles.readingSection}
               data-theme={themeInfo.theme}
@@ -937,6 +1404,12 @@ export default function AIReadingDisplay({
                 <CareerVerdictBadge sectionKey={section.key} det={normalizeCareerDeterministic(det)} />
               )}
 
+              {/* Annual V2 section sub-header badges */}
+              {isAnnualV2 && det && (() => {
+                const annualDet = normalizeAnnualDeterministic(det as unknown as Record<string, unknown>);
+                return annualDet ? <AnnualSectionBadge sectionKey={section.key} det={annualDet} /> : null;
+              })()}
+
               {/* LuckPeriodHeader — timing sections only */}
               {isGuide && ['current_period', 'next_period', 'best_period'].includes(section.key) && data.deterministic && (() => {
                 const det = data.deterministic as LifetimeV2DeterministicData;
@@ -954,7 +1427,11 @@ export default function AIReadingDisplay({
                 ) : null;
               })()}
 
-              {isSubscriber ? (
+              {isSubscriber || isNoPaywallSection ? (
+                <div className={styles.sectionContent}>
+                  {renderFormattedContent(section.full || '')}
+                </div>
+              ) : isMonthlySection ? (
                 <div className={styles.sectionContent}>
                   {renderFormattedContent(section.full || '')}
                 </div>
@@ -994,7 +1471,7 @@ export default function AIReadingDisplay({
             </div>
 
             {/* Insert deterministic data card after specific sections */}
-            {deterministicKey && det && !isCareerV2 && (
+            {deterministicKey && det && !isCareerV2 && !isAnnualV2 && (
               <DeterministicCard
                 cardType={deterministicKey}
                 data={det as LifetimeV2DeterministicData}
@@ -1009,8 +1486,10 @@ export default function AIReadingDisplay({
       {/* Streaming: skeleton placeholder for the NEXT expected section only */}
       {isStreamingWithData && (() => {
         const arrivedKeys = new Set(data.sections.map(s => s.key));
-        // Use career section keys for career V2, lifetime keys otherwise
-        const allKeys = isCareerV2 ? CAREER_V2_ALL_SECTION_KEYS : V2_ALL_SECTION_KEYS;
+        // Use appropriate section keys for each V2 reading type
+        const allKeys = isCareerV2 ? CAREER_V2_ALL_SECTION_KEYS
+          : isAnnualV2 ? ANNUAL_V2_ALL_SECTION_KEYS
+          : V2_ALL_SECTION_KEYS;
         const remainingKeys = allKeys.filter(k => !arrivedKeys.has(k));
         const nextKey = remainingKeys[0];
         if (!nextKey) return null;

@@ -1,5 +1,6 @@
 import React from "react";
 import styles from "./MonthlyFortuneGrid.module.css";
+import { AUSPICIOUSNESS_TO_STARS } from "../lib/bazi-utils";
 
 /** Parse AI narrative text into styled React elements with golden dot bullets */
 function renderNarrativeContent(text: string): React.ReactNode {
@@ -93,20 +94,6 @@ const MONTH_NAMES = [
   "", "一月", "二月", "三月", "四月", "五月", "六月",
   "七月", "八月", "九月", "十月", "十一月", "十二月",
 ];
-
-const AUSPICIOUSNESS_TO_STARS: Record<string, number> = {
-  '大吉': 5.0,
-  '吉': 4.0,
-  '平': 3.0,
-  '凶': 2.0,
-  '大凶': 1.0,
-  '吉中有凶': 3.5,
-  '小凶': 2.5,
-  '凶中有吉': 2.5,
-  '凶中帶機': 1.5,
-  '曇花一現': 3.5,
-  '凶上加凶': 0.5,
-};
 
 function StarRatingInline({ score }: { score: number }) {
   const stars = [];

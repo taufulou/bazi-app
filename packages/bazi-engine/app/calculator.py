@@ -292,6 +292,9 @@ def calculate_bazi(
         birth_dt, lp_direction, lp_start_age,
     )
 
+    # Step 17.5: Compute shen_sha early (needed by both career and annual enhanced)
+    all_shen_sha = get_all_shen_sha(pillars)
+
     # Step 17: Career Enhanced Insights (V2 — only for CAREER reading type)
     career_enhanced = None
     if reading_type and reading_type.upper() == 'CAREER':
@@ -314,6 +317,29 @@ def calculate_bazi(
             shen_gong=shen_gong,
             birth_year=birth_year,
             current_year=target_year,
+        )
+
+    # Step 18: Annual Enhanced Insights (V2 — only for ANNUAL reading type)
+    annual_enhanced = None
+    if reading_type and reading_type.upper() == 'ANNUAL':
+        from .annual_enhanced import generate_annual_pre_analysis
+        annual_enhanced = generate_annual_pre_analysis(
+            pillars=pillars,
+            day_master_stem=day_master_stem,
+            gender=gender,
+            five_elements_balance=five_elements_balance,
+            effective_gods=pre_analysis['effectiveFavorableGods'],
+            prominent_god=prominent_god,
+            strength_v2=pre_analysis['strengthV2'],
+            cong_ge=pre_analysis.get('congGe'),
+            luck_periods=luck_periods,
+            annual_stars=annual_stars,
+            monthly_stars=monthly_stars,
+            kong_wang=kong_wang,
+            branch_relationships=pre_analysis.get('pillarRelationships', {}).get('branchRelationships'),
+            birth_year=birth_year,
+            current_year=target_year,
+            shen_sha=all_shen_sha,
         )
 
     # R5: 空亡 display — day (primary per《神白經》) + year (secondary per 祿命法)
@@ -340,7 +366,7 @@ def calculate_bazi(
         'lunarDate': pillar_data['lunarDate'],
         'kongWang': kong_wang,
         'kongWangPerPillar': kong_wang_per_pillar,
-        'allShenSha': get_all_shen_sha(pillars),
+        'allShenSha': all_shen_sha,
         'ganZhi': {
             'year': pillar_data['yearGanZhi'],
             'month': pillar_data['monthGanZhi'],
@@ -374,6 +400,10 @@ def calculate_bazi(
     # Conditionally include career enhanced insights
     if career_enhanced is not None:
         result['careerEnhancedInsights'] = career_enhanced
+
+    # Conditionally include annual enhanced insights
+    if annual_enhanced is not None:
+        result['annualEnhancedInsights'] = annual_enhanced
 
     return result
 
