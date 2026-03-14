@@ -178,6 +178,14 @@ const SECTION_TITLES_ZH: Record<string, string> = {
   chart_identity: "先天命格解讀",
   finance_pattern: "財運格局解讀",
   career_pattern: "事業格局解讀",
+  // Career V2 sections
+  suitable_positions: "適合職位分析",
+  career_directions_favorable: "有利行業方向",
+  career_directions_unfavorable: "不利行業方向",
+  company_type_fit: "公司類型適配",
+  entrepreneurship: "創業適合度分析",
+  partnership: "合夥適合度分析",
+  career_allies: "職場貴人與小人",
   boss_strategy: "應對上司之道",
   love_pattern: "感情格局解讀",
   children_analysis: "子女分析",
@@ -1519,8 +1527,10 @@ export default function AIReadingDisplay({
         );
       })()}
 
-      {/* Career V2: Annual Forecast Timeline + Monthly Grid (after all AI sections) */}
-      {isCareerV2 && det && (() => {
+      {/* Career V2: Annual Forecast Timeline + Monthly Grid (after all AI sections).
+          Hide during streaming for subscribers (narratives arrive progressively).
+          Non-subscribers see pure deterministic data — no reason to delay. */}
+      {isCareerV2 && det && (!isStreaming || !isSubscriber) && (() => {
         const cdet = normalizeCareerDeterministic(det);
 
         // Collect AI narratives from sections for annual/monthly
