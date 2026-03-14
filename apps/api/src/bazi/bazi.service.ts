@@ -421,6 +421,7 @@ export class BaziService {
         birthDate: reading.birthProfile?.birthDate?.toISOString().split('T')[0],
         birthTime: reading.birthProfile?.birthTime,
         birthCity: reading.birthProfile?.birthCity || '',
+        targetYear: reading.targetYear ?? undefined,
       };
 
       // 5. Delegate to correct V2 streamer based on reading type
@@ -430,7 +431,7 @@ export class BaziService {
           aiObservable = this.aiService.streamCareerV2(enrichedData, readingId);
           break;
         case 'ANNUAL':
-          aiObservable = this.aiService.streamAnnualV2(enrichedData, readingId);
+          aiObservable = this.aiService.streamAnnualV2(enrichedData, readingId, reading.targetYear ?? undefined);
           break;
         default:
           aiObservable = this.aiService.streamLifetimeV2(enrichedData, readingId);

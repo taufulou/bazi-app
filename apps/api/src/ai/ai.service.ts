@@ -1401,9 +1401,10 @@ export class AIService implements OnModuleInit {
   streamAnnualV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    targetYear?: number,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
-      this._executeStreamAnnualV2(calculationData, readingId, subscriber)
+      this._executeStreamAnnualV2(calculationData, readingId, subscriber, targetYear)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -1419,6 +1420,7 @@ export class AIService implements OnModuleInit {
     calculationData: Record<string, unknown>,
     readingId: string,
     subscriber: Subscriber<MessageEvent>,
+    targetYear?: number,
   ) {
     const startTime = Date.now();
     const timeoutMs = parseInt(
@@ -1602,6 +1604,7 @@ export class AIService implements OnModuleInit {
             calculationData['birthCity'] as string || '',
             calculationData['gender'] as string || '',
             ReadingType.ANNUAL,
+            targetYear,
           );
           this.cacheInterpretation(
             birthDataHash,
@@ -1835,13 +1838,15 @@ export class AIService implements OnModuleInit {
     const relationships = det['relationships'] || det['annual_relationships'];
     if (relationships && typeof relationships === 'object') {
       const r = relationships as Record<string, unknown>;
-      const palaces = (r['palaceAnalysis'] as Array<Record<string, unknown>>) || [];
+      const palaceRel = (r['palaceRelationships'] || r['palace_relationships']) as Record<string, Record<string, unknown>> | undefined;
       const lines: string[] = [];
-      for (const p of palaces) {
-        const interactions = (p['interactions'] as Array<Record<string, unknown>>) || [];
-        if (interactions.length > 0) {
-          const interStr = interactions.map(i => `${i['type']}`).join('、');
-          lines.push(`${p['palace']}：${interStr}`);
+      if (palaceRel && typeof palaceRel === 'object') {
+        for (const [, palace] of Object.entries(palaceRel)) {
+          const interactions = (palace['interactions'] as Array<Record<string, unknown>>) || [];
+          if (interactions.length > 0) {
+            const interStr = interactions.map(i => `${i['type']}(${i['detail'] || ''})`).join('、');
+            lines.push(`${palace['palace'] || ''}(${palace['status'] || ''})：${interStr}`);
+          }
         }
       }
       result = result.replace(/\{\{annualRelationshipAnchors\}\}/g,
@@ -2106,6 +2111,10 @@ export class AIService implements OnModuleInit {
               const sectionJson = buffer.substring(startBrace, j + 1);
               try {
                 const parsed = JSON.parse(sectionJson);
+                // Accept sections with only 'full' (no 'preview'). Annual V2 monthly sections
+                // are full-only by design. For Career/Lifetime, if AI omits preview, an empty
+                // string fallback is used — free-tier users see nothing (correct paywall behavior).
+                // Accepting full-only is better than silently dropping the entire section.
                 if (parsed.full !== undefined) {
                   result[key] = {
                     preview: parsed.preview ?? '',

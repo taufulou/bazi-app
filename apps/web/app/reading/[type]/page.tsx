@@ -941,7 +941,7 @@ export default function ReadingPage() {
       let savedReadingId: string | null = null;
       try { savedReadingId = sessionStorage.getItem('career_reading_id'); } catch { /* ignore */ }
       if (savedReadingId && isSignedIn) {
-        recoverCareerReading(savedReadingId);
+        recoverPaidReading(savedReadingId, 'career');
       } else {
         setShowCareerPaywall(true);
       }
@@ -982,7 +982,7 @@ export default function ReadingPage() {
       let savedReadingId: string | null = null;
       try { savedReadingId = sessionStorage.getItem('annual_reading_id'); } catch { /* ignore */ }
       if (savedReadingId && isSignedIn) {
-        recoverCareerReading(savedReadingId);
+        recoverPaidReading(savedReadingId, 'annual');
       } else {
         setShowCareerPaywall(true);
       }
@@ -993,7 +993,7 @@ export default function ReadingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAnnual, isLoaded]);
 
-  async function recoverCareerReading(readingId: string) {
+  async function recoverPaidReading(readingId: string, sessionKeyPrefix: string) {
     const token = await getToken();
     if (!token) { setShowCareerPaywall(true); return; }
 
@@ -1009,8 +1009,8 @@ export default function ReadingPage() {
         setShowCareerPaywall(false);
         // Clean up sessionStorage
         try {
-          sessionStorage.removeItem('career_form');
-          sessionStorage.removeItem('career_reading_id');
+          sessionStorage.removeItem(`${sessionKeyPrefix}_form`);
+          sessionStorage.removeItem(`${sessionKeyPrefix}_reading_id`);
         } catch { /* ignore */ }
       } else {
         // Reading saved but AI streaming interrupted → re-trigger stream
@@ -1052,7 +1052,7 @@ export default function ReadingPage() {
     } catch {
       // Reading not found or error → show paywall again
       setShowCareerPaywall(true);
-      try { sessionStorage.removeItem('career_reading_id'); } catch { /* ignore */ }
+      try { sessionStorage.removeItem(`${sessionKeyPrefix}_reading_id`); } catch { /* ignore */ }
     }
   }
 
