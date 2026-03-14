@@ -1198,7 +1198,9 @@ export default function ReadingPage() {
             )}
 
             {/* Career Paywall CTA — below chart, before AI sections */}
-            {isCareer && showCareerPaywall && !isAiLoading && (
+            {/* Paywall gates on !isRevealing so it appears after chart staged reveal (~7.2s).
+                isRevealing and showCareerPaywall are batched in the same React 18 render cycle. */}
+            {isCareer && showCareerPaywall && !isAiLoading && !isRevealing && (
               <CareerPaywallCTA
                 creditCost={meta?.creditCost ?? 3}
                 currentCredits={userCredits}

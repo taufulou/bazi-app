@@ -11,7 +11,7 @@ async function main() {
   const services = [
     { slug: 'lifetime', nameZhTw: '八字終身運', nameZhCn: '八字终身运', descriptionZhTw: '全面分析您的八字命盤，深入了解一生的命運走向', descriptionZhCn: '全面分析您的八字命盘，深入了解一生的命运走向', type: ReadingType.LIFETIME, creditCost: 3, sortOrder: 1 },
     { slug: 'annual', nameZhTw: '八字流年運勢', nameZhCn: '八字流年运势', descriptionZhTw: '預測您今年的運勢變化，掌握每月吉凶', descriptionZhCn: '预测您今年的运势变化，掌握每月吉凶', type: ReadingType.ANNUAL, creditCost: 2, sortOrder: 2 },
-    { slug: 'career', nameZhTw: '事業財運', nameZhCn: '事业财运', descriptionZhTw: '分析事業發展方向與財運走勢，找到最佳機遇', descriptionZhCn: '分析事业发展方向与财运走势，找到最佳机遇', type: ReadingType.CAREER, creditCost: 2, sortOrder: 3 },
+    { slug: 'career', nameZhTw: '事業詳批', nameZhCn: '事业详批', descriptionZhTw: '詳細批算你的事業運，幫你找到最佳職業方向、財富格局和發展時機', descriptionZhCn: '详细批算你的事业运，帮你找到最佳职业方向、财富格局和发展时机', type: ReadingType.CAREER, creditCost: 3, sortOrder: 3 },
     { slug: 'love', nameZhTw: '愛情姻緣', nameZhCn: '爱情姻缘', descriptionZhTw: '探索感情運勢，了解理想伴侶特質與姻緣時機', descriptionZhCn: '探索感情运势，了解理想伴侣特质与姻缘时机', type: ReadingType.LOVE, creditCost: 2, sortOrder: 4 },
     { slug: 'health', nameZhTw: '先天健康分析', nameZhCn: '先天健康分析', descriptionZhTw: '根據五行分析先天體質，提供養生保健建議', descriptionZhCn: '根据五行分析先天体质，提供养生保健建议', type: ReadingType.HEALTH, creditCost: 2, sortOrder: 5 },
     { slug: 'compatibility', nameZhTw: '合盤比較', nameZhCn: '合盘比较', descriptionZhTw: '比較兩人八字，分析感情或事業合作的契合度', descriptionZhCn: '比较两人八字，分析感情或事业合作的契合度', type: ReadingType.COMPATIBILITY, creditCost: 3, sortOrder: 6 },
