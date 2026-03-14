@@ -163,6 +163,7 @@ const SECTION_TITLES_ZH: Record<string, string> = {
   chart_identity: "先天命格解讀",
   finance_pattern: "財運格局解讀",
   career_pattern: "事業格局解讀",
+  // Career V2 sections
   suitable_positions: "適合職位分析",
   career_directions_favorable: "有利行業方向",
   career_directions_unfavorable: "不利行業方向",
