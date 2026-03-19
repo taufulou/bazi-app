@@ -29,6 +29,7 @@ from .branch_relationships import (
 from .constants import (
     BRANCH_INDEX,
     EARTHLY_BRANCHES,
+    HARM_LOOKUP,
     HEAVENLY_STEMS,
     STEM_ELEMENT,
     STEM_INDEX,
@@ -52,18 +53,7 @@ PILLAR_DOMAIN_ZH: Dict[str, str] = {
 }
 
 
-# ============================================================
-# Six Harms lookup (from branch_relationships, duplicated for quick access)
-# ============================================================
-
-HARM_LOOKUP: Dict[str, str] = {
-    '子': '未', '未': '子',
-    '丑': '午', '午': '丑',
-    '寅': '巳', '巳': '寅',
-    '卯': '辰', '辰': '卯',
-    '申': '亥', '亥': '申',
-    '酉': '戌', '戌': '酉',
-}
+# HARM_LOOKUP imported from constants.py (canonical source)
 
 
 # ============================================================

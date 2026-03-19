@@ -1487,3 +1487,41 @@ li.goldBulletItemCategory {
   font-weight: 500;
   margin-top: 1px;
 }
+
+/* ============================================================
+   Love V2 — Signal Chips (annual/monthly love sections)
+   ============================================================ */
+
+.loveSignalChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.loveSignalChip {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.loveSignalChipPositive {
+  background: rgba(46, 125, 50, 0.1);
+  color: #2E7D32;
+  border: 1px solid rgba(46, 125, 50, 0.2);
+}
+
+.loveSignalChipNegative {
+  background: rgba(211, 47, 47, 0.1);
+  color: #D32F2F;
+  border: 1px solid rgba(211, 47, 47, 0.2);
+}
+
+.loveSignalChipNeutral {
+  background: rgba(184, 134, 11, 0.1);
+  color: #B8860B;
+  border: 1px solid rgba(184, 134, 11, 0.2);
+}

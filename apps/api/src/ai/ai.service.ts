@@ -26,6 +26,10 @@ import {
   CAREER_V2_STYLE_RULES,
   TEN_GOD_CAREER_TRANSLATION,
   ANNUAL_V2_PROMPTS,
+  LOVE_V2_PROMPTS,
+  buildLoveSystemPrompt,
+  LOVE_V2_STYLE_RULES,
+  TEN_GOD_LOVE_TRANSLATION,
 } from './prompts';
 import { deepCamelCase } from '../common/deep-camel-case';
 
@@ -3168,6 +3172,876 @@ export class AIService implements OnModuleInit {
     if (fixes.length > 0 || fullText !== section.full || previewText !== section.preview) {
       if (fixes.length > 0) {
         this.logger.log(`Career auto-fix applied: ${fixes.join('; ')}`);
+      }
+      return {
+        section: { preview: previewText, full: fullText, score: section.score },
+        fixes,
+      };
+    }
+
+    return { section, fixes };
+  }
+
+  // ============================================================
+  // Love V2 (八字愛情姻緣) — Multi-call Architecture
+  // ============================================================
+
+  /**
+   * Generate Love V2 interpretation (non-streaming, two parallel AI calls).
+   */
+  async generateLoveV2Interpretation(
+    calculationData: Record<string, unknown>,
+    userId?: string,
+    readingId?: string,
+  ): Promise<AIGenerationResult> {
+    if (this.providers.length === 0) {
+      throw new Error('No AI providers configured');
+    }
+
+    const timeoutMs = parseInt(
+      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '60000',
+      10,
+    );
+
+    const { systemPrompt, userPromptCall1, userPromptCall2 } =
+      this.buildLoveV2Prompts(calculationData);
+
+    let lastError: Error | undefined;
+
+    for (const providerConfig of this.providers) {
+      try {
+        const call1Promise = this.callProviderWithTimeout(
+          providerConfig, systemPrompt, userPromptCall1, timeoutMs,
+        );
+        const call2Promise = this.callProviderWithTimeout(
+          providerConfig, systemPrompt, userPromptCall2, timeoutMs,
+        );
+
+        const startTime = Date.now();
+        const [result1, result2] = await Promise.allSettled([call1Promise, call2Promise]);
+        const latencyMs = Date.now() - startTime;
+
+        const call1Success = result1.status === 'fulfilled';
+        const call2Success = result2.status === 'fulfilled';
+
+        if (!call1Success) {
+          this.logger.warn(`Love V2 Call 1 failed (${providerConfig.provider}): ${(result1 as PromiseRejectedResult).reason}`);
+        }
+        if (!call2Success) {
+          this.logger.warn(`Love V2 Call 2 failed (${providerConfig.provider}): ${(result2 as PromiseRejectedResult).reason}`);
+        }
+
+        if (!call1Success && !call2Success) {
+          lastError = new Error(`Provider ${providerConfig.provider}: both love V2 calls failed`);
+          continue;
+        }
+
+        let sections: Record<string, InterpretationSection> = {};
+        let summary: InterpretationSection = { preview: '', full: '' };
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
+
+        if (call1Success) {
+          const r1 = (result1 as PromiseFulfilledResult<{ content: string; inputTokens: number; outputTokens: number }>).value;
+          totalInputTokens += r1.inputTokens;
+          totalOutputTokens += r1.outputTokens;
+
+          const parsed1 = this.parseLifetimeV2CallResponse(r1.content, 'call1');
+          const { result: fixed1 } = this.autoFixAllSections(parsed1, calculationData);
+          for (const [key, section] of Object.entries(fixed1.sections)) {
+            const { section: loveFixed } = this.autoFixLoveSection(key, section, calculationData);
+            fixed1.sections[key] = loveFixed;
+          }
+          sections = { ...sections, ...fixed1.sections };
+          if (fixed1.summary && (fixed1.summary.preview || fixed1.summary.full)) {
+            summary = fixed1.summary;
+          }
+
+          this.logUsage(userId, readingId, providerConfig, {
+            interpretation: { sections: fixed1.sections, summary: fixed1.summary },
+            provider: providerConfig.provider,
+            model: providerConfig.model,
+            tokenUsage: {
+              inputTokens: r1.inputTokens,
+              outputTokens: r1.outputTokens,
+              totalTokens: r1.inputTokens + r1.outputTokens,
+              estimatedCostUsd: 0,
+            },
+            latencyMs,
+            isCacheHit: false,
+          }, 'LOVE' as ReadingType).catch(() => {});
+        }
+
+        if (call2Success) {
+          const r2 = (result2 as PromiseFulfilledResult<{ content: string; inputTokens: number; outputTokens: number }>).value;
+          totalInputTokens += r2.inputTokens;
+          totalOutputTokens += r2.outputTokens;
+
+          const parsed2 = this.parseLifetimeV2CallResponse(r2.content, 'call2');
+          const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
+          for (const [key, section] of Object.entries(fixed2.sections)) {
+            const { section: loveFixed } = this.autoFixLoveSection(key, section, calculationData);
+            fixed2.sections[key] = loveFixed;
+          }
+          sections = { ...sections, ...fixed2.sections };
+
+          this.logUsage(userId, readingId, providerConfig, {
+            interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
+            provider: providerConfig.provider,
+            model: providerConfig.model,
+            tokenUsage: {
+              inputTokens: r2.inputTokens,
+              outputTokens: r2.outputTokens,
+              totalTokens: r2.inputTokens + r2.outputTokens,
+              estimatedCostUsd: 0,
+            },
+            latencyMs,
+            isCacheHit: false,
+          }, 'LOVE' as ReadingType).catch(() => {});
+        }
+
+        // Merge with deterministic data from loveEnhancedInsights
+        const enhancedInsights = calculationData['loveEnhancedInsights'] as Record<string, unknown> | undefined;
+        const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+        const deterministic: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(rawDeterministic)) {
+          const camelKey = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+          deterministic[camelKey] = value;
+        }
+
+        const totalCost =
+          totalInputTokens * providerConfig.costPerInputToken +
+          totalOutputTokens * providerConfig.costPerOutputToken;
+
+        const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
+          sections,
+          summary,
+          deterministic,
+          schemaVersion: 'v2',
+        };
+
+        this.logger.log(
+          `Love V2 generated via ${providerConfig.provider} in ${latencyMs}ms, ` +
+          `${totalInputTokens}+${totalOutputTokens} tokens, $${totalCost.toFixed(4)}, ` +
+          `call1=${call1Success ? 'ok' : 'FAIL'}, call2=${call2Success ? 'ok' : 'FAIL'}`,
+        );
+
+        return {
+          interpretation,
+          provider: providerConfig.provider,
+          model: providerConfig.model,
+          tokenUsage: {
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            totalTokens: totalInputTokens + totalOutputTokens,
+            estimatedCostUsd: totalCost,
+          },
+          latencyMs,
+          isCacheHit: false,
+        };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        lastError = new Error(`${providerConfig.provider}: ${message}`);
+        this.logger.warn(`Love V2 interpretation failed: ${message}`);
+        continue;
+      }
+    }
+
+    throw lastError || new Error('All providers failed for love V2');
+  }
+
+  /**
+   * Stream Love V2 interpretation via SSE.
+   */
+  streamLoveV2(
+    calculationData: Record<string, unknown>,
+    readingId: string,
+  ): Observable<MessageEvent> {
+    return new Observable((subscriber: Subscriber<MessageEvent>) => {
+      this._executeStreamLoveV2(calculationData, readingId, subscriber)
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Stream failed';
+          subscriber.next({
+            data: JSON.stringify({ message }),
+            type: 'error',
+          } as MessageEvent);
+          subscriber.complete();
+        });
+    });
+  }
+
+  private async _executeStreamLoveV2(
+    calculationData: Record<string, unknown>,
+    readingId: string,
+    subscriber: Subscriber<MessageEvent>,
+  ) {
+    const startTime = Date.now();
+    const timeoutMs = parseInt(
+      this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
+      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '180000',
+      10,
+    );
+
+    if (this.providers.length === 0) {
+      throw new Error('No AI providers configured');
+    }
+
+    const { systemPrompt, userPromptCall1, userPromptCall2 } =
+      this.buildLoveV2Prompts(calculationData);
+
+    // Build dynamic section keys for Call 2 extraction
+    const enhancedInsights = calculationData['loveEnhancedInsights'] as Record<string, unknown> | undefined;
+    const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+
+    // Heartbeat to keep SSE alive
+    const heartbeatInterval = setInterval(() => {
+      subscriber.next({ data: '', type: 'heartbeat' } as MessageEvent);
+    }, 15000);
+
+    let call1Timeout!: ReturnType<typeof setTimeout>;
+
+    try {
+      let v2Succeeded = false;
+      let totalSections = 0;
+
+      for (const providerConfig of this.providers) {
+        try {
+          // === Call 1: Stream core love sections ===
+          const call1Sections: Record<string, InterpretationSection> = {};
+          let call1Summary: InterpretationSection = { preview: '', full: '' };
+          let call1Buffer = '';
+
+          const call1Controller = new AbortController();
+          call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
+
+          // === Call 2: Non-streaming parallel (annual + monthly love forecasts) ===
+          const call2Promise = this.callProviderWithTimeout(
+            providerConfig, systemPrompt, userPromptCall2, timeoutMs,
+          ).catch((err) => {
+            this.logger.warn(`Love V2 Call 2 failed (${providerConfig.provider}): ${err instanceof Error ? err.message : err}`);
+            return null;
+          });
+
+          const call1ExtractedKeys = new Set<string>();
+          const call1Keys = LOVE_V2_PROMPTS.call1Sections;
+
+          try {
+            const streamGen = this.streamProvider(
+              providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
+            );
+
+            for await (const chunk of streamGen) {
+              call1Buffer += chunk;
+
+              const newSections = this.extractCompletedSections(
+                call1Buffer, call1Keys, call1ExtractedKeys,
+              );
+
+              for (const [key, rawSection] of Object.entries(newSections)) {
+                const { section: autoFixed } = this.autoFixSection(key, rawSection, calculationData);
+                const { section } = this.autoFixLoveSection(key, autoFixed, calculationData);
+                call1Sections[key] = section;
+                totalSections++;
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+
+            // Parse any remaining from complete buffer
+            const finalParsed = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
+            for (const [key, rawSection] of Object.entries(finalParsed.sections)) {
+              if (!call1Sections[key]) {
+                const { section: autoFixed } = this.autoFixSection(key, rawSection, calculationData);
+                const { section } = this.autoFixLoveSection(key, autoFixed, calculationData);
+                call1Sections[key] = section;
+                totalSections++;
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+            if (finalParsed.summary && (finalParsed.summary.preview || finalParsed.summary.full)) {
+              call1Summary = finalParsed.summary;
+            }
+          } catch (streamErr) {
+            if ((streamErr as Error).name !== 'AbortError') {
+              this.logger.warn(`Love V2 Call 1 stream error: ${streamErr instanceof Error ? streamErr.message : streamErr}`);
+            }
+          }
+          clearTimeout(call1Timeout);
+
+          // Emit Call 1 complete
+          subscriber.next({
+            data: JSON.stringify({ call: 1 }),
+            type: 'call_complete',
+          } as MessageEvent);
+
+          // Wait for Call 2 to finish
+          let call2FixedSections: Record<string, InterpretationSection> = {};
+          const call2Result = await call2Promise;
+          if (call2Result) {
+            const parsed2 = this.parseLifetimeV2CallResponse(call2Result.content, 'call2');
+            const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
+            for (const [key, section] of Object.entries(fixed2.sections)) {
+              const { section: loveFixed } = this.autoFixLoveSection(key, section, calculationData);
+              fixed2.sections[key] = loveFixed;
+            }
+            call2FixedSections = fixed2.sections;
+
+            for (const [key, section] of Object.entries(call2FixedSections)) {
+              totalSections++;
+              subscriber.next({
+                data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
+                type: 'section_complete',
+              } as MessageEvent);
+            }
+          }
+
+          // Emit Call 2 complete
+          subscriber.next({
+            data: JSON.stringify({ call: 2 }),
+            type: 'call_complete',
+          } as MessageEvent);
+
+          // Emit summary
+          if (call1Summary.preview || call1Summary.full) {
+            subscriber.next({
+              data: JSON.stringify({ preview: call1Summary.preview, full: call1Summary.full }),
+              type: 'summary',
+            } as MessageEvent);
+          }
+
+          // Merge all sections for DB update
+          const allSections: Record<string, InterpretationSection> = {
+            ...call1Sections,
+            ...call2FixedSections,
+          };
+
+          // Build deterministic data
+          const deterministic: Record<string, unknown> = {};
+          for (const [key, value] of Object.entries(rawDeterministic)) {
+            const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+            deterministic[camelKey] = value;
+          }
+
+          const aiInterpretation = {
+            schemaVersion: 'v2',
+            sections: allSections,
+            summary: call1Summary,
+            deterministic,
+          };
+
+          // Update DB record
+          try {
+            await this.prisma.baziReading.update({
+              where: { id: readingId },
+              data: {
+                aiInterpretation: aiInterpretation as unknown as Prisma.InputJsonValue,
+                aiProvider: providerConfig.provider as any,
+                aiModel: providerConfig.model,
+              },
+            });
+          } catch (dbErr) {
+            this.logger.warn(`Failed to update reading ${readingId}: ${dbErr instanceof Error ? dbErr.message : dbErr}`);
+          }
+
+          // Cache the result
+          const birthDataHash = this.generateBirthDataHash(
+            calculationData['birthDate'] as string || '',
+            calculationData['birthTime'] as string || '',
+            calculationData['birthCity'] as string || '',
+            calculationData['gender'] as string || '',
+            ReadingType.LOVE,
+          );
+          this.cacheInterpretation(
+            birthDataHash,
+            ReadingType.LOVE,
+            calculationData,
+            aiInterpretation as unknown as AIInterpretationResult,
+          ).catch((err) => this.logger.error(`Love stream cache write failed: ${err}`));
+
+          // Emit completion event
+          const latencyMs = Date.now() - startTime;
+          this.logger.log(
+            `Stream Love V2 completed via ${providerConfig.provider} in ${latencyMs}ms, ${totalSections} sections delivered`,
+          );
+
+          subscriber.next({
+            data: JSON.stringify({ totalSections, latencyMs }),
+            type: 'done',
+          } as MessageEvent);
+
+          v2Succeeded = true;
+          break;
+        } catch (provErr) {
+          const message = provErr instanceof Error ? provErr.message : String(provErr);
+          this.logger.warn(`Love V2 provider failed: ${message}`);
+          continue;
+        }
+      }
+
+      if (!v2Succeeded) {
+        throw new Error('All providers failed for love V2 stream');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Stream error';
+      subscriber.next({
+        data: JSON.stringify({ message }),
+        type: 'error',
+      } as MessageEvent);
+    } finally {
+      clearInterval(heartbeatInterval);
+      clearTimeout(call1Timeout);
+      subscriber.complete();
+    }
+  }
+
+  /**
+   * Build Love V2 prompts (system + user Call 1 + user Call 2).
+   */
+  private buildLoveV2Prompts(
+    calculationData: Record<string, unknown>,
+  ): { systemPrompt: string; userPromptCall1: string; userPromptCall2: string } {
+    const basePrompt = buildLoveSystemPrompt();
+    const systemPrompt = basePrompt + '\n\n' + LOVE_V2_PROMPTS.systemAddition + '\n' + LOVE_V2_STYLE_RULES;
+
+    let call1Template = LOVE_V2_PROMPTS.userTemplateCall1;
+    let call2Template = LOVE_V2_PROMPTS.userTemplateCall2;
+
+    // Apply standard interpolation
+    call1Template = this.interpolateTemplate(call1Template, calculationData, ReadingType.LOVE);
+    call2Template = this.interpolateTemplate(call2Template, calculationData, ReadingType.LOVE);
+
+    // Interpolate love-specific placeholders
+    call1Template = this.interpolateLoveV2Fields(call1Template, calculationData);
+    call2Template = this.interpolateLoveV2Fields(call2Template, calculationData);
+
+    // Call 2 output format needs dynamic year substitution
+    let outputFormatCall2 = LOVE_V2_PROMPTS.outputFormatCall2;
+    const enhancedInsights = calculationData['loveEnhancedInsights'] as Record<string, unknown> | undefined;
+    const annualForecasts = (enhancedInsights?.['annualForecasts'] || []) as Array<{ year: number }>;
+    if (annualForecasts.length > 0) {
+      const years = annualForecasts.map(af => af.year);
+      for (let i = 0; i < Math.min(5, years.length); i++) {
+        outputFormatCall2 = outputFormatCall2.replace(
+          new RegExp(`YYYY${i + 1}`, 'g'),
+          String(years[i]),
+        );
+      }
+    }
+
+    const userPromptCall1 = call1Template + '\n\n' + LOVE_V2_PROMPTS.outputFormatCall1;
+    const userPromptCall2 = call2Template + '\n\n' + outputFormatCall2;
+
+    return { systemPrompt, userPromptCall1, userPromptCall2 };
+  }
+
+  /**
+   * Interpolate love-specific placeholders in prompt templates.
+   */
+  private interpolateLoveV2Fields(
+    template: string,
+    data: Record<string, unknown>,
+  ): string {
+    let result = template;
+    const enhanced = data['loveEnhancedInsights'] as Record<string, unknown> | undefined;
+    if (!enhanced) return result;
+
+    // Love pre-analysis (Call 1)
+    if (result.includes('{{lovePreAnalysis}}')) {
+      const lines: string[] = [];
+
+      // DM Strength
+      const preAnalysis = data['preAnalysis'] as Record<string, unknown> | undefined;
+      const strengthV2Data = preAnalysis?.['strengthV2'] as Record<string, unknown> | undefined;
+      if (strengthV2Data) {
+        const cls = STRENGTH_V2_ZH[(strengthV2Data['classification'] as string) || ''] || '';
+        const sc = strengthV2Data['score'] || 0;
+        lines.push(`⚠️ 日主強弱分類（以此為準，不可自行判斷）：${cls}（${sc}/100）`);
+      }
+
+      // Peach blossoms summary
+      const peach = enhanced['peachBlossoms'] as Record<string, unknown> | undefined;
+      if (peach) {
+        const pos = (peach['positive'] || []) as Array<Record<string, unknown>>;
+        const neg = (peach['negative'] || []) as Array<Record<string, unknown>>;
+        if (pos.length > 0) {
+          lines.push(`\n正桃花：`);
+          for (const p of pos) {
+            lines.push(`- ${p['type']}（${p['pillar']}柱）：${p['description']}`);
+          }
+        }
+        if (neg.length > 0) {
+          lines.push(`爛桃花：`);
+          for (const n of neg) {
+            lines.push(`- ${n['type']}（${n['pillar']}柱，${n['severity']}）：${n['description']}`);
+          }
+        }
+        if (peach['summary']) {
+          lines.push(`桃花總結：${peach['summary']}`);
+        }
+      }
+
+      // Spouse star analysis
+      const spouse = enhanced['spouseStarAnalysis'] as Record<string, unknown> | undefined;
+      if (spouse) {
+        lines.push(`\n配偶星：${spouse['spouseStar']}，可見度：${spouse['visibility']}，角色：${spouse['spouseRole']}`);
+        lines.push(`平衡：${spouse['balanceDescription']}`);
+        const challenges = (spouse['challenges'] || []) as Array<Record<string, unknown>>;
+        for (const c of challenges) {
+          if (c['type'] === '傷官見官') {
+            const buffer = c['hasFinancialBuffer'] ? '有財星化解' : '無化解';
+            lines.push(`⚠️ 傷官見官：${c['severity']}，${buffer}`);
+          } else if (c['type'] === '比劫奪財') {
+            const venting = c['hasVentingFlow'] ? '有食傷洩氣' : '無洩氣';
+            lines.push(`⚠️ 比劫奪財：${c['severity']}，${venting}`);
+          } else if (c['type']) {
+            lines.push(`⚠️ ${c['type']}`);
+          }
+        }
+      }
+
+      // Marriage palace
+      const palace = enhanced['marriagePalace'] as Record<string, unknown> | undefined;
+      if (palace) {
+        lines.push(`\n配偶宮：${palace['dayBranch']}（${palace['element']}行）`);
+        lines.push(`十神：${palace['palaceTenGod']}，性格：${palace['personalityArchetype']}`);
+        lines.push(`外貌：${palace['appearanceHint']}，十二長生：${palace['twelveStage']}`);
+        if (palace['kongWang']) lines.push(`空亡：是`);
+        if (palace['natalHarm']) lines.push(`六害：${JSON.stringify(palace['natalHarm'])}`);
+      }
+
+      // Love personality
+      const personality = enhanced['lovePersonality'] as Record<string, unknown> | undefined;
+      if (personality) {
+        const archetype = personality['archetype'] as Record<string, unknown> | undefined;
+        const elemStyle = personality['elementStyle'] as Record<string, unknown> | undefined;
+        if (archetype) {
+          lines.push(`\n戀愛原型：${archetype['label']}（${archetype['trait']}）`);
+        }
+        if (elemStyle) {
+          lines.push(`日主元素風格：${elemStyle['style']}`);
+        }
+        if (personality['strengthImpact']) {
+          lines.push(`身強弱影響：${personality['strengthImpact']}`);
+        }
+      }
+
+      // Marriage timing indicators
+      const timing = enhanced['marriageTimingIndicators'] as Record<string, unknown> | undefined;
+      if (timing) {
+        const early = (timing['earlySignals'] || []) as string[];
+        const late = (timing['lateSignals'] || []) as string[];
+        if (early.length > 0) lines.push(`\n早婚指標：${early.join('、')}`);
+        if (late.length > 0) lines.push(`晚婚指標：${late.join('、')}`);
+        const favLPs = (timing['favorableLuckPeriods'] || []) as Array<Record<string, unknown>>;
+        if (favLPs.length > 0) {
+          lines.push(`有利大運：${favLPs.map(lp => `${lp['startYear']}-${lp['endYear']}（${lp['reason']}）`).join('、')}`);
+        }
+      }
+
+      // Partner recommendations
+      const partner = enhanced['partnerRecommendations'] as Record<string, unknown> | undefined;
+      if (partner) {
+        const favPrimary = (partner['favorablePrimary'] || []) as string[];
+        const favSecondary = (partner['favorableSecondary'] || []) as string[];
+        const avoidance = (partner['avoidance'] || []) as Array<Record<string, unknown>>;
+        if (favPrimary.length > 0) lines.push(`\n最佳生肖（配偶宮）：${favPrimary.join('、')}`);
+        if (favSecondary.length > 0) lines.push(`次佳生肖（年支）：${favSecondary.join('、')}`);
+        if (avoidance.length > 0) {
+          lines.push(`避開生肖：${avoidance.map(a => `${a['zodiac']}（${a['type']}）`).join('、')}`);
+        }
+        if (partner['seasonRecommendation']) lines.push(`季節建議：${partner['seasonRecommendation']}`);
+        if (partner['elementRecommendation']) lines.push(`五行建議：${partner['elementRecommendation']}`);
+      }
+
+      result = result.replace(/\{\{lovePreAnalysis\}\}/g, lines.join('\n'));
+    }
+
+    // Call 1 Anchors — read from narrativeAnchors
+    const anchors = enhanced['narrativeAnchors'] as Record<string, string> | undefined;
+    if (anchors) {
+      for (const [key, text] of Object.entries(anchors)) {
+        const placeholder = `{{anchors_${key}}}`;
+        if (result.includes(placeholder)) {
+          result = result.replace(new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'g'), text || '（無數據）');
+        }
+      }
+    }
+    // Clear any remaining anchor placeholders
+    result = result.replace(/\{\{anchors_[a-z_]+\}\}/g, '（無數據）');
+
+    // Love context bridge (Call 2)
+    if (result.includes('{{loveContextBridge}}')) {
+      const bridgeLines: string[] = [];
+      const preAnalysis2 = data['preAnalysis'] as Record<string, unknown> | undefined;
+      const sv2 = preAnalysis2?.['strengthV2'] as Record<string, unknown> | undefined;
+      if (sv2) {
+        const cls2 = STRENGTH_V2_ZH[(sv2['classification'] as string) || ''] || '';
+        const sc2 = sv2['score'] || 0;
+        bridgeLines.push(`⚠️ 日主強弱（以此為準）：${cls2}（${sc2}/100）`);
+      }
+      const spouse = enhanced['spouseStarAnalysis'] as Record<string, unknown> | undefined;
+      if (spouse) {
+        bridgeLines.push(`配偶星：${spouse['spouseStar']}（${spouse['spouseRole']}）`);
+      }
+      const peach = enhanced['peachBlossoms'] as Record<string, unknown> | undefined;
+      if (peach) {
+        bridgeLines.push(`桃花概況：${peach['summary'] || ''}`);
+      }
+      result = result.replace(/\{\{loveContextBridge\}\}/g, bridgeLines.join('\n'));
+    }
+
+    // Active luck period (Call 2)
+    if (result.includes('{{loveActiveLuckPeriod}}')) {
+      const timing = enhanced['marriageTimingIndicators'] as Record<string, unknown> | undefined;
+      const activeLp = timing?.['activeLuckPeriod'] as Record<string, unknown> | undefined;
+      if (activeLp) {
+        const lpTG = activeLp['tenGod'] as string;
+        const lpTGTrans = TEN_GOD_LOVE_TRANSLATION[lpTG] || lpTG;
+        result = result.replace(/\{\{loveActiveLuckPeriod\}\}/g,
+          `${activeLp['stem']}${activeLp['branch']}大運（${activeLp['startYear']}-${activeLp['endYear']}），十神：${lpTG}（→${lpTGTrans}）`);
+      } else {
+        result = result.replace(/\{\{loveActiveLuckPeriod\}\}/g, '（未提供）');
+      }
+    }
+
+    // Annual love forecasts anchors (Call 2) — ENHANCED with cross-reference signals
+    if (result.includes('{{anchors_annual_love_forecasts}}')) {
+      const annuals = (enhanced['annualForecasts'] || []) as Array<Record<string, unknown>>;
+      const anchorLines: string[] = [];
+      let idx = 1;
+      let prevLpContext: string | null = null;
+      for (const af of annuals) {
+        // M3 fix: Python outputs 'stemTenGod', not 'tenGod'
+        const yearTG = (af['stemTenGod'] || af['tenGod'] || '') as string;
+        const yearTGTrans = TEN_GOD_LOVE_TRANSLATION[yearTG] || yearTG;
+
+        // Extract LP ten god from lpContext format "甲辰（偏官）" into explicit labeled field
+        const lpContextRaw = (af['lpContext'] || '（無）') as string;
+        const lpTenGodMatch = lpContextRaw.match(/（(.+?)）/);
+        const lpTenGod = lpTenGodMatch ? lpTenGodMatch[1] : '';
+        const lpTenGodTrans = lpTenGod ? (TEN_GOD_LOVE_TRANSLATION[lpTenGod] || lpTenGod) : '';
+
+        // Build LP anchor text with explicit ten god field (instead of buried parenthetical)
+        let lpAnchorText = `大運背景：${lpContextRaw}`;
+        if (lpTenGod) {
+          lpAnchorText += `，大運十神：「${lpTenGod}」（→${lpTenGodTrans}）——⚠️ 此大運十神標籤不可更改`;
+        }
+
+        let anchor = `${idx}. ⚠️ ${af['year']}年：` +
+          `流年十神為「${yearTG}」（翻譯：${yearTGTrans}），` +
+          `天干角色：${af['stemRole'] || ''}，` +
+          `${lpAnchorText}，` +
+          `吉凶判定為「${af['auspiciousness']}」——此吉凶等級不可更改`;
+
+        // Cross-reference signals for richer narrative guidance
+        const signals: string[] = [];
+        if (af['isGoodYear']) signals.push(`桃花訊號：${af['goodYearType']}`);
+        if (af['isDangerYear']) signals.push(`桃花劫：${af['dangerYearTrigger']}`);
+        if (af['isChangeYear']) signals.push(`感情變動：${af['changeYearType']}`);
+        if (af['isVoid']) signals.push('空亡年');
+
+        if (signals.length > 0) {
+          anchor += `。${signals.join('、')}`;
+        }
+        // Narrative guidance for conflicted years
+        if (af['isGoodYear'] && af['isDangerYear']) {
+          anchor += `。⚠️ 敘述中必須同時提及桃花機會和桃花劫風險`;
+        }
+
+        // LP transition detection — separate line BEFORE the year's anchor for visibility
+        const currentLpContext = (af['lpContext'] || '') as string;
+        if (prevLpContext !== null && currentLpContext !== prevLpContext) {
+          const transitionLine = `\n⚠️⚠️ ${af['year']}年大運切換！從「${prevLpContext || '無'}」進入「${currentLpContext}」，感情階段背景改變——AI 必須在此年敘述中明確指出大運切換`;
+          anchorLines.push(transitionLine);
+        }
+        prevLpContext = currentLpContext;
+
+        anchorLines.push(anchor);
+        idx++;
+      }
+      if (anchorLines.length === 0) anchorLines.push('1. （無年度預測數據）');
+      result = result.replace(/\{\{anchors_annual_love_forecasts\}\}/g, anchorLines.join('\n'));
+    }
+
+    // Monthly love forecasts anchors (Call 2) — ENHANCED with romance signals
+    if (result.includes('{{anchors_monthly_love_forecasts}}')) {
+      const monthlies = (enhanced['monthlyForecasts'] || []) as Array<Record<string, unknown>>;
+      const anchorLines: string[] = [];
+      let idx = 1;
+      for (const mf of monthlies) {
+        // Support both stemTenGod (new) and tenGod (old) field names
+        const mfTG = ((mf['stemTenGod'] || mf['tenGod'] || '') as string);
+        const mfTGTrans = TEN_GOD_LOVE_TRANSLATION[mfTG] || mfTG;
+
+        let anchor = `${idx}. ${mf['month']}月：` +
+          `十神為「${mfTG}」（翻譯：${mfTGTrans}），` +
+          `天干角色：${mf['stemRole'] || ''}，` +
+          `吉凶為「${mf['auspiciousness']}」——此吉凶等級不可更改`;
+
+        // Romance signals
+        const signals: string[] = [];
+        if (mf['hasRomanceStar']) signals.push('桃花月');
+        if (mf['isVoid']) signals.push('空亡月');
+        const ints = (mf['interactions'] || []) as string[];
+        if (ints.length > 0) signals.push(`配偶宮互動：${ints.join('、')}`);
+
+        if (signals.length > 0) {
+          anchor += `。${signals.join('、')}`;
+        }
+
+        anchorLines.push(anchor);
+        idx++;
+      }
+      if (anchorLines.length === 0) anchorLines.push('1. （無月度預測數據）');
+      result = result.replace(/\{\{anchors_monthly_love_forecasts\}\}/g, anchorLines.join('\n'));
+    }
+
+    // Annual love forecasts data (Call 2) — ENHANCED with cross-reference signals
+    if (result.includes('{{loveAnnualForecasts}}')) {
+      const annuals = (enhanced['annualForecasts'] || []) as Array<Record<string, unknown>>;
+      const afLines: string[] = [];
+      for (const af of annuals) {
+        // M3 fix: Python outputs 'stemTenGod', not 'tenGod'
+        const yearTenGod = (af['stemTenGod'] || af['tenGod'] || '') as string;
+        const yearTGTrans = TEN_GOD_LOVE_TRANSLATION[yearTenGod] || yearTenGod;
+        // Extract LP ten god into explicit field (matching anchor pattern)
+        const dataLpContext = (af['lpContext'] || '') as string;
+        const dataLpTGMatch = dataLpContext.match(/（(.+?)）/);
+        const dataLpTG = dataLpTGMatch ? dataLpTGMatch[1] : '';
+        const dataLpTGTrans = dataLpTG ? (TEN_GOD_LOVE_TRANSLATION[dataLpTG] || dataLpTG) : '';
+        const line = [
+          `${af['year']}年（${af['stem']}${af['branch']}年）`,
+          `流年十神：${yearTenGod}（→${yearTGTrans}）`,
+          `天干角色：${af['stemRole'] || ''}`,
+          `大運背景：${af['lpContext'] || '（無）'}`,
+          ...(dataLpTG ? [`大運十神：${dataLpTG}（→${dataLpTGTrans}）`] : []),
+          `吉凶：${af['auspiciousness']}`,
+        ];
+        // Romance cross-references (from Part A scoring)
+        if (af['isGoodYear']) line.push(`桃花訊號：${af['goodYearType']}`);
+        if (af['isDangerYear']) line.push(`桃花劫訊號：${af['dangerYearTrigger']}`);
+        if (af['isChangeYear']) line.push(`感情變動：${af['changeYearType']}`);
+        if (af['isVoid']) line.push(`空亡年`);
+        // Branch interactions with day branch
+        const ints = (af['interactions'] || []) as string[];
+        if (ints.length > 0) line.push(`配偶宮互動：${ints.join('、')}`);
+        afLines.push(line.join(' / '));
+      }
+      result = result.replace(/\{\{loveAnnualForecasts\}\}/g, afLines.join('\n'));
+    }
+
+    // Monthly love forecasts data (Call 2) — ENHANCED with romance signals
+    if (result.includes('{{loveMonthlyForecasts}}')) {
+      const monthlies = (enhanced['monthlyForecasts'] || []) as Array<Record<string, unknown>>;
+      const mfLines: string[] = [];
+      for (const mf of monthlies) {
+        // Support both stemTenGod (new) and tenGod (old) field names
+        const mfTenGod = ((mf['stemTenGod'] || mf['tenGod'] || '') as string);
+        const mfTGTrans = TEN_GOD_LOVE_TRANSLATION[mfTenGod] || mfTenGod;
+        const line = [
+          `${mf['month']}月（${mf['stem']}${mf['branch']}）`,
+          `十神：${mfTenGod}（→${mfTGTrans}）`,
+          `天干角色：${mf['stemRole'] || ''}`,
+          `吉凶：${mf['auspiciousness']}`,
+        ];
+        if (mf['hasRomanceStar']) line.push('桃花月');
+        if (mf['isVoid']) line.push('空亡月');
+        const ints = (mf['interactions'] || []) as string[];
+        if (ints.length > 0) line.push(`配偶宮互動：${ints.join('、')}`);
+        mfLines.push(line.join(' / '));
+      }
+      result = result.replace(/\{\{loveMonthlyForecasts\}\}/g, mfLines.join('\n'));
+    }
+
+    return result;
+  }
+
+  /**
+   * Love-specific auto-fix: corrects ten god translation swaps, DM strength mislabeling,
+   * and raw Bazi term leaks. Applied AFTER generic autoFixSection().
+   * Mirrors autoFixCareerSection with 3 params.
+   */
+  private autoFixLoveSection(
+    sectionKey: string,
+    section: InterpretationSection,
+    calculationData: Record<string, unknown>,
+  ): { section: InterpretationSection; fixes: string[] } {
+    const fixes: string[] = [];
+    let fullText = section.full;
+    let previewText = section.preview;
+
+    const enhanced = calculationData['loveEnhancedInsights'] as Record<string, unknown> | undefined;
+    if (!enhanced) return { section, fixes };
+
+    // ---- Fix 1: 偏印↔正印 translation swap (section-aware) ----
+    const annuals = (enhanced['annualForecasts'] || []) as Array<Record<string, unknown>>;
+    const monthlies = (enhanced['monthlyForecasts'] || []) as Array<Record<string, unknown>>;
+
+    let sectionTenGod: string | null = null;
+
+    const yearMatch = sectionKey.match(/^annual_love_(\d{4})$/);
+    if (yearMatch) {
+      const year = parseInt(yearMatch[1], 10);
+      const af = annuals.find(a => a['year'] === year);
+      // M3 fix: Python outputs 'stemTenGod', not 'tenGod'
+      if (af) sectionTenGod = (af['stemTenGod'] || af['tenGod'] || null) as string | null;
+    }
+
+    const monthMatch = sectionKey.match(/^monthly_love_(\d{2})$/);
+    if (monthMatch) {
+      const monthNum = parseInt(monthMatch[1], 10);
+      const mf = monthlies.find(m => m['month'] === monthNum);
+      // M3 fix: Python outputs 'stemTenGod', not 'tenGod'
+      if (mf) sectionTenGod = (mf['stemTenGod'] || mf['tenGod'] || null) as string | null;
+    }
+
+    if (sectionTenGod) {
+      if (sectionTenGod === '偏印' && fullText.includes('安全感') && !fullText.includes('獨特品味')) {
+        fullText = fullText.split('安全感').join('獨特品味');
+        fixes.push(`Fixed 偏印 translation: "安全感" → "獨特品味" in ${sectionKey}.full`);
+      }
+      if (sectionTenGod === '偏印' && previewText.includes('安全感') && !previewText.includes('獨特品味')) {
+        previewText = previewText.split('安全感').join('獨特品味');
+        fixes.push(`Fixed 偏印 translation: "安全感" → "獨特品味" in ${sectionKey}.preview`);
+      }
+      if (sectionTenGod === '正印' && fullText.includes('獨特品味') && !fullText.includes('安全感')) {
+        fullText = fullText.split('獨特品味').join('安全感');
+        fixes.push(`Fixed 正印 translation: "獨特品味" → "安全感" in ${sectionKey}.full`);
+      }
+      if (sectionTenGod === '正印' && previewText.includes('獨特品味') && !previewText.includes('安全感')) {
+        previewText = previewText.split('獨特品味').join('安全感');
+        fixes.push(`Fixed 正印 translation: "獨特品味" → "安全感" in ${sectionKey}.preview`);
+      }
+    }
+
+    // ---- Fix 2: DM strength mislabeling ----
+    const preAnalysis = calculationData['preAnalysis'] as Record<string, unknown> | undefined;
+    const sv2 = preAnalysis?.['strengthV2'] as Record<string, unknown> | undefined;
+    if (sv2) {
+      const correctClass = STRENGTH_V2_ZH[(sv2['classification'] as string) || ''] || '';
+      if (correctClass) {
+        const wrongLabels = ['極弱', '偏弱', '中和', '偏強', '極旺'].filter(l => l !== correctClass);
+        for (const wrong of wrongLabels) {
+          fullText = fullText.replace(
+            new RegExp(`(核心特質.{0,6})${wrong}`, 'g'),
+            `$1${correctClass}`,
+          );
+        }
+      }
+    }
+
+    // ---- Fix 3: Raw Bazi term leak stripping ----
+    fullText = fullText.replace(/（[甲乙丙丁戊己庚辛壬癸][木火土金水]?）/g, '');
+    previewText = previewText.replace(/（[甲乙丙丁戊己庚辛壬癸][木火土金水]?）/g, '');
+
+    if (fixes.length > 0 || fullText !== section.full || previewText !== section.preview) {
+      if (fixes.length > 0) {
+        this.logger.log(`Love auto-fix applied: ${fixes.join('; ')}`);
       }
       return {
         section: { preview: previewText, full: fullText, score: section.score },

@@ -918,11 +918,12 @@ def _compute_romance_candidates(
     kong_wang: List[str],
     birth_year: int = 0,
     current_year: int = 0,
+    max_candidates: int = 5,
 ) -> List[Dict[str, Any]]:
     """
     Internal: Gender-aware romance year computation with tier/signal metadata.
     Returns list of dicts: [{'year': 2030, 'tier': 'primary', 'signal': '六合日支'}, ...]
-    Up to 5 years, priority: primary → secondary A/B/C/D → supplementary.
+    Up to `max_candidates` years (default 5), priority: primary → secondary A/B/C/D → supplementary.
 
     When current_year is provided, filters to: 1 most recent past year + next 10 years.
     This ensures users see actionable future romance years plus one recent validation year.
@@ -946,9 +947,11 @@ def _compute_romance_candidates(
     # 2. 桃花 branch
     taohua_branch = TAOHUA.get(day_branch, '')
 
-    # 3. 紅鸞/天喜 branches
+    # 3. 紅鸞/天喜 branches (primary: year branch lookup)
     hongluan_branch = HONGLUAN.get(year_branch, '')
     tianxi_branch = TIANXI.get(year_branch, '')
+    # Secondary: day-branch 天喜 (modern variant, for annotation only)
+    tianxi_day_branch = TIANXI.get(day_branch, '')
 
     # 4. 六合 partner of day branch
     liuhe_partner = HARMONY_LOOKUP.get(day_branch, '')
@@ -985,13 +988,25 @@ def _compute_romance_candidates(
         if birth_year and year < birth_year:
             continue
 
-        # Filter: 空亡
-        if annual_branch in kong_wang:
-            continue
-
-        # 三刑 flag — don't skip entirely; secondary_a2 (hidden stem) still needs detection
+        # 三刑 flag — computed before 空亡 check so it can guard the bypass
         # Classical: 「刑中帶官星，感情來路不正或有爭端中得配偶」(《三命通會》)
         has_sanxing = _check_sanxing_pair(annual_branch, day_branch)
+
+        # Filter: 空亡
+        # Even if branch is 空亡, stem carrying spouse star is still valid
+        # Classical: 空亡 weakens branch energy, not stem energy
+        if annual_branch in kong_wang:
+            if not has_sanxing:
+                if STEM_ELEMENT.get(annual_stem) == spouse_star_element:
+                    if not any(p['year'] == year for p in primary) \
+                            and not any(p['year'] == year for p in secondary_a):
+                        secondary_a.append({
+                            'year': year,
+                            'tier': 'secondary_a',
+                            'signal': TIER_INFO['secondary_a'],
+                            'is_kong_wang': True,
+                        })
+            continue  # Skip all branch-level checks (六合, 三合, 藏干)
 
         # Primary: 六合 with day branch (skip if 三刑)
         # Note: 六合 and 三刑 branch pairs never overlap, but guard kept for safety
@@ -1053,6 +1068,9 @@ def _compute_romance_candidates(
                         and not any(p['year'] == year for p in secondary_c) \
                         and not any(p['year'] == year for p in secondary_d):
                     signal = TIER_INFO['supplementary_taohua'] if annual_branch == taohua_branch else TIER_INFO['supplementary_tianxi']
+                    # Annotate when day-branch 天喜 coincides with 桃花
+                    if annual_branch == taohua_branch and annual_branch == tianxi_day_branch:
+                        signal = '桃花(天喜)'
                     supplementary.append({'year': year, 'tier': 'supplementary', 'signal': signal})
 
     # Combine with priority, deduplicate, sort chronologically
@@ -1081,7 +1099,7 @@ def _compute_romance_candidates(
         recent_past = [past[-1]] if past else []
         all_candidates = recent_past + future
 
-    return all_candidates[:5]
+    return all_candidates[:max_candidates]
 
 
 def compute_romance_years(
@@ -1093,10 +1111,11 @@ def compute_romance_years(
     kong_wang: List[str],
     birth_year: int = 0,
     current_year: int = 0,
+    max_candidates: int = 5,
 ) -> List[int]:
     """
     Gender-aware romance year computation with 空亡 filter.
-    Returns up to 5 years as List[int] (backward compatible).
+    Returns up to `max_candidates` years as List[int] (backward compatible).
 
     When current_year is provided, filters to 1 most recent past year + next 10 years.
     See _compute_romance_candidates() for tier details.
@@ -1104,6 +1123,7 @@ def compute_romance_years(
     candidates = _compute_romance_candidates(
         gender, day_master_stem, day_branch, year_branch,
         annual_stars, kong_wang, birth_year, current_year,
+        max_candidates,
     )
     return [c['year'] for c in candidates]
 
@@ -1117,6 +1137,7 @@ def compute_romance_years_enriched(
     kong_wang: List[str],
     birth_year: int = 0,
     current_year: int = 0,
+    max_candidates: int = 5,
 ) -> List[Dict[str, Any]]:
     """
     Enriched romance year computation — returns tier/signal metadata per year.
@@ -1126,6 +1147,7 @@ def compute_romance_years_enriched(
     return _compute_romance_candidates(
         gender, day_master_stem, day_branch, year_branch,
         annual_stars, kong_wang, birth_year, current_year,
+        max_candidates,
     )
 
 
@@ -1337,7 +1359,7 @@ def tag_romance_years_with_dayun(
         else:
             context = 'weak'
 
-        tagged_results.append({
+        result_item = {
             'year': year,
             'tier': tier,
             'signal': romance_item.get('signal', ''),
@@ -1346,7 +1368,11 @@ def tag_romance_years_with_dayun(
             'dayun_signals': signals,
             'conflicted': conflicted,
             'conflicted_detail': conflicted_detail,
-        })
+        }
+        # Preserve 空亡 bypass flag for downstream starType annotation
+        if romance_item.get('is_kong_wang'):
+            result_item['is_kong_wang'] = True
+        tagged_results.append(result_item)
 
     return tagged_results
 

@@ -1,0 +1,254 @@
+.container {
+  margin-bottom: 1.5rem;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 0.85rem;
+  cursor: default;
+  transition: box-shadow 0.2s, border-color 0.2s;
+  box-shadow: var(--shadow-warm);
+}
+
+.cardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.35rem;
+}
+
+.monthName {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.badge {
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 0.2rem 0.55rem;
+  border-radius: 12px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.cardMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.2rem;
+}
+
+.ganZhi {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.metaTenGod {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+/* Signal pills */
+.signals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.35rem;
+}
+
+.signal {
+  font-size: 0.72rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 10px;
+  border: 1px solid;
+  font-weight: 500;
+}
+
+.signal[data-type="good"] {
+  color: #2E7D32;
+  background: rgba(46, 125, 50, 0.08);
+  border-color: rgba(46, 125, 50, 0.2);
+}
+
+.signal[data-type="danger"] {
+  color: #D32F2F;
+  background: rgba(211, 47, 47, 0.08);
+  border-color: rgba(211, 47, 47, 0.2);
+}
+
+.signal[data-type="change"] {
+  color: #B8860B;
+  background: rgba(184, 134, 11, 0.08);
+  border-color: rgba(184, 134, 11, 0.2);
+}
+
+.expandedContent {
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.narrative {
+  font-size: 0.95rem;
+  color: var(--text-primary);
+  line-height: 1.8;
+}
+
+/* Gold bullet list (matching AIReadingDisplay pattern) */
+.goldBulletList {
+  list-style: none;
+  margin: 0 0 0.8rem 0;
+  padding: 0;
+}
+
+li.goldBulletItem {
+  position: relative;
+  padding-left: 0.55rem;
+  margin-bottom: 0.8rem;
+  line-height: 1.8;
+}
+
+li.goldBulletItemCategory {
+  margin-left: 1rem;
+}
+
+.goldBulletItem::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.7em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-gold), var(--color-orange));
+  box-shadow: 0 0 3px rgba(212, 160, 23, 0.4);
+}
+
+.contentSubHeader {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-accent, #C41E3A);
+  margin: 1rem 0 0.4rem 0;
+  font-family: var(--font-noto-serif-tc), serif;
+}
+
+.contentParagraph {
+  margin: 0 0 0.6rem 0;
+  line-height: 1.8;
+}
+
+.bulletCategory {
+  display: inline-block;
+  font-weight: 700;
+  color: var(--color-gold, #B8860B);
+  font-family: var(--font-noto-serif-tc), serif;
+  margin-right: 0.15rem;
+}
+
+.bulletCategory::after {
+  content: '：';
+  color: var(--text-muted, #8B7355);
+  font-weight: 400;
+}
+
+.bulletCategoryItems {
+  display: inline;
+  color: var(--text-secondary, #6B5940);
+  font-size: 0.90em;
+}
+
+/* Streaming skeleton */
+.skeletonContent {
+  padding: 0.5rem 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.skeletonLine {
+  background: linear-gradient(
+    90deg,
+    rgba(212, 160, 23, 0.06) 25%,
+    rgba(212, 160, 23, 0.12) 37%,
+    rgba(212, 160, 23, 0.06) 63%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 4px;
+  height: 14px;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@media (max-width: 600px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .card {
+    padding: 0.65rem 0.75rem;
+  }
+}
+
+/* Badge + Stars row */
+.badgeRow {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Inline star rating */
+.starsInline {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.starFull {
+  color: #ffd700;
+  font-size: 0.9rem;
+}
+
+.starEmpty {
+  color: #d0c4b0;
+  font-size: 0.9rem;
+}
+
+.starHalf {
+  position: relative;
+  display: inline-block;
+  font-size: 0.9rem;
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.starHalfEmpty {
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: #d0c4b0;
+}
+
+.starHalfFilled {
+  position: absolute;
+  left: 0;
+  top: 0;
+  overflow: hidden;
+  width: 50%;
+  color: #ffd700;
+}

@@ -15,6 +15,7 @@ import { getUserProfile } from "../../lib/api";
 import InsufficientCreditsModal from "../../components/InsufficientCreditsModal";
 import CareerPaywallCTA from "../../components/CareerPaywallCTA";
 import AnnualPaywallCTA from "../../components/AnnualPaywallCTA";
+import LovePaywallCTA from "../../components/LovePaywallCTA";
 import {
   createBirthProfile,
   updateBirthProfile,
@@ -113,7 +114,8 @@ export default function ReadingPage() {
   const isLifetime = readingType === "lifetime";
   const isCareer = readingType === "career";
   const isAnnual = readingType === "annual";
-  const isFullPageLayout = isLifetime || isCareer || isAnnual;
+  const isLove = readingType === "love";
+  const isFullPageLayout = isLifetime || isCareer || isAnnual || isLove;
 
   // Auth — wait for Clerk to resolve before deciding initial step
   const clerkAuth = useAuth();
@@ -456,7 +458,7 @@ export default function ReadingPage() {
           birthProfileId,
           readingType: readingType,
           targetYear: readingType === "annual" ? new Date().getFullYear() : undefined,
-          stream: readingType === "lifetime" || readingType === "career" || readingType === "annual", // V2 streaming
+          stream: readingType === "lifetime" || readingType === "career" || readingType === "annual" || readingType === "love", // V2 streaming
         });
         setChartData(response.calculationData);
       }
@@ -629,8 +631,8 @@ export default function ReadingPage() {
     }
 
     // Direct engine: show mock AI sections with paywall overlay
-    // For career/annual: don't set mock AI — paywall CTA handles the unlock flow
-    if (!isCareer && !isAnnual) {
+    // For career/annual/love: don't set mock AI — paywall CTA handles the unlock flow
+    if (!isCareer && !isAnnual && !isLove) {
       const mockAI = isZwds
         ? generateMockZwdsReading(readingType as ReadingTypeSlug)
         : generateMockReading(readingType as ReadingTypeSlug);
@@ -737,6 +739,12 @@ export default function ReadingPage() {
           // Annual Phase 1: Chart only → paywall CTA, same flow as career
           await callDirectEngine(data, lunarDate);
           try { sessionStorage.setItem('annual_form', JSON.stringify(data)); } catch { /* quota */ }
+          setShowCareerPaywall(true);
+          setIsLoading(false);
+        } else if (isLove) {
+          // Love Phase 1: Chart only → paywall CTA, same flow as career/annual
+          await callDirectEngine(data, lunarDate);
+          try { sessionStorage.setItem('love_form', JSON.stringify(data)); } catch { /* quota */ }
           setShowCareerPaywall(true);
           setIsLoading(false);
         } else if (isSignedIn && birthProfileId) {
@@ -881,7 +889,7 @@ export default function ReadingPage() {
 
       // This calls NestJS: credits deducted + AI streamed
       // Use onReadingCreated callback to capture reading ID (React state is async)
-      const sessionKey = isAnnual ? 'annual' : 'career';
+      const sessionKey = isAnnual ? 'annual' : isLove ? 'love' : 'career';
       await callNestJSReading(formValues, profileId, {
         onReadingCreated: (id: string) => {
           try { sessionStorage.setItem(`${sessionKey}_reading_id`, id); } catch { /* quota */ }
@@ -992,6 +1000,42 @@ export default function ReadingPage() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAnnual, isLoaded]);
+
+  // Love refresh resilience — mirrors career/annual pattern
+  useEffect(() => {
+    if (!isLove || step !== null) return;
+
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem('love_form'); } catch { /* ignore */ }
+    if (!raw) return;
+
+    let savedForm: BirthDataFormValues;
+    try {
+      savedForm = JSON.parse(raw);
+    } catch {
+      try { sessionStorage.removeItem('love_form'); } catch { /* ignore */ }
+      return;
+    }
+
+    setFormValues(savedForm);
+    setIsLoading(true);
+    callDirectEngine(savedForm).then(() => {
+      setStep('result');
+      setIsLoading(false);
+
+      let savedReadingId: string | null = null;
+      try { savedReadingId = sessionStorage.getItem('love_reading_id'); } catch { /* ignore */ }
+      if (savedReadingId && isSignedIn) {
+        recoverPaidReading(savedReadingId, 'love');
+      } else {
+        setShowCareerPaywall(true);
+      }
+    }).catch(() => {
+      setIsLoading(false);
+      setStep('input');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLove, isLoaded]);
 
   async function recoverPaidReading(readingId: string, sessionKeyPrefix: string) {
     const token = await getToken();
@@ -1135,15 +1179,15 @@ export default function ReadingPage() {
             title={`${meta.nameZhTw} — 輸入出生資料`}
             subtitle={meta.description["zh-TW"]}
             submitLabel={
-              (isCareer || isAnnual) ? "開始排盤" :
+              (isCareer || isAnnual || isLove) ? "開始排盤" :
               !isSignedIn ? "開始分析" :
               meta.creditCost === 0 ? (<>完整解讀<span className={styles.btnCreditFree}>免費</span></>) :
               hasFreeReading ? (<>完整解讀<span className={styles.btnCreditFree}>首次免費</span></>) :
               userCredits !== null ? (<>完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點・剩 {userCredits}</span></>) :
               (<>完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點</span></>)
             }
-            onSecondarySubmit={isSignedIn && !isCareer && !isAnnual ? (data, _pid, lunarDate) => handleFreeChart(data, _pid, lunarDate) : undefined}
-            secondaryLabel={isSignedIn && !isCareer && !isAnnual ? "查看免費命盤 →" : undefined}
+            onSecondarySubmit={isSignedIn && !isCareer && !isAnnual && !isLove ? (data, _pid, lunarDate) => handleFreeChart(data, _pid, lunarDate) : undefined}
+            secondaryLabel={isSignedIn && !isCareer && !isAnnual && !isLove ? "查看免費命盤 →" : undefined}
             savedProfiles={isSignedIn ? savedProfiles : undefined}
             showSaveOption={isSignedIn === true}
             onSaveProfile={() => {
@@ -1275,6 +1319,22 @@ export default function ReadingPage() {
             {isAnnual && showCareerPaywall && !isAiLoading && !isRevealing && (
               <div ref={paywallRef}>
                 <AnnualPaywallCTA
+                  creditCost={meta?.creditCost ?? 3}
+                  currentCredits={userCredits}
+                  hasFreeReading={hasFreeReading}
+                  isSubscriber={isSubscriber}
+                  isSignedIn={!!isSignedIn}
+                  onUnlock={handleCareerUnlock}
+                  isUnlocking={isUnlocking}
+                  onCreditsRefresh={refreshUserProfile}
+                />
+              </div>
+            )}
+
+            {/* Love Paywall CTA — below chart, after reveal finishes */}
+            {isLove && showCareerPaywall && !isAiLoading && !isRevealing && (
+              <div ref={paywallRef}>
+                <LovePaywallCTA
                   creditCost={meta?.creditCost ?? 3}
                   currentCredits={userCredits}
                   hasFreeReading={hasFreeReading}

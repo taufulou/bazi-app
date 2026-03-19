@@ -165,15 +165,15 @@ export const READING_TYPE_META: Record<ReadingType, {
     },
   },
   love: {
-    nameZhTw: '愛情姻緣',
-    nameZhCn: '爱情姻缘',
+    nameZhTw: '八字愛情姻緣',
+    nameZhCn: '八字爱情姻缘',
     nameEn: 'Love & Marriage',
     icon: '💕',
     themeColor: '#E91E63',
-    creditCost: 2,
+    creditCost: 3,
     description: {
-      'zh-TW': '探索感情運勢，了解理想伴侶特質與姻緣時機',
-      'zh-CN': '探索感情运势，了解理想伴侣特质与姻缘时机',
+      'zh-TW': '深度剖析先天桃花運、配偶星、婚姻宮，精準預測感情好壞年份與婚配建議',
+      'zh-CN': '深度剖析先天桃花运、配偶星、婚姻宫，精准预测感情好坏年份与婚配建议',
     },
   },
   health: {

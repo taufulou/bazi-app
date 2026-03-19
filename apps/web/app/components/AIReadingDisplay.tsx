@@ -10,11 +10,13 @@ import type {
   CareerV2DeterministicData,
   AnnualV2DeterministicData,
   LuckPeriodDetailData,
+  LoveV2DeterministicData,
 } from "../lib/readings-api";
 import {
   CAREER_V2_ALL_SECTION_KEYS,
   getDynamicSectionTitle,
   normalizeAnnualDeterministic,
+  normalizeLoveDeterministic,
 } from "../lib/readings-api";
 import {
   AUSPICIOUSNESS_TO_STARS,
@@ -34,6 +36,8 @@ import ElementCapabilityChart from "./ElementCapabilityChart";
 import TenGodCapabilityChart from "./TenGodCapabilityChart";
 import AnnualForecastTimeline from "./AnnualForecastTimeline";
 import MonthlyFortuneGrid from "./MonthlyFortuneGrid";
+import LoveForecastTimeline from "./LoveForecastTimeline";
+import LoveMonthlyGrid from "./LoveMonthlyGrid";
 
 // ============================================================
 // Types
@@ -151,6 +155,16 @@ const SECTION_THEMES: Record<string, { icon: string; theme: string }> = {
   entrepreneurship: { icon: "🚀", theme: "career" },
   partnership: { icon: "🤝", theme: "career" },
   career_allies: { icon: "👥", theme: "overview" },
+  // Love V2 sections
+  love_personality: { icon: "💕", theme: "love" },
+  peach_blossom_analysis: { icon: "🌸", theme: "love" },
+  natal_marriage: { icon: "💍", theme: "love" },
+  partner_matching: { icon: "💑", theme: "love" },
+  spouse_appearance: { icon: "👤", theme: "love" },
+  romance_good_years: { icon: "🌹", theme: "timing" },
+  romance_danger_years: { icon: "⚠️", theme: "timing" },
+  marriage_change_years: { icon: "🔄", theme: "timing" },
+  love_summary: { icon: "❤️", theme: "love" },
 };
 
 /** Resolve section theme for dynamic keys (annual_forecast_YYYY, monthly_forecast_MM) */
@@ -158,6 +172,8 @@ function getSectionTheme(key: string): { icon: string; theme: string } {
   if (SECTION_THEMES[key]) return SECTION_THEMES[key];
   if (key.startsWith('annual_forecast_')) return { icon: "📅", theme: "timing" };
   if (key.startsWith('monthly_forecast_')) return { icon: "📆", theme: "timing" };
+  if (key.startsWith('annual_love_')) return { icon: "💕", theme: "timing" };
+  if (key.startsWith('monthly_love_')) return { icon: "📆", theme: "love" };
   if (key.startsWith('monthly_')) return { icon: "📆", theme: "timing" };
   return { icon: "📜", theme: "default" };
 }
@@ -260,6 +276,16 @@ const SECTION_TITLES_ZH: Record<string, string> = {
   mutagen_analysis: "四化深度分析",
   special_formations: "特殊格局判定",
   life_strategy: "人生策略建議",
+  // Love V2 sections
+  love_personality: "你的戀愛性格",
+  peach_blossom_analysis: "先天桃花運",
+  natal_marriage: "本命姻緣",
+  partner_matching: "婚配建議",
+  spouse_appearance: "對象性格與相貌",
+  romance_good_years: "桃花運好的年份",
+  romance_danger_years: "需要注意桃花劫的年份",
+  marriage_change_years: "感情容易生變的年份",
+  love_summary: "感情綜合建議",
 };
 
 /** Guide-style overrides for section titles (人生攻略 framing) */
@@ -877,6 +903,209 @@ function AnnualSectionBadge({ sectionKey, det }: { sectionKey: string; det: Annu
 }
 
 // ============================================================
+// Love V2 Section Badges
+// ============================================================
+
+/** Strength class English→Chinese mapping (Python sends English classification) */
+const LOVE_STRENGTH_MAP: Record<string, string> = {
+  'very_strong': '極強', 'strong': '偏強', 'balanced': '中和',
+  'weak': '偏弱', 'very_weak': '極弱',
+};
+
+/** Spouse star ten god → ideal partner type label */
+const SPOUSE_STAR_PARTNER_TYPE: Record<string, string> = {
+  '正官': '正派穩重型', '七殺': '強勢果斷型', '偏官': '強勢果斷型',
+  '正財': '賢慧務實型', '偏財': '活潑開朗型',
+  '食神': '溫和體貼型', '傷官': '才華洋溢型',
+  '正印': '溫柔知性型', '偏印': '獨立神秘型',
+  '比肩': '志同道合型', '劫財': '熱情主動型',
+};
+
+/** Signal chips for love annual/monthly sections */
+function LoveSignalChips({ signals }: { signals: Array<{ label: string; tone: 'positive' | 'negative' | 'neutral' }> }) {
+  if (signals.length === 0) return null;
+  return (
+    <div className={styles.loveSignalChips}>
+      {signals.map((s, i) => (
+        <span key={i} className={`${styles.loveSignalChip} ${styles[`loveSignalChip${s.tone.charAt(0).toUpperCase() + s.tone.slice(1)}` as keyof typeof styles]}`}>
+          {s.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Master dispatcher — renders appropriate sub-header badges per love section */
+function LoveSectionBadge({ sectionKey, det }: { sectionKey: string; det: LoveV2DeterministicData }) {
+
+  // === love_personality ===
+  if (sectionKey === 'love_personality') {
+    const lp = det.lovePersonality;
+    if (!lp) return null;
+    const rawLabel = lp.archetypeLabel || '';
+    const tag = rawLabel ? `${rawLabel.replace(/型$/, '')}型` : '';
+    const value = lp.elementStyle || '';
+    let detail = `日主${LOVE_STRENGTH_MAP[lp.strengthClass] || lp.strengthClass || '中和'}`;
+    if (lp.dominantCount >= 4 && lp.dominantTenGod) {
+      detail += ` · ${lp.dominantTenGod}偏多`;
+    }
+    const metaParts = [value, detail].filter(Boolean).join(' · ');
+    return <AnnualVerdictBanner label={tag} meta={metaParts || undefined} tone="neutral" />;
+  }
+
+  // === peach_blossom_analysis ===
+  if (sectionKey === 'peach_blossom_analysis') {
+    const pb = det.peachBlossoms;
+    if (!pb) return null;
+    const posCount = pb.positiveCount || 0;
+    const negCount = pb.negativeCount || 0;
+    const tone: VerdictTone = posCount > negCount ? 'positive'
+      : negCount > posCount ? 'negative' : 'neutral';
+    const label = posCount > negCount ? '正桃花為主'
+      : negCount > posCount ? '爛桃花風險高'
+      : '桃花平穩';
+    const negTypes = pb.negativeTypes?.length ? [...new Set(pb.negativeTypes)].join('、') : '';
+    // Only show negTypes when label is actually negative (avoid cognitive dissonance under '桃花平穩')
+    const countStr = `正桃花 ${posCount} · 爛桃花 ${negCount}`;
+    const metaParts = negCount > posCount ? [countStr, negTypes].filter(Boolean).join(' · ') : countStr;
+    return <AnnualVerdictBanner label={label} meta={metaParts} tone={tone} />;
+  }
+
+  // === natal_marriage ===
+  if (sectionKey === 'natal_marriage') {
+    const ss = det.spouseStar;
+    if (!ss) return null;
+    const partnerType = SPOUSE_STAR_PARTNER_TYPE[ss.star] || '';
+    const label = partnerType ? `理想伴侶：${partnerType}` : '本命姻緣';
+    const VISIBILITY_LABEL: Record<string, string> = {
+      '透出': '姻緣星明顯', '暗藏': '姻緣星暗藏', '全無': '姻緣星不可見',
+    };
+    const visLabel = VISIBILITY_LABEL[ss.visibility] || ss.visibility || '';
+    const metaParts = [visLabel, ss.balanceDesc].filter(Boolean).join(' · ');
+    return <AnnualVerdictBanner label={label} meta={metaParts || undefined} tone="neutral" />;
+  }
+
+  // === partner_matching ===
+  if (sectionKey === 'partner_matching') {
+    const pr = det.partnerRecommendations;
+    if (!pr) return null;
+    const favorable = pr.favorable?.join(' · ') || '';
+    const avoidance = pr.avoidance?.join(' · ') || '';
+    if (!favorable && !avoidance) return null;
+    return (
+      <>
+        {favorable && <AnnualVerdictBanner label="最佳生肖" meta={favorable} tone="positive" />}
+        {avoidance && <AnnualVerdictBanner label="避開生肖" meta={avoidance} tone="negative" />}
+      </>
+    );
+  }
+
+  // === spouse_appearance ===
+  if (sectionKey === 'spouse_appearance') {
+    const mp = det.marriagePalace;
+    if (!mp) return null;
+    const banner = mp.appearanceGrade || '配偶宮分析';
+    const detailParts = [
+      mp.twelveStage ? `十二長生·${mp.twelveStage}` : '',
+      mp.tenGod || '',
+    ].filter(Boolean).join(' · ');
+    return <AnnualVerdictBanner label={banner} meta={detailParts || undefined} tone="neutral" />;
+  }
+
+  // === romance_good_years ===
+  if (sectionKey === 'romance_good_years') {
+    const rt = det.romanceTimeline;
+    if (!rt?.goodYears?.length) return null;
+    const count = rt.goodYears.length;
+    const detail = rt.goodYears.map(y => `${y.year}(${y.type})`).join(' · ');
+    return <AnnualVerdictBanner label={`${count}個桃花好年`} meta={detail} tone="positive" />;
+  }
+
+  // === romance_danger_years ===
+  if (sectionKey === 'romance_danger_years') {
+    const rt = det.romanceTimeline;
+    if (!rt?.dangerYears?.length) return null;
+    const count = rt.dangerYears.length;
+    const detail = rt.dangerYears.map(y => `${y.year}(${y.trigger})`).join(' · ');
+    return <AnnualVerdictBanner label={`${count}個需注意年份`} meta={detail} tone="neutral" />;
+  }
+
+  // === marriage_change_years ===
+  if (sectionKey === 'marriage_change_years') {
+    const rt = det.romanceTimeline;
+    if (!rt?.changeYears?.length) return null;
+    const count = rt.changeYears.length;
+    const detail = rt.changeYears.map(y => `${y.year}(${y.type})`).join(' · ');
+    return <AnnualVerdictBanner label={`${count}年感情變動`} meta={detail} tone="neutral" />;
+  }
+
+  // === love_summary ===
+  if (sectionKey === 'love_summary') {
+    const ti = det.timingIndicators;
+    if (!ti) return null;
+    if (ti.lateSignals?.length > 0) {
+      return <AnnualVerdictBanner label="晚婚較宜" meta={ti.lateSignals[0]} tone="neutral" />;
+    }
+    if (ti.earlySignals?.length > 0) {
+      return <AnnualVerdictBanner label="早婚可期" meta={ti.earlySignals[0]} tone="positive" />;
+    }
+    return <AnnualVerdictBanner label="婚期靈活" tone="neutral" />;
+  }
+
+  // === annual_love_YYYY ===
+  const annualMatch = sectionKey.match(/^annual_love_(\d{4})$/);
+  if (annualMatch?.[1]) {
+    const year = parseInt(annualMatch[1], 10);
+    const af = det.annualForecasts?.find(f => f.year === year);
+    if (!af) return null;
+    const starScore = AUSPICIOUSNESS_TO_STARS[af.auspiciousness] ?? 3.0;
+    const tag = `${af.stemRole || ''} · ${af.stemTenGod || ''}`;
+    const detail = af.interactions?.join(' · ') || '';
+    const signals: Array<{ label: string; tone: 'positive' | 'negative' | 'neutral' }> = [];
+    if (af.isGoodYear && af.goodYearType) signals.push({ label: af.goodYearType, tone: 'positive' });
+    if (af.isDangerYear && af.dangerYearTrigger) signals.push({ label: `桃花劫·${af.dangerYearTrigger}`, tone: 'negative' });
+    if (af.isChangeYear && af.changeYearType) signals.push({ label: `變動·${af.changeYearType}`, tone: 'neutral' });
+    if (af.isVoid) signals.push({ label: '空亡年', tone: 'negative' });
+    return (
+      <>
+        <StarRating score={starScore} indicatorLabel={af.auspiciousness} />
+        <AnnualInfoStrip tag={tag} detail={detail} />
+        <LoveSignalChips signals={signals} />
+      </>
+    );
+  }
+
+  // === monthly_love_XX ===
+  const monthlyMatch = sectionKey.match(/^monthly_love_(\d{2})$/);
+  if (monthlyMatch?.[1]) {
+    const month = parseInt(monthlyMatch[1], 10);
+    const mf = det.monthlyForecasts?.find(f => f.month === month);
+    if (!mf) return null;
+    const starScore = AUSPICIOUSNESS_TO_STARS[mf.auspiciousness] ?? 3.0;
+    const tag = `${mf.stemRole || ''} · ${mf.stemTenGod || ''}`;
+    const detail = mf.interactions?.join(' · ') || '';
+    const signals: Array<{ label: string; tone: 'positive' | 'negative' | 'neutral' }> = [];
+    if (mf.hasRomanceStar) signals.push({ label: '桃花月', tone: 'positive' });
+    if (mf.isVoid) signals.push({ label: '空亡月', tone: 'negative' });
+    for (const inter of (mf.interactions || [])) {
+      if (inter.includes('六合')) signals.push({ label: inter, tone: 'positive' });
+      else if (inter.includes('六沖')) signals.push({ label: inter, tone: 'negative' });
+      else if (inter.includes('六害')) signals.push({ label: inter, tone: 'negative' });
+      else if (inter.includes('伏吟')) signals.push({ label: inter, tone: 'neutral' });
+    }
+    return (
+      <>
+        <StarRating score={starScore} indicatorLabel={mf.auspiciousness} />
+        <AnnualInfoStrip tag={tag} detail={detail} />
+        <LoveSignalChips signals={signals} />
+      </>
+    );
+  }
+
+  return null;
+}
+
+// ============================================================
 // Normalize ActiveLuckPeriod (bridge snake_case from NestJS shallow conversion)
 // ============================================================
 
@@ -1221,6 +1450,15 @@ export const V2_ALL_SECTION_KEYS = [
   'annual_love', 'annual_career', 'annual_finance', 'annual_health',
 ];
 
+/** Love V2 section keys in expected order */
+export const LOVE_V2_ALL_SECTION_KEYS = [
+  'love_personality', 'peach_blossom_analysis', 'natal_marriage',
+  'partner_matching', 'spouse_appearance',
+  'romance_good_years', 'romance_danger_years', 'marriage_change_years',
+  'love_summary',
+  // Call 2 dynamic sections (filled at runtime with YYYY/MM)
+];
+
 /** Annual V2 section keys in expected order */
 export const ANNUAL_V2_ALL_SECTION_KEYS = [
   'annual_overview', 'annual_tai_sui', 'annual_dayun_context',
@@ -1250,6 +1488,7 @@ export default function AIReadingDisplay({
   const isGuide = readingType === 'lifetime'; // LIFETIME always uses guide style
   const isCareerV2 = readingType === 'career' && data?.isV2 === true;
   const isAnnualV2 = readingType === 'annual' && data?.isV2 === true;
+  const isLoveV2 = readingType === 'love' && data?.isV2 === true;
   // During streaming with V2 data: show arrived sections + skeletons for remaining
   const isStreamingWithData = isStreaming && data?.isV2 && data.deterministic != null;
 
@@ -1273,6 +1512,10 @@ export default function AIReadingDisplay({
 
   const isV2 = data.isV2 === true && data.deterministic != null;
   const det = data.deterministic;
+  // Memoized love deterministic — computed once, shared by LoveSectionBadge and timeline/grid block
+  const loveDet = isLoveV2 && det
+    ? normalizeLoveDeterministic(det as unknown as Record<string, unknown>)
+    : null;
   const isZwds = readingType.startsWith("zwds-");
   const crossSellItems = isZwds ? ZWDS_CROSS_SELL : BAZI_CROSS_SELL;
   const crossSellFiltered = crossSellItems.filter(
@@ -1283,10 +1526,10 @@ export default function AIReadingDisplay({
     <div className={styles.readingContainer}>
       {/* Summary (top position — default for non-lifetime readings) */}
       {summaryPosition !== 'bottom' && data.summary && (
-        <div className={styles.readingSection} data-theme="overview">
+        <div className={styles.readingSection} data-theme={readingType === 'love' ? 'love' : 'overview'}>
           <div className={styles.sectionHeader}>
-            <span className={styles.sectionIcon}>📋</span>
-            <h3 className={styles.sectionTitle}>命理總覽</h3>
+            <span className={styles.sectionIcon}>{readingType === 'love' ? '💕' : '📋'}</span>
+            <h3 className={styles.sectionTitle}>{readingType === 'love' ? '感情命理總覽' : '命理總覽'}</h3>
           </div>
           <div className={styles.sectionContent}>
             {renderFormattedContent(data.summary.text)}
@@ -1352,9 +1595,17 @@ export default function AIReadingDisplay({
           return null;
         }
 
+        // Skip love annual/monthly AI sections — rendered in grouped timeline/grid below
+        if (isLoveV2 && (
+          section.key.startsWith('annual_love_') ||
+          section.key.startsWith('monthly_love_')
+        )) {
+          return null;
+        }
+
         const themeInfo = getSectionTheme(section.key);
         // Use dynamic titles for career annual/monthly forecast sections
-        const titleZh = isCareerV2
+        const titleZh = isCareerV2 || isLoveV2
           ? (getDynamicSectionTitle(section.key)
             || GUIDE_SECTION_TITLES_ZH[section.key]
             || SECTION_TITLES_ZH[section.key]
@@ -1418,6 +1669,11 @@ export default function AIReadingDisplay({
                 return annualDet ? <AnnualSectionBadge sectionKey={section.key} det={annualDet} /> : null;
               })()}
 
+              {/* Love V2 section sub-header badges */}
+              {isLoveV2 && loveDet && (
+                <LoveSectionBadge sectionKey={section.key} det={loveDet} />
+              )}
+
               {/* LuckPeriodHeader — timing sections only */}
               {isGuide && ['current_period', 'next_period', 'best_period'].includes(section.key) && data.deterministic && (() => {
                 const det = data.deterministic as LifetimeV2DeterministicData;
@@ -1479,7 +1735,7 @@ export default function AIReadingDisplay({
             </div>
 
             {/* Insert deterministic data card after specific sections */}
-            {deterministicKey && det && !isCareerV2 && !isAnnualV2 && (
+            {deterministicKey && det && !isCareerV2 && !isAnnualV2 && !isLoveV2 && (
               <DeterministicCard
                 cardType={deterministicKey}
                 data={det as LifetimeV2DeterministicData}
@@ -1497,6 +1753,7 @@ export default function AIReadingDisplay({
         // Use appropriate section keys for each V2 reading type
         const allKeys = isCareerV2 ? CAREER_V2_ALL_SECTION_KEYS
           : isAnnualV2 ? ANNUAL_V2_ALL_SECTION_KEYS
+          : isLoveV2 ? LOVE_V2_ALL_SECTION_KEYS
           : V2_ALL_SECTION_KEYS;
         const remainingKeys = allKeys.filter(k => !arrivedKeys.has(k));
         const nextKey = remainingKeys[0];
@@ -1577,12 +1834,101 @@ export default function AIReadingDisplay({
         );
       })()}
 
+      {/* Love V2: Annual Forecast Timeline + Monthly Grid (after all AI sections).
+          Hidden until at least one AI narrative section arrives.
+          Non-subscribers see deterministic data only (narratives=undefined). */}
+      {isLoveV2 && loveDet && (() => {
+        // Collect AI narratives from sections
+        const annualNarratives: Record<string, string> = {};
+        const monthlyNarratives: Record<string, string> = {};
+        for (const section of data.sections) {
+          if (section.key.startsWith('annual_love_')) {
+            annualNarratives[section.key] = section.full || section.preview || '';
+          }
+          if (section.key.startsWith('monthly_love_')) {
+            monthlyNarratives[section.key] = section.full || section.preview || '';
+          }
+        }
+
+        // Normalize activeLuckPeriod (may be snake_case from DB)
+        const lp = loveDet.activeLuckPeriod
+          ? normalizeActiveLuckPeriod(loveDet.activeLuckPeriod as unknown as Record<string, unknown>)
+          : null;
+
+        // Derive target year from deterministic data (NOT new Date().getFullYear())
+        const targetYear = loveDet.annualForecasts?.[0]?.year ?? new Date().getFullYear();
+
+        const showNarratives = isSubscriber;
+
+        // Per-card shimmer only after all 9 core sections have arrived (not during core-section phase)
+        const coreArrivedKeys = new Set(data.sections.map(s => s.key));
+        const coreComplete = LOVE_V2_ALL_SECTION_KEYS.every(k => coreArrivedKeys.has(k));
+        const showCardSkeleton = isStreaming && showNarratives && coreComplete;
+
+        // Hide timeline/grid sections until AI narratives have arrived
+        // During streaming: wait for at least 1 annual/monthly narrative before showing
+        // Non-streaming (from cache/DB): narratives are already present, show immediately
+        const hasAnnualNarratives = Object.keys(annualNarratives).length > 0;
+        const hasMonthlyNarratives = Object.keys(monthlyNarratives).length > 0;
+
+        return (
+          <>
+            {/* Group header + timeline: 五年感情運勢 — hidden until AI arrives */}
+            {hasAnnualNarratives && (
+              <>
+                <div className={styles.sectionGroupHeader}>
+                  <span className={styles.sectionGroupLine} />
+                  <span className={styles.sectionGroupLabel}>五年感情運勢</span>
+                  <span className={styles.sectionGroupLine} />
+                </div>
+
+                <div className={styles.readingSection} data-theme="love">
+                  <div className={styles.sectionHeader}>
+                    <span className={styles.sectionIcon}>💕</span>
+                    <h3 className={styles.sectionTitle}>未來五年感情運勢</h3>
+                  </div>
+                  <LoveForecastTimeline
+                    forecasts={(loveDet.annualForecasts || []).slice(0, 5)}
+                    activeLuckPeriod={lp}
+                    narratives={showNarratives ? annualNarratives : undefined}
+                    isStreaming={showCardSkeleton}
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Group header + grid: 十二月感情運程 — hidden until AI arrives */}
+            {hasMonthlyNarratives && (
+              <>
+                <div className={styles.sectionGroupHeader}>
+                  <span className={styles.sectionGroupLine} />
+                  <span className={styles.sectionGroupLabel}>十二月感情運程</span>
+                  <span className={styles.sectionGroupLine} />
+                </div>
+
+                <div className={styles.readingSection} data-theme="love">
+                  <div className={styles.sectionHeader}>
+                    <span className={styles.sectionIcon}>📅</span>
+                    <h3 className={styles.sectionTitle}>{targetYear}年 每月感情運程</h3>
+                  </div>
+                  <LoveMonthlyGrid
+                    forecasts={loveDet.monthlyForecasts || []}
+                    narratives={showNarratives ? monthlyNarratives : undefined}
+                    isStreaming={showCardSkeleton}
+                  />
+                </div>
+              </>
+            )}
+          </>
+        );
+      })()}
+
       {/* Summary (bottom position — lifetime readings, acts as conclusion) */}
       {summaryPosition === 'bottom' && data.summary && (
-        <div className={`${styles.readingSection} ${styles.summaryFadeIn}`} data-theme="overview">
+        <div className={`${styles.readingSection} ${styles.summaryFadeIn}`} data-theme={readingType === 'love' ? 'love' : 'overview'}>
           <div className={styles.sectionHeader}>
-            <span className={styles.sectionIcon}>📋</span>
-            <h3 className={styles.sectionTitle}>命理總覽</h3>
+            <span className={styles.sectionIcon}>{readingType === 'love' ? '💕' : '📋'}</span>
+            <h3 className={styles.sectionTitle}>{readingType === 'love' ? '感情命理總覽' : '命理總覽'}</h3>
           </div>
           <div className={styles.sectionContent}>
             {renderFormattedContent(data.summary.text)}
@@ -2071,12 +2417,12 @@ function renderFormattedContent(text: string): React.ReactNode {
       <ul key={key++} className={styles.goldBulletList}>
         {bulletBuffer.map((item, i) => {
           // Detect category:items pattern (e.g., "傳媒與娛樂：傳媒業、廣告、演藝")
-          // Only apply when colon is NOT at position 0, and content after colon has comma-separated items
+          // Requires: 3+ short comma-separated segments after colon to avoid sentence false positives
           const colonIdx = item.indexOf('：');
           if (colonIdx > 0 && colonIdx < item.length - 1) {
             const afterColon = item.slice(colonIdx + 1).trim();
-            // Heuristic: if after-colon part has Chinese commas (頓號) → category:items pattern
-            if (afterColon.includes('、')) {
+            const segments = afterColon.split('、');
+            if (segments.length >= 3 && segments.every(s => s.trim().length <= 8)) {
               const category = item.slice(0, colonIdx);
               const items = afterColon;
               return (
@@ -2100,6 +2446,11 @@ function renderFormattedContent(text: string): React.ReactNode {
     // Bullet line: starts with "- ", "– ", "·", "‧", or "・"
     if (/^[-–·‧・]\s*/.test(trimmed)) {
       bulletBuffer.push(trimmed.replace(/^[-–·‧・]\s*/, ''));
+      continue;
+    }
+    // Year-entry line: "YYYY年：描述" (romance timeline sections) → gold bullet, keep full text
+    if (/^\d{4}年[：:]/.test(trimmed)) {
+      bulletBuffer.push(trimmed);
       continue;
     }
 

@@ -96,6 +96,16 @@ export const SECTION_TITLE_MAP: Record<string, string> = {
   monthly_04: '四月運程', monthly_05: '五月運程', monthly_06: '六月運程',
   monthly_07: '七月運程', monthly_08: '八月運程', monthly_09: '九月運程',
   monthly_10: '十月運程', monthly_11: '十一月運程', monthly_12: '十二月運程',
+  // Bazi Love V2 sections
+  love_personality: '你的戀愛性格',
+  peach_blossom_analysis: '先天桃花運',
+  natal_marriage: '本命姻緣',
+  partner_matching: '婚配建議',
+  spouse_appearance: '對象性格與相貌',
+  romance_good_years: '桃花運好的年份',
+  romance_danger_years: '需要注意桃花劫的年份',
+  marriage_change_years: '感情容易生變的年份',
+  love_summary: '感情綜合建議',
   // V1 legacy keys (for existing cached readings)
   career_annual: '事業運勢',
   love_annual: '感情運勢',
@@ -370,8 +380,63 @@ export interface AnnualV2DeterministicData {
   }>;
 }
 
+/** V2 deterministic data (not AI-generated) — Love */
+export interface LoveV2DeterministicData {
+  spouseStar?: {
+    star: string; visibility: string; role: string;
+    balance: string; balanceDesc: string;
+    challenges: string[]; hourWealthNote: string;
+  };
+  peachBlossoms?: {
+    summary: string; positiveCount: number; negativeCount: number;
+    positiveTypes: string[]; negativeTypes: string[];
+  };
+  marriagePalace?: {
+    dayBranch: string; element: string; tenGod: string;
+    twelveStage: string; isKongWang: boolean;
+    appearanceGrade: string; appearanceNote: string;
+  };
+  partnerRecommendations?: {
+    favorable: string[]; favorableSecondary: string[];
+    avoidance: string[];
+    favorableSeasons: Array<{ element: string; role: string; season: string; months: string }>;
+  };
+  romanceTimeline?: {
+    goodYears: Array<{ year: number; type: string; conflicted: boolean; conflictedDetail: string }>;
+    dangerYears: Array<{ year: number; trigger: string }>;
+    changeYears: Array<{ year: number; type: string }>;
+  };
+  lovePersonality?: {
+    archetypeLabel: string; archetypeTrait: string;
+    elementStyle: string; strengthClass: string;
+    dominantTenGod: string; dominantCount: number;
+  };
+  timingIndicators?: {
+    earlySignals: string[]; lateSignals: string[];
+  };
+  annualForecasts?: Array<{
+    year: number; stem: string; branch: string;
+    auspiciousness: string; stemRole: string; stemTenGod: string;
+    hasRomanceStar: boolean; lpContext: string;
+    isGoodYear: boolean; goodYearType: string;
+    isDangerYear: boolean; dangerYearTrigger: string;
+    isChangeYear: boolean; changeYearType: string;
+    isVoid: boolean; interactions: string[];
+  }>;
+  monthlyForecasts?: Array<{
+    month: number; stem: string; branch: string;
+    auspiciousness: string; stemRole: string; stemTenGod: string;
+    hasRomanceStar: boolean; isVoid: boolean;
+    interactions: string[]; lpContext: string;
+  }>;
+  activeLuckPeriod?: {
+    stem: string; branch: string; tenGod: string;
+    startYear: number; endYear: number;
+  };
+}
+
 /** Union type for V2 deterministic data */
-export type V2DeterministicData = LifetimeV2DeterministicData | CareerV2DeterministicData | AnnualV2DeterministicData;
+export type V2DeterministicData = LifetimeV2DeterministicData | CareerV2DeterministicData | AnnualV2DeterministicData | LoveV2DeterministicData;
 
 export interface NestJSReadingResponse {
   id: string;
@@ -616,6 +681,34 @@ export const CAREER_V2_ALL_SECTION_KEYS = [
   // 5 annual + 12 monthly = 17 dynamic keys added at runtime
 ];
 
+/** Love V2 section display order (controls rendering sequence). */
+export const LOVE_V2_SECTION_ORDER = [
+  'love_personality',
+  'peach_blossom_analysis',
+  'natal_marriage',
+  'partner_matching',
+  'spouse_appearance',
+  'romance_good_years',
+  'romance_danger_years',
+  'marriage_change_years',
+  'love_summary',
+  // annual_love_YYYY and monthly_love_MM are appended dynamically
+];
+
+/** All expected love V2 section keys (for progress tracking) */
+export const LOVE_V2_ALL_SECTION_KEYS = [
+  'love_personality',
+  'peach_blossom_analysis',
+  'natal_marriage',
+  'partner_matching',
+  'spouse_appearance',
+  'romance_good_years',
+  'romance_danger_years',
+  'marriage_change_years',
+  'love_summary',
+  // 5 annual + 12 monthly = 17 dynamic keys added at runtime
+];
+
 /** Annual V2 section display order (controls rendering sequence). */
 export const ANNUAL_V2_SECTION_ORDER = [
   'annual_overview',
@@ -666,6 +759,14 @@ export function getDynamicSectionTitle(key: string): string | null {
   const monthlyMatch = key.match(/^monthly_forecast_(\d{1,2})$/);
   if (monthlyMatch?.[1]) return `${parseInt(monthlyMatch[1], 10)}月運勢`;
 
+  // Love V2 annual sections: annual_love_2026 → 2026 年度感情運勢
+  const loveAnnualMatch = key.match(/^annual_love_(\d{4})$/);
+  if (loveAnnualMatch) return `${loveAnnualMatch[1]} 年度感情運勢`;
+
+  // Love V2 monthly sections: monthly_love_03 → 3月感情運勢
+  const loveMonthlyMatch = key.match(/^monthly_love_(\d{1,2})$/);
+  if (loveMonthlyMatch?.[1]) return `${parseInt(loveMonthlyMatch[1], 10)}月感情運勢`;
+
   // Annual V2 monthly sections: monthly_01 → 一月運程
   const MONTH_NAMES = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'];
   const annualMonthlyMatch = key.match(/^monthly_(\d{2})$/);
@@ -703,8 +804,13 @@ export function transformAIResponse(
     const isAnnualV2 = sectionKeys.some(k =>
       k === 'annual_overview' || k === 'annual_tai_sui' || k === 'annual_dayun_context'
     );
+    // Detect love V2 by presence of love-specific section keys
+    const isLoveV2 = sectionKeys.some(k =>
+      k === 'love_personality' || k === 'peach_blossom_analysis' || k === 'natal_marriage'
+    );
     const orderList = isCareerV2 ? CAREER_V2_SECTION_ORDER
       : isAnnualV2 ? ANNUAL_V2_SECTION_ORDER
+      : isLoveV2 ? LOVE_V2_SECTION_ORDER
       : V2_SECTION_ORDER;
 
     const sectionEntries = Object.entries(ai.sections);
@@ -737,6 +843,26 @@ export function transformAIResponse(
         .sort(([a], [b]) => {
           const ma = parseInt(a.replace('monthly_forecast_', ''), 10);
           const mb = parseInt(b.replace('monthly_forecast_', ''), 10);
+          return ma - mb;
+        });
+
+      for (const [key, { preview, full, score }] of [...annuals, ...monthlies]) {
+        const title = getDynamicSectionTitle(key) || SECTION_TITLE_MAP[key] || key;
+        ordered.push({ key, title, preview, full, score });
+        seen.add(key);
+      }
+    }
+
+    // For love V2: append annual love forecasts sorted by year, then monthly sorted by month
+    if (isLoveV2) {
+      const annuals = sectionEntries
+        .filter(([k]) => k.startsWith('annual_love_') && !seen.has(k))
+        .sort(([a], [b]) => a.localeCompare(b));
+      const monthlies = sectionEntries
+        .filter(([k]) => k.startsWith('monthly_love_') && !seen.has(k))
+        .sort(([a], [b]) => {
+          const ma = parseInt(a.replace('monthly_love_', ''), 10);
+          const mb = parseInt(b.replace('monthly_love_', ''), 10);
           return ma - mb;
         });
 
@@ -819,6 +945,21 @@ export function normalizeAnnualDeterministic(
   if (!hasFlowYear && !hasTaiSui && !hasMonthly) return null;
 
   return deepCamelCase(raw) as AnnualV2DeterministicData;
+}
+
+/**
+ * Normalize raw love V2 deterministic data from the API.
+ * Applies deep camelCase conversion and returns a typed object.
+ * Returns null if the data doesn't look like love V2 deterministic.
+ */
+export function normalizeLoveDeterministic(
+  raw: Record<string, unknown> | undefined,
+): LoveV2DeterministicData | null {
+  if (!raw) return null;
+  const hasSpouseStar = 'spouseStar' in raw || 'spouse_star' in raw;
+  const hasPeachBlossoms = 'peachBlossoms' in raw || 'peach_blossoms' in raw;
+  if (!hasSpouseStar && !hasPeachBlossoms) return null;
+  return deepCamelCase(raw) as LoveV2DeterministicData;
 }
 
 // ============================================================

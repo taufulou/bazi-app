@@ -151,7 +151,8 @@ export class BaziService {
     // Streaming path: V2 reading types + stream=true + no cache → skip AI, return streamReady
     const isV2Reading = dto.readingType === ReadingType.LIFETIME
       || dto.readingType === ReadingType.CAREER
-      || dto.readingType === ReadingType.ANNUAL;
+      || dto.readingType === ReadingType.ANNUAL
+      || dto.readingType === ReadingType.LOVE;
     const isStreamingRequest = dto.stream === true
       && isV2Reading
       && !cachedInterpretation;
@@ -193,6 +194,11 @@ export class BaziService {
           );
         } else if (dto.readingType === ReadingType.ANNUAL) {
           aiResult = await this.aiService.generateAnnualV2Interpretation(
+            enrichedData,
+            user.id,
+          );
+        } else if (dto.readingType === ReadingType.LOVE) {
+          aiResult = await this.aiService.generateLoveV2Interpretation(
             enrichedData,
             user.id,
           );
@@ -281,6 +287,7 @@ export class BaziService {
         CAREER: 'careerEnhancedInsights',
         ANNUAL: 'annualEnhancedInsights',
         LIFETIME: 'lifetimeEnhancedInsights',
+        LOVE: 'loveEnhancedInsights',
       };
       const insightsKey = INSIGHTS_KEY_MAP[dto.readingType] || 'lifetimeEnhancedInsights';
       const enhancedInsights = calculationData[insightsKey] as Record<string, unknown> | undefined;
@@ -432,6 +439,9 @@ export class BaziService {
           break;
         case 'ANNUAL':
           aiObservable = this.aiService.streamAnnualV2(enrichedData, readingId, reading.targetYear ?? undefined);
+          break;
+        case 'LOVE':
+          aiObservable = this.aiService.streamLoveV2(enrichedData, readingId);
           break;
         default:
           aiObservable = this.aiService.streamLifetimeV2(enrichedData, readingId);
@@ -1101,7 +1111,7 @@ export class BaziService {
         reading_type: dto.readingType.toLowerCase(),
         target_year: dto.targetYear,
       }),
-      signal: AbortSignal.timeout(dto.readingType === ReadingType.CAREER ? 45000 : 30000),
+      signal: AbortSignal.timeout(dto.readingType === ReadingType.CAREER || dto.readingType === ReadingType.LOVE ? 45000 : 30000),
     });
 
     if (!response.ok) {

@@ -562,6 +562,51 @@ SHIE_DABAI_DAYS: Set[str] = {
     '庚辰', '戊戌', '癸亥', '辛巳', '己丑',
 }
 
+# ============================================================
+# Love & Marriage Shen Sha (愛情姻緣神煞)
+# ============================================================
+
+# 紅艷煞 — lookup by Day Stem → branch
+# Per《三命通會》: "甲乙午申庚見戌，六丙逢寅辛見雞，癸臨申上丁見未，戊己怕辰壬怕子"
+# Note: 癸→申 is correct per original poem. Some modern compilations erroneously list 癸→戌.
+HONGYAN_SHA: Dict[str, str] = {
+    '甲': '午', '乙': '申', '丙': '寅', '丁': '未',
+    '戊': '辰', '己': '辰', '庚': '戌', '辛': '酉',
+    '壬': '子', '癸': '申',
+}
+
+# 自坐紅艷 day pillars (day pillar naturally contains 紅艷煞)
+HONGYAN_SELF_SITTING: Set[str] = {'甲午', '丙寅', '丁未', '戊辰', '庚戌', '辛酉', '壬子'}
+
+# 九丑桃花 — day pillar (干支) combinations
+# Source: 《三命通會》— "壬子壬午癸巳辰，丁酉戊午與戊子，己卯己酉辛卯辛"
+# Note: The classical poem mentions 癸巳辰 but standard practice uses 癸巳 NOT 癸辰.
+# We follow the 9-pillar mainstream convention used by major apps (Seer, see八字).
+JIUCHOU_DAYS: Set[str] = {
+    '丁酉', '戊子', '戊午', '己卯', '己酉',
+    '辛卯', '辛酉', '壬子', '壬午',
+}
+
+# 沐浴桃花 — lookup by Day Stem → bathing stage branch (from 十二長生)
+# The branch where the Day Stem is at 沐浴 (Bathing) stage
+MUYU_TAOHUA: Dict[str, str] = {
+    '甲': '子', '乙': '巳', '丙': '卯', '丁': '申',
+    '戊': '卯', '己': '酉', '庚': '午', '辛': '亥',
+    '壬': '酉', '癸': '寅',
+}
+
+# 六害 O(1) lookup — canonical source, imported by timing_analysis.py
+# Pairs: 子-未, 丑-午, 寅-巳, 卯-辰, 申-亥, 酉-戌
+# Source: 《三命通會·卷二》— "子未相害，丑午相害，寅巳相害，卯辰相害，申亥相害，酉戌相害"
+HARM_LOOKUP: Dict[str, str] = {
+    '子': '未', '未': '子',
+    '丑': '午', '午': '丑',
+    '寅': '巳', '巳': '寅',
+    '卯': '辰', '辰': '卯',
+    '申': '亥', '亥': '申',
+    '酉': '戌', '戌': '酉',
+}
+
 
 # ============================================================
 # Chinese Zodiac (生肖) by Year Branch

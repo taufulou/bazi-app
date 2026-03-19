@@ -319,6 +319,29 @@ def calculate_bazi(
             current_year=target_year,
         )
 
+    # Step 17b: Love Enhanced Insights (V2 — only for LOVE reading type)
+    love_enhanced = None
+    if reading_type and reading_type.upper() == 'LOVE':
+        from .love_enhanced import generate_love_pre_analysis
+        love_enhanced = generate_love_pre_analysis(
+            pillars=pillars,
+            day_master_stem=day_master_stem,
+            gender=gender,
+            five_elements_balance=five_elements_balance,
+            effective_gods=pre_analysis['effectiveFavorableGods'],
+            prominent_god=prominent_god,
+            strength_v2=pre_analysis['strengthV2'],
+            cong_ge=pre_analysis.get('congGe'),
+            luck_periods=luck_periods,
+            annual_stars=annual_stars,
+            monthly_stars=monthly_stars,
+            kong_wang=kong_wang,
+            all_shen_sha=all_shen_sha,
+            branch_relationships=pre_analysis.get('pillarRelationships', {}).get('branchRelationships'),
+            birth_year=birth_year,
+            current_year=target_year,
+        )
+
     # Step 18: Annual Enhanced Insights (V2 — only for ANNUAL reading type)
     annual_enhanced = None
     if reading_type and reading_type.upper() == 'ANNUAL':
@@ -404,6 +427,10 @@ def calculate_bazi(
     # Conditionally include annual enhanced insights
     if annual_enhanced is not None:
         result['annualEnhancedInsights'] = annual_enhanced
+
+    # Conditionally include love enhanced insights
+    if love_enhanced is not None:
+        result['loveEnhancedInsights'] = love_enhanced
 
     return result
 
