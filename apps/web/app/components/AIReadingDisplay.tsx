@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import styles from "./AIReadingDisplay.module.css";
-import { ENTERTAINMENT_DISCLAIMER } from "@repo/shared";
+import { ENTERTAINMENT_DISCLAIMER, LOVE_V2_SECTION_KEYS } from "@repo/shared";
 import type {
   AIReadingData,
   LifetimeV2DeterministicData,
@@ -1450,14 +1450,10 @@ export const V2_ALL_SECTION_KEYS = [
   'annual_love', 'annual_career', 'annual_finance', 'annual_health',
 ];
 
-/** Love V2 section keys in expected order */
-export const LOVE_V2_ALL_SECTION_KEYS = [
-  'love_personality', 'peach_blossom_analysis', 'natal_marriage',
-  'partner_matching', 'spouse_appearance',
-  'romance_good_years', 'romance_danger_years', 'marriage_change_years',
-  'love_summary',
-  // Call 2 dynamic sections (filled at runtime with YYYY/MM)
-];
+/** Love V2 static section keys — derived from shared constants */
+export const LOVE_V2_ALL_SECTION_KEYS = Object.values(LOVE_V2_SECTION_KEYS);
+// NOTE: Dynamic sections (annual_love_YYYY, monthly_love_MM) are NOT in this array —
+// they are generated at runtime and handled separately in the streaming logic.
 
 /** Annual V2 section keys in expected order */
 export const ANNUAL_V2_ALL_SECTION_KEYS = [

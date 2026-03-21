@@ -410,6 +410,25 @@ export const ENTERTAINMENT_DISCLAIMER: Record<Language, string> = {
 };
 
 // ============================================================
+// Love V2 Section Keys (single source of truth for frontend)
+// ============================================================
+// NOTE: NestJS files (ai.service.ts, prompts.ts) keep local string literals
+// because @repo/shared has a known runtime import issue with NestJS.
+// These constants are the canonical source — backend literals must stay in sync.
+
+export const LOVE_V2_SECTION_KEYS = {
+  PERSONALITY: 'love_personality',
+  PEACH_BLOSSOM: 'peach_blossom_analysis',
+  NATAL_MARRIAGE: 'natal_marriage',
+  PARTNER_MATCHING: 'partner_matching',
+  SPOUSE_APPEARANCE: 'spouse_appearance',
+  ROMANCE_GOOD_YEARS: 'romance_good_years',
+  ROMANCE_DANGER_YEARS: 'romance_danger_years',
+  MARRIAGE_CHANGE_YEARS: 'marriage_change_years',
+  LOVE_SUMMARY: 'love_summary',
+} as const;
+
+// ============================================================
 // API Configuration
 // ============================================================
 

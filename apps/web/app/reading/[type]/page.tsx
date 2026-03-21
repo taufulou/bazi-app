@@ -190,8 +190,8 @@ export default function ReadingPage() {
   // Cache hit notification
   const [cacheToast, setCacheToast] = useState(false);
 
-  // Career V2 two-phase state
-  const [showCareerPaywall, setShowCareerPaywall] = useState(false);
+  // Two-phase paywall state (used by Career, Annual, Love readings)
+  const [showPaywall, setShowPaywall] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
 
   // SSE stream cleanup ref (for LIFETIME streaming)
@@ -235,10 +235,10 @@ export default function ReadingPage() {
 
   // Scroll paywall CTA into view after chart reveal finishes
   useEffect(() => {
-    if (showCareerPaywall && !isRevealing && paywallRef.current) {
+    if (showPaywall && !isRevealing && paywallRef.current) {
       paywallRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-  }, [showCareerPaywall, isRevealing]);
+  }, [showPaywall, isRevealing]);
 
   // Auto-scroll: detect user manual scroll to disable
   useEffect(() => {
@@ -733,19 +733,19 @@ export default function ReadingPage() {
           await callDirectEngine(data, lunarDate);
           // Store form values for refresh resilience
           try { sessionStorage.setItem('career_form', JSON.stringify(data)); } catch { /* quota */ }
-          setShowCareerPaywall(true);
+          setShowPaywall(true);
           setIsLoading(false);
         } else if (isAnnual) {
           // Annual Phase 1: Chart only → paywall CTA, same flow as career
           await callDirectEngine(data, lunarDate);
           try { sessionStorage.setItem('annual_form', JSON.stringify(data)); } catch { /* quota */ }
-          setShowCareerPaywall(true);
+          setShowPaywall(true);
           setIsLoading(false);
         } else if (isLove) {
           // Love Phase 1: Chart only → paywall CTA, same flow as career/annual
           await callDirectEngine(data, lunarDate);
           try { sessionStorage.setItem('love_form', JSON.stringify(data)); } catch { /* quota */ }
-          setShowCareerPaywall(true);
+          setShowPaywall(true);
           setIsLoading(false);
         } else if (isSignedIn && birthProfileId) {
           // Route through NestJS: chart shows immediately, AI loads in background
@@ -899,14 +899,14 @@ export default function ReadingPage() {
       // Only update UI state AFTER successful call
       // Do NOT reset revealedSections — chart stays from Phase 1
       setIsChartOnly(false);
-      setShowCareerPaywall(false);
+      setShowPaywall(false);
       // Clean up sessionStorage since reading is now saved
       try {
         sessionStorage.removeItem(`${sessionKey}_form`);
       } catch { /* ignore */ }
     } catch (err) {
       // Re-show paywall + show error
-      setShowCareerPaywall(true);
+      setShowPaywall(true);
       setIsChartOnly(true);
       const message = err instanceof Error ? err.message : '解鎖失敗，請再試一次';
       if (message.includes("Insufficient credits")) {
@@ -951,7 +951,7 @@ export default function ReadingPage() {
       if (savedReadingId && isSignedIn) {
         recoverPaidReading(savedReadingId, 'career');
       } else {
-        setShowCareerPaywall(true);
+        setShowPaywall(true);
       }
     }).catch(() => {
       setIsLoading(false);
@@ -992,7 +992,7 @@ export default function ReadingPage() {
       if (savedReadingId && isSignedIn) {
         recoverPaidReading(savedReadingId, 'annual');
       } else {
-        setShowCareerPaywall(true);
+        setShowPaywall(true);
       }
     }).catch(() => {
       setIsLoading(false);
@@ -1028,7 +1028,7 @@ export default function ReadingPage() {
       if (savedReadingId && isSignedIn) {
         recoverPaidReading(savedReadingId, 'love');
       } else {
-        setShowCareerPaywall(true);
+        setShowPaywall(true);
       }
     }).catch(() => {
       setIsLoading(false);
@@ -1039,7 +1039,7 @@ export default function ReadingPage() {
 
   async function recoverPaidReading(readingId: string, sessionKeyPrefix: string) {
     const token = await getToken();
-    if (!token) { setShowCareerPaywall(true); return; }
+    if (!token) { setShowPaywall(true); return; }
 
     try {
       const existing = await getReading(token, readingId);
@@ -1050,7 +1050,7 @@ export default function ReadingPage() {
         setChartData(existing.calculationData);
         setIsChartOnly(false);
         setIsPaidReading(true);
-        setShowCareerPaywall(false);
+        setShowPaywall(false);
         // Clean up sessionStorage
         try {
           sessionStorage.removeItem(`${sessionKeyPrefix}_form`);
@@ -1087,15 +1087,15 @@ export default function ReadingPage() {
           onSummary: (summary) => {
             setAiData((prev) => ({ ...prev!, summary: { text: summary.full || summary.preview } }));
           },
-          onDone: () => { setIsAiLoading(false); setShowCareerPaywall(false); },
-          onError: () => { setIsAiLoading(false); setShowCareerPaywall(true); },
+          onDone: () => { setIsAiLoading(false); setShowPaywall(false); },
+          onError: () => { setIsAiLoading(false); setShowPaywall(true); },
           onCallComplete: () => {},
         });
         streamCleanupRef.current = () => stream.close();
       }
     } catch {
       // Reading not found or error → show paywall again
-      setShowCareerPaywall(true);
+      setShowPaywall(true);
       try { sessionStorage.removeItem(`${sessionKeyPrefix}_reading_id`); } catch { /* ignore */ }
     }
   }
@@ -1300,7 +1300,7 @@ export default function ReadingPage() {
             )}
 
             {/* Career Paywall CTA — below chart, after reveal finishes */}
-            {isCareer && showCareerPaywall && !isAiLoading && !isRevealing && (
+            {isCareer && showPaywall && !isAiLoading && !isRevealing && (
               <div ref={paywallRef}>
                 <CareerPaywallCTA
                   creditCost={meta?.creditCost ?? 3}
@@ -1316,7 +1316,7 @@ export default function ReadingPage() {
             )}
 
             {/* Annual Paywall CTA — below chart, after reveal finishes */}
-            {isAnnual && showCareerPaywall && !isAiLoading && !isRevealing && (
+            {isAnnual && showPaywall && !isAiLoading && !isRevealing && (
               <div ref={paywallRef}>
                 <AnnualPaywallCTA
                   creditCost={meta?.creditCost ?? 3}
@@ -1332,7 +1332,7 @@ export default function ReadingPage() {
             )}
 
             {/* Love Paywall CTA — below chart, after reveal finishes */}
-            {isLove && showCareerPaywall && !isAiLoading && !isRevealing && (
+            {isLove && showPaywall && !isAiLoading && !isRevealing && (
               <div ref={paywallRef}>
                 <LovePaywallCTA
                   creditCost={meta?.creditCost ?? 3}
@@ -1348,7 +1348,7 @@ export default function ReadingPage() {
             )}
 
             {/* AI Divider — full-page layout only, hidden during chart reveal */}
-            {isFullPageLayout && !isRevealing && !showCareerPaywall && (aiData || isAiLoading) && (
+            {isFullPageLayout && !isRevealing && !showPaywall && (aiData || isAiLoading) && (
               <div className={`${styles.aiDivider} ${styles.fadeInSection}`}>
                 <span className={styles.aiDividerIcon} aria-hidden="true">📝</span>
                 <span>命理解讀</span>
@@ -1386,7 +1386,7 @@ export default function ReadingPage() {
             {/* AI Reading — hidden during reveal for full-page layout, tab-gated for others */}
             {(isFullPageLayout || tab === "reading") && (
               isFullPageLayout ? (
-                !isRevealing && !showCareerPaywall && (aiData || isAiLoading) && <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} summaryPosition="bottom" chartData={chartData} />
+                !isRevealing && !showPaywall && (aiData || isAiLoading) && <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} summaryPosition="bottom" chartData={chartData} />
               ) : (
                 <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} chartData={chartData} />
               )

@@ -85,6 +85,12 @@ function extractAnnualEnhanced(cd: Record<string, unknown>): Record<string, unkn
   return cd?.annualEnhancedInsights as Record<string, unknown> | undefined;
 }
 
+function extractLoveEnhanced(cd: Record<string, unknown>): Record<string, unknown> | undefined {
+  const lei = cd?.loveEnhancedInsights as Record<string, unknown> | undefined;
+  if (!lei) return undefined;
+  return (lei.deterministic || undefined) as Record<string, unknown> | undefined;
+}
+
 // --- Annual English→Chinese translation maps (Python engine returns English enums) ---
 const IMPACT_ZH: Record<string, string> = {
   'positive': '有利', 'negative': '不利', 'very_positive': '非常有利',
@@ -1708,6 +1714,409 @@ function buildAnnualMonthly(cd: Record<string, unknown>, monthIndex: number): Te
 }
 
 // ============================================================
+// Love V2 Builders
+// ============================================================
+// Data path: chartData.loveEnhancedInsights.deterministic (raw Python, ALL snake_case)
+// Dual-access pattern: snake_case first || camelCase fallback (future-proof)
+
+function buildLovePersonality(cd: Record<string, unknown>): TechRefGroup[] {
+  const det = extractLoveEnhanced(cd);
+  if (!det) return [];
+  const lp = (det.love_personality || det.lovePersonality || {}) as Record<string, unknown>;
+  if (!lp || Object.keys(lp).length === 0) return [];
+
+  const groups: TechRefGroup[] = [];
+  groups.push(
+    ...filterNull([
+      buildGroup('【戀愛性格原型】', [
+        { label: '性格原型', value: (lp.archetypeLabel || '') as string },
+        { label: '原型特質', value: (lp.archetypeTrait || '') as string },
+        { label: '五行戀愛風格', value: (lp.elementStyle || '') as string },
+      ]),
+      buildGroup('【十神與身強弱】', [
+        { label: '身強弱', value: STRENGTH_ZH[(lp.strengthClass || '') as string] || (lp.strengthClass || '') as string },
+        { label: '主導十神', value: (lp.dominantTenGod || '') as string },
+        { label: '出現次數', value: (lp.dominantCount as number) > 0 ? `${lp.dominantCount}次` : '' },
+      ]),
+    ]),
+  );
+
+  // Broader chart context: 日柱詳情
+  const fp = extractFourPillars(cd);
+  const dayPillar = fp?.day;
+  if (dayPillar) {
+    const items: TechRefItem[] = [
+      { label: '日柱', value: `${dayPillar.stem || ''}${dayPillar.branch || ''}（${dayPillar.tenGod || '日主'}）` },
+    ];
+    if (dayPillar.hiddenStemGods && dayPillar.hiddenStemGods.length > 0) {
+      items.push({
+        label: '日支藏干',
+        value: dayPillar.hiddenStemGods.map((h) => `${h.stem}（${h.tenGod}）`).join('、'),
+      });
+    }
+    groups.push(...filterNull([buildGroup('【日柱詳情】', items)]));
+  }
+
+  // 用忌神系統
+  const gods = getEffectiveGods(cd);
+  groups.push(
+    ...filterNull([
+      buildGroup('【用忌神系統】', [
+        { label: '用神', value: gods.usefulGod },
+        { label: '忌神', value: gods.tabooGod },
+      ]),
+    ]),
+  );
+
+  return groups;
+}
+
+function buildPeachBlossom(cd: Record<string, unknown>): TechRefGroup[] {
+  const det = extractLoveEnhanced(cd);
+  if (!det) return [];
+  const pb = (det.peach_blossoms || det.peachBlossoms || {}) as Record<string, unknown>;
+  if (!pb || Object.keys(pb).length === 0) return [];
+
+  const posCount = (pb.positive_count ?? pb.positiveCount ?? 0) as number;
+  const negCount = (pb.negative_count ?? pb.negativeCount ?? 0) as number;
+  const posTypes = (pb.positive_types || pb.positiveTypes || []) as string[];
+  const negTypes = (pb.negative_types || pb.negativeTypes || []) as string[];
+  const summary = (pb.summary || '') as string;
+
+  const groups: TechRefGroup[] = [];
+  groups.push(
+    ...filterNull([
+      buildGroup('【桃花統計】', [
+        { label: '正桃花數量', value: `${posCount}個` },
+        { label: '爛桃花數量', value: `${negCount}個` },
+        { label: '桃花總評', value: summary },
+      ]),
+    ]),
+  );
+
+  if (posCount > 0 && posTypes.length > 0) {
+    const g = buildGroup('【正桃花類型】', [
+      { label: '類型', value: posTypes.join('、') },
+    ]);
+    if (g) groups.push(g);
+  }
+  if (negCount > 0 && negTypes.length > 0) {
+    const g = buildGroup('【爛桃花類型】', [
+      { label: '類型', value: negTypes.join('、') },
+    ]);
+    if (g) groups.push(g);
+  }
+
+  // Broader chart context: 相關神煞
+  const shensha = buildShenShaGroup(cd, 'love');
+  if (shensha) groups.push(shensha);
+
+  return groups;
+}
+
+function buildNatalMarriage(cd: Record<string, unknown>): TechRefGroup[] {
+  const det = extractLoveEnhanced(cd);
+  if (!det) return [];
+  const ss = (det.spouse_star || det.spouseStar || {}) as Record<string, unknown>;
+  const ti = (det.timing_indicators || det.timingIndicators || {}) as Record<string, unknown>;
+
+  const challenges = (ss.challenges || []) as string[];
+  const earlySignals = (ti.earlySignals || ti.early_signals || []) as string[];
+  const lateSignals = (ti.lateSignals || ti.late_signals || []) as string[];
+
+  const groups: TechRefGroup[] = [];
+  groups.push(
+    ...filterNull([
+      buildGroup('【配偶星】', [
+        { label: '配偶星', value: (ss.star || '') as string },
+        { label: '透出狀態', value: (ss.visibility || '') as string },
+        { label: '喜忌角色', value: (ss.role || '') as string },
+        { label: '身財平衡', value: (ss.balance || '') as string },
+        { label: '平衡描述', value: (ss.balance_desc || ss.balanceDesc || '') as string },
+      ]),
+      challenges.length > 0
+        ? buildGroup('【姻緣挑戰】', [
+            { label: '挑戰類型', value: challenges.join('、') },
+          ])
+        : null,
+      buildGroup('【婚期信號】', [
+        { label: '早婚信號', value: earlySignals.length > 0 ? earlySignals.join('、') : '無' },
+        { label: '晚婚信號', value: lateSignals.length > 0 ? lateSignals.join('、') : '無' },
+      ]),
+    ]),
+  );
+
+  // Broader chart context: 配偶星位置分佈 + 透干狀態
+  const pa = extractPreAnalysis(cd);
+  const spouseStarName = (ss.star || '') as string;
+  // Map spouse star → search types (正財↔偏財, 正官↔偏官)
+  const SPOUSE_STAR_PAIRS: Record<string, string[]> = {
+    '正財': ['正財', '偏財'], '偏財': ['偏財', '正財'],
+    '正官': ['正官', '偏官'], '偏官': ['偏官', '正官'],
+  };
+  const searchTypes = SPOUSE_STAR_PAIRS[spouseStarName] || [];
+  if (pa && searchTypes.length > 0) {
+    const positions = filterTenGodPositions(pa, searchTypes);
+    if (positions.length > 0) {
+      groups.push(
+        ...filterNull([
+          buildGroup('【配偶星位置分佈】', searchTypes.map((t) => ({
+            label: t,
+            value: formatTenGodLocations(positions, t),
+          }))),
+        ]),
+      );
+    }
+
+    const tougan = filterTougan(pa, searchTypes);
+    if (tougan.length > 0) {
+      groups.push(
+        ...filterNull([
+          buildGroup('【配偶星透干狀態】', tougan.map((t) => ({
+            label: t.tenGod,
+            value: t.stem
+              ? `${t.tenGod}（${t.stem}）${t.status === 'transparent' ? '透出 ✓' : '藏支未透'}`
+              : t.status === 'transparent' ? '透出 ✓' : '藏支未透',
+          }))),
+        ]),
+      );
+    }
+  }
+
+  return groups;
+}
+
+function buildPartnerMatching(cd: Record<string, unknown>): TechRefGroup[] {
+  const det = extractLoveEnhanced(cd);
+  if (!det) return [];
+  const pr = (det.partner_recommendations || det.partnerRecommendations || {}) as Record<string, unknown>;
+  if (!pr || Object.keys(pr).length === 0) return [];
+
+  const favorable = (pr.favorable || []) as string[];
+  const favorableSec = (pr.favorable_secondary || pr.favorableSecondary || []) as string[];
+  const avoidance = (pr.avoidance || []) as string[];
+  const seasons = (pr.favorable_seasons || pr.favorableSeasons || []) as Array<Record<string, string>>;
+
+  const groups: TechRefGroup[] = [];
+  groups.push(
+    ...filterNull([
+      buildGroup('【生肖婚配】', [
+        { label: '最佳生肖', value: favorable.join('、') },
+        { label: '次佳生肖', value: favorableSec.join('、') },
+        { label: '宜避開生肖', value: avoidance.join('、') },
+      ]),
+    ]),
+  );
+
+  if (seasons.length > 0) {
+    const seasonItems: TechRefItem[] = seasons.map((s) => ({
+      label: `${s.element || ''}行（${s.role || ''}）`,
+      value: `${s.season || ''}（${s.months || ''}）`,
+    }));
+    const g = buildGroup('【有利季節】', seasonItems);
+    if (g) groups.push(g);
+  }
+
+  // Broader chart context: 用忌神系統
+  const gods = getEffectiveGods(cd);
+  groups.push(
+    ...filterNull([
+      buildGroup('【用忌神系統】', [
+        { label: '用神', value: gods.usefulGod },
+        { label: '忌神', value: gods.tabooGod },
+      ]),
+    ]),
+  );
+
+  return groups;
+}
+
+function buildSpouseAppearance(cd: Record<string, unknown>): TechRefGroup[] {
+  const det = extractLoveEnhanced(cd);
+  if (!det) return [];
+  const mp = (det.marriage_palace || det.marriagePalace || {}) as Record<string, unknown>;
+  if (!mp || Object.keys(mp).length === 0) return [];
+
+  const isKongWang = (mp.is_kong_wang ?? mp.isKongWang ?? false) as boolean;
+
+  const groups: TechRefGroup[] = [];
+  groups.push(
+    ...filterNull([
+      buildGroup('【婚姻宮（日支）】', [
+        { label: '日支', value: (mp.day_branch || mp.dayBranch || '') as string },
+        { label: '宮位五行', value: (mp.element || '') as string },
+        { label: '宮位十神', value: (mp.ten_god || mp.tenGod || '') as string },
+        { label: '十二長生', value: (mp.twelve_stage || mp.twelveStage || '') as string },
+        { label: '空亡', value: isKongWang ? '是（緣分減弱）' : '否' },
+      ]),
+      buildGroup('【外貌評級】', [
+        { label: '外貌等級', value: (mp.appearance_grade || mp.appearanceGrade || '') as string },
+        { label: '外貌特徵', value: (mp.appearance_note || mp.appearanceNote || '') as string },
+      ]),
+    ]),
+  );
+
+  // Broader chart context: 日柱天干與藏干 (dayBranch already shown above, so only dayStem + hiddenStemGods)
+  const fp = extractFourPillars(cd);
+  const dayPillar = fp?.day;
+  if (dayPillar) {
+    const items: TechRefItem[] = [
+      { label: '日干', value: `${dayPillar.stem || ''}（${dayPillar.tenGod || '日主'}）` },
+    ];
+    if (dayPillar.hiddenStemGods && dayPillar.hiddenStemGods.length > 0) {
+      items.push({
+        label: '日支藏干',
+        value: dayPillar.hiddenStemGods.map((h) => `${h.stem}（${h.tenGod}）`).join('、'),
+      });
+    }
+    groups.push(...filterNull([buildGroup('【日柱天干與藏干】', items)]));
+  }
+
+  return groups;
+}
+
+function buildRomanceGoodYears(cd: Record<string, unknown>): TechRefGroup[] {
+  const det = extractLoveEnhanced(cd);
+  if (!det) return [];
+  const rt = (det.romance_timeline || det.romanceTimeline || {}) as Record<string, unknown>;
+  const goodYears = (rt.good_years || rt.goodYears || []) as Array<Record<string, unknown>>;
+  if (goodYears.length === 0) return [];
+
+  const items: TechRefItem[] = goodYears.slice(0, 10).map((y) => {
+    const year = y.year as number;
+    const type = (y.type || '') as string;
+    const conflicted = y.conflicted as boolean;
+    const detail = (y.conflicted_detail || y.conflictedDetail || '') as string;
+    const suffix = conflicted && detail ? ` ⚠ ${detail}` : '';
+    return { label: `${year}年`, value: `${type}${suffix}` };
+  });
+
+  const groups: TechRefGroup[] = filterNull([buildGroup('【桃花好年一覽】', items)]);
+
+  // Broader chart context: 相關神煞
+  const shensha = buildShenShaGroup(cd, 'love');
+  if (shensha) groups.push(shensha);
+
+  return groups;
+}
+
+function buildRomanceDangerYears(cd: Record<string, unknown>): TechRefGroup[] {
+  const det = extractLoveEnhanced(cd);
+  if (!det) return [];
+  const rt = (det.romance_timeline || det.romanceTimeline || {}) as Record<string, unknown>;
+  const dangerYears = (rt.danger_years || rt.dangerYears || []) as Array<Record<string, unknown>>;
+  if (dangerYears.length === 0) return [];
+
+  const items: TechRefItem[] = dangerYears.slice(0, 10).map((d) => ({
+    label: `${d.year}年`,
+    value: (d.trigger || '') as string,
+  }));
+
+  const groups: TechRefGroup[] = filterNull([buildGroup('【桃花劫年份】', items)]);
+
+  // Broader chart context: 相關神煞
+  const shensha = buildShenShaGroup(cd, 'love');
+  if (shensha) groups.push(shensha);
+
+  return groups;
+}
+
+function buildMarriageChangeYears(cd: Record<string, unknown>): TechRefGroup[] {
+  const det = extractLoveEnhanced(cd);
+  if (!det) return [];
+  const rt = (det.romance_timeline || det.romanceTimeline || {}) as Record<string, unknown>;
+  const changeYears = (rt.change_years || rt.changeYears || []) as Array<Record<string, unknown>>;
+  if (changeYears.length === 0) return [];
+
+  const items: TechRefItem[] = changeYears.slice(0, 10).map((c) => ({
+    label: `${c.year}年`,
+    value: (c.type || '') as string,
+  }));
+
+  const groups: TechRefGroup[] = filterNull([buildGroup('【感情變動年份】', items)]);
+
+  // Broader chart context: 配偶宮概要
+  const fp = extractFourPillars(cd);
+  const dayPillar = fp?.day;
+  if (dayPillar) {
+    groups.push(
+      ...filterNull([
+        buildGroup('【配偶宮概要】', [
+          { label: '日支', value: dayPillar.branch || '' },
+          { label: '配偶宮十神', value: dayPillar.tenGod || '日主' },
+        ]),
+      ]),
+    );
+  }
+
+  return groups;
+}
+
+function buildLoveSummary(cd: Record<string, unknown>): TechRefGroup[] {
+  const det = extractLoveEnhanced(cd);
+  if (!det) return [];
+
+  const ss = (det.spouse_star || det.spouseStar || {}) as Record<string, unknown>;
+  const pb = (det.peach_blossoms || det.peachBlossoms || {}) as Record<string, unknown>;
+  const ti = (det.timing_indicators || det.timingIndicators || {}) as Record<string, unknown>;
+  const ap = (det.active_luck_period || det.activeLuckPeriod || undefined) as Record<string, unknown> | undefined;
+
+  const posCount = (pb.positive_count ?? pb.positiveCount ?? 0) as number;
+  const negCount = (pb.negative_count ?? pb.negativeCount ?? 0) as number;
+  const earlySignals = (ti.earlySignals || ti.early_signals || []) as string[];
+  const lateSignals = (ti.lateSignals || ti.late_signals || []) as string[];
+
+  const groups: TechRefGroup[] = [];
+  groups.push(
+    ...filterNull([
+      buildGroup('【命盤概況】', [
+        { label: '配偶星', value: `${(ss.star || '') as string}（${(ss.visibility || '') as string}）` },
+        { label: '喜忌角色', value: (ss.role || '') as string },
+        { label: '桃花概況', value: `正${posCount}個 / 負${negCount}個` },
+        { label: '身財平衡', value: (ss.balance || '') as string },
+      ]),
+    ]),
+  );
+
+  if (ap) {
+    const stem = (ap.stem || '') as string;
+    const branch = (ap.branch || '') as string;
+    const tenGod = (ap.tenGod || ap.ten_god || '') as string;
+    const startYear = (ap.startYear ?? ap.start_year ?? '') as number | string;
+    const endYear = (ap.endYear ?? ap.end_year ?? '') as number | string;
+    const g = buildGroup('【當前大運】', [
+      { label: '大運', value: `${stem}${branch}（${tenGod}）` },
+      { label: '期間', value: startYear && endYear ? `${startYear}–${endYear}` : '' },
+    ]);
+    if (g) groups.push(g);
+  }
+
+  const sigG = buildGroup('【婚期信號】', [
+    { label: '早婚信號', value: earlySignals.length > 0 ? `${earlySignals.length}個` : '無' },
+    { label: '晚婚信號', value: lateSignals.length > 0 ? `${lateSignals.length}個` : '無' },
+  ]);
+  if (sigG) groups.push(sigG);
+
+  // Broader chart context: 用忌神系統 (full 5-god) + 相關神煞
+  const gods = getEffectiveGods(cd);
+  groups.push(
+    ...filterNull([
+      buildGroup('【用忌神系統】', [
+        { label: '用神', value: gods.usefulGod },
+        { label: '喜神', value: gods.favorableGod },
+        { label: '忌神', value: gods.tabooGod },
+        { label: '仇神', value: gods.enemyGod },
+        { label: '閒神', value: gods.idleGod },
+      ]),
+    ]),
+  );
+  const shensha = buildShenShaGroup(cd, 'love');
+  if (shensha) groups.push(shensha);
+
+  return groups;
+}
+
+// ============================================================
 // Utility
 // ============================================================
 
@@ -1748,4 +2157,14 @@ export const SECTION_TECH_BUILDERS: Record<string, TechRefBuilder> = {
       (cd: Record<string, unknown>) => buildAnnualMonthly(cd, i + 1),
     ])
   ),
+  // Love V2 core sections
+  love_personality: buildLovePersonality,
+  peach_blossom_analysis: buildPeachBlossom,
+  natal_marriage: buildNatalMarriage,
+  partner_matching: buildPartnerMatching,
+  spouse_appearance: buildSpouseAppearance,
+  romance_good_years: buildRomanceGoodYears,
+  romance_danger_years: buildRomanceDangerYears,
+  marriage_change_years: buildMarriageChangeYears,
+  love_summary: buildLoveSummary,
 };

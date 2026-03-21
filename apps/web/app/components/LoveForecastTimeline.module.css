@@ -7,8 +7,8 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  background: linear-gradient(135deg, rgba(233, 30, 99, 0.06) 0%, rgba(255, 107, 157, 0.06) 100%);
-  border: 1px solid rgba(233, 30, 99, 0.15);
+  background: linear-gradient(135deg, var(--color-love-light) 0%, rgba(255, 107, 157, 0.06) 100%);
+  border: 1px solid var(--color-love-bg);
   border-radius: var(--radius-md);
   padding: 0.6rem 1rem;
   margin-bottom: 1rem;
@@ -29,7 +29,7 @@
   font-family: 'Noto Serif TC', serif;
   font-size: 1rem;
   font-weight: 700;
-  color: #E91E63;
+  color: var(--color-love);
 }
 
 .lpTenGod {
@@ -163,8 +163,8 @@
 .interactionTag {
   font-size: 0.72rem;
   color: var(--text-secondary);
-  background: rgba(233, 30, 99, 0.06);
-  border: 1px solid rgba(233, 30, 99, 0.12);
+  background: var(--color-love-light);
+  border: 1px solid rgba(var(--color-love-rgb), 0.12);
   border-radius: 8px;
   padding: 0.1rem 0.4rem;
 }
@@ -175,68 +175,7 @@
   line-height: 1.8;
 }
 
-/* Gold bullet list (matching AIReadingDisplay pattern) */
-.goldBulletList {
-  list-style: none;
-  margin: 0 0 0.8rem 0;
-  padding: 0;
-}
-
-li.goldBulletItem {
-  position: relative;
-  padding-left: 0.55rem;
-  margin-bottom: 0.8rem;
-  line-height: 1.8;
-}
-
-li.goldBulletItemCategory {
-  margin-left: 1rem;
-}
-
-.goldBulletItem::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0.7em;
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--color-gold), var(--color-orange));
-  box-shadow: 0 0 3px rgba(212, 160, 23, 0.4);
-}
-
-.contentSubHeader {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--text-accent, #C41E3A);
-  margin: 1rem 0 0.4rem 0;
-  font-family: var(--font-noto-serif-tc), serif;
-}
-
-.contentParagraph {
-  margin: 0 0 0.6rem 0;
-  line-height: 1.8;
-}
-
-.bulletCategory {
-  display: inline-block;
-  font-weight: 700;
-  color: var(--color-gold, #B8860B);
-  font-family: var(--font-noto-serif-tc), serif;
-  margin-right: 0.15rem;
-}
-
-.bulletCategory::after {
-  content: '：';
-  color: var(--text-muted, #8B7355);
-  font-weight: 400;
-}
-
-.bulletCategoryItems {
-  display: inline;
-  color: var(--text-secondary, #6B5940);
-  font-size: 0.90em;
-}
+/* Gold bullet list styles moved to narrative-utils.module.css */
 
 /* Streaming skeleton */
 .skeletonContent {
@@ -304,12 +243,12 @@ li.goldBulletItemCategory {
 }
 
 .starFull {
-  color: #ffd700;
+  color: var(--color-gold-light, #ffd700);
   font-size: 0.95rem;
 }
 
 .starEmpty {
-  color: #d0c4b0;
+  color: var(--text-muted, #d0c4b0);
   font-size: 0.95rem;
 }
 
@@ -325,7 +264,7 @@ li.goldBulletItemCategory {
   position: absolute;
   left: 0;
   top: 0;
-  color: #d0c4b0;
+  color: var(--text-muted, #d0c4b0);
 }
 
 .starHalfFilled {
@@ -334,5 +273,5 @@ li.goldBulletItemCategory {
   top: 0;
   overflow: hidden;
   width: 50%;
-  color: #ffd700;
+  color: var(--color-gold-light, #ffd700);
 }

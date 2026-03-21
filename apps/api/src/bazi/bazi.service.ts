@@ -300,7 +300,10 @@ export class BaziService {
         deterministic = deepCamelCase(enhancedInsights) as Record<string, unknown>;
       } else {
         const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
-        // Shallow convert for non-annual types (preserves existing behavior)
+        // NOTE: Love deterministic data receives shallow camelCase here (top-level keys only).
+        // Nested objects (annualForecasts items, goodYears, etc.) retain snake_case.
+        // Frontend normalizeLoveDeterministic() applies deepCamelCase to handle this.
+        // Do NOT remove the frontend deepCamelCase — it is required for nested fields.
         deterministic = {};
         for (const [key, value] of Object.entries(rawDeterministic)) {
           const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());

@@ -41,6 +41,12 @@
   --radius-lg: 16px;
   --radius-xl: 20px;
 
+  /* Love accent */
+  --color-love: #E91E63;
+  --color-love-rgb: 233, 30, 99;
+  --color-love-bg: rgba(233, 30, 99, 0.15);
+  --color-love-light: rgba(233, 30, 99, 0.08);
+
   /* ZWDS accent */
   --color-zwds: #8B5CF6;
   --color-zwds-light: #A78BFA;

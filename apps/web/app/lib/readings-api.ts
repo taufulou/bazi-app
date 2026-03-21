@@ -951,6 +951,11 @@ export function normalizeAnnualDeterministic(
  * Normalize raw love V2 deterministic data from the API.
  * Applies deep camelCase conversion and returns a typed object.
  * Returns null if the data doesn't look like love V2 deterministic.
+ *
+ * deepCamelCase is required because NestJS only does shallow camelCase conversion.
+ * Nested objects like annualForecasts[].isGoodYear arrive as snake_case from the API.
+ * deepCamelCase is idempotent — safe even if the API later switches to deep conversion,
+ * so this normalization is future-safe. Do NOT remove.
  */
 export function normalizeLoveDeterministic(
   raw: Record<string, unknown> | undefined,
