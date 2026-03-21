@@ -18,7 +18,8 @@ export function renderNarrativeContent(text: string): React.ReactNode {
           const colonIdx = item.indexOf('：');
           if (colonIdx > 0 && colonIdx < item.length - 1) {
             const afterColon = item.slice(colonIdx + 1).trim();
-            if (afterColon.includes('、')) {
+            const segments = afterColon.split('、');
+            if (segments.length >= 3 && segments.every(s => s.trim().length <= 8)) {
               const category = item.slice(0, colonIdx);
               return (
                 <li key={i} className={`${styles.goldBulletItem} ${styles.goldBulletItemCategory}`}>

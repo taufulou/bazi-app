@@ -1833,7 +1833,7 @@ export default function AIReadingDisplay({
       {/* Love V2: Annual Forecast Timeline + Monthly Grid (after all AI sections).
           Hidden until at least one AI narrative section arrives.
           Non-subscribers see deterministic data only (narratives=undefined). */}
-      {isLoveV2 && loveDet && (() => {
+      {isLoveV2 && loveDet && (!isStreaming || !isSubscriber) && (() => {
         // Collect AI narratives from sections
         const annualNarratives: Record<string, string> = {};
         const monthlyNarratives: Record<string, string> = {};

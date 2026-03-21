@@ -4,6 +4,7 @@
  */
 
 import { apiFetch } from './api';
+import { LOVE_V2_SECTION_KEYS } from '@repo/shared';
 
 // ============================================================
 // Slug → Backend Enum Mapping
@@ -695,19 +696,10 @@ export const LOVE_V2_SECTION_ORDER = [
   // annual_love_YYYY and monthly_love_MM are appended dynamically
 ];
 
-/** All expected love V2 section keys (for progress tracking) */
-export const LOVE_V2_ALL_SECTION_KEYS = [
-  'love_personality',
-  'peach_blossom_analysis',
-  'natal_marriage',
-  'partner_matching',
-  'spouse_appearance',
-  'romance_good_years',
-  'romance_danger_years',
-  'marriage_change_years',
-  'love_summary',
-  // 5 annual + 12 monthly = 17 dynamic keys added at runtime
-];
+/** All expected love V2 section keys (for progress tracking).
+ *  Derived from shared constants — single source of truth.
+ *  5 annual + 12 monthly = 17 dynamic keys added at runtime. */
+export const LOVE_V2_ALL_SECTION_KEYS = Object.values(LOVE_V2_SECTION_KEYS);
 
 /** Annual V2 section display order (controls rendering sequence). */
 export const ANNUAL_V2_SECTION_ORDER = [

@@ -1,10 +1,10 @@
 .container {
   background: var(--bg-card);
-  border: 1px solid rgba(233, 30, 99, 0.15);
+  border: 1px solid var(--color-love-bg);
   border-radius: var(--radius-lg);
   padding: 1.75rem 1.5rem;
   margin: 1.5rem 0;
-  box-shadow: 0 4px 20px rgba(233, 30, 99, 0.08);
+  box-shadow: 0 4px 20px rgba(var(--color-love-rgb), 0.08);
   text-align: center;
 }
 
@@ -23,7 +23,7 @@
 .headerTitle {
   font-family: 'Noto Serif TC', serif;
   font-size: 1.25rem;
-  color: #C2185B;
+  color: var(--color-love);
   margin: 0;
 }
 
@@ -48,8 +48,8 @@
   display: inline-block;
   font-size: 0.8rem;
   color: var(--text-secondary);
-  background: rgba(233, 30, 99, 0.06);
-  border: 1px solid rgba(233, 30, 99, 0.12);
+  background: rgba(var(--color-love-rgb), 0.06);
+  border: 1px solid rgba(var(--color-love-rgb), 0.12);
   border-radius: 20px;
   padding: 0.3rem 0.75rem;
 }
@@ -70,18 +70,18 @@
   font-size: 1.05rem;
   font-weight: 600;
   color: #fff;
-  background: linear-gradient(135deg, #E91E63 0%, #F06292 100%);
+  background: linear-gradient(135deg, var(--color-love) 0%, rgba(var(--color-love-rgb), 0.7) 100%);
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
-  box-shadow: 0 4px 16px rgba(233, 30, 99, 0.25);
+  box-shadow: 0 4px 16px rgba(var(--color-love-rgb), 0.25);
   min-width: 260px;
 }
 
 .unlockBtn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(233, 30, 99, 0.35);
+  box-shadow: 0 6px 20px rgba(var(--color-love-rgb), 0.35);
 }
 
 .unlockBtn:active:not(:disabled) {
@@ -144,7 +144,7 @@
 
 .creditsLink {
   font-size: 0.85rem;
-  color: #C2185B;
+  color: var(--color-love);
   font-weight: 500;
   transition: opacity 0.15s;
 }
@@ -161,19 +161,19 @@
   font-size: 1.05rem;
   font-weight: 600;
   color: #fff;
-  background: linear-gradient(135deg, #E91E63 0%, #F06292 100%);
+  background: linear-gradient(135deg, var(--color-love) 0%, rgba(var(--color-love-rgb), 0.7) 100%);
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: transform 0.15s, box-shadow 0.15s;
-  box-shadow: 0 4px 16px rgba(233, 30, 99, 0.25);
+  box-shadow: 0 4px 16px rgba(var(--color-love-rgb), 0.25);
   min-width: 260px;
   text-decoration: none;
 }
 
 .loginBtn:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(233, 30, 99, 0.35);
+  box-shadow: 0 6px 20px rgba(var(--color-love-rgb), 0.35);
 }
 
 .loginHint {

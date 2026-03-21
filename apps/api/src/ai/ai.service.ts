@@ -2226,6 +2226,8 @@ export class AIService implements OnModuleInit {
         );
       }
     }
+    // Strip any unreplaced YYYY tokens (edge case: fewer than 5 annual forecasts)
+    outputFormatCall2 = outputFormatCall2.replace(/\n[^\n]*YYYY\d[^\n]*/g, '');
     outputFormatCall2 = outputFormatCall2.replace(
       /{ "preview"/g,
       '{ "score": <1-5的數字，支持0.5如3.5>, "preview"',
@@ -3632,6 +3634,8 @@ export class AIService implements OnModuleInit {
         );
       }
     }
+    // Strip any unreplaced YYYY tokens (edge case: fewer than 5 annual forecasts)
+    outputFormatCall2 = outputFormatCall2.replace(/\n[^\n]*YYYY\d[^\n]*/g, '');
 
     const userPromptCall1 = call1Template + '\n\n' + LOVE_V2_PROMPTS.outputFormatCall1;
     const userPromptCall2 = call2Template + '\n\n' + outputFormatCall2;
