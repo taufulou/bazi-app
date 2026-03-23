@@ -2924,7 +2924,7 @@ sections 的 key 必須為對應的 annual_love_YYYY 和 monthly_love_MM
 
 /** Local section keys — mirrors packages/shared for type safety but no runtime import */
 export const COMPAT_V2_SECTIONS = {
-  CALL1: ['chart_profile_a', 'chart_profile_b', 'love_personality_a', 'love_personality_b', 'spouse_enrichment_a', 'spouse_enrichment_b', 'marriage_wealth_a', 'marriage_wealth_b'] as const,
+  CALL1: ['compatibility_basis', 'chart_profile_a', 'chart_profile_b', 'love_personality_a', 'love_personality_b', 'spouse_enrichment_a', 'spouse_enrichment_b', 'marriage_wealth_a', 'marriage_wealth_b'] as const,
   CALL2: ['post_marriage_sweetness', 'post_marriage_stability', 'marriage_crisis_a', 'marriage_crisis_b', 'combined_crisis_analysis', 'marriage_advice'] as const,
   CALL3: ['annual_love_a', 'annual_love_b', 'compatibility_summary'] as const,
 };
@@ -3106,7 +3106,7 @@ compatibility_summary 專區寫作規則：
 
 /** Compatibility Romance V2 anti-hallucination rules */
 const COMPAT_ROMANCE_V2_ANTI_HALLUCINATION = `
-⚠️ 感情合盤 V2 反幻覺規則（22條 — 最高優先級）：
+⚠️ 感情合盤 V2 反幻覺規則（25條 — 最高優先級）：
 
 1. 所有十神關係、五行數據必須來自預分析，不可自行推算
 2. 旺夫/旺妻分數和等級必須與預分析完全一致，不可修改
@@ -3132,6 +3132,7 @@ const COMPAT_ROMANCE_V2_ANTI_HALLUCINATION = `
 22. ⚠️ 天干合化的受影響方必須嚴格引用錨點標註的方向（男方/女方），絕對不可搞混。「男方忌神」和「女方忌神」是完全不同的概念
 23. ⚠️ 五行補充建議「默認拒絕」原則：禁止建議「補充」「加強」「增加」「彌補」任何五行元素，除非該元素的 advice 欄位明確包含「宜適當補充」。忌神/仇神的元素「偏少」是有利的（代表命局自然壓制不良能量），只有 godRole 為用神/喜神且 advice 為「偏少不利，宜適當補充」的元素才可建議補充。若 fiveElementAssessment 中沒有 godRole 欄位，則禁止給出任何五行補充建議
 24. summary 提及當前大運時，必須引用 currentLuckPeriod 中的 elementRole 欄位（如「忌仇神主導，大運整體偏弱」），不可自行推斷大運好壞。流年好壞≠大運好壞：即使流年訊號良好，若大運為忌仇神主導仍應如實描述「大運整體偏弱，但今年流年訊號良好」
+25. compatibility_basis 的維度分數和評估等級必須完全使用提供的數據，禁止自行計算或修改任何維度分數。禁止使用「配對基礎」以外的維度名稱
 
 【絕對禁止事項】
 - 禁止推測具體結婚年份或離婚年份
@@ -3149,12 +3150,13 @@ const COMPAT_ROMANCE_V2_ANTI_HALLUCINATION = `
 - AI 必須將每條錨點事實融入該 section 的敘述中，不可忽略、不可篡改、不可與錨點矛盾
 - AI 的角色是將這些硬事實編織成流暢的感情合盤分析報告，而非自行推算結論`;
 
-/** Call 1 output format — 8 per-person sections */
+/** Call 1 output format — 9 sections (1 basis + 8 per-person) */
 const COMPAT_V2_OUTPUT_FORMAT_CALL1 = `
 請以下列 JSON 格式回覆，不要添加任何其他文字或 markdown 標記：
 
 {
   "sections": {
+    "compatibility_basis": { "preview": "50-70字，一句話概括配對基礎分析的重點（最大亮點和最大挑戰）", "full": "200-300字，💕⚠️💡 三段結構：\n    - 💕 優勢亮點：列出分數≥60的維度，用白話解釋每個維度代表什麼意思\n    - ⚠️ 注意事項：列出分數<40的維度，解釋這些挑戰的實際影響\n    - 💡 實戰建議：總結配對基礎的整體意義，強調分數不等於命運" },
     "chart_profile_a": { "preview": "男方命局概覽（50-70字）", "full": "男方命局完整概覽（200-300字）" },
     "chart_profile_b": { "preview": "女方命局概覽（50-70字）", "full": "女方命局完整概覽（200-300字）" },
     "love_personality_a": { "preview": "男方戀愛性格摘要（60-80字）", "full": "男方戀愛性格完整分析（350-450字）" },
@@ -3167,6 +3169,7 @@ const COMPAT_V2_OUTPUT_FORMAT_CALL1 = `
 }
 
 ⚠️ 字數控制是硬性要求：
+- compatibility_basis preview 50-70 字，full 200-300 字（💕⚠️💡 三段結構）
 - chart_profile preview 50-70 字，full 200-300 字（流暢段落，非結構化格式）
 - 其他 section preview 60-80 字，full 350-450 字
 - 直接輸出 JSON，不要用 \`\`\`json 或任何 markdown 包裹
@@ -3227,8 +3230,8 @@ const COMPAT_V2_OUTPUT_FORMAT_CALL3 = `
 export const COMPAT_ROMANCE_V2_PROMPTS = {
   systemAddition: COMPAT_ROMANCE_V2_ANTI_HALLUCINATION,
 
-  /** Call 1 user prompt — per-person sections (8) */
-  userTemplateCall1: `以下是雙方的八字排盤數據，請進行「感情合盤」V2 個人分析（第一部分：雙方命局概覽、戀愛性格、旺夫/旺妻、婚前婚後財富）：
+  /** Call 1 user prompt — basis + per-person sections (9) */
+  userTemplateCall1: `以下是雙方的八字排盤數據，請進行「感情合盤」V2 個人分析（第一部分：配對基礎分析、雙方命局概覽、戀愛性格、旺夫/旺妻、婚前婚後財富）：
 
 ⚠️ 本次分析以 {{currentYear}} 年為基準。
 
@@ -3262,6 +3265,10 @@ export const COMPAT_ROMANCE_V2_PROMPTS = {
 - 喜用神：{{favorableGodsB}}
 - 當前大運：{{currentLPB}}
 
+======== 配對基礎八維度（compatibility_basis section 專用）========
+{{dimensionBreakdown}}
+綜合配對契合度：{{adjustedScore}}分
+
 ======== 共用數據（所有 section 可引用）========
 男方五行評估：{{fiveElementAssessmentA}}
 女方五行評估：{{fiveElementAssessmentB}}
@@ -3289,7 +3296,7 @@ export const COMPAT_ROMANCE_V2_PROMPTS = {
 {{marriageWealthB}}
 
 請依照以下分區輸出分析：
-sections 的 key 必須為：chart_profile_a, chart_profile_b, love_personality_a, love_personality_b, spouse_enrichment_a, spouse_enrichment_b, marriage_wealth_a, marriage_wealth_b
+sections 的 key 必須為：compatibility_basis, chart_profile_a, chart_profile_b, love_personality_a, love_personality_b, spouse_enrichment_a, spouse_enrichment_b, marriage_wealth_a, marriage_wealth_b
 注意：不需要 summary（summary 在第三部分輸出）`,
 
   /** Call 2 user prompt — cross-chart sections (6) */

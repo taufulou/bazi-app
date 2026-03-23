@@ -436,6 +436,7 @@ export const LOVE_V2_SECTION_KEYS = {
 // NOTE: ke_fu_ke_qi_education is static frontend content, not an AI section.
 
 export const COMPAT_ROMANCE_V2_SECTION_KEYS = {
+  COMPATIBILITY_BASIS: 'compatibility_basis',
   CHART_PROFILE_A: 'chart_profile_a',
   CHART_PROFILE_B: 'chart_profile_b',
   LOVE_PERSONALITY_A: 'love_personality_a',

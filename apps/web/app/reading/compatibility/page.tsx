@@ -757,7 +757,7 @@ export default function CompatibilityPage() {
                       isSubscriber={true}
                       isLoading={false}
                       isStreaming={isStreaming}
-                      chartData={{ romancePreAnalysis: rpa, chartA, chartB, currentYear }}
+                      chartData={{ romancePreAnalysis: rpa, compatibilityPreAnalysis: calcData?.compatibilityPreAnalysis, chartA, chartB, currentYear }}
                       renderAfterSection={(key) =>
                         key === EDUCATION_INSERT_AFTER ? <KeFuKeQiEducation /> : null
                       }

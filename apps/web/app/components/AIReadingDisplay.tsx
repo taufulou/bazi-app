@@ -1162,6 +1162,45 @@ function _compatStrengthZh(dm: any): string {
   return `${label}${score ? `（${score}分）` : ''}`;
 }
 
+function getScoreLabel(score: number): string {
+  if (score >= 80) return '極佳';
+  if (score >= 65) return '良好';
+  if (score >= 50) return '普通';
+  if (score >= 40) return '需注意';
+  return '需要經營';
+}
+
+function CompatDimensionChart({ dimensions, totalScore }: { dimensions: any[]; totalScore: number }) {
+  return (
+    <div className={styles.dimChartContainer}>
+      <div className={styles.dimChartHeader}>
+        配對契合度 <strong>{totalScore}分</strong>
+      </div>
+      {dimensions.map((d: any, i: number) => {
+        const tier = d.score >= 70 ? 'Good' : d.score >= 50 ? 'Fair' : 'Poor';
+        return (
+          <div key={i} className={styles.dimChartRow}>
+            <span className={styles.dimChartLabel}>{d.dimension}</span>
+            <div className={styles.dimChartBarTrack}>
+              <div
+                className={styles.dimChartBarFill}
+                style={{
+                  width: `${d.score}%`,
+                  background: d.score >= 70 ? 'var(--color-success)' : d.score >= 50 ? 'var(--color-warning)' : 'var(--color-error)',
+                }}
+              />
+            </div>
+            <span className={styles.dimChartScore}>{d.score}</span>
+            <span className={`${styles.dimChartAssessment} ${styles[`dimAssess${tier}`]}`}>
+              {d.assessment}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Inline verdict badge for Compatibility Romance V2 sections */
 function CompatSectionBadge({ sectionKey, chartData }: { sectionKey: string; chartData: Record<string, unknown> | null | undefined }) {
   if (!chartData) return null;
@@ -1177,6 +1216,15 @@ function CompatSectionBadge({ sectionKey, chartData }: { sectionKey: string; cha
     score >= highThreshold ? 'positive' : score >= lowThreshold ? 'neutral' : 'negative';
 
   switch (sectionKey) {
+    case 'compatibility_basis': {
+      const compatPA = chartData?.compatibilityPreAnalysis as any;
+      if (!compatPA?.dimensionSummary) return null;
+      const totalScore = compatPA.adjustedScore ?? 0;
+      return <AnnualVerdictBanner
+        label={`配對契合：${totalScore}分（${getScoreLabel(totalScore)}）`}
+        tone={totalScore >= 60 ? 'positive' : totalScore >= 40 ? 'neutral' : 'negative'}
+      />;
+    }
     case 'chart_profile_a': {
       const label = `日主${chartA?.dayMasterStem || ''}${dmA?.element || ''} · ${_compatStrengthZh(dmA)} · ${dmA?.pattern || ''}`;
       const meta = chartA?.fourPillars?.year?.naYin || '';
@@ -1881,6 +1929,14 @@ export default function AIReadingDisplay({
               {/* Compatibility V2 section sub-header badges */}
               {isCompatV2 && chartData && (
                 <CompatSectionBadge sectionKey={section.key} chartData={chartData} />
+              )}
+
+              {/* Compatibility dimension bar chart — compatibility_basis only */}
+              {section.key === 'compatibility_basis' && (chartData?.compatibilityPreAnalysis as any)?.dimensionSummary && (
+                <CompatDimensionChart
+                  dimensions={(chartData!.compatibilityPreAnalysis as any).dimensionSummary}
+                  totalScore={(chartData!.compatibilityPreAnalysis as any).adjustedScore ?? 0}
+                />
               )}
 
               {/* LuckPeriodHeader — timing sections only */}

@@ -113,6 +113,7 @@ export const SECTION_TITLE_MAP: Record<string, string> = {
   marriage_change_years: '感情容易生變的年份',
   love_summary: '感情綜合建議',
   // Bazi Compatibility Romance V2 sections
+  compatibility_basis: '配對基礎分析',
   chart_profile_a: '男方命局特點',
   chart_profile_b: '女方命局特點',
   love_personality_a: '男方戀愛性格',
@@ -735,6 +736,7 @@ export const COMPAT_ROMANCE_V2_ALL_SECTION_KEYS = Object.values(COMPAT_ROMANCE_V
 
 /** Compatibility Romance V2 section display order (controls rendering sequence). */
 export const COMPAT_ROMANCE_V2_SECTION_ORDER = [
+  'compatibility_basis',
   'chart_profile_a',
   'chart_profile_b',
   'love_personality_a',

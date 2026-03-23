@@ -1561,3 +1561,96 @@ li.goldBulletItemCategory {
   color: #B8860B;
   border: 1px solid rgba(184, 134, 11, 0.2);
 }
+
+/* Compatibility Dimension Chart */
+.dimChartContainer {
+  margin: 0 0 1rem 0;
+  padding: 1rem;
+  background: var(--bg-secondary, #FFFBF5);
+  border: 1px solid var(--border-light, rgba(212, 160, 23, 0.15));
+  border-radius: 12px;
+}
+
+.dimChartHeader {
+  font-size: 0.9rem;
+  color: var(--text-secondary, #6B5940);
+  margin-bottom: 0.8rem;
+  text-align: center;
+}
+
+.dimChartHeader strong {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1.1rem;
+  color: var(--text-accent, #C41E3A);
+}
+
+.dimChartRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+}
+
+.dimChartRow:last-child { margin-bottom: 0; }
+
+.dimChartLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary, #6B5940);
+  min-width: 58px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.dimChartBarTrack {
+  flex: 1;
+  height: 10px;
+  background: rgba(212, 160, 23, 0.1);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.dimChartBarFill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 0.8s ease-out;
+}
+
+.dimChartScore {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary, #3C2415);
+  min-width: 22px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.dimChartAssessment {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+  min-width: 40px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.dimAssessGood {
+  background: rgba(46, 125, 50, 0.1);
+  color: var(--color-success);
+}
+
+.dimAssessFair {
+  background: rgba(255, 193, 7, 0.1);
+  color: var(--color-warning);
+}
+
+.dimAssessPoor {
+  background: rgba(244, 67, 54, 0.1);
+  color: var(--color-error);
+}
+
+@media (max-width: 600px) {
+  .dimChartLabel { min-width: 50px; font-size: 0.72rem; }
+  .dimChartAssessment { font-size: 0.62rem; min-width: 34px; }
+}

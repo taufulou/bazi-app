@@ -4577,7 +4577,18 @@ export class AIService implements OnModuleInit {
         JSON.stringify(romancePA['currentLuckPeriodA'] || '（資料未提供）', null, 2));
       call1Template = call1Template.replace(/\{\{currentLuckPeriodB\}\}/g,
         JSON.stringify(romancePA['currentLuckPeriodB'] || '（資料未提供）', null, 2));
-    } else {
+    }
+
+    // Build dimension breakdown for compatibility_basis section (from compatibilityPreAnalysis, not romancePA)
+    const dimSummary = (Array.isArray((compatPreAnalysis as any)?.dimensionSummary) ? (compatPreAnalysis as any).dimensionSummary : [])
+      .map((d: any) => `${d.dimension}：${d.score}分（${d.assessment}）— 權重${d.weight}%`)
+      .join('\n');
+    const adjustedBaseScore = (compatPreAnalysis as any)?.adjustedScore ?? calculationData?.['adjustedScore'] ?? '?';
+    call1Template = call1Template
+      .replace(/\{\{dimensionBreakdown\}\}/g, dimSummary || '（資料未提供）')
+      .replace(/\{\{adjustedScore\}\}/g, String(adjustedBaseScore));
+
+    if (!romancePA) {
       // Fallback: clear placeholders
       call1Template = call1Template.replace(/\{\{pillarTraitsA\}\}/g, '（資料未提供）');
       call1Template = call1Template.replace(/\{\{pillarTraitsB\}\}/g, '（資料未提供）');
