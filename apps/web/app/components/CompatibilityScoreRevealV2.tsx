@@ -108,7 +108,7 @@ export default function CompatibilityScoreRevealV2({
   // 老師寄語 narrative (same logic as former MasterNote)
   const sweetness = romancePA?.postMarriageQuality?.sweetness?.score ?? 50;
   const stability = romancePA?.postMarriageQuality?.stability?.score ?? 50;
-  const crisisLevel = romancePA?.combinedCrisis?.overallLevel ?? '';
+  const crisisLevel = romancePA?.combinedCrisis?.destructiveLevel ?? romancePA?.combinedCrisis?.overallLevel ?? '';
 
   let opening: string;
   if (score >= 65) {
@@ -228,15 +228,37 @@ export default function CompatibilityScoreRevealV2({
         </div>
       )}
 
-      {/* 老師寄語 */}
+      {/* 老師寄語 — Structured Card */}
       <div className={`${styles.masterNote} ${phase >= 5 ? styles.visible : ''}`}>
         <div className={styles.masterNoteHeader}>
           <span className={styles.masterNoteIcon}>📋</span>
           <span className={styles.masterNoteTitle}>老師寄語</span>
         </div>
-        <p className={styles.masterNoteText}>
-          {opening}{scoreLine}{qualityLine}{crisisLine}
+
+        {/* Opening summary */}
+        <p className={styles.masterNoteSummary}>{opening}</p>
+
+        {/* Key metrics row */}
+        <div className={styles.metricsRow}>
+          <div className={styles.metricCard} data-tone={sweetness >= 70 ? 'good' : sweetness >= 40 ? 'fair' : 'poor'}>
+            <span className={styles.metricLabel}>甜蜜度</span>
+            <span className={styles.metricValue}>{sweetness}<small>分</small></span>
+          </div>
+          <div className={styles.metricCard} data-tone={stability >= 70 ? 'good' : stability >= 40 ? 'fair' : 'poor'}>
+            <span className={styles.metricLabel}>穩定度</span>
+            <span className={styles.metricValue}>{stability}<small>分</small></span>
+          </div>
+          <div className={styles.metricCard} data-tone={crisisLevel === '輕微' || crisisLevel === '良好' ? 'good' : crisisLevel === '中等' ? 'fair' : 'poor'}>
+            <span className={styles.metricLabel}>危機等級</span>
+            <span className={styles.metricValue}>{crisisLevel || '—'}</span>
+          </div>
+        </div>
+
+        {/* Encouragement line */}
+        <p className={styles.masterNoteEncouragement}>
+          💬 {qualityLine}{crisisLine}
         </p>
+
         <p className={styles.masterNoteFooter}>
           以下為詳細的逐項分析，幫助你們更深入了解彼此的感情特質和相處模式。
         </p>

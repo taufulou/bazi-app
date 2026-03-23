@@ -221,18 +221,90 @@
   color: var(--text-accent, #C41E3A);
 }
 
-.masterNoteText {
+/* Opening summary */
+.masterNoteSummary {
   font-size: 0.92rem;
   line-height: 1.7;
   color: var(--text-primary, #3C2415);
-  margin: 0 0 0.4rem 0;
+  margin: 0 0 0.8rem 0;
+}
+
+/* Metrics row — 3 mini cards */
+.metricsRow {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.metricCard {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.6rem 0.4rem;
+  border-radius: 10px;
+  background: var(--bg-secondary, #FFFBF5);
+  border: 1px solid var(--border-light, rgba(212, 160, 23, 0.15));
+}
+
+.metricCard[data-tone="good"] {
+  background: rgba(46, 125, 50, 0.06);
+  border-color: rgba(46, 125, 50, 0.15);
+}
+
+.metricCard[data-tone="fair"] {
+  background: rgba(255, 193, 7, 0.06);
+  border-color: rgba(255, 193, 7, 0.15);
+}
+
+.metricCard[data-tone="poor"] {
+  background: rgba(244, 67, 54, 0.06);
+  border-color: rgba(244, 67, 54, 0.15);
+}
+
+.metricLabel {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted, #8B7355);
+  margin-bottom: 0.2rem;
+}
+
+.metricValue {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary, #3C2415);
+}
+
+.metricValue small {
+  font-size: 0.7rem;
+  font-weight: 500;
+  margin-left: 1px;
+}
+
+.metricCard[data-tone="good"] .metricValue {
+  color: var(--color-success);
+}
+
+.metricCard[data-tone="poor"] .metricValue {
+  color: var(--color-error);
+}
+
+/* Encouragement line */
+.masterNoteEncouragement {
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: var(--text-secondary, #6B5940);
+  margin: 0 0 0.3rem 0;
 }
 
 .masterNoteFooter {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   line-height: 1.6;
   color: var(--text-muted, #8B7355);
-  margin: 0.5rem 0 0 0;
+  margin: 0.6rem 0 0 0;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--border-light, rgba(212, 160, 23, 0.15));
 }
 
 /* Shared visibility toggle */
@@ -277,5 +349,21 @@
 
   .masterNote {
     padding: 1rem 1.2rem;
+  }
+
+  .metricsRow {
+    gap: 0.35rem;
+  }
+
+  .metricCard {
+    padding: 0.5rem 0.3rem;
+  }
+
+  .metricLabel {
+    font-size: 0.68rem;
+  }
+
+  .metricValue {
+    font-size: 0.95rem;
   }
 }
