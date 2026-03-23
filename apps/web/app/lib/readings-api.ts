@@ -4,7 +4,12 @@
  */
 
 import { apiFetch } from './api';
-import { LOVE_V2_SECTION_KEYS, COMPAT_ROMANCE_V2_SECTION_KEYS } from '@repo/shared';
+import { LOVE_V2_SECTION_KEYS } from '@repo/shared';
+
+// Compatibility Romance V2 section keys — imported directly from worktree source
+// because symlinked @repo/shared may not have the compiled version yet.
+// Once merged to main and rebuilt, this can switch to: import { COMPAT_ROMANCE_V2_SECTION_KEYS } from '@repo/shared';
+import { COMPAT_ROMANCE_V2_SECTION_KEYS } from '../../../../packages/shared/src/constants';
 
 // ============================================================
 // Slug → Backend Enum Mapping
