@@ -99,6 +99,7 @@ interface BaziChartProps {
   birthDate?: string;
   birthTime?: string;
   visibleSections?: number; // 0-6. undefined = all visible (backwards compatible)
+  hideSections?: number[];  // array of section indices to skip (e.g. [2,4,5])
 }
 
 // ============================================================
@@ -150,7 +151,7 @@ const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 // Component
 // ============================================================
 
-export default function BaziChart({ data, name, birthDate, birthTime, visibleSections }: BaziChartProps) {
+export default function BaziChart({ data, name, birthDate, birthTime, visibleSections, hideSections }: BaziChartProps) {
   const { fourPillars: fp, dayMaster: dm, lunarDate } = data;
   const pillars = [
     { key: "hour", label: "時柱", data: fp.hour },
@@ -161,7 +162,8 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
 
   // Staged reveal: whether a section at the given index should be visible
   const isVisible = (index: number) =>
-    visibleSections === undefined || visibleSections > index;
+    (visibleSections === undefined || visibleSections > index)
+    && !(hideSections?.includes(index));
   const isRevealing = visibleSections !== undefined;
 
   // Five Elements SVG ring animation trigger
@@ -552,7 +554,7 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
       )}
 
       {/* Loading placeholder for next section during staged reveal */}
-      {isRevealing && visibleSections! < 6 && (
+      {isRevealing && visibleSections! < 6 && !hideSections && (
         <div className={styles.revealPlaceholder} data-reveal-placeholder>
           <span className={styles.revealSpinner} />
           <span className={styles.revealMessage}>{REVEAL_MESSAGES[visibleSections!]}</span>

@@ -51,6 +51,8 @@ interface AIReadingDisplayProps {
   isStreaming?: boolean;
   summaryPosition?: 'top' | 'bottom'; // default 'top'
   chartData?: Record<string, unknown> | null; // Bazi calculation data for technical reference card
+  /** Optional callback to render extra content after a specific section key */
+  renderAfterSection?: (sectionKey: string) => React.ReactNode;
 }
 
 // ============================================================
@@ -165,6 +167,24 @@ const SECTION_THEMES: Record<string, { icon: string; theme: string }> = {
   romance_danger_years: { icon: "⚠️", theme: "timing" },
   marriage_change_years: { icon: "🔄", theme: "timing" },
   love_summary: { icon: "❤️", theme: "love" },
+  // Compatibility Romance V2 sections
+  chart_profile_a: { icon: "👤", theme: "compatibility" },
+  chart_profile_b: { icon: "👤", theme: "compatibility" },
+  love_personality_a: { icon: "💕", theme: "compatibility" },
+  love_personality_b: { icon: "💕", theme: "compatibility" },
+  spouse_enrichment_a: { icon: "🌟", theme: "compatibility" },
+  spouse_enrichment_b: { icon: "🌟", theme: "compatibility" },
+  marriage_wealth_a: { icon: "💰", theme: "compatibility" },
+  marriage_wealth_b: { icon: "💰", theme: "compatibility" },
+  post_marriage_sweetness: { icon: "🍯", theme: "compatibility" },
+  post_marriage_stability: { icon: "🏠", theme: "compatibility" },
+  marriage_crisis_a: { icon: "⚡", theme: "compatibility" },
+  marriage_crisis_b: { icon: "⚡", theme: "compatibility" },
+  combined_crisis_analysis: { icon: "🔍", theme: "compatibility" },
+  marriage_advice: { icon: "💡", theme: "compatibility" },
+  annual_love_a: { icon: "📅", theme: "timing" },
+  annual_love_b: { icon: "📅", theme: "timing" },
+  compatibility_summary: { icon: "❤️", theme: "compatibility" },
 };
 
 /** Resolve section theme for dynamic keys (annual_forecast_YYYY, monthly_forecast_MM) */
@@ -286,6 +306,24 @@ const SECTION_TITLES_ZH: Record<string, string> = {
   romance_danger_years: "需要注意桃花劫的年份",
   marriage_change_years: "感情容易生變的年份",
   love_summary: "感情綜合建議",
+  // Compatibility Romance V2 sections
+  chart_profile_a: "男方命局特點",
+  chart_profile_b: "女方命局特點",
+  love_personality_a: "男方戀愛性格",
+  love_personality_b: "女方戀愛性格",
+  spouse_enrichment_a: "旺妻/旺夫程度",
+  spouse_enrichment_b: "旺夫/旺妻程度",
+  marriage_wealth_a: "男方婚前婚後財富",
+  marriage_wealth_b: "女方婚前婚後財富",
+  post_marriage_sweetness: "婚後感情甜蜜度",
+  post_marriage_stability: "婚後生活穩定度",
+  marriage_crisis_a: "男方婚變情況預測",
+  marriage_crisis_b: "女方婚變情況預測",
+  combined_crisis_analysis: "兩人合婚危機分析",
+  marriage_advice: "經營婚姻建議",
+  annual_love_a: "男方感情運",
+  annual_love_b: "女方感情運",
+  compatibility_summary: "感情綜合總結",
 };
 
 /** Guide-style overrides for section titles (人生攻略 framing) */
@@ -1106,6 +1144,143 @@ function LoveSectionBadge({ sectionKey, det }: { sectionKey: string; det: LoveV2
 }
 
 // ============================================================
+// Compatibility V2 section badge helper
+// ============================================================
+
+function _compatStrengthZh(dm: any): string {
+  if (!dm) return '';
+  const map: Record<string, string> = {
+    'very_weak': '極弱', 'extremely_weak': '極弱',
+    'weak': '偏弱',
+    'neutral': '中和', 'balanced': '中和',
+    'strong': '偏旺',
+    'very_strong': '極旺', 'extremely_strong': '極旺',
+  };
+  const label = map[dm.strength] || dm.strength;
+  const score = dm.strengthScoreV2?.score ?? dm.strengthScore ?? '';
+  return `${label}${score ? `（${score}分）` : ''}`;
+}
+
+/** Inline verdict badge for Compatibility Romance V2 sections */
+function CompatSectionBadge({ sectionKey, chartData }: { sectionKey: string; chartData: Record<string, unknown> | null | undefined }) {
+  if (!chartData) return null;
+  const rpa = chartData.romancePreAnalysis as any;
+  const chartA = chartData.chartA as any;
+  const chartB = chartData.chartB as any;
+  if (!rpa) return null;
+
+  const dmA = chartA?.dayMaster;
+  const dmB = chartB?.dayMaster;
+
+  const scoreTone = (score: number, highThreshold = 60, lowThreshold = 40): VerdictTone =>
+    score >= highThreshold ? 'positive' : score >= lowThreshold ? 'neutral' : 'negative';
+
+  switch (sectionKey) {
+    case 'chart_profile_a': {
+      const label = `日主${chartA?.dayMasterStem || ''}${dmA?.element || ''} · ${_compatStrengthZh(dmA)} · ${dmA?.pattern || ''}`;
+      const meta = chartA?.fourPillars?.year?.naYin || '';
+      return <AnnualVerdictBanner label={label} meta={meta || undefined} tone="neutral" />;
+    }
+    case 'chart_profile_b': {
+      const label = `日主${chartB?.dayMasterStem || ''}${dmB?.element || ''} · ${_compatStrengthZh(dmB)} · ${dmB?.pattern || ''}`;
+      const meta = chartB?.fourPillars?.year?.naYin || '';
+      return <AnnualVerdictBanner label={label} meta={meta || undefined} tone="neutral" />;
+    }
+    case 'love_personality_a': {
+      const lp = rpa.lovePersonalityA;
+      if (!lp?.archetype) return null;
+      return <AnnualVerdictBanner label={lp.archetype} tone="neutral" />;
+    }
+    case 'love_personality_b': {
+      const lp = rpa.lovePersonalityB;
+      if (!lp?.archetype) return null;
+      return <AnnualVerdictBanner label={lp.archetype} tone="neutral" />;
+    }
+    case 'spouse_enrichment_a': {
+      const se = rpa.spouseEnrichmentA;
+      if (!se) return null;
+      const tone = scoreTone(se.totalScore ?? 0);
+      return (
+        <>
+          <AnnualVerdictBanner label={`${se.title || '旺妻'}程度：${se.level || ''}（${se.totalScore ?? 0}分）`} tone={tone} />
+          <StarRating score={se.totalScore ? se.totalScore / 20 : 0} />
+        </>
+      );
+    }
+    case 'spouse_enrichment_b': {
+      const se = rpa.spouseEnrichmentB;
+      if (!se) return null;
+      const tone = scoreTone(se.totalScore ?? 0);
+      return (
+        <>
+          <AnnualVerdictBanner label={`${se.title || '旺夫'}程度：${se.level || ''}（${se.totalScore ?? 0}分）`} tone={tone} />
+          <StarRating score={se.totalScore ? se.totalScore / 20 : 0} />
+        </>
+      );
+    }
+    case 'marriage_wealth_a': {
+      const mw = rpa.marriageWealthA;
+      if (!mw) return null;
+      // Find first entry with elementAssessment, or summarize by count
+      const preAss = mw.preMarriage?.find((e: any) => e.elementAssessment)?.elementAssessment
+        || (mw.preMarriage?.length ? `${mw.preMarriage.length}個階段分析` : '—');
+      const postAss = mw.postMarriage?.find((e: any) => e.elementAssessment)?.elementAssessment
+        || (mw.postMarriage?.length ? `${mw.postMarriage.length}個階段分析` : '—');
+      return <AnnualVerdictBanner label={`婚前${preAss} · 婚後${postAss}`} tone="neutral" />;
+    }
+    case 'marriage_wealth_b': {
+      const mw = rpa.marriageWealthB;
+      if (!mw) return null;
+      const preAss = mw.preMarriage?.find((e: any) => e.elementAssessment)?.elementAssessment
+        || (mw.preMarriage?.length ? `${mw.preMarriage.length}個階段分析` : '—');
+      const postAss = mw.postMarriage?.find((e: any) => e.elementAssessment)?.elementAssessment
+        || (mw.postMarriage?.length ? `${mw.postMarriage.length}個階段分析` : '—');
+      return <AnnualVerdictBanner label={`婚前${preAss} · 婚後${postAss}`} tone="neutral" />;
+    }
+    case 'post_marriage_sweetness': {
+      const sw = rpa.postMarriageQuality?.sweetness;
+      if (!sw) return null;
+      const score = sw.score ?? 0;
+      const tone = scoreTone(score, 70, 40);
+      const level = sw.level || (score >= 80 ? '極高' : score >= 60 ? '偏高' : score >= 40 ? '中等' : score >= 20 ? '偏低' : '極低');
+      return <AnnualVerdictBanner label={`甜蜜度：${score}/100（${level}）`} tone={tone} />;
+    }
+    case 'post_marriage_stability': {
+      const st = rpa.postMarriageQuality?.stability;
+      if (!st) return null;
+      const score = st.score ?? 0;
+      const tone = scoreTone(score, 70, 40);
+      const level = st.level || (score >= 80 ? '極穩定' : score >= 60 ? '偏穩定' : score >= 40 ? '中等' : score >= 20 ? '偏不穩定' : '極不穩定');
+      return <AnnualVerdictBanner label={`穩定度：${score}/100（${level}）`} tone={tone} />;
+    }
+    case 'marriage_crisis_a': {
+      const cr = rpa.crisisRiskA;
+      if (!cr) return null;
+      const RISK_TONE: Record<string, VerdictTone> = { '高': 'negative', '中高': 'negative', '中': 'neutral', '中低': 'positive', '低': 'positive' };
+      return <AnnualVerdictBanner label={`婚變風險：${cr.overallRisk}`} tone={RISK_TONE[cr.overallRisk] || 'neutral'} />;
+    }
+    case 'marriage_crisis_b': {
+      const cr = rpa.crisisRiskB;
+      if (!cr) return null;
+      const RISK_TONE: Record<string, VerdictTone> = { '高': 'negative', '中高': 'negative', '中': 'neutral', '中低': 'positive', '低': 'positive' };
+      return <AnnualVerdictBanner label={`婚變風險：${cr.overallRisk}`} tone={RISK_TONE[cr.overallRisk] || 'neutral'} />;
+    }
+    case 'combined_crisis_analysis': {
+      const cc = rpa.combinedCrisis;
+      if (!cc) return null;
+      const LEVEL_TONE: Record<string, VerdictTone> = { '嚴重': 'negative', '較高': 'negative', '中等': 'neutral', '較低': 'positive', '穩定': 'positive' };
+      return <AnnualVerdictBanner label={cc.destructiveLevel} tone={LEVEL_TONE[cc.destructiveLevel] || 'neutral'} />;
+    }
+    case 'annual_love_a':
+    case 'annual_love_b':
+      // V7-G1: No sub-header badges for annual love sections — signal titles are in AI content
+      return null;
+    default:
+      return null;
+  }
+}
+
+// ============================================================
 // Normalize ActiveLuckPeriod (bridge snake_case from NestJS shallow conversion)
 // ============================================================
 
@@ -1455,6 +1630,15 @@ export const LOVE_V2_ALL_SECTION_KEYS = Object.values(LOVE_V2_SECTION_KEYS);
 // NOTE: Dynamic sections (annual_love_YYYY, monthly_love_MM) are NOT in this array —
 // they are generated at runtime and handled separately in the streaming logic.
 
+/** Compatibility V2 section keys in expected order (all 3 calls) */
+export const COMPAT_V2_ALL_SECTION_KEYS = [
+  'chart_profile_a', 'chart_profile_b', 'love_personality_a', 'love_personality_b',
+  'spouse_enrichment_a', 'spouse_enrichment_b', 'marriage_wealth_a', 'marriage_wealth_b',
+  'post_marriage_sweetness', 'post_marriage_stability', 'marriage_crisis_a', 'marriage_crisis_b',
+  'combined_crisis_analysis', 'marriage_advice',
+  'annual_love_a', 'annual_love_b', 'compatibility_summary',
+];
+
 /** Annual V2 section keys in expected order */
 export const ANNUAL_V2_ALL_SECTION_KEYS = [
   'annual_overview', 'annual_tai_sui', 'annual_dayun_context',
@@ -1472,6 +1656,16 @@ const ANNUAL_V2_GROUP_HEADERS: Record<string, string> = {
   monthly_01: '十二月運程',
 };
 
+/** Compatibility V2 section group headers — shown before the first of each paired section */
+const COMPAT_V2_GROUP_HEADERS: Record<string, string> = {
+  chart_profile_a: '◆ 雙方命局特點 ◆',
+  love_personality_a: '◆ 雙方戀愛性格 ◆',
+  spouse_enrichment_a: '◆ 旺夫旺妻分析 ◆',
+  marriage_wealth_a: '◆ 婚前婚後財富 ◆',
+  marriage_crisis_a: '◆ 婚變情況預測 ◆',
+  annual_love_a: '◆ 雙方感情運 ◆',
+};
+
 export default function AIReadingDisplay({
   data,
   readingType,
@@ -1480,13 +1674,16 @@ export default function AIReadingDisplay({
   isStreaming = false,
   summaryPosition = 'top',
   chartData = null,
+  renderAfterSection,
 }: AIReadingDisplayProps) {
   const isGuide = readingType === 'lifetime'; // LIFETIME always uses guide style
   const isCareerV2 = readingType === 'career' && data?.isV2 === true;
   const isAnnualV2 = readingType === 'annual' && data?.isV2 === true;
   const isLoveV2 = readingType === 'love' && data?.isV2 === true;
+  const isCompatV2 = readingType === 'compatibility' && data?.isV2 === true;
   // During streaming with V2 data: show arrived sections + skeletons for remaining
-  const isStreamingWithData = isStreaming && data?.isV2 && data.deterministic != null;
+  // Compatibility V2 has no deterministic block (charts are rendered separately), so allow isStreaming alone
+  const isStreamingWithData = isStreaming && data?.isV2 && (data.deterministic != null || isCompatV2);
 
   if (isLoading && !isStreamingWithData) {
     return <LoadingSkeleton />;
@@ -1608,8 +1805,10 @@ export default function AIReadingDisplay({
             || section.title || section.key)
           : (isAnnualV2
             ? (getDynamicSectionTitle(section.key) || ANNUAL_V2_SECTION_TITLES_ZH[section.key] || SECTION_TITLES_ZH[section.key] || section.title || section.key)
-            : ((isGuide ? GUIDE_SECTION_TITLES_ZH[section.key] : undefined)
-              || SECTION_TITLES_ZH[section.key] || section.title || section.key));
+            : isCompatV2
+              ? (section.title || SECTION_TITLES_ZH[section.key] || section.key)
+              : ((isGuide ? GUIDE_SECTION_TITLES_ZH[section.key] : undefined)
+                || SECTION_TITLES_ZH[section.key] || section.title || section.key));
 
         // Determine which deterministic card to insert after this section
         const deterministicKey = isV2 ? V2_DETERMINISTIC_INSERTIONS[section.key] : undefined;
@@ -1619,12 +1818,26 @@ export default function AIReadingDisplay({
         // monthly sections (monthly_01-12) only have full content, no preview
         const isMonthlySection = section.key.startsWith('monthly_') && isAnnualV2;
 
-        // Annual V2 group header (外部分析/內部分析/十二月運程)
-        const groupHeader = isAnnualV2 ? ANNUAL_V2_GROUP_HEADERS[section.key] : undefined;
+        // Annual V2 / Compatibility V2 group headers
+        const groupHeader = isAnnualV2
+          ? ANNUAL_V2_GROUP_HEADERS[section.key]
+          : isCompatV2
+            ? COMPAT_V2_GROUP_HEADERS[section.key]
+            : undefined;
+
+        // Compat V2: detect if this is a _b section that should merge with previous _a
+        const isCompatPairB = isCompatV2 && section.key.endsWith('_b') &&
+          index > 0 && data.sections[index - 1]?.key === section.key.replace(/_b$/, '_a');
+        // Compat V2: detect if this is a _a section that will merge with next _b
+        const isCompatPairA = isCompatV2 && section.key.endsWith('_a') &&
+          index < data.sections.length - 1 && data.sections[index + 1]?.key === section.key.replace(/_a$/, '_b');
+
+        // Skip rendering _b sections here — they'll be rendered inside the _a group
+        if (isCompatPairB) return null;
 
         return (
           <div key={section.key || index}>
-            {/* Group header divider for annual V2 */}
+            {/* Group header divider for annual V2 / compatibility V2 */}
             {groupHeader && (
               <div className={styles.sectionGroupHeader}>
                 <span className={styles.sectionGroupLine} />
@@ -1636,6 +1849,7 @@ export default function AIReadingDisplay({
             <div
               className={styles.readingSection}
               data-theme={themeInfo.theme}
+              data-compat-pair={isCompatPairA ? 'a' : undefined}
             >
               <div className={styles.sectionHeader}>
                 <span className={styles.sectionIcon}>{themeInfo.icon}</span>
@@ -1668,6 +1882,11 @@ export default function AIReadingDisplay({
               {/* Love V2 section sub-header badges */}
               {isLoveV2 && loveDet && (
                 <LoveSectionBadge sectionKey={section.key} det={loveDet} />
+              )}
+
+              {/* Compatibility V2 section sub-header badges */}
+              {isCompatV2 && chartData && (
+                <CompatSectionBadge sectionKey={section.key} chartData={chartData} />
               )}
 
               {/* LuckPeriodHeader — timing sections only */}
@@ -1739,6 +1958,35 @@ export default function AIReadingDisplay({
                 chartData={chartData}
               />
             )}
+
+            {/* Compat V2: render paired _b section merged below _a in same visual group */}
+            {isCompatPairA && (() => {
+              const bSection = data.sections[index + 1]!;
+              const bThemeInfo = SECTION_THEMES[bSection.key] || { icon: '📋', theme: 'default' };
+              const bTitleZh = bSection.title || SECTION_TITLES_ZH[bSection.key] || bSection.key;
+              return (
+                <>
+                  <div
+                    className={styles.readingSection}
+                    data-theme={bThemeInfo.theme}
+                    data-compat-pair="b"
+                  >
+                    <div className={styles.sectionHeader}>
+                      <span className={styles.sectionIcon}>{bThemeInfo.icon}</span>
+                      <h3 className={styles.sectionTitle}>{bTitleZh}</h3>
+                    </div>
+                    {isCompatV2 && (
+                      <CompatSectionBadge sectionKey={bSection.key} chartData={chartData} />
+                    )}
+                    <div className={styles.sectionContent}>
+                      {renderFormattedContent(bSection.full || '')}
+                    </div>
+                  </div>
+                  {/* Insert extra content after this paired group (e.g., educational card) */}
+                  {renderAfterSection?.(bSection.key)}
+                </>
+              );
+            })()}
           </div>
         );
       })}
@@ -1750,6 +1998,7 @@ export default function AIReadingDisplay({
         const allKeys = isCareerV2 ? CAREER_V2_ALL_SECTION_KEYS
           : isAnnualV2 ? ANNUAL_V2_ALL_SECTION_KEYS
           : isLoveV2 ? LOVE_V2_ALL_SECTION_KEYS
+          : isCompatV2 ? COMPAT_V2_ALL_SECTION_KEYS
           : V2_ALL_SECTION_KEYS;
         const remainingKeys = allKeys.filter(k => !arrivedKeys.has(k));
         const nextKey = remainingKeys[0];
@@ -1932,16 +2181,18 @@ export default function AIReadingDisplay({
         </div>
       )}
 
-      {/* Entertainment Disclaimer */}
-      <div className={styles.disclaimer}>
-        <span className={styles.disclaimerIcon}>⚠️</span>
-        <span className={styles.disclaimerText}>
-          {ENTERTAINMENT_DISCLAIMER["zh-TW"]}
-        </span>
-      </div>
+      {/* Entertainment Disclaimer — hidden during streaming */}
+      {!isStreaming && (
+        <div className={styles.disclaimer}>
+          <span className={styles.disclaimerIcon}>⚠️</span>
+          <span className={styles.disclaimerText}>
+            {ENTERTAINMENT_DISCLAIMER["zh-TW"]}
+          </span>
+        </div>
+      )}
 
-      {/* Cross-sell: Other reading types */}
-      {crossSellFiltered.length > 0 && (
+      {/* Cross-sell: Other reading types — hidden during streaming */}
+      {!isStreaming && crossSellFiltered.length > 0 && (
         <div className={styles.readingSection} data-theme="default">
           <div className={styles.sectionHeader}>
             <span className={styles.sectionIcon}>🔮</span>
@@ -2457,7 +2708,7 @@ function renderFormattedContent(text: string): React.ReactNode {
     if (trimmed === '') continue;
 
     // Emoji sub-header (🔥 強項, ⚠️ 注意事項, 💡 實戰建議, etc.)
-    if (/^(?:🔥|⚠️|⚠|💡|📍|◆|🔹|⭐|🌟|💎|🎯|💰|💼|💕|🏥|📊|🔮)/.test(trimmed)) {
+    if (/^(?:🔥|⚠️|⚠|💡|📍|◆|🔹|⭐|🌟|💎|🎯|💰|💼|💕|🏥|📊|🔮|🌸|💫|🌙|✨|🌺|🔒|🎉|🪷|💘|🎊|🍀|📌|🧲)/.test(trimmed)) {
       elements.push(
         <div key={key++} className={styles.contentSubHeader}>{trimmed}</div>
       );

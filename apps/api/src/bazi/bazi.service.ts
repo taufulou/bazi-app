@@ -508,6 +508,95 @@ export class BaziService {
     subscriber.complete();
   }
 
+  // ============ Comparison Streaming ============
+
+  /**
+   * Stream AI interpretation for a Romance V2 comparison via SSE.
+   * Returns an Observable<MessageEvent> consumed by the @Sse endpoint.
+   */
+  streamComparisonAI(clerkUserId: string, comparisonId: string): Observable<MessageEvent> {
+    return new Observable((subscriber: Subscriber<MessageEvent>) => {
+      this._setupComparisonStream(clerkUserId, comparisonId, subscriber).catch((err) => {
+        const message = err instanceof Error ? err.message : 'Stream setup failed';
+        subscriber.next({
+          data: JSON.stringify({ message }),
+          type: 'error',
+        } as MessageEvent);
+        subscriber.complete();
+      });
+    });
+  }
+
+  private async _setupComparisonStream(
+    clerkUserId: string,
+    comparisonId: string,
+    subscriber: Subscriber<MessageEvent>,
+  ) {
+    this.logger.log(`[Stream] Comparison stream setup starting for comparison=${comparisonId}, user=${clerkUserId}`);
+
+    // 1. Verify user owns this comparison
+    const user = await this.prisma.user.findUnique({ where: { clerkUserId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const comparison = await this.prisma.baziComparison.findFirst({
+      where: { id: comparisonId, userId: user.id },
+    });
+    if (!comparison) throw new NotFoundException('Comparison not found');
+
+    // 2. Check it's a Romance V2 comparison
+    const calculationData = comparison.calculationData as Record<string, unknown>;
+    const isRomanceV2 = comparison.comparisonType === 'ROMANCE'
+      && !!calculationData['romancePreAnalysis'];
+    if (!isRomanceV2) {
+      throw new BadRequestException('Streaming only supported for Romance V2 comparisons');
+    }
+
+    this.logger.log(`[Stream] Comparison found, hasAI=${!!comparison.aiInterpretation}, type=${comparison.comparisonType}`);
+
+    // 3. If AI already populated (cache hit or reconnect), emit static sections
+    if (comparison.aiInterpretation) {
+      this.emitStaticSections(
+        comparison.aiInterpretation as Record<string, unknown>,
+        subscriber,
+      );
+      return;
+    }
+
+    // 4. Check concurrent stream limit (max 2 per user)
+    const activeKey = `stream:active:compat:${user.id}`;
+    const active = await this.redis.incrementRateLimit(activeKey, 300); // 5 min TTL safety
+    if (active > 2) {
+      await this.redis.getClient().decr(activeKey);
+      throw new ConflictException('Maximum concurrent streams reached');
+    }
+
+    try {
+      // 5. Delegate to ai.service streaming method
+      const aiObservable = this.aiService.streamCompatibilityRomanceV2(calculationData, comparisonId);
+
+      aiObservable.subscribe({
+        next: (event) => subscriber.next(event),
+        error: (err) => {
+          this.redis.getClient().decr(activeKey).catch(() => {});
+          const message = err instanceof Error ? err.message : 'Stream error';
+          subscriber.next({
+            data: JSON.stringify({ message }),
+            type: 'error',
+          } as MessageEvent);
+          subscriber.complete();
+        },
+        complete: () => {
+          this.redis.getClient().decr(activeKey).catch(() => {});
+          subscriber.complete();
+        },
+      });
+    } catch (err) {
+      // Decrement on setup error
+      await this.redis.getClient().decr(activeKey);
+      throw err;
+    }
+  }
+
   // ============ Comparisons ============
 
   async createComparison(clerkUserId: string, dto: CreateComparisonDto) {
@@ -615,13 +704,28 @@ export class BaziService {
             comparisonType: dto.comparisonType.toLowerCase(),
             genderA: profileA.gender.toLowerCase(),
             genderB: profileB.gender.toLowerCase(),
+            birthDateA: profileA.birthDate.toISOString().split('T')[0],
+            birthDateB: profileB.birthDate.toISOString().split('T')[0],
           };
 
-          const aiResult = await this.aiService.generateInterpretation(
-            enrichedData,
-            ReadingType.COMPATIBILITY,
-            user.id,
-          );
+          // Route: Romance V2 (3-call) vs V1 (single-call)
+          const isRomanceV2 = dto.comparisonType === 'ROMANCE' &&
+            !!(calculationData as Record<string, unknown>)['romancePreAnalysis'];
+
+          let aiResult;
+          if (isRomanceV2) {
+            this.logger.log('Using Compatibility Romance V2 (3-call architecture)');
+            aiResult = await this.aiService.generateCompatibilityRomanceV2(
+              enrichedData,
+              user.id,
+            );
+          } else {
+            aiResult = await this.aiService.generateInterpretation(
+              enrichedData,
+              ReadingType.COMPATIBILITY,
+              user.id,
+            );
+          }
 
           aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
           aiProvider = aiResult.provider;
@@ -851,11 +955,24 @@ export class BaziService {
         genderB: profileB.gender.toLowerCase(),
       };
 
-      const aiResult = await this.aiService.generateInterpretation(
-        enrichedData,
-        ReadingType.COMPATIBILITY,
-        user.id,
-      );
+      // Route: Romance V2 (3-call) vs V1 (single-call)
+      const isRomanceV2 = comparison.comparisonType === 'ROMANCE' &&
+        !!(calculationData as Record<string, unknown>)['romancePreAnalysis'];
+
+      let aiResult;
+      if (isRomanceV2) {
+        this.logger.log('Recalculate: Using Compatibility Romance V2 (3-call architecture)');
+        aiResult = await this.aiService.generateCompatibilityRomanceV2(
+          enrichedData,
+          user.id,
+        );
+      } else {
+        aiResult = await this.aiService.generateInterpretation(
+          enrichedData,
+          ReadingType.COMPATIBILITY,
+          user.id,
+        );
+      }
 
       aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
       aiProvider = aiResult.provider;
@@ -977,11 +1094,24 @@ export class BaziService {
       let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
 
       try {
-        const aiResult = await this.aiService.generateInterpretation(
-          enrichedData,
-          ReadingType.COMPATIBILITY,
-          user.id,
-        );
+        // Route: Romance V2 (3-call) vs V1 (single-call)
+        const isRomanceV2 = comparison.comparisonType === 'ROMANCE' &&
+          !!calcData['romancePreAnalysis'];
+
+        let aiResult;
+        if (isRomanceV2) {
+          this.logger.log('GenerateComparisonAI: Using Compatibility Romance V2 (3-call architecture)');
+          aiResult = await this.aiService.generateCompatibilityRomanceV2(
+            enrichedData,
+            user.id,
+          );
+        } else {
+          aiResult = await this.aiService.generateInterpretation(
+            enrichedData,
+            ReadingType.COMPATIBILITY,
+            user.id,
+          );
+        }
 
         aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
         aiProvider = aiResult.provider;
@@ -1066,6 +1196,7 @@ export class BaziService {
           chartA: calcData['chartA'],
           chartB: calcData['chartB'],
           compatibilityPreAnalysis: calcData['compatibilityPreAnalysis'],
+          romancePreAnalysis: calcData['romancePreAnalysis'],
           comparisonType: enhanced['comparisonType'] || calcData['comparisonType'],
         },
       };

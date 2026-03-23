@@ -404,9 +404,11 @@ export default function DualBirthDataForm({
 
       {/* Submit */}
       <div className={styles.submitSection}>
+        {comparisonType !== 'romance' && (
         <div className={styles.creditInfo}>
           消耗 {creditCost} 點 · 目前餘額 {userCredits} 點
         </div>
+        )}
         <button
           type="submit"
           className={styles.submitBtn}

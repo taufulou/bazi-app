@@ -269,6 +269,20 @@ SIGMOID_STEEPNESS = 0.10
 
 
 # ============================================================
+# Romance-Specific Calibration Constants
+# ============================================================
+# These override defaults ONLY when comparison_type == 'romance'.
+# Business, friendship, parent_child use the original constants above.
+
+SIGMOID_STEEPNESS_ROMANCE = 0.07          # Softer curve, preserves resolution in low scores
+KNOCKOUT_PENALTY_CAP_ROMANCE = -12        # Cap total negative knockouts (bonuses uncapped)
+NAYIN_IDENTICAL_BONUS_ROMANCE = 4         # Bonus when year-pillar 納音 are identical
+CROSS_PILLAR_BRANCH_DEFAULT_WEIGHT_ROMANCE = 0.2  # Lower cross-position noise
+SPOUSE_PALACE_SCORE_FLOOR_ROMANCE = 30    # Min score if spouse palace is strong
+SPOUSE_PALACE_SCORE_FLOOR_THRESHOLD = 65  # spouse_palace raw score must exceed this
+
+
+# ============================================================
 # Compatibility Labels
 # ============================================================
 

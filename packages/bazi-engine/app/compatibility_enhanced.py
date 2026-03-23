@@ -58,6 +58,12 @@ from .compatibility_constants import (
     SHEN_SHA_YIMA_BOTH,
     SIGMOID_MIDPOINT,
     SIGMOID_STEEPNESS,
+    SIGMOID_STEEPNESS_ROMANCE,
+    KNOCKOUT_PENALTY_CAP_ROMANCE,
+    NAYIN_IDENTICAL_BONUS_ROMANCE,
+    CROSS_PILLAR_BRANCH_DEFAULT_WEIGHT_ROMANCE,
+    SPOUSE_PALACE_SCORE_FLOOR_ROMANCE,
+    SPOUSE_PALACE_SCORE_FLOOR_THRESHOLD,
     SPECIAL_LABEL_MING_ZHONG_ZHU_DING,
     SPECIAL_LABEL_QIAN_SHI_YUAN_JIA,
     SPECIAL_LABEL_XIANG_AI_XIANG_SHA,
@@ -813,11 +819,16 @@ def analyze_cross_chart_stems(
 def analyze_cross_chart_branches(
     pillars_a: Dict, pillars_b: Dict,
     pre_analysis_a: Dict, pre_analysis_b: Dict,
+    branch_default_weight: float = CROSS_PILLAR_BRANCH_DEFAULT_WEIGHT,
 ) -> Dict:
     """Analyze all 16 cross-chart branch pairs + triple formations.
 
     Dual-tracking: positive and negative scored separately, never cancel.
     Also detects cross-chart 三合 and 三刑.
+
+    Args:
+        branch_default_weight: Default weight for cross-position pairs.
+            Romance uses 0.2 (less noise), others use 0.3 (default).
     """
     from .compatibility import SIX_HARMONIES, SIX_CLASHES, SIX_HARMS, THREE_HARMONIES
 
@@ -833,7 +844,7 @@ def analyze_cross_chart_branches(
         for pb_name in pillar_names:
             branch_b = pillars_b[pb_name]['branch']
             weight = CROSS_PILLAR_BRANCH_WEIGHTS.get(
-                (pa_name, pb_name), CROSS_PILLAR_BRANCH_DEFAULT_WEIGHT
+                (pa_name, pb_name), branch_default_weight
             )
 
             # Check 六合
@@ -1481,9 +1492,16 @@ def calculate_enhanced_compatibility(
     dim5 = score_element_complementarity(elements_a, elements_b)
 
     # Dim 6: 全盤互動
+    # Romance uses lower cross-position weight to reduce noise
+    _branch_default_wt = (
+        CROSS_PILLAR_BRANCH_DEFAULT_WEIGHT_ROMANCE
+        if comparison_type == 'romance'
+        else CROSS_PILLAR_BRANCH_DEFAULT_WEIGHT
+    )
     stem_analysis = analyze_cross_chart_stems(pillars_a, pillars_b)
     branch_analysis = analyze_cross_chart_branches(
-        pillars_a, pillars_b, pre_analysis_a, pre_analysis_b
+        pillars_a, pillars_b, pre_analysis_a, pre_analysis_b,
+        branch_default_weight=_branch_default_wt,
     )
     # Combine stem and branch scores into single dimension score
     dim6_raw = branch_analysis['rawScore']
@@ -1526,6 +1544,13 @@ def calculate_enhanced_compatibility(
         weights['fullPillarInteraction'] = weights['fullPillarInteraction'] + actual_reduction / 2
 
     # ---- Apply sigmoid amplification + weighted sum ----
+    # Romance uses softer sigmoid (steepness=0.07) to preserve low-score resolution
+    _steepness = (
+        SIGMOID_STEEPNESS_ROMANCE
+        if comparison_type == 'romance'
+        else SIGMOID_STEEPNESS
+    )
+
     raw_scores = {
         'yongshenComplementarity': dim1['rawScore'],
         'dayStemRelationship': dim2['rawScore'],
@@ -1539,7 +1564,7 @@ def calculate_enhanced_compatibility(
 
     base_score = 0.0
     for dim_key, raw in raw_scores.items():
-        amplified = sigmoid_amplify(raw)
+        amplified = sigmoid_amplify(raw, steepness=_steepness)
         weight = weights.get(dim_key, 0)
         contribution = amplified * weight
         base_score += contribution
@@ -1559,10 +1584,27 @@ def calculate_enhanced_compatibility(
         pre_analysis_a, pre_analysis_b,
     )
 
-    knockout_adjustment = sum(k['scoreImpact'] for k in knockouts)
+    # ---- Knockout adjustment with romance-specific penalty cap ----
+    knockout_bonus = sum(k['scoreImpact'] for k in knockouts if k['scoreImpact'] > 0)
+    knockout_penalty = sum(k['scoreImpact'] for k in knockouts if k['scoreImpact'] < 0)
+
+    # Romance: cap total penalty at -12 (bonuses uncapped)
+    if comparison_type == 'romance' and knockout_penalty < KNOCKOUT_PENALTY_CAP_ROMANCE:
+        knockout_penalty = KNOCKOUT_PENALTY_CAP_ROMANCE
+
+    knockout_adjustment = knockout_bonus + knockout_penalty
     adjusted_score = base_score + knockout_adjustment
 
-    # 天剋地沖 hard floor
+    # ---- 納音 bonus (romance only) ----
+    nayin_bonus_applied = 0
+    if comparison_type == 'romance':
+        nayin_a = pillars_a.get('year', {}).get('naYin', '')
+        nayin_b = pillars_b.get('year', {}).get('naYin', '')
+        if nayin_a and nayin_b and nayin_a == nayin_b:
+            nayin_bonus_applied = NAYIN_IDENTICAL_BONUS_ROMANCE
+            adjusted_score += nayin_bonus_applied
+
+    # 天剋地沖 hard floor (overrides everything)
     has_tkdc = any(k['type'] == 'tian_ke_di_chong' for k in knockouts)
     if has_tkdc:
         adjusted_score = min(adjusted_score, KNOCKOUT_TIAN_KE_DI_CHONG_HARD_FLOOR)
@@ -1576,6 +1618,12 @@ def calculate_enhanced_compatibility(
             'description': '相同八字 — 同步脆弱性風險',
             'scoreImpact': KNOCKOUT_IDENTICAL_CHART_PENALTY,
         })
+
+    # ---- Spouse palace score floor (romance only, overridden by 天剋地沖) ----
+    if (comparison_type == 'romance'
+            and not has_tkdc
+            and dim3['rawScore'] > SPOUSE_PALACE_SCORE_FLOOR_THRESHOLD):
+        adjusted_score = max(adjusted_score, SPOUSE_PALACE_SCORE_FLOOR_ROMANCE)
 
     final_score = round(clamp(adjusted_score, 5, 99))
 
@@ -1629,4 +1677,13 @@ def calculate_enhanced_compatibility(
             'luckCycleSyncScore': dim8['rawScore'],
         },
         'comparisonType': comparison_type,
+        'calibration': {
+            'sigmoidSteepness': _steepness,
+            'knockoutPenaltyCap': KNOCKOUT_PENALTY_CAP_ROMANCE if comparison_type == 'romance' else None,
+            'knockoutBonus': round(knockout_bonus, 1),
+            'knockoutPenalty': round(knockout_penalty, 1),
+            'nayinBonusApplied': nayin_bonus_applied,
+            'branchDefaultWeight': _branch_default_wt,
+            'spousePalaceFloor': comparison_type == 'romance' and not has_tkdc and dim3['rawScore'] > SPOUSE_PALACE_SCORE_FLOOR_THRESHOLD,
+        },
     }

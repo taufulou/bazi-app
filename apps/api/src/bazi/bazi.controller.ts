@@ -113,4 +113,14 @@ export class BaziController {
   ) {
     return this.baziService.generateComparisonAI(auth.userId, id);
   }
+
+  @Sse('comparisons/:id/stream')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Stream AI interpretation for a romance comparison via SSE' })
+  streamComparisonAI(
+    @CurrentUser() auth: AuthPayload,
+    @Param('id') id: string,
+  ): Observable<MessageEvent> {
+    return this.baziService.streamComparisonAI(auth.userId, id);
+  }
 }

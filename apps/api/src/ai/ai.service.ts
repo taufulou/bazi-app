@@ -30,6 +30,10 @@ import {
   buildLoveSystemPrompt,
   LOVE_V2_STYLE_RULES,
   TEN_GOD_LOVE_TRANSLATION,
+  COMPAT_ROMANCE_V2_PROMPTS,
+  COMPAT_V2_SECTIONS,
+  buildCompatRomanceV2SystemPrompt,
+  COMPAT_ROMANCE_V2_STYLE_RULES,
 } from './prompts';
 import { deepCamelCase } from '../common/deep-camel-case';
 
@@ -2867,11 +2871,13 @@ export class AIService implements OnModuleInit {
    */
   private parseLifetimeV2CallResponse(
     rawContent: string,
-    callLabel: 'call1' | 'call2',
+    callLabel: 'call1' | 'call2' | 'call3',
   ): AIInterpretationResult {
     const expectedKeys = callLabel === 'call1'
       ? LIFETIME_V2_PROMPTS.call1Sections
-      : LIFETIME_V2_PROMPTS.call2Sections;
+      : callLabel === 'call2'
+        ? LIFETIME_V2_PROMPTS.call2Sections
+        : [] as string[]; // call3: no static expected keys (varies by reading type)
 
     // Stage 1: Standard JSON parse (never throws — always returns via fallbackParse)
     const parsed = this.parseAIResponse(rawContent, ReadingType.LIFETIME);
@@ -3965,6 +3971,1035 @@ export class AIService implements OnModuleInit {
     return result;
   }
 
+  // ============================================================
+  // Compatibility Romance V2 — Three-Call Generation
+  // ============================================================
+
+  /**
+   * Generate Compatibility Romance V2 interpretation using 3 sequential AI calls.
+   * Call 1: Per-person profiles + personality + enrichment + wealth (8 sections)
+   * Call 2: Cross-chart sweetness/stability + crisis + advice (6 sections)
+   * Call 3: Annual love forecasts + compatibility summary (3 sections)
+   */
+  async generateCompatibilityRomanceV2(
+    calculationData: Record<string, unknown>,
+    userId?: string,
+    readingId?: string,
+  ): Promise<AIGenerationResult> {
+    if (this.providers.length === 0) {
+      throw new Error('No AI providers configured');
+    }
+
+    // Compatibility V2 uses 3 sequential AI calls — needs longer per-call timeout
+    const timeoutMs = parseInt(
+      this.configService.get<string>('AI_COMPAT_V2_TIMEOUT_MS') || '300000',  // 5 minutes
+      10,
+    );
+
+    const { systemPrompt, call1User, call2User, call3User } =
+      this.buildCompatibilityRomanceV2Prompts(calculationData);
+
+    let lastError: Error | undefined;
+
+    for (const providerConfig of this.providers) {
+      try {
+        // Fire all 3 calls in PARALLEL (context bridges are deterministic, not AI-dependent)
+        const startTime = Date.now();
+
+        const [r1, r2, r3] = await Promise.allSettled([
+          this.callProviderWithTimeout(providerConfig, systemPrompt, call1User, timeoutMs),
+          this.callProviderWithTimeout(providerConfig, systemPrompt, call2User, timeoutMs),
+          this.callProviderWithTimeout(providerConfig, systemPrompt, call3User, timeoutMs),
+        ]);
+
+        // Check for failures — at least Call 1 must succeed
+        if (r1.status === 'rejected') throw r1.reason;
+        const result1 = r1.value;
+        const result2 = r2.status === 'fulfilled' ? r2.value : null;
+        const result3 = r3.status === 'fulfilled' ? r3.value : null;
+
+        if (r2.status === 'rejected') {
+          this.logger.warn(`Compat V2 Call 2 failed: ${(r2.reason as Error)?.message}`);
+        }
+        if (r3.status === 'rejected') {
+          this.logger.warn(`Compat V2 Call 3 failed: ${(r3.reason as Error)?.message}`);
+        }
+
+        const latencyMs = Date.now() - startTime;
+
+        let sections: Record<string, InterpretationSection> = {};
+        let summary: InterpretationSection = { preview: '', full: '' };
+        let totalInputTokens = 0;
+        let totalOutputTokens = 0;
+
+        // Parse Call 1
+        totalInputTokens += result1.inputTokens;
+        totalOutputTokens += result1.outputTokens;
+        const parsed1 = this.parseLifetimeV2CallResponse(result1.content, 'call1');
+        const { result: fixed1 } = this.autoFixAllSections(parsed1, calculationData);
+        sections = { ...sections, ...fixed1.sections };
+
+        // Parse Call 2 (may be null if timed out — partial result still useful)
+        if (result2) {
+          totalInputTokens += result2.inputTokens;
+          totalOutputTokens += result2.outputTokens;
+          const parsed2 = this.parseLifetimeV2CallResponse(result2.content, 'call2');
+          const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
+          sections = { ...sections, ...fixed2.sections };
+        }
+
+        // Parse Call 3 (may be null if timed out — partial result still useful)
+        if (result3) {
+          totalInputTokens += result3.inputTokens;
+          totalOutputTokens += result3.outputTokens;
+          const parsed3 = this.parseLifetimeV2CallResponse(result3.content, 'call3');
+          const { result: fixed3 } = this.autoFixAllSections(parsed3, calculationData);
+          sections = { ...sections, ...fixed3.sections };
+          if (fixed3.summary && (fixed3.summary.preview || fixed3.summary.full)) {
+            summary = fixed3.summary;
+          }
+        }
+
+        const totalCost =
+          totalInputTokens * providerConfig.costPerInputToken +
+          totalOutputTokens * providerConfig.costPerOutputToken;
+
+        this.logger.log(
+          `Compat Romance V2 generated via ${providerConfig.provider} in ${latencyMs}ms, ` +
+          `${totalInputTokens}+${totalOutputTokens} tokens, $${totalCost.toFixed(4)}, ` +
+          `${Object.keys(sections).length} sections`,
+        );
+
+        const interpretation: AIInterpretationResult & { schemaVersion: string } = {
+          sections,
+          summary,
+          schemaVersion: 'v2',
+        };
+
+        return {
+          interpretation,
+          provider: providerConfig.provider,
+          model: providerConfig.model,
+          tokenUsage: {
+            inputTokens: totalInputTokens,
+            outputTokens: totalOutputTokens,
+            totalTokens: totalInputTokens + totalOutputTokens,
+            estimatedCostUsd: totalCost,
+          },
+          latencyMs,
+          isCacheHit: false,
+        };
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        lastError = new Error(`${providerConfig.provider}: ${message}`);
+        this.logger.warn(`Compat Romance V2 interpretation failed: ${message}`);
+        continue;
+      }
+    }
+
+    throw lastError || new Error('All providers failed for compatibility romance V2');
+  }
+
+  /**
+   * Stream Compatibility Romance V2 interpretation via SSE.
+   */
+  streamCompatibilityRomanceV2(
+    calculationData: Record<string, unknown>,
+    comparisonId: string,
+  ): Observable<MessageEvent> {
+    return new Observable((subscriber: Subscriber<MessageEvent>) => {
+      this._executeStreamCompatRomanceV2(calculationData, comparisonId, subscriber)
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Stream failed';
+          subscriber.next({
+            data: JSON.stringify({ message }),
+            type: 'error',
+          } as MessageEvent);
+          subscriber.complete();
+        });
+    });
+  }
+
+  private async _executeStreamCompatRomanceV2(
+    calculationData: Record<string, unknown>,
+    comparisonId: string,
+    subscriber: Subscriber<MessageEvent>,
+  ) {
+    const startTime = Date.now();
+    const timeoutMs = parseInt(
+      this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
+      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '300000',
+      10,
+    );
+    this.logger.log(`[CompatV2Stream] START comparisonId=${comparisonId}, timeoutMs=${timeoutMs} (5min/call)`);
+
+    if (this.providers.length === 0) {
+      throw new Error('No AI providers configured');
+    }
+
+    const { systemPrompt, call1User, call2User, call3User } =
+      this.buildCompatibilityRomanceV2Prompts(calculationData);
+
+    this.logger.log(`[CompatV2Stream] Prompts built — system=${systemPrompt.length}chars, call1=${call1User.length}chars, call2=${call2User.length}chars, call3=${call3User.length}chars`);
+
+    // Heartbeat to keep SSE alive
+    const heartbeatInterval = setInterval(() => {
+      subscriber.next({ data: '', type: 'heartbeat' } as MessageEvent);
+    }, 15000);
+
+    let activeTimeout!: ReturnType<typeof setTimeout>;
+
+    try {
+      let v2Succeeded = false;
+      let totalSections = 0;
+
+      for (const providerConfig of this.providers) {
+        this.logger.log(`[CompatV2Stream] Trying provider=${providerConfig.provider}, model=${providerConfig.model}`);
+        try {
+          // === Call 1: Stream per-person sections ===
+          const call1Sections: Record<string, InterpretationSection> = {};
+          let call1Buffer = '';
+          let call1ChunkCount = 0;
+
+          const call1Controller = new AbortController();
+          activeTimeout = setTimeout(() => {
+            this.logger.warn(`[CompatV2Stream] Call 1 TIMEOUT after ${timeoutMs}ms`);
+            call1Controller.abort();
+          }, timeoutMs);
+
+          const call1ExtractedKeys = new Set<string>();
+          const call1Keys = [...COMPAT_V2_SECTIONS.CALL1];
+          this.logger.log(`[CompatV2Stream] Call 1 START — expecting keys: ${call1Keys.join(', ')}`);
+
+          try {
+            const streamGen = this.streamProvider(
+              providerConfig, systemPrompt, call1User, call1Controller.signal,
+            );
+
+            for await (const chunk of streamGen) {
+              call1Buffer += chunk;
+              call1ChunkCount++;
+
+              // Log progress every 50 chunks
+              if (call1ChunkCount % 50 === 0) {
+                this.logger.log(`[CompatV2Stream] Call 1 chunk #${call1ChunkCount}, buffer=${call1Buffer.length}chars, extracted=${call1ExtractedKeys.size}/${call1Keys.length} sections`);
+              }
+
+              const newSections = this.extractCompletedSections(
+                call1Buffer, call1Keys, call1ExtractedKeys,
+              );
+
+              for (const [key, rawSection] of Object.entries(newSections)) {
+                const { section } = this.autoFixSection(key, rawSection, calculationData);
+                call1Sections[key] = section;
+                totalSections++;
+                this.logger.log(`[CompatV2Stream] Call 1 SECTION EMITTED: ${key} (${section.full?.length || 0}chars)`);
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+
+            this.logger.log(`[CompatV2Stream] Call 1 stream COMPLETE — ${call1ChunkCount} chunks, buffer=${call1Buffer.length}chars, ${Object.keys(call1Sections).length} sections extracted during stream`);
+
+            // Parse remaining from complete buffer
+            const finalParsed1 = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
+            const finalParsed1Keys = Object.keys(finalParsed1.sections);
+            this.logger.log(`[CompatV2Stream] Call 1 final parse found ${finalParsed1Keys.length} sections: ${finalParsed1Keys.join(', ')}`);
+
+            for (const [key, rawSection] of Object.entries(finalParsed1.sections)) {
+              if (!call1Sections[key]) {
+                const { section } = this.autoFixSection(key, rawSection, calculationData);
+                call1Sections[key] = section;
+                totalSections++;
+                this.logger.log(`[CompatV2Stream] Call 1 LATE SECTION: ${key}`);
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+          } catch (streamErr) {
+            const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
+            const errName = (streamErr as Error).name || 'unknown';
+            this.logger.warn(`[CompatV2Stream] Call 1 STREAM ERROR: name=${errName}, message=${errMsg}, chunks=${call1ChunkCount}, buffer=${call1Buffer.length}chars, extracted=${call1ExtractedKeys.size} sections`);
+
+            // Try to salvage sections from partial buffer
+            if (call1Buffer.length > 100) {
+              this.logger.log(`[CompatV2Stream] Call 1 attempting salvage from ${call1Buffer.length}char buffer...`);
+              try {
+                const salvaged = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
+                for (const [key, rawSection] of Object.entries(salvaged.sections)) {
+                  if (!call1Sections[key]) {
+                    const { section } = this.autoFixSection(key, rawSection, calculationData);
+                    call1Sections[key] = section;
+                    totalSections++;
+                    this.logger.log(`[CompatV2Stream] Call 1 SALVAGED: ${key}`);
+                    subscriber.next({
+                      data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                      type: 'section_complete',
+                    } as MessageEvent);
+                  }
+                }
+              } catch (salErr) {
+                this.logger.warn(`[CompatV2Stream] Call 1 salvage failed: ${salErr}`);
+              }
+            }
+          }
+          clearTimeout(activeTimeout);
+          this.logger.log(`[CompatV2Stream] Call 1 DONE — ${Object.keys(call1Sections).length} total sections, elapsed=${Date.now()-startTime}ms`);
+
+          subscriber.next({
+            data: JSON.stringify({ call: 1 }),
+            type: 'call_complete',
+          } as MessageEvent);
+
+          // === Call 2: Stream cross-chart sections ===
+          this.logger.log(`[CompatV2Stream] Call 2 START — elapsed=${Date.now()-startTime}ms`);
+          let call2Sections: Record<string, InterpretationSection> = {};
+          const call2Controller = new AbortController();
+          activeTimeout = setTimeout(() => {
+            this.logger.warn(`[CompatV2Stream] Call 2 TIMEOUT after ${timeoutMs}ms`);
+            call2Controller.abort();
+          }, timeoutMs);
+
+          const call2ExtractedKeys = new Set<string>();
+          const call2Keys = [...COMPAT_V2_SECTIONS.CALL2];
+          let call2Buffer = '';
+          let call2ChunkCount = 0;
+
+          try {
+            const streamGen2 = this.streamProvider(
+              providerConfig, systemPrompt, call2User, call2Controller.signal,
+            );
+
+            for await (const chunk of streamGen2) {
+              call2Buffer += chunk;
+              call2ChunkCount++;
+
+              const newSections = this.extractCompletedSections(
+                call2Buffer, call2Keys, call2ExtractedKeys,
+              );
+
+              for (const [key, rawSection] of Object.entries(newSections)) {
+                const { section } = this.autoFixSection(key, rawSection, calculationData);
+                call2Sections[key] = section;
+                totalSections++;
+                this.logger.log(`[CompatV2Stream] Call 2 SECTION EMITTED: ${key} (${section.full?.length || 0}chars)`);
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+
+            this.logger.log(`[CompatV2Stream] Call 2 stream COMPLETE — ${call2ChunkCount} chunks, buffer=${call2Buffer.length}chars, ${Object.keys(call2Sections).length} sections extracted during stream`);
+
+            // Parse remaining from complete buffer
+            const finalParsed2 = this.parseLifetimeV2CallResponse(call2Buffer, 'call2');
+            for (const [key, rawSection] of Object.entries(finalParsed2.sections)) {
+              if (!call2Sections[key]) {
+                const { section } = this.autoFixSection(key, rawSection, calculationData);
+                call2Sections[key] = section;
+                totalSections++;
+                this.logger.log(`[CompatV2Stream] Call 2 LATE SECTION: ${key}`);
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+          } catch (streamErr) {
+            const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
+            this.logger.warn(`[CompatV2Stream] Call 2 STREAM ERROR: ${errMsg}, chunks=${call2ChunkCount}, buffer=${call2Buffer.length}chars`);
+
+            // Try to salvage sections from partial buffer
+            if (call2Buffer.length > 100) {
+              try {
+                const salvaged = this.parseLifetimeV2CallResponse(call2Buffer, 'call2');
+                for (const [key, rawSection] of Object.entries(salvaged.sections)) {
+                  if (!call2Sections[key]) {
+                    const { section } = this.autoFixSection(key, rawSection, calculationData);
+                    call2Sections[key] = section;
+                    totalSections++;
+                    this.logger.log(`[CompatV2Stream] Call 2 SALVAGED: ${key}`);
+                    subscriber.next({
+                      data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                      type: 'section_complete',
+                    } as MessageEvent);
+                  }
+                }
+              } catch (salErr) {
+                this.logger.warn(`[CompatV2Stream] Call 2 salvage failed: ${salErr}`);
+              }
+            }
+          }
+          clearTimeout(activeTimeout);
+          this.logger.log(`[CompatV2Stream] Call 2 DONE — ${Object.keys(call2Sections).length} total sections, elapsed=${Date.now()-startTime}ms`);
+
+          subscriber.next({
+            data: JSON.stringify({ call: 2 }),
+            type: 'call_complete',
+          } as MessageEvent);
+
+          // === Call 3: Stream annual + summary sections ===
+          this.logger.log(`[CompatV2Stream] Call 3 START — elapsed=${Date.now()-startTime}ms`);
+          let call3Sections: Record<string, InterpretationSection> = {};
+          let call3Summary: InterpretationSection = { preview: '', full: '' };
+          const call3Controller = new AbortController();
+          activeTimeout = setTimeout(() => {
+            this.logger.warn(`[CompatV2Stream] Call 3 TIMEOUT after ${timeoutMs}ms`);
+            call3Controller.abort();
+          }, timeoutMs);
+
+          const call3ExtractedKeys = new Set<string>();
+          const call3Keys = [...COMPAT_V2_SECTIONS.CALL3];
+          let call3Buffer = '';
+          let call3ChunkCount = 0;
+
+          try {
+            const streamGen3 = this.streamProvider(
+              providerConfig, systemPrompt, call3User, call3Controller.signal,
+            );
+
+            for await (const chunk of streamGen3) {
+              call3Buffer += chunk;
+              call3ChunkCount++;
+
+              const newSections = this.extractCompletedSections(
+                call3Buffer, call3Keys, call3ExtractedKeys,
+              );
+
+              for (const [key, rawSection] of Object.entries(newSections)) {
+                const { section } = this.autoFixSection(key, rawSection, calculationData);
+                call3Sections[key] = section;
+                totalSections++;
+                this.logger.log(`[CompatV2Stream] Call 3 SECTION EMITTED: ${key} (${section.full?.length || 0}chars)`);
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+
+            this.logger.log(`[CompatV2Stream] Call 3 stream COMPLETE — ${call3ChunkCount} chunks, buffer=${call3Buffer.length}chars, ${Object.keys(call3Sections).length} sections extracted during stream`);
+
+            // Parse remaining from complete buffer
+            const finalParsed3 = this.parseLifetimeV2CallResponse(call3Buffer, 'call3');
+            for (const [key, rawSection] of Object.entries(finalParsed3.sections)) {
+              if (!call3Sections[key]) {
+                const { section } = this.autoFixSection(key, rawSection, calculationData);
+                call3Sections[key] = section;
+                totalSections++;
+                this.logger.log(`[CompatV2Stream] Call 3 LATE SECTION: ${key}`);
+                subscriber.next({
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                  type: 'section_complete',
+                } as MessageEvent);
+              }
+            }
+
+            // Extract summary from final parse
+            if (finalParsed3.summary && (finalParsed3.summary.preview || finalParsed3.summary.full)) {
+              const { section: fixedSummary } = this.autoFixSection('compatibility_summary', finalParsed3.summary, calculationData);
+              call3Summary = fixedSummary;
+            }
+          } catch (streamErr) {
+            const errMsg = streamErr instanceof Error ? streamErr.message : String(streamErr);
+            this.logger.warn(`[CompatV2Stream] Call 3 STREAM ERROR: ${errMsg}, chunks=${call3ChunkCount}, buffer=${call3Buffer.length}chars`);
+
+            // Try to salvage sections from partial buffer
+            if (call3Buffer.length > 100) {
+              try {
+                const salvaged = this.parseLifetimeV2CallResponse(call3Buffer, 'call3');
+                for (const [key, rawSection] of Object.entries(salvaged.sections)) {
+                  if (!call3Sections[key]) {
+                    const { section } = this.autoFixSection(key, rawSection, calculationData);
+                    call3Sections[key] = section;
+                    totalSections++;
+                    this.logger.log(`[CompatV2Stream] Call 3 SALVAGED: ${key}`);
+                    subscriber.next({
+                      data: JSON.stringify({ key, preview: section.preview, full: section.full }),
+                      type: 'section_complete',
+                    } as MessageEvent);
+                  }
+                }
+                if (salvaged.summary && (salvaged.summary.preview || salvaged.summary.full)) {
+                  call3Summary = salvaged.summary;
+                }
+              } catch (salErr) {
+                this.logger.warn(`[CompatV2Stream] Call 3 salvage failed: ${salErr}`);
+              }
+            }
+          }
+          clearTimeout(activeTimeout);
+          this.logger.log(`[CompatV2Stream] Call 3 DONE — ${Object.keys(call3Sections).length} total sections, elapsed=${Date.now()-startTime}ms`);
+
+          subscriber.next({
+            data: JSON.stringify({ call: 3 }),
+            type: 'call_complete',
+          } as MessageEvent);
+
+          // Emit summary
+          if (call3Summary.preview || call3Summary.full) {
+            subscriber.next({
+              data: JSON.stringify({ preview: call3Summary.preview, full: call3Summary.full }),
+              type: 'summary',
+            } as MessageEvent);
+          }
+
+          // Merge all sections for DB update
+          const allSections: Record<string, InterpretationSection> = {
+            ...call1Sections,
+            ...call2Sections,
+            ...call3Sections,
+          };
+
+          const aiInterpretation = {
+            schemaVersion: 'v2',
+            sections: allSections,
+            summary: call3Summary,
+          };
+
+          // Update DB record
+          try {
+            await this.prisma.baziComparison.update({
+              where: { id: comparisonId },
+              data: {
+                aiInterpretation: aiInterpretation as unknown as Prisma.InputJsonValue,
+                aiProvider: providerConfig.provider as any,
+                aiModel: providerConfig.model,
+              },
+            });
+          } catch (dbErr) {
+            this.logger.warn(`Failed to update comparison ${comparisonId}: ${dbErr instanceof Error ? dbErr.message : dbErr}`);
+          }
+
+          // Emit completion event
+          const latencyMs = Date.now() - startTime;
+          this.logger.log(
+            `Stream Compat Romance V2 completed via ${providerConfig.provider} in ${latencyMs}ms, ${totalSections} sections delivered`,
+          );
+
+          subscriber.next({
+            data: JSON.stringify({ totalSections, latencyMs }),
+            type: 'done',
+          } as MessageEvent);
+
+          v2Succeeded = true;
+          break;
+        } catch (provErr) {
+          const message = provErr instanceof Error ? provErr.message : String(provErr);
+          this.logger.warn(`Compat Romance V2 provider failed: ${message}`);
+          continue;
+        }
+      }
+
+      if (!v2Succeeded) {
+        throw new Error('All providers failed for compat romance V2 stream');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Stream error';
+      subscriber.next({
+        data: JSON.stringify({ message }),
+        type: 'error',
+      } as MessageEvent);
+    } finally {
+      clearInterval(heartbeatInterval);
+      clearTimeout(activeTimeout);
+      subscriber.complete();
+    }
+  }
+
+  /**
+   * Build Compatibility Romance V2 prompts (system + 3 user prompts).
+   * Extracts romancePreAnalysis from calculationData and interpolates all placeholders.
+   */
+  private buildCompatibilityRomanceV2Prompts(
+    calculationData: Record<string, unknown>,
+  ): { systemPrompt: string; call1User: string; call2User: string; call3User: string } {
+    const basePrompt = buildCompatRomanceV2SystemPrompt();
+    const systemPrompt = basePrompt + '\n\n' +
+      COMPAT_ROMANCE_V2_PROMPTS.systemAddition + '\n' +
+      COMPAT_ROMANCE_V2_STYLE_RULES;
+
+    const romancePA = calculationData['romancePreAnalysis'] as Record<string, unknown> | undefined;
+    const compatEnhanced = calculationData['compatibilityEnhanced'] as Record<string, unknown> | undefined;
+    const compatPreAnalysis = calculationData['compatibilityPreAnalysis'] as Record<string, unknown> | undefined;
+    const chartA = calculationData['chartA'] as Record<string, unknown> | undefined;
+    const chartB = calculationData['chartB'] as Record<string, unknown> | undefined;
+    const currentYear = String(calculationData['currentYear'] || new Date().getFullYear());
+
+    // === Call 1: Per-person sections ===
+    let call1Template = COMPAT_ROMANCE_V2_PROMPTS.userTemplateCall1;
+    call1Template = call1Template.replace(/\{\{currentYear\}\}/g, currentYear);
+    call1Template = this.interpolateCompatV2ChartFields(call1Template, chartA, 'A', calculationData['birthDateA'] as string);
+    call1Template = this.interpolateCompatV2ChartFields(call1Template, chartB, 'B', calculationData['birthDateB'] as string);
+
+    if (romancePA) {
+      call1Template = call1Template.replace(/\{\{pillarTraitsA\}\}/g,
+        JSON.stringify(romancePA['lovePersonalityA'] || {}, null, 2));
+      call1Template = call1Template.replace(/\{\{pillarTraitsB\}\}/g,
+        JSON.stringify(romancePA['lovePersonalityB'] || {}, null, 2));
+      call1Template = call1Template.replace(/\{\{spouseEnrichmentA\}\}/g,
+        JSON.stringify(romancePA['spouseEnrichmentA'] || {}, null, 2));
+      call1Template = call1Template.replace(/\{\{spouseEnrichmentB\}\}/g,
+        JSON.stringify(romancePA['spouseEnrichmentB'] || {}, null, 2));
+      call1Template = call1Template.replace(/\{\{marriageWealthA\}\}/g,
+        JSON.stringify(romancePA['marriageWealthA'] || {}, null, 2));
+      call1Template = call1Template.replace(/\{\{marriageWealthB\}\}/g,
+        JSON.stringify(romancePA['marriageWealthB'] || {}, null, 2));
+      // Top-level shared data (V4-1, V4-2, V4-5)
+      call1Template = call1Template.replace(/\{\{fiveElementAssessmentA\}\}/g,
+        JSON.stringify(romancePA['fiveElementAssessmentA'] || {}, null, 2));
+      call1Template = call1Template.replace(/\{\{fiveElementAssessmentB\}\}/g,
+        JSON.stringify(romancePA['fiveElementAssessmentB'] || {}, null, 2));
+      call1Template = call1Template.replace(/\{\{luckPeriodSummaryA\}\}/g,
+        JSON.stringify(romancePA['luckPeriodSummaryA'] || [], null, 2));
+      call1Template = call1Template.replace(/\{\{luckPeriodSummaryB\}\}/g,
+        JSON.stringify(romancePA['luckPeriodSummaryB'] || [], null, 2));
+      call1Template = call1Template.replace(/\{\{currentLuckPeriodA\}\}/g,
+        JSON.stringify(romancePA['currentLuckPeriodA'] || '（資料未提供）', null, 2));
+      call1Template = call1Template.replace(/\{\{currentLuckPeriodB\}\}/g,
+        JSON.stringify(romancePA['currentLuckPeriodB'] || '（資料未提供）', null, 2));
+    } else {
+      // Fallback: clear placeholders
+      call1Template = call1Template.replace(/\{\{pillarTraitsA\}\}/g, '（資料未提供）');
+      call1Template = call1Template.replace(/\{\{pillarTraitsB\}\}/g, '（資料未提供）');
+      call1Template = call1Template.replace(/\{\{spouseEnrichmentA\}\}/g, '（資料未提供）');
+      call1Template = call1Template.replace(/\{\{spouseEnrichmentB\}\}/g, '（資料未提供）');
+      call1Template = call1Template.replace(/\{\{marriageWealthA\}\}/g, '（資料未提供）');
+      call1Template = call1Template.replace(/\{\{marriageWealthB\}\}/g, '（資料未提供）');
+      call1Template = call1Template.replace(/\{\{fiveElementAssessmentA\}\}/g, '（資料未提供）');
+      call1Template = call1Template.replace(/\{\{fiveElementAssessmentB\}\}/g, '（資料未提供）');
+      call1Template = call1Template.replace(/\{\{luckPeriodSummaryA\}\}/g, '（資料未提供）');
+      call1Template = call1Template.replace(/\{\{luckPeriodSummaryB\}\}/g, '（資料未提供）');
+      call1Template = call1Template.replace(/\{\{currentLuckPeriodA\}\}/g, '（資料未提供）');
+      call1Template = call1Template.replace(/\{\{currentLuckPeriodB\}\}/g, '（資料未提供）');
+    }
+
+    const call1User = call1Template + '\n\n' + COMPAT_ROMANCE_V2_PROMPTS.outputFormatCall1;
+
+    // === Call 2: Cross-chart sections ===
+    let call2Template = COMPAT_ROMANCE_V2_PROMPTS.userTemplateCall2;
+    call2Template = call2Template.replace(/\{\{currentYear\}\}/g, currentYear);
+
+    // Build deterministic context bridge (NOT from AI output)
+    const contextBridge = this.buildCompatV2ContextBridge(chartA, chartB, romancePA, compatEnhanced);
+    call2Template = call2Template.replace(/\{\{contextBridge\}\}/g, contextBridge);
+
+    if (romancePA) {
+      call2Template = call2Template.replace(/\{\{postMarriageQuality\}\}/g,
+        JSON.stringify(romancePA['postMarriageQuality'] || {}, null, 2));
+      call2Template = call2Template.replace(/\{\{crisisRiskA\}\}/g,
+        JSON.stringify(romancePA['crisisRiskA'] || {}, null, 2));
+      call2Template = call2Template.replace(/\{\{crisisRiskB\}\}/g,
+        JSON.stringify(romancePA['crisisRiskB'] || {}, null, 2));
+      // Pre-process combinedCrisis to resolve party labels (甲方→男方, A方→男方)
+      const rawCombinedCrisis = (romancePA['combinedCrisis'] || {}) as Record<string, unknown>;
+      const processedCombinedCrisis = this.resolvePartyLabelsInCrisis(rawCombinedCrisis);
+      call2Template = call2Template.replace(/\{\{combinedCrisis\}\}/g,
+        JSON.stringify(processedCombinedCrisis, null, 2));
+      // Top-level shared data for Call 2
+      call2Template = call2Template.replace(/\{\{fiveElementAssessmentA\}\}/g,
+        JSON.stringify(romancePA['fiveElementAssessmentA'] || {}, null, 2));
+      call2Template = call2Template.replace(/\{\{fiveElementAssessmentB\}\}/g,
+        JSON.stringify(romancePA['fiveElementAssessmentB'] || {}, null, 2));
+      call2Template = call2Template.replace(/\{\{luckPeriodSummaryA\}\}/g,
+        JSON.stringify(romancePA['luckPeriodSummaryA'] || [], null, 2));
+      call2Template = call2Template.replace(/\{\{luckPeriodSummaryB\}\}/g,
+        JSON.stringify(romancePA['luckPeriodSummaryB'] || [], null, 2));
+    } else {
+      call2Template = call2Template.replace(/\{\{postMarriageQuality\}\}/g, '（資料未提供）');
+      call2Template = call2Template.replace(/\{\{crisisRiskA\}\}/g, '（資料未提供）');
+      call2Template = call2Template.replace(/\{\{crisisRiskB\}\}/g, '（資料未提供）');
+      call2Template = call2Template.replace(/\{\{combinedCrisis\}\}/g, '（資料未提供）');
+      call2Template = call2Template.replace(/\{\{fiveElementAssessmentA\}\}/g, '（資料未提供）');
+      call2Template = call2Template.replace(/\{\{fiveElementAssessmentB\}\}/g, '（資料未提供）');
+      call2Template = call2Template.replace(/\{\{luckPeriodSummaryA\}\}/g, '（資料未提供）');
+      call2Template = call2Template.replace(/\{\{luckPeriodSummaryB\}\}/g, '（資料未提供）');
+    }
+
+    // Cross ten gods, yongshen, landmines from existing compatibilityPreAnalysis
+    if (compatPreAnalysis) {
+      call2Template = this.interpolateCompatPreAnalysisForV2(call2Template, compatPreAnalysis);
+    } else {
+      call2Template = call2Template.replace(/\{\{crossTenGods\}\}/g, '（資料未提供）');
+      call2Template = call2Template.replace(/\{\{yongshenAnalysis\}\}/g, '（資料未提供）');
+      call2Template = call2Template.replace(/\{\{landmines\}\}/g, '（無地雷禁忌）');
+    }
+
+    const call2User = call2Template + '\n\n' + COMPAT_ROMANCE_V2_PROMPTS.outputFormatCall2;
+
+    // === Call 3: Annual + summary ===
+    let call3Template = COMPAT_ROMANCE_V2_PROMPTS.userTemplateCall3;
+    call3Template = call3Template.replace(/\{\{currentYear\}\}/g, currentYear);
+
+    // Extended context bridge for Call 3
+    const contextBridge2 = contextBridge + this.buildCompatV2ContextBridge2(romancePA);
+    call3Template = call3Template.replace(/\{\{contextBridge2\}\}/g, contextBridge2);
+
+    if (romancePA) {
+      call3Template = call3Template.replace(/\{\{annualForecastA\}\}/g,
+        JSON.stringify(romancePA['annualForecastA'] || {}, null, 2));
+      call3Template = call3Template.replace(/\{\{annualForecastB\}\}/g,
+        JSON.stringify(romancePA['annualForecastB'] || {}, null, 2));
+    } else {
+      call3Template = call3Template.replace(/\{\{annualForecastA\}\}/g, '（資料未提供）');
+      call3Template = call3Template.replace(/\{\{annualForecastB\}\}/g, '（資料未提供）');
+    }
+
+    // Scoring data for summary section
+    const postMarriage = romancePA?.['postMarriageQuality'] as Record<string, unknown> | undefined;
+    const sweetness = postMarriage?.['sweetness'] as Record<string, unknown> | undefined;
+    const stability = postMarriage?.['stability'] as Record<string, unknown> | undefined;
+    const combined = romancePA?.['combinedCrisis'] as Record<string, unknown> | undefined;
+
+    // V7: Use blended score for V2 romance when available, fallback to adjustedScore
+    const isV2Romance = romancePA?.['blendedScore'] !== undefined;
+    const displayScore = isV2Romance ? romancePA!['blendedScore'] : (compatEnhanced?.['adjustedScore'] || 0);
+    const displayLabel = isV2Romance ? (romancePA!['blendedLabel'] as string) || '' : (compatEnhanced?.['label'] as string) || '';
+
+    call3Template = call3Template.replace(/\{\{enhancedScore\}\}/g, String(displayScore));
+    call3Template = call3Template.replace(/\{\{enhancedLabel\}\}/g, displayLabel);
+    call3Template = call3Template.replace(/\{\{sweetnessScore\}\}/g,
+      String(sweetness?.['score'] ?? '（未計算）'));
+    call3Template = call3Template.replace(/\{\{stabilityScore\}\}/g,
+      String(stability?.['score'] ?? '（未計算）'));
+    call3Template = call3Template.replace(/\{\{destructiveLevel\}\}/g,
+      (combined?.['destructiveLevel'] as string) || '（未評估）');
+
+    // V7: Score breakdown for summary section
+    const breakdown = romancePA?.['scoreBreakdown'] as Record<string, unknown> | undefined;
+    if (breakdown) {
+      call3Template = call3Template.replace(/\{\{scoreBreakdown\}\}/g,
+        `配對基礎分${breakdown['baseScore']}分×60% + 婚後品質(甜蜜${breakdown['sweetnessScore']}+穩定${breakdown['stabilityScore']})平均${breakdown['romanceAvg']}分×40% = ${romancePA!['blendedScore']}分`);
+    } else {
+      call3Template = call3Template.replace(/\{\{scoreBreakdown\}\}/g, '');
+    }
+
+    let outputFormatCall3 = COMPAT_ROMANCE_V2_PROMPTS.outputFormatCall3;
+    outputFormatCall3 = outputFormatCall3.replace(/\{\{currentYear\}\}/g, currentYear);
+
+    const call3User = call3Template + '\n\n' + outputFormatCall3;
+
+    return { systemPrompt, call1User, call2User, call3User };
+  }
+
+  /**
+   * Interpolate chart fields for Compatibility Romance V2 (per-person data).
+   */
+  private interpolateCompatV2ChartFields(
+    template: string,
+    chart: Record<string, unknown> | undefined,
+    suffix: string,
+    birthDate?: string,
+  ): string {
+    if (!chart) return template;
+    let result = template;
+
+    const fourPillars = chart['fourPillars'] as Record<string, Record<string, unknown>> | undefined;
+    const dayMaster = chart['dayMaster'] as Record<string, unknown> | undefined;
+    const preAnalysis = chart['preAnalysis'] as Record<string, unknown> | undefined;
+    const luckPeriods = chart['luckPeriods'] as Array<Record<string, unknown>> | undefined;
+
+    // Gender
+    result = result.replace(new RegExp(`\\{\\{gender${suffix}\\}\\}`, 'g'),
+      GENDER_ZH[(chart['gender'] as string) || 'male'] || '男');
+
+    // Four pillars formatted
+    if (fourPillars) {
+      const pillarLines: string[] = [];
+      for (const pillar of ['year', 'month', 'day', 'hour']) {
+        const p = fourPillars[pillar];
+        if (p) {
+          const pillarZh = pillar === 'year' ? '年柱' : pillar === 'month' ? '月柱' : pillar === 'day' ? '日柱' : '時柱';
+          pillarLines.push(`- ${pillarZh}：${p['stem']}${p['branch']}`);
+        }
+      }
+      result = result.replace(new RegExp(`\\{\\{fourPillars${suffix}\\}\\}`, 'g'),
+        pillarLines.join('\n'));
+    } else {
+      result = result.replace(new RegExp(`\\{\\{fourPillars${suffix}\\}\\}`, 'g'), '（資料未提供）');
+    }
+
+    // Day master stem
+    result = result.replace(new RegExp(`\\{\\{dayMaster${suffix}\\}\\}`, 'g'),
+      (chart['dayMasterStem'] as string) || (dayMaster?.['stem'] as string) || '');
+
+    // Strength label
+    if (preAnalysis) {
+      const sv2 = preAnalysis['strengthV2'] as Record<string, unknown> | undefined;
+      if (sv2) {
+        const cls = STRENGTH_V2_ZH[(sv2['classification'] as string) || ''] || '';
+        const score = sv2['score'] || 0;
+        result = result.replace(new RegExp(`\\{\\{strengthLabel${suffix}\\}\\}`, 'g'),
+          `${cls}（${score}/100）`);
+      } else {
+        result = result.replace(new RegExp(`\\{\\{strengthLabel${suffix}\\}\\}`, 'g'), '（資料未提供）');
+      }
+    } else {
+      result = result.replace(new RegExp(`\\{\\{strengthLabel${suffix}\\}\\}`, 'g'), '（資料未提供）');
+    }
+
+    // Pattern
+    result = result.replace(new RegExp(`\\{\\{pattern${suffix}\\}\\}`, 'g'),
+      (dayMaster?.['pattern'] as string) || '');
+
+    // Nayin
+    result = result.replace(new RegExp(`\\{\\{nayin${suffix}\\}\\}`, 'g'),
+      ((chart as any).fourPillars?.year?.naYin as string) || '');
+
+    // Birth season (from month branch) and zodiac (from year branch)
+    const BRANCH_TO_SEASON: Record<string, string> = {
+      '寅': '春天', '卯': '春天', '辰': '春天',
+      '巳': '夏天', '午': '夏天', '未': '夏天',
+      '申': '秋天', '酉': '秋天', '戌': '秋天',
+      '亥': '冬天', '子': '冬天', '丑': '冬天',
+    };
+    const BRANCH_TO_ZODIAC: Record<string, string> = {
+      '子': '鼠', '丑': '牛', '寅': '虎', '卯': '兔',
+      '辰': '龍', '巳': '蛇', '午': '馬', '未': '羊',
+      '申': '猴', '酉': '雞', '戌': '狗', '亥': '豬',
+    };
+    const monthBranch = fourPillars?.['month']?.['branch'] as string || '';
+    const yearBranch = fourPillars?.['year']?.['branch'] as string || '';
+    result = result.replace(new RegExp(`\\{\\{birthSeason${suffix}\\}\\}`, 'g'),
+      BRANCH_TO_SEASON[monthBranch] || '');
+    result = result.replace(new RegExp(`\\{\\{zodiac${suffix}\\}\\}`, 'g'),
+      BRANCH_TO_ZODIAC[yearBranch] || '');
+
+    // Birth year (from passed-in birthDate parameter, e.g., "1987-09-06")
+    const birthDateStr = birthDate || (chart['solarDate'] as string) || (chart['birthDate'] as string) || '';
+    const birthYearMatch = birthDateStr.match(/(\d{4})/);
+    result = result.replace(new RegExp(`\\{\\{birthYear${suffix}\\}\\}`, 'g'),
+      birthYearMatch ? birthYearMatch[1] : '');
+
+    // Five element count — Seer-style raw counts (e.g., "3金1木0水2火2土")
+    const elementCounts = chart['elementCounts'] as Record<string, Record<string, number>> | undefined;
+    if (elementCounts) {
+      const stemCounts = elementCounts['stems'] || {};
+      const branchCounts = elementCounts['branches'] || {};
+      const total: Record<string, number> = {};
+      for (const el of ['金', '木', '水', '火', '土']) {
+        total[el] = (stemCounts[el] || 0) + (branchCounts[el] || 0);
+      }
+      const fiveElementCount = `${total['金']}金${total['木']}木${total['水']}水${total['火']}火${total['土']}土`;
+      result = result.replace(new RegExp(`\\{\\{fiveElementCount${suffix}\\}\\}`, 'g'),
+        fiveElementCount);
+    } else {
+      result = result.replace(new RegExp(`\\{\\{fiveElementCount${suffix}\\}\\}`, 'g'), '（資料未提供）');
+    }
+
+    // Current luck period
+    if (luckPeriods && luckPeriods.length > 0) {
+      const now = new Date().getFullYear();
+      const currentLP = luckPeriods.find((lp) => {
+        const start = lp['startYear'] as number;
+        const end = lp['endYear'] as number;
+        return now >= start && now <= end;
+      });
+      if (currentLP) {
+        result = result.replace(new RegExp(`\\{\\{currentLP${suffix}\\}\\}`, 'g'),
+          `${currentLP['stem']}${currentLP['branch']}（${currentLP['startYear']}-${currentLP['endYear']}）`);
+      } else {
+        result = result.replace(new RegExp(`\\{\\{currentLP${suffix}\\}\\}`, 'g'), '（未進入大運）');
+      }
+    } else {
+      result = result.replace(new RegExp(`\\{\\{currentLP${suffix}\\}\\}`, 'g'), '（資料未提供）');
+    }
+
+    // Favorable gods
+    if (dayMaster) {
+      const fav = dayMaster['favorableGod'] || '';
+      const useful = dayMaster['usefulGod'] || '';
+      result = result.replace(new RegExp(`\\{\\{favorableGods${suffix}\\}\\}`, 'g'),
+        `喜=${fav} 用=${useful}`);
+    } else {
+      result = result.replace(new RegExp(`\\{\\{favorableGods${suffix}\\}\\}`, 'g'), '（資料未提供）');
+    }
+
+    return result;
+  }
+
+  /**
+   * Build deterministic context bridge for Call 2 (from pre-analysis data, NOT AI output).
+   */
+  private buildCompatV2ContextBridge(
+    chartA: Record<string, unknown> | undefined,
+    chartB: Record<string, unknown> | undefined,
+    romancePA: Record<string, unknown> | undefined,
+    compatEnhanced: Record<string, unknown> | undefined,
+  ): string {
+    const lines: string[] = [];
+
+    // Person A summary
+    const dmA = chartA?.['dayMaster'] as Record<string, unknown> | undefined;
+    const preA = chartA?.['preAnalysis'] as Record<string, unknown> | undefined;
+    const sv2A = preA?.['strengthV2'] as Record<string, unknown> | undefined;
+    const clsA = sv2A ? (STRENGTH_V2_ZH[(sv2A['classification'] as string) || ''] || '') : '';
+    const patternA = dmA?.['pattern'] || '';
+    lines.push(`男方日主${chartA?.['dayMasterStem'] || ''}${clsA ? `${clsA}` : ''}，格局${patternA}。`);
+
+    // Person B summary
+    const dmB = chartB?.['dayMaster'] as Record<string, unknown> | undefined;
+    const preB = chartB?.['preAnalysis'] as Record<string, unknown> | undefined;
+    const sv2B = preB?.['strengthV2'] as Record<string, unknown> | undefined;
+    const clsB = sv2B ? (STRENGTH_V2_ZH[(sv2B['classification'] as string) || ''] || '') : '';
+    const patternB = dmB?.['pattern'] || '';
+    lines.push(`女方日主${chartB?.['dayMasterStem'] || ''}${clsB ? `${clsB}` : ''}，格局${patternB}。`);
+
+    // Spouse enrichment summary
+    if (romancePA) {
+      const seA = romancePA['spouseEnrichmentA'] as Record<string, unknown> | undefined;
+      const seB = romancePA['spouseEnrichmentB'] as Record<string, unknown> | undefined;
+      if (seA) {
+        lines.push(`旺妻程度${seA['level'] || '一般'}（${seA['totalScore'] || 0}分）。`);
+      }
+      if (seB) {
+        lines.push(`旺夫程度${seB['level'] || '一般'}（${seB['totalScore'] || 0}分）。`);
+      }
+
+      // Post-marriage quality
+      const pmq = romancePA['postMarriageQuality'] as Record<string, unknown> | undefined;
+      if (pmq) {
+        const sw = pmq['sweetness'] as Record<string, unknown> | undefined;
+        const st = pmq['stability'] as Record<string, unknown> | undefined;
+        if (sw) lines.push(`婚後甜蜜度${sw['score'] || 0}分。`);
+        if (st) lines.push(`婚後穩定度${st['score'] || 0}分。`);
+      }
+    }
+
+    // Current luck period (V4-5)
+    if (romancePA) {
+      const clpA = romancePA['currentLuckPeriodA'] as Record<string, unknown> | undefined;
+      const clpB = romancePA['currentLuckPeriodB'] as Record<string, unknown> | undefined;
+      if (clpA) {
+        const elRole = clpA['elementRole'] ? `，${clpA['elementRole']}` : '';
+        lines.push(`男方當前大運${clpA['ganZhi']}（${clpA['period']}）${elRole}。`);
+      }
+      if (clpB) {
+        const elRole = clpB['elementRole'] ? `，${clpB['elementRole']}` : '';
+        lines.push(`女方當前大運${clpB['ganZhi']}（${clpB['period']}）${elRole}。`);
+      }
+    }
+
+    // Enhanced score — V7: prefer blended score when available
+    if (romancePA?.['blendedScore'] !== undefined) {
+      lines.push(`配對指數${romancePA['blendedScore']}分（${romancePA['blendedLabel'] || ''}）。`);
+    } else if (compatEnhanced) {
+      lines.push(`配對指數${compatEnhanced['adjustedScore'] || 0}分（${compatEnhanced['label'] || ''}）。`);
+    }
+
+    return lines.join('');
+  }
+
+  /**
+   * Build extended context bridge for Call 3 (adds crisis summary from Call 2 data).
+   */
+  private buildCompatV2ContextBridge2(
+    romancePA: Record<string, unknown> | undefined,
+  ): string {
+    if (!romancePA) return '';
+    const lines: string[] = ['\n'];
+
+    const crA = romancePA['crisisRiskA'] as Record<string, unknown> | undefined;
+    const crB = romancePA['crisisRiskB'] as Record<string, unknown> | undefined;
+    const cc = romancePA['combinedCrisis'] as Record<string, unknown> | undefined;
+
+    if (crA) {
+      const factors = (crA['riskFactors'] || []) as Array<Record<string, unknown>>;
+      lines.push(`男方婚變風險因素${factors.length}項。`);
+    }
+    if (crB) {
+      const factors = (crB['riskFactors'] || []) as Array<Record<string, unknown>>;
+      lines.push(`女方婚變風險因素${factors.length}項。`);
+    }
+    if (cc) {
+      lines.push(`合婚危機等級：${cc['destructiveLevel'] || '未評估'}。`);
+    }
+
+    return lines.join('');
+  }
+
+  /**
+   * Resolve party labels in combinedCrisis flags (belt-and-suspenders for Python source fix).
+   * Replaces 甲方→男方, 乙方→女方, A方→男方, B方→女方 in all flag descriptions.
+   */
+  private resolvePartyLabelsInCrisis(crisis: Record<string, unknown>): Record<string, unknown> {
+    const resolveDesc = (desc: string): string =>
+      (desc || '').replace(/甲方/g, '男方').replace(/乙方/g, '女方')
+        .replace(/A方/g, '男方').replace(/B方/g, '女方');
+
+    const result = { ...crisis };
+    const processFlags = (flags: unknown[]): unknown[] =>
+      (flags || []).map((f: any) => ({ ...f, desc: resolveDesc(f.desc || '') }));
+
+    if (Array.isArray(crisis['warningFlags'])) {
+      result['warningFlags'] = processFlags(crisis['warningFlags'] as unknown[]);
+    }
+    if (Array.isArray(crisis['noteFlags'])) {
+      result['noteFlags'] = processFlags(crisis['noteFlags'] as unknown[]);
+    }
+    if (Array.isArray(crisis['crisisFlags'])) {
+      result['crisisFlags'] = processFlags(crisis['crisisFlags'] as unknown[]);
+    }
+    return result;
+  }
+
+  /**
+   * Interpolate cross ten gods, yongshen, and landmines from existing compatibilityPreAnalysis
+   * for use in V2 Call 2. Reuses the same data as V1 but with targeted placeholder replacement.
+   */
+  private interpolateCompatPreAnalysisForV2(
+    template: string,
+    preAnalysis: Record<string, unknown>,
+  ): string {
+    let result = template;
+
+    // Cross ten gods
+    const crossTenGods = preAnalysis['crossTenGods'] as Record<string, unknown> | undefined;
+    if (crossTenGods) {
+      const ctLines: string[] = [];
+      const aInB = crossTenGods['aInB'] as Record<string, unknown> | undefined;
+      const bInA = crossTenGods['bInA'] as Record<string, unknown> | undefined;
+      if (aInB) {
+        ctLines.push(`男方在女方命盤中的角色：${aInB['tenGod']}→${aInB['meaning'] || ''}（⚠️此翻譯為唯一正確翻譯）`);
+      }
+      if (bInA) {
+        ctLines.push(`女方在男方命盤中的角色：${bInA['tenGod']}→${bInA['meaning'] || ''}（⚠️此翻譯為唯一正確翻譯）`);
+      }
+      result = result.replace(/\{\{crossTenGods\}\}/g, ctLines.join('\n'));
+    } else {
+      result = result.replace(/\{\{crossTenGods\}\}/g, '（資料未提供）');
+    }
+
+    // Yongshen analysis
+    const yongshen = preAnalysis['yongshenAnalysis'] as Record<string, unknown> | undefined;
+    if (yongshen) {
+      result = result.replace(/\{\{yongshenAnalysis\}\}/g,
+        JSON.stringify(yongshen, null, 2));
+    } else {
+      result = result.replace(/\{\{yongshenAnalysis\}\}/g, '（資料未提供）');
+    }
+
+    // Landmines
+    const landmines = preAnalysis['landmines'] as Array<Record<string, unknown>> | undefined;
+    if (landmines && landmines.length > 0) {
+      const lmLines = landmines.map((lm, i) => {
+        const severity = lm['severity'] === 'high' ? '🔴' :
+          lm['severity'] === 'medium' ? '🟠' : '🟡';
+        return `${severity} ${i + 1}. ${lm['description']}${lm['trigger'] ? `\n   觸發場景：${lm['trigger']}` : ''}`;
+      });
+      result = result.replace(/\{\{landmines\}\}/g, lmLines.join('\n'));
+    } else {
+      result = result.replace(/\{\{landmines\}\}/g, '（無地雷禁忌）');
+    }
+
+    return result;
+  }
+
   /**
    * Love-specific auto-fix: corrects ten god translation swaps, DM strength mislabeling,
    * and raw Bazi term leaks. Applied AFTER generic autoFixSection().
@@ -4644,7 +5679,17 @@ export class AIService implements OnModuleInit {
       }
 
       // Enhanced compatibility fields (8-dimension scoring)
-      if (compatEnhanced) {
+      // V7: prefer blended score from romancePreAnalysis when available
+      const romancePAForV1 = data['romancePreAnalysis'] as Record<string, unknown> | undefined;
+      if (romancePAForV1?.['blendedScore'] !== undefined) {
+        result = result.replace(/\{\{enhancedScore\}\}/g,
+          String(romancePAForV1['blendedScore']));
+        result = result.replace(/\{\{enhancedLabel\}\}/g,
+          (romancePAForV1['blendedLabel'] as string) || '');
+        const specialLabel = compatEnhanced?.['specialLabel'] as string | null;
+        result = result.replace(/\{\{enhancedSpecialLabel\}\}/g,
+          specialLabel ? `【特殊標籤】${specialLabel}` : '');
+      } else if (compatEnhanced) {
         result = result.replace(/\{\{enhancedScore\}\}/g,
           String(compatEnhanced['adjustedScore'] || 0));
         result = result.replace(/\{\{enhancedLabel\}\}/g,

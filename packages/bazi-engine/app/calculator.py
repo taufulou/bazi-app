@@ -517,10 +517,26 @@ def calculate_bazi_compatibility(
         shen_sha_b=shen_sha_b,
     )
 
-    return {
+    result = {
         'chartA': chart_a,
         'chartB': chart_b,
         'compatibility': compat_legacy,
         'compatibilityEnhanced': compat_enhanced,
         'compatibilityPreAnalysis': compat_pre_analysis,
     }
+
+    # Romance V2: add enhanced romance pre-analysis alongside existing data
+    if comparison_type == 'romance':
+        from .compatibility_romance_preanalysis import (
+            compute_compatibility_romance_preanalysis,
+        )
+        result['romancePreAnalysis'] = compute_compatibility_romance_preanalysis(
+            chart_a=chart_a,
+            chart_b=chart_b,
+            gender_a=gender_a,
+            gender_b=gender_b,
+            enhanced_data=compat_enhanced,
+            current_year=current_year,
+        )
+
+    return result

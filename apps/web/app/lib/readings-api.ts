@@ -6,6 +6,29 @@
 import { apiFetch } from './api';
 import { LOVE_V2_SECTION_KEYS } from '@repo/shared';
 
+// Compatibility Romance V2 section keys — local copy for this worktree.
+// Canonical source: packages/shared/src/constants.ts (COMPAT_ROMANCE_V2_SECTION_KEYS)
+// Duplicated here because the symlinked @repo/shared may not have this constant yet.
+const COMPAT_ROMANCE_V2_SECTION_KEYS = {
+  CHART_PROFILE_A: 'chart_profile_a',
+  CHART_PROFILE_B: 'chart_profile_b',
+  LOVE_PERSONALITY_A: 'love_personality_a',
+  LOVE_PERSONALITY_B: 'love_personality_b',
+  SPOUSE_ENRICHMENT_A: 'spouse_enrichment_a',
+  SPOUSE_ENRICHMENT_B: 'spouse_enrichment_b',
+  MARRIAGE_WEALTH_A: 'marriage_wealth_a',
+  MARRIAGE_WEALTH_B: 'marriage_wealth_b',
+  POST_MARRIAGE_SWEETNESS: 'post_marriage_sweetness',
+  POST_MARRIAGE_STABILITY: 'post_marriage_stability',
+  MARRIAGE_CRISIS_A: 'marriage_crisis_a',
+  MARRIAGE_CRISIS_B: 'marriage_crisis_b',
+  COMBINED_CRISIS_ANALYSIS: 'combined_crisis_analysis',
+  MARRIAGE_ADVICE: 'marriage_advice',
+  ANNUAL_LOVE_A: 'annual_love_a',
+  ANNUAL_LOVE_B: 'annual_love_b',
+  COMPATIBILITY_SUMMARY: 'compatibility_summary',
+} as const;
+
 // ============================================================
 // Slug → Backend Enum Mapping
 // ============================================================
@@ -107,6 +130,24 @@ export const SECTION_TITLE_MAP: Record<string, string> = {
   romance_danger_years: '需要注意桃花劫的年份',
   marriage_change_years: '感情容易生變的年份',
   love_summary: '感情綜合建議',
+  // Bazi Compatibility Romance V2 sections
+  chart_profile_a: '男方命局特點',
+  chart_profile_b: '女方命局特點',
+  love_personality_a: '男方戀愛性格',
+  love_personality_b: '女方戀愛性格',
+  spouse_enrichment_a: '旺妻/旺夫程度',
+  spouse_enrichment_b: '旺夫/旺妻程度',
+  marriage_wealth_a: '男方婚前婚後財富',
+  marriage_wealth_b: '女方婚前婚後財富',
+  post_marriage_sweetness: '婚後感情甜蜜度',
+  post_marriage_stability: '婚後生活穩定度',
+  marriage_crisis_a: '男方婚變情況預測',
+  marriage_crisis_b: '女方婚變情況預測',
+  combined_crisis_analysis: '兩人合婚危機分析',
+  marriage_advice: '經營婚姻建議',
+  annual_love_a: '男方感情運',
+  annual_love_b: '女方感情運',
+  compatibility_summary: '感情綜合總結',
   // V1 legacy keys (for existing cached readings)
   career_annual: '事業運勢',
   love_annual: '感情運勢',
@@ -556,6 +597,7 @@ export interface CompatibilityResponse {
   comparisonType: string;
   calculationData: CompatibilityCalculationData;
   aiInterpretation: {
+    schemaVersion?: 'v2';
     sections: Record<string, { preview: string; full: string }>;
     summary?: { preview: string; full: string };
   } | null;
@@ -564,6 +606,10 @@ export interface CompatibilityResponse {
   createdAt: string;
   profileA?: { name: string; birthDate: string };
   profileB?: { name: string; birthDate: string };
+  /** V2 romance comparisons set this to 2 */
+  aiVersion?: number;
+  /** Present when stream=true was requested and AI will be streamed via SSE */
+  streamReady?: boolean;
 }
 
 // ============================================================
@@ -701,6 +747,32 @@ export const LOVE_V2_SECTION_ORDER = [
  *  5 annual + 12 monthly = 17 dynamic keys added at runtime. */
 export const LOVE_V2_ALL_SECTION_KEYS = Object.values(LOVE_V2_SECTION_KEYS);
 
+/** All expected compatibility romance V2 section keys (for progress tracking).
+ *  Derived from shared constants — single source of truth. */
+export const COMPAT_ROMANCE_V2_ALL_SECTION_KEYS = Object.values(COMPAT_ROMANCE_V2_SECTION_KEYS);
+
+/** Compatibility Romance V2 section display order (controls rendering sequence). */
+export const COMPAT_ROMANCE_V2_SECTION_ORDER = [
+  'chart_profile_a',
+  'chart_profile_b',
+  'love_personality_a',
+  'love_personality_b',
+  'spouse_enrichment_a',
+  'spouse_enrichment_b',
+  'marriage_wealth_a',
+  'marriage_wealth_b',
+  // ke_fu_ke_qi_education is static — inserted by frontend, not in this list
+  'post_marriage_sweetness',
+  'post_marriage_stability',
+  'marriage_crisis_a',
+  'marriage_crisis_b',
+  'combined_crisis_analysis',
+  'marriage_advice',
+  'annual_love_a',
+  'annual_love_b',
+  'compatibility_summary',
+];
+
 /** Annual V2 section display order (controls rendering sequence). */
 export const ANNUAL_V2_SECTION_ORDER = [
   'annual_overview',
@@ -800,8 +872,13 @@ export function transformAIResponse(
     const isLoveV2 = sectionKeys.some(k =>
       k === 'love_personality' || k === 'peach_blossom_analysis' || k === 'natal_marriage'
     );
+    // Detect compatibility romance V2 by presence of compat-specific section keys
+    const isCompatV2 = sectionKeys.some(k =>
+      k === 'love_personality_a' || k === 'spouse_enrichment_a' || k === 'compatibility_summary'
+    );
     const orderList = isCareerV2 ? CAREER_V2_SECTION_ORDER
       : isAnnualV2 ? ANNUAL_V2_SECTION_ORDER
+      : isCompatV2 ? COMPAT_ROMANCE_V2_SECTION_ORDER
       : isLoveV2 ? LOVE_V2_SECTION_ORDER
       : V2_SECTION_ORDER;
 
@@ -1071,6 +1148,7 @@ export async function createBaziCompatibility(
     profileBId: string;
     comparisonType: string; // frontend slug: 'romance' | 'business' | 'friendship'
     skipAI?: boolean;
+    stream?: boolean;
   },
 ): Promise<CompatibilityResponse> {
   return apiFetch<CompatibilityResponse>('/api/bazi/comparisons', {
@@ -1081,6 +1159,7 @@ export async function createBaziCompatibility(
       profileBId: params.profileBId,
       comparisonType: COMPARISON_TYPE_MAP[params.comparisonType] || params.comparisonType,
       ...(params.skipAI && { skipAI: true }),
+      ...(params.stream && { stream: true }),
     }),
   });
 }
@@ -1137,4 +1216,105 @@ export async function generateCompatibilityAI(
     token,
     signal,
   });
+}
+
+/**
+ * Stream AI interpretation for a compatibility comparison via SSE.
+ * Uses the same streaming pattern as streamBaziReading.
+ * Returns a cleanup handle to abort the stream.
+ */
+export function streamCompatibilityReading(
+  token: string,
+  comparisonId: string,
+  callbacks: {
+    onSectionComplete: (key: string, section: { preview: string; full: string; score?: number }) => void;
+    onCallComplete: (callNumber: number) => void;
+    onSummary: (summary: { preview: string; full: string }) => void;
+    onDone: (info: { totalSections: number; latencyMs: number }) => void;
+    onError: (error: { message: string; partial?: boolean }) => void;
+  },
+): { close: () => void } {
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const url = `${API_BASE}/api/bazi/comparisons/${comparisonId}/stream`;
+  const controller = new AbortController();
+  console.log(`[CompatV2SSE] Connecting to ${url}...`);
+
+  (async () => {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'text/event-stream',
+        },
+        signal: controller.signal,
+      });
+
+      console.log(`[CompatV2SSE] Response status=${response.status}`);
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        console.error(`[CompatV2SSE] HTTP error:`, err);
+        callbacks.onError({ message: (err as Record<string, string>).message || `HTTP ${response.status}` });
+        return;
+      }
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        // Parse SSE events from buffer (events separated by double newline)
+        const events = buffer.split('\n\n');
+        buffer = events.pop() || ''; // Keep incomplete event in buffer
+
+        for (const eventStr of events) {
+          if (!eventStr.trim() || eventStr.startsWith(':')) continue; // Skip heartbeats/comments
+          const typeMatch = eventStr.match(/^event:\s*(.+)$/m);
+          const dataMatch = eventStr.match(/^data:\s*(.+)$/m);
+          if (!dataMatch) continue;
+
+          const type = typeMatch?.[1]?.trim() || 'message';
+          if (type === 'heartbeat') continue;
+
+          try {
+            const data = JSON.parse(dataMatch[1]?.trim() || '{}');
+            console.log(`[CompatV2SSE] event=${type}`, type === 'section_complete' ? `key=${data.key}` : '', type === 'done' ? `sections=${data.totalSections} latency=${data.latencyMs}ms` : '', type === 'error' ? `msg=${data.message}` : '');
+            switch (type) {
+              case 'section_complete':
+                callbacks.onSectionComplete(data.key, data);
+                break;
+              case 'call_complete':
+                callbacks.onCallComplete(data.call);
+                break;
+              case 'summary':
+                callbacks.onSummary(data);
+                break;
+              case 'done':
+                callbacks.onDone(data);
+                break;
+              case 'error':
+                callbacks.onError({ message: data.message || 'Stream error', partial: data.partial });
+                break;
+            }
+          } catch {
+            // Ignore malformed JSON in SSE events
+          }
+        }
+      }
+
+      // Stream ended normally without explicit done event
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        callbacks.onError({ message: (err as Error).message || 'Stream connection failed' });
+      }
+    }
+  })();
+
+  return {
+    close: () => controller.abort(),
+  };
 }

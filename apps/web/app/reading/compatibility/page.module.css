@@ -3,9 +3,50 @@
 
 .pageContainer {
   min-height: 100vh;
-  background-color: var(--bg-primary);
+  background: linear-gradient(180deg, #FFF3E0 0%, #FFFBF5 100%);
   color: var(--text-primary);
   padding: 2rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.pageContainer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 3840px;
+  height: clamp(380px, 50vh, 560px);
+  z-index: 0;
+  pointer-events: none;
+  background-color: var(--bg-primary);
+  background-image: url('/backgrounds/reading-lifetime-bg.webp');
+  background-size: cover;
+  background-position: center 30%;
+  background-repeat: no-repeat;
+  -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+}
+
+.pageContainer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 3840px;
+  height: clamp(380px, 50vh, 560px);
+  z-index: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    to bottom,
+    rgba(var(--bg-primary-rgb), 0.1) 0%,
+    rgba(var(--bg-primary-rgb), 0.15) 70%,
+    rgba(var(--bg-primary-rgb), 0.8) 100%
+  );
 }
 
 /* ==== Header ==== */
@@ -13,34 +54,36 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  max-width: 960px;
+  max-width: 900px;
   margin: 0 auto 2rem;
+  position: relative;
+  z-index: 1;
 }
 
 .backLink {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  color: var(--text-secondary);
+  color: #FFFFFF;
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid var(--border-light);
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 18px;
   padding: 0.4rem 1rem 0.4rem 0.75rem;
   height: 36px;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
   transition: background 0.2s, box-shadow 0.2s, color 0.2s;
 }
 
 .backLink:hover {
-  color: var(--text-accent);
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+  color: #FFFFFF;
+  background: rgba(255, 255, 255, 0.25);
+  border-color: rgba(255, 255, 255, 0.45);
 }
 
 .backLink svg {
@@ -48,12 +91,16 @@
 }
 
 .headerTitle {
-  color: var(--text-accent);
+  color: #FFFFFF;
   font-size: 1.3rem;
   font-weight: 700;
+  font-family: var(--font-noto-serif-tc), serif;
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  text-shadow:
+    0 1px 16px rgba(0, 0, 0, 0.6),
+    0 0 4px rgba(0, 0, 0, 0.3);
 }
 
 .headerIcon {
@@ -70,6 +117,8 @@
   border-radius: 16px;
   padding: 3rem 2rem;
   box-shadow: var(--shadow-warm);
+  position: relative;
+  z-index: 1;
 }
 
 .authTitle {
@@ -107,6 +156,8 @@
 .loadingSkeleton {
   max-width: 600px;
   margin: 4rem auto;
+  position: relative;
+  z-index: 1;
 }
 
 .skeletonTitle {
@@ -133,6 +184,8 @@
   align-items: center;
   justify-content: center;
   padding: 6rem 2rem;
+  position: relative;
+  z-index: 1;
 }
 
 .spinner {
@@ -157,6 +210,8 @@
   justify-content: center;
   padding: 4rem 2rem;
   animation: fadeIn 0.3s ease-out;
+  position: relative;
+  z-index: 1;
 }
 
 .analyzingCard {
@@ -258,6 +313,262 @@
   to { transform: rotate(360deg); }
 }
 
+/* ==== V2: Free Dual Charts Section ==== */
+.freeChartsSection {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.compatHeader {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.compatTitle {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1.5rem;
+  background: linear-gradient(135deg, var(--color-red), var(--color-orange));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 0 0 8px;
+}
+
+.compatSubtitle {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.dualChartsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.chartPanel {
+  background: var(--bg-card, #fff);
+  border-radius: 16px;
+  border: 1px solid var(--border-light, rgba(212,160,23,0.15));
+  box-shadow: var(--shadow-warm, 0 4px 20px rgba(226,61,40,0.08));
+  overflow-x: auto;
+}
+
+.chartPanelLabel {
+  text-align: center;
+  padding: 10px 0 4px;
+  font-family: 'Noto Serif TC', serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-accent, #C41E3A);
+  letter-spacing: 0.1em;
+}
+
+/* ==== V2: Unlocked Score Section (after paywall) ==== */
+.unlockedScoreSection {
+  max-width: 900px;
+  margin: 0 auto 24px;
+}
+
+/* ==== V2: Free Score Section (legacy, kept for reference) ==== */
+.freeScoreSection {
+  max-width: 900px;
+  margin: 0 auto 1.5rem;
+}
+
+/* ==== V2: Paywall Section ==== */
+.paywallSection {
+  max-width: 900px;
+  margin: 0 auto 2rem;
+  position: relative;
+  z-index: 1;
+}
+
+/* ==== V2: AI Sections Container ==== */
+.v2SectionsContainer {
+  max-width: 900px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 1;
+}
+
+/* ==== V2: Educational Card (ke_fu_ke_qi) ==== */
+.educationalCard {
+  background: var(--bg-card, #fff);
+  border: 1px solid rgba(212, 160, 23, 0.2);
+  border-left: 4px solid var(--color-gold, #D4A017);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+}
+
+.educationalHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.educationalIcon {
+  font-size: 1.3rem;
+}
+
+.educationalTitle {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1.1rem;
+  color: var(--text-accent);
+  margin: 0;
+  font-weight: 700;
+}
+
+.educationalContent {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.educationalContent p {
+  margin: 0 0 0.75rem;
+}
+
+.educationalContent p:last-child {
+  margin-bottom: 0;
+}
+
+/* ==== V2: Streaming Loading Messages ==== */
+.streamingStatus {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  max-width: 900px;
+  margin: 1rem auto 1.5rem;
+  padding: 1rem 1.5rem;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  box-shadow: var(--shadow-warm);
+}
+
+.streamingDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-red);
+  animation: pulse 1.2s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.streamingText {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+/* ==== V2: New Comparison Button ==== */
+.newComparisonArea {
+  max-width: 900px;
+  margin: 2rem auto;
+  text-align: center;
+  position: relative;
+  z-index: 1;
+}
+
+.newComparisonBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  background: var(--bg-card, #fff);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.newComparisonBtn:hover {
+  color: var(--text-accent);
+  border-color: var(--color-red);
+  box-shadow: var(--shadow-warm);
+}
+
+/* ==== V2: Disclaimer ==== */
+.disclaimer {
+  max-width: 900px;
+  margin: 2rem auto 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  padding: 1rem 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* ==== V2: Section Badge (sub-header pill) ==== */
+.sectionBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-secondary, #6B5940);
+  background: rgba(212, 160, 23, 0.08);
+  border: 1px solid rgba(212, 160, 23, 0.15);
+  border-radius: 20px;
+  padding: 3px 12px;
+  margin-bottom: 10px;
+}
+
+/* ==== V2: Unknown Birth Time Banner ==== */
+.hourUnknownBanner {
+  background: rgba(245, 166, 35, 0.1);
+  border: 1px solid rgba(245, 166, 35, 0.3);
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 0.85rem;
+  color: var(--text-secondary, #6B5940);
+  margin-bottom: 16px;
+}
+
+/* ==== Form Section Wrapper (z-index above background) ==== */
+.formSection {
+  position: relative;
+  z-index: 1;
+}
+
+/* ==== Form Panel Labels (男方/女方) ==== */
+.formLabels {
+  display: flex;
+  justify-content: space-around;
+  max-width: 900px;
+  margin: 0 auto 0.5rem;
+  padding: 0 1rem;
+  position: relative;
+  z-index: 1;
+}
+
+.formLabelA,
+.formLabelB {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-accent, #C41E3A);
+  background: rgba(226, 61, 40, 0.06);
+  border: 1px solid rgba(226, 61, 40, 0.15);
+  border-radius: 20px;
+  padding: 4px 20px;
+}
+
+/* ==== Responsive: Dual Charts ==== */
+@media (max-width: 900px) {
+  .dualChartsGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ==== Responsive ==== */
 @media (max-width: 768px) {
   .pageContainer {
@@ -271,6 +582,19 @@
   .headerTitle {
     font-size: 1.1rem;
   }
+
+  .compatTitle {
+    font-size: 1.25rem;
+  }
+
+  .freeChartsSection {
+    padding: 0;
+  }
+
+  .chartPanel {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 @media (max-width: 480px) {
@@ -281,4 +605,44 @@
   .authGuard {
     padding: 2rem 1.5rem;
   }
+
+  .compatTitle {
+    font-size: 1.1rem;
+  }
+
+  .freeChartsSection {
+    padding: 0;
+  }
+
+  .chartPanel {
+    border-radius: 12px;
+  }
+
+  .chartPanelLabel {
+    font-size: 0.8rem;
+    padding: 8px 0 2px;
+  }
 }
+
+/* ==== Mobile: Background image overrides ==== */
+@media (max-width: 600px) {
+  .pageContainer::before {
+    height: clamp(280px, 40vh, 400px);
+    background-size: 100% auto;
+    background-position: center top;
+    -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 85%);
+    mask-image: linear-gradient(to bottom, black 40%, transparent 85%);
+  }
+
+  .pageContainer::after {
+    height: clamp(280px, 40vh, 400px);
+    background: linear-gradient(
+      to bottom,
+      rgba(var(--bg-primary-rgb), 0.05) 0%,
+      rgba(var(--bg-primary-rgb), 0.3) 50%,
+      rgba(var(--bg-primary-rgb), 1) 85%
+    );
+  }
+}
+
+/* V7-E styles moved to CompatibilityScoreRevealV2.module.css */

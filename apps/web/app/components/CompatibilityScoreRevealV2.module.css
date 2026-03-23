@@ -1,0 +1,281 @@
+.container {
+  text-align: center;
+  padding: 2rem 1.5rem 1.5rem;
+  max-width: 600px;
+  margin: 0 auto 1.5rem;
+  background: #FFFFFF;
+  border: 1px solid var(--border-light, rgba(212, 160, 23, 0.15));
+  border-radius: 16px;
+  box-shadow: var(--shadow-warm, 0 4px 20px rgba(226, 61, 40, 0.08));
+}
+
+/* Score Ring */
+.scoreRing {
+  position: relative;
+  width: 180px;
+  height: 180px;
+  margin: 0 auto 0.75rem;
+}
+
+.scoreCenter {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -55%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.scoreRow {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.scoreNumber {
+  font-size: clamp(2.5rem, 7vw, 3.5rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.scoreUnit {
+  font-size: 0.9rem;
+  font-weight: 400;
+  color: var(--text-secondary, #6B5940);
+}
+
+.scoreLabelInRing {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-accent, #C41E3A);
+  margin-top: 0.3rem;
+  letter-spacing: 0.05em;
+}
+
+/* Score Breakdown — Mini Bar Chart */
+.scoreBreakdown {
+  margin: 0.5rem auto 1.5rem;
+  max-width: 320px;
+  opacity: 0;
+  transition: opacity 0.5s ease-out;
+}
+
+.barRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.barRow:last-child {
+  margin-bottom: 0;
+}
+
+.barLabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary, #6B5940);
+  min-width: 58px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.barTrack {
+  flex: 1;
+  height: 10px;
+  background: rgba(212, 160, 23, 0.12);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 5px;
+  transition: width 1.5s ease-out;
+}
+
+.barValue {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--text-primary, #3C2415);
+  min-width: 24px;
+  text-align: left;
+  flex-shrink: 0;
+}
+
+/* Badges Row */
+.badgesRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+}
+
+.personBadges {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.personName {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary, #6B5940);
+  min-width: 65px;
+  text-align: right;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.65rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.badge[data-type="peach"] {
+  background: rgba(233, 30, 99, 0.08);
+  color: #C2185B;
+  border: 1px solid rgba(233, 30, 99, 0.15);
+}
+
+.badge[data-type="spouse"] {
+  background: rgba(184, 134, 11, 0.08);
+  color: #B8860B;
+  border: 1px solid rgba(184, 134, 11, 0.15);
+}
+
+/* Reassurance Banner */
+.reassurance {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.8rem 1rem;
+  margin: 0 auto 1.5rem;
+  max-width: 500px;
+  background: linear-gradient(135deg, #f0faf0 0%, #e8f5e8 100%);
+  border: 1px solid rgba(46, 125, 50, 0.15);
+  border-radius: 10px;
+  text-align: left;
+  opacity: 0;
+  transition: opacity 0.5s ease-out;
+}
+
+.reassuranceIcon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.reassuranceContent strong {
+  display: block;
+  font-size: 0.9rem;
+  color: #2E7D32;
+  margin-bottom: 0.25rem;
+}
+
+.reassuranceContent p {
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--text-secondary, #6B5940);
+  margin: 0;
+}
+
+/* 老師寄語 — WHITE bg */
+.masterNote {
+  background: #FFFFFF;
+  border: 1px solid var(--border-light, rgba(212, 160, 23, 0.15));
+  border-radius: 12px;
+  padding: 1.2rem 1.5rem;
+  margin: 0 auto;
+  max-width: 600px;
+  text-align: left;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+}
+
+.masterNoteHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.masterNoteIcon {
+  font-size: 1.2rem;
+}
+
+.masterNoteTitle {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-accent, #C41E3A);
+}
+
+.masterNoteText {
+  font-size: 0.92rem;
+  line-height: 1.7;
+  color: var(--text-primary, #3C2415);
+  margin: 0 0 0.4rem 0;
+}
+
+.masterNoteFooter {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text-muted, #8B7355);
+  margin: 0.5rem 0 0 0;
+}
+
+/* Shared visibility toggle */
+.visible {
+  opacity: 1 !important;
+  transform: translateY(0) !important;
+}
+
+/* Mobile responsive */
+@media (max-width: 600px) {
+  .scoreRing {
+    width: 150px;
+    height: 150px;
+  }
+
+  .scoreNumber {
+    font-size: 2.2rem !important;
+  }
+
+  .scoreLabelInRing {
+    font-size: 1rem;
+  }
+
+  .barLabel {
+    font-size: 0.75rem;
+    min-width: 50px;
+  }
+
+  .container {
+    padding: 1.5rem 0.75rem 0.75rem;
+  }
+
+  .personName {
+    min-width: 50px;
+    font-size: 0.8rem;
+  }
+
+  .badge {
+    font-size: 0.75rem;
+    padding: 0.15rem 0.5rem;
+  }
+
+  .masterNote {
+    padding: 1rem 1.2rem;
+  }
+}
