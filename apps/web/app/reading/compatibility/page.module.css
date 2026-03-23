@@ -3,7 +3,7 @@
 
 .pageContainer {
   min-height: 100vh;
-  background: linear-gradient(180deg, #FFF3E0 0%, #FFFBF5 100%);
+  background: linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
   color: var(--text-primary);
   padding: 2rem;
   position: relative;
@@ -64,7 +64,7 @@
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
-  color: #FFFFFF;
+  color: var(--bg-card);
   font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
@@ -91,7 +91,7 @@
 }
 
 .headerTitle {
-  color: #FFFFFF;
+  color: var(--bg-card);
   font-size: 1.3rem;
   font-weight: 700;
   font-family: var(--font-noto-serif-tc), serif;

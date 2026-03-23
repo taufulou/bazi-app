@@ -4217,8 +4217,13 @@ export class AIService implements OnModuleInit {
 
             this.logger.log(`[CompatV2Stream] Call 1 stream COMPLETE — ${call1ChunkCount} chunks, buffer=${call1Buffer.length}chars, ${Object.keys(call1Sections).length} sections extracted during stream`);
 
-            // Parse remaining from complete buffer
-            const finalParsed1 = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
+            // Parse remaining from complete buffer — use generic parser (NOT parseLifetimeV2CallResponse
+            // which falls back to LIFETIME_V2_PROMPTS keys, wrong for Compat V2)
+            const finalParsed1 = this.parseAIResponse(call1Buffer, ReadingType.COMPATIBILITY);
+            if (Object.keys(finalParsed1.sections).length === 0) {
+              const extracted = this.extractCompletedSections(call1Buffer, COMPAT_V2_SECTIONS.CALL1, call1ExtractedKeys);
+              Object.assign(finalParsed1.sections, extracted);
+            }
             const finalParsed1Keys = Object.keys(finalParsed1.sections);
             this.logger.log(`[CompatV2Stream] Call 1 final parse found ${finalParsed1Keys.length} sections: ${finalParsed1Keys.join(', ')}`);
 
@@ -4243,7 +4248,11 @@ export class AIService implements OnModuleInit {
             if (call1Buffer.length > 100) {
               this.logger.log(`[CompatV2Stream] Call 1 attempting salvage from ${call1Buffer.length}char buffer...`);
               try {
-                const salvaged = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
+                const salvaged = this.parseAIResponse(call1Buffer, ReadingType.COMPATIBILITY);
+                if (Object.keys(salvaged.sections).length === 0) {
+                  const extracted = this.extractCompletedSections(call1Buffer, COMPAT_V2_SECTIONS.CALL1, call1ExtractedKeys);
+                  Object.assign(salvaged.sections, extracted);
+                }
                 for (const [key, rawSection] of Object.entries(salvaged.sections)) {
                   if (!call1Sections[key]) {
                     const { section } = this.autoFixSection(key, rawSection, calculationData);
@@ -4310,8 +4319,12 @@ export class AIService implements OnModuleInit {
 
             this.logger.log(`[CompatV2Stream] Call 2 stream COMPLETE — ${call2ChunkCount} chunks, buffer=${call2Buffer.length}chars, ${Object.keys(call2Sections).length} sections extracted during stream`);
 
-            // Parse remaining from complete buffer
-            const finalParsed2 = this.parseLifetimeV2CallResponse(call2Buffer, 'call2');
+            // Parse remaining from complete buffer — use generic parser (NOT parseLifetimeV2CallResponse)
+            const finalParsed2 = this.parseAIResponse(call2Buffer, ReadingType.COMPATIBILITY);
+            if (Object.keys(finalParsed2.sections).length === 0) {
+              const extracted = this.extractCompletedSections(call2Buffer, COMPAT_V2_SECTIONS.CALL2, call2ExtractedKeys);
+              Object.assign(finalParsed2.sections, extracted);
+            }
             for (const [key, rawSection] of Object.entries(finalParsed2.sections)) {
               if (!call2Sections[key]) {
                 const { section } = this.autoFixSection(key, rawSection, calculationData);
@@ -4331,7 +4344,11 @@ export class AIService implements OnModuleInit {
             // Try to salvage sections from partial buffer
             if (call2Buffer.length > 100) {
               try {
-                const salvaged = this.parseLifetimeV2CallResponse(call2Buffer, 'call2');
+                const salvaged = this.parseAIResponse(call2Buffer, ReadingType.COMPATIBILITY);
+                if (Object.keys(salvaged.sections).length === 0) {
+                  const extracted = this.extractCompletedSections(call2Buffer, COMPAT_V2_SECTIONS.CALL2, call2ExtractedKeys);
+                  Object.assign(salvaged.sections, extracted);
+                }
                 for (const [key, rawSection] of Object.entries(salvaged.sections)) {
                   if (!call2Sections[key]) {
                     const { section } = this.autoFixSection(key, rawSection, calculationData);
@@ -4399,8 +4416,12 @@ export class AIService implements OnModuleInit {
 
             this.logger.log(`[CompatV2Stream] Call 3 stream COMPLETE — ${call3ChunkCount} chunks, buffer=${call3Buffer.length}chars, ${Object.keys(call3Sections).length} sections extracted during stream`);
 
-            // Parse remaining from complete buffer
-            const finalParsed3 = this.parseLifetimeV2CallResponse(call3Buffer, 'call3');
+            // Parse remaining from complete buffer — use generic parser (NOT parseLifetimeV2CallResponse)
+            const finalParsed3 = this.parseAIResponse(call3Buffer, ReadingType.COMPATIBILITY);
+            if (Object.keys(finalParsed3.sections).length === 0) {
+              const extracted = this.extractCompletedSections(call3Buffer, COMPAT_V2_SECTIONS.CALL3, call3ExtractedKeys);
+              Object.assign(finalParsed3.sections, extracted);
+            }
             for (const [key, rawSection] of Object.entries(finalParsed3.sections)) {
               if (!call3Sections[key]) {
                 const { section } = this.autoFixSection(key, rawSection, calculationData);
@@ -4426,7 +4447,11 @@ export class AIService implements OnModuleInit {
             // Try to salvage sections from partial buffer
             if (call3Buffer.length > 100) {
               try {
-                const salvaged = this.parseLifetimeV2CallResponse(call3Buffer, 'call3');
+                const salvaged = this.parseAIResponse(call3Buffer, ReadingType.COMPATIBILITY);
+                if (Object.keys(salvaged.sections).length === 0) {
+                  const extracted = this.extractCompletedSections(call3Buffer, COMPAT_V2_SECTIONS.CALL3, call3ExtractedKeys);
+                  Object.assign(salvaged.sections, extracted);
+                }
                 for (const [key, rawSection] of Object.entries(salvaged.sections)) {
                   if (!call3Sections[key]) {
                     const { section } = this.autoFixSection(key, rawSection, calculationData);

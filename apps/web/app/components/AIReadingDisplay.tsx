@@ -308,6 +308,7 @@ const SECTION_TITLES_ZH: Record<string, string> = {
   marriage_change_years: "感情容易生變的年份",
   love_summary: "感情綜合建議",
   // Compatibility Romance V2 sections
+  compatibility_basis: "配對基礎分析",
   chart_profile_a: "男方命局特點",
   chart_profile_b: "女方命局特點",
   love_personality_a: "男方戀愛性格",

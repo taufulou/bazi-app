@@ -291,8 +291,20 @@ export default function CompatibilityPage() {
       }
       const saved = await getCompatibility(token, id);
       setCompatData(saved);
-      setAiData(transformAIResponse(saved.aiInterpretation));
-      setStep("result"); // Skip reveal for saved readings
+      currentComparisonIdRef.current = saved.id; // Restore ref for handleRomanceUnlock
+
+      // Check if this is a V2 romance comparison without AI yet (paywall state)
+      // Note: CompatibilityCalculationData interface doesn't declare romancePreAnalysis, so cast needed
+      const isV2Romance = (saved.calculationData as any)?.romancePreAnalysis;
+      if (isV2Romance && !saved.aiInterpretation) {
+        // Restore paywall state — credits already deducted, user just needs to unlock
+        setStep("result");
+        setShowPaywall(true);
+      } else {
+        // Has AI — show full results
+        setAiData(transformAIResponse(saved.aiInterpretation));
+        setStep("result");
+      }
     } catch {
       setError("無法載入分析結果");
       setStep("input");
@@ -354,6 +366,9 @@ export default function CompatibilityPage() {
         currentComparisonIdRef.current = result.id;
         savedSubmitParamsRef.current = params;
         setCompatData(result);
+
+        // Silently update URL so page reload can restore state via loadSavedComparison
+        window.history.replaceState(null, '', `?id=${result.id}`);
 
         // V2: skip reveal, go straight to dual charts + paywall
         setStep("result");

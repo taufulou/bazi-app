@@ -3,7 +3,7 @@
   padding: 2rem 1.5rem 1.5rem;
   max-width: 600px;
   margin: 0 auto 1.5rem;
-  background: #FFFFFF;
+  background: var(--bg-card);
   border: 1px solid var(--border-light, rgba(212, 160, 23, 0.15));
   border-radius: 16px;
   box-shadow: var(--shadow-warm, 0 4px 20px rgba(226, 61, 40, 0.08));
@@ -178,7 +178,7 @@
 .reassuranceContent strong {
   display: block;
   font-size: 0.9rem;
-  color: #2E7D32;
+  color: var(--color-success);
   margin-bottom: 0.25rem;
 }
 
@@ -191,7 +191,7 @@
 
 /* 老師寄語 — WHITE bg */
 .masterNote {
-  background: #FFFFFF;
+  background: var(--bg-card);
   border: 1px solid var(--border-light, rgba(212, 160, 23, 0.15));
   border-radius: 12px;
   padding: 1.2rem 1.5rem;
