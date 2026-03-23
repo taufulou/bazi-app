@@ -24,11 +24,11 @@ interface CompatibilityScoreRevealV2Props {
 }
 
 function getScoreColor(score: number): string {
-  if (score >= 85) return '#4caf50';
-  if (score >= 70) return '#8bc34a';
-  if (score >= 55) return '#ffc107';
-  if (score >= 40) return '#ff9800';
-  return '#f44336';
+  if (score >= 85) return 'var(--color-success)';
+  if (score >= 70) return 'var(--score-good)';
+  if (score >= 55) return 'var(--color-warning)';
+  if (score >= 40) return 'var(--score-poor)';
+  return 'var(--color-error)';
 }
 
 function easeOutCubic(t: number): number {

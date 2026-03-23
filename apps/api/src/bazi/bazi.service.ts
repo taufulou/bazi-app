@@ -953,6 +953,8 @@ export class BaziService {
         comparisonType: comparison.comparisonType.toLowerCase(),
         genderA: profileA.gender.toLowerCase(),
         genderB: profileB.gender.toLowerCase(),
+        birthDateA: profileA.birthDate.toISOString().split('T')[0],
+        birthDateB: profileB.birthDate.toISOString().split('T')[0],
       };
 
       // Route: Romance V2 (3-call) vs V1 (single-call)
@@ -1078,6 +1080,8 @@ export class BaziService {
         comparisonType: comparison.comparisonType.toLowerCase(),
         genderA: comparison.profileA.gender.toLowerCase(),
         genderB: comparison.profileB.gender.toLowerCase(),
+        birthDateA: comparison.profileA.birthDate.toISOString().split('T')[0],
+        birthDateB: comparison.profileB.birthDate.toISOString().split('T')[0],
       };
 
       // Ensure gender in chart data for interpolateChartFields

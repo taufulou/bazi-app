@@ -14,6 +14,7 @@ import type {
 } from "../lib/readings-api";
 import {
   CAREER_V2_ALL_SECTION_KEYS,
+  COMPAT_ROMANCE_V2_ALL_SECTION_KEYS,
   getDynamicSectionTitle,
   normalizeAnnualDeterministic,
   normalizeLoveDeterministic,
@@ -1630,14 +1631,7 @@ export const LOVE_V2_ALL_SECTION_KEYS = Object.values(LOVE_V2_SECTION_KEYS);
 // NOTE: Dynamic sections (annual_love_YYYY, monthly_love_MM) are NOT in this array —
 // they are generated at runtime and handled separately in the streaming logic.
 
-/** Compatibility V2 section keys in expected order (all 3 calls) */
-export const COMPAT_V2_ALL_SECTION_KEYS = [
-  'chart_profile_a', 'chart_profile_b', 'love_personality_a', 'love_personality_b',
-  'spouse_enrichment_a', 'spouse_enrichment_b', 'marriage_wealth_a', 'marriage_wealth_b',
-  'post_marriage_sweetness', 'post_marriage_stability', 'marriage_crisis_a', 'marriage_crisis_b',
-  'combined_crisis_analysis', 'marriage_advice',
-  'annual_love_a', 'annual_love_b', 'compatibility_summary',
-];
+// Compatibility V2 section keys — canonical source: @repo/shared via readings-api (imported at top)
 
 /** Annual V2 section keys in expected order */
 export const ANNUAL_V2_ALL_SECTION_KEYS = [
@@ -1998,7 +1992,7 @@ export default function AIReadingDisplay({
         const allKeys = isCareerV2 ? CAREER_V2_ALL_SECTION_KEYS
           : isAnnualV2 ? ANNUAL_V2_ALL_SECTION_KEYS
           : isLoveV2 ? LOVE_V2_ALL_SECTION_KEYS
-          : isCompatV2 ? COMPAT_V2_ALL_SECTION_KEYS
+          : isCompatV2 ? COMPAT_ROMANCE_V2_ALL_SECTION_KEYS
           : V2_ALL_SECTION_KEYS;
         const remainingKeys = allKeys.filter(k => !arrivedKeys.has(k));
         const nextKey = remainingKeys[0];

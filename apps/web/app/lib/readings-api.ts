@@ -4,30 +4,7 @@
  */
 
 import { apiFetch } from './api';
-import { LOVE_V2_SECTION_KEYS } from '@repo/shared';
-
-// Compatibility Romance V2 section keys — local copy for this worktree.
-// Canonical source: packages/shared/src/constants.ts (COMPAT_ROMANCE_V2_SECTION_KEYS)
-// Duplicated here because the symlinked @repo/shared may not have this constant yet.
-const COMPAT_ROMANCE_V2_SECTION_KEYS = {
-  CHART_PROFILE_A: 'chart_profile_a',
-  CHART_PROFILE_B: 'chart_profile_b',
-  LOVE_PERSONALITY_A: 'love_personality_a',
-  LOVE_PERSONALITY_B: 'love_personality_b',
-  SPOUSE_ENRICHMENT_A: 'spouse_enrichment_a',
-  SPOUSE_ENRICHMENT_B: 'spouse_enrichment_b',
-  MARRIAGE_WEALTH_A: 'marriage_wealth_a',
-  MARRIAGE_WEALTH_B: 'marriage_wealth_b',
-  POST_MARRIAGE_SWEETNESS: 'post_marriage_sweetness',
-  POST_MARRIAGE_STABILITY: 'post_marriage_stability',
-  MARRIAGE_CRISIS_A: 'marriage_crisis_a',
-  MARRIAGE_CRISIS_B: 'marriage_crisis_b',
-  COMBINED_CRISIS_ANALYSIS: 'combined_crisis_analysis',
-  MARRIAGE_ADVICE: 'marriage_advice',
-  ANNUAL_LOVE_A: 'annual_love_a',
-  ANNUAL_LOVE_B: 'annual_love_b',
-  COMPATIBILITY_SUMMARY: 'compatibility_summary',
-} as const;
+import { LOVE_V2_SECTION_KEYS, COMPAT_ROMANCE_V2_SECTION_KEYS } from '@repo/shared';
 
 // ============================================================
 // Slug → Backend Enum Mapping

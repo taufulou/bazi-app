@@ -144,13 +144,13 @@
 
 .badge[data-type="peach"] {
   background: rgba(233, 30, 99, 0.08);
-  color: #C2185B;
+  color: var(--color-peach-blossom);
   border: 1px solid rgba(233, 30, 99, 0.15);
 }
 
 .badge[data-type="spouse"] {
   background: rgba(184, 134, 11, 0.08);
-  color: #B8860B;
+  color: var(--color-gold, #D4A017);
   border: 1px solid rgba(184, 134, 11, 0.15);
 }
 
@@ -161,8 +161,8 @@
   padding: 0.8rem 1rem;
   margin: 0 auto 1.5rem;
   max-width: 500px;
-  background: linear-gradient(135deg, #f0faf0 0%, #e8f5e8 100%);
-  border: 1px solid rgba(46, 125, 50, 0.15);
+  background: linear-gradient(135deg, var(--color-success-bg-start) 0%, var(--color-success-bg-end) 100%);
+  border: 1px solid rgba(46, 125, 50, 0.15); /* success green border */
   border-radius: 10px;
   text-align: left;
   opacity: 0;

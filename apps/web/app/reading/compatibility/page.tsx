@@ -24,6 +24,7 @@ import {
   streamCompatibilityReading,
   transformAIResponse,
   SECTION_TITLE_MAP,
+  COMPAT_ROMANCE_V2_ALL_SECTION_KEYS,
   type CompatibilityResponse,
   type AIReadingData,
 } from "../../lib/readings-api";
@@ -420,24 +421,11 @@ export default function CompatibilityPage() {
       const token = await getToken();
       if (!token) throw new Error("請先登入");
 
-      const params = savedSubmitParamsRef.current;
-      if (!params) throw new Error("找不到合盤資料");
+      // Reuse the comparison already created in handleSubmit (credits already deducted there)
+      const comparisonId = currentComparisonIdRef.current;
+      if (!comparisonId) throw new Error("找不到合盤資料");
 
-      // Step 1: Create comparison with skipAI=true (deducts credits, saves calc data, fast ~2s)
-      const result = await createBaziCompatibility(token, {
-        ...params,
-        skipAI: true,
-      });
-
-      currentComparisonIdRef.current = result.id;
-      setCompatData(result);
-
-      // Update credits
-      if (typeof result.creditsUsed === "number" && result.creditsUsed > 0) {
-        setUserCredits((prev) => Math.max(0, prev - result.creditsUsed));
-      }
-
-      // Step 2: Hide paywall, show streaming state, start SSE for AI generation
+      // Hide paywall, show streaming state, start SSE for AI generation
       setShowPaywall(false);
       setIsStreaming(true);
       setStreamingMsgIndex(0);
@@ -447,8 +435,8 @@ export default function CompatibilityPage() {
         setStreamingMsgIndex((prev) => Math.min(prev + 1, STREAMING_MESSAGES.length - 1));
       }, 3000);
 
-      // Step 3: Call SSE stream endpoint — AI generates on server, sections arrive progressively
-      const stream = streamCompatibilityReading(token, result.id, {
+      // Call SSE stream endpoint — AI generates on server, sections arrive progressively
+      const stream = streamCompatibilityReading(token, comparisonId, {
         onSectionComplete: (key, section) => {
           setAiData((prev) => ({
             ...prev!,
@@ -779,11 +767,11 @@ export default function CompatibilityPage() {
               })()}
 
               {/* Streaming: show placeholder for sections not yet arrived */}
-              {isStreaming && streamedSectionCount < 17 && (
+              {isStreaming && streamedSectionCount < COMPAT_ROMANCE_V2_ALL_SECTION_KEYS.length && (
                 <div className={styles.streamingStatus} style={{ opacity: 0.6 }}>
                   <div className={styles.streamingDot} />
                   <span className={styles.streamingText}>
-                    還有 {17 - streamedSectionCount} 個分析項目正在生成中...
+                    還有 {COMPAT_ROMANCE_V2_ALL_SECTION_KEYS.length - streamedSectionCount} 個分析項目正在生成中...
                   </span>
                 </div>
               )}
@@ -798,19 +786,19 @@ export default function CompatibilityPage() {
             </div>
           )}
 
+          {/* Entertainment disclaimer — always visible in V2 result view */}
+          <p className={styles.disclaimer}>
+            {ENTERTAINMENT_DISCLAIMER["zh-TW"]}
+          </p>
+
           {/* New comparison button */}
           {!isStreaming && !showPaywall && aiData && aiData.sections && aiData.sections.length > 0 && (
-            <>
-              <div className={styles.newComparisonArea}>
-                <button className={styles.newComparisonBtn} onClick={handleTryAgain}>
-                  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="10 2 4 8 10 14" /></svg>
-                  重新分析
-                </button>
-              </div>
-              <p className={styles.disclaimer}>
-                {ENTERTAINMENT_DISCLAIMER["zh-TW"]}
-              </p>
-            </>
+            <div className={styles.newComparisonArea}>
+              <button className={styles.newComparisonBtn} onClick={handleTryAgain}>
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="10 2 4 8 10 14" /></svg>
+                重新分析
+              </button>
+            </div>
           )}
         </>
         );

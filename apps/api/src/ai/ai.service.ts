@@ -3976,7 +3976,7 @@ export class AIService implements OnModuleInit {
   // ============================================================
 
   /**
-   * Generate Compatibility Romance V2 interpretation using 3 sequential AI calls.
+   * Generate Compatibility Romance V2 interpretation using 3 parallel AI calls.
    * Call 1: Per-person profiles + personality + enrichment + wealth (8 sections)
    * Call 2: Cross-chart sweetness/stability + crisis + advice (6 sections)
    * Call 3: Annual love forecasts + compatibility summary (3 sections)
@@ -3990,7 +3990,7 @@ export class AIService implements OnModuleInit {
       throw new Error('No AI providers configured');
     }
 
-    // Compatibility V2 uses 3 sequential AI calls — needs longer per-call timeout
+    // Compatibility V2 uses 3 parallel AI calls — needs longer per-call timeout
     const timeoutMs = parseInt(
       this.configService.get<string>('AI_COMPAT_V2_TIMEOUT_MS') || '300000',  // 5 minutes
       10,
@@ -4035,7 +4035,13 @@ export class AIService implements OnModuleInit {
         // Parse Call 1
         totalInputTokens += result1.inputTokens;
         totalOutputTokens += result1.outputTokens;
-        const parsed1 = this.parseLifetimeV2CallResponse(result1.content, 'call1');
+        // Use parseAIResponse directly (generic JSON parser) — avoid parseLifetimeV2CallResponse
+        // which falls back to LIFETIME_V2_PROMPTS keys (wrong for Compat V2)
+        const parsed1 = this.parseAIResponse(result1.content, ReadingType.COMPATIBILITY);
+        if (Object.keys(parsed1.sections).length === 0) {
+          const extracted = this.extractCompletedSections(result1.content, COMPAT_V2_SECTIONS.CALL1, new Set<string>());
+          Object.assign(parsed1.sections, extracted);
+        }
         const { result: fixed1 } = this.autoFixAllSections(parsed1, calculationData);
         sections = { ...sections, ...fixed1.sections };
 
@@ -4043,7 +4049,11 @@ export class AIService implements OnModuleInit {
         if (result2) {
           totalInputTokens += result2.inputTokens;
           totalOutputTokens += result2.outputTokens;
-          const parsed2 = this.parseLifetimeV2CallResponse(result2.content, 'call2');
+          const parsed2 = this.parseAIResponse(result2.content, ReadingType.COMPATIBILITY);
+          if (Object.keys(parsed2.sections).length === 0) {
+            const extracted = this.extractCompletedSections(result2.content, COMPAT_V2_SECTIONS.CALL2, new Set<string>());
+            Object.assign(parsed2.sections, extracted);
+          }
           const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
           sections = { ...sections, ...fixed2.sections };
         }
@@ -4052,7 +4062,11 @@ export class AIService implements OnModuleInit {
         if (result3) {
           totalInputTokens += result3.inputTokens;
           totalOutputTokens += result3.outputTokens;
-          const parsed3 = this.parseLifetimeV2CallResponse(result3.content, 'call3');
+          const parsed3 = this.parseAIResponse(result3.content, ReadingType.COMPATIBILITY);
+          if (Object.keys(parsed3.sections).length === 0) {
+            const extracted = this.extractCompletedSections(result3.content, COMPAT_V2_SECTIONS.CALL3, new Set<string>());
+            Object.assign(parsed3.sections, extracted);
+          }
           const { result: fixed3 } = this.autoFixAllSections(parsed3, calculationData);
           sections = { ...sections, ...fixed3.sections };
           if (fixed3.summary && (fixed3.summary.preview || fixed3.summary.full)) {
