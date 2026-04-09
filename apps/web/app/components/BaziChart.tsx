@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import styles from "./BaziChart.module.css";
 import ElementExplanation, { type ElementClickInfo } from "./ElementExplanation";
 import { extractGodRoles, extractFourPillars, type GodRoles, type ElementType, type FourPillarsPayload } from "../lib/element-explanation-api";
@@ -172,8 +172,8 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
 
   // ── Element Explanation bottom sheet state ──
   const [selectedElement, setSelectedElement] = useState<ElementClickInfo | null>(null);
-  const godRoles: GodRoles = extractGodRoles(data);
-  const fourPillarsPayload: FourPillarsPayload = extractFourPillars(data);
+  const godRoles: GodRoles = useMemo(() => extractGodRoles(data), [data]);
+  const fourPillarsPayload: FourPillarsPayload = useMemo(() => extractFourPillars(data), [data]);
 
   const handleElementClick = useCallback(
     (elementType: ElementType, value: string, pillarKey: string) => {

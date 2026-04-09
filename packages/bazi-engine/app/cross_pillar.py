@@ -42,22 +42,36 @@ logger = logging.getLogger(__name__)
 def _load_interaction_templates() -> Dict[str, Any]:
     """Load all interaction template JSON files from data/explanations/interactions/.
 
-    This includes tougan_modifiers.json which provides pillar-aware
-    透干/藏而不透 modifier text for interaction cards.
+    Gracefully handles missing directory and per-file errors.
+    One malformed file does NOT block loading of other files.
     """
     templates: Dict[str, Any] = {}
     data_dir = os.path.join(
         os.path.dirname(os.path.dirname(__file__)),
         'data', 'explanations', 'interactions',
     )
-    if not os.path.isdir(data_dir):
+    try:
+        filenames = sorted(os.listdir(data_dir))
+    except (FileNotFoundError, OSError) as e:
+        logger.warning(
+            f"Interactions directory not found or inaccessible: {data_dir}. "
+            f"Cross-pillar interaction modifiers will be unavailable. Error: {e}"
+        )
         return templates
-    for filename in os.listdir(data_dir):
-        if filename.endswith('.json'):
-            filepath = os.path.join(data_dir, filename)
+
+    for filename in filenames:
+        if not filename.endswith('.json'):
+            continue
+        filepath = os.path.join(data_dir, filename)
+        try:
             with open(filepath, encoding='utf-8') as f:
                 key = filename.replace('.json', '')
                 templates[key] = json.load(f)
+        except (json.JSONDecodeError, IOError, OSError) as e:
+            logger.error(f"Failed to load interaction template {filename}: {e}")
+            # Continue loading other files
+
+    logger.info(f"Loaded {len(templates)} interaction template files")
     return templates
 
 

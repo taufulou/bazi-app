@@ -27,7 +27,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:4000", "http://localhost:3000"],  # NestJS API + Next.js dev
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["POST", "GET"],
     allow_headers=["*"],
 )
 

@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
+import { useRouter } from 'next/navigation';
 import styles from './ElementExplanation.module.css';
 import {
   fetchElementExplanation,
@@ -94,6 +95,7 @@ export default function ElementExplanation({
   const [data, setData] = useState<ElementExplanationData | null>(null);
   const [loading, setLoading] = useState(false);
   const cacheRef = useRef(new Map<string, ElementExplanationData>());
+  const router = useRouter();
 
   // Fetch explanation when opened
   useEffect(() => {
@@ -125,7 +127,7 @@ export default function ElementExplanation({
     });
 
     return () => { cancelled = true; };
-  }, [isOpen, elementType, value, pillar, gender, godRoles]);
+  }, [isOpen, elementType, value, pillar, gender, godRoles, fourPillars]);
 
   // Close on Escape key
   useEffect(() => {
@@ -264,7 +266,7 @@ export default function ElementExplanation({
             </div>
             <p className={styles.comboTeaserText}>{data.dayPillarCombo.teaser}</p>
             <div className={styles.teaserCta}>
-              <button className={styles.teaserBtn} onClick={() => window.location.href = '/pricing'}>🔓 解鎖日柱組合完整解讀</button>
+              <button className={styles.teaserBtn} onClick={() => router.push('/pricing')}>🔓 解鎖日柱組合完整解讀</button>
             </div>
           </div>
         )}
@@ -400,7 +402,7 @@ export default function ElementExplanation({
               </div>
             )}
             <div className={styles.teaserCta}>
-              <button className={styles.teaserBtn} onClick={() => window.location.href = '/pricing'}>
+              <button className={styles.teaserBtn} onClick={() => router.push('/pricing')}>
                 🔓 解鎖個人化解讀
               </button>
               <span className={styles.teaserCount}>
