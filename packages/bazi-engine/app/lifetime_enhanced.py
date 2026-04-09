@@ -53,6 +53,7 @@ from .stem_combinations import STEM_CLASH_LOOKUP
 from .life_stages import get_life_stage
 from .shen_sha import get_all_shen_sha
 from .ten_gods import derive_ten_god
+from .explanations import get_day_pillar_detailed
 
 
 # ============================================================
@@ -4930,5 +4931,6 @@ def generate_lifetime_enhanced_insights(
             'luck_periods_enriched': luck_periods_enriched,
             'best_period': best_period,
             'annualTenGod': annual_ten_god,
+            'day_pillar_detailed': get_day_pillar_detailed(day_master_stem, day_branch),
         },
     }

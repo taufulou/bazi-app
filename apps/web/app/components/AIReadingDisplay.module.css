@@ -500,6 +500,68 @@ li.goldBulletItemCategory {
   border-color: rgba(100, 181, 246, 0.15);
 }
 
+.detCard[data-theme="day-pillar"] {
+  background: var(--bg-card);
+  border-color: rgba(196, 30, 58, 0.15);
+}
+
+.detCardSubtitle {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 400;
+  margin-left: auto;
+  font-family: var(--font-noto-serif-tc), serif;
+}
+
+.dpdIntro {
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.7;
+  margin: 0 0 0.5rem 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.dpdHighlight {
+  color: var(--text-accent, #C41E3A);
+  font-weight: 700;
+}
+
+.dpdSection {
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.dpdSection:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.dpdSectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+.dpdSectionIcon {
+  font-size: 1rem;
+}
+
+.dpdSectionLabel {
+  color: var(--text-accent, #C41E3A);
+  font-size: 0.85rem;
+  font-weight: 600;
+  font-family: var(--font-noto-serif-tc), serif;
+}
+
+.dpdSectionText {
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.7;
+  margin: 0;
+}
+
 /* ==== Luck Period Header (above AI narrative) ==== */
 .luckPeriodHeader {
   background: var(--bg-card);

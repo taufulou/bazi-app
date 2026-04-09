@@ -341,3 +341,22 @@ def get_element_explanation(
             logger.warning(f"Missing day pillar combo: {combo_key}")
 
     return result
+
+
+def get_day_pillar_detailed(day_stem: str, day_branch: str) -> Optional[dict]:
+    """Look up the detailed day pillar explanation for 八字終身運.
+
+    Args:
+        day_stem: Day master stem (e.g., "戊")
+        day_branch: Day branch (e.g., "午")
+
+    Returns:
+        Dict with title, subtitle, coreImage, personality, career,
+        relationships, advice — or None if not found.
+    """
+    data = _TEMPLATES.get('day_pillar_detailed', {})
+    key = f"{day_stem}{day_branch}"
+    entry = data.get(key)
+    if entry is None:
+        logger.warning(f"Missing day pillar detailed entry: {key}")
+    return entry

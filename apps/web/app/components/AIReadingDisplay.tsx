@@ -1660,6 +1660,7 @@ const ZWDS_CROSS_SELL = [
 
 /** After which AI section key should we insert the corresponding deterministic card */
 const V2_DETERMINISTIC_INSERTIONS: Record<string, string> = {
+  chart_identity: 'day_pillar_detailed', // After 先天命格 → show 六十甲子 detailed card
   finance_pattern: 'investments',    // After 財運格局 → show investment lists
   career_pattern: 'career_data',     // After 事業格局 → show career directions + benefactors
   love_pattern: 'love_data',         // After 感情格局 → show romance years + partner zodiacs
@@ -2337,6 +2338,50 @@ function DeterministicCard({
   if (!data) return null;
 
   switch (cardType) {
+    case "day_pillar_detailed": {
+      const dpd = data.dayPillarDetailed;
+      if (!dpd) return null;
+      const sections = [
+        { key: 'coreImage', label: '核心意象', icon: '🏔' },
+        { key: 'personality', label: '性格解析', icon: '🧭' },
+        { key: 'career', label: '事業與財運', icon: '💼' },
+        { key: 'relationships', label: '感情特質', icon: '💞' },
+        { key: 'advice', label: '一生提醒', icon: '💡' },
+      ] as const;
+      return (
+        <div className={styles.detCard} data-theme="day-pillar">
+          <div className={styles.detCardHeader}>
+            <span className={styles.detCardIcon}>📜</span>
+            <h4 className={styles.detCardTitle}>{dpd.title}</h4>
+            <span className={styles.detCardSubtitle}>{dpd.subtitle}</span>
+          </div>
+          <p className={styles.dpdIntro}>
+            八字中的日柱是<strong className={styles.dpdHighlight}>你自己</strong>的代表——它揭示你最本質的性格、天賦和人生傾向。在六十種日柱組合中，你是<strong className={styles.dpdHighlight}>{dpd.title.replace('日柱', '')}</strong>，以下是專屬於你的深度解讀。
+          </p>
+          <div className={styles.detCardBody}>
+            {sections.map((s, i) => {
+              // Free users: show only coreImage (index 0)
+              const isLocked = !isSubscriber && i > 0;
+              return (
+                <div key={s.key} className={styles.dpdSection}>
+                  <div className={styles.dpdSectionHeader}>
+                    <span className={styles.dpdSectionIcon}>{s.icon}</span>
+                    <span className={styles.dpdSectionLabel}>{s.label}</span>
+                  </div>
+                  {isLocked ? (
+                    <p className={styles.detBlurred}>訂閱後解鎖完整解讀</p>
+                  ) : (
+                    <p className={styles.dpdSectionText}>
+                      {dpd[s.key]}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
     case "investments":
       if (!data.favorableInvestments || !data.unfavorableInvestments) return null;
       return (

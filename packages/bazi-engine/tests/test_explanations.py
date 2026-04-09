@@ -5,6 +5,7 @@ import pytest
 
 from app.explanations import (
     get_element_explanation,
+    get_day_pillar_detailed,
     _determine_element_god_role,
     _substitute_placeholders,
     _TEMPLATES,
@@ -835,3 +836,70 @@ class TestDayPillarCombos:
             'stem', '戊', 'day', god_roles, 'male',
         )
         assert 'dayPillarCombo' not in result
+
+
+# ============================================================
+# Day Pillar Detailed — 六十甲子 detailed explanations for 八字終身運
+# ============================================================
+
+SIXTY_JIAZI = [
+    '甲子', '乙丑', '丙寅', '丁卯', '戊辰', '己巳', '庚午', '辛未', '壬申', '癸酉',
+    '甲戌', '乙亥', '丙子', '丁丑', '戊寅', '己卯', '庚辰', '辛巳', '壬午', '癸未',
+    '甲申', '乙酉', '丙戌', '丁亥', '戊子', '己丑', '庚寅', '辛卯', '壬辰', '癸巳',
+    '甲午', '乙未', '丙申', '丁酉', '戊戌', '己亥', '庚子', '辛丑', '壬寅', '癸卯',
+    '甲辰', '乙巳', '丙午', '丁未', '戊申', '己酉', '庚戌', '辛亥', '壬子', '癸丑',
+    '甲寅', '乙卯', '丙辰', '丁巳', '戊午', '己未', '庚申', '辛酉', '壬戌', '癸亥',
+]
+
+REQUIRED_FIELDS = ['title', 'subtitle', 'coreImage', 'personality', 'career', 'relationships', 'advice']
+
+
+class TestDayPillarDetailed:
+    """Tests for 六十甲子 detailed explanations."""
+
+    def test_all_60_entries_exist(self):
+        """All 60 甲子 keys must be present in the JSON data."""
+        data = _TEMPLATES.get('day_pillar_detailed', {})
+        for jiazi in SIXTY_JIAZI:
+            assert jiazi in data, f"Missing entry for {jiazi}"
+        assert len(data) == 60
+
+    def test_structure_has_all_required_fields(self):
+        """Each entry must have all 7 required fields."""
+        data = _TEMPLATES.get('day_pillar_detailed', {})
+        for jiazi, entry in data.items():
+            for field in REQUIRED_FIELDS:
+                assert field in entry, f"{jiazi} missing field: {field}"
+                assert isinstance(entry[field], str), f"{jiazi}.{field} is not a string"
+                assert len(entry[field]) > 0, f"{jiazi}.{field} is empty"
+
+    def test_length_within_bounds(self):
+        """Total content per entry should be 200-3000 chars."""
+        data = _TEMPLATES.get('day_pillar_detailed', {})
+        for jiazi, entry in data.items():
+            total = sum(len(entry[f]) for f in REQUIRED_FIELDS)
+            assert 200 < total < 3000, f"{jiazi} total length {total} out of bounds"
+
+    def test_lookup_function_returns_entry(self):
+        """get_day_pillar_detailed('戊', '午') should return the correct entry."""
+        result = get_day_pillar_detailed('戊', '午')
+        assert result is not None
+        assert result['title'] == '戊午日柱'
+        assert '高山' in result['coreImage']
+
+    def test_lookup_function_returns_none_for_missing(self):
+        """Unknown combinations should return None."""
+        result = get_day_pillar_detailed('甲', '甲')
+        assert result is None
+
+    def test_lookup_function_various_pillars(self):
+        """Spot-check several pillars."""
+        checks = [
+            ('甲', '子', '甲子日柱'),
+            ('庚', '辰', '庚辰日柱'),
+            ('癸', '亥', '癸亥日柱'),
+        ]
+        for stem, branch, expected_title in checks:
+            result = get_day_pillar_detailed(stem, branch)
+            assert result is not None, f"Missing {stem}{branch}"
+            assert result['title'] == expected_title

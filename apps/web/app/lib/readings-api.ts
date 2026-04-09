@@ -252,6 +252,15 @@ export interface LifetimeV2DeterministicData {
   luckPeriodsEnriched: LuckPeriodDetailData[];
   bestPeriod: LuckPeriodDetailData | null;
   annualTenGod: string;
+  dayPillarDetailed?: {
+    title: string;
+    subtitle: string;
+    coreImage: string;
+    personality: string;
+    career: string;
+    relationships: string;
+    advice: string;
+  } | null;
 }
 
 /** V2 deterministic data (not AI-generated) — Career */
