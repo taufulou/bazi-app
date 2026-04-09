@@ -16,6 +16,8 @@ import InsufficientCreditsModal from "../../components/InsufficientCreditsModal"
 import CareerPaywallCTA from "../../components/CareerPaywallCTA";
 import AnnualPaywallCTA from "../../components/AnnualPaywallCTA";
 import LovePaywallCTA from "../../components/LovePaywallCTA";
+import LifetimePaywallCTA from "../../components/LifetimePaywallCTA";
+import UnlockConfirmModal from "../../components/UnlockConfirmModal";
 import {
   createBirthProfile,
   updateBirthProfile,
@@ -190,9 +192,10 @@ export default function ReadingPage() {
   // Cache hit notification
   const [cacheToast, setCacheToast] = useState(false);
 
-  // Two-phase paywall state (used by Career, Annual, Love readings)
+  // Two-phase paywall state (used by Career, Annual, Love, Lifetime readings)
   const [showPaywall, setShowPaywall] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
+  const [showUnlockConfirm, setShowUnlockConfirm] = useState(false);
 
   // SSE stream cleanup ref (for LIFETIME streaming)
   const streamCleanupRef = useRef<(() => void) | null>(null);
@@ -747,6 +750,12 @@ export default function ReadingPage() {
           try { sessionStorage.setItem('love_form', JSON.stringify(data)); } catch { /* quota */ }
           setShowPaywall(true);
           setIsLoading(false);
+        } else if (isLifetime) {
+          // Lifetime Phase 1: Chart only → paywall CTA (same as career/annual/love)
+          await callDirectEngine(data, lunarDate);
+          try { sessionStorage.setItem('lifetime_form', JSON.stringify(data)); } catch { /* quota */ }
+          setShowPaywall(true);
+          setIsLoading(false);
         } else if (isSignedIn && birthProfileId) {
           // Route through NestJS: chart shows immediately, AI loads in background
           // callNestJSReading manages its own loading states (isLoading + isAiLoading)
@@ -889,7 +898,7 @@ export default function ReadingPage() {
 
       // This calls NestJS: credits deducted + AI streamed
       // Use onReadingCreated callback to capture reading ID (React state is async)
-      const sessionKey = isAnnual ? 'annual' : isLove ? 'love' : 'career';
+      const sessionKey = isLifetime ? 'lifetime' : isAnnual ? 'annual' : isLove ? 'love' : 'career';
       await callNestJSReading(formValues, profileId, {
         onReadingCreated: (id: string) => {
           try { sessionStorage.setItem(`${sessionKey}_reading_id`, id); } catch { /* quota */ }
@@ -1037,6 +1046,45 @@ export default function ReadingPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLove, isLoaded]);
 
+  // ============================================================
+  // Lifetime refresh resilience — recover chart + reading after page reload
+  // ============================================================
+
+  useEffect(() => {
+    if (!isLifetime || step !== null) return;
+
+    let raw: string | null = null;
+    try { raw = sessionStorage.getItem('lifetime_form'); } catch { /* ignore */ }
+    if (!raw) return;
+
+    let savedForm: BirthDataFormValues;
+    try {
+      savedForm = JSON.parse(raw);
+    } catch {
+      try { sessionStorage.removeItem('lifetime_form'); } catch { /* ignore */ }
+      return;
+    }
+
+    setFormValues(savedForm);
+    setIsLoading(true);
+    callDirectEngine(savedForm).then(() => {
+      setStep('result');
+      setIsLoading(false);
+
+      let savedReadingId: string | null = null;
+      try { savedReadingId = sessionStorage.getItem('lifetime_reading_id'); } catch { /* ignore */ }
+      if (savedReadingId && isSignedIn) {
+        recoverPaidReading(savedReadingId, 'lifetime');
+      } else {
+        setShowPaywall(true);
+      }
+    }).catch(() => {
+      setIsLoading(false);
+      setStep('input');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLifetime, isLoaded]);
+
   async function recoverPaidReading(readingId: string, sessionKeyPrefix: string) {
     const token = await getToken();
     if (!token) { setShowPaywall(true); return; }
@@ -1179,15 +1227,15 @@ export default function ReadingPage() {
             title={`${meta.nameZhTw} — 輸入出生資料`}
             subtitle={meta.description["zh-TW"]}
             submitLabel={
-              (isCareer || isAnnual || isLove) ? "開始排盤" :
+              (isCareer || isAnnual || isLove || isLifetime) ? "開始排盤" :
               !isSignedIn ? "開始分析" :
               meta.creditCost === 0 ? (<>完整解讀<span className={styles.btnCreditFree}>免費</span></>) :
               hasFreeReading ? (<>完整解讀<span className={styles.btnCreditFree}>首次免費</span></>) :
               userCredits !== null ? (<>完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點・剩 {userCredits}</span></>) :
               (<>完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點</span></>)
             }
-            onSecondarySubmit={isSignedIn && !isCareer && !isAnnual && !isLove ? (data, _pid, lunarDate) => handleFreeChart(data, _pid, lunarDate) : undefined}
-            secondaryLabel={isSignedIn && !isCareer && !isAnnual && !isLove ? "查看免費命盤 →" : undefined}
+            onSecondarySubmit={isSignedIn && !isCareer && !isAnnual && !isLove && !isLifetime ? (data, _pid, lunarDate) => handleFreeChart(data, _pid, lunarDate) : undefined}
+            secondaryLabel={isSignedIn && !isCareer && !isAnnual && !isLove && !isLifetime ? "查看免費命盤 →" : undefined}
             savedProfiles={isSignedIn ? savedProfiles : undefined}
             showSaveOption={isSignedIn === true}
             onSaveProfile={() => {
@@ -1310,7 +1358,7 @@ export default function ReadingPage() {
                   hasFreeReading={hasFreeReading}
                   isSubscriber={isSubscriber}
                   isSignedIn={!!isSignedIn}
-                  onUnlock={handleCareerUnlock}
+                  onUnlock={() => setShowUnlockConfirm(true)}
                   isUnlocking={isUnlocking}
                   onCreditsRefresh={refreshUserProfile}
                 />
@@ -1326,7 +1374,7 @@ export default function ReadingPage() {
                   hasFreeReading={hasFreeReading}
                   isSubscriber={isSubscriber}
                   isSignedIn={!!isSignedIn}
-                  onUnlock={handleCareerUnlock}
+                  onUnlock={() => setShowUnlockConfirm(true)}
                   isUnlocking={isUnlocking}
                   onCreditsRefresh={refreshUserProfile}
                 />
@@ -1342,12 +1390,59 @@ export default function ReadingPage() {
                   hasFreeReading={hasFreeReading}
                   isSubscriber={isSubscriber}
                   isSignedIn={!!isSignedIn}
-                  onUnlock={handleCareerUnlock}
+                  onUnlock={() => setShowUnlockConfirm(true)}
                   isUnlocking={isUnlocking}
                   onCreditsRefresh={refreshUserProfile}
                 />
               </div>
             )}
+
+            {/* Lifetime Paywall CTA — below chart, after reveal finishes */}
+            {isLifetime && showPaywall && !isAiLoading && !isRevealing && (
+              <div ref={paywallRef}>
+                <LifetimePaywallCTA
+                  creditCost={meta?.creditCost ?? 3}
+                  currentCredits={userCredits}
+                  hasFreeReading={hasFreeReading}
+                  isSubscriber={isSubscriber}
+                  isSignedIn={!!isSignedIn}
+                  onUnlock={() => setShowUnlockConfirm(true)}
+                  isUnlocking={isUnlocking}
+                  onCreditsRefresh={refreshUserProfile}
+                />
+              </div>
+            )}
+
+            {/* Unlock Confirmation Modal — shared by all paywall reading types */}
+            <UnlockConfirmModal
+              isOpen={showUnlockConfirm}
+              onClose={() => setShowUnlockConfirm(false)}
+              onConfirm={() => {
+                setShowUnlockConfirm(false);
+                handleCareerUnlock();
+              }}
+              isUnlocking={isUnlocking}
+              readingName={
+                isCareer ? "事業詳批完整報告" :
+                isAnnual ? "流年運勢完整報告" :
+                isLove ? "愛情姻緣完整報告" :
+                "完整命理報告"
+              }
+              icon={
+                isCareer ? "📊" :
+                isAnnual ? "📅" :
+                isLove ? "💕" :
+                "🌟"
+              }
+              features={
+                isCareer ? ["事業格局分析", "職業能力分析", "行業方向建議", "創業適合度", "合夥適合度", "事業貴人分析", "未來五年運勢", "十二月運氣"] :
+                isAnnual ? ["流年總述", "太歲分析", "事業運勢", "財運分析", "人際關係", "愛情姻緣", "家庭關係", "健康狀況", "十二月運程"] :
+                isLove ? ["戀愛性格分析", "先天桃花運", "本命姻緣分析", "婚配建議", "對象性格與相貌", "桃花運好的年份", "桃花劫的年份", "感情易變年份"] :
+                ["性格特質", "日主分析", "五行平衡", "十神分布", "大運流年", "神煞解析", "六親關係", "人生指引", "財運分析"]
+              }
+              creditCost={meta?.creditCost ?? 3}
+              currentCredits={userCredits}
+            />
 
             {/* AI Divider — full-page layout only, hidden during chart reveal */}
             {isFullPageLayout && !isRevealing && !showPaywall && (aiData || isAiLoading) && (
