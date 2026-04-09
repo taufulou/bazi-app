@@ -1296,6 +1296,8 @@ export default function ReadingPage() {
                 birthDate={formValues?.birthDate}
                 birthTime={formValues?.birthTime}
                 visibleSections={isFullPageLayout && isRevealing ? revealedSections : undefined}
+                isSubscriber={isSubscriber}
+                gender={formValues?.gender || "male"}
               />
             )}
 

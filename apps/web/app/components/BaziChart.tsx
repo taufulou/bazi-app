@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import styles from "./BaziChart.module.css";
+import ElementExplanation, { type ElementClickInfo } from "./ElementExplanation";
+import { extractGodRoles, extractFourPillars, type GodRoles, type ElementType, type FourPillarsPayload } from "../lib/element-explanation-api";
 
 // ============================================================
 // Types (matching Python engine output)
@@ -100,6 +102,9 @@ interface BaziChartProps {
   birthTime?: string;
   visibleSections?: number; // 0-6. undefined = all visible (backwards compatible)
   hideSections?: number[];  // array of section indices to skip (e.g. [2,4,5])
+  isSubscriber?: boolean;   // For element explanation paywall
+  gender?: string;          // For gender-specific explanations
+  onElementClick?: (info: ElementClickInfo) => void; // Optional external callback
 }
 
 // ============================================================
@@ -151,7 +156,12 @@ const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 // Component
 // ============================================================
 
-export default function BaziChart({ data, name, birthDate, birthTime, visibleSections, hideSections }: BaziChartProps) {
+/** Pillar key → Chinese label */
+const PILLAR_LABELS: Record<string, string> = {
+  year: "年柱", month: "月柱", day: "日柱", hour: "時柱",
+};
+
+export default function BaziChart({ data, name, birthDate, birthTime, visibleSections, hideSections, isSubscriber, gender, onElementClick }: BaziChartProps) {
   const { fourPillars: fp, dayMaster: dm, lunarDate } = data;
   const pillars = [
     { key: "hour", label: "時柱", data: fp.hour },
@@ -159,6 +169,38 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
     { key: "month", label: "月柱", data: fp.month },
     { key: "year", label: "年柱", data: fp.year },
   ];
+
+  // ── Element Explanation bottom sheet state ──
+  const [selectedElement, setSelectedElement] = useState<ElementClickInfo | null>(null);
+  const godRoles: GodRoles = extractGodRoles(data);
+  const fourPillarsPayload: FourPillarsPayload = extractFourPillars(data);
+
+  const handleElementClick = useCallback(
+    (elementType: ElementType, value: string, pillarKey: string) => {
+      const info: ElementClickInfo = {
+        elementType,
+        value,
+        pillar: pillarKey as 'year' | 'month' | 'day' | 'hour',
+        pillarLabel: PILLAR_LABELS[pillarKey] || pillarKey,
+      };
+      setSelectedElement(info);
+      onElementClick?.(info);
+    },
+    [onElementClick],
+  );
+
+  // Show one-time hint on first visit
+  const [showHint, setShowHint] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const key = 'bazi_element_hint_shown';
+    if (!localStorage.getItem(key)) {
+      setShowHint(true);
+      localStorage.setItem(key, '1');
+      const t = setTimeout(() => setShowHint(false), 5000);
+      return () => clearTimeout(t);
+    }
+  }, []);
 
   // Staged reveal: whether a section at the given index should be visible
   const isVisible = (index: number) =>
@@ -205,6 +247,11 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
               <span className={styles.chartHeaderDiamond}>◆</span>
             </span>
           </div>
+          {showHint && (
+            <div className={styles.hintText}>
+              💡 點擊任意欄位查看解讀
+            </div>
+          )}
           <table className={styles.pillarsTable}>
             <thead>
               <tr>
@@ -219,7 +266,11 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
               <tr>
                 <td className={styles.pillarLabel}>十神</td>
                 {pillars.map((p) => (
-                  <td key={p.key} className={styles.tenGodCell}>
+                  <td
+                    key={p.key}
+                    className={`${styles.tenGodCell} ${p.key !== "day" && p.data.tenGod ? styles.clickableCell : ""}`}
+                    onClick={() => p.key !== "day" && p.data.tenGod && handleElementClick("ten_god", p.data.tenGod, p.key)}
+                  >
                     {p.key === "day" ? "日元" : (p.data.tenGod || "—")}
                   </td>
                 ))}
@@ -230,15 +281,17 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
                 {pillars.map((p) => (
                   <td key={p.key} className={styles.stemBranchCell}>
                     <div
-                      className={styles.stemChar}
+                      className={`${styles.stemChar} ${styles.clickableInline}`}
                       style={{ color: getChartElementColor(p.data.stemElement) }}
+                      onClick={() => handleElementClick("stem", p.data.stem, p.key)}
                     >
                       {p.data.stem}
                     </div>
                     <div className={styles.branchWrap}>
                       <span
-                        className={styles.branchChar}
+                        className={`${styles.branchChar} ${styles.clickableInline}`}
                         style={{ color: getChartElementColor(p.data.branchElement) }}
+                        onClick={() => handleElementClick("branch", p.data.branch, p.key)}
                       >
                         {p.data.branch}
                       </span>
@@ -258,7 +311,8 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
                       ? p.data.hiddenStemGods!.map((hsg, i) => (
                           <span
                             key={i}
-                            className={styles.hiddenStem}
+                            className={`${styles.hiddenStem} ${styles.clickableInline}`}
+                            onClick={() => handleElementClick("hidden_stem", hsg.stem, p.key)}
                           >
                             <span style={{
                               color: getChartElementColor(hsg.element || STEM_ELEMENT[hsg.stem] || "土"),
@@ -272,11 +326,12 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
                       : (p.data.hiddenStems || []).map((hs, i) => (
                           <span
                             key={i}
-                            className={styles.hiddenStem}
+                            className={`${styles.hiddenStem} ${styles.clickableInline}`}
                             style={{
                               color: getChartElementColor(getHiddenStemElement(hs)),
                               opacity: i === 0 ? 1 : 0.7,
                             }}
+                            onClick={() => handleElementClick("hidden_stem", hs, p.key)}
                           >
                             {hs}{STEM_ELEMENT[hs]}
                           </span>
@@ -290,7 +345,11 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
                 <tr>
                   <td className={styles.pillarLabel}>十二運</td>
                   {pillars.map((p) => (
-                    <td key={p.key} className={styles.lifeStageCell}>
+                    <td
+                      key={p.key}
+                      className={`${styles.lifeStageCell} ${p.data.lifeStage ? styles.clickableCell : ""}`}
+                      onClick={() => p.data.lifeStage && handleElementClick("life_stage", p.data.lifeStage, p.key)}
+                    >
                       {p.data.lifeStage || "—"}
                     </td>
                   ))}
@@ -300,7 +359,11 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
               <tr>
                 <td className={styles.pillarLabel}>納音</td>
                 {pillars.map((p) => (
-                  <td key={p.key} className={styles.nayinCell}>
+                  <td
+                    key={p.key}
+                    className={`${styles.nayinCell} ${styles.clickableCell}`}
+                    onClick={() => handleElementClick("nayin", p.data.naYin, p.key)}
+                  >
                     {p.data.naYin}
                   </td>
                 ))}
@@ -312,7 +375,13 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
                   <td key={p.key} className={styles.shenShaCell}>
                     {p.data.shenSha.length > 0
                       ? p.data.shenSha.map((sha, i) => (
-                          <span key={i} className={styles.shenShaItem}>{sha}</span>
+                          <span
+                            key={i}
+                            className={`${styles.shenShaItem} ${styles.clickableInline}`}
+                            onClick={() => handleElementClick("shensha", sha, p.key)}
+                          >
+                            {sha}
+                          </span>
                         ))
                       : "—"}
                   </td>
@@ -355,7 +424,11 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
             <div className={styles.seasonalStates}>
               <span className={styles.seasonalLabel}>旺相休囚死：</span>
               {Object.entries(data.seasonalStates).map(([element, state]) => (
-                <span key={element} className={styles.seasonalItem}>
+                <span
+                  key={element}
+                  className={`${styles.seasonalItem} ${styles.clickableInline}`}
+                  onClick={() => handleElementClick("seasonal_state", state, "month")}
+                >
                   <span style={{ color: getChartElementColor(element) }}>{element}</span>
                   <span className={styles.seasonalState}>{state}</span>
                 </span>
@@ -526,8 +599,12 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
           {data.allShenSha.length > 0 ? (
             <div className={styles.shenShaList}>
               {data.allShenSha.map((sha, i) => (
-                <span key={i} className={styles.shenShaTag}>
-                  {sha.name}（{sha.pillar}·{sha.branch}）
+                <span
+                  key={i}
+                  className={`${styles.shenShaTag} ${styles.clickableCell}`}
+                  onClick={() => handleElementClick("shensha", sha.name, sha.pillar)}
+                >
+                  {sha.name}（{PILLAR_LABELS[sha.pillar] || sha.pillar}·{sha.branch}）
                 </span>
               ))}
             </div>
@@ -542,7 +619,18 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
               <span className={styles.kongWangText}>
                 空亡：
                 {data.kongWang.map((kw, i) => (
-                  <span key={i} className={styles.kongWangBranch}>
+                  <span
+                    key={i}
+                    className={`${styles.kongWangBranch} ${styles.clickableCell}`}
+                    onClick={() => {
+                      // Kong wang pair can span multiple pillars; use first match
+                      let kwPillar = 'day'; // default: derived from day pillar
+                      for (const p of pillars) {
+                        if (p.data.branch === kw) { kwPillar = p.key; break; }
+                      }
+                      handleElementClick('kong_wang', kw, kwPillar);
+                    }}
+                  >
                     {kw}
                     {i < data.kongWang.length - 1 ? "、" : ""}
                   </span>
@@ -559,6 +647,22 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
           <span className={styles.revealSpinner} />
           <span className={styles.revealMessage}>{REVEAL_MESSAGES[visibleSections!]}</span>
         </div>
+      )}
+
+      {/* Element Explanation Bottom Sheet (rendered via Portal inside component) */}
+      {selectedElement && (
+        <ElementExplanation
+          isOpen={!!selectedElement}
+          onClose={() => setSelectedElement(null)}
+          elementType={selectedElement.elementType}
+          value={selectedElement.value}
+          pillar={selectedElement.pillar}
+          pillarLabel={selectedElement.pillarLabel}
+          godRoles={godRoles}
+          fourPillars={fourPillarsPayload}
+          isSubscriber={isSubscriber ?? false}
+          gender={gender ?? "male"}
+        />
       )}
     </div>
   );

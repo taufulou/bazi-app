@@ -652,3 +652,46 @@
   color: var(--text-secondary);
   font-weight: 400;
 }
+
+/* ── Clickable cell styles ── */
+.clickableCell {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.clickableCell:hover {
+  background-color: rgba(212, 160, 23, 0.06);
+}
+
+.clickableCell:active {
+  background-color: rgba(212, 160, 23, 0.12);
+}
+
+/* Inline clickable elements (stems, branches, shensha items, etc.) */
+.clickableInline {
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.clickableInline:hover {
+  background-color: rgba(212, 160, 23, 0.1);
+}
+
+.clickableInline:active {
+  background-color: rgba(212, 160, 23, 0.18);
+}
+
+/* ── Hint text ── */
+.hintText {
+  text-align: center;
+  font-size: 0.72rem;
+  color: var(--text-muted, #8B7355);
+  padding: 0.3rem 0;
+  animation: hintFade 5s ease-out forwards;
+}
+
+@keyframes hintFade {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}

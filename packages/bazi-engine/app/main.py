@@ -6,13 +6,14 @@ All calculations are deterministic (no AI). AI interpretation is handled by the 
 
 import time
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .calculator import calculate_bazi, calculate_bazi_compatibility
+from .explanations import get_element_explanation
 
 app = FastAPI(
     title="Bazi Calculation Engine",
@@ -26,7 +27,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:4000", "http://localhost:3000"],  # NestJS API + Next.js dev
     allow_credentials=True,
-    allow_methods=["POST", "GET"],
+    allow_methods=["*"],
     allow_headers=["*"],
 )
 
@@ -101,6 +102,78 @@ class CompatibilityInput(BaseModel):
         None,
         description="Year for timing analysis (defaults to current year if not provided)",
     )
+
+
+class GodRolesInput(BaseModel):
+    """Structured god roles for element explanation.
+
+    These are the EFFECTIVE god roles (post-從格 override if applicable).
+    The frontend extracts these from chartData.dayMaster which already
+    reflects the engine's 從格 detection and god role inversion.
+    """
+    dayMasterElement: str = Field(..., description="DM element: 木/火/土/金/水")
+    strengthClassification: str = Field(
+        ..., description="DM strength: very_weak/weak/neutral/strong/very_strong"
+    )
+    favorableGod: str = Field("", description="喜神 element (effective)")
+    usefulGod: str = Field("", description="用神 element (effective)")
+    idleGod: str = Field("", description="閒神 element (effective)")
+    tabooGod: str = Field("", description="忌神 element (effective)")
+    enemyGod: str = Field("", description="仇神 element (effective)")
+
+
+_VALID_STEMS = {'甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸'}
+_VALID_BRANCHES = {'子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'}
+
+
+class PillarInput(BaseModel):
+    """Individual pillar data for cross-pillar interaction detection."""
+    stem: str = Field(..., description="Heavenly stem: 甲-癸")
+    branch: str = Field(..., description="Earthly branch: 子-亥")
+    tenGod: str = Field("", description="Ten god of this pillar's stem (empty for day pillar)")
+    hiddenStemGods: List[str] = Field(
+        default_factory=list,
+        description="Ten god names of hidden stems, e.g. ['食神','偏官','偏印']",
+    )
+
+    @field_validator('stem')
+    @classmethod
+    def validate_stem(cls, v: str) -> str:
+        if v not in _VALID_STEMS:
+            raise ValueError(f'Invalid stem: {v}. Must be one of {_VALID_STEMS}')
+        return v
+
+    @field_validator('branch')
+    @classmethod
+    def validate_branch(cls, v: str) -> str:
+        if v not in _VALID_BRANCHES:
+            raise ValueError(f'Invalid branch: {v}. Must be one of {_VALID_BRANCHES}')
+        return v
+
+
+class ExplainElementInput(BaseModel):
+    """Input for element explanation lookup."""
+    element_type: str = Field(
+        ...,
+        description="Element type: ten_god|stem|branch|hidden_stem|life_stage|nayin|shensha|seasonal_state|kong_wang",
+    )
+    value: str = Field(..., description="The element value, e.g. '正官', '甲', '子'")
+    pillar: str = Field(..., description="Pillar position: year|month|day|hour")
+    god_roles: GodRolesInput = Field(..., description="Minimal chart context")
+    gender: str = Field("male", description="Gender: male|female")
+    # Optional: for cross-pillar interaction detection (~500 bytes)
+    four_pillars: Optional[Dict[str, PillarInput]] = Field(
+        None, description="Full four pillar data for cross-pillar interaction detection",
+    )
+
+    @field_validator('four_pillars')
+    @classmethod
+    def validate_four_pillars(cls, v: Optional[Dict[str, 'PillarInput']]) -> Optional[Dict[str, 'PillarInput']]:
+        if v is not None:
+            required = {'year', 'month', 'day', 'hour'}
+            if set(v.keys()) != required:
+                raise ValueError(f'four_pillars must have exactly these keys: {required}')
+        return v
 
 
 class HealthResponse(BaseModel):
@@ -235,3 +308,29 @@ async def calculate_compatibility_endpoint(data: CompatibilityInput):
             status_code=500,
             detail=f"Compatibility calculation error: {str(e)}",
         )
+
+
+@app.post("/explain-element")
+async def explain_element(data: ExplainElementInput):
+    """
+    Look up pre-computed explanation for a Bazi chart element.
+
+    Returns all layers (A/B/C/D) — the frontend gates paid content
+    using its own isSubscriber state. No subscription check server-side.
+    Templates are educational reference content loaded from JSON files.
+    """
+    four_pillars_dict = None
+    if data.four_pillars:
+        four_pillars_dict = {
+            k: v.model_dump() for k, v in data.four_pillars.items()
+        }
+
+    result = get_element_explanation(
+        element_type=data.element_type,
+        value=data.value,
+        pillar=data.pillar,
+        god_roles=data.god_roles.model_dump(),
+        gender=data.gender,
+        four_pillars=four_pillars_dict,
+    )
+    return {"status": "success", "data": result}

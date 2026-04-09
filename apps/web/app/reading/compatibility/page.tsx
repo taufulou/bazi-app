@@ -689,11 +689,11 @@ export default function CompatibilityPage() {
             <div className={styles.dualChartsGrid}>
               <div className={styles.chartPanel}>
                 <div className={styles.chartPanelLabel}>男方</div>
-                <BaziChart data={chartDataA} name={nameA} birthDate={profileABirthDate} hideSections={[2, 4, 5]} />
+                <BaziChart data={chartDataA} name={nameA} birthDate={profileABirthDate} hideSections={[2, 4, 5]} isSubscriber={userTier !== "FREE"} gender={(chartDataA?.gender as string) || 'male'} />
               </div>
               <div className={styles.chartPanel}>
                 <div className={styles.chartPanelLabel}>女方</div>
-                <BaziChart data={chartDataB} name={nameB} birthDate={profileBBirthDate} hideSections={[2, 4, 5]} />
+                <BaziChart data={chartDataB} name={nameB} birthDate={profileBBirthDate} hideSections={[2, 4, 5]} isSubscriber={userTier !== "FREE"} gender={(chartDataB?.gender as string) || 'female'} />
               </div>
             </div>
           </div>

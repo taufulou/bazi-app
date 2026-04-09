@@ -409,3 +409,77 @@ The sharing feature allows users to export their character card as a shareable P
 - Gender is from `chartData.gender` (already wired)
 - QR code: use `qrcode` npm package or pre-generated static image
 - Deep link: `baziapp.com/share?stem=甲&ref=card`
+
+---
+
+## Bazi Element Encyclopedia — 八字命格互動解讀
+
+### What is it?
+Click-to-explain feature for the 八字命格 table. When users click any element (十神, 天干, 地支, 藏干, 十二運, 納音, 神煞, 旺相休囚死, 空亡), a bottom sheet shows a layered explanation with free + paid personalized tiers.
+
+### Architecture
+- **No AI involved** — all content is pre-computed JSON templates, zero latency, zero API cost
+- **4-layer template system**: Layer A (free generic) + Layer B (pillar-specific) + Layer C (god role analysis with DM strength reasoning) + Layer D (gender-specific 六親)
+- **Engine always returns ALL layers** — frontend gates paid content via `isSubscriber` prop (no server-side subscription check)
+- **Minimal API payload** (~200 bytes): only `GodRolesInput` (7 fields: dayMasterElement, strengthClassification, 5 god role elements) — NOT the full chart data
+- **Templates use `{strengthLabel}` and `{dmElement}` placeholders** — engine substitutes at assembly time via `_substitute_placeholders()`
+- **Bottom sheet rendered via React Portal** at `document.body` to avoid z-index/overflow clipping
+
+### Key Files
+```
+packages/bazi-engine/data/explanations/   — JSON template files (one per element type)
+packages/bazi-engine/app/explanations.py  — Template loader + assembly + god role mapping
+packages/bazi-engine/app/main.py          — POST /explain-element endpoint
+apps/web/app/components/ElementExplanation.tsx   — Bottom sheet component (Portal)
+apps/web/app/components/ElementExplanation.module.css
+apps/web/app/lib/element-explanation-api.ts      — Frontend API client + session cache
+```
+
+### Template Writing Tone
+**專業溫暖型** — like an experienced 命理老師 explaining one-on-one. 中學 reading level. Confident ("代表" not "可能代表"), with one relatable analogy per explanation. Occasional classical reference for credibility.
+
+### God Role Mapping Chain
+Ten god → element (via DM stem + relationship) → match against effective god roles (post-從格 override):
+- `TEN_GOD_TO_RELATIONSHIP`: 比肩/劫財=same, 食神/傷官=i_produce, 偏財/正財=i_overcome, 偏官/正官=overcomes_me, 偏印/正印=produces_me
+- `STRENGTH_LABEL_MAP`: very_strong+strong→偏強, very_weak+weak→偏弱, neutral→中和
+- `KONG_WANG_ROLE_MAP`: 喜神/用神→favorable, 忌神/仇神→unfavorable, 閒神→neutral
+
+### Layer C Content Rules
+- Must include `{strengthLabel}` placeholder for DM strength reasoning
+- Must include convention disclaimer: "本分析基於旺衰取用法。不同命理流派對喜用神的判定可能有所差異。"
+- 忌神 variants must include 合化 note: "若此十神的天干與其他天干相合，其實際效果可能因合化而改變。"
+- Uses EFFECTIVE god roles from engine (post-從格 override) — correct for all chart types
+
+### Layer A Content Rules (for all element types)
+- **十神**: Include core象意, 正/偏 distinction, key cross-interaction partner (食神制殺, 傷官見官, 梟印奪食, etc.), complete 六親 chain
+- **地支** (Phase 2A): Include static 六合/六沖/三合/三會 reference info per branch
+- **藏干** (Phase 2B): Include 透干/通根 concept explanation (透出 = power amplified, 藏而不透 = latent only)
+- **納音** (Phase 2B): Include 正五行 vs 納音五行 contrast + cross-pillar interaction mention
+
+### 六親 Reference Table (verified)
+| 十神 | 男命 | 女命 |
+|------|------|------|
+| 比肩 | 兄弟/朋友 | 姐妹/朋友 |
+| 劫財 | 姐妹/情敵 | 兄弟/情敵 |
+| 食神 | 孫子、女婿/晚輩 | 女兒/才華表現 |
+| 傷官 | 祖母/外祖母 | 兒子/情人(部分流派) |
+| 偏財 | 父親/情人、偏妻 | 婆婆(夫之母)/偏財運 |
+| 正財 | 妻子/正當財運 | 正當財運/繼父(部分流派) |
+| 偏官(七殺) | 兒子/小人、壓力 | 情人、偏夫/非正式伴侶 |
+| 正官 | 女兒/上司 | 丈夫/正式伴侶 |
+| 偏印 | 繼母、偏母/宗教導師 | 繼母、偏母/非傳統mentor |
+| 正印 | 母親/長輩庇護 | 母親/長輩庇護 |
+
+### Phasing Strategy
+- **Phase 1** (DONE): Infrastructure + 十神 (~120 entries). ALL 9 cell types clickable with "coming soon" fallback for unimplemented types. BaziChart.tsx fully wired — never needs revisiting.
+- **Phase 2A** (DONE): Simple types — 天干(110), 地支(130), 十二運(120), 空亡(8), 旺相休囚死(35). Standard pattern, mostly content writing.
+- **Phase 2B** (DONE): Complex types — 藏干(100), 納音(210), 神煞(273). Collapsed god role mapping for nayin (favorable/unfavorable) and shensha (favorable/neutral/unfavorable). Gender Layer D for 桃花/紅鸞/天喜/孤辰/寡宿/勾絞煞.
+- **Bonus Phase**: Cross-pillar interaction checks — 十神 cross-interactions (食神制殺 etc.), 地支 六合/六沖/三合/三刑 live detection, 藏干 透干 live detection.
+
+### Implementation Plan
+Full plan with 11 review rounds (staff engineer + Bazi master + accuracy gap analysis): `.claude/plans/bazi-element-encyclopedia.md`
+
+### Tests: 69 (all passing)
+- Template loading, god role mapping chain, placeholder substitution, full assembly, error cases
+- Phase 2A: stems, branches, life stages, kong wang, seasonal states
+- Phase 2B: hidden stems, nayins, shenshas (collapsed god role mapping, gender Layer D)
