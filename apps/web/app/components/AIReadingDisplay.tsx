@@ -2002,7 +2002,7 @@ export default function AIReadingDisplay({
             </div>
 
             {/* Insert deterministic data card after specific sections */}
-            {deterministicKey && det && !isCareerV2 && !isAnnualV2 && !isLoveV2 && (
+            {deterministicKey && det && !isCareerV2 && !isAnnualV2 && !isLoveV2 && !isCompatV2 && (
               <DeterministicCard
                 cardType={deterministicKey}
                 data={det as LifetimeV2DeterministicData}
@@ -2363,7 +2363,7 @@ function DeterministicCard({
               // Free users: show only coreImage (index 0)
               const isLocked = !isSubscriber && i > 0;
               return (
-                <div key={s.key} className={styles.dpdSection}>
+                <div key={s.key} className={`${styles.dpdSection} ${i === 0 ? styles.dpdSectionFirst : ''}`}>
                   <div className={styles.dpdSectionHeader}>
                     <span className={styles.dpdSectionIcon}>{s.icon}</span>
                     <span className={styles.dpdSectionLabel}>{s.label}</span>

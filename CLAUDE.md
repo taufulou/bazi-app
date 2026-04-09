@@ -129,8 +129,8 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 - ✅ Phases 1-11 complete (Foundation → Bazi Engine → AI → Frontend → Admin → ZWDS → Profiles → Wiring → Monetization → Bazi Interpretation Enhancement)
 - Next: Phase 12 (Bazi accuracy: 三合/三會 scoring, 從格+三合, 生化鏈) — see `docs/phase-12-specs.md`
 
-## Total Tests: ~1337
-- Bazi Engine: 759 (758 pass, 1 skip) | NestJS API: 157 | Frontend: 132 | ZWDS: 289
+## Total Tests: ~1343
+- Bazi Engine: 765 (764 pass, 1 skip) | NestJS API: 157 | Frontend: 132 | ZWDS: 289
 
 ## Reading Types
 18 total: 6 Bazi + 10 ZWDS + 2 Special. Credits: 1-3 per reading. See `docs/monetization.md` for pricing.
@@ -428,7 +428,8 @@ Click-to-explain feature for the 八字命格 table. When users click any elemen
 ### Key Files
 ```
 packages/bazi-engine/data/explanations/   — JSON template files (one per element type)
-packages/bazi-engine/app/explanations.py  — Template loader + assembly + god role mapping
+packages/bazi-engine/app/explanations.py  — Template loader + assembly + god role mapping + get_day_pillar_detailed() for 八字終身運
+packages/bazi-engine/data/explanations/day_pillar_detailed.json — 60 甲子 detailed explanations (flat 5-field JSON, NOT Layer A/B/C/D)
 packages/bazi-engine/app/main.py          — POST /explain-element endpoint
 apps/web/app/components/ElementExplanation.tsx   — Bottom sheet component (Portal)
 apps/web/app/components/ElementExplanation.module.css
@@ -479,7 +480,7 @@ Ten god → element (via DM stem + relationship) → match against effective god
 ### Implementation Plan
 Full plan with 11 review rounds (staff engineer + Bazi master + accuracy gap analysis): `.claude/plans/bazi-element-encyclopedia.md`
 
-### Tests: 69 (all passing)
+### Tests: 75 (all passing)
 - Template loading, god role mapping chain, placeholder substitution, full assembly, error cases
 - Phase 2A: stems, branches, life stages, kong wang, seasonal states
 - Phase 2B: hidden stems, nayins, shenshas (collapsed god role mapping, gender Layer D)

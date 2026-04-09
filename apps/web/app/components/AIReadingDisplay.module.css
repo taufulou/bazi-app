@@ -532,7 +532,7 @@ li.goldBulletItemCategory {
   border-top: 1px solid var(--border-light);
 }
 
-.dpdSection:first-child {
+.dpdSectionFirst {
   border-top: none;
   padding-top: 0;
 }
