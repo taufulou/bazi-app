@@ -11,7 +11,7 @@ interface UnlockConfirmModalProps {
   readingName: string;
   icon: string;
   features: string[];
-  creditCost: number;
+  effectiveCost: number;
   currentCredits: number | null;
 }
 
@@ -23,7 +23,7 @@ export default function UnlockConfirmModal({
   readingName,
   icon,
   features,
-  creditCost,
+  effectiveCost,
   currentCredits,
 }: UnlockConfirmModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
@@ -104,8 +104,12 @@ export default function UnlockConfirmModal({
         </div>
 
         <div className={styles.costLine}>
-          <span className={styles.costBadge}>💎 {creditCost} 點</span>
-          {currentCredits !== null && (
+          {effectiveCost > 0 ? (
+            <span className={styles.costBadge}>💎 {effectiveCost} 點</span>
+          ) : (
+            <span className={styles.freeBadge}>免費</span>
+          )}
+          {currentCredits !== null && effectiveCost > 0 && (
             <span className={styles.balanceText}>剩餘 {currentCredits} 點</span>
           )}
         </div>
@@ -123,6 +127,8 @@ export default function UnlockConfirmModal({
                 <span className={styles.spinner} />
                 解鎖中...
               </>
+            ) : effectiveCost === 0 ? (
+              "免費解鎖完整報告"
             ) : (
               "解鎖完整報告"
             )}

@@ -117,6 +117,7 @@ export default function ReadingPage() {
   const isCareer = readingType === "career";
   const isAnnual = readingType === "annual";
   const isLove = readingType === "love";
+  const isPaywallType = isCareer || isAnnual || isLove || isLifetime;
   const isFullPageLayout = isLifetime || isCareer || isAnnual || isLove;
 
   // Auth — wait for Clerk to resolve before deciding initial step
@@ -634,8 +635,8 @@ export default function ReadingPage() {
     }
 
     // Direct engine: show mock AI sections with paywall overlay
-    // For career/annual/love: don't set mock AI — paywall CTA handles the unlock flow
-    if (!isCareer && !isAnnual && !isLove) {
+    // For paywall types (career/annual/love/lifetime): don't set mock AI — paywall CTA handles the unlock flow
+    if (!isPaywallType) {
       const mockAI = isZwds
         ? generateMockZwdsReading(readingType as ReadingTypeSlug)
         : generateMockReading(readingType as ReadingTypeSlug);
@@ -684,6 +685,7 @@ export default function ReadingPage() {
       setError(undefined);
       setShowSubscribeCTA(false);
       setShowCreditsModal(false);
+      setShowUnlockConfirm(false);
       setCurrentReadingId(null);
       setIsChartOnly(false);
       setIsPaidReading(false);
@@ -734,26 +736,38 @@ export default function ReadingPage() {
           // Career Phase 1: Chart only (no reading_type sent, no pre-analysis)
           // Shows chart + paywall CTA, regardless of auth status
           await callDirectEngine(data, lunarDate);
-          // Store form values for refresh resilience
-          try { sessionStorage.setItem('career_form', JSON.stringify(data)); } catch { /* quota */ }
+          // Store form values + lunar date for refresh resilience
+          try {
+            sessionStorage.setItem('career_form', JSON.stringify(data));
+            if (lunarDate) sessionStorage.setItem('career_lunar_date', lunarDate);
+          } catch { /* quota */ }
           setShowPaywall(true);
           setIsLoading(false);
         } else if (isAnnual) {
           // Annual Phase 1: Chart only → paywall CTA, same flow as career
           await callDirectEngine(data, lunarDate);
-          try { sessionStorage.setItem('annual_form', JSON.stringify(data)); } catch { /* quota */ }
+          try {
+            sessionStorage.setItem('annual_form', JSON.stringify(data));
+            if (lunarDate) sessionStorage.setItem('annual_lunar_date', lunarDate);
+          } catch { /* quota */ }
           setShowPaywall(true);
           setIsLoading(false);
         } else if (isLove) {
           // Love Phase 1: Chart only → paywall CTA, same flow as career/annual
           await callDirectEngine(data, lunarDate);
-          try { sessionStorage.setItem('love_form', JSON.stringify(data)); } catch { /* quota */ }
+          try {
+            sessionStorage.setItem('love_form', JSON.stringify(data));
+            if (lunarDate) sessionStorage.setItem('love_lunar_date', lunarDate);
+          } catch { /* quota */ }
           setShowPaywall(true);
           setIsLoading(false);
         } else if (isLifetime) {
           // Lifetime Phase 1: Chart only → paywall CTA (same as career/annual/love)
           await callDirectEngine(data, lunarDate);
-          try { sessionStorage.setItem('lifetime_form', JSON.stringify(data)); } catch { /* quota */ }
+          try {
+            sessionStorage.setItem('lifetime_form', JSON.stringify(data));
+            if (lunarDate) sessionStorage.setItem('lifetime_lunar_date', lunarDate);
+          } catch { /* quota */ }
           setShowPaywall(true);
           setIsLoading(false);
         } else if (isSignedIn && birthProfileId) {
@@ -834,6 +848,7 @@ export default function ReadingPage() {
       setLastProfileId(null);
       setShowSubscribeCTA(false);
       setShowCreditsModal(false);
+      setShowUnlockConfirm(false);
       setIsChartOnly(false);
       setIsPaidReading(false);
       setIsAiLoading(false);
@@ -948,9 +963,11 @@ export default function ReadingPage() {
     }
 
     // Re-submit Phase 1 (free chart)
+    let lunarDate: string | undefined;
+    try { lunarDate = sessionStorage.getItem('career_lunar_date') ?? undefined; } catch { /* ignore */ }
     setFormValues(savedForm);
     setIsLoading(true);
-    callDirectEngine(savedForm).then(() => {
+    callDirectEngine(savedForm, lunarDate).then(() => {
       setStep('result');
       setIsLoading(false);
 
@@ -989,9 +1006,11 @@ export default function ReadingPage() {
     }
 
     // Re-submit Phase 1 (free chart)
+    let lunarDate: string | undefined;
+    try { lunarDate = sessionStorage.getItem('annual_lunar_date') ?? undefined; } catch { /* ignore */ }
     setFormValues(savedForm);
     setIsLoading(true);
-    callDirectEngine(savedForm).then(() => {
+    callDirectEngine(savedForm, lunarDate).then(() => {
       setStep('result');
       setIsLoading(false);
 
@@ -1026,9 +1045,11 @@ export default function ReadingPage() {
       return;
     }
 
+    let lunarDate: string | undefined;
+    try { lunarDate = sessionStorage.getItem('love_lunar_date') ?? undefined; } catch { /* ignore */ }
     setFormValues(savedForm);
     setIsLoading(true);
-    callDirectEngine(savedForm).then(() => {
+    callDirectEngine(savedForm, lunarDate).then(() => {
       setStep('result');
       setIsLoading(false);
 
@@ -1065,9 +1086,11 @@ export default function ReadingPage() {
       return;
     }
 
+    let lunarDate: string | undefined;
+    try { lunarDate = sessionStorage.getItem('lifetime_lunar_date') ?? undefined; } catch { /* ignore */ }
     setFormValues(savedForm);
     setIsLoading(true);
-    callDirectEngine(savedForm).then(() => {
+    callDirectEngine(savedForm, lunarDate).then(() => {
       setStep('result');
       setIsLoading(false);
 
@@ -1426,6 +1449,7 @@ export default function ReadingPage() {
                 isCareer ? "事業詳批完整報告" :
                 isAnnual ? "流年運勢完整報告" :
                 isLove ? "愛情姻緣完整報告" :
+                isLifetime ? "八字終身運完整報告" :
                 "完整命理報告"
               }
               icon={
@@ -1440,7 +1464,7 @@ export default function ReadingPage() {
                 isLove ? ["戀愛性格分析", "先天桃花運", "本命姻緣分析", "婚配建議", "對象性格與相貌", "桃花運好的年份", "桃花劫的年份", "感情易變年份"] :
                 ["性格特質", "日主分析", "五行平衡", "十神分布", "大運流年", "神煞解析", "六親關係", "人生指引", "財運分析"]
               }
-              creditCost={meta?.creditCost ?? 3}
+              effectiveCost={(hasFreeReading || isSubscriber) ? 0 : (meta?.creditCost ?? 3)}
               currentCredits={userCredits}
             />
 

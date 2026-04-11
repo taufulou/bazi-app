@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import styles from "./CareerPaywallCTA.module.css";
+import styles from "./PaywallCTA.module.css";
 
 interface AnnualPaywallCTAProps {
   creditCost: number;
