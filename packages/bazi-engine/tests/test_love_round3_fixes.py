@@ -136,8 +136,9 @@ class TestP2KongWangStemBypass:
         )
         y2033 = [c for c in result if c['year'] == 2033]
         assert len(y2033) == 1
-        # Should be secondary_a (stem detection), NOT secondary_a2 (hidden stem)
-        assert y2033[0]['tier'] == 'secondary_a'
+        # Stem signal (正財+DM五合) detected despite 空亡 — score ≥ 4 → primary tier
+        assert y2033[0]['tier'] == 'primary'
+        assert y2033[0].get('is_kong_wang') is True
 
     def test_non_kong_wang_years_unaffected(self):
         """Non-空亡 years should work exactly as before."""

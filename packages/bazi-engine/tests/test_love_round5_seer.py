@@ -90,7 +90,9 @@ class TestDayBranchTianxiAnnotation:
         )
         year_2035 = next((c for c in candidates if c['year'] == 2035), None)
         assert year_2035 is not None, "2035 should be a romance candidate"
-        assert year_2035['signal'] == '桃花(天喜)'
+        # Accumulative scoring: both signals appear in the compound signal string
+        assert '桃花' in year_2035['signal']
+        assert '天喜' in year_2035['signal']
 
     def test_taohua_only_no_tianxi_day_branch(self):
         """When only TAOHUA matches (no day-branch 天喜 overlap) → normal signal."""

@@ -591,22 +591,25 @@ class TestRomanceYears:
         assert len(det['romance_years']) <= 5
         assert len(det['romance_years']) >= 1
 
-    def test_roger8_romance_years_sorted(self, roger8_enhanced):
-        """Years should be in chronological order."""
+    def test_roger8_romance_years_score_ordered(self, roger8_enhanced):
+        """Years should be ordered by score (highest first), not chronologically.
+        After accumulative scoring fix: 2032(壬子=偏財+沖+紅鸞) and 2033(癸丑=正財+DM五合)
+        should rank highest due to compound signals."""
         years = roger8_enhanced['deterministic']['romance_years']
-        assert years == sorted(years)
+        assert len(years) >= 2
+        # Top 2 should be 2032 and 2033 (compound signals from Seer validation)
+        assert 2032 in years[:3], f"2032 should be in top 3, got {years}"
+        assert 2033 in years[:3], f"2033 should be in top 3, got {years}"
 
-    def test_roger8_romance_years_not_in_kong_wang(self, roger8_chart, roger8_enhanced):
-        """No romance year should have its annual branch in 空亡 (子/丑 for Roger8)."""
+    def test_roger8_romance_kong_wang_with_stem_signals(self, roger8_chart, roger8_enhanced):
+        """空亡 years CAN appear when they have strong stem signals (配偶星天干).
+        Classical: 空亡 weakens branch energy, NOT stem energy.
+        2032(壬子) and 2033(癸丑) have 空亡 branches but spouse star in stems."""
         kong_wang = roger8_chart['kongWang']  # ['子', '丑']
         romance_years = roger8_enhanced['deterministic']['romance_years']
-        annual_stars = roger8_chart['annualStars']
-
-        for year in romance_years:
-            for star in annual_stars:
-                if star['year'] == year:
-                    assert star['branch'] not in kong_wang, \
-                        f"Romance year {year} has branch {star['branch']} in 空亡"
+        # 2032(子) and 2033(丑) are 空亡 but should appear due to stem signals
+        assert 2032 in romance_years, "2032 should appear despite 子 being 空亡 (壬=偏財 in stem)"
+        assert 2033 in romance_years, "2033 should appear despite 丑 being 空亡 (癸=正財 in stem)"
 
     def test_male_spouse_star_element(self):
         """Male: spouse star = 正財 = element DM overcomes."""
@@ -690,18 +693,20 @@ class TestRomanceYears:
         )
         assert 2039 in years, "己 year (天干合甲) should be detected as romance year"
 
-        # Test: 己酉 year with 酉 in 空亡 → should be filtered out
+        # Test: 己酉 year with 酉 in 空亡 — stem signal (DM五合) still works
+        # Classical: 空亡 weakens branch energy, NOT stem energy.
+        # 己 is 甲's 五合 partner → dm_wuhe (stem signal) → NOT reduced by 空亡
         years2 = compute_romance_years(
             gender='female',
             day_master_stem='甲',
             day_branch='戌',
             year_branch='寅',
             annual_stars=[
-                {'year': 2029, 'stem': '己', 'branch': '酉'},  # 酉 in 空亡
+                {'year': 2029, 'stem': '己', 'branch': '酉'},  # 酉 in 空亡, but 己=DM五合
             ],
             kong_wang=['申', '酉'],
         )
-        assert 2029 not in years2, "己酉 year should be filtered by 空亡"
+        assert 2029 in years2, "己酉: stem signal (DM五合) should NOT be filtered by 空亡"
 
     def test_tiangan_he_all_five_pairs(self):
         """All 5 天干五合 pairs should work: 甲己, 乙庚, 丙辛, 丁壬, 戊癸."""
@@ -923,10 +928,10 @@ class TestSanxingRomanceFilter:
         )
         y2033 = [e for e in candidates if e['year'] == 2033]
         assert len(y2033) == 1, f"2033 should be detected (not blocked by 三刑), got {y2033}"
-        # Without 三刑 blocking, detected as secondary_a2 (hidden stem spouse star)
-        assert y2033[0]['tier'] == 'secondary_a2'
+        # Without 三刑 blocking, detected via accumulative scoring (spouse star related signals)
+        assert y2033[0]['tier'] in ('primary', 'secondary', 'supplementary')
         # No 三刑沖突 annotation since 丑戌 is NOT 三刑 without 未
-        assert '三刑沖突' not in y2033[0]['signal']
+        assert '三刑' not in y2033[0].get('signal', '')
 
     def test_sanxing_blocks_when_all_three_present(self):
         """三刑 with all 3 branches present + no spouse star → year blocked.
@@ -965,10 +970,9 @@ class TestSanxingRomanceFilter:
         )
         y2033 = [e for e in enriched if e['year'] == 2033]
         assert len(y2033) == 1
-        assert y2033[0]['tier'] == 'secondary_a2'
-        assert '配偶星藏干' in y2033[0]['signal']
-        # No 三刑沖突 annotation since 丑戌 is NOT 三刑 without 未
-        assert '三刑沖突' not in y2033[0]['signal']
+        # Accumulative scoring: tier is score-based, signal contains spouse star info
+        assert y2033[0]['tier'] in ('primary', 'secondary', 'supplementary')
+        assert '配偶星' in y2033[0]['signal'] or '正財' in y2033[0]['signal'] or '正官' in y2033[0]['signal']
 
     def test_no_sanxing_no_annotation(self):
         """Year WITHOUT 三刑 should NOT have (三刑沖突) in signal."""
@@ -1012,10 +1016,7 @@ class TestRomanceYearsEnriched:
             assert 'year' in item
             assert 'tier' in item
             assert 'signal' in item
-            assert item['tier'] in (
-                'primary', 'secondary_a', 'secondary_a2', 'secondary_b',
-                'secondary_c', 'secondary_d', 'supplementary',
-            )
+            assert item['tier'] in ('primary', 'secondary', 'supplementary')
 
     def test_existing_romance_years_unchanged(self, roger8_chart):
         """compute_romance_years() still returns List[int] — backward compatibility."""

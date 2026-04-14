@@ -335,25 +335,30 @@ class TestParentHealthYearsStemDrop:
 class TestRomanceHiddenStemSpouseStar:
     """R2: 配偶星藏干 tier for hidden stem spouse star."""
 
-    def test_laopo10_has_secondary_a2_tier(self, laopo10_chart):
-        """Laopo10 should have at least one year with secondary_a2 tier."""
+    def test_laopo10_has_hidden_spouse_star_signal(self, laopo10_chart):
+        """Laopo10 should have at least one year with 配偶星藏干 in signal."""
         enhanced = laopo10_chart.get('lifetimeEnhancedInsights')
         if enhanced is None:
             pytest.skip('No lifetime enhanced insights')
         dayun_context = enhanced['deterministic'].get('romance_years_dayun_context', [])
-        a2_years = [r for r in dayun_context if r.get('tier') == 'secondary_a2']
-        assert len(a2_years) >= 1, f'No secondary_a2 years found in: {dayun_context}'
-        # All secondary_a2 entries should have 配偶星藏干 in signal
-        for r in a2_years:
-            assert '配偶星藏干' in r['signal']
+        hs_years = [r for r in dayun_context if '配偶星藏干' in r.get('signal', '')]
+        assert len(hs_years) >= 1, f'No hidden spouse star years found in: {dayun_context}'
 
     def test_laopo10_2025_hidden_stem(self, laopo10_chart):
         """2025 (乙巳) should have 配偶星藏干 — 巳 hidden stems [丙,庚,戊], 庚=金=正官."""
         enhanced = laopo10_chart.get('lifetimeEnhancedInsights')
         if enhanced is None:
             pytest.skip('No lifetime enhanced insights')
-        dayun_context = enhanced['deterministic'].get('romance_years_dayun_context', [])
-        year_2025 = [r for r in dayun_context if r.get('year') == 2025]
+        # 2025 is a past year (current_year=2026). With accumulative scoring,
+        # it may be outranked by higher-scoring future years in the top 5.
+        # Verify the romance mechanism exists for the year via raw candidate check.
+        from app.lifetime_enhanced import _compute_romance_candidates
+        pillars = laopo10_chart['fourPillars']
+        candidates = _compute_romance_candidates(
+            'female', pillars['day']['stem'], pillars['day']['branch'],
+            pillars['year']['branch'], laopo10_chart['annualStars'],
+            laopo10_chart['kongWang'], birth_year=1987, max_candidates=30,
+        )
+        year_2025 = [r for r in candidates if r.get('year') == 2025]
         assert len(year_2025) == 1
-        assert year_2025[0]['tier'] == 'secondary_a2'
         assert '配偶星藏干' in year_2025[0]['signal']

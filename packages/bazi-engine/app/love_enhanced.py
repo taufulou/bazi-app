@@ -1236,7 +1236,7 @@ def compute_romance_good_years(
             tier = item.get('tier', '')
             if tier == 'primary':
                 item['starType'] = '合婚年'
-            elif tier in ('secondary_b', 'secondary_c'):
+            elif tier == 'secondary':
                 item['starType'] = '桃花合年'
             else:
                 item['starType'] = '_drop'
@@ -1265,25 +1265,24 @@ def compute_romance_good_years(
                 # 正財/正官 = true spouse star → genuine marriage year
                 item['starType'] = '正緣年'
             else:
-                # Tier-aware labeling for non-star romance candidates
+                # Signal-aware labeling for non-star romance candidates
+                # With accumulative scoring, check signal field for specific mechanisms
+                # Signal-aware labeling for non-star romance candidates
+                signal = item.get('signal', '')
                 tier = item.get('tier', '')
-                if tier == 'primary':
-                    # 六合日支 = strongest non-star romance signal
+                if '六合日支' in signal:
                     item['starType'] = '合婚年'
-                elif tier in ('secondary_b', 'secondary_c'):
-                    # 三合日支 or 天干合日主 = recognized romance mechanisms
+                elif '沖開夫妻宮' in signal:
+                    item['starType'] = '合婚年'
+                elif tier == 'primary':
+                    # Primary tier (score>=4) with strong signals
+                    item['starType'] = '合婚年'
+                elif tier == 'secondary' and ('天干合日主' in signal):
                     item['starType'] = '桃花合年'
-                elif tier == 'secondary_a2':
-                    # 配偶星藏干 = too weak for standalone highlight
-                    item['starType'] = '_drop'
                 elif tier == 'supplementary':
-                    # Generic 桃花/天喜 = already covered by star injection
+                    # Weak signals (三合, 桃花, 天喜, 配偶星藏干) = drop
                     item['starType'] = '_drop'
                 else:
-                    # Safety fallback — should not reach here with current tiers
-                    # TODO: if a new tier is added upstream in _compute_romance_candidates, update this block
-                    import warnings
-                    warnings.warn(f"Unknown romance candidate tier: {tier}", stacklevel=2)
                     item['starType'] = '桃花合年'
 
     # Post-process: annotate day-branch 天喜 overlap (regardless of starType)

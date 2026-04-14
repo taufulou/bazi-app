@@ -34,6 +34,7 @@ from .constants import (
     LUSHEN,
     STEM_COMBINATIONS,
     STEM_ELEMENT,
+    STEM_YINYANG,
     TAOHUA,
     TIANXI,
     TIANYI_GUIREN,
@@ -962,6 +963,27 @@ def compute_partner_zodiacs(day_branch: str, year_branch: str = '') -> Dict[str,
 # Romance Years Computation
 # ============================================================
 
+# Stem-based signals are NOT reduced by 空亡 (空亡 only weakens branch energy)
+STEM_BASED_SIGNALS = {'spouse_star_zhengcai', 'spouse_star_piancai', 'dm_wuhe'}
+
+# Accumulative romance signal scores (additive, not exclusive)
+# Classical priority: 配偶星天干透出 > 六合日支 > 紅鸞 > 桃花/天喜
+ROMANCE_SIGNAL_SCORES = {
+    'spouse_star_zhengcai': 5,            # 正財/正官天干透出 (exact spouse star)
+    'spouse_star_piancai': 4,             # 偏財/偏官天干透出 (general spouse star)
+    'liuhe_day_branch': 3,                # 六合日支 (spouse palace combined)
+    'chong_day_branch_with_spouse': 3,    # 日支六沖 + spouse star同年
+    'hongluan': 2,                        # 紅鸞星動
+    'dm_wuhe': 2,                         # DM五合 (天干合日主)
+    'chong_day_branch_alone': 2,          # 日支六沖 alone (沖開夫妻宮)
+    'sanhe_day_branch': 1,                # 三合日支
+    'taohua': 1,                          # 桃花
+    'tianxi': 1,                          # 天喜
+    'spouse_hidden_benqi': 1,             # 配偶星藏干(本氣)
+    'spouse_hidden_other': 0.5,           # 配偶星藏干(中/餘氣)
+}
+
+
 def _compute_romance_candidates(
     gender: str,
     day_master_stem: str,
@@ -974,183 +996,185 @@ def _compute_romance_candidates(
     max_candidates: int = 5,
 ) -> List[Dict[str, Any]]:
     """
-    Internal: Gender-aware romance year computation with tier/signal metadata.
-    Returns list of dicts: [{'year': 2030, 'tier': 'primary', 'signal': '六合日支'}, ...]
-    Up to `max_candidates` years (default 5), priority: primary → secondary A/B/C/D → supplementary.
+    Internal: Gender-aware romance year computation using accumulative signal scoring.
 
-    When current_year is provided, filters to: 1 most recent past year + next 10 years.
-    This ensures users see actionable future romance years plus one recent validation year.
+    Replaces the old exclusive-tier system with additive scoring:
+    each year accumulates points from ALL matching signals (not just one tier).
+    Years are ranked by total score, with compound signals ranking higher.
 
-    Methods:
-      - Primary: 六合日支 (annual branch 六合 with day branch)
-      - Secondary A: 配偶星天干 (annual stem = spouse star element)
-      - Secondary B: 三合日支 (annual branch 三合 with day branch)
-      - Secondary C: 天干合日主 (annual stem 五合 with DM stem) — "有人來合你"
-      - Secondary D: 紅鸞星動 (紅鸞 = 正緣桃花, stronger marriage signal than generic 桃花)
-      - Supplementary: 桃花/天喜 (general attraction, not marriage-specific)
+    Signal scoring (additive):
+      - 正財天干透出: 5 pts (strongest marriage signal)
+      - 偏財天干透出: 4 pts
+      - 六合日支: 3 pts
+      - 六沖日支+配偶星: 3 pts (沖開夫妻宮 + spouse star)
+      - 紅鸞星動: 2 pts
+      - DM五合: 2 pts
+      - 六沖日支 alone: 2 pts
+      - 三合/桃花/天喜: 1 pt each
+      - 配偶星藏干: 0.5-1 pt
+
+    空亡 handling: branch signals ×0.7, stem signals NOT reduced.
+    三刑 (2-branch groups like 子卯): blocks branch-level signals only.
+
+    Returns list of dicts with 'tier' key preserved for backward compat:
+      score >= 4 → tier='primary', score >= 2 → tier='secondary', else 'supplementary'
     """
     dm_element = STEM_ELEMENT[day_master_stem]
+    dm_yinyang = STEM_YINYANG[day_master_stem]
 
-    # 1. Spouse star element
+    # Spouse star element
     if gender == 'male':
-        spouse_star_element = ELEMENT_OVERCOMES[dm_element]  # 正財
+        spouse_star_element = ELEMENT_OVERCOMES[dm_element]  # 財星
     else:
-        spouse_star_element = ELEMENT_OVERCOME_BY[dm_element]  # 正官
+        spouse_star_element = ELEMENT_OVERCOME_BY[dm_element]  # 官殺
 
-    # 2. 桃花 branch
+    # Lookup tables
     taohua_branch = TAOHUA.get(day_branch, '')
-
-    # 3. 紅鸞/天喜 branches (primary: year branch lookup)
     hongluan_branch = HONGLUAN.get(year_branch, '')
     tianxi_branch = TIANXI.get(year_branch, '')
-    # Secondary: day-branch 天喜 (modern variant, for annotation only)
     tianxi_day_branch = TIANXI.get(day_branch, '')
-
-    # 4. 六合 partner of day branch
     liuhe_partner = HARMONY_LOOKUP.get(day_branch, '')
-
-    # 5. 天干五合 partner of DM stem (e.g., 甲↔己, 乙↔庚)
+    clash_partner = CLASH_LOOKUP.get(day_branch, '')
     dm_combine_partner = STEM_COMBINATIONS.get(day_master_stem, '')
 
-    # Tier label + signal label mappings
-    TIER_INFO = {
-        'primary': '六合日支',
-        'secondary_a': '配偶星天干',
-        'secondary_b': '三合日支',
-        'secondary_c': '天干合日主',
-        'secondary_d': '紅鸞星動',
-        'supplementary_taohua': '桃花',
-        'supplementary_tianxi': '天喜',
-    }
-
-    # Collect candidates with priority
-    primary = []
-    secondary_a = []
-    secondary_a2 = []  # hidden stem spouse star (R2)
-    secondary_b = []
-    secondary_c = []
-    secondary_d = []
-    supplementary = []
+    all_candidates: List[Dict[str, Any]] = []
 
     for star in annual_stars:
         year = star['year']
         annual_branch = star['branch']
         annual_stem = star['stem']
 
-        # Filter: skip years before birth
         if birth_year and year < birth_year:
             continue
 
-        # 三刑 flag — computed before 空亡 check so it can guard the bypass
-        # Classical: 「刑中帶官星，感情來路不正或有爭端中得配偶」(《三命通會》)
+        # 三刑 check (2-branch groups like 子卯 always active; 3-branch groups need natal context)
         has_sanxing = _check_sanxing_pair(annual_branch, day_branch)
 
-        # Filter: 空亡
-        # Even if branch is 空亡, stem carrying spouse star is still valid
-        # Classical: 空亡 weakens branch energy, not stem energy
-        if annual_branch in kong_wang:
-            if not has_sanxing:
-                if STEM_ELEMENT.get(annual_stem) == spouse_star_element:
-                    if not any(p['year'] == year for p in primary) \
-                            and not any(p['year'] == year for p in secondary_a):
-                        secondary_a.append({
-                            'year': year,
-                            'tier': 'secondary_a',
-                            'signal': TIER_INFO['secondary_a'],
-                            'is_kong_wang': True,
-                        })
-            continue  # Skip all branch-level checks (六合, 三合, 藏干)
+        # Accumulate ALL matching signals for this year
+        signals: List[tuple] = []  # (signal_name, score)
+        is_kong_wang = annual_branch in kong_wang
 
-        # Primary: 六合 with day branch (skip if 三刑)
-        # Note: 六合 and 三刑 branch pairs never overlap, but guard kept for safety
+        # --- STEM-based signals (NOT affected by 空亡 or 三刑) ---
+
+        # Spouse star 天干透出
+        stem_el = STEM_ELEMENT.get(annual_stem, '')
+        if stem_el == spouse_star_element:
+            stem_yy = STEM_YINYANG.get(annual_stem, '')
+            # 正 vs 偏: same polarity = 偏, different = 正
+            if stem_yy != dm_yinyang:
+                signals.append(('spouse_star_zhengcai', ROMANCE_SIGNAL_SCORES['spouse_star_zhengcai']))
+            else:
+                signals.append(('spouse_star_piancai', ROMANCE_SIGNAL_SCORES['spouse_star_piancai']))
+
+        # DM五合 (天干合日主)
+        if annual_stem == dm_combine_partner:
+            signals.append(('dm_wuhe', ROMANCE_SIGNAL_SCORES['dm_wuhe']))
+
+        # --- BRANCH-based signals (affected by 空亡 ×0.7, blocked by 三刑) ---
+
         if not has_sanxing:
+            # 六合日支
             if annual_branch == liuhe_partner:
-                primary.append({'year': year, 'tier': 'primary', 'signal': TIER_INFO['primary']})
+                signals.append(('liuhe_day_branch', ROMANCE_SIGNAL_SCORES['liuhe_day_branch']))
 
-        # Secondary A: stem carries spouse star element (skip if 三刑)
-        if not has_sanxing:
-            if STEM_ELEMENT.get(annual_stem) == spouse_star_element:
-                if not any(p['year'] == year for p in primary):
-                    secondary_a.append({'year': year, 'tier': 'secondary_a', 'signal': TIER_INFO['secondary_a']})
+            # 六沖日支 (沖開夫妻宮 — positive trigger for unmarried)
+            if annual_branch == clash_partner:
+                # Stronger when combined with spouse star in same year
+                if stem_el == spouse_star_element:
+                    signals.append(('chong_day_branch_with_spouse', ROMANCE_SIGNAL_SCORES['chong_day_branch_with_spouse']))
+                else:
+                    signals.append(('chong_day_branch_alone', ROMANCE_SIGNAL_SCORES['chong_day_branch_alone']))
 
-        # Secondary A2: annual branch hidden stems contain spouse star element
-        # ALLOW with annotation when 三刑 — hidden stem is a weak signal that needs every detection path
-        branch_hidden = HIDDEN_STEMS.get(annual_branch, [])
-        for hs in branch_hidden:
-            if STEM_ELEMENT.get(hs) == spouse_star_element:
-                if not any(p['year'] == year for p in primary) \
-                        and not any(p['year'] == year for p in secondary_a):
-                    is_benqi = (hs == branch_hidden[0])
-                    signal = '配偶星藏干(本氣)' if is_benqi else '配偶星藏干'
-                    if has_sanxing:
-                        signal += '(三刑沖突)'
-                    secondary_a2.append({'year': year, 'tier': 'secondary_a2', 'signal': signal})
-                break
+            # 紅鸞星動
+            if annual_branch == hongluan_branch:
+                signals.append(('hongluan', ROMANCE_SIGNAL_SCORES['hongluan']))
 
-        # Secondary B: 三合 with day branch (skip if 三刑)
-        if not has_sanxing:
+            # 三合日支
             for harmony in TRIPLE_HARMONIES:
                 if day_branch in harmony['branches'] and annual_branch in harmony['branches']:
-                    if annual_branch != day_branch and not any(p['year'] == year for p in primary):
-                        secondary_b.append({'year': year, 'tier': 'secondary_b', 'signal': TIER_INFO['secondary_b']})
+                    if annual_branch != day_branch:
+                        signals.append(('sanhe_day_branch', ROMANCE_SIGNAL_SCORES['sanhe_day_branch']))
                     break
 
-        # Secondary C: 天干合日主 — annual stem forms 五合 with DM (skip if 三刑)
-        if not has_sanxing:
-            if annual_stem == dm_combine_partner:
-                if not any(p['year'] == year for p in primary) \
-                        and not any(p['year'] == year for p in secondary_a) \
-                        and not any(p['year'] == year for p in secondary_b):
-                    secondary_c.append({'year': year, 'tier': 'secondary_c', 'signal': TIER_INFO['secondary_c']})
+            # 桃花
+            if annual_branch == taohua_branch:
+                signals.append(('taohua', ROMANCE_SIGNAL_SCORES['taohua']))
 
-        # Secondary D: 紅鸞星動 — stronger marriage signal than generic 桃花 (skip if 三刑)
-        if not has_sanxing:
-            if annual_branch == hongluan_branch:
-                if not any(p['year'] == year for p in primary) \
-                        and not any(p['year'] == year for p in secondary_a) \
-                        and not any(p['year'] == year for p in secondary_b) \
-                        and not any(p['year'] == year for p in secondary_c):
-                    secondary_d.append({'year': year, 'tier': 'secondary_d', 'signal': TIER_INFO['secondary_d']})
+            # 天喜
+            if annual_branch in (tianxi_branch, tianxi_day_branch):
+                signals.append(('tianxi', ROMANCE_SIGNAL_SCORES['tianxi']))
 
-        # Supplementary: 桃花/天喜 (紅鸞 excluded — already in secondary_d) (skip if 三刑)
-        if not has_sanxing:
-            if annual_branch in (taohua_branch, tianxi_branch):
-                if not any(p['year'] == year for p in primary) \
-                        and not any(p['year'] == year for p in secondary_a) \
-                        and not any(p['year'] == year for p in secondary_b) \
-                        and not any(p['year'] == year for p in secondary_c) \
-                        and not any(p['year'] == year for p in secondary_d):
-                    signal = TIER_INFO['supplementary_taohua'] if annual_branch == taohua_branch else TIER_INFO['supplementary_tianxi']
-                    # Annotate when day-branch 天喜 coincides with 桃花
-                    if annual_branch == taohua_branch and annual_branch == tianxi_day_branch:
-                        signal = '桃花(天喜)'
-                    supplementary.append({'year': year, 'tier': 'supplementary', 'signal': signal})
+            # 配偶星藏干
+            branch_hidden = HIDDEN_STEMS.get(annual_branch, [])
+            for i, hs in enumerate(branch_hidden):
+                if STEM_ELEMENT.get(hs) == spouse_star_element:
+                    if i == 0:
+                        signals.append(('spouse_hidden_benqi', ROMANCE_SIGNAL_SCORES['spouse_hidden_benqi']))
+                    else:
+                        signals.append(('spouse_hidden_other', ROMANCE_SIGNAL_SCORES['spouse_hidden_other']))
+                    break
 
-    # Combine with priority, deduplicate, sort chronologically
-    # When current_year is set, collect more candidates before filtering by time window
-    collect_cap = 20 if current_year else 5
-    all_candidates: List[Dict[str, Any]] = []
-    seen: Set[int] = set()
-    for candidate_list in [primary, secondary_a, secondary_a2, secondary_b, secondary_c, secondary_d, supplementary]:
-        for c in candidate_list:
-            if c['year'] not in seen:
-                all_candidates.append(c)
-                seen.add(c['year'])
-            if len(all_candidates) >= collect_cap:
-                break
-        if len(all_candidates) >= collect_cap:
-            break
+        # Compute score with 空亡 reduction for branch signals
+        if not signals:
+            continue
 
-    all_candidates.sort(key=lambda x: x['year'])
+        if is_kong_wang:
+            stem_score = sum(s for name, s in signals if name in STEM_BASED_SIGNALS)
+            branch_score = sum(s for name, s in signals if name not in STEM_BASED_SIGNALS)
+            total_score = stem_score + branch_score * 0.7
+        else:
+            total_score = sum(s for _, s in signals)
+
+        if total_score <= 0:
+            continue
+
+        # Map score to tier for backward compatibility with tag_romance_years_with_dayun()
+        if total_score >= 4:
+            tier = 'primary'
+        elif total_score >= 2:
+            tier = 'secondary'
+        else:
+            tier = 'supplementary'
+
+        # Build signal description (human-readable)
+        signal_names = [name for name, _ in signals]
+        signal_labels = {
+            'spouse_star_zhengcai': '正財天干' if gender == 'male' else '正官天干',
+            'spouse_star_piancai': '偏財天干' if gender == 'male' else '偏官天干',
+            'liuhe_day_branch': '六合日支',
+            'chong_day_branch_with_spouse': '沖開夫妻宮+配偶星',
+            'chong_day_branch_alone': '沖開夫妻宮',
+            'hongluan': '紅鸞星動',
+            'dm_wuhe': '天干合日主',
+            'sanhe_day_branch': '三合日支',
+            'taohua': '桃花',
+            'tianxi': '天喜',
+            'spouse_hidden_benqi': '配偶星藏干(本氣)',
+            'spouse_hidden_other': '配偶星藏干',
+        }
+        signal_desc = '+'.join(signal_labels.get(n, n) for n in signal_names)
+
+        candidate: Dict[str, Any] = {
+            'year': year,
+            'tier': tier,
+            'signal': signal_desc,
+            'score': total_score,
+        }
+        if is_kong_wang:
+            candidate['is_kong_wang'] = True
+
+        all_candidates.append(candidate)
+
+    # Sort by score descending (highest score = best romance year)
+    all_candidates.sort(key=lambda x: (-x['score'], x['year']))
 
     # Time-window filter: 1 most recent past year + next 10 years
     if current_year:
         future_end = current_year + 10
         future = [c for c in all_candidates if current_year <= c['year'] <= future_end]
         past = [c for c in all_candidates if c['year'] < current_year]
-        # Keep only the 1 most recent past year (highest year < current_year)
-        recent_past = [past[-1]] if past else []
-        all_candidates = recent_past + future
+        recent_past = sorted([p for p in past], key=lambda x: -x['year'])[:1]
+        all_candidates = sorted(recent_past + future, key=lambda x: (-x['score'], x['year']))
 
     return all_candidates[:max_candidates]
 
