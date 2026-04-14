@@ -27,6 +27,7 @@ from .constants import (
     SEASON_STRENGTH,
     STEM_ELEMENT,
     STEM_YINYANG,
+    TEN_GOD_CATEGORIES,
 )
 
 
@@ -429,39 +430,92 @@ def analyze_day_master_strength(
     }
 
 
+def _detect_dominant_imbalance(
+    ten_god_dist: Dict[str, int],
+    strength: str,
+) -> str:
+    """
+    Detect which ten god category is causing the Day Master's imbalance.
+
+    Classical 病藥取用法 (illness-medicine method, 《滴天髓》):
+    Identify the "illness" (病) — the dominant category causing imbalance —
+    then select the "medicine" (藥) that best addresses it.
+
+    For weak DM: check draining/attacking categories {食傷, 財星, 官殺}.
+    For strong DM: check supporting categories {比劫, 印星}.
+
+    Returns one of: '食傷旺'|'財旺'|'官殺旺'|'印旺'|'比劫旺'|'general'
+    """
+    # Sum counts per category
+    category_counts: Dict[str, int] = {}
+    for cat_name, god_names in TEN_GOD_CATEGORIES.items():
+        category_counts[cat_name] = sum(ten_god_dist.get(g, 0) for g in god_names)
+
+    if strength in ('strong', 'very_strong'):
+        # For strong DM: what's causing the excess strength?
+        candidates = {'比劫': category_counts.get('比劫', 0),
+                      '印星': category_counts.get('印星', 0)}
+    else:
+        # For weak/neutral DM: what's draining/attacking the DM?
+        candidates = {'食傷': category_counts.get('食傷', 0),
+                      '財星': category_counts.get('財星', 0),
+                      '官殺': category_counts.get('官殺', 0)}
+
+    if not candidates:
+        return 'general'
+
+    # Find highest count
+    sorted_cats = sorted(candidates.items(), key=lambda x: -x[1])
+    top_cat, top_count = sorted_cats[0]
+    second_count = sorted_cats[1][1] if len(sorted_cats) > 1 else 0
+
+    # Need strict greater than second to declare dominance
+    if top_count > second_count and top_count > 0:
+        label_map = {'食傷': '食傷旺', '財星': '財旺', '官殺': '官殺旺',
+                     '印星': '印旺', '比劫': '比劫旺'}
+        return label_map.get(top_cat, 'general')
+
+    return 'general'
+
+
 def determine_favorable_gods(
     day_master_stem: str,
     strength: str,
+    ten_god_distribution: Optional[Dict[str, int]] = None,
 ) -> Dict[str, str]:
     """
-    Determine the Five Favorable Gods (喜用神) based on Day Master strength.
+    Determine the Five Favorable Gods (喜用神) based on Day Master strength
+    and the dominant imbalance cause (病藥取用法).
 
-    When Day Master is STRONG (偏強), it needs draining/controlling:
-    - 喜神 (Favorable): Element I produce (食傷 — drains me)
-    - 用神 (Useful): Element I overcome (財 — I spend energy overcoming)
-    - 閒神 (Idle): Element that overcomes me (官殺)
-    - 忌神 (Taboo): Same element (比劫 — makes me stronger)
-    - 仇神 (Enemy): Element that produces me (印 — feeds me)
+    Context-dependent assignment (classical 子平 methodology):
 
-    When Day Master is WEAK (偏弱), it needs support:
-    - 喜神 (Favorable): Element that produces me (印 — feeds me)
-    - 用神 (Useful): Same element (比劫 — supports me)
-    - 閒神 (Idle): Element I produce (食傷)
-    - 忌神 (Taboo): Element that overcomes me (官殺 — attacks me)
-    - 仇神 (Enemy): Element I overcome (財 — wastes my energy)
+    WEAK DM scenarios:
+    - 食傷旺: 用神=印(produces_me), 喜神=比劫(dm_element)
+      → 印 does double duty: strengthens DM AND restrains 食傷 (印克食傷)
+    - 官殺旺: 用神=印(produces_me), 喜神=比劫(dm_element)
+      → 印 is 通關: converts 官殺→印→DM (transforms attack into support)
+    - 財旺 / general: 用神=比劫(dm_element), 喜神=印(produces_me)
+      → 比劫 directly 克財; 印 cannot restrain 財
 
-    When NEUTRAL: Similar to weak but less pronounced.
+    STRONG DM scenarios:
+    - 比劫旺: 用神=官殺(overcomes_me), 喜神=財(i_overcome)
+      → 官殺 directly 克比劫
+    - 官殺旺 (DM still strong): 用神=食傷(i_produce), 喜神=財(i_overcome)
+      → 食神制殺
+    - 印旺 / general: 用神=財(i_overcome), 喜神=食傷(i_produce)
+      → 財 directly 克印
 
-    Note: Two competing conventions exist for 忌神/仇神 mapping.
-    System A (this engine): 忌神 = element that 克 用神. Standard 旺衰派 (Taiwan/HK mainstream).
-      Example: 甲木(weak) → 用神=木, 忌神=金(克木), 仇神=土(生金).
-    System B (some apps):   忌神 = most detrimental element overall (cascading harm).
-      Example: 甲木(weak) → 忌神=土(drains 印水+strongest element), 仇神=金(克木).
-    Both are valid; we follow System A per 旺衰派 tradition.
+    Note: 從格 charts have separate 用神 logic handled downstream
+    in generate_pre_analysis() which overrides effectiveFavorableGods.
+
+    System A convention: 忌神 = element that 克 用神.
+    Standard 旺衰派 (Taiwan/HK mainstream).
 
     Args:
         day_master_stem: Day Master's Heavenly Stem
-        strength: Strength classification ('very_weak', 'weak', 'neutral', 'strong', 'very_strong')
+        strength: Strength classification ('very_weak'|'weak'|'neutral'|'strong'|'very_strong')
+        ten_god_distribution: Optional ten god count dict for context-dependent assignment.
+            When None, uses the simple default rule (backward compatible).
 
     Returns:
         Dictionary with god names → elements
@@ -472,21 +526,55 @@ def determine_favorable_gods(
     i_overcome = ELEMENT_OVERCOMES[dm_element]
     overcomes_me = ELEMENT_OVERCOME_BY[dm_element]
 
+    # Detect dominant imbalance for context-dependent assignment
+    dominant = 'general'
+    if ten_god_distribution:
+        dominant = _detect_dominant_imbalance(ten_god_distribution, strength)
+
     if strength in ('strong', 'very_strong'):
-        # Day Master is strong → needs draining/controlling
-        return {
-            'favorableGod': i_produce,      # 喜神: 食傷 (drain)
-            'usefulGod': i_overcome,         # 用神: 財 (drain)
-            'idleGod': overcomes_me,         # 閒神: 官殺
-            'tabooGod': dm_element,          # 忌神: 比劫 (too strong)
-            'enemyGod': produces_me,         # 仇神: 印 (feeds me)
-        }
+        if dominant == '比劫旺':
+            # 比劫 causing strength → 用神=官殺 to directly克比劫
+            useful = overcomes_me
+            favorable = i_overcome
+        elif dominant == '官殺旺':
+            # DM strong despite 官殺 → 用神=食傷 (食神制殺)
+            useful = i_produce
+            favorable = i_overcome
+        else:
+            # Default strong (印旺 or general): 用神=財, 喜神=食傷
+            useful = i_overcome
+            favorable = i_produce
+        # Strong DM: 忌神=比劫(same), 仇神=印(produces me)
+        taboo = dm_element
+        enemy = produces_me
+        idle_candidates = [produces_me, dm_element, i_produce, i_overcome, overcomes_me]
     else:
-        # Day Master is weak or neutral → needs support
-        return {
-            'favorableGod': produces_me,     # 喜神: 印 (support)
-            'usefulGod': dm_element,         # 用神: 比劫 (same element support)
-            'idleGod': i_produce,            # 閒神: 食傷
-            'tabooGod': overcomes_me,        # 忌神: 官殺 (attacks me)
-            'enemyGod': i_overcome,          # 仇神: 財 (wastes energy)
-        }
+        if dominant in ('食傷旺', '官殺旺'):
+            # 食傷 or 官殺 draining/attacking → 用神=印 (double duty)
+            # 印 strengthens DM AND restrains 食傷/mediates 官殺
+            useful = produces_me
+            favorable = dm_element
+        else:
+            # Default weak (財旺 or general): 用神=比劫, 喜神=印
+            useful = dm_element
+            favorable = produces_me
+        # Weak DM: 忌神=what克用神, 仇神=what produces 忌神
+        taboo = overcomes_me
+        enemy = i_overcome
+        idle_candidates = [produces_me, dm_element, i_produce, i_overcome, overcomes_me]
+
+    # 閒神 = whichever element is not assigned to any other role
+    assigned = {useful, favorable, taboo, enemy}
+    idle = i_produce  # default fallback
+    for el in [i_produce, overcomes_me, produces_me, dm_element, i_overcome]:
+        if el not in assigned:
+            idle = el
+            break
+
+    return {
+        'favorableGod': favorable,
+        'usefulGod': useful,
+        'idleGod': idle,
+        'tabooGod': taboo,
+        'enemyGod': enemy,
+    }

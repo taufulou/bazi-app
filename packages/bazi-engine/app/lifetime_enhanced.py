@@ -125,7 +125,16 @@ ELEMENT_INDUSTRIES_DETAILED: Dict[str, List[Dict[str, Any]]] = {
 # ============================================================
 
 ELEMENT_DIRECTION: Dict[str, str] = {
-    '木': '東方', '火': '南方', '土': '中央', '金': '西方', '水': '北方',
+    '木': '東方', '火': '南方', '土': '南方', '金': '西方', '水': '北方',
+}
+# Classical rule: 四柱喜土，有利方位是南方 (火生土，南方火氣助旺用神).
+# 後天八卦: 土 also maps to 西南(坤) and 東北(艮).
+ELEMENT_DIRECTION_DETAIL: Dict[str, Dict] = {
+    '土': {
+        'primary': '南方',
+        'secondary': ['西南', '東北'],
+        'reasoning': '火生土，南方火氣助旺用神；西南(坤)、東北(艮)為後天八卦土位',
+    },
 }
 
 BRANCH_ZODIAC: Dict[str, str] = {
@@ -345,18 +354,61 @@ STRENGTH_PERSONALITY_MODIFIER: Dict[str, str] = {
 # Helper: 三刑 check for a single branch pair
 # ============================================================
 
-def _check_sanxing_pair(branch_a: str, branch_b: str) -> bool:
-    """Check if two branches form a 三刑 partial (半刑) or full 2-branch punishment."""
+def _check_sanxing_pair(
+    branch_a: str,
+    branch_b: str,
+    natal_branches: Optional[List[str]] = None,
+) -> bool:
+    """Check if two branches form a valid 三刑 punishment.
+
+    For 3-branch groups (寅巳申 無恩之刑, 丑戌未 持勢之刑):
+    requires all 3 branches present (branch_a + branch_b + one in natal_branches).
+    Classical rule: e.g. 巳申 alone is 六合, NOT 半刑.
+    「寅巳申三刑，若單獨出現巳申則論合」
+
+    For 2-branch groups (子卯 無禮之刑): always active.
+
+    Args:
+        branch_a: First branch (e.g., luck period branch)
+        branch_b: Second branch (e.g., natal branch)
+        natal_branches: All natal branches for checking if third branch exists.
+            When None, 3-branch groups return False (safe default).
+    """
     pair = frozenset({branch_a, branch_b})
     for punishment in THREE_PUNISHMENTS:
-        # Check partials (for 3-branch punishments)
-        for partial in punishment.get('partials', []):
-            if pair == partial:
-                return True
-        # Check full set (for 2-branch punishments like 子卯 無禮之刑)
-        if pair == punishment['branches'] and len(punishment['branches']) == 2:
+        if len(punishment['branches']) == 3:
+            # 3-branch 三刑: check if this pair is part of it
+            if pair.issubset(punishment['branches']):
+                # Need the third branch present somewhere
+                third = punishment['branches'] - pair
+                if natal_branches is not None:
+                    # Check if third branch exists in natal chart
+                    if third.issubset(set(natal_branches)):
+                        return True
+                # Without natal context or third branch missing → not 三刑
+                return False
+        elif pair == punishment['branches'] and len(punishment['branches']) == 2:
+            # 2-branch 三刑 (子卯 無禮之刑): always active
             return True
     return False
+
+
+def _classify_god_role(element: str, effective_gods: Dict[str, str]) -> str:
+    """Classify an element's god role.
+
+    Returns 'useful'|'favorable'|'taboo'|'enemy'|'idle'.
+    """
+    role_map = {
+        'usefulGod': 'useful',
+        'favorableGod': 'favorable',
+        'tabooGod': 'taboo',
+        'enemyGod': 'enemy',
+        'idleGod': 'idle',
+    }
+    for key, label in role_map.items():
+        if effective_gods.get(key) == element:
+            return label
+    return 'idle'
 
 
 # ============================================================
@@ -1740,6 +1792,31 @@ def enrich_luck_periods(
         elif branch_main_el == enemy_god:
             score -= 10
 
+        # Branch hidden stems: 中氣 and 餘氣 (smaller bonus/penalty)
+        for i, hs in enumerate(branch_hidden[1:], start=1):
+            hs_el = STEM_ELEMENT.get(hs, '')
+            weight = 3 if i == 1 else 1  # 中氣=3, 餘氣=1
+            if hs_el == useful_god:
+                score += weight
+            elif hs_el == favorable_god:
+                score += weight * 0.5
+            elif hs_el == taboo_god:
+                score -= weight
+            elif hs_el == enemy_god:
+                score -= weight * 0.5
+
+        # Stem-branch internal conversion (忌生喜轉化 / 喜洩忌仇)
+        stem_role = _classify_god_role(stem_el, effective_gods)
+        branch_role = _classify_god_role(branch_main_el, effective_gods)
+        if stem_role in ('taboo', 'enemy') and branch_role in ('useful', 'favorable'):
+            if ELEMENT_PRODUCES.get(stem_el) == branch_main_el:
+                score += 5
+                # 忌神 exhausted into 喜/用: conversion effect
+        if stem_role in ('useful', 'favorable') and branch_role in ('taboo', 'enemy'):
+            if ELEMENT_PRODUCES.get(stem_el) == branch_main_el:
+                score -= 5
+                # 喜/用 energy drained into 忌/仇
+
         # Interaction bonuses/penalties from natalInteractions
         interactions_summary = []
         natal_ints = lp.get('natalInteractions', [])
@@ -1783,17 +1860,46 @@ def enrich_luck_periods(
                     score -= 5
                     interactions_summary.append(f'伏吟{pillar}柱（-5）')
 
-        # 三刑 check: LP branch against all 4 natal branches
+        # 三刑 and 自刑 check: LP branch against all 4 natal branches
+        natal_branch_list = [pillars[p]['branch'] for p in ['year', 'month', 'day', 'hour']]
         for pname in ['year', 'month', 'day', 'hour']:
             natal_branch = pillars[pname]['branch']
-            if _check_sanxing_pair(branch, natal_branch):
+            if branch == natal_branch:
+                # 自刑: context-dependent on element's god role
+                # 「自刑之吉凶視其在命局五行中的喜忌而定」
+                if branch_main_el == useful_god or branch_main_el == favorable_god:
+                    score += 3
+                    interactions_summary.append(f'自刑{pname}支（喜用加強，+3）')
+                elif branch_main_el == taboo_god or branch_main_el == enemy_god:
+                    score -= 8
+                    interactions_summary.append(f'自刑{pname}支（忌仇加強，-8）')
+            elif _check_sanxing_pair(branch, natal_branch, natal_branch_list):
                 score -= 5
                 interactions_summary.append(f'三刑{pname}支（-5）')
+
+        # 半合 check: LP branch + natal branch forming half of a 三合
+        banhe_checked = False
+        for pname in ['year', 'month', 'day', 'hour']:
+            if banhe_checked:
+                break
+            natal_br = pillars[pname]['branch']
+            if natal_br == branch:
+                continue  # Same branch handled by 自刑/伏吟
+            for harmony in TRIPLE_HARMONIES:
+                if branch in harmony['branches'] and natal_br in harmony['branches']:
+                    banhe_el = harmony['element']
+                    if banhe_el == useful_god or banhe_el == favorable_god:
+                        score += 5
+                        interactions_summary.append(f'半合{banhe_el}局（+5）')
+                    elif banhe_el == taboo_god or banhe_el == enemy_god:
+                        score -= 5
+                        interactions_summary.append(f'半合{banhe_el}局（-5）')
+                    banhe_checked = True
+                    break
 
         # 歲運並臨 (check within natal interactions if present)
         for interaction in natal_ints:
             if interaction.get('type') == '歲運並臨':
-                # Check if the matching element is favorable or not
                 sybl_el = STEM_ELEMENT.get(interaction.get('stem', ''), '')
                 if sybl_el == useful_god or sybl_el == favorable_god:
                     score += 10

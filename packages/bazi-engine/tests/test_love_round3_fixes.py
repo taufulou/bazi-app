@@ -170,15 +170,15 @@ class TestP2KongWangStemBypass:
         for y in non_kw_years:
             assert y in no_kw_years, f"Non-空亡 year {y} should be present without kong_wang filter"
 
-    def test_kong_wang_plus_sanxing_blocked(self):
-        """空亡+三刑 year should NOT get the stem bypass (三刑 guard)."""
-        # 三刑 pair: 丑+戌 (恃勢之刑). For day_branch=戌, kong_wang=['丑']
-        # 2033 癸丑: 丑+戌 = 三刑 → blocked
+    def test_kong_wang_plus_two_of_three_not_blocked(self):
+        """空亡 + 2-of-3 三刑 pair (without third branch) → NOT blocked.
+        丑+戌 is only 2 of 丑戌未. Without 未 in natal, no 三刑 applies.
+        空亡 stem bypass should still work (癸=水=spouse star for 戊 male)."""
         stars = make_annual_stars(2026, 12)
         result = compute_romance_years_enriched(
             gender='male',
             day_master_stem='戊',
-            day_branch='戌',  # 丑+戌 = 三刑
+            day_branch='戌',
             year_branch='卯',
             annual_stars=stars,
             kong_wang=['丑'],
@@ -187,8 +187,9 @@ class TestP2KongWangStemBypass:
             max_candidates=20,
         )
         y2033 = [c for c in result if c['year'] == 2033]
-        # 2033 (丑) should not appear because 丑+戌=三刑 guard blocks bypass
-        assert len(y2033) == 0, "三刑 guard should block 空亡 stem bypass"
+        # 丑+戌 without 未 → NOT 三刑 → stem bypass works → 2033 detected
+        assert len(y2033) == 1, "2033 should be detected (丑+戌 is NOT 三刑 without 未)"
+        assert y2033[0].get('is_kong_wang') is True
 
     def test_startype_kong_wang_annotation(self):
         """P2 post-processing: starType should include '(空亡年)' for 空亡 bypass items."""

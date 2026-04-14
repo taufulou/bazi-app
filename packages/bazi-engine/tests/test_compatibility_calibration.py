@@ -222,12 +222,14 @@ class TestBusinessScoresUnchanged:
 # ============================================================
 
 class TestRogerLaopoRomanceCalibratedScore:
-    """Roger+Laopo romance score should land near 36 with all calibrations active."""
+    """Roger+Laopo romance score with all calibrations active.
+    Score shifted from ~36 to ~44 after 病藥取用法 fix (用神 火→土 swap for 食傷旺+身弱).
+    """
 
-    def test_adjusted_score_approximately_36(self):
+    def test_adjusted_score_approximately_44(self):
         result = _enhanced(ROGER_DATA, LAOPO_DATA, 'romance')
         score = result['adjustedScore']
-        assert 30 <= score <= 42, f"Expected ~36, got {score}"
+        assert 38 <= score <= 50, f"Expected ~44, got {score}"
 
     def test_romance_vs_business_different_scores(self):
         romance = _enhanced(ROGER_DATA, LAOPO_DATA, 'romance')

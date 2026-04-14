@@ -132,18 +132,20 @@ def calculate_bazi(
     # Step 6.5: V2 strength — authoritative classification (得令/得地/得勢 3-factor model)
     strength_v2_result = calculate_strength_score_v2(pillars, day_master_stem)
 
-    # Step 7: Determine favorable gods (uses V2 classification)
+    # Step 7: Get Ten God distribution (moved before favorable gods for 病藥取用法)
+    ten_god_distribution = get_ten_god_distribution(pillars, day_master_stem)
+
+    # Step 7.5: Determine favorable gods (uses V2 classification + ten god distribution)
+    # Context-dependent 病藥取用法: assignment depends on what's causing the imbalance
     favorable_gods = determine_favorable_gods(
         day_master_stem,
         strength_v2_result['classification'],
+        ten_god_distribution,
     )
 
     # Step 8: Determine pattern (格局)
     prominent_god = get_prominent_ten_god(pillars, day_master_stem)
     pattern = PATTERN_TYPES.get(prominent_god, f'{prominent_god}格')
-
-    # Step 9: Get Ten God distribution
-    ten_god_distribution = get_ten_god_distribution(pillars, day_master_stem)
 
     # Step 10: Calculate Luck Periods
     birth_dt = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M")
