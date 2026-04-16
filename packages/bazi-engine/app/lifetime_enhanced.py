@@ -1767,6 +1767,21 @@ def _classify_element_favorability(element: str, effective_gods: Dict) -> str:
 # Luck Period Enrichment
 # ============================================================
 
+# 蓋頭 (stem overcomes branch main element): 12 combinations
+# Classical: 天干克地支, the stem "caps" the branch, suppressing branch power
+GAITOU_SET = frozenset({
+    '甲辰', '甲戌', '乙丑', '乙未', '丙申', '丁酉',
+    '戊子', '己亥', '庚寅', '辛卯', '壬午', '癸巳',
+})
+
+# 截腳 (branch main element overcomes stem): 12 combinations
+# Classical: 地支克天干, the branch "cuts off" the stem's foundation
+JIEJIAO_SET = frozenset({
+    '甲申', '乙酉', '丙子', '丁亥', '戊寅', '己卯',
+    '庚午', '辛巳', '壬辰', '壬戌', '癸丑', '癸未',
+})
+
+
 def enrich_luck_periods(
     luck_periods: List[Dict],
     pillars: Dict,
@@ -1796,25 +1811,25 @@ def enrich_luck_periods(
         branch_hidden = HIDDEN_STEMS.get(branch, [])
         branch_main_el = STEM_ELEMENT[branch_hidden[0]] if branch_hidden else ''
 
-        # Stem scoring
+        # Stem scoring (35% weight — 大運重地支, 《渊海子平》《玉井奧訣》)
         if stem_el == useful_god:
-            score += 15
+            score += 12
         elif stem_el == favorable_god:
-            score += 10
+            score += 8
         elif stem_el == taboo_god:
-            score -= 15
+            score -= 12
         elif stem_el == enemy_god:
-            score -= 10
+            score -= 8
 
-        # Branch 本氣 scoring
+        # Branch 本氣 scoring (65% weight)
         if branch_main_el == useful_god:
-            score += 20
+            score += 22
         elif branch_main_el == favorable_god:
-            score += 10
+            score += 12
         elif branch_main_el == taboo_god:
-            score -= 20
+            score -= 22
         elif branch_main_el == enemy_god:
-            score -= 10
+            score -= 12
 
         # Branch hidden stems: 中氣 and 餘氣 (smaller bonus/penalty)
         for i, hs in enumerate(branch_hidden[1:], start=1):
@@ -1932,6 +1947,56 @@ def enrich_luck_periods(
                     score -= 10
                     interactions_summary.append('歲運並臨（忌仇，-10）')
 
+        # 天干合: LP stem combining with natal stems
+        # 「忌神被合=大吉，用神被合=大凶」(算準網)
+        # Note: DM合 (day stem = DM) is a known simplification — classically
+        # someone合DM is generally positive, but generic +/-6/8 scoring is used for V1.
+        combo_partner = STEM_COMBINATIONS.get(stem)
+        if combo_partner:
+            for pname in ['day', 'month', 'year', 'hour']:
+                natal_s = pillars[pname]['stem']
+                if natal_s == combo_partner:
+                    natal_s_el = STEM_ELEMENT[natal_s]
+                    natal_s_role = _classify_god_role(natal_s_el, effective_gods)
+
+                    if stem_role in ('taboo', 'enemy'):
+                        # LP 忌/仇 stem neutralized — positive
+                        if natal_s_role in ('taboo', 'enemy', 'idle'):
+                            score += 8
+                            interactions_summary.append(f'{stem}合{natal_s}（忌神被合，+8）')
+                        else:
+                            score += 6  # Mixed: 忌 neutralized but natal 喜/用 tied up
+                            interactions_summary.append(f'{stem}合{natal_s}（忌合喜用，+6）')
+                    elif stem_role in ('useful', 'favorable'):
+                        # LP 用/喜 stem tied up — negative
+                        if natal_s_role in ('useful', 'favorable', 'idle'):
+                            score -= 8
+                            interactions_summary.append(f'{stem}合{natal_s}（用神被合，-8）')
+                        else:
+                            score -= 6  # Mixed: 用 tied up but natal 忌 also bound
+                            interactions_summary.append(f'{stem}合{natal_s}（用合忌仇，-6）')
+                    break  # Only count one 合 partner
+
+        # 蓋頭截腳 moderation: when stem/branch roles conflict AND elements克each other
+        # Classical: 「逢吉不見其吉，逢凶不見其凶」(《滴天髓》)
+        # Pull deviation 60% back toward neutral (base 50)
+        pillar_key = stem + branch
+        is_gaitou = pillar_key in GAITOU_SET
+        is_jiejiao = pillar_key in JIEJIAO_SET
+
+        if is_gaitou or is_jiejiao:
+            stem_positive = stem_role in ('useful', 'favorable')
+            stem_negative = stem_role in ('taboo', 'enemy')
+            branch_positive = branch_role in ('useful', 'favorable')
+            branch_negative = branch_role in ('taboo', 'enemy')
+
+            if (stem_positive and branch_negative) or (stem_negative and branch_positive):
+                deviation = score - 50
+                score = 50 + deviation * 0.4
+                interactions_summary.append(
+                    f'{"蓋頭" if is_gaitou else "截腳"}（干支相克且喜忌矛盾，吉凶減緩）'
+                )
+
         # Cap [0, 100]
         score = max(0, min(100, score))
 
@@ -1966,6 +2031,7 @@ def enrich_luck_periods(
             'periodOrdinal': idx + 1,
             'stemElement': stem_el,
             'branchElement': branch_main_el,
+            'gaitouJiejiao': '蓋頭' if is_gaitou else ('截腳' if is_jiejiao else ''),
         })
 
     return enriched
