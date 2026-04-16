@@ -32,6 +32,7 @@ from .branch_relationships import (
     SIX_HARMONIES,
     THREE_PUNISHMENTS,
     TRIPLE_HARMONIES,
+    check_sanxing_with_pool,
 )
 from .constants import (
     BRANCH_ELEMENT,
@@ -204,7 +205,8 @@ def _assess_element_auspiciousness(element: str, day_master_stem: str,
     return mapping.get(role, '平')
 
 
-def _check_branch_interaction(branch_a: str, branch_b: str) -> List[str]:
+def _check_branch_interaction(branch_a: str, branch_b: str,
+                              all_branches: Optional[Set[str]] = None) -> List[str]:
     """Check all interactions between two branches, return list of type names."""
     interactions = []
     pair = frozenset({branch_a, branch_b})
@@ -221,15 +223,10 @@ def _check_branch_interaction(branch_a: str, branch_b: str) -> List[str]:
     if pair in SIX_HARMONIES:
         interactions.append('六合')
 
-    # 三刑 (pairwise check)
-    for punishment in THREE_PUNISHMENTS:
-        for partial in punishment.get('partials', []):
-            if pair == partial:
-                interactions.append(f"三刑({punishment['name']})")
-                break
-        # Also check full set with just 2 branches (子卯 case)
-        if not punishment.get('partials') and pair == punishment['branches']:
-            interactions.append(f"三刑({punishment['name']})")
+    # 三刑 — shared helper requiring all 3 branches for 3-branch groups
+    sanxing_result = check_sanxing_with_pool(branch_a, branch_b, all_branches)
+    if sanxing_result:
+        interactions.append(f"三刑({sanxing_result['name']})")
 
     # 六害
     if pair in SIX_HARMS:
@@ -268,17 +265,14 @@ def compute_tai_sui_analysis(
         if CLASH_LOOKUP.get(natal_branch) == flow_year_branch:
             types.append('沖太歲')
 
-        # 刑太歲 (pairwise)
-        pair = frozenset({natal_branch, flow_year_branch})
-        for punishment in THREE_PUNISHMENTS:
-            for partial in punishment.get('partials', []):
-                if pair == partial:
-                    types.append('刑太歲')
-                    break
-            if not punishment.get('partials') and pair == punishment['branches']:
-                types.append('刑太歲')
+        # 刑太歲 — shared helper requiring all 3 branches for 3-branch groups
+        all_br = {pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')} | {flow_year_branch}
+        sanxing_hit = check_sanxing_with_pool(natal_branch, flow_year_branch, all_br)
+        if sanxing_hit:
+            types.append('刑太歲')
 
         # 害太歲
+        pair = frozenset({natal_branch, flow_year_branch})
         if pair in SIX_HARMS:
             types.append('害太歲')
 

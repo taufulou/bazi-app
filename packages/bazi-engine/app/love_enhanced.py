@@ -60,6 +60,7 @@ from .branch_relationships import (
     SIX_HARMS,
     THREE_PUNISHMENTS,
     TRIPLE_HARMONIES,
+    check_sanxing_with_pool,
 )
 from .ten_gods import derive_ten_god
 from .lifetime_enhanced import (
@@ -1421,26 +1422,15 @@ def compute_romance_danger_years(
                 'description': f'{annual_branch}沖{day_branch}（沖配偶宮）',
             })
 
-        # 三刑
-        pair = frozenset({annual_branch, day_branch})
-        for punishment in THREE_PUNISHMENTS:
-            matched = False
-            # Check 3-branch partials (e.g., 寅巳申, 丑戌未)
-            for partial in punishment.get('partials', []):
-                if pair == partial:
-                    matched = True
-                    break
-            # Check 2-branch punishment (e.g., 子卯 無禮之刑)
-            if not matched and len(punishment['branches']) == 2:
-                if pair == frozenset(punishment['branches']):
-                    matched = True
-            if matched:
-                triggers.append({
-                    'type': '三刑',
-                    'severity': 80,
-                    'description': f'{annual_branch}{day_branch}刑（{punishment["name"]}）',
-                })
-                break
+        # 三刑 — shared helper requiring all 3 branches for 3-branch groups
+        all_br = {pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')} | {annual_branch}
+        sanxing_hit = check_sanxing_with_pool(annual_branch, day_branch, all_br)
+        if sanxing_hit:
+            triggers.append({
+                'type': '三刑',
+                'severity': 80,
+                'description': f'{annual_branch}{day_branch}刑（{sanxing_hit["name"]}）',
+            })
 
         # 自刑 (only 辰午酉亥 — classical four self-punishment branches)
         if annual_branch == day_branch and day_branch in SELF_PUNISHMENT_BRANCHES:
@@ -1522,6 +1512,7 @@ def compute_marriage_change_years(
     annual_stars: List[Dict],
     kong_wang: List[str],
     current_year: int,
+    natal_branches: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Compute years where the marriage palace faces negative disruption.
@@ -1553,27 +1544,16 @@ def compute_marriage_change_years(
                 'description': f'{annual_branch}{day_branch}沖（沖配偶宮，感情動盪）',
             })
 
-        # 三刑 with day branch
-        pair = frozenset({annual_branch, day_branch})
-        for punishment in THREE_PUNISHMENTS:
-            matched = False
-            # Check 3-branch partials (e.g., 寅巳申, 丑戌未)
-            for partial in punishment.get('partials', []):
-                if pair == partial:
-                    matched = True
-                    break
-            # Check 2-branch punishment (e.g., 子卯 無禮之刑)
-            if not matched and len(punishment['branches']) == 2:
-                if pair == frozenset(punishment['branches']):
-                    matched = True
-            if matched:
-                changes.append({
-                    'type': '三刑',
-                    'nature': 'negative',
-                    'significance': CHANGE_TYPE_SIGNIFICANCE['三刑'],
-                    'description': f'{annual_branch}{day_branch}刑（{punishment["name"]}，婚姻宮受刑）',
-                })
-                break
+        # 三刑 with day branch — shared helper requiring all 3 branches
+        all_br = set(natal_branches or []) | {annual_branch, day_branch}
+        sanxing_hit = check_sanxing_with_pool(annual_branch, day_branch, all_br)
+        if sanxing_hit:
+            changes.append({
+                'type': '三刑',
+                'nature': 'negative',
+                'significance': CHANGE_TYPE_SIGNIFICANCE['三刑'],
+                'description': f'{annual_branch}{day_branch}刑（{sanxing_hit["name"]}，婚姻宮受刑）',
+            })
 
         # 自刑 (only 辰午酉亥 — classical four self-punishment branches)
         if annual_branch == day_branch and day_branch in SELF_PUNISHMENT_BRANCHES:
@@ -1845,13 +1825,11 @@ def compute_annual_love_forecast(
         # 六害
         if HARM_LOOKUP.get(annual_branch) == day_branch:
             interactions.append('六害配偶宮')
-        # 三刑
-        pair = frozenset({annual_branch, day_branch})
-        for punishment in THREE_PUNISHMENTS:
-            for partial in punishment.get('partials', []):
-                if pair == partial:
-                    interactions.append(f'三刑（{punishment["name"]}）')
-                    break
+        # 三刑 — shared helper requiring all 3 branches for 3-branch groups
+        all_br = {pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')} | {annual_branch}
+        sanxing_hit = check_sanxing_with_pool(annual_branch, day_branch, all_br)
+        if sanxing_hit:
+            interactions.append(f'三刑（{sanxing_hit["name"]}）')
 
         # Romance stars
         hongluan_branch = HONGLUAN.get(year_branch_from_stars(annual_stars, year), '')

@@ -1654,10 +1654,25 @@ class TestFullPipeline:
 # ============================================================
 
 class TestTimingAnalysisSanxing:
-    def test_sanxing_detected_in_branch_natal_interactions(self):
-        """三刑 partial should appear in analyze_branch_natal_interactions."""
+    def test_sanxing_all_three_present(self):
+        """寅巳申 三刑: all 3 present → detected."""
         from app.timing_analysis import analyze_branch_natal_interactions
-        # Natal chart with 寅 in month, check period branch 巳 → 寅巳 半刑
+        # Natal has 寅 in month + 申 in hour. Period branch 巳 → all 3 present.
+        pillars = {
+            'year': {'stem': '甲', 'branch': '子'},
+            'month': {'stem': '丙', 'branch': '寅'},
+            'day': {'stem': '戊', 'branch': '午'},
+            'hour': {'stem': '庚', 'branch': '申'},
+        }
+        interactions = analyze_branch_natal_interactions('巳', pillars, '戊')
+        sanxing = [i for i in interactions if i['type'] == '三刑']
+        assert len(sanxing) >= 1
+        assert '無恩之刑' in sanxing[0]['name']
+
+    def test_sanxing_two_of_three_not_detected(self):
+        """寅巳 without 申 → NOT 三刑 (requires all 3 branches)."""
+        from app.timing_analysis import analyze_branch_natal_interactions
+        # Natal has 寅 in month but NO 申. Period branch 巳 → only 2 of 3.
         pillars = {
             'year': {'stem': '甲', 'branch': '子'},
             'month': {'stem': '丙', 'branch': '寅'},
@@ -1666,9 +1681,21 @@ class TestTimingAnalysisSanxing:
         }
         interactions = analyze_branch_natal_interactions('巳', pillars, '戊')
         sanxing = [i for i in interactions if i['type'] == '三刑']
+        assert len(sanxing) == 0, f"寅巳 without 申 should NOT be 三刑: {sanxing}"
+
+    def test_zi_mao_always_sanxing(self):
+        """子卯 無禮之刑: 2-branch group, always active."""
+        from app.timing_analysis import analyze_branch_natal_interactions
+        pillars = {
+            'year': {'stem': '甲', 'branch': '卯'},
+            'month': {'stem': '丙', 'branch': '寅'},
+            'day': {'stem': '戊', 'branch': '午'},
+            'hour': {'stem': '庚', 'branch': '申'},
+        }
+        interactions = analyze_branch_natal_interactions('子', pillars, '戊')
+        sanxing = [i for i in interactions if i['type'] == '三刑']
         assert len(sanxing) >= 1
-        assert sanxing[0]['pillar'] == 'month'
-        assert '無恩之刑' in sanxing[0]['name']
+        assert '無禮之刑' in sanxing[0]['name']
 
 
 # ============================================================

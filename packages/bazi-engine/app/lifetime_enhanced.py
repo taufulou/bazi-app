@@ -49,6 +49,7 @@ from .branch_relationships import (
     SIX_HARMONIES,
     THREE_PUNISHMENTS,
     TRIPLE_HARMONIES,
+    check_sanxing_with_pool,
 )
 from .stem_combinations import STEM_CLASH_LOOKUP
 from .life_stages import get_life_stage
@@ -362,36 +363,14 @@ def _check_sanxing_pair(
 ) -> bool:
     """Check if two branches form a valid 三刑 punishment.
 
-    For 3-branch groups (寅巳申 無恩之刑, 丑戌未 持勢之刑):
-    requires all 3 branches present (branch_a + branch_b + one in natal_branches).
-    Classical rule: e.g. 巳申 alone is 六合, NOT 半刑.
-    「寅巳申三刑，若單獨出現巳申則論合」
+    Delegates to shared check_sanxing_with_pool() in branch_relationships.py.
 
-    For 2-branch groups (子卯 無禮之刑): always active.
-
-    Args:
-        branch_a: First branch (e.g., luck period branch)
-        branch_b: Second branch (e.g., natal branch)
-        natal_branches: All natal branches for checking if third branch exists.
-            When None, 3-branch groups return False (safe default).
+    For 3-branch groups (寅巳申, 丑戌未): requires all 3 present.
+    For 2-branch groups (子卯): always active.
+    Classical: 「巳申單獨出現則論合，寅巳申俱全才論三刑」
     """
-    pair = frozenset({branch_a, branch_b})
-    for punishment in THREE_PUNISHMENTS:
-        if len(punishment['branches']) == 3:
-            # 3-branch 三刑: check if this pair is part of it
-            if pair.issubset(punishment['branches']):
-                # Need the third branch present somewhere
-                third = punishment['branches'] - pair
-                if natal_branches is not None:
-                    # Check if third branch exists in natal chart
-                    if third.issubset(set(natal_branches)):
-                        return True
-                # Without natal context or third branch missing → not 三刑
-                return False
-        elif pair == punishment['branches'] and len(punishment['branches']) == 2:
-            # 2-branch 三刑 (子卯 無禮之刑): always active
-            return True
-    return False
+    pool = set(natal_branches) | {branch_a, branch_b} if natal_branches else None
+    return check_sanxing_with_pool(branch_a, branch_b, pool) is not None
 
 
 def _classify_god_role(element: str, effective_gods: Dict[str, str]) -> str:
@@ -3850,6 +3829,19 @@ def build_narrative_anchors(
                 love_anchors.append(f'感情結構：身中和配偶星{total_spouse}個，感情運勢均衡，配偶關係相對和諧')
             else:
                 love_anchors.append(f'感情結構：身中和配偶星{total_spouse}個，感情穩定但機緣需要主動把握')
+
+    # Anti-hallucination: prevent AI from relabeling spouse star as 偏財/偏官
+    # The AI tends to see "正財0個, 偏財2個" and writes "配偶星=偏財" — wrong label.
+    if gender == 'male':
+        love_anchors.append(
+            '⚠️ 標籤規則：配偶星=「正財」。即使命局中正財為0個，'
+            '仍須稱配偶星為「正財」。偏財只能稱為「情緣星」，不可替代配偶星標籤'
+        )
+    else:
+        love_anchors.append(
+            '⚠️ 標籤規則：配偶星=「正官」。即使命局中正官為0個，'
+            '仍須稱配偶星為「正官」。偏官只能稱為「情緣星」，不可替代配偶星標籤'
+        )
 
     # NEW: Day branch 空亡 check with god conditioning (Issue #1)
     if day_branch in kong_wang:
