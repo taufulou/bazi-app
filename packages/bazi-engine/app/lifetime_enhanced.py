@@ -51,7 +51,7 @@ from .branch_relationships import (
     TRIPLE_HARMONIES,
     check_sanxing_with_pool,
 )
-from .stem_combinations import STEM_CLASH_LOOKUP
+from .stem_combinations import STEM_CLASH_LOOKUP, STEM_COMBINATION_LOOKUP
 from .life_stages import get_life_stage
 from .shen_sha import get_all_shen_sha
 from .ten_gods import derive_ten_god
@@ -1761,6 +1761,11 @@ JIEJIAO_SET = frozenset({
 })
 
 
+# Tiebreaker priority for best period selection when scores tie
+# Prefer stem=用神 > 喜神 > 閒神 > 仇神 > 忌神
+STEM_ROLE_PRIORITY = {'useful': 5, 'favorable': 4, 'idle': 3, 'enemy': 2, 'taboo': 1}
+
+
 def enrich_luck_periods(
     luck_periods: List[Dict],
     pillars: Dict,
@@ -1954,6 +1959,20 @@ def enrich_luck_periods(
                         else:
                             score -= 6  # Mixed: 用 tied up but natal 忌 also bound
                             interactions_summary.append(f'{stem}合{natal_s}（用合忌仇，-6）')
+                    elif stem_role == 'idle':
+                        # 閒神 combines — score based on the PRODUCED element's god role
+                        # Asymmetric: 閒→用 is net gain (+6); 閒→忌 is marginal loss (-4)
+                        combo_info = STEM_COMBINATION_LOOKUP.get(stem)
+                        if combo_info:
+                            produced_el = combo_info[1]  # (partner, element, name)
+                            produced_role = _classify_god_role(produced_el, effective_gods)
+                            if produced_role in ('useful', 'favorable'):
+                                score += 6
+                                interactions_summary.append(f'{stem}合{natal_s}（閒神合化{produced_el}為喜用，+6）')
+                            elif produced_role in ('taboo', 'enemy'):
+                                score -= 4
+                                interactions_summary.append(f'{stem}合{natal_s}（閒神合化{produced_el}為忌仇，-4）')
+                            # produced_role == 'idle': no score change
                     break  # Only count one 合 partner
 
         # 蓋頭截腳 moderation: when stem/branch roles conflict AND elements克each other
@@ -1966,15 +1985,38 @@ def enrich_luck_periods(
         if is_gaitou or is_jiejiao:
             stem_positive = stem_role in ('useful', 'favorable')
             stem_negative = stem_role in ('taboo', 'enemy')
+            stem_idle = stem_role == 'idle'
             branch_positive = branch_role in ('useful', 'favorable')
             branch_negative = branch_role in ('taboo', 'enemy')
+            branch_idle = branch_role == 'idle'
+            gt_label = '蓋頭' if is_gaitou else '截腳'
 
+            # Case 1: Strong conflict (positive vs negative) → 60% pull-back
             if (stem_positive and branch_negative) or (stem_negative and branch_positive):
                 deviation = score - 50
                 score = 50 + deviation * 0.4
-                interactions_summary.append(
-                    f'{"蓋頭" if is_gaitou else "截腳"}（干支相克且喜忌矛盾，吉凶減緩）'
-                )
+                interactions_summary.append(f'{gt_label}（干支相克且喜忌矛盾，吉凶減緩）')
+            # Case 2: 閒神 克 忌/仇 branch → weaker moderation (40% pull-back)
+            elif stem_idle and branch_negative:
+                deviation = score - 50
+                score = 50 + deviation * 0.6
+                interactions_summary.append(f'{gt_label}（閒神克制忌仇，凶減緩）')
+            # Case 3: 閒神 克 喜/用 branch → weaker moderation
+            elif stem_idle and branch_positive:
+                deviation = score - 50
+                score = 50 + deviation * 0.6
+                interactions_summary.append(f'{gt_label}（閒神克制喜用，吉減緩）')
+            # Case 4: 忌/仇 stem vs 閒 branch → weaker moderation
+            elif stem_negative and branch_idle:
+                deviation = score - 50
+                score = 50 + deviation * 0.6
+                interactions_summary.append(f'{gt_label}（忌仇與閒神相克，影響減緩）')
+            # Case 5: 喜/用 stem vs 閒 branch → weaker moderation
+            elif stem_positive and branch_idle:
+                deviation = score - 50
+                score = 50 + deviation * 0.6
+                interactions_summary.append(f'{gt_label}（喜用與閒神相克，吉減緩）')
+            # Both 閒: no meaningful conflict, no moderation
 
         # Cap [0, 100]
         score = max(0, min(100, score))
@@ -5046,10 +5088,20 @@ def generate_lifetime_enhanced_insights(
         day_branch, year_branch, day_master_stem, gender,
     )
 
-    # Find best period (highest score, at least 2 periods needed)
+    # Find best period (highest score, tiebreaker: stem role priority)
+    # When scores tie, prefer stem=用神 > 喜神 > 閒神 > 仇神 > 忌神
     best_period = None
     if len(luck_periods_enriched) >= 2:
-        best_period = max(luck_periods_enriched, key=lambda p: p['score'])
+        best_period = max(
+            luck_periods_enriched,
+            key=lambda p: (
+                p['score'],
+                STEM_ROLE_PRIORITY.get(
+                    _classify_god_role(STEM_ELEMENT.get(p['stem'], ''), effective_gods),
+                    0
+                ),
+            )
+        )
 
     # Annual Ten God (for Call 2 annual_finance anchor)
     annual_ten_god = ''
