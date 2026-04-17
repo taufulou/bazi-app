@@ -1216,26 +1216,27 @@ export default function ReadingPage() {
         </div>
       )}
 
-      {/* Progress bar (lifetime reveal) */}
+      {/* Floating pill progress indicator */}
       {isLifetime && step === "result" && (isRevealing || isAiLoading) && (
-        <div className={styles.revealProgress}>
-          {isRevealing ? (
-            <>
-              <span className={styles.revealProgressLabel}>📊 命盤排盤 {revealedSections}/6</span>
-              <div className={styles.revealProgressBar}>
-                <div className={styles.revealProgressFill}
-                     style={{ width: `${(revealedSections / 6) * 100}%` }} />
-              </div>
-            </>
-          ) : (isAiLoading && (aiData?.sections?.length ?? 0) > 0) ? (
-            <>
-              <span className={styles.revealProgressLabel}>📝 命理解讀 {aiData?.sections?.length ?? 0}/{V2_ALL_SECTION_KEYS.length}</span>
-              <div className={styles.revealProgressBar}>
-                <div className={styles.revealProgressFill}
-                     style={{ width: `${((aiData?.sections?.length ?? 0) / V2_ALL_SECTION_KEYS.length) * 100}%` }} />
-              </div>
-            </>
-          ) : null}
+        <div className={styles.floatingPill}>
+          <span className={styles.pillDot} />
+          <span className={styles.pillLabel}>
+            {isRevealing ? '排盤中' : '解讀中'}
+          </span>
+          <div className={styles.pillBar}>
+            <div className={styles.pillBarFill}
+                 style={{ width: isRevealing
+                   ? `${(revealedSections / 6) * 100}%`
+                   : `${((aiData?.sections?.length ?? 0) / V2_ALL_SECTION_KEYS.length) * 100}%`
+                 }} />
+            <div className={styles.pillBarShimmer} />
+          </div>
+          <span className={styles.pillCount}>
+            {isRevealing
+              ? `${revealedSections}/6`
+              : `${aiData?.sections?.length ?? 0}/${V2_ALL_SECTION_KEYS.length}`
+            }
+          </span>
         </div>
       )}
 
