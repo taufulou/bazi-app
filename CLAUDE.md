@@ -129,8 +129,8 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 - ✅ Phases 1-11 complete (Foundation → Bazi Engine → AI → Frontend → Admin → ZWDS → Profiles → Wiring → Monetization → Bazi Interpretation Enhancement)
 - Next: Phase 12 (Bazi accuracy: 三合/三會 scoring, 從格+三合, 生化鏈) — see `docs/phase-12-specs.md`
 
-## Total Tests: ~1343
-- Bazi Engine: 765 (764 pass, 1 skip) | NestJS API: 157 | Frontend: 132 | ZWDS: 289
+## Total Tests: ~1549
+- Bazi Engine: 1771 (1770 pass, 1 skip) | NestJS API: 157 | Frontend: 132 | ZWDS: 289
 
 ## Reading Types
 18 total: 6 Bazi + 10 ZWDS + 2 Special. Credits: 1-3 per reading. See `docs/monetization.md` for pricing.
@@ -259,6 +259,8 @@ Clerk cannot be mocked at the API level in Playwright because the SDK validates 
 - `docs/phase-details.md` — Phase 5/10 implementation details, frontend UI components, ZWDS engine
 - `docs/career-reading-research.md` — **事業詳批 research findings, calculation strategy & decisions** (weight systems, 格局-conditional scoring, 大運+流年 matrix, 財庫逢沖開庫, career shensha, classical source validation). Implementation plan: `.claude/plans/radiant-petting-frost.md`
 
+---
+
 ## 事業詳批 Calculation Strategy — Differences from 八字終身運
 
 The career reading (事業詳批) introduced several calculation refinements that differ from the original 八字終身運 (lifetime reading). These are documented here so future sessions can evaluate whether to backport them to 八字終身運.
@@ -302,6 +304,125 @@ These constants in `constants.py` are shared across all reading types. Changes h
 - Career weighted elements: `packages/bazi-engine/app/five_elements.py` → `calculate_weighted_five_elements()`
 - Career weighted ten gods: `packages/bazi-engine/app/ten_gods.py` → `calculate_weighted_ten_gods()`
 - Full implementation plan: `.claude/plans/radiant-petting-frost.md` (R5 section at ~line 3942)
+
+---
+
+## 八字終身運 Calculation Accuracy — Classical Methodology & Fixes
+
+This section documents the 八字終身運 (lifetime reading) calculation accuracy improvements, validated by comparing engine output against the Seer app and classical Bazi sources (子平真詮, 滴天髓, 窮通寶鑑, AI命理量化推演系统). Reference charts: Roger (丁卯/戊申/戊午/庚申 male) and Laopo (丙寅/辛丑/甲戌/壬申 female).
+
+### 1. 喜用神 — Context-Dependent Assignment (病藥取用法)
+
+**File**: `packages/bazi-engine/app/five_elements.py` → `determine_favorable_gods()`
+
+The engine uses 病藥取用法 (illness-medicine method from 《滴天髓》) for context-dependent 用神/喜神 assignment. Instead of a simple binary rule (weak→用神=比劫), the assignment depends on **what ten god category is causing the imbalance**.
+
+**Decision table — Weak DM:**
+| Cause | 用神 | 喜神 | Rationale |
+|-------|------|------|-----------|
+| 食傷旺 | 印星 (produces_me) | 比劫 (dm_element) | 印 strengthens DM AND restrains 食傷 (印克食傷) |
+| 官殺旺 | 印星 (produces_me) | 比劫 (dm_element) | 印 is 通關: converts 官殺→印→DM |
+| 財旺 | 比劫 (dm_element) | 印星 (produces_me) | 比劫 directly 克財; 印 cannot restrain 財 |
+| General | 比劫 (dm_element) | 印星 (produces_me) | Default rule |
+
+**Decision table — Strong DM:**
+| Cause | 用神 | 喜神 | Rationale |
+|-------|------|------|-----------|
+| 比劫旺 | 官殺 (overcomes_me) | 財 (i_overcome) | 官殺 directly 克比劫 |
+| 官殺旺 | 食傷 (i_produce) | 財 (i_overcome) | 食神制殺 |
+| 印旺 | 財 (i_overcome) | 食傷 (i_produce) | 財 directly 克印 |
+| General | 財 (i_overcome) | 食傷 (i_produce) | Default rule |
+
+Detection uses `_detect_dominant_imbalance()` which sums ten gods by category (`TEN_GOD_CATEGORIES` in constants.py) and picks the highest count. 從格 charts are unaffected (overridden downstream in `generate_pre_analysis()`).
+
+### 2. 有利方位 — 土=南方 (Not 中央)
+
+**File**: `packages/bazi-engine/app/lifetime_enhanced.py` → `ELEMENT_DIRECTION`
+
+Classical rule: 「四柱喜土，有利方位是南方」(火生土). The abstract "中央" is impractical advice. 後天八卦 secondary: 西南(坤) + 東北(艮). All other elements use standard mapping (木=東, 火=南, 金=西, 水=北).
+
+### 3. 大運評分 — Scoring Methodology
+
+**File**: `packages/bazi-engine/app/lifetime_enhanced.py` → `enrich_luck_periods()`
+
+Base 50, with stem/branch/interaction scoring. Key design decisions:
+
+**Branch weighting (35/65 ratio)**: Stem ±12, Branch ±22. Classical consensus: 「大運重地支」(渊海子平, 玉井奧訣, 三命通會).
+
+**三刑 validation**: 3-branch groups (寅巳申, 丑戌未) require ALL 3 branches present across natal + period branches. 巳申 alone is 六合, NOT 半刑. 「巳申單獨出現則論合，寅巳申俱全才論三刑」. Shared helper: `check_sanxing_with_pool()` in `branch_relationships.py` — used by 6 files.
+
+**蓋頭截腳 moderation**: When stem and branch have conflicting god roles AND elements have a 克 relationship (24 of 60 甲子), the total deviation from 50 is moderated:
+- Strong conflict (positive vs negative): 60% pull-back toward 50 (`score = 50 + deviation * 0.4`)
+- Weak conflict (閒神 involved): 40% pull-back (`score = 50 + deviation * 0.6`)
+- Classical: 「逢吉不見其吉，逢凶不見其凶」(《滴天髓》)
+- Constants: `GAITOU_SET` (12 stem克branch combos), `JIEJIAO_SET` (12 branch克stem combos)
+
+**天干合 neutralization**: When LP stem forms 五合 with a natal stem:
+- 忌/仇 stem neutralized: +8 (pure) / +6 (mixed, natal 喜/用 tied up)
+- 用/喜 stem tied up: -8 (pure) / -6 (mixed, natal 忌/仇 also bound)
+- 閒神 stem: score based on 合化 produced element's role (+6 for 用/喜, -4 for 忌/仇)
+- Uses `STEM_COMBINATION_LOOKUP` from `stem_combinations.py` for produced element
+
+**Other scoring features**:
+- Hidden stem scoring: 中氣 ±3, 餘氣 ±1
+- Stem-branch internal conversion: +5 (忌生喜轉化) / -5 (喜洩忌仇)
+- 自刑 context-aware: +3 (喜用 element amplified) / -8 (忌仇 amplified)
+- 半合 detection: ±5 based on formed element's god role
+
+**Best period tiebreaker**: When scores tie, prefer stem=用神 > 喜神 > 閒神 > 仇神 > 忌神 (`STEM_ROLE_PRIORITY` constant).
+
+### 4. 正緣桃花 — Accumulative Signal Scoring
+
+**File**: `packages/bazi-engine/app/lifetime_enhanced.py` → `_compute_romance_candidates()`
+
+Replaced exclusive tier system with **accumulative signal scoring**. Each year accumulates points from ALL matching signals:
+
+| Signal | Points | Classical basis |
+|--------|--------|----------------|
+| 正財/正官天干透出 | 5 | Spouse star appears — #1 marriage indicator |
+| 偏財/偏官天干透出 | 4 | General spouse star |
+| 六合日支 | 3 | Spouse palace combined |
+| 六沖日支+配偶星 | 3 | 沖開夫妻宮 + spouse star |
+| 紅鸞星動 | 2 | Marriage-specific star |
+| DM五合 | 2 | Someone coming to join DM |
+| 六沖日支 alone | 2 | 沖開夫妻宮 (positive for unmarried) |
+| 三合/桃花/天喜 | 1 | General romance signals |
+| 配偶星藏干 | 0.5-1 | Hidden spouse star |
+
+**空亡 handling**: Branch signals get ×0.7 multiplier. Stem signals (配偶星天干, DM五合) are NOT reduced — 空亡 only weakens branch qi, not stem energy.
+
+**Backward compatibility**: `tier` key preserved in output via score→tier mapping (score≥4→primary, ≥2→secondary, else supplementary) for `tag_romance_years_with_dayun()`.
+
+### 5. AI Anti-Hallucination Guards
+
+**Spouse star labeling**: Narrative anchor includes explicit rule:
+「⚠️ 配偶星=「正財」(男)/「正官」(女)。即使命局中正財/正官為0個，仍須稱配偶星為正財/正官。偏財/偏官只能稱為「情緣星」。」
+
+**五行比例**: AI sometimes fabricates specific percentages (e.g., says 31.2% when actual is 29.3%). The data is provided in the prompt — directionally correct but exact numbers may be hallucinated.
+
+### 6. Validated Against Seer App — Known Differences
+
+Items where **Seer is wrong** (confirmed via classical sources):
+- Roger: Seer says "傷官主導" — wrong, chart has zero 辛金(傷官). Correctly 食神格.
+- Roger: Seer says "命格五行屬火" — mixes 納音(天上火) with 正五行(戊土).
+- Laopo: Seer says "偏財主導" — wrong, 辛(正官)透干 from 丑. Correctly 正官格.
+- Laopo: Seer says 2026 is "傷官主運" — wrong, 丙→甲=食神, not 傷官.
+
+Items where **we are more complete** than Seer:
+- 事業貴人/配偶生肖: We include 六合 partner + day branch 三合. Seer uses year 三合 only.
+- 大運全局: We score all 8 periods. Seer shows current+next only.
+- 正緣年數: We show top 5 (scored). Seer shows top 3.
+
+Items where **gap remains** (algorithmic, not conceptual error):
+- 大運 scoring gap of ~16 points on certain periods (e.g., Seer 丁酉=53, ours=37). Due to Seer's proprietary algorithm. Our methodology is classically defensible.
+
+### Files Reference (Calculation Accuracy)
+- God role assignment: `packages/bazi-engine/app/five_elements.py` → `determine_favorable_gods()`, `_detect_dominant_imbalance()`
+- Luck period scoring: `packages/bazi-engine/app/lifetime_enhanced.py` → `enrich_luck_periods()`, `GAITOU_SET`, `JIEJIAO_SET`, `STEM_ROLE_PRIORITY`
+- 三刑 shared helper: `packages/bazi-engine/app/branch_relationships.py` → `check_sanxing_with_pool()`
+- Romance scoring: `packages/bazi-engine/app/lifetime_enhanced.py` → `_compute_romance_candidates()`, `ROMANCE_SIGNAL_SCORES`
+- Stem combination lookup: `packages/bazi-engine/app/stem_combinations.py` → `STEM_COMBINATION_LOOKUP`
+- Ten god categories: `packages/bazi-engine/app/constants.py` → `TEN_GOD_CATEGORIES`
 
 ---
 
