@@ -1115,7 +1115,7 @@ class TestRomanceYearsEnriched:
     def test_dayun_conflicted_flag(self):
         """LP has both 配偶星 stem AND 沖配偶宮 branch → conflicted=True.
         Male DM=戊: LP stem=壬(偏財,配偶星) + LP branch=子(沖午/day_branch)."""
-        romance_data = [{'year': 2030, 'tier': 'secondary_a', 'signal': '配偶星天干'}]
+        romance_data = [{'year': 2030, 'tier': 'secondary', 'signal': '配偶星天干'}]
         annual_stars = [{'year': 2030, 'stem': '庚', 'branch': '戌'}]
         # LP: stem=壬(偏財) + branch=子(沖午)
         luck_periods = [{

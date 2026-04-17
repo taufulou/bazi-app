@@ -427,7 +427,13 @@ def find_three_meetings(pillars: Dict[str, Dict]) -> List[Dict]:
 
 
 def find_three_punishments(pillars: Dict[str, Dict]) -> List[Dict]:
-    """Find 三刑 (Triple Punishment) and partial punishments among branches."""
+    """Find 三刑 (Triple Punishment) and partial punishments among branches.
+
+    Note: This function detects BOTH full 三刑 AND partial 半刑 for
+    comprehensive natal chart analysis. This differs from
+    check_sanxing_with_pool() which requires ALL 3 branches for 3-branch
+    groups — used in scoring/prediction where false positives are costly.
+    """
     results: List[Dict] = []
     branch_set = {name: pillars[name]['branch'] for name in ['year', 'month', 'day', 'hour']}
     all_branches = frozenset(branch_set.values())

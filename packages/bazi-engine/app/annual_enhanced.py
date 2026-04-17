@@ -390,7 +390,8 @@ def compute_pillar_impact_analysis(
             })
 
         # --- Branch interactions ---
-        branch_types = _check_branch_interaction(natal_branch, flow_year_branch)
+        all_br = {pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')} | {flow_year_branch}
+        branch_types = _check_branch_interaction(natal_branch, flow_year_branch, all_br)
         for bt in branch_types:
             interactions.append({
                 'type': bt,
@@ -454,7 +455,8 @@ def compute_spouse_palace_analysis(
 ) -> Dict[str, Any]:
     """Analyze flow year's impact on the spouse palace (day branch)."""
     day_branch = pillars['day']['branch']
-    interactions = _check_branch_interaction(day_branch, flow_year_branch)
+    all_br = {pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')} | {flow_year_branch}
+    interactions = _check_branch_interaction(day_branch, flow_year_branch, all_br)
 
     # 天地鴛鴦合 detection
     stem_combo = STEM_COMBINATION_LOOKUP.get(day_master_stem)
@@ -671,7 +673,8 @@ def compute_annual_career_analysis(
 
     # 事業宮 (month branch) interaction
     month_branch = pillars['month']['branch']
-    month_interactions = _check_branch_interaction(month_branch, flow_year_branch)
+    all_br = {pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')} | {flow_year_branch}
+    month_interactions = _check_branch_interaction(month_branch, flow_year_branch, all_br)
 
     # Career event signals
     signals = []
@@ -1108,9 +1111,10 @@ def _compute_single_month(
     # Branch interactions with all 4 natal pillars
     all_branch_interactions = []
     day_branch_interactions = []
+    all_br_monthly = {pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')} | {month_branch}
     for pname in ('year', 'month', 'day', 'hour'):
         natal_branch = pillars[pname]['branch']
-        interactions = _check_branch_interaction(natal_branch, month_branch)
+        interactions = _check_branch_interaction(natal_branch, month_branch, all_br_monthly)
         for i_type in interactions:
             all_branch_interactions.append({'pillar': pname, 'type': i_type})
             if pname == 'day':
@@ -1156,7 +1160,7 @@ def _compute_single_month(
     # --- 4 Aspects ---
     # Career
     month_branch_vs_month_pillar = _check_branch_interaction(
-        pillars['month']['branch'], month_branch)
+        pillars['month']['branch'], month_branch, all_br_monthly)
     career_aspect = {
         'tenGod': month_ten_god,
         'monthPillarInteractions': month_branch_vs_month_pillar,
@@ -1192,7 +1196,7 @@ def _compute_single_month(
     taohua_branch = TAOHUA.get(day_branch)
     if taohua_branch and taohua_branch == month_branch:
         romance_aspect['signals'].append('月逢桃花，社交活躍')
-    month_vs_day = _check_branch_interaction(day_branch, month_branch)
+    month_vs_day = _check_branch_interaction(day_branch, month_branch, all_br_monthly)
     if '六沖' in month_vs_day:
         romance_aspect['signals'].append('日支逢沖，感情易生波動')
     if '六合' in month_vs_day:

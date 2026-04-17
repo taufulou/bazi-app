@@ -2376,8 +2376,10 @@ def generate_love_pre_analysis(
             )
 
     # 8. Marriage Change Years (caution-only: 沖/刑/害)
+    natal_br_list = [pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')]
     marriage_changes = compute_marriage_change_years(
         day_branch, annual_stars, kong_wang, current_year,
+        natal_branches=natal_br_list,
     )
 
     # 9. Partner Recommendations

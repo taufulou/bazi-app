@@ -129,15 +129,8 @@ ELEMENT_INDUSTRIES_DETAILED: Dict[str, List[Dict[str, Any]]] = {
 ELEMENT_DIRECTION: Dict[str, str] = {
     '木': '東方', '火': '南方', '土': '南方', '金': '西方', '水': '北方',
 }
-# Classical rule: 四柱喜土，有利方位是南方 (火生土，南方火氣助旺用神).
-# 後天八卦: 土 also maps to 西南(坤) and 東北(艮).
-ELEMENT_DIRECTION_DETAIL: Dict[str, Dict] = {
-    '土': {
-        'primary': '南方',
-        'secondary': ['西南', '東北'],
-        'reasoning': '火生土，南方火氣助旺用神；西南(坤)、東北(艮)為後天八卦土位',
-    },
-}
+# Note: 土→南方 (火生土). 後天八卦 secondary: 西南(坤)、東北(艮).
+# If detailed direction output is ever needed, implement in the output dict.
 
 BRANCH_ZODIAC: Dict[str, str] = {
     '子': '鼠', '丑': '牛', '寅': '虎', '卯': '兔',
@@ -1402,7 +1395,7 @@ def tag_romance_years_with_dayun(
                     )
 
         # ─── Layer 3: Tier-based weighting ───
-        if tier in ('primary', 'secondary_a') and dayun_score >= 20:
+        if tier in ('primary', 'secondary') and dayun_score >= 20:
             dayun_score += 5  # small boost for strong-on-strong
         elif tier == 'supplementary' and dayun_score < 0:
             dayun_score -= 10  # stronger penalty for weak-on-weak

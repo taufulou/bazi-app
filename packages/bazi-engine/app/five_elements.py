@@ -453,8 +453,10 @@ def _detect_dominant_imbalance(
 
     if strength in ('strong', 'very_strong'):
         # For strong DM: what's causing the excess strength?
+        # Includes 官殺 for rare case where DM is strong despite heavy 官殺
         candidates = {'比劫': category_counts.get('比劫', 0),
-                      '印星': category_counts.get('印星', 0)}
+                      '印星': category_counts.get('印星', 0),
+                      '官殺': category_counts.get('官殺', 0)}
     else:
         # For weak/neutral DM: what's draining/attacking the DM?
         candidates = {'食傷': category_counts.get('食傷', 0),
@@ -508,8 +510,12 @@ def determine_favorable_gods(
     Note: 從格 charts have separate 用神 logic handled downstream
     in generate_pre_analysis() which overrides effectiveFavorableGods.
 
-    System A convention: 忌神 = element that 克 用神.
-    Standard 旺衰派 (Taiwan/HK mainstream).
+    God role derivation:
+    - Default cases: follows System A (忌神 = element that 克 用神)
+    - Context-dependent cases: 忌/仇 are set based on what's most harmful
+      to the DM given the specific imbalance, which may differ from
+      the mechanical System A derivation.
+    - 閒神 = whichever element is not assigned to any other role.
 
     Args:
         day_master_stem: Day Master's Heavenly Stem
@@ -544,10 +550,9 @@ def determine_favorable_gods(
             # Default strong (印旺 or general): 用神=財, 喜神=食傷
             useful = i_overcome
             favorable = i_produce
-        # Strong DM: 忌神=比劫(same), 仇神=印(produces me)
+        # Strong DM context-dependent: 忌神=比劫(too strong), 仇神=印(feeds excess)
         taboo = dm_element
         enemy = produces_me
-        idle_candidates = [produces_me, dm_element, i_produce, i_overcome, overcomes_me]
     else:
         if dominant in ('食傷旺', '官殺旺'):
             # 食傷 or 官殺 draining/attacking → 用神=印 (double duty)
@@ -558,10 +563,9 @@ def determine_favorable_gods(
             # Default weak (財旺 or general): 用神=比劫, 喜神=印
             useful = dm_element
             favorable = produces_me
-        # Weak DM: 忌神=what克用神, 仇神=what produces 忌神
+        # Weak DM context-dependent: 忌神=官殺(attacks DM), 仇神=財(drains DM)
         taboo = overcomes_me
         enemy = i_overcome
-        idle_candidates = [produces_me, dm_element, i_produce, i_overcome, overcomes_me]
 
     # 閒神 = whichever element is not assigned to any other role
     assigned = {useful, favorable, taboo, enemy}
