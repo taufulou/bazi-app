@@ -25,6 +25,7 @@ from .branch_relationships import (
     SIX_HARMONIES,
     THREE_PUNISHMENTS,
     TRIPLE_HARMONIES,
+    check_sanxing_with_pool,
 )
 from .constants import (
     BRANCH_INDEX,
@@ -237,6 +238,10 @@ def analyze_branch_natal_interactions(
     """
     interactions: List[Dict[str, Any]] = []
 
+    # Pre-compute branch pool for 三刑 validation (loop-invariant)
+    natal_branch_set = {natal_pillars[p]['branch'] for p in ['year', 'month', 'day', 'hour']}
+    all_branches_pool = natal_branch_set | {period_branch}
+
     for pname in ['year', 'month', 'day', 'hour']:
         natal_branch = natal_pillars[pname]['branch']
         pair = frozenset({period_branch, natal_branch})
@@ -283,22 +288,21 @@ def analyze_branch_natal_interactions(
                 ),
             })
 
-        # 三刑 (partial — check pair against all punishment patterns)
-        for punishment in THREE_PUNISHMENTS:
-            for partial in punishment.get('partials', []):
-                if pair == partial:
-                    interactions.append({
-                        'type': '三刑',
-                        'pillar': pname,
-                        'branches': [period_branch, natal_branch],
-                        'name': punishment['name'],
-                        'severity': punishment['severity'],
-                        'description': (
-                            f'{period_branch}{natal_branch}刑'
-                            f'（{punishment["name"]}，{PILLAR_DOMAIN_ZH[pname]}受刑）'
-                        ),
-                    })
-                    break
+        # 三刑 — uses shared helper requiring all 3 branches for 3-branch groups
+        # Classical: 「巳申單獨出現則論合，寅巳申俱全才論三刑」
+        sanxing_result = check_sanxing_with_pool(period_branch, natal_branch, all_branches_pool)
+        if sanxing_result:
+            interactions.append({
+                'type': '三刑',
+                'pillar': pname,
+                'branches': [period_branch, natal_branch],
+                'name': sanxing_result['name'],
+                'severity': sanxing_result['severity'],
+                'description': (
+                    f'{period_branch}{natal_branch}刑'
+                    f'（{sanxing_result["name"]}，{PILLAR_DOMAIN_ZH[pname]}受刑）'
+                ),
+            })
 
     # Check for 三合 (partial or full)
     # Collect all natal branches + period branch, check if any triple is formed

@@ -34,6 +34,7 @@ from .constants import (
     LUSHEN,
     STEM_COMBINATIONS,
     STEM_ELEMENT,
+    STEM_YINYANG,
     TAOHUA,
     TIANXI,
     TIANYI_GUIREN,
@@ -48,8 +49,9 @@ from .branch_relationships import (
     SIX_HARMONIES,
     THREE_PUNISHMENTS,
     TRIPLE_HARMONIES,
+    check_sanxing_with_pool,
 )
-from .stem_combinations import STEM_CLASH_LOOKUP
+from .stem_combinations import STEM_CLASH_LOOKUP, STEM_COMBINATION_LOOKUP
 from .life_stages import get_life_stage
 from .shen_sha import get_all_shen_sha
 from .ten_gods import derive_ten_god
@@ -125,8 +127,10 @@ ELEMENT_INDUSTRIES_DETAILED: Dict[str, List[Dict[str, Any]]] = {
 # ============================================================
 
 ELEMENT_DIRECTION: Dict[str, str] = {
-    '木': '東方', '火': '南方', '土': '中央', '金': '西方', '水': '北方',
+    '木': '東方', '火': '南方', '土': '南方', '金': '西方', '水': '北方',
 }
+# Note: 土→南方 (火生土). 後天八卦 secondary: 西南(坤)、東北(艮).
+# If detailed direction output is ever needed, implement in the output dict.
 
 BRANCH_ZODIAC: Dict[str, str] = {
     '子': '鼠', '丑': '牛', '寅': '虎', '卯': '兔',
@@ -345,18 +349,39 @@ STRENGTH_PERSONALITY_MODIFIER: Dict[str, str] = {
 # Helper: 三刑 check for a single branch pair
 # ============================================================
 
-def _check_sanxing_pair(branch_a: str, branch_b: str) -> bool:
-    """Check if two branches form a 三刑 partial (半刑) or full 2-branch punishment."""
-    pair = frozenset({branch_a, branch_b})
-    for punishment in THREE_PUNISHMENTS:
-        # Check partials (for 3-branch punishments)
-        for partial in punishment.get('partials', []):
-            if pair == partial:
-                return True
-        # Check full set (for 2-branch punishments like 子卯 無禮之刑)
-        if pair == punishment['branches'] and len(punishment['branches']) == 2:
-            return True
-    return False
+def _check_sanxing_pair(
+    branch_a: str,
+    branch_b: str,
+    natal_branches: Optional[List[str]] = None,
+) -> bool:
+    """Check if two branches form a valid 三刑 punishment.
+
+    Delegates to shared check_sanxing_with_pool() in branch_relationships.py.
+
+    For 3-branch groups (寅巳申, 丑戌未): requires all 3 present.
+    For 2-branch groups (子卯): always active.
+    Classical: 「巳申單獨出現則論合，寅巳申俱全才論三刑」
+    """
+    pool = set(natal_branches) | {branch_a, branch_b} if natal_branches else None
+    return check_sanxing_with_pool(branch_a, branch_b, pool) is not None
+
+
+def _classify_god_role(element: str, effective_gods: Dict[str, str]) -> str:
+    """Classify an element's god role.
+
+    Returns 'useful'|'favorable'|'taboo'|'enemy'|'idle'.
+    """
+    role_map = {
+        'usefulGod': 'useful',
+        'favorableGod': 'favorable',
+        'tabooGod': 'taboo',
+        'enemyGod': 'enemy',
+        'idleGod': 'idle',
+    }
+    for key, label in role_map.items():
+        if effective_gods.get(key) == element:
+            return label
+    return 'idle'
 
 
 # ============================================================
@@ -910,6 +935,27 @@ def compute_partner_zodiacs(day_branch: str, year_branch: str = '') -> Dict[str,
 # Romance Years Computation
 # ============================================================
 
+# Stem-based signals are NOT reduced by 空亡 (空亡 only weakens branch energy)
+STEM_BASED_SIGNALS = {'spouse_star_zhengcai', 'spouse_star_piancai', 'dm_wuhe'}
+
+# Accumulative romance signal scores (additive, not exclusive)
+# Classical priority: 配偶星天干透出 > 六合日支 > 紅鸞 > 桃花/天喜
+ROMANCE_SIGNAL_SCORES = {
+    'spouse_star_zhengcai': 5,            # 正財/正官天干透出 (exact spouse star)
+    'spouse_star_piancai': 4,             # 偏財/偏官天干透出 (general spouse star)
+    'liuhe_day_branch': 3,                # 六合日支 (spouse palace combined)
+    'chong_day_branch_with_spouse': 3,    # 日支六沖 + spouse star同年
+    'hongluan': 2,                        # 紅鸞星動
+    'dm_wuhe': 2,                         # DM五合 (天干合日主)
+    'chong_day_branch_alone': 2,          # 日支六沖 alone (沖開夫妻宮)
+    'sanhe_day_branch': 1,                # 三合日支
+    'taohua': 1,                          # 桃花
+    'tianxi': 1,                          # 天喜
+    'spouse_hidden_benqi': 1,             # 配偶星藏干(本氣)
+    'spouse_hidden_other': 0.5,           # 配偶星藏干(中/餘氣)
+}
+
+
 def _compute_romance_candidates(
     gender: str,
     day_master_stem: str,
@@ -922,183 +968,185 @@ def _compute_romance_candidates(
     max_candidates: int = 5,
 ) -> List[Dict[str, Any]]:
     """
-    Internal: Gender-aware romance year computation with tier/signal metadata.
-    Returns list of dicts: [{'year': 2030, 'tier': 'primary', 'signal': '六合日支'}, ...]
-    Up to `max_candidates` years (default 5), priority: primary → secondary A/B/C/D → supplementary.
+    Internal: Gender-aware romance year computation using accumulative signal scoring.
 
-    When current_year is provided, filters to: 1 most recent past year + next 10 years.
-    This ensures users see actionable future romance years plus one recent validation year.
+    Replaces the old exclusive-tier system with additive scoring:
+    each year accumulates points from ALL matching signals (not just one tier).
+    Years are ranked by total score, with compound signals ranking higher.
 
-    Methods:
-      - Primary: 六合日支 (annual branch 六合 with day branch)
-      - Secondary A: 配偶星天干 (annual stem = spouse star element)
-      - Secondary B: 三合日支 (annual branch 三合 with day branch)
-      - Secondary C: 天干合日主 (annual stem 五合 with DM stem) — "有人來合你"
-      - Secondary D: 紅鸞星動 (紅鸞 = 正緣桃花, stronger marriage signal than generic 桃花)
-      - Supplementary: 桃花/天喜 (general attraction, not marriage-specific)
+    Signal scoring (additive):
+      - 正財天干透出: 5 pts (strongest marriage signal)
+      - 偏財天干透出: 4 pts
+      - 六合日支: 3 pts
+      - 六沖日支+配偶星: 3 pts (沖開夫妻宮 + spouse star)
+      - 紅鸞星動: 2 pts
+      - DM五合: 2 pts
+      - 六沖日支 alone: 2 pts
+      - 三合/桃花/天喜: 1 pt each
+      - 配偶星藏干: 0.5-1 pt
+
+    空亡 handling: branch signals ×0.7, stem signals NOT reduced.
+    三刑 (2-branch groups like 子卯): blocks branch-level signals only.
+
+    Returns list of dicts with 'tier' key preserved for backward compat:
+      score >= 4 → tier='primary', score >= 2 → tier='secondary', else 'supplementary'
     """
     dm_element = STEM_ELEMENT[day_master_stem]
+    dm_yinyang = STEM_YINYANG[day_master_stem]
 
-    # 1. Spouse star element
+    # Spouse star element
     if gender == 'male':
-        spouse_star_element = ELEMENT_OVERCOMES[dm_element]  # 正財
+        spouse_star_element = ELEMENT_OVERCOMES[dm_element]  # 財星
     else:
-        spouse_star_element = ELEMENT_OVERCOME_BY[dm_element]  # 正官
+        spouse_star_element = ELEMENT_OVERCOME_BY[dm_element]  # 官殺
 
-    # 2. 桃花 branch
+    # Lookup tables
     taohua_branch = TAOHUA.get(day_branch, '')
-
-    # 3. 紅鸞/天喜 branches (primary: year branch lookup)
     hongluan_branch = HONGLUAN.get(year_branch, '')
     tianxi_branch = TIANXI.get(year_branch, '')
-    # Secondary: day-branch 天喜 (modern variant, for annotation only)
     tianxi_day_branch = TIANXI.get(day_branch, '')
-
-    # 4. 六合 partner of day branch
     liuhe_partner = HARMONY_LOOKUP.get(day_branch, '')
-
-    # 5. 天干五合 partner of DM stem (e.g., 甲↔己, 乙↔庚)
+    clash_partner = CLASH_LOOKUP.get(day_branch, '')
     dm_combine_partner = STEM_COMBINATIONS.get(day_master_stem, '')
 
-    # Tier label + signal label mappings
-    TIER_INFO = {
-        'primary': '六合日支',
-        'secondary_a': '配偶星天干',
-        'secondary_b': '三合日支',
-        'secondary_c': '天干合日主',
-        'secondary_d': '紅鸞星動',
-        'supplementary_taohua': '桃花',
-        'supplementary_tianxi': '天喜',
-    }
-
-    # Collect candidates with priority
-    primary = []
-    secondary_a = []
-    secondary_a2 = []  # hidden stem spouse star (R2)
-    secondary_b = []
-    secondary_c = []
-    secondary_d = []
-    supplementary = []
+    all_candidates: List[Dict[str, Any]] = []
 
     for star in annual_stars:
         year = star['year']
         annual_branch = star['branch']
         annual_stem = star['stem']
 
-        # Filter: skip years before birth
         if birth_year and year < birth_year:
             continue
 
-        # 三刑 flag — computed before 空亡 check so it can guard the bypass
-        # Classical: 「刑中帶官星，感情來路不正或有爭端中得配偶」(《三命通會》)
+        # 三刑 check (2-branch groups like 子卯 always active; 3-branch groups need natal context)
         has_sanxing = _check_sanxing_pair(annual_branch, day_branch)
 
-        # Filter: 空亡
-        # Even if branch is 空亡, stem carrying spouse star is still valid
-        # Classical: 空亡 weakens branch energy, not stem energy
-        if annual_branch in kong_wang:
-            if not has_sanxing:
-                if STEM_ELEMENT.get(annual_stem) == spouse_star_element:
-                    if not any(p['year'] == year for p in primary) \
-                            and not any(p['year'] == year for p in secondary_a):
-                        secondary_a.append({
-                            'year': year,
-                            'tier': 'secondary_a',
-                            'signal': TIER_INFO['secondary_a'],
-                            'is_kong_wang': True,
-                        })
-            continue  # Skip all branch-level checks (六合, 三合, 藏干)
+        # Accumulate ALL matching signals for this year
+        signals: List[tuple] = []  # (signal_name, score)
+        is_kong_wang = annual_branch in kong_wang
 
-        # Primary: 六合 with day branch (skip if 三刑)
-        # Note: 六合 and 三刑 branch pairs never overlap, but guard kept for safety
+        # --- STEM-based signals (NOT affected by 空亡 or 三刑) ---
+
+        # Spouse star 天干透出
+        stem_el = STEM_ELEMENT.get(annual_stem, '')
+        if stem_el == spouse_star_element:
+            stem_yy = STEM_YINYANG.get(annual_stem, '')
+            # 正 vs 偏: same polarity = 偏, different = 正
+            if stem_yy != dm_yinyang:
+                signals.append(('spouse_star_zhengcai', ROMANCE_SIGNAL_SCORES['spouse_star_zhengcai']))
+            else:
+                signals.append(('spouse_star_piancai', ROMANCE_SIGNAL_SCORES['spouse_star_piancai']))
+
+        # DM五合 (天干合日主)
+        if annual_stem == dm_combine_partner:
+            signals.append(('dm_wuhe', ROMANCE_SIGNAL_SCORES['dm_wuhe']))
+
+        # --- BRANCH-based signals (affected by 空亡 ×0.7, blocked by 三刑) ---
+
         if not has_sanxing:
+            # 六合日支
             if annual_branch == liuhe_partner:
-                primary.append({'year': year, 'tier': 'primary', 'signal': TIER_INFO['primary']})
+                signals.append(('liuhe_day_branch', ROMANCE_SIGNAL_SCORES['liuhe_day_branch']))
 
-        # Secondary A: stem carries spouse star element (skip if 三刑)
-        if not has_sanxing:
-            if STEM_ELEMENT.get(annual_stem) == spouse_star_element:
-                if not any(p['year'] == year for p in primary):
-                    secondary_a.append({'year': year, 'tier': 'secondary_a', 'signal': TIER_INFO['secondary_a']})
+            # 六沖日支 (沖開夫妻宮 — positive trigger for unmarried)
+            if annual_branch == clash_partner:
+                # Stronger when combined with spouse star in same year
+                if stem_el == spouse_star_element:
+                    signals.append(('chong_day_branch_with_spouse', ROMANCE_SIGNAL_SCORES['chong_day_branch_with_spouse']))
+                else:
+                    signals.append(('chong_day_branch_alone', ROMANCE_SIGNAL_SCORES['chong_day_branch_alone']))
 
-        # Secondary A2: annual branch hidden stems contain spouse star element
-        # ALLOW with annotation when 三刑 — hidden stem is a weak signal that needs every detection path
-        branch_hidden = HIDDEN_STEMS.get(annual_branch, [])
-        for hs in branch_hidden:
-            if STEM_ELEMENT.get(hs) == spouse_star_element:
-                if not any(p['year'] == year for p in primary) \
-                        and not any(p['year'] == year for p in secondary_a):
-                    is_benqi = (hs == branch_hidden[0])
-                    signal = '配偶星藏干(本氣)' if is_benqi else '配偶星藏干'
-                    if has_sanxing:
-                        signal += '(三刑沖突)'
-                    secondary_a2.append({'year': year, 'tier': 'secondary_a2', 'signal': signal})
-                break
+            # 紅鸞星動
+            if annual_branch == hongluan_branch:
+                signals.append(('hongluan', ROMANCE_SIGNAL_SCORES['hongluan']))
 
-        # Secondary B: 三合 with day branch (skip if 三刑)
-        if not has_sanxing:
+            # 三合日支
             for harmony in TRIPLE_HARMONIES:
                 if day_branch in harmony['branches'] and annual_branch in harmony['branches']:
-                    if annual_branch != day_branch and not any(p['year'] == year for p in primary):
-                        secondary_b.append({'year': year, 'tier': 'secondary_b', 'signal': TIER_INFO['secondary_b']})
+                    if annual_branch != day_branch:
+                        signals.append(('sanhe_day_branch', ROMANCE_SIGNAL_SCORES['sanhe_day_branch']))
                     break
 
-        # Secondary C: 天干合日主 — annual stem forms 五合 with DM (skip if 三刑)
-        if not has_sanxing:
-            if annual_stem == dm_combine_partner:
-                if not any(p['year'] == year for p in primary) \
-                        and not any(p['year'] == year for p in secondary_a) \
-                        and not any(p['year'] == year for p in secondary_b):
-                    secondary_c.append({'year': year, 'tier': 'secondary_c', 'signal': TIER_INFO['secondary_c']})
+            # 桃花
+            if annual_branch == taohua_branch:
+                signals.append(('taohua', ROMANCE_SIGNAL_SCORES['taohua']))
 
-        # Secondary D: 紅鸞星動 — stronger marriage signal than generic 桃花 (skip if 三刑)
-        if not has_sanxing:
-            if annual_branch == hongluan_branch:
-                if not any(p['year'] == year for p in primary) \
-                        and not any(p['year'] == year for p in secondary_a) \
-                        and not any(p['year'] == year for p in secondary_b) \
-                        and not any(p['year'] == year for p in secondary_c):
-                    secondary_d.append({'year': year, 'tier': 'secondary_d', 'signal': TIER_INFO['secondary_d']})
+            # 天喜
+            if annual_branch in (tianxi_branch, tianxi_day_branch):
+                signals.append(('tianxi', ROMANCE_SIGNAL_SCORES['tianxi']))
 
-        # Supplementary: 桃花/天喜 (紅鸞 excluded — already in secondary_d) (skip if 三刑)
-        if not has_sanxing:
-            if annual_branch in (taohua_branch, tianxi_branch):
-                if not any(p['year'] == year for p in primary) \
-                        and not any(p['year'] == year for p in secondary_a) \
-                        and not any(p['year'] == year for p in secondary_b) \
-                        and not any(p['year'] == year for p in secondary_c) \
-                        and not any(p['year'] == year for p in secondary_d):
-                    signal = TIER_INFO['supplementary_taohua'] if annual_branch == taohua_branch else TIER_INFO['supplementary_tianxi']
-                    # Annotate when day-branch 天喜 coincides with 桃花
-                    if annual_branch == taohua_branch and annual_branch == tianxi_day_branch:
-                        signal = '桃花(天喜)'
-                    supplementary.append({'year': year, 'tier': 'supplementary', 'signal': signal})
+            # 配偶星藏干
+            branch_hidden = HIDDEN_STEMS.get(annual_branch, [])
+            for i, hs in enumerate(branch_hidden):
+                if STEM_ELEMENT.get(hs) == spouse_star_element:
+                    if i == 0:
+                        signals.append(('spouse_hidden_benqi', ROMANCE_SIGNAL_SCORES['spouse_hidden_benqi']))
+                    else:
+                        signals.append(('spouse_hidden_other', ROMANCE_SIGNAL_SCORES['spouse_hidden_other']))
+                    break
 
-    # Combine with priority, deduplicate, sort chronologically
-    # When current_year is set, collect more candidates before filtering by time window
-    collect_cap = 20 if current_year else 5
-    all_candidates: List[Dict[str, Any]] = []
-    seen: Set[int] = set()
-    for candidate_list in [primary, secondary_a, secondary_a2, secondary_b, secondary_c, secondary_d, supplementary]:
-        for c in candidate_list:
-            if c['year'] not in seen:
-                all_candidates.append(c)
-                seen.add(c['year'])
-            if len(all_candidates) >= collect_cap:
-                break
-        if len(all_candidates) >= collect_cap:
-            break
+        # Compute score with 空亡 reduction for branch signals
+        if not signals:
+            continue
 
-    all_candidates.sort(key=lambda x: x['year'])
+        if is_kong_wang:
+            stem_score = sum(s for name, s in signals if name in STEM_BASED_SIGNALS)
+            branch_score = sum(s for name, s in signals if name not in STEM_BASED_SIGNALS)
+            total_score = stem_score + branch_score * 0.7
+        else:
+            total_score = sum(s for _, s in signals)
+
+        if total_score <= 0:
+            continue
+
+        # Map score to tier for backward compatibility with tag_romance_years_with_dayun()
+        if total_score >= 4:
+            tier = 'primary'
+        elif total_score >= 2:
+            tier = 'secondary'
+        else:
+            tier = 'supplementary'
+
+        # Build signal description (human-readable)
+        signal_names = [name for name, _ in signals]
+        signal_labels = {
+            'spouse_star_zhengcai': '正財天干' if gender == 'male' else '正官天干',
+            'spouse_star_piancai': '偏財天干' if gender == 'male' else '偏官天干',
+            'liuhe_day_branch': '六合日支',
+            'chong_day_branch_with_spouse': '沖開夫妻宮+配偶星',
+            'chong_day_branch_alone': '沖開夫妻宮',
+            'hongluan': '紅鸞星動',
+            'dm_wuhe': '天干合日主',
+            'sanhe_day_branch': '三合日支',
+            'taohua': '桃花',
+            'tianxi': '天喜',
+            'spouse_hidden_benqi': '配偶星藏干(本氣)',
+            'spouse_hidden_other': '配偶星藏干',
+        }
+        signal_desc = '+'.join(signal_labels.get(n, n) for n in signal_names)
+
+        candidate: Dict[str, Any] = {
+            'year': year,
+            'tier': tier,
+            'signal': signal_desc,
+            'score': total_score,
+        }
+        if is_kong_wang:
+            candidate['is_kong_wang'] = True
+
+        all_candidates.append(candidate)
+
+    # Sort by score descending (highest score = best romance year)
+    all_candidates.sort(key=lambda x: (-x['score'], x['year']))
 
     # Time-window filter: 1 most recent past year + next 10 years
     if current_year:
         future_end = current_year + 10
         future = [c for c in all_candidates if current_year <= c['year'] <= future_end]
         past = [c for c in all_candidates if c['year'] < current_year]
-        # Keep only the 1 most recent past year (highest year < current_year)
-        recent_past = [past[-1]] if past else []
-        all_candidates = recent_past + future
+        recent_past = sorted([p for p in past], key=lambda x: -x['year'])[:1]
+        all_candidates = sorted(recent_past + future, key=lambda x: (-x['score'], x['year']))
 
     return all_candidates[:max_candidates]
 
@@ -1347,7 +1395,7 @@ def tag_romance_years_with_dayun(
                     )
 
         # ─── Layer 3: Tier-based weighting ───
-        if tier in ('primary', 'secondary_a') and dayun_score >= 20:
+        if tier in ('primary', 'secondary') and dayun_score >= 20:
             dayun_score += 5  # small boost for strong-on-strong
         elif tier == 'supplementary' and dayun_score < 0:
             dayun_score -= 10  # stronger penalty for weak-on-weak
@@ -1691,6 +1739,26 @@ def _classify_element_favorability(element: str, effective_gods: Dict) -> str:
 # Luck Period Enrichment
 # ============================================================
 
+# 蓋頭 (stem overcomes branch main element): 12 combinations
+# Classical: 天干克地支, the stem "caps" the branch, suppressing branch power
+GAITOU_SET = frozenset({
+    '甲辰', '甲戌', '乙丑', '乙未', '丙申', '丁酉',
+    '戊子', '己亥', '庚寅', '辛卯', '壬午', '癸巳',
+})
+
+# 截腳 (branch main element overcomes stem): 12 combinations
+# Classical: 地支克天干, the branch "cuts off" the stem's foundation
+JIEJIAO_SET = frozenset({
+    '甲申', '乙酉', '丙子', '丁亥', '戊寅', '己卯',
+    '庚午', '辛巳', '壬辰', '壬戌', '癸丑', '癸未',
+})
+
+
+# Tiebreaker priority for best period selection when scores tie
+# Prefer stem=用神 > 喜神 > 閒神 > 仇神 > 忌神
+STEM_ROLE_PRIORITY = {'useful': 5, 'favorable': 4, 'idle': 3, 'enemy': 2, 'taboo': 1}
+
+
 def enrich_luck_periods(
     luck_periods: List[Dict],
     pillars: Dict,
@@ -1720,25 +1788,50 @@ def enrich_luck_periods(
         branch_hidden = HIDDEN_STEMS.get(branch, [])
         branch_main_el = STEM_ELEMENT[branch_hidden[0]] if branch_hidden else ''
 
-        # Stem scoring
+        # Stem scoring (35% weight — 大運重地支, 《渊海子平》《玉井奧訣》)
         if stem_el == useful_god:
-            score += 15
+            score += 12
         elif stem_el == favorable_god:
-            score += 10
+            score += 8
         elif stem_el == taboo_god:
-            score -= 15
+            score -= 12
         elif stem_el == enemy_god:
-            score -= 10
+            score -= 8
 
-        # Branch 本氣 scoring
+        # Branch 本氣 scoring (65% weight)
         if branch_main_el == useful_god:
-            score += 20
+            score += 22
         elif branch_main_el == favorable_god:
-            score += 10
+            score += 12
         elif branch_main_el == taboo_god:
-            score -= 20
+            score -= 22
         elif branch_main_el == enemy_god:
-            score -= 10
+            score -= 12
+
+        # Branch hidden stems: 中氣 and 餘氣 (smaller bonus/penalty)
+        for i, hs in enumerate(branch_hidden[1:], start=1):
+            hs_el = STEM_ELEMENT.get(hs, '')
+            weight = 3 if i == 1 else 1  # 中氣=3, 餘氣=1
+            if hs_el == useful_god:
+                score += weight
+            elif hs_el == favorable_god:
+                score += weight * 0.5
+            elif hs_el == taboo_god:
+                score -= weight
+            elif hs_el == enemy_god:
+                score -= weight * 0.5
+
+        # Stem-branch internal conversion (忌生喜轉化 / 喜洩忌仇)
+        stem_role = _classify_god_role(stem_el, effective_gods)
+        branch_role = _classify_god_role(branch_main_el, effective_gods)
+        if stem_role in ('taboo', 'enemy') and branch_role in ('useful', 'favorable'):
+            if ELEMENT_PRODUCES.get(stem_el) == branch_main_el:
+                score += 5
+                # 忌神 exhausted into 喜/用: conversion effect
+        if stem_role in ('useful', 'favorable') and branch_role in ('taboo', 'enemy'):
+            if ELEMENT_PRODUCES.get(stem_el) == branch_main_el:
+                score -= 5
+                # 喜/用 energy drained into 忌/仇
 
         # Interaction bonuses/penalties from natalInteractions
         interactions_summary = []
@@ -1783,17 +1876,46 @@ def enrich_luck_periods(
                     score -= 5
                     interactions_summary.append(f'伏吟{pillar}柱（-5）')
 
-        # 三刑 check: LP branch against all 4 natal branches
+        # 三刑 and 自刑 check: LP branch against all 4 natal branches
+        natal_branch_list = [pillars[p]['branch'] for p in ['year', 'month', 'day', 'hour']]
         for pname in ['year', 'month', 'day', 'hour']:
             natal_branch = pillars[pname]['branch']
-            if _check_sanxing_pair(branch, natal_branch):
+            if branch == natal_branch:
+                # 自刑: context-dependent on element's god role
+                # 「自刑之吉凶視其在命局五行中的喜忌而定」
+                if branch_main_el == useful_god or branch_main_el == favorable_god:
+                    score += 3
+                    interactions_summary.append(f'自刑{pname}支（喜用加強，+3）')
+                elif branch_main_el == taboo_god or branch_main_el == enemy_god:
+                    score -= 8
+                    interactions_summary.append(f'自刑{pname}支（忌仇加強，-8）')
+            elif _check_sanxing_pair(branch, natal_branch, natal_branch_list):
                 score -= 5
                 interactions_summary.append(f'三刑{pname}支（-5）')
+
+        # 半合 check: LP branch + natal branch forming half of a 三合
+        banhe_checked = False
+        for pname in ['year', 'month', 'day', 'hour']:
+            if banhe_checked:
+                break
+            natal_br = pillars[pname]['branch']
+            if natal_br == branch:
+                continue  # Same branch handled by 自刑/伏吟
+            for harmony in TRIPLE_HARMONIES:
+                if branch in harmony['branches'] and natal_br in harmony['branches']:
+                    banhe_el = harmony['element']
+                    if banhe_el == useful_god or banhe_el == favorable_god:
+                        score += 5
+                        interactions_summary.append(f'半合{banhe_el}局（+5）')
+                    elif banhe_el == taboo_god or banhe_el == enemy_god:
+                        score -= 5
+                        interactions_summary.append(f'半合{banhe_el}局（-5）')
+                    banhe_checked = True
+                    break
 
         # 歲運並臨 (check within natal interactions if present)
         for interaction in natal_ints:
             if interaction.get('type') == '歲運並臨':
-                # Check if the matching element is favorable or not
                 sybl_el = STEM_ELEMENT.get(interaction.get('stem', ''), '')
                 if sybl_el == useful_god or sybl_el == favorable_god:
                     score += 10
@@ -1801,6 +1923,93 @@ def enrich_luck_periods(
                 else:
                     score -= 10
                     interactions_summary.append('歲運並臨（忌仇，-10）')
+
+        # 天干合: LP stem combining with natal stems
+        # 「忌神被合=大吉，用神被合=大凶」(算準網)
+        # Note: DM合 (day stem = DM) is a known simplification — classically
+        # someone合DM is generally positive, but generic +/-6/8 scoring is used for V1.
+        combo_partner = STEM_COMBINATIONS.get(stem)
+        if combo_partner:
+            for pname in ['day', 'month', 'year', 'hour']:
+                natal_s = pillars[pname]['stem']
+                if natal_s == combo_partner:
+                    natal_s_el = STEM_ELEMENT[natal_s]
+                    natal_s_role = _classify_god_role(natal_s_el, effective_gods)
+
+                    if stem_role in ('taboo', 'enemy'):
+                        # LP 忌/仇 stem neutralized — positive
+                        if natal_s_role in ('taboo', 'enemy', 'idle'):
+                            score += 8
+                            interactions_summary.append(f'{stem}合{natal_s}（忌神被合，+8）')
+                        else:
+                            score += 6  # Mixed: 忌 neutralized but natal 喜/用 tied up
+                            interactions_summary.append(f'{stem}合{natal_s}（忌合喜用，+6）')
+                    elif stem_role in ('useful', 'favorable'):
+                        # LP 用/喜 stem tied up — negative
+                        if natal_s_role in ('useful', 'favorable', 'idle'):
+                            score -= 8
+                            interactions_summary.append(f'{stem}合{natal_s}（用神被合，-8）')
+                        else:
+                            score -= 6  # Mixed: 用 tied up but natal 忌 also bound
+                            interactions_summary.append(f'{stem}合{natal_s}（用合忌仇，-6）')
+                    elif stem_role == 'idle':
+                        # 閒神 combines — score based on the PRODUCED element's god role
+                        # Asymmetric: 閒→用 is net gain (+6); 閒→忌 is marginal loss (-4)
+                        combo_info = STEM_COMBINATION_LOOKUP.get(stem)
+                        if combo_info:
+                            produced_el = combo_info[1]  # (partner, element, name)
+                            produced_role = _classify_god_role(produced_el, effective_gods)
+                            if produced_role in ('useful', 'favorable'):
+                                score += 6
+                                interactions_summary.append(f'{stem}合{natal_s}（閒神合化{produced_el}為喜用，+6）')
+                            elif produced_role in ('taboo', 'enemy'):
+                                score -= 4
+                                interactions_summary.append(f'{stem}合{natal_s}（閒神合化{produced_el}為忌仇，-4）')
+                            # produced_role == 'idle': no score change
+                    break  # Only count one 合 partner
+
+        # 蓋頭截腳 moderation: when stem/branch roles conflict AND elements克each other
+        # Classical: 「逢吉不見其吉，逢凶不見其凶」(《滴天髓》)
+        # Pull deviation 60% back toward neutral (base 50)
+        pillar_key = stem + branch
+        is_gaitou = pillar_key in GAITOU_SET
+        is_jiejiao = pillar_key in JIEJIAO_SET
+
+        if is_gaitou or is_jiejiao:
+            stem_positive = stem_role in ('useful', 'favorable')
+            stem_negative = stem_role in ('taboo', 'enemy')
+            stem_idle = stem_role == 'idle'
+            branch_positive = branch_role in ('useful', 'favorable')
+            branch_negative = branch_role in ('taboo', 'enemy')
+            branch_idle = branch_role == 'idle'
+            gt_label = '蓋頭' if is_gaitou else '截腳'
+
+            # Case 1: Strong conflict (positive vs negative) → 60% pull-back
+            if (stem_positive and branch_negative) or (stem_negative and branch_positive):
+                deviation = score - 50
+                score = 50 + deviation * 0.4
+                interactions_summary.append(f'{gt_label}（干支相克且喜忌矛盾，吉凶減緩）')
+            # Case 2: 閒神 克 忌/仇 branch → weaker moderation (40% pull-back)
+            elif stem_idle and branch_negative:
+                deviation = score - 50
+                score = 50 + deviation * 0.6
+                interactions_summary.append(f'{gt_label}（閒神克制忌仇，凶減緩）')
+            # Case 3: 閒神 克 喜/用 branch → weaker moderation
+            elif stem_idle and branch_positive:
+                deviation = score - 50
+                score = 50 + deviation * 0.6
+                interactions_summary.append(f'{gt_label}（閒神克制喜用，吉減緩）')
+            # Case 4: 忌/仇 stem vs 閒 branch → weaker moderation
+            elif stem_negative and branch_idle:
+                deviation = score - 50
+                score = 50 + deviation * 0.6
+                interactions_summary.append(f'{gt_label}（忌仇與閒神相克，影響減緩）')
+            # Case 5: 喜/用 stem vs 閒 branch → weaker moderation
+            elif stem_positive and branch_idle:
+                deviation = score - 50
+                score = 50 + deviation * 0.6
+                interactions_summary.append(f'{gt_label}（喜用與閒神相克，吉減緩）')
+            # Both 閒: no meaningful conflict, no moderation
 
         # Cap [0, 100]
         score = max(0, min(100, score))
@@ -1836,6 +2045,7 @@ def enrich_luck_periods(
             'periodOrdinal': idx + 1,
             'stemElement': stem_el,
             'branchElement': branch_main_el,
+            'gaitouJiejiao': '蓋頭' if is_gaitou else ('截腳' if is_jiejiao else ''),
         })
 
     return enriched
@@ -3655,6 +3865,19 @@ def build_narrative_anchors(
             else:
                 love_anchors.append(f'感情結構：身中和配偶星{total_spouse}個，感情穩定但機緣需要主動把握')
 
+    # Anti-hallucination: prevent AI from relabeling spouse star as 偏財/偏官
+    # The AI tends to see "正財0個, 偏財2個" and writes "配偶星=偏財" — wrong label.
+    if gender == 'male':
+        love_anchors.append(
+            '⚠️ 標籤規則：配偶星=「正財」。即使命局中正財為0個，'
+            '仍須稱配偶星為「正財」。偏財只能稱為「情緣星」，不可替代配偶星標籤'
+        )
+    else:
+        love_anchors.append(
+            '⚠️ 標籤規則：配偶星=「正官」。即使命局中正官為0個，'
+            '仍須稱配偶星為「正官」。偏官只能稱為「情緣星」，不可替代配偶星標籤'
+        )
+
     # NEW: Day branch 空亡 check with god conditioning (Issue #1)
     if day_branch in kong_wang:
         day_branch_el = BRANCH_ELEMENT.get(day_branch, '')
@@ -4858,10 +5081,20 @@ def generate_lifetime_enhanced_insights(
         day_branch, year_branch, day_master_stem, gender,
     )
 
-    # Find best period (highest score, at least 2 periods needed)
+    # Find best period (highest score, tiebreaker: stem role priority)
+    # When scores tie, prefer stem=用神 > 喜神 > 閒神 > 仇神 > 忌神
     best_period = None
     if len(luck_periods_enriched) >= 2:
-        best_period = max(luck_periods_enriched, key=lambda p: p['score'])
+        best_period = max(
+            luck_periods_enriched,
+            key=lambda p: (
+                p['score'],
+                STEM_ROLE_PRIORITY.get(
+                    _classify_god_role(STEM_ELEMENT.get(p['stem'], ''), effective_gods),
+                    0
+                ),
+            )
+        )
 
     # Annual Ten God (for Call 2 annual_finance anchor)
     annual_ten_god = ''

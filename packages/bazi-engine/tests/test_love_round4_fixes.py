@@ -262,10 +262,10 @@ class TestTopic5ChangeSignificance:
         assert liuchong[0]['significance'] == 90
 
     def test_sanxing_significance_80(self):
-        """三刑 change has significance 80."""
-        # 寅巳刑 (無恩之刑)
+        """三刑 change has significance 80 (寅巳申 all 3 present)."""
         stars = [{'year': 2026, 'stem': '甲', 'branch': '寅'}]
-        result = compute_marriage_change_years('巳', stars, [], 2026)
+        result = compute_marriage_change_years('巳', stars, [], 2026,
+                                               natal_branches=['子', '申', '巳', '午'])
         sanxing = [c for c in result[0]['changes'] if c['type'] == '三刑']
         assert len(sanxing) == 1
         assert sanxing[0]['significance'] == 80

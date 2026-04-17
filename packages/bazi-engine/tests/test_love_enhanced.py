@@ -971,10 +971,10 @@ class TestComputeRomanceDangerYears:
         assert result[0]['primaryTrigger'] == '六沖'
 
     def test_sanxing_trigger(self):
-        """三刑 trigger detected."""
-        # Day branch=寅. 寅巳 is a partial of 無恩之刑.
+        """三刑 trigger detected (寅巳申 all 3 present)."""
+        # Day branch=寅. Star branch=巳. Natal has 申 in hour → all 3 present.
         stars = [{'year': 2026, 'stem': '丙', 'branch': '巳'}]
-        pillars = make_pillars('庚', '午', '辛', '巳', '甲', '寅', '丙', '子')
+        pillars = make_pillars('庚', '午', '辛', '申', '甲', '寅', '丙', '子')
         result = compute_romance_danger_years(pillars, '甲', '寅', stars, [], 2026)
         triggers = [t['type'] for d in result for t in d['triggers']]
         assert '三刑' in triggers
@@ -1031,10 +1031,10 @@ class TestComputeRomanceDangerYears:
         assert '空亡' in result[0]['triggers'][0]['description']
 
     def test_multiple_triggers_same_year(self):
-        """Multiple triggers in the same year."""
-        # Day branch=寅. 巳: 三刑(寅巳) + 六害(寅巳)
+        """Multiple triggers in the same year (三刑 + 六害)."""
+        # Day branch=寅. Star=巳. Natal has 申 → 寅巳申 三刑 + 寅巳 六害
         stars = [{'year': 2026, 'stem': '丙', 'branch': '巳'}]
-        pillars = make_pillars('庚', '午', '辛', '巳', '甲', '寅', '丙', '子')
+        pillars = make_pillars('庚', '午', '辛', '申', '甲', '寅', '丙', '子')
         result = compute_romance_danger_years(pillars, '甲', '寅', stars, [], 2026)
         if result:
             assert len(result[0]['triggers']) >= 2
@@ -1128,10 +1128,11 @@ class TestComputeMarriageChangeYears:
         assert '六害' in change_types
 
     def test_sanxing_detected(self):
-        """三刑 with day branch detected (e.g., 寅巳刑)."""
-        # 寅巳 is partial of 無恩之刑(寅巳申). day=巳, annual=寅.
+        """三刑 with day branch detected (寅巳申 all 3 present)."""
+        # day=巳, annual=寅, natal has 申 → all 3 of 寅巳申 present.
         stars = [{'year': 2026, 'stem': '甲', 'branch': '寅'}]
-        result = compute_marriage_change_years('巳', stars, [], 2026)
+        result = compute_marriage_change_years('巳', stars, [], 2026,
+                                               natal_branches=['子', '申', '巳', '午'])
         change_types = [c['type'] for changes in result for c in changes.get('changes', [])]
         assert '三刑' in change_types
 

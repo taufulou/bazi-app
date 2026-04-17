@@ -492,40 +492,97 @@
 }
 
 /* ==== Reveal Progress Bar ==== */
-.revealProgress {
+/* ==== Floating Pill Progress Indicator ==== */
+.floatingPill {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  max-width: 900px;
-  margin: 0 auto 1rem;
+  gap: 0.6rem;
+  max-width: 320px;
+  margin: 0 auto 1.2rem;
   padding: 0.5rem 1rem;
-  background: rgba(212, 160, 23, 0.05);
-  border: 1px solid var(--border-light);
-  border-radius: 10px;
-  animation: slideDown 0.3s ease-out;
+  background: rgba(255, 255, 255, 0.7); /* var(--bg-card) at 70% opacity */
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(212, 160, 23, 0.2); /* var(--color-gold) at 20% opacity */
+  border-radius: 50px;
+  box-shadow: 0 2px 16px rgba(226, 61, 40, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04); /* var(--color-red) based */
+  animation: pillSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 10;
 }
 
-.revealProgressLabel {
-  color: var(--text-accent);
-  font-size: 0.85rem;
-  font-weight: 500;
+@keyframes pillSlideIn {
+  from { opacity: 0; transform: translateY(-12px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.pillDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-red);
+  flex-shrink: 0;
+  animation: pillDotPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pillDotPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(226, 61, 40, 0.4); }
+  50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(226, 61, 40, 0); }
+}
+
+.pillLabel {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   white-space: nowrap;
+  font-family: 'Noto Serif TC', serif;
 }
 
-.revealProgressBar {
+.pillBar {
   flex: 1;
-  height: 4px;
-  background: rgba(212, 160, 23, 0.1);
+  height: 3px;
+  min-width: 80px;
+  background: rgba(212, 160, 23, 0.12); /* var(--color-gold) at 12% opacity */
   border-radius: 2px;
   overflow: hidden;
+  position: relative;
 }
 
-.revealProgressFill {
+.pillBarFill {
   height: 100%;
-  background: linear-gradient(90deg, var(--color-gold), var(--color-gold-light));
+  background: linear-gradient(90deg, var(--color-gold), var(--color-orange));
   border-radius: 2px;
-  transition: width 0.5s ease-out;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
+
+.pillBarShimmer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.5) 50%,
+    transparent 100%
+  );
+  animation: shimmerSweep 2s ease-in-out infinite;
+}
+
+@keyframes shimmerSweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.pillCount {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 
 /* ==== Fade-in for AI Divider ==== */
 .fadeInSection {
@@ -620,7 +677,7 @@
 .pageContainerLifetime .contentArea,
 .pageContainerLifetime .tabBar,
 .pageContainerLifetime .cacheToast,
-.pageContainerLifetime .revealProgress,
+.pageContainerLifetime .floatingPill,
 .pageContainerLifetime .loadingSkeleton {
   position: relative;
   z-index: 1;

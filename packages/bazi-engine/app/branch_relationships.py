@@ -161,6 +161,41 @@ THREE_PUNISHMENTS: List[Dict] = [
     },
 ]
 
+def check_sanxing_with_pool(
+    branch_a: str,
+    branch_b: str,
+    all_branches: Optional[Set[str]] = None,
+) -> Optional[Dict]:
+    """Check if two branches form a valid 三刑, requiring all members present.
+
+    For 3-branch groups (寅巳申 無恩之刑, 丑戌未 持勢之刑):
+    all 3 must exist in all_branches.
+    For 2-branch groups (子卯 無禮之刑): always active.
+
+    Classical: 「巳申單獨出現則論合，寅巳申俱全才論三刑」
+
+    Args:
+        branch_a: First branch (e.g., period/annual branch)
+        branch_b: Second branch (e.g., natal branch)
+        all_branches: Full set of branches to check for 3rd member.
+            Should include all natal branches + the incoming branch.
+            When None, 3-branch groups return None (safe default).
+
+    Returns:
+        The matching punishment dict if valid 三刑, else None.
+    """
+    pair = frozenset({branch_a, branch_b})
+    for punishment in THREE_PUNISHMENTS:
+        if len(punishment['branches']) == 3:
+            if pair.issubset(punishment['branches']):
+                if all_branches is not None and punishment['branches'].issubset(all_branches):
+                    return punishment
+                return None  # 3rd branch missing or no context
+        elif pair == punishment['branches'] and len(punishment['branches']) == 2:
+            return punishment  # 2-branch group always active
+    return None
+
+
 # 自刑 (Self-Punishment): when duplicate branches appear
 SELF_PUNISHMENT_BRANCHES: Set[str] = {'辰', '午', '酉', '亥'}
 
@@ -392,7 +427,13 @@ def find_three_meetings(pillars: Dict[str, Dict]) -> List[Dict]:
 
 
 def find_three_punishments(pillars: Dict[str, Dict]) -> List[Dict]:
-    """Find 三刑 (Triple Punishment) and partial punishments among branches."""
+    """Find 三刑 (Triple Punishment) and partial punishments among branches.
+
+    Note: This function detects BOTH full 三刑 AND partial 半刑 for
+    comprehensive natal chart analysis. This differs from
+    check_sanxing_with_pool() which requires ALL 3 branches for 3-branch
+    groups — used in scoring/prediction where false positives are costly.
+    """
     results: List[Dict] = []
     branch_set = {name: pillars[name]['branch'] for name in ['year', 'month', 'day', 'hour']}
     all_branches = frozenset(branch_set.values())

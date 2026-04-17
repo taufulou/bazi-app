@@ -977,6 +977,16 @@ PATTERN_TYPES: Dict[str, str] = {
     '正印': '正印格',
 }
 
+# Ten God Categories — grouping ten gods into five classical categories
+# Used by determine_favorable_gods() for context-dependent 病藥取用法
+TEN_GOD_CATEGORIES: Dict[str, List[str]] = {
+    '比劫': ['比肩', '劫財'],
+    '食傷': ['食神', '傷官'],
+    '財星': ['偏財', '正財'],
+    '官殺': ['偏官', '正官'],
+    '印星': ['偏印', '正印'],
+}
+
 # ============================================================
 # Season Strength (月令旺衰) — Stem strength by Month Branch
 # ============================================================
