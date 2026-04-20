@@ -78,7 +78,6 @@ export interface UserProfile {
   id: string;
   credits: number;
   subscriptionTier: 'FREE' | 'BASIC' | 'PRO' | 'MASTER';
-  freeReadingUsed: boolean;
   name: string | null;
 }
 
@@ -98,7 +97,6 @@ export async function getUserProfile(token: string): Promise<UserProfile> {
 export interface SubscriptionStatus {
   subscriptionTier: 'FREE' | 'BASIC' | 'PRO' | 'MASTER';
   credits: number;
-  freeReadingUsed: boolean;
   activeSubscription: {
     planTier: string;
     platform: string;
@@ -130,12 +128,6 @@ export interface CheckoutSession {
 /** Shape returned by POST /api/payments/portal */
 export interface PortalSession {
   url: string;
-}
-
-/** Shape returned by GET /api/payments/free-reading */
-export interface FreeReadingStatus {
-  used: boolean;
-  available: boolean;
 }
 
 /** A credit package returned by GET /api/payments/credit-packages */
@@ -282,25 +274,6 @@ export interface Invoice {
  */
 export async function getInvoices(token: string, limit = 10): Promise<Invoice[]> {
   return apiFetch<Invoice[]>(`/api/payments/invoices?limit=${limit}`, { token });
-}
-
-/**
- * Check whether the current user has a free reading available.
- * GET /api/payments/free-reading
- */
-export async function checkFreeReading(token: string): Promise<FreeReadingStatus> {
-  return apiFetch<FreeReadingStatus>('/api/payments/free-reading', { token });
-}
-
-/**
- * Consume the user's free reading.
- * POST /api/payments/free-reading/use
- */
-export async function useFreeReading(token: string): Promise<{ message: string }> {
-  return apiFetch<{ message: string }>('/api/payments/free-reading/use', {
-    method: 'POST',
-    token,
-  });
 }
 
 // ---------------------------------------------------------------------------

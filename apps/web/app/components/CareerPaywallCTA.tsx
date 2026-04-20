@@ -7,8 +7,6 @@ import styles from "./PaywallCTA.module.css";
 interface CareerPaywallCTAProps {
   creditCost: number;
   currentCredits: number | null;
-  hasFreeReading: boolean;
-  isSubscriber: boolean;
   isSignedIn: boolean;
   onUnlock: () => void;
   isUnlocking: boolean;
@@ -18,8 +16,6 @@ interface CareerPaywallCTAProps {
 export default function CareerPaywallCTA({
   creditCost,
   currentCredits,
-  hasFreeReading,
-  isSubscriber,
   isSignedIn,
   onUnlock,
   isUnlocking,
@@ -38,10 +34,9 @@ export default function CareerPaywallCTA({
     };
   }, [onCreditsRefresh]);
 
-  const hasEnoughCredits =
-    hasFreeReading || isSubscriber || (currentCredits !== null && currentCredits >= creditCost);
+  const hasEnoughCredits = currentCredits !== null && currentCredits >= creditCost;
 
-  const effectiveCost = hasFreeReading ? 0 : creditCost;
+  const effectiveCost = creditCost;
 
   return (
     <div className={styles.container}>
@@ -100,7 +95,6 @@ export default function CareerPaywallCTA({
             {currentCredits !== null && effectiveCost > 0 && (
               <p className={styles.creditsInfo}>
                 剩餘 {currentCredits} 點
-                {hasFreeReading && " ｜ 首次免費"}
               </p>
             )}
           </>

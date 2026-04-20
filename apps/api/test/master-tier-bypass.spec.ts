@@ -32,7 +32,6 @@ const mockMasterUser = {
   subscriptionTier: 'MASTER',
   credits: 0, // Master has 0 credits but should still work
   languagePref: 'ZH_TW',
-  freeReadingUsed: true, // Already used free trial
   deviceFingerprint: null,
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -45,7 +44,6 @@ const mockFreeUser = {
   name: 'Free User',
   subscriptionTier: 'FREE',
   credits: 0,
-  freeReadingUsed: true,
 };
 
 const mockProfile = {

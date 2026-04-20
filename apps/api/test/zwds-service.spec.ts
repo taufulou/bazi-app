@@ -26,7 +26,6 @@ describe('ZwdsService', () => {
     subscriptionTier: 'FREE',
     credits: 10,
     languagePref: 'ZH_TW',
-    freeReadingUsed: false,
     deviceFingerprint: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -719,8 +718,8 @@ describe('ZwdsService', () => {
     });
 
     // --- Credit/payment validation ---
-    it('should throw BadRequestException when insufficient credits and free reading used', async () => {
-      const noCreditsUser = { ...mockUser, credits: 0, freeReadingUsed: true };
+    it('should throw BadRequestException when insufficient credits', async () => {
+      const noCreditsUser = { ...mockUser, credits: 0 };
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(noCreditsUser);
       (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(mockProfile);
       (prisma.service.findFirst as jest.Mock).mockResolvedValue(mockService);
@@ -734,7 +733,7 @@ describe('ZwdsService', () => {
     });
 
     it('should throw when credits exactly 1 less than required (creditCost=2, credits=1)', async () => {
-      const lowCreditsUser = { ...mockUser, credits: 1, freeReadingUsed: true };
+      const lowCreditsUser = { ...mockUser, credits: 1 };
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(lowCreditsUser);
       (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(mockProfile);
       (prisma.service.findFirst as jest.Mock).mockResolvedValue(mockService);
@@ -748,7 +747,7 @@ describe('ZwdsService', () => {
     });
 
     it('should succeed when credits exactly equal to cost (creditCost=2, credits=2)', async () => {
-      const exactCreditsUser = { ...mockUser, credits: 2, freeReadingUsed: true };
+      const exactCreditsUser = { ...mockUser, credits: 2 };
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(exactCreditsUser);
       (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(mockProfile);
       (prisma.service.findFirst as jest.Mock).mockResolvedValue(mockService);
@@ -769,52 +768,8 @@ describe('ZwdsService', () => {
       expect(result.creditsUsed).toBe(2);
     });
 
-    // --- Free trial flow ---
-    it('should create reading with free trial (creditsUsed=0)', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser); // freeReadingUsed: false
-      (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(mockProfile);
-      (prisma.service.findFirst as jest.Mock).mockResolvedValue(mockService);
-
-      const createdReading = { id: 'reading-1', readingType: ReadingType.ZWDS_LIFETIME, creditsUsed: 0 };
-      (prisma.$transaction as jest.Mock).mockImplementation(async (fn) => {
-        return fn({
-          user: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-          baziReading: { create: jest.fn().mockResolvedValue(createdReading) },
-        });
-      });
-
-      const result = await service.createReading('clerk_user_1', {
-        birthProfileId: 'profile-1',
-        readingType: ReadingType.ZWDS_LIFETIME,
-      });
-
-      expect(result.creditsUsed).toBe(0);
-      expect(aiService.generateInterpretation).toHaveBeenCalled();
-    });
-
-    it('should handle race condition on free trial (concurrent claim)', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser);
-      (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(mockProfile);
-      (prisma.service.findFirst as jest.Mock).mockResolvedValue(mockService);
-
-      // Simulate race condition: updateMany returns count=0 (already claimed)
-      (prisma.$transaction as jest.Mock).mockImplementation(async (fn) => {
-        return fn({
-          user: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
-          baziReading: { create: jest.fn() },
-        });
-      });
-
-      await expect(
-        service.createReading('clerk_user_1', {
-          birthProfileId: 'profile-1',
-          readingType: ReadingType.ZWDS_LIFETIME,
-        }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
     it('should handle race condition on credit deduction (concurrent spend)', async () => {
-      const paidUser = { ...mockUser, credits: 2, freeReadingUsed: true };
+      const paidUser = { ...mockUser, credits: 2 };
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(paidUser);
       (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(mockProfile);
       (prisma.service.findFirst as jest.Mock).mockResolvedValue(mockService);
@@ -1322,7 +1277,7 @@ describe('ZwdsService', () => {
     });
 
     it('should throw BadRequestException when insufficient credits for comparison (3 credits)', async () => {
-      const lowCredits = { ...mockUser, credits: 2, freeReadingUsed: true };
+      const lowCredits = { ...mockUser, credits: 2 };
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(lowCredits);
       (prisma.birthProfile.findFirst as jest.Mock)
         .mockResolvedValueOnce(mockProfile)
@@ -1421,28 +1376,5 @@ describe('ZwdsService', () => {
       expect(result).toBeDefined();
     });
 
-    it('should use free trial for comparison if available', async () => {
-      (prisma.user.findUnique as jest.Mock).mockResolvedValue(mockUser); // freeReadingUsed: false
-      (prisma.birthProfile.findFirst as jest.Mock)
-        .mockResolvedValueOnce(mockProfile)
-        .mockResolvedValueOnce(mockProfileB);
-      (prisma.service.findFirst as jest.Mock).mockResolvedValue(mockCompatService);
-
-      const createdComparison = { id: 'comp-1', comparisonType: 'ROMANCE', creditsUsed: 0 };
-      (prisma.$transaction as jest.Mock).mockImplementation(async (fn) => {
-        return fn({
-          user: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-          baziComparison: { create: jest.fn().mockResolvedValue(createdComparison) },
-        });
-      });
-
-      const result = await service.createComparison('clerk_user_1', {
-        profileAId: 'profile-1',
-        profileBId: 'profile-2',
-        comparisonType: 'ROMANCE' as any,
-      });
-
-      expect(result.creditsUsed).toBe(0);
-    });
   });
 });

@@ -23,7 +23,6 @@ model User {
   subscriptionTier SubscriptionTier @default(FREE) @map("subscription_tier")
   credits          Int      @default(0)
   languagePref     Language @default(ZH_TW) @map("language_pref")
-  freeReadingUsed  Boolean  @default(false) @map("free_reading_used")
   deviceFingerprint String? @map("device_fingerprint")
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")

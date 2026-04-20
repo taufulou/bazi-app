@@ -39,7 +39,6 @@ export default function AccountPanel({ compact = false }: { compact?: boolean })
   const { getToken, isSignedIn, isLoaded } = useAuth();
   const [credits, setCredits] = useState<number | null>(null);
   const [tier, setTier] = useState<string>("FREE");
-  const [freeReadingUsed, setFreeReadingUsed] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
 
@@ -58,7 +57,6 @@ export default function AccountPanel({ compact = false }: { compact?: boolean })
         const profile = await getUserProfile(token);
         setCredits(profile.credits);
         setTier(profile.subscriptionTier);
-        setFreeReadingUsed(profile.freeReadingUsed);
       } catch {
         setHasError(true);
       } finally {
@@ -88,7 +86,6 @@ export default function AccountPanel({ compact = false }: { compact?: boolean })
 
   const tierStyleKey = TIER_STYLES[tier] || "tierFREE";
   const showLowWarning = credits <= 3;
-  const showFreeTrial = !freeReadingUsed;
 
   return (
     <section className={`${styles.panel} ${compact ? styles.panelCompact : ""}`}>
@@ -111,12 +108,7 @@ export default function AccountPanel({ compact = false }: { compact?: boolean })
       )}
 
       {/* Row 2: Conditional alerts */}
-      {showFreeTrial && (
-        <div className={styles.freeTrialBar}>
-          🎁 您有一次免費體驗機會！
-        </div>
-      )}
-      {showLowWarning && !showFreeTrial && (
+      {showLowWarning && (
         <div className={styles.warningBar}>
           <span>⚠️ 點數即將用完</span>
           <Link href="/store" className={styles.warningBuyLink}>立即購買 →</Link>

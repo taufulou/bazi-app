@@ -48,7 +48,6 @@ test.describe('Subscription Page - Structure', () => {
           id: 'test-user',
           credits: 10,
           subscriptionTier: 'PRO',
-          freeReadingUsed: true,
           name: 'Test User',
         }),
       })

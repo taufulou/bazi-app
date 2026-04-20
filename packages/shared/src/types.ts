@@ -388,7 +388,6 @@ export interface UserProfile {
   subscriptionTier: SubscriptionTier;
   credits: number;
   languagePref: Language;
-  freeReadingUsed: boolean;
   createdAt: string;
   updatedAt: string;
 }

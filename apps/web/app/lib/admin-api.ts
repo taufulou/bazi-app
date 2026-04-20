@@ -89,7 +89,6 @@ export interface AdminUser {
   avatarUrl: string | null;
   subscriptionTier: string;
   credits: number;
-  freeReadingUsed: boolean;
   languagePref: string;
   createdAt: string;
   updatedAt: string;
@@ -107,7 +106,6 @@ export interface AdminUserDetail {
   avatarUrl: string | null;
   subscriptionTier: string;
   credits: number;
-  freeReadingUsed: boolean;
   languagePref: string;
   createdAt: string;
   updatedAt: string;

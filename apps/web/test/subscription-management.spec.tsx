@@ -47,14 +47,12 @@ jest.mock('../app/lib/api', () => ({
 const freeSubscription: any = {
   subscriptionTier: 'FREE',
   credits: 0,
-  freeReadingUsed: false,
   activeSubscription: null,
 };
 
 const proSubscription: any = {
   subscriptionTier: 'PRO',
   credits: 10,
-  freeReadingUsed: true,
   activeSubscription: {
     planTier: 'PRO',
     platform: 'STRIPE',
@@ -68,7 +66,6 @@ const proSubscription: any = {
 const masterSubscription: any = {
   subscriptionTier: 'MASTER',
   credits: 99,
-  freeReadingUsed: true,
   activeSubscription: {
     planTier: 'MASTER',
     platform: 'STRIPE',

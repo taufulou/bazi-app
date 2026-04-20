@@ -10,8 +10,6 @@ import {
   reactivateSubscription,
   createPortalSession,
   getActivePlans,
-  checkFreeReading,
-  useFreeReading,
 } from '../app/lib/api';
 
 // ============================================================

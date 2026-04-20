@@ -479,31 +479,6 @@ export class StripeService {
   }
 
   // ============================================================
-  // Free Reading Tracking
-  // ============================================================
-
-  /**
-   * Check if user can use a free reading.
-   */
-  async canUseFreeReading(clerkUserId: string): Promise<boolean> {
-    const user = await this.prisma.user.findUnique({
-      where: { clerkUserId },
-    });
-    if (!user) return false;
-    return !user.freeReadingUsed;
-  }
-
-  /**
-   * Mark free reading as used.
-   */
-  async markFreeReadingUsed(clerkUserId: string): Promise<void> {
-    await this.prisma.user.update({
-      where: { clerkUserId },
-      data: { freeReadingUsed: true },
-    });
-  }
-
-  // ============================================================
   // Webhook Handlers
   // ============================================================
 

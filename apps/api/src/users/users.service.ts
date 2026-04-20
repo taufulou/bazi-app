@@ -225,7 +225,7 @@ export class UsersService {
       // Auto-create user record if not found (e.g., webhook not configured)
       this.logger.warn(`User ${clerkUserId} not in DB — auto-creating`);
       user = await this.prisma.user.create({
-        data: { clerkUserId },
+        data: { clerkUserId, credits: 3 },
       });
     }
 

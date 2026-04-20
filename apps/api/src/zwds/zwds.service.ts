@@ -249,12 +249,9 @@ export class ZwdsService {
       throw new BadRequestException('This ZWDS reading type is not currently available');
     }
 
-    // Master tier bypass — truly unlimited, skip credit system entirely
-    const isMaster = user.subscriptionTier === 'MASTER';
-    const canUseFreeTrial = !isMaster && !user.freeReadingUsed;
     const hasEnoughCredits = user.credits >= service.creditCost;
 
-    if (!isMaster && !canUseFreeTrial && !hasEnoughCredits) {
+    if (!hasEnoughCredits) {
       throw new BadRequestException(
         `Insufficient credits. This reading requires ${service.creditCost} credits. ` +
         `You have ${user.credits} credits.`,
@@ -269,7 +266,7 @@ export class ZwdsService {
     }
 
     try {
-      return await this._executeCreateReading(user, profile, dto, service, isMaster, canUseFreeTrial);
+      return await this._executeCreateReading(user, profile, dto, service);
     } finally {
       await this.redis.releaseLock(lockKey);
     }
@@ -279,12 +276,10 @@ export class ZwdsService {
    * Internal: executes ZWDS reading creation within distributed lock.
    */
   private async _executeCreateReading(
-    user: { id: string; credits: number; freeReadingUsed: boolean; subscriptionTier: string },
+    user: { id: string; credits: number; subscriptionTier: string },
     profile: { id: string; birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string; isLunarDate: boolean; lunarBirthDate: string | null; isLeapMonth: boolean },
     dto: CreateZwdsReadingDto,
     service: { creditCost: number; type: string },
-    isMaster: boolean,
-    canUseFreeTrial: boolean,
   ) {
     // Generate birth data hash for cache lookup
     const birthDataHash = this.aiService.generateBirthDataHash(
@@ -390,21 +385,13 @@ export class ZwdsService {
     }
 
     // Cache hit: no credit deduction (user already paid for this interpretation)
-    // Master tier: creditsUsed = 0; Free trial: creditsUsed = 0; Regular: service.creditCost
+    // Regular: service.creditCost
     const fromCache = !!cachedInterpretation;
-    const creditsUsed = (fromCache || isMaster || canUseFreeTrial) ? 0 : service.creditCost;
+    const creditsUsed = fromCache ? 0 : service.creditCost;
 
     const reading = await this.prisma.$transaction(async (tx) => {
-      if (fromCache || isMaster) {
-        // Cache hit or Master tier: no credit deduction
-      } else if (canUseFreeTrial) {
-        const updated = await tx.user.updateMany({
-          where: { id: user.id, freeReadingUsed: false },
-          data: { freeReadingUsed: true },
-        });
-        if (updated.count === 0) {
-          throw new BadRequestException('Free reading already used');
-        }
+      if (fromCache) {
+        // Cache hit: no credit deduction
       } else {
         const updated = await tx.user.updateMany({
           where: { id: user.id, credits: { gte: service.creditCost } },
@@ -571,12 +558,9 @@ export class ZwdsService {
       throw new BadRequestException('ZWDS compatibility is not currently available');
     }
 
-    // Master tier bypass
-    const isMaster = user.subscriptionTier === 'MASTER';
-    const canUseFreeTrial = !isMaster && !user.freeReadingUsed;
     const hasEnoughCredits = user.credits >= service.creditCost;
 
-    if (!isMaster && !canUseFreeTrial && !hasEnoughCredits) {
+    if (!hasEnoughCredits) {
       throw new BadRequestException(
         `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
       );
@@ -653,29 +637,17 @@ export class ZwdsService {
         this.logger.error(`AI ZWDS compatibility interpretation failed: ${message}`);
       }
 
-      const creditsUsed = (isMaster || canUseFreeTrial) ? 0 : service.creditCost;
+      const creditsUsed = service.creditCost;
 
       const comparison = await this.prisma.$transaction(async (tx) => {
-        if (isMaster) {
-          // Master tier: no credit deduction
-        } else if (canUseFreeTrial) {
-          const updated = await tx.user.updateMany({
-            where: { id: user.id, freeReadingUsed: false },
-            data: { freeReadingUsed: true },
-          });
-          if (updated.count === 0) {
-            throw new BadRequestException('Free reading already used');
-          }
-        } else {
-          const updated = await tx.user.updateMany({
-            where: { id: user.id, credits: { gte: service.creditCost } },
-            data: { credits: { decrement: service.creditCost } },
-          });
-          if (updated.count === 0) {
-            throw new BadRequestException(
-              `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
-            );
-          }
+        const updated = await tx.user.updateMany({
+          where: { id: user.id, credits: { gte: service.creditCost } },
+          data: { credits: { decrement: service.creditCost } },
+        });
+        if (updated.count === 0) {
+          throw new BadRequestException(
+            `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
+          );
         }
 
         return tx.baziComparison.create({
@@ -721,14 +693,17 @@ export class ZwdsService {
       throw new NotFoundException('Birth profile not found');
     }
 
-    // Cross-system requires Master tier
+    // Cross-system requires Master tier (feature gating, independent of credit cost)
     if (user.subscriptionTier !== 'MASTER') {
       throw new ForbiddenException('此功能需要大師版方案');
     }
 
-    // Cross-system costs 3 credits — but Master bypasses credit system
     const creditCost = 3;
-    const isMaster = true; // Already validated above
+    if (user.credits < creditCost) {
+      throw new BadRequestException(
+        `Insufficient credits. This reading requires ${creditCost} credits.`,
+      );
+    }
 
     // Acquire distributed lock
     const lockKey = `reading:create:${user.id}`;
@@ -819,11 +794,16 @@ export class ZwdsService {
       this.logger.error(`AI cross-system interpretation failed: ${message}`);
     }
 
-    // Master tier: no credit deduction (creditsUsed: 0)
-    const creditsUsed = 0;
+    const creditsUsed = creditCost;
 
     const reading = await this.prisma.$transaction(async (tx) => {
-      // Master tier: no credit deduction, just create the reading
+      const deducted = await tx.user.updateMany({
+        where: { id: user.id, credits: { gte: creditCost } },
+        data: { credits: { decrement: creditCost } },
+      });
+      if (deducted.count === 0) {
+        throw new BadRequestException('Insufficient credits');
+      }
       return tx.baziReading.create({
         data: {
           userId: user.id,

@@ -114,7 +114,6 @@ const MOCK_USER = {
   name: 'Test User',
   subscriptionTier: 'PRO',
   credits: 10,
-  freeReadingUsed: true,
 };
 
 const PERIOD_START = new Date('2026-01-01T00:00:00.000Z');

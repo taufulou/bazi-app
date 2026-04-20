@@ -60,32 +60,28 @@ const MOCK_USER_PRO = {
   id: 'user-pro',
   credits: 10,
   subscriptionTier: 'PRO',
-  freeReadingUsed: true,
-  name: 'Pro User',
+  name:'Pro User',
 };
 
 const MOCK_USER_BASIC = {
   id: 'user-basic',
   credits: 2,
   subscriptionTier: 'BASIC',
-  freeReadingUsed: true,
-  name: 'Basic User',
+  name:'Basic User',
 };
 
 const MOCK_USER_FREE = {
   id: 'user-free',
   credits: 0,
   subscriptionTier: 'FREE',
-  freeReadingUsed: true,
-  name: 'Free User',
+  name:'Free User',
 };
 
 const MOCK_USER_MASTER = {
   id: 'user-master',
   credits: 999,
   subscriptionTier: 'MASTER',
-  freeReadingUsed: true,
-  name: 'Master User',
+  name:'Master User',
 };
 
 const MOCK_SUBSCRIPTION_PRO = {
@@ -391,79 +387,6 @@ test.describe('Subscription Page - Tier Badge', () => {
 // ============================================================
 // Free Reading Status
 // ============================================================
-
-test.describe('Subscription Page - Free Reading Status', () => {
-  test('shows free reading as available when not used', async ({ page }) => {
-    await page.route('**/api/users/me', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          ...MOCK_USER_FREE,
-          freeReadingUsed: false,
-        }),
-      })
-    );
-
-    await page.route('**/api/payments/subscription', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          subscribed: false,
-          plan: null,
-          status: null,
-          currentPeriodEnd: null,
-          cancelAtPeriodEnd: false,
-        }),
-      })
-    );
-
-    const response = await page.goto('/dashboard/subscription');
-
-    if (response && response.status() === 200) {
-      const pageContent = await page.content();
-      if (pageContent.includes('訂閱管理')) {
-        await expect(page.getByText('免費體驗')).toBeVisible();
-        await expect(page.getByText('1 次可用')).toBeVisible();
-      }
-    }
-  });
-
-  test('shows free reading as used', async ({ page }) => {
-    await page.route('**/api/users/me', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_USER_FREE),
-      })
-    );
-
-    await page.route('**/api/payments/subscription', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          subscribed: false,
-          plan: null,
-          status: null,
-          currentPeriodEnd: null,
-          cancelAtPeriodEnd: false,
-        }),
-      })
-    );
-
-    const response = await page.goto('/dashboard/subscription');
-
-    if (response && response.status() === 200) {
-      const pageContent = await page.content();
-      if (pageContent.includes('訂閱管理')) {
-        await expect(page.getByText('免費體驗')).toBeVisible();
-        await expect(page.getByText('已使用')).toBeVisible();
-      }
-    }
-  });
-});
 
 // ============================================================
 // Cancelled Subscription

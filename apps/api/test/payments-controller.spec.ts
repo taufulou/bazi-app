@@ -23,8 +23,6 @@ const mockStripeService = {
   createPortalSession: jest.fn(),
   cancelSubscription: jest.fn(),
   reactivateSubscription: jest.fn(),
-  canUseFreeReading: jest.fn(),
-  markFreeReadingUsed: jest.fn(),
 };
 
 const mockSectionUnlockService = {
@@ -281,39 +279,6 @@ describe('PaymentsController', () => {
 
       expect(result).toEqual(reactivateResult);
       expect(mockStripeService.reactivateSubscription).toHaveBeenCalledWith('clerk_user_abc');
-    });
-  });
-
-  // ============================================================
-  // Free Reading
-  // ============================================================
-
-  describe('GET /api/payments/free-reading', () => {
-    it('should return free reading availability', async () => {
-      mockStripeService.canUseFreeReading.mockResolvedValue(true);
-
-      const result = await controller.checkFreeReading(AUTH_PAYLOAD as any);
-
-      expect(result).toEqual({ available: true });
-      expect(mockStripeService.canUseFreeReading).toHaveBeenCalledWith('clerk_user_abc');
-    });
-
-    it('should return not available when used', async () => {
-      mockStripeService.canUseFreeReading.mockResolvedValue(false);
-
-      const result = await controller.checkFreeReading(AUTH_PAYLOAD as any);
-      expect(result).toEqual({ available: false });
-    });
-  });
-
-  describe('POST /api/payments/free-reading/use', () => {
-    it('should mark free reading as used', async () => {
-      mockStripeService.markFreeReadingUsed.mockResolvedValue(undefined);
-
-      const result = await controller.useFreeReading(AUTH_PAYLOAD as any);
-
-      expect(result).toEqual({ success: true });
-      expect(mockStripeService.markFreeReadingUsed).toHaveBeenCalledWith('clerk_user_abc');
     });
   });
 

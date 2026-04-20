@@ -252,13 +252,11 @@ const MOCK_USER_PROFILE = {
   id: 'user-001',
   credits: 10,
   subscriptionTier: 'FREE',
-  freeReadingUsed: false,
 };
 
 const MOCK_USER_PROFILE_LOW_CREDITS = {
   ...MOCK_USER_PROFILE,
   credits: 1,
-  freeReadingUsed: true,
 };
 
 const MOCK_BIRTH_PROFILES: never[] = [];
@@ -552,7 +550,7 @@ test.describe('Career Reading — Authenticated Phase 1', () => {
   });
 
   test('paywall shows credit cost and remaining credits', async ({ page }) => {
-    await setupAuthenticatedMocks(page, { ...MOCK_USER_PROFILE, credits: 10, freeReadingUsed: true });
+    await setupAuthenticatedMocks(page, { ...MOCK_USER_PROFILE, credits: 10 });
     await interceptBaziCalculate(page);
 
     await page.goto('/reading/career');
@@ -571,22 +569,6 @@ test.describe('Career Reading — Authenticated Phase 1', () => {
     await expect(page.getByText(/剩餘 10 點/)).toBeVisible();
   });
 
-  test('paywall shows "免費" badge when user has free reading', async ({ page }) => {
-    await setupAuthenticatedMocks(page, { ...MOCK_USER_PROFILE, freeReadingUsed: false });
-    await interceptBaziCalculate(page);
-
-    await page.goto('/reading/career');
-    await page.waitForLoadState('domcontentloaded');
-
-    await fillBirthForm(page);
-    await page.getByRole('button', { name: /開始排盤/ }).click();
-
-    // Wait for paywall
-    await expect(page.getByText('八字事業詳批完整報告')).toBeVisible({ timeout: 15000 });
-
-    // Free reading badge should be shown
-    await expect(page.getByText('免費')).toBeVisible();
-  });
 });
 
 // ============================================================

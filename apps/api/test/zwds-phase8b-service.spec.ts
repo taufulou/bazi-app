@@ -25,7 +25,6 @@ describe('Phase 8B — ZwdsService', () => {
     subscriptionTier: 'FREE',
     credits: 10,
     languagePref: 'ZH_TW',
-    freeReadingUsed: false,
     deviceFingerprint: null,
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -37,7 +36,6 @@ describe('Phase 8B — ZwdsService', () => {
     clerkUserId: 'clerk_master',
     subscriptionTier: 'MASTER',
     credits: 20,
-    freeReadingUsed: true,
   };
 
   const mockProfile = {
@@ -365,7 +363,7 @@ describe('Phase 8B — ZwdsService', () => {
 
   describe('createReading — credit race condition', () => {
     it('should throw BadRequestException when credits depleted concurrently', async () => {
-      const paidUser = { ...mockUser, freeReadingUsed: true, credits: 1 };
+      const paidUser = { ...mockUser, credits: 1 };
       (prisma.user.findUnique as jest.Mock).mockResolvedValue(paidUser);
       (prisma.birthProfile.findFirst as jest.Mock).mockResolvedValue(mockProfile);
       (prisma.service.findFirst as jest.Mock).mockResolvedValue(mockMonthlyService);
@@ -391,26 +389,6 @@ describe('Phase 8B — ZwdsService', () => {
           targetMonth: 6,
         }),
       ).rejects.toThrow(/Insufficient credits/);
-    });
-  });
-
-  // ============================================================
-  // Free trial path
-  // ============================================================
-
-  describe('createReading — free trial', () => {
-    it('should use free trial if freeReadingUsed is false', async () => {
-      const freeUser = { ...mockUser, freeReadingUsed: false, credits: 0 };
-      setupStandardMocks(freeUser, mockProfile, mockMonthlyService);
-
-      const result = await service.createReading('clerk_user_1', {
-        birthProfileId: 'profile-1',
-        readingType: ReadingType.ZWDS_MONTHLY,
-        targetYear: 2026,
-        targetMonth: 3,
-      });
-
-      expect(result).toBeDefined();
     });
   });
 

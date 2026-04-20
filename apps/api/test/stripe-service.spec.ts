@@ -116,7 +116,6 @@ const MOCK_USER = {
   name: 'Test User',
   subscriptionTier: 'FREE',
   credits: 0,
-  freeReadingUsed: false,
 };
 
 const MOCK_PLAN = {
@@ -399,46 +398,6 @@ describe('StripeService', () => {
       await expect(
         service.reactivateSubscription('clerk_user_abc'),
       ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  // ============================================================
-  // Free Reading
-  // ============================================================
-
-  describe('canUseFreeReading', () => {
-    it('should return true when free reading not used', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, freeReadingUsed: false });
-
-      const result = await service.canUseFreeReading('clerk_user_abc');
-      expect(result).toBe(true);
-    });
-
-    it('should return false when free reading already used', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, freeReadingUsed: true });
-
-      const result = await service.canUseFreeReading('clerk_user_abc');
-      expect(result).toBe(false);
-    });
-
-    it('should return false when user not found', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(null);
-
-      const result = await service.canUseFreeReading('nonexistent');
-      expect(result).toBe(false);
-    });
-  });
-
-  describe('markFreeReadingUsed', () => {
-    it('should set freeReadingUsed to true', async () => {
-      mockPrisma.user.update.mockResolvedValue({});
-
-      await service.markFreeReadingUsed('clerk_user_abc');
-
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
-        where: { clerkUserId: 'clerk_user_abc' },
-        data: { freeReadingUsed: true },
-      });
     });
   });
 

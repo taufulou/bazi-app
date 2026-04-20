@@ -92,7 +92,6 @@ const MOCK_USER_PROFILE = {
   subscriptionTier: 'BASIC',
   name: '測試用戶',
   email: 'test@example.com',
-  freeReadingUsed: true,
 };
 
 const MOCK_USER_PROFILE_NO_CREDITS = {
