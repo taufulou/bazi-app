@@ -11,6 +11,7 @@ import CompatibilityRomancePaywallCTA from "../../components/CompatibilityRomanc
 import BaziChart from "../../components/BaziChart";
 import AIReadingDisplay from "../../components/AIReadingDisplay";
 import InsufficientCreditsModal from "../../components/InsufficientCreditsModal";
+import PastReadingsSection from "../../components/PastReadingsSection";
 import { getUserProfile } from "../../lib/api";
 import {
   fetchBirthProfiles,
@@ -166,6 +167,11 @@ export default function CompatibilityPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamCleanupRef = useRef<(() => void) | null>(null);
 
+  // Tracks the comparison id already hydrated by the initial-mount effect. Used by the
+  // same-route re-hydrate effect below to skip ids already handled. Dedicated to this
+  // purpose — not cleared by handleTryAgain — so stale-URL states don't cause reload loops.
+  const lastLoadedIdRef = useRef<string | null>(null);
+
   // V2 streaming message index
   const [streamingMsgIndex, setStreamingMsgIndex] = useState(0);
 
@@ -216,6 +222,7 @@ export default function CompatibilityPage() {
   useEffect(() => {
     if (isLoaded && step === null) {
       if (readingIdParam && isSignedIn) {
+        lastLoadedIdRef.current = readingIdParam;
         loadSavedComparison(readingIdParam);
       } else {
         setStep("input");
@@ -223,6 +230,18 @@ export default function CompatibilityPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, step, readingIdParam, isSignedIn]);
+
+  // Re-hydrate effect: handles same-route card clicks from PastReadingsSection when
+  // the user is already on the form (step !== null). Flips step back to null so the
+  // effect above re-runs exactly once. Does NOT call loadSavedComparison directly to
+  // avoid a double-fire with the initial-mount effect.
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    if (step === null) return;
+    if (!readingIdParam) return;
+    if (readingIdParam === lastLoadedIdRef.current) return;
+    setStep(null);
+  }, [readingIdParam, isLoaded, isSignedIn, step]);
 
   // ============================================================
   // Fetch user profile + saved profiles on mount
@@ -612,6 +631,10 @@ export default function CompatibilityPage() {
       {/* Input step — hide form when loading (show analyzing state instead) */}
       {isSignedIn && step === "input" && !isLoading && (
         <div className={styles.formSection}>
+          <PastReadingsSection
+            readingType="compatibility"
+            currentReadingId={readingIdParam ?? undefined}
+          />
           <DualBirthDataForm
             onSubmit={handleSubmit}
             isLoading={isLoading}

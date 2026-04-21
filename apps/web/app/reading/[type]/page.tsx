@@ -11,6 +11,7 @@ import BirthDataForm, {
 import BaziChart from "../../components/BaziChart";
 import ZwdsChart from "../../components/ZwdsChart";
 import AIReadingDisplay, { V2_ALL_SECTION_KEYS } from "../../components/AIReadingDisplay";
+import PastReadingsSection from "../../components/PastReadingsSection";
 import { getUserProfile } from "../../lib/api";
 import InsufficientCreditsModal from "../../components/InsufficientCreditsModal";
 import CareerPaywallCTA from "../../components/CareerPaywallCTA";
@@ -136,18 +137,40 @@ export default function ReadingPage() {
 
   // Check for ?id=xxx query param (reading history deep link)
   const readingIdParam = searchParams.get("id");
+  // `from=form` marks the deep-link as originating from a PastReadingsSection card
+  // on this same form page. Used to decide whether the back button should return to
+  // the form (from=form) or to the all-history dashboard page (default).
+  const fromParam = searchParams.get("from");
+
+  // Tracks the reading id that has already been hydrated. Prevents the re-hydrate effect
+  // below from refiring loadSavedReading for an id the existing effect already handled.
+  const lastLoadedIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (isLoaded && step === null) {
       // If we have a reading ID param, load it directly
       if (readingIdParam && isSignedIn) {
-        loadSavedReading(readingIdParam);
+        lastLoadedIdRef.current = readingIdParam;
+        loadSavedReading(readingIdParam, fromParam === "form");
       } else {
         setStep("input");
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoaded, step, readingIdParam, isSignedIn]);
+  }, [isLoaded, step, readingIdParam, fromParam, isSignedIn]);
+
+  // Re-hydrate effect: when the user clicks a PastReadingsSection card while already
+  // on the form page (step !== null), the URL's ?id= changes but the effect above
+  // won't refire because step !== null. This effect catches that case by flipping
+  // step back to null, which causes the effect above to run exactly once for the new id.
+  // It intentionally does NOT call loadSavedReading directly — delegation avoids a double-fire.
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    if (step === null) return; // initial mount path is handled by the effect above
+    if (!readingIdParam) return;
+    if (readingIdParam === lastLoadedIdRef.current) return;
+    setStep(null);
+  }, [readingIdParam, isLoaded, isSignedIn, step]);
 
   // State
   const [tab, setTab] = useState<ResultTab>("chart");
@@ -319,7 +342,7 @@ export default function ReadingPage() {
   // Load saved reading from ?id=xxx (reading history deep link)
   // ============================================================
 
-  async function loadSavedReading(id: string) {
+  async function loadSavedReading(id: string, fromForm = false) {
     setIsLoading(true);
     try {
       const token = await getToken();
@@ -361,7 +384,9 @@ export default function ReadingPage() {
       setIsPaidReading(true);
 
       setCurrentReadingId(reading.id);
-      setLoadedFromHistory(true);
+      // If the deep-link came from PastReadingsSection on this same form page (?from=form),
+      // leave loadedFromHistory=false so the back button returns to the form (not /dashboard/readings).
+      setLoadedFromHistory(!fromForm);
       setStep("result");
       setTab("chart");
       if (isFullPageLayout) {
@@ -1244,6 +1269,12 @@ export default function ReadingPage() {
       <div className={styles.contentArea}>
         {step === "input" && (
           <>
+          {!isZwds && (
+            <PastReadingsSection
+              readingType={readingType}
+              currentReadingId={readingIdParam ?? undefined}
+            />
+          )}
           <BirthDataForm
             onSubmit={handleFormSubmit}
             isLoading={isLoading}

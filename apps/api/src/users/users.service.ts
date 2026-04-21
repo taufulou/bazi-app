@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { ReadingType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateBirthProfileDto, UpdateBirthProfileDto } from './dto/create-birth-profile.dto';
@@ -150,15 +151,91 @@ export class UsersService {
 
   // ============ Reading History ============
 
-  async getReadingHistory(clerkUserId: string, page = 1, limit = 20) {
+  async getReadingHistory(clerkUserId: string, page = 1, limit = 20, type?: string) {
     limit = Math.min(Math.max(limit, 1), 100); // Clamp to 1-100
     const user = await this.ensureUser(clerkUserId);
 
-    // Fetch both individual readings and comparisons
+    // Validate ?type= against the Prisma enum. Throws if user supplies an unknown string.
+    if (type && !Object.values(ReadingType).includes(type as ReadingType)) {
+      throw new BadRequestException(`Invalid reading type: ${type}`);
+    }
+
+    // Reading-only branch (LIFETIME, ANNUAL, CAREER, LOVE, HEALTH, ZWDS_*)
+    if (type && type !== ReadingType.COMPATIBILITY) {
+      const where = { userId: user.id, readingType: type as ReadingType };
+      const [readings, total] = await Promise.all([
+        this.prisma.baziReading.findMany({
+          where,
+          select: {
+            id: true,
+            readingType: true,
+            creditsUsed: true,
+            createdAt: true,
+            targetYear: true,
+            birthProfile: { select: { name: true, birthDate: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+        this.prisma.baziReading.count({ where }),
+      ]);
+
+      const data = readings.map((r) => ({ ...r, isComparison: false }));
+      const paged = data.slice((page - 1) * limit, page * limit);
+
+      return {
+        data: paged,
+        meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      };
+    }
+
+    // Comparison-only branch
+    if (type === ReadingType.COMPATIBILITY) {
+      const where = { userId: user.id };
+      const [comparisons, total] = await Promise.all([
+        this.prisma.baziComparison.findMany({
+          where,
+          select: {
+            id: true,
+            comparisonType: true,
+            creditsUsed: true,
+            createdAt: true,
+            profileA: { select: { name: true, birthDate: true } },
+            profileB: { select: { name: true, birthDate: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+        this.prisma.baziComparison.count({ where }),
+      ]);
+
+      // Normalize to match the merged-path shape so any future consumer sees the same fields.
+      const data = comparisons.map((c) => ({
+        id: c.id,
+        readingType: 'COMPATIBILITY',
+        creditsUsed: c.creditsUsed,
+        createdAt: c.createdAt,
+        birthProfile: c.profileA,
+        profileB: c.profileB,
+        comparisonType: c.comparisonType,
+        isComparison: true,
+      }));
+      const paged = data.slice((page - 1) * limit, page * limit);
+
+      return {
+        data: paged,
+        meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      };
+    }
+
+    // Legacy merged branch (no ?type= provided) — powers the unified /dashboard/readings page
     const [readings, comparisons, readingCount, comparisonCount] = await Promise.all([
       this.prisma.baziReading.findMany({
         where: { userId: user.id },
-        include: {
+        select: {
+          id: true,
+          readingType: true,
+          creditsUsed: true,
+          createdAt: true,
+          targetYear: true,
           birthProfile: { select: { name: true, birthDate: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -179,19 +256,17 @@ export class UsersService {
       this.prisma.baziComparison.count({ where: { userId: user.id } }),
     ]);
 
-    // Normalize comparisons into the same shape as readings
     const normalizedComparisons = comparisons.map((c) => ({
       id: c.id,
       readingType: 'COMPATIBILITY',
       creditsUsed: c.creditsUsed,
       createdAt: c.createdAt,
-      birthProfile: c.profileA,    // Primary person
-      profileB: c.profileB,        // Second person (extra field for comparisons)
+      birthProfile: c.profileA,
+      profileB: c.profileB,
       comparisonType: c.comparisonType,
       isComparison: true,
     }));
 
-    // Merge and sort by date descending
     const merged = [
       ...readings.map((r) => ({ ...r, isComparison: false })),
       ...normalizedComparisons,
@@ -199,18 +274,12 @@ export class UsersService {
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
-    // Paginate the merged list
     const total = readingCount + comparisonCount;
     const paged = merged.slice((page - 1) * limit, page * limit);
 
     return {
       data: paged,
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 

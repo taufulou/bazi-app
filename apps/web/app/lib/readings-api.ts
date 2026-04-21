@@ -525,14 +525,16 @@ export interface ReadingHistoryItem {
   birthProfile: {
     name: string;
     birthDate: string;
-  };
+  } | null;
+  /** Only set for readings where targetYear applies (ANNUAL, ZWDS_ANNUAL, etc.). */
+  targetYear?: number | null;
   // Comparison-specific fields (present when isComparison = true)
   isComparison?: boolean;
   comparisonType?: string;
   profileB?: {
     name: string;
     birthDate: string;
-  };
+  } | null;
 }
 
 export interface ReadingHistoryResponse {
@@ -683,6 +685,29 @@ export async function getReadingHistory(
 ): Promise<ReadingHistoryResponse> {
   return apiFetch<ReadingHistoryResponse>(
     `/api/users/me/readings?page=${page}&limit=${limit}`,
+    { token },
+  );
+}
+
+/**
+ * Fetch reading history filtered to a single reading category for the current user.
+ * Used by the PastReadingsSection on each reading form to surface same-category history.
+ *
+ * Accepts a frontend slug (e.g. "lifetime", "compatibility"); maps it to the backend
+ * ReadingType enum internally. Unknown slugs throw.
+ */
+export async function getReadingHistoryByType(
+  token: string,
+  slug: string,
+  limit = 50,
+): Promise<ReadingHistoryResponse> {
+  const backendType =
+    slug === 'compatibility' ? 'COMPATIBILITY' : READING_TYPE_MAP[slug];
+  if (!backendType) {
+    throw new Error(`Unknown reading type slug: ${slug}`);
+  }
+  return apiFetch<ReadingHistoryResponse>(
+    `/api/users/me/readings?type=${backendType}&page=1&limit=${limit}`,
     { token },
   );
 }
@@ -1165,20 +1190,6 @@ export async function getCompatibility(
   id: string,
 ): Promise<CompatibilityResponse> {
   return apiFetch<CompatibilityResponse>(`/api/bazi/comparisons/${id}`, { token });
-}
-
-/**
- * Fetch compatibility comparison history for the current user.
- */
-export async function getCompatibilityHistory(
-  token: string,
-  page = 1,
-  limit = 20,
-): Promise<ReadingHistoryResponse> {
-  return apiFetch<ReadingHistoryResponse>(
-    `/api/users/me/comparisons?page=${page}&limit=${limit}`,
-    { token },
-  );
 }
 
 /**
