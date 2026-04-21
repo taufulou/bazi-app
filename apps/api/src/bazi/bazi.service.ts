@@ -408,15 +408,19 @@ export class BaziService {
     }
 
     try {
-      // 4. Rebuild enriched data from stored calculationData
+      // 4. Rebuild enriched data from stored calculationData.
+      // targetYear is only meaningful for ANNUAL readings; omit for others so
+      // a future prompt template can't accidentally interpolate `undefined`.
       const enrichedData: Record<string, unknown> = {
         ...(reading.calculationData as Record<string, unknown>),
         gender: reading.birthProfile?.gender?.toLowerCase(),
         birthDate: reading.birthProfile?.birthDate?.toISOString().split('T')[0],
         birthTime: reading.birthProfile?.birthTime,
         birthCity: reading.birthProfile?.birthCity || '',
-        targetYear: reading.targetYear ?? undefined,
       };
+      if (reading.readingType === 'ANNUAL' && reading.targetYear != null) {
+        enrichedData.targetYear = reading.targetYear;
+      }
 
       // 5. Delegate to correct V2 streamer based on reading type
       let aiObservable;

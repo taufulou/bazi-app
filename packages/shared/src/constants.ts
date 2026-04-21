@@ -396,7 +396,7 @@ export const DEFAULT_PLANS = {
   master: {
     priceMonthly: 19.99,
     priceAnnual: 159.99,
-    readingsPerMonth: -1, // unlimited
+    readingsPerMonth: 50,
   },
 } as const;
 

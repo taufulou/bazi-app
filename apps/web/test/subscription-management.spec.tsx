@@ -141,7 +141,7 @@ describe('SubscriptionPage', () => {
     expect(screen.getByText('取消訂閱')).toBeInTheDocument();
   });
 
-  it('shows MASTER tier with unlimited credits', async () => {
+  it('shows MASTER tier with real credit balance (no unlimited bypass)', async () => {
     mockGetSubscriptionStatus.mockResolvedValue(masterSubscription);
 
     render(<SubscriptionPage />);
@@ -150,7 +150,9 @@ describe('SubscriptionPage', () => {
       expect(screen.getByText('Master 方案')).toBeInTheDocument();
     });
 
-    expect(screen.getByText('無限')).toBeInTheDocument();
+    // MASTER now shows actual credit count (99 per mock), not "無限"
+    expect(screen.getByText('99')).toBeInTheDocument();
+    expect(screen.queryByText('無限')).not.toBeInTheDocument();
   });
 
   it('shows cancel confirmation dialog', async () => {

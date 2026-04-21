@@ -685,7 +685,7 @@ export class StripeService {
    * Uses MonthlyCreditsLog unique constraint [userId, periodStart] for idempotency:
    * - If credits were already granted for this period, the unique constraint
    *   violation is caught and silently ignored (prevents double-grant on webhook replay).
-   * - Master tier (monthlyCredits = -1) is skipped entirely (Master bypasses credit system).
+   * - All tiers with a positive `monthlyCredits` value (Basic/Pro/Master) receive a grant.
    * - All operations are wrapped in $transaction for atomicity.
    *
    * @param userId Internal user ID
@@ -723,15 +723,8 @@ export class StripeService {
 
     const monthlyCredits = plan.monthlyCredits;
 
-    // Master tier (monthlyCredits = -1): skip credit grant entirely
-    // Master users bypass the credit system — they don't need monthly credits
-    if (monthlyCredits < 0) {
-      this.logger.log(`Master tier user ${userId} — skipping monthly credit grant (unlimited bypass)`);
-      return { granted: false, creditsGranted: 0 };
-    }
-
-    if (monthlyCredits === 0) {
-      this.logger.log(`Plan "${planSlug}" has 0 monthly credits — skipping grant`);
+    if (monthlyCredits <= 0) {
+      this.logger.log(`Plan "${planSlug}" has ${monthlyCredits} monthly credits — skipping grant`);
       return { granted: false, creditsGranted: 0 };
     }
 

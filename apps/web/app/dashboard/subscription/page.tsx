@@ -209,14 +209,10 @@ export default function SubscriptionPage() {
                 {/* Credits */}
                 <div className={styles.detailRow}>
                   <span className={styles.detailLabel}>剩餘點數</span>
-                  {tier === "MASTER" ? (
-                    <span className={styles.detailValue}>無限</span>
-                  ) : (
-                    <Link href="/store" className={styles.creditValueLink}>
-                      <span className={styles.detailValue}>{credits}</span>
-                      <span className={styles.creditBuyHint}>購買更多</span>
-                    </Link>
-                  )}
+                  <Link href="/store" className={styles.creditValueLink}>
+                    <span className={styles.detailValue}>{credits}</span>
+                    <span className={styles.creditBuyHint}>購買更多</span>
+                  </Link>
                 </div>
 
                 {/* Subscription Status */}
@@ -274,9 +270,7 @@ export default function SubscriptionPage() {
 
             {/* Action Buttons */}
             <div className={styles.actions}>
-              {tier !== "MASTER" && (
-                <Link href="/store" className={styles.buyCreditsLink}>💎 購買點數</Link>
-              )}
+              <Link href="/store" className={styles.buyCreditsLink}>💎 購買點數</Link>
 
               {isPaid && !isCancelled && (
                 <>

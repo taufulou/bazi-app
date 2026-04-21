@@ -483,16 +483,16 @@ describe('Plan model — monthlyCredits field', () => {
     expect(plan?.monthlyCredits).toBe(15);
   });
 
-  it('Master plan has -1 monthly credits (unlimited bypass)', async () => {
+  it('Master plan has 50 monthly credits', async () => {
     mockPrisma.plan.findFirst.mockResolvedValue({
       slug: 'master',
       nameZhTw: '大師版',
-      monthlyCredits: -1,
-      readingsPerMonth: -1,
+      monthlyCredits: 50,
+      readingsPerMonth: 50,
     });
 
     const plan = await mockPrisma.plan.findFirst({ where: { slug: 'master' } });
-    expect(plan?.monthlyCredits).toBe(-1);
+    expect(plan?.monthlyCredits).toBe(50);
   });
 });
 

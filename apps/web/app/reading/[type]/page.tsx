@@ -973,13 +973,13 @@ export default function ReadingPage() {
     //   3) the nav entry's path matches current path — defense against edge cases
     //      where the original doc was a different route.
     // When the guard blocks, clear any stale sessionStorage so a subsequent F5
-    // from the fresh input form stays fresh (rather than reviving data from a
-    // session the user already walked away from).
+    // from the fresh input form stays fresh. IMPORTANT: the flag must be set
+    // AFTER the cleanup branch, otherwise on an SPA remount (flag already true),
+    // an early-return before cleanup would leave stale data to revive on F5.
     // Fail-closed when the nav entry is missing (WebView/privacy browsers).
-    if (restoreAttempted.career) return;
-    restoreAttempted.career = true;
     const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
-    const shouldRestore = !!nav
+    const shouldRestore = !restoreAttempted.career
+      && !!nav
       && (nav.type === 'reload' || nav.type === 'back_forward')
       && new URL(nav.name).pathname === location.pathname;
     if (!shouldRestore) {
@@ -988,8 +988,10 @@ export default function ReadingPage() {
         sessionStorage.removeItem('career_lunar_date');
         sessionStorage.removeItem('career_reading_id');
       } catch { /* ignore */ }
+      restoreAttempted.career = true;
       return;
     }
+    restoreAttempted.career = true;
 
     let raw: string | null = null;
     try { raw = sessionStorage.getItem('career_form'); } catch { /* ignore */ }
@@ -1035,10 +1037,9 @@ export default function ReadingPage() {
     if (!isAnnual || step !== null) return;
 
     // See career effect above for the restore-guard rationale.
-    if (restoreAttempted.annual) return;
-    restoreAttempted.annual = true;
     const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
-    const shouldRestore = !!nav
+    const shouldRestore = !restoreAttempted.annual
+      && !!nav
       && (nav.type === 'reload' || nav.type === 'back_forward')
       && new URL(nav.name).pathname === location.pathname;
     if (!shouldRestore) {
@@ -1047,8 +1048,10 @@ export default function ReadingPage() {
         sessionStorage.removeItem('annual_lunar_date');
         sessionStorage.removeItem('annual_reading_id');
       } catch { /* ignore */ }
+      restoreAttempted.annual = true;
       return;
     }
+    restoreAttempted.annual = true;
 
     let raw: string | null = null;
     try { raw = sessionStorage.getItem('annual_form'); } catch { /* ignore */ }
@@ -1091,10 +1094,9 @@ export default function ReadingPage() {
     if (!isLove || step !== null) return;
 
     // See career effect above for the restore-guard rationale.
-    if (restoreAttempted.love) return;
-    restoreAttempted.love = true;
     const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
-    const shouldRestore = !!nav
+    const shouldRestore = !restoreAttempted.love
+      && !!nav
       && (nav.type === 'reload' || nav.type === 'back_forward')
       && new URL(nav.name).pathname === location.pathname;
     if (!shouldRestore) {
@@ -1103,8 +1105,10 @@ export default function ReadingPage() {
         sessionStorage.removeItem('love_lunar_date');
         sessionStorage.removeItem('love_reading_id');
       } catch { /* ignore */ }
+      restoreAttempted.love = true;
       return;
     }
+    restoreAttempted.love = true;
 
     let raw: string | null = null;
     try { raw = sessionStorage.getItem('love_form'); } catch { /* ignore */ }
@@ -1148,10 +1152,9 @@ export default function ReadingPage() {
     if (!isLifetime || step !== null) return;
 
     // See career effect above for the restore-guard rationale.
-    if (restoreAttempted.lifetime) return;
-    restoreAttempted.lifetime = true;
     const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
-    const shouldRestore = !!nav
+    const shouldRestore = !restoreAttempted.lifetime
+      && !!nav
       && (nav.type === 'reload' || nav.type === 'back_forward')
       && new URL(nav.name).pathname === location.pathname;
     if (!shouldRestore) {
@@ -1160,8 +1163,10 @@ export default function ReadingPage() {
         sessionStorage.removeItem('lifetime_lunar_date');
         sessionStorage.removeItem('lifetime_reading_id');
       } catch { /* ignore */ }
+      restoreAttempted.lifetime = true;
       return;
     }
+    restoreAttempted.lifetime = true;
 
     let raw: string | null = null;
     try { raw = sessionStorage.getItem('lifetime_form'); } catch { /* ignore */ }
