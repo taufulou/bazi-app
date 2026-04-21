@@ -54,15 +54,24 @@ describe('UsersService.getReadingHistory — ?type= filter', () => {
     prisma.baziReading.findMany.mockResolvedValue([lifetimeReading]);
     prisma.baziReading.count.mockResolvedValue(1);
 
-    const result = await service.getReadingHistory('clerk_a', 1, 20, 'LIFETIME');
+    // page=2, limit=20 → skip=20 (non-zero, distinct from limit)
+    const result = await service.getReadingHistory('clerk_a', 2, 20, 'LIFETIME');
 
     expect(prisma.baziComparison.findMany).not.toHaveBeenCalled();
     expect(prisma.baziComparison.count).not.toHaveBeenCalled();
+    // findMany must pass userId-scoped where + DB-level pagination + stable sort
     expect(prisma.baziReading.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { userId: 'user-a', readingType: 'LIFETIME' },
+        take: 20,
+        skip: 20,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       }),
     );
+    // count must also be userId-scoped (security: prevents cross-user count leak)
+    expect(prisma.baziReading.count).toHaveBeenCalledWith({
+      where: { userId: 'user-a', readingType: 'LIFETIME' },
+    });
     expect(result.data).toHaveLength(1);
     expect(result.data[0]).toMatchObject({
       id: 'r1',
@@ -108,10 +117,23 @@ describe('UsersService.getReadingHistory — ?type= filter', () => {
     prisma.baziComparison.findMany.mockResolvedValue([comparison]);
     prisma.baziComparison.count.mockResolvedValue(1);
 
-    const result = await service.getReadingHistory('clerk_a', 1, 20, 'COMPATIBILITY');
+    // page=2, limit=5 → skip=5 (deliberately different values from the LIFETIME case
+    // so these assertions can't accidentally pass by coincidence)
+    const result = await service.getReadingHistory('clerk_a', 2, 5, 'COMPATIBILITY');
 
     expect(prisma.baziReading.findMany).not.toHaveBeenCalled();
     expect(prisma.baziReading.count).not.toHaveBeenCalled();
+    expect(prisma.baziComparison.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: 'user-a' },
+        take: 5,
+        skip: 5,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      }),
+    );
+    expect(prisma.baziComparison.count).toHaveBeenCalledWith({
+      where: { userId: 'user-a' },
+    });
     expect(result.data).toHaveLength(1);
     expect(result.data[0]).toMatchObject({
       id: 'c1',

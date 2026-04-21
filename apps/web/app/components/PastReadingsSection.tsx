@@ -249,6 +249,14 @@ export default function PastReadingsSection({
               </button>
             );
           })}
+          {/*
+            Counts compare against `readings.length` (items fetched from the server),
+            NOT `visibleReadings.length` (which excludes the reading currently being
+            viewed via currentReadingId). The button promises how many NEW cards the
+            next fetch will surface, and handleLoadMore's dedupe guarantees the
+            excluded id will not reappear. Using visibleReadings.length here would
+            overpromise by 1 whenever currentReadingId matches a loaded item.
+          */}
           {readings.length < totalCount && (
             <button
               type="button"

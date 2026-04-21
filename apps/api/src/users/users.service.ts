@@ -174,16 +174,19 @@ export class UsersService {
             targetYear: true,
             birthProfile: { select: { name: true, birthDate: true } },
           },
-          orderBy: { createdAt: 'desc' },
+          // Secondary `id` sort key guards against ties on `createdAt` to the ms
+          // (e.g. batch seeds) — without it, skip-based pagination could drop or
+          // duplicate rows.
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: limit,
+          skip: (page - 1) * limit,
         }),
         this.prisma.baziReading.count({ where }),
       ]);
 
       const data = readings.map((r) => ({ ...r, isComparison: false }));
-      const paged = data.slice((page - 1) * limit, page * limit);
-
       return {
-        data: paged,
+        data,
         meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
       };
     }
@@ -202,7 +205,9 @@ export class UsersService {
             profileA: { select: { name: true, birthDate: true } },
             profileB: { select: { name: true, birthDate: true } },
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: limit,
+          skip: (page - 1) * limit,
         }),
         this.prisma.baziComparison.count({ where }),
       ]);
@@ -218,15 +223,16 @@ export class UsersService {
         comparisonType: c.comparisonType,
         isComparison: true,
       }));
-      const paged = data.slice((page - 1) * limit, page * limit);
-
       return {
-        data: paged,
+        data,
         meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
       };
     }
 
     // Legacy merged branch (no ?type= provided) — powers the unified /dashboard/readings page
+    // TODO: This branch still fetches all rows per user and paginates in memory.
+    // Fixing requires a two-table merge strategy (UNION / raw SQL / over-fetch+sort).
+    // Deferred — impact is bounded because most users have <1000 readings total.
     const [readings, comparisons, readingCount, comparisonCount] = await Promise.all([
       this.prisma.baziReading.findMany({
         where: { userId: user.id },
