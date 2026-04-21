@@ -127,7 +127,7 @@ describe('PastReadingsSection', () => {
     render(<PastReadingsSection readingType="lifetime" />);
 
     await waitFor(() => {
-      expect(screen.getByText('(3)')).toBeInTheDocument();
+      expect(screen.getByText('3')).toBeInTheDocument();
     });
     expect(screen.getByText(/你的/)).toBeInTheDocument();
     // Cards are hidden until expanded
@@ -162,7 +162,7 @@ describe('PastReadingsSection', () => {
     });
 
     render(<PastReadingsSection readingType="lifetime" />);
-    await waitFor(() => expect(screen.getByText('(3)')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('3')).toBeInTheDocument());
 
     const header = screen.getByRole('button', {
       name: /你的八字終身運記錄/,
@@ -181,7 +181,7 @@ describe('PastReadingsSection', () => {
     });
 
     render(<PastReadingsSection readingType="lifetime" />);
-    await waitFor(() => expect(screen.getByText('(3)')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('3')).toBeInTheDocument());
 
     fireEvent.click(screen.getByRole('button', { name: /你的八字終身運記錄/ }));
     fireEvent.click(screen.getByText('Roger').closest('button')!);
@@ -197,7 +197,7 @@ describe('PastReadingsSection', () => {
 
     render(<PastReadingsSection readingType="compatibility" />);
     await waitFor(() =>
-      expect(screen.getByText('你的合盤比較記錄')).toBeInTheDocument(),
+      expect(screen.getByText(/你的合盤比較記錄/)).toBeInTheDocument(),
     );
     fireEvent.click(
       screen.getByRole('button', { name: /你的合盤比較記錄/ }),
@@ -220,7 +220,7 @@ describe('PastReadingsSection', () => {
 
     render(<PastReadingsSection readingType="annual" />);
     await waitFor(() =>
-      expect(screen.getByText('你的八字流年運勢記錄')).toBeInTheDocument(),
+      expect(screen.getByText(/你的八字流年運勢記錄/)).toBeInTheDocument(),
     );
     fireEvent.click(
       screen.getByRole('button', { name: /你的八字流年運勢記錄/ }),
@@ -239,7 +239,7 @@ describe('PastReadingsSection', () => {
     render(
       <PastReadingsSection readingType="lifetime" currentReadingId="r2" />,
     );
-    await waitFor(() => expect(screen.getByText('(3)')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('3')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /你的八字終身運記錄/ }));
 
     expect(screen.getByText('Roger')).toBeInTheDocument();
@@ -263,30 +263,50 @@ describe('PastReadingsSection', () => {
 
     fireEvent.click(screen.getByLabelText('重試'));
 
-    await waitFor(() => expect(screen.getByText('(3)')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('3')).toBeInTheDocument());
     expect(mockGetReadingHistoryByType).toHaveBeenCalledTimes(2);
   });
 
-  it('shows the cap footer when totalCount exceeds returned readings length', async () => {
-    // Simulate 60 total but only 50 returned
-    const fifty = Array.from({ length: 50 }, (_, i) => ({
-      id: `r${i}`,
-      readingType: 'LIFETIME',
-      creditsUsed: 3,
-      createdAt: `2026-01-${String((i % 28) + 1).padStart(2, '0')}T00:00:00.000Z`,
-      birthProfile: { name: `User${i}`, birthDate: '1990-01-01T00:00:00.000Z' },
-      isComparison: false,
-    }));
-    mockGetReadingHistoryByType.mockResolvedValue({
-      data: fifty,
-      meta: { page: 1, limit: 50, total: 60, totalPages: 2 },
-    });
+  it('shows a load-more button when totalCount exceeds loaded readings, and appends the next page on click', async () => {
+    // Simulate 60 total: first page returns 50, second page returns the remaining 10.
+    const makeItems = (start: number, count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        id: `r${start + i}`,
+        readingType: 'LIFETIME',
+        creditsUsed: 3,
+        createdAt: `2026-01-${String(((start + i) % 28) + 1).padStart(2, '0')}T00:00:00.000Z`,
+        birthProfile: { name: `User${start + i}`, birthDate: '1990-01-01T00:00:00.000Z' },
+        isComparison: false,
+      }));
+
+    mockGetReadingHistoryByType
+      .mockResolvedValueOnce({
+        data: makeItems(0, 50),
+        meta: { page: 1, limit: 50, total: 60, totalPages: 2 },
+      })
+      .mockResolvedValueOnce({
+        data: makeItems(50, 10),
+        meta: { page: 2, limit: 50, total: 60, totalPages: 2 },
+      });
 
     render(<PastReadingsSection readingType="lifetime" />);
-    await waitFor(() => expect(screen.getByText('(60)')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('60')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /你的八字終身運記錄/ }));
 
-    expect(screen.getByText('顯示最近 50 筆')).toBeInTheDocument();
+    const loadMore = screen.getByRole('button', { name: /載入更多/ });
+    expect(loadMore.textContent).toMatch(/還有 10 筆/);
+
+    fireEvent.click(loadMore);
+
+    await waitFor(() =>
+      expect(screen.getByText('User59')).toBeInTheDocument(),
+    );
+    // After loading page 2, no more to load → button is gone
+    expect(screen.queryByRole('button', { name: /載入更多/ })).not.toBeInTheDocument();
+    // Page-2 fetch was called with page=2
+    const secondCall = mockGetReadingHistoryByType.mock.calls[1];
+    expect(secondCall[2]).toBe(2); // page arg
+    expect(secondCall[3]).toBe(50); // limit arg
   });
 
   it('handles birthProfile: null gracefully by rendering 未命名 fallback', async () => {
@@ -305,7 +325,7 @@ describe('PastReadingsSection', () => {
     });
 
     render(<PastReadingsSection readingType="lifetime" />);
-    await waitFor(() => expect(screen.getByText('(1)')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('1')).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: /你的八字終身運記錄/ }));
 
     expect(screen.getByText('未命名')).toBeInTheDocument();

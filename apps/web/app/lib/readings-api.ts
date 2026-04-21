@@ -699,6 +699,7 @@ export async function getReadingHistory(
 export async function getReadingHistoryByType(
   token: string,
   slug: string,
+  page = 1,
   limit = 50,
 ): Promise<ReadingHistoryResponse> {
   const backendType =
@@ -707,7 +708,7 @@ export async function getReadingHistoryByType(
     throw new Error(`Unknown reading type slug: ${slug}`);
   }
   return apiFetch<ReadingHistoryResponse>(
-    `/api/users/me/readings?type=${backendType}&page=1&limit=${limit}`,
+    `/api/users/me/readings?type=${backendType}&page=${page}&limit=${limit}`,
     { token },
   );
 }

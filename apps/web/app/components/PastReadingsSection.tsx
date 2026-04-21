@@ -36,6 +36,7 @@ export default function PastReadingsSection({
   readingType,
   currentReadingId,
 }: Props) {
+  const PAGE_SIZE = 50;
   const { getToken, isSignedIn, isLoaded } = useAuth();
   const router = useRouter();
   const [status, setStatus] = useState<Status>("loading");
@@ -43,6 +44,7 @@ export default function PastReadingsSection({
   const [totalCount, setTotalCount] = useState(0);
   const [expanded, setExpanded] = useState(false);
   const [refetchTick, setRefetchTick] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const meta = READING_TYPE_META[readingType as keyof typeof READING_TYPE_META];
   const typeLabel = meta?.nameZhTw ?? readingType;
@@ -69,7 +71,12 @@ export default function PastReadingsSection({
           }
           return;
         }
-        const result = await getReadingHistoryByType(token, readingType, 50);
+        const result = await getReadingHistoryByType(
+          token,
+          readingType,
+          1,
+          PAGE_SIZE,
+        );
         if (cancelled) return;
         setReadings(result.data);
         setTotalCount(result.meta.total);
@@ -83,6 +90,34 @@ export default function PastReadingsSection({
       cancelled = true;
     };
   }, [isLoaded, isSignedIn, getToken, readingType, refetchTick]);
+
+  const handleLoadMore = async () => {
+    if (loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      // Next page = whatever page would contain the next unloaded item.
+      // Using (loaded / PAGE_SIZE) + 1 stays correct even if prior pages
+      // were partially filtered client-side.
+      const nextPage = Math.floor(readings.length / PAGE_SIZE) + 1;
+      const result = await getReadingHistoryByType(
+        token,
+        readingType,
+        nextPage,
+        PAGE_SIZE,
+      );
+      // De-dupe in case pagination overlaps with an optimistic client state.
+      const seen = new Set(readings.map((r) => r.id));
+      const additions = result.data.filter((r) => !seen.has(r.id));
+      setReadings((prev) => [...prev, ...additions]);
+      setTotalCount(result.meta.total);
+    } catch {
+      // Leave current state in place; user can tap again.
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   // Filter out the reading currently being viewed (if any).
   const visibleReadings = currentReadingId
@@ -122,7 +157,10 @@ export default function PastReadingsSection({
         <span className={styles.title}>
           你的{typeLabel}記錄
           {showCount && (
-            <span className={styles.count}> ({totalCount})</span>
+            <span className={styles.count}>
+              <span className={styles.countSeparator}>·</span>
+              共<span className={styles.countNumber}>{totalCount}</span>筆
+            </span>
           )}
         </span>
         {status === "error" && (
@@ -211,8 +249,17 @@ export default function PastReadingsSection({
               </button>
             );
           })}
-          {totalCount > visibleReadings.length + (currentReadingId ? 1 : 0) && (
-            <div className={styles.capNote}>顯示最近 50 筆</div>
+          {readings.length < totalCount && (
+            <button
+              type="button"
+              className={styles.loadMore}
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+            >
+              {loadingMore
+                ? "載入中…"
+                : `載入更多（還有 ${totalCount - readings.length} 筆）`}
+            </button>
           )}
         </div>
       )}
