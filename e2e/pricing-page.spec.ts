@@ -37,7 +37,7 @@ test.describe('Pricing Page', () => {
   test('shows plan descriptions', async ({ page }) => {
     await expect(page.getByText('適合初次體驗八字命理的用戶')).toBeVisible();
     await expect(page.getByText('全方位命理分析')).toBeVisible();
-    await expect(page.getByText('無限制使用')).toBeVisible();
+    await expect(page.getByText('每月 50 次解讀，專為命理愛好者打造')).toBeVisible();
   });
 
   test('shows recommended badge on Pro plan', async ({ page }) => {
@@ -47,7 +47,7 @@ test.describe('Pricing Page', () => {
   test('shows reading counts for each plan', async ({ page }) => {
     await expect(page.getByText('每月 5 次解讀')).toBeVisible();
     await expect(page.getByText('每月 15 次解讀')).toBeVisible();
-    await expect(page.getByText('無限次解讀')).toBeVisible();
+    await expect(page.getByText('50 次解讀/月')).toBeVisible();
   });
 
   // ============================================================
@@ -163,7 +163,7 @@ test.describe('Pricing Page', () => {
     await expect(page.getByText('PDF 報告匯出').first()).toBeVisible();
 
     // Master plan features
-    await expect(page.getByText('無限次數命理解讀')).toBeVisible();
+    await expect(page.getByText('50 次命理解讀/月')).toBeVisible();
     await expect(page.getByText('搶先體驗新功能').first()).toBeVisible();
   });
 

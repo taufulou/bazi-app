@@ -53,8 +53,8 @@ const MOCK_PLANS = [
     priceAnnual: 159.99,
     currency: 'USD',
     features: ['Unlimited', 'All exclusive features'],
-    readingsPerMonth: -1,
-    monthlyCredits: -1,
+    readingsPerMonth: 50,
+    monthlyCredits: 50,
     isActive: true,
     sortOrder: 3,
   },
@@ -76,7 +76,6 @@ const MOCK_SUBSCRIPTION_STATUS = {
   currentPeriodEnd: '2026-03-15T00:00:00.000Z',
   cancelAtPeriodEnd: false,
   credits: 10,
-  freeReadingUsed: true,
 };
 
 const MOCK_CANCEL_RESULT = {
@@ -271,7 +270,6 @@ test.describe('Subscription Checkout — Status', () => {
       currentPeriodEnd: null as any,
       cancelAtPeriodEnd: false,
       credits: 0,
-      freeReadingUsed: false,
     });
 
     await page.goto('/');

@@ -7,8 +7,6 @@ import styles from "./PaywallCTA.module.css";
 interface LifetimePaywallCTAProps {
   creditCost: number;
   currentCredits: number | null;
-  hasFreeReading: boolean;
-  isSubscriber: boolean;
   isSignedIn: boolean;
   onUnlock: () => void;
   isUnlocking: boolean;
@@ -18,8 +16,6 @@ interface LifetimePaywallCTAProps {
 export default function LifetimePaywallCTA({
   creditCost,
   currentCredits,
-  hasFreeReading,
-  isSubscriber,
   isSignedIn,
   onUnlock,
   isUnlocking,
@@ -37,10 +33,9 @@ export default function LifetimePaywallCTA({
     };
   }, [onCreditsRefresh]);
 
-  const hasEnoughCredits =
-    hasFreeReading || isSubscriber || (currentCredits !== null && currentCredits >= creditCost);
+  const hasEnoughCredits = currentCredits !== null && currentCredits >= creditCost;
 
-  const effectiveCost = hasFreeReading ? 0 : creditCost;
+  const effectiveCost = creditCost;
 
   return (
     <div className={styles.container}>
@@ -98,7 +93,6 @@ export default function LifetimePaywallCTA({
             {currentCredits !== null && effectiveCost > 0 && (
               <p className={styles.creditsInfo}>
                 剩餘 {currentCredits} 點
-                {hasFreeReading && " ｜ 首次免費"}
               </p>
             )}
           </>

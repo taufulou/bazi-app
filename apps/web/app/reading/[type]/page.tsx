@@ -97,6 +97,19 @@ function isZwdsType(type: string): boolean {
 }
 
 // ============================================================
+// Restore guard — module-scope flag (not component state)
+// ============================================================
+// Tracks whether the sessionStorage-based form restore has already been attempted
+// during the current document's lifetime. The flag resets on real page reload
+// (F5/Cmd+R reloads the module), but persists across React remounts caused by
+// SPA navigation.
+//
+// Purpose: user clicks a reading link from the dashboard → remount → skip restore.
+// Only allow restore on the very first mount after a document load (= F5).
+// bfcache restores preserve in-memory state directly, so they don't need this path.
+const restoreAttempted: Record<string, boolean> = {};
+
+// ============================================================
 // Component
 // ============================================================
 
@@ -184,9 +197,8 @@ export default function ReadingPage() {
   const needsDatePicker = readingType === "zwds-daily";
   const needsQuestion = readingType === "zwds-qa";
 
-  // Subscription & free reading state
+  // Subscription state
   const [isSubscriber, setIsSubscriber] = useState(false);
-  const [hasFreeReading, setHasFreeReading] = useState(false);
   const [isPaidReading, setIsPaidReading] = useState(false);
   const [isChartOnly, setIsChartOnly] = useState(false);
 
@@ -261,7 +273,7 @@ export default function ReadingPage() {
     });
   }, [revealedSections, isRevealing]);
 
-  // Refresh user profile (credits, tier, free reading status)
+  // Refresh user profile (credits, tier)
   const refreshUserProfile = useCallback(async () => {
     if (!isSignedIn) return;
     try {
@@ -271,7 +283,6 @@ export default function ReadingPage() {
       setUserCredits(profile.credits);
       setUserTier(profile.subscriptionTier);
       setIsSubscriber(profile.subscriptionTier !== "FREE");
-      setHasFreeReading(!profile.freeReadingUsed);
     } catch {
       /* silent */
     }
@@ -296,7 +307,6 @@ export default function ReadingPage() {
           setUserCredits(profile.credits);
           setUserTier(profile.subscriptionTier);
           setIsSubscriber(profile.subscriptionTier !== "FREE");
-          setHasFreeReading(!profile.freeReadingUsed);
         }
       } catch {
         /* silent — user types manually, credits stay null */
@@ -522,9 +532,6 @@ export default function ReadingPage() {
         if (typeof response.creditsUsed === "number" && response.creditsUsed > 0) {
           setUserCredits((prev) => (prev !== null ? prev - response.creditsUsed : prev));
         }
-        if (response.creditsUsed === 0 && hasFreeReading && !response.fromCache) {
-          setHasFreeReading(false);
-        }
         streamingStarted = true;
         return; // Don't fall through to non-streaming path
       }
@@ -552,9 +559,6 @@ export default function ReadingPage() {
 
       if (typeof response.creditsUsed === "number" && response.creditsUsed > 0) {
         setUserCredits((prev) => (prev !== null ? prev - response.creditsUsed : prev));
-      }
-      if (response.creditsUsed === 0 && hasFreeReading && !response.fromCache) {
-        setHasFreeReading(false);
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "";
@@ -837,7 +841,18 @@ export default function ReadingPage() {
         return;
       }
 
-      // Normal flow: go back to input form
+      // Normal flow: go back to input form.
+      // Also drop the refresh-resilience sessionStorage entries — the user
+      // explicitly asked for a fresh form, so a subsequent F5 must not restore
+      // the chart they just walked away from.
+      const sessionKey = isLifetime ? 'lifetime' : isAnnual ? 'annual' : isLove ? 'love' : isCareer ? 'career' : null;
+      if (sessionKey) {
+        try {
+          sessionStorage.removeItem(`${sessionKey}_form`);
+          sessionStorage.removeItem(`${sessionKey}_lunar_date`);
+          sessionStorage.removeItem(`${sessionKey}_reading_id`);
+        } catch { /* ignore */ }
+      }
       setStep("input");
       setTab("chart");
       setChartData(null);
@@ -927,6 +942,7 @@ export default function ReadingPage() {
       // Clean up sessionStorage since reading is now saved
       try {
         sessionStorage.removeItem(`${sessionKey}_form`);
+        sessionStorage.removeItem(`${sessionKey}_lunar_date`);
       } catch { /* ignore */ }
     } catch (err) {
       // Re-show paywall + show error
@@ -949,6 +965,33 @@ export default function ReadingPage() {
 
   useEffect(() => {
     if (!isCareer || step !== null) return;
+
+    // Restore only if ALL of:
+    //   1) first mount per document lifetime (module flag) — blocks SPA remounts.
+    //   2) this document was loaded via reload or bfcache restore — blocks fresh
+    //      address-bar navigation (type='navigate') which should start fresh.
+    //   3) the nav entry's path matches current path — defense against edge cases
+    //      where the original doc was a different route.
+    // When the guard blocks, clear any stale sessionStorage so a subsequent F5
+    // from the fresh input form stays fresh. IMPORTANT: the flag must be set
+    // AFTER the cleanup branch, otherwise on an SPA remount (flag already true),
+    // an early-return before cleanup would leave stale data to revive on F5.
+    // Fail-closed when the nav entry is missing (WebView/privacy browsers).
+    const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+    const shouldRestore = !restoreAttempted.career
+      && !!nav
+      && (nav.type === 'reload' || nav.type === 'back_forward')
+      && new URL(nav.name).pathname === location.pathname;
+    if (!shouldRestore) {
+      try {
+        sessionStorage.removeItem('career_form');
+        sessionStorage.removeItem('career_lunar_date');
+        sessionStorage.removeItem('career_reading_id');
+      } catch { /* ignore */ }
+      restoreAttempted.career = true;
+      return;
+    }
+    restoreAttempted.career = true;
 
     let raw: string | null = null;
     try { raw = sessionStorage.getItem('career_form'); } catch { /* ignore */ }
@@ -993,6 +1036,23 @@ export default function ReadingPage() {
   useEffect(() => {
     if (!isAnnual || step !== null) return;
 
+    // See career effect above for the restore-guard rationale.
+    const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+    const shouldRestore = !restoreAttempted.annual
+      && !!nav
+      && (nav.type === 'reload' || nav.type === 'back_forward')
+      && new URL(nav.name).pathname === location.pathname;
+    if (!shouldRestore) {
+      try {
+        sessionStorage.removeItem('annual_form');
+        sessionStorage.removeItem('annual_lunar_date');
+        sessionStorage.removeItem('annual_reading_id');
+      } catch { /* ignore */ }
+      restoreAttempted.annual = true;
+      return;
+    }
+    restoreAttempted.annual = true;
+
     let raw: string | null = null;
     try { raw = sessionStorage.getItem('annual_form'); } catch { /* ignore */ }
     if (!raw) return;
@@ -1032,6 +1092,23 @@ export default function ReadingPage() {
   // Love refresh resilience — mirrors career/annual pattern
   useEffect(() => {
     if (!isLove || step !== null) return;
+
+    // See career effect above for the restore-guard rationale.
+    const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+    const shouldRestore = !restoreAttempted.love
+      && !!nav
+      && (nav.type === 'reload' || nav.type === 'back_forward')
+      && new URL(nav.name).pathname === location.pathname;
+    if (!shouldRestore) {
+      try {
+        sessionStorage.removeItem('love_form');
+        sessionStorage.removeItem('love_lunar_date');
+        sessionStorage.removeItem('love_reading_id');
+      } catch { /* ignore */ }
+      restoreAttempted.love = true;
+      return;
+    }
+    restoreAttempted.love = true;
 
     let raw: string | null = null;
     try { raw = sessionStorage.getItem('love_form'); } catch { /* ignore */ }
@@ -1073,6 +1150,23 @@ export default function ReadingPage() {
 
   useEffect(() => {
     if (!isLifetime || step !== null) return;
+
+    // See career effect above for the restore-guard rationale.
+    const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+    const shouldRestore = !restoreAttempted.lifetime
+      && !!nav
+      && (nav.type === 'reload' || nav.type === 'back_forward')
+      && new URL(nav.name).pathname === location.pathname;
+    if (!shouldRestore) {
+      try {
+        sessionStorage.removeItem('lifetime_form');
+        sessionStorage.removeItem('lifetime_lunar_date');
+        sessionStorage.removeItem('lifetime_reading_id');
+      } catch { /* ignore */ }
+      restoreAttempted.lifetime = true;
+      return;
+    }
+    restoreAttempted.lifetime = true;
 
     let raw: string | null = null;
     try { raw = sessionStorage.getItem('lifetime_form'); } catch { /* ignore */ }
@@ -1125,6 +1219,7 @@ export default function ReadingPage() {
         // Clean up sessionStorage
         try {
           sessionStorage.removeItem(`${sessionKeyPrefix}_form`);
+          sessionStorage.removeItem(`${sessionKeyPrefix}_lunar_date`);
           sessionStorage.removeItem(`${sessionKeyPrefix}_reading_id`);
         } catch { /* ignore */ }
       } else {
@@ -1167,7 +1262,10 @@ export default function ReadingPage() {
     } catch {
       // Reading not found or error → show paywall again
       setShowPaywall(true);
-      try { sessionStorage.removeItem(`${sessionKeyPrefix}_reading_id`); } catch { /* ignore */ }
+      try {
+        sessionStorage.removeItem(`${sessionKeyPrefix}_reading_id`);
+        sessionStorage.removeItem(`${sessionKeyPrefix}_lunar_date`);
+      } catch { /* ignore */ }
     }
   }
 
@@ -1254,7 +1352,6 @@ export default function ReadingPage() {
               (isCareer || isAnnual || isLove || isLifetime) ? "開始排盤" :
               !isSignedIn ? "開始分析" :
               meta.creditCost === 0 ? (<>完整解讀<span className={styles.btnCreditFree}>免費</span></>) :
-              hasFreeReading ? (<>完整解讀<span className={styles.btnCreditFree}>首次免費</span></>) :
               userCredits !== null ? (<>完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點・剩 {userCredits}</span></>) :
               (<>完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點</span></>)
             }
@@ -1379,8 +1476,6 @@ export default function ReadingPage() {
                 <CareerPaywallCTA
                   creditCost={meta?.creditCost ?? 3}
                   currentCredits={userCredits}
-                  hasFreeReading={hasFreeReading}
-                  isSubscriber={isSubscriber}
                   isSignedIn={!!isSignedIn}
                   onUnlock={() => setShowUnlockConfirm(true)}
                   isUnlocking={isUnlocking}
@@ -1395,8 +1490,6 @@ export default function ReadingPage() {
                 <AnnualPaywallCTA
                   creditCost={meta?.creditCost ?? 3}
                   currentCredits={userCredits}
-                  hasFreeReading={hasFreeReading}
-                  isSubscriber={isSubscriber}
                   isSignedIn={!!isSignedIn}
                   onUnlock={() => setShowUnlockConfirm(true)}
                   isUnlocking={isUnlocking}
@@ -1411,8 +1504,6 @@ export default function ReadingPage() {
                 <LovePaywallCTA
                   creditCost={meta?.creditCost ?? 3}
                   currentCredits={userCredits}
-                  hasFreeReading={hasFreeReading}
-                  isSubscriber={isSubscriber}
                   isSignedIn={!!isSignedIn}
                   onUnlock={() => setShowUnlockConfirm(true)}
                   isUnlocking={isUnlocking}
@@ -1427,8 +1518,6 @@ export default function ReadingPage() {
                 <LifetimePaywallCTA
                   creditCost={meta?.creditCost ?? 3}
                   currentCredits={userCredits}
-                  hasFreeReading={hasFreeReading}
-                  isSubscriber={isSubscriber}
                   isSignedIn={!!isSignedIn}
                   onUnlock={() => setShowUnlockConfirm(true)}
                   isUnlocking={isUnlocking}
@@ -1465,7 +1554,7 @@ export default function ReadingPage() {
                 isLove ? ["戀愛性格分析", "先天桃花運", "本命姻緣分析", "婚配建議", "對象性格與相貌", "桃花運好的年份", "桃花劫的年份", "感情易變年份"] :
                 ["性格特質", "日主分析", "五行平衡", "十神分布", "大運流年", "神煞解析", "六親關係", "人生指引", "財運分析"]
               }
-              effectiveCost={(hasFreeReading || isSubscriber) ? 0 : (meta?.creditCost ?? 3)}
+              effectiveCost={meta?.creditCost ?? 3}
               currentCredits={userCredits}
             />
 

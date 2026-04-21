@@ -49,7 +49,6 @@ describe('CreditBadge', () => {
     mockGetUserProfile.mockResolvedValue({
       credits: 10,
       subscriptionTier: 'PRO',
-      freeReadingUsed: true,
     });
   });
 
@@ -93,7 +92,6 @@ describe('CreditBadge', () => {
     mockGetUserProfile.mockResolvedValue({
       credits: 999,
       subscriptionTier: 'MASTER',
-      freeReadingUsed: true,
     });
     render(<CreditBadge />);
 
@@ -102,21 +100,6 @@ describe('CreditBadge', () => {
       expect(screen.getByText('999')).toBeInTheDocument();
       const creditLink = screen.getByText('999').closest('a');
       expect(creditLink).toHaveAttribute('href', '/store');
-    });
-  });
-
-  it('shows free trial gift badge when free reading not used', async () => {
-    mockGetUserProfile.mockResolvedValue({
-      credits: 0,
-      subscriptionTier: 'FREE',
-      freeReadingUsed: false,
-    });
-
-    render(<CreditBadge />);
-
-    await waitFor(() => {
-      expect(screen.getByText('免費')).toBeInTheDocument();
-      expect(screen.getByText('🎁')).toBeInTheDocument();
     });
   });
 
@@ -154,7 +137,6 @@ describe('CreditBadge', () => {
     mockGetUserProfile.mockResolvedValue({
       credits: 5,
       subscriptionTier: 'PRO',
-      freeReadingUsed: true,
     });
 
     // Call refresh via ref

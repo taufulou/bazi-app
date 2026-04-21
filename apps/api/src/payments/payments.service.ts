@@ -89,7 +89,6 @@ export class PaymentsService {
     return {
       subscriptionTier: user.subscriptionTier,
       credits: user.credits,
-      freeReadingUsed: user.freeReadingUsed,
       activeSubscription: activeSubscription
         ? {
             planTier: activeSubscription.planTier,

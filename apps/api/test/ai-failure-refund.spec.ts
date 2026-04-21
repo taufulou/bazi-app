@@ -31,7 +31,6 @@ const mockUser = {
   subscriptionTier: 'BASIC',
   credits: 10,
   languagePref: 'ZH_TW',
-  freeReadingUsed: true,
   deviceFingerprint: null,
   createdAt: new Date(),
   updatedAt: new Date(),

@@ -46,7 +46,7 @@ jest.mock('@repo/shared', () => ({
   DEFAULT_PLANS: {
     basic: { priceMonthly: 4.99, priceAnnual: 39.99, readingsPerMonth: 5 },
     pro: { priceMonthly: 9.99, priceAnnual: 79.99, readingsPerMonth: 15 },
-    master: { priceMonthly: 19.99, priceAnnual: 159.99, readingsPerMonth: -1 },
+    master: { priceMonthly: 19.99, priceAnnual: 159.99, readingsPerMonth: 50 },
   },
 }));
 

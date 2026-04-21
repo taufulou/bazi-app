@@ -84,12 +84,9 @@ export class BaziService {
       throw new BadRequestException('This reading type is not currently available');
     }
 
-    // Master tier bypass — truly unlimited, skip credit system entirely
-    const isMaster = user.subscriptionTier === 'MASTER';
-    const canUseFreeTrial = !isMaster && !user.freeReadingUsed;
     const hasEnoughCredits = user.credits >= service.creditCost;
 
-    if (!isMaster && !canUseFreeTrial && !hasEnoughCredits) {
+    if (!hasEnoughCredits) {
       throw new BadRequestException(
         `Insufficient credits. This reading requires ${service.creditCost} credits. ` +
         `You have ${user.credits} credits.`,
@@ -104,7 +101,7 @@ export class BaziService {
     }
 
     try {
-      return await this._executeCreateReading(user, profile, dto, service, isMaster, canUseFreeTrial);
+      return await this._executeCreateReading(user, profile, dto, service);
     } finally {
       await this.redis.releaseLock(lockKey);
     }
@@ -115,12 +112,10 @@ export class BaziService {
    * Separated to keep createReading() clean and testable.
    */
   private async _executeCreateReading(
-    user: { id: string; credits: number; freeReadingUsed: boolean; subscriptionTier: string },
+    user: { id: string; credits: number; subscriptionTier: string },
     profile: { id: string; birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
     dto: CreateReadingDto,
     service: { creditCost: number; type: string },
-    isMaster: boolean,
-    canUseFreeTrial: boolean,
   ) {
     // Generate birth data hash for cache lookup
     const birthDataHash = this.aiService.generateBirthDataHash(
@@ -232,25 +227,14 @@ export class BaziService {
     // else: streaming request — aiInterpretation stays null, will be populated by SSE endpoint
 
     // Cache hit: no credit deduction (user already paid for this interpretation)
-    // Master tier: no credit deduction at all (creditsUsed: 0)
-    // Free trial: claim free reading (creditsUsed: 0)
     // Regular: deduct service.creditCost credits
     const fromCache = !!cachedInterpretation;
-    const creditsUsed = (fromCache || isMaster || canUseFreeTrial) ? 0 : service.creditCost;
+    const creditsUsed = fromCache ? 0 : service.creditCost;
 
     const reading = await this.prisma.$transaction(async (tx) => {
-      if (fromCache || isMaster) {
-        // Cache hit or Master tier: no credit deduction
+      if (fromCache) {
+        // Cache hit: no credit deduction
         // Just proceed to create reading
-      } else if (canUseFreeTrial) {
-        // Atomically claim the free reading — only succeeds if not already used
-        const updated = await tx.user.updateMany({
-          where: { id: user.id, freeReadingUsed: false },
-          data: { freeReadingUsed: true },
-        });
-        if (updated.count === 0) {
-          throw new BadRequestException('Free reading already used');
-        }
       } else {
         // Atomically deduct credits — only succeeds if user has enough
         const updated = await tx.user.updateMany({
@@ -424,15 +408,19 @@ export class BaziService {
     }
 
     try {
-      // 4. Rebuild enriched data from stored calculationData
+      // 4. Rebuild enriched data from stored calculationData.
+      // targetYear is only meaningful for ANNUAL readings; omit for others so
+      // a future prompt template can't accidentally interpolate `undefined`.
       const enrichedData: Record<string, unknown> = {
         ...(reading.calculationData as Record<string, unknown>),
         gender: reading.birthProfile?.gender?.toLowerCase(),
         birthDate: reading.birthProfile?.birthDate?.toISOString().split('T')[0],
         birthTime: reading.birthProfile?.birthTime,
         birthCity: reading.birthProfile?.birthCity || '',
-        targetYear: reading.targetYear ?? undefined,
       };
+      if (reading.readingType === 'ANNUAL' && reading.targetYear != null) {
+        enrichedData.targetYear = reading.targetYear;
+      }
 
       // 5. Delegate to correct V2 streamer based on reading type
       let aiObservable;
@@ -631,12 +619,9 @@ export class BaziService {
       throw new BadRequestException('Compatibility comparison is not currently available');
     }
 
-    // Master tier bypass — truly unlimited
-    const isMaster = user.subscriptionTier === 'MASTER';
-    const canUseFreeTrial = !isMaster && !user.freeReadingUsed;
     const hasEnoughCredits = user.credits >= service.creditCost;
 
-    if (!isMaster && !canUseFreeTrial && !hasEnoughCredits) {
+    if (!hasEnoughCredits) {
       throw new BadRequestException(
         `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
       );
@@ -746,23 +731,13 @@ export class BaziService {
       }
 
       // Cache hit: no credit deduction (user already paid for this interpretation)
-      // Master tier: no credit deduction at all
-      // Free trial: claim free reading (creditsUsed: 0)
       // Regular: deduct service.creditCost credits
-      const creditsUsed = (fromCache || isMaster || canUseFreeTrial) ? 0 : service.creditCost;
+      const creditsUsed = fromCache ? 0 : service.creditCost;
 
       // Atomic transaction to prevent double-spend
       const comparison = await this.prisma.$transaction(async (tx) => {
-        if (fromCache || isMaster) {
-          // Cache hit or Master tier: no credit deduction
-        } else if (canUseFreeTrial) {
-          const updated = await tx.user.updateMany({
-            where: { id: user.id, freeReadingUsed: false },
-            data: { freeReadingUsed: true },
-          });
-          if (updated.count === 0) {
-            throw new BadRequestException('Free reading already used');
-          }
+        if (fromCache) {
+          // Cache hit: no credit deduction
         } else {
           const updated = await tx.user.updateMany({
             where: { id: user.id, credits: { gte: service.creditCost } },
@@ -916,11 +891,10 @@ export class BaziService {
       throw new BadRequestException('此合盤分析已是最新年份');
     }
 
-    // Charge 1 credit (unless Master tier)
+    // Charge 1 credit
     const recalcCost = 1;
-    const isMaster = user.subscriptionTier === 'MASTER';
 
-    if (!isMaster && user.credits < recalcCost) {
+    if (user.credits < recalcCost) {
       throw new BadRequestException(
         `Insufficient credits. Re-calculation requires ${recalcCost} credit.`,
       );
@@ -987,14 +961,12 @@ export class BaziService {
 
     // Atomic update: deduct credit + update comparison
     const updated = await this.prisma.$transaction(async (tx) => {
-      if (!isMaster) {
-        const deducted = await tx.user.updateMany({
-          where: { id: user.id, credits: { gte: recalcCost } },
-          data: { credits: { decrement: recalcCost } },
-        });
-        if (deducted.count === 0) {
-          throw new BadRequestException('Insufficient credits');
-        }
+      const deducted = await tx.user.updateMany({
+        where: { id: user.id, credits: { gte: recalcCost } },
+        data: { credits: { decrement: recalcCost } },
+      });
+      if (deducted.count === 0) {
+        throw new BadRequestException('Insufficient credits');
       }
 
       return tx.baziComparison.update({

@@ -54,17 +54,17 @@ const PLANS: PlanInfo[] = [
   {
     key: "master",
     name: "Master",
-    description: "無限制使用，專為命理愛好者打造",
+    description: "每月 50 次解讀，專為命理愛好者打造",
     features: [
-      "無限次數命理解讀",
+      "50 次命理解讀/月",
       "全部功能完整開放",
       "搶先體驗新功能",
       "PDF 報告匯出",
       "最高優先 AI 分析引擎",
       "專屬 VIP 客服通道",
-      "合盤比較無限次數",
+      "合盤比較最多 ~16 次/月",
     ],
-    readingsLabel: "無限次解讀",
+    readingsLabel: "50 次解讀/月",
     isRecommended: false,
   },
 ];
@@ -72,7 +72,7 @@ const PLANS: PlanInfo[] = [
 // Comparison table rows: [featureLabel, free, basic, pro, master]
 type ComparisonValue = string | boolean;
 const COMPARISON_ROWS: [string, ComparisonValue, ComparisonValue, ComparisonValue, ComparisonValue][] = [
-  ["每月解讀次數", "1 次（終身）", "5 次", "15 次", "無限"],
+  ["每月解讀次數", "1 次（終身）", "5 次", "15 次", "50 次"],
   ["八字終身運", "預覽", true, true, true],
   ["流年運勢", false, "基礎", "進階", "進階"],
   ["八字事業詳批", false, false, true, true],

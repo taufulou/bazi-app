@@ -16,8 +16,6 @@
  *   POST /api/payments/portal                — Create customer portal session
  *   POST /api/payments/cancel                — Cancel subscription
  *   POST /api/payments/reactivate            — Reactivate cancelled subscription
- *   GET  /api/payments/free-reading           — Check free reading availability
- *   POST /api/payments/free-reading/use       — Mark free reading as used
  *   POST /api/readings/:id/unlock-section     — Unlock a specific section
  *   GET  /api/readings/:id/unlocked-sections  — Get unlocked sections for a reading
  */
@@ -302,24 +300,6 @@ export class PaymentsController {
     @Body() dto: UpgradeSubscriptionDto,
   ) {
     return this.stripeService.upgradeSubscription(auth.userId, dto.planSlug, dto.billingCycle);
-  }
-
-  // ============ Free Reading ============
-
-  @Get('free-reading')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Check if user can use free reading' })
-  async checkFreeReading(@CurrentUser() auth: AuthPayload) {
-    const canUse = await this.stripeService.canUseFreeReading(auth.userId);
-    return { available: canUse };
-  }
-
-  @Post('free-reading/use')
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Mark free reading as used' })
-  async useFreeReading(@CurrentUser() auth: AuthPayload) {
-    await this.stripeService.markFreeReadingUsed(auth.userId);
-    return { success: true };
   }
 
   // ============ Section Unlock ============

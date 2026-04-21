@@ -172,10 +172,8 @@ export default function CreditStorePage() {
         <div className={styles.balanceCard}>
           <span className={styles.balanceLabel}>目前點數餘額</span>
           <span className={styles.balanceValue}>
-            {profile.subscriptionTier === "MASTER" ? "無限" : profile.credits}
-            {profile.subscriptionTier !== "MASTER" && (
-              <span className={styles.balanceUnit}>點</span>
-            )}
+            {profile.credits}
+            <span className={styles.balanceUnit}>點</span>
           </span>
         </div>
       )}

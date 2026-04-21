@@ -37,7 +37,7 @@ async function main() {
   const plans = [
     { slug: 'basic', nameZhTw: '基礎版', nameZhCn: '基础版', priceMonthly: 4.99, priceAnnual: 39.99, currency: 'USD', features: ['5 detailed readings/month', 'Full 八字終身運', 'Basic 流年運勢'], readingsPerMonth: 5, monthlyCredits: 5, sortOrder: 1 },
     { slug: 'pro', nameZhTw: '專業版', nameZhCn: '专业版', priceMonthly: 9.99, priceAnnual: 79.99, currency: 'USD', features: ['15 readings/month', 'All reading types', 'PDF export', 'Priority AI'], readingsPerMonth: 15, monthlyCredits: 15, sortOrder: 2 },
-    { slug: 'master', nameZhTw: '大師版', nameZhCn: '大师版', priceMonthly: 19.99, priceAnnual: 159.99, currency: 'USD', features: ['Unlimited readings', 'Partner compatibility', 'Advanced analysis', 'Early access features'], readingsPerMonth: -1, monthlyCredits: -1, sortOrder: 3 },
+    { slug: 'master', nameZhTw: '大師版', nameZhCn: '大师版', priceMonthly: 19.99, priceAnnual: 159.99, currency: 'USD', features: ['50 readings/month', 'Partner compatibility', 'Advanced analysis', 'Early access features'], readingsPerMonth: 50, monthlyCredits: 50, sortOrder: 3 },
   ];
 
   for (const plan of plans) {

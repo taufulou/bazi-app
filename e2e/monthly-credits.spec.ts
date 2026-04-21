@@ -48,8 +48,8 @@ const MOCK_MONTHLY_CREDITS_FREE = {
 };
 
 const MOCK_MONTHLY_CREDITS_MASTER = {
-  currentPeriodCreditsGranted: 0,
-  creditsRemaining: 999,
+  currentPeriodCreditsGranted: 50,
+  creditsRemaining: 50,
   nextResetDate: '2026-03-01T00:00:00.000Z',
   lastGrantDate: null,
   periodStart: null,
@@ -60,32 +60,28 @@ const MOCK_USER_PRO = {
   id: 'user-pro',
   credits: 10,
   subscriptionTier: 'PRO',
-  freeReadingUsed: true,
-  name: 'Pro User',
+  name:'Pro User',
 };
 
 const MOCK_USER_BASIC = {
   id: 'user-basic',
   credits: 2,
   subscriptionTier: 'BASIC',
-  freeReadingUsed: true,
-  name: 'Basic User',
+  name:'Basic User',
 };
 
 const MOCK_USER_FREE = {
   id: 'user-free',
   credits: 0,
   subscriptionTier: 'FREE',
-  freeReadingUsed: true,
-  name: 'Free User',
+  name:'Free User',
 };
 
 const MOCK_USER_MASTER = {
   id: 'user-master',
-  credits: 999,
+  credits: 50,
   subscriptionTier: 'MASTER',
-  freeReadingUsed: true,
-  name: 'Master User',
+  name:'Master User',
 };
 
 const MOCK_SUBSCRIPTION_PRO = {
@@ -179,7 +175,7 @@ test.describe('Subscription Page - Monthly Credits Display', () => {
     }
   });
 
-  test('Master subscriber sees 無限 for credits', async ({ page }) => {
+  test('Master subscriber sees real credit balance (no unlimited bypass)', async ({ page }) => {
     await page.route('**/api/users/me', (route) =>
       route.fulfill({
         status: 200,
@@ -201,8 +197,9 @@ test.describe('Subscription Page - Monthly Credits Display', () => {
     if (response && response.status() === 200) {
       const pageContent = await page.content();
       if (pageContent.includes('訂閱管理')) {
-        // Master tier should show 無限 instead of a number
-        await expect(page.getByText('無限')).toBeVisible();
+        // Master tier now shows real credit count, not "無限"
+        await expect(page.getByText(String(MOCK_USER_MASTER.credits))).toBeVisible();
+        await expect(page.getByText('無限')).not.toBeVisible();
       }
     }
   });
@@ -391,79 +388,6 @@ test.describe('Subscription Page - Tier Badge', () => {
 // ============================================================
 // Free Reading Status
 // ============================================================
-
-test.describe('Subscription Page - Free Reading Status', () => {
-  test('shows free reading as available when not used', async ({ page }) => {
-    await page.route('**/api/users/me', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          ...MOCK_USER_FREE,
-          freeReadingUsed: false,
-        }),
-      })
-    );
-
-    await page.route('**/api/payments/subscription', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          subscribed: false,
-          plan: null,
-          status: null,
-          currentPeriodEnd: null,
-          cancelAtPeriodEnd: false,
-        }),
-      })
-    );
-
-    const response = await page.goto('/dashboard/subscription');
-
-    if (response && response.status() === 200) {
-      const pageContent = await page.content();
-      if (pageContent.includes('訂閱管理')) {
-        await expect(page.getByText('免費體驗')).toBeVisible();
-        await expect(page.getByText('1 次可用')).toBeVisible();
-      }
-    }
-  });
-
-  test('shows free reading as used', async ({ page }) => {
-    await page.route('**/api/users/me', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(MOCK_USER_FREE),
-      })
-    );
-
-    await page.route('**/api/payments/subscription', (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          subscribed: false,
-          plan: null,
-          status: null,
-          currentPeriodEnd: null,
-          cancelAtPeriodEnd: false,
-        }),
-      })
-    );
-
-    const response = await page.goto('/dashboard/subscription');
-
-    if (response && response.status() === 200) {
-      const pageContent = await page.content();
-      if (pageContent.includes('訂閱管理')) {
-        await expect(page.getByText('免費體驗')).toBeVisible();
-        await expect(page.getByText('已使用')).toBeVisible();
-      }
-    }
-  });
-});
 
 // ============================================================
 // Cancelled Subscription
@@ -743,9 +667,9 @@ test.describe('Monthly Credits API - Route Verification', () => {
     expect(MOCK_MONTHLY_CREDITS_FREE.nextResetDate).toBeNull();
     expect(MOCK_MONTHLY_CREDITS_FREE.creditsRemaining).toBe(0);
 
-    // Master has high credits but no period info (unlimited bypass)
-    expect(MOCK_MONTHLY_CREDITS_MASTER.currentPeriodCreditsGranted).toBe(0);
-    expect(MOCK_MONTHLY_CREDITS_MASTER.creditsRemaining).toBe(999);
+    // Master receives 50 credits per billing period (finite, not unlimited)
+    expect(MOCK_MONTHLY_CREDITS_MASTER.currentPeriodCreditsGranted).toBe(50);
+    expect(MOCK_MONTHLY_CREDITS_MASTER.creditsRemaining).toBe(50);
   });
 
   test('tier credit amounts match plan configuration', () => {
@@ -755,8 +679,8 @@ test.describe('Monthly Credits API - Route Verification', () => {
     // Pro: 15 monthly credits
     expect(MOCK_MONTHLY_CREDITS_PRO.currentPeriodCreditsGranted).toBe(15);
 
-    // Master: 0 (unlimited bypass, no credit tracking)
-    expect(MOCK_MONTHLY_CREDITS_MASTER.currentPeriodCreditsGranted).toBe(0);
+    // Master: 50 monthly credits
+    expect(MOCK_MONTHLY_CREDITS_MASTER.currentPeriodCreditsGranted).toBe(50);
 
     // Free: 0 (no subscription)
     expect(MOCK_MONTHLY_CREDITS_FREE.currentPeriodCreditsGranted).toBe(0);

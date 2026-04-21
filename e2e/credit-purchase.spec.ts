@@ -63,18 +63,6 @@ const MOCK_CREDIT_CHECKOUT = {
   url: 'https://checkout.stripe.com/pay/cs_credit_123',
 };
 
-const MOCK_FREE_READING_AVAILABLE = {
-  available: true,
-};
-
-const MOCK_FREE_READING_USED = {
-  available: false,
-};
-
-const MOCK_FREE_READING_USE_RESULT = {
-  success: true,
-};
-
 // ============================================================
 // Helpers
 // ============================================================
@@ -98,32 +86,6 @@ async function interceptCreditCheckout(page: import('@playwright/test').Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(MOCK_CREDIT_CHECKOUT),
-    }),
-  );
-}
-
-async function interceptFreeReading(
-  page: import('@playwright/test').Page,
-  available = true,
-) {
-  await page.route('**/api/payments/free-reading', (route) => {
-    if (route.request().method() === 'GET') {
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(available ? MOCK_FREE_READING_AVAILABLE : MOCK_FREE_READING_USED),
-      });
-    }
-    return route.continue();
-  });
-}
-
-async function interceptFreeReadingUse(page: import('@playwright/test').Page) {
-  await page.route('**/api/payments/free-reading/use', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify(MOCK_FREE_READING_USE_RESULT),
     }),
   );
 }
@@ -282,56 +244,5 @@ test.describe('Credit Purchase — Checkout Session', () => {
     expect(capturedBody).toBeDefined();
     const parsed = JSON.parse(capturedBody!);
     expect(parsed.packageSlug).toBe('popular-30');
-  });
-});
-
-// ============================================================
-// Tests: Free Reading
-// ============================================================
-
-test.describe('Credit Purchase — Free Reading', () => {
-  test('GET free-reading returns available=true for new users', async ({ page }) => {
-    await interceptFreeReading(page, true);
-
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
-
-    const result = await page.evaluate(async () => {
-      const res = await fetch('/api/payments/free-reading');
-      return res.json();
-    });
-
-    expect(result.available).toBe(true);
-  });
-
-  test('GET free-reading returns available=false after use', async ({ page }) => {
-    await interceptFreeReading(page, false);
-
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
-
-    const result = await page.evaluate(async () => {
-      const res = await fetch('/api/payments/free-reading');
-      return res.json();
-    });
-
-    expect(result.available).toBe(false);
-  });
-
-  test('POST free-reading/use marks free reading as used', async ({ page }) => {
-    await interceptFreeReadingUse(page);
-
-    await page.goto('/');
-    await page.waitForLoadState('domcontentloaded');
-
-    const result = await page.evaluate(async () => {
-      const res = await fetch('/api/payments/free-reading/use', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-      return res.json();
-    });
-
-    expect(result.success).toBe(true);
   });
 });

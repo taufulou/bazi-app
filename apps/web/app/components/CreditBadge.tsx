@@ -26,7 +26,6 @@ const CreditBadge = forwardRef<CreditBadgeHandle, CreditBadgeProps>(function Cre
   const { getToken, isSignedIn, isLoaded } = useAuth();
   const [credits, setCredits] = useState<number | null>(null);
   const [tier, setTier] = useState<string>("FREE");
-  const [freeReadingUsed, setFreeReadingUsed] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchProfile = useCallback(async () => {
@@ -36,7 +35,6 @@ const CreditBadge = forwardRef<CreditBadgeHandle, CreditBadgeProps>(function Cre
       const profile = await getUserProfile(token);
       setCredits(profile.credits);
       setTier(profile.subscriptionTier);
-      setFreeReadingUsed(profile.freeReadingUsed);
     } catch {
       // Silent — don't show badge if API unreachable
     }
@@ -101,11 +99,6 @@ const CreditBadge = forwardRef<CreditBadgeHandle, CreditBadgeProps>(function Cre
             <span className={styles.creditCount}>{credits}</span>
           </span>
         </Link>
-        {!freeReadingUsed && (
-          <Link href="/store" className={styles.freeBadgeLink} aria-label="免費體驗可用">
-            <span className={styles.freeBadge} title="免費體驗可用">🎁</span>
-          </Link>
-        )}
       </div>
       {showPricing && (
         <Link href="/pricing" className={styles.pricingLink}>

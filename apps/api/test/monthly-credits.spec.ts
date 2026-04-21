@@ -114,7 +114,6 @@ const MOCK_USER = {
   name: 'Test User',
   subscriptionTier: 'PRO',
   credits: 10,
-  freeReadingUsed: true,
 };
 
 const PERIOD_START = new Date('2026-01-01T00:00:00.000Z');
@@ -140,7 +139,7 @@ const MOCK_MASTER_PLAN = {
   id: 'plan-master',
   slug: 'master',
   nameZhTw: '大師版',
-  monthlyCredits: -1,
+  monthlyCredits: 50,
   isActive: true,
 };
 
@@ -203,16 +202,19 @@ describe('Monthly Credits', () => {
       });
     });
 
-    it('should skip grant for Master tier (unlimited bypass)', async () => {
+    it('should grant 50 credits for Master tier', async () => {
       mockPrisma.plan.findFirst.mockResolvedValue(MOCK_MASTER_PLAN);
+      mockPrisma.monthlyCreditsLog.findFirst.mockResolvedValue(null);
 
       const result = await stripeService.grantMonthlyCredits(
         'user-123', 'MASTER', PERIOD_START, PERIOD_END,
       );
 
-      expect(result).toEqual({ granted: false, creditsGranted: 0 });
-      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
-      expect(mockTxMonthlyCreditsLog.create).not.toHaveBeenCalled();
+      expect(result).toEqual({ granted: true, creditsGranted: 50 });
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ creditAmount: 50 }),
+      });
     });
 
     it('should skip grant for unknown tier', async () => {
@@ -351,7 +353,7 @@ describe('Monthly Credits', () => {
       });
     });
 
-    it('should not grant credits for Master subscription (unlimited bypass)', async () => {
+    it('should grant 50 credits for Master subscription on checkout', async () => {
       const session = {
         id: 'cs_master',
         mode: 'subscription',
@@ -379,12 +381,15 @@ describe('Monthly Credits', () => {
       mockPrisma.user.update.mockResolvedValue({});
       mockPrisma.transaction.create.mockResolvedValue({});
       mockPrisma.plan.findFirst.mockResolvedValue(MOCK_MASTER_PLAN);
+      mockPrisma.monthlyCreditsLog.findFirst.mockResolvedValue(null);
 
       await stripeService.handleCheckoutCompleted(session);
 
-      // $transaction should NOT be called for Master tier monthly credits
-      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
-      expect(mockTxMonthlyCreditsLog.create).not.toHaveBeenCalled();
+      // $transaction IS called for Master monthly credits (no more bypass)
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ creditAmount: 50 }),
+      });
     });
   });
 
@@ -659,15 +664,18 @@ describe('Monthly Credits', () => {
       expect(result.creditsGranted).toBe(15);
     });
 
-    it('Master tier should get 0 credits (unlimited bypass)', async () => {
+    it('Master tier should get 50 credits', async () => {
       mockPrisma.plan.findFirst.mockResolvedValue(MOCK_MASTER_PLAN);
+      mockPrisma.monthlyCreditsLog.findFirst.mockResolvedValue(null);
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
       const result = await stripeService.grantMonthlyCredits(
         'user-123', 'MASTER', PERIOD_START, PERIOD_END,
       );
 
-      expect(result.creditsGranted).toBe(0);
-      expect(result.granted).toBe(false);
+      expect(result.creditsGranted).toBe(50);
+      expect(result.granted).toBe(true);
     });
 
     it('FREE tier should skip (no slug mapping)', async () => {
@@ -766,6 +774,9 @@ describe('Monthly Credits', () => {
 
     it('should look up master plan correctly', async () => {
       mockPrisma.plan.findFirst.mockResolvedValue(MOCK_MASTER_PLAN);
+      mockPrisma.monthlyCreditsLog.findFirst.mockResolvedValue(null);
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
       await stripeService.grantMonthlyCredits(
         'user-123', 'MASTER', PERIOD_START, PERIOD_END,
