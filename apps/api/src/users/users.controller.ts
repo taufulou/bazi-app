@@ -90,11 +90,13 @@ export class UsersController {
   @ApiOperation({ summary: 'Get reading history for current user' })
   @ApiQuery({ name: 'page', required: false, example: 1 })
   @ApiQuery({ name: 'limit', required: false, example: 20 })
+  @ApiQuery({ name: 'type', required: false, example: 'LIFETIME' })
   async getReadingHistory(
     @CurrentUser() auth: AuthPayload,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+    @Query('type') type?: string,
   ) {
-    return this.usersService.getReadingHistory(auth.userId, page, limit);
+    return this.usersService.getReadingHistory(auth.userId, page, limit, type);
   }
 }
