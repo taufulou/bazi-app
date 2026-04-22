@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { Observable, Subscriber } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { CreditsService } from '../credits/credits.service';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
 import {
   READING_PROMPTS,
@@ -84,6 +85,45 @@ interface ProviderConfig {
 }
 
 // ============================================================
+// AI retry + degrade configuration (named constants)
+// ============================================================
+
+/** Max retries per provider for transient errors (529 overloaded, 429 rate limit, 5xx). */
+export const AI_MAX_RETRIES_PER_PROVIDER = 3;
+
+/** Total time budget across ALL providers + retries before giving up. Configurable via env. */
+export const AI_MAX_TOTAL_TIME_MS = parseInt(
+  process.env.MAX_TOTAL_AI_TIME_MS ?? '300000', // 5 min default
+  10,
+);
+
+/** Cap on Retry-After header value (don't sleep > 30s even if API asks). */
+export const AI_RETRY_AFTER_CAP_MS = 30000;
+
+/** Max free regenerations of a degraded reading. */
+export const REGENERATION_LIMIT = 3;
+
+/** Per-reading-type degrade-vs-refund thresholds. */
+interface DegradeThresholdConfig {
+  /** Call 2 completion ratio required to mark as 'degraded' (else 'failed'). */
+  call2CompletionMin: number;
+  /** Total completion ratio required to mark as 'degraded' (else 'failed'). */
+  totalCompletionMin: number;
+  /** If true, Call 2 = 0 sections → always 'failed' regardless of Call 1. */
+  call2Critical: boolean;
+}
+
+export const DEGRADE_THRESHOLDS: Record<string, DegradeThresholdConfig> = {
+  // Per ReadingType key (use ReadingType.* enum values as the lookup key)
+  CAREER:        { call2CompletionMin: 0.8, totalCompletionMin: 0.5, call2Critical: true },
+  LIFETIME:      { call2CompletionMin: 0.7, totalCompletionMin: 0.6, call2Critical: true },
+  ANNUAL:        { call2CompletionMin: 0.7, totalCompletionMin: 0.6, call2Critical: true },
+  COMPATIBILITY: { call2CompletionMin: 0.5, totalCompletionMin: 0.5, call2Critical: false },
+  // Default fallback for any other reading type
+  DEFAULT:       { call2CompletionMin: 0.7, totalCompletionMin: 0.6, call2Critical: true },
+};
+
+// ============================================================
 // AI Service
 // ============================================================
 
@@ -100,6 +140,7 @@ export class AIService implements OnModuleInit {
     private configService: ConfigService,
     private prisma: PrismaService,
     private redis: RedisService,
+    private creditsService: CreditsService,
   ) {}
 
   async onModuleInit() {
@@ -214,16 +255,21 @@ export class AIService implements OnModuleInit {
       promptVariant,
     );
 
-    // Try each provider in order
+    // Try each provider in order, with per-provider retry on transient errors.
+    // Total time across all providers + retries bounded by AI_MAX_TOTAL_TIME_MS.
     let lastError: Error | undefined;
+    const totalStartMs = Date.now();
     for (const providerConfig of this.providers) {
       try {
         const startTime = Date.now();
 
-        const result = await this.callProvider(
+        // Use callProviderWithRetry — handles 529/429/5xx with backoff.
+        const result = await this.callProviderWithRetry(
           providerConfig,
           systemPrompt,
           userPrompt,
+          providerConfig.timeoutMs,
+          { totalStartMs },
         );
 
         const latencyMs = Date.now() - startTime;
@@ -686,6 +732,109 @@ export class AIService implements OnModuleInit {
   }
 
   // ============================================================
+  // Retry helpers — added by ai-retry-and-credit-refund plan
+  // ============================================================
+
+  /**
+   * Determine whether an error is retryable on the SAME provider.
+   * Prefers SDK's `error.status` numeric field; falls back to message regex.
+   */
+  isRetryableError(err: unknown): boolean {
+    if (!(err instanceof Error)) return false;
+
+    // Prefer SDK's typed status
+    const statusFromError = (err as any).status as number | undefined;
+    if (typeof statusFromError === 'number') {
+      if (statusFromError === 429 || statusFromError === 529) return true;
+      if (statusFromError >= 500 && statusFromError < 600) return true;
+      if (statusFromError >= 400 && statusFromError < 500) return false; // 4xx don't retry
+    }
+
+    // Fallback: pattern match on message
+    const msg = err.message.toLowerCase();
+    if (msg.includes('overloaded_error') || msg.includes('overloaded')) return true;
+    if (msg.includes('rate_limit_error') || msg.includes('rate limit')) return true;
+    if (msg.includes('"type":"overloaded_error"') || msg.includes('"type":"rate_limit_error"')) return true;
+    // Network blips
+    if (msg.includes('econnreset') || msg.includes('etimedout') || msg.includes('socket hang up')) return true;
+    if (msg.includes('apiconnectionerror') || msg.includes('connection error')) return true;
+    // AbortError is intentionally NOT retried (caller asked us to stop)
+    return false;
+  }
+
+  /**
+   * Compute backoff delay for an attempt. Honors Retry-After if present.
+   * Uses AWS-pattern full positive jitter to avoid retry storm.
+   */
+  computeBackoff(attempt: number, err: Error): number {
+    const retryAfterMatch = err.message.match(/retry[- ]after[:\s]+(\d+)/i);
+    if (retryAfterMatch) {
+      return Math.min(parseInt(retryAfterMatch[1], 10) * 1000, AI_RETRY_AFTER_CAP_MS);
+    }
+    // Full positive jitter: random(0, 2^attempt * 1000)
+    return Math.floor(Math.random() * Math.pow(2, attempt) * 1000);
+  }
+
+  /**
+   * Short user-safe summary of an error for `retry_attempt` SSE events.
+   */
+  summarizeError(err: Error): string {
+    const msg = err.message.toLowerCase();
+    if (msg.includes('overloaded')) return 'AI service is busy';
+    if (msg.includes('rate_limit') || msg.includes('429')) return 'AI rate limit reached';
+    if (msg.includes('timeout') || msg.includes('etimedout')) return 'AI service slow to respond';
+    return 'transient AI error';
+  }
+
+  /**
+   * Wrap a non-streaming provider call with retry logic.
+   * Retries up to maxRetries on retryable errors with exponential backoff.
+   * Respects total time budget via totalStartMs + maxTotalMs.
+   *
+   * For STREAMING calls, see the caller-side retry pattern in
+   * `_executeStreamCareerV2` etc. (cannot retry mid-stream after first chunk yielded).
+   */
+  private async callProviderWithRetry(
+    config: ProviderConfig,
+    systemPrompt: string,
+    userPrompt: string,
+    timeoutMs: number,
+    options?: {
+      totalStartMs?: number;
+      maxTotalMs?: number;
+      maxRetries?: number;
+      onRetry?: (attempt: number, max: number, reason: string) => void;
+    },
+  ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
+    const totalStartMs = options?.totalStartMs ?? Date.now();
+    const maxTotalMs = options?.maxTotalMs ?? AI_MAX_TOTAL_TIME_MS;
+    const maxRetries = options?.maxRetries ?? AI_MAX_RETRIES_PER_PROVIDER;
+
+    let lastErr: Error | undefined;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      if (Date.now() - totalStartMs > maxTotalMs) {
+        throw lastErr ?? new Error('AI total time budget exceeded');
+      }
+      try {
+        return await this.callProviderWithTimeout(config, systemPrompt, userPrompt, timeoutMs);
+      } catch (err) {
+        lastErr = err instanceof Error ? err : new Error(String(err));
+        if (!this.isRetryableError(lastErr) || attempt === maxRetries) {
+          throw lastErr;
+        }
+        const backoff = this.computeBackoff(attempt, lastErr);
+        const reason = this.summarizeError(lastErr);
+        options?.onRetry?.(attempt + 1, maxRetries, reason);
+        this.logger.warn(
+          `Provider ${config.provider} attempt ${attempt}/${maxRetries} failed (${lastErr.message}); retrying in ${backoff}ms`,
+        );
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+    }
+    throw lastErr!;
+  }
+
+  // ============================================================
   // Lifetime V2 SSE Streaming
   // ============================================================
 
@@ -716,8 +865,56 @@ export class AIService implements OnModuleInit {
     readingId: string,
     subscriber: Subscriber<MessageEvent>,
   ) {
-    const startTime = Date.now();
-    // Streaming V2 timeout: default 180s (sections are capped at ~200-450 chars each)
+    await this._executeStreamV2Common({
+      calculationData,
+      readingId,
+      subscriber,
+      readingType: ReadingType.LIFETIME,
+      promptsBuilder: () => this.buildLifetimeV2Prompts(calculationData),
+      call1SectionKeys: LIFETIME_V2_PROMPTS.call1Sections as string[],
+      call2ExpectedKeysProvider: () => LIFETIME_V2_PROMPTS.call2Sections as string[],
+      enhancedInsightsKey: 'lifetimeEnhancedInsights',
+      autoFixCallback: undefined, // no Lifetime-specific auto-fix
+    });
+  }
+
+  // ============================================================
+  // Shared V2 SSE streaming helper
+  // Implements the retry + refund + degrade pattern from
+  // ai-retry-and-credit-refund plan §Part 2-4.
+  // ============================================================
+  private async _executeStreamV2Common(opts: {
+    calculationData: Record<string, unknown>;
+    readingId: string;
+    subscriber: Subscriber<MessageEvent>;
+    readingType: ReadingType;
+    promptsBuilder: () => { systemPrompt: string; userPromptCall1: string; userPromptCall2: string };
+    call1SectionKeys: string[];
+    /** Returns expected Call 2 section keys; called once per execution. */
+    call2ExpectedKeysProvider: () => string[];
+    enhancedInsightsKey: string;
+    /** Optional reading-specific auto-fix applied AFTER autoFixSection. */
+    autoFixCallback?: (key: string, section: InterpretationSection, calc: Record<string, unknown>) => InterpretationSection;
+    /** Optional Call 2 parser (default: parseLifetimeV2CallResponse). Annual V2 needs its own. */
+    call2Parser?: (content: string) => { sections: Record<string, InterpretationSection>; summary?: InterpretationSection };
+    /** Optional summary extractor for Call 1 buffer (default: parseLifetimeV2CallResponse summary). */
+    summaryExtractor?: (buffer: string) => InterpretationSection | null;
+    /** Optional builder for deterministic data (default: camelCase of enhancedInsights.deterministic). */
+    deterministicBuilder?: (calc: Record<string, unknown>) => Record<string, unknown>;
+    /** Optional targetYear for cache key (Annual readings). */
+    cacheTargetYear?: number;
+    /** Whether to include score field in section_complete emits (default true). */
+    includeScore?: boolean;
+  }): Promise<void> {
+    const {
+      calculationData, readingId, subscriber, readingType,
+      promptsBuilder, call1SectionKeys, call2ExpectedKeysProvider,
+      enhancedInsightsKey, autoFixCallback,
+      call2Parser, summaryExtractor, deterministicBuilder,
+      cacheTargetYear, includeScore = true,
+    } = opts;
+
+    const totalStartMs = Date.now();
     const timeoutMs = parseInt(
       this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
       this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '180000',
@@ -728,10 +925,12 @@ export class AIService implements OnModuleInit {
       throw new Error('No AI providers configured');
     }
 
-    const { systemPrompt, userPromptCall1, userPromptCall2 } =
-      this.buildLifetimeV2Prompts(calculationData);
+    const { systemPrompt, userPromptCall1, userPromptCall2 } = promptsBuilder();
+    const call2ExpectedKeys = call2ExpectedKeysProvider();
+    const expectedCall1Count = call1SectionKeys.length;
+    const expectedCall2Count = call2ExpectedKeys.length;
+    const expectedTotal = expectedCall1Count + expectedCall2Count;
 
-    // Heartbeat every 15s to prevent proxy timeouts
     const heartbeatInterval = setInterval(() => {
       try {
         subscriber.next({ data: '', type: 'heartbeat' } as MessageEvent);
@@ -740,230 +939,318 @@ export class AIService implements OnModuleInit {
       }
     }, 15000);
 
-    // Declare timeout handles outside loop so finally can reference the latest pair
-    let call1Timeout: ReturnType<typeof setTimeout> | undefined;
-    let call2Timeout: ReturnType<typeof setTimeout> | undefined;
-    let totalSections = 0;
+    let call1Timeout!: ReturnType<typeof setTimeout>;
+
+    // Accumulators OUTSIDE providers loop (preserved across retries + fallbacks)
+    const call1Sections: Record<string, InterpretationSection> = {};
+    let call2FixedSections: Record<string, InterpretationSection> = {};
+    const emittedKeys = new Set<string>();
+    let call1Summary: InterpretationSection = { preview: '', full: '' };
+    let activeProviderConfig = this.providers[0]!;
+
+    const fixSection = (key: string, raw: InterpretationSection): InterpretationSection => {
+      const { section } = this.autoFixSection(key, raw, calculationData);
+      return autoFixCallback ? autoFixCallback(key, section, calculationData) : section;
+    };
 
     try {
-      // Try each provider in order (fallback chain: Claude → GPT-4o → Gemini)
-      let v2Succeeded = false;
-      let activeProviderConfig = this.providers[0]; // track for DB/logging
-
       for (const providerConfig of this.providers) {
-        // Fresh AbortControllers per provider attempt
-        const call1Controller = new AbortController();
-        const call2Controller = new AbortController();
-        call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
-        call2Timeout = setTimeout(() => call2Controller.abort(), timeoutMs);
         activeProviderConfig = providerConfig;
+        const haveCall1 = Object.keys(call1Sections).length === expectedCall1Count;
+        const haveCall2 = Object.keys(call2FixedSections).length === expectedCall2Count;
+        if (haveCall1 && haveCall2) break;
 
-        try {
-          // Fire Call 2 (non-streaming) in parallel
-          const call2Promise = this.callProvider(
-            providerConfig, systemPrompt, userPromptCall2, call2Controller.signal,
+        // ============ Call 2: non-streaming, with retry ============
+        let call2Promise: Promise<{ content: string; inputTokens: number; outputTokens: number } | null>;
+        if (haveCall2) {
+          call2Promise = Promise.resolve(null);
+        } else {
+          call2Promise = this.callProviderWithRetry(
+            providerConfig, systemPrompt, userPromptCall2, timeoutMs,
+            {
+              totalStartMs,
+              maxRetries: AI_MAX_RETRIES_PER_PROVIDER,
+              onRetry: (attempt, max, reason) => {
+                subscriber.next({
+                  data: JSON.stringify({ provider: providerConfig.provider, attempt, max, reason, call: 2 }),
+                  type: 'retry_attempt',
+                } as MessageEvent);
+              },
+            },
           ).catch((err) => {
-            this.logger.warn(`Stream Call 2 failed (${providerConfig.provider}): ${err instanceof Error ? err.message : err}`);
+            this.logger.warn(`${readingType} V2 Call 2 final failure (${providerConfig.provider}): ${err instanceof Error ? err.message : err}`);
             return null;
           });
+        }
 
-          // Call 1: streaming with progressive section extraction
-          const call1Sections: Record<string, InterpretationSection> = {};
-          let call1Summary: InterpretationSection = { preview: '', full: '' };
-          let call1Buffer = '';
-          let call1OutputTokens = 0;
+        // ============ Call 1: streaming, with caller-side retry ============
+        if (!haveCall1) {
+          let call1Err: Error | undefined;
 
-          try {
-            const streamGen = this.streamProvider(
-              providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
-            );
+          for (let attempt = 1; attempt <= AI_MAX_RETRIES_PER_PROVIDER; attempt++) {
+            if (Date.now() - totalStartMs > AI_MAX_TOTAL_TIME_MS) {
+              this.logger.warn(`${readingType} V2 Call 1: total budget exceeded; abandoning retries on ${providerConfig.provider}`);
+              break;
+            }
 
-            const extractedKeys = new Set<string>();
+            let call1Buffer = '';
+            const call1ExtractedKeys = new Set<string>();
+            let yieldedAny = false;
+            const call1Controller = new AbortController();
+            call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
 
-            for await (const chunk of streamGen) {
-              call1Buffer += chunk;
-
-              // Progressive extraction: try to extract completed sections
-              const newSections = this.extractCompletedSections(
-                call1Buffer,
-                LIFETIME_V2_PROMPTS.call1Sections,
-                extractedKeys,
+            try {
+              const streamGen = this.streamProvider(
+                providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
               );
 
-              for (const [key, rawSection] of Object.entries(newSections)) {
-                // Apply auto-fix before emitting
-                const { section } = this.autoFixSection(key, rawSection, calculationData);
+              for await (const chunk of streamGen) {
+                yieldedAny = true;
+                call1Buffer += chunk;
+                const newSections = this.extractCompletedSections(
+                  call1Buffer, call1SectionKeys, call1ExtractedKeys,
+                );
+                for (const [key, rawSection] of Object.entries(newSections)) {
+                  if (emittedKeys.has(key)) continue;
+                  const section = fixSection(key, rawSection);
+                  call1Sections[key] = section;
+                  emittedKeys.add(key);
+                  subscriber.next({
+                    data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(includeScore && section.score != null && { score: section.score }) }),
+                    type: 'section_complete',
+                  } as MessageEvent);
+                }
+              }
+
+              // Final parse — try summaryExtractor first (Annual uses brace-depth), else use parseLifetimeV2CallResponse
+              const finalParsed = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
+              for (const [key, rawSection] of Object.entries(finalParsed.sections)) {
+                if (emittedKeys.has(key)) continue;
+                const section = fixSection(key, rawSection);
                 call1Sections[key] = section;
-                totalSections++;
+                emittedKeys.add(key);
                 subscriber.next({
-                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
+                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(includeScore && section.score != null && { score: section.score }) }),
                   type: 'section_complete',
                 } as MessageEvent);
               }
-            }
-
-            // Parse any remaining sections from the complete buffer
-            const finalParsed = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
-            for (const [key, rawSection] of Object.entries(finalParsed.sections)) {
-              if (!call1Sections[key]) {
-                // Apply auto-fix before emitting
-                const { section } = this.autoFixSection(key, rawSection, calculationData);
-                call1Sections[key] = section;
-                totalSections++;
-                subscriber.next({
-                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
-                  type: 'section_complete',
-                } as MessageEvent);
+              const extractedSummary = summaryExtractor
+                ? summaryExtractor(call1Buffer)
+                : (finalParsed.summary || null);
+              if (extractedSummary && (extractedSummary.preview || extractedSummary.full)) {
+                call1Summary = extractedSummary;
               }
-            }
-            if (finalParsed.summary && (finalParsed.summary.preview || finalParsed.summary.full)) {
-              call1Summary = finalParsed.summary;
-            }
 
-            // Estimate tokens from buffer length (approximation for streaming)
-            call1OutputTokens = Math.ceil(call1Buffer.length / 3);
+              call1Err = undefined;
+              break;
+            } catch (err) {
+              call1Err = err instanceof Error ? err : new Error(String(err));
+              if ((call1Err as any).name === 'AbortError') {
+                this.logger.warn(`${readingType} V2 Call 1 aborted (timeout) on ${providerConfig.provider}`);
+                break;
+              }
+              if (yieldedAny) {
+                this.logger.warn(
+                  `${readingType} V2 Call 1 mid-stream failure on ${providerConfig.provider} (yieldedAny=true); ` +
+                  `keeping ${Object.keys(call1Sections).length} sections, no retry`,
+                );
+                break;
+              }
+              if (!this.isRetryableError(call1Err) || attempt === AI_MAX_RETRIES_PER_PROVIDER) {
+                this.logger.warn(
+                  `${readingType} V2 Call 1 ${attempt === AI_MAX_RETRIES_PER_PROVIDER ? 'exhausted retries' : 'non-retryable error'} on ${providerConfig.provider}: ${call1Err.message}`,
+                );
+                break;
+              }
 
-            subscriber.next({
-              data: JSON.stringify({ call: 1 }),
-              type: 'call_complete',
-            } as MessageEvent);
-
-          } catch (err) {
-            const message = err instanceof Error ? err.message : 'Call 1 stream failed';
-            this.logger.warn(`Stream Call 1 failed (${providerConfig.provider}): ${message}`);
-            subscriber.next({
-              data: JSON.stringify({ message, partial: true }),
-              type: 'error',
-            } as MessageEvent);
-          }
-
-          // Await Call 2 result and flush sections
-          // Parse once, cache result for both emit + DB (avoid redundant double-parse)
-          const call2Result = await call2Promise;
-          const call2Parsed = call2Result
-            ? this.parseLifetimeV2CallResponse(call2Result.content, 'call2')
-            : null;
-
-          // Build auto-fixed Call 2 sections for both emit and DB consistency
-          const call2FixedSections: Record<string, InterpretationSection> = {};
-          if (call2Parsed) {
-            for (const [key, rawSection] of Object.entries(call2Parsed.sections)) {
-              const { section } = this.autoFixSection(key, rawSection, calculationData);
-              call2FixedSections[key] = section;
-              totalSections++;
               subscriber.next({
-                data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
+                data: JSON.stringify({
+                  provider: providerConfig.provider,
+                  attempt: attempt + 1,
+                  max: AI_MAX_RETRIES_PER_PROVIDER,
+                  reason: this.summarizeError(call1Err),
+                  call: 1,
+                }),
+                type: 'retry_attempt',
+              } as MessageEvent);
+
+              const backoffMs = this.computeBackoff(attempt, call1Err);
+              this.logger.warn(
+                `${readingType} V2 Call 1 attempt ${attempt}/${AI_MAX_RETRIES_PER_PROVIDER} failed on ${providerConfig.provider} (${call1Err.message}); retrying in ${backoffMs}ms`,
+              );
+              await new Promise((r) => setTimeout(r, backoffMs));
+            } finally {
+              clearTimeout(call1Timeout);
+            }
+          }
+        }
+
+        subscriber.next({
+          data: JSON.stringify({ call: 1 }),
+          type: 'call_complete',
+        } as MessageEvent);
+
+        // ============ Wait for Call 2 ============
+        const call2Result = await call2Promise;
+        if (call2Result) {
+          // Allow optional Annual-style call 2 parser
+          const parsed2 = call2Parser
+            ? call2Parser(call2Result.content)
+            : this.parseLifetimeV2CallResponse(call2Result.content, 'call2');
+          for (const [key, rawSection] of Object.entries(parsed2.sections)) {
+            const section = fixSection(key, rawSection);
+            call2FixedSections[key] = section;
+            if (!emittedKeys.has(key)) {
+              emittedKeys.add(key);
+              subscriber.next({
+                data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(includeScore && section.score != null && { score: section.score }) }),
                 type: 'section_complete',
               } as MessageEvent);
             }
-
-            subscriber.next({
-              data: JSON.stringify({ call: 2 }),
-              type: 'call_complete',
-            } as MessageEvent);
           }
+        }
 
-          // Emit summary
-          if (call1Summary.preview || call1Summary.full) {
-            subscriber.next({
-              data: JSON.stringify({ preview: call1Summary.preview, full: call1Summary.full }),
-              type: 'summary',
-            } as MessageEvent);
-          }
+        subscriber.next({
+          data: JSON.stringify({ call: 2 }),
+          type: 'call_complete',
+        } as MessageEvent);
 
-          // Merge all sections for DB update (use auto-fixed Call 2 sections for consistency)
-          const allSections: Record<string, InterpretationSection> = {
-            ...call1Sections,
-            ...call2FixedSections,
-          };
+        const totalSoFar = Object.keys(call1Sections).length + Object.keys(call2FixedSections).length;
+        if (totalSoFar > 0) break;
+      }
 
-          // Build deterministic data
-          const enhancedInsights = calculationData['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
-          const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
-          const deterministic: Record<string, unknown> = {};
-          for (const [key, value] of Object.entries(rawDeterministic)) {
-            const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-            deterministic[camelKey] = value;
-          }
+      // ============ Decide final status ============
+      const call1Got = Object.keys(call1Sections).length;
+      const call2Got = Object.keys(call2FixedSections).length;
+      const totalGot = call1Got + call2Got;
+      const latencyMs = Date.now() - totalStartMs;
+      const cfg = DEGRADE_THRESHOLDS[readingType] ?? DEGRADE_THRESHOLDS.DEFAULT;
 
-          const aiInterpretation = {
-            schemaVersion: 'v2',
-            sections: allSections,
-            summary: call1Summary,
-            deterministic,
-          };
+      let status: 'success' | 'degraded' | 'failed';
+      if (totalGot === 0) {
+        status = 'failed';
+      } else if (cfg.call2Critical && call2Got === 0) {
+        status = 'failed';
+      } else if (totalGot >= expectedTotal) {
+        status = 'success';
+      } else if (
+        call2Got >= Math.floor(expectedCall2Count * cfg.call2CompletionMin) &&
+        totalGot >= Math.floor(expectedTotal * cfg.totalCompletionMin)
+      ) {
+        status = 'degraded';
+      } else {
+        status = 'failed';
+      }
 
-          // Update DB record with complete AI interpretation
-          try {
-            await this.prisma.baziReading.update({
-              where: { id: readingId },
-              data: {
-                aiInterpretation: aiInterpretation as unknown as Prisma.InputJsonValue,
-                aiProvider: providerConfig.provider as any,
-                aiModel: providerConfig.model,
-              },
-            });
-          } catch (dbErr) {
-            this.logger.error(`Failed to update reading ${readingId} with AI: ${dbErr}`);
-          }
+      if (call1Summary.preview || call1Summary.full) {
+        subscriber.next({
+          data: JSON.stringify({ preview: call1Summary.preview, full: call1Summary.full }),
+          type: 'summary',
+        } as MessageEvent);
+      }
 
-          // Cache the result for future requests
+      // Build deterministic data — allow caller-supplied builder (Annual uses deepCamelCase of full insights),
+      // default behavior is camelCase of `enhancedInsights.deterministic` sub-key only.
+      let deterministic: Record<string, unknown>;
+      if (deterministicBuilder) {
+        deterministic = deterministicBuilder(calculationData);
+      } else {
+        const enhancedInsights = calculationData[enhancedInsightsKey] as Record<string, unknown> | undefined;
+        const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+        deterministic = {};
+        for (const [key, value] of Object.entries(rawDeterministic)) {
+          const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+          deterministic[camelKey] = value;
+        }
+      }
+      const allSections: Record<string, InterpretationSection> = { ...call1Sections, ...call2FixedSections };
+      const aiInterpretation = {
+        schemaVersion: 'v2',
+        sections: allSections,
+        summary: call1Summary,
+        deterministic,
+      };
+
+      let refunded = false;
+
+      if (status === 'success' || status === 'degraded') {
+        await this.prisma.baziReading.update({
+          where: { id: readingId },
+          data: {
+            aiInterpretation: aiInterpretation as unknown as Prisma.InputJsonValue,
+            aiProvider: activeProviderConfig.provider as any,
+            aiModel: activeProviderConfig.model,
+            ...(status === 'degraded' && {
+              isDegraded: true,
+              failedReason: `partial: ${totalGot}/${expectedTotal} sections (call1=${call1Got}/${expectedCall1Count}, call2=${call2Got}/${expectedCall2Count})`,
+            }),
+          },
+        }).catch((err) => this.logger.error(`Failed to update ${readingType} reading ${readingId}: ${err}`));
+
+        if (status === 'success') {
           const birthDataHash = this.generateBirthDataHash(
             calculationData['birthDate'] as string || '',
             calculationData['birthTime'] as string || '',
             calculationData['birthCity'] as string || '',
             calculationData['gender'] as string || '',
-            ReadingType.LIFETIME,
+            readingType,
+            cacheTargetYear, // optional — Annual readings need targetYear in cache key
           );
           this.cacheInterpretation(
             birthDataHash,
-            ReadingType.LIFETIME,
+            readingType,
             calculationData,
             aiInterpretation as unknown as AIInterpretationResult,
-          ).catch((err) => this.logger.error(`Stream cache write failed: ${err}`));
-
-          v2Succeeded = true;
-          break; // success, exit provider loop
-
-        } catch (err) {
-          this.logger.warn(
-            `Stream V2 provider ${providerConfig.provider} failed: ${err instanceof Error ? err.message : err}. Trying next...`,
-          );
-          // Clean up this iteration's timeouts before retrying
-          clearTimeout(call1Timeout);
-          clearTimeout(call2Timeout);
-          // If some sections were already streamed, accept partial results — don't retry
-          if (totalSections > 0) {
-            v2Succeeded = true;
-            break;
-          }
+          ).catch((err) => this.logger.error(`${readingType} stream cache write failed: ${err}`));
         }
       }
 
-      if (!v2Succeeded) {
-        subscriber.next({
-          data: JSON.stringify({ message: 'All V2 providers failed' }),
-          type: 'error',
-        } as MessageEvent);
+      let refundedAmount = 0;
+      if (status === 'failed') {
+        try {
+          const refundResult = await this.creditsService.refundReadingCredit(
+            readingId,
+            `ai-failed-${readingType}-call1=${call1Got}/${expectedCall1Count}-call2=${call2Got}/${expectedCall2Count}`,
+          );
+          refunded = refundResult.refunded;
+          refundedAmount = refundResult.amount;
+        } catch (refundErr) {
+          this.logger.error(`Refund failed for ${readingType} reading ${readingId}: ${refundErr}`);
+        }
+        await this.prisma.baziReading.update({
+          where: { id: readingId },
+          data: { aiInterpretation: Prisma.DbNull }, // SQL NULL (not JSONB 'null') so `WHERE ai_interpretation IS NULL` works
+        }).catch((err) => this.logger.error(`Failed to null out failed ${readingType} reading ${readingId}: ${err}`));
       }
 
-      const latencyMs = Date.now() - startTime;
-      this.logger.log(
-        `Stream Lifetime V2 completed via ${activeProviderConfig.provider} in ${latencyMs}ms, ${totalSections} sections delivered`,
-      );
-
-      // Done event
       subscriber.next({
-        data: JSON.stringify({ totalSections, latencyMs }),
-        type: 'done',
+        data: JSON.stringify({
+          status,
+          totalSections: totalGot,
+          expectedSections: expectedTotal,
+          latencyMs,
+          // User-facing copy is in the frontend (zh-TW). Backend just sends a default
+          // English message as a safety fallback if frontend doesn't override.
+          ...(status === 'failed' && {
+            refunded,
+            refundedAmount,
+            message: 'AI service is temporarily busy. Please try again shortly.',
+          }),
+          ...(status === 'degraded' && {
+            message: 'Partial reading delivered. Click Regenerate to retry the missing sections (free).',
+          }),
+        }),
+        type: 'final',
       } as MessageEvent);
 
+      this.logger.log(
+        `Stream ${readingType} V2 status=${status} via ${activeProviderConfig.provider} in ${latencyMs}ms, ` +
+        `${totalGot}/${expectedTotal} sections (call1=${call1Got}, call2=${call2Got}), refunded=${refunded}`,
+      );
     } finally {
-      // CRITICAL: This MUST stay at outermost scope — cleans up regardless of loop outcome
       clearInterval(heartbeatInterval);
       clearTimeout(call1Timeout!);
-      clearTimeout(call2Timeout!);
-      subscriber.complete(); // ALWAYS closes the SSE stream
+      subscriber.complete();
     }
   }
 
@@ -998,25 +1285,11 @@ export class AIService implements OnModuleInit {
     readingId: string,
     subscriber: Subscriber<MessageEvent>,
   ) {
-    const startTime = Date.now();
-    const timeoutMs = parseInt(
-      this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
-      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '180000',
-      10,
-    );
-
-    if (this.providers.length === 0) {
-      throw new Error('No AI providers configured');
-    }
-
-    const { systemPrompt, userPromptCall1, userPromptCall2 } =
-      this.buildCareerV2Prompts(calculationData);
-
-    // Build dynamic section keys for Call 2 extraction
-    const call2ExpectedKeys: string[] = [];
+    // Build dynamic Call 2 keys from annual_forecasts deterministic data
     const enhancedInsights = calculationData['careerEnhancedInsights'] as Record<string, unknown> | undefined;
     const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
     const annualForecasts = (rawDeterministic['annual_forecasts'] || rawDeterministic['annualForecasts'] || []) as Array<{ year: number }>;
+    const call2ExpectedKeys: string[] = [];
     for (const af of annualForecasts) {
       call2ExpectedKeys.push(`annual_forecast_${af.year}`);
     }
@@ -1024,219 +1297,21 @@ export class AIService implements OnModuleInit {
       call2ExpectedKeys.push(`monthly_forecast_${String(m).padStart(2, '0')}`);
     }
 
-    // Heartbeat to keep SSE alive
-    const heartbeatInterval = setInterval(() => {
-      subscriber.next({ data: '', type: 'heartbeat' } as MessageEvent);
-    }, 15000);
-
-    let call1Timeout!: ReturnType<typeof setTimeout>;
-
-    try {
-      let v2Succeeded = false;
-      let totalSections = 0;
-      let activeProviderConfig = this.providers[0]!;
-
-      for (const providerConfig of this.providers) {
-        activeProviderConfig = providerConfig;
-
-        try {
-          // === Call 1: Stream core career sections ===
-          const call1Sections: Record<string, InterpretationSection> = {};
-          let call1Summary: InterpretationSection = { preview: '', full: '' };
-          let call1Buffer = '';
-
-          // Set up abort controllers for timeouts
-          const call1Controller = new AbortController();
-          call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
-
-          // === Call 2: Non-streaming parallel (annual + monthly forecasts) ===
-          const call2Promise = this.callProviderWithTimeout(
-            providerConfig, systemPrompt, userPromptCall2, timeoutMs,
-          ).catch((err) => {
-            this.logger.warn(`Career V2 Call 2 failed (${providerConfig.provider}): ${err instanceof Error ? err.message : err}`);
-            return null;
-          });
-
-          const call1ExtractedKeys = new Set<string>();
-          const call1Keys = CAREER_V2_PROMPTS.call1Sections;
-
-          try {
-            const streamGen = this.streamProvider(
-              providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
-            );
-
-            for await (const chunk of streamGen) {
-              call1Buffer += chunk;
-
-              // Try to extract completed sections
-              const newSections = this.extractCompletedSections(
-                call1Buffer, call1Keys, call1ExtractedKeys,
-              );
-
-              for (const [key, rawSection] of Object.entries(newSections)) {
-                const { section: autoFixed } = this.autoFixSection(key, rawSection, calculationData);
-                const { section } = this.autoFixCareerSection(key, autoFixed, calculationData);
-                call1Sections[key] = section;
-                totalSections++;
-                subscriber.next({
-                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
-                  type: 'section_complete',
-                } as MessageEvent);
-              }
-            }
-
-            // Parse any remaining from complete buffer
-            const finalParsed = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
-            for (const [key, rawSection] of Object.entries(finalParsed.sections)) {
-              if (!call1Sections[key]) {
-                const { section: autoFixed } = this.autoFixSection(key, rawSection, calculationData);
-                const { section } = this.autoFixCareerSection(key, autoFixed, calculationData);
-                call1Sections[key] = section;
-                totalSections++;
-                subscriber.next({
-                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
-                  type: 'section_complete',
-                } as MessageEvent);
-              }
-            }
-            if (finalParsed.summary && (finalParsed.summary.preview || finalParsed.summary.full)) {
-              call1Summary = finalParsed.summary;
-            }
-          } catch (streamErr) {
-            if ((streamErr as Error).name !== 'AbortError') {
-              this.logger.warn(`Career V2 Call 1 stream error: ${streamErr instanceof Error ? streamErr.message : streamErr}`);
-            }
-          }
-          clearTimeout(call1Timeout);
-
-          // Emit Call 1 complete
-          subscriber.next({
-            data: JSON.stringify({ call: 1 }),
-            type: 'call_complete',
-          } as MessageEvent);
-
-          // Wait for Call 2 to finish
-          let call2FixedSections: Record<string, InterpretationSection> = {};
-          const call2Result = await call2Promise;
-          if (call2Result) {
-            const parsed2 = this.parseLifetimeV2CallResponse(call2Result.content, 'call2');
-            const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
-            // Apply career-specific fixes to Call 2 sections
-            for (const [key, section] of Object.entries(fixed2.sections)) {
-              const { section: careerFixed } = this.autoFixCareerSection(key, section, calculationData);
-              fixed2.sections[key] = careerFixed;
-            }
-            call2FixedSections = fixed2.sections;
-
-            for (const [key, section] of Object.entries(call2FixedSections)) {
-              totalSections++;
-              subscriber.next({
-                data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
-                type: 'section_complete',
-              } as MessageEvent);
-            }
-          }
-
-          // Emit Call 2 complete
-          subscriber.next({
-            data: JSON.stringify({ call: 2 }),
-            type: 'call_complete',
-          } as MessageEvent);
-
-          // Emit summary
-          if (call1Summary.preview || call1Summary.full) {
-            subscriber.next({
-              data: JSON.stringify({ preview: call1Summary.preview, full: call1Summary.full }),
-              type: 'summary',
-            } as MessageEvent);
-          }
-
-          // Merge all sections for DB update
-          const allSections: Record<string, InterpretationSection> = {
-            ...call1Sections,
-            ...call2FixedSections,
-          };
-
-          // Build deterministic data (uses careerEnhancedInsights, NOT lifetimeEnhancedInsights)
-          const deterministic: Record<string, unknown> = {};
-          for (const [key, value] of Object.entries(rawDeterministic)) {
-            const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-            deterministic[camelKey] = value;
-          }
-
-          const aiInterpretation = {
-            schemaVersion: 'v2',
-            sections: allSections,
-            summary: call1Summary,
-            deterministic,
-          };
-
-          // Update DB record
-          try {
-            await this.prisma.baziReading.update({
-              where: { id: readingId },
-              data: {
-                aiInterpretation: aiInterpretation as unknown as Prisma.InputJsonValue,
-                aiProvider: providerConfig.provider as any,
-                aiModel: providerConfig.model,
-              },
-            });
-          } catch (dbErr) {
-            this.logger.error(`Failed to update career reading ${readingId} with AI: ${dbErr}`);
-          }
-
-          // Cache the result
-          const birthDataHash = this.generateBirthDataHash(
-            calculationData['birthDate'] as string || '',
-            calculationData['birthTime'] as string || '',
-            calculationData['birthCity'] as string || '',
-            calculationData['gender'] as string || '',
-            ReadingType.CAREER,
-          );
-          this.cacheInterpretation(
-            birthDataHash,
-            ReadingType.CAREER,
-            calculationData,
-            aiInterpretation as unknown as AIInterpretationResult,
-          ).catch((err) => this.logger.error(`Career stream cache write failed: ${err}`));
-
-          v2Succeeded = true;
-          break;
-
-        } catch (err) {
-          this.logger.warn(
-            `Career Stream V2 provider ${providerConfig.provider} failed: ${err instanceof Error ? err.message : err}. Trying next...`,
-          );
-          clearTimeout(call1Timeout);
-          if (totalSections > 0) {
-            v2Succeeded = true;
-            break;
-          }
-        }
-      }
-
-      if (!v2Succeeded) {
-        subscriber.next({
-          data: JSON.stringify({ message: 'All Career V2 providers failed' }),
-          type: 'error',
-        } as MessageEvent);
-      }
-
-      const latencyMs = Date.now() - startTime;
-      this.logger.log(
-        `Stream Career V2 completed via ${activeProviderConfig.provider} in ${latencyMs}ms, ${totalSections} sections delivered`,
-      );
-
-      subscriber.next({
-        data: JSON.stringify({ totalSections, latencyMs }),
-        type: 'done',
-      } as MessageEvent);
-
-    } finally {
-      clearInterval(heartbeatInterval);
-      clearTimeout(call1Timeout!);
-      subscriber.complete();
-    }
+    await this._executeStreamV2Common({
+      calculationData,
+      readingId,
+      subscriber,
+      readingType: ReadingType.CAREER,
+      promptsBuilder: () => this.buildCareerV2Prompts(calculationData),
+      call1SectionKeys: CAREER_V2_PROMPTS.call1Sections as string[],
+      call2ExpectedKeysProvider: () => call2ExpectedKeys,
+      enhancedInsightsKey: 'careerEnhancedInsights',
+      // Career applies an additional career-specific auto-fix on top of base
+      autoFixCallback: (key, section, calc) => {
+        const { section: careerFixed } = this.autoFixCareerSection(key, section, calc);
+        return careerFixed;
+      },
+    });
   }
 
   // ============================================================
@@ -1430,234 +1505,33 @@ export class AIService implements OnModuleInit {
     subscriber: Subscriber<MessageEvent>,
     targetYear?: number,
   ) {
-    const startTime = Date.now();
-    const timeoutMs = parseInt(
-      this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
-      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '180000',
-      10,
-    );
-
-    if (this.providers.length === 0) {
-      throw new Error('No AI providers configured');
-    }
-
-    const { systemPrompt, userPromptCall1, userPromptCall2 } =
-      this.buildAnnualV2Prompts(calculationData);
-
-    // Build dynamic section keys for Call 2
+    // Build expected Call 2 keys (12 monthly forecasts)
     const call2ExpectedKeys: string[] = [];
     for (let m = 1; m <= 12; m++) {
       call2ExpectedKeys.push(`monthly_${String(m).padStart(2, '0')}`);
     }
 
-    // Extract full enhanced insights as deterministic data (not just compact sub-key)
-    const enhancedInsights = calculationData['annualEnhancedInsights'] as Record<string, unknown> | undefined;
-
-    // Heartbeat to keep SSE alive
-    const heartbeatInterval = setInterval(() => {
-      subscriber.next({ data: '', type: 'heartbeat' } as MessageEvent);
-    }, 15000);
-
-    let call1Timeout!: ReturnType<typeof setTimeout>;
-
-    try {
-      let v2Succeeded = false;
-      let totalSections = 0;
-      let activeProviderConfig = this.providers[0]!;
-
-      for (const providerConfig of this.providers) {
-        activeProviderConfig = providerConfig;
-
-        try {
-          // === Call 1: Stream core annual sections ===
-          const call1Sections: Record<string, InterpretationSection> = {};
-          let call1Summary: InterpretationSection = { preview: '', full: '' };
-          let call1Buffer = '';
-
-          const call1Controller = new AbortController();
-          call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
-
-          // === Call 2: Non-streaming parallel (12 monthly forecasts) ===
-          const call2Promise = this.callProviderWithTimeout(
-            providerConfig, systemPrompt, userPromptCall2, timeoutMs,
-          ).catch((err) => {
-            this.logger.warn(`Annual V2 Call 2 failed (${providerConfig.provider}): ${err instanceof Error ? err.message : err}`);
-            return null;
-          });
-
-          const call1ExtractedKeys = new Set<string>();
-          const call1Keys = ANNUAL_V2_PROMPTS.call1Sections;
-
-          try {
-            const streamGen = this.streamProvider(
-              providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
-            );
-
-            for await (const chunk of streamGen) {
-              call1Buffer += chunk;
-
-              const newSections = this.extractCompletedSections(
-                call1Buffer, call1Keys, call1ExtractedKeys,
-              );
-
-              for (const [key, rawSection] of Object.entries(newSections)) {
-                const { section: autoFixed } = this.autoFixSection(key, rawSection, calculationData);
-                call1Sections[key] = autoFixed;
-                totalSections++;
-                subscriber.next({
-                  data: JSON.stringify({ key, preview: autoFixed.preview, full: autoFixed.full }),
-                  type: 'section_complete',
-                } as MessageEvent);
-              }
-            }
-
-            // Parse remaining from complete buffer using correct annual keys
-            const finalExtracted = this.extractCompletedSections(call1Buffer, call1Keys, call1ExtractedKeys);
-            for (const [key, rawSection] of Object.entries(finalExtracted)) {
-              if (!call1Sections[key]) {
-                const { section: autoFixed } = this.autoFixSection(key, rawSection, calculationData);
-                call1Sections[key] = autoFixed;
-                totalSections++;
-                subscriber.next({
-                  data: JSON.stringify({ key, preview: autoFixed.preview, full: autoFixed.full }),
-                  type: 'section_complete',
-                } as MessageEvent);
-              }
-            }
-            // Extract summary using same brace-depth method
-            const summaryExtracted = this.extractCompletedSections(call1Buffer, ['summary'], new Set<string>());
-            if (summaryExtracted['summary'] && (summaryExtracted['summary'].preview || summaryExtracted['summary'].full)) {
-              call1Summary = summaryExtracted['summary'];
-            }
-          } catch (streamErr) {
-            if ((streamErr as Error).name !== 'AbortError') {
-              this.logger.warn(`Annual V2 Call 1 stream error: ${streamErr instanceof Error ? streamErr.message : streamErr}`);
-            }
-          }
-          clearTimeout(call1Timeout);
-
-          subscriber.next({
-            data: JSON.stringify({ call: 1 }),
-            type: 'call_complete',
-          } as MessageEvent);
-
-          // Wait for Call 2
-          let call2FixedSections: Record<string, InterpretationSection> = {};
-          const call2Result = await call2Promise;
-          if (!call2Result) {
-            this.logger.warn(`Annual V2 Call 2 returned null — monthly sections will be missing`);
-          }
-          if (call2Result) {
-            this.logger.log(`Annual V2 Call 2 completed: ${call2Result.content.length} chars`);
-            const parsed2 = this.parseAnnualV2Call2Response(call2Result.content);
-            const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
-            call2FixedSections = fixed2.sections;
-
-            for (const [key, section] of Object.entries(call2FixedSections)) {
-              totalSections++;
-              subscriber.next({
-                data: JSON.stringify({ key, preview: section.preview, full: section.full }),
-                type: 'section_complete',
-              } as MessageEvent);
-            }
-          }
-
-          subscriber.next({
-            data: JSON.stringify({ call: 2 }),
-            type: 'call_complete',
-          } as MessageEvent);
-
-          // Emit summary
-          if (call1Summary.preview || call1Summary.full) {
-            subscriber.next({
-              data: JSON.stringify({ preview: call1Summary.preview, full: call1Summary.full }),
-              type: 'summary',
-            } as MessageEvent);
-          }
-
-          // Merge all sections for DB update
-          const allSections: Record<string, InterpretationSection> = {
-            ...call1Sections,
-            ...call2FixedSections,
-          };
-
-          // Store full enhanced insights with deep camelCase as deterministic
-          const deterministic = (enhancedInsights ? deepCamelCase(enhancedInsights) : {}) as Record<string, unknown>;
-
-          const aiInterpretation = {
-            schemaVersion: 'v2',
-            sections: allSections,
-            summary: call1Summary,
-            deterministic,
-          };
-
-          // Update DB record
-          try {
-            await this.prisma.baziReading.update({
-              where: { id: readingId },
-              data: {
-                aiInterpretation: aiInterpretation as unknown as Prisma.InputJsonValue,
-                aiProvider: providerConfig.provider as any,
-                aiModel: providerConfig.model,
-              },
-            });
-          } catch (dbErr) {
-            this.logger.error(`Failed to update annual reading ${readingId} with AI: ${dbErr}`);
-          }
-
-          // Cache the result
-          const birthDataHash = this.generateBirthDataHash(
-            calculationData['birthDate'] as string || '',
-            calculationData['birthTime'] as string || '',
-            calculationData['birthCity'] as string || '',
-            calculationData['gender'] as string || '',
-            ReadingType.ANNUAL,
-            targetYear,
-          );
-          this.cacheInterpretation(
-            birthDataHash,
-            ReadingType.ANNUAL,
-            calculationData,
-            aiInterpretation as unknown as AIInterpretationResult,
-          ).catch((err) => this.logger.error(`Annual stream cache write failed: ${err}`));
-
-          v2Succeeded = true;
-          break;
-
-        } catch (err) {
-          this.logger.warn(
-            `Annual Stream V2 provider ${providerConfig.provider} failed: ${err instanceof Error ? err.message : err}. Trying next...`,
-          );
-          clearTimeout(call1Timeout);
-          if (totalSections > 0) {
-            v2Succeeded = true;
-            break;
-          }
-        }
-      }
-
-      if (!v2Succeeded) {
-        subscriber.next({
-          data: JSON.stringify({ message: 'All Annual V2 providers failed' }),
-          type: 'error',
-        } as MessageEvent);
-      }
-
-      const latencyMs = Date.now() - startTime;
-      this.logger.log(
-        `Stream Annual V2 completed via ${activeProviderConfig.provider} in ${latencyMs}ms, ${totalSections} sections delivered`,
-      );
-
-      subscriber.next({
-        data: JSON.stringify({ totalSections, latencyMs }),
-        type: 'done',
-      } as MessageEvent);
-
-    } finally {
-      clearInterval(heartbeatInterval);
-      clearTimeout(call1Timeout!);
-      subscriber.complete();
-    }
+    await this._executeStreamV2Common({
+      calculationData,
+      readingId,
+      subscriber,
+      readingType: ReadingType.ANNUAL,
+      promptsBuilder: () => this.buildAnnualV2Prompts(calculationData),
+      call1SectionKeys: ANNUAL_V2_PROMPTS.call1Sections as string[],
+      call2ExpectedKeysProvider: () => call2ExpectedKeys,
+      enhancedInsightsKey: 'annualEnhancedInsights',
+      // Annual uses its own Call 2 parser
+      call2Parser: (content: string) => this.parseAnnualV2Call2Response(content),
+      // Annual stores deepCamelCase of FULL enhanced insights as deterministic
+      deterministicBuilder: (calc) => {
+        const ei = calc['annualEnhancedInsights'] as Record<string, unknown> | undefined;
+        return (ei ? deepCamelCase(ei) : {}) as Record<string, unknown>;
+      },
+      // Annual section emits don't include score
+      includeScore: false,
+      // Annual cache key includes targetYear
+      cacheTargetYear: targetYear,
+    });
   }
 
   private buildAnnualV2Prompts(
@@ -3383,228 +3257,33 @@ export class AIService implements OnModuleInit {
     readingId: string,
     subscriber: Subscriber<MessageEvent>,
   ) {
-    const startTime = Date.now();
-    const timeoutMs = parseInt(
-      this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
-      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '180000',
-      10,
-    );
-
-    if (this.providers.length === 0) {
-      throw new Error('No AI providers configured');
-    }
-
-    const { systemPrompt, userPromptCall1, userPromptCall2 } =
-      this.buildLoveV2Prompts(calculationData);
-
-    // Build dynamic section keys for Call 2 extraction
+    // Build expected Call 2 keys: annual_love_YYYY × N + monthly_love_MM × 12
     const enhancedInsights = calculationData['loveEnhancedInsights'] as Record<string, unknown> | undefined;
     const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
-
-    // Heartbeat to keep SSE alive
-    const heartbeatInterval = setInterval(() => {
-      subscriber.next({ data: '', type: 'heartbeat' } as MessageEvent);
-    }, 15000);
-
-    let call1Timeout!: ReturnType<typeof setTimeout>;
-
-    try {
-      let v2Succeeded = false;
-      let totalSections = 0;
-
-      for (const providerConfig of this.providers) {
-        try {
-          // === Call 1: Stream core love sections ===
-          const call1Sections: Record<string, InterpretationSection> = {};
-          let call1Summary: InterpretationSection = { preview: '', full: '' };
-          let call1Buffer = '';
-
-          const call1Controller = new AbortController();
-          call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
-
-          // === Call 2: Non-streaming parallel (annual + monthly love forecasts) ===
-          const call2Promise = this.callProviderWithTimeout(
-            providerConfig, systemPrompt, userPromptCall2, timeoutMs,
-          ).catch((err) => {
-            this.logger.warn(`Love V2 Call 2 failed (${providerConfig.provider}): ${err instanceof Error ? err.message : err}`);
-            return null;
-          });
-
-          const call1ExtractedKeys = new Set<string>();
-          const call1Keys = LOVE_V2_PROMPTS.call1Sections;
-
-          try {
-            const streamGen = this.streamProvider(
-              providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
-            );
-
-            for await (const chunk of streamGen) {
-              call1Buffer += chunk;
-
-              const newSections = this.extractCompletedSections(
-                call1Buffer, call1Keys, call1ExtractedKeys,
-              );
-
-              for (const [key, rawSection] of Object.entries(newSections)) {
-                const { section: autoFixed } = this.autoFixSection(key, rawSection, calculationData);
-                const { section } = this.autoFixLoveSection(key, autoFixed, calculationData);
-                call1Sections[key] = section;
-                totalSections++;
-                subscriber.next({
-                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
-                  type: 'section_complete',
-                } as MessageEvent);
-              }
-            }
-
-            // Parse any remaining from complete buffer
-            const finalParsed = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
-            for (const [key, rawSection] of Object.entries(finalParsed.sections)) {
-              if (!call1Sections[key]) {
-                const { section: autoFixed } = this.autoFixSection(key, rawSection, calculationData);
-                const { section } = this.autoFixLoveSection(key, autoFixed, calculationData);
-                call1Sections[key] = section;
-                totalSections++;
-                subscriber.next({
-                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
-                  type: 'section_complete',
-                } as MessageEvent);
-              }
-            }
-            if (finalParsed.summary && (finalParsed.summary.preview || finalParsed.summary.full)) {
-              call1Summary = finalParsed.summary;
-            }
-          } catch (streamErr) {
-            if ((streamErr as Error).name !== 'AbortError') {
-              this.logger.warn(`Love V2 Call 1 stream error: ${streamErr instanceof Error ? streamErr.message : streamErr}`);
-            }
-          }
-          clearTimeout(call1Timeout);
-
-          // Emit Call 1 complete
-          subscriber.next({
-            data: JSON.stringify({ call: 1 }),
-            type: 'call_complete',
-          } as MessageEvent);
-
-          // Wait for Call 2 to finish
-          let call2FixedSections: Record<string, InterpretationSection> = {};
-          const call2Result = await call2Promise;
-          if (call2Result) {
-            const parsed2 = this.parseLifetimeV2CallResponse(call2Result.content, 'call2');
-            const { result: fixed2 } = this.autoFixAllSections(parsed2, calculationData);
-            for (const [key, section] of Object.entries(fixed2.sections)) {
-              const { section: loveFixed } = this.autoFixLoveSection(key, section, calculationData);
-              fixed2.sections[key] = loveFixed;
-            }
-            call2FixedSections = fixed2.sections;
-
-            for (const [key, section] of Object.entries(call2FixedSections)) {
-              totalSections++;
-              subscriber.next({
-                data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(section.score != null && { score: section.score }) }),
-                type: 'section_complete',
-              } as MessageEvent);
-            }
-          }
-
-          // Emit Call 2 complete
-          subscriber.next({
-            data: JSON.stringify({ call: 2 }),
-            type: 'call_complete',
-          } as MessageEvent);
-
-          // Emit summary
-          if (call1Summary.preview || call1Summary.full) {
-            subscriber.next({
-              data: JSON.stringify({ preview: call1Summary.preview, full: call1Summary.full }),
-              type: 'summary',
-            } as MessageEvent);
-          }
-
-          // Merge all sections for DB update
-          const allSections: Record<string, InterpretationSection> = {
-            ...call1Sections,
-            ...call2FixedSections,
-          };
-
-          // Build deterministic data
-          const deterministic: Record<string, unknown> = {};
-          for (const [key, value] of Object.entries(rawDeterministic)) {
-            const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-            deterministic[camelKey] = value;
-          }
-
-          const aiInterpretation = {
-            schemaVersion: 'v2',
-            sections: allSections,
-            summary: call1Summary,
-            deterministic,
-          };
-
-          // Update DB record
-          try {
-            await this.prisma.baziReading.update({
-              where: { id: readingId },
-              data: {
-                aiInterpretation: aiInterpretation as unknown as Prisma.InputJsonValue,
-                aiProvider: providerConfig.provider as any,
-                aiModel: providerConfig.model,
-              },
-            });
-          } catch (dbErr) {
-            this.logger.warn(`Failed to update reading ${readingId}: ${dbErr instanceof Error ? dbErr.message : dbErr}`);
-          }
-
-          // Cache the result
-          const birthDataHash = this.generateBirthDataHash(
-            calculationData['birthDate'] as string || '',
-            calculationData['birthTime'] as string || '',
-            calculationData['birthCity'] as string || '',
-            calculationData['gender'] as string || '',
-            ReadingType.LOVE,
-          );
-          this.cacheInterpretation(
-            birthDataHash,
-            ReadingType.LOVE,
-            calculationData,
-            aiInterpretation as unknown as AIInterpretationResult,
-          ).catch((err) => this.logger.error(`Love stream cache write failed: ${err}`));
-
-          // Emit completion event
-          const latencyMs = Date.now() - startTime;
-          this.logger.log(
-            `Stream Love V2 completed via ${providerConfig.provider} in ${latencyMs}ms, ${totalSections} sections delivered`,
-          );
-
-          subscriber.next({
-            data: JSON.stringify({ totalSections, latencyMs }),
-            type: 'done',
-          } as MessageEvent);
-
-          v2Succeeded = true;
-          break;
-        } catch (provErr) {
-          const message = provErr instanceof Error ? provErr.message : String(provErr);
-          this.logger.warn(`Love V2 provider failed: ${message}`);
-          continue;
-        }
-      }
-
-      if (!v2Succeeded) {
-        throw new Error('All providers failed for love V2 stream');
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Stream error';
-      subscriber.next({
-        data: JSON.stringify({ message }),
-        type: 'error',
-      } as MessageEvent);
-    } finally {
-      clearInterval(heartbeatInterval);
-      clearTimeout(call1Timeout);
-      subscriber.complete();
+    const annualForecasts = (rawDeterministic['annual_forecasts'] || rawDeterministic['annualForecasts'] || []) as Array<{ year: number }>;
+    const call2ExpectedKeys: string[] = [];
+    for (const af of annualForecasts) {
+      call2ExpectedKeys.push(`annual_love_${af.year}`);
     }
+    for (let m = 1; m <= 12; m++) {
+      call2ExpectedKeys.push(`monthly_love_${String(m).padStart(2, '0')}`);
+    }
+
+    await this._executeStreamV2Common({
+      calculationData,
+      readingId,
+      subscriber,
+      readingType: ReadingType.LOVE,
+      promptsBuilder: () => this.buildLoveV2Prompts(calculationData),
+      call1SectionKeys: LOVE_V2_PROMPTS.call1Sections as string[],
+      call2ExpectedKeysProvider: () => call2ExpectedKeys,
+      enhancedInsightsKey: 'loveEnhancedInsights',
+      // Love applies its own additional auto-fix on top of base
+      autoFixCallback: (key, section, calc) => {
+        const { section: loveFixed } = this.autoFixLoveSection(key, section, calc);
+        return loveFixed;
+      },
+    });
   }
 
   /**

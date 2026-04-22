@@ -15,6 +15,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { AdminModule } from './admin/admin.module';
 import { AdsModule } from './ads/ads.module';
 import { AIModule } from './ai/ai.module';
+import { CreditsModule } from './credits/credits.module';
 
 @Module({
   imports: [
@@ -62,6 +63,9 @@ import { AIModule } from './ai/ai.module';
 
     // AI
     AIModule,
+
+    // Credits (used by Bazi + Payments + AI for refunds)
+    CreditsModule,
 
     // Feature modules
     UsersModule,

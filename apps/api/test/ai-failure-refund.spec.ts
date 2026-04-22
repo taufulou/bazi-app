@@ -10,6 +10,7 @@ import { BaziService } from '../src/bazi/bazi.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RedisService } from '../src/redis/redis.service';
 import { AIService } from '../src/ai/ai.service';
+import { CreditsService } from '../src/credits/credits.service';
 import { ReadingType } from '@prisma/client';
 
 // ============================================================
@@ -107,6 +108,25 @@ describe('AI Failure Graceful Degradation', () => {
       get: jest.fn().mockReturnValue('http://localhost:5001'),
     };
 
+    const mockCredits = {
+      // Mirror CreditsService.deductCredits behavior using existing mocks
+      deductCredits: jest.fn().mockImplementation(async (userId, amount, _reason, opts) => {
+        const tx = opts?.tx ?? mockPrisma;
+        const updated = await tx.user.updateMany({
+          where: { id: userId, credits: { gte: amount } },
+          data: { credits: { decrement: amount } },
+        });
+        if (updated.count === 0) {
+          throw new (require('@nestjs/common').BadRequestException)(
+            `Insufficient credits (need ${amount})`,
+          );
+        }
+      }),
+      refundReadingCredit: jest.fn().mockResolvedValue({ refunded: false, amount: 0 }),
+      refundComparisonCredit: jest.fn().mockResolvedValue({ refunded: false, amount: 0 }),
+      getBalance: jest.fn().mockResolvedValue(0),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BaziService,
@@ -114,6 +134,7 @@ describe('AI Failure Graceful Degradation', () => {
         { provide: RedisService, useValue: mockRedis },
         { provide: AIService, useValue: mockAI },
         { provide: ConfigService, useValue: mockConfig },
+        { provide: CreditsService, useValue: mockCredits },
       ],
     }).compile();
 

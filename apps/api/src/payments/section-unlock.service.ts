@@ -27,6 +27,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { CreditsService } from '../credits/credits.service';
 
 // ============================================================
 // Constants
@@ -56,7 +57,10 @@ type ReadingType = (typeof VALID_READING_TYPES)[number];
 export class SectionUnlockService {
   private readonly logger = new Logger(SectionUnlockService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly creditsService: CreditsService,
+  ) {}
 
   /**
    * Get all unlocked sections for a reading.
@@ -188,19 +192,13 @@ export class SectionUnlockService {
 
       // ---- Atomic credit deduction + unlock creation in $transaction ----
       await this.prisma.$transaction(async (tx) => {
-        // Deduct credits — uses updateMany with WHERE credits >= cost to prevent going negative
-        const updated = await tx.user.updateMany({
-          where: { id: user.id, credits: { gte: cost } },
-          data: { credits: { decrement: cost } },
-        });
+        await this.creditsService.deductCredits(
+          user.id,
+          cost,
+          `section-unlock:${readingType}.${sectionKey}`,
+          { readingId, tx },
+        );
 
-        if (updated.count === 0) {
-          throw new BadRequestException(
-            `Insufficient credits. Section unlock costs ${cost} credit(s), but you have ${user.credits}.`,
-          );
-        }
-
-        // Create section unlock record
         await tx.sectionUnlock.create({
           data: {
             userId: user.id,

@@ -12,6 +12,7 @@ import { Observable, Subscriber } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AIService } from '../ai/ai.service';
+import { CreditsService } from '../credits/credits.service';
 import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto';
 import { Prisma, ReadingType } from '@prisma/client';
 import { deepCamelCase } from '../common/deep-camel-case';
@@ -26,6 +27,7 @@ export class BaziService {
     private redis: RedisService,
     private configService: ConfigService,
     private aiService: AIService,
+    private creditsService: CreditsService,
   ) {
     this.baziEngineUrl = this.configService.get<string>('BAZI_ENGINE_URL') || 'http://localhost:5001';
   }
@@ -232,23 +234,9 @@ export class BaziService {
     const creditsUsed = fromCache ? 0 : service.creditCost;
 
     const reading = await this.prisma.$transaction(async (tx) => {
-      if (fromCache) {
-        // Cache hit: no credit deduction
-        // Just proceed to create reading
-      } else {
-        // Atomically deduct credits — only succeeds if user has enough
-        const updated = await tx.user.updateMany({
-          where: { id: user.id, credits: { gte: service.creditCost } },
-          data: { credits: { decrement: service.creditCost } },
-        });
-        if (updated.count === 0) {
-          throw new BadRequestException(
-            `Insufficient credits. This reading requires ${service.creditCost} credits.`,
-          );
-        }
-      }
-
-      return tx.baziReading.create({
+      // Create reading first so we have an id to attach to the credit ledger.
+      // If deduction fails below, the transaction rolls back and the reading is not persisted.
+      const r = await tx.baziReading.create({
         data: {
           userId: user.id,
           birthProfileId: profile.id,
@@ -262,6 +250,15 @@ export class BaziService {
           targetYear: dto.targetYear,
         },
       });
+      if (!fromCache) {
+        await this.creditsService.deductCredits(
+          user.id,
+          service.creditCost,
+          `reading-create:${dto.readingType}`,
+          { readingId: r.id, tx },
+        );
+      }
+      return r;
     });
 
     // For streaming requests, include streamReady flag and deterministic data
@@ -299,6 +296,62 @@ export class BaziService {
     }
 
     return { ...reading, fromCache };
+  }
+
+  /**
+   * Regenerate AI for a degraded reading. Free (no credit deduction).
+   * Limit: REGENERATION_LIMIT (3) per reading. After exhausted, user must
+   * delete the reading and create a fresh one.
+   *
+   * Sets aiInterpretation back to NULL so the SSE stream endpoint will
+   * regenerate from scratch on next /stream request.
+   */
+  async regenerateReading(clerkUserId: string, readingId: string) {
+    const REGENERATION_LIMIT = 3;
+    const user = await this.prisma.user.findUnique({ where: { clerkUserId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const reading = await this.prisma.baziReading.findFirst({
+      where: { id: readingId, userId: user.id },
+    });
+    if (!reading) throw new NotFoundException('Reading not found');
+    if (!reading.isDegraded) {
+      throw new BadRequestException('此分析狀態正常，無需重新生成');
+    }
+    if (reading.regenerationExhausted || reading.regenerationCount >= REGENERATION_LIMIT) {
+      // Lock it definitively
+      if (!reading.regenerationExhausted) {
+        await this.prisma.baziReading.update({
+          where: { id: readingId },
+          data: { regenerationExhausted: true },
+        });
+      }
+      throw new BadRequestException(
+        `已達免費重新生成上限（${REGENERATION_LIMIT} 次）。如需再次分析，請建立新的命理分析。`,
+      );
+    }
+
+    // Clear AI + degraded flags so the SSE stream endpoint will regenerate.
+    // CRITICAL: use Prisma.DbNull to set the column to SQL NULL.
+    // `undefined` would be a no-op in Prisma v6.
+    // `Prisma.JsonNull` would set the column to JSONB literal 'null' (not the same as SQL NULL).
+    const updated = await this.prisma.baziReading.update({
+      where: { id: readingId },
+      data: {
+        regenerationCount: { increment: 1 },
+        isDegraded: false,
+        failedReason: null,
+        aiInterpretation: Prisma.DbNull,
+        aiProvider: null,
+        aiModel: null,
+      },
+    });
+
+    return {
+      readingId: updated.id,
+      regenerationCount: updated.regenerationCount,
+      regenerationsRemaining: REGENERATION_LIMIT - updated.regenerationCount,
+    };
   }
 
   async getReading(clerkUserId: string, readingId: string) {
@@ -736,21 +789,7 @@ export class BaziService {
 
       // Atomic transaction to prevent double-spend
       const comparison = await this.prisma.$transaction(async (tx) => {
-        if (fromCache) {
-          // Cache hit: no credit deduction
-        } else {
-          const updated = await tx.user.updateMany({
-            where: { id: user.id, credits: { gte: service.creditCost } },
-            data: { credits: { decrement: service.creditCost } },
-          });
-          if (updated.count === 0) {
-            throw new BadRequestException(
-              `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
-            );
-          }
-        }
-
-        return tx.baziComparison.create({
+        const c = await tx.baziComparison.create({
           data: {
             userId: user.id,
             profileAId: profileA.id,
@@ -765,6 +804,15 @@ export class BaziService {
             lastCalculatedYear: new Date().getFullYear(),
           },
         });
+        if (!fromCache) {
+          await this.creditsService.deductCredits(
+            user.id,
+            service.creditCost,
+            `comparison-create:${dto.comparisonType}`,
+            { comparisonId: c.id, tx },
+          );
+        }
+        return c;
       });
 
       return this.flattenComparisonResponse(comparison);
@@ -961,13 +1009,12 @@ export class BaziService {
 
     // Atomic update: deduct credit + update comparison
     const updated = await this.prisma.$transaction(async (tx) => {
-      const deducted = await tx.user.updateMany({
-        where: { id: user.id, credits: { gte: recalcCost } },
-        data: { credits: { decrement: recalcCost } },
-      });
-      if (deducted.count === 0) {
-        throw new BadRequestException('Insufficient credits');
-      }
+      await this.creditsService.deductCredits(
+        user.id,
+        recalcCost,
+        'comparison-recalculate',
+        { comparisonId, tx },
+      );
 
       return tx.baziComparison.update({
         where: { id: comparisonId },

@@ -61,6 +61,19 @@ export class BaziController {
     return this.baziService.streamReading(auth.userId, id);
   }
 
+  @Post('readings/:id/regenerate')
+  @ApiBearerAuth()
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({
+    summary: 'Regenerate AI for a degraded reading (free, max 3 times per reading)',
+  })
+  async regenerateReading(
+    @CurrentUser() auth: AuthPayload,
+    @Param('id') id: string,
+  ) {
+    return this.baziService.regenerateReading(auth.userId, id);
+  }
+
   @Post('comparisons')
   @ApiBearerAuth()
   @Throttle({ default: { limit: 10, ttl: 60000 } })
