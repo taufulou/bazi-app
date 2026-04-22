@@ -54,6 +54,8 @@ interface AIReadingDisplayProps {
   chartData?: Record<string, unknown> | null; // Bazi calculation data for technical reference card
   /** Optional callback to render extra content after a specific section key */
   renderAfterSection?: (sectionKey: string) => React.ReactNode;
+  /** Optional slot rendered just before the entertainment disclaimer (e.g., AI status banners). */
+  beforeDisclaimer?: React.ReactNode;
 }
 
 // ============================================================
@@ -1719,6 +1721,7 @@ export default function AIReadingDisplay({
   summaryPosition = 'top',
   chartData = null,
   renderAfterSection,
+  beforeDisclaimer,
 }: AIReadingDisplayProps) {
   const isGuide = readingType === 'lifetime'; // LIFETIME always uses guide style
   const isCareerV2 = readingType === 'career' && data?.isV2 === true;
@@ -2232,6 +2235,10 @@ export default function AIReadingDisplay({
           </div>
         </div>
       )}
+
+      {/* Optional slot — used by parent to inject AI status banners (degraded/refunded)
+          right before the entertainment disclaimer so users scrolling to the bottom see them */}
+      {beforeDisclaimer}
 
       {/* Entertainment Disclaimer — hidden during streaming */}
       {!isStreaming && (

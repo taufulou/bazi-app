@@ -32,6 +32,7 @@ import {
   createZwdsReading,
   getReading,
   streamBaziReading,
+  regenerateBaziReading,
   transformAIResponse,
   SECTION_TITLE_MAP,
   GUIDE_SECTION_TITLE_MAP,
@@ -205,6 +206,19 @@ export default function ReadingPage() {
   const [userTier, setUserTier] = useState<string>("FREE");
   const [showCreditsModal, setShowCreditsModal] = useState(false);
 
+  // AI retry + degrade UX state (added by ai-retry-and-credit-refund plan)
+  const [retryStatus, setRetryStatus] = useState<{ provider: string; attempt: number; max: number; reason: string; call: 1 | 2 } | null>(null);
+  const [degradedInfo, setDegradedInfo] = useState<{
+    message: string;
+    readingId: string;
+    expectedSections: number;
+    actualSections: number;
+    /** True when user has used all 3 free regenerations — show persistent "limit reached" state */
+    exhausted?: boolean;
+  } | null>(null);
+  const [refundedInfo, setRefundedInfo] = useState<{ refunded: boolean; amount: number } | null>(null);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+
   // Profile state
   const [savedProfiles, setSavedProfiles] = useState<BirthProfile[]>([]);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -363,6 +377,12 @@ export default function ReadingPage() {
 
       const reading = await getReading(token, id);
 
+      // Clear prior banner state — otherwise a degraded reading's banner
+      // lingers when navigating to a healthy reading.
+      setDegradedInfo(null);
+      setRefundedInfo(null);
+      setRetryStatus(null);
+
       // Populate chart data
       if (isZwds) {
         setZwdsChartData(reading.calculationData as unknown as ZwdsChartData);
@@ -392,6 +412,21 @@ export default function ReadingPage() {
       // User owns this reading — unlock all sections
       // (backend already verifies ownership and sends full data)
       setIsPaidReading(true);
+
+      // Surface degraded banner if this past reading was marked as such.
+      // ALWAYS shown when isDegraded=true — even if exhausted (user needs to know the
+      // reading is permanently incomplete and can't be regenerated anymore).
+      if (reading.isDegraded) {
+        const sectionCount = aiReading?.sections?.length ?? 0;
+        const m = reading.failedReason?.match(/(\d+)\s*\/\s*(\d+)\s*sections/i);
+        setDegradedInfo({
+          message: '部分內容未生成完成。',
+          readingId: reading.id,
+          expectedSections: m && m[2] ? parseInt(m[2], 10) : sectionCount,
+          actualSections: m && m[1] ? parseInt(m[1], 10) : sectionCount,
+          exhausted: !!reading.regenerationExhausted,
+        });
+      }
 
       setCurrentReadingId(reading.id);
       // If the deep-link came from PastReadingsSection on this same form page (?from=form),
@@ -542,11 +577,38 @@ export default function ReadingPage() {
             }));
           },
           onDone: () => {
+            // Legacy event — final event takes precedence. Kept for back-compat with non-V2 streams.
             setIsAiLoading(false);
+          },
+          onFinal: (info) => {
+            setIsAiLoading(false);
+            setRetryStatus(null);
+            if (info.status === 'failed') {
+              const amount = info.refundedAmount ?? 0;
+              setRefundedInfo({
+                refunded: !!info.refunded,
+                amount,
+              });
+              if (info.refunded && amount > 0) {
+                // Restore the credits that were deducted earlier
+                setUserCredits((prev) => (prev !== null ? prev + amount : prev));
+              }
+            } else if (info.status === 'degraded') {
+              setDegradedInfo({
+                message: info.message || 'Partial reading delivered. Click Regenerate to retry.',
+                readingId: response.id,
+                expectedSections: info.expectedSections,
+                actualSections: info.totalSections,
+              });
+            }
+          },
+          onRetryAttempt: (info) => {
+            setRetryStatus(info);
           },
           onError: (err) => {
             if (!err.partial) setError(err.message);
             setIsAiLoading(false);
+            setRetryStatus(null);
           },
           onCallComplete: () => {},
         });
@@ -718,6 +780,10 @@ export default function ReadingPage() {
       setCurrentReadingId(null);
       setIsChartOnly(false);
       setIsPaidReading(false);
+      // Clear AI status banners from any prior reading
+      setDegradedInfo(null);
+      setRefundedInfo(null);
+      setRetryStatus(null);
       // Reset any previous reveal timer
       if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
       setIsRevealing(false);
@@ -821,6 +887,9 @@ export default function ReadingPage() {
   // ============================================================
 
   const handleRetry = async () => {
+    // Clear the error FIRST so the message block dismisses on click —
+    // otherwise users see the error persist and think "nothing happened".
+    setError(undefined);
     if (currentReadingId) {
       // Re-fetch existing reading (no new credit deduction)
       setIsLoading(true);
@@ -877,6 +946,17 @@ export default function ReadingPage() {
           sessionStorage.removeItem(`${sessionKey}_lunar_date`);
           sessionStorage.removeItem(`${sessionKey}_reading_id`);
         } catch { /* ignore */ }
+      }
+      // Drop URL query params (?id=...&from=...) — otherwise the past-readings
+      // list filters out the reading we just left and the user doesn't see it.
+      // NOTE: router.replace is async — readingIdParam will still be populated
+      // on the next render until Next.js processes the navigation. The re-hydrate
+      // effect guards on `readingIdParam === lastLoadedIdRef.current` and would
+      // otherwise re-trigger the load. KEEP lastLoadedIdRef at the current id so
+      // the guard holds until the URL actually drops the param.
+      if (readingIdParam || fromParam) {
+        const cleanPath = window.location.pathname;
+        router.replace(cleanPath);
       }
       setStep("input");
       setTab("chart");
@@ -1233,6 +1313,10 @@ export default function ReadingPage() {
 
     try {
       const existing = await getReading(token, readingId);
+      // Clear prior banner state before applying new reading's state
+      setDegradedInfo(null);
+      setRefundedInfo(null);
+      setRetryStatus(null);
       const transformed = transformAIResponse(existing.aiInterpretation);
       if (transformed && transformed.sections && transformed.sections.length > 0) {
         // Reading exists with AI data → render it (no re-charge)
@@ -1241,6 +1325,19 @@ export default function ReadingPage() {
         setIsChartOnly(false);
         setIsPaidReading(true);
         setShowPaywall(false);
+        // Surface degraded banner if this past reading was marked as such
+        // (always, including when exhausted — banner copy differs per state)
+        if (existing.isDegraded) {
+          const sectionCount = transformed.sections.length;
+          const m = existing.failedReason?.match(/(\d+)\s*\/\s*(\d+)\s*sections/i);
+          setDegradedInfo({
+            message: '部分內容未生成完成。',
+            readingId: existing.id,
+            expectedSections: m && m[2] ? parseInt(m[2], 10) : sectionCount,
+            actualSections: m && m[1] ? parseInt(m[1], 10) : sectionCount,
+            exhausted: !!existing.regenerationExhausted,
+          });
+        }
         // Clean up sessionStorage
         try {
           sessionStorage.removeItem(`${sessionKeyPrefix}_form`);
@@ -1279,7 +1376,35 @@ export default function ReadingPage() {
             setAiData((prev) => ({ ...prev!, summary: { text: summary.full || summary.preview } }));
           },
           onDone: () => { setIsAiLoading(false); setShowPaywall(false); },
-          onError: () => { setIsAiLoading(false); setShowPaywall(true); },
+          onFinal: (info) => {
+            setIsAiLoading(false);
+            setRetryStatus(null);
+            if (info.status === 'failed') {
+              const amount = info.refundedAmount ?? 0;
+              setRefundedInfo({
+                refunded: !!info.refunded,
+                amount,
+              });
+              if (info.refunded && amount > 0) {
+                setUserCredits((prev) => (prev !== null ? prev + amount : prev));
+              }
+              setShowPaywall(true);
+            } else if (info.status === 'degraded') {
+              setDegradedInfo({
+                message: info.message || 'Partial reading delivered. Click Regenerate to retry.',
+                readingId,
+                expectedSections: info.expectedSections,
+                actualSections: info.totalSections,
+              });
+              setShowPaywall(false);
+            } else {
+              setShowPaywall(false);
+            }
+          },
+          onRetryAttempt: (info) => {
+            setRetryStatus(info);
+          },
+          onError: () => { setIsAiLoading(false); setShowPaywall(true); setRetryStatus(null); },
           onCallComplete: () => {},
         });
         streamCleanupRef.current = () => stream.close();
@@ -1305,6 +1430,230 @@ export default function ReadingPage() {
       </div>
     );
   }
+
+  // Shared AI status banner renderer — used BOTH above and below the reading content
+  // so users can't miss a failed/degraded notification when reading is long.
+  const renderAiStatusBanners = (position: 'top' | 'bottom') => (
+    <>
+      {/* AI retry status toast — shown while retrying transient failures */}
+      {retryStatus && (
+        <div
+          key={`retry-${position}`}
+          style={{
+            background: '#FFF8F0',
+            border: '1px solid #D4A017',
+            borderRadius: 12,
+            padding: '12px 16px',
+            margin: '12px 0',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            color: '#6B5940',
+            fontSize: 14,
+          }}
+        >
+          <span style={{ fontSize: 18 }}>⏳</span>
+          <span>
+            AI 命理服務暫時繁忙，正在自動重試（第 {retryStatus.attempt} / {retryStatus.max} 次）...
+          </span>
+        </div>
+      )}
+
+      {/* Degraded reading banner — two states:
+            1. exhausted=false: active — can click 🔄 to regenerate (free, up to 3x)
+            2. exhausted=true: permanent — "limit reached", no button, stays visible
+                so the user sees it every time they open this past reading */}
+      {degradedInfo && (
+        <div
+          key={`degraded-${position}`}
+          style={{
+            background: '#FFFBF5',
+            border: `1px solid ${degradedInfo.exhausted ? '#8B7355' : '#F5A623'}`,
+            borderRadius: 16,
+            padding: 20,
+            margin: '16px 0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 14,
+            color: '#3C2415',
+            boxShadow: '0 4px 20px rgba(226,61,40,0.08)',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            <span style={{ fontSize: 28, lineHeight: 1 }}>⚠️</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: '#C41E3A', marginBottom: 6, fontFamily: '"Noto Serif TC", serif' }}>
+                {degradedInfo.exhausted ? '此分析為部分未完成（已用盡重試次數）' : '命理分析未完整'}
+              </div>
+              <div style={{ fontSize: 14, color: '#6B5940', lineHeight: 1.6 }}>
+                {degradedInfo.exhausted ? (
+                  <>
+                    已用盡免費重新生成次數（3 / 3 次）。如需完整的命理分析，請建立新的分析。
+                  </>
+                ) : degradedInfo.actualSections < degradedInfo.expectedSections ? (
+                  <>
+                    已生成 <strong style={{ color: '#3C2415' }}>{degradedInfo.actualSections} / {degradedInfo.expectedSections}</strong> 個段落，仍有部分內容未完成。可免費重新生成補齊缺失部分。
+                  </>
+                ) : (
+                  <>
+                    此次分析標記為部分未完成。您可以免費重新生成完整的命理分析。
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+          {!degradedInfo.exhausted && (
+          <button
+            onClick={async () => {
+              if (isRegenerating) return;
+              const readingIdToRegen = degradedInfo.readingId;
+              setIsRegenerating(true);
+              try {
+                const token = await getToken();
+                if (!token) throw new Error('未登入');
+                await regenerateBaziReading(token, readingIdToRegen);
+                setDegradedInfo(null);
+                setAiData((prev) => ({
+                  sections: [],
+                  isV2: true,
+                  deterministic: prev?.deterministic,
+                }));
+                setIsAiLoading(true);
+                setIsRegenerating(false);
+                const stream = streamBaziReading(token, readingIdToRegen, {
+                  onSectionComplete: (key, section) => {
+                    const titleMap = GUIDE_SECTION_TITLE_MAP;
+                    setAiData((prev) => ({
+                      ...prev!,
+                      sections: [
+                        ...(prev?.sections || []),
+                        {
+                          key,
+                          title: titleMap[key] || SECTION_TITLE_MAP[key] || key,
+                          preview: section.preview,
+                          full: section.full,
+                          score: section.score,
+                        },
+                      ],
+                    }));
+                  },
+                  onSummary: (summary) => {
+                    setAiData((prev) => ({
+                      ...prev!,
+                      summary: { text: summary.full || summary.preview },
+                    }));
+                  },
+                  onCallComplete: () => {},
+                  onFinal: (info) => {
+                    setIsAiLoading(false);
+                    setRetryStatus(null);
+                    if (info.status === 'failed') {
+                      const amount = info.refundedAmount ?? 0;
+                      setRefundedInfo({ refunded: !!info.refunded, amount });
+                    } else if (info.status === 'degraded') {
+                      setDegradedInfo({
+                        message: '重新生成後仍有部分內容缺失。',
+                        readingId: readingIdToRegen,
+                        expectedSections: info.expectedSections,
+                        actualSections: info.totalSections,
+                      });
+                    }
+                  },
+                  onRetryAttempt: (info) => setRetryStatus(info),
+                  onError: (err) => {
+                    setError(err.message);
+                    setIsAiLoading(false);
+                    setRetryStatus(null);
+                  },
+                });
+                streamCleanupRef.current = () => stream.close();
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : '重新生成失敗';
+                setIsRegenerating(false);
+                setIsAiLoading(false);
+                // Limit-reached → flip banner to persistent "exhausted" state (no red error).
+                // Other errors → show the red error block.
+                if (msg.includes('上限') || msg.includes('limit')) {
+                  setDegradedInfo((prev) => prev ? { ...prev, exhausted: true } : prev);
+                } else {
+                  setError(msg);
+                }
+              }
+            }}
+            disabled={isRegenerating}
+            style={{
+              padding: '10px 20px',
+              background: '#E23D28',
+              color: '#FFFFFF',
+              border: 'none',
+              borderRadius: 12,
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: isRegenerating ? 'not-allowed' : 'pointer',
+              alignSelf: 'flex-start',
+              opacity: isRegenerating ? 0.6 : 1,
+            }}
+          >
+            {isRegenerating ? '重新生成中...' : '🔄 免費重新生成'}
+          </button>
+          )}
+        </div>
+      )}
+
+      {/* AI failure notification — friendly zh-TW copy with optional refund detail */}
+      {refundedInfo && (
+        <div
+          key={`refunded-${position}`}
+          style={{
+            background: '#FFFBF5',
+            border: '1px solid #D4A017',
+            borderRadius: 16,
+            padding: 20,
+            margin: '16px 0',
+            boxShadow: '0 4px 20px rgba(226,61,40,0.08)',
+            position: 'relative',
+            color: '#3C2415',
+          }}
+        >
+          <button
+            aria-label="關閉"
+            onClick={() => setRefundedInfo(null)}
+            style={{
+              position: 'absolute',
+              top: 12,
+              right: 12,
+              background: 'transparent',
+              border: 'none',
+              color: '#8B7355',
+              cursor: 'pointer',
+              fontSize: 18,
+              padding: 4,
+              lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+            <span style={{ fontSize: 28, lineHeight: 1 }}>💎</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: '#C41E3A', marginBottom: 6, fontFamily: '"Noto Serif TC", serif' }}>
+                命理分析暫時無法完成
+              </div>
+              <div style={{ fontSize: 14, color: '#6B5940', lineHeight: 1.6 }}>
+                AI 服務目前繁忙，請稍候片刻後再試一次。
+                {refundedInfo.refunded && refundedInfo.amount > 0 && (
+                  <>
+                    您的 <strong style={{ color: '#3C2415' }}>{refundedInfo.amount} 個額度</strong>
+                    {' '}已自動退回，未扣除任何費用。
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 
   return (
     <div className={`${styles.pageContainer} ${isFullPageLayout ? styles.pageContainerLifetime : ''}`}>
@@ -1477,6 +1826,10 @@ export default function ReadingPage() {
               </div>
             )}
 
+            {/* AI status banners (top): retry / degraded / refunded */}
+            {renderAiStatusBanners("top")}
+
+
             {error && (
               <div className={styles.errorMessage}>
                 <div className={styles.errorIcon}>⚠️</div>
@@ -1625,12 +1978,14 @@ export default function ReadingPage() {
               </div>
             )}
 
-            {/* AI Reading — hidden during reveal for full-page layout, tab-gated for others */}
+            {/* AI Reading — hidden during reveal for full-page layout, tab-gated for others.
+                Bottom-of-page banners (degraded/refunded) injected via `beforeDisclaimer`
+                so they appear above the entertainment disclaimer (rendered inside AIReadingDisplay). */}
             {(isFullPageLayout || tab === "reading") && (
               isFullPageLayout ? (
-                !isRevealing && !showPaywall && (aiData || isAiLoading) && <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} summaryPosition="bottom" chartData={chartData} />
+                !isRevealing && !showPaywall && (aiData || isAiLoading) && <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} summaryPosition="bottom" chartData={chartData} beforeDisclaimer={renderAiStatusBanners("bottom")} />
               ) : (
-                <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} chartData={chartData} />
+                <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} chartData={chartData} beforeDisclaimer={renderAiStatusBanners("bottom")} />
               )
             )}
           </>
