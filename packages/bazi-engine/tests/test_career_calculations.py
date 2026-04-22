@@ -615,13 +615,14 @@ class TestWealthScore:
         assert tier in ('平常', '小富', '中富', '大富', '巨富')
 
     def test_sub_scores_structure(self, laopo10_career_result):
-        """Should have all 5 wealth sub-scores."""
+        """Should have all 6 wealth sub-scores (incl. sealRescueBonus from Fix 4)."""
         sub = laopo10_career_result['wealthScore']['subScores']
         assert 'wealthFavorability' in sub
         assert 'wealthReality' in sub
         assert 'outputGenerating' in sub
         assert 'treasury' in sub
         assert 'luckPeriodSupport' in sub
+        assert 'sealRescueBonus' in sub  # Fix 4: visible per UD-3 default
 
     def test_tier_matches_score(self, laopo10_career_result):
         """Tier should match the score range."""
@@ -649,9 +650,90 @@ class TestWealthScore:
         effective_gods = {'火': '喜神', '土': '用神', '木': '閒神', '金': '忌神', '水': '仇神'}
         result = compute_wealth_score(
             pillars, '甲', effective_gods, '未', None,
-            {'category': 'strong', 'score': 70}, [], 2026,
+            {'classification': 'strong', 'score': 70}, [], 2026,
         )
         assert result['score'] >= 40, "Strong wealth chart should score well"
+
+
+# ============================================================
+# Fix 4: Seal Rescue Bonus Tests (印通關救應加分)
+# ============================================================
+
+class TestSealRescueBonus:
+    """Test _compute_seal_rescue_bonus — Fix 4 (Laopo feedback v4)."""
+
+    def test_laopo_gets_seal_rescue_bonus(self, laopo10_pillars):
+        """Laopo (壬偏印透時, 癸正印藏丑) should get strong 印透干+通根 bonus."""
+        from app.career_enhanced import _compute_seal_rescue_bonus
+        effective_gods = {'水': '用神', '木': '喜神', '火': '閒神', '土': '仇神', '金': '忌神'}
+        strength_v2 = {'classification': 'very_weak'}
+        bonus = _compute_seal_rescue_bonus(
+            laopo10_pillars, '甲', effective_gods, strength_v2, cong_ge=None,
+        )
+        assert bonus >= 15, f"Laopo should get strong seal rescue bonus, got {bonus}"
+        assert bonus <= 25, f"Capped at +25, got {bonus}"
+
+    def test_no_bonus_for_strong_dm(self, laopo10_pillars):
+        """Strong DM should not get bonus — rule scope is weak DM only."""
+        from app.career_enhanced import _compute_seal_rescue_bonus
+        effective_gods = {'水': '用神', '木': '喜神', '火': '閒神', '土': '仇神', '金': '忌神'}
+        strength_v2 = {'classification': 'strong'}
+        bonus = _compute_seal_rescue_bonus(
+            laopo10_pillars, '甲', effective_gods, strength_v2, cong_ge=None,
+        )
+        assert bonus == 0
+
+    def test_no_bonus_when_wealth_is_yongshen(self, laopo10_pillars):
+        """If 財=用神 (e.g., strong DM needs wealth), no rescue triggered."""
+        from app.career_enhanced import _compute_seal_rescue_bonus
+        # Reverse role assignment: 土=用 (財 is favorable)
+        effective_gods = {'土': '用神', '金': '喜神', '水': '閒神', '木': '仇神', '火': '忌神'}
+        strength_v2 = {'classification': 'very_weak'}
+        bonus = _compute_seal_rescue_bonus(
+            laopo10_pillars, '甲', effective_gods, strength_v2, cong_ge=None,
+        )
+        assert bonus == 0, f"Wealth=用神 should not trigger rescue, got {bonus}"
+
+    def test_no_bonus_when_no_seal_in_chart(self):
+        """Chart with no 印 element (water for 甲) should get bonus=0 (屋富人貧)."""
+        from app.career_enhanced import _compute_seal_rescue_bonus
+        # 甲 weak; 戊午/己未/甲戌/戊午 — all 土+火+木, NO 水 (印) anywhere
+        pillars = {
+            'year':  {'stem': '戊', 'branch': '午'},
+            'month': {'stem': '己', 'branch': '未'},
+            'day':   {'stem': '甲', 'branch': '戌'},
+            'hour':  {'stem': '戊', 'branch': '午'},
+        }
+        effective_gods = {'水': '用神', '木': '喜神', '火': '閒神', '土': '仇神', '金': '忌神'}
+        strength_v2 = {'classification': 'very_weak'}
+        bonus = _compute_seal_rescue_bonus(
+            pillars, '甲', effective_gods, strength_v2, cong_ge=None,
+        )
+        assert bonus == 0, f"No 印 = no rescue (屋富人貧), got {bonus}"
+
+    def test_no_bonus_for_cong_ge(self, laopo10_pillars):
+        """從格 charts skip rescue (印 becomes 忌神 in 從財/從殺)."""
+        from app.career_enhanced import _compute_seal_rescue_bonus
+        effective_gods = {'水': '用神', '木': '喜神', '火': '閒神', '土': '仇神', '金': '忌神'}
+        strength_v2 = {'classification': 'very_weak'}
+        cong_ge = {'subtype': '從財格'}
+        bonus = _compute_seal_rescue_bonus(
+            laopo10_pillars, '甲', effective_gods, strength_v2, cong_ge=cong_ge,
+        )
+        assert bonus == 0, f"從格 should skip rescue, got {bonus}"
+
+    def test_laopo_wealth_score_lifted_by_seal_rescue(self, laopo10_career_result):
+        """Fix 4 end-to-end: Laopo's wealth tier should escape 平常 post-rescue."""
+        wealth = laopo10_career_result['wealthScore']
+        assert wealth['tier'] != '平常', \
+            f"Laopo should escape 平常 post seal rescue, got {wealth}"
+        assert wealth['tier'] in ('小富', '中富'), \
+            f"Expected 小富/中富, got tier={wealth['tier']} score={wealth['score']}"
+        # Loose upper bound (avoid over-correction surface)
+        assert wealth['score'] < 75, \
+            f"Score overshoot — bonus may be too generous: {wealth['score']}"
+        # Bonus should be visible (UD-3 default)
+        assert wealth['subScores']['sealRescueBonus'] > 0
 
 
 # ============================================================
@@ -889,6 +971,119 @@ class TestCareerAlliesEnemies:
             assert 'label' in ant
             assert 'description' in ant
 
+    def test_allies_includes_sanhe_partners_minus_self(self, laopo10_career_result):
+        """Sanhe self-zodiac fix: For Laopo (寅虎 year, 戌狗 day), 寅午戌 三合 →
+        allies must include 午 (馬) but NOT 戌 (狗 = Laopo's day_branch zodiac = self).
+        Supersedes prior Fix 1 expectation that included 戌. Classical convention
+        excludes self ('貴人必須是與自身生肖不同的屬相')."""
+        allies = laopo10_career_result['careerAllies']['allies']
+        branches = {a['branch'] for a in allies}
+        assert '午' in branches, "Missing 午 (馬) — 寅午戌 partner, not self"
+        assert '戌' not in branches, \
+            "戌 (狗) is Laopo's day_branch zodiac (self) — must NOT appear as own ally"
+        assert '寅' not in branches, \
+            "寅 (虎) is Laopo's year_branch zodiac (self) — must NOT appear as own ally"
+
+    def test_allies_have_inchart_flag(self, laopo10_career_result):
+        """Each ally entry should have inChart bool flag."""
+        allies = laopo10_career_result['careerAllies']['allies']
+        for ally in allies:
+            assert 'inChart' in ally
+            assert isinstance(ally['inChart'], bool)
+        # 午 is NOT in Laopo's chart — should be False
+        wu_ally = next((a for a in allies if a['branch'] == '午'), None)
+        assert wu_ally is not None, "午 should be in allies"
+        assert wu_ally['inChart'] is False, "午 not in chart should have inChart=False"
+
+    # ────────────────────────────────────────────────────────────
+    # Sanhe self-zodiac fix — new tests
+    # ────────────────────────────────────────────────────────────
+
+    def test_allies_excludes_year_branch_zodiac(self, laopo10_career_result):
+        """No ally should match the user's year_branch zodiac (寅 for Laopo)."""
+        allies = laopo10_career_result['careerAllies']['allies']
+        # Laopo's year branch is 寅
+        for ally in allies:
+            assert ally['branch'] != '寅', \
+                f"年支 zodiac 寅 must not appear as ally, got {ally}"
+
+    def test_allies_excludes_day_branch_zodiac(self, laopo10_career_result):
+        """No ally should match the user's day_branch zodiac (戌 for Laopo)."""
+        allies = laopo10_career_result['careerAllies']['allies']
+        # Laopo's day branch is 戌
+        for ally in allies:
+            assert ally['branch'] != '戌', \
+                f"日支 zodiac 戌 must not appear as ally, got {ally}"
+
+    def test_partial_sanhe_active_for_laopo(self, laopo10_career_result):
+        """Laopo (寅+戌, both in 寅午戌 火局) should trigger 半三合 detection."""
+        ae = laopo10_career_result['careerAllies']
+        assert ae['partialSanheActive'] is True, \
+            "Laopo's 寅+戌 should activate 半三合 (寅午戌 火局)"
+        catalyst = ae['sanheCatalyst']
+        assert catalyst is not None
+        assert catalyst['branch'] == '午', f"Catalyst should be 午, got {catalyst}"
+        assert catalyst['zodiac'] == '馬'
+        assert catalyst['groupElement'] == '火'
+
+    def test_no_partial_sanhe_when_year_day_unrelated(self):
+        """Roger-like chart (year=卯, day=午 — different 三合 groups) should NOT
+        trigger 半三合; allies should include all 4 partners (亥/未/寅/戌)."""
+        from app.career_enhanced import compute_career_allies_enemies
+        pillars = {
+            'year':  {'stem': '丁', 'branch': '卯'},  # 卯 ∈ 亥卯未 木局
+            'month': {'stem': '戊', 'branch': '申'},
+            'day':   {'stem': '戊', 'branch': '午'},  # 午 ∈ 寅午戌 火局
+            'hour':  {'stem': '庚', 'branch': '申'},
+        }
+        effective_gods = {'木': '用神', '水': '喜神', '火': '閒神', '土': '仇神', '金': '忌神'}
+        result = compute_career_allies_enemies(pillars, '戊', effective_gods, [])
+        assert result['partialSanheActive'] is False, \
+            "year+day in different 三合 groups should not activate 半三合"
+        assert result['sanheCatalyst'] is None
+        # All 4 expected allies present (年支卯 → 亥, 未; 日支午 → 寅, 戌)
+        branches = {a['branch'] for a in result['allies']}
+        for expected in ('亥', '未', '寅', '戌'):
+            assert expected in branches, f"Expected {expected} in allies, got {branches}"
+
+    def test_year_equals_day_branch_no_double_count(self):
+        """Year==day chart (寅寅): allies = [午, 戌] only (no self), partialSanheActive=False
+        per binding decision (doubled qi is NOT 半三合)."""
+        from app.career_enhanced import compute_career_allies_enemies
+        pillars = {
+            'year':  {'stem': '甲', 'branch': '寅'},
+            'month': {'stem': '丙', 'branch': '辰'},
+            'day':   {'stem': '甲', 'branch': '寅'},  # year == day
+            'hour':  {'stem': '戊', 'branch': '午'},
+        }
+        effective_gods = {'木': '用神', '水': '喜神', '火': '閒神', '土': '仇神', '金': '忌神'}
+        result = compute_career_allies_enemies(pillars, '甲', effective_gods, [])
+        branches = sorted(a['branch'] for a in result['allies'])
+        assert branches == ['午', '戌'], \
+            f"寅寅 chart allies should be exactly [午, 戌], got {branches}"
+        assert result['partialSanheActive'] is False, \
+            "year==day must NOT trigger 半三合 (doubled qi ≠ half-harmony)"
+        assert result['sanheCatalyst'] is None
+
+    def test_month_or_hour_ally_still_included(self):
+        """Self-exclusion only filters year/day zodiacs. month/hour pillars matching
+        an ally branch should still be listed (with inChart=True)."""
+        from app.career_enhanced import compute_career_allies_enemies
+        # year=卯 → 亥/未 are partners. Place 亥 in month_branch.
+        # day=戌 → 寅/午 are partners. day=戌 itself excluded (self).
+        pillars = {
+            'year':  {'stem': '乙', 'branch': '卯'},
+            'month': {'stem': '丁', 'branch': '亥'},  # 亥 = year's 三合 partner, present in chart
+            'day':   {'stem': '丙', 'branch': '戌'},
+            'hour':  {'stem': '戊', 'branch': '申'},
+        }
+        effective_gods = {'木': '用神', '水': '喜神', '火': '閒神', '土': '仇神', '金': '忌神'}
+        result = compute_career_allies_enemies(pillars, '丙', effective_gods, [])
+        hai_ally = next((a for a in result['allies'] if a['branch'] == '亥'), None)
+        assert hai_ally is not None, \
+            "亥 (year's 三合 partner, not year/day zodiac) must appear as ally"
+        assert hai_ally['inChart'] is True, "亥 IS in chart (month_branch) → inChart=True"
+
 
 # ============================================================
 # Annual Forecast Tests
@@ -964,6 +1159,64 @@ class TestAnnualForecast:
                 assert 'label' in ind
                 assert 'description' in ind
 
+    def test_laopo_2027_no_shangguan_jian_guan_danger(self, laopo10_career_result):
+        """Fix 3: 2027 丁未 (丁=傷官, 辛 manifest=正官 but 辛=金=忌神 for Laopo).
+        Old code incorrectly flagged 傷官見官 as danger; new code recognizes
+        官=忌 → 傷官 制官 is BENEFICIAL, should flag as opportunity instead.
+        """
+        annual = laopo10_career_result['annualForecasts']
+        year_2027 = next(a for a in annual if a['year'] == 2027)
+        indicators = year_2027['careerIndicators']
+        labels_by_type = {(i['type'], i['label']) for i in indicators}
+        assert ('danger', '傷官見官') not in labels_by_type, \
+            "傷官見官 should NOT be danger when 正官 is 忌神 (Laopo case)"
+        # Should be opportunity instead
+        assert ('opportunity', '傷官制官') in labels_by_type, \
+            f"Should flag 傷官制官 as opportunity for 身弱官殺旺 chart, got {labels_by_type}"
+
+    def test_strong_dm_with_official_yongshen_still_danger(self):
+        """Fix 3: Synthetic strong-DM chart where 正官=用神 should STILL flag danger."""
+        from app.career_enhanced import _detect_career_indicators
+        # 庚 strong DM, 流年 癸=傷官, manifest 丁=正官 (火=用神 for strong-DM 庚)
+        pillars = {
+            'year':  {'stem': '丁', 'branch': '巳'},
+            'month': {'stem': '庚', 'branch': '申'},  # 庚 strong in 申月
+            'day':   {'stem': '庚', 'branch': '辰'},
+            'hour':  {'stem': '辛', 'branch': '巳'},
+        }
+        # Strong 庚 needs 火/木/水: 用=火(正官), 喜=木(財), 忌=金(比劫), 仇=土(印)
+        effective_gods = {'火': '用神', '木': '喜神', '水': '閒神', '金': '忌神', '土': '仇神'}
+        indicators = _detect_career_indicators(
+            year_ten_god='傷官', lp_ten_god='', day_master_stem='庚',
+            year_stem='癸', year_branch='卯',
+            pillars=pillars, effective_gods=effective_gods,
+        )
+        labels = [(i['type'], i['label']) for i in indicators]
+        assert ('danger', '傷官見官') in labels, \
+            f"傷官見官 SHOULD be danger when 正官=用神, got {labels}"
+        assert ('opportunity', '傷官制官') not in labels
+
+    def test_xianshen_officer_suppressed(self):
+        """Fix 3: When 官 element is 閒神, suppress indicator entirely (no noise)."""
+        from app.career_enhanced import _detect_career_indicators
+        # Construct a chart where 官 element happens to be 閒神
+        pillars = {
+            'year':  {'stem': '甲', 'branch': '寅'},
+            'month': {'stem': '丁', 'branch': '卯'},  # 丁=傷官 manifest
+            'day':   {'stem': '甲', 'branch': '寅'},
+            'hour':  {'stem': '辛', 'branch': '酉'},  # 辛=正官 manifest
+        }
+        # Make 金(官) = 閒神
+        effective_gods = {'木': '用神', '水': '喜神', '金': '閒神', '火': '仇神', '土': '忌神'}
+        indicators = _detect_career_indicators(
+            year_ten_god='傷官', lp_ten_god='', day_master_stem='甲',
+            year_stem='丁', year_branch='卯',
+            pillars=pillars, effective_gods=effective_gods,
+        )
+        sg_labels = [i for i in indicators if i['label'] in ('傷官見官', '傷官制官')]
+        assert len(sg_labels) == 0, \
+            f"Should suppress 傷官見官 indicator when 官 is 閒神, got {sg_labels}"
+
 
 class TestYearRoleToAuspiciousness:
     """Test R6-2: 流年-only auspiciousness mapping (YEAR_ROLE_TO_AUSPICIOUSNESS)."""
@@ -1031,11 +1284,112 @@ class TestMonthlyForecast:
             assert isinstance(month['branchInteractions'], list)
 
     def test_monthly_auspiciousness_valid(self, laopo10_career_result):
-        """Monthly auspiciousness should be valid labels."""
-        valid = {'大吉', '吉', '吉中有凶', '平', '小凶', '凶中有吉', '凶中帶機', '凶', '大凶'}
+        """Monthly auspiciousness should be one of the 7 tiers (Fix 2 v4 vocabulary).
+        Replaces legacy 9-label set {吉中有凶, 凶中有吉, 凶中帶機, ...} with cleaner
+        7-tier scale produced by the new score-based algorithm."""
+        valid = {'大吉', '吉', '小吉', '平', '小凶', '凶', '大凶'}
         for month in laopo10_career_result['monthlyForecasts']:
             assert month['auspiciousness'] in valid, \
                 f"Month {month.get('month')}: invalid {month['auspiciousness']}"
+
+    def test_laopo_no_more_than_5_inauspicious_months(self, laopo10_career_result):
+        """Fix 2: 身弱官殺旺 chart in 平 annual year shouldn't have 8+ 凶 months.
+        Old algorithm produced 8/12 凶 (over-pessimistic). New: ≤5."""
+        bad = [m for m in laopo10_career_result['monthlyForecasts']
+               if m['auspiciousness'] in ('凶', '大凶')]
+        assert len(bad) <= 5, \
+            f"Too pessimistic: {len(bad)} 凶/大凶 months out of 12"
+
+    def test_laopo_jan_2026_geng_yin_not_xiong(self, laopo10_career_result):
+        """Fix 2: 1月 庚寅: 庚=忌 stem but 寅=用神(本氣)+寅沖申(時支忌神)
+        — should land favorable, NOT 凶."""
+        months = laopo10_career_result['monthlyForecasts']
+        jan = next(m for m in months if m['stem'] == '庚' and m['branch'] == '寅')
+        assert jan['auspiciousness'] in ('小吉', '吉', '平'), \
+            f"1月 庚寅 should be favorable-ish, got {jan['auspiciousness']}"
+
+    def test_laopo_sep_2026_wu_xu_not_daxiong(self, laopo10_career_result):
+        """Fix 5: 9月 戊戌 vs 甲戌日 = 戌戌伏吟 (流月 alone). Should be 凶, NOT 大凶
+        (per 林子玄: 流月 伏吟 alone is at LOWER end of severity)."""
+        months = laopo10_career_result['monthlyForecasts']
+        sep = next(m for m in months if m['stem'] == '戊' and m['branch'] == '戌')
+        assert sep['auspiciousness'] != '大凶', \
+            f"9月 戊戌 流月 伏吟 alone should not be 大凶, got {sep['auspiciousness']}"
+        # Should still register the 伏吟 interaction note
+        types = [n.get('type') for n in sep.get('branchInteractions', [])]
+        assert '伏吟' in types
+
+    def test_fuyin_modifier_with_yongshen(self):
+        """Fix 5: 伏吟 of 用神 element should NOT downgrade — use the upward map."""
+        from app.career_enhanced import _apply_fuyin_modifier
+        label, _note = _apply_fuyin_modifier('平', '用神')
+        assert label == '小吉', f"伏吟 of 用神 base=平 → 小吉, got {label}"
+        label, _note = _apply_fuyin_modifier('凶', '用神')
+        assert label == '平', f"伏吟 of 用神 mitigates 凶 → 平, got {label}"
+
+    def test_fuyin_modifier_with_jishen_caps(self):
+        """Fix 5: 流月 伏吟 alone of 忌仇 should NOT escalate 凶 → 大凶."""
+        from app.career_enhanced import _apply_fuyin_modifier
+        label, _ = _apply_fuyin_modifier('凶', '忌神')
+        assert label == '凶', f"流月 伏吟 alone should cap at 凶, got {label}"
+
+    def test_fuyin_modifier_stack_escalation(self):
+        """Fix 5: 流月+大運 同支 伏吟 (stack) should escalate one tier downward."""
+        from app.career_enhanced import _apply_fuyin_modifier
+        # No stacking: 凶 stays 凶
+        label, _ = _apply_fuyin_modifier(
+            '凶', '忌神', lp_branch='寅', year_branch='午', month_branch='戌',
+        )
+        assert label == '凶'
+        # Stacking with 大運: 凶 → 大凶 via stack escalation
+        label, note = _apply_fuyin_modifier(
+            '凶', '忌神', lp_branch='戌', year_branch='午', month_branch='戌',
+        )
+        assert label == '大凶', f"Stack escalation should push 凶 → 大凶, got {label}"
+        assert '同支' in note['description']
+
+    def test_assess_monthly_combined_arithmetic(self, laopo10_pillars):
+        """Fix 2 mechanical verification — Laopo 1月 庚寅 should compute
+        score=+0.45 (with 用神=木) → base 平 → +1 from 寅沖申 → 小吉."""
+        from app.career_enhanced import _assess_monthly_combined
+        gods = {'水': '喜神', '木': '用神', '火': '閒神', '金': '忌神', '土': '仇神'}
+        label, notes = _assess_monthly_combined(
+            laopo10_pillars, day_branch='戌', day_master_stem='甲',
+            month_stem='庚', month_branch='寅',
+            effective_gods=gods, annual_auspiciousness='平',
+        )
+        assert label == '小吉'
+        # Should have a 沖 interaction note for 寅沖申
+        chong_notes = [n for n in notes if n.get('type') == '沖' and '申' in n.get('description', '')]
+        assert chong_notes, f"Expected 沖申 interaction note, got {notes}"
+
+    def test_interaction_cap_prevents_double_upgrade(self):
+        """Fix 2 (Issue 8 R1): step 4a + step 4b cannot stack to give >+1 tier.
+
+        Synthetic chart with 戌 day_branch + 申 hour_branch (both 忌仇 candidates
+        for 甲 weak DM). 流月 寅: hits 寅沖申(step 4b, 申=忌神) but day_branch ≠ 寅.
+        Hits no LIUHE with day_branch (寅合亥, no 亥 here). So only +1 from step 4b.
+        """
+        from app.career_enhanced import _assess_monthly_combined
+        pillars = {
+            'year':  {'stem': '丙', 'branch': '寅'},
+            'month': {'stem': '辛', 'branch': '丑'},
+            'day':   {'stem': '甲', 'branch': '戌'},
+            'hour':  {'stem': '壬', 'branch': '申'},
+        }
+        gods = {'水': '喜神', '木': '用神', '火': '閒神', '金': '忌神', '土': '仇神'}
+        # Use 庚寅 流月: stem 庚=忌(-0.60), 本氣 寅=用(+1.10), 中氣 丙=閒(0), 餘氣 戊=仇(-0.05)
+        # = +0.45 → 平. Step 4a: 寅⇎戌 nothing. Step 4b: 寅沖申(time支=忌) → +1 → 小吉.
+        # Total tier shift = +1 (cap respected).
+        label, notes = _assess_monthly_combined(
+            pillars, day_branch='戌', day_master_stem='甲',
+            month_stem='庚', month_branch='寅',
+            effective_gods=gods, annual_auspiciousness='平',
+        )
+        assert label == '小吉', f"Single +1 from step 4b should give 平→小吉, got {label}"
+        # Confirm step 4b is what fired (not step 4a)
+        sweep_notes = [n for n in notes if n.get('type') == '沖' and 'hour' in n.get('description', '').lower()]
+        assert sweep_notes, f"Expected step 4b 寅沖申 sweep note, got {notes}"
 
 
 # ============================================================
