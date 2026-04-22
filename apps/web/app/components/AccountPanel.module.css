@@ -119,16 +119,6 @@
   text-decoration: underline;
 }
 
-.freeTrialBar {
-  background: rgba(76, 175, 80, 0.08);
-  border: 1px solid rgba(76, 175, 80, 0.2);
-  color: #2e7d32;
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 1rem;
-  margin-bottom: 1rem;
-  font-size: 0.85rem;
-}
-
 /* ---- CTA Buttons ---- */
 .ctaBtn {
   display: inline-block;

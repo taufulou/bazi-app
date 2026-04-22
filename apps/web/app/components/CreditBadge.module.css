@@ -90,20 +90,6 @@
   font-weight: 700;
 }
 
-.freeBadgeLink {
-  text-decoration: none;
-  display: inline-flex;
-  transition: opacity 0.15s ease;
-}
-
-.freeBadgeLink:hover {
-  opacity: 0.85;
-}
-
-.freeBadge {
-  font-size: 0.85rem;
-}
-
 .pricingLink {
   display: inline-flex;
   align-items: center;
