@@ -1460,22 +1460,8 @@ export default function ReadingPage() {
     <>
       {/* AI retry status toast — shown while retrying transient failures */}
       {retryStatus && (
-        <div
-          key={`retry-${position}`}
-          style={{
-            background: '#FFF8F0',
-            border: '1px solid #D4A017',
-            borderRadius: 12,
-            padding: '12px 16px',
-            margin: '12px 0',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            color: '#6B5940',
-            fontSize: 14,
-          }}
-        >
-          <span style={{ fontSize: 18 }}>⏳</span>
+        <div key={`retry-${position}`} className={styles.aiBannerRetry}>
+          <span className={styles.aiBannerRetryIcon}>⏳</span>
           <span>
             AI 命理服務暫時繁忙，正在自動重試（第 {retryStatus.attempt} / {retryStatus.max} 次）...
           </span>
@@ -1489,33 +1475,22 @@ export default function ReadingPage() {
       {degradedInfo && (
         <div
           key={`degraded-${position}`}
-          style={{
-            background: '#FFFBF5',
-            border: `1px solid ${degradedInfo.exhausted ? '#8B7355' : '#F5A623'}`,
-            borderRadius: 16,
-            padding: 20,
-            margin: '16px 0',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 14,
-            color: '#3C2415',
-            boxShadow: '0 4px 20px rgba(226,61,40,0.08)',
-          }}
+          className={`${styles.aiBanner} ${degradedInfo.exhausted ? styles.aiBannerExhausted : styles.aiBannerDegraded}`}
         >
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-            <span style={{ fontSize: 28, lineHeight: 1 }}>⚠️</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 17, fontWeight: 700, color: '#C41E3A', marginBottom: 6, fontFamily: '"Noto Serif TC", serif' }}>
+          <div className={styles.aiBannerRow}>
+            <span className={styles.aiBannerIcon}>⚠️</span>
+            <div className={styles.aiBannerContent}>
+              <div className={styles.aiBannerTitle}>
                 {degradedInfo.exhausted ? '此分析為部分未完成（已用盡重試次數）' : '命理分析未完整'}
               </div>
-              <div style={{ fontSize: 14, color: '#6B5940', lineHeight: 1.6 }}>
+              <div className={styles.aiBannerBody}>
                 {degradedInfo.exhausted ? (
                   <>
                     已用盡免費重新生成次數（{REGENERATION_LIMIT} / {REGENERATION_LIMIT} 次）。如需完整的命理分析，請建立新的分析。
                   </>
                 ) : degradedInfo.actualSections < degradedInfo.expectedSections ? (
                   <>
-                    已生成 <strong style={{ color: '#3C2415' }}>{degradedInfo.actualSections} / {degradedInfo.expectedSections}</strong> 個段落，仍有部分內容未完成。可免費重新生成補齊缺失部分。
+                    已生成 <strong className={styles.aiBannerBodyStrong}>{degradedInfo.actualSections} / {degradedInfo.expectedSections}</strong> 個段落，仍有部分內容未完成。可免費重新生成補齊缺失部分。
                   </>
                 ) : (
                   <>
@@ -1604,18 +1579,7 @@ export default function ReadingPage() {
               }
             }}
             disabled={isRegenerating}
-            style={{
-              padding: '10px 20px',
-              background: '#E23D28',
-              color: '#FFFFFF',
-              border: 'none',
-              borderRadius: 12,
-              fontSize: 14,
-              fontWeight: 600,
-              cursor: isRegenerating ? 'not-allowed' : 'pointer',
-              alignSelf: 'flex-start',
-              opacity: isRegenerating ? 0.6 : 1,
-            }}
+            className={styles.aiBannerButton}
           >
             {isRegenerating ? '重新生成中...' : '🔄 免費重新生成'}
           </button>
@@ -1628,46 +1592,24 @@ export default function ReadingPage() {
         <div
           key={`refunded-${position}`}
           ref={position === 'top' ? opts?.refundedRef : undefined}
-          style={{
-            background: '#FFFBF5',
-            border: '1px solid #D4A017',
-            borderRadius: 16,
-            padding: 20,
-            margin: '16px 0',
-            boxShadow: '0 4px 20px rgba(226,61,40,0.08)',
-            position: 'relative',
-            color: '#3C2415',
-          }}
+          className={styles.aiBannerRefunded}
         >
           <button
             aria-label="關閉"
             onClick={() => setRefundedInfo(null)}
-            style={{
-              position: 'absolute',
-              top: 12,
-              right: 12,
-              background: 'transparent',
-              border: 'none',
-              color: '#8B7355',
-              cursor: 'pointer',
-              fontSize: 18,
-              padding: 4,
-              lineHeight: 1,
-            }}
+            className={styles.aiBannerCloseBtn}
           >
             ✕
           </button>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-            <span style={{ fontSize: 28, lineHeight: 1 }}>💎</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 17, fontWeight: 700, color: '#C41E3A', marginBottom: 6, fontFamily: '"Noto Serif TC", serif' }}>
-                命理分析暫時無法完成
-              </div>
-              <div style={{ fontSize: 14, color: '#6B5940', lineHeight: 1.6 }}>
+          <div className={styles.aiBannerRow}>
+            <span className={styles.aiBannerIcon}>💎</span>
+            <div className={styles.aiBannerContent}>
+              <div className={styles.aiBannerTitle}>命理分析暫時無法完成</div>
+              <div className={styles.aiBannerBody}>
                 AI 服務目前繁忙，請稍候片刻後再試一次。
                 {refundedInfo.refunded && refundedInfo.amount > 0 && (
                   <>
-                    您的 <strong style={{ color: '#3C2415' }}>{refundedInfo.amount} 個額度</strong>
+                    您的 <strong className={styles.aiBannerBodyStrong}>{refundedInfo.amount} 個額度</strong>
                     {' '}已自動退回，未扣除任何費用。
                   </>
                 )}
