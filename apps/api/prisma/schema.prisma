@@ -37,6 +37,7 @@ model User {
   adRewardLogs      AdRewardLog[]
   sectionUnlocks    SectionUnlock[]
   monthlyCreditsLogs MonthlyCreditsLog[]
+  creditLedgerEntries CreditLedger[]
 
   @@map("users")
 }
@@ -95,10 +96,18 @@ model BaziReading {
   questionText        String?   @map("question_text") @db.Text // For Q&A readings
   createdAt           DateTime  @default(now()) @map("created_at")
 
+  // AI failure / refund tracking (added by ai-retry-and-credit-refund plan)
+  failedReason          String?   @map("failed_reason")
+  isDegraded            Boolean   @default(false) @map("is_degraded")
+  refundedAt            DateTime? @map("refunded_at")
+  regenerationCount     Int       @default(0) @map("regeneration_count")
+  regenerationExhausted Boolean   @default(false) @map("regeneration_exhausted")
+
   // Relations
   user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   birthProfile       BirthProfile  @relation(fields: [birthProfileId], references: [id], onDelete: Cascade)
   aiUsageLogs        AIUsageLog[]
+  creditLedgerEntries CreditLedger[]
 
   @@index([userId])
   @@index([birthProfileId])
@@ -124,10 +133,18 @@ model BaziComparison {
   lastCalculatedYear  Int?      @map("last_calculated_year")
   createdAt           DateTime  @default(now()) @map("created_at")
 
+  // AI failure / refund tracking (added by ai-retry-and-credit-refund plan)
+  failedReason          String?   @map("failed_reason")
+  isDegraded            Boolean   @default(false) @map("is_degraded")
+  refundedAt            DateTime? @map("refunded_at")
+  regenerationCount     Int       @default(0) @map("regeneration_count")
+  regenerationExhausted Boolean   @default(false) @map("regeneration_exhausted")
+
   // Relations
   user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   profileA           BirthProfile  @relation("ProfileA", fields: [profileAId], references: [id], onDelete: Cascade)
   profileB           BirthProfile  @relation("ProfileB", fields: [profileBId], references: [id], onDelete: Cascade)
+  creditLedgerEntries CreditLedger[]
 
   @@index([userId])
   @@map("bazi_comparisons")
@@ -418,6 +435,33 @@ model MonthlyCreditsLog {
   @@unique([userId, periodStart])
   @@index([userId])
   @@map("monthly_credits_logs")
+}
+
+// ============================================================
+// Credit Ledger (per-credit-movement audit trail)
+// Added by ai-retry-and-credit-refund plan. Append-only ledger.
+// Negative amount = deduction (reading creation, recalc, etc.)
+// Positive amount = grant or refund (Stripe purchase, ad reward, AI failure refund).
+// ============================================================
+
+model CreditLedger {
+  id            String    @id @default(uuid())
+  userId        String    @map("user_id")
+  amount        Int       // signed: negative = deduction, positive = grant/refund
+  reason        String    // e.g., "reading-create:CAREER", "refund: ai-failed-..."
+  readingId     String?   @map("reading_id")
+  comparisonId  String?   @map("comparison_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  // Relations
+  user          User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reading       BaziReading?     @relation(fields: [readingId], references: [id], onDelete: SetNull)
+  comparison    BaziComparison?  @relation(fields: [comparisonId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([readingId])
+  @@index([comparisonId])
+  @@map("credit_ledger")
 }
 
 // ============================================================

@@ -465,3 +465,11 @@ export const AI_MAX_RETRIES = 1;     // 1 retry per provider before failover
 export const CACHE_TTL_DAYS = 30;    // Reading cache expires after 30 days
 
 export const SESSION_EXPIRY_DAYS = 90; // Clerk session expiry
+
+// ============================================================
+// AI Regeneration Limit
+// ============================================================
+// Single source of truth. NestJS files keep local mirrors with a
+// `// mirrors @repo/shared REGENERATION_LIMIT` comment because @repo/shared
+// has a known runtime import issue with NestJS (see notes above).
+export const REGENERATION_LIMIT = 3;

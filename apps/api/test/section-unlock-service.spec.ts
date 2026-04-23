@@ -21,6 +21,7 @@ import {
 
 const mockTxUser = { updateMany: jest.fn() };
 const mockTxSectionUnlock = { create: jest.fn() };
+const mockTxCreditLedger = { create: jest.fn().mockResolvedValue({}) };
 
 const mockPrisma = {
   user: {
@@ -42,6 +43,7 @@ const mockPrisma = {
     return callback({
       user: mockTxUser,
       sectionUnlock: mockTxSectionUnlock,
+      creditLedger: mockTxCreditLedger,
     });
   }),
 };
@@ -118,10 +120,28 @@ const MOCK_SERVICE_EXPENSIVE = {
 
 describe('SectionUnlockService', () => {
   let service: SectionUnlockService;
+  let mockCreditsService: { deductCredits: jest.Mock };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new SectionUnlockService(mockPrisma as any);
+    mockCreditsService = {
+      // Mirrors the new CreditsService.deductCredits behavior:
+      // throws if mockTxUser.updateMany returns count=0
+      deductCredits: jest.fn().mockImplementation(async (_userId, amount, _reason, opts) => {
+        const tx = opts?.tx ?? mockPrisma;
+        const updated = await tx.user.updateMany({
+          where: { id: _userId, credits: { gte: amount } },
+          data: { credits: { decrement: amount } },
+        });
+        if (updated.count === 0) {
+          throw new (require('@nestjs/common').BadRequestException)(
+            `Insufficient credits (need ${amount})`,
+          );
+        }
+        await tx.creditLedger?.create?.({ data: { userId: _userId, amount: -amount } });
+      }),
+    };
+    service = new SectionUnlockService(mockPrisma as any, mockCreditsService as any);
 
     // Default mocks
     mockTxUser.updateMany.mockResolvedValue({ count: 1 });

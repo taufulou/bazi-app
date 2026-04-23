@@ -21,14 +21,21 @@ const nextConfig = {
 
   // Security headers
   async headers() {
+    const isProd = process.env.NODE_ENV === "production";
     return [
       {
         source: "/(.*)",
         headers: [
-          {
-            key: "Strict-Transport-Security",
-            value: "max-age=63072000; includeSubDomains; preload",
-          },
+          // HSTS only in production — in dev it forces HTTPS upgrade on
+          // http://localhost which has no TLS cert and breaks the browser.
+          ...(isProd
+            ? [
+                {
+                  key: "Strict-Transport-Security",
+                  value: "max-age=63072000; includeSubDomains; preload",
+                },
+              ]
+            : []),
           {
             key: "X-Frame-Options",
             value: "DENY",

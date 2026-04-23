@@ -500,6 +500,12 @@ export interface NestJSReadingResponse {
     isLunarDate: boolean;
     isLeapMonth: boolean;
   };
+  /** AI failure / refund tracking (added by ai-retry-and-credit-refund plan) */
+  isDegraded?: boolean;
+  failedReason?: string | null;
+  refundedAt?: string | null;
+  regenerationCount?: number;
+  regenerationExhausted?: boolean;
 }
 
 interface ReadingSectionData {
@@ -1064,6 +1070,29 @@ export function normalizeLoveDeterministic(
  * Uses fetch() + ReadableStream (NOT EventSource) for proper auth headers.
  * Returns a cleanup handle to abort the stream.
  */
+/**
+ * Final-event payload — emitted by V2 streams (Lifetime/Career/Annual/Love)
+ * after all retry + fallback attempts. Replaces the old `done` event.
+ */
+export interface FinalEventPayload {
+  status: 'success' | 'degraded' | 'failed';
+  totalSections: number;
+  expectedSections: number;
+  latencyMs: number;
+  refunded?: boolean;       // present when status='failed'
+  refundedAmount?: number;  // credits refunded (e.g., 3); present when status='failed'
+  message?: string;         // English fallback (frontend usually overrides with localized copy)
+}
+
+/** Retry attempt event — emitted while retrying transient failures. */
+export interface RetryAttemptPayload {
+  provider: string;
+  attempt: number;
+  max: number;
+  reason: string;
+  call: 1 | 2;
+}
+
 export function streamBaziReading(
   token: string,
   readingId: string,
@@ -1071,8 +1100,13 @@ export function streamBaziReading(
     onSectionComplete: (key: string, section: { preview: string; full: string; score?: number }) => void;
     onCallComplete: (callNumber: number) => void;
     onSummary: (summary: { preview: string; full: string }) => void;
-    onDone: (info: { totalSections: number; latencyMs: number }) => void;
+    /** @deprecated — use onFinal. Kept for back-compat with code still listening to `done`. */
+    onDone?: (info: { totalSections: number; latencyMs: number }) => void;
     onError: (error: { message: string; partial?: boolean }) => void;
+    /** Called when AI completes (success/degraded/failed). Replaces onDone. */
+    onFinal?: (info: FinalEventPayload) => void;
+    /** Called while retrying — for UX status ("AI busy, retrying 2/3..."). */
+    onRetryAttempt?: (info: RetryAttemptPayload) => void;
   },
 ): { close: () => void } {
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -1131,7 +1165,14 @@ export function streamBaziReading(
                 callbacks.onSummary(data);
                 break;
               case 'done':
-                callbacks.onDone(data);
+                // Legacy event — kept for back-compat. New code should use 'final'.
+                callbacks.onDone?.(data);
+                break;
+              case 'final':
+                callbacks.onFinal?.(data as FinalEventPayload);
+                break;
+              case 'retry_attempt':
+                callbacks.onRetryAttempt?.(data as RetryAttemptPayload);
                 break;
               case 'error':
                 callbacks.onError(data);
@@ -1150,6 +1191,26 @@ export function streamBaziReading(
   })();
 
   return { close: () => controller.abort() };
+}
+
+/** Regenerate a degraded reading. Free (no credit deduction). Limit: 3 per reading. */
+export async function regenerateBaziReading(
+  token: string,
+  readingId: string,
+): Promise<{ readingId: string; regenerationCount: number; regenerationsRemaining: number }> {
+  const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+  const response = await fetch(`${API_BASE}/api/bazi/readings/${readingId}/regenerate`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ message: `HTTP ${response.status}` }));
+    throw new Error((err as { message?: string }).message || 'Regenerate failed');
+  }
+  return response.json();
 }
 
 // ============================================================

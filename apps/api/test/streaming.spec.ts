@@ -43,6 +43,7 @@ describe('SSE Streaming — Phase E', () => {
       mockConfigService as any,
       mockPrisma as any,
       mockRedis as any,
+      {} as any,
     );
   });
 

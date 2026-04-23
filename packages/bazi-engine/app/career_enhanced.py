@@ -90,11 +90,56 @@ SANHE_GROUPS: Dict[str, List[str]] = {
     '亥': ['卯', '未'], '卯': ['亥', '未'], '未': ['亥', '卯'],  # 木局
 }
 
+# Flat lookup: any branch → its 三合局 element. Used for 半三合 group identification.
+# Added with sanhe self-zodiac fix (Laopo feedback follow-up).
+SANHE_BRANCH_TO_ELEMENT: Dict[str, str] = {
+    '申': '水', '子': '水', '辰': '水',
+    '寅': '火', '午': '火', '戌': '火',
+    '巳': '金', '酉': '金', '丑': '金',
+    '亥': '木', '卯': '木', '未': '木',
+}
+
 # 六沖 pairs
 LIUCHONG_PAIRS: Dict[str, str] = {
     '子': '午', '午': '子', '丑': '未', '未': '丑',
     '寅': '申', '申': '寅', '卯': '酉', '酉': '卯',
     '辰': '戌', '戌': '辰', '巳': '亥', '亥': '巳',
+}
+
+# Fix 2 + Fix 5 (Laopo feedback v4): 流月 weighted score + 伏吟 tiered modifier.
+# Classical: branches carry seasonal qi → branches dominate ("月支重於月干").
+# 干支互動法則 from 算準網 / 163.com 八字流月吉凶.
+MONTHLY_ROLE_TO_SCORE: Dict[str, int] = {
+    '用神': +2, '喜神': +1, '閒神': 0, '仇神': -1, '忌神': -2,
+}
+MONTHLY_WEIGHT_STEM: float = 0.30
+MONTHLY_WEIGHT_BENQI: float = 0.55
+MONTHLY_WEIGHT_ZHONGQI: float = 0.10
+MONTHLY_WEIGHT_YUQI: float = 0.05
+# Threshold band cutoffs (score range = [-2, +2] with weights summing to 1.0)
+MONTHLY_THRESHOLDS: List[Tuple[float, str]] = [
+    (1.20, '大吉'),
+    (0.50, '吉'),
+    (-0.50, '平'),
+    (-1.20, '凶'),
+]  # below -1.20 → '大凶'
+# Ordered tier list for tier-shift operations (lowest → highest)
+MONTHLY_TIERS: List[str] = ['大凶', '凶', '小凶', '平', '小吉', '吉', '大吉']
+# Cap on total interaction-derived tier shift per month (Issue 8 from R1 review)
+MONTHLY_INTERACTION_CAP: int = 1
+
+# Fix 4 (Laopo feedback v4): 印通關救應加分 weights
+# Classical: 「身弱財旺有印透干 → 中富擔財」(《新玄機》蕭公子, 蘇民峰 八字講義)
+# Without 印 transforming 財's drain on weak DM, weak-DM-with-strong-財 charts
+# end up "屋富人貧". Adding rescue bonus only when 印 actually present.
+SEAL_RESCUE_WEIGHTS: Dict[str, int] = {
+    'transparent_base':  15,  # 印透干 base
+    'rooted':             8,  # 印透干 + 通根
+    'ruling_month':       6,  # 印當令 (印 sits at 月令本氣)
+    'adjacency_penalty':  8,  # 財 stem adjacent to 印 stem (subtracted)
+    'hidden_only':        7,  # 印藏不透 (partial rescue)
+    'cap_max':           25,  # final clamp upper bound
+    'cap_min':           -5,  # final clamp lower bound
 }
 
 # Role key mapping: engine format → internal Chinese format
@@ -356,7 +401,14 @@ def compute_wealth_score(
         + f4_score * weights[3]
         + f5_score * weights[4]
     )
-    final_score = max(0, min(100, round(raw_score)))
+
+    # Fix 4 (Laopo feedback v4): apply 印通關救應 bonus AFTER weighted sum.
+    # Post-bonus avoids needing to renormalize the 5 factor weights.
+    seal_rescue_bonus = _compute_seal_rescue_bonus(
+        pillars, day_master_stem, effective_gods, strength_v2,
+        cong_ge=cong_ge,
+    )
+    final_score = max(0, min(100, round(raw_score + seal_rescue_bonus)))
 
     # Wealth tier
     if final_score >= 85:
@@ -379,6 +431,7 @@ def compute_wealth_score(
             'outputGenerating': round(f3_score),
             'treasury': round(f4_score),
             'luckPeriodSupport': round(f5_score),
+            'sealRescueBonus': seal_rescue_bonus,  # UD-3 default: visible
         },
     }
 
@@ -777,17 +830,50 @@ def compute_career_allies_enemies(
             })
 
     # Layer 4: 三合 Zodiac allies
+    # Sanhe self-zodiac fix (post-Fix-1 audit, Laopo feedback v4):
+    # Classical: 「貴人必須是與自身生肖不同的屬相」(自己不能算貴人).
+    # 14 sources unanimous — never include user's own year/day zodiac as a noble.
+    # Sweep covers year+day only — month/hour out of scope (matches existing Layer 4 design).
     year_branch = pillars['year']['branch']
     day_branch = pillars['day']['branch']
+    chart_branches = {pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')}
+    self_branches = {year_branch, day_branch}  # user's OWN zodiac positions
+
     allies = set()
     for key_branch in (year_branch, day_branch):
         if key_branch in SANHE_GROUPS:
-            for ally in SANHE_GROUPS[key_branch]:
-                allies.add(ally)
+            for partner in SANHE_GROUPS[key_branch]:
+                if partner in self_branches:
+                    continue  # skip if partner IS user's own year/day zodiac
+                allies.add(partner)
     ally_list = [
-        {'branch': b, 'zodiac': ZODIAC_ANIMALS.get(b, '')}
-        for b in sorted(allies) if b != year_branch and b != day_branch
+        {
+            'branch': b,
+            'zodiac': ZODIAC_ANIMALS.get(b, ''),
+            'inChart': b in chart_branches,
+        }
+        for b in sorted(allies)
     ]
+
+    # Detect activated 半三合 in natal chart (year + day already form 2/3 of a 三合 group).
+    # Gated on year_branch != day_branch (binding decision §2): doubled qi (寅寅) is NOT 半三合.
+    partial_sanhe_active = False
+    sanhe_catalyst: Optional[Dict[str, str]] = None
+    if (
+        year_branch != day_branch
+        and year_branch in SANHE_GROUPS
+        and day_branch in SANHE_GROUPS[year_branch]
+    ):
+        partial_sanhe_active = True
+        full_group = set(SANHE_GROUPS[year_branch]) | {year_branch}
+        missing = full_group - {year_branch, day_branch}
+        catalyst_branch = next(iter(missing), None)
+        if catalyst_branch:
+            sanhe_catalyst = {
+                'branch': catalyst_branch,
+                'zodiac': ZODIAC_ANIMALS.get(catalyst_branch, ''),
+                'groupElement': SANHE_BRANCH_TO_ELEMENT.get(year_branch, ''),
+            }
 
     # Layer 5: 六沖/刑/害 enemies (A17: expanded from just 六沖)
     enemies = set()
@@ -836,6 +922,8 @@ def compute_career_allies_enemies(
         'nobles': nobles,
         'careerShensha': career_shensha,
         'allies': ally_list,
+        'partialSanheActive': partial_sanhe_active,
+        'sanheCatalyst': sanhe_catalyst,
         'mobilityBringers': mobility_bringers,
         'enemies': enemy_list,
         'antagonists': antagonists,
@@ -982,92 +1070,234 @@ def compute_annual_forecast_data(
 # 9. Monthly Forecast Data (十二月運勢)
 # ============================================================
 
+def _shift_tier(label: str, delta: int) -> str:
+    """Shift a label up/down within MONTHLY_TIERS, clamping at ends."""
+    try:
+        idx = MONTHLY_TIERS.index(label)
+    except ValueError:
+        return label
+    new_idx = max(0, min(len(MONTHLY_TIERS) - 1, idx + delta))
+    return MONTHLY_TIERS[new_idx]
+
+
+def _apply_fuyin_modifier(
+    base_label: str,
+    branch_role: str,
+    *,
+    lp_branch: Optional[str] = None,
+    year_branch: Optional[str] = None,
+    month_branch: str = '',
+) -> Tuple[str, Dict[str, str]]:
+    """
+    Fix 5 (Laopo feedback v4): tiered 流月 伏吟 modifier.
+
+    Classical: 「為忌時災，為用時利」(知乎); 「流年伏吟最差 > 大運 > 本命」(林子玄).
+    流月 伏吟 alone is at the LOWER end of severity. If 流月 STACKS with
+    大運/流年 伏吟 on the same branch (歲運並臨-style), escalate one tier.
+    """
+    stacking = (
+        (lp_branch == month_branch and lp_branch is not None) or
+        (year_branch == month_branch and year_branch is not None)
+    )
+
+    if branch_role in ('忌神', '仇神'):
+        intensified = {
+            '大吉': '吉', '吉': '平', '平': '小凶',
+            '凶': '凶', '大凶': '大凶',
+        }.get(base_label, base_label)
+        if stacking:
+            intensified = _shift_tier(intensified, -1)
+        note = {
+            'type': '伏吟',
+            'description': '月支與日支伏吟（忌仇加倍）' + ('+大運/流年同支' if stacking else ''),
+            'effect': '反覆不安、壓力加大' + ('（多重伏吟，影響加倍）' if stacking else ''),
+        }
+    elif branch_role in ('用神', '喜神'):
+        intensified = {
+            '大吉': '大吉', '吉': '吉', '平': '小吉',
+            '凶': '平', '大凶': '小凶',
+        }.get(base_label, base_label)
+        note = {
+            'type': '伏吟',
+            'description': '月支與日支伏吟（喜用加倍）' + ('+大運/流年同支' if stacking else ''),
+            'effect': '能量加倍但仍有反覆',
+        }
+    else:  # 閒神
+        intensified = base_label
+        note = {
+            'type': '伏吟',
+            'description': '月支與日支伏吟（閒神）',
+            'effect': '氣場反覆',
+        }
+    return intensified, note
+
+
+def _assess_monthly_combined(
+    pillars: Dict,
+    day_branch: str,
+    day_master_stem: str,
+    month_stem: str,
+    month_branch: str,
+    effective_gods: Dict[str, str],
+    annual_auspiciousness: str,
+    *,
+    lp_branch: Optional[str] = None,
+    year_branch: Optional[str] = None,
+) -> Tuple[str, List[Dict[str, str]]]:
+    """
+    Fix 2 (Laopo feedback v4): combined stem+branch+hidden weighted score.
+
+    Weights sum to 1.0: stem 0.30 + 本氣 0.55 + 中氣 0.10 + 餘氣 0.05.
+    Score range: [-2, +2] mapped to 5-band tiers (大吉/吉/平/凶/大凶).
+    Then interaction modifiers (伏吟/六合/六沖, 沖去忌仇 sweep) apply,
+    capped at ±MONTHLY_INTERACTION_CAP=1 tier shift.
+    """
+    # Step 1: stem + 本氣 weighted contributions
+    stem_role = effective_gods.get(STEM_ELEMENT.get(month_stem, ''), '閒神')
+    benqi_role = effective_gods.get(BRANCH_ELEMENT.get(month_branch, ''), '閒神')
+    score = (
+        MONTHLY_ROLE_TO_SCORE.get(stem_role, 0) * MONTHLY_WEIGHT_STEM
+        + MONTHLY_ROLE_TO_SCORE.get(benqi_role, 0) * MONTHLY_WEIGHT_BENQI
+    )
+
+    # Step 2: hidden stems beyond 本氣 (skip index 0 — already counted)
+    hidden = HIDDEN_STEMS.get(month_branch, [])
+    if len(hidden) > 1:
+        zhongqi_role = effective_gods.get(STEM_ELEMENT.get(hidden[1], ''), '閒神')
+        score += MONTHLY_ROLE_TO_SCORE.get(zhongqi_role, 0) * MONTHLY_WEIGHT_ZHONGQI
+    if len(hidden) > 2:
+        yuqi_role = effective_gods.get(STEM_ELEMENT.get(hidden[2], ''), '閒神')
+        score += MONTHLY_ROLE_TO_SCORE.get(yuqi_role, 0) * MONTHLY_WEIGHT_YUQI
+
+    # Step 3: map score → base label (default 大凶 if below lowest cutoff)
+    base_label = '大凶'
+    for cutoff, lbl in MONTHLY_THRESHOLDS:
+        if score >= cutoff:
+            base_label = lbl
+            break
+
+    # Step 4: interaction modifiers — capped at ±MONTHLY_INTERACTION_CAP
+    label = base_label
+    notes: List[Dict[str, str]] = []
+    tier_delta = 0
+    counted_branches: Set[str] = set()
+
+    # 4a: month_branch vs day_branch (伏吟 / 六合 / 六沖)
+    if month_branch == day_branch:
+        # 伏吟 — delegate to Fix 5 helper
+        label, fuyin_note = _apply_fuyin_modifier(
+            label, branch_role=benqi_role,
+            lp_branch=lp_branch, year_branch=year_branch, month_branch=month_branch,
+        )
+        notes.append(fuyin_note)
+        counted_branches.add(day_branch)
+    elif BRANCH_LIUHE.get(month_branch) == day_branch:
+        tier_delta += +1
+        notes.append({
+            'type': '六合',
+            'description': f'月支{month_branch}合日支{day_branch}',
+            'effect': '貴人相助、人際和諧',
+        })
+        counted_branches.add(day_branch)
+    elif LIUCHONG_PAIRS.get(month_branch) == day_branch:
+        day_branch_role = effective_gods.get(BRANCH_ELEMENT.get(day_branch, ''), '閒神')
+        if day_branch_role in ('忌神', '仇神'):
+            tier_delta += +1
+            notes.append({
+                'type': '六沖',
+                'description': f'月支{month_branch}沖日支{day_branch}（沖去忌仇）',
+                'effect': '破舊立新',
+            })
+        else:
+            tier_delta += -1
+            notes.append({
+                'type': '六沖',
+                'description': f'月支{month_branch}沖日支{day_branch}（沖去喜用）',
+                'effect': '變動劇烈、衝突風險',
+            })
+        counted_branches.add(day_branch)
+
+    # 4b: 月支沖 OTHER natal branches that hold 忌仇 — credit ONCE for the cap
+    if tier_delta < MONTHLY_INTERACTION_CAP:
+        for pname in ('year', 'month', 'day', 'hour'):
+            nb = pillars[pname]['branch']
+            if nb in counted_branches:
+                continue
+            if LIUCHONG_PAIRS.get(month_branch) == nb:
+                nb_role = effective_gods.get(BRANCH_ELEMENT.get(nb, ''), '閒神')
+                if nb_role in ('忌神', '仇神'):
+                    tier_delta += +1
+                    notes.append({
+                        'type': '沖',
+                        'description': f'月支{month_branch}沖{pname}支{nb}（{pname[0]}支忌仇）',
+                        'effect': '沖去忌神，間接受益',
+                    })
+                    counted_branches.add(nb)
+                    break  # only credit once for cap
+
+    # Step 5: clamp tier_delta and apply
+    tier_delta = max(-MONTHLY_INTERACTION_CAP, min(MONTHLY_INTERACTION_CAP, tier_delta))
+    label = _shift_tier(label, tier_delta)
+
+    # Step 6: 流年 cap rule — bound monthly extremes by annual context
+    if annual_auspiciousness == '大吉' and label == '大凶':
+        label = '凶'
+    elif annual_auspiciousness == '大凶' and label == '大吉':
+        label = '吉'
+
+    return label, notes
+
+
 def compute_monthly_forecast_data(
     pillars: Dict,
     day_master_stem: str,
     effective_gods: Dict[str, str],
     monthly_stars: List[Dict],
     annual_auspiciousness: str,
+    *,
+    luck_periods: Optional[List[Dict]] = None,
+    current_year: Optional[int] = None,
+    year_branch: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Compute monthly forecast data for 12 months.
 
-    Each month is assessed independently based on its ten god relationship
-    to the day master, with branch interaction modifiers (伏吟/六合/六沖).
+    Fix 2 + Fix 5 (Laopo feedback v4): replaces stem-only auspiciousness with
+    weighted stem(0.30) + 本氣(0.55) + 中氣(0.10) + 餘氣(0.05) score, plus
+    tiered 伏吟 modifier and interaction shift capped at ±1 tier.
+
+    Optional `luck_periods`/`current_year`/`year_branch` enable 伏吟 stack
+    escalation (流月 + 大運/流年 same branch).
     """
     results = []
 
-    # Solar term month names
     MONTH_NAMES = [
         '寅月 (立春)', '卯月 (驚蟄)', '辰月 (清明)', '巳月 (立夏)',
         '午月 (芒種)', '未月 (小暑)', '申月 (立秋)', '酉月 (白露)',
         '戌月 (寒露)', '亥月 (立冬)', '子月 (大雪)', '丑月 (小寒)',
     ]
 
-    MONTH_LABEL_MAP = {
-        'auspicious': '吉',
-        'neutral': '平',
-        'inauspicious': '凶',
-    }
-
     day_branch = pillars['day']['branch']
+
+    # Find active 大運 branch for stack escalation
+    lp_branch: Optional[str] = None
+    if luck_periods and current_year:
+        active_lp = _find_active_luck_period(luck_periods, current_year)
+        if active_lp:
+            lp_branch = active_lp.get('branch')
 
     for i, ms in enumerate(monthly_stars):
         month_stem = ms['stem']
         month_branch = ms['branch']
         month_ten_god = derive_ten_god(day_master_stem, month_stem)
 
-        # Monthly auspiciousness — INDEPENDENT assessment
-        month_element = STEM_ELEMENT.get(month_stem, '')
-        month_raw = _assess_element_auspiciousness(month_element, effective_gods)
+        label, branch_interactions = _assess_monthly_combined(
+            pillars, day_branch, day_master_stem,
+            month_stem, month_branch,
+            effective_gods, annual_auspiciousness,
+            lp_branch=lp_branch, year_branch=year_branch,
+        )
 
-        # Map to user-friendly label independently
-        combined = MONTH_LABEL_MAP.get(month_raw, '平')
-
-        # Boost/downgrade based on branch interactions (伏吟/六合/六沖)
-        month_branch_interactions = []
-
-        # Priority: 伏吟 > 六合 > 六沖 (mutually exclusive for label modification)
-        if month_branch == day_branch:
-            # 伏吟: month branch == day branch (doubling energy)
-            month_branch_interactions.append({
-                'type': '伏吟',
-                'description': f'月支{month_branch}與日支{day_branch}伏吟',
-                'effect': '吉則加吉、凶則加凶' if month_raw == 'auspicious' else '反覆不安、壓力倍增',
-            })
-            # Intensify: 吉→大吉, 凶→大凶
-            if combined == '吉':
-                combined = '大吉'
-            elif combined == '凶':
-                combined = '大凶'
-        elif BRANCH_LIUHE.get(month_branch) == day_branch:
-            # 六合: month branch has 六合 with day branch (cooperation energy)
-            month_branch_interactions.append({
-                'type': '六合',
-                'description': f'月支{month_branch}合日支{day_branch}',
-                'effect': '貴人相助、人際和諧',
-            })
-            # Positive boost: 平→吉, 凶→凶中有吉
-            if combined == '平':
-                combined = '吉'
-            elif combined == '凶':
-                combined = '凶中有吉'
-        elif LIUCHONG_PAIRS.get(month_branch) == day_branch:
-            # 六沖: month branch clashes with day branch (conflict energy)
-            month_branch_interactions.append({
-                'type': '六沖',
-                'description': f'月支{month_branch}沖日支{day_branch}',
-                'effect': '變動劇烈、衝突風險',
-            })
-            # Negative impact: 平→小凶, 吉→吉中有凶
-            if combined == '平':
-                combined = '小凶'
-            elif combined == '吉':
-                combined = '吉中有凶'
-            elif combined == '大吉':
-                combined = '吉'
-
-        # Seasonal energy context
         season_element = BRANCH_ELEMENT.get(month_branch, '土')
 
         results.append({
@@ -1076,12 +1306,12 @@ def compute_monthly_forecast_data(
             'stem': month_stem,
             'branch': month_branch,
             'tenGod': month_ten_god,
-            'auspiciousness': combined,
+            'auspiciousness': label,
             'seasonElement': season_element,
             'solarTermDate': ms.get('solarTermDate', ''),
             'solarTermEndDate': ms.get('solarTermEndDate', ''),
             'annualContext': annual_auspiciousness,
-            'branchInteractions': month_branch_interactions,
+            'branchInteractions': branch_interactions,
         })
 
     return results
@@ -1216,9 +1446,13 @@ def generate_career_pre_analysis(
 
     # 12. Monthly Forecast Data (first year)
     first_year_auspiciousness = annual_forecast[0]['auspiciousness'] if annual_forecast else '平'
+    first_year_branch = annual_forecast[0].get('branch') if annual_forecast else None
     monthly_forecast = compute_monthly_forecast_data(
         pillars, day_master_stem, effective_gods, monthly_stars,
         first_year_auspiciousness,
+        luck_periods=luck_periods,
+        current_year=current_year,
+        year_branch=first_year_branch,
     )
 
     # Favorable/unfavorable industries from five elements
@@ -1647,6 +1881,72 @@ def _compute_clash_deduction(branch_relationships: Dict) -> float:
     return min(30, deduction)
 
 
+def _compute_seal_rescue_bonus(
+    pillars: Dict,
+    day_master_stem: str,
+    effective_gods: Dict[str, str],
+    strength_v2: Dict,
+    cong_ge: Optional[Dict] = None,
+) -> int:
+    """
+    Fix 4 (Laopo feedback v4): 印通關救應加分.
+
+    Classical: 「身弱財旺有印透干 → 中富擔財」(《新玄機》蕭公子, 蘇民峰 八字講義)
+    Applies ONLY when:
+      - cong_ge is None (從格 inverts 喜忌; 印 becomes 忌神 in 從財/從殺 — skip)
+      - DM is weak/very_weak (rule scope)
+      - wealth element is 忌神/仇神 (財旺 attacking weak DM is the imbalance)
+      - 印 element actually present (otherwise 屋富人貧, no rescue)
+    """
+    # Skip 從格 — the rescue rule does not apply when 喜忌 is inverted
+    if cong_ge is not None:
+        return 0
+    if strength_v2.get('classification') not in ('weak', 'very_weak'):
+        return 0
+
+    dm_element = STEM_ELEMENT[day_master_stem]
+    wealth_element = ELEMENT_OVERCOMES[dm_element]
+    seal_element = ELEMENT_PRODUCED_BY[dm_element]
+
+    if effective_gods.get(wealth_element) not in ('忌神', '仇神'):
+        return 0  # Rule applies only when 財 is the imbalance
+
+    all_stems = _get_all_stems(pillars)
+    all_hidden = _get_all_hidden_stems(pillars)
+    seal_stems = [s for s in all_stems if STEM_ELEMENT.get(s) == seal_element]
+    seal_hidden = [h for h in all_hidden if STEM_ELEMENT.get(h) == seal_element]
+
+    if not (seal_stems or seal_hidden):
+        return 0  # 屋富人貧 — no 印 to carry the 財
+
+    bonus = 0
+    if seal_stems:
+        bonus += SEAL_RESCUE_WEIGHTS['transparent_base']
+        if seal_hidden:
+            bonus += SEAL_RESCUE_WEIGHTS['rooted']
+        # 印當令 (印 element matches 月令本氣)
+        month_branch = pillars['month']['branch']
+        month_main = HIDDEN_STEMS.get(month_branch, [''])[0]
+        if month_main and STEM_ELEMENT.get(month_main) == seal_element:
+            bonus += SEAL_RESCUE_WEIGHTS['ruling_month']
+        # 財破印 adjacency penalty: 財 stem next to 印 stem
+        # 「先財後印即可成福，先印後財，必成其辱」(蘇民峰)
+        pnames = ['year', 'month', 'day', 'hour']
+        for i, pname in enumerate(pnames):
+            if STEM_ELEMENT.get(pillars[pname]['stem'], '') != wealth_element:
+                continue
+            for j in (i - 1, i + 1):
+                if 0 <= j < 4:
+                    neighbor_stem = pillars[pnames[j]]['stem']
+                    if STEM_ELEMENT.get(neighbor_stem, '') == seal_element:
+                        bonus -= SEAL_RESCUE_WEIGHTS['adjacency_penalty']
+                        break
+    elif seal_hidden:
+        bonus += SEAL_RESCUE_WEIGHTS['hidden_only']
+
+    return min(SEAL_RESCUE_WEIGHTS['cap_max'], max(SEAL_RESCUE_WEIGHTS['cap_min'], bonus))
+
+
 def _compute_treasury_score(
     pillars: Dict,
     dm_element: str,
@@ -1946,21 +2246,36 @@ def _detect_career_indicators(
             'description': '貴人相助、事業穩健之年',
         })
 
-    # 傷官見官 → trouble year
+    # 傷官見官 — Fix 3 (Laopo feedback v4): conditional on whether 官 is favorable.
+    # Classical: 「如官為忌，傷官見官反以吉論」(百度百科, 三命通會)
+    # 「正官為用神最忌傷官；正官為忌則遇傷則喜」(大紀元)
     manifest_gods = {derive_ten_god(day_master_stem, pillars[p]['stem'])
                      for p in ('year', 'month', 'hour')}
-    if year_ten_god == '傷官' and '正官' in manifest_gods:
-        indicators.append({
-            'type': 'danger',
-            'label': '傷官見官',
-            'description': '為禍百端——官場風波、降職風險',
-        })
-    if year_ten_god == '正官' and '傷官' in manifest_gods:
-        indicators.append({
-            'type': 'danger',
-            'label': '傷官見官',
-            'description': '為禍百端——官場風波、降職風險',
-        })
+    shang_guan_situation = (
+        (year_ten_god == '傷官' and '正官' in manifest_gods) or
+        (year_ten_god == '正官' and '傷官' in manifest_gods)
+    )
+    if shang_guan_situation:
+        # Look up the role of the OFFICER element (element that 克 DM)
+        dm_element = STEM_ELEMENT[day_master_stem]
+        officer_element = ELEMENT_OVERCOME_BY[dm_element]
+        officer_role = effective_gods.get(officer_element, '閒神')
+
+        if officer_role in ('用神', '喜神'):
+            # 正官 IS favorable → 傷官 attacking it IS dangerous
+            indicators.append({
+                'type': 'danger',
+                'label': '傷官見官',
+                'description': '為禍百端——官場風波、降職風險、人事衝突',
+            })
+        elif officer_role in ('忌神', '仇神'):
+            # 正官 is unfavorable → 傷官制官 is BENEFICIAL
+            indicators.append({
+                'type': 'opportunity',
+                'label': '傷官制官',
+                'description': '傷官有力制過旺官殺，事業壓力減輕、敢於突破、容易出頭',
+            })
+        # else: 官 is 閒神 — no actionable info; suppress to avoid noise
 
     # 官殺混雜
     if year_ten_god in ('正官', '偏官'):
