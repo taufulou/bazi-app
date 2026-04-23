@@ -233,6 +233,13 @@ ln -sfn ../../packages/shared /Users/roger/Documents/Python/Bazi_Plotting/node_m
 ```
 Then restart Next.js. Caused by past worktree-symlink workarounds; check with `ls -la node_modules/@repo/shared`.
 
+**Header credit badge / `/api/users/me` calls silently fail (no badge in DOM, no error in console):**
+CORS hostname mismatch. If the browser is on `http://127.0.0.1:3000` (used to dodge HSTS HTTPS-upgrade) but `CORS_ORIGINS` in `apps/api/.env` only lists `http://localhost:3000`, the cross-origin fetch is blocked by the browser. CreditBadge swallows the error in its catch block and returns `null` — no visible failure. Fix: ensure both origins are allowed in `apps/api/.env`:
+```
+CORS_ORIGINS="http://localhost:3000,http://127.0.0.1:3000,http://localhost:8081"
+```
+Then restart Nest. Verify with: `curl -X OPTIONS http://localhost:4000/api/users/me -H "Origin: http://127.0.0.1:3000" -H "Access-Control-Request-Method: GET" -i | grep -i access-control` — should echo back the 127.0.0.1 origin.
+
 ## E2E Testing with Clerk Auth
 Clerk cannot be mocked at the API level in Playwright because the SDK validates JWT signatures internally. The workaround is a **cookie-based E2E auth bypass**:
 
