@@ -226,6 +226,13 @@ node --import tsx dist/main.js
 
 **npx fails with `spawn sh ENOENT`:** Use direct binary paths: `node_modules/.bin/jest`
 
+**`@repo/shared` exports missing at runtime (e.g. "Export X doesn't exist in target module"):**
+The `node_modules/@repo/shared` symlink can drift to point at a stale worktree's `packages/shared` (instead of main's), masking newly-added exports. After adding a new export to `packages/shared/src/constants.ts`, if the dev server reports it missing, repoint the symlink:
+```bash
+ln -sfn ../../packages/shared /Users/roger/Documents/Python/Bazi_Plotting/node_modules/@repo/shared
+```
+Then restart Next.js. Caused by past worktree-symlink workarounds; check with `ls -la node_modules/@repo/shared`.
+
 ## E2E Testing with Clerk Auth
 Clerk cannot be mocked at the API level in Playwright because the SDK validates JWT signatures internally. The workaround is a **cookie-based E2E auth bypass**:
 
