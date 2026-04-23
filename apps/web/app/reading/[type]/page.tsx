@@ -218,6 +218,18 @@ export default function ReadingPage() {
   } | null>(null);
   const [refundedInfo, setRefundedInfo] = useState<{ refunded: boolean; amount: number } | null>(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  // Ref for the TOP refunded banner instance only (not the bottom one rendered
+  // inside AIReadingDisplay's beforeDisclaimer slot). Used to scroll the user
+  // to the failure notice after onFinal/onError.
+  const refundedBannerRef = useRef<HTMLDivElement>(null);
+
+  // Scroll to the refunded banner when it appears. Deferred via useEffect so
+  // React has committed the DOM before scrollIntoView fires.
+  useEffect(() => {
+    if (refundedInfo) {
+      refundedBannerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [refundedInfo]);
 
   // Profile state
   const [savedProfiles, setSavedProfiles] = useState<BirthProfile[]>([]);
@@ -1388,7 +1400,11 @@ export default function ReadingPage() {
               if (info.refunded && amount > 0) {
                 setUserCredits((prev) => (prev !== null ? prev + amount : prev));
               }
-              setShowPaywall(true);
+              // Intentionally do NOT setShowPaywall(true): credits were refunded
+              // and the refundedInfo banner above (with scrollIntoView) conveys
+              // the failure. setShowPaywall(true) would hide AIReadingDisplay
+              // (gated by `!showPaywall && (aiData || isAiLoading)`), erasing
+              // any partial sections that streamed in before the failure.
             } else if (info.status === 'degraded') {
               setDegradedInfo({
                 message: info.message || 'Partial reading delivered. Click Regenerate to retry.',
@@ -1404,7 +1420,9 @@ export default function ReadingPage() {
           onRetryAttempt: (info) => {
             setRetryStatus(info);
           },
-          onError: () => { setIsAiLoading(false); setShowPaywall(true); setRetryStatus(null); },
+          // Same reasoning as onFinal failed branch above — surface the error
+          // via existing error state rather than hiding AIReadingDisplay.
+          onError: () => { setIsAiLoading(false); setRetryStatus(null); },
           onCallComplete: () => {},
         });
         streamCleanupRef.current = () => stream.close();
@@ -1433,7 +1451,12 @@ export default function ReadingPage() {
 
   // Shared AI status banner renderer — used BOTH above and below the reading content
   // so users can't miss a failed/degraded notification when reading is long.
-  const renderAiStatusBanners = (position: 'top' | 'bottom') => (
+  // The optional refundedRef is attached only to the TOP refunded banner; the
+  // bottom instance never receives it (passing position-tagged ref handles this).
+  const renderAiStatusBanners = (
+    position: 'top' | 'bottom',
+    opts?: { refundedRef?: React.Ref<HTMLDivElement> },
+  ) => (
     <>
       {/* AI retry status toast — shown while retrying transient failures */}
       {retryStatus && (
@@ -1604,6 +1627,7 @@ export default function ReadingPage() {
       {refundedInfo && (
         <div
           key={`refunded-${position}`}
+          ref={position === 'top' ? opts?.refundedRef : undefined}
           style={{
             background: '#FFFBF5',
             border: '1px solid #D4A017',
@@ -1827,7 +1851,7 @@ export default function ReadingPage() {
             )}
 
             {/* AI status banners (top): retry / degraded / refunded */}
-            {renderAiStatusBanners("top")}
+            {renderAiStatusBanners("top", { refundedRef: refundedBannerRef })}
 
 
             {error && (
