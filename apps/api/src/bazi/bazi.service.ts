@@ -313,32 +313,20 @@ export class BaziService {
     const user = await this.prisma.user.findUnique({ where: { clerkUserId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const reading = await this.prisma.baziReading.findFirst({
-      where: { id: readingId, userId: user.id },
-    });
-    if (!reading) throw new NotFoundException('Reading not found');
-    if (!reading.isDegraded) {
-      throw new BadRequestException('此分析狀態正常，無需重新生成');
-    }
-    if (reading.regenerationExhausted || reading.regenerationCount >= REGENERATION_LIMIT) {
-      // Lock it definitively
-      if (!reading.regenerationExhausted) {
-        await this.prisma.baziReading.update({
-          where: { id: readingId },
-          data: { regenerationExhausted: true },
-        });
-      }
-      throw new BadRequestException(
-        `已達免費重新生成上限（${REGENERATION_LIMIT} 次）。如需再次分析，請建立新的命理分析。`,
-      );
-    }
-
-    // Clear AI + degraded flags so the SSE stream endpoint will regenerate.
-    // CRITICAL: use Prisma.DbNull to set the column to SQL NULL.
-    // `undefined` would be a no-op in Prisma v6.
-    // `Prisma.JsonNull` would set the column to JSONB literal 'null' (not the same as SQL NULL).
-    const updated = await this.prisma.baziReading.update({
-      where: { id: readingId },
+    // Atomic conditional update — only succeeds if the row is degraded,
+    // not exhausted, and below the limit. Prevents a TOCTOU race where two
+    // concurrent regen requests both pass a check-then-update sequence and
+    // burn an extra free regen.
+    // CRITICAL: Prisma.DbNull sets the column to SQL NULL (vs Prisma.JsonNull
+    // which writes JSONB literal 'null'). undefined would be a no-op.
+    const result = await this.prisma.baziReading.updateMany({
+      where: {
+        id: readingId,
+        userId: user.id,
+        isDegraded: true,
+        regenerationExhausted: false,
+        regenerationCount: { lt: REGENERATION_LIMIT },
+      },
       data: {
         regenerationCount: { increment: 1 },
         isDegraded: false,
@@ -348,6 +336,39 @@ export class BaziService {
         aiModel: null,
       },
     });
+
+    if (result.count === 0) {
+      // The atomic update didn't match. Disambiguate the reason for the caller.
+      const reading = await this.prisma.baziReading.findFirst({
+        where: { id: readingId, userId: user.id },
+      });
+      if (!reading) throw new NotFoundException('Reading not found');
+      if (!reading.isDegraded) {
+        throw new BadRequestException('此分析狀態正常，無需重新生成');
+      }
+      if (
+        reading.regenerationExhausted ||
+        reading.regenerationCount >= REGENERATION_LIMIT
+      ) {
+        if (!reading.regenerationExhausted) {
+          await this.prisma.baziReading.update({
+            where: { id: readingId },
+            data: { regenerationExhausted: true },
+          });
+        }
+        throw new BadRequestException(
+          `已達免費重新生成上限（${REGENERATION_LIMIT} 次）。如需再次分析，請建立新的命理分析。`,
+        );
+      }
+      // Catch-all for the rare race where a concurrent successful regen flipped
+      // the row out from under our where clause between updateMany and findFirst.
+      throw new BadRequestException('此分析無法重新生成，請稍後再試');
+    }
+
+    const updated = await this.prisma.baziReading.findUnique({
+      where: { id: readingId },
+    });
+    if (!updated) throw new NotFoundException('Reading not found');
 
     return {
       readingId: updated.id,
