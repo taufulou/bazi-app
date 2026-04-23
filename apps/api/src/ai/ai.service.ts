@@ -100,7 +100,11 @@ export const AI_MAX_TOTAL_TIME_MS = parseInt(
 /** Cap on Retry-After header value (don't sleep > 30s even if API asks). */
 export const AI_RETRY_AFTER_CAP_MS = 30000;
 
-/** Max free regenerations of a degraded reading. */
+/**
+ * Max free regenerations of a degraded reading.
+ * Mirrors @repo/shared REGENERATION_LIMIT — NestJS has a known @repo/shared
+ * runtime import issue, so the value is duplicated here. Keep in sync.
+ */
 export const REGENERATION_LIMIT = 3;
 
 /** Per-reading-type degrade-vs-refund thresholds. */

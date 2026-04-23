@@ -307,6 +307,8 @@ export class BaziService {
    * regenerate from scratch on next /stream request.
    */
   async regenerateReading(clerkUserId: string, readingId: string) {
+    // Mirrors @repo/shared REGENERATION_LIMIT — NestJS @repo/shared runtime
+    // restriction prevents direct import. Keep in sync.
     const REGENERATION_LIMIT = 3;
     const user = await this.prisma.user.findUnique({ where: { clerkUserId } });
     if (!user) throw new NotFoundException('User not found');

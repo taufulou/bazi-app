@@ -40,7 +40,7 @@ import {
   type AIReadingData,
 } from "../../lib/readings-api";
 import type { ZwdsChartData } from "../../lib/zwds-api";
-import { READING_TYPE_META } from "@repo/shared";
+import { READING_TYPE_META, REGENERATION_LIMIT } from "@repo/shared";
 import styles from "./page.module.css";
 
 // ============================================================
@@ -1488,7 +1488,7 @@ export default function ReadingPage() {
               <div style={{ fontSize: 14, color: '#6B5940', lineHeight: 1.6 }}>
                 {degradedInfo.exhausted ? (
                   <>
-                    已用盡免費重新生成次數（3 / 3 次）。如需完整的命理分析，請建立新的分析。
+                    已用盡免費重新生成次數（{REGENERATION_LIMIT} / {REGENERATION_LIMIT} 次）。如需完整的命理分析，請建立新的分析。
                   </>
                 ) : degradedInfo.actualSections < degradedInfo.expectedSections ? (
                   <>
