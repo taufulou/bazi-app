@@ -256,30 +256,119 @@ class TestTouganAnalysis:
 # ============================================================
 
 class TestGuanShaHunza:
-    """Test 官殺混雜 (both 正官 and 偏官 present) — female only."""
+    """Test 官殺混雜 weighted threshold — Fix 1b (female only, love domain).
 
-    def test_female_with_guan_sha_hunza(self):
-        """Female chart with both 正官 and 偏官 → warning."""
-        # Day Master 甲: 正官=辛 (金陰), 偏官=庚 (金陽)
-        # Put 辛 in year, 庚 in month
-        pillars = _make_pillars('辛', '子', '庚', '申', '甲', '午', '丙', '寅')
+    Classical rule (《淵海子平》, 《三命通會》):
+      「露殺藏官只論殺，露官藏殺只論官」
+    True 混雜 requires BOTH sides substantive (≥2.0) AND comparable (ratio ≥0.5).
+    """
+
+    def test_female_true_hunza_both_transparent_rooted(self):
+        """True 混雜: both 正官 and 偏官 透干+rooted with comparable weight."""
+        # 甲DM. 正官=辛 transparent+酉本氣=5.0. 偏官=庚 transparent+申本氣=5.0.
+        # Ratio=1.0 → 官殺混雜.
+        pillars = _make_pillars('辛', '酉', '庚', '申', '甲', '午', '丙', '寅')
         result = check_guan_sha_hunza(pillars, '甲', 'female')
         assert result is not None
         assert result['type'] == 'guan_sha_hunza'
+        assert result['weights']['zhengguan'] >= 2.0
+        assert result['weights']['qisha'] >= 2.0
+        assert result['weights']['ratio'] >= 0.5
         assert 'love' in result['domains']
 
+    def test_female_lu_sha_cang_guan(self):
+        """露殺藏官: 偏官 dominant (透+rooted), 正官 only in 中氣."""
+        # 庚 on year stem + 申本氣 → weight=5.0 (dominant)
+        # 辛 hidden in 丑中氣 → weight=1.0 (trace)
+        # Should relabel to 露殺藏官只論殺.
+        pillars = _make_pillars('庚', '申', '丁', '丑', '甲', '午', '丙', '寅')
+        result = check_guan_sha_hunza(pillars, '甲', 'female')
+        assert result is not None
+        assert result['type'] == 'lu_sha_cang_guan'
+        assert result['weights']['qisha'] > result['weights']['zhengguan']
+        assert result['significance'] == 'medium'
+
+    def test_female_lu_guan_cang_sha(self):
+        """露官藏殺: 正官 dominant (透+rooted), 偏官 only in 中氣."""
+        # 辛 on year stem + 酉本氣 → weight=5.0 (dominant)
+        # 庚 hidden in 巳中氣 → weight=1.0 (trace)
+        # Should relabel to 露官藏殺只論官.
+        pillars = _make_pillars('辛', '酉', '癸', '巳', '甲', '午', '丙', '寅')
+        result = check_guan_sha_hunza(pillars, '甲', 'female')
+        assert result is not None
+        assert result['type'] == 'lu_guan_cang_sha'
+        assert result['weights']['zhengguan'] > result['weights']['qisha']
+        assert result['significance'] == 'medium'
+
+    def test_female_laopo_chart_not_true_hunza(self):
+        """Laopo chart (丙寅/辛丑/甲戌/壬申) — 正官透+strong vs 偏官藏only.
+        Per Fix 1b classical rule, this is 露官藏殺 (only 正官 transparent),
+        NOT true 混雜. Old engine behavior overclaimed 混雜 here.
+        """
+        pillars = _make_pillars('丙', '寅', '辛', '丑', '甲', '戌', '壬', '申')
+        result = check_guan_sha_hunza(pillars, '甲', 'female')
+        assert result is not None
+        # 辛 transparent+rooted (丑中氣+申餘氣) ≈ 4.5
+        # 庚 hidden in 申本氣 = 2.0 (borderline substantive)
+        # Ratio 2.0 / 4.5 ≈ 0.44 < 0.5 → NOT 混雜
+        assert result['type'] != 'guan_sha_hunza'
+        assert result['type'] == 'lu_guan_cang_sha'
+
+    def test_female_trace_only_not_applicable(self):
+        """Both 官 and 殺 only trace — emits finding still (both > 0)."""
+        # 辛 not in chart stems, only 丑中氣 (1.0). 庚 not in chart stems, 申本氣 (2.0).
+        # 辛 < 2.0 → relabel, not true 混雜.
+        pillars = _make_pillars('丁', '丑', '壬', '申', '甲', '子', '丙', '寅')
+        result = check_guan_sha_hunza(pillars, '甲', 'female')
+        assert result is not None
+        # 庚=2.0 > 辛=1.0, both present → lu_sha_cang_guan (偏官 dominant)
+        assert result['type'] == 'lu_sha_cang_guan'
+
+    def test_female_only_one_side_present(self):
+        """Only 正官 present, 偏官 absent → None (not applicable)."""
+        # 甲DM. 辛 in year stem + 酉. 庚 nowhere (no 申/巳 for hidden).
+        pillars = _make_pillars('辛', '酉', '丙', '寅', '甲', '午', '丁', '卯')
+        result = check_guan_sha_hunza(pillars, '甲', 'female')
+        assert result is None
+
     def test_male_no_guan_sha_warning(self):
-        """Male chart — 官殺混雜 check returns None."""
-        pillars = _make_pillars('辛', '子', '庚', '申', '甲', '午', '丙', '寅')
+        """Male chart — 官殺混雜 check returns None regardless of weights."""
+        pillars = _make_pillars('辛', '酉', '庚', '申', '甲', '午', '丙', '寅')
         result = check_guan_sha_hunza(pillars, '甲', 'male')
         assert result is None
 
     def test_female_without_guan_sha(self):
         """Female chart with only 正官 (no 偏官) → no warning."""
-        # Day Master 甲: 正官=辛, no 庚
-        pillars = _make_pillars('辛', '子', '丙', '寅', '甲', '午', '丁', '卯')
+        pillars = _make_pillars('辛', '酉', '丙', '寅', '甲', '午', '丁', '卯')
         result = check_guan_sha_hunza(pillars, '甲', 'female')
         assert result is None
+
+    def test_guan_sha_hunza_narrative_does_not_affect_dominance_tally(self):
+        """Regression: 露官藏殺 narrative relabel (Fix 1b) must NOT prune
+        the 官殺 pressure tally used by dominance detection (Fix 1a).
+        Laopo-style chart: 正官 transparent + rooted + 偏官 hidden 本氣.
+        Even though check_guan_sha_hunza relabels this as 露官藏殺,
+        compute_stem_pressure_weight still returns non-zero weight for BOTH
+        辛 and 庚 — which is what _detect_dominant_imbalance will sum later.
+        """
+        from app.ten_gods import compute_stem_pressure_weight
+        pillars = _make_pillars('丙', '寅', '辛', '丑', '甲', '戌', '壬', '申')
+        # Narrative check relabels to 露官藏殺
+        narrative = check_guan_sha_hunza(pillars, '甲', 'female')
+        assert narrative is not None
+        assert narrative['type'] == 'lu_guan_cang_sha'
+        # BUT the raw pressure tally still sees BOTH sides:
+        zg = compute_stem_pressure_weight('辛', pillars)
+        qs = compute_stem_pressure_weight('庚', pillars)
+        assert zg['total'] > 0, '正官 weight must not be pruned by narrative relabel'
+        assert qs['total'] > 0, '偏官 weight must not be pruned by narrative relabel'
+        # Combined 官殺 category pressure on weak DM:
+        combined = zg['total'] + qs['total']
+        assert combined >= 4.0, (
+            f'Combined 官殺 pressure ({combined}) should remain substantive '
+            'regardless of 混雜 narrative outcome (Fix 1a dominance tally '
+            'depends on this independence).'
+        )
 
 
 # ============================================================

@@ -966,15 +966,21 @@ class TestPhase10Fixes:
     # ---- Fix 3: Monthly stem/branch rebalancing ----
 
     def test_branch_positive_stem_negative_base(self, roger35_gods):
-        """Branch=喜用, stem=忌神 → base='吉中有凶' (branch wins, stem tempers)."""
-        from app.annual_enhanced import _compute_single_month
+        """Branch=喜用, stem=忌神 → Phase 12b Fix A halving may upgrade.
+
+        For Roger 戊DM weak: stem 甲=木=忌神→凶, branch 午=火=喜神→吉.
+        甲 at 午 is 死 per 十二長生 → Fix A halving fires → 吉中有凶 → 吉.
+        Classical: 「木死於午」— halving applies per 滴天髓闡微.
+
+        When PHASE_12B_FIX_A is disabled via env, base stays at the v0 value.
+        """
+        from app.annual_enhanced import PHASE_12B_RULES_ENABLED, _compute_single_month
         sample_pillars = {
             'year': {'stem': '戊', 'branch': '辰'},
             'month': {'stem': '甲', 'branch': '寅'},
             'day': {'stem': '戊', 'branch': '子'},
             'hour': {'stem': '壬', 'branch': '子'},
         }
-        # 甲午: stem 甲=木=忌神→凶, branch 午=火=喜神→吉
         result = _compute_single_month(
             month_data={'stem': '甲', 'branch': '午'},
             pillars=sample_pillars,
@@ -985,7 +991,13 @@ class TestPhase10Fixes:
         )
         assert result['branchBase'] == '吉'
         assert result['stemBase'] == '凶'
-        assert result['baseAuspiciousness'] == '吉中有凶'
+        if PHASE_12B_RULES_ENABLED.get('A', True):
+            # Phase 12b on: halving applies (甲 death on 午) → upgrade to 吉
+            assert result['baseAuspiciousness'] == '吉'
+            assert 'gaitou_halving_upgrade' in result['ruleTrace']
+        else:
+            # Flag off: v0 behavior (吉中有凶).
+            assert result['baseAuspiciousness'] == '吉中有凶'
 
     def test_branch_negative_stem_positive_base(self, roger35_gods):
         """Branch=忌神, stem=喜用 → base='凶中有吉'."""

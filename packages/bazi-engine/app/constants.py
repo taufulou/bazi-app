@@ -292,6 +292,18 @@ TAOHUA: Dict[str, str] = {
     '亥': '子', '卯': '子', '未': '子',
 }
 
+# Branch → 方位 (8-direction mapping). Each branch maps to the nearest of the
+# eight compass directions (4 cardinal + 4 corner).
+# Source: 羅盤 24山 system simplified to 8-direction consumer-friendly labels.
+# Used by Fix 3 (桃花方位) and Fix 4 (文昌方位).
+# Corner branches (寅丑/辰巳/未申/戌亥) share the corner 方位; the 4 四正
+# branches (子卯午酉) map to cardinals.
+BRANCH_DIRECTION_8: Dict[str, str] = {
+    '子': '正北', '丑': '東北', '寅': '東北', '卯': '正東',
+    '辰': '東南', '巳': '東南', '午': '正南', '未': '西南',
+    '申': '西南', '酉': '正西', '戌': '西北', '亥': '西北',
+}
+
 # Hua Gai (華蓋) — Canopy star, lookup by Day Branch
 HUAGAI: Dict[str, str] = {
     '申': '辰', '子': '辰', '辰': '辰',
