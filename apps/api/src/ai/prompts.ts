@@ -2499,6 +2499,13 @@ sections 的 key 必須為：annual_overview, annual_tai_sui, annual_dayun_conte
 【十二月運程預分析（確定性數據，每月吉凶判定不可修改）】
 {{annualMonthlyForecasts}}
 
+⚠️ 六害 / 沖庫 反幻覺規則（Phase 12c）：
+- 若某月行內未列出「六害：」，禁止在月運敘述中提及『害』、『穿』、『沖害』等概念。
+- 若某月行內未列出「沖庫釋放：」，禁止在月運敘述中提及『沖開庫藏』、『沖庫』、『藏干釋放』。
+- 禁止虛構未提供的 pair、pillar、role、released_stems。僅可使用結構化欄位中明確提供的數值。
+- 若有「⚠️觸發」標記的六害（無恩之害），月運敘述中應點出該因素影響。
+- 若有「沖庫釋放」並標記為 downgrade，月運敘述應點出庫沖放出之十神對日主的不利影響。
+
 請依照以下分區輸出分析：
 sections 的 key 必須為：monthly_01, monthly_02, monthly_03, monthly_04, monthly_05, monthly_06, monthly_07, monthly_08, monthly_09, monthly_10, monthly_11, monthly_12
 注意：不需要 summary（summary 已在第一部分輸出）`,

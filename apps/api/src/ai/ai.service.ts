@@ -89,7 +89,11 @@ interface ProviderConfig {
 // ============================================================
 
 /** Max retries per provider for transient errors (529 overloaded, 429 rate limit, 5xx). */
-export const AI_MAX_RETRIES_PER_PROVIDER = 3;
+// Phase: reduced from 3→2. With 300s per-call streaming timeouts and the 900s
+// total budget, 3 retries starved provider-fallback room. 2 gives: happy (300s) →
+// 1 same-provider retry (602s) → 1 full fallback (902s) ≈ budget. See
+// .claude/plans/ai-call2-streaming-and-timeout.md for the arithmetic.
+export const AI_MAX_RETRIES_PER_PROVIDER = 2;
 
 /** Total time budget across ALL providers + retries before giving up. Configurable via env. */
 export const AI_MAX_TOTAL_TIME_MS = parseInt(
@@ -852,7 +856,8 @@ export class AIService implements OnModuleInit {
     readingId: string,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
-      this._executeStreamLifetimeV2(calculationData, readingId, subscriber)
+      const externalControllers = new Set<AbortController>();
+      this._executeStreamLifetimeV2(calculationData, readingId, subscriber, externalControllers)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -861,6 +866,14 @@ export class AIService implements OnModuleInit {
           } as MessageEvent);
           subscriber.complete();
         });
+      return () => {
+        // Observable unsubscribe (client disconnected or component unmounted).
+        // Safe to abort even if both streams completed — SDK abort() on a settled
+        // request is a documented no-op across Claude/OpenAI/Gemini.
+        for (const c of externalControllers) {
+          try { c.abort(); } catch { /* noop */ }
+        }
+      };
     });
   }
 
@@ -868,6 +881,7 @@ export class AIService implements OnModuleInit {
     calculationData: Record<string, unknown>,
     readingId: string,
     subscriber: Subscriber<MessageEvent>,
+    externalControllers?: Set<AbortController>,
   ) {
     await this._executeStreamV2Common({
       calculationData,
@@ -879,6 +893,7 @@ export class AIService implements OnModuleInit {
       call2ExpectedKeysProvider: () => LIFETIME_V2_PROMPTS.call2Sections as string[],
       enhancedInsightsKey: 'lifetimeEnhancedInsights',
       autoFixCallback: undefined, // no Lifetime-specific auto-fix
+      externalControllers,
     });
   }
 
@@ -909,13 +924,22 @@ export class AIService implements OnModuleInit {
     cacheTargetYear?: number;
     /** Whether to include score field in section_complete emits (default true). */
     includeScore?: boolean;
+    /**
+     * Optional Set the entry point can iterate on Observable teardown.
+     * Every AbortController created here registers into this set, and is
+     * removed on normal completion. If the Observable is unsubscribed
+     * (client disconnect), the entry point iterates the Set and aborts all
+     * still-live controllers — propagating cancellation to in-flight SDK
+     * requests instead of leaking them for up to 5 min.
+     */
+    externalControllers?: Set<AbortController>;
   }): Promise<void> {
     const {
       calculationData, readingId, subscriber, readingType,
       promptsBuilder, call1SectionKeys, call2ExpectedKeysProvider,
       enhancedInsightsKey, autoFixCallback,
       call2Parser, summaryExtractor, deterministicBuilder,
-      cacheTargetYear, includeScore = true,
+      cacheTargetYear, includeScore = true, externalControllers,
     } = opts;
 
     const totalStartMs = Date.now();
@@ -943,7 +967,8 @@ export class AIService implements OnModuleInit {
       }
     }, 15000);
 
-    let call1Timeout!: ReturnType<typeof setTimeout>;
+    // Timeout bookkeeping (Set — each pending timeout registers; finally drains all)
+    const pendingTimeouts = new Set<ReturnType<typeof setTimeout>>();
 
     // Accumulators OUTSIDE providers loop (preserved across retries + fallbacks)
     const call1Sections: Record<string, InterpretationSection> = {};
@@ -951,6 +976,13 @@ export class AIService implements OnModuleInit {
     const emittedKeys = new Set<string>();
     let call1Summary: InterpretationSection = { preview: '', full: '' };
     let activeProviderConfig = this.providers[0]!;
+    let call2TotalInputTokens = 0;
+    let call2TotalOutputTokens = 0;
+
+    const streamCall2Enabled =
+      this.configService.get<string>('AI_STREAM_CALL2') !== '0'; // default ON
+
+    const tag = `[V2Stream:${readingType}]`;
 
     const fixSection = (key: string, raw: InterpretationSection): InterpretationSection => {
       const { section } = this.autoFixSection(key, raw, calculationData);
@@ -964,11 +996,43 @@ export class AIService implements OnModuleInit {
         const haveCall2 = Object.keys(call2FixedSections).length === expectedCall2Count;
         if (haveCall1 && haveCall2) break;
 
-        // ============ Call 2: non-streaming, with retry ============
-        let call2Promise: Promise<{ content: string; inputTokens: number; outputTokens: number } | null>;
+        // ============ Call 2: streaming (default) or non-streaming (flag off) ============
+        // Result shape:
+        //   streaming: { streamed: true, inputTokens, outputTokens }  ← already emitted sections
+        //   non-streaming: { content, inputTokens, outputTokens }     ← caller parses + emits
+        //   null = complete failure for this provider; advance to next
+        type Call2Streamed = { streamed: true; inputTokens: number; outputTokens: number };
+        type Call2NonStreamed = { content: string; inputTokens: number; outputTokens: number };
+        let call2Promise: Promise<Call2Streamed | Call2NonStreamed | null>;
         if (haveCall2) {
           call2Promise = Promise.resolve(null);
+        } else if (streamCall2Enabled) {
+          // New path: stream Call 2 in parallel with Call 1
+          call2Promise = this._streamV2Call2Loop({
+            providerConfig,
+            systemPrompt,
+            userPromptCall2,
+            subscriber,
+            readingType,
+            call2FixedSections,
+            emittedKeys,
+            call2ExpectedKeys,
+            call2Parser,
+            fixSection,
+            totalStartMs,
+            timeoutMs,
+            includeScore,
+            expectedCall2Count,
+            degradeConfig: DEGRADE_THRESHOLDS[readingType] ?? DEGRADE_THRESHOLDS.DEFAULT,
+            pendingTimeouts,
+            tag,
+            externalControllers,
+          }).catch((err) => {
+            this.logger.warn(`${tag} Call 2 loop failure provider=${providerConfig.provider} reason=${err instanceof Error ? err.message : err}`);
+            return null;
+          });
         } else {
+          // Legacy non-streaming path (AI_STREAM_CALL2=0)
           call2Promise = this.callProviderWithRetry(
             providerConfig, systemPrompt, userPromptCall2, timeoutMs,
             {
@@ -982,7 +1046,7 @@ export class AIService implements OnModuleInit {
               },
             },
           ).catch((err) => {
-            this.logger.warn(`${readingType} V2 Call 2 final failure (${providerConfig.provider}): ${err instanceof Error ? err.message : err}`);
+            this.logger.warn(`${tag} Call 2 final failure provider=${providerConfig.provider} reason=${err instanceof Error ? err.message : err}`);
             return null;
           });
         }
@@ -993,7 +1057,7 @@ export class AIService implements OnModuleInit {
 
           for (let attempt = 1; attempt <= AI_MAX_RETRIES_PER_PROVIDER; attempt++) {
             if (Date.now() - totalStartMs > AI_MAX_TOTAL_TIME_MS) {
-              this.logger.warn(`${readingType} V2 Call 1: total budget exceeded; abandoning retries on ${providerConfig.provider}`);
+              this.logger.warn(`${tag} Call 1 total_budget_exceeded provider=${providerConfig.provider}`);
               break;
             }
 
@@ -1001,7 +1065,9 @@ export class AIService implements OnModuleInit {
             const call1ExtractedKeys = new Set<string>();
             let yieldedAny = false;
             const call1Controller = new AbortController();
-            call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
+            if (externalControllers) externalControllers.add(call1Controller);
+            const call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
+            pendingTimeouts.add(call1Timeout);
 
             try {
               const streamGen = this.streamProvider(
@@ -1050,19 +1116,19 @@ export class AIService implements OnModuleInit {
             } catch (err) {
               call1Err = err instanceof Error ? err : new Error(String(err));
               if ((call1Err as any).name === 'AbortError') {
-                this.logger.warn(`${readingType} V2 Call 1 aborted (timeout) on ${providerConfig.provider}`);
+                this.logger.warn(`${tag} Call 1 aborted_timeout provider=${providerConfig.provider}`);
                 break;
               }
               if (yieldedAny) {
                 this.logger.warn(
-                  `${readingType} V2 Call 1 mid-stream failure on ${providerConfig.provider} (yieldedAny=true); ` +
-                  `keeping ${Object.keys(call1Sections).length} sections, no retry`,
+                  `${tag} Call 1 mid_stream_failure provider=${providerConfig.provider} yieldedAny=true ` +
+                  `keeping=${Object.keys(call1Sections).length} reason=no_retry`,
                 );
                 break;
               }
               if (!this.isRetryableError(call1Err) || attempt === AI_MAX_RETRIES_PER_PROVIDER) {
                 this.logger.warn(
-                  `${readingType} V2 Call 1 ${attempt === AI_MAX_RETRIES_PER_PROVIDER ? 'exhausted retries' : 'non-retryable error'} on ${providerConfig.provider}: ${call1Err.message}`,
+                  `${tag} Call 1 ${attempt === AI_MAX_RETRIES_PER_PROVIDER ? 'exhausted_retries' : 'non_retryable_error'} provider=${providerConfig.provider} reason=${call1Err.message}`,
                 );
                 break;
               }
@@ -1080,11 +1146,13 @@ export class AIService implements OnModuleInit {
 
               const backoffMs = this.computeBackoff(attempt, call1Err);
               this.logger.warn(
-                `${readingType} V2 Call 1 attempt ${attempt}/${AI_MAX_RETRIES_PER_PROVIDER} failed on ${providerConfig.provider} (${call1Err.message}); retrying in ${backoffMs}ms`,
+                `${tag} Call 1 attempt=${attempt}/${AI_MAX_RETRIES_PER_PROVIDER} failed provider=${providerConfig.provider} reason=${call1Err.message} backoff=${backoffMs}ms`,
               );
               await new Promise((r) => setTimeout(r, backoffMs));
             } finally {
               clearTimeout(call1Timeout);
+              pendingTimeouts.delete(call1Timeout);
+              if (externalControllers) externalControllers.delete(call1Controller);
             }
           }
         }
@@ -1097,14 +1165,18 @@ export class AIService implements OnModuleInit {
         // ============ Wait for Call 2 ============
         const call2Result = await call2Promise;
         if (call2Result) {
-          // Allow optional Annual-style call 2 parser
-          const parsed2 = call2Parser
-            ? call2Parser(call2Result.content)
-            : this.parseLifetimeV2CallResponse(call2Result.content, 'call2');
-          for (const [key, rawSection] of Object.entries(parsed2.sections)) {
-            const section = fixSection(key, rawSection);
-            call2FixedSections[key] = section;
-            if (!emittedKeys.has(key)) {
+          call2TotalInputTokens += call2Result.inputTokens;
+          call2TotalOutputTokens += call2Result.outputTokens;
+          // Streaming path already emitted sections inside the loop;
+          // non-streaming path returns {content, ...} to parse+emit here.
+          if ('content' in call2Result) {
+            const parsed2 = call2Parser
+              ? call2Parser(call2Result.content)
+              : this.parseLifetimeV2CallResponse(call2Result.content, 'call2');
+            for (const [key, rawSection] of Object.entries(parsed2.sections)) {
+              if (emittedKeys.has(key)) continue; // guard BEFORE write
+              const section = fixSection(key, rawSection);
+              call2FixedSections[key] = section;
               emittedKeys.add(key);
               subscriber.next({
                 data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(includeScore && section.score != null && { score: section.score }) }),
@@ -1192,6 +1264,16 @@ export class AIService implements OnModuleInit {
         }).catch((err) => this.logger.error(`Failed to update ${readingType} reading ${readingId}: ${err}`));
 
         if (status === 'success') {
+          // Observability marker for Phase streaming rollout — one line per
+          // cached reading so operators can monitor call2Got distributions
+          // during the staging/prod soak windows.
+          // Grep: `grep "\[V2Stream:ANNUAL\] CACHED" logs | awk ...`
+          this.logger.log(
+            `${tag} CACHED readingId=${readingId} ` +
+            `call1=${call1Got}/${expectedCall1Count} call2=${call2Got}/${expectedCall2Count} ` +
+            `provider=${activeProviderConfig.provider}`,
+          );
+
           const birthDataHash = this.generateBirthDataHash(
             calculationData['birthDate'] as string || '',
             calculationData['birthTime'] as string || '',
@@ -1205,7 +1287,7 @@ export class AIService implements OnModuleInit {
             readingType,
             calculationData,
             aiInterpretation as unknown as AIInterpretationResult,
-          ).catch((err) => this.logger.error(`${readingType} stream cache write failed: ${err}`));
+          ).catch((err) => this.logger.error(`${tag} stream cache write failed: ${err}`));
         }
       }
 
@@ -1248,14 +1330,211 @@ export class AIService implements OnModuleInit {
       } as MessageEvent);
 
       this.logger.log(
-        `Stream ${readingType} V2 status=${status} via ${activeProviderConfig.provider} in ${latencyMs}ms, ` +
-        `${totalGot}/${expectedTotal} sections (call1=${call1Got}, call2=${call2Got}), refunded=${refunded}`,
+        `${tag} status=${status} provider=${activeProviderConfig.provider} latency=${latencyMs}ms ` +
+        `sections=${totalGot}/${expectedTotal} call1=${call1Got} call2=${call2Got} ` +
+        `call2Tokens=${call2TotalInputTokens}in/${call2TotalOutputTokens}out refunded=${refunded}`,
       );
     } finally {
       clearInterval(heartbeatInterval);
-      clearTimeout(call1Timeout!);
+      for (const t of pendingTimeouts) clearTimeout(t);
+      pendingTimeouts.clear();
       subscriber.complete();
     }
+  }
+
+  /**
+   * Streaming Call 2 loop — new implementation (Phase).
+   *
+   * Runs the same per-attempt retry loop as Call 1, but streams chunks through
+   * `extractCompletedSections` to emit `section_complete` events as each
+   * section's JSON closes. Writes into the caller's `call2FixedSections` and
+   * `emittedKeys` references so accumulation across providers works identically
+   * to the non-streaming path.
+   *
+   * Error contract (per plan §Part 2):
+   *   - error before any chunk yielded (`yieldedAny=false`) + retryable → retry
+   *     same provider up to AI_MAX_RETRIES_PER_PROVIDER.
+   *   - mid-stream error, extracted < degradeConfig.call2CompletionMin → return
+   *     {streamed, tokens}; caller advances to next provider.
+   *   - mid-stream error, extracted ≥ threshold → return; no further attempts.
+   *   - AbortError → return; caller advances to next provider.
+   *
+   * Guard invariant: `emittedKeys.has(key) continue` BEFORE writing
+   * call2FixedSections[key] — prevents emit-vs-cache skew on retry.
+   */
+  private async _streamV2Call2Loop(opts: {
+    providerConfig: ProviderConfig;
+    systemPrompt: string;
+    userPromptCall2: string;
+    subscriber: Subscriber<MessageEvent>;
+    readingType: ReadingType;
+    call2FixedSections: Record<string, InterpretationSection>;
+    emittedKeys: Set<string>;
+    call2ExpectedKeys: string[];
+    call2Parser:
+      | ((content: string) => {
+          sections: Record<string, InterpretationSection>;
+          summary?: InterpretationSection;
+        })
+      | undefined;
+    fixSection: (key: string, raw: InterpretationSection) => InterpretationSection;
+    totalStartMs: number;
+    timeoutMs: number;
+    includeScore: boolean;
+    expectedCall2Count: number;
+    degradeConfig: DegradeThresholdConfig;
+    pendingTimeouts: Set<ReturnType<typeof setTimeout>>;
+    tag: string;
+    externalControllers?: Set<AbortController>;
+  }): Promise<{ streamed: true; inputTokens: number; outputTokens: number } | null> {
+    const {
+      providerConfig, systemPrompt, userPromptCall2, subscriber, readingType: _readingType,
+      call2FixedSections, emittedKeys, call2ExpectedKeys, call2Parser, fixSection,
+      totalStartMs, timeoutMs, includeScore, expectedCall2Count, degradeConfig,
+      pendingTimeouts, tag, externalControllers,
+    } = opts;
+
+    const usageOut = { inputTokens: 0, outputTokens: 0 };
+    const threshold = Math.floor(expectedCall2Count * degradeConfig.call2CompletionMin);
+    let chunkCount = 0;
+
+    for (let attempt = 1; attempt <= AI_MAX_RETRIES_PER_PROVIDER; attempt++) {
+      if (Date.now() - totalStartMs > AI_MAX_TOTAL_TIME_MS) {
+        this.logger.warn(`${tag} Call 2 total_budget_exceeded provider=${providerConfig.provider}`);
+        break;
+      }
+
+      let call2Buffer = '';
+      const call2ExtractedKeys = new Set<string>(Object.keys(call2FixedSections));
+      let yieldedAny = false;
+      const call2Controller = new AbortController();
+      if (externalControllers) externalControllers.add(call2Controller);
+      const call2Timeout = setTimeout(() => call2Controller.abort(), timeoutMs);
+      pendingTimeouts.add(call2Timeout);
+
+      try {
+        this.logger.log(`${tag} Call 2 START provider=${providerConfig.provider} attempt=${attempt}/${AI_MAX_RETRIES_PER_PROVIDER}`);
+
+        const streamGen = this.streamProvider(
+          providerConfig, systemPrompt, userPromptCall2, call2Controller.signal, usageOut,
+        );
+
+        for await (const chunk of streamGen) {
+          yieldedAny = true;
+          chunkCount++;
+          call2Buffer += chunk;
+          const newSections = this.extractCompletedSections(
+            call2Buffer, call2ExpectedKeys, call2ExtractedKeys,
+          );
+          for (const [key, rawSection] of Object.entries(newSections)) {
+            if (emittedKeys.has(key)) continue; // guard BEFORE write
+            const section = fixSection(key, rawSection);
+            call2FixedSections[key] = section;
+            emittedKeys.add(key);
+            this.logger.log(`${tag} Call 2 SECTION EMITTED key=${key} chars=${section.full?.length || 0}`);
+            subscriber.next({
+              data: JSON.stringify({
+                key,
+                preview: section.preview,
+                full: section.full,
+                ...(includeScore && section.score != null && { score: section.score }),
+              }),
+              type: 'section_complete',
+            } as MessageEvent);
+          }
+        }
+
+        this.logger.log(
+          `${tag} Call 2 stream COMPLETE provider=${providerConfig.provider} ` +
+          `chunks=${chunkCount} buffer=${call2Buffer.length}chars ` +
+          `sections=${Object.keys(call2FixedSections).length}/${expectedCall2Count}`,
+        );
+
+        // Final-drain parse from complete buffer — catches anything the
+        // brace-depth extractor missed (e.g., malformed closing brace).
+        const finalParsed = call2Parser
+          ? call2Parser(call2Buffer)
+          : this.parseLifetimeV2CallResponse(call2Buffer, 'call2');
+        for (const [key, rawSection] of Object.entries(finalParsed.sections)) {
+          if (emittedKeys.has(key)) continue; // guard BEFORE write
+          const section = fixSection(key, rawSection);
+          call2FixedSections[key] = section;
+          emittedKeys.add(key);
+          this.logger.log(`${tag} Call 2 LATE SECTION key=${key}`);
+          subscriber.next({
+            data: JSON.stringify({
+              key,
+              preview: section.preview,
+              full: section.full,
+              ...(includeScore && section.score != null && { score: section.score }),
+            }),
+            type: 'section_complete',
+          } as MessageEvent);
+        }
+
+        return { streamed: true, inputTokens: usageOut.inputTokens, outputTokens: usageOut.outputTokens };
+      } catch (err) {
+        const e = err instanceof Error ? err : new Error(String(err));
+        const extracted = Object.keys(call2FixedSections).length;
+
+        if ((e as any).name === 'AbortError') {
+          this.logger.warn(
+            `${tag} Call 2 aborted_timeout provider=${providerConfig.provider} ` +
+            `extracted=${extracted}/${expectedCall2Count}`,
+          );
+          // No retry on timeout; caller falls through to next provider.
+          return { streamed: true, inputTokens: usageOut.inputTokens, outputTokens: usageOut.outputTokens };
+        }
+
+        if (yieldedAny) {
+          if (extracted >= threshold && threshold > 0) {
+            this.logger.warn(
+              `${tag} Call 2 mid_stream_error provider=${providerConfig.provider} ` +
+              `extracted=${extracted}/${expectedCall2Count} >= threshold=${threshold} keep_partial=true`,
+            );
+          } else {
+            this.logger.warn(
+              `${tag} Call 2 mid_stream_error provider=${providerConfig.provider} ` +
+              `extracted=${extracted}/${expectedCall2Count} < threshold=${threshold} advancing_provider=true reason=${e.message}`,
+            );
+          }
+          return { streamed: true, inputTokens: usageOut.inputTokens, outputTokens: usageOut.outputTokens };
+        }
+
+        // Before any chunk yielded — retry if retryable.
+        if (!this.isRetryableError(e) || attempt === AI_MAX_RETRIES_PER_PROVIDER) {
+          this.logger.warn(
+            `${tag} Call 2 ${attempt === AI_MAX_RETRIES_PER_PROVIDER ? 'exhausted_retries' : 'non_retryable_error'} ` +
+            `provider=${providerConfig.provider} reason=${e.message}`,
+          );
+          return null;
+        }
+
+        subscriber.next({
+          data: JSON.stringify({
+            provider: providerConfig.provider,
+            attempt: attempt + 1,
+            max: AI_MAX_RETRIES_PER_PROVIDER,
+            reason: this.summarizeError(e),
+            call: 2,
+          }),
+          type: 'retry_attempt',
+        } as MessageEvent);
+
+        const backoffMs = this.computeBackoff(attempt, e);
+        this.logger.warn(
+          `${tag} Call 2 attempt=${attempt}/${AI_MAX_RETRIES_PER_PROVIDER} failed ` +
+          `provider=${providerConfig.provider} reason=${e.message} backoff=${backoffMs}ms`,
+        );
+        await new Promise((r) => setTimeout(r, backoffMs));
+      } finally {
+        clearTimeout(call2Timeout);
+        pendingTimeouts.delete(call2Timeout);
+        if (externalControllers) externalControllers.delete(call2Controller);
+      }
+    }
+
+    return null;
   }
 
   // ============================================================
@@ -1272,7 +1551,8 @@ export class AIService implements OnModuleInit {
     readingId: string,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
-      this._executeStreamCareerV2(calculationData, readingId, subscriber)
+      const externalControllers = new Set<AbortController>();
+      this._executeStreamCareerV2(calculationData, readingId, subscriber, externalControllers)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -1281,6 +1561,11 @@ export class AIService implements OnModuleInit {
           } as MessageEvent);
           subscriber.complete();
         });
+      return () => {
+        for (const c of externalControllers) {
+          try { c.abort(); } catch { /* noop */ }
+        }
+      };
     });
   }
 
@@ -1288,6 +1573,7 @@ export class AIService implements OnModuleInit {
     calculationData: Record<string, unknown>,
     readingId: string,
     subscriber: Subscriber<MessageEvent>,
+    externalControllers?: Set<AbortController>,
   ) {
     // Build dynamic Call 2 keys from annual_forecasts deterministic data
     const enhancedInsights = calculationData['careerEnhancedInsights'] as Record<string, unknown> | undefined;
@@ -1315,6 +1601,7 @@ export class AIService implements OnModuleInit {
         const { section: careerFixed } = this.autoFixCareerSection(key, section, calc);
         return careerFixed;
       },
+      externalControllers,
     });
   }
 
@@ -1491,7 +1778,8 @@ export class AIService implements OnModuleInit {
     targetYear?: number,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
-      this._executeStreamAnnualV2(calculationData, readingId, subscriber, targetYear)
+      const externalControllers = new Set<AbortController>();
+      this._executeStreamAnnualV2(calculationData, readingId, subscriber, targetYear, externalControllers)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -1500,6 +1788,11 @@ export class AIService implements OnModuleInit {
           } as MessageEvent);
           subscriber.complete();
         });
+      return () => {
+        for (const c of externalControllers) {
+          try { c.abort(); } catch { /* noop */ }
+        }
+      };
     });
   }
 
@@ -1508,6 +1801,7 @@ export class AIService implements OnModuleInit {
     readingId: string,
     subscriber: Subscriber<MessageEvent>,
     targetYear?: number,
+    externalControllers?: Set<AbortController>,
   ) {
     // Build expected Call 2 keys (12 monthly forecasts)
     const call2ExpectedKeys: string[] = [];
@@ -1535,6 +1829,7 @@ export class AIService implements OnModuleInit {
       includeScore: false,
       // Annual cache key includes targetYear
       cacheTargetYear: targetYear,
+      externalControllers,
     });
   }
 
@@ -1924,6 +2219,24 @@ export class AIService implements OnModuleInit {
           const healthAspect = (aspects['health'] as Record<string, unknown>) || {};
           const healthSignals = (healthAspect['signals'] as string[]) || [];
           lines.push(`  健康：${healthSignals.join('、') || '無特殊'}`);
+        }
+        // Phase 12c structured fields (六害 + 沖庫釋放). Empty/absent → omit
+        // entire line (anti-hallucination: AI must not mention these unless
+        // structured data is provided).
+        const liuHai = (mo['liuHaiInteractions'] as Array<Record<string, unknown>>) || [];
+        if (liuHai.length > 0) {
+          const haiLines = liuHai.map(h => {
+            const wuEn = h['wuEn'] ? '無恩' : '';
+            const applied = h['applied'] ? '⚠️觸發' : '紀錄';
+            return `${h['pair']}(${pillarCN[h['pillar'] as string] || h['pillar']}柱·${h['role']}${wuEn}·${applied})`;
+          });
+          lines.push(`  六害：${haiLines.join('、')}`);
+        }
+        const chongKu = mo['chongKuRelease'] as Record<string, unknown> | null | undefined;
+        if (chongKu) {
+          const released = (chongKu['releasedStems'] as Array<Record<string, unknown>>) || [];
+          const releasedStr = released.map(s => `${s['stem']}=${s['role']}`).join('+');
+          lines.push(`  沖庫釋放：${pillarCN[chongKu['natalPillar'] as string]}柱(${chongKu['natalBranch']})→${releasedStr}，net=${chongKu['netRoleScore']}，${chongKu['action']}`);
         }
       }
       result = result.replace(/\{\{annualMonthlyForecasts\}\}/g, lines.join('\n'));
@@ -4851,16 +5164,24 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal?: AbortSignal,
+    usageOut?: { inputTokens: number; outputTokens: number },
   ): AsyncGenerator<string> {
+    // `usageOut` is a mutable ref populated by the underlying stream. On NORMAL
+    // stream completion, usageOut reflects actual token usage. On ABORT or
+    // truncation, it stays at the caller-provided default (usually {0, 0}).
+    // Known asymmetry: Anthropic emits usage on `message_delta` before stream end
+    // (most reliable). OpenAI's `stream_options.include_usage` + Gemini's
+    // `usageMetadata` only arrive on normal completion. Callers must tolerate
+    // {0, 0} as a legitimate "aborted before final chunk" signal.
     switch (config.provider) {
       case AIProvider.CLAUDE:
-        yield* this.streamClaude(config, systemPrompt, userPrompt, signal);
+        yield* this.streamClaude(config, systemPrompt, userPrompt, signal, usageOut);
         break;
       case AIProvider.GPT:
-        yield* this.streamGPT(config, systemPrompt, userPrompt, signal);
+        yield* this.streamGPT(config, systemPrompt, userPrompt, signal, usageOut);
         break;
       case AIProvider.GEMINI:
-        yield* this.streamGemini(config, systemPrompt, userPrompt, signal);
+        yield* this.streamGemini(config, systemPrompt, userPrompt, signal, usageOut);
         break;
       default:
         throw new Error(`Unknown provider: ${config.provider}`);
@@ -4907,6 +5228,7 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal?: AbortSignal,
+    usageOut?: { inputTokens: number; outputTokens: number },
   ): AsyncGenerator<string> {
     if (!this.claudeClient) {
       const { default: Anthropic } = await import('@anthropic-ai/sdk');
@@ -4924,12 +5246,20 @@ export class AIService implements OnModuleInit {
     );
 
     for await (const event of stream) {
-      if (
+      // input_tokens arrive on message_start; output_tokens are cumulative
+      // on each message_delta (final value wins). SDK docs confirmed.
+      if (event.type === 'message_start' && usageOut) {
+        const u = event.message?.usage;
+        if (u?.input_tokens != null) usageOut.inputTokens = u.input_tokens;
+      } else if (
         event.type === 'content_block_delta' &&
         'delta' in event &&
         event.delta.type === 'text_delta'
       ) {
         yield event.delta.text;
+      } else if (event.type === 'message_delta' && usageOut) {
+        const u = (event as any).usage;
+        if (u?.output_tokens != null) usageOut.outputTokens = u.output_tokens;
       }
     }
   }
@@ -4968,6 +5298,7 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal?: AbortSignal,
+    usageOut?: { inputTokens: number; outputTokens: number },
   ): AsyncGenerator<string> {
     if (!this.openaiClient) {
       const { default: OpenAI } = await import('openai');
@@ -4978,6 +5309,9 @@ export class AIService implements OnModuleInit {
       model: config.model,
       max_tokens: 16384,
       stream: true,
+      // stream_options emits a final chunk with .usage on NORMAL completion only.
+      // Aborted/truncated streams will NOT emit usage — callers tolerate {0, 0}.
+      stream_options: { include_usage: true },
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -4985,6 +5319,12 @@ export class AIService implements OnModuleInit {
     }, signal ? { signal } : undefined);
 
     for await (const chunk of stream) {
+      // Usage chunk arrives last with empty choices and a .usage object.
+      const u = (chunk as any).usage;
+      if (u && usageOut) {
+        if (u.prompt_tokens != null) usageOut.inputTokens = u.prompt_tokens;
+        if (u.completion_tokens != null) usageOut.outputTokens = u.completion_tokens;
+      }
       const text = chunk.choices[0]?.delta?.content;
       if (text) {
         yield text;
@@ -5025,6 +5365,7 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     _signal?: AbortSignal,
+    usageOut?: { inputTokens: number; outputTokens: number },
   ): AsyncGenerator<string> {
     if (!this.geminiAI) {
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
@@ -5038,6 +5379,12 @@ export class AIService implements OnModuleInit {
     const result = await model.generateContentStream(userPrompt);
 
     for await (const chunk of result.stream) {
+      // usageMetadata arrives only on NORMAL completion chunks.
+      const um = (chunk as any).usageMetadata;
+      if (um && usageOut) {
+        if (um.promptTokenCount != null) usageOut.inputTokens = um.promptTokenCount;
+        if (um.candidatesTokenCount != null) usageOut.outputTokens = um.candidatesTokenCount;
+      }
       const text = chunk.text();
       if (text) {
         yield text;
@@ -5847,10 +6194,13 @@ export class AIService implements OnModuleInit {
       lines.push(`特殊格局：${congGe['name']}（${congGe['description']}）`);
     }
 
-    // 官殺混雜
+    // 官殺 narrative (Fix 1b): true 混雜 OR 露官藏殺 OR 露殺藏官.
+    // `name` field carries the classical label per type; type ∈
+    // {'guan_sha_hunza','lu_guan_cang_sha','lu_sha_cang_guan'}.
     const guanSha = preAnalysis['guanShaHunza'] as Record<string, unknown>;
     if (guanSha) {
-      lines.push(`官殺混雜：${guanSha['description']}`);
+      const label = (guanSha['name'] as string) || '官殺混雜';
+      lines.push(`${label}：${guanSha['description']}`);
     }
 
     // 用神合絆

@@ -818,7 +818,7 @@ export const ANNUAL_V2_SECTION_ORDER = [
  * Lifetime V2 section display order (controls rendering sequence).
  * Sections not in this list are appended at the end.
  */
-const V2_SECTION_ORDER = [
+export const V2_SECTION_ORDER = [
   'chart_identity',
   'finance_pattern',
   'career_pattern',
