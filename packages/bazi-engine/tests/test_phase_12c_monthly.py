@@ -457,17 +457,20 @@ class TestRuleTraceSnapshot:
     Catches silent reorderings of the C → A → F → B → E → D pipeline.
     """
 
-    def test_laopo_full_year_ruletrace_snapshot(self):
-        """All 12 monthly forecasts for Laopo 2026 with locked ruleTrace."""
-        from app.calculator import calculate_bazi
-        import os
-        os.environ['BAZI_USE_WEIGHTED_IMBALANCE'] = '1'
-        # Re-import with flag set
-        import importlib
-        from app import five_elements
-        importlib.reload(five_elements)
-        from app import calculator
-        importlib.reload(calculator)
+    def test_laopo_full_year_ruletrace_snapshot(self, monkeypatch):
+        """All 12 monthly forecasts for Laopo 2026 with locked ruleTrace.
+
+        Uses `monkeypatch.setattr(fe, '_USE_WEIGHTED_IMBALANCE', True)` instead
+        of mutating `os.environ` + `importlib.reload(...)` — the previous
+        pattern leaked module state across tests under pytest-xdist /
+        random-order collection. `_USE_WEIGHTED_IMBALANCE` is read at call
+        time at `five_elements.py:480` as a module-global lookup, so
+        monkeypatch.setattr is sufficient (verified by reviewer).
+
+        Pattern matches `tests/test_ten_gods_imbalance.py:39`.
+        """
+        from app import calculator, five_elements as fe
+        monkeypatch.setattr(fe, '_USE_WEIGHTED_IMBALANCE', True)
 
         r = calculator.calculate_bazi(
             '1987-01-25', '15:30', '高雄市', 'Asia/Taipei',

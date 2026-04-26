@@ -1834,7 +1834,7 @@ def _compute_single_month(
                 day_branch_interactions.append(i_type)
 
     # ============================================================
-    # Phase 12b rule pipeline: C → A → B → D, with ruleTrace.
+    # C → A → F → B → E → D pipeline (Phase 12b/12c), with ruleTrace.
     # ============================================================
     rule_trace: List[str] = []
     officer_seal_activation: Optional[Dict[str, str]] = None
@@ -2003,10 +2003,10 @@ def _compute_single_month(
             bound_interactions.append(entry)
             rule_trace.append(f"liuhe_bound_only_{entry['natal_pillar']}")
 
-    # Cap ruleTrace at 6 entries (per plan) to keep payload bounded.
-    # Cap at 10 (raised from 6 in Phase 12c) to preserve evidence when 6-rule
-    # pipeline (C+A+F+B+E+D) plus suppression notes plus narrative entries
-    # all fire on a busy month. Future-proofs for Phase 12d (三刑/六破).
+    # Cap at 10 entries (raised from 6 in Phase 12c) to preserve evidence
+    # when the 6-rule pipeline (C+A+F+B+E+D) plus suppression notes plus
+    # narrative entries all fire on a busy month. Future-proofs for
+    # Phase 12d (三刑/六破).
     if len(rule_trace) > 10:
         rule_trace = rule_trace[:10]
 
