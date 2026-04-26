@@ -130,7 +130,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 - Next: Phase 12 (Bazi accuracy: 三合/三會 scoring, 從格+三合, 生化鏈) — see `docs/phase-12-specs.md`
 
 ## Test suite sizes
-- Bazi Engine: 1771 (1770 pass, 1 skip) | NestJS API: 165 | Frontend: 143 | ZWDS: 289
+- Bazi Engine: 1914 (1912 pass, 1 skip, 1 pre-existing fail unrelated) | NestJS API: 692 | Frontend: 143 | ZWDS: 289
 
 ## Reading Types
 18 total: 6 Bazi + 10 ZWDS + 2 Special. Credits: 1-3 per reading. See `docs/monetization.md` for pricing.
@@ -597,7 +597,7 @@ Source: 子平真詮·論墓庫刑沖「至於財官為水, 沖則反為累」.
 Default ON in dev/staging; **prod default OFF until measured-flip gate**:
 
 ```bash
-BAZI_USE_WEIGHTED_IMBALANCE=1      # Phase 12 Fix 1a
+BAZI_USE_WEIGHTED_IMBALANCE=1      # Phase 12 Fix 1a (see Note below — code default is '0')
 PHASE_12B_FIX_A=1
 PHASE_12B_FIX_B=1
 PHASE_12B_FIX_C_ENABLED=1
@@ -608,6 +608,21 @@ PHASE_12C_FIX_F_ENABLED=1
 
 CI matrix runs at minimum: all-on, Phase 12 off, Fix C+F isolated. Per-rule
 flags can disable any single rule without revert PR.
+
+> **Note on `BAZI_USE_WEIGHTED_IMBALANCE` default**: code default is `'0'` (OFF)
+> in `packages/bazi-engine/app/five_elements.py`, NOT `'1'`. The "Default ON in
+> dev/staging" line above describes the *intent*; current state is OFF pending
+> validation harness completion. Flag-flip blocked on:
+> 1. Completion of the n=50 expert-labeled chart CSV at
+>    `packages/bazi-engine/tests/validation/expert_labeled_charts.csv`
+> 2. Bazi-master sign-off on 3 known compatibility regressions at
+>    `tests/test_compatibility_gold_standard.py::TestScoreRanking`
+> 3. Operator runs `tests/validation/run_imbalance_validation.py` and confirms
+>    ≥95% agreement
+>
+> Tracker: file separate "Phase 12 Fix 1a default ON" PR after gates clear.
+> Until then, the documented Laopo 用神 木→水 outcome only manifests when the
+> env var is explicitly set to `'1'`.
 
 ### Anti-hallucination prompt rules
 
