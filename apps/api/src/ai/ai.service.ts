@@ -95,9 +95,20 @@ interface ProviderConfig {
 // .claude/plans/ai-call2-streaming-and-timeout.md for the arithmetic.
 export const AI_MAX_RETRIES_PER_PROVIDER = 2;
 
-/** Total time budget across ALL providers + retries before giving up. Configurable via env. */
+/**
+ * Total time budget across ALL providers + retries before giving up.
+ * Default 900s (15 min) matches the documented retry math at line 91-95:
+ * 1 same-provider retry (300s + backoff + 300s ≈ 602s) + 1 fallback to next
+ * provider (≈ 900s). Matches operator's `apps/api/.env` runtime default of
+ * `MAX_TOTAL_AI_TIME_MS=900000`. Configurable via env.
+ *
+ * IMPORTANT: if deployment proxy / load-balancer / Cloudflare caps request
+ * duration below 900s, set `MAX_TOTAL_AI_TIME_MS` to a smaller value via env
+ * to avoid silent budget waste. Common defaults: nginx=60s,
+ * Cloudflare=100s (Pro/Free) / unlimited (Enterprise), Vercel=300s (Pro).
+ */
 export const AI_MAX_TOTAL_TIME_MS = parseInt(
-  process.env.MAX_TOTAL_AI_TIME_MS ?? '300000', // 5 min default
+  process.env.MAX_TOTAL_AI_TIME_MS ?? '900000', // 15 min default
   10,
 );
 
@@ -6927,13 +6938,19 @@ export class AIService implements OnModuleInit {
     questionText?: string,
   ): string {
     const crypto = require('crypto');
-    // Include preAnalysis version in hash so cache invalidates when rules change
-    // LIFETIME uses v2.3.0, CAREER uses v2.1.0, all others use v1.1.0
-    const preAnalysisVersion = readingType === ReadingType.LIFETIME
-      ? 'v2.3.0'
-      : readingType === ReadingType.CAREER
-        ? 'v2.1.0'
-        : 'v1.1.0';
+    // Per-reading-type cache version. Bumping a row invalidates all cached
+    // readings of that type on next request (no operator FLUSHALL needed —
+    // though Redis flush is still recommended to release memory).
+    //
+    // ZWDS_*, LOVE, HEALTH, COMPATIBILITY stay at v1.1.0 unless a future
+    // engine change actually touches their output. Avoid spurious cross-type
+    // invalidation by NOT using a default-bump pattern.
+    const PRE_ANALYSIS_VERSIONS: Record<string, string> = {
+      [ReadingType.LIFETIME]: 'v2.4.0',  // bumped 2026-04 for Phase 12 Fix 1a 用神 cascade
+      [ReadingType.CAREER]:   'v2.2.0',  // same cascade (官殺混雜 + 用神)
+      [ReadingType.ANNUAL]:   'v2.0.0',  // major engine version: Phase 12b/12c monthly scoring
+    };
+    const preAnalysisVersion = PRE_ANALYSIS_VERSIONS[readingType] ?? 'v1.1.0';
     const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;
     return crypto.createHash('sha256').update(data).digest('hex');
   }
@@ -6948,7 +6965,11 @@ export class AIService implements OnModuleInit {
     comparisonType: string,
   ): string {
     const crypto = require('crypto');
-    const preAnalysisVersion = 'v1.1.0'; // bumped: seasonal balance change (旺相休囚死)
+    // v1.2.0 bumped 2026-04: Phase 12 Fix 1a 用神 cascade affects compat
+    // scoring (3 documented regressions in `tests/validation/README.md`
+    // §"Known flag-on test regressions"). Bumping now means stale comparison
+    // caches auto-invalidate when Fix 1a flag eventually flips ON.
+    const preAnalysisVersion = 'v1.2.0';
     // Sort profiles to ensure order-independent cache hits (A+B == B+A)
     const pA = `${profileA.birthDate}|${profileA.birthTime}|${profileA.birthCity}|${profileA.gender}`;
     const pB = `${profileB.birthDate}|${profileB.birthTime}|${profileB.birthCity}|${profileB.gender}`;
