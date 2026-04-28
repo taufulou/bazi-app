@@ -15,6 +15,11 @@ import type {
 import {
   CAREER_V2_ALL_SECTION_KEYS,
   COMPAT_ROMANCE_V2_ALL_SECTION_KEYS,
+  CAREER_V2_SECTION_ORDER,
+  ANNUAL_V2_SECTION_ORDER,
+  LOVE_V2_SECTION_ORDER,
+  COMPAT_ROMANCE_V2_SECTION_ORDER,
+  V2_SECTION_ORDER,
   getDynamicSectionTitle,
   normalizeAnnualDeterministic,
   normalizeLoveDeterministic,
@@ -1824,8 +1829,25 @@ export default function AIReadingDisplay({
         );
       })()}
 
-      {/* Sections */}
-      {data.sections.map((section, index) => {
+      {/* Sections — sorted by canonical order so streaming Call 2 output
+          (e.g. monthly_01..12 for Annual V2) doesn't interleave with Call 1
+          sections (annual_overview etc.) in the layout. Sections with keys
+          not in the canonical list fall to the end in arrival order. */}
+      {(() => {
+        const orderListForRender = isCareerV2 ? CAREER_V2_SECTION_ORDER
+          : isAnnualV2 ? ANNUAL_V2_SECTION_ORDER
+          : isLoveV2 ? LOVE_V2_SECTION_ORDER
+          : isCompatV2 ? COMPAT_ROMANCE_V2_SECTION_ORDER
+          : V2_SECTION_ORDER;
+        const orderIndex = new Map<string, number>(
+          orderListForRender.map((k, i) => [k, i] as [string, number]),
+        );
+        const orderedSections = [...data.sections].sort((a, b) => {
+          const ai = orderIndex.get(a.key) ?? Number.MAX_SAFE_INTEGER;
+          const bi = orderIndex.get(b.key) ?? Number.MAX_SAFE_INTEGER;
+          return ai - bi;
+        });
+        return orderedSections.map((section, index) => {
         // Skip individual annual/monthly forecast AI sections for career V2 —
         // these are rendered as grouped AnnualForecastTimeline + MonthlyFortuneGrid below
         if (isCareerV2 && (
@@ -1873,11 +1895,13 @@ export default function AIReadingDisplay({
             : undefined;
 
         // Compat V2: detect if this is a _b section that should merge with previous _a
+        // (peek must use orderedSections so canonical _a/_b adjacency holds even
+        // when sections arrived out of order during streaming)
         const isCompatPairB = isCompatV2 && section.key.endsWith('_b') &&
-          index > 0 && data.sections[index - 1]?.key === section.key.replace(/_b$/, '_a');
+          index > 0 && orderedSections[index - 1]?.key === section.key.replace(/_b$/, '_a');
         // Compat V2: detect if this is a _a section that will merge with next _b
         const isCompatPairA = isCompatV2 && section.key.endsWith('_a') &&
-          index < data.sections.length - 1 && data.sections[index + 1]?.key === section.key.replace(/_a$/, '_b');
+          index < orderedSections.length - 1 && orderedSections[index + 1]?.key === section.key.replace(/_a$/, '_b');
 
         // Skip rendering _b sections here — they'll be rendered inside the _a group
         if (isCompatPairB) return null;
@@ -2044,7 +2068,8 @@ export default function AIReadingDisplay({
             })()}
           </div>
         );
-      })}
+        });
+      })()}
 
       {/* Streaming: skeleton placeholder for the NEXT expected section only */}
       {isStreamingWithData && (() => {

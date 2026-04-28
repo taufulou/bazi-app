@@ -222,6 +222,241 @@ export interface BaziCalculationResult {
     deterministic?: Record<string, unknown>;
     [key: string]: unknown;
   };
+  // Phase 12 — Fix 2: 調候 advisory (structured; prompt layer renders Chinese)
+  tiaohou?: TiaohouAdvisory | null;
+  // Phase 12 — Fix 3: 桃花方位 (primary from 年支, optional secondary from 日支)
+  taohuaDirections?: TaohuaDirections;
+  // Phase 12 — Fix 4: 文昌貴人方位 (per 日干)
+  wenchangDirection?: { branch: string; direction: string };
+  // Phase 12 — Fix 4: 生肖貴人 (folk tradition, 六合 + 三合 from 年支)
+  zodiacBenefactors?: ZodiacBenefactors;
+}
+
+// ============================================================
+// Phase 12 — Fix 2: 調候 advisory types
+// ============================================================
+
+/**
+ * Typed enumeration of classical 調候 phrase keys emitted by the engine.
+ *
+ * The engine emits one of these keys; `apps/api/src/ai/prompts.ts::
+ * buildTiaohouSection` looks the key up in a Chinese phrase table. Unknown
+ * key → throw (caught by AI pipeline → Sentry, advisory section omitted).
+ *
+ * Closure is enforced two ways:
+ *  - Engine side: `packages/bazi-engine/tests/test_tiaohou.py::
+ *    TestPhraseKeyClosure` asserts every realized (DM × month) combination
+ *    produces a key in this union.
+ *  - TS side: runtime guard in buildTiaohouSection rejects unknown keys.
+ */
+export type TiaohouClassicalPhraseKey =
+  // 木 DM
+  | 'cold_wood_needs_fire'     // 乙冬 / 甲子丑 需丙丁
+  | 'cold_wood_needs_metal'    // 甲亥 需庚 (劈甲引火)
+  | 'hot_wood_needs_water'     // 甲乙夏 需癸
+  // 火 DM
+  | 'cold_fire_needs_wood'     // 丙/丁 冬某月 需甲
+  | 'cold_fire_needs_water'    // 丙 子/丑 需壬
+  | 'hot_fire_needs_wood'      // 丁 夏某月 需甲
+  | 'hot_fire_needs_water'     // 丙丁 巳午未 需壬
+  // 土 DM
+  | 'cold_earth_needs_fire'    // 戊己 冬月 需丙
+  | 'cold_earth_needs_wood'    // 戊 冬某月 需甲
+  | 'hot_earth_needs_water'    // 戊己 夏月 需癸/壬
+  | 'hot_earth_needs_wood'     // 戊 夏某月 需甲
+  // 金 DM
+  | 'cold_metal_needs_fire'    // 庚辛 冬月 需丁/丙
+  | 'cold_metal_needs_water'   // 辛亥 需壬
+  | 'hot_metal_needs_fire'     // 庚未 需丁
+  | 'hot_metal_needs_water'    // 庚辛 夏月 需壬
+  // 水 DM
+  | 'cold_water_needs_earth'   // 壬亥/壬子 需戊 (制水)
+  | 'cold_water_needs_fire'    // 壬癸 丑 需丙
+  | 'cold_water_needs_metal'   // 癸亥 需庚
+  | 'hot_water_needs_water'    // 壬巳 需壬 (同氣為援)
+  | 'hot_water_needs_metal';   // 壬癸 夏月 需辛/庚
+
+export type TiaohouStatus =
+  | 'present_strong'
+  | 'present_weak'
+  | 'combined'
+  | 'clashed'
+  | 'absent';
+
+export type TiaohouSeasonalContext =
+  | 'cold_winter'
+  | 'hot_summer'
+  | 'transitional';
+
+export interface TiaohouAdvisory {
+  primaryGod: string;
+  secondaryGod: string | null;
+  status: TiaohouStatus;
+  combinedBy: string | null;
+  clashedBy: string | null;
+  seasonalContext: TiaohouSeasonalContext;
+  classicalPhraseKey: TiaohouClassicalPhraseKey | null;
+}
+
+// ============================================================
+// Phase 12 — Fix 3 & 4: direction + benefactor types
+// ============================================================
+
+export interface TaohuaDirectionEntry {
+  source: '年支' | '日支';
+  branch: string;
+  direction: string;
+}
+
+export interface TaohuaDirections {
+  primary?: TaohuaDirectionEntry;
+  secondary?: TaohuaDirectionEntry;
+}
+
+export interface ZodiacBenefactorEntry {
+  branch: string;
+  zodiac: string;
+  kind: 'liuhe' | 'sanhe';
+}
+
+export interface ZodiacBenefactors {
+  liuhe?: ZodiacBenefactorEntry;
+  sanhe: ZodiacBenefactorEntry[];
+  /** Signals to the prompt layer to emit a folk-tradition disclaimer. */
+  provenance: 'folk_tradition';
+}
+
+// ============================================================
+// Phase 12b — Monthly scoring refinement types
+// ============================================================
+// Additive fields on monthly forecast entries. All optional — engines not on
+// Phase 12b omit them entirely. See .claude/plans/bazi-phase-12b-monthly-refinements.md.
+
+export interface FuYinInteraction {
+  pillar: 'year' | 'month' | 'day' | 'hour';
+  role: '用神' | '喜神' | '忌神' | '仇神' | '閒神';
+  direction: 'upgrade' | 'downgrade';
+  weight: number; // pillar role weight (0.5–1.0)
+  applied: boolean; // whether the interaction actually moved the label
+}
+
+export interface OfficerSealActivation {
+  /** 'sha_yin' = 七殺+印 相生; 'guan_yin' = 正官+印 相生. */
+  pattern: 'sha_yin' | 'guan_yin';
+  /** 'full' = 印 in 月支 本氣; 'partial' = 印 in 中氣. */
+  level: 'full' | 'partial';
+  /** 'positive' = 身弱 benefit; 'reverse' = 身強 mild negative. */
+  direction: 'positive' | 'reverse';
+  seal_source: 'benqi' | 'zhongqi';
+}
+
+export interface LiuHeBoundInteraction {
+  /** E.g. '卯戌' or '寅亥'. */
+  pair: string;
+  natal_pillar: 'year' | 'month' | 'day' | 'hour';
+  hua_element: '木' | '火' | '土' | '金' | '水';
+  kind: 'bound_only';
+  block_reason?:
+    | 'zheng_he'
+    | 'weaker_rooted'
+    | 'hua_not_transparent'
+    | 'hua_not_in_season'
+    | 'flag_disabled_true_transformation';
+}
+
+export interface LiuHeTrueTransformation {
+  pair: string;
+  natal_pillar: 'year' | 'month' | 'day' | 'hour';
+  hua_element: '木' | '火' | '土' | '金' | '水';
+  kind: 'true_transformation';
+  favorability: '用神' | '喜神' | '忌神' | '仇神' | '閒神';
+}
+
+/**
+ * Optional Phase 12b fields appended to each monthly forecast entry.
+ * Consumers should treat all as optional — a v0 engine emits none of these.
+ *
+ * Phase 12c additive fields (in-place extension, no rename per plan):
+ *   liuHaiInteractions, chongKuRelease.
+ */
+export interface Phase12bMonthlyExtras {
+  ruleTrace?: string[]; // capped at 10 entries (raised from 6 in Phase 12c)
+  fuYinInteractions?: FuYinInteraction[];
+  officerSealActivation?: OfficerSealActivation;
+  boundInteractions?: LiuHeBoundInteraction[];
+  trueTransformation?: LiuHeTrueTransformation;
+  // Phase 12c additive fields (六害 role-aware penalty + 沖庫釋放方向性)
+  liuHaiInteractions?: LiuHaiInteraction[];
+  chongKuRelease?: ChongKuRelease | null;
+}
+
+// ============================================================
+// Phase 12c — 六害 role-aware penalty + 沖庫釋放方向性 types
+// ============================================================
+// Additive optional fields on monthly forecast entries. Engines pre-12c
+// omit them entirely. See .claude/plans/bazi-phase-12c-six-harms-and-tomb-release.md.
+
+/**
+ * 六害 / 子卯刑 interaction descriptor.
+ *
+ * Fix E covers the 6 害 pairs (per branch_relationships.SIX_HARMS):
+ *   子-未, 丑-午, 寅-巳 (無恩之害), 卯-辰, 申-亥, 酉-戌
+ * Plus 1 piggybacked 六刑 pair via Fix E machinery:
+ *   子-卯 (無禮之刑) — kind: 'liuxing_ziwei'
+ *
+ * 寅巳 (無恩之害) carries a 1.2× wuEn modifier per 《三命通會》.
+ */
+export interface LiuHaiInteraction {
+  /** Pair label, sorted alphabetically (e.g., '寅-巳', '子-卯'). */
+  pair: string;
+  kind: 'liuhai' | 'liuxing_ziwei';
+  pillar: 'year' | 'month' | 'day' | 'hour';
+  role: '用神' | '喜神' | '忌神' | '仇神' | '閒神';
+  /** True for 寅巳 / 巳寅 ("無恩之害" — magnitude × 1.2). */
+  wuEn: boolean;
+  /** 0.5 if 六合 binds harmed branch, else 1.0. */
+  dampening: number;
+  /** Final per-pillar score after wuEn × dampening. 0 for 忌/仇/閒 hits. */
+  effectiveScore: number;
+  /** True if this entry contributed to the (single) -1 label downgrade.
+   *  Cap doctrine: 害 is 暗箭, max -1 step per month total. */
+  applied: boolean;
+}
+
+/**
+ * 沖庫釋放 direction-aware release descriptor.
+ *
+ * Fix F fires when:
+ *   - flow_month_branch ∈ {辰戌丑未}
+ *   - At least one natal pillar branch ∈ {辰戌丑未} forming 沖 with flow
+ *   - Not 從格
+ *
+ * Net role score = 0.6×r(本氣) + 0.3×r(中氣) + 0.1×r(餘氣)
+ * Role values: 用=+1.0, 喜=+0.6, 閒=0, 仇=-0.6, 忌=-1.0
+ * v1 ladder (downgrade-only): net ≤ -0.5 → action='downgrade', steps=1.
+ * Upgrade path (net ≥ +0.5) deferred to Phase 12d.
+ *
+ * DOCTRINE: stem rescue cancels SHAPE MODIFIERS but NOT STRUCTURAL RELEASES.
+ * Source: 《滴天髓·論墓庫》「庫沖則開, 開則藏干釋放, 不論天干能否化」.
+ */
+export interface ChongKuReleasedStem {
+  stem: string;
+  position: 'benqi' | 'zhongqi' | 'yuqi';
+  tenGod: string;
+  role: string;
+  weight: number; // 0.6 / 0.3 / 0.1 per HIDDEN_STEM_WEIGHTS
+}
+
+export interface ChongKuRelease {
+  natalPillar: 'year' | 'month' | 'day' | 'hour';
+  natalBranch: '辰' | '戌' | '丑' | '未';
+  releasedStems: ChongKuReleasedStem[];
+  netRoleScore: number;
+  /** v1 downgrade-only. Upgrade path is Phase 12d. */
+  action: 'downgrade';
+  steps: 1;
+  /** Always false in v1 — doctrine asserts stem cannot cancel structural release. */
+  stemRescueApplied: false;
 }
 
 // ============================================================

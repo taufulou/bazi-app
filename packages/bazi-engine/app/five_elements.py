@@ -10,6 +10,7 @@ Also determines Day Master strength (旺衰) based on:
 3. Hidden stem contributions
 """
 
+import os
 from typing import Dict, List, Optional, Tuple
 
 from .constants import (
@@ -29,6 +30,17 @@ from .constants import (
     STEM_YINYANG,
     TEN_GOD_CATEGORIES,
 )
+
+
+# ============================================================
+# Fix 1a feature flag: BAZI_USE_WEIGHTED_IMBALANCE
+# ============================================================
+# Reads env var at module import. Tests toggle via pytest monkeypatch on
+# the module constant (not the env var) — see tests/test_ten_gods_imbalance.py.
+# Deletion criteria documented in .claude/plans/bazi-accuracy-laopo-fixes.md.
+_USE_WEIGHTED_IMBALANCE: bool = os.environ.get(
+    'BAZI_USE_WEIGHTED_IMBALANCE', '0'
+).lower() in ('1', 'true', 'yes', 'on')
 
 
 def _accumulate_raw_element_scores(pillars: Dict) -> Dict[str, float]:
@@ -433,6 +445,9 @@ def analyze_day_master_strength(
 def _detect_dominant_imbalance(
     ten_god_dist: Dict[str, int],
     strength: str,
+    pillars: Optional[Dict] = None,
+    day_master_stem: Optional[str] = None,
+    is_cong_ge: bool = False,
 ) -> str:
     """
     Detect which ten god category is causing the Day Master's imbalance.
@@ -441,24 +456,46 @@ def _detect_dominant_imbalance(
     Identify the "illness" (病) — the dominant category causing imbalance —
     then select the "medicine" (藥) that best addresses it.
 
-    For weak DM: check draining/attacking categories {食傷, 財星, 官殺}.
-    For strong DM: check supporting categories {比劫, 印星}.
+    Two modes:
+      - Weighted (Fix 1a): when `pillars` + `day_master_stem` are both
+        provided AND the `BAZI_USE_WEIGHTED_IMBALANCE` env flag is enabled,
+        delegate to ten_gods.detect_dominant_imbalance_weighted which uses
+        透干/藏干 position weighting + pillar role + 月令司令 multiplier
+        + 20% margin / 3.0 floor threshold.
+      - Raw count fallback (backward-compat): sum ten god raw counts per
+        category, require strict >, else 'general'. This is the original
+        behavior and is preserved when the flag is off or data isn't
+        available.
 
-    Returns one of: '食傷旺'|'財旺'|'官殺旺'|'印旺'|'比劫旺'|'general'
+    從格 guard: if `is_cong_ge=True`, weighted mode returns 'cong_overridden'.
+
+    For weak/neutral DM: check draining/attacking categories {食傷,財星,官殺}.
+    For strong DM: check supporting categories {比劫,印星,官殺}.
+
+    Returns one of:
+      '食傷旺' | '財旺' | '官殺旺' | '印旺' | '比劫旺'
+      | 'general' | 'cong_overridden'
     """
-    # Sum counts per category
+    # Fix 1a: weighted mode (flag-gated, requires pillars + DM stem)
+    if pillars is not None and day_master_stem is not None and _USE_WEIGHTED_IMBALANCE:
+        from .ten_gods import detect_dominant_imbalance_weighted
+        return detect_dominant_imbalance_weighted(
+            pillars=pillars,
+            day_master_stem=day_master_stem,
+            strength=strength,
+            is_cong_ge=is_cong_ge,
+        )
+
+    # Raw count fallback (preserved v0 behavior)
     category_counts: Dict[str, int] = {}
     for cat_name, god_names in TEN_GOD_CATEGORIES.items():
         category_counts[cat_name] = sum(ten_god_dist.get(g, 0) for g in god_names)
 
     if strength in ('strong', 'very_strong'):
-        # For strong DM: what's causing the excess strength?
-        # Includes 官殺 for rare case where DM is strong despite heavy 官殺
         candidates = {'比劫': category_counts.get('比劫', 0),
                       '印星': category_counts.get('印星', 0),
                       '官殺': category_counts.get('官殺', 0)}
     else:
-        # For weak/neutral DM: what's draining/attacking the DM?
         candidates = {'食傷': category_counts.get('食傷', 0),
                       '財星': category_counts.get('財星', 0),
                       '官殺': category_counts.get('官殺', 0)}
@@ -466,12 +503,10 @@ def _detect_dominant_imbalance(
     if not candidates:
         return 'general'
 
-    # Find highest count
     sorted_cats = sorted(candidates.items(), key=lambda x: -x[1])
     top_cat, top_count = sorted_cats[0]
     second_count = sorted_cats[1][1] if len(sorted_cats) > 1 else 0
 
-    # Need strict greater than second to declare dominance
     if top_count > second_count and top_count > 0:
         label_map = {'食傷': '食傷旺', '財星': '財旺', '官殺': '官殺旺',
                      '印星': '印旺', '比劫': '比劫旺'}
@@ -484,6 +519,8 @@ def determine_favorable_gods(
     day_master_stem: str,
     strength: str,
     ten_god_distribution: Optional[Dict[str, int]] = None,
+    pillars: Optional[Dict] = None,
+    is_cong_ge: bool = False,
 ) -> Dict[str, str]:
     """
     Determine the Five Favorable Gods (喜用神) based on Day Master strength
@@ -532,10 +569,21 @@ def determine_favorable_gods(
     i_overcome = ELEMENT_OVERCOMES[dm_element]
     overcomes_me = ELEMENT_OVERCOME_BY[dm_element]
 
-    # Detect dominant imbalance for context-dependent assignment
+    # Detect dominant imbalance for context-dependent assignment.
+    # Weighted mode (Fix 1a) activates when flag is on AND pillars provided.
     dominant = 'general'
     if ten_god_distribution:
-        dominant = _detect_dominant_imbalance(ten_god_distribution, strength)
+        dominant = _detect_dominant_imbalance(
+            ten_god_distribution,
+            strength,
+            pillars=pillars,
+            day_master_stem=day_master_stem,
+            is_cong_ge=is_cong_ge,
+        )
+    # 從格 charts: downstream generate_pre_analysis() overrides favorable
+    # gods entirely, so 'cong_overridden' here is informational only.
+    if dominant == 'cong_overridden':
+        dominant = 'general'
 
     if strength in ('strong', 'very_strong'):
         if dominant == '比劫旺':

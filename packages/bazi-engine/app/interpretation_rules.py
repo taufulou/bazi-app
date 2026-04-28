@@ -39,7 +39,36 @@ from .stem_combinations import (
     find_stem_combinations,
 )
 from .branch_relationships import analyze_branch_relationships
-from .ten_gods import derive_ten_god, get_prominent_ten_god
+from .ten_gods import (
+    compute_stem_pressure_weight,
+    derive_ten_god,
+    get_overcoming_stems_for_dm,
+    get_prominent_ten_god,
+)
+
+# ============================================================
+# 官殺混雜 thresholds (Fix 1b, love domain only)
+# ============================================================
+#
+# Classical rule (《淵海子平》, 《三命通會》):
+#   「露殺藏官只論殺，露官藏殺只論官」
+# True 混雜 requires both sides to be substantive AND comparable in weight.
+# Fix 1b thresholds:
+#   - Each side must have weighted pressure ≥ 2.0 (≥本氣藏干 or ≥透干,
+#     not just 餘氣)
+#   - Weaker side ≥ 50% of stronger side
+#   - Otherwise: relabel to 露官藏殺只論官 / 露殺藏官只論殺 (narrative-only)
+#
+# IMPORTANT — independence from dominance detection (Fix 1a):
+#   This relabel is narrative-only, scoped to love domain.
+#   _detect_dominant_imbalance() in ten_gods.py still sums both 官 and 殺
+#   contributions regardless of the 混雜 outcome — dominance detection is
+#   about total category pressure on DM, not 格局 purity. A chart with
+#   one 透殺 + one 藏官 still exerts combined 官殺 pressure on weak DM.
+#   See ten_gods.py::compute_stem_pressure_weight and the docstring on
+#   check_guan_sha_hunza below.
+GUAN_SHA_HUNZA_MIN_WEIGHT = 2.0
+GUAN_SHA_HUNZA_MIN_RATIO = 0.5
 
 
 # ============================================================
@@ -515,46 +544,87 @@ def check_guan_sha_hunza(
     gender: str,
 ) -> Optional[Dict]:
     """
-    Check for 官殺混雜 — both 正官 AND 七殺/偏官 present in chart (天干 or 藏干).
+    Check for 官殺混雜 — weighted threshold per Fix 1b.
 
-    This is a severe marriage warning for female charts only.
-    Does NOT affect career domain readings.
+    Classical rule (《淵海子平》, 《三命通會》): true 混雜 requires both
+    正官 AND 偏官/七殺 to be substantive (≥ 本氣藏干 or ≥ 透干) AND comparable
+    in weight. Else relabel to 露官藏殺只論官 / 露殺藏官只論殺.
 
-    Returns:
-        Warning dict, or None if not applicable
+    Narrative-only; scoped to love domain. Independent from the 官殺 category
+    pressure tally used by _detect_dominant_imbalance (see module-level
+    thresholds docstring and ten_gods.compute_stem_pressure_weight).
+
+    Female charts only (severe marriage warning).
+
+    Returns one of:
+      - {type: 'guan_sha_hunza',  name: '官殺混雜',    ...}
+      - {type: 'lu_guan_cang_sha', name: '露官藏殺只論官', ...}
+      - {type: 'lu_sha_cang_guan', name: '露殺藏官只論殺', ...}
+      - None (neither side substantive)
     """
     if gender != 'female':
         return None
 
-    has_zhengguan = False
-    has_qisha = False
+    stems = get_overcoming_stems_for_dm(day_master_stem)
+    zg_stem = stems.get('正官')
+    qs_stem = stems.get('偏官')
+    if not zg_stem or not qs_stem:
+        return None
 
-    # Check manifest stems (天干)
-    for pname in ('year', 'month', 'hour'):
-        ten_god = derive_ten_god(day_master_stem, pillars[pname]['stem'])
-        if ten_god == '正官':
-            has_zhengguan = True
-        elif ten_god == '偏官':
-            has_qisha = True
+    zg = compute_stem_pressure_weight(zg_stem, pillars)
+    qs = compute_stem_pressure_weight(qs_stem, pillars)
+    zg_w = zg['total']
+    qs_w = qs['total']
 
-    # Also check hidden stems (藏干)
-    for pname in ('year', 'month', 'day', 'hour'):
-        for hsg in pillars[pname].get('hiddenStemGods', []):
-            if hsg['tenGod'] == '正官':
-                has_zhengguan = True
-            elif hsg['tenGod'] == '偏官':
-                has_qisha = True
+    # Neither present (or both trace-only) → nothing to say
+    if zg_w == 0 or qs_w == 0:
+        return None
 
-    if has_zhengguan and has_qisha:
+    stronger = max(zg_w, qs_w)
+    weaker = min(zg_w, qs_w)
+    ratio = round(weaker / stronger, 2) if stronger > 0 else 0.0
+    weights_payload = {
+        'zhengguan': zg_w,
+        'qisha': qs_w,
+        'ratio': ratio,
+        'zhengguanTransparent': zg['transparent_count'] > 0,
+        'qishaTransparent': qs['transparent_count'] > 0,
+    }
+
+    both_substantive = (
+        zg_w >= GUAN_SHA_HUNZA_MIN_WEIGHT
+        and qs_w >= GUAN_SHA_HUNZA_MIN_WEIGHT
+    )
+
+    if both_substantive and ratio >= GUAN_SHA_HUNZA_MIN_RATIO:
         return {
             'type': 'guan_sha_hunza',
             'name': '官殺混雜',
-            'description': '正官與偏官（七殺）同見天干，感情生活複雜，婚姻有波折',
+            'description': '正官與偏官（七殺）並重同見，感情生活複雜，婚姻有波折',
+            'weights': weights_payload,
             'domains': ['love'],
             'significance': 'high',
         }
 
-    return None
+    # Not true 混雜 — relabel based on which side dominates.
+    if zg_w >= qs_w:
+        return {
+            'type': 'lu_guan_cang_sha',
+            'name': '露官藏殺只論官',
+            'description': '正官強於偏官，以正官論格；偏官雖在但力微，感情主軸偏穩定',
+            'weights': weights_payload,
+            'domains': ['love'],
+            'significance': 'medium',
+        }
+
+    return {
+        'type': 'lu_sha_cang_guan',
+        'name': '露殺藏官只論殺',
+        'description': '偏官強於正官，以七殺論格；正官雖在但力微，感情偏剛烈、波折較大',
+        'weights': weights_payload,
+        'domains': ['love'],
+        'significance': 'medium',
+    }
 
 
 # ============================================================
@@ -806,11 +876,20 @@ def resolve_conflicts(findings: Dict) -> List[Dict]:
         })
 
     if guan_sha:
+        gs_type = guan_sha.get('type', 'guan_sha_hunza')
+        if gs_type == 'guan_sha_hunza':
+            effect = 'Love domain: overrides positive 正官/偏官 position interpretations'
+        elif gs_type == 'lu_guan_cang_sha':
+            effect = 'Love domain: 偏官 interpretations softened; 正官 primary'
+        elif gs_type == 'lu_sha_cang_guan':
+            effect = 'Love domain: 正官 interpretations softened; 七殺 primary'
+        else:
+            effect = 'Love domain: 官殺 balance adjusts tenGod interpretations'
         resolutions.append({
             'priority': 5,
-            'type': 'guan_sha_hunza',
+            'type': gs_type,
             'description': guan_sha['description'],
-            'effect': 'Love domain: overrides positive 正官/偏官 position interpretations',
+            'effect': effect,
             'domains': ['love'],
         })
 

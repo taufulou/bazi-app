@@ -35,6 +35,7 @@ from .constants import (
     SEASON_STRENGTH,
     STEM_ELEMENT,
     STEM_YINYANG,
+    TEN_GOD_CATEGORIES,
     TEN_GODS_DIFF_POLARITY,
     TEN_GODS_LIST,
     TEN_GODS_SAME_POLARITY,
@@ -368,3 +369,402 @@ def calculate_weighted_ten_gods(
         }
 
     return result
+
+
+# ============================================================
+# 透干/藏干 Weighted Pressure — Imbalance-detection weights
+# ============================================================
+#
+# Distinct from calculate_weighted_ten_gods() above, which produces display
+# percentages for 事業詳批 (using HIDDEN_STEM_WEIGHTS 60/30/10 + seasonal
+# multiplier). The weights below measure *classical pressure* of a specific
+# stem on the Day Master for 病藥 / 格局 analysis — used by:
+#
+#   - check_guan_sha_hunza (Fix 1b, interpretation_rules.py): threshold for
+#     true 混雜 vs 露X藏Y relabel.
+#   - _detect_dominant_imbalance (Fix 1a, future): category-level pressure
+#     ranking to pick 用神.
+#
+# Classical basis:
+#   《子平真詮·論用神》: 「透出干頭則顯其用」— transparent stems carry the
+#     primary 用 (function) of a ten god.
+#   《滴天髓·天全一氣》: 「虛花不久長」— a transparent stem without root
+#     cannot sustain its claimed strength.
+#   《淵海子平》露殺藏官口訣: transparent side dominates 格局 reading.
+#
+# Weight-equivalence note (load-bearing, do not adjust without classical
+# review — applies once Fix 1a's pillar-role weights are layered):
+#
+#   Month 本氣 藏干 effective weight (Fix 1a):
+#     IMBALANCE_WEIGHT_HIDDEN_BENQI    (2.0)
+#     × PILLAR_ROLE_WEIGHT['month']    (1.0)   [future, Fix 1a]
+#     × MONTH_BENQI_COMMANDER_MULTIPLIER (1.5) [future, Fix 1a]
+#     = 3.0 (equals IMBALANCE_WEIGHT_TRANSPARENT_ROOTED)
+#
+#   This equivalence is INTENTIONAL per 《子平真詮·論用神》「月令為提綱」—
+#   the 月令 本氣 藏干 carries 司令 weight equal to a transparent stem with
+#   root. Retuning any of these constants without understanding this
+#   equivalence will break classical alignment.
+
+IMBALANCE_WEIGHT_TRANSPARENT_ROOTED = 3.0   # 透干 with 本氣 or 中氣 root
+IMBALANCE_WEIGHT_TRANSPARENT_WEAK_ROOT = 2.5  # 透干 with only 餘氣 root
+IMBALANCE_WEIGHT_TRANSPARENT_ROOTLESS = 1.5   # 透干 with no root (虛浮)
+IMBALANCE_WEIGHT_HIDDEN_BENQI = 2.0
+IMBALANCE_WEIGHT_HIDDEN_ZHONGQI = 1.0
+IMBALANCE_WEIGHT_HIDDEN_YUQI = 0.5
+
+
+def compute_stem_pressure_weight(target_stem: str, pillars: Dict) -> Dict:
+    """
+    Compute the weighted presence of a specific stem symbol across the chart.
+
+    A stem's "pressure" is the sum of:
+      - transparent_count × per-transparent weight (depends on root class)
+      - sum over hidden occurrences at each position (本氣/中氣/餘氣)
+
+    Transparent weight tiers by root class:
+      - has_strong_root (any 本氣 or 中氣 anywhere): 3.0 per 透干
+      - has_weak_root (only 餘氣 anywhere):          2.5 per 透干
+      - rootless:                                     1.5 per 透干
+
+    Hidden weight by position:
+      - 本氣 (HIDDEN_STEMS[branch][0]): 2.0
+      - 中氣 (HIDDEN_STEMS[branch][1]): 1.0
+      - 餘氣 (HIDDEN_STEMS[branch][2]): 0.5
+
+    Args:
+        target_stem: The heavenly stem to measure (e.g., '辛')
+        pillars: The four pillars dict
+
+    Returns:
+        {
+            'total': float,               # full weighted pressure
+            'transparent_count': int,     # number of 天干 matches
+            'hidden_positions': List[str],# e.g., ['zhongqi','yuqi']
+            'has_strong_root': bool,      # 本氣 OR 中氣 present
+            'has_weak_root': bool,        # only 餘氣 (and no strong root)
+        }
+    """
+    transparent_count = 0
+    hidden_positions: List[str] = []
+
+    for pname in ('year', 'month', 'day', 'hour'):
+        pillar = pillars[pname]
+        if pillar.get('stem') == target_stem:
+            transparent_count += 1
+        hidden = HIDDEN_STEMS.get(pillar.get('branch', ''), [])
+        for idx, hs in enumerate(hidden):
+            if hs == target_stem:
+                if idx == 0:
+                    hidden_positions.append('benqi')
+                elif idx == 1:
+                    hidden_positions.append('zhongqi')
+                else:
+                    hidden_positions.append('yuqi')
+
+    has_strong_root = ('benqi' in hidden_positions) or ('zhongqi' in hidden_positions)
+    has_weak_root = ('yuqi' in hidden_positions) and not has_strong_root
+
+    if transparent_count > 0:
+        if has_strong_root:
+            per_transparent = IMBALANCE_WEIGHT_TRANSPARENT_ROOTED
+        elif has_weak_root:
+            per_transparent = IMBALANCE_WEIGHT_TRANSPARENT_WEAK_ROOT
+        else:
+            per_transparent = IMBALANCE_WEIGHT_TRANSPARENT_ROOTLESS
+    else:
+        per_transparent = 0.0
+
+    hidden_weight = 0.0
+    for pos in hidden_positions:
+        if pos == 'benqi':
+            hidden_weight += IMBALANCE_WEIGHT_HIDDEN_BENQI
+        elif pos == 'zhongqi':
+            hidden_weight += IMBALANCE_WEIGHT_HIDDEN_ZHONGQI
+        else:
+            hidden_weight += IMBALANCE_WEIGHT_HIDDEN_YUQI
+
+    total = transparent_count * per_transparent + hidden_weight
+
+    return {
+        'total': round(total, 2),
+        'transparent_count': transparent_count,
+        'hidden_positions': hidden_positions,
+        'has_strong_root': has_strong_root,
+        'has_weak_root': has_weak_root,
+    }
+
+
+def get_overcoming_stems_for_dm(day_master_stem: str) -> Dict[str, str]:
+    """
+    Return the 正官 and 偏官(七殺) stem symbols for a given Day Master.
+
+    正官 = overcoming element, different polarity.
+    偏官/七殺 = overcoming element, same polarity.
+
+    Returns:
+        {'正官': <stem>, '偏官': <stem>}
+    """
+    dm_element = STEM_ELEMENT[day_master_stem]
+    overcoming = ELEMENT_OVERCOME_BY[dm_element]
+    dm_polarity = STEM_YINYANG[day_master_stem]
+
+    result: Dict[str, str] = {}
+    for stem in ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']:
+        if STEM_ELEMENT[stem] == overcoming:
+            if STEM_YINYANG[stem] == dm_polarity:
+                result['偏官'] = stem
+            else:
+                result['正官'] = stem
+    return result
+
+
+# ============================================================
+# Fix 1a: Weighted category pressure (pillar-role + 月令司令)
+# ============================================================
+#
+# Extends compute_stem_pressure_weight with pillar-role weighting and the
+# month-benqi 司令 multiplier, aggregated into the five ten god categories
+# used by _detect_dominant_imbalance.
+#
+# Pillar-role weight (classical: 月令為提綱):
+#   月=1.0 > 日=0.9 > 時=0.7 > 年=0.6
+#
+# 月令本氣 司令 multiplier: hidden_benqi located in month branch is
+# further multiplied ×1.5. Combined with hidden_benqi=2.0 and
+# PILLAR_ROLE_WEIGHT['month']=1.0, this gives effective weight 3.0,
+# intentionally equal to transparent_rooted. Retuning any of these three
+# without understanding the equivalence will break classical alignment —
+# see Weight-equivalence note at the top of this section (~line 500).
+
+PILLAR_ROLE_WEIGHT: Dict[str, float] = {
+    'month': 1.0, 'day': 0.9, 'hour': 0.7, 'year': 0.6,
+}
+MONTH_BENQI_COMMANDER_MULTIPLIER = 1.5
+
+# Dominance thresholds (Fix 1a — preserves 'general' fallback when signal weak)
+WEIGHTED_DOMINANCE_MIN_MARGIN = 0.20   # (top-second)/top ≥ 20%
+WEIGHTED_DOMINANCE_MIN_FLOOR = 3.0     # top score ≥ 3.0 absolute
+
+# Deterministic tiebreak priority (used when counts are close)
+WEIGHTED_DOMINANCE_TIEBREAK_ORDER: List[str] = [
+    '官殺', '財星', '食傷', '印星', '比劫',
+]
+
+
+def compute_weighted_category_scores(
+    pillars: Dict,
+    day_master_stem: str,
+) -> Dict:
+    """
+    Compute weighted pressure per ten god category (Fix 1a).
+
+    For each stem occurrence in the chart:
+      - Derive its ten god via derive_ten_god(DM, stem).
+      - Map to its category via TEN_GOD_CATEGORIES.
+      - Apply:
+          transparent: position weight (rooted/weak/rootless) × pillar role.
+          hidden:      position weight (本/中/餘) × pillar role
+                       × MONTH_BENQI_COMMANDER_MULTIPLIER if month-本氣.
+
+    Returns:
+        {
+            'categories':       {'比劫': 4.5, '食傷': 3.0, ...},
+            'category_transparent_count': {'官殺': 1, ...},
+            'category_month_benqi':       {'官殺': False, ...},
+                                          # True if any stem in category is
+                                          # the month 本氣 藏干.
+        }
+
+    Note: root class (strong/weak/rootless) is determined per stem *across
+    all branches*, matching compute_stem_pressure_weight.
+    """
+    from .constants import BRANCH_ELEMENT  # local import to avoid cycle noise
+    _ = BRANCH_ELEMENT  # suppress unused import warning (kept for future)
+
+    # Step 1: determine root class of each distinct stem present
+    root_class_cache: Dict[str, str] = {}
+    for stem in ['甲', '乙', '丙', '丁', '戊', '己', '庚', '辛', '壬', '癸']:
+        hidden_positions: List[str] = []
+        for pname in ('year', 'month', 'day', 'hour'):
+            branch = pillars.get(pname, {}).get('branch', '')
+            for idx, hs in enumerate(HIDDEN_STEMS.get(branch, [])):
+                if hs == stem:
+                    if idx == 0:
+                        hidden_positions.append('benqi')
+                    elif idx == 1:
+                        hidden_positions.append('zhongqi')
+                    else:
+                        hidden_positions.append('yuqi')
+        has_strong = ('benqi' in hidden_positions) or ('zhongqi' in hidden_positions)
+        has_weak = ('yuqi' in hidden_positions) and not has_strong
+        if has_strong:
+            root_class_cache[stem] = 'strong'
+        elif has_weak:
+            root_class_cache[stem] = 'weak'
+        else:
+            root_class_cache[stem] = 'none'
+
+    # Step 2: iterate occurrences, accumulate per category
+    categories: Dict[str, float] = {k: 0.0 for k in TEN_GOD_CATEGORIES}
+    cat_transparent_count: Dict[str, int] = {k: 0 for k in TEN_GOD_CATEGORIES}
+    cat_month_benqi: Dict[str, bool] = {k: False for k in TEN_GOD_CATEGORIES}
+
+    month_branch = pillars.get('month', {}).get('branch', '')
+    month_benqi_stem = HIDDEN_STEMS.get(month_branch, [''])[0] if month_branch else ''
+
+    def _category_of(stem: str) -> str:
+        """Return category key for a stem relative to DM; empty string for DM itself."""
+        if stem == day_master_stem:
+            # DM is 比劫 relative to itself (same element same polarity = 比肩)
+            return '比劫'
+        tg = derive_ten_god(day_master_stem, stem)
+        for cat_name, gods in TEN_GOD_CATEGORIES.items():
+            if tg in gods:
+                return cat_name
+        return ''
+
+    for pname in ('year', 'month', 'day', 'hour'):
+        pillar_weight = PILLAR_ROLE_WEIGHT.get(pname, 0.8)
+        pillar = pillars.get(pname, {})
+        # Skip DM pillar's stem (day stem is DM itself, but 日 has pillar_weight 0.9)
+        # NOTE: DM itself contributes to 比劫 category only via its hidden-stem
+        # occurrences elsewhere; we exclude the day stem from imbalance count
+        # because DM's strength is measured independently.
+        stem = pillar.get('stem', '')
+        if stem and pname != 'day':
+            cat = _category_of(stem)
+            if cat:
+                rc = root_class_cache.get(stem, 'none')
+                if rc == 'strong':
+                    per_w = IMBALANCE_WEIGHT_TRANSPARENT_ROOTED
+                elif rc == 'weak':
+                    per_w = IMBALANCE_WEIGHT_TRANSPARENT_WEAK_ROOT
+                else:
+                    per_w = IMBALANCE_WEIGHT_TRANSPARENT_ROOTLESS
+                categories[cat] += per_w * pillar_weight
+                cat_transparent_count[cat] += 1
+
+        # Hidden stems in this pillar's branch
+        branch = pillar.get('branch', '')
+        hidden = HIDDEN_STEMS.get(branch, [])
+        for idx, hs in enumerate(hidden):
+            if not hs:
+                continue
+            cat = _category_of(hs)
+            if not cat:
+                continue
+            if idx == 0:
+                base = IMBALANCE_WEIGHT_HIDDEN_BENQI
+            elif idx == 1:
+                base = IMBALANCE_WEIGHT_HIDDEN_ZHONGQI
+            else:
+                base = IMBALANCE_WEIGHT_HIDDEN_YUQI
+            w = base * pillar_weight
+            # 月令司令 multiplier for month branch 本氣 only
+            if pname == 'month' and idx == 0:
+                w *= MONTH_BENQI_COMMANDER_MULTIPLIER
+                cat_month_benqi[cat] = True
+            categories[cat] += w
+
+    return {
+        'categories': {k: round(v, 2) for k, v in categories.items()},
+        'category_transparent_count': cat_transparent_count,
+        'category_month_benqi': cat_month_benqi,
+    }
+
+
+def detect_dominant_imbalance_weighted(
+    pillars: Dict,
+    day_master_stem: str,
+    strength: str,
+    is_cong_ge: bool = False,
+) -> str:
+    """
+    Classical 病藥 dominance detection using weighted pillar + stem-position
+    pressure (Fix 1a).
+
+    Preserves the 'general' fallback: requires top score to exceed second
+    by ≥20% margin AND top ≥ 3.0 absolute floor. Below that, signal is
+    considered weak and default assignment is used.
+
+    從格 guard: returns 'cong_overridden' if is_cong_ge is True.
+
+    Tiebreak priority (applied when top-second margin < 20%):
+      1. Category with month-branch 本氣 contribution (司令)
+      2. Category with more transparent stem count
+      3. Fixed enum order: ['官殺','財星','食傷','印星','比劫']
+
+    Returns one of:
+      '食傷旺' | '財旺' | '官殺旺' | '印旺' | '比劫旺' | 'general'
+      | 'cong_overridden'
+    """
+    if is_cong_ge:
+        return 'cong_overridden'
+
+    scores = compute_weighted_category_scores(pillars, day_master_stem)
+    cats = scores['categories']
+
+    if strength in ('strong', 'very_strong'):
+        relevant = {k: v for k, v in cats.items() if k in ('比劫', '印星', '官殺')}
+    else:
+        relevant = {k: v for k, v in cats.items() if k in ('食傷', '財星', '官殺')}
+
+    if not relevant:
+        return 'general'
+
+    # Sort by score descending
+    sorted_cats = sorted(relevant.items(), key=lambda x: -x[1])
+    top_cat, top_score = sorted_cats[0]
+    second_score = sorted_cats[1][1] if len(sorted_cats) > 1 else 0.0
+
+    if top_score < WEIGHTED_DOMINANCE_MIN_FLOOR:
+        return 'general'
+
+    # Margin check — if top doesn't clearly lead, apply tiebreak.
+    #
+    # Tiebreak priority (documented design decision):
+    #   1. Transparent stem count — 《子平真詮·論用神》「透出干頭則顯其用」.
+    #      Transparent stems DIRECTLY manifest their 用; a category with
+    #      a 透干 outranks one carried only by 藏干, even if the latter
+    #      is 月令司令. Critical: avoids double-counting 月令 weight since
+    #      MONTH_BENQI_COMMANDER_MULTIPLIER already boosts month-本氣
+    #      藏干 scores by ×1.5 (into the raw score above).
+    #   2. Month-本氣 carrier — used only when transparent counts tie.
+    #   3. Fixed enum order ['官殺','財星','食傷','印星','比劫'] — stable
+    #      final tiebreak (never alphabetical; see load-bearing docstring).
+    margin = (top_score - second_score) / top_score if top_score > 0 else 0.0
+    if margin < WEIGHTED_DOMINANCE_MIN_MARGIN:
+        tied_cats = [
+            c for c, s in sorted_cats
+            if abs(s - top_score) / max(top_score, 1e-9) < WEIGHTED_DOMINANCE_MIN_MARGIN
+        ]
+        # Priority 1: more transparent stems
+        if len(tied_cats) > 1:
+            max_transparent = max(
+                scores['category_transparent_count'].get(c, 0) for c in tied_cats
+            )
+            if max_transparent > 0:
+                tied_cats = [
+                    c for c in tied_cats
+                    if scores['category_transparent_count'].get(c, 0) == max_transparent
+                ]
+        # Priority 2: month-本氣 carrier (only narrows if still tied)
+        if len(tied_cats) > 1:
+            month_benqi_tied = [
+                c for c in tied_cats
+                if scores['category_month_benqi'].get(c, False)
+            ]
+            if month_benqi_tied:
+                tied_cats = month_benqi_tied
+        # Priority 3: fixed enum order (deterministic final tiebreak)
+        for cat in WEIGHTED_DOMINANCE_TIEBREAK_ORDER:
+            if cat in tied_cats:
+                top_cat = cat
+                break
+
+    label_map = {
+        '食傷': '食傷旺', '財星': '財旺', '官殺': '官殺旺',
+        '印星': '印旺', '比劫': '比劫旺',
+    }
+    return label_map.get(top_cat, 'general')

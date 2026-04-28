@@ -38,7 +38,15 @@ from .five_elements import (
     determine_favorable_gods,
     get_seasonal_state_labels,
 )
-from .shen_sha import apply_shen_sha_to_pillars, calculate_kong_wang, detect_special_day_pillars, get_all_shen_sha
+from .shen_sha import (
+    apply_shen_sha_to_pillars,
+    calculate_kong_wang,
+    detect_special_day_pillars,
+    get_all_shen_sha,
+    get_taohua_directions,
+    get_wenchang_direction,
+    get_zodiac_benefactors,
+)
 from .life_stages import apply_life_stages_to_pillars
 from .luck_periods import (
     calculate_annual_stars,
@@ -58,6 +66,7 @@ from .compatibility_enhanced import calculate_enhanced_compatibility
 from .compatibility_preanalysis import generate_compatibility_pre_analysis
 from .constants import BRANCH_ELEMENT, PATTERN_TYPES, STEM_ELEMENT
 from .interpretation_rules import calculate_strength_score_v2, generate_pre_analysis
+from .tiaohou import compute_tiaohou_advisory
 from .career_enhanced import generate_career_pre_analysis
 from .lifetime_enhanced import generate_lifetime_enhanced_insights
 
@@ -136,11 +145,16 @@ def calculate_bazi(
     ten_god_distribution = get_ten_god_distribution(pillars, day_master_stem)
 
     # Step 7.5: Determine favorable gods (uses V2 classification + ten god distribution)
-    # Context-dependent 病藥取用法: assignment depends on what's causing the imbalance
+    # Context-dependent 病藥取用法: assignment depends on what's causing the imbalance.
+    # Fix 1a: passes `pillars` to enable weighted mode when the flag is on.
+    # 從格 detection happens later in generate_pre_analysis; we pass is_cong_ge=False
+    # here and the downstream pre-analysis overrides favorable_gods if needed.
     favorable_gods = determine_favorable_gods(
         day_master_stem,
         strength_v2_result['classification'],
         ten_god_distribution,
+        pillars=pillars,
+        is_cong_ge=False,
     )
 
     # Step 8: Determine pattern (格局)
@@ -212,6 +226,15 @@ def calculate_bazi(
         special_day_pillars=special_day_pillars,
         five_elements_balance_seasonal=five_elements_balance_seasonal,
         strength_v2=strength_v2_result,
+    )
+
+    # Phase 12 — Fix 2: 調候 advisory (structured only; AI layer renders narrative).
+    # Skipped for 從格 charts (順勢 dominates, 調候 不適用).
+    tiaohou_advisory = compute_tiaohou_advisory(
+        pillars=pillars,
+        dm_stem=day_master_stem,
+        month_branch=pillars['month']['branch'],
+        is_cong_ge=bool(pre_analysis.get('congGe')),
     )
 
     # Step 16: Lifetime Enhanced Insights (V2 — only for lifetime reading type)
@@ -416,6 +439,17 @@ def calculate_bazi(
         # Phase 11D: Timing analysis + special day pillars
         'timingInsights': timing_insights,
         'specialDayPillars': special_day_pillars,
+        # Phase 12 — Fix 3: 桃花方位 (year-branch primary, day-branch secondary)
+        'taohuaDirections': get_taohua_directions(
+            pillars['year']['branch'],
+            pillars['day']['branch'],
+        ),
+        # Phase 12 — Fix 4: 文昌貴人方位 (per day stem)
+        'wenchangDirection': get_wenchang_direction(day_master_stem),
+        # Phase 12 — Fix 4: 生肖貴人 (folk tradition, 六合 + 三合 from year branch)
+        'zodiacBenefactors': get_zodiac_benefactors(pillars['year']['branch']),
+        # Phase 12 — Fix 2: 調候 advisory (None for 從格 charts)
+        'tiaohou': tiaohou_advisory,
     }
 
     # Conditionally include lifetime enhanced insights

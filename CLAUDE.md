@@ -130,7 +130,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 - Next: Phase 12 (Bazi accuracy: 三合/三會 scoring, 從格+三合, 生化鏈) — see `docs/phase-12-specs.md`
 
 ## Test suite sizes
-- Bazi Engine: 1771 (1770 pass, 1 skip) | NestJS API: 165 | Frontend: 143 | ZWDS: 289
+- Bazi Engine: 1914 (1912 pass, 1 skip, 1 pre-existing fail unrelated) | NestJS API: 692 | Frontend: 143 | ZWDS: 289
 
 ## Reading Types
 18 total: 6 Bazi + 10 ZWDS + 2 Special. Credits: 1-3 per reading. See `docs/monetization.md` for pricing.
@@ -437,6 +437,250 @@ Items where **gap remains** (algorithmic, not conceptual error):
 - Romance scoring: `packages/bazi-engine/app/lifetime_enhanced.py` → `_compute_romance_candidates()`, `ROMANCE_SIGNAL_SCORES`
 - Stem combination lookup: `packages/bazi-engine/app/stem_combinations.py` → `STEM_COMBINATION_LOOKUP`
 - Ten god categories: `packages/bazi-engine/app/constants.py` → `TEN_GOD_CATEGORIES`
+
+---
+
+## 八字流年運勢 Calculation — Phase 12 / 12b / 12c Fixes
+
+This section documents the engine's flow-year + monthly scoring pipeline,
+calibrated across 5 rounds of Seer-comparison + classical research. All
+month-level scoring lives in `packages/bazi-engine/app/annual_enhanced.py::
+_compute_single_month`. Plans saved at:
+
+- `.claude/plans/bazi-accuracy-laopo-fixes.md` (Phase 12)
+- `.claude/plans/bazi-phase-12b-monthly-refinements.md` (Phase 12b)
+- `.claude/plans/bazi-phase-12c-six-harms-and-tomb-release.md` (Phase 12c)
+
+### Output shape (per month)
+
+Each `monthlyForecasts[i]` entry carries:
+
+- `auspiciousness` — final 7-level label `{大吉, 吉, 吉中有凶, 平, 凶中有吉, 凶, 大凶}`
+- `baseAuspiciousness` — post-C-override + post-A-halving (pre-F/B/E/D)
+- `stemBase` / `branchBase` — element-role labels per stem/branch independently
+- `ruleTrace: List[str]` — execution log, capped at 10 entries
+- Optional structured fields (only present when triggered):
+  - `officerSealActivation` (Fix C)
+  - `fuYinInteractions` (Fix B)
+  - `boundInteractions` / `trueTransformation` (Fix D)
+  - `liuHaiInteractions` (Fix E)
+  - `chongKuRelease` (Fix F)
+
+TypeScript counterparts in `packages/shared/src/types.ts::Phase12bMonthlyExtras`
+(extended in-place by Phase 12c — never renamed).
+
+### Execution order (locked, snapshot-tested)
+
+**C → A → F → B → E → D** — pinned by composition test
+`tests/test_phase_12c_monthly.py::TestRuleTraceSnapshot`. Any reordering must
+update the snapshot explicitly.
+
+| Step | Rule | Type | Phase |
+|------|------|------|-------|
+| C | 殺印/官印相生 transient | upgrade override | 12b |
+| A | 蓋頭/截腳 halving | shape modifier (skipped when C fired) | 12b |
+| F | 沖庫釋放方向性 | structural release (downgrade only v1) | 12c |
+| B | 伏吟 multi-pillar role-conditional | shape modifier | 12b |
+| E | 六害 role-aware penalty + 子卯刑 | shape modifier | 12c |
+| D | 六合 strict 化氣 (else bound_only) | shape modifier | 12b |
+
+### LOAD-BEARING DOCTRINE (do not relax without classical review)
+
+> **Stem rescue (用/喜 stem 透干) can mitigate SHAPE MODIFIERS (蓋頭, 伏吟)
+> but CANNOT cancel STRUCTURAL RELEASES (沖庫釋放, 三刑成立).**
+>
+> Source: 《滴天髓·論墓庫》「庫沖則開, 開則藏干釋放, 不論天干能否化」.
+
+This is enforced via Fix F always carrying `stemRescueApplied: false` and
+asserted in `test_phase_12c_monthly.py::test_laopo_renchen_net_minus_066_triggers_downgrade`.
+
+### Phase 12 — chart-level fixes (cascade into Annual via 用神/etc.)
+
+| Fix | Rule | Source | Behind flag? |
+|-----|------|--------|--------------|
+| 1a | 透干/藏干 weighted dominance for 用神 | 子平真詮·論用神「透出干頭則顯其用」 | `BAZI_USE_WEIGHTED_IMBALANCE=1` |
+| 1b | 官殺混雜 threshold (≥2.0 weight + ratio ≥0.5) | 淵海子平 露殺藏官口訣 | unflagged |
+| 2 | 調候 advisory (寒暖燥濕需求) | 窮通寶鑑 (12 DM × 12 month table) | unflagged, output structured-only |
+| 3 | 桃花方位 (8-direction) | 三合組桃花支 + 24山方位 | unflagged |
+| 4 | 生肖貴人 + 文昌方位 (provenance flag for folk content) | 三合/六合 partner + 文昌口訣 | unflagged |
+
+Critical: Fix 1a's transparency weighting (透干=3.0, 本氣藏干=2.0×司令1.5=3.0,
+中氣=1.0, 餘氣=0.5, 透干 rootless=1.5) is what flips Laopo's 用神 from 木→水.
+
+### Phase 12b — monthly scoring refinements
+
+**Fix A — 蓋頭/截腳 halving** via flow stem 十二長生:
+
+```python
+def _fix_a_gaitou_halving_applies(stem, branch):
+    return get_life_stage(stem, branch) in {'絕', '死', '墓'}
+```
+
+When stem 忌/仇 sits on branch 喜/用 AND stem is 絕/死/墓 on the flow branch,
+upgrade base by 1 step. Symmetric for 截腳 path. Source: 任鐵樵《滴天髓闡微·
+蓋頭截腳》「金絕寅卯，雖有十分之凶，而減其半」.
+
+**Fix B — 伏吟 role-conditional, multi-pillar:** When flow branch == any
+natal branch:
+- Role 喜/用 + pillar weight ≥1.0 (day/hour/month) → upgrade 1 step
+- Role 忌/仇 + same → downgrade 1 step
+- Year pillar weight 0.5 → narrative only
+- Concurrent 沖 → cap to narrative-only (動蕩 doctrine)
+
+Source: modern 子平 consensus 「用神伏吟應吉，忌神伏吟應凶」.
+
+**Fix C — 殺印/官印相生 transient activation:** All conditions must hold:
+1. DM strength ∈ {weak, very_weak} AND not 從格
+2. month_ten_god ∈ {七殺, 正官}
+3. Month branch 本氣 OR 中氣 = 正印 / 偏印
+4. Structural support: 印 self-roots in 本氣 OR transparent in natal stem
+5. Not blocked by adjacent 食傷 (month/day/hour stems) or by same-branch
+   internal 財壞印 (中氣印 + 本氣財)
+
+When fired: override base to 大吉 (本氣印) or 吉 (中氣印). Skips Fix A.
+Source: 子平真詮·論用神成敗救應「印輕逢煞，或官印雙全者」.
+
+**Fix D — 六合 strict 化氣:** 真化 path requires (a) adjacency, (b) weaker
+branch rootless elsewhere, (c) 化神 transparent in flow-year/month/natal stem,
+(d) `SEASON_MULTIPLIER[化神][month_branch] >= 1.5` (strict 旺), (e) no 沖/刑.
+Default `bound_only` (narrative). Real 化 ungated by `PHASE_12B_FIX_D_TRUE_TRANSFORMATION_ENABLED`.
+
+Source: 滴天髓·論化象 4 化氣 conditions; mainstream 「地支六合只是加強所合
+之物的力量, 仍保持各自原來的特性」.
+
+### Phase 12c — additional monthly refinements
+
+**Fix E — 六害 role-aware + 子卯刑 piggyback:**
+
+6 害 pairs (verbatim from `branch_relationships.SIX_HARMS`):
+```
+子-未 (妒嫉之害), 丑-午 (官鬼之害), 寅-巳 (無恩之害),
+卯-辰 (凌長之害), 申-亥 (爭進之害), 酉-戌 (嫉妬之害)
+```
+Plus 1 piggybacked 六刑: `子-卯` (無禮之刑, kind=`liuxing_ziwei`).
+
+When 害 hits 喜/用 branch:
+- effective_score = `wuEn_modifier × dampening`
+  - `wuEn_modifier = 1.2` for 寅巳 (無恩之害); else `1.0`
+  - `dampening = 0.5` if 六合 binds the harmed branch; else `1.0`
+- If Σ effective_score (across pillars) ≥ **0.6 threshold** → -1 step
+- **Cap doctrine**: 害 is 暗箭 (silent friction), not cumulative — max -1
+  step per month total
+
+Suppression: 沖 on same flow branch suppresses 害. **三刑 suppression NOT yet
+applied** (no 三刑 penalty exists in 12c → keeping suppression would silently
+drop the only signal; gets re-added when Phase 12d ships 三刑 penalty).
+
+Source: 三命通會·論六害「以吉害凶, 未必能去凶；以凶害吉, 亦能損吉」;
+163.com modern doctrine「命中喜用之神不能害；忌神反而喜害」.
+
+**Fix F — 沖庫釋放方向性 (downgrade-only v1):**
+
+Activation requires: not 從格 AND `flow_month_branch ∈ {辰戌丑未}` AND a natal
+pillar branch ∈ {辰戌丑未} forming 沖 (辰戌沖 / 丑未沖).
+
+Net role score:
+```
+net = 0.6 × role(本氣) + 0.3 × role(中氣) + 0.1 × role(餘氣)
+```
+Role values: `{用神=+1.0, 喜神=+0.6, 閒神=0, 仇神=-0.6, 忌神=-1.0}`.
+
+v1 ladder (downgrade-only):
+- `net ≤ -0.5` → downgrade 1 step, `stemRescueApplied=False` (per doctrine)
+- `net ≥ +0.5` → **NOT IMPLEMENTED** (Phase 12d scope)
+- else → narrative only
+
+Source: 子平真詮·論墓庫刑沖「至於財官為水, 沖則反為累」.
+
+### Per-rule env flags (rollback path)
+
+Default ON in dev/staging; **prod default OFF until measured-flip gate**:
+
+```bash
+BAZI_USE_WEIGHTED_IMBALANCE=1      # Phase 12 Fix 1a (see Note below — code default is '0')
+PHASE_12B_FIX_A=1
+PHASE_12B_FIX_B=1
+PHASE_12B_FIX_C_ENABLED=1
+PHASE_12B_FIX_D_TRUE_TRANSFORMATION_ENABLED=1
+PHASE_12C_FIX_E_ENABLED=1
+PHASE_12C_FIX_F_ENABLED=1
+```
+
+CI matrix runs at minimum: all-on, Phase 12 off, Fix C+F isolated. Per-rule
+flags can disable any single rule without revert PR.
+
+> **Note on `BAZI_USE_WEIGHTED_IMBALANCE` default**: code default is `'0'` (OFF)
+> in `packages/bazi-engine/app/five_elements.py`, NOT `'1'`. The "Default ON in
+> dev/staging" line above describes the *intent*; current state is OFF pending
+> validation harness completion. Flag-flip blocked on:
+> 1. Completion of the n=50 expert-labeled chart CSV at
+>    `packages/bazi-engine/tests/validation/expert_labeled_charts.csv`
+> 2. Bazi-master sign-off on 3 known compatibility regressions at
+>    `tests/test_compatibility_gold_standard.py::TestScoreRanking`
+> 3. Operator runs `tests/validation/run_imbalance_validation.py` and confirms
+>    ≥95% agreement
+>
+> Tracker: file separate "Phase 12 Fix 1a default ON" PR after gates clear.
+> Until then, the documented Laopo 用神 木→水 outcome only manifests when the
+> env var is explicitly set to `'1'`.
+
+### Anti-hallucination prompt rules
+
+`apps/api/src/ai/prompts.ts::ANNUAL_V2_PROMPTS.userTemplateCall2` includes
+explicit clauses:
+- 若某月行內未列出「六害」 → 禁止提及 害/穿/沖害
+- 若某月未列出「沖庫釋放」 → 禁止提及 沖開庫藏/藏干釋放
+- 禁止虛構未提供的 pair/pillar/role/released_stems
+- 若有「⚠️觸發」標記 → 月運敘述應點出該因素
+
+The deterministic injector at `ai.service.ts::buildAnnualV2Prompts` only emits
+六害/沖庫 lines when structured fields are non-empty, enforcing the contract.
+
+### Out of scope (Phase 12d candidates)
+
+- 三刑 role-aware penalty (寅巳申, 丑戌未) — currently detected but no label penalty
+- 六破 role-aware penalty
+- Fix F upgrade path (when net ≥ +0.5)
+- Pillar weighting for Fix E (deferred until empirical data)
+- Numeric-score scoring (replacing label-step) — bigger refactor
+
+### Files reference
+
+- Engine entry: `packages/bazi-engine/app/annual_enhanced.py` →
+  - `_compute_single_month` (orchestration)
+  - `_fix_a_gaitou_halving_applies`, `_fix_c_detect_officer_seal_transient`,
+    `_fix_b_fuyin_role_amplification`, `_fix_d_check_liu_he`,
+    `_fix_e_detect_six_harms_penalty`, `_fix_f_chong_ku_release`
+  - `PHASE_12B_RULES_ENABLED`, `PHASE_12C_RULES_ENABLED`
+  - `_LIU_HAI_DOWNGRADE_THRESHOLD`, `_TOMB_RELEASE_DOWNGRADE_THRESHOLD`,
+    `_LIU_HAI_WU_EN_PAIRS`, `_LIU_XING_ZIWEI_PAIR`, `_FOUR_TOMB_BRANCHES`,
+    `_TOMB_CHONG_PAIRS`, `_ROLE_TO_SCORE`
+- Tests:
+  - `tests/test_phase_12b_monthly.py` (24 tests)
+  - `tests/test_phase_12c_monthly.py` (24 tests)
+- TS types: `packages/shared/src/types.ts::Phase12bMonthlyExtras`,
+  `LiuHaiInteraction`, `ChongKuRelease`
+- AI: `apps/api/src/ai/prompts.ts::ANNUAL_V2_PROMPTS`,
+  `apps/api/src/ai/ai.service.ts::buildAnnualV2Prompts`
+
+### Calibration anchor — Laopo (丙寅/辛丑/甲戌/壬申 female, 2026 丙午年)
+
+Use this chart to verify any future engine change:
+
+| Month | Pre-12 | Post-12 | Post-12b | Post-12c | Mechanism |
+|-------|--------|---------|----------|----------|-----------|
+| 庚寅 | 吉中有凶 | unchanged | **吉** | unchanged | Fix A 庚絕寅 |
+| 辛卯 | 吉中有凶 | unchanged | **吉** | unchanged | Fix A 辛絕卯 |
+| 壬辰 | 凶中有吉 | unchanged | unchanged | **凶** | Fix F 戌釋放 net=-0.66 |
+| 癸巳 | 吉 | unchanged | 大吉 | **吉** | Fix E 寅巳 wuEn 害 喜神 |
+| 庚子 | 吉中有凶 | unchanged | **大吉** | unchanged | Fix C 殺印相生 (本氣印) |
+| 辛丑 | 大凶 | unchanged | unchanged | unchanged | 伏吟月柱 + 仇神 |
+| Other 6 months | unchanged across all phases (regression guard) |
+
+Plus chart-level: 用神 木→水, 喜神 水→木, 官殺混雜 → 露官藏殺只論官,
+桃花方位 emitted as 卯/正東 (Seer's 正南 wrong), 文昌 巳/東南, 生肖貴人
+亥豬+午馬+戌狗 with `provenance: 'folk_tradition'` flag, 調候 advisory
+`cold_wood_needs_fire`, status=`present_weak`.
 
 ---
 

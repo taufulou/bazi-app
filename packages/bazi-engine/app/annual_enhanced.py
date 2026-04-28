@@ -21,7 +21,8 @@ Contains 12 pre-analysis functions + master orchestrator:
 Key principle: 「流年為君，大運為臣，命局為民」
 """
 
-from typing import Any, Dict, List, Optional, Set, Tuple
+import os
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 
 from .branch_relationships import (
     CLASH_LOOKUP,
@@ -54,6 +55,62 @@ from .life_stages import get_life_stage
 from .lifetime_enhanced import WEALTH_TREASURY
 from .stem_combinations import STEM_CLASH_LOOKUP, STEM_COMBINATION_LOOKUP
 from .ten_gods import derive_ten_god
+
+# ============================================================
+# Phase 12b — Monthly Scoring Refinements (feature flags)
+# ============================================================
+#
+# Per-rule rollback flags, default ON. Individual rule can be disabled via
+# env var without a revert PR. See .claude/plans/bazi-phase-12b-monthly-refinements.md
+# for the approved plan + classical sources.
+#
+#   Fix A  — 蓋頭/截腳 rootedness-aware halving (flow stem 十二長生 on own branch)
+#   Fix B  — 喜用/忌仇 伏吟 role-conditional amplification (multi-pillar)
+#   Fix C  — 殺印相生 / 官印相生 transient activation
+#   Fix D  — 六合 strict 化氣 conditions (default bound_only)
+#
+# Flags for C and D's 真化 path ship with staged rollout (see plan).
+_ENV_TRUE = ('1', 'true', 'yes', 'on')
+
+def _env_enabled(var: str, default: bool = True) -> bool:
+    val = os.environ.get(var)
+    if val is None:
+        return default
+    return val.lower() in _ENV_TRUE
+
+PHASE_12B_RULES_ENABLED = {
+    'A': _env_enabled('PHASE_12B_FIX_A', True),
+    'B': _env_enabled('PHASE_12B_FIX_B', True),
+    'C': _env_enabled('PHASE_12B_FIX_C_ENABLED', True),
+    'D_TRANSFORMATION': _env_enabled('PHASE_12B_FIX_D_TRUE_TRANSFORMATION_ENABLED', True),
+}
+
+
+# ============================================================
+# Phase 12c — 六害 role-aware penalty + 沖庫釋放方向性 (feature flags)
+# ============================================================
+#
+# Per-rule rollback flags, default ON. See
+# .claude/plans/bazi-phase-12c-six-harms-and-tomb-release.md for the approved
+# plan + classical sources. Plan was reviewed in three rounds (v1: 17 issues
+# / v2: 5 conditions / v3: APPROVED).
+#
+#   Fix E — 六害 role-aware penalty (+ 子卯刑 piggyback on same machinery)
+#   Fix F — 沖庫釋放方向性 (downgrade-only v1; upgrade path is Phase 12d)
+#
+# DOCTRINE (load-bearing — DO NOT relax without classical review):
+#
+#   Stem rescue (用/喜 stem 透干) can mitigate SHAPE MODIFIERS (蓋頭, 伏吟)
+#   but CANNOT cancel STRUCTURAL RELEASES (沖庫釋放, 三刑成立).
+#
+#   Source: 《滴天髓·論墓庫》「庫沖則開, 開則藏干釋放, 不論天干能否化」 —
+#   the release is structural and time-bound, not subject to stem moderation.
+#
+PHASE_12C_RULES_ENABLED = {
+    'E': _env_enabled('PHASE_12C_FIX_E_ENABLED', True),
+    'F': _env_enabled('PHASE_12C_FIX_F_ENABLED', True),
+}
+
 
 # ============================================================
 # Lookup Tables (only those NOT in existing codebase)
@@ -1069,6 +1126,640 @@ def compute_indirect_effects(
 # ============================================================
 # Sub-Function 12: 十二月運程
 # ============================================================
+#
+# Phase 12b refinements — rule helpers. Execution order is C → A → B → D:
+#   C first: 殺印/官印相生 is a 成格 archetype; overrides the stem-branch base.
+#   A next:  蓋頭/截腳 halving is a 運氣 modifier; skipped when C fired.
+#   B after: 伏吟 is orthogonal (multi-pillar, role-conditional).
+#   D last:  六合 strict 化氣 (default bound_only narrative).
+#
+# Classical sources: see .claude/plans/bazi-phase-12b-monthly-refinements.md
+#   - 《滴天髓闡微》蓋頭截腳章  (Fix A)
+#   - 《三命通會》+ modern consensus on 伏吟  (Fix B)
+#   - 《子平真詮·論用神成敗救應》 殺印/官印相生  (Fix C)
+#   - 《滴天髓·論化象》 化氣 4 conditions  (Fix D)
+
+_GAITOU_HALVING_LIFE_STAGES = {'絕', '死', '墓'}
+
+
+def _fix_a_gaitou_halving_applies(stem: str, branch: str) -> bool:
+    """
+    Fix A gate — halving applies only when the flow stem sits at 絕/死/墓
+    on its own flow branch per 十二長生.
+
+    Classical: 「金絕寅卯」example in 任鐵樵《滴天髓闡微》蓋頭條 — halving
+    references the flow pillar's own 五行 state, NOT natal rootedness.
+
+    Symmetric for 蓋頭 (干剋支) and 截腳 (支剋干): both use flow pillar
+    十二長生 of the conflicting stem.
+    """
+    return get_life_stage(stem, branch) in _GAITOU_HALVING_LIFE_STAGES
+
+
+def _fix_c_detect_officer_seal_transient(
+    month_stem: str,
+    month_branch: str,
+    pillars: Dict,
+    day_master_stem: str,
+    strength: str,
+    effective_gods: Dict,
+    is_cong_ge: bool,
+) -> Optional[Dict[str, str]]:
+    """
+    Fix C — detect transient 殺印相生 (七殺+印) or 官印相生 (正官+印).
+
+    Classical: 《子平真詮·論用神成敗救應》
+       「印輕逢煞，或官印雙全者，月令印綬而輕，以煞生印，為煞印相生。」
+
+    Activation conditions (ALL must hold for weak DM positive branch):
+      1. strength ∈ {weak, very_weak}; not 從格.
+      2. month_ten_god ∈ {七殺/偏官, 正官}.
+      3. month_branch 本氣 OR 中氣 is 印 (正印 or 偏印).
+      4. 印 has structural support:
+         (a) 印 is the month branch 本氣 itself (self-root), OR
+         (b) 印 also transparent on any natal stem.
+      5. Not blocked: no 財 transparent on flow month stem
+         (財壞印 on the same pillar); no 食傷 transparent in natal
+         year+month+hour stems (奪印).
+
+    強 DM reverse logic: mild negative (returned with pattern+'reverse'; caller
+    applies a small downgrade rather than an upgrade).
+
+    Returns:
+        None if no activation, else:
+        {
+            'pattern': 'sha_yin' | 'guan_yin',
+            'level':   'full' | 'partial',      # full = 本氣印, partial = 中氣印
+            'direction': 'positive' | 'reverse',
+            'seal_source': 'benqi' | 'zhongqi',
+        }
+    """
+    if is_cong_ge:
+        return None
+    if not PHASE_12B_RULES_ENABLED.get('C', True):
+        return None
+
+    month_ten_god = derive_ten_god(day_master_stem, month_stem)
+    if month_ten_god not in ('偏官', '正官'):
+        return None
+    pattern = 'sha_yin' if month_ten_god == '偏官' else 'guan_yin'
+
+    # Find 印 position in the month branch's hidden stems.
+    hidden = HIDDEN_STEMS.get(month_branch, [])
+    seal_position: Optional[str] = None
+    for idx, hs in enumerate(hidden):
+        if not hs:
+            continue
+        tg = derive_ten_god(day_master_stem, hs)
+        if tg in ('正印', '偏印'):
+            if idx == 0:
+                seal_position = 'benqi'
+                break  # prefer 本氣
+            elif idx == 1 and seal_position is None:
+                seal_position = 'zhongqi'
+    if seal_position is None:
+        return None
+
+    # Structural support: benqi self-roots; zhongqi requires 印 also transparent.
+    seal_stems_on_natal = []
+    for pname in ('year', 'month', 'day', 'hour'):
+        stem = pillars.get(pname, {}).get('stem', '')
+        if not stem:
+            continue
+        if derive_ten_god(day_master_stem, stem) in ('正印', '偏印'):
+            seal_stems_on_natal.append(stem)
+
+    if seal_position == 'zhongqi' and not seal_stems_on_natal:
+        return None
+
+    # Internal 財壞印 check (same-branch): if month branch 本氣 is 財 while 印
+    # sits in 中氣, 財 directly overcomes 印 within the same pillar before 印
+    # can generate DM. Block activation.
+    # Example: 甲DM, 辛丑月 — 丑本氣=己(正財) 丑中氣=癸(正印). 財壞印 blocks
+    # the 官印相生 claim despite 癸 appearing in 中氣.
+    if seal_position == 'zhongqi' and hidden:
+        benqi_stem = hidden[0]
+        if benqi_stem and derive_ten_god(day_master_stem, benqi_stem) in ('正財', '偏財'):
+            return None
+
+    # Blocking: 財 transparent on flow month stem itself would 壞印.
+    if derive_ten_god(day_master_stem, month_stem) in ('正財', '偏財'):
+        # impossible — we already required 官殺 — but defensive.
+        return None
+    # 奪印: 食傷 transparent in ADJACENT natal stems only (month/day/hour).
+    # Classical: 「食神奪印」 requires 食傷 adjacent to 印; year stem is too
+    # distant to constitute a blocking 奪印 on a flow-month transient pattern.
+    # For Laopo's 庚子月 this correctly allows 殺印 to fire despite 丙 on year.
+    for pname in ('month', 'day', 'hour'):
+        stem = pillars.get(pname, {}).get('stem', '')
+        if not stem:
+            continue
+        # Exclude DM itself from the 食傷 check (day stem is DM).
+        if pname == 'day':
+            continue
+        if derive_ten_god(day_master_stem, stem) in ('食神', '傷官'):
+            return None
+    # 財壞印: 財 transparent in adjacent natal stems (month/hour) WITH 印 not
+    # also protected on adjacent pillars. Year stem excluded for same
+    # classical adjacency reason.
+    natal_cai_transparent = False
+    for pname in ('month', 'hour'):
+        stem = pillars.get(pname, {}).get('stem', '')
+        if stem and derive_ten_god(day_master_stem, stem) in ('正財', '偏財'):
+            natal_cai_transparent = True
+            break
+    if natal_cai_transparent and not seal_stems_on_natal:
+        # 財壞印 without 印透 → blocked
+        return None
+
+    # Direction — 身弱 positive vs 身強 reverse.
+    if strength in ('weak', 'very_weak'):
+        direction = 'positive'
+    elif strength in ('strong', 'very_strong'):
+        direction = 'reverse'
+    else:
+        # neutral DM: activation is ambiguous; skip to keep scope tight.
+        return None
+
+    return {
+        'pattern': pattern,
+        'level': 'full' if seal_position == 'benqi' else 'partial',
+        'direction': direction,
+        'seal_source': seal_position,
+    }
+
+
+def _fix_b_fuyin_role_amplification(
+    month_branch: str,
+    pillars: Dict,
+    day_master_stem: str,
+    effective_gods: Dict,
+    concurrent_clash: bool,
+) -> List[Dict[str, Any]]:
+    """
+    Fix B — multi-pillar 伏吟 role-conditional amplification.
+
+    Classical (modern consensus): 「用神伏吟應吉，忌神伏吟應凶；吉星伏吟，
+    福上加福；凶星伏吟，禍上加禍」.
+
+    For each natal pillar whose branch == month_branch:
+      - Determine natal branch's role via its element + effective_gods.
+      - Pillar weights: day=1.0, hour=1.0, month=1.0, year=0.5.
+      - Role:
+          喜/用 + weight ≥ 1.0  → applied=True,  direction='upgrade'
+          忌/仇 + weight ≥ 1.0  → applied=True,  direction='downgrade'
+          閒神                     → no-op (not emitted)
+          weight < 1.0            → applied=False, narrative-only
+      - If concurrent_clash at a different pillar: cap applied=False for all
+        伏吟 at this flow month (classical 動蕩 — no net label change).
+
+    Returns a list of interaction descriptors suitable for fuYinInteractions.
+    """
+    if not PHASE_12B_RULES_ENABLED.get('B', True):
+        return []
+
+    weights = {'day': 1.0, 'hour': 1.0, 'month': 1.0, 'year': 0.5}
+    interactions: List[Dict[str, Any]] = []
+    for pname in ('year', 'month', 'day', 'hour'):
+        natal = pillars.get(pname, {})
+        if natal.get('branch') != month_branch:
+            continue
+        natal_element = BRANCH_ELEMENT.get(month_branch, '')
+        role = _get_element_role(natal_element, day_master_stem, effective_gods)
+        weight = weights[pname]
+        if role in ('用神', '喜神'):
+            direction = 'upgrade'
+        elif role in ('忌神', '仇神'):
+            direction = 'downgrade'
+        else:
+            continue  # 閒神: not emitted
+        applied = (weight >= 1.0) and not concurrent_clash
+        interactions.append({
+            'pillar': pname,
+            'role': role,
+            'direction': direction,
+            'weight': weight,
+            'applied': applied,
+        })
+    return interactions
+
+
+def _fix_d_check_liu_he(
+    month_branch: str,
+    month_stem: str,
+    pillars: Dict,
+    flow_year_stem: str,
+    day_master_stem: str,
+    effective_gods: Dict,
+) -> List[Dict[str, Any]]:
+    """
+    Fix D — 六合 strict 化氣 check.
+
+    Classical (《滴天髓·論化象》 + modern): 4 conditions for 真化:
+      (i)   Valid 六合 pair (六合 lookup).
+      (ii)  Weaker combining branch has NO independent root (HARD gate).
+      (iii) 化神 transparent in flow-year, flow-month, or any natal 4 stem.
+      (iv)  SEASON_MULTIPLIER[化神_element][flow_month_branch] >= 1.5 (strict 旺).
+      (v)   No 沖/刑 on either combining branch (checked by caller).
+      (vi)  No 爭合 (branch 六合 with ≥2 natal branches forces bound_only).
+
+    Returns a list of interaction descriptors suitable for boundInteractions
+    or trueTransformation (one element per combining natal pillar).
+
+    The 'true_transformation' path is additionally gated by
+    PHASE_12B_RULES_ENABLED['D_TRANSFORMATION'] — when disabled, entries
+    collapse to 'bound_only' regardless of classical gate.
+    """
+    from .constants import SEASON_MULTIPLIER
+
+    # 六合 化 element map
+    LIU_HE_HUA_ELEMENT = {
+        frozenset({'子', '丑'}): '土',
+        frozenset({'寅', '亥'}): '木',
+        frozenset({'卯', '戌'}): '火',
+        frozenset({'辰', '酉'}): '金',
+        frozenset({'巳', '申'}): '水',
+        frozenset({'午', '未'}): '火',
+    }
+
+    results: List[Dict[str, Any]] = []
+    # Find all natal branches that form 六合 with month_branch
+    liuhe_partners: List[Tuple[str, str]] = []  # (pillar, branch)
+    for pname in ('year', 'month', 'day', 'hour'):
+        nb = pillars.get(pname, {}).get('branch', '')
+        if not nb:
+            continue
+        if frozenset({nb, month_branch}) in LIU_HE_HUA_ELEMENT:
+            liuhe_partners.append((pname, nb))
+
+    if not liuhe_partners:
+        return results
+
+    # 爭合 — month branch pulled into 2+ combinations (even with the same branch
+    # appearing in multiple pillars) → force bound_only per classical.
+    zheng_he = len(liuhe_partners) >= 2
+
+    enable_true = PHASE_12B_RULES_ENABLED.get('D_TRANSFORMATION', True)
+
+    for pname, natal_branch in liuhe_partners:
+        hua_element = LIU_HE_HUA_ELEMENT[frozenset({natal_branch, month_branch})]
+        entry: Dict[str, Any] = {
+            'pair': f'{natal_branch}{month_branch}',
+            'natal_pillar': pname,
+            'hua_element': hua_element,
+            'kind': 'bound_only',
+        }
+
+        # Determine if 真化 is eligible under strict conditions.
+        can_transform = True
+
+        if zheng_he:
+            can_transform = False
+            entry['block_reason'] = 'zheng_he'
+
+        # (ii) weaker branch must have no independent root.
+        # Determine weaker via current seasonal multiplier on its own element.
+        natal_element = BRANCH_ELEMENT.get(natal_branch, '')
+        month_element = BRANCH_ELEMENT.get(month_branch, '')
+        natal_mult = SEASON_MULTIPLIER.get(natal_element, {}).get(month_branch, 1.0)
+        month_mult = SEASON_MULTIPLIER.get(month_element, {}).get(month_branch, 1.0)
+        weaker_branch = natal_branch if natal_mult <= month_mult else month_branch
+        # Weaker "has root" if its element appears transparent in any natal stem
+        # or appears as 本氣/中氣 in other branches.
+        weaker_element = BRANCH_ELEMENT.get(weaker_branch, '')
+        has_root = False
+        for pp in ('year', 'month', 'day', 'hour'):
+            s = pillars.get(pp, {}).get('stem', '')
+            if s and STEM_ELEMENT.get(s, '') == weaker_element:
+                has_root = True
+                break
+            b = pillars.get(pp, {}).get('branch', '')
+            if b and b != weaker_branch:
+                if BRANCH_ELEMENT.get(b, '') == weaker_element:
+                    has_root = True
+                    break
+        if can_transform and has_root:
+            can_transform = False
+            entry['block_reason'] = 'weaker_rooted'
+
+        # (iii) 化神 transparent
+        if can_transform:
+            hua_transparent = False
+            # flow-year stem
+            if STEM_ELEMENT.get(flow_year_stem, '') == hua_element:
+                hua_transparent = True
+            # flow-month stem
+            if STEM_ELEMENT.get(month_stem, '') == hua_element:
+                hua_transparent = True
+            # natal 4 stems
+            for pp in ('year', 'month', 'day', 'hour'):
+                s = pillars.get(pp, {}).get('stem', '')
+                if s and STEM_ELEMENT.get(s, '') == hua_element:
+                    hua_transparent = True
+                    break
+            if not hua_transparent:
+                can_transform = False
+                entry['block_reason'] = 'hua_not_transparent'
+
+        # (iv) 化神 in-season (strict 旺 only, multiplier ≥ 1.5)
+        if can_transform:
+            hua_mult = SEASON_MULTIPLIER.get(hua_element, {}).get(month_branch, 1.0)
+            if hua_mult < 1.5:
+                can_transform = False
+                entry['block_reason'] = 'hua_not_in_season'
+
+        if can_transform and enable_true:
+            entry['kind'] = 'true_transformation'
+            entry['favorability'] = _get_element_role(
+                hua_element, day_master_stem, effective_gods
+            )
+        elif can_transform and not enable_true:
+            # Flag-gated: degrade to bound_only
+            entry['kind'] = 'bound_only'
+            entry['block_reason'] = 'flag_disabled_true_transformation'
+
+        results.append(entry)
+
+    return results
+
+
+# ============================================================
+# Phase 12c — Fix E (六害 role-aware) + 子卯刑 piggyback
+# ============================================================
+
+# 寅巳 是「無恩之害」per 《三命通會·論六害》—「不恤所生，遙相剋制」.
+# Magnitude modifier 1.2× (per classical research; other 害 pairs use 1.0).
+_LIU_HAI_WU_EN_PAIRS = {frozenset({'寅', '巳'})}
+
+# 子卯刑 (無禮之刑) — single 六刑 pair handled via Fix E machinery for parsimony.
+# Other 三刑 (寅巳申, 丑戌未) and 六破 → Phase 12d.
+_LIU_XING_ZIWEI_PAIR = frozenset({'子', '卯'})
+
+# Threshold sum for label downgrade. 害 is 暗箭 (silent friction), not
+# cumulative damage — multiple pillars 害ing flow branch still cap at -1
+# step total per month. The 0.6 floor lets a single wuEn 害 (1.0 × 1.2 = 1.2)
+# trip even when 六合 dampening (×0.5) is applied (1.2 × 0.5 = 0.6).
+_LIU_HAI_DOWNGRADE_THRESHOLD = 0.6
+
+
+def _fix_e_detect_six_harms_penalty(
+    month_branch: str,
+    pillars: Dict,
+    day_master_stem: str,
+    effective_gods: Dict,
+    all_branch_interactions: List[Dict],
+) -> List[Dict[str, Any]]:
+    """
+    Fix E — 六害 role-aware penalty + 子卯刑 piggyback.
+
+    Classical sources:
+      - 《三命通會·論六害》: 「以吉害凶，未必能去凶；以凶害吉，亦能損吉」
+      - Modern 子平: 「命中的喜用之神，不能害；被害則事業容易受到暗中的牽制」
+      - 寅巳 specifically: 《三命通會》「不恤所生，遙相剋制，故曰無恩」
+      - 子卯: 「無禮之刑」 (modifier 1.0; piggyback on 害 machinery)
+
+    Returns list of LiuHaiInteraction descriptors. The caller iterates and
+    applies a SINGLE label downgrade if Σ effective_score across all entries
+    ≥ _LIU_HAI_DOWNGRADE_THRESHOLD.
+
+    Suppression (害 yields to stronger structural mechanisms):
+      - 沖 fires on same flow branch → suppress
+      - 三刑 fires on same flow branch → suppress (placeholder for Phase 12d
+        full 三刑 detection; current 寅巳申 三刑 detected via existing pipeline)
+    Dampening:
+      - 六合 binds the harmed natal branch with another branch → ×0.5
+
+    Cap doctrine: 害 is 暗箭, not cumulative — one step max per month.
+    """
+    if not PHASE_12C_RULES_ENABLED.get('E', True):
+        return []
+
+    # Suppression: 沖 supersedes 害 because 沖 is the more direct mechanism
+    # and is already penalized via legacy day-branch modifiers / Fix B's
+    # concurrent_clash check. Don't double-count.
+    #
+    # NOTE on 三刑: the research recommended suppressing 害 when 三刑 fires
+    # on the same flow branch (avoid double-counting). However, 三刑 itself
+    # has NO penalty in Phase 12c — that's Phase 12d scope. Without a 三刑
+    # penalty in 12c, suppressing 害 here would silently drop the only
+    # available signal. Until 12d adds the 三刑 penalty, 害 fires even when
+    # 三刑 co-occurs. When 12d ships, re-add 三刑 to this suppression list.
+    suppress = any(bi['type'] == '六沖' for bi in all_branch_interactions)
+    if suppress:
+        return []
+
+    # Collect 六合 dampening context: a natal branch is bound by 六合 when
+    # the flow_month_branch + that natal branch form a 六合 pair. We
+    # reconstruct from `all_branch_interactions` which records pillar → type.
+    liuhe_bound: Set[str] = set()
+    for bi in all_branch_interactions:
+        if bi.get('type') == '六合':
+            nb = pillars.get(bi.get('pillar', ''), {}).get('branch', '')
+            if nb:
+                liuhe_bound.add(nb)
+
+    interactions: List[Dict[str, Any]] = []
+    for pname in ('year', 'month', 'day', 'hour'):
+        natal_branch = pillars.get(pname, {}).get('branch', '')
+        if not natal_branch or natal_branch == month_branch:
+            continue
+        pair = frozenset({natal_branch, month_branch})
+
+        # Detect: 六害 OR 子卯刑 (piggyback)
+        is_liu_hai = pair in SIX_HARMS
+        is_zi_wei_xing = pair == _LIU_XING_ZIWEI_PAIR
+        if not (is_liu_hai or is_zi_wei_xing):
+            continue
+
+        # Role of the natal branch's 本氣 element
+        role = _get_branch_role(natal_branch, day_master_stem, effective_gods)
+        if role not in ('用神', '喜神', '忌神', '仇神', '閒神'):
+            role = '閒神'
+
+        wu_en = is_liu_hai and pair in _LIU_HAI_WU_EN_PAIRS
+        wu_en_modifier = 1.2 if wu_en else 1.0
+        dampening = 0.5 if natal_branch in liuhe_bound else 1.0
+        kind = 'liuxing_ziwei' if is_zi_wei_xing else 'liuhai'
+
+        # Effective score only counts when role is 喜/用 (host damage on favorable)
+        if role in ('用神', '喜神'):
+            effective_score = wu_en_modifier * dampening
+        else:
+            effective_score = 0.0  # narrative-only for 忌/仇/閒
+
+        # Classical pair name for the narrative (e.g., '寅-巳')
+        sorted_pair = sorted([natal_branch, month_branch])
+        pair_label = f'{sorted_pair[0]}-{sorted_pair[1]}'
+
+        interactions.append({
+            'pair': pair_label,
+            'kind': kind,
+            'pillar': pname,
+            'role': role,
+            'wuEn': wu_en,
+            'dampening': dampening,
+            'effectiveScore': round(effective_score, 2),
+            'applied': False,  # caller fills in based on Σ threshold
+        })
+
+    return interactions
+
+
+# ============================================================
+# Phase 12c — Fix F (沖庫釋放方向性, downgrade-only v1)
+# ============================================================
+
+# 沖庫 only meaningful for 四庫支 (辰戌丑未). Other 沖 pairs (寅申 / 巳亥 /
+# 子午 / 卯酉) don't have 庫藏 release semantics in 子平 tradition.
+_FOUR_TOMB_BRANCHES = {'辰', '戌', '丑', '未'}
+
+# 沖 pairs among the 四庫: 辰沖戌, 丑沖未
+_TOMB_CHONG_PAIRS = {
+    frozenset({'辰', '戌'}),
+    frozenset({'丑', '未'}),
+}
+
+# Hidden stem position weight (mainstream 子平 60/30/10 — matches
+# HIDDEN_STEM_WEIGHTS for 3-stem branches).
+_TOMB_RELEASE_WEIGHTS = (0.6, 0.3, 0.1)
+
+# Role → numeric score for net-direction calculation.
+_ROLE_TO_SCORE = {
+    '用神': 1.0,
+    '喜神': 0.6,
+    '閒神': 0.0,
+    '仇神': -0.6,
+    '忌神': -1.0,
+}
+
+# Threshold: net ≤ -0.5 → downgrade 1 step. v1 is downgrade-only;
+# upgrade path (net ≥ +0.5) is Phase 12d scope.
+_TOMB_RELEASE_DOWNGRADE_THRESHOLD = -0.5
+
+
+def _fix_f_chong_ku_release(
+    month_branch: str,
+    pillars: Dict,
+    day_master_stem: str,
+    effective_gods: Dict,
+    is_cong_ge: bool,
+) -> Optional[Dict[str, Any]]:
+    """
+    Fix F — 沖庫釋放方向性 (downgrade-only v1).
+
+    Classical sources:
+      - 《子平真詮·論墓庫刑沖》: 「至於財官為水，沖則反為累」
+      - 《淵海子平》/《三命通會》:
+        「沖開庫藏吉凶取決於藏干十神對日主之利害」
+
+    DOCTRINE (load-bearing): stem rescue (用/喜 stem 透干) can mitigate
+    SHAPE MODIFIERS (蓋頭, 伏吟) but CANNOT cancel STRUCTURAL RELEASES
+    (沖庫釋放, 三刑成立). Source: 《滴天髓·論墓庫》「庫沖則開, 開則藏干
+    釋放, 不論天干能否化」.
+
+    Activation conditions:
+      - Not 從格 (從 charts follow 順勢; 沖庫機制 不適用)
+      - flow_month_branch ∈ {辰戌丑未}
+      - At least one natal pillar branch ∈ {辰戌丑未} forming 沖 with flow
+
+    Net role calculation per natal tomb pillar:
+      net = 0.6 × role(本氣) + 0.3 × role(中氣) + 0.1 × role(餘氣)
+
+    v1 ladder (downgrade-only):
+      net ≤ -0.5 → action='downgrade', steps=1
+      net ≥ +0.5 → NOT IMPLEMENTED in v1 (Phase 12d)
+      else       → narrative-only
+
+    Returns Optional[Dict] with action='downgrade' or None.
+    """
+    if not PHASE_12C_RULES_ENABLED.get('F', True):
+        return None
+    if is_cong_ge:
+        return None
+    if month_branch not in _FOUR_TOMB_BRANCHES:
+        return None
+
+    # Find natal tomb branch forming 沖 with flow_month
+    target_pillar: Optional[str] = None
+    target_branch: Optional[str] = None
+    for pname in ('year', 'month', 'day', 'hour'):
+        nb = pillars.get(pname, {}).get('branch', '')
+        if not nb or nb not in _FOUR_TOMB_BRANCHES:
+            continue
+        if frozenset({nb, month_branch}) in _TOMB_CHONG_PAIRS:
+            target_pillar = pname
+            target_branch = nb
+            break
+
+    if not target_pillar or not target_branch:
+        return None
+
+    # Compute net role direction from released hidden stems
+    hidden = HIDDEN_STEMS.get(target_branch, [])
+    if not hidden:
+        return None
+
+    released_stems: List[Dict[str, Any]] = []
+    net_score = 0.0
+    positions = ('benqi', 'zhongqi', 'yuqi')
+    for idx, stem in enumerate(hidden):
+        if not stem or idx >= len(_TOMB_RELEASE_WEIGHTS):
+            continue
+        weight = _TOMB_RELEASE_WEIGHTS[idx]
+        ten_god = derive_ten_god(day_master_stem, stem)
+        role = effective_gods.get(ten_god, '閒神')
+        score = _ROLE_TO_SCORE.get(role, 0.0)
+        net_score += weight * score
+        released_stems.append({
+            'stem': stem,
+            'position': positions[idx],
+            'tenGod': ten_god,
+            'role': role,
+            'weight': weight,
+        })
+
+    net_score = round(net_score, 3)
+
+    # v1 downgrade-only ladder
+    if net_score <= _TOMB_RELEASE_DOWNGRADE_THRESHOLD:
+        return {
+            'natalPillar': target_pillar,
+            'natalBranch': target_branch,
+            'releasedStems': released_stems,
+            'netRoleScore': net_score,
+            'action': 'downgrade',
+            'steps': 1,
+            'stemRescueApplied': False,  # doctrine: stem cannot cancel release
+        }
+
+    # net ≥ +0.5 (positive release) → narrative-only in v1; upgrade in 12d
+    # |net| ∈ (0, 0.5) → narrative-only by design
+    return None
+
+
+# ------------------------------------------------------------
+# Monthly scorer
+# ------------------------------------------------------------
+
+def _label_upgrade(label: str) -> str:
+    """Upgrade one step on the 7-level scale (capped at 大吉)."""
+    order = ['大凶', '凶', '凶中有吉', '平', '吉中有凶', '吉', '大吉']
+    try:
+        i = order.index(label)
+    except ValueError:
+        return label
+    return order[min(i + 1, len(order) - 1)]
+
+
+def _label_downgrade(label: str) -> str:
+    """Downgrade one step on the 7-level scale (capped at 大凶)."""
+    order = ['大凶', '凶', '凶中有吉', '平', '吉中有凶', '吉', '大吉']
+    try:
+        i = order.index(label)
+    except ValueError:
+        return label
+    return order[max(i - 1, 0)]
+
 
 def _compute_single_month(
     month_data: Dict,
@@ -1080,8 +1771,30 @@ def _compute_single_month(
     day_branch: str,
     kong_wang: List[str],
     flow_year_auspiciousness: str,
+    strength: str = 'neutral',
+    is_cong_ge: bool = False,
+    flow_year_stem: str = '',
 ) -> Dict[str, Any]:
-    """Compute all 4 aspects for a single month."""
+    """Compute all 4 aspects for a single month.
+
+    Phase 12b ordering: C → A → B → D.
+    Phase 12c extends to:  C → A → F → B → E → D.
+
+      - Fix C (officer-seal transient) runs FIRST and can override the
+        stem-branch base entirely.
+      - Fix A (蓋頭/截腳 halving) runs ONLY when C did NOT fire.
+      - Fix F (沖庫釋放方向性) runs after A, before B. Structural release;
+        applies regardless of stem rescue per doctrine.
+      - Fix B (伏吟 multi-pillar role-conditional) runs regardless, capped
+        when concurrent 六沖.
+      - Fix E (六害 role-aware penalty + 子卯刑) runs after B; suppressed
+        when 沖/三刑 also fire on same flow branch.
+      - Fix D (六合 strict 化氣) runs last; default bound_only narrative.
+
+    DOCTRINE (Phase 12c, load-bearing): stem rescue mitigates SHAPE
+    MODIFIERS (蓋頭, 伏吟) but CANNOT cancel STRUCTURAL RELEASES (沖庫,
+    三刑成立). Source: 《滴天髓·論墓庫》.
+    """
     month_stem = month_data.get('stem', '')
     month_branch = month_data.get('branch', '')
 
@@ -1120,23 +1833,215 @@ def _compute_single_month(
             if pname == 'day':
                 day_branch_interactions.append(i_type)
 
-    # Branch interaction modifiers (structural natal-vs-month clash/harmony — orthogonal to element favorability above)
+    # ============================================================
+    # C → A → F → B → E → D pipeline (Phase 12b/12c), with ruleTrace.
+    # ============================================================
+    rule_trace: List[str] = []
+    officer_seal_activation: Optional[Dict[str, str]] = None
+    fu_yin_interactions: List[Dict[str, Any]] = []
+    bound_interactions: List[Dict[str, Any]] = []
+    true_transformation: Optional[Dict[str, Any]] = None
+    # Phase 12c accumulators
+    liu_hai_interactions: List[Dict[str, Any]] = []
+    chong_ku_release: Optional[Dict[str, Any]] = None
+
+    # --- Fix C: 殺印/官印相生 transient activation (runs first) ---
+    c_activation = _fix_c_detect_officer_seal_transient(
+        month_stem=month_stem,
+        month_branch=month_branch,
+        pillars=pillars,
+        day_master_stem=day_master_stem,
+        strength=strength,
+        effective_gods=effective_gods,
+        is_cong_ge=is_cong_ge,
+    )
+    if c_activation:
+        officer_seal_activation = c_activation
+        rule_trace.append(
+            'officer_seal_transient_' + c_activation['pattern'] + '_' + c_activation['direction']
+        )
+        if c_activation['direction'] == 'positive':
+            base = '大吉' if c_activation['level'] == 'full' else '吉'
+        else:
+            # 身強 reverse: mild negative (−1 step from baseline start '平')
+            base = _label_downgrade(base if base != '平' else '平')
+
+    # --- Fix A: 蓋頭/截腳 halving (only if C did NOT fire) ---
+    # Detect stem=忌 on branch=喜/用 (蓋頭) or branch=忌 under stem=喜/用 (截腳)
+    if not c_activation and PHASE_12B_RULES_ENABLED.get('A', True):
+        stem_role = _get_element_role(month_element, day_master_stem, effective_gods)
+        branch_role = _get_element_role(month_branch_element, day_master_stem, effective_gods)
+        negative_roles = {'忌神', '仇神'}
+        positive_roles = {'用神', '喜神'}
+        if (
+            (stem_role in negative_roles and branch_role in positive_roles) or
+            (stem_role in positive_roles and branch_role in negative_roles)
+        ):
+            if _fix_a_gaitou_halving_applies(month_stem, month_branch):
+                if base == '吉中有凶':
+                    base = '吉'
+                    rule_trace.append('gaitou_halving_upgrade')
+                elif base == '凶中有吉':
+                    base = '凶中有吉'  # keep: 截腳 classical caveat — branch still weighs heavy
+                    # Asymmetric: 蓋頭 halving favors branch-喜; 截腳 halving
+                    # classical is less aggressive (支剋干). Emit trace for
+                    # observability but no label change.
+                    rule_trace.append('jiejiao_halving_noted_no_change')
+
+    # Intermediate base after C (optional override) + A (optional halving).
+    # This is what `baseAuspiciousness` reports (pre-F/B/E/D).
+    base_auspiciousness = base
     auspiciousness = base
-    if '伏吟' in day_branch_interactions:
-        if base in ('吉', '大吉'):
-            auspiciousness = '大吉'
-        elif base in ('凶', '大凶'):
-            auspiciousness = '大凶'
-    elif '六沖' in day_branch_interactions:
-        if base == '平':
-            auspiciousness = '小凶'
-        elif base in ('吉', '大吉'):
-            auspiciousness = '吉中有凶'
-    elif '六合' in day_branch_interactions:
-        if base == '平':
-            auspiciousness = '吉'
-        elif base in ('凶', '大凶'):
-            auspiciousness = '凶中有吉'
+
+    # --- Fix F: 沖庫釋放方向性 (downgrade-only v1; structural release) ---
+    # Per Phase 12c doctrine: stem rescue does NOT cancel structural release.
+    # Runs after A so that stem-conditional shape modifiers settle first.
+    chong_ku_release = _fix_f_chong_ku_release(
+        month_branch=month_branch,
+        pillars=pillars,
+        day_master_stem=day_master_stem,
+        effective_gods=effective_gods,
+        is_cong_ge=is_cong_ge,
+    )
+    if chong_ku_release and chong_ku_release.get('action') == 'downgrade':
+        new_label = _label_downgrade(auspiciousness)
+        if new_label != auspiciousness:
+            auspiciousness = new_label
+            rule_trace.append(
+                f"chong_ku_release_negative_{chong_ku_release['natalPillar']}"
+            )
+
+    # --- Fix B: 伏吟 multi-pillar role-conditional (always runs) ---
+    concurrent_clash = '六沖' in day_branch_interactions or any(
+        bi['type'] == '六沖' for bi in all_branch_interactions
+    )
+    fu_yin_interactions = _fix_b_fuyin_role_amplification(
+        month_branch=month_branch,
+        pillars=pillars,
+        day_master_stem=day_master_stem,
+        effective_gods=effective_gods,
+        concurrent_clash=concurrent_clash,
+    )
+    for fy in fu_yin_interactions:
+        if fy['applied']:
+            if fy['direction'] == 'upgrade':
+                new_label = _label_upgrade(auspiciousness)
+                if new_label != auspiciousness:
+                    auspiciousness = new_label
+                    rule_trace.append(f"fuyin_{fy['pillar']}_pillar_{fy['direction']}")
+            elif fy['direction'] == 'downgrade':
+                new_label = _label_downgrade(auspiciousness)
+                if new_label != auspiciousness:
+                    auspiciousness = new_label
+                    rule_trace.append(f"fuyin_{fy['pillar']}_pillar_{fy['direction']}")
+        else:
+            # narrative-only (e.g., year pillar weight=0.5, or 沖 cap)
+            rule_trace.append(f"fuyin_{fy['pillar']}_pillar_narrative")
+
+    # --- Fix E: 六害 role-aware penalty + 子卯刑 (cap at -1 step total) ---
+    # 害 yields to 沖/三刑 if either fires on the same flow branch (suppression).
+    # Sum of effective_score across pillars is capped — single -1 step max.
+    liu_hai_interactions = _fix_e_detect_six_harms_penalty(
+        month_branch=month_branch,
+        pillars=pillars,
+        day_master_stem=day_master_stem,
+        effective_gods=effective_gods,
+        all_branch_interactions=all_branch_interactions,
+    )
+    if liu_hai_interactions:
+        # Sum effective_score across all pillars where 害 hits 喜/用 ;
+        # narrative-only entries (忌/仇/閒) contribute zero.
+        total_score = sum(e.get('effectiveScore', 0.0) for e in liu_hai_interactions)
+        if total_score >= _LIU_HAI_DOWNGRADE_THRESHOLD:
+            # Mark first-applied entry as the contributor (others are stacked
+            # narrative for the AI prompt). Cap is -1 step total per month.
+            applied_entry: Optional[Dict[str, Any]] = None
+            for entry in liu_hai_interactions:
+                if entry.get('effectiveScore', 0.0) > 0 and applied_entry is None:
+                    entry['applied'] = True
+                    applied_entry = entry
+                    break
+            new_label = _label_downgrade(auspiciousness)
+            if new_label != auspiciousness:
+                auspiciousness = new_label
+                if applied_entry is not None:
+                    kind = applied_entry.get('kind', 'liuhai')
+                    pillar = applied_entry.get('pillar', '?')
+                    role_tag = 'xi_yong' if applied_entry.get('role') in ('喜神', '用神') else 'other'
+                    rule_trace.append(f"liu_hai_{pillar}_pillar_{kind}_{role_tag}_applied")
+        else:
+            # Below threshold — narrative-only flags
+            for entry in liu_hai_interactions:
+                kind = entry.get('kind', 'liuhai')
+                pillar = entry.get('pillar', '?')
+                rule_trace.append(f"liu_hai_{pillar}_pillar_{kind}_narrative")
+
+    # --- Fix D: 六合 strict 化氣 (always runs; 真化 path gated by flag) ---
+    liu_he_entries = _fix_d_check_liu_he(
+        month_branch=month_branch,
+        month_stem=month_stem,
+        pillars=pillars,
+        flow_year_stem=flow_year_stem,
+        day_master_stem=day_master_stem,
+        effective_gods=effective_gods,
+    )
+    for entry in liu_he_entries:
+        if entry['kind'] == 'true_transformation':
+            # Apply 化神 favorability lookup to the label.
+            fav = entry.get('favorability', '閒神')
+            if fav == '用神':
+                auspiciousness = _label_upgrade(auspiciousness)
+            elif fav == '喜神':
+                auspiciousness = _label_upgrade(auspiciousness)
+            elif fav == '忌神':
+                auspiciousness = _label_downgrade(auspiciousness)
+            elif fav == '仇神':
+                auspiciousness = _label_downgrade(auspiciousness)
+            true_transformation = entry
+            rule_trace.append(f"liuhe_true_transformation_{entry['natal_pillar']}")
+        else:
+            bound_interactions.append(entry)
+            rule_trace.append(f"liuhe_bound_only_{entry['natal_pillar']}")
+
+    # Cap at 10 entries (raised from 6 in Phase 12c) to preserve evidence
+    # when the 6-rule pipeline (C+A+F+B+E+D) plus suppression notes plus
+    # narrative entries all fire on a busy month. Future-proofs for
+    # Phase 12d (三刑/六破).
+    if len(rule_trace) > 10:
+        rule_trace = rule_trace[:10]
+
+    # Legacy day-branch 伏吟/六沖/六合 modifiers. These still apply AFTER the
+    # new multi-pillar logic above, preserving prior behavior for cases
+    # Phase 12b doesn't specifically handle (e.g., day-branch 六合 upgrade
+    # from 平 → 吉). Skip when a new Phase 12b rule has already moved the
+    # label, to avoid double-application.
+    phase_12b_fired = bool(c_activation) or any(
+        fy.get('applied') for fy in fu_yin_interactions
+    ) or any(e['kind'] == 'true_transformation' for e in liu_he_entries)
+    # Phase 12c rules count as "fired" for legacy-modifier suppression
+    # purposes — once 沖庫 or 害 has moved the label, don't double-apply
+    # legacy day-branch modifiers.
+    phase_12c_fired = bool(chong_ku_release) or any(
+        e.get('applied') for e in liu_hai_interactions
+    )
+    if phase_12c_fired:
+        phase_12b_fired = True
+    if not phase_12b_fired:
+        if '伏吟' in day_branch_interactions:
+            if auspiciousness in ('吉', '大吉'):
+                auspiciousness = '大吉'
+            elif auspiciousness in ('凶', '大凶'):
+                auspiciousness = '大凶'
+        elif '六沖' in day_branch_interactions:
+            if auspiciousness == '平':
+                auspiciousness = '小凶'
+            elif auspiciousness in ('吉', '大吉'):
+                auspiciousness = '吉中有凶'
+        elif '六合' in day_branch_interactions:
+            if auspiciousness == '平':
+                auspiciousness = '吉'
+            elif auspiciousness in ('凶', '大凶'):
+                auspiciousness = '凶中有吉'
 
     # Combine with flow year context
     combined = auspiciousness
@@ -1216,13 +2121,13 @@ def _compute_single_month(
                         f"{element}({role})當令，注意{organ_info.get('system', '')}保養"
                     )
 
-    return {
+    result = {
         'monthStem': month_stem,
         'monthBranch': month_branch,
         'monthTenGod': month_ten_god,
         'stemBase': stem_base,
         'branchBase': branch_base,
-        'baseAuspiciousness': base,  # branch-primary combined base (not stem-only)
+        'baseAuspiciousness': base_auspiciousness,  # after Fix C override + Fix A halving
         'auspiciousness': combined,
         'isKongWang': is_kong_wang,
         'branchInteractions': all_branch_interactions,
@@ -1232,7 +2137,23 @@ def _compute_single_month(
             'romance': romance_aspect,
             'health': health_aspect,
         },
+        # Phase 12b optional fields (additive only)
+        'ruleTrace': rule_trace,
     }
+    if officer_seal_activation:
+        result['officerSealActivation'] = officer_seal_activation
+    if fu_yin_interactions:
+        result['fuYinInteractions'] = fu_yin_interactions
+    if bound_interactions:
+        result['boundInteractions'] = bound_interactions
+    if true_transformation:
+        result['trueTransformation'] = true_transformation
+    # Phase 12c additive fields
+    if liu_hai_interactions:
+        result['liuHaiInteractions'] = liu_hai_interactions
+    if chong_ku_release:
+        result['chongKuRelease'] = chong_ku_release
+    return result
 
 
 def compute_enhanced_monthly_forecasts(
@@ -1245,8 +2166,16 @@ def compute_enhanced_monthly_forecasts(
     day_branch: str,
     kong_wang: List[str],
     flow_year_auspiciousness: str,
+    strength: str = 'neutral',
+    is_cong_ge: bool = False,
+    flow_year_stem: str = '',
 ) -> List[Dict[str, Any]]:
-    """Compute 12 months' 4-aspect forecasts. 大運 excluded."""
+    """Compute 12 months' 4-aspect forecasts. 大運 excluded.
+
+    Phase 12b adds ``strength``, ``is_cong_ge``, ``flow_year_stem`` so
+    per-month rules (殺印相生, 化氣) can consult DM strength, 從格 override
+    status, and flow-year stem for 化神 transparency checks.
+    """
     results = []
     for i, month_data in enumerate(monthly_stars):
         if i >= 12:
@@ -1261,6 +2190,9 @@ def compute_enhanced_monthly_forecasts(
             day_branch=day_branch,
             kong_wang=kong_wang,
             flow_year_auspiciousness=flow_year_auspiciousness,
+            strength=strength,
+            is_cong_ge=is_cong_ge,
+            flow_year_stem=flow_year_stem,
         )
         month_result['monthIndex'] = i + 1
         month_result['monthLabel'] = month_data.get('month', f'{i+1}月')
@@ -1438,9 +2370,17 @@ def generate_annual_pre_analysis(
         flow_year_element, day_master_stem, normalized_gods)
 
     # 12. 十二月運程
+    _strength_classification = (
+        (strength_v2 or {}).get('classification', 'neutral') if strength_v2 else 'neutral'
+    )
+    _is_cong_ge = bool(cong_ge)
     monthly_forecasts = compute_enhanced_monthly_forecasts(
         pillars, day_master_stem, normalized_gods, monthly_stars,
-        gender, year_branch, day_branch, kong_wang, flow_year_auspiciousness)
+        gender, year_branch, day_branch, kong_wang, flow_year_auspiciousness,
+        strength=_strength_classification,
+        is_cong_ge=_is_cong_ge,
+        flow_year_stem=flow_year_stem,
+    )
 
     # 大運 context
     dayun_context = _extract_dayun_context(

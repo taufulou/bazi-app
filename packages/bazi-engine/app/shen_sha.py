@@ -26,6 +26,7 @@ Plus: 空亡 (Kong Wang / Void)
 from typing import Dict, List, Set
 
 from .constants import (
+    BRANCH_DIRECTION_8,
     BRANCH_INDEX,
     BRANCH_LIUHE,
     DEXIU,
@@ -66,7 +67,18 @@ from .constants import (
     YINYANG_ERROR_DAYS,
     YUEDE,
     ZAISHA,
+    ZODIAC,
 )
+
+# 三合 (Three Harmony) partner groups — for zodiac benefactor derivation (Fix 4).
+# Each group shares the same qi direction: 申子辰 water, 寅午戌 fire,
+# 巳酉丑 metal, 亥卯未 wood.
+THREE_HARMONY_PARTNERS: Dict[str, List[str]] = {
+    '申': ['子', '辰'], '子': ['申', '辰'], '辰': ['申', '子'],
+    '寅': ['午', '戌'], '午': ['寅', '戌'], '戌': ['寅', '午'],
+    '巳': ['酉', '丑'], '酉': ['巳', '丑'], '丑': ['巳', '酉'],
+    '亥': ['卯', '未'], '卯': ['亥', '未'], '未': ['亥', '卯'],
+}
 
 
 def calculate_kong_wang(day_stem: str, day_branch: str) -> List[str]:
@@ -448,3 +460,130 @@ def get_all_shen_sha(pillars: Dict) -> List[Dict[str, str]]:
                 'branch': pillar['branch'],
             })
     return all_sha
+
+
+# ============================================================
+# Fix 3: 桃花方位 — Peach Blossom Direction
+# ============================================================
+
+def get_taohua_directions(year_branch: str, day_branch: str) -> Dict:
+    """
+    Compute the classical 咸池桃花 directions for a chart.
+
+    Classical source (《三命通會》, 《淵海子平》 咸池桃花 口訣):
+      申子辰見酉, 寅午戌見卯, 巳酉丑見午, 亥卯未見子.
+
+    Convention (year branch primary, day branch secondary — mainstream 子平):
+      - Primary 桃花 = TAOHUA[year_branch] → 方位
+      - Secondary 桃花 = TAOHUA[day_branch] → 方位 (emitted only if distinct)
+
+    Since 桃花 always lands on 子午卯酉 (the four 四正 / 帝旺), the resulting
+    direction is always cardinal (正東/正西/正南/正北).
+
+    Narrative copy (singles advice vs married advice) lives in the prompt
+    layer — this function returns only structured data.
+
+    Args:
+        year_branch: 年支 (e.g., '寅')
+        day_branch: 日支 (e.g., '戌')
+
+    Returns:
+        {
+            'primary':   {'source': '年支', 'branch': '卯', 'direction': '正東'},
+            'secondary': {'source': '日支', 'branch': '卯', 'direction': '正東'},
+            # secondary key omitted if same as primary
+        }
+    """
+    result: Dict = {}
+    primary_branch = TAOHUA.get(year_branch)
+    if primary_branch is None:
+        return result
+    result['primary'] = {
+        'source': '年支',
+        'branch': primary_branch,
+        'direction': BRANCH_DIRECTION_8[primary_branch],
+    }
+    secondary_branch = TAOHUA.get(day_branch)
+    if secondary_branch is not None and secondary_branch != primary_branch:
+        result['secondary'] = {
+            'source': '日支',
+            'branch': secondary_branch,
+            'direction': BRANCH_DIRECTION_8[secondary_branch],
+        }
+    return result
+
+
+# ============================================================
+# Fix 4: 文昌貴人方位 — WenChang benefactor direction
+# ============================================================
+
+def get_wenchang_direction(day_stem: str) -> Dict:
+    """
+    Compute the 文昌貴人 branch and direction for a given Day Stem.
+
+    Classical 口訣 (《三命通會》, 《淵海子平》):
+      甲乙巳午報君知，丙戊申宮丁己雞，庚豬辛鼠壬逢虎，癸人見兔入雲梯。
+
+    Derived from 食神臨官 position of the Day Stem:
+      甲→巳, 乙→午, 丙→申, 丁→酉, 戊→申, 己→酉,
+      庚→亥, 辛→子, 壬→寅, 癸→卯.
+
+    Args:
+        day_stem: Day Heavenly Stem
+
+    Returns:
+        {'branch': '巳', 'direction': '東南'}  OR empty dict if stem unknown
+    """
+    branch = WENCHANG.get(day_stem)
+    if branch is None:
+        return {}
+    return {'branch': branch, 'direction': BRANCH_DIRECTION_8[branch]}
+
+
+# ============================================================
+# Fix 4: 生肖貴人 — Folk benefactor zodiacs (六合 + 三合)
+# ============================================================
+
+def get_zodiac_benefactors(year_branch: str) -> Dict:
+    """
+    Derive folk 生肖貴人 (zodiac benefactors) from the 年支.
+
+    NOT a classical 子平 神煞 — this is a modern folk concept popularized
+    in zh-TW/HK/MY 風水 literature, derived from the 地支六合 pair and
+    三合 partners of the 本命年支.
+
+    Classical sources treat 六合 as 「夫妻之親」 (conjugal bond) and 三合 as
+    「母子之情」 (parent-child bond); the "benefactor" framing is derivative.
+
+    The output intentionally contains NO 方位 / 年齡 / 姓名特徵 fields —
+    those have no classical derivation and are APP-fabricated elsewhere.
+    The AI prompt layer is responsible for translating `provenance:
+    'folk_tradition'` into an appropriate disclaimer copy.
+
+    Args:
+        year_branch: 本命年支 (e.g., '寅')
+
+    Returns:
+        {
+            'liuhe': {'branch': '亥', 'zodiac': '豬', 'kind': 'liuhe'},
+            'sanhe': [
+                {'branch': '午', 'zodiac': '馬', 'kind': 'sanhe'},
+                {'branch': '戌', 'zodiac': '狗', 'kind': 'sanhe'},
+            ],
+            'provenance': 'folk_tradition',
+        }
+    """
+    result: Dict = {'provenance': 'folk_tradition'}
+    liuhe_branch = BRANCH_LIUHE.get(year_branch)
+    if liuhe_branch:
+        result['liuhe'] = {
+            'branch': liuhe_branch,
+            'zodiac': ZODIAC[liuhe_branch],
+            'kind': 'liuhe',
+        }
+    sanhe_branches = THREE_HARMONY_PARTNERS.get(year_branch, [])
+    result['sanhe'] = [
+        {'branch': b, 'zodiac': ZODIAC[b], 'kind': 'sanhe'}
+        for b in sanhe_branches
+    ]
+    return result
