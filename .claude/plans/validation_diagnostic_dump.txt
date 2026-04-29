@@ -1,0 +1,1502 @@
+Dumping 50 of 50 chart(s)
+
+==============================================================================
+CHART: roger  (canonical_anchor)
+  Pillars: 丁卯 戊申 戊午 庚申  DM=戊  gender=male  is_cong_ge=False
+  Citation: Project canonical reference chart
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 食傷旺
+  expected_yong_shen  : 火
+  expected_xi_shen    : 木
+  reasoning           : 戊土生於申月失令 食神當令 雙申金洩土且生水 庚金透干 食傷力強 取火印生身制食傷為用 喜木官殺通關 (印生身, 木破食傷之氣)
+
+V2 STRENGTH: classification=weak  score=39.0
+  factors: 得令=25  得地=4.4  得勢=9.6
+TEN GOD RAW: 正印=2, 正官=1, 比肩=3, 食神=3, 偏財=2, 劫財=1
+WEIGHTED CATEGORIES: 比劫=4.25, 食傷=6.5, 財星=1.7, 官殺=1.2, 印星=3.6
+  transparent counts: 比劫=1, 食傷=1, 印星=1
+  month 本氣 carriers: ['食傷']
+
+FLAG=OFF engine output:
+  dominant   : 食傷旺  vs expected=食傷旺  ✓
+  用神       : 火  vs expected=火  ✓
+  喜神       : 土  vs expected=木
+  忌仇閒     : taboo=木  enemy=水  idle=金
+FLAG=ON  engine output:
+  dominant   : 食傷旺  vs expected=食傷旺  ✓
+  用神       : 火  vs expected=火  ✓
+  喜神       : 土  vs expected=木
+  忌仇閒     : taboo=木  enemy=水  idle=金
+
+==============================================================================
+CHART: laopo  (canonical_anchor)
+  Pillars: 丙寅 辛丑 甲戌 壬申  DM=甲  gender=female  is_cong_ge=False
+  Citation: Project canonical reference chart (Phase 12 Fix 1a anchor)
+
+CORPUS EXPECTATION:
+  expected_dm_strength: very_weak
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 水
+  expected_xi_shen    : 木
+  reasoning           : 甲木生於丑月失令 辛金透干為正官 申金為七殺長生 戌中藏辛 全局土金圍剋 寅木無力 透干權重後官殺主導 取水印化煞生身為用 喜木比劫扶身
+
+V2 STRENGTH: classification=very_weak  score=20.6
+  factors: 得令=12  得地=2.7  得勢=5.9
+TEN GOD RAW: 食神=2, 比肩=1, 偏財=3, 正官=3, 正財=1, 正印=1, 傷官=1, 偏印=2, 偏官=1
+WEIGHTED CATEGORIES: 比劫=1.2, 食傷=2.85, 財星=5.45, 官殺=5.8, 印星=3.8
+  transparent counts: 食傷=1, 官殺=1, 印星=1
+  month 本氣 carriers: ['財星']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=官殺旺  ✗
+  用神       : 木  vs expected=水  ✗
+  喜神       : 水  vs expected=木
+  忌仇閒     : taboo=金  enemy=土  idle=火
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 水  vs expected=水  ✓
+  喜神       : 木  vs expected=木
+  忌仇閒     : taboo=金  enemy=土  idle=火
+
+==============================================================================
+CHART: anchor_he_canzheng_killing_seal  (canonical_anchor)
+  Pillars: 丙寅 戊戌 壬戌 辛丑  DM=壬  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論偏官》何參政命例 - 煞用印 煞印有情
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 金
+  expected_xi_shen    : 水
+  reasoning           : 壬水生戌月失令 雙戌透戊七殺 丙火生土助殺 全局土旺剋身 取辛金印化煞生身為用 即沈孝瞻所謂「煞用印 煞印有情」 喜水比劫扶身
+
+V2 STRENGTH: classification=very_weak  score=5.5
+  factors: 得令=0  得地=1.8  得勢=3.7
+TEN GOD RAW: 偏財=2, 食神=1, 偏官=4, 正印=4, 正財=2, 正官=1, 劫財=1
+WEIGHTED CATEGORIES: 比劫=0.7, 食傷=1.2, 財星=3.35, 官殺=9.5, 印星=4.35
+  transparent counts: 財星=1, 官殺=1, 印星=1
+  month 本氣 carriers: ['官殺']
+
+FLAG=OFF engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 金  vs expected=金  ✓
+  喜神       : 水  vs expected=水
+  忌仇閒     : taboo=土  enemy=火  idle=木
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 金  vs expected=金  ✓
+  喜神       : 水  vs expected=水
+  忌仇閒     : taboo=土  enemy=火  idle=木
+
+==============================================================================
+CHART: anchor_cong_cai_yiwuming  (canonical_anchor)
+  Pillars: 庚申 乙酉 丙申 己丑  DM=丙  gender=male  is_cong_ge=True
+  Citation: 《子平真詮·論雜格》從財格 (anonymous example)
+
+CORPUS EXPECTATION:
+  expected_dm_strength: very_weak
+  expected_dominant   : cong_overridden
+  expected_yong_shen  : 金
+  expected_xi_shen    : 土
+  reasoning           : 丙火生酉月絕地 全局金土無火根 乙木合庚化金不化木 從財格成立 用神順從財星 (金) 喜土食傷生財 真詮明列為從財格命例
+
+V2 STRENGTH: classification=very_weak  score=15.7
+  factors: 得令=12  得地=0.0  得勢=3.7
+TEN GOD RAW: 偏財=3, 偏官=2, 食神=2, 正印=1, 正財=2, 傷官=2, 正官=1
+WEIGHTED CATEGORIES: 食傷=4.25, 財星=8.15, 官殺=2.2, 印星=1.5
+  transparent counts: 食傷=1, 財星=1, 印星=1
+  month 本氣 carriers: ['財星']
+
+FLAG=OFF engine output:
+  dominant   : 財旺  vs expected=cong_overridden  ✗
+  用神       : 火  vs expected=金  ✗
+  喜神       : 木  vs expected=土
+  忌仇閒     : taboo=水  enemy=金  idle=土
+FLAG=ON  engine output:
+  dominant   : cong_overridden  vs expected=cong_overridden  ✓
+  用神       : 火  vs expected=金  ✗
+  喜神       : 木  vs expected=土
+  忌仇閒     : taboo=水  enemy=金  idle=土
+
+==============================================================================
+CHART: anchor_xue_xianggong_guansha_mixed  (canonical_anchor)
+  Pillars: 甲申 壬申 乙巳 戊寅  DM=乙  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論正官》薛相公命例 - 合煞留官
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 水
+  expected_xi_shen    : 木
+  reasoning           : 乙木生申月絕地 雙申金為官殺混雜 甲己合解但巳火洩身 取月干壬水印化殺生身為用 真詮明示合煞留官 印通關後喜木比劫扶身
+
+V2 STRENGTH: classification=very_weak  score=13.2
+  factors: 得令=0  得地=3.6  得勢=9.6
+TEN GOD RAW: 劫財=2, 正官=3, 正印=3, 正財=5, 傷官=2
+WEIGHTED CATEGORIES: 比劫=3.2, 食傷=2.5, 財星=3.35, 官殺=5.1, 印星=4.6
+  transparent counts: 比劫=1, 財星=1, 印星=1
+  month 本氣 carriers: ['官殺']
+
+FLAG=OFF engine output:
+  dominant   : 財旺  vs expected=官殺旺  ✗
+  用神       : 木  vs expected=水  ✗
+  喜神       : 水  vs expected=木
+  忌仇閒     : taboo=金  enemy=土  idle=火
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 水  vs expected=水  ✓
+  喜神       : 木  vs expected=木
+  忌仇閒     : taboo=金  enemy=土  idle=火
+
+==============================================================================
+CHART: ziping_jin_zhuangyuan  (ziping_zhenquan)
+  Pillars: 乙卯 丁亥 丁未 庚戌  DM=丁  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論正官》金狀元命例 - 並用財印
+
+CORPUS EXPECTATION:
+  expected_dm_strength: neutral
+  expected_dominant   : general
+  expected_yong_shen  : 土
+  expected_xi_shen    : 金
+  reasoning           : 丁火生亥月雖弱但年支卯 月支亥未三合木局 印旺扶身 庚金正財坐戌庫 取財格並用財印 沈孝瞻謂兼用財印 戊土食神洩秀為用
+
+V2 STRENGTH: classification=very_weak  score=12.9
+  factors: 得令=0  得地=3.3  得勢=9.6
+TEN GOD RAW: 偏印=3, 比肩=3, 正官=1, 正印=1, 食神=1, 正財=1, 傷官=1, 偏財=1
+WEIGHTED CATEGORIES: 比劫=4.25, 食傷=3.2, 財星=1.75, 官殺=3.0, 印星=4.45
+  transparent counts: 比劫=1, 財星=1, 印星=1
+  month 本氣 carriers: ['官殺']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=general  ✓
+  用神       : 火  vs expected=土  ✗
+  喜神       : 木  vs expected=金
+  忌仇閒     : taboo=水  enemy=金  idle=土
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=general  ✓
+  用神       : 木  vs expected=土  ✗
+  喜神       : 火  vs expected=金
+  忌仇閒     : taboo=水  enemy=金  idle=土
+
+==============================================================================
+CHART: ziping_xuan_canguo  (ziping_zhenquan)
+  Pillars: 己卯 辛未 壬寅 辛亥  DM=壬  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論正官》宣參國命例 - 遇傷而佩印
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 食傷旺
+  expected_yong_shen  : 金
+  expected_xi_shen    : 水
+  reasoning           : 壬水生未月失令 卯未半合木局 寅卯木傷官旺 取雙辛印制傷官 沈孝瞻謂正官遇傷而佩印 印化傷生身 喜水比劫扶身
+
+V2 STRENGTH: classification=very_weak  score=13.8
+  factors: 得令=0  得地=4.2  得勢=9.6
+TEN GOD RAW: 正官=2, 傷官=2, 正印=2, 正財=1, 食神=2, 偏財=1, 偏官=1, 比肩=1
+WEIGHTED CATEGORIES: 比劫=1.4, 食傷=4.2, 財星=1.9, 官殺=5.25, 印星=2.55
+  transparent counts: 官殺=1, 印星=2
+  month 本氣 carriers: ['官殺']
+
+FLAG=OFF engine output:
+  dominant   : 食傷旺  vs expected=食傷旺  ✓
+  用神       : 金  vs expected=金  ✓
+  喜神       : 水  vs expected=水
+  忌仇閒     : taboo=土  enemy=火  idle=木
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=食傷旺  ✗
+  用神       : 金  vs expected=金  ✓
+  喜神       : 水  vs expected=水
+  忌仇閒     : taboo=土  enemy=火  idle=木
+
+==============================================================================
+CHART: ziping_li_canzheng  (ziping_zhenquan)
+  Pillars: 庚寅 乙酉 甲子 戊辰  DM=甲  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論正官》李參政命例 - 合煞留官
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 水
+  expected_xi_shen    : 木
+  reasoning           : 甲木生酉月正官當令 庚金透干為七殺 乙庚合化金不化木 子水印通關 沈孝瞻謂合煞留官 取子水印化官生身 喜寅木比劫扶身
+
+V2 STRENGTH: classification=very_weak  score=12.6
+  factors: 得令=0  得地=4.5  得勢=8.1
+TEN GOD RAW: 偏官=1, 比肩=1, 食神=1, 偏財=3, 劫財=2, 正官=1, 正印=2
+WEIGHTED CATEGORIES: 比劫=4.9, 食傷=0.6, 財星=3.8, 官殺=3.9, 印星=2.15
+  transparent counts: 比劫=1, 財星=1, 官殺=1
+  month 本氣 carriers: ['官殺']
+
+FLAG=OFF engine output:
+  dominant   : 財旺  vs expected=官殺旺  ✗
+  用神       : 木  vs expected=水  ✗
+  喜神       : 水  vs expected=木
+  忌仇閒     : taboo=金  enemy=土  idle=火
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 水  vs expected=水  ✓
+  喜神       : 木  vs expected=木
+  忌仇閒     : taboo=金  enemy=土  idle=火
+
+==============================================================================
+CHART: ziping_fan_taifu  (ziping_zhenquan)
+  Pillars: 丁丑 壬寅 己巳 丙寅  DM=己  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論正官》范太傅命例 - 丙丁解傷
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 火
+  expected_xi_shen    : 土
+  reasoning           : 己土生寅月失令 雙寅木官殺旺 取丙丁火印化官生身 沈孝瞻謂丙丁解傷 即印星化官煞 壬水合丁去傷救官 喜土比劫扶身
+
+V2 STRENGTH: classification=very_weak  score=17.1
+  factors: 得令=0  得地=5.2  得勢=11.9
+TEN GOD RAW: 偏印=1, 比肩=1, 偏財=1, 食神=1, 正財=1, 正官=2, 正印=4, 劫財=3, 傷官=1
+WEIGHTED CATEGORIES: 比劫=2.5, 食傷=1.2, 財星=2.1, 官殺=4.4, 印星=6.5
+  transparent counts: 財星=1, 印星=2
+  month 本氣 carriers: ['官殺']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=官殺旺  ✗
+  用神       : 土  vs expected=火  ✗
+  喜神       : 火  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=金
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 火  vs expected=火  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=金
+
+==============================================================================
+CHART: ziping_ge_canzheng  (ziping_zhenquan)
+  Pillars: 壬申 壬子 戊午 乙卯  DM=戊  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論財》葛參政命例 - 財旺生官
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 財旺
+  expected_yong_shen  : 土
+  expected_xi_shen    : 火
+  reasoning           : 戊土生子月失令 雙壬透干申子半合水局 財旺極 卯木官殺洩身 午火印雖通根但被壬克 取土比劫敵財為用 沈孝瞻列為財旺生官格 弱身故須先取比劫制財 喜火印生身
+
+V2 STRENGTH: classification=very_weak  score=17.4
+  factors: 得令=12  得地=3.1  得勢=2.2
+TEN GOD RAW: 偏財=3, 食神=1, 比肩=1, 正財=1, 正印=1, 劫財=1, 正官=2
+WEIGHTED CATEGORIES: 比劫=1.2, 食傷=1.2, 財星=8.4, 官殺=3.5, 印星=1.8
+  transparent counts: 財星=2, 官殺=1
+  month 本氣 carriers: ['財星']
+
+FLAG=OFF engine output:
+  dominant   : 財旺  vs expected=財旺  ✓
+  用神       : 土  vs expected=土  ✓
+  喜神       : 火  vs expected=火
+  忌仇閒     : taboo=木  enemy=水  idle=金
+FLAG=ON  engine output:
+  dominant   : 財旺  vs expected=財旺  ✓
+  用神       : 土  vs expected=土  ✓
+  喜神       : 火  vs expected=火
+  忌仇閒     : taboo=木  enemy=水  idle=金
+
+==============================================================================
+CHART: ziping_yang_dailang  (ziping_zhenquan)
+  Pillars: 壬寅 壬寅 庚辰 辛巳  DM=庚  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論財》楊待郎命例 - 食神生財
+
+CORPUS EXPECTATION:
+  expected_dm_strength: neutral
+  expected_dominant   : general
+  expected_yong_shen  : 水
+  expected_xi_shen    : 木
+  reasoning           : 庚金生寅月失令 但辰中藏戊印生身 辛比劫助 巳火本氣官殺 雙壬食神透干洩秀生財 沈孝瞻謂食神生財 取壬水食神為用 喜寅木財星
+
+V2 STRENGTH: classification=very_weak  score=19.7
+  factors: 得令=12  得地=1.8  得勢=5.9
+TEN GOD RAW: 食神=2, 偏財=2, 偏官=3, 偏印=4, 正財=1, 傷官=1, 劫財=1, 比肩=1
+WEIGHTED CATEGORIES: 比劫=1.75, 食傷=2.85, 財星=5.1, 官殺=3.0, 印星=2.95
+  transparent counts: 比劫=1, 食傷=2
+  month 本氣 carriers: ['財星']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=general  ✓
+  用神       : 金  vs expected=水  ✗
+  喜神       : 土  vs expected=木
+  忌仇閒     : taboo=火  enemy=木  idle=水
+FLAG=ON  engine output:
+  dominant   : 財旺  vs expected=general  ✓
+  用神       : 金  vs expected=水  ✗
+  喜神       : 土  vs expected=木
+  忌仇閒     : taboo=火  enemy=木  idle=水
+
+==============================================================================
+CHART: ziping_zeng_canzheng  (ziping_zhenquan)
+  Pillars: 乙未 甲申 丙申 庚寅  DM=丙  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論財》曾參政命例 - 財格佩印
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 財旺
+  expected_yong_shen  : 木
+  expected_xi_shen    : 火
+  reasoning           : 丙火生申月失令 雙申金財旺 庚透干助財 取乙木甲木印生身為用 沈孝瞻謂財格佩印 喜寅中丙火比劫扶身 即弱身遇財重 須印比並用
+
+V2 STRENGTH: classification=very_weak  score=24.8
+  factors: 得令=12  得地=3.1  得勢=9.6
+TEN GOD RAW: 正印=2, 傷官=1, 劫財=1, 偏印=2, 偏財=3, 偏官=2, 食神=3, 比肩=1
+WEIGHTED CATEGORIES: 比劫=1.3, 食傷=2.5, 財星=6.9, 官殺=1.9, 印星=6.2
+  transparent counts: 財星=1, 印星=2
+  month 本氣 carriers: ['財星']
+
+FLAG=OFF engine output:
+  dominant   : 食傷旺  vs expected=財旺  ✗
+  用神       : 木  vs expected=木  ✓
+  喜神       : 火  vs expected=火
+  忌仇閒     : taboo=水  enemy=金  idle=土
+FLAG=ON  engine output:
+  dominant   : 財旺  vs expected=財旺  ✓
+  用神       : 火  vs expected=木  ✗
+  喜神       : 木  vs expected=火
+  忌仇閒     : taboo=水  enemy=金  idle=土
+
+==============================================================================
+CHART: ziping_wu_bangyan  (ziping_zhenquan)
+  Pillars: 庚戌 戊子 戊子 丙辰  DM=戊  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論食神》吳榜眼命例 - 食與印不相礙
+
+CORPUS EXPECTATION:
+  expected_dm_strength: neutral
+  expected_dominant   : general
+  expected_yong_shen  : 金
+  expected_xi_shen    : 水
+  reasoning           : 戊土生子月失令 但戊比劫透干 戌辰土根 中和略強 庚金食神洩秀 丙火印不礙食 沈孝瞻謂食與印不相礙 取庚金食神為用 喜子水財
+
+V2 STRENGTH: classification=weak  score=30.2
+  factors: 得令=12  得地=6.3  得勢=11.9
+TEN GOD RAW: 食神=1, 比肩=3, 傷官=1, 正印=1, 正財=3, 偏印=1, 正官=1
+WEIGHTED CATEGORIES: 比劫=5.6, 食傷=1.5, 財星=5.15, 官殺=0.7, 印星=1.35
+  transparent counts: 比劫=1, 食傷=1, 印星=1
+  month 本氣 carriers: ['財星']
+
+FLAG=OFF engine output:
+  dominant   : 財旺  vs expected=general  ✓
+  用神       : 土  vs expected=金  ✗
+  喜神       : 火  vs expected=水
+  忌仇閒     : taboo=木  enemy=水  idle=金
+FLAG=ON  engine output:
+  dominant   : 財旺  vs expected=general  ✓
+  用神       : 土  vs expected=金  ✗
+  喜神       : 火  vs expected=水
+  忌仇閒     : taboo=木  enemy=水  idle=金
+
+==============================================================================
+CHART: ziping_wu_xianggong_qu_zhi  (ziping_zhenquan)
+  Pillars: 癸亥 乙卯 乙未 壬午  DM=乙  gender=male  is_cong_ge=True
+  Citation: 《子平真詮·論雜格》吳相公命例 - 曲直仁壽格
+
+CORPUS EXPECTATION:
+  expected_dm_strength: very_strong
+  expected_dominant   : cong_overridden
+  expected_yong_shen  : 木
+  expected_xi_shen    : 火
+  reasoning           : 乙木生卯月旺極 亥卯未三合木局 雙水印生 全局木氣專一 沈孝瞻明列為曲直仁壽格 用神順從旺神 (木) 喜午火食傷洩秀
+
+V2 STRENGTH: classification=very_strong  score=78.3
+  factors: 得令=50  得地=12.8  得勢=15.6
+TEN GOD RAW: 偏印=1, 正印=2, 劫財=1, 比肩=3, 偏財=2, 食神=2
+WEIGHTED CATEGORIES: 比劫=7.05, 食傷=2.3, 財星=2.5, 印星=4.2
+  transparent counts: 比劫=1, 印星=2
+  month 本氣 carriers: ['比劫']
+
+FLAG=OFF engine output:
+  dominant   : 比劫旺  vs expected=cong_overridden  ✗
+  用神       : 金  vs expected=木  ✗
+  喜神       : 土  vs expected=火
+  忌仇閒     : taboo=木  enemy=水  idle=火
+FLAG=ON  engine output:
+  dominant   : cong_overridden  vs expected=cong_overridden  ✓
+  用神       : 土  vs expected=木  ✗
+  喜神       : 火  vs expected=火
+  忌仇閒     : taboo=木  enemy=水  idle=金
+
+==============================================================================
+CHART: ziping_zhang_canzheng  (ziping_zhenquan)
+  Pillars: 丙寅 戊戌 辛酉 戊子  DM=辛  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論印綬》張參政命例 - 印綬透官
+
+CORPUS EXPECTATION:
+  expected_dm_strength: strong
+  expected_dominant   : 印旺
+  expected_yong_shen  : 木
+  expected_xi_shen    : 水
+  reasoning           : 辛金生戌月有氣 雙戊印重 酉戌助身 印旺身強 取丙火官星制比劫之用 沈孝瞻謂印綬透官 寅中甲木財生官 喜子水食傷洩秀
+
+V2 STRENGTH: classification=strong  score=64.0
+  factors: 得令=40  得地=12.1  得勢=11.9
+TEN GOD RAW: 正官=2, 正財=1, 正印=4, 比肩=2, 偏官=1, 食神=1
+WEIGHTED CATEGORIES: 比劫=2.8, 食傷=1.4, 財星=1.2, 官殺=2.9, 印星=8.4
+  transparent counts: 官殺=1, 印星=2
+  month 本氣 carriers: ['印星']
+
+FLAG=OFF engine output:
+  dominant   : 印旺  vs expected=印旺  ✓
+  用神       : 木  vs expected=木  ✓
+  喜神       : 水  vs expected=水
+  忌仇閒     : taboo=金  enemy=土  idle=火
+FLAG=ON  engine output:
+  dominant   : 印旺  vs expected=印旺  ✓
+  用神       : 木  vs expected=木  ✓
+  喜神       : 水  vs expected=水
+  忌仇閒     : taboo=金  enemy=土  idle=火
+
+==============================================================================
+CHART: ziping_li_zhuangyuan  (ziping_zhenquan)
+  Pillars: 戊戌 乙卯 丙午 乙亥  DM=丙  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論印綬》李狀元命例 - 用傷食
+
+CORPUS EXPECTATION:
+  expected_dm_strength: strong
+  expected_dominant   : 印旺
+  expected_yong_shen  : 土
+  expected_xi_shen    : 金
+  reasoning           : 丙火生卯月得令 雙乙印透干 亥卯半合木局 印旺極 取戊土食神洩秀為用 沈孝瞻謂印綬用傷食 戌中藏辛財 喜金財制印
+
+V2 STRENGTH: classification=strong  score=58.6
+  factors: 得令=40  得地=6.7  得勢=11.9
+TEN GOD RAW: 食神=2, 正財=1, 劫財=2, 正印=3, 傷官=1, 偏官=1, 偏印=1
+WEIGHTED CATEGORIES: 比劫=2.1, 食傷=3.9, 財星=0.6, 官殺=1.4, 印星=8.8
+  transparent counts: 食傷=1, 印星=2
+  month 本氣 carriers: ['印星']
+
+FLAG=OFF engine output:
+  dominant   : 印旺  vs expected=印旺  ✓
+  用神       : 金  vs expected=土  ✗
+  喜神       : 土  vs expected=金
+  忌仇閒     : taboo=火  enemy=木  idle=水
+FLAG=ON  engine output:
+  dominant   : 印旺  vs expected=印旺  ✓
+  用神       : 金  vs expected=土  ✗
+  喜神       : 土  vs expected=金
+  忌仇閒     : taboo=火  enemy=木  idle=水
+
+==============================================================================
+CHART: ziping_ma_canzheng  (ziping_zhenquan)
+  Pillars: 壬寅 戊申 壬辰 壬寅  DM=壬  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論印綬》馬參政命例 - 身重印輕
+
+CORPUS EXPECTATION:
+  expected_dm_strength: strong
+  expected_dominant   : 比劫旺
+  expected_yong_shen  : 土
+  expected_xi_shen    : 木
+  reasoning           : 壬水生申月得令 三壬比劫透干 印旺身重 沈孝瞻謂身重印輕 取戊土七殺制比劫為用 寅木食傷洩秀生財 喜寅中甲木食傷
+
+V2 STRENGTH: classification=neutral  score=53.7
+  factors: 得令=40  得地=4.1  得勢=9.6
+TEN GOD RAW: 比肩=3, 食神=2, 偏財=2, 偏官=5, 偏印=1, 傷官=1, 劫財=1
+WEIGHTED CATEGORIES: 比劫=5.35, 食傷=3.5, 財星=1.3, 官殺=5.95, 印星=3.0
+  transparent counts: 比劫=2, 官殺=1
+  month 本氣 carriers: ['印星']
+
+FLAG=OFF engine output:
+  dominant   : 官殺旺  vs expected=比劫旺  ✗
+  用神       : 金  vs expected=土  ✗
+  喜神       : 水  vs expected=木
+  忌仇閒     : taboo=土  enemy=火  idle=木
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=比劫旺  ✗
+  用神       : 金  vs expected=土  ✗
+  喜神       : 水  vs expected=木
+  忌仇閒     : taboo=土  enemy=火  idle=木
+
+==============================================================================
+CHART: ziping_niu_jianbo  (ziping_zhenquan)
+  Pillars: 庚寅 乙酉 癸亥 丙辰  DM=癸  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論印綬》牛監薄命例 - 合財存食
+
+CORPUS EXPECTATION:
+  expected_dm_strength: strong
+  expected_dominant   : 印旺
+  expected_yong_shen  : 木
+  expected_xi_shen    : 火
+  reasoning           : 癸水生酉月印當令 庚金透干 亥水比劫 印重身強 寅木食傷透 乙庚合化金 沈孝瞻謂合財存食 取寅中甲木食傷洩秀為用 喜丙火財制印
+
+V2 STRENGTH: classification=strong  score=55.0
+  factors: 得令=40  得地=6.9  得勢=8.1
+TEN GOD RAW: 正印=1, 傷官=2, 正財=2, 正官=2, 食神=2, 偏印=1, 劫財=1, 比肩=1
+WEIGHTED CATEGORIES: 比劫=2.15, 食傷=5.8, 財星=2.7, 官殺=1.7, 印星=3.9
+  transparent counts: 食傷=1, 財星=1, 印星=1
+  month 本氣 carriers: ['印星']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=印旺  ✗
+  用神       : 火  vs expected=木  ✗
+  喜神       : 木  vs expected=火
+  忌仇閒     : taboo=水  enemy=金  idle=土
+FLAG=ON  engine output:
+  dominant   : 印旺  vs expected=印旺  ✓
+  用神       : 火  vs expected=木  ✗
+  喜神       : 木  vs expected=火
+  忌仇閒     : taboo=水  enemy=金  idle=土
+
+==============================================================================
+CHART: ziping_liang_chengxiang  (ziping_zhenquan)
+  Pillars: 丁未 癸卯 癸亥 癸丑  DM=癸  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論食神》梁丞相命例 - 食神生財
+
+CORPUS EXPECTATION:
+  expected_dm_strength: neutral
+  expected_dominant   : general
+  expected_yong_shen  : 木
+  expected_xi_shen    : 火
+  reasoning           : 癸水生卯月食神當令 三癸比劫扶身 亥卯未三合木局食神專旺 取卯木食神洩秀生財 沈孝瞻列為食神生財格 喜丁火財透干
+
+V2 STRENGTH: classification=neutral  score=42.7
+  factors: 得令=25  得地=8.1  得勢=9.6
+TEN GOD RAW: 偏財=2, 偏官=2, 食神=2, 比肩=3, 劫財=1, 傷官=1, 偏印=1
+WEIGHTED CATEGORIES: 比劫=7.6, 食傷=4.2, 財星=2.4, 官殺=2.6, 印星=0.35
+  transparent counts: 比劫=2, 財星=1
+  month 本氣 carriers: ['食傷']
+
+FLAG=OFF engine output:
+  dominant   : 食傷旺  vs expected=general  ✓
+  用神       : 金  vs expected=木  ✗
+  喜神       : 水  vs expected=火
+  忌仇閒     : taboo=土  enemy=火  idle=木
+FLAG=ON  engine output:
+  dominant   : 食傷旺  vs expected=general  ✓
+  用神       : 金  vs expected=木  ✗
+  喜神       : 水  vs expected=火
+  忌仇閒     : taboo=土  enemy=火  idle=木
+
+==============================================================================
+CHART: ziping_shen_lufen  (ziping_zhenquan)
+  Pillars: 丁亥 癸卯 癸卯 甲寅  DM=癸  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論食神》沈路分命例 - 藏食露傷
+
+CORPUS EXPECTATION:
+  expected_dm_strength: neutral
+  expected_dominant   : general
+  expected_yong_shen  : 木
+  expected_xi_shen    : 火
+  reasoning           : 癸水生卯月食神當令 亥水比劫 全局木氣旺 甲透傷官 卯藏食神 沈孝瞻謂藏食露傷 取甲木傷官洩秀生財 喜丁火財
+
+V2 STRENGTH: classification=weak  score=34.1
+  factors: 得令=25  得地=3.1  得勢=5.9
+TEN GOD RAW: 偏財=1, 劫財=1, 傷官=3, 比肩=1, 食神=2, 正財=1, 正官=1
+WEIGHTED CATEGORIES: 比劫=2.7, 食傷=8.9, 財星=1.6, 官殺=0.35
+  transparent counts: 比劫=1, 食傷=1, 財星=1
+  month 本氣 carriers: ['食傷']
+
+FLAG=OFF engine output:
+  dominant   : 食傷旺  vs expected=general  ✓
+  用神       : 金  vs expected=木  ✗
+  喜神       : 水  vs expected=火
+  忌仇閒     : taboo=土  enemy=火  idle=木
+FLAG=ON  engine output:
+  dominant   : 食傷旺  vs expected=general  ✓
+  用神       : 金  vs expected=木  ✗
+  喜神       : 水  vs expected=火
+  忌仇閒     : taboo=土  enemy=火  idle=木
+
+==============================================================================
+CHART: ziping_chang_guogong  (ziping_zhenquan)
+  Pillars: 辛卯 辛卯 癸酉 己未  DM=癸  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論食神》常國公命例 - 不用財就煞印
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 食傷旺
+  expected_yong_shen  : 金
+  expected_xi_shen    : 水
+  reasoning           : 癸水生卯月食神當令 雙卯木食傷洩身 但雙辛印酉金通根 沈孝瞻謂不用財就煞印 即取己土七殺生辛金印化食生身 用神為金印 喜水比劫
+
+V2 STRENGTH: classification=weak  score=34.6
+  factors: 得令=25  得地=0.0  得勢=9.6
+TEN GOD RAW: 偏印=3, 食神=3, 偏官=2, 偏財=1
+WEIGHTED CATEGORIES: 食傷=4.55, 財星=0.7, 官殺=3.5, 印星=6.6
+  transparent counts: 官殺=1, 印星=2
+  month 本氣 carriers: ['食傷']
+
+FLAG=OFF engine output:
+  dominant   : 食傷旺  vs expected=食傷旺  ✓
+  用神       : 金  vs expected=金  ✓
+  喜神       : 水  vs expected=水
+  忌仇閒     : taboo=土  enemy=火  idle=木
+FLAG=ON  engine output:
+  dominant   : 食傷旺  vs expected=食傷旺  ✓
+  用神       : 金  vs expected=金  ✓
+  喜神       : 水  vs expected=水
+  忌仇閒     : taboo=土  enemy=火  idle=木
+
+==============================================================================
+CHART: ziping_qin_longtu  (ziping_zhenquan)
+  Pillars: 己卯 丁丑 丙寅 庚寅  DM=丙  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論傷官》秦龍圖命例 - 財傷有情
+
+CORPUS EXPECTATION:
+  expected_dm_strength: neutral
+  expected_dominant   : general
+  expected_yong_shen  : 金
+  expected_xi_shen    : 土
+  reasoning           : 丙火生丑月失令 但雙寅卯印旺 丁火比劫助身 中和 己土傷官透干 庚金財透 沈孝瞻謂傷官生財 財傷有情 取庚金財為用 喜己土傷官生財
+
+V2 STRENGTH: classification=weak  score=39.9
+  factors: 得令=25  得地=4.5  得勢=10.4
+TEN GOD RAW: 傷官=2, 正印=1, 劫財=1, 正官=1, 正財=1, 偏印=2, 比肩=2, 食神=2, 偏財=1
+WEIGHTED CATEGORIES: 比劫=3.1, 食傷=5.6, 財星=1.55, 官殺=1.0, 印星=4.4
+  transparent counts: 比劫=1, 食傷=1, 財星=1
+  month 本氣 carriers: ['食傷']
+
+FLAG=OFF engine output:
+  dominant   : 食傷旺  vs expected=general  ✓
+  用神       : 木  vs expected=金  ✗
+  喜神       : 火  vs expected=土
+  忌仇閒     : taboo=水  enemy=金  idle=土
+FLAG=ON  engine output:
+  dominant   : 食傷旺  vs expected=general  ✓
+  用神       : 木  vs expected=金  ✗
+  喜神       : 火  vs expected=土
+  忌仇閒     : taboo=水  enemy=金  idle=土
+
+==============================================================================
+CHART: ziping_cai_guifei  (ziping_zhenquan)
+  Pillars: 己未 丙子 庚子 丙子  DM=庚  gender=female  is_cong_ge=False
+  Citation: 《子平真詮·論傷官》蔡貴妃命例 - 傷官用煞印
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 食傷旺
+  expected_yong_shen  : 土
+  expected_xi_shen    : 火
+  reasoning           : 庚金生子月失令 三子水傷官旺 雙丙官殺火透干 取己土印生身 沈孝瞻謂傷官用煞印 印化煞生身且制傷 喜火官殺生印
+
+V2 STRENGTH: classification=weak  score=30.9
+  factors: 得令=25  得地=0.0  得勢=5.9
+TEN GOD RAW: 正印=2, 正官=1, 正財=1, 偏官=2, 傷官=3
+WEIGHTED CATEGORIES: 食傷=6.2, 財星=0.3, 官殺=3.15, 印星=3.0
+  transparent counts: 官殺=2, 印星=1
+  month 本氣 carriers: ['食傷']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=食傷旺  ✗
+  用神       : 金  vs expected=土  ✗
+  喜神       : 土  vs expected=火
+  忌仇閒     : taboo=火  enemy=木  idle=水
+FLAG=ON  engine output:
+  dominant   : 食傷旺  vs expected=食傷旺  ✓
+  用神       : 土  vs expected=土  ✓
+  喜神       : 金  vs expected=火
+  忌仇閒     : taboo=火  enemy=木  idle=水
+
+==============================================================================
+CHART: ziping_jin_chengxiang  (ziping_zhenquan)
+  Pillars: 庚戌 戊子 癸酉 癸亥  DM=癸  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論祿格》金丞相命例 - 祿格用官 印護
+
+CORPUS EXPECTATION:
+  expected_dm_strength: strong
+  expected_dominant   : 比劫旺
+  expected_yong_shen  : 土
+  expected_xi_shen    : 金
+  reasoning           : 癸水生子月建祿 雙癸亥水比劫旺 庚酉印通根 身強印重 取戊土正官制比劫為用 沈孝瞻謂祿格用官 庚金印護衛官 喜金通關
+
+V2 STRENGTH: classification=very_strong  score=78.8
+  factors: 得令=50  得地=14.7  得勢=14.1
+TEN GOD RAW: 正印=1, 正官=2, 偏印=2, 偏財=1, 比肩=2, 劫財=1, 傷官=1
+WEIGHTED CATEGORIES: 比劫=6.5, 食傷=0.7, 財星=0.3, 官殺=4.2, 印星=3.3
+  transparent counts: 比劫=1, 官殺=1, 印星=1
+  month 本氣 carriers: ['比劫']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=比劫旺  ✗
+  用神       : 火  vs expected=土  ✗
+  喜神       : 木  vs expected=金
+  忌仇閒     : taboo=水  enemy=金  idle=土
+FLAG=ON  engine output:
+  dominant   : 比劫旺  vs expected=比劫旺  ✓
+  用神       : 土  vs expected=土  ✓
+  喜神       : 火  vs expected=金
+  忌仇閒     : taboo=水  enemy=金  idle=木
+
+==============================================================================
+CHART: ziping_li_zhifu  (ziping_zhenquan)
+  Pillars: 丁酉 丙午 丁巳 壬寅  DM=丁  gender=male  is_cong_ge=False
+  Citation: 《子平真詮·論祿格》李知府命例 - 祿格用官 財助
+
+CORPUS EXPECTATION:
+  expected_dm_strength: very_strong
+  expected_dominant   : 比劫旺
+  expected_yong_shen  : 水
+  expected_xi_shen    : 金
+  reasoning           : 丁火生午月建祿 巳午火比劫旺極 雙丁丙劫財透干 寅木印生火 取壬水正官制旺火 沈孝瞻謂祿格用官 酉金財生官 即財助官 喜金財通關
+
+V2 STRENGTH: classification=very_strong  score=78.6
+  factors: 得令=50  得地=14.5  得勢=14.1
+TEN GOD RAW: 比肩=2, 偏財=1, 劫財=3, 食神=1, 正財=1, 傷官=2, 正官=1, 正印=1
+WEIGHTED CATEGORIES: 比劫=10.3, 食傷=1.8, 財星=2.1, 官殺=1.05, 印星=1.4
+  transparent counts: 比劫=2, 官殺=1
+  month 本氣 carriers: ['比劫']
+
+FLAG=OFF engine output:
+  dominant   : 比劫旺  vs expected=比劫旺  ✓
+  用神       : 水  vs expected=水  ✓
+  喜神       : 金  vs expected=金
+  忌仇閒     : taboo=火  enemy=木  idle=土
+FLAG=ON  engine output:
+  dominant   : 比劫旺  vs expected=比劫旺  ✓
+  用神       : 水  vs expected=水  ✓
+  喜神       : 金  vs expected=金
+  忌仇閒     : taboo=火  enemy=木  idle=土
+
+==============================================================================
+CHART: dts_hezhi_rich1  (ditian_sui)
+  Pillars: 甲申 丙子 壬寅 辛亥  DM=壬  gender=male  is_cong_ge=False
+  Citation: 《滴天髓闡微·何知章》何知其人富 命造1 - 財氣通門戶
+
+CORPUS EXPECTATION:
+  expected_dm_strength: strong
+  expected_dominant   : 比劫旺
+  expected_yong_shen  : 火
+  expected_xi_shen    : 木
+  reasoning           : 壬水生子月建祿 申亥子水旺 辛印生身 身強印重 任鐵樵注財氣通門戶 取丙火財星為用 寅中甲木食傷生財 喜木食傷
+
+V2 STRENGTH: classification=very_strong  score=76.4
+  factors: 得令=50  得地=16.1  得勢=10.4
+TEN GOD RAW: 食神=3, 偏印=1, 比肩=2, 偏官=2, 偏財=2, 劫財=1, 正印=1
+WEIGHTED CATEGORIES: 比劫=5.0, 食傷=4.3, 財星=3.9, 官殺=0.75, 印星=2.25
+  transparent counts: 食傷=1, 財星=1, 印星=1
+  month 本氣 carriers: ['比劫']
+
+FLAG=OFF engine output:
+  dominant   : 比劫旺  vs expected=比劫旺  ✓
+  用神       : 土  vs expected=火  ✗
+  喜神       : 火  vs expected=木
+  忌仇閒     : taboo=水  enemy=金  idle=木
+FLAG=ON  engine output:
+  dominant   : 比劫旺  vs expected=比劫旺  ✓
+  用神       : 土  vs expected=火  ✗
+  喜神       : 火  vs expected=木
+  忌仇閒     : taboo=水  enemy=金  idle=木
+
+==============================================================================
+CHART: dts_hezhi_rich2  (ditian_sui)
+  Pillars: 壬申 丙午 癸亥 戊午  DM=癸  gender=male  is_cong_ge=False
+  Citation: 《滴天髓闡微·何知章》何知其人富 命造2 - 壬水可用
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 財旺
+  expected_yong_shen  : 水
+  expected_xi_shen    : 金
+  reasoning           : 癸水生午月失令 雙午火財旺 戊土合癸不化 取壬水比劫為用 申中庚金印生身 任鐵樵謂壬水可用 喜金印通關
+
+V2 STRENGTH: classification=weak  score=27.8
+  factors: 得令=12  得地=7.7  得勢=8.1
+TEN GOD RAW: 劫財=3, 正印=1, 正官=2, 正財=1, 偏財=2, 偏官=2, 傷官=1
+WEIGHTED CATEGORIES: 比劫=4.2, 食傷=0.9, 財星=5.9, 官殺=3.75, 印星=1.2
+  transparent counts: 比劫=1, 財星=1, 官殺=1
+  month 本氣 carriers: ['財星']
+
+FLAG=OFF engine output:
+  dominant   : 官殺旺  vs expected=財旺  ✗
+  用神       : 金  vs expected=水  ✗
+  喜神       : 水  vs expected=金
+  忌仇閒     : taboo=土  enemy=火  idle=木
+FLAG=ON  engine output:
+  dominant   : 財旺  vs expected=財旺  ✓
+  用神       : 水  vs expected=水  ✓
+  喜神       : 金  vs expected=金
+  忌仇閒     : taboo=土  enemy=火  idle=木
+
+==============================================================================
+CHART: dts_hezhi_noble1  (ditian_sui)
+  Pillars: 癸卯 癸亥 丁卯 辛亥  DM=丁  gender=male  is_cong_ge=False
+  Citation: 《滴天髓闡微·何知章》何知其人貴 命造 - 官星有理會 印局
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 木
+  expected_xi_shen    : 火
+  reasoning           : 丁火生亥月絕地 雙癸殺透干 雙亥水官殺旺 取雙卯木印化煞生身 任鐵樵注支拱印局 官星有理會 喜火比劫扶身
+
+V2 STRENGTH: classification=very_weak  score=4.4
+  factors: 得令=0  得地=0.0  得勢=4.4
+TEN GOD RAW: 偏官=2, 偏印=2, 正官=2, 正印=2, 偏財=1
+WEIGHTED CATEGORIES: 財星=1.05, 官殺=6.8, 印星=4.7
+  transparent counts: 財星=1, 官殺=2
+  month 本氣 carriers: ['官殺']
+
+FLAG=OFF engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 木  vs expected=木  ✓
+  喜神       : 火  vs expected=火
+  忌仇閒     : taboo=水  enemy=金  idle=土
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 木  vs expected=木  ✓
+  喜神       : 火  vs expected=火
+  忌仇閒     : taboo=水  enemy=金  idle=土
+
+==============================================================================
+CHART: dts_hezhi_noble2  (ditian_sui)
+  Pillars: 癸酉 丁巳 丙午 壬辰  DM=丙  gender=male  is_cong_ge=False
+  Citation: 《滴天髓闡微·何知章》何知其人貴 命造 - 官星既濟
+
+CORPUS EXPECTATION:
+  expected_dm_strength: strong
+  expected_dominant   : 比劫旺
+  expected_yong_shen  : 水
+  expected_xi_shen    : 金
+  reasoning           : 丙火生巳月建祿 午火比劫 丁透干助身 強身 取壬癸水官殺為用 任鐵樵注壬水助起官星 官星既濟 酉金財生官為喜
+
+V2 STRENGTH: classification=very_strong  score=70.7
+  factors: 得令=50  得地=12.6  得勢=8.1
+TEN GOD RAW: 正官=2, 正財=1, 劫財=2, 比肩=1, 偏財=1, 食神=2, 傷官=1, 偏官=1, 正印=1
+WEIGHTED CATEGORIES: 比劫=7.8, 食傷=2.8, 財星=2.2, 官殺=2.9, 印星=0.7
+  transparent counts: 比劫=1, 官殺=2
+  month 本氣 carriers: ['比劫']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=比劫旺  ✗
+  用神       : 金  vs expected=水  ✗
+  喜神       : 土  vs expected=金
+  忌仇閒     : taboo=火  enemy=木  idle=水
+FLAG=ON  engine output:
+  dominant   : 比劫旺  vs expected=比劫旺  ✓
+  用神       : 水  vs expected=水  ✓
+  喜神       : 金  vs expected=金
+  忌仇閒     : taboo=火  enemy=木  idle=土
+
+==============================================================================
+CHART: dts_hezhi_noble3  (ditian_sui)
+  Pillars: 甲午 丙寅 辛酉 己丑  DM=辛  gender=male  is_cong_ge=False
+  Citation: 《滴天髓闡微·何知章》何知其人貴 命造 - 財臨旺地 官遇長生
+
+CORPUS EXPECTATION:
+  expected_dm_strength: neutral
+  expected_dominant   : general
+  expected_yong_shen  : 水
+  expected_xi_shen    : 金
+  reasoning           : 辛金生寅月失令 但酉丑半合金局比劫 己土印生身 中和 寅午半合火局 丙火官殺透干 任鐵樵注財臨旺地官遇長生 取水食傷洩秀制官 喜金扶身
+
+V2 STRENGTH: classification=weak  score=29.7
+  factors: 得令=12  得地=9.6  得勢=8.1
+TEN GOD RAW: 正財=2, 偏官=1, 偏印=3, 正官=2, 正印=1, 比肩=2, 食神=1
+WEIGHTED CATEGORIES: 比劫=2.15, 食傷=0.7, 財星=4.8, 官殺=5.2, 印星=4.6
+  transparent counts: 財星=1, 官殺=1, 印星=1
+  month 本氣 carriers: ['財星']
+
+FLAG=OFF engine output:
+  dominant   : 官殺旺  vs expected=general  ✓
+  用神       : 土  vs expected=水  ✗
+  喜神       : 金  vs expected=金
+  忌仇閒     : taboo=火  enemy=木  idle=水
+FLAG=ON  engine output:
+  dominant   : 財旺  vs expected=general  ✓
+  用神       : 金  vs expected=水  ✗
+  喜神       : 土  vs expected=金
+  忌仇閒     : taboo=火  enemy=木  idle=水
+
+==============================================================================
+CHART: dts_hezhi_poor1  (ditian_sui)
+  Pillars: 壬子 戊申 戊戌 辛酉  DM=戊  gender=female  is_cong_ge=False
+  Citation: 《滴天髓闡微·何知章》何知其人貧 命造 - 財星反不真
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 食傷旺
+  expected_yong_shen  : 火
+  expected_xi_shen    : 土
+  reasoning           : 戊土生申月失令 申酉戌金食傷旺 壬水財透 子水合申生財 弱身遇食傷生財 任鐵樵注財星反不真 取火印制食傷生身為用 喜土比劫
+
+V2 STRENGTH: classification=weak  score=37.4
+  factors: 得令=25  得地=6.5  得勢=5.9
+TEN GOD RAW: 偏財=2, 正財=1, 比肩=3, 食神=1, 傷官=3, 正印=1
+WEIGHTED CATEGORIES: 比劫=5.3, 食傷=7.4, 財星=4.0, 印星=0.45
+  transparent counts: 比劫=1, 食傷=1, 財星=1
+  month 本氣 carriers: ['食傷']
+
+FLAG=OFF engine output:
+  dominant   : 食傷旺  vs expected=食傷旺  ✓
+  用神       : 火  vs expected=火  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=金
+FLAG=ON  engine output:
+  dominant   : 食傷旺  vs expected=食傷旺  ✓
+  用神       : 火  vs expected=火  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=金
+
+==============================================================================
+CHART: dts_hezhi_poor2  (ditian_sui)
+  Pillars: 癸卯 甲寅 丁巳 己酉  DM=丁  gender=male  is_cong_ge=False
+  Citation: 《滴天髓闡微·何知章》何知其人貧 命造 - 財不真 菁華被印窃
+
+CORPUS EXPECTATION:
+  expected_dm_strength: strong
+  expected_dominant   : 印旺
+  expected_yong_shen  : 金
+  expected_xi_shen    : 土
+  reasoning           : 丁火生寅月得印 卯寅木印旺 甲透干 巳火比劫助 身強印重 酉金財孤 任鐵樵注財被印窃 取己土食傷生財並洩印 用神為金財 喜土食傷
+
+V2 STRENGTH: classification=strong  score=58.9
+  factors: 得令=40  得地=8.5  得勢=10.4
+TEN GOD RAW: 偏官=1, 偏印=1, 正印=2, 劫財=2, 傷官=2, 正財=1, 食神=1, 偏財=1
+WEIGHTED CATEGORIES: 比劫=2.8, 食傷=2.0, 財星=2.3, 官殺=0.9, 印星=7.2
+  transparent counts: 食傷=1, 官殺=1, 印星=1
+  month 本氣 carriers: ['印星']
+
+FLAG=OFF engine output:
+  dominant   : 印旺  vs expected=印旺  ✓
+  用神       : 金  vs expected=金  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=火  enemy=木  idle=水
+FLAG=ON  engine output:
+  dominant   : 印旺  vs expected=印旺  ✓
+  用神       : 金  vs expected=金  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=火  enemy=木  idle=水
+
+==============================================================================
+CHART: dts_hezhi_long1  (ditian_sui)
+  Pillars: 甲子 丙寅 戊寅 己未  DM=戊  gender=male  is_cong_ge=False
+  Citation: 《滴天髓闡微·何知章》何知其人壽 命造 - 丙火為用
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 火
+  expected_xi_shen    : 土
+  reasoning           : 戊土生寅月失令 雙寅木殺旺 甲透干 取丙火印化殺生身 任鐵樵注丙火為用 財印相隔 喜未中己土比劫扶身
+
+V2 STRENGTH: classification=very_weak  score=15.2
+  factors: 得令=0  得地=5.5  得勢=9.6
+TEN GOD RAW: 偏官=3, 正財=1, 偏印=3, 比肩=2, 劫財=2, 正印=1, 正官=1
+WEIGHTED CATEGORIES: 比劫=4.45, 財星=1.2, 官殺=6.95, 印星=5.6
+  transparent counts: 比劫=1, 官殺=1, 印星=1
+  month 本氣 carriers: ['官殺']
+
+FLAG=OFF engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 火  vs expected=火  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=金
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 火  vs expected=火  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=金
+
+==============================================================================
+CHART: dts_hezhi_long2  (ditian_sui)
+  Pillars: 辛丑 癸巳 甲子 丙寅  DM=甲  gender=male  is_cong_ge=False
+  Citation: 《滴天髓闡微·何知章》何知其人壽 命造 - 五行元氣皆厚 官坐財地
+
+CORPUS EXPECTATION:
+  expected_dm_strength: neutral
+  expected_dominant   : general
+  expected_yong_shen  : 火
+  expected_xi_shen    : 土
+  reasoning           : 甲木生巳月失令 但寅祿子印雙根 中和 丑藏辛官 巳火食神透丙 任鐵樵注五行元氣皆厚官坐財地 取丙火食神洩秀生財為用 喜土財
+
+V2 STRENGTH: classification=weak  score=36.7
+  factors: 得令=25  得地=3.6  得勢=8.1
+TEN GOD RAW: 正官=2, 正財=1, 正印=3, 食神=3, 偏官=1, 偏財=2, 比肩=1
+WEIGHTED CATEGORIES: 比劫=1.4, 食傷=5.8, 財星=2.05, 官殺=2.8, 印星=5.4
+  transparent counts: 食傷=1, 官殺=1, 印星=1
+  month 本氣 carriers: ['食傷']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=general  ✓
+  用神       : 木  vs expected=火  ✗
+  喜神       : 水  vs expected=土
+  忌仇閒     : taboo=金  enemy=土  idle=火
+FLAG=ON  engine output:
+  dominant   : 食傷旺  vs expected=general  ✓
+  用神       : 水  vs expected=火  ✗
+  喜神       : 木  vs expected=土
+  忌仇閒     : taboo=金  enemy=土  idle=火
+
+==============================================================================
+CHART: dts_hezhi_long3  (ditian_sui)
+  Pillars: 己酉 乙亥 丙寅 戊子  DM=丙  gender=male  is_cong_ge=False
+  Citation: 《滴天髓闡微·何知章》何知其人壽 命造 - 元神皆厚
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 木
+  expected_xi_shen    : 火
+  reasoning           : 丙火生亥月絕地 子水殺透干 酉金財生水 取乙木印化煞生身為用 寅中甲木比劫扶身 任鐵樵注元神皆厚生化有情
+
+V2 STRENGTH: classification=very_weak  score=8.6
+  factors: 得令=0  得地=2.7  得勢=5.9
+TEN GOD RAW: 傷官=1, 正財=1, 正印=1, 偏官=1, 偏印=2, 比肩=1, 食神=2, 正官=1
+WEIGHTED CATEGORIES: 比劫=0.9, 食傷=3.1, 財星=1.2, 官殺=4.4, 印星=4.3
+  transparent counts: 食傷=2, 印星=1
+  month 本氣 carriers: ['官殺']
+
+FLAG=OFF engine output:
+  dominant   : 食傷旺  vs expected=官殺旺  ✗
+  用神       : 木  vs expected=木  ✓
+  喜神       : 火  vs expected=火
+  忌仇閒     : taboo=水  enemy=金  idle=土
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 木  vs expected=木  ✓
+  喜神       : 火  vs expected=火
+  忌仇閒     : taboo=水  enemy=金  idle=土
+
+==============================================================================
+CHART: dts_hezhi_long_ji_dm  (ditian_sui)
+  Pillars: 戊辰 庚申 己卯 戊辰  DM=己  gender=male  is_cong_ge=False
+  Citation: 《滴天髓闡微·何知章》何知其人壽 命造 - 土金傷官 正財歸庫
+
+CORPUS EXPECTATION:
+  expected_dm_strength: neutral
+  expected_dominant   : general
+  expected_yong_shen  : 金
+  expected_xi_shen    : 水
+  reasoning           : 己土生申月雖失令 但雙戊辰土比劫透根 中和略強 庚金傷官透 卯木殺孤 任鐵樵注土金傷官正財歸庫 取庚金傷官洩秀為用 喜水財
+
+V2 STRENGTH: classification=neutral  score=44.2
+  factors: 得令=25  得地=7.3  得勢=11.9
+TEN GOD RAW: 劫財=5, 偏官=3, 偏財=2, 傷官=2, 正財=1
+WEIGHTED CATEGORIES: 比劫=7.0, 食傷=6.0, 財星=1.65, 官殺=3.1
+  transparent counts: 比劫=2, 食傷=1
+  month 本氣 carriers: ['食傷']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=general  ✓
+  用神       : 土  vs expected=金  ✗
+  喜神       : 火  vs expected=水
+  忌仇閒     : taboo=木  enemy=水  idle=金
+FLAG=ON  engine output:
+  dominant   : 食傷旺  vs expected=general  ✓
+  用神       : 火  vs expected=金  ✗
+  喜神       : 土  vs expected=水
+  忌仇閒     : taboo=木  enemy=水  idle=金
+
+==============================================================================
+CHART: dts_hezhi_yao_pinwo  (ditian_sui)
+  Pillars: 辛丑 癸巳 丙子 丁酉  DM=丙  gender=female  is_cong_ge=False
+  Citation: 《滴天髓闡微·小兒章》命造 - 財多身弱兼之官星又旺
+
+CORPUS EXPECTATION:
+  expected_dm_strength: very_weak
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 木
+  expected_xi_shen    : 火
+  reasoning           : 丙火生巳月建祿但時辰子水殺透癸 申酉丑金財旺 全局財官旺極而身根受傷 任鐵樵注日主虛弱極矣 取木印化煞生身為用 喜丁火比劫扶身 古例最終夭亡因運程未至
+
+V2 STRENGTH: classification=strong  score=62.2
+  factors: 得令=50  得地=6.3  得勢=5.9
+TEN GOD RAW: 正財=3, 傷官=1, 正官=3, 比肩=1, 偏財=1, 食神=1, 劫財=1
+WEIGHTED CATEGORIES: 比劫=4.05, 食傷=1.7, 財星=4.5, 官殺=5.4
+  transparent counts: 比劫=1, 財星=1, 官殺=1
+  month 本氣 carriers: ['比劫']
+
+FLAG=OFF engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 土  vs expected=木  ✗
+  喜神       : 金  vs expected=火
+  忌仇閒     : taboo=火  enemy=木  idle=水
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 土  vs expected=木  ✗
+  喜神       : 金  vs expected=火
+  忌仇閒     : taboo=火  enemy=木  idle=水
+
+==============================================================================
+CHART: qiongtong_jia_xiaomu_one_qi  (qiongtong_baojian)
+  Pillars: 甲辰 甲戌 甲辰 甲戌  DM=甲  gender=female  is_cong_ge=False
+  Citation: 《窮通寶鑑·三夏甲木》天元一氣 - 身伴明君
+
+CORPUS EXPECTATION:
+  expected_dm_strength: neutral
+  expected_dominant   : general
+  expected_yong_shen  : 火
+  expected_xi_shen    : 金
+  reasoning           : 甲木生戌月秋根淺 但四甲透干 辰戌沖開土庫 中和 窮通寶鑑謂天元一氣 富貴壽考 一才一用 取火食傷洩秀為用 喜金官殺修剪
+
+V2 STRENGTH: classification=weak  score=27.2
+  factors: 得令=12  得地=4.1  得勢=11.1
+TEN GOD RAW: 比肩=3, 偏財=4, 劫財=2, 正印=2, 正官=2, 傷官=2
+WEIGHTED CATEGORIES: 比劫=4.95, 食傷=0.85, 財星=7.4, 官殺=1.7, 印星=0.75
+  transparent counts: 比劫=3
+  month 本氣 carriers: ['財星']
+
+FLAG=OFF engine output:
+  dominant   : 財旺  vs expected=general  ✓
+  用神       : 木  vs expected=火  ✗
+  喜神       : 水  vs expected=金
+  忌仇閒     : taboo=金  enemy=土  idle=火
+FLAG=ON  engine output:
+  dominant   : 財旺  vs expected=general  ✓
+  用神       : 木  vs expected=火  ✗
+  喜神       : 水  vs expected=金
+  忌仇閒     : taboo=金  enemy=土  idle=火
+
+==============================================================================
+CHART: qiongtong_jia_chunmu_jinshi  (qiongtong_baojian)
+  Pillars: 庚申 戊寅 甲寅 丙寅  DM=甲  gender=female  is_cong_ge=False
+  Citation: 《窮通寶鑑·三春甲木》一行金水運 發進士
+
+CORPUS EXPECTATION:
+  expected_dm_strength: strong
+  expected_dominant   : 比劫旺
+  expected_yong_shen  : 金
+  expected_xi_shen    : 土
+  reasoning           : 甲木生寅月建祿 三寅比劫透干 身強 庚金七殺得申祿 戊土財透 窮通寶鑑謂金水運發進士 取庚金七殺修剪比劫為用 喜戊土財生官殺
+
+V2 STRENGTH: classification=very_strong  score=72.0
+  factors: 得令=50  得地=15.3  得勢=6.7
+TEN GOD RAW: 偏官=2, 偏印=1, 偏財=5, 比肩=3, 食神=4
+WEIGHTED CATEGORIES: 比劫=6.2, 食傷=4.7, 財星=4.1, 官殺=3.0, 印星=0.6
+  transparent counts: 食傷=1, 財星=1, 官殺=1
+  month 本氣 carriers: ['比劫']
+
+FLAG=OFF engine output:
+  dominant   : 比劫旺  vs expected=比劫旺  ✓
+  用神       : 金  vs expected=金  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=火
+FLAG=ON  engine output:
+  dominant   : 比劫旺  vs expected=比劫旺  ✓
+  用神       : 金  vs expected=金  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=火
+
+==============================================================================
+CHART: qiongtong_bing_winter_needs_jia  (qiongtong_baojian)
+  Pillars: 戊子 甲子 丙子 戊子  DM=丙  gender=female  is_cong_ge=False
+  Citation: 《窮通寶鑑·三冬丙火》冬丙必用甲木 寒木向陽
+
+CORPUS EXPECTATION:
+  expected_dm_strength: very_weak
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 木
+  expected_xi_shen    : 火
+  reasoning           : 丙火生子月絕地 四子水官殺旺極 雙戊食神洩身 寒局急 窮通寶鑑謂冬丙必用甲木印 取甲木印化殺生身且解寒 喜火比劫扶身
+
+V2 STRENGTH: classification=very_weak  score=3.7
+  factors: 得令=0  得地=0.0  得勢=3.7
+TEN GOD RAW: 食神=2, 正官=4, 偏印=1
+WEIGHTED CATEGORIES: 食傷=1.95, 官殺=7.4, 印星=1.5
+  transparent counts: 食傷=2, 印星=1
+  month 本氣 carriers: ['官殺']
+
+FLAG=OFF engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 木  vs expected=木  ✓
+  喜神       : 火  vs expected=火
+  忌仇閒     : taboo=水  enemy=金  idle=土
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 木  vs expected=木  ✓
+  喜神       : 火  vs expected=火
+  忌仇閒     : taboo=水  enemy=金  idle=土
+
+==============================================================================
+CHART: qiongtong_ren_summer_needs_geng  (qiongtong_baojian)
+  Pillars: 丙午 甲午 壬午 辛丑  DM=壬  gender=female  is_cong_ge=False
+  Citation: 《窮通寶鑑·三夏壬水》夏壬用庚辛 化炎為清
+
+CORPUS EXPECTATION:
+  expected_dm_strength: very_weak
+  expected_dominant   : 財旺
+  expected_yong_shen  : 金
+  expected_xi_shen    : 土
+  reasoning           : 壬水生午月絕地 三午火財旺極 丙透干助財 弱身遇財重 窮通寶鑑謂夏壬用庚辛印 取辛金印生身且制傷 喜丑中己土食傷生印
+
+V2 STRENGTH: classification=very_weak  score=17.5
+  factors: 得令=12  得地=1.8  得勢=3.7
+TEN GOD RAW: 偏財=1, 正財=3, 正官=4, 食神=1, 正印=2, 劫財=1
+WEIGHTED CATEGORIES: 比劫=0.7, 食傷=1.5, 財星=6.9, 官殺=3.9, 印星=2.1
+  transparent counts: 食傷=1, 財星=1, 印星=1
+  month 本氣 carriers: ['財星']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=財旺  ✗
+  用神       : 水  vs expected=金  ✗
+  喜神       : 金  vs expected=土
+  忌仇閒     : taboo=土  enemy=火  idle=木
+FLAG=ON  engine output:
+  dominant   : 財旺  vs expected=財旺  ✓
+  用神       : 水  vs expected=金  ✗
+  喜神       : 金  vs expected=土
+  忌仇閒     : taboo=土  enemy=火  idle=木
+
+==============================================================================
+CHART: qiongtong_ji_chunyi_needs_bing  (qiongtong_baojian)
+  Pillars: 甲寅 丁卯 己丑 丙寅  DM=己  gender=female  is_cong_ge=False
+  Citation: 《窮通寶鑑·三春己土》春土用丙 暖土生機
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 火
+  expected_xi_shen    : 土
+  reasoning           : 己土生卯月失令 雙寅卯木殺旺 甲透干 寒土極弱 窮通寶鑑謂春土用丙 取丙丁火印化殺生身且暖局 喜丑中戊土比劫扶身
+
+V2 STRENGTH: classification=very_weak  score=16.1
+  factors: 得令=0  得地=6.5  得勢=9.6
+TEN GOD RAW: 正官=3, 正印=3, 劫財=2, 偏印=1, 偏官=1, 比肩=1, 偏財=1, 食神=1
+WEIGHTED CATEGORIES: 比劫=2.45, 食傷=0.45, 財星=0.9, 官殺=7.4, 印星=4.9
+  transparent counts: 官殺=1, 印星=2
+  month 本氣 carriers: ['官殺']
+
+FLAG=OFF engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 火  vs expected=火  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=金
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 火  vs expected=火  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=金
+
+==============================================================================
+CHART: edge_tied_count_weighted_winner  (edge_case)
+  Pillars: 甲寅 乙亥 戊午 丁巳  DM=戊  gender=female  is_cong_ge=False
+  Citation: 
+
+CORPUS EXPECTATION:
+  expected_dm_strength: neutral
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 火
+  expected_xi_shen    : 土
+  reasoning           : 戊土生亥月失令 甲乙木官殺透干雙寅亥木旺 但巳午丁火印通根透干 raw count: 木官殺=4 火印=4 (tied) 透干權重: 甲乙官殺3+3=6 vs 丁火印3 → 官殺主導 取火印化殺生身為用 喜土比劫
+
+V2 STRENGTH: classification=very_weak  score=23.9
+  factors: 得令=12  得地=3.8  得勢=8.1
+TEN GOD RAW: 偏官=3, 偏印=2, 比肩=2, 正官=1, 偏財=1, 正印=2, 劫財=1, 食神=1
+WEIGHTED CATEGORIES: 比劫=1.55, 食傷=0.7, 財星=3.0, 官殺=5.5, 印星=5.9
+  transparent counts: 官殺=2, 印星=1
+  month 本氣 carriers: ['財星']
+
+FLAG=OFF engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 火  vs expected=火  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=金
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 火  vs expected=火  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=金
+
+==============================================================================
+CHART: edge_cong_sha_boundary  (edge_case)
+  Pillars: 辛酉 丁酉 辛酉 戊戌  DM=辛  gender=female  is_cong_ge=False
+  Citation: 
+
+CORPUS EXPECTATION:
+  expected_dm_strength: very_strong
+  expected_dominant   : 比劫旺
+  expected_yong_shen  : 水
+  expected_xi_shen    : 木
+  reasoning           : 辛金生酉月建祿 雙辛三酉戌金比劫旺極 戊土印生 但丁火七殺透干通根戌中藏丁 不從 取水食傷洩秀為用 (亦可制丁) 喜木財通關 從旺boundary但丁火破局故不成從
+
+V2 STRENGTH: classification=very_strong  score=92.1
+  factors: 得令=50  得地=25.8  得勢=16.3
+TEN GOD RAW: 比肩=5, 偏官=2, 正印=2
+WEIGHTED CATEGORIES: 比劫=8.5, 官殺=2.85, 印星=3.5
+  transparent counts: 比劫=1, 官殺=1, 印星=1
+  month 本氣 carriers: ['比劫']
+
+FLAG=OFF engine output:
+  dominant   : 比劫旺  vs expected=比劫旺  ✓
+  用神       : 火  vs expected=水  ✗
+  喜神       : 木  vs expected=木
+  忌仇閒     : taboo=金  enemy=土  idle=水
+FLAG=ON  engine output:
+  dominant   : 比劫旺  vs expected=比劫旺  ✓
+  用神       : 火  vs expected=水  ✗
+  喜神       : 木  vs expected=木
+  忌仇閒     : taboo=金  enemy=土  idle=水
+
+==============================================================================
+CHART: edge_guansha_mixed_boundary  (edge_case)
+  Pillars: 甲子 庚午 甲申 辛未  DM=甲  gender=female  is_cong_ge=False
+  Citation: 
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 官殺旺
+  expected_yong_shen  : 水
+  expected_xi_shen    : 木
+  reasoning           : 甲木生午月失令 庚透干七殺 辛時干正官 申金祿支強 官殺混雜邊界 (庚比辛重) 子水印通根月支洩官殺生身 取子水印化殺生身為用 喜甲寅木比劫
+
+V2 STRENGTH: classification=weak  score=31.5
+  factors: 得令=25  得地=0.6  得勢=5.9
+TEN GOD RAW: 比肩=1, 正印=1, 偏官=2, 傷官=2, 正財=2, 偏印=1, 偏財=1, 正官=1, 劫財=1
+WEIGHTED CATEGORIES: 比劫=1.25, 食傷=3.7, 財星=2.85, 官殺=5.85, 印星=2.1
+  transparent counts: 比劫=1, 官殺=2
+  month 本氣 carriers: ['食傷']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=官殺旺  ✗
+  用神       : 木  vs expected=水  ✗
+  喜神       : 水  vs expected=木
+  忌仇閒     : taboo=金  enemy=土  idle=火
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=官殺旺  ✓
+  用神       : 水  vs expected=水  ✓
+  喜神       : 木  vs expected=木
+  忌仇閒     : taboo=金  enemy=土  idle=火
+
+==============================================================================
+CHART: edge_cai_surround_weak_jia  (edge_case)
+  Pillars: 戊辰 戊午 甲子 戊辰  DM=甲  gender=male  is_cong_ge=False
+  Citation: 
+
+CORPUS EXPECTATION:
+  expected_dm_strength: weak
+  expected_dominant   : 財旺
+  expected_yong_shen  : 木
+  expected_xi_shen    : 水
+  reasoning           : 甲木生午月傷官 三戊兩辰財透干 雖子水印支根但火洩 弱身遇財重圍 取木比劫敵財為用 喜子水印生身 病藥取用法: 財旺弱身先取比劫
+
+V2 STRENGTH: classification=weak  score=30.4
+  factors: 得令=25  得地=3.1  得勢=2.2
+TEN GOD RAW: 偏財=5, 劫財=2, 正印=3, 傷官=1, 正財=1
+WEIGHTED CATEGORIES: 比劫=1.3, 食傷=3.0, 財星=10.5, 印星=2.45
+  transparent counts: 財星=3
+  month 本氣 carriers: ['食傷']
+
+FLAG=OFF engine output:
+  dominant   : 財旺  vs expected=財旺  ✓
+  用神       : 木  vs expected=木  ✓
+  喜神       : 水  vs expected=水
+  忌仇閒     : taboo=金  enemy=土  idle=火
+FLAG=ON  engine output:
+  dominant   : 財旺  vs expected=財旺  ✓
+  用神       : 木  vs expected=木  ✓
+  喜神       : 水  vs expected=水
+  忌仇閒     : taboo=金  enemy=土  idle=火
+
+==============================================================================
+CHART: edge_yin_heavy_strong_yi  (edge_case)
+  Pillars: 癸卯 甲子 乙卯 壬午  DM=乙  gender=female  is_cong_ge=False
+  Citation: 
+
+CORPUS EXPECTATION:
+  expected_dm_strength: strong
+  expected_dominant   : 印旺
+  expected_yong_shen  : 土
+  expected_xi_shen    : 火
+  reasoning           : 乙木生子月印當令 癸壬透干 卯木比劫雙根 印旺身強 午火食神透不出 取土財制印為用 喜午中丁火食傷洩秀生財
+
+V2 STRENGTH: classification=very_strong  score=71.3
+  factors: 得令=40  得地=13.5  得勢=17.8
+TEN GOD RAW: 偏印=2, 比肩=2, 劫財=1, 正印=1, 食神=1, 偏財=1
+WEIGHTED CATEGORIES: 比劫=4.5, 食傷=1.4, 財星=0.7, 印星=5.85
+  transparent counts: 比劫=1, 印星=2
+  month 本氣 carriers: ['印星']
+
+FLAG=OFF engine output:
+  dominant   : general  vs expected=印旺  ✗
+  用神       : 土  vs expected=土  ✓
+  喜神       : 火  vs expected=火
+  忌仇閒     : taboo=木  enemy=水  idle=金
+FLAG=ON  engine output:
+  dominant   : 印旺  vs expected=印旺  ✓
+  用神       : 土  vs expected=土  ✓
+  喜神       : 火  vs expected=火
+  忌仇閒     : taboo=木  enemy=水  idle=金
+
+==============================================================================
+CHART: edge_shishang_strong_jia  (edge_case)
+  Pillars: 丙寅 甲午 甲寅 丁卯  DM=甲  gender=female  is_cong_ge=False
+  Citation: 
+
+CORPUS EXPECTATION:
+  expected_dm_strength: strong
+  expected_dominant   : 比劫旺
+  expected_yong_shen  : 土
+  expected_xi_shen    : 金
+  reasoning           : 甲木生午月失令但雙寅卯比劫透甲 旺強 丙丁食傷透干洩秀 寅午半合食傷局 食傷洩身強旺勢 取土財為用 (洩食傷生官) 喜金官殺修剪比劫
+
+V2 STRENGTH: classification=neutral  score=49.5
+  factors: 得令=25  得地=14.1  得勢=10.4
+TEN GOD RAW: 食神=3, 比肩=3, 偏財=2, 傷官=2, 正財=1, 劫財=1
+WEIGHTED CATEGORIES: 比劫=7.4, 食傷=8.4, 財星=1.75
+  transparent counts: 比劫=1, 食傷=2
+  month 本氣 carriers: ['食傷']
+
+FLAG=OFF engine output:
+  dominant   : 食傷旺  vs expected=比劫旺  ✗
+  用神       : 水  vs expected=土  ✗
+  喜神       : 木  vs expected=金
+  忌仇閒     : taboo=金  enemy=土  idle=火
+FLAG=ON  engine output:
+  dominant   : 食傷旺  vs expected=比劫旺  ✗
+  用神       : 水  vs expected=土  ✗
+  喜神       : 木  vs expected=金
+  忌仇閒     : taboo=金  enemy=土  idle=火
+
+==============================================================================
+CHART: edge_bijie_strong_jia  (edge_case)
+  Pillars: 甲寅 丁卯 甲寅 乙亥  DM=甲  gender=male  is_cong_ge=False
+  Citation: 
+
+CORPUS EXPECTATION:
+  expected_dm_strength: very_strong
+  expected_dominant   : 比劫旺
+  expected_yong_shen  : 金
+  expected_xi_shen    : 土
+  reasoning           : 甲木生卯月旺極 雙甲乙比劫透干 寅亥合木 全局比劫旺 丁火傷官孤透 取金官殺修剪比劫為用 喜土財生官殺 病藥取用法: 比劫旺強身先取官殺
+
+V2 STRENGTH: classification=very_strong  score=86.7
+  factors: 得令=50  得地=20.4  得勢=16.3
+TEN GOD RAW: 比肩=4, 食神=2, 偏財=2, 傷官=1, 劫財=2, 偏印=1
+WEIGHTED CATEGORIES: 比劫=10.6, 食傷=3.0, 財星=0.75, 印星=1.4
+  transparent counts: 比劫=2, 食傷=1
+  month 本氣 carriers: ['比劫']
+
+FLAG=OFF engine output:
+  dominant   : 比劫旺  vs expected=比劫旺  ✓
+  用神       : 金  vs expected=金  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=火
+FLAG=ON  engine output:
+  dominant   : 比劫旺  vs expected=比劫旺  ✓
+  用神       : 金  vs expected=金  ✓
+  喜神       : 土  vs expected=土
+  忌仇閒     : taboo=木  enemy=水  idle=火
+
+==============================================================================
+CHART: edge_neutral_mild_imbalance  (edge_case)
+  Pillars: 丙寅 辛卯 庚午 戊寅  DM=庚  gender=female  is_cong_ge=False
+  Citation: 
+
+CORPUS EXPECTATION:
+  expected_dm_strength: neutral
+  expected_dominant   : general
+  expected_yong_shen  : 土
+  expected_xi_shen    : 金
+  reasoning           : 庚金生卯月絕地 但戊土印透干 辛比劫扶身 中和略偏弱 丙火殺透干通寅午半合 mild 官殺壓力 取戊土印化殺生身為用 喜辛金比劫扶身 病藥取用法: neutral身輕度偏弱適用general規則(用神=印 喜神=比劫) but seasonal 火重 故印優先
+
+V2 STRENGTH: classification=very_weak  score=19.4
+  factors: 得令=12  得地=0.0  得勢=7.4
+TEN GOD RAW: 偏官=3, 偏財=2, 偏印=3, 劫財=1, 正財=1, 正官=1, 正印=1
+WEIGHTED CATEGORIES: 比劫=1.5, 財星=5.6, 官殺=4.9, 印星=3.3
+  transparent counts: 比劫=1, 官殺=1, 印星=1
+  month 本氣 carriers: ['財星']
+
+FLAG=OFF engine output:
+  dominant   : 官殺旺  vs expected=general  ✓
+  用神       : 土  vs expected=土  ✓
+  喜神       : 金  vs expected=金
+  忌仇閒     : taboo=火  enemy=木  idle=水
+FLAG=ON  engine output:
+  dominant   : 官殺旺  vs expected=general  ✓
+  用神       : 土  vs expected=土  ✓
+  喜神       : 金  vs expected=金
+  忌仇閒     : taboo=火  enemy=木  idle=水
+
