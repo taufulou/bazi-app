@@ -46,6 +46,12 @@ from .constants import (
     PATTERN_2B_DAMPENER_CAP,
     PATTERN_2B_FLAT_SURROUND_PENALTY,
     PATTERN_2B_DELING_FLOOR,
+    # Phase 12d Pattern 3a constants
+    PATTERN_3A_V2_FLOOR,
+    PATTERN_3A_DOMINANT_PCT_FLOOR,
+    PATTERN_3A_YIN_WEIGHT_THRESHOLD,
+    PATTERN_3A_BREAKER_STRONG_ROOT,
+    YI_XING_DE_QI_SUB_NAMES,
 )
 from .life_stages import get_life_stage
 from .stem_combinations import (
@@ -159,6 +165,11 @@ _PATTERN_2B_SURROUND_DAMPENER: bool = os.environ.get(
 
 _PATTERN_3B_HUAQI_SUPPRESSION: bool = os.environ.get(
     'PHASE_12D_PATTERN_3B_HUAQI_SUPPRESSION', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
+# Pattern 3a is HIGHEST risk — ship FLAG-OFF default.
+_PATTERN_3A_CONG_QIANG_DETECTOR: bool = os.environ.get(
+    'PHASE_12D_PATTERN_3A_CONG_QIANG_DETECTOR', '0'
 ).lower() in ('1', 'true', 'yes', 'on')
 
 
@@ -591,6 +602,119 @@ def check_cong_ge(
         }
 
     return None
+
+
+# ============================================================
+# Phase 12d Pattern 3a — 從強 / 從旺 / 一行得氣 detector
+# ============================================================
+
+def check_cong_qiang_or_wang(
+    pillars: Dict,
+    day_master_stem: str,
+    strength_v2: Dict,
+    weighted_categories: Dict[str, float],
+    weighted_transparent: Dict[str, int],
+) -> Optional[Dict]:
+    """
+    Phase 12d Pattern 3a: detect 從強 / 從旺 / 一行得氣 patterns.
+
+    Distinct from `check_cong_ge` (which handles 從弱 family — 從財/官/兒/勢).
+    Use case: charts like `ziping_wu_xianggong_qu_zhi` (癸亥 乙卯 乙未 壬午 =
+    曲直格) where DM is overwhelmingly supported and follows 比劫+印 trend.
+
+    Triggers (ALL must hold):
+      (i)   V2 score ≥ PATTERN_3A_V2_FLOOR (70)
+      (ii)  (比劫+印) weighted / total weighted ≥ 70%
+      (iii) No 官殺 透干 with weighted ≥ PATTERN_3A_BREAKER_STRONG_ROOT (3.0)
+      (iv)  For 從旺/一氣 sub-types: no 財 透干 with weighted ≥ 3.0
+
+    Sub-type:
+      - 印 weighted ≥ 4.0 → 從強格 (用=DM元素, 喜=印)
+      - else → 從旺/一行得氣 (用=DM元素, 喜=食傷); name from
+        YI_XING_DE_QI_SUB_NAMES (曲直/炎上/稼穡/從革/潤下).
+
+    Returns: dict with all 5 effective gods populated (S6.2/S7.6 N2 fix
+    invariant: usefulGod ≠ favorableGod ≠ idleGod ≠ tabooGod ≠ enemyGod).
+    Marker `dmAsYongShen=True` distinguishes from 從弱 family.
+
+    Source: 《滴天髓·形象》, 《滴天髓·順反》, Phase A doctrine verification.
+    """
+    if strength_v2['score'] < PATTERN_3A_V2_FLOOR:
+        return None
+
+    bijie = weighted_categories.get('比劫', 0.0)
+    yin = weighted_categories.get('印星', 0.0)
+    cai = weighted_categories.get('財星', 0.0)
+    guan = weighted_categories.get('官殺', 0.0)
+    shishang = weighted_categories.get('食傷', 0.0)
+    total = bijie + yin + cai + guan + shishang
+    if total == 0:
+        return None
+
+    combined_pct = (bijie + yin) / total * 100
+    if combined_pct < PATTERN_3A_DOMINANT_PCT_FLOOR:
+        return None
+
+    # Breaker check: 官殺 透干 強根 → chart converts to 殺印相生 normal格
+    if (weighted_transparent.get('官殺', 0) >= 1
+        and guan >= PATTERN_3A_BREAKER_STRONG_ROOT):
+        return None
+
+    dm_element = STEM_ELEMENT[day_master_stem]
+    producing = ELEMENT_PRODUCED_BY[dm_element]
+    i_produce = ELEMENT_PRODUCES[dm_element]
+    i_overcome = ELEMENT_OVERCOMES[dm_element]
+    overcomes_me = ELEMENT_OVERCOME_BY[dm_element]
+
+    if yin >= PATTERN_3A_YIN_WEIGHT_THRESHOLD:
+        # 從強格: 印+比劫 both heavy. DM is 用神, 印 is 喜神.
+        return {
+            'type': 'cong_qiang',
+            'name': '從強格',
+            'dominantElement': dm_element,
+            'description': '日主極旺，順從比劫印星',
+            'yongShen': dm_element,
+            'xiShen': producing,                   # 印
+            'jiShen': [i_overcome, overcomes_me],  # 財, 官殺
+            'idleGod': i_produce,                  # 食傷 (閒)
+            'dmAsYongShen': True,
+            'significance': 'critical',
+        }
+
+    # 從旺 / 一行得氣 sub-types: 財 透干 強根 also blocks
+    if (weighted_transparent.get('財星', 0) >= 1
+        and cai >= PATTERN_3A_BREAKER_STRONG_ROOT):
+        return None
+
+    sub_name = YI_XING_DE_QI_SUB_NAMES.get(dm_element, '從旺格')
+    return {
+        'type': 'cong_wang',
+        'name': sub_name,
+        'dominantElement': dm_element,
+        'description': '日主旺極，從其旺勢，喜食傷洩秀',
+        'yongShen': dm_element,
+        'xiShen': i_produce,                   # 食傷
+        'jiShen': [i_overcome, overcomes_me],  # 財, 官殺
+        'idleGod': producing,                  # 印 (閒)
+        'dmAsYongShen': True,
+        'significance': 'critical',
+    }
+
+
+def _assert_five_gods_distinct(eg: Dict) -> None:
+    """Phase 12d invariant: all 5 effective gods must be distinct elements.
+
+    SCOPED to 從強/從旺 family only (where DM IS 用神 and 5-element-distinct
+    is doctrinally required). Existing 從弱 family deliberately preserves
+    the legacy `usefulGod == favorableGod` shape — DO NOT call this from
+    that branch (S6.2 / N2 fix per Phase D review).
+    """
+    keys = ('usefulGod', 'favorableGod', 'idleGod', 'tabooGod', 'enemyGod')
+    elements = [eg[k] for k in keys]
+    if len(set(elements)) != 5:
+        raise AssertionError(
+            f'effective_gods invariant violated: '
+            f'{dict(zip(keys, elements))}')
 
 
 # ============================================================
@@ -1206,18 +1330,48 @@ def generate_pre_analysis(
     # 從格 detection — must run BEFORE using favorable_gods
     cong_ge = check_cong_ge(pillars, day_master_stem, strength_v2, five_elements_balance)
 
-    # If 從格, override favorable gods
+    # Phase 12d Pattern 3a: 從強/從旺/一行得氣 detector (FLAG-OFF default).
+    # Distinct from check_cong_ge (從弱 family) — fires on overwhelmingly
+    # strong DMs that follow the 比劫+印 trend.
+    if cong_ge is None and _PATTERN_3A_CONG_QIANG_DETECTOR:
+        from .ten_gods import compute_weighted_category_scores
+        scores = compute_weighted_category_scores(pillars, day_master_stem)
+        cong_ge = check_cong_qiang_or_wang(
+            pillars, day_master_stem, strength_v2,
+            scores['categories'], scores['category_transparent_count'])
+
+    # If 從格 detected (either family), override favorable gods
     effective_gods = favorable_gods
     if cong_ge:
-        dm_element = STEM_ELEMENT[day_master_stem]
-        producing_element = ELEMENT_PRODUCED_BY[dm_element]
-        effective_gods = {
-            'favorableGod': cong_ge['yongShen'],
-            'usefulGod': cong_ge['yongShen'],
-            'idleGod': ELEMENT_PRODUCES[cong_ge['yongShen']],
-            'tabooGod': dm_element,
-            'enemyGod': producing_element,
-        }
+        if cong_ge.get('dmAsYongShen', False):
+            # 從強/從旺 family (Pattern 3a): DM is 用神, distinct 喜神.
+            # All 5 gods are distinct by construction.
+            effective_gods = {
+                'usefulGod':    cong_ge['yongShen'],
+                'favorableGod': cong_ge.get(
+                    'xiShen', ELEMENT_PRODUCES[cong_ge['yongShen']]),
+                'idleGod':      cong_ge.get(
+                    'idleGod', ELEMENT_PRODUCES[cong_ge['yongShen']]),
+                'tabooGod':     cong_ge['jiShen'][0],
+                'enemyGod':     (cong_ge['jiShen'][1]
+                                 if len(cong_ge['jiShen']) > 1
+                                 else cong_ge['jiShen'][0]),
+            }
+            # N2 fix (v2.1): invariant ONLY for 從強/從旺 family.
+            _assert_five_gods_distinct(effective_gods)
+        else:
+            # 從弱 family preserves legacy 4-distinct shape
+            # (usefulGod == favorableGod by doctrine — 用神=喜神=順從元素).
+            # The 5-god distinctness invariant does NOT apply here.
+            dm_element = STEM_ELEMENT[day_master_stem]
+            producing_element = ELEMENT_PRODUCED_BY[dm_element]
+            effective_gods = {
+                'favorableGod': cong_ge['yongShen'],
+                'usefulGod': cong_ge['yongShen'],
+                'idleGod': ELEMENT_PRODUCES[cong_ge['yongShen']],
+                'tabooGod': dm_element,
+                'enemyGod': producing_element,
+            }
 
     # Ten God position analysis
     ten_god_findings = generate_ten_god_position_analysis(pillars, day_master_stem, gender)

@@ -185,11 +185,16 @@ def _evaluate_chart(row: ChartRow) -> ChartResult:
         calculate_five_elements_balance,
         determine_favorable_gods,
     )
+    from app import interpretation_rules as ir
     from app.interpretation_rules import (
         calculate_strength_score_v2,
         check_cong_ge,
+        check_cong_qiang_or_wang,
     )
-    from app.ten_gods import get_ten_god_distribution
+    from app.ten_gods import (
+        compute_weighted_category_scores,
+        get_ten_god_distribution,
+    )
 
     pillars = row.pillars_dict()
     dm_stem = row.day_master_stem
@@ -207,6 +212,13 @@ def _evaluate_chart(row: ChartRow) -> ChartResult:
     five_elements_balance = calculate_five_elements_balance(pillars)
     cong_ge = check_cong_ge(
         pillars, dm_stem, strength_result, five_elements_balance)
+
+    # Phase 12d Pattern 3a: 從強/從旺 detector (FLAG-OFF default; honor flag).
+    if cong_ge is None and ir._PATTERN_3A_CONG_QIANG_DETECTOR:
+        scores = compute_weighted_category_scores(pillars, dm_stem)
+        cong_ge = check_cong_qiang_or_wang(
+            pillars, dm_stem, strength_result,
+            scores['categories'], scores['category_transparent_count'])
 
     if cong_ge is not None:
         # 從格 detected — use its yongShen (mirrors generate_pre_analysis

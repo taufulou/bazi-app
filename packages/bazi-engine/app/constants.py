@@ -1105,6 +1105,30 @@ PATTERN_2B_DELING_FLOOR: float = 12.0            # 死/絕 floor — never below
 
 
 # ============================================================
+# Phase 12d Pattern 3a — 從強 / 從旺 / 一行得氣 detector.
+# Source: 《滴天髓·形象》「木日，或方或局全，不雜金為曲直」
+#         《滴天髓·順反》distinguishes 從旺 / 從強 / 一行得氣
+# Phase A verified at relaxed thresholds (V2≥70, 比劫+印 combined ≥70%
+# instead of original V2≥75, 比劫 alone ≥60%).
+# Highest risk; ship FLAG-OFF default.
+# ============================================================
+
+PATTERN_3A_V2_FLOOR: float = 70.0
+PATTERN_3A_DOMINANT_PCT_FLOOR: float = 70.0      # (比劫+印)/total ≥
+PATTERN_3A_YIN_WEIGHT_THRESHOLD: float = 4.0     # 從強 vs 從旺 discriminator
+PATTERN_3A_BREAKER_STRONG_ROOT: float = 3.0      # 官殺/財 透干 強根 threshold
+
+# 一行得氣 sub-name lookup by DM element (S1.4 nice-to-have)
+YI_XING_DE_QI_SUB_NAMES: Dict[str, str] = {
+    '木': '曲直格',
+    '火': '炎上格',
+    '土': '稼穡格',
+    '金': '從革格',
+    '水': '潤下格',
+}
+
+
+# ============================================================
 # Hour Branch Time Ranges (using True Solar Time)
 # ============================================================
 
