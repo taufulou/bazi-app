@@ -157,6 +157,10 @@ _PATTERN_2B_SURROUND_DAMPENER: bool = os.environ.get(
     'PHASE_12D_PATTERN_2B_SURROUND_DAMPENER', '1'
 ).lower() in ('1', 'true', 'yes', 'on')
 
+_PATTERN_3B_HUAQI_SUPPRESSION: bool = os.environ.get(
+    'PHASE_12D_PATTERN_3B_HUAQI_SUPPRESSION', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
 
 def _build_root_class_cache(pillars: Dict) -> Dict[str, str]:
     """
@@ -464,6 +468,20 @@ def check_cong_ge(
 
     score = strength_v2['score']
 
+    # Phase 12d Pattern 3b: detect 真化 transformed stems before 從格 check.
+    # When a 印/比劫 stem has fully transformed via 真化 (e.g., 乙庚化金
+    # in `anchor_cong_cai_yiwuming`), it should not block 從格 detection.
+    # Source: 《滴天髓·化象》, Phase A doctrine verification.
+    transformed_stems: Dict[Tuple[str, str], str] = {}
+    if _PATTERN_3B_HUAQI_SUPPRESSION:
+        from .stem_combinations import detect_true_transformed_stems
+        transformed_stems = detect_true_transformed_stems(
+            pillars, day_master_stem)
+
+        # S2.3 fix: DM-involved 五合 → 從格 ambiguous; do not fire.
+        if any(s == day_master_stem for (_, s) in transformed_stems):
+            return None
+
     # 從格 requires very weak Day Master
     # 從兒格 has a higher threshold (~35) because it allows minimal root
     if score >= 35:
@@ -479,18 +497,27 @@ def check_cong_ge(
                 has_root = True
                 root_count += 1
 
-    # Check for 印/比劫 in entire chart (stems AND branch hidden stems)
+    # Check for 印/比劫 in entire chart (stems AND branch hidden stems).
+    # Phase 12d Pattern 3b: skip transformed stems (subtract by 1 effect
+    # per 《子平真詮》「化而不化者，藏其性」 — the original stem's energy
+    # doesn't fully disappear, but for blocking purposes 真化 stems
+    # cease to function as 印/比劫).
     has_yin_bijie = False
     yin_bijie_count = 0
     for pillar_name in ['year', 'month', 'day', 'hour']:
         pillar = pillars[pillar_name]
         # Check manifest stem (skip day master itself)
         if pillar_name != 'day':
-            el = STEM_ELEMENT[pillar['stem']]
-            if el == dm_element or el == producing_element:
-                has_yin_bijie = True
-                yin_bijie_count += 1
-        # Check ALL branch hidden stems
+            stem = pillar['stem']
+            # Pattern 3b: 真化 transformed stems are excluded from blocker count
+            if (pillar_name, stem) in transformed_stems:
+                pass  # transformed → does NOT block 從格
+            else:
+                el = STEM_ELEMENT[stem]
+                if el == dm_element or el == producing_element:
+                    has_yin_bijie = True
+                    yin_bijie_count += 1
+        # Check ALL branch hidden stems (branches don't transform — unchanged)
         for hs in HIDDEN_STEMS.get(pillar['branch'], []):
             el = STEM_ELEMENT[hs]
             if el == dm_element or el == producing_element:

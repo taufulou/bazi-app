@@ -173,12 +173,22 @@ def _load_rows(csv_file: Path) -> List[ChartRow]:
 
 def _evaluate_chart(row: ChartRow) -> ChartResult:
     """Run engine on one chart in the CURRENT flag state. Caller must
-    have set `five_elements._USE_WEIGHTED_IMBALANCE` before calling."""
+    have set `five_elements._USE_WEIGHTED_IMBALANCE` before calling.
+
+    Mirrors the real engine flow (calculator.py + interpretation_rules.py
+    `generate_pre_analysis`) so 從格 overrides via `check_cong_ge` are
+    honored — without this, Pattern 3b's effect on `anchor_cong_cai_yiwuming`
+    would be invisible to the harness.
+    """
     from app.five_elements import (
         _detect_dominant_imbalance,
+        calculate_five_elements_balance,
         determine_favorable_gods,
     )
-    from app.interpretation_rules import calculate_strength_score_v2
+    from app.interpretation_rules import (
+        calculate_strength_score_v2,
+        check_cong_ge,
+    )
     from app.ten_gods import get_ten_god_distribution
 
     pillars = row.pillars_dict()
@@ -192,22 +202,35 @@ def _evaluate_chart(row: ChartRow) -> ChartResult:
 
     ten_god_dist = get_ten_god_distribution(pillars, dm_stem)
 
-    actual_dominant = _detect_dominant_imbalance(
-        ten_god_dist,
-        strength,
-        pillars=pillars,
-        day_master_stem=dm_stem,
-        is_cong_ge=row.is_cong_ge,
-    )
+    # Step 1: Check 從格 (Pattern 3b suppression applies inside check_cong_ge).
+    # When 從格 fires, it overrides the dominant + 用神 verdict.
+    five_elements_balance = calculate_five_elements_balance(pillars)
+    cong_ge = check_cong_ge(
+        pillars, dm_stem, strength_result, five_elements_balance)
 
-    favorable = determine_favorable_gods(
-        dm_stem,
-        strength,
-        ten_god_dist,
-        pillars=pillars,
-        is_cong_ge=row.is_cong_ge,
-    )
-    actual_yong = favorable['usefulGod']
+    if cong_ge is not None:
+        # 從格 detected — use its yongShen (mirrors generate_pre_analysis
+        # effective_gods override at interpretation_rules.py:957-963).
+        actual_dominant = 'cong_overridden'
+        actual_yong = cong_ge['yongShen']
+    else:
+        # Standard 用神 path
+        actual_dominant = _detect_dominant_imbalance(
+            ten_god_dist,
+            strength,
+            pillars=pillars,
+            day_master_stem=dm_stem,
+            is_cong_ge=False,  # already checked above; not 從格
+        )
+
+        favorable = determine_favorable_gods(
+            dm_stem,
+            strength,
+            ten_god_dist,
+            pillars=pillars,
+            is_cong_ge=False,
+        )
+        actual_yong = favorable['usefulGod']
 
     return ChartResult(
         chart_id=row.chart_id,

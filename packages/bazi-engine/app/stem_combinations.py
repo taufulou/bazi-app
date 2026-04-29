@@ -25,6 +25,10 @@ from typing import Dict, List, Optional, Tuple
 from .constants import (
     STEM_ELEMENT,
     STEM_YINYANG,
+    SEASON_STRENGTH,
+    SEASON_MULTIPLIER,
+    HIDDEN_STEMS,
+    ELEMENT_OVERCOME_BY,
 )
 
 
@@ -290,3 +294,98 @@ def _find_combo_clash_interactions(
             })
 
     return interactions
+
+
+# ============================================================
+# Phase 12d Pattern 3b — 真化 (true transformation) detection
+# ============================================================
+
+def detect_true_transformed_stems(
+    pillars: Dict[str, Dict],
+    day_master_stem: str,
+) -> Dict[Tuple[str, str], str]:
+    """
+    Detect 五合 stem pairs meeting 真化 (true transformation) conditions.
+
+    Mirrors Phase 12b Fix D's 4-condition gate (adapted from branch
+    六合 to stem 五合):
+      (i)   Adjacent pillars (year-month, month-day, day-hour).
+      (ii)  化神 strict 旺 in month branch:
+            SEASON_MULTIPLIER[SEASON_STRENGTH[化神][month_branch]] >= 1.5
+            (Phase D N1 fix: SEASON_MULTIPLIER is keyed by score 1-5,
+            NOT by element. Use SEASON_STRENGTH first to get score.)
+      (iii) 化神 has root: ≥1 branch contains 化神 element as 本氣 OR 中氣.
+      (iv)  No 沖 disrupting either combining stem's pillar branch
+            (uses CLASH_LOOKUP from branch_relationships).
+      (v)   No 克 element to 化神 with strong root in chart.
+
+    Returns: {(pillar_name, stem): formed_element} for each transformed stem.
+
+    Source: 《滴天髓·化象》「合則化，化亦必得五土而後成」
+            Phase 12b Fix D, Phase A doctrine verification.
+    """
+    from .branch_relationships import CLASH_LOOKUP  # avoid circular import
+
+    transformed: Dict[Tuple[str, str], str] = {}
+    month_branch = pillars['month']['branch']
+    all_branches = [pillars[p]['branch']
+                    for p in ('year', 'month', 'day', 'hour')]
+
+    for p1, p2 in ADJACENT_PILLAR_PAIRS:
+        s1 = pillars[p1]['stem']
+        s2 = pillars[p2]['stem']
+        if s2 not in STEM_COMBINATION_LOOKUP:
+            continue
+        partner, formed_el, _ = STEM_COMBINATION_LOOKUP[s2]
+        if partner != s1:
+            continue
+
+        # (ii) 化神 strict 旺 (score=5 → multiplier=1.5)
+        season_score = SEASON_STRENGTH.get(formed_el, {}).get(month_branch, 3)
+        if SEASON_MULTIPLIER.get(season_score, 1.0) < 1.5:
+            continue
+
+        # (iii) 化神 has root (本氣 or 中氣 in any branch)
+        has_root = False
+        for pp in ('year', 'month', 'day', 'hour'):
+            branch = pillars[pp]['branch']
+            hidden = HIDDEN_STEMS.get(branch, [])
+            if (len(hidden) >= 1 and STEM_ELEMENT.get(hidden[0]) == formed_el):
+                has_root = True
+                break
+            if (len(hidden) >= 2 and STEM_ELEMENT.get(hidden[1]) == formed_el):
+                has_root = True
+                break
+        if not has_root:
+            continue
+
+        # (iv) No 沖 on either combining branch
+        b1, b2 = pillars[p1]['branch'], pillars[p2]['branch']
+        if (CLASH_LOOKUP.get(b1) in all_branches
+            or CLASH_LOOKUP.get(b2) in all_branches):
+            continue
+
+        # (v) No 克 element to 化神 with strong root
+        breaker_el = ELEMENT_OVERCOME_BY.get(formed_el, '')
+        breaker_strong = False
+        for pp in ('year', 'month', 'day', 'hour'):
+            stem = pillars[pp]['stem']
+            if STEM_ELEMENT.get(stem) != breaker_el:
+                continue
+            for pp2 in ('year', 'month', 'day', 'hour'):
+                branch = pillars[pp2]['branch']
+                hidden = HIDDEN_STEMS.get(branch, [])
+                if (len(hidden) >= 1
+                    and STEM_ELEMENT.get(hidden[0]) == breaker_el):
+                    breaker_strong = True
+                    break
+            if breaker_strong:
+                break
+        if breaker_strong:
+            continue
+
+        # All 真化 conditions met — both stems transform
+        transformed[(p1, s1)] = formed_el
+        transformed[(p2, s2)] = formed_el
+
+    return transformed
