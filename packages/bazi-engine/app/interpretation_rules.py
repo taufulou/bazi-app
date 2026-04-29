@@ -18,6 +18,7 @@ Key components:
   - Day Master Strength V2 (3-factor scoring)
 """
 
+import os
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .constants import (
@@ -125,6 +126,16 @@ DEDI_PILLAR_WEIGHTS: Dict[str, float] = {
 }
 
 
+# ============================================================
+# Phase 12d feature flags (module-level constants — match
+# `_USE_WEIGHTED_IMBALANCE` convention in five_elements.py).
+# Tests monkeypatch these constants directly.
+# ============================================================
+_PATTERN_2C_SANHE_CREDIT: bool = os.environ.get(
+    'PHASE_12D_PATTERN_2C_SANHE_CREDIT', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
+
 def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
     """
     3-factor Day Master strength scoring (0-100 scale).
@@ -159,6 +170,16 @@ def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
             if STEM_ELEMENT[hs_stem] == dm_element:
                 root_score += weight * hs_weight
     dedi = min(root_score * 30, 30)  # Cap at 30
+
+    # Phase 12d Pattern 2c: 三合/半合 DM-element credit (additional dedi)
+    # Source: 《滴天髓·地支》, 《淵海子平·地支三合》. Phase A verified.
+    sanhe_kind = 'none'
+    sanhe_credit = 0.0
+    if _PATTERN_2C_SANHE_CREDIT:
+        from .branch_relationships import compute_sanhe_dm_credit
+        sanhe_credit, sanhe_kind = compute_sanhe_dm_credit(pillars, dm_element)
+        if sanhe_credit > 0:
+            dedi = min(dedi + sanhe_credit, 30)
 
     # Factor 3: 得勢 (20% weight) — stems + branch main qi
     support_score = 0.0
@@ -196,6 +217,8 @@ def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
             'deling': round(deling, 1),
             'dedi': round(dedi, 1),
             'deshi': round(deshi, 1),
+            'sanheCredit': round(sanhe_credit, 1),
+            'sanheKind': sanhe_kind,
         },
         'lifeStage': life_stage,
     }

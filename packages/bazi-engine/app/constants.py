@@ -1045,6 +1045,31 @@ SEASON_MULTIPLIER: Dict[int, float] = {
     1: 0.6,   # 死 — element is overcome by the season (weakest)
 }
 
+
+# ============================================================
+# Phase 12d Pattern 2c — 三合/半合 DM-element credit (V2 dedi).
+# Source: 《滴天髓·地支》「三合會局，氣專而力大」
+#         《淵海子平·地支三合》「凡三合局內，旺神最重，墓神次之，生神最輕」
+# Multipliers verified by Phase A doctrine review (bazi-master agent).
+# ============================================================
+
+SAN_HE_FULL_MULTIPLIER: float = 1.0       # 三合 (3 branches present)
+BAN_HE_WANG_MULTIPLIER: float = 0.7       # 旺地半合 (旺神 + 1 partner)
+BAN_HE_MU_MULTIPLIER: float = 0.5         # 墓地半合 (生神 + 墓神, no 旺神)
+
+# 三合 trinities: tuple = (旺=帝旺, 生=長生, 墓=墓庫)
+# 土 has 四庫 (辰戌丑未) instead of a 三合 trinity — out of scope here.
+SAN_HE_TRINITIES: Dict[str, Tuple[str, str, str]] = {
+    '木': ('卯', '亥', '未'),
+    '火': ('午', '寅', '戌'),
+    '金': ('酉', '巳', '丑'),
+    '水': ('子', '申', '辰'),
+}
+
+# Per-branch dedi-point contribution scale (matches HIDDEN_STEM_WEIGHTS scale)
+SAN_HE_DEDI_PER_BRANCH: float = 5.0
+
+
 # ============================================================
 # Hour Branch Time Ranges (using True Solar Time)
 # ============================================================
