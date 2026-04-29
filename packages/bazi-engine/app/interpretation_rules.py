@@ -38,6 +38,14 @@ from .constants import (
     PATTERN_2A_BOOST_PER_TRANSPARENT_BIJIE_MONTH,
     PATTERN_2A_ZHONGQI_YIN_MULTIPLIER,
     PATTERN_2A_BOOST_CAP,
+    # Phase 12d Pattern 2b constants
+    PATTERN_2B_ENEMY_THRESHOLD,
+    PATTERN_2B_SUPPORT_CAP,
+    PATTERN_2B_OFFICER_TRANSPARENT_MIN,
+    PATTERN_2B_DAMPENER_MULTIPLIER,
+    PATTERN_2B_DAMPENER_CAP,
+    PATTERN_2B_FLAT_SURROUND_PENALTY,
+    PATTERN_2B_DELING_FLOOR,
 )
 from .life_stages import get_life_stage
 from .stem_combinations import (
@@ -145,6 +153,10 @@ _PATTERN_2A_BIJIE_BOOST: bool = os.environ.get(
     'PHASE_12D_PATTERN_2A_BIJIE_BOOST', '1'
 ).lower() in ('1', 'true', 'yes', 'on')
 
+_PATTERN_2B_SURROUND_DAMPENER: bool = os.environ.get(
+    'PHASE_12D_PATTERN_2B_SURROUND_DAMPENER', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
 
 def _build_root_class_cache(pillars: Dict) -> Dict[str, str]:
     """
@@ -236,6 +248,75 @@ def _pattern_2a_bijie_boost(
     return (0.0, 'none')
 
 
+def _pattern_2b_surround_penalty(
+    pillars: Dict,
+    day_master_stem: str,
+    deling: float,
+) -> Tuple[float, float, bool]:
+    """
+    Phase 12d Pattern 2b: 月令祿 surround penalty.
+
+    Returns (deling_cut, flat_penalty, fired). Caller subtracts both.
+
+    Trigger requires (Phase A verified):
+      - 得令 == 50 (month=祿/帝旺/印 本氣)
+      - (財+官殺) weighted ≥ 9
+      - (比劫+印, sans 月令本氣 contribution) ≤ 5
+      - transparent[官殺] ≥ 1
+
+    Source: 《淵海子平·論建祿格》「若四柱財官重重而日主獨守月令祿地，
+                                  反為弱論」.
+    """
+    if deling < 50.0:
+        return (0.0, 0.0, False)
+
+    from .ten_gods import (
+        compute_weighted_category_scores,
+        IMBALANCE_WEIGHT_HIDDEN_BENQI,
+        MONTH_BENQI_COMMANDER_MULTIPLIER,
+        PILLAR_ROLE_WEIGHT,
+    )
+
+    scores = compute_weighted_category_scores(pillars, day_master_stem)
+    cats = scores['categories']
+    transp = scores['category_transparent_count']
+
+    enemy = cats.get('財星', 0.0) + cats.get('官殺', 0.0)
+    support_total = cats.get('比劫', 0.0) + cats.get('印星', 0.0)
+
+    # Subtract 月令本氣 contribution from support per Phase A: support
+    # excludes the month's commander stem, since the dampener is meant
+    # to reflect that the lone monthly anchor is the only DM support.
+    month_branch = pillars['month']['branch']
+    month_main_stem = (HIDDEN_STEMS.get(month_branch, [''])[0]
+                       if HIDDEN_STEMS.get(month_branch) else '')
+    if month_main_stem:
+        dm_el = STEM_ELEMENT[day_master_stem]
+        producing = ELEMENT_PRODUCED_BY[dm_el]
+        main_el = STEM_ELEMENT.get(month_main_stem, '')
+        if main_el in (dm_el, producing):
+            month_contribution = (IMBALANCE_WEIGHT_HIDDEN_BENQI
+                                  * MONTH_BENQI_COMMANDER_MULTIPLIER
+                                  * PILLAR_ROLE_WEIGHT['month'])
+            support = max(0.0, support_total - month_contribution)
+        else:
+            support = support_total
+    else:
+        support = support_total
+
+    if (enemy >= PATTERN_2B_ENEMY_THRESHOLD
+        and support <= PATTERN_2B_SUPPORT_CAP
+        and transp.get('官殺', 0) >= PATTERN_2B_OFFICER_TRANSPARENT_MIN):
+        deling_cut = min(
+            (enemy - support) * PATTERN_2B_DAMPENER_MULTIPLIER,
+            PATTERN_2B_DAMPENER_CAP,
+            deling - PATTERN_2B_DELING_FLOOR,
+        )
+        return (deling_cut, PATTERN_2B_FLAT_SURROUND_PENALTY, True)
+
+    return (0.0, 0.0, False)
+
+
 def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
     """
     3-factor Day Master strength scoring (0-100 scale).
@@ -308,7 +389,19 @@ def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
         pattern_2a_boost, pattern_2a_source = _pattern_2a_bijie_boost(
             pillars, day_master_stem)
 
-    total = round(deling + dedi + deshi + pattern_2a_boost, 1)
+    # Phase 12d Pattern 2b: 月令祿 surround dampener
+    pattern_2b_deling_cut = 0.0
+    pattern_2b_flat_penalty = 0.0
+    pattern_2b_fired = False
+    if _PATTERN_2B_SURROUND_DAMPENER:
+        pattern_2b_deling_cut, pattern_2b_flat_penalty, pattern_2b_fired = (
+            _pattern_2b_surround_penalty(pillars, day_master_stem, deling))
+        if pattern_2b_fired:
+            deling = max(deling - pattern_2b_deling_cut,
+                         PATTERN_2B_DELING_FLOOR)
+
+    total = round(
+        deling + dedi + deshi + pattern_2a_boost - pattern_2b_flat_penalty, 1)
     classification = (
         'very_strong' if total >= 70 else
         'strong' if total >= 55 else
@@ -328,6 +421,11 @@ def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
             'sanheKind': sanhe_kind,
             'pattern2aBoost': round(pattern_2a_boost, 1),
             'pattern2aSource': pattern_2a_source,
+            'pattern2bDelingCut': round(pattern_2b_deling_cut, 1),
+            'pattern2bFlatPenalty': (
+                round(pattern_2b_flat_penalty, 1)
+                if pattern_2b_fired else 0.0
+            ),
         },
         'lifeStage': life_stage,
     }

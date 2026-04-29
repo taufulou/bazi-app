@@ -1086,6 +1086,25 @@ PATTERN_2A_BOOST_CAP: float = 20.0
 
 
 # ============================================================
+# Phase 12d Pattern 2b — 月令祿 surround dampener.
+# Source: 《淵海子平·論建祿格》「若四柱財官重重而日主獨守月令祿地，
+#                            反為弱論」
+# When DM has 月令祿 (得令=50) but the rest of the chart is dominated
+# by 財/官殺 with little 比劫/印 support, V2 over-credits the monthly
+# anchor. Apply a two-part penalty: (a) dampen 得令 proportionally,
+# (b) flat -15 surround penalty.
+# ============================================================
+
+PATTERN_2B_ENEMY_THRESHOLD: float = 9.0          # (財+官殺) weighted ≥
+PATTERN_2B_SUPPORT_CAP: float = 5.0              # (比劫+印 sans 月令本氣) ≤
+PATTERN_2B_OFFICER_TRANSPARENT_MIN: int = 1      # transparent[官殺] ≥
+PATTERN_2B_DAMPENER_MULTIPLIER: float = 1.8
+PATTERN_2B_DAMPENER_CAP: float = 18.0
+PATTERN_2B_FLAT_SURROUND_PENALTY: float = 15.0
+PATTERN_2B_DELING_FLOOR: float = 12.0            # 死/絕 floor — never below
+
+
+# ============================================================
 # Hour Branch Time Ranges (using True Solar Time)
 # ============================================================
 
