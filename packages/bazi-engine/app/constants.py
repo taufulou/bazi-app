@@ -1071,6 +1071,21 @@ SAN_HE_DEDI_PER_BRANCH: float = 5.0
 
 
 # ============================================================
+# Phase 12d Pattern 2a / 2a' — 比劫 透干 boost.
+# Source: 《滴天髓·體用》「身強印旺則愈壯」
+#         《滴天髓》八格篇「印綬之格，月令印星，加比劫透干，身重印重，謂之旺極」
+# Phase A verified. Threshold counts EXCLUDE the day stem (DM itself);
+# transparent_count[比劫] >= 2 means ≥3 same-element stems including DM.
+# ============================================================
+
+PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD: int = 2
+PATTERN_2A_BOOST_PER_TRANSPARENT_YIN_MONTH: float = 8.0    # +8/透干 above 2nd
+PATTERN_2A_BOOST_PER_TRANSPARENT_BIJIE_MONTH: float = 6.0  # +6/透干 (羊刃/祿)
+PATTERN_2A_ZHONGQI_YIN_MULTIPLIER: float = 0.6  # 月令中氣印 partial credit
+PATTERN_2A_BOOST_CAP: float = 20.0
+
+
+# ============================================================
 # Hour Branch Time Ranges (using True Solar Time)
 # ============================================================
 

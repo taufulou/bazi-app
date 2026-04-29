@@ -32,6 +32,12 @@ from .constants import (
     SEASON_STRENGTH,
     STEM_ELEMENT,
     STEM_YINYANG,
+    # Phase 12d Pattern 2a constants
+    PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD,
+    PATTERN_2A_BOOST_PER_TRANSPARENT_YIN_MONTH,
+    PATTERN_2A_BOOST_PER_TRANSPARENT_BIJIE_MONTH,
+    PATTERN_2A_ZHONGQI_YIN_MULTIPLIER,
+    PATTERN_2A_BOOST_CAP,
 )
 from .life_stages import get_life_stage
 from .stem_combinations import (
@@ -135,6 +141,100 @@ _PATTERN_2C_SANHE_CREDIT: bool = os.environ.get(
     'PHASE_12D_PATTERN_2C_SANHE_CREDIT', '1'
 ).lower() in ('1', 'true', 'yes', 'on')
 
+_PATTERN_2A_BIJIE_BOOST: bool = os.environ.get(
+    'PHASE_12D_PATTERN_2A_BIJIE_BOOST', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
+
+def _build_root_class_cache(pillars: Dict) -> Dict[str, str]:
+    """
+    Build root_class_cache mirroring `compute_weighted_category_scores` logic.
+
+    Returns {stem: 'strong' | 'weak' | 'none'} where:
+      - 'strong' = stem appears as 本氣 OR 中氣 in any branch's hidden stems
+      - 'weak'   = stem appears only as 餘氣
+      - 'none'   = stem has no presence in any branch
+
+    Used by Pattern 2a's rooted-透干 filter (Phase A 「干多不如根重」 doctrine).
+    """
+    cache: Dict[str, str] = {}
+    for stem in '甲乙丙丁戊己庚辛壬癸':
+        positions: List[str] = []
+        for pname in ('year', 'month', 'day', 'hour'):
+            branch = pillars.get(pname, {}).get('branch', '')
+            for idx, hs in enumerate(HIDDEN_STEMS.get(branch, [])):
+                if hs == stem:
+                    positions.append(['benqi', 'zhongqi', 'yuqi'][min(idx, 2)])
+        has_strong = 'benqi' in positions or 'zhongqi' in positions
+        has_weak = 'yuqi' in positions and not has_strong
+        cache[stem] = 'strong' if has_strong else ('weak' if has_weak else 'none')
+    return cache
+
+
+def _pattern_2a_bijie_boost(
+    pillars: Dict,
+    day_master_stem: str,
+) -> Tuple[float, str]:
+    """
+    Phase 12d Pattern 2a / 2a': boost V2 when 比劫 transparent ≥ 2
+    AND month=印 (2a) OR month=本氣比劫祿/羊刃 (2a').
+
+    Returns (boost, source) where source ∈
+      {'month_yin_benqi', 'month_yin_zhongqi', 'month_bijie', 'none'}.
+
+    Phase A doctrine:
+      - Only ROOTED 比劫 透干 contribute (root_class ∈ {'strong','weak'})
+        per 《滴天髓》「干多不如根重」.
+      - Boost: +8/透干 above 2nd for 月令印; +6 for 月令本氣比劫 (羊刃/祿);
+        capped at +20.
+      - 中氣 印 in month branch gets 60% credit of 本氣 boost.
+    """
+    dm_element = STEM_ELEMENT[day_master_stem]
+    producing_element = ELEMENT_PRODUCED_BY[dm_element]
+
+    # Count rooted-only 比劫 transparent. Day pillar is skipped (it's the DM
+    # position), but other pillars that happen to share the DM stem (i.e.,
+    # 比肩 — same element same polarity) ARE counted. This matches
+    # `compute_weighted_category_scores` convention.
+    root_cache = _build_root_class_cache(pillars)
+    rooted_bijie_transparent = 0
+    for pname in ('year', 'month', 'hour'):  # day pillar = DM position
+        stem = pillars.get(pname, {}).get('stem', '')
+        if not stem:
+            continue
+        if STEM_ELEMENT.get(stem, '') != dm_element:
+            continue
+        # Same-element match covers both 比肩 (same polarity) and 劫財 (diff)
+        if root_cache.get(stem, 'none') in ('strong', 'weak'):
+            rooted_bijie_transparent += 1
+
+    if rooted_bijie_transparent < PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD:
+        return (0.0, 'none')
+
+    # Determine month-branch nature
+    month_branch = pillars['month']['branch']
+    month_hidden = HIDDEN_STEMS.get(month_branch, [])
+    month_main_el = STEM_ELEMENT.get(month_hidden[0], '') if month_hidden else ''
+    month_zhongqi_el = (STEM_ELEMENT.get(month_hidden[1], '')
+                        if len(month_hidden) > 1 else '')
+
+    excess = (rooted_bijie_transparent
+              - PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD + 1)
+
+    if month_main_el == producing_element:  # 2a: 月令本氣印
+        boost = excess * PATTERN_2A_BOOST_PER_TRANSPARENT_YIN_MONTH
+        return (min(boost, PATTERN_2A_BOOST_CAP), 'month_yin_benqi')
+    if month_zhongqi_el == producing_element:  # 月令中氣印 (60% credit)
+        boost = (excess
+                 * PATTERN_2A_BOOST_PER_TRANSPARENT_YIN_MONTH
+                 * PATTERN_2A_ZHONGQI_YIN_MULTIPLIER)
+        return (min(boost, PATTERN_2A_BOOST_CAP), 'month_yin_zhongqi')
+    if month_main_el == dm_element:  # 2a': 月令本氣比劫 (祿/羊刃)
+        boost = excess * PATTERN_2A_BOOST_PER_TRANSPARENT_BIJIE_MONTH
+        return (min(boost, PATTERN_2A_BOOST_CAP), 'month_bijie')
+
+    return (0.0, 'none')
+
 
 def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
     """
@@ -201,7 +301,14 @@ def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
                 support_score += 0.6
     deshi = (support_score / total_weight) * 20 if total_weight > 0 else 0
 
-    total = round(deling + dedi + deshi, 1)
+    # Phase 12d Pattern 2a / 2a': 比劫 透干 boost
+    pattern_2a_boost = 0.0
+    pattern_2a_source = 'none'
+    if _PATTERN_2A_BIJIE_BOOST:
+        pattern_2a_boost, pattern_2a_source = _pattern_2a_bijie_boost(
+            pillars, day_master_stem)
+
+    total = round(deling + dedi + deshi + pattern_2a_boost, 1)
     classification = (
         'very_strong' if total >= 70 else
         'strong' if total >= 55 else
@@ -219,6 +326,8 @@ def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
             'deshi': round(deshi, 1),
             'sanheCredit': round(sanhe_credit, 1),
             'sanheKind': sanhe_kind,
+            'pattern2aBoost': round(pattern_2a_boost, 1),
+            'pattern2aSource': pattern_2a_source,
         },
         'lifeStage': life_stage,
     }
