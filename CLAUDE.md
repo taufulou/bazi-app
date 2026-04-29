@@ -127,10 +127,13 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 
 ## Phase Status
 - ✅ Phases 1-11 complete (Foundation → Bazi Engine → AI → Frontend → Admin → ZWDS → Profiles → Wiring → Monetization → Bazi Interpretation Enhancement)
-- Next: Phase 12 (Bazi accuracy: 三合/三會 scoring, 從格+三合, 生化鏈) — see `docs/phase-12-specs.md`
+- ✅ Phase 12 / 12b / 12c complete (用神 cascade, monthly forecast refinements)
+- ✅ Phase 12d complete (用神 validation gate fixes — 6 patterns; 5 default ON, 1 flag-OFF default — see CLAUDE.md "Phase 12d" section below)
+- Next: Phase 12e (Bazi-master review of Pattern 3a false-positives + flag-flip; doctrinal-split toggles; 三會 DM-element credit)
 
 ## Test suite sizes
-- Bazi Engine: 1914 (1912 pass, 1 skip, 1 pre-existing fail unrelated) | NestJS API: 692 | Frontend: 143 | ZWDS: 289
+- Bazi Engine: 1977 (1971 pass, 4 xfail, 1 skip, 1 pre-existing fail unrelated) | NestJS API: 692 | Frontend: 143 | ZWDS: 289
+  - 4 xfailed: Phase 12d Pattern 1 doctrinal regressions in `test_compatibility_gold_standard.py` (Huang+AB scoring elevated; same class as the documented BAZI_USE_WEIGHTED_IMBALANCE flag-on regressions)
 
 ## Reading Types
 18 total: 6 Bazi + 10 ZWDS + 2 Special. Credits: 1-3 per reading. See `docs/monetization.md` for pricing.
@@ -430,6 +433,54 @@ Items where **we are more complete** than Seer:
 Items where **gap remains** (algorithmic, not conceptual error):
 - 大運 scoring gap of ~16 points on certain periods (e.g., Seer 丁酉=53, ours=37). Due to Seer's proprietary algorithm. Our methodology is classically defensible.
 
+### Phase 12d — 用神 validation gate fixes
+
+After the n=50 chart validation harness identified 10 engine bugs in 3 patterns + 11 doctrinal splits, Phase 12d landed 6 commits (Pattern 2c → 2a → 2b → 1 → 3b → 3a). Net 用神 agreement: **58% → 66%** (default flags). Pattern 3a's flag-OFF reserves another +1pp pending Bazi-master review of 4 false-positives.
+
+**Commit-by-commit impact**:
+
+| Pattern | Source | Change | Default | Harness lift |
+|---|---|---|---|---|
+| 2c | 《滴天髓·地支》| 三合/半合 DM-element credit in V2 dedi | ON | +0pp (building block) |
+| 2a/2a' | 《滴天髓·體用》「身強印旺則愈壯」| 比劫 透干 boost when month=印 OR 比劫祿 | ON | +2pp (ma_canzheng) |
+| 2b | 《淵海子平·論建祿格》| 月令祿 surround dampener (得令 cut + flat -15) | ON | +2pp (yao_pinwo) |
+| 1 | 《子平真詮·論食神》| neutral DM 食傷洩秀 / 食神生財 chain | ON | +4pp (4 named 真詮 cases) |
+| 3b | 《滴天髓·化象》| 真化 stem suppression in 從格 (5-cond gate) | ON | +0pp* (anchor flips with new harness flow) |
+| 3a | 《滴天髓·順反》| 從強/從旺/一行得氣 detector | **OFF** | -2pp net (ship-blocked) |
+
+*Pattern 3b enables the `anchor_cong_cai_yiwuming` flip; the harness flow update (call `check_cong_ge` first) is part of this commit.
+
+**Doctrinal splits (11 charts) documented as accepted ambiguities**:
+1. **印旺身強**: 真詮 食傷洩秀 vs 滴天髓 財制印 — engine: 財制印 (default)
+2. **財旺弱身**: 真詮 印 (財格佩印) vs engine 比劫 (敵財)
+3. **食神生財 / 並用財印**: 真詮 食傷 or 財 vs engine 比劫 (default-weak-general)
+4. **比劫旺極**: 滴天髓 食傷洩秀 vs 真詮 官殺 — engine: 官殺 (default)
+5. **調候 vs 病藥** (summer 壬, etc.): 窮通寶鑑 調候 vs engine 病藥 — engine surfaces 調候 as advisory only
+
+Per-chart references: `.claude/plans/validation_triage_report.md`.
+
+**Pattern 3a default flag-flip blocked on**:
+- Bazi-master review of 4 false-positive charts (li_zhifu, edge_cong_sha_boundary, edge_yin_heavy_strong_yi, edge_bijie_strong_jia) where corpus picks non-從格 doctrine despite 比劫+印 dominance
+- Threshold re-tuning (V2≥70 + 比劫+印≥70% may need refinement)
+- ≥6 months production observation period
+
+**Per-rule env flags** (rollback path):
+```bash
+PHASE_12D_PATTERN_2C_SANHE_CREDIT=1
+PHASE_12D_PATTERN_2A_BIJIE_BOOST=1
+PHASE_12D_PATTERN_2B_SURROUND_DAMPENER=1
+PHASE_12D_PATTERN_1_NEUTRAL_BRANCH=1
+PHASE_12D_PATTERN_3B_HUAQI_SUPPRESSION=1
+PHASE_12D_PATTERN_3A_CONG_QIANG_DETECTOR=0   # default OFF
+```
+
+**Cache invalidation post-deploy** (preAnalysisVersion bumps required):
+- LIFETIME: v2.4.0 → v2.5.0
+- CAREER: v2.2.0 → v2.3.0
+- ANNUAL: v2.0.0 → v2.1.0
+- Comparison: v1.2.0 → v1.3.0
+- Operator runs `redis-cli FLUSHALL` post-deploy
+
 ### Files Reference (Calculation Accuracy)
 - God role assignment: `packages/bazi-engine/app/five_elements.py` → `determine_favorable_gods()`, `_detect_dominant_imbalance()`
 - Luck period scoring: `packages/bazi-engine/app/lifetime_enhanced.py` → `enrich_luck_periods()`, `GAITOU_SET`, `JIEJIAO_SET`, `STEM_ROLE_PRIORITY`
@@ -437,6 +488,8 @@ Items where **gap remains** (algorithmic, not conceptual error):
 - Romance scoring: `packages/bazi-engine/app/lifetime_enhanced.py` → `_compute_romance_candidates()`, `ROMANCE_SIGNAL_SCORES`
 - Stem combination lookup: `packages/bazi-engine/app/stem_combinations.py` → `STEM_COMBINATION_LOOKUP`
 - Ten god categories: `packages/bazi-engine/app/constants.py` → `TEN_GOD_CATEGORIES`
+- **Phase 12d helpers**: `branch_relationships.py::compute_sanhe_dm_credit()` (Pattern 2c), `interpretation_rules.py::_pattern_2a_bijie_boost()` (2a/2a'), `interpretation_rules.py::_pattern_2b_surround_penalty()` (2b), `ten_gods.py::detect_neutral_shishang_outlet()` (Pattern 1), `stem_combinations.py::detect_true_transformed_stems()` (Pattern 3b), `interpretation_rules.py::check_cong_qiang_or_wang()` (Pattern 3a)
+- **Validation harness**: `packages/bazi-engine/tests/validation/run_imbalance_validation.py` (50-chart corpus + 3-gate evaluator), `expert_labeled_charts.csv` (corpus), `triage_diagnostic.py` (per-chart engine reasoning dump)
 
 ---
 
