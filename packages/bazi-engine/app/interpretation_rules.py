@@ -38,6 +38,10 @@ from .constants import (
     PATTERN_2A_BOOST_PER_TRANSPARENT_BIJIE_MONTH,
     PATTERN_2A_ZHONGQI_YIN_MULTIPLIER,
     PATTERN_2A_BOOST_CAP,
+    # Phase 12e Pattern 2a'' constants
+    PATTERN_2A_PP_PER_BRANCH_BOOST,
+    PATTERN_2A_PP_DM_AS_TRANSPARENT,
+    PATTERN_2A_PP_MIN_QUALIFYING_BRANCHES,
     # Phase 12d Pattern 2b constants
     PATTERN_2B_ENEMY_THRESHOLD,
     PATTERN_2B_SUPPORT_CAP,
@@ -159,6 +163,12 @@ _PATTERN_2A_BIJIE_BOOST: bool = os.environ.get(
     'PHASE_12D_PATTERN_2A_BIJIE_BOOST', '1'
 ).lower() in ('1', 'true', 'yes', 'on')
 
+# Phase 12e Pattern 2a'' — extends 2a' (month-bound) to non-month 比劫祿/羊刃.
+# Same family as Pattern 2a/2a'; flips together by design.
+_PATTERN_2A_PP_NON_MONTH: bool = os.environ.get(
+    'PHASE_12E_PATTERN_2A_PP_NON_MONTH', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
 _PATTERN_2B_SURROUND_DAMPENER: bool = os.environ.get(
     'PHASE_12D_PATTERN_2B_SURROUND_DAMPENER', '1'
 ).lower() in ('1', 'true', 'yes', 'on')
@@ -235,32 +245,67 @@ def _pattern_2a_bijie_boost(
         if root_cache.get(stem, 'none') in ('strong', 'weak'):
             rooted_bijie_transparent += 1
 
-    if rooted_bijie_transparent < PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD:
+    # Phase 2a/2a' month-bound paths require strict rooted threshold
+    # (≥2 rooted 比劫 透干 excluding DM). When this is met, try month-bound
+    # paths first; otherwise fall through to Phase 12e-B fallback (which
+    # uses an effective threshold counting DM as +1).
+    if rooted_bijie_transparent >= PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD:
+        # Determine month-branch nature
+        month_branch = pillars['month']['branch']
+        month_hidden = HIDDEN_STEMS.get(month_branch, [])
+        month_main_el = STEM_ELEMENT.get(month_hidden[0], '') if month_hidden else ''
+        month_zhongqi_el = (STEM_ELEMENT.get(month_hidden[1], '')
+                            if len(month_hidden) > 1 else '')
+
+        excess = (rooted_bijie_transparent
+                  - PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD + 1)
+
+        if month_main_el == producing_element:  # 2a: 月令本氣印
+            boost = excess * PATTERN_2A_BOOST_PER_TRANSPARENT_YIN_MONTH
+            return (min(boost, PATTERN_2A_BOOST_CAP), 'month_yin_benqi')
+        if month_zhongqi_el == producing_element:  # 月令中氣印 (60% credit)
+            boost = (excess
+                     * PATTERN_2A_BOOST_PER_TRANSPARENT_YIN_MONTH
+                     * PATTERN_2A_ZHONGQI_YIN_MULTIPLIER)
+            return (min(boost, PATTERN_2A_BOOST_CAP), 'month_yin_zhongqi')
+        if month_main_el == dm_element:  # 2a': 月令本氣比劫 (祿/羊刃)
+            boost = excess * PATTERN_2A_BOOST_PER_TRANSPARENT_BIJIE_MONTH
+            return (min(boost, PATTERN_2A_BOOST_CAP), 'month_bijie')
+
+    # Phase 12e Pattern 2a'' — non-month 比劫祿/羊刃 fallback.
+    # Fires only when month-bound paths above don't fire AND there are
+    # enough rooted 比劫 透干 (counting DM as 1 implicit transparent).
+    # Requires ≥2 qualifying non-month branches per 任 「日支祿+時支羊刃」
+    # combination doctrine (single 帝旺 alone is 日刃 not the
+    # combination amplifying strength → preserves Roger anchor).
+    # Source: 任鐵樵《滴天髓·天干》注; Phase A verified.
+    if not _PATTERN_2A_PP_NON_MONTH:
         return (0.0, 'none')
 
-    # Determine month-branch nature
-    month_branch = pillars['month']['branch']
-    month_hidden = HIDDEN_STEMS.get(month_branch, [])
-    month_main_el = STEM_ELEMENT.get(month_hidden[0], '') if month_hidden else ''
-    month_zhongqi_el = (STEM_ELEMENT.get(month_hidden[1], '')
-                        if len(month_hidden) > 1 else '')
+    # Effective threshold: DM stem counts as 1 implicit transparent.
+    # rooted_bijie_transparent already excludes day pillar (DM position).
+    effective_transparent = rooted_bijie_transparent + (
+        1 if PATTERN_2A_PP_DM_AS_TRANSPARENT else 0)
+    if effective_transparent < PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD:
+        return (0.0, 'none')
 
-    excess = (rooted_bijie_transparent
-              - PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD + 1)
+    # Count non-month branches at 臨官 (祿) or 帝旺 (羊刃) for DM.
+    # get_life_stage already imported at module level (line 56);
+    # handles yin/yang DM cycles correctly via reversed life-stage tables.
+    qualifying_branches = 0
+    for pname in ('year', 'day', 'hour'):
+        branch = pillars[pname]['branch']
+        ls = get_life_stage(day_master_stem, branch)
+        if ls in ('臨官', '帝旺'):
+            qualifying_branches += 1
 
-    if month_main_el == producing_element:  # 2a: 月令本氣印
-        boost = excess * PATTERN_2A_BOOST_PER_TRANSPARENT_YIN_MONTH
-        return (min(boost, PATTERN_2A_BOOST_CAP), 'month_yin_benqi')
-    if month_zhongqi_el == producing_element:  # 月令中氣印 (60% credit)
-        boost = (excess
-                 * PATTERN_2A_BOOST_PER_TRANSPARENT_YIN_MONTH
-                 * PATTERN_2A_ZHONGQI_YIN_MULTIPLIER)
-        return (min(boost, PATTERN_2A_BOOST_CAP), 'month_yin_zhongqi')
-    if month_main_el == dm_element:  # 2a': 月令本氣比劫 (祿/羊刃)
-        boost = excess * PATTERN_2A_BOOST_PER_TRANSPARENT_BIJIE_MONTH
-        return (min(boost, PATTERN_2A_BOOST_CAP), 'month_bijie')
+    # Phase C v2 refinement: require ≥2 qualifying branches (combination
+    # doctrine). Roger has only 1 (day=午=戊's 帝旺), below threshold.
+    if qualifying_branches < PATTERN_2A_PP_MIN_QUALIFYING_BRANCHES:
+        return (0.0, 'none')
 
-    return (0.0, 'none')
+    boost = PATTERN_2A_PP_PER_BRANCH_BOOST * qualifying_branches
+    return (min(boost, PATTERN_2A_BOOST_CAP), 'non_month_lujie_yangren')
 
 
 def _pattern_2b_surround_penalty(

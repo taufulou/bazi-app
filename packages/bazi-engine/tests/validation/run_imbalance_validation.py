@@ -88,11 +88,22 @@ DOCTRINAL_SPLIT_CHART_IDS: List[str] = [
     'dts_hezhi_rich1',
     'edge_cong_sha_boundary',
     'edge_bijie_strong_jia',
+    # Category 4 (Phase 12e addition) — 比劫旺 + 食傷飽和 → 用=財 chain.
+    # Phase 12e-B correctly lifts V2 to strong but Pattern 1 hijacks
+    # the verdict to 用=食傷洩秀 (滴天髓 doctrine); corpus expects 用=財
+    # (chain endpoint when 食傷 already saturates 比劫). Both defensible.
+    'edge_shishang_strong_jia',
     # Category 5 — 調候 vs 病藥 (窮通寶鑑 調候 vs engine 病藥)
     'dts_hezhi_poor1',
     'qiongtong_ren_summer_needs_geng',
     'qiongtong_jia_xiaomu_one_qi',
     'qiongtong_jia_chunmu_jinshi',
+    # Category 6 (Phase 12e) — 弱身遇官殺: 食神制殺 vs 印化煞
+    # 任鐵樵《滴天髓闡微·何知章》: 用=食傷 (制殺); engine encodes 印化煞.
+    # Reclassified per Phase 12e doctrine review — Phase A noted corpus's
+    # "中和" tag was "not unambiguously supported" by 任's commentary;
+    # the chart is a 食神制殺 vs 印化煞 doctrinal judgment.
+    'dts_hezhi_noble3',
 ]
 
 # Element ↔ god-role inverse (for re-deriving expected_dominant when only

@@ -1086,6 +1086,20 @@ PATTERN_2A_BOOST_CAP: float = 20.0
 
 
 # ============================================================
+# Phase 12e Pattern 2a'' — non-month 比劫祿/羊刃 boost.
+# Source: 任鐵樵《滴天髓·天干》注: 「甲日干，月令非寅，但日支寅而時支卯，
+#                                  謂之專祿坐刃，身固強矣」
+# Phase A verified. Phase C v2 refinement: require ≥2 qualifying branches
+# (matches 任's 「日支祿+時支羊刃」 dual condition; single 帝旺 alone is
+# 日刃 not the combination amplifying strength → preserves Roger anchor).
+# ============================================================
+
+PATTERN_2A_PP_PER_BRANCH_BOOST: float = 5.0    # +5 per qualifying non-month branch
+PATTERN_2A_PP_DM_AS_TRANSPARENT: bool = True   # DM counted as 1 implicit transparent
+PATTERN_2A_PP_MIN_QUALIFYING_BRANCHES: int = 2 # ≥2 branches at 臨官/帝旺
+
+
+# ============================================================
 # Phase 12d Pattern 2b — 月令祿 surround dampener.
 # Source: 《淵海子平·論建祿格》「若四柱財官重重而日主獨守月令祿地，
 #                            反為弱論」

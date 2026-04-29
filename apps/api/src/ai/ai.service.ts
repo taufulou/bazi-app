@@ -6946,9 +6946,9 @@ export class AIService implements OnModuleInit {
     // engine change actually touches their output. Avoid spurious cross-type
     // invalidation by NOT using a default-bump pattern.
     const PRE_ANALYSIS_VERSIONS: Record<string, string> = {
-      [ReadingType.LIFETIME]: 'v2.5.0',  // bumped 2026-04 for Phase 12d 用神 fixes (Patterns 1, 2a, 2b, 2c, 3b)
-      [ReadingType.CAREER]:   'v2.3.0',  // same cascade (V2 strength + 用神 reclassification)
-      [ReadingType.ANNUAL]:   'v2.1.0',  // V2 strength changes propagate into monthly forecasts
+      [ReadingType.LIFETIME]: 'v2.6.0',  // bumped 2026-04 for Phase 12e Pattern 12e-B (non-month 比劫祿/羊刃 V2 boost)
+      [ReadingType.CAREER]:   'v2.4.0',  // V2 strength refinement cascades
+      [ReadingType.ANNUAL]:   'v2.2.0',  // V2 changes flow into monthly forecasts
     };
     const preAnalysisVersion = PRE_ANALYSIS_VERSIONS[readingType] ?? 'v1.1.0';
     const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;
@@ -6969,7 +6969,7 @@ export class AIService implements OnModuleInit {
     // scoring (3 documented regressions in `tests/validation/README.md`
     // §"Known flag-on test regressions"). Bumping now means stale comparison
     // caches auto-invalidate when Fix 1a flag eventually flips ON.
-    const preAnalysisVersion = 'v1.3.0';  // bumped 2026-04 for Phase 12d cascade
+    const preAnalysisVersion = 'v1.4.0';  // bumped 2026-04 for Phase 12e Pattern 12e-B cascade
     // Sort profiles to ensure order-independent cache hits (A+B == B+A)
     const pA = `${profileA.birthDate}|${profileA.birthTime}|${profileA.birthCity}|${profileA.gender}`;
     const pB = `${profileB.birthDate}|${profileB.birthTime}|${profileB.birthCity}|${profileB.gender}`;
