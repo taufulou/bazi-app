@@ -254,3 +254,42 @@ class TestPattern2aPpDoctrinalSplits:
             DOCTRINAL_SPLIT_CHART_IDS,
         )
         assert 'edge_shishang_strong_jia' in DOCTRINAL_SPLIT_CHART_IDS
+
+
+class TestPattern2aPpRootedAtTwoEnemyMonth:
+    """Phase 12f Issue H — cover the new activation path opened by Phase
+    12e's restructure where rooted ≥ 2 + enemy month + qualifying ≥ 2.
+
+    Phase 12d's `_pattern_2a_bijie_boost` had a strict early-return form
+    (`if rooted < 2: return (0, none)` then month-bound checks then a
+    terminal return). Phase 12e wrapped the month-bound checks in
+    `if rooted >= 2:` and removed the terminal return, opening a new
+    code path: charts with `rooted >= 2` + enemy month (NOT 印 NOT 比劫)
+    + `qualifying_branches >= 2` now fire Pattern 2a'' fallback.
+
+    Existing tests cover `rooted=1` (using effective=1+1=2 via DM-counted
+    semantics). This test covers `rooted=2` + enemy month combination.
+    """
+
+    def test_rooted_2_enemy_month_qualifying_2_fires_pp(self):
+        """Synthetic chart with all conditions met:
+        - DM=甲, year=甲(rooted in 寅 本氣), hour=乙(rooted in 卯 本氣)
+          → rooted_bijie_transparent = 2 ✓
+        - month branch=午 (火, food god — NOT 印 NOT 比劫 for 甲)
+          → Pattern 2a/2a' month-bound paths skip
+        - non-month qualifying branches: year=寅(臨官), day=寅(臨官),
+          hour=卯(帝旺) → qualifying_branches=3 ≥ 2 ✓
+        - Pattern 2a'' fires; boost = 5 × 3 = 15
+        """
+        pillars = {
+            'year':  {'stem': '甲', 'branch': '寅'},
+            'month': {'stem': '庚', 'branch': '午'},
+            'day':   {'stem': '甲', 'branch': '寅'},
+            'hour':  {'stem': '乙', 'branch': '卯'},
+        }
+        from app.interpretation_rules import calculate_strength_score_v2
+        result = calculate_strength_score_v2(pillars, '甲')
+        f = result['factors']
+        # Verify Pattern 2a'' (non-month) path fired, NOT month-bound paths
+        assert f['pattern2aSource'] == 'non_month_lujie_yangren'
+        assert f['pattern2aBoost'] == pytest.approx(15.0, abs=0.01)

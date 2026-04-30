@@ -133,7 +133,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 - Next: Phase 12f (Pattern 3a flag flip after Bazi-master audit; doctrinal-split toggles for users who prefer alternate schools)
 
 ## Test suite sizes
-- Bazi Engine: 1989 (1982 pass, 5 xfail, 1 skip, 1 pre-existing fail unrelated) | NestJS API: 692 | Frontend: 143 | ZWDS: 289
+- Bazi Engine: 1998 (1991 pass, 5 xfail, 1 skip, 1 pre-existing fail unrelated) | NestJS API: 692 | Frontend: 143 | ZWDS: 289
   - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
 
 ## Reading Types
@@ -597,7 +597,16 @@ Only 1 chart (wu_xianggong) remains as a known engine bug, and its fix already e
 - Romance scoring: `packages/bazi-engine/app/lifetime_enhanced.py` → `_compute_romance_candidates()`, `ROMANCE_SIGNAL_SCORES`
 - Stem combination lookup: `packages/bazi-engine/app/stem_combinations.py` → `STEM_COMBINATION_LOOKUP`
 - Ten god categories: `packages/bazi-engine/app/constants.py` → `TEN_GOD_CATEGORIES`
-- **Phase 12d helpers**: `branch_relationships.py::compute_sanhe_dm_credit()` (Pattern 2c), `interpretation_rules.py::_pattern_2a_bijie_boost()` (2a/2a'), `interpretation_rules.py::_pattern_2b_surround_penalty()` (2b), `ten_gods.py::detect_neutral_shishang_outlet()` (Pattern 1), `stem_combinations.py::detect_true_transformed_stems()` (Pattern 3b), `interpretation_rules.py::check_cong_qiang_or_wang()` (Pattern 3a)
+- **Phase 12d helpers**: `branch_relationships.py::compute_sanhe_dm_credit()` (Pattern 2c), `interpretation_rules.py::_pattern_2a_bijie_boost()` (2a/2a'), `interpretation_rules.py::_pattern_2b_surround_penalty()` (2b), `ten_gods.py::detect_neutral_shishang_outlet()` (Pattern 1), `stem_combinations.py::detect_true_transformed_stems()` (Pattern 3b — Phase 12f Issue F fix tightened condition v breaker check; see note below), `interpretation_rules.py::check_cong_qiang_or_wang()` (Pattern 3a)
+
+> **Strict vs loose 通根 stance** (Phase 12f Issue F fix): Pattern 3b
+> (chart-level 從格 detection) uses STRICT same-stem-in-hidden semantics
+> for breaker checks — `stem in hidden[:2]` requires the SPECIFIC breaker
+> stem to be in 本氣 OR 中氣 of some branch. Phase 12b Fix D (transient
+> flow-year 六合) doesn't have a breaker check at all — its threshold is
+> permissive of 假化 by design. Both stances are doctrinally valid; the
+> strict view is more conservative for 從格 stakes (per 滴天髓·假化
+> 「克化神之神，或克者被制」).
 - **Phase 12e helpers**: `interpretation_rules.py::_pattern_2a_bijie_boost()` (extended — non-month 比劫祿/羊刃 fallback path with `effective_transparent` semantics + `qualifying_branches` ≥2 guard). Constants: `PATTERN_2A_PP_PER_BRANCH_BOOST=5.0`, `PATTERN_2A_PP_DM_AS_TRANSPARENT=True`, `PATTERN_2A_PP_MIN_QUALIFYING_BRANCHES=2` in `constants.py`.
 - **Validation harness**: `packages/bazi-engine/tests/validation/run_imbalance_validation.py` (50-chart corpus + 3-gate evaluator with `--accept-doctrinal-splits` flag), `expert_labeled_charts.csv` (corpus), `triage_diagnostic.py` (per-chart engine reasoning dump). `DOCTRINAL_SPLIT_CHART_IDS` list (16 entries after Phase 12e) — charts where engine emits one classical school's verdict and corpus labels another; both defensible.
 

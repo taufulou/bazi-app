@@ -365,18 +365,30 @@ def detect_true_transformed_stems(
             or CLASH_LOOKUP.get(b2) in all_branches):
             continue
 
-        # (v) No 克 element to 化神 with strong root
+        # (v) No 克 element to 化神 with strong root (本氣 OR 中氣 of the
+        # SPECIFIC stem). Phase 12f Issue F fix: tighten check so
+        # breaker stem must have ITS OWN root. The original independent
+        # loops were buggy in BOTH directions (verified by bazi-master
+        # research, see .claude/plans/phase_12f_issue_f_doctrine_verification.md):
+        #   - Direction A: stem present + DIFFERENT-element-stem 本氣 of
+        #     same element elsewhere spuriously triggered breaker_strong
+        #     (e.g., 丙 stem + 午 branch where 午's 本氣 is 丁, NOT 丙).
+        #   - Direction B: stem rooted in 中氣 (not 本氣) was missed
+        #     (e.g., 丙 stem + 寅 branch where 寅's 中氣 is 丙).
+        # Source: 滴天髓·假化 「克化神之神，或克者被制」; rootless 克
+        # stem is effectively 制 by its own weakness (任鐵樵 注).
         breaker_el = ELEMENT_OVERCOME_BY.get(formed_el, '')
         breaker_strong = False
         for pp in ('year', 'month', 'day', 'hour'):
             stem = pillars[pp]['stem']
             if STEM_ELEMENT.get(stem) != breaker_el:
                 continue
+            # Inner loop NOW LINKED to outer: check this specific stem's
+            # own root (本氣 OR 中氣; 餘氣 too weak to count for breaker).
             for pp2 in ('year', 'month', 'day', 'hour'):
                 branch = pillars[pp2]['branch']
                 hidden = HIDDEN_STEMS.get(branch, [])
-                if (len(hidden) >= 1
-                    and STEM_ELEMENT.get(hidden[0]) == breaker_el):
+                if stem in hidden[:2]:
                     breaker_strong = True
                     break
             if breaker_strong:
