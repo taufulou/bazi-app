@@ -462,6 +462,12 @@ def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
 
     total = round(
         deling + dedi + deshi + pattern_2a_boost - pattern_2b_flat_penalty, 1)
+    # Phase 12f Issue E defensive floor — V2 contract is [0, 100].
+    # Pattern 2b's flat penalty (15) combined with deling floor (12) +
+    # zero dedi/deshi/boost can theoretically yield a negative total.
+    # No real chart in the corpus produces negative, but the floor
+    # prevents downstream consumers from seeing values outside contract.
+    total = max(total, 0.0)
     classification = (
         'very_strong' if total >= 70 else
         'strong' if total >= 55 else

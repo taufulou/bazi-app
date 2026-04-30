@@ -482,10 +482,13 @@ def _detect_dominant_imbalance(
     For strong DM: check supporting categories {比劫,印星,官殺}.
 
     Returns one of:
-      '食傷旺' | '財旺' | '官殺旺' | '印旺' | '比劫旺' | '食傷洩秀'
+      '食傷旺' | '財旺' | '官殺旺' | '印旺' | '比劫旺'
+      | '食傷洩秀' | '食神生財'
       | 'general' | 'cong_overridden'
 
-    Phase 12d adds '食傷洩秀' for neutral / strong DM with 食傷 透干 outlet.
+    Phase 12d adds '食傷洩秀' (drain via 食傷 outlet) and '食神生財'
+    (chain to 財 endpoint). Both fire for DM with 食傷 carrier per
+    Pattern 1 heaviness/structural-support gates.
     """
     # Phase 12d Pattern 1: DM with 食傷 carrier → 食傷洩秀 / 食神生財
     # (Source: 《子平真詮·論食神》). Sits BEFORE Fix 1a's weighted path so
