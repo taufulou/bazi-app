@@ -674,6 +674,101 @@ def compute_weighted_category_scores(
     }
 
 
+def detect_neutral_shishang_outlet(
+    pillars: Dict,
+    day_master_stem: str,
+    strength_classification: str,
+) -> Optional[str]:
+    """
+    Phase 12d Pattern 1: For DM with 食傷 carrier (透干 OR 月令本氣司令),
+    the chart's natural outlet is 食傷洩秀 (or 食神生財 chain if 印 ≥ 比劫).
+
+    Returns:
+      '食神生財'   — chain rule applies (used when 印 ≥ 比劫)
+      '食傷洩秀'   — pure 食傷 outlet (used when 比劫 > 印)
+      None         — Pattern 1 doesn't apply
+
+    Strength gating (Phase A + per-chart calibration):
+      - `neutral`/`strong`: standard trigger. Default behavior; 食傷 must
+        outweigh 印 (×1.5 buffer) to qualify as the outlet.
+      - `weak`: extended trigger. Fires only when 食傷 is the heaviest
+        category among 比劫/食傷/財星/印星 — i.e., chart's effective
+        balance is 中和略強 with 食傷 dominant despite V2's weak label.
+        Captures named 真詮 cases like 沈路分 / 梁丞相.
+      - `very_weak`: never fires (truly drained DM needs 印, not outlet).
+
+    Branch decision (洩秀 vs 生財):
+      The chart's 印 vs 比劫 balance distinguishes between draining 比劫
+      directly (洩秀) and chaining through 食傷 to 財 to control 印 (生財):
+        - 印 ≥ 比劫: 食神生財 chain (drain via chain endpoint 財)
+        - 比劫 > 印: 食傷洩秀 (drain via direct 食傷 outlet)
+
+    梟印奪食 cancellation: 印 透干 ≥1 with 印 weighted ≥ 食傷×0.8 →
+    食神 outlet is suppressed (《子平真詮·論食神》「梟神奪食最為大忌」).
+
+    Source: 《子平真詮·論食神》第三十七章 (沈孝瞻):
+      「食神本屬洩氣，以其能生財，所以喜之。故食神生財，美格也。」
+      「藏食露傷，主人性剛，如丁亥、癸卯、癸卯、甲寅，沈路分命是也。」
+    Phase A doctrine verification + per-chart re-calibration on 4
+    affected charts (沈路分, 梁丞相, 秦龍圖, 龍冀任氏).
+    """
+    if strength_classification == 'very_weak':
+        return None
+
+    scores = compute_weighted_category_scores(pillars, day_master_stem)
+    cats = scores['categories']
+    transp = scores['category_transparent_count']
+    month_benqi = scores['category_month_benqi']
+
+    shishang_w = cats.get('食傷', 0.0)
+    cai_w = cats.get('財星', 0.0)
+    bijie_w = cats.get('比劫', 0.0)
+    yinxing_w = cats.get('印星', 0.0)
+
+    shishang_transp = transp.get('食傷', 0)
+    cai_transp = transp.get('財星', 0)
+    yinxing_transp = transp.get('印星', 0)
+
+    # Trigger: 食傷 carrier (透干 OR 月令本氣司令)
+    has_shishang_carrier = (shishang_transp >= 1
+                            or month_benqi.get('食傷', False))
+    if not has_shishang_carrier:
+        return None
+
+    # 梟印奪食 cancellation (always checked)
+    if yinxing_transp >= 1 and yinxing_w >= shishang_w * 0.8:
+        return None
+
+    # Strength-conditional dominance check
+    if strength_classification == 'weak':
+        # Extended trigger: 食傷 must be the heaviest weighted category.
+        # Captures 沈路分 (比劫=2.7, 食傷=8.9) and 龍冀任氏 (比劫=7.0, 食傷=6.0).
+        if shishang_w < max(bijie_w, cai_w, yinxing_w):
+            return None
+        # Roger-anchor regression guard: when 印 has substantive presence
+        # (≥1.0 weighted) AND there's no 財 chain target, the engine's
+        # default weak-doctrine (用=印) is classically correct. Pattern 1
+        # only fires here if a 食神生財 chain is viable to control 印.
+        if yinxing_w >= 1.0:
+            cai_chain_viable = cai_transp >= 1 and cai_w >= 1.0
+            if not cai_chain_viable:
+                return None
+    else:
+        # neutral / strong: 食傷 must outweigh 印 (the alternative 用神
+        # candidate) by ≥ 1.5× when 印 has any presence. Otherwise the
+        # chart is 印重 territory and 食傷 isn't the natural outlet.
+        if yinxing_w > 0 and shishang_w < yinxing_w * 1.5:
+            return None
+
+    # Branch decision: chain (生財) vs direct outlet (洩秀)
+    # When 印 ≥ 比劫, the chart needs 財 to control 印 → chain rule.
+    # When 比劫 > 印, the chart needs to drain heavy 比劫 → direct 洩秀.
+    cai_chain_eligible = cai_transp >= 1 and cai_w >= 1.0
+    if cai_chain_eligible and yinxing_w >= bijie_w:
+        return '食神生財'
+    return '食傷洩秀'
+
+
 def detect_dominant_imbalance_weighted(
     pillars: Dict,
     day_master_stem: str,

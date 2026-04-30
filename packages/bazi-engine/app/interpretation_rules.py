@@ -18,6 +18,7 @@ Key components:
   - Day Master Strength V2 (3-factor scoring)
 """
 
+import os
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .constants import (
@@ -31,6 +32,30 @@ from .constants import (
     SEASON_STRENGTH,
     STEM_ELEMENT,
     STEM_YINYANG,
+    # Phase 12d Pattern 2a constants
+    PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD,
+    PATTERN_2A_BOOST_PER_TRANSPARENT_YIN_MONTH,
+    PATTERN_2A_BOOST_PER_TRANSPARENT_BIJIE_MONTH,
+    PATTERN_2A_ZHONGQI_YIN_MULTIPLIER,
+    PATTERN_2A_BOOST_CAP,
+    # Phase 12e Pattern 2a'' constants
+    PATTERN_2A_PP_PER_BRANCH_BOOST,
+    PATTERN_2A_PP_DM_AS_TRANSPARENT,
+    PATTERN_2A_PP_MIN_QUALIFYING_BRANCHES,
+    # Phase 12d Pattern 2b constants
+    PATTERN_2B_ENEMY_THRESHOLD,
+    PATTERN_2B_SUPPORT_CAP,
+    PATTERN_2B_OFFICER_TRANSPARENT_MIN,
+    PATTERN_2B_DAMPENER_MULTIPLIER,
+    PATTERN_2B_DAMPENER_CAP,
+    PATTERN_2B_FLAT_SURROUND_PENALTY,
+    PATTERN_2B_DELING_FLOOR,
+    # Phase 12d Pattern 3a constants
+    PATTERN_3A_V2_FLOOR,
+    PATTERN_3A_DOMINANT_PCT_FLOOR,
+    PATTERN_3A_YIN_WEIGHT_THRESHOLD,
+    PATTERN_3A_BREAKER_STRONG_ROOT,
+    YI_XING_DE_QI_SUB_NAMES,
 )
 from .life_stages import get_life_stage
 from .stem_combinations import (
@@ -125,6 +150,233 @@ DEDI_PILLAR_WEIGHTS: Dict[str, float] = {
 }
 
 
+# ============================================================
+# Phase 12d feature flags (module-level constants — match
+# `_USE_WEIGHTED_IMBALANCE` convention in five_elements.py).
+# Tests monkeypatch these constants directly.
+# ============================================================
+_PATTERN_2C_SANHE_CREDIT: bool = os.environ.get(
+    'PHASE_12D_PATTERN_2C_SANHE_CREDIT', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
+_PATTERN_2A_BIJIE_BOOST: bool = os.environ.get(
+    'PHASE_12D_PATTERN_2A_BIJIE_BOOST', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
+# Phase 12e Pattern 2a'' — extends 2a' (month-bound) to non-month 比劫祿/羊刃.
+# Same family as Pattern 2a/2a'; flips together by design.
+_PATTERN_2A_PP_NON_MONTH: bool = os.environ.get(
+    'PHASE_12E_PATTERN_2A_PP_NON_MONTH', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
+_PATTERN_2B_SURROUND_DAMPENER: bool = os.environ.get(
+    'PHASE_12D_PATTERN_2B_SURROUND_DAMPENER', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
+_PATTERN_3B_HUAQI_SUPPRESSION: bool = os.environ.get(
+    'PHASE_12D_PATTERN_3B_HUAQI_SUPPRESSION', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
+# Pattern 3a is HIGHEST risk — ship FLAG-OFF default.
+_PATTERN_3A_CONG_QIANG_DETECTOR: bool = os.environ.get(
+    'PHASE_12D_PATTERN_3A_CONG_QIANG_DETECTOR', '0'
+).lower() in ('1', 'true', 'yes', 'on')
+
+
+def _build_root_class_cache(pillars: Dict) -> Dict[str, str]:
+    """
+    Build root_class_cache mirroring `compute_weighted_category_scores` logic.
+
+    Returns {stem: 'strong' | 'weak' | 'none'} where:
+      - 'strong' = stem appears as 本氣 OR 中氣 in any branch's hidden stems
+      - 'weak'   = stem appears only as 餘氣
+      - 'none'   = stem has no presence in any branch
+
+    Used by Pattern 2a's rooted-透干 filter (Phase A 「干多不如根重」 doctrine).
+    """
+    cache: Dict[str, str] = {}
+    for stem in '甲乙丙丁戊己庚辛壬癸':
+        positions: List[str] = []
+        for pname in ('year', 'month', 'day', 'hour'):
+            branch = pillars.get(pname, {}).get('branch', '')
+            for idx, hs in enumerate(HIDDEN_STEMS.get(branch, [])):
+                if hs == stem:
+                    positions.append(['benqi', 'zhongqi', 'yuqi'][min(idx, 2)])
+        has_strong = 'benqi' in positions or 'zhongqi' in positions
+        has_weak = 'yuqi' in positions and not has_strong
+        cache[stem] = 'strong' if has_strong else ('weak' if has_weak else 'none')
+    return cache
+
+
+def _pattern_2a_bijie_boost(
+    pillars: Dict,
+    day_master_stem: str,
+) -> Tuple[float, str]:
+    """
+    Phase 12d Pattern 2a / 2a': boost V2 when 比劫 transparent ≥ 2
+    AND month=印 (2a) OR month=本氣比劫祿/羊刃 (2a').
+
+    Returns (boost, source) where source ∈
+      {'month_yin_benqi', 'month_yin_zhongqi', 'month_bijie', 'none'}.
+
+    Phase A doctrine:
+      - Only ROOTED 比劫 透干 contribute (root_class ∈ {'strong','weak'})
+        per 《滴天髓》「干多不如根重」.
+      - Boost: +8/透干 above 2nd for 月令印; +6 for 月令本氣比劫 (羊刃/祿);
+        capped at +20.
+      - 中氣 印 in month branch gets 60% credit of 本氣 boost.
+    """
+    dm_element = STEM_ELEMENT[day_master_stem]
+    producing_element = ELEMENT_PRODUCED_BY[dm_element]
+
+    # Count rooted-only 比劫 transparent. Day pillar is skipped (it's the DM
+    # position), but other pillars that happen to share the DM stem (i.e.,
+    # 比肩 — same element same polarity) ARE counted. This matches
+    # `compute_weighted_category_scores` convention.
+    root_cache = _build_root_class_cache(pillars)
+    rooted_bijie_transparent = 0
+    for pname in ('year', 'month', 'hour'):  # day pillar = DM position
+        stem = pillars.get(pname, {}).get('stem', '')
+        if not stem:
+            continue
+        if STEM_ELEMENT.get(stem, '') != dm_element:
+            continue
+        # Same-element match covers both 比肩 (same polarity) and 劫財 (diff)
+        if root_cache.get(stem, 'none') in ('strong', 'weak'):
+            rooted_bijie_transparent += 1
+
+    # Phase 2a/2a' month-bound paths require strict rooted threshold
+    # (≥2 rooted 比劫 透干 excluding DM). When this is met, try month-bound
+    # paths first; otherwise fall through to Phase 12e-B fallback (which
+    # uses an effective threshold counting DM as +1).
+    if rooted_bijie_transparent >= PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD:
+        # Determine month-branch nature
+        month_branch = pillars['month']['branch']
+        month_hidden = HIDDEN_STEMS.get(month_branch, [])
+        month_main_el = STEM_ELEMENT.get(month_hidden[0], '') if month_hidden else ''
+        month_zhongqi_el = (STEM_ELEMENT.get(month_hidden[1], '')
+                            if len(month_hidden) > 1 else '')
+
+        excess = (rooted_bijie_transparent
+                  - PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD + 1)
+
+        if month_main_el == producing_element:  # 2a: 月令本氣印
+            boost = excess * PATTERN_2A_BOOST_PER_TRANSPARENT_YIN_MONTH
+            return (min(boost, PATTERN_2A_BOOST_CAP), 'month_yin_benqi')
+        if month_zhongqi_el == producing_element:  # 月令中氣印 (60% credit)
+            boost = (excess
+                     * PATTERN_2A_BOOST_PER_TRANSPARENT_YIN_MONTH
+                     * PATTERN_2A_ZHONGQI_YIN_MULTIPLIER)
+            return (min(boost, PATTERN_2A_BOOST_CAP), 'month_yin_zhongqi')
+        if month_main_el == dm_element:  # 2a': 月令本氣比劫 (祿/羊刃)
+            boost = excess * PATTERN_2A_BOOST_PER_TRANSPARENT_BIJIE_MONTH
+            return (min(boost, PATTERN_2A_BOOST_CAP), 'month_bijie')
+
+    # Phase 12e Pattern 2a'' — non-month 比劫祿/羊刃 fallback.
+    # Fires only when month-bound paths above don't fire AND there are
+    # enough rooted 比劫 透干 (counting DM as 1 implicit transparent).
+    # Requires ≥2 qualifying non-month branches per 任 「日支祿+時支羊刃」
+    # combination doctrine (single 帝旺 alone is 日刃 not the
+    # combination amplifying strength → preserves Roger anchor).
+    # Source: 任鐵樵《滴天髓·天干》注; Phase A verified.
+    if not _PATTERN_2A_PP_NON_MONTH:
+        return (0.0, 'none')
+
+    # Effective threshold: DM stem counts as 1 implicit transparent.
+    # rooted_bijie_transparent already excludes day pillar (DM position).
+    effective_transparent = rooted_bijie_transparent + (
+        1 if PATTERN_2A_PP_DM_AS_TRANSPARENT else 0)
+    if effective_transparent < PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD:
+        return (0.0, 'none')
+
+    # Count non-month branches at 臨官 (祿) or 帝旺 (羊刃) for DM.
+    # get_life_stage already imported at module level (line 56);
+    # handles yin/yang DM cycles correctly via reversed life-stage tables.
+    qualifying_branches = 0
+    for pname in ('year', 'day', 'hour'):
+        branch = pillars[pname]['branch']
+        ls = get_life_stage(day_master_stem, branch)
+        if ls in ('臨官', '帝旺'):
+            qualifying_branches += 1
+
+    # Phase C v2 refinement: require ≥2 qualifying branches (combination
+    # doctrine). Roger has only 1 (day=午=戊's 帝旺), below threshold.
+    if qualifying_branches < PATTERN_2A_PP_MIN_QUALIFYING_BRANCHES:
+        return (0.0, 'none')
+
+    boost = PATTERN_2A_PP_PER_BRANCH_BOOST * qualifying_branches
+    return (min(boost, PATTERN_2A_BOOST_CAP), 'non_month_lujie_yangren')
+
+
+def _pattern_2b_surround_penalty(
+    pillars: Dict,
+    day_master_stem: str,
+    deling: float,
+) -> Tuple[float, float, bool]:
+    """
+    Phase 12d Pattern 2b: 月令祿 surround penalty.
+
+    Returns (deling_cut, flat_penalty, fired). Caller subtracts both.
+
+    Trigger requires (Phase A verified):
+      - 得令 == 50 (month=祿/帝旺/印 本氣)
+      - (財+官殺) weighted ≥ 9
+      - (比劫+印, sans 月令本氣 contribution) ≤ 5
+      - transparent[官殺] ≥ 1
+
+    Source: 《淵海子平·論建祿格》「若四柱財官重重而日主獨守月令祿地，
+                                  反為弱論」.
+    """
+    if deling < 50.0:
+        return (0.0, 0.0, False)
+
+    from .ten_gods import (
+        compute_weighted_category_scores,
+        IMBALANCE_WEIGHT_HIDDEN_BENQI,
+        MONTH_BENQI_COMMANDER_MULTIPLIER,
+        PILLAR_ROLE_WEIGHT,
+    )
+
+    scores = compute_weighted_category_scores(pillars, day_master_stem)
+    cats = scores['categories']
+    transp = scores['category_transparent_count']
+
+    enemy = cats.get('財星', 0.0) + cats.get('官殺', 0.0)
+    support_total = cats.get('比劫', 0.0) + cats.get('印星', 0.0)
+
+    # Subtract 月令本氣 contribution from support per Phase A: support
+    # excludes the month's commander stem, since the dampener is meant
+    # to reflect that the lone monthly anchor is the only DM support.
+    month_branch = pillars['month']['branch']
+    month_main_stem = (HIDDEN_STEMS.get(month_branch, [''])[0]
+                       if HIDDEN_STEMS.get(month_branch) else '')
+    if month_main_stem:
+        dm_el = STEM_ELEMENT[day_master_stem]
+        producing = ELEMENT_PRODUCED_BY[dm_el]
+        main_el = STEM_ELEMENT.get(month_main_stem, '')
+        if main_el in (dm_el, producing):
+            month_contribution = (IMBALANCE_WEIGHT_HIDDEN_BENQI
+                                  * MONTH_BENQI_COMMANDER_MULTIPLIER
+                                  * PILLAR_ROLE_WEIGHT['month'])
+            support = max(0.0, support_total - month_contribution)
+        else:
+            support = support_total
+    else:
+        support = support_total
+
+    if (enemy >= PATTERN_2B_ENEMY_THRESHOLD
+        and support <= PATTERN_2B_SUPPORT_CAP
+        and transp.get('官殺', 0) >= PATTERN_2B_OFFICER_TRANSPARENT_MIN):
+        deling_cut = min(
+            (enemy - support) * PATTERN_2B_DAMPENER_MULTIPLIER,
+            PATTERN_2B_DAMPENER_CAP,
+            deling - PATTERN_2B_DELING_FLOOR,
+        )
+        return (deling_cut, PATTERN_2B_FLAT_SURROUND_PENALTY, True)
+
+    return (0.0, 0.0, False)
+
+
 def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
     """
     3-factor Day Master strength scoring (0-100 scale).
@@ -160,6 +412,16 @@ def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
                 root_score += weight * hs_weight
     dedi = min(root_score * 30, 30)  # Cap at 30
 
+    # Phase 12d Pattern 2c: 三合/半合 DM-element credit (additional dedi)
+    # Source: 《滴天髓·地支》, 《淵海子平·地支三合》. Phase A verified.
+    sanhe_kind = 'none'
+    sanhe_credit = 0.0
+    if _PATTERN_2C_SANHE_CREDIT:
+        from .branch_relationships import compute_sanhe_dm_credit
+        sanhe_credit, sanhe_kind = compute_sanhe_dm_credit(pillars, dm_element)
+        if sanhe_credit > 0:
+            dedi = min(dedi + sanhe_credit, 30)
+
     # Factor 3: 得勢 (20% weight) — stems + branch main qi
     support_score = 0.0
     total_weight = 0.0
@@ -180,7 +442,26 @@ def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
                 support_score += 0.6
     deshi = (support_score / total_weight) * 20 if total_weight > 0 else 0
 
-    total = round(deling + dedi + deshi, 1)
+    # Phase 12d Pattern 2a / 2a': 比劫 透干 boost
+    pattern_2a_boost = 0.0
+    pattern_2a_source = 'none'
+    if _PATTERN_2A_BIJIE_BOOST:
+        pattern_2a_boost, pattern_2a_source = _pattern_2a_bijie_boost(
+            pillars, day_master_stem)
+
+    # Phase 12d Pattern 2b: 月令祿 surround dampener
+    pattern_2b_deling_cut = 0.0
+    pattern_2b_flat_penalty = 0.0
+    pattern_2b_fired = False
+    if _PATTERN_2B_SURROUND_DAMPENER:
+        pattern_2b_deling_cut, pattern_2b_flat_penalty, pattern_2b_fired = (
+            _pattern_2b_surround_penalty(pillars, day_master_stem, deling))
+        if pattern_2b_fired:
+            deling = max(deling - pattern_2b_deling_cut,
+                         PATTERN_2B_DELING_FLOOR)
+
+    total = round(
+        deling + dedi + deshi + pattern_2a_boost - pattern_2b_flat_penalty, 1)
     classification = (
         'very_strong' if total >= 70 else
         'strong' if total >= 55 else
@@ -196,6 +477,15 @@ def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
             'deling': round(deling, 1),
             'dedi': round(dedi, 1),
             'deshi': round(deshi, 1),
+            'sanheCredit': round(sanhe_credit, 1),
+            'sanheKind': sanhe_kind,
+            'pattern2aBoost': round(pattern_2a_boost, 1),
+            'pattern2aSource': pattern_2a_source,
+            'pattern2bDelingCut': round(pattern_2b_deling_cut, 1),
+            'pattern2bFlatPenalty': (
+                round(pattern_2b_flat_penalty, 1)
+                if pattern_2b_fired else 0.0
+            ),
         },
         'lifeStage': life_stage,
     }
@@ -234,6 +524,20 @@ def check_cong_ge(
 
     score = strength_v2['score']
 
+    # Phase 12d Pattern 3b: detect 真化 transformed stems before 從格 check.
+    # When a 印/比劫 stem has fully transformed via 真化 (e.g., 乙庚化金
+    # in `anchor_cong_cai_yiwuming`), it should not block 從格 detection.
+    # Source: 《滴天髓·化象》, Phase A doctrine verification.
+    transformed_stems: Dict[Tuple[str, str], str] = {}
+    if _PATTERN_3B_HUAQI_SUPPRESSION:
+        from .stem_combinations import detect_true_transformed_stems
+        transformed_stems = detect_true_transformed_stems(
+            pillars, day_master_stem)
+
+        # S2.3 fix: DM-involved 五合 → 從格 ambiguous; do not fire.
+        if any(s == day_master_stem for (_, s) in transformed_stems):
+            return None
+
     # 從格 requires very weak Day Master
     # 從兒格 has a higher threshold (~35) because it allows minimal root
     if score >= 35:
@@ -249,18 +553,27 @@ def check_cong_ge(
                 has_root = True
                 root_count += 1
 
-    # Check for 印/比劫 in entire chart (stems AND branch hidden stems)
+    # Check for 印/比劫 in entire chart (stems AND branch hidden stems).
+    # Phase 12d Pattern 3b: skip transformed stems (subtract by 1 effect
+    # per 《子平真詮》「化而不化者，藏其性」 — the original stem's energy
+    # doesn't fully disappear, but for blocking purposes 真化 stems
+    # cease to function as 印/比劫).
     has_yin_bijie = False
     yin_bijie_count = 0
     for pillar_name in ['year', 'month', 'day', 'hour']:
         pillar = pillars[pillar_name]
         # Check manifest stem (skip day master itself)
         if pillar_name != 'day':
-            el = STEM_ELEMENT[pillar['stem']]
-            if el == dm_element or el == producing_element:
-                has_yin_bijie = True
-                yin_bijie_count += 1
-        # Check ALL branch hidden stems
+            stem = pillar['stem']
+            # Pattern 3b: 真化 transformed stems are excluded from blocker count
+            if (pillar_name, stem) in transformed_stems:
+                pass  # transformed → does NOT block 從格
+            else:
+                el = STEM_ELEMENT[stem]
+                if el == dm_element or el == producing_element:
+                    has_yin_bijie = True
+                    yin_bijie_count += 1
+        # Check ALL branch hidden stems (branches don't transform — unchanged)
         for hs in HIDDEN_STEMS.get(pillar['branch'], []):
             el = STEM_ELEMENT[hs]
             if el == dm_element or el == producing_element:
@@ -334,6 +647,119 @@ def check_cong_ge(
         }
 
     return None
+
+
+# ============================================================
+# Phase 12d Pattern 3a — 從強 / 從旺 / 一行得氣 detector
+# ============================================================
+
+def check_cong_qiang_or_wang(
+    pillars: Dict,
+    day_master_stem: str,
+    strength_v2: Dict,
+    weighted_categories: Dict[str, float],
+    weighted_transparent: Dict[str, int],
+) -> Optional[Dict]:
+    """
+    Phase 12d Pattern 3a: detect 從強 / 從旺 / 一行得氣 patterns.
+
+    Distinct from `check_cong_ge` (which handles 從弱 family — 從財/官/兒/勢).
+    Use case: charts like `ziping_wu_xianggong_qu_zhi` (癸亥 乙卯 乙未 壬午 =
+    曲直格) where DM is overwhelmingly supported and follows 比劫+印 trend.
+
+    Triggers (ALL must hold):
+      (i)   V2 score ≥ PATTERN_3A_V2_FLOOR (70)
+      (ii)  (比劫+印) weighted / total weighted ≥ 70%
+      (iii) No 官殺 透干 with weighted ≥ PATTERN_3A_BREAKER_STRONG_ROOT (3.0)
+      (iv)  For 從旺/一氣 sub-types: no 財 透干 with weighted ≥ 3.0
+
+    Sub-type:
+      - 印 weighted ≥ 4.0 → 從強格 (用=DM元素, 喜=印)
+      - else → 從旺/一行得氣 (用=DM元素, 喜=食傷); name from
+        YI_XING_DE_QI_SUB_NAMES (曲直/炎上/稼穡/從革/潤下).
+
+    Returns: dict with all 5 effective gods populated (S6.2/S7.6 N2 fix
+    invariant: usefulGod ≠ favorableGod ≠ idleGod ≠ tabooGod ≠ enemyGod).
+    Marker `dmAsYongShen=True` distinguishes from 從弱 family.
+
+    Source: 《滴天髓·形象》, 《滴天髓·順反》, Phase A doctrine verification.
+    """
+    if strength_v2['score'] < PATTERN_3A_V2_FLOOR:
+        return None
+
+    bijie = weighted_categories.get('比劫', 0.0)
+    yin = weighted_categories.get('印星', 0.0)
+    cai = weighted_categories.get('財星', 0.0)
+    guan = weighted_categories.get('官殺', 0.0)
+    shishang = weighted_categories.get('食傷', 0.0)
+    total = bijie + yin + cai + guan + shishang
+    if total == 0:
+        return None
+
+    combined_pct = (bijie + yin) / total * 100
+    if combined_pct < PATTERN_3A_DOMINANT_PCT_FLOOR:
+        return None
+
+    # Breaker check: 官殺 透干 強根 → chart converts to 殺印相生 normal格
+    if (weighted_transparent.get('官殺', 0) >= 1
+        and guan >= PATTERN_3A_BREAKER_STRONG_ROOT):
+        return None
+
+    dm_element = STEM_ELEMENT[day_master_stem]
+    producing = ELEMENT_PRODUCED_BY[dm_element]
+    i_produce = ELEMENT_PRODUCES[dm_element]
+    i_overcome = ELEMENT_OVERCOMES[dm_element]
+    overcomes_me = ELEMENT_OVERCOME_BY[dm_element]
+
+    if yin >= PATTERN_3A_YIN_WEIGHT_THRESHOLD:
+        # 從強格: 印+比劫 both heavy. DM is 用神, 印 is 喜神.
+        return {
+            'type': 'cong_qiang',
+            'name': '從強格',
+            'dominantElement': dm_element,
+            'description': '日主極旺，順從比劫印星',
+            'yongShen': dm_element,
+            'xiShen': producing,                   # 印
+            'jiShen': [i_overcome, overcomes_me],  # 財, 官殺
+            'idleGod': i_produce,                  # 食傷 (閒)
+            'dmAsYongShen': True,
+            'significance': 'critical',
+        }
+
+    # 從旺 / 一行得氣 sub-types: 財 透干 強根 also blocks
+    if (weighted_transparent.get('財星', 0) >= 1
+        and cai >= PATTERN_3A_BREAKER_STRONG_ROOT):
+        return None
+
+    sub_name = YI_XING_DE_QI_SUB_NAMES.get(dm_element, '從旺格')
+    return {
+        'type': 'cong_wang',
+        'name': sub_name,
+        'dominantElement': dm_element,
+        'description': '日主旺極，從其旺勢，喜食傷洩秀',
+        'yongShen': dm_element,
+        'xiShen': i_produce,                   # 食傷
+        'jiShen': [i_overcome, overcomes_me],  # 財, 官殺
+        'idleGod': producing,                  # 印 (閒)
+        'dmAsYongShen': True,
+        'significance': 'critical',
+    }
+
+
+def _assert_five_gods_distinct(eg: Dict) -> None:
+    """Phase 12d invariant: all 5 effective gods must be distinct elements.
+
+    SCOPED to 從強/從旺 family only (where DM IS 用神 and 5-element-distinct
+    is doctrinally required). Existing 從弱 family deliberately preserves
+    the legacy `usefulGod == favorableGod` shape — DO NOT call this from
+    that branch (S6.2 / N2 fix per Phase D review).
+    """
+    keys = ('usefulGod', 'favorableGod', 'idleGod', 'tabooGod', 'enemyGod')
+    elements = [eg[k] for k in keys]
+    if len(set(elements)) != 5:
+        raise AssertionError(
+            f'effective_gods invariant violated: '
+            f'{dict(zip(keys, elements))}')
 
 
 # ============================================================
@@ -949,18 +1375,48 @@ def generate_pre_analysis(
     # 從格 detection — must run BEFORE using favorable_gods
     cong_ge = check_cong_ge(pillars, day_master_stem, strength_v2, five_elements_balance)
 
-    # If 從格, override favorable gods
+    # Phase 12d Pattern 3a: 從強/從旺/一行得氣 detector (FLAG-OFF default).
+    # Distinct from check_cong_ge (從弱 family) — fires on overwhelmingly
+    # strong DMs that follow the 比劫+印 trend.
+    if cong_ge is None and _PATTERN_3A_CONG_QIANG_DETECTOR:
+        from .ten_gods import compute_weighted_category_scores
+        scores = compute_weighted_category_scores(pillars, day_master_stem)
+        cong_ge = check_cong_qiang_or_wang(
+            pillars, day_master_stem, strength_v2,
+            scores['categories'], scores['category_transparent_count'])
+
+    # If 從格 detected (either family), override favorable gods
     effective_gods = favorable_gods
     if cong_ge:
-        dm_element = STEM_ELEMENT[day_master_stem]
-        producing_element = ELEMENT_PRODUCED_BY[dm_element]
-        effective_gods = {
-            'favorableGod': cong_ge['yongShen'],
-            'usefulGod': cong_ge['yongShen'],
-            'idleGod': ELEMENT_PRODUCES[cong_ge['yongShen']],
-            'tabooGod': dm_element,
-            'enemyGod': producing_element,
-        }
+        if cong_ge.get('dmAsYongShen', False):
+            # 從強/從旺 family (Pattern 3a): DM is 用神, distinct 喜神.
+            # All 5 gods are distinct by construction.
+            effective_gods = {
+                'usefulGod':    cong_ge['yongShen'],
+                'favorableGod': cong_ge.get(
+                    'xiShen', ELEMENT_PRODUCES[cong_ge['yongShen']]),
+                'idleGod':      cong_ge.get(
+                    'idleGod', ELEMENT_PRODUCES[cong_ge['yongShen']]),
+                'tabooGod':     cong_ge['jiShen'][0],
+                'enemyGod':     (cong_ge['jiShen'][1]
+                                 if len(cong_ge['jiShen']) > 1
+                                 else cong_ge['jiShen'][0]),
+            }
+            # N2 fix (v2.1): invariant ONLY for 從強/從旺 family.
+            _assert_five_gods_distinct(effective_gods)
+        else:
+            # 從弱 family preserves legacy 4-distinct shape
+            # (usefulGod == favorableGod by doctrine — 用神=喜神=順從元素).
+            # The 5-god distinctness invariant does NOT apply here.
+            dm_element = STEM_ELEMENT[day_master_stem]
+            producing_element = ELEMENT_PRODUCED_BY[dm_element]
+            effective_gods = {
+                'favorableGod': cong_ge['yongShen'],
+                'usefulGod': cong_ge['yongShen'],
+                'idleGod': ELEMENT_PRODUCES[cong_ge['yongShen']],
+                'tabooGod': dm_element,
+                'enemyGod': producing_element,
+            }
 
     # Ten God position analysis
     ten_god_findings = generate_ten_god_position_analysis(pillars, day_master_stem, gender)

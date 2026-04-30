@@ -1045,6 +1045,103 @@ SEASON_MULTIPLIER: Dict[int, float] = {
     1: 0.6,   # 死 — element is overcome by the season (weakest)
 }
 
+
+# ============================================================
+# Phase 12d Pattern 2c — 三合/半合 DM-element credit (V2 dedi).
+# Source: 《滴天髓·地支》「三合會局，氣專而力大」
+#         《淵海子平·地支三合》「凡三合局內，旺神最重，墓神次之，生神最輕」
+# Multipliers verified by Phase A doctrine review (bazi-master agent).
+# ============================================================
+
+SAN_HE_FULL_MULTIPLIER: float = 1.0       # 三合 (3 branches present)
+BAN_HE_WANG_MULTIPLIER: float = 0.7       # 旺地半合 (旺神 + 1 partner)
+BAN_HE_MU_MULTIPLIER: float = 0.5         # 墓地半合 (生神 + 墓神, no 旺神)
+
+# 三合 trinities: tuple = (旺=帝旺, 生=長生, 墓=墓庫)
+# 土 has 四庫 (辰戌丑未) instead of a 三合 trinity — out of scope here.
+SAN_HE_TRINITIES: Dict[str, Tuple[str, str, str]] = {
+    '木': ('卯', '亥', '未'),
+    '火': ('午', '寅', '戌'),
+    '金': ('酉', '巳', '丑'),
+    '水': ('子', '申', '辰'),
+}
+
+# Per-branch dedi-point contribution scale (matches HIDDEN_STEM_WEIGHTS scale)
+SAN_HE_DEDI_PER_BRANCH: float = 5.0
+
+
+# ============================================================
+# Phase 12d Pattern 2a / 2a' — 比劫 透干 boost.
+# Source: 《滴天髓·體用》「身強印旺則愈壯」
+#         《滴天髓》八格篇「印綬之格，月令印星，加比劫透干，身重印重，謂之旺極」
+# Phase A verified. Threshold counts EXCLUDE the day stem (DM itself);
+# transparent_count[比劫] >= 2 means ≥3 same-element stems including DM.
+# ============================================================
+
+PATTERN_2A_BIJIE_TRANSPARENT_THRESHOLD: int = 2
+PATTERN_2A_BOOST_PER_TRANSPARENT_YIN_MONTH: float = 8.0    # +8/透干 above 2nd
+PATTERN_2A_BOOST_PER_TRANSPARENT_BIJIE_MONTH: float = 6.0  # +6/透干 (羊刃/祿)
+PATTERN_2A_ZHONGQI_YIN_MULTIPLIER: float = 0.6  # 月令中氣印 partial credit
+PATTERN_2A_BOOST_CAP: float = 20.0
+
+
+# ============================================================
+# Phase 12e Pattern 2a'' — non-month 比劫祿/羊刃 boost.
+# Source: 任鐵樵《滴天髓·天干》注: 「甲日干，月令非寅，但日支寅而時支卯，
+#                                  謂之專祿坐刃，身固強矣」
+# Phase A verified. Phase C v2 refinement: require ≥2 qualifying branches
+# (matches 任's 「日支祿+時支羊刃」 dual condition; single 帝旺 alone is
+# 日刃 not the combination amplifying strength → preserves Roger anchor).
+# ============================================================
+
+PATTERN_2A_PP_PER_BRANCH_BOOST: float = 5.0    # +5 per qualifying non-month branch
+PATTERN_2A_PP_DM_AS_TRANSPARENT: bool = True   # DM counted as 1 implicit transparent
+PATTERN_2A_PP_MIN_QUALIFYING_BRANCHES: int = 2 # ≥2 branches at 臨官/帝旺
+
+
+# ============================================================
+# Phase 12d Pattern 2b — 月令祿 surround dampener.
+# Source: 《淵海子平·論建祿格》「若四柱財官重重而日主獨守月令祿地，
+#                            反為弱論」
+# When DM has 月令祿 (得令=50) but the rest of the chart is dominated
+# by 財/官殺 with little 比劫/印 support, V2 over-credits the monthly
+# anchor. Apply a two-part penalty: (a) dampen 得令 proportionally,
+# (b) flat -15 surround penalty.
+# ============================================================
+
+PATTERN_2B_ENEMY_THRESHOLD: float = 9.0          # (財+官殺) weighted ≥
+PATTERN_2B_SUPPORT_CAP: float = 5.0              # (比劫+印 sans 月令本氣) ≤
+PATTERN_2B_OFFICER_TRANSPARENT_MIN: int = 1      # transparent[官殺] ≥
+PATTERN_2B_DAMPENER_MULTIPLIER: float = 1.8
+PATTERN_2B_DAMPENER_CAP: float = 18.0
+PATTERN_2B_FLAT_SURROUND_PENALTY: float = 15.0
+PATTERN_2B_DELING_FLOOR: float = 12.0            # 死/絕 floor — never below
+
+
+# ============================================================
+# Phase 12d Pattern 3a — 從強 / 從旺 / 一行得氣 detector.
+# Source: 《滴天髓·形象》「木日，或方或局全，不雜金為曲直」
+#         《滴天髓·順反》distinguishes 從旺 / 從強 / 一行得氣
+# Phase A verified at relaxed thresholds (V2≥70, 比劫+印 combined ≥70%
+# instead of original V2≥75, 比劫 alone ≥60%).
+# Highest risk; ship FLAG-OFF default.
+# ============================================================
+
+PATTERN_3A_V2_FLOOR: float = 70.0
+PATTERN_3A_DOMINANT_PCT_FLOOR: float = 70.0      # (比劫+印)/total ≥
+PATTERN_3A_YIN_WEIGHT_THRESHOLD: float = 4.0     # 從強 vs 從旺 discriminator
+PATTERN_3A_BREAKER_STRONG_ROOT: float = 3.0      # 官殺/財 透干 強根 threshold
+
+# 一行得氣 sub-name lookup by DM element (S1.4 nice-to-have)
+YI_XING_DE_QI_SUB_NAMES: Dict[str, str] = {
+    '木': '曲直格',
+    '火': '炎上格',
+    '土': '稼穡格',
+    '金': '從革格',
+    '水': '潤下格',
+}
+
+
 # ============================================================
 # Hour Branch Time Ranges (using True Solar Time)
 # ============================================================

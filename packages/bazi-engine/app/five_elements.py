@@ -43,6 +43,15 @@ _USE_WEIGHTED_IMBALANCE: bool = os.environ.get(
 ).lower() in ('1', 'true', 'yes', 'on')
 
 
+# ============================================================
+# Phase 12d Pattern 1: neutral DM with 食傷 透干 → 食傷洩秀
+# Source: 《子平真詮·論食神》「食神生財，美格也」+ Phase A verification.
+# ============================================================
+_PATTERN_1_NEUTRAL_BRANCH: bool = os.environ.get(
+    'PHASE_12D_PATTERN_1_NEUTRAL_BRANCH', '1'
+).lower() in ('1', 'true', 'yes', 'on')
+
+
 def _accumulate_raw_element_scores(pillars: Dict) -> Dict[str, float]:
     """
     Shared raw score accumulation (stems + hidden stems).
@@ -473,9 +482,29 @@ def _detect_dominant_imbalance(
     For strong DM: check supporting categories {比劫,印星,官殺}.
 
     Returns one of:
-      '食傷旺' | '財旺' | '官殺旺' | '印旺' | '比劫旺'
+      '食傷旺' | '財旺' | '官殺旺' | '印旺' | '比劫旺' | '食傷洩秀'
       | 'general' | 'cong_overridden'
+
+    Phase 12d adds '食傷洩秀' for neutral / strong DM with 食傷 透干 outlet.
     """
+    # Phase 12d Pattern 1: DM with 食傷 carrier → 食傷洩秀 / 食神生財
+    # (Source: 《子平真詮·論食神》). Sits BEFORE Fix 1a's weighted path so
+    # that the same chart reports the same dominant in both flag states.
+    # Triggers for neutral/strong (standard) and weak (extended) DM —
+    # see detect_neutral_shishang_outlet docstring for gating.
+    if (_PATTERN_1_NEUTRAL_BRANCH
+        and pillars is not None
+        and day_master_stem is not None
+        and strength != 'very_weak'
+        and not is_cong_ge):
+        from .ten_gods import detect_neutral_shishang_outlet
+        outlet = detect_neutral_shishang_outlet(
+            pillars, day_master_stem, strength)
+        if outlet == '食神生財':
+            return '食神生財'   # NEW Phase 12d label (chain endpoint at 財)
+        if outlet == '食傷洩秀':
+            return '食傷洩秀'   # NEW Phase 12d label (direct 食傷 outlet)
+
     # Fix 1a: weighted mode (flag-gated, requires pillars + DM stem)
     if pillars is not None and day_master_stem is not None and _USE_WEIGHTED_IMBALANCE:
         from .ten_gods import detect_dominant_imbalance_weighted
@@ -585,7 +614,21 @@ def determine_favorable_gods(
     if dominant == 'cong_overridden':
         dominant = 'general'
 
-    if strength in ('strong', 'very_strong'):
+    # Phase 12d Pattern 1: 食傷洩秀 / 食神生財 paths.
+    # Both labels indicate a 食傷 carrier in the chart; they differ on
+    # whether to drain via direct outlet (洩秀) or chain to 財 (生財).
+    # 《子平真詮·論食神》「食神洩身為秀氣，身旺逢之尤美」+ 「食神生財，美格也」.
+    if dominant == '食傷洩秀':
+        useful = i_produce       # 食傷
+        favorable = i_overcome   # 財 (chain target)
+        taboo = produces_me      # 印 (kills 食傷)
+        enemy = dm_element       # 比劫 (no outlet)
+    elif dominant == '食神生財':
+        useful = i_overcome      # 財 (chain endpoint)
+        favorable = i_produce    # 食傷 (chain start)
+        taboo = dm_element       # 比劫 (敵財)
+        enemy = produces_me      # 印 (kills 食傷)
+    elif strength in ('strong', 'very_strong'):
         if dominant == '比劫旺':
             # 比劫 causing strength → 用神=官殺 to directly克比劫
             useful = overcomes_me
@@ -595,20 +638,24 @@ def determine_favorable_gods(
             useful = i_produce
             favorable = i_overcome
         else:
-            # Default strong (印旺 or general): 用神=財, 喜神=食傷
+            # Default strong (印旺 or general / 財旺 fall-through): 用=財, 喜=食傷
             useful = i_overcome
             favorable = i_produce
         # Strong DM context-dependent: 忌神=比劫(too strong), 仇神=印(feeds excess)
         taboo = dm_element
         enemy = produces_me
     else:
+        # weak / very_weak / neutral-not-Pattern-1 (existing logic unchanged).
+        # N3 fix per Phase D review: Pattern 1's '食神生財' / '食傷洩秀' are
+        # handled by the dedicated branches above. All other neutral cases
+        # fall through here to preserve pre-Phase-12d baseline.
         if dominant in ('食傷旺', '官殺旺'):
             # 食傷 or 官殺 draining/attacking → 用神=印 (double duty)
             # 印 strengthens DM AND restrains 食傷/mediates 官殺
             useful = produces_me
             favorable = dm_element
         else:
-            # Default weak (財旺 or general): 用神=比劫, 喜神=印
+            # Default weak (財旺-weak / general): 用神=比劫, 喜神=印
             useful = dm_element
             favorable = produces_me
         # Weak DM context-dependent: 忌神=官殺(attacks DM), 仇神=財(drains DM)

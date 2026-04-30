@@ -23,6 +23,13 @@ from typing import Dict, FrozenSet, List, Optional, Set, Tuple
 from .constants import (
     BRANCH_ELEMENT,
     BRANCH_INDEX,
+    HIDDEN_STEMS,
+    STEM_ELEMENT,
+    SAN_HE_TRINITIES,
+    SAN_HE_FULL_MULTIPLIER,
+    BAN_HE_WANG_MULTIPLIER,
+    BAN_HE_MU_MULTIPLIER,
+    SAN_HE_DEDI_PER_BRANCH,
 )
 
 
@@ -716,3 +723,70 @@ def _resolve_interactions(
     # This is intentional — 三刑 persists regardless of other relationships
 
     return interactions
+
+
+# ============================================================
+# Phase 12d Pattern 2c — 三合/半合 DM-element credit
+# ============================================================
+
+def compute_sanhe_dm_credit(
+    pillars: Dict,
+    dm_element: str,
+) -> Tuple[float, str]:
+    """
+    Compute extra 得地 credit for DM from 三合/半合 formed-element matches.
+
+    Returns (credit_score, kind) where kind ∈
+      {'三合', '旺地半合', '墓地半合', 'none'}.
+    Credit is in V2 dedi points; caller adds to dedi respecting the cap.
+
+    Rules (Phase A doctrine verified):
+      1. Formed-element must equal DM element. Else (0, 'none').
+      2. Active 沖 on 旺神 branch nullifies credit (合而被沖則散).
+      3. Branches whose 本氣 element already equals DM element are
+         excluded — they're already credited via standard `dedi`.
+      4. Per-branch contribution = SAN_HE_DEDI_PER_BRANCH × multiplier.
+
+    Source: 《滴天髓·地支》, 《淵海子平·地支三合》, Phase A verification.
+    """
+    if dm_element not in SAN_HE_TRINITIES:
+        return (0.0, 'none')
+
+    wang, sheng, mu = SAN_HE_TRINITIES[dm_element]
+    natal_branches = [pillars[p]['branch'] for p in
+                      ('year', 'month', 'day', 'hour')]
+    has_wang = wang in natal_branches
+    has_sheng = sheng in natal_branches
+    has_mu = mu in natal_branches
+
+    # 沖 disrupts 旺神 → credit nullified
+    wang_clash = CLASH_LOOKUP.get(wang)
+    if has_wang and wang_clash and wang_clash in natal_branches:
+        return (0.0, 'none')
+
+    count = sum([has_wang, has_sheng, has_mu])
+    if count == 3:
+        multiplier, kind = SAN_HE_FULL_MULTIPLIER, '三合'
+    elif count == 2 and has_wang:
+        multiplier, kind = BAN_HE_WANG_MULTIPLIER, '旺地半合'
+    elif count == 2 and has_sheng and has_mu:
+        multiplier, kind = BAN_HE_MU_MULTIPLIER, '墓地半合'
+    else:
+        return (0.0, 'none')
+
+    # Element-vs-element double-count guard (S7.4 fix from v2 review):
+    # branches whose 本氣 element equals DM element are already credited
+    # via standard `dedi` — exclude from the trinity bonus.
+    new_credit_branches: List[str] = []
+    for b in (wang, sheng, mu):
+        if b not in natal_branches:
+            continue
+        benqi_stems = HIDDEN_STEMS.get(b, [])
+        if not benqi_stems:
+            continue
+        benqi_element = STEM_ELEMENT.get(benqi_stems[0], '')
+        if benqi_element != dm_element:
+            new_credit_branches.append(b)
+
+    base_credit = SAN_HE_DEDI_PER_BRANCH * len(new_credit_branches) * multiplier
+    return (round(base_credit, 1), kind)
