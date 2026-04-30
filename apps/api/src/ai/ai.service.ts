@@ -6946,9 +6946,9 @@ export class AIService implements OnModuleInit {
     // engine change actually touches their output. Avoid spurious cross-type
     // invalidation by NOT using a default-bump pattern.
     const PRE_ANALYSIS_VERSIONS: Record<string, string> = {
-      [ReadingType.LIFETIME]: 'v2.6.0',  // bumped 2026-04 for Phase 12e Pattern 12e-B (non-month 比劫祿/羊刃 V2 boost)
-      [ReadingType.CAREER]:   'v2.4.0',  // V2 strength refinement cascades
-      [ReadingType.ANNUAL]:   'v2.2.0',  // V2 changes flow into monthly forecasts
+      [ReadingType.LIFETIME]: 'v2.7.0',  // bumped 2026-04 for Phase 12f BAZI_USE_WEIGHTED_IMBALANCE flag flip default ON
+      [ReadingType.CAREER]:   'v2.5.0',  // Fix 1a weighted dominance now production default
+      [ReadingType.ANNUAL]:   'v2.3.0',  // Annual cascades through new dominance detection
     };
     const preAnalysisVersion = PRE_ANALYSIS_VERSIONS[readingType] ?? 'v1.1.0';
     const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;
@@ -6969,7 +6969,7 @@ export class AIService implements OnModuleInit {
     // scoring (3 documented regressions in `tests/validation/README.md`
     // §"Known flag-on test regressions"). Bumping now means stale comparison
     // caches auto-invalidate when Fix 1a flag eventually flips ON.
-    const preAnalysisVersion = 'v1.4.0';  // bumped 2026-04 for Phase 12e Pattern 12e-B cascade
+    const preAnalysisVersion = 'v1.5.0';  // bumped 2026-04 for Phase 12f BAZI_USE_WEIGHTED_IMBALANCE flag flip default ON
     // Sort profiles to ensure order-independent cache hits (A+B == B+A)
     const pA = `${profileA.birthDate}|${profileA.birthTime}|${profileA.birthCity}|${profileA.gender}`;
     const pB = `${profileB.birthDate}|${profileB.birthTime}|${profileB.birthCity}|${profileB.gender}`;

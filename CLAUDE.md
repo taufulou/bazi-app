@@ -133,8 +133,8 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 - Next: Phase 12f (Pattern 3a flag flip after Bazi-master audit; doctrinal-split toggles for users who prefer alternate schools)
 
 ## Test suite sizes
-- Bazi Engine: 1994 (1988 pass, 4 xfail, 1 skip, 1 pre-existing fail unrelated) | NestJS API: 692 | Frontend: 143 | ZWDS: 289
-  - 4 xfailed: Phase 12d Pattern 1 doctrinal regressions in `test_compatibility_gold_standard.py` (Huang+AB scoring elevated; same class as the documented BAZI_USE_WEIGHTED_IMBALANCE flag-on regressions)
+- Bazi Engine: 1998 (1991 pass, 5 xfail, 1 skip, 1 pre-existing fail unrelated) | NestJS API: 692 | Frontend: 143 | ZWDS: 289
+  - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
 
 ## Reading Types
 18 total: 6 Bazi + 10 ZWDS + 2 Special. Credits: 1-3 per reading. See `docs/monetization.md` for pricing.
@@ -511,22 +511,39 @@ Per-chart references: `.claude/plans/validation_triage_report.md` (with classica
 - Threshold re-tuning (V2≥70 + 比劫+印≥70% may need refinement)
 - ≥6 months production observation period
 
-**Per-rule env flags** (rollback path):
-```bash
-PHASE_12D_PATTERN_2C_SANHE_CREDIT=1
-PHASE_12D_PATTERN_2A_BIJIE_BOOST=1
-PHASE_12D_PATTERN_2B_SURROUND_DAMPENER=1
-PHASE_12D_PATTERN_1_NEUTRAL_BRANCH=1
-PHASE_12D_PATTERN_3B_HUAQI_SUPPRESSION=1
-PHASE_12D_PATTERN_3A_CONG_QIANG_DETECTOR=0   # default OFF
-```
+**Per-rule env flags**: see consolidated rollback table in the
+"Per-rule env flags (rollback path)" section below (covers all phases —
+Fix 1a, 12b, 12c, 12d, 12e).
 
-**Cache invalidation post-deploy** (preAnalysisVersion bumps required by Phase 12d):
-- LIFETIME: v2.4.0 → v2.5.0 (Phase 12d) → v2.6.0 (Phase 12e)
-- CAREER: v2.2.0 → v2.3.0 (Phase 12d) → v2.4.0 (Phase 12e)
-- ANNUAL: v2.0.0 → v2.1.0 (Phase 12d) → v2.2.0 (Phase 12e)
-- Comparison: v1.2.0 → v1.3.0 (Phase 12d) → v1.4.0 (Phase 12e)
+> ⚠️ **DO NOT flip `PHASE_12D_PATTERN_3A_CONG_QIANG_DETECTOR` to `1`
+> without completing all three Phase 12f gates**:
+> 1. Bazi-master audit of 4 false-positive charts: `li_zhifu`,
+>    `edge_cong_sha_boundary`, `edge_yin_heavy_strong_yi`,
+>    `edge_bijie_strong_jia` (where corpus picks non-從格 doctrine despite
+>    比劫+印 dominance)
+> 2. Threshold re-tuning if false-positives confirmed (V2≥70 + 比劫+印≥70%
+>    may need refinement)
+> 3. ≥6 months production observation period without complaints
+>
+> When flag is enabled with current thresholds, harness shows -2pp net
+> agreement (1 chart fixed, 4 charts break). The flag is opt-in for a
+> reason. Verified at PR #38 / Phase 12d Pattern 3a ship. See
+> `.claude/plans/phase_12d_review_v2.md` for the audit context.
+
+**Cache invalidation post-deploy** (preAnalysisVersion bumps required by Phase 12d/12e/12f):
+- LIFETIME: v2.4.0 → v2.5.0 (Phase 12d) → v2.6.0 (Phase 12e) → v2.7.0 (Phase 12f)
+- CAREER: v2.2.0 → v2.3.0 (Phase 12d) → v2.4.0 (Phase 12e) → v2.5.0 (Phase 12f)
+- ANNUAL: v2.0.0 → v2.1.0 (Phase 12d) → v2.2.0 (Phase 12e) → v2.3.0 (Phase 12f)
+- Comparison: v1.2.0 → v1.3.0 (Phase 12d) → v1.4.0 (Phase 12e) → v1.5.0 (Phase 12f)
 - Operator runs `redis-cli FLUSHALL` post-deploy
+
+**Local dev environment warning (Phase 12f flag flip)**: If you previously
+set `BAZI_USE_WEIGHTED_IMBALANCE=0` in your local `apps/api/.env` to
+reproduce flag-off behavior, REMOVE that line OR change to
+`BAZI_USE_WEIGHTED_IMBALANCE=1` to match the new code default. Stale `=0`
+overrides will silently revert your local install to pre-Fix-1a engine
+output despite the code change. Verify with:
+`grep BAZI_USE_WEIGHTED_IMBALANCE apps/api/.env || echo "Not set in .env (will use code default '1')"`.
 
 ### Phase 12e — close the validation gate
 
@@ -580,7 +597,16 @@ Only 1 chart (wu_xianggong) remains as a known engine bug, and its fix already e
 - Romance scoring: `packages/bazi-engine/app/lifetime_enhanced.py` → `_compute_romance_candidates()`, `ROMANCE_SIGNAL_SCORES`
 - Stem combination lookup: `packages/bazi-engine/app/stem_combinations.py` → `STEM_COMBINATION_LOOKUP`
 - Ten god categories: `packages/bazi-engine/app/constants.py` → `TEN_GOD_CATEGORIES`
-- **Phase 12d helpers**: `branch_relationships.py::compute_sanhe_dm_credit()` (Pattern 2c), `interpretation_rules.py::_pattern_2a_bijie_boost()` (2a/2a'), `interpretation_rules.py::_pattern_2b_surround_penalty()` (2b), `ten_gods.py::detect_neutral_shishang_outlet()` (Pattern 1), `stem_combinations.py::detect_true_transformed_stems()` (Pattern 3b), `interpretation_rules.py::check_cong_qiang_or_wang()` (Pattern 3a)
+- **Phase 12d helpers**: `branch_relationships.py::compute_sanhe_dm_credit()` (Pattern 2c), `interpretation_rules.py::_pattern_2a_bijie_boost()` (2a/2a'), `interpretation_rules.py::_pattern_2b_surround_penalty()` (2b), `ten_gods.py::detect_neutral_shishang_outlet()` (Pattern 1), `stem_combinations.py::detect_true_transformed_stems()` (Pattern 3b — Phase 12f Issue F fix tightened condition v breaker check; see note below), `interpretation_rules.py::check_cong_qiang_or_wang()` (Pattern 3a)
+
+> **Strict vs loose 通根 stance** (Phase 12f Issue F fix): Pattern 3b
+> (chart-level 從格 detection) uses STRICT same-stem-in-hidden semantics
+> for breaker checks — `stem in hidden[:2]` requires the SPECIFIC breaker
+> stem to be in 本氣 OR 中氣 of some branch. Phase 12b Fix D (transient
+> flow-year 六合) doesn't have a breaker check at all — its threshold is
+> permissive of 假化 by design. Both stances are doctrinally valid; the
+> strict view is more conservative for 從格 stakes (per 滴天髓·假化
+> 「克化神之神，或克者被制」).
 - **Phase 12e helpers**: `interpretation_rules.py::_pattern_2a_bijie_boost()` (extended — non-month 比劫祿/羊刃 fallback path with `effective_transparent` semantics + `qualifying_branches` ≥2 guard). Constants: `PATTERN_2A_PP_PER_BRANCH_BOOST=5.0`, `PATTERN_2A_PP_DM_AS_TRANSPARENT=True`, `PATTERN_2A_PP_MIN_QUALIFYING_BRANCHES=2` in `constants.py`.
 - **Validation harness**: `packages/bazi-engine/tests/validation/run_imbalance_validation.py` (50-chart corpus + 3-gate evaluator with `--accept-doctrinal-splits` flag), `expert_labeled_charts.csv` (corpus), `triage_diagnostic.py` (per-chart engine reasoning dump). `DOCTRINAL_SPLIT_CHART_IDS` list (16 entries after Phase 12e) — charts where engine emits one classical school's verdict and corpus labels another; both defensible.
 
@@ -740,35 +766,51 @@ Source: 子平真詮·論墓庫刑沖「至於財官為水, 沖則反為累」.
 
 ### Per-rule env flags (rollback path)
 
-Default ON in dev/staging; **prod default OFF until measured-flip gate**:
+Consolidated table covering all phases. Default ON in dev/staging unless noted; **prod default OFF until measured-flip gate** for the explicitly-marked flags.
 
 ```bash
-BAZI_USE_WEIGHTED_IMBALANCE=1      # Phase 12 Fix 1a (see Note below — code default is '0')
-PHASE_12B_FIX_A=1
-PHASE_12B_FIX_B=1
-PHASE_12B_FIX_C_ENABLED=1
-PHASE_12B_FIX_D_TRUE_TRANSFORMATION_ENABLED=1
-PHASE_12C_FIX_E_ENABLED=1
-PHASE_12C_FIX_F_ENABLED=1
+# Phase 12 Fix 1a (chart-level 用神 cascade)
+BAZI_USE_WEIGHTED_IMBALANCE=1   # Phase 12 Fix 1a (see Note below — code default is '0')
+
+# Phase 12b monthly forecasts
+PHASE_12B_FIX_A=1                              # 蓋頭/截腳 halving
+PHASE_12B_FIX_B=1                              # 伏吟 multi-pillar role-conditional
+PHASE_12B_FIX_C_ENABLED=1                      # 殺印/官印相生 transient
+PHASE_12B_FIX_D_TRUE_TRANSFORMATION_ENABLED=1  # 六合 真化
+
+# Phase 12c monthly forecasts
+PHASE_12C_FIX_E_ENABLED=1                      # 六害 role-aware
+PHASE_12C_FIX_F_ENABLED=1                      # 沖庫釋放方向性
+
+# Phase 12d 用神 validation gate fixes
+PHASE_12D_PATTERN_2C_SANHE_CREDIT=1            # 三合/半合 V2 dedi credit
+PHASE_12D_PATTERN_2A_BIJIE_BOOST=1             # 比劫 透干 boost
+PHASE_12D_PATTERN_2B_SURROUND_DAMPENER=1       # 月令祿 surround dampener
+PHASE_12D_PATTERN_1_NEUTRAL_BRANCH=1           # neutral DM 食傷洩秀
+PHASE_12D_PATTERN_3B_HUAQI_SUPPRESSION=1       # 真化 stem suppression
+PHASE_12D_PATTERN_3A_CONG_QIANG_DETECTOR=0     # ⚠️ DO NOT FLIP — see Pattern 3a guard rail above
+
+# Phase 12e
+PHASE_12E_PATTERN_2A_PP_NON_MONTH=1            # non-month 比劫祿/羊刃 boost
 ```
 
 CI matrix runs at minimum: all-on, Phase 12 off, Fix C+F isolated. Per-rule
 flags can disable any single rule without revert PR.
 
-> **Note on `BAZI_USE_WEIGHTED_IMBALANCE` default**: code default is `'0'` (OFF)
-> in `packages/bazi-engine/app/five_elements.py`, NOT `'1'`. The "Default ON in
-> dev/staging" line above describes the *intent*; current state is OFF pending
-> validation harness completion. Flag-flip blocked on:
-> 1. Completion of the n=50 expert-labeled chart CSV at
->    `packages/bazi-engine/tests/validation/expert_labeled_charts.csv`
-> 2. Bazi-master sign-off on 3 known compatibility regressions at
->    `tests/test_compatibility_gold_standard.py::TestScoreRanking`
-> 3. Operator runs `tests/validation/run_imbalance_validation.py` and confirms
->    ≥95% agreement
+> **Note on `BAZI_USE_WEIGHTED_IMBALANCE` default (post-Phase-12f)**: code
+> default is now `'1'` (ON) in `packages/bazi-engine/app/five_elements.py`.
+> Phase 12 Fix 1a is active by default. Flag-flip preconditions cleared:
+> 1. ✅ n=50 expert-labeled chart CSV at
+>    `packages/bazi-engine/tests/validation/expert_labeled_charts.csv` (PR #38)
+> 2. ✅ Product-owner waiver of Bazi-master sign-off (user explicit, Phase 12f).
+>    The 4 known compat regressions in `test_compatibility_gold_standard.py`
+>    are already documented as `@pytest.mark.xfail(strict=False)` per Phase 12d
+>    Pattern 1 doctrinal-split categorization.
+> 3. ✅ Validation harness ≥95% agreement (98% under
+>    `--accept-doctrinal-splits` post-Phase-12d/e)
 >
-> Tracker: file separate "Phase 12 Fix 1a default ON" PR after gates clear.
-> Until then, the documented Laopo 用神 木→水 outcome only manifests when the
-> env var is explicitly set to `'1'`.
+> Rollback: set `BAZI_USE_WEIGHTED_IMBALANCE=0` in env to revert to pre-Fix-1a
+> raw-count dominance detection.
 
 ### Anti-hallucination prompt rules
 
