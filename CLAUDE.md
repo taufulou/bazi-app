@@ -133,8 +133,8 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 - Next: Phase 12f (Pattern 3a flag flip after Bazi-master audit; doctrinal-split toggles for users who prefer alternate schools)
 
 ## Test suite sizes
-- Bazi Engine: 1989 (1983 pass, 4 xfail, 1 skip, 1 pre-existing fail unrelated) | NestJS API: 692 | Frontend: 143 | ZWDS: 289
-  - 4 xfailed: Phase 12d Pattern 1 doctrinal regressions in `test_compatibility_gold_standard.py` (Huang+AB scoring elevated; same class as the documented BAZI_USE_WEIGHTED_IMBALANCE flag-on regressions)
+- Bazi Engine: 1989 (1982 pass, 5 xfail, 1 skip, 1 pre-existing fail unrelated) | NestJS API: 692 | Frontend: 143 | ZWDS: 289
+  - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
 
 ## Reading Types
 18 total: 6 Bazi + 10 ZWDS + 2 Special. Credits: 1-3 per reading. See `docs/monetization.md` for pricing.
@@ -530,12 +530,20 @@ Fix 1a, 12b, 12c, 12d, 12e).
 > reason. Verified at PR #38 / Phase 12d Pattern 3a ship. See
 > `.claude/plans/phase_12d_review_v2.md` for the audit context.
 
-**Cache invalidation post-deploy** (preAnalysisVersion bumps required by Phase 12d):
-- LIFETIME: v2.4.0 → v2.5.0 (Phase 12d) → v2.6.0 (Phase 12e)
-- CAREER: v2.2.0 → v2.3.0 (Phase 12d) → v2.4.0 (Phase 12e)
-- ANNUAL: v2.0.0 → v2.1.0 (Phase 12d) → v2.2.0 (Phase 12e)
-- Comparison: v1.2.0 → v1.3.0 (Phase 12d) → v1.4.0 (Phase 12e)
+**Cache invalidation post-deploy** (preAnalysisVersion bumps required by Phase 12d/12e/12f):
+- LIFETIME: v2.4.0 → v2.5.0 (Phase 12d) → v2.6.0 (Phase 12e) → v2.7.0 (Phase 12f)
+- CAREER: v2.2.0 → v2.3.0 (Phase 12d) → v2.4.0 (Phase 12e) → v2.5.0 (Phase 12f)
+- ANNUAL: v2.0.0 → v2.1.0 (Phase 12d) → v2.2.0 (Phase 12e) → v2.3.0 (Phase 12f)
+- Comparison: v1.2.0 → v1.3.0 (Phase 12d) → v1.4.0 (Phase 12e) → v1.5.0 (Phase 12f)
 - Operator runs `redis-cli FLUSHALL` post-deploy
+
+**Local dev environment warning (Phase 12f flag flip)**: If you previously
+set `BAZI_USE_WEIGHTED_IMBALANCE=0` in your local `apps/api/.env` to
+reproduce flag-off behavior, REMOVE that line OR change to
+`BAZI_USE_WEIGHTED_IMBALANCE=1` to match the new code default. Stale `=0`
+overrides will silently revert your local install to pre-Fix-1a engine
+output despite the code change. Verify with:
+`grep BAZI_USE_WEIGHTED_IMBALANCE apps/api/.env || echo "Not set in .env (will use code default '1')"`.
 
 ### Phase 12e — close the validation gate
 
@@ -780,22 +788,20 @@ PHASE_12E_PATTERN_2A_PP_NON_MONTH=1            # non-month 比劫祿/羊刃 boos
 CI matrix runs at minimum: all-on, Phase 12 off, Fix C+F isolated. Per-rule
 flags can disable any single rule without revert PR.
 
-> **Note on `BAZI_USE_WEIGHTED_IMBALANCE` default**: code default is `'0'` (OFF)
-> in `packages/bazi-engine/app/five_elements.py`, NOT `'1'`. The "Default ON in
-> dev/staging" line above describes the *intent*; current state is OFF pending
-> Bazi-master sign-off. Flag-flip preconditions:
-> 1. ✅ Completion of the n=50 expert-labeled chart CSV at
->    `packages/bazi-engine/tests/validation/expert_labeled_charts.csv` (DONE in PR #38)
-> 2. ⏳ Bazi-master sign-off on 3 known compatibility regressions at
->    `tests/test_compatibility_gold_standard.py::TestScoreRanking`
->    (4 xfailed in Phase 12d; awaits product-owner waiver or Bazi-master review)
-> 3. ✅ Operator runs `tests/validation/run_imbalance_validation.py` and confirms
->    ≥95% agreement (98% under `--accept-doctrinal-splits` post-Phase-12d/e)
+> **Note on `BAZI_USE_WEIGHTED_IMBALANCE` default (post-Phase-12f)**: code
+> default is now `'1'` (ON) in `packages/bazi-engine/app/five_elements.py`.
+> Phase 12 Fix 1a is active by default. Flag-flip preconditions cleared:
+> 1. ✅ n=50 expert-labeled chart CSV at
+>    `packages/bazi-engine/tests/validation/expert_labeled_charts.csv` (PR #38)
+> 2. ✅ Product-owner waiver of Bazi-master sign-off (user explicit, Phase 12f).
+>    The 4 known compat regressions in `test_compatibility_gold_standard.py`
+>    are already documented as `@pytest.mark.xfail(strict=False)` per Phase 12d
+>    Pattern 1 doctrinal-split categorization.
+> 3. ✅ Validation harness ≥95% agreement (98% under
+>    `--accept-doctrinal-splits` post-Phase-12d/e)
 >
-> 2 of 3 gates clear. Tracker: file separate "Phase 12 Fix 1a default ON" PR
-> after Gate 2 clears OR product-owner explicitly waives Bazi-master review.
-> Until then, the documented Laopo 用神 木→水 outcome only manifests when the
-> env var is explicitly set to `'1'`.
+> Rollback: set `BAZI_USE_WEIGHTED_IMBALANCE=0` in env to revert to pre-Fix-1a
+> raw-count dominance detection.
 
 ### Anti-hallucination prompt rules
 

@@ -39,7 +39,7 @@ from .constants import (
 # the module constant (not the env var) — see tests/test_ten_gods_imbalance.py.
 # Deletion criteria documented in .claude/plans/bazi-accuracy-laopo-fixes.md.
 _USE_WEIGHTED_IMBALANCE: bool = os.environ.get(
-    'BAZI_USE_WEIGHTED_IMBALANCE', '0'
+    'BAZI_USE_WEIGHTED_IMBALANCE', '1'
 ).lower() in ('1', 'true', 'yes', 'on')
 
 
