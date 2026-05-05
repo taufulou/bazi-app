@@ -648,7 +648,13 @@
 /* V7-E styles moved to CompatibilityScoreRevealV2.module.css */
 
 /* ==== Floating Pill Progress Indicator ==== */
-/* Mirrored from apps/web/app/reading/[type]/page.module.css. Keep in sync. */
+/* Pill base styles mirrored from apps/web/app/reading/[type]/page.module.css.
+ * Keep the SHARED classes in sync with that file:
+ *   .floatingPill .pillDot .pillLabel .pillBar .pillBarFill .pillBarShimmer
+ *   .pillCount   (+ keyframes pillSlideIn, pillDotPulse, shimmerSweep)
+ * The .pillLabelGroup and .pillSubtext below are compat-only (subtitle row
+ * for the rotating STREAMING_MESSAGES hint) and intentionally do NOT exist
+ * in the source file — do not delete them when re-syncing. */
 .floatingPill {
   display: flex;
   align-items: center;
