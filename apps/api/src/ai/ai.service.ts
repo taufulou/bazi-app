@@ -147,8 +147,25 @@ export const DEGRADE_THRESHOLDS: Record<string, DegradeThresholdConfig> = {
  * The cap is structurally enforced by the prompt template
  * (LOVE_V2_PROMPTS.outputFormatCall2 has hardcoded YYYY1..YYYY5 slots),
  * so the streamer's expected-keys count must match.
+ *
+ * Drift guard: a unit test in ai-service.spec.ts asserts this constant
+ * equals the count of distinct YYYY\d slots in the prompt template. If
+ * you bump this number, also add YYYY6..YYYYN slots to LOVE_V2_OUTPUT_FORMAT_CALL2.
  */
-const LOVE_V2_ANNUAL_FORECAST_CAP = 5;
+export const LOVE_V2_ANNUAL_FORECAST_CAP = 5;
+
+/**
+ * Career V2 Call 2 only emits up to this many annual_forecast_YYYY sections.
+ * The cap is structurally enforced by the prompt template
+ * (CAREER_V2_PROMPTS.outputFormatCall2 has hardcoded YYYY1..YYYY5 slots),
+ * so the streamer's expected-keys count must match.
+ *
+ * Drift guard: a unit test in ai-service.spec.ts asserts this constant
+ * equals the count of distinct YYYY\d slots in CAREER_V2_PROMPTS.outputFormatCall2.
+ * If you bump this number, also add YYYY6..YYYYN slots to that template
+ * AND raise career_enhanced.py::compute_annual_forecast_data's forecast_years default.
+ */
+export const CAREER_V2_ANNUAL_FORECAST_CAP = 5;
 
 // ============================================================
 // AI Service
@@ -1594,17 +1611,7 @@ export class AIService implements OnModuleInit {
     subscriber: Subscriber<MessageEvent>,
     externalControllers?: Set<AbortController>,
   ) {
-    // Build dynamic Call 2 keys from annual_forecasts deterministic data
-    const enhancedInsights = calculationData['careerEnhancedInsights'] as Record<string, unknown> | undefined;
-    const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
-    const annualForecasts = (rawDeterministic['annual_forecasts'] || rawDeterministic['annualForecasts'] || []) as Array<{ year: number }>;
-    const call2ExpectedKeys: string[] = [];
-    for (const af of annualForecasts) {
-      call2ExpectedKeys.push(`annual_forecast_${af.year}`);
-    }
-    for (let m = 1; m <= 12; m++) {
-      call2ExpectedKeys.push(`monthly_forecast_${String(m).padStart(2, '0')}`);
-    }
+    const call2ExpectedKeys = this.buildCareerV2Call2ExpectedKeys(calculationData);
 
     await this._executeStreamV2Common({
       calculationData,
@@ -1622,6 +1629,30 @@ export class AIService implements OnModuleInit {
       },
       externalControllers,
     });
+  }
+
+  /**
+   * Build Career V2 Call 2 expected keys: capped annual_forecast_YYYY + 12 monthly_forecast_MM.
+   * Matches the cap baked into CAREER_V2_PROMPTS.outputFormatCall2 (YYYY1..YYYY5 slots).
+   *
+   * Reads from enhancedInsights.deterministic.annual_forecasts (with snake_case ↔ camelCase
+   * fallback) — the same field buildCareerV2Prompts reads, preserving Career's existing
+   * read-path convention.
+   */
+  private buildCareerV2Call2ExpectedKeys(
+    calculationData: Record<string, unknown>,
+  ): string[] {
+    const enhancedInsights = calculationData['careerEnhancedInsights'] as Record<string, unknown> | undefined;
+    const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+    const annualForecasts = (rawDeterministic['annual_forecasts'] || rawDeterministic['annualForecasts'] || []) as Array<{ year: number }>;
+    const keys: string[] = [];
+    for (const af of annualForecasts.slice(0, CAREER_V2_ANNUAL_FORECAST_CAP)) {
+      keys.push(`annual_forecast_${af.year}`);
+    }
+    for (let m = 1; m <= 12; m++) {
+      keys.push(`monthly_forecast_${String(m).padStart(2, '0')}`);
+    }
+    return keys;
   }
 
   // ============================================================
@@ -2433,14 +2464,14 @@ export class AIService implements OnModuleInit {
     const annualForecasts = (rawDet['annual_forecasts'] || rawDet['annualForecasts'] || []) as Array<{ year: number }>;
     if (annualForecasts.length > 0) {
       const years = annualForecasts.map(af => af.year);
-      for (let i = 0; i < Math.min(5, years.length); i++) {
+      for (let i = 0; i < Math.min(CAREER_V2_ANNUAL_FORECAST_CAP, years.length); i++) {
         outputFormatCall2 = outputFormatCall2.replace(
           new RegExp(`YYYY${i + 1}`, 'g'),
           String(years[i]),
         );
       }
     }
-    // Strip any unreplaced YYYY tokens (edge case: fewer than 5 annual forecasts)
+    // Strip any unreplaced YYYY tokens (edge case: fewer than CAREER_V2_ANNUAL_FORECAST_CAP annual forecasts)
     outputFormatCall2 = outputFormatCall2.replace(/\n[^\n]*YYYY\d[^\n]*/g, '');
     outputFormatCall2 = outputFormatCall2.replace(
       /{ "preview"/g,

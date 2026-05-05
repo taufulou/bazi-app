@@ -2,7 +2,12 @@
  * Tests for AI Service - response parsing, caching, prompt building.
  * These tests don't require actual API keys — they test the deterministic logic.
  */
-import { AIService } from '../src/ai/ai.service';
+import {
+  AIService,
+  LOVE_V2_ANNUAL_FORECAST_CAP,
+  CAREER_V2_ANNUAL_FORECAST_CAP,
+} from '../src/ai/ai.service';
+import { LOVE_V2_PROMPTS, CAREER_V2_PROMPTS } from '../src/ai/prompts';
 import { ReadingType } from '@prisma/client';
 
 // ============================================================
@@ -274,6 +279,104 @@ describe('AIService', () => {
       const keys = buildKeys({});
       expect(keys).toHaveLength(12);
       expect(keys).toEqual(monthlyKeys);
+    });
+
+    // Drift guard: if LOVE_V2_ANNUAL_FORECAST_CAP is ever bumped, the prompt
+    // template must gain matching YYYYn slots in the same commit. This test
+    // fails noisily if the two diverge.
+    it('LOVE_V2_PROMPTS.outputFormatCall2 has exactly LOVE_V2_ANNUAL_FORECAST_CAP distinct YYYYn slots', () => {
+      const matches = LOVE_V2_PROMPTS.outputFormatCall2.match(/YYYY\d/g) || [];
+      const distinct = new Set(matches);
+      expect(distinct.size).toBe(LOVE_V2_ANNUAL_FORECAST_CAP);
+      // Slots must be 1-indexed and contiguous (YYYY1..YYYYN), not e.g. YYYY1,YYYY3,YYYY5
+      const expected = new Set(
+        Array.from({ length: LOVE_V2_ANNUAL_FORECAST_CAP }, (_, i) => `YYYY${i + 1}`),
+      );
+      expect(distinct).toEqual(expected);
+    });
+  });
+
+  // ============================================================
+  // Career V2 Call 2 expected keys
+  // (preventative — Career engine currently caps at 5 forecast_years
+  //  upstream so the bug is latent; see .claude/plans/career-v2-cap-preventative-fix.md)
+  // ============================================================
+
+  describe('buildCareerV2Call2ExpectedKeys', () => {
+    const buildKeys = (calc: Record<string, unknown>): string[] =>
+      (service as any).buildCareerV2Call2ExpectedKeys(calc);
+
+    // Note: Career fixture uses snake_case under `deterministic` (matching
+    // career_enhanced.py:1541), unlike Love which hoists annualForecasts to
+    // top-level camelCase. Both shapes are intentional — do not normalise.
+    const makeCalc = (years: number[]) => ({
+      careerEnhancedInsights: {
+        deterministic: {
+          annual_forecasts: years.map((year) => ({ year })),
+        },
+      },
+    });
+
+    const monthlyKeys = Array.from({ length: 12 }, (_, i) =>
+      `monthly_forecast_${String(i + 1).padStart(2, '0')}`,
+    );
+
+    it('returns 12 monthly keys when no annualForecasts present', () => {
+      const keys = buildKeys(makeCalc([]));
+      expect(keys).toHaveLength(12);
+      expect(keys).toEqual(monthlyKeys);
+    });
+
+    it('returns 15 keys (3 annual + 12 monthly) for 3-year input', () => {
+      const keys = buildKeys(makeCalc([2026, 2027, 2028]));
+      expect(keys).toHaveLength(15);
+      expect(keys).toContain('annual_forecast_2026');
+      expect(keys).toContain('annual_forecast_2028');
+    });
+
+    it('returns 17 keys for exactly 5-year input', () => {
+      const keys = buildKeys(makeCalc([2026, 2027, 2028, 2029, 2030]));
+      expect(keys).toHaveLength(17);
+      expect(keys).toContain('annual_forecast_2026');
+      expect(keys).toContain('annual_forecast_2030');
+    });
+
+    it('caps at 17 keys for 7-year input (preventative guard)', () => {
+      const keys = buildKeys(makeCalc([2026, 2027, 2028, 2029, 2030, 2031, 2032]));
+      expect(keys).toHaveLength(17);
+      expect(keys).toContain('annual_forecast_2026');
+      expect(keys).toContain('annual_forecast_2030');
+      expect(keys).not.toContain('annual_forecast_2031');
+      expect(keys).not.toContain('annual_forecast_2032');
+    });
+
+    it('caps at 17 keys for 10-year input (future-engine-bump guard)', () => {
+      const years = Array.from({ length: 10 }, (_, i) => 2026 + i);
+      const keys = buildKeys(makeCalc(years));
+      expect(keys).toHaveLength(17);
+      expect(keys).toContain('annual_forecast_2026');
+      expect(keys).toContain('annual_forecast_2030');
+      expect(keys).not.toContain('annual_forecast_2031');
+      expect(keys).not.toContain('annual_forecast_2035');
+    });
+
+    it('returns 12 monthly-only keys when careerEnhancedInsights is missing', () => {
+      const keys = buildKeys({});
+      expect(keys).toHaveLength(12);
+      expect(keys).toEqual(monthlyKeys);
+    });
+
+    // Drift guard: bumping CAREER_V2_ANNUAL_FORECAST_CAP without adding
+    // matching YYYYn slots to the prompt template (and raising
+    // career_enhanced.py::forecast_years) will fail this test.
+    it('CAREER_V2_PROMPTS.outputFormatCall2 has exactly CAREER_V2_ANNUAL_FORECAST_CAP distinct YYYYn slots', () => {
+      const matches = CAREER_V2_PROMPTS.outputFormatCall2.match(/YYYY\d/g) || [];
+      const distinct = new Set(matches);
+      expect(distinct.size).toBe(CAREER_V2_ANNUAL_FORECAST_CAP);
+      const expected = new Set(
+        Array.from({ length: CAREER_V2_ANNUAL_FORECAST_CAP }, (_, i) => `YYYY${i + 1}`),
+      );
+      expect(distinct).toEqual(expected);
     });
   });
 
