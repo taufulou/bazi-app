@@ -10,7 +10,7 @@ import BirthDataForm, {
 } from "../../components/BirthDataForm";
 import BaziChart from "../../components/BaziChart";
 import ZwdsChart from "../../components/ZwdsChart";
-import AIReadingDisplay, { V2_ALL_SECTION_KEYS } from "../../components/AIReadingDisplay";
+import AIReadingDisplay, { V2_ALL_SECTION_KEYS, ANNUAL_V2_ALL_SECTION_KEYS } from "../../components/AIReadingDisplay";
 import PastReadingsSection from "../../components/PastReadingsSection";
 import { getUserProfile } from "../../lib/api";
 import InsufficientCreditsModal from "../../components/InsufficientCreditsModal";
@@ -36,6 +36,8 @@ import {
   transformAIResponse,
   SECTION_TITLE_MAP,
   GUIDE_SECTION_TITLE_MAP,
+  CAREER_V2_EXPECTED_TOTAL,
+  LOVE_V2_EXPECTED_TOTAL,
   type NestJSReadingResponse,
   type AIReadingData,
 } from "../../lib/readings-api";
@@ -134,6 +136,20 @@ export default function ReadingPage() {
   const isLove = readingType === "love";
   const isPaywallType = isCareer || isAnnual || isLove || isLifetime;
   const isFullPageLayout = isLifetime || isCareer || isAnnual || isLove;
+
+  // Total expected V2 sections per streaming reading type — used for the
+  // floating progress pill's denominator. Career/love include 5 annual + 12
+  // monthly dynamic sections beyond their static-keys arrays.
+  const ACTIVE_V2_TOTAL: number = (() => {
+    if (isLifetime) return V2_ALL_SECTION_KEYS.length;
+    if (isCareer)   return CAREER_V2_EXPECTED_TOTAL;
+    if (isAnnual)   return ANNUAL_V2_ALL_SECTION_KEYS.length;
+    if (isLove)     return LOVE_V2_EXPECTED_TOTAL;
+    if (process.env.NODE_ENV === 'development') {
+      console.warn('[pill] no V2 total registered for readingType:', readingType);
+    }
+    return 1;
+  })();
 
   // Auth — wait for Clerk to resolve before deciding initial step
   const clerkAuth = useAuth();
@@ -1655,7 +1671,7 @@ export default function ReadingPage() {
       )}
 
       {/* Floating pill progress indicator */}
-      {isLifetime && step === "result" && (isRevealing || isAiLoading) && (
+      {isFullPageLayout && step === "result" && (isRevealing || isAiLoading) && (
         <div className={styles.floatingPill}>
           <span className={styles.pillDot} />
           <span className={styles.pillLabel}>
@@ -1665,14 +1681,14 @@ export default function ReadingPage() {
             <div className={styles.pillBarFill}
                  style={{ width: isRevealing
                    ? `${(revealedSections / 6) * 100}%`
-                   : `${((aiData?.sections?.length ?? 0) / V2_ALL_SECTION_KEYS.length) * 100}%`
+                   : `${((aiData?.sections?.length ?? 0) / Math.max(ACTIVE_V2_TOTAL, 1)) * 100}%`
                  }} />
             <div className={styles.pillBarShimmer} />
           </div>
           <span className={styles.pillCount}>
             {isRevealing
               ? `${revealedSections}/6`
-              : `${aiData?.sections?.length ?? 0}/${V2_ALL_SECTION_KEYS.length}`
+              : `${aiData?.sections?.length ?? 0}/${ACTIVE_V2_TOTAL}`
             }
           </span>
         </div>
