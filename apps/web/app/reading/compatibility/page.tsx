@@ -706,6 +706,31 @@ export default function CompatibilityPage() {
         const displayLabel = romancePA?.blendedLabel ?? calcData?.label ?? '';
         return (
         <>
+          {/* Floating pill progress indicator — only during AI streaming */}
+          {isStreaming && (
+            <div className={styles.floatingPill}>
+              <span className={styles.pillDot} />
+              <div className={styles.pillLabelGroup}>
+                <span className={styles.pillLabel}>解讀中</span>
+                <span className={styles.pillSubtext}>
+                  {STREAMING_MESSAGES[streamingMsgIndex] || "正在生成分析報告..."}
+                </span>
+              </div>
+              <div className={styles.pillBar}>
+                <div
+                  className={styles.pillBarFill}
+                  style={{
+                    width: `${(streamedSectionCount / Math.max(COMPAT_ROMANCE_V2_ALL_SECTION_KEYS.length, 1)) * 100}%`,
+                  }}
+                />
+                <div className={styles.pillBarShimmer} />
+              </div>
+              <span className={styles.pillCount}>
+                {streamedSectionCount}/{COMPAT_ROMANCE_V2_ALL_SECTION_KEYS.length}
+              </span>
+            </div>
+          )}
+
           {/* Free section: Dual BaziCharts side-by-side */}
           <div className={styles.freeChartsSection}>
             {/* Labels removed — chartPanelLabel inside each panel already shows 男方/女方 */}
@@ -733,16 +758,6 @@ export default function CompatibilityPage() {
                 isUnlocking={isUnlocking}
                 onCreditsRefresh={refreshUserProfile}
               />
-            </div>
-          )}
-
-          {/* Streaming status indicator */}
-          {isStreaming && (
-            <div className={styles.streamingStatus}>
-              <div className={styles.streamingDot} />
-              <span className={styles.streamingText}>
-                {STREAMING_MESSAGES[streamingMsgIndex] || "正在生成分析報告..."}
-              </span>
             </div>
           )}
 

@@ -140,7 +140,12 @@ export function profileToPersonFields(profile: {
     if (parts.length >= 2 && parts[0] && parts[1]) {
       const converted = to12Hour(parts[0]);
       hour = converted.hour12;
-      minute = parts[1];
+      // Keep the zero-padded minute string ("00".."59") to match the
+      // dropdown option values in PersonBirthFields, which are also
+      // zero-padded via String(m).padStart(2, "0"). Stripping leading
+      // zeros (e.g. "00" → "0") would cause the select to fall back to
+      // the empty placeholder.
+      minute = parts[1].padStart(2, '0');
       period = converted.period;
     }
   }
@@ -156,7 +161,7 @@ export function profileToPersonFields(profile: {
     month: month ? String(parseInt(month)) : '', // remove leading zero
     day: day ? String(parseInt(day)) : '',
     hour,
-    minute: minute ? String(parseInt(minute)) : '',
+    minute,
     period,
     isLeapMonth: profile.isLeapMonth || false,
     regionCode,

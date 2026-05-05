@@ -752,6 +752,11 @@ export const CAREER_V2_ALL_SECTION_KEYS = [
   // 5 annual + 12 monthly = 17 dynamic keys added at runtime
 ];
 
+/** Total expected sections for career streaming (used by progress pill).
+ *  = static + dynamic (5 annual + 12 monthly per Call 2 prompt). */
+export const CAREER_V2_EXPECTED_TOTAL =
+  CAREER_V2_ALL_SECTION_KEYS.length + 5 + 12; // 25
+
 /** Love V2 section display order (controls rendering sequence). */
 export const LOVE_V2_SECTION_ORDER = [
   'love_personality',
@@ -770,6 +775,11 @@ export const LOVE_V2_SECTION_ORDER = [
  *  Derived from shared constants — single source of truth.
  *  5 annual + 12 monthly = 17 dynamic keys added at runtime. */
 export const LOVE_V2_ALL_SECTION_KEYS = Object.values(LOVE_V2_SECTION_KEYS);
+
+/** Total expected sections for love streaming (used by progress pill).
+ *  = static + dynamic (5 annual + 12 monthly per Call 2 prompt). */
+export const LOVE_V2_EXPECTED_TOTAL =
+  LOVE_V2_ALL_SECTION_KEYS.length + 5 + 12; // 26
 
 /** All expected compatibility romance V2 section keys (for progress tracking).
  *  Derived from shared constants — single source of truth. */

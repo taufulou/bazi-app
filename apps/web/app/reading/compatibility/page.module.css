@@ -646,3 +646,122 @@
 }
 
 /* V7-E styles moved to CompatibilityScoreRevealV2.module.css */
+
+/* ==== Floating Pill Progress Indicator ==== */
+/* Pill base styles mirrored from apps/web/app/reading/[type]/page.module.css.
+ * Keep the SHARED classes in sync with that file:
+ *   .floatingPill .pillDot .pillLabel .pillBar .pillBarFill .pillBarShimmer
+ *   .pillCount   (+ keyframes pillSlideIn, pillDotPulse, shimmerSweep)
+ * The .pillLabelGroup and .pillSubtext below are compat-only (subtitle row
+ * for the rotating STREAMING_MESSAGES hint) and intentionally do NOT exist
+ * in the source file — do not delete them when re-syncing. */
+.floatingPill {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  max-width: 320px;
+  margin: 0 auto 1.2rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(212, 160, 23, 0.2);
+  border-radius: 50px;
+  box-shadow: 0 2px 16px rgba(226, 61, 40, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04);
+  animation: pillSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  /* position:relative is required for z-index to take effect — without it,
+     the pageContainer::before hero-image overlay paints over the pill. */
+  position: relative;
+  z-index: 10;
+}
+
+@keyframes pillSlideIn {
+  from { opacity: 0; transform: translateY(-12px) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.pillDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-red);
+  flex-shrink: 0;
+  animation: pillDotPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pillDotPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(226, 61, 40, 0.4); }
+  50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(226, 61, 40, 0); }
+}
+
+.pillLabelGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  flex-shrink: 0;
+}
+
+.pillLabel {
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  font-family: 'Noto Serif TC', serif;
+}
+
+.pillSubtext {
+  color: var(--text-muted);
+  font-size: 0.65rem;
+  font-weight: 400;
+  white-space: nowrap;
+  font-family: 'Noto Serif TC', serif;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pillBar {
+  flex: 1;
+  height: 3px;
+  min-width: 80px;
+  background: rgba(212, 160, 23, 0.12);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+}
+
+.pillBarFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-gold), var(--color-orange));
+  border-radius: 2px;
+  transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.pillBarShimmer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.5) 50%,
+    transparent 100%
+  );
+  animation: shimmerSweep 2s ease-in-out infinite;
+}
+
+@keyframes shimmerSweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.pillCount {
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 500;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}

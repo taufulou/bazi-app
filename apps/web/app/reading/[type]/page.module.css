@@ -507,6 +507,9 @@
   border-radius: 50px;
   box-shadow: 0 2px 16px rgba(226, 61, 40, 0.06), 0 1px 4px rgba(0, 0, 0, 0.04); /* var(--color-red) based */
   animation: pillSlideIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  /* position:relative is required for z-index to take effect — without it,
+     the pageContainerLifetime::before hero-image overlay can paint over the pill. */
+  position: relative;
   z-index: 10;
 }
 
