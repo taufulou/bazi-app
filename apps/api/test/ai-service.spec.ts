@@ -213,6 +213,71 @@ describe('AIService', () => {
   });
 
   // ============================================================
+  // Love V2 Call 2 expected keys
+  // (regression guard — see .claude/plans/love-v2-degraded-status-fix.md)
+  // ============================================================
+
+  describe('buildLoveV2Call2ExpectedKeys', () => {
+    const buildKeys = (calc: Record<string, unknown>): string[] =>
+      (service as any).buildLoveV2Call2ExpectedKeys(calc);
+
+    const makeCalc = (years: number[]) => ({
+      loveEnhancedInsights: {
+        annualForecasts: years.map((year) => ({ year })),
+      },
+    });
+
+    const monthlyKeys = Array.from({ length: 12 }, (_, i) =>
+      `monthly_love_${String(i + 1).padStart(2, '0')}`,
+    );
+
+    it('returns 12 monthly keys when no annualForecasts present', () => {
+      const keys = buildKeys(makeCalc([]));
+      expect(keys).toHaveLength(12);
+      expect(keys).toEqual(monthlyKeys);
+    });
+
+    it('returns 15 keys (3 annual + 12 monthly) for 3-year input', () => {
+      const keys = buildKeys(makeCalc([2026, 2027, 2028]));
+      expect(keys).toHaveLength(15);
+      expect(keys).toContain('annual_love_2026');
+      expect(keys).toContain('annual_love_2028');
+    });
+
+    it('returns 17 keys for exactly 5-year input', () => {
+      const keys = buildKeys(makeCalc([2026, 2027, 2028, 2029, 2030]));
+      expect(keys).toHaveLength(17);
+      expect(keys).toContain('annual_love_2026');
+      expect(keys).toContain('annual_love_2030');
+    });
+
+    it('caps at 17 keys for 7-year input (regression guard)', () => {
+      const keys = buildKeys(makeCalc([2026, 2027, 2028, 2029, 2030, 2031, 2032]));
+      expect(keys).toHaveLength(17);
+      expect(keys).toContain('annual_love_2026');
+      expect(keys).toContain('annual_love_2030');
+      expect(keys).not.toContain('annual_love_2031');
+      expect(keys).not.toContain('annual_love_2032');
+    });
+
+    it('caps at 17 keys for 10-year input (Laopo25 regression case)', () => {
+      const years = Array.from({ length: 10 }, (_, i) => 2026 + i);
+      const keys = buildKeys(makeCalc(years));
+      expect(keys).toHaveLength(17);
+      expect(keys).toContain('annual_love_2026');
+      expect(keys).toContain('annual_love_2030');
+      expect(keys).not.toContain('annual_love_2031');
+      expect(keys).not.toContain('annual_love_2035');
+    });
+
+    it('returns 12 monthly-only keys when loveEnhancedInsights is missing', () => {
+      const keys = buildKeys({});
+      expect(keys).toHaveLength(12);
+      expect(keys).toEqual(monthlyKeys);
+    });
+  });
+
+  // ============================================================
   // Response Parsing
   // ============================================================
 

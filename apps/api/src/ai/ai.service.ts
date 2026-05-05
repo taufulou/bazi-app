@@ -142,6 +142,14 @@ export const DEGRADE_THRESHOLDS: Record<string, DegradeThresholdConfig> = {
   DEFAULT:       { call2CompletionMin: 0.7, totalCompletionMin: 0.6, call2Critical: true },
 };
 
+/**
+ * Love V2 Call 2 only emits up to this many annual_love_YYYY sections.
+ * The cap is structurally enforced by the prompt template
+ * (LOVE_V2_PROMPTS.outputFormatCall2 has hardcoded YYYY1..YYYY5 slots),
+ * so the streamer's expected-keys count must match.
+ */
+const LOVE_V2_ANNUAL_FORECAST_CAP = 5;
+
 // ============================================================
 // AI Service
 // ============================================================
@@ -3585,17 +3593,7 @@ export class AIService implements OnModuleInit {
     readingId: string,
     subscriber: Subscriber<MessageEvent>,
   ) {
-    // Build expected Call 2 keys: annual_love_YYYY × N + monthly_love_MM × 12
-    const enhancedInsights = calculationData['loveEnhancedInsights'] as Record<string, unknown> | undefined;
-    const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
-    const annualForecasts = (rawDeterministic['annual_forecasts'] || rawDeterministic['annualForecasts'] || []) as Array<{ year: number }>;
-    const call2ExpectedKeys: string[] = [];
-    for (const af of annualForecasts) {
-      call2ExpectedKeys.push(`annual_love_${af.year}`);
-    }
-    for (let m = 1; m <= 12; m++) {
-      call2ExpectedKeys.push(`monthly_love_${String(m).padStart(2, '0')}`);
-    }
+    const call2ExpectedKeys = this.buildLoveV2Call2ExpectedKeys(calculationData);
 
     await this._executeStreamV2Common({
       calculationData,
@@ -3612,6 +3610,27 @@ export class AIService implements OnModuleInit {
         return loveFixed;
       },
     });
+  }
+
+  /**
+   * Build Love V2 Call 2 expected keys: capped annual_love_YYYY + 12 monthly_love_MM.
+   * Reads from enhancedInsights.annualForecasts (top-level, camelCase) — same
+   * source buildLoveV2Prompts uses, so streamer/prompt always agree on which
+   * years are requested.
+   */
+  private buildLoveV2Call2ExpectedKeys(
+    calculationData: Record<string, unknown>,
+  ): string[] {
+    const enhancedInsights = calculationData['loveEnhancedInsights'] as Record<string, unknown> | undefined;
+    const annualForecasts = (enhancedInsights?.['annualForecasts'] || []) as Array<{ year: number }>;
+    const keys: string[] = [];
+    for (const af of annualForecasts.slice(0, LOVE_V2_ANNUAL_FORECAST_CAP)) {
+      keys.push(`annual_love_${af.year}`);
+    }
+    for (let m = 1; m <= 12; m++) {
+      keys.push(`monthly_love_${String(m).padStart(2, '0')}`);
+    }
+    return keys;
   }
 
   /**
@@ -3640,14 +3659,14 @@ export class AIService implements OnModuleInit {
     const annualForecasts = (enhancedInsights?.['annualForecasts'] || []) as Array<{ year: number }>;
     if (annualForecasts.length > 0) {
       const years = annualForecasts.map(af => af.year);
-      for (let i = 0; i < Math.min(5, years.length); i++) {
+      for (let i = 0; i < Math.min(LOVE_V2_ANNUAL_FORECAST_CAP, years.length); i++) {
         outputFormatCall2 = outputFormatCall2.replace(
           new RegExp(`YYYY${i + 1}`, 'g'),
           String(years[i]),
         );
       }
     }
-    // Strip any unreplaced YYYY tokens (edge case: fewer than 5 annual forecasts)
+    // Strip any unreplaced YYYY tokens (edge case: fewer than LOVE_V2_ANNUAL_FORECAST_CAP annual forecasts)
     outputFormatCall2 = outputFormatCall2.replace(/\n[^\n]*YYYY\d[^\n]*/g, '');
 
     const userPromptCall1 = call1Template + '\n\n' + LOVE_V2_PROMPTS.outputFormatCall1;
