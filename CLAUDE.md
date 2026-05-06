@@ -539,11 +539,9 @@ Fix 1a, 12b, 12c, 12d, 12e).
 **Cache invalidation post-deploy** (preAnalysisVersion bumps required by Phase 12d/12e/12f/12g):
 - LIFETIME: v2.4.0 → v2.5.0 (Phase 12d) → v2.6.0 (Phase 12e) → v2.7.0 (Phase 12f) → v2.9.0 (Phase 12g romance archetype + 月令格 personality cascade)
 - CAREER: v2.2.0 → v2.3.0 (Phase 12d) → v2.4.0 (Phase 12e) → v2.5.0 (Phase 12f, unchanged in 12g)
-- ANNUAL: v2.0.0 → v2.1.0 (Phase 12d) → v2.2.0 (Phase 12e) → v2.3.0 (Phase 12f, unchanged in 12g)
+- ANNUAL: v2.0.0 → v2.1.0 (Phase 12d) → v2.2.0 (Phase 12e) → v2.3.0 (Phase 12f, unchanged in 12g) → v2.4.0 (Phase 12h.B Item 2: 傷官見官 favorability propagation in annual_enhanced.py)
 - LOVE: (was using fallback v1.1.0 — Phase 12g.1 added explicit entry) → v1.7.0 (Phase 12g.1-12g.4 cumulative) → v1.8.0 (Phase 12g.6: personalityDimensions + 傷官見官 deterministic framing + natalFrictions injection) → v1.9.0 (Phase 12g.7: PROTECTED_HIGH_PRIORITY 偏緣動年 typo fix + 六害 double-injection removal + 傷官見官 latent gating + prompt rule cleanup) → v1.10.0 (Phase 12h.A: natalHarm removal + kongWang fallback removal + 三刑 transit upgrade) → v1.11.0 (Phase 12h.B Item 8: 比劫奪財 framing parity)
-- ANNUAL: v2.3.0 → v2.4.0 (Phase 12h.B Item 2: 傷官見官 favorability propagation in annual_enhanced.py)
-- COMPATIBILITY: v1.6.0 → v1.7.0 (Phase 12h.B Item 2: 傷官見官 favorability propagation in compatibility_romance_preanalysis.py 3 sites)
-- COMPATIBILITY: v1.5.0 → v1.6.0 (Phase 12g.1 cross-chart 官殺混雜 natal-doctrine suppression)
+- COMPATIBILITY: v1.5.0 → v1.6.0 (Phase 12g.1 cross-chart 官殺混雜 natal-doctrine suppression) → v1.7.0 (Phase 12h.B Item 2: 傷官見官 favorability propagation in compatibility_romance_preanalysis.py 3 sites)
 - Operator runs `redis-cli FLUSHALL` post-deploy
 - ⚠️ **Phase 12g deploy cost note**: Bumping LOVE + COMPATIBILITY invalidates ALL cached love/compat readings. For paid-tier readings, regen = real Claude API spend. Operator MUST: (1) confirm with product owner that cache bust is acceptable, (2) stage deploy outside peak read traffic, (3) monitor Anthropic API spend dashboard for 48h post-deploy, (4) document expected regen volume in deploy ticket.
 
@@ -970,18 +968,16 @@ Plus chart-level deterministic changes:
 - New: `packages/bazi-engine/tests/validation/romance_label_corpus.csv` — 15 fixtures across Laopo + Roger
 - New: `packages/bazi-engine/tests/validation/run_romance_label_validation.py` — strict 0-regression gate
 
-### Phase 12h candidates (deferred from 12g)
+### Phase 12i candidates (deferred from 12h)
 
-- Centralized `chart_doctrine.py` module (傷官見官/比劫奪財/財星混雜 across all readings)
-- **career/annual/compat 傷官見官 favorability propagation** (Phase 12g.7 review confirmed compat scope — 3 modules, not just career/annual)
-- Deprecate `love_enhanced.py` legacy `challenges[].guanCount`/`shaCount` fields after frontend migration
-- Deprecate `marriage_palace.meta.natalHarm` legacy alias (Phase 12g.6 introduced `natalFrictions` as canonical; Phase 12g.7 removed prompt-side injection but field still emitted by engine)
-- Fix `palace.kongWang` vs `isKongWang` camelCase mismatch (separate bug found during Phase 12g.6 V1 review)
-- Full 三刑 (3-branch group) detection on spouse palace (Phase 12g.6 only does 2-branch partials)
-- Post-generation narrative linter for AI compliance signal (deferred from Phase 12g.6 Gap 2 alternative)
-- **比劫奪財 deterministic framing parity** (Phase 12g.7 review Issue D — analogous to Phase 12g.6 Gap 2 傷官見官 framing, currently only 傷官見官 has the deterministic block)
-- **Inject machine-readable `[doctrine: <type>]` markers alongside Chinese labels for stable prompt-rule matching** (Phase 12g.7 review Issue B — addresses doctrineDetail Chinese-label string-coupling fragility)
-- Phase 12d Pattern 3a `PHASE_12D_PATTERN_3A_CONG_QIANG_DETECTOR` flag-flip (independent of 12g)
+For the up-to-date list, see the "Phase 12i candidates" bullet at the
+top of this file (around line 139). Most items previously listed here
+under "Phase 12h candidates" shipped in Phase 12h.A/B (Items 4, 5, 6
+on the natalHarm / kongWang / 三刑 transit path; Items 2, 8 on the
+傷官見官 + 比劫奪財 framing path). Remaining deferrals (centralized
+`chart_doctrine.py`, career-side 傷官見官 propagation, machine-readable
+doctrine markers, Pattern 3a flag flip, etc.) are tracked in the
+canonical bullet at line 139.
 
 ### Phase 12g.6 — Love reading polish (deltas to Phase 12g.4 wiring)
 

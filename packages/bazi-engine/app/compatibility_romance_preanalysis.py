@@ -1261,8 +1261,10 @@ def compute_post_marriage_quality(
         stems_x = _get_stems(chart_x)
         gender_x = chart_x.get('gender', gdr)
         pillars_x = _get_pillars(chart_x)
-        # Per-chart effective_gods (each partner has own god system)
-        effective_gods_x = chart_x.get('preAnalysis', {}).get('effectiveGods', {}) if chart_x.get('preAnalysis') else {}
+        # Per-chart effective_gods (each partner has own god system).
+        # Use _get_effective_gods helper to handle dual-key fallback
+        # (top-level 'effectiveGods' vs preAnalysis.'effectiveFavorableGods').
+        effective_gods_x = _get_effective_gods(chart_x)
         if gender_x == 'female':
             # Check 官殺混雜 — Phase 12g.1 Fix 2: weighted canonical helper
             gs_result = check_guan_sha_hunza(pillars_x, dm_x, 'female')
