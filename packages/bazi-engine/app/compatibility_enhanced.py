@@ -56,6 +56,7 @@ from .compatibility_constants import (
     SHEN_SHA_TIAN_DE_YUE_DE_MUTUAL,
     SHEN_SHA_TIAN_YI_CROSS_MATCH,
     SHEN_SHA_YIMA_BOTH,
+    SCORE_SPOUSE_PALACE_ZIMAO_MARRIAGE_PENALTY,
     SIGMOID_MIDPOINT,
     SIGMOID_STEEPNESS,
     SIGMOID_STEEPNESS_ROMANCE,
@@ -96,6 +97,7 @@ from .constants import (
 from .stem_combinations import STEM_CLASH_LOOKUP, STEM_COMBINATION_LOOKUP
 from .ten_gods import derive_ten_god
 from .interpretation_rules import check_guan_sha_hunza  # Phase 12g.1 Fix 2 — natal-doctrine awareness
+from .branch_relationships import THREE_PUNISHMENTS, check_sanxing_with_pool  # Phase 12i — 三刑/半刑/子卯刑
 
 
 # ============================================================
@@ -448,6 +450,95 @@ def score_spouse_palace(
                                 'resultElement': elem,
                             })
                             break
+
+    # ---------------------------------------------------------------
+    # Phase 12i — 三刑 / 半刑 / 子卯刑 additive pass (post-dispatch).
+    #
+    # Runs AFTER the if/elif/else above, so it can co-fire with 六合
+    # and 六害 for dual-tag cases:
+    #   巳申 day pair → 六合 (primary) + 半刑 (annotation-only)
+    #   寅巳 day pair → 六害 (primary) + 半刑 (annotation-only)
+    # Annotation-only means the existing 合/害 score is preserved per
+    # 「合中帶刑」/「害中帶刑」 doctrine (合/害 dampens 半刑 friction).
+    #
+    # Pure 子卯/三刑全/半刑 (no overlap with 合/沖/害/伏吟/三合) are
+    # additive AND set the score (existing dispatch left it at 50 in
+    # the `else` baseline branch).
+    #
+    # 六破 (子酉/丑辰/寅亥/卯午/巳申/戌未) intentionally NOT detected.
+    # 任鐵樵《滴天髓闡微·地支》:「破之意義不過害刑，尤屬不經，削之可也」.
+    # Mainstream 合婚 (知乎/卜易居/董易奇) omits it. 寅亥/巳申 dual-tag:
+    # 合 wins per 「先合後破」 doctrine — already enforced above.
+    # ---------------------------------------------------------------
+    combined_branches = set(all_branches_a) | set(all_branches_b)
+    sx = check_sanxing_with_pool(day_branch_a, day_branch_b, combined_branches)
+
+    if sx:
+        if sx['name'] == '無禮之刑':
+            # 子卯刑 (2-branch group, always full). Apply marriage modifier
+            # per 网易《婚姻配偶宮逢刑沖》:「配偶宮流年遇子卯刑，婚姻危機大於流年遇沖」.
+            score = max(5, 100 - sx['severity'] + SCORE_SPOUSE_PALACE_ZIMAO_MARRIAGE_PENALTY)
+            findings.append({
+                'type': '子卯刑',
+                'name': '無禮之刑',
+                'detail': f'{day_branch_a}{day_branch_b} 子卯相刑（無禮之刑）',
+                'narrativeHint': '配偶宮逢子卯相刑（無禮之刑），婚姻細節易生爭執，相互挑剔失禮節',
+            })
+        else:
+            # Full 三刑 (寅巳申 / 丑戌未) — 3rd branch present somewhere in
+            # combined_branches. Compute 3rd branch + which chart it came from.
+            third = next(iter(sx['branches'] - {day_branch_a, day_branch_b}))
+            source = ('A' if third in all_branches_a
+                      else 'B' if third in all_branches_b
+                      else None)
+            score = max(5, 100 - sx['severity'])  # severity 80 → score 20
+            findings.append({
+                'type': '三刑',
+                'name': sx['name'],
+                'detail': f"{day_branch_a}{day_branch_b}+{third} 全三刑（{sx['name']}）",
+                'thirdBranch': third,
+                'thirdBranchSource': source,
+                'narrativeHint': f'配偶宮陷入完整三刑局（含{third}），婚姻面臨多面摩擦',
+            })
+    else:
+        # No full 三刑 — check 半刑 (2 of 3 from a 3-branch group, 3rd absent)
+        pair = frozenset({day_branch_a, day_branch_b})
+        half_match = next(
+            (group['name'] for group in THREE_PUNISHMENTS
+             if pair in group['partials']),  # partials are List[frozenset]
+            None
+        )
+        if half_match:
+            existing_types = {f['type'] for f in findings}
+            # Dual-tag with 沖/合/害/天剋地沖: annotation-only, preserve
+            # existing primary score per 「沖/合/害 中帶刑」 doctrine — the
+            # primary pair-relation dominates; 半刑 marks the nested group
+            # affinity beneath. Without this, a 寅申 沖 (severity 70 → 30)
+            # would be silently *upgraded* to 半刑 (40), inverting severity.
+            DUAL_PRIMARY = {'六合', '六沖', '六害', '天剋地沖'}
+            primary = next((t for t in DUAL_PRIMARY if t in existing_types), None)
+            if primary:
+                qualifier = {
+                    '六合': '合中帶刑',
+                    '六沖': '沖中帶刑',
+                    '六害': '害中帶刑',
+                    '天剋地沖': '剋沖中帶刑',
+                }[primary]
+                findings.append({
+                    'type': '半刑',
+                    'name': half_match,
+                    'detail': f'{day_branch_a}{day_branch_b} 半刑（{half_match}局之半，{qualifier}）',
+                    'narrativeHint': f'配偶宮逢半刑（{half_match}局之半），主{primary}關係中暗藏摩擦',
+                })
+            else:
+                # Pure 半刑 (no 沖/合/害 overlap): 半刑 is the only signal
+                score = max(5, 100 - 60)  # severity 60 → score 40
+                findings.append({
+                    'type': '半刑',
+                    'name': half_match,
+                    'detail': f'{day_branch_a}{day_branch_b} 半刑（{half_match}局之半）',
+                    'narrativeHint': f'配偶宮逢半刑（{half_match}局之半），相處節奏易生暗中摩擦',
+                })
 
     # 天德/月德 mitigation (only for negative scores)
     tian_de_mitigation = 0.0

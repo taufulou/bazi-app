@@ -7179,7 +7179,7 @@ export class AIService implements OnModuleInit {
       [ReadingType.CAREER]:        'v2.5.0',  // Fix 1a weighted dominance (Phase 12f)
       [ReadingType.ANNUAL]:        'v2.4.0',  // Phase 12h.B Item 2 — 傷官見官 favorability propagation (annual_enhanced.py:759 4-arm dispatch)
       [ReadingType.LOVE]:          'v1.11.0', // Phase 12h.B Item 8 — 比劫奪財 framing parity (3-state valence + gender + transient framing block); supersedes 12h.A v1.10.0
-      [ReadingType.COMPATIBILITY]: 'v1.7.0',  // Phase 12h.B Item 2 — 傷官見官 favorability propagation across compat 3 sites (compatibility_romance_preanalysis.py)
+      [ReadingType.COMPATIBILITY]: 'v1.8.0',  // Phase 12i — 三刑/半刑/子卯刑 spouse-palace detection (score_spouse_palace additive pass); new findings types + narrativeHint pre-rendered; preanalysis whitelist extended; 六破 omitted per 任鐵樵《滴天髓闡微》
     };
     const preAnalysisVersion = PRE_ANALYSIS_VERSIONS[readingType] ?? 'v1.1.0';
     const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;

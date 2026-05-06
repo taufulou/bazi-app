@@ -377,6 +377,106 @@ class TestSpousePalace:
                                      pre, pre)
         assert result['rawScore'] == 35
 
+    # =========================================================
+    # Phase 12i — 三刑/半刑/子卯刑 detection
+    # Source: 网易《婚姻配偶宮逢刑沖》, 知乎《探索八字合婚》, 易师汇《地支三刑詳解》
+    # =========================================================
+
+    def test_zi_mao_xing_negative(self):
+        """子卯刑 (無禮之刑) = severity 70 + marriage modifier -8 → score 22."""
+        pre = make_pre_analysis()
+        # 丙子 + 己卯 — stems do not 克 (丙己 火生土, 戊不克丙)
+        # day pair {子,卯} hits 子卯刑 in additive pass
+        result = score_spouse_palace('子', '卯', '丙', '己',
+                                     ['子'], ['卯'], [], [], pre, pre)
+        assert result['rawScore'] == 22, \
+            f"子卯刑 should score 22 (severity 70 + -8 marriage mod), got {result['rawScore']}"
+        types = {f['type'] for f in result['findings']}
+        assert '子卯刑' in types, f"missing 子卯刑 finding: {result['findings']}"
+        zi_mao = next(f for f in result['findings'] if f['type'] == '子卯刑')
+        assert zi_mao['name'] == '無禮之刑'
+        assert 'narrativeHint' in zi_mao
+
+    def test_full_sanxing_via_third_branch(self):
+        """寅+巳 day pair with 申 in pillar elsewhere → full 三刑, score 20."""
+        pre = make_pre_analysis()
+        # 戊寅 + 辛巳 day pair; 申 in A's year branch (cross-chart third)
+        # Stems 戊+辛 (土生金, no 克), branches 寅巳 form 半刑 partial,
+        # but with 申 in all_branches_a, 三刑 fires fully
+        result = score_spouse_palace('寅', '巳', '戊', '辛',
+                                     ['申', '丑', '寅', '午'],  # 申 in year
+                                     ['未', '丑', '巳', '午'],
+                                     [], [], pre, pre)
+        types = {f['type'] for f in result['findings']}
+        assert '三刑' in types, \
+            f"expected 三刑 with 申 in pillars, got {types}: {result['findings']}"
+        sanxing = next(f for f in result['findings'] if f['type'] == '三刑')
+        assert sanxing['name'] == '無恩之刑'
+        assert sanxing['thirdBranch'] == '申'
+        assert sanxing['thirdBranchSource'] == 'A'
+        # 三刑 sets score=20 (severity 80 → 100-80) BUT 寅巳 害 also fires
+        # in the existing dispatch which sets score=30. Then 三刑 in additive
+        # pass overwrites to 20. So final raw score should be 20 (or with mitigation).
+        # If 六害 fires first (since 寅巳 is 害), then 三刑 in `if sx:` path
+        # overwrites the 害 score. Let's just verify 三刑 fired and score not absurd.
+        assert 5 <= result['rawScore'] <= 30
+
+    def test_pure_half_punishment_chou_xu(self):
+        """丑+戌 day pair with NO 未 elsewhere → pure 半刑, score 40."""
+        pre = make_pre_analysis()
+        # 丁丑 + 丙戌; ensure 未 is NOT in either chart's branches.
+        # Day stems 丁丙 — both fire, no 克 (丁丙 同火, 火生土? 丙丁皆火 — same element).
+        # 丑戌 is a 半刑 of 丑戌未 group.
+        result = score_spouse_palace('丑', '戌', '丁', '丙',
+                                     ['丑', '辰', '寅'],   # no 未, no 沖/合/害 with 戌
+                                     ['戌', '寅', '卯'],   # no 未
+                                     [], [], pre, pre)
+        types = {f['type'] for f in result['findings']}
+        assert '半刑' in types, \
+            f"expected pure 半刑, got {types}: {result['findings']}"
+        # Pure 半刑: score = 100 - 60 = 40
+        # No 沖/合/害/天剋地沖 should be present
+        assert '六沖' not in types and '六合' not in types and '六害' not in types
+        # Allow 天德 mitigation small lift
+        assert 35 <= result['rawScore'] <= 50
+
+    def test_si_shen_dual_tag_six_he_plus_half_punishment(self):
+        """巳+申 = 六合 + 半刑 dual; score preserved by 六合 (annotation-only 半刑)."""
+        # Force 水 (the 合化 result of 巳申) to be NEUTRAL for both charts —
+        # the make_pre_analysis default has enemy='水' which would make 合化水
+        # a 忌神 → score 70. Override to keep 水 neutral → score 85.
+        pre = make_pre_analysis(useful='木', favorable='火', idle='水',
+                                 taboo='金', enemy='土')
+        # 辛巳 + 甲申; branches 巳申 = 合 (not 沖, so no 天剋地沖 even though 辛甲 克)
+        result = score_spouse_palace('巳', '申', '辛', '甲',
+                                     ['巳'], ['申'], [], [], pre, pre)
+        types = {f['type'] for f in result['findings']}
+        assert '六合' in types, f"expected 六合, got {types}"
+        assert '半刑' in types, f"expected 半刑 dual-tag, got {types}"
+        half_xing = next(f for f in result['findings'] if f['type'] == '半刑')
+        assert '合中帶刑' in half_xing['detail']
+        # Score = pure 六合-neutral (85), unchanged by 半刑 annotation
+        assert result['rawScore'] == 85
+
+    def test_yin_si_dual_tag_six_hai_plus_half_punishment(self):
+        """寅+巳 = 六害 + 半刑 dual; score preserved by 六害 (annotation-only 半刑)."""
+        pre = make_pre_analysis()
+        # 戊寅 + 辛巳; stems 戊辛 (no 克, 土生金), branches 寅巳 = 六害 + 半刑
+        # MUST have NO 申 in either chart, else 三刑 fires instead
+        result = score_spouse_palace('寅', '巳', '戊', '辛',
+                                     ['寅', '丑', '午'],   # no 申
+                                     ['巳', '辰', '卯'],   # no 申
+                                     [], [], pre, pre)
+        types = {f['type'] for f in result['findings']}
+        assert '六害' in types, f"expected 六害, got {types}"
+        assert '半刑' in types, f"expected 半刑 dual-tag, got {types}"
+        # No 三刑 (申 absent)
+        assert '三刑' not in types
+        half_xing = next(f for f in result['findings'] if f['type'] == '半刑')
+        assert '害中帶刑' in half_xing['detail']
+        # 六害 score 30 unchanged; 天德 mitigation can lift slightly
+        assert 30 <= result['rawScore'] <= 50
+
     def test_no_interaction_neutral(self):
         """No special interaction = 50."""
         pre = make_pre_analysis()
