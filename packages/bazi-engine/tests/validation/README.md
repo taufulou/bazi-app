@@ -96,7 +96,7 @@ coherence with doctrinal columns, not classical validation.
 | A 夫妻宫六合 | 6 | `spousePalace.findings[].type contains '六合'` |
 | B 夫妻宫六沖 | 6 | `'六沖'` (3 pure) or `'天剋地沖'` (3 stem-clash) |
 | C 夫妻宫六害 | 6 | `'六害'` per pair |
-| E 刑/自刑 | 9 | 4 自刑 (doctrinal `'自刑'`); 5 三刑/半刑 (regression-only — no compat-dim signal in current engine) |
+| E 刑/自刑 | 9 | 4 自刑 (doctrinal `'自刑'`); 1 子卯刑 (doctrinal `'子卯刑'`, Phase 12i); 4 三刑/半刑 (build-mode regression — Phase 12i adds detection; bands locked via `--build`, dual-tag annotation when 沖/合/害 already fired) |
 | F 天干五合 | 5 | `combinationName` (中正/仁義/威制/淫慝/無情之合) |
 | G 配偶星對應 | 5 | gender-conditional 配偶星 alignment |
 | I 三合 cross-chart | 5 | `crossSanhe` populated |

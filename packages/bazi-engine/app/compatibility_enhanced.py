@@ -366,8 +366,17 @@ def score_spouse_palace(
 ) -> Dict:
     """Score the spouse palace (日支配偶宮) interaction.
 
-    Checks: 六合, 六沖 (severity-differentiated), 六害, 三合, 三刑,
-    天剋地沖, and no interaction. Applies 天德/月德 mitigation.
+    Primary dispatch (mutually exclusive): 天剋地沖, 六合, 六沖
+    (severity-differentiated), 自刑/日支伏吟 (same-branch), 六害, 三合.
+
+    Phase 12i additive pass (post-dispatch, can co-fire with primary):
+    子卯刑, 三刑 全 (寅巳申/丑戌未 with cross-chart 3rd branch),
+    半刑 (2 of 3 三刑 group; dual-tag annotation when 沖/合/害/天剋地沖
+    already fired). Score uses min() guard to prevent 三刑/子卯刑 from
+    upgrading a more severe primary score. 六破 deliberately omitted
+    per 任鐵樵《滴天髓闡微·地支》「削之可也」.
+
+    Applies 天德/月德 mitigation to negative scores (excluding 天剋地沖).
     """
     findings = []
     score = 50  # Neutral baseline
@@ -477,7 +486,11 @@ def score_spouse_palace(
         if sx['name'] == '無禮之刑':
             # 子卯刑 (2-branch group, always full). Apply marriage modifier
             # per 网易《婚姻配偶宮逢刑沖》:「配偶宮流年遇子卯刑，婚姻危機大於流年遇沖」.
-            score = max(5, 100 - sx['severity'] + SCORE_SPOUSE_PALACE_ZIMAO_MARRIAGE_PENALTY)
+            # Use min() so 子卯刑 can only worsen (lower) an existing score, never
+            # upgrade it — 子卯 doesn't overlap any prior dispatch in practice
+            # (not in 六合/沖/害), but min() preserves the pattern for safety.
+            zi_mao_score = max(5, 100 - sx['severity'] + SCORE_SPOUSE_PALACE_ZIMAO_MARRIAGE_PENALTY)
+            score = min(score, zi_mao_score)
             findings.append({
                 'type': '子卯刑',
                 'name': '無禮之刑',
@@ -491,7 +504,14 @@ def score_spouse_palace(
             source = ('A' if third in all_branches_a
                       else 'B' if third in all_branches_b
                       else None)
-            score = max(5, 100 - sx['severity'])  # severity 80 → score 20
+            # Use min() so 三刑 全 can only worsen (lower) the existing primary
+            # score from the if/elif dispatch — never upgrade it. Without this
+            # guard, 寅+申 day pair (六沖 severity 85 → score 15) with 巳 in
+            # combined_branches would silently lift score to 20 (less severe),
+            # inverting the intended doctrine: 三刑 全 should escalate or stay
+            # at the worse signal, never improve the result.
+            three_xing_score = max(5, 100 - sx['severity'])  # severity 80 → 20
+            score = min(score, three_xing_score)
             findings.append({
                 'type': '三刑',
                 'name': sx['name'],

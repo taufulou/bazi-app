@@ -811,6 +811,12 @@ PHASE_12E_PATTERN_2A_PP_NON_MONTH=1            # non-month 比劫祿/羊刃 boos
 # Phase 12h.B — Doctrine framing rules (default ON; doctrinal corrections, not experimental)
 PHASE_12H_SHANGGUAN_FAVORABILITY_PROPAGATION=1  # Item 2: 傷官見官 favorability dispatch (annual + 3 compat sites)
 PHASE_12H_BIJIE_DUOCAI_VALENCE=1                # Item 8: 比劫奪財 3-state valence + gender dispatch + transient framing
+
+# Phase 12i — Compat 三刑/半刑/子卯刑 spouse-palace detection (default ON; doctrinal corrections, not experimental)
+# Note: Phase 12i doesn't gate via env flags individually (clean rollback via revert PR)
+# Rollback path: revert PR + bump COMPATIBILITY pre-analysis version backwards in
+# `apps/api/src/ai/ai.service.ts::PRE_ANALYSIS_VERSIONS` (currently v1.8.0).
+# Cache invalidation handles version routing — see "Cache invalidation post-deploy" below.
 ```
 
 CI matrix runs at minimum: all-on, Phase 12 off, Fix C+F isolated. Per-rule

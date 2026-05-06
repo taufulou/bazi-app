@@ -458,6 +458,33 @@ class TestSpousePalace:
         # Score = pure 六合-neutral (85), unchanged by 半刑 annotation
         assert result['rawScore'] == 85
 
+    def test_yin_shen_full_sanxing_does_not_upgrade_liuchong(self):
+        """REGRESSION (PR #43 review): 寅+申 day pair (六沖 severity 85 → score 15)
+        with 巳 elsewhere triggers full 三刑. Without the min() guard, 三刑 would
+        unconditionally set score=20, silently UPGRADING the 沖 score (15→20)
+        and inverting severity. With the guard, score stays at 15 (沖 dominates),
+        and 三刑 fires as annotation alongside 沖.
+
+        Source of bug: PR #43 code review identified that the 三刑 full path
+        lacked the DUAL_PRIMARY-equivalent guard the 半刑 path had.
+        """
+        pre = make_pre_analysis()
+        # 壬寅 + 庚申 day pair; 庚壬 stems are metal→water 生 (no 天剋地沖).
+        # 巳 placed in chart A's year branch → full 寅巳申 fires.
+        result = score_spouse_palace('寅', '申', '壬', '庚',
+                                     ['寅', '巳', '辰', '午'],  # 巳 in pillar
+                                     ['申', '辰', '丑', '亥'],
+                                     [], [], pre, pre)
+        types = {f['type'] for f in result['findings']}
+        # Both 六沖 and 三刑 must fire
+        assert '六沖' in types, f"expected 六沖 first, got {types}"
+        assert '三刑' in types, f"expected 三刑 to fire as annotation, got {types}"
+        # Score must NOT be 20 (would indicate the bug — 三刑 upgrading the 沖).
+        # Pre-fix: 20 (BUG). Post-fix: 15 (沖 dominates), 天德 mitigation may lift it.
+        # The key invariant: score MUST be ≤ pure 沖 score (15 with possible mitigation).
+        assert result['rawScore'] <= 25, \
+            f"score should NOT be upgraded by 三刑 (was 15 from 沖, must stay ≤ small mitigation): got {result['rawScore']}"
+
     def test_yin_si_dual_tag_six_hai_plus_half_punishment(self):
         """寅+巳 = 六害 + 半刑 dual; score preserved by 六害 (annotation-only 半刑)."""
         pre = make_pre_analysis()

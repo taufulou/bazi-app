@@ -182,10 +182,17 @@ def check_sanxing_with_pool(
     Classical: 「巳申單獨出現則論合，寅巳申俱全才論三刑」
 
     Args:
-        branch_a: First branch (e.g., period/annual branch)
-        branch_b: Second branch (e.g., natal branch)
+        branch_a: First branch (e.g., period/annual branch, or chart-A day branch)
+        branch_b: Second branch (e.g., natal branch, or chart-B day branch)
         all_branches: Full set of branches to check for 3rd member.
-            Should include all natal branches + the incoming branch.
+            Two valid call patterns:
+            (1) Single-chart transit: all natal branches + the incoming branch
+                (e.g., 大運/流年 transit detection in love_enhanced.py).
+            (2) Two-chart union: union of both charts' branch lists
+                (e.g., compatibility cross-chart in compatibility_enhanced.py
+                Phase 12i — passes `set(all_branches_a) | set(all_branches_b)`).
+            Function only does set-membership checks, so the semantic
+            distinction (which branch is "incoming") doesn't matter.
             When None, 3-branch groups return None (safe default).
 
     Returns:
