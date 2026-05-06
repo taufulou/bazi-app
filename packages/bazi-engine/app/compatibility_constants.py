@@ -281,6 +281,15 @@ CROSS_PILLAR_BRANCH_DEFAULT_WEIGHT_ROMANCE = 0.2  # Lower cross-position noise
 SPOUSE_PALACE_SCORE_FLOOR_ROMANCE = 30    # Min score if spouse palace is strong
 SPOUSE_PALACE_SCORE_FLOOR_THRESHOLD = 65  # spouse_palace raw score must exceed this
 
+# Phase 12i — 子卯刑 marriage-context modifier (used ONLY in score_spouse_palace).
+# Source: 网易《婚姻配偶宮逢刑沖》「配偶宮流年遇子卯刑，婚姻危機大於流年遇沖」.
+# Default 三命通會 ranking puts 子卯刑 (severity 70) below 寅巳申/丑戌未 三刑全
+# (severity 80); but in marriage context, 网易 (and modern compat practitioners
+# 易师汇/神巴巴) elevate 子卯刑 above 六沖 specifically for spouse-palace impact.
+# Do NOT import this elsewhere — see Phase 12i candidate "子卯刑 severity
+# context-awareness" for harmonization across modules.
+SCORE_SPOUSE_PALACE_ZIMAO_MARRIAGE_PENALTY = -8
+
 
 # ============================================================
 # Compatibility Labels

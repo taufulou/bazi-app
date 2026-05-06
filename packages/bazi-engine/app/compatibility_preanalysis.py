@@ -413,12 +413,21 @@ def _build_pillar_findings(
                             '雙方需特別注意感情專一度。',
         })
 
-    # Spouse palace findings (dim3)
+    # Spouse palace findings (dim3) — Phase 12i adds 三刑/半刑/子卯刑
     dim3 = dim_scores.get('spousePalace', {})
+    # Severity map: high = 天剋地沖/六合/三刑/子卯刑; medium = 六沖/六害/自刑/半刑
+    HIGH_SIG_TYPES = {'天剋地沖', '六合', '三刑', '子卯刑'}
+    SUPPORTED_TYPES = (
+        '六合', '六沖', '天剋地沖', '自刑', '六害',
+        '子卯刑', '三刑', '半刑',
+    )
     for f in dim3.get('findings', []):
         ftype = f.get('type', '')
-        if ftype in ('六合', '六沖', '天剋地沖', '自刑', '六害'):
-            sig = 'high' if ftype in ('天剋地沖', '六合') else 'medium'
+        if ftype in SUPPORTED_TYPES:
+            sig = 'high' if ftype in HIGH_SIG_TYPES else 'medium'
+            # Phase 12i: prefer pre-rendered narrativeHint from engine
+            # (子卯刑/三刑/半刑 emit their own hint with name/third branch
+            # already substituted). Legacy types fall back to hint_map.
             hint_map = {
                 '六合': '配偶宮六合代表生活習慣容易磨合，日常相處融洽',
                 '六沖': '配偶宮六沖代表生活節奏差異大，需要刻意經營',
@@ -426,7 +435,7 @@ def _build_pillar_findings(
                 '自刑': '雙方配偶宮自刑，可能在感情中重蹈覆轍',
                 '六害': '配偶宮六害，相處中容易有暗中的不滿與猜疑',
             }
-            base_hint = hint_map.get(ftype, '')
+            base_hint = f.get('narrativeHint') or hint_map.get(ftype, '')
             element_hint = _compute_branch_element_hint(day_branch_a, day_branch_b)
             if element_hint:
                 final_hint = f'{base_hint}。{element_hint}' if base_hint else element_hint
