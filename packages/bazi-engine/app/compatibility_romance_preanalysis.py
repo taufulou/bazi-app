@@ -16,6 +16,7 @@ Contains:
 + Master orchestrator: compute_compatibility_romance_preanalysis
 """
 
+import os
 from typing import Any, Dict, List, Optional, Tuple
 
 from .constants import (
@@ -51,6 +52,7 @@ from .branch_relationships import (
 from .ten_gods import derive_ten_god
 from .compatibility_preanalysis import generate_compatibility_pre_analysis
 from .stem_combinations import STEM_CLASH_LOOKUP, STEM_COMBINATION_LOOKUP
+from .interpretation_rules import check_guan_sha_hunza  # Phase 12g.1 Fix 2 — canonical helper
 
 
 # ============================================================
@@ -750,7 +752,8 @@ def compute_spouse_enrichment(
 
     # Gender-specific penalties
     if gender == 'female':
-        # 傷官見官
+        # 傷官見官 — Phase 12h.B Item 2 favorability dispatch (gated by PHASE_12H_SHANGGUAN_FAVORABILITY_PROPAGATION).
+        # Doctrine: 三命通會「如官為忌，傷官見官反以吉論」.
         has_shangguan = any(
             derive_ten_god(dm_stem, s) == '傷官'
             for s in stems if s and s != dm_stem
@@ -760,15 +763,27 @@ def compute_spouse_enrichment(
             for s in stems if s and s != dm_stem
         )
         if has_shangguan and has_zhengguan:
-            cat2_score = max(0, cat2_score - 15)
-            indicators.append({'type': 'negative', 'desc': '傷官見官，對婚姻不利'})
+            if os.environ.get('PHASE_12H_SHANGGUAN_FAVORABILITY_PROPAGATION', '1') == '1':
+                officer_role = _element_role(ELEMENT_OVERCOME_BY[dm_element], effective_gods)
+                if officer_role in ('用神', '喜神'):
+                    cat2_score = max(0, cat2_score - 15)
+                    indicators.append({'type': 'negative', 'desc': '傷官見官，對婚姻不利', 'valence': 'harmful'})
+                elif officer_role in ('忌神', '仇神'):
+                    cat2_score = max(0, cat2_score - 5)  # mild deduction (官 is unfavorable, 傷官制官 reduces stress)
+                    indicators.append({'type': 'negative', 'desc': '正官為忌，傷官制官減壓不為禍 (但配偶緣分仍須留意)', 'valence': 'beneficial'})
+                else:  # 閒神
+                    cat2_score = max(0, cat2_score - 10)
+                    indicators.append({'type': 'negative', 'desc': '傷官見官 (官為閒神，影響有限)', 'valence': 'neutral'})
+            else:
+                # Flag disabled: legacy behavior
+                cat2_score = max(0, cat2_score - 15)
+                indicators.append({'type': 'negative', 'desc': '傷官見官，對婚姻不利'})
 
-        # 官殺混雜
-        has_pianguan = any(
-            derive_ten_god(dm_stem, s) == '偏官'
-            for s in stems if s and s != dm_stem
-        )
-        if has_zhengguan and has_pianguan:
+        # 官殺混雜 — Phase 12g.1 Fix 2: use canonical weighted helper
+        # (子平真詮·論偏官 「藏官露殺...勿使官混；藏殺露官...不可使殺混」 —
+        # 露官藏殺/露殺藏官 are NOT 真混雜).
+        gs_result = check_guan_sha_hunza(pillars, dm_stem, 'female')
+        if gs_result and gs_result['type'] == 'guan_sha_hunza':
             cat2_score = max(0, cat2_score - 10)
             indicators.append({'type': 'negative', 'desc': '官殺混雜，感情選擇困難'})
     else:
@@ -1242,21 +1257,49 @@ def compute_post_marriage_quality(
     # Pure spouse stars
     for chart_x, label, gdr in [(chart_a, 'A', 'male'), (chart_b, 'B', 'female')]:
         dm_x = _get_dm_stem(chart_x)
+        dm_element_x = STEM_ELEMENT.get(dm_x, '')
         stems_x = _get_stems(chart_x)
         gender_x = chart_x.get('gender', gdr)
+        pillars_x = _get_pillars(chart_x)
+        # Per-chart effective_gods (each partner has own god system).
+        # Use _get_effective_gods helper to handle dual-key fallback
+        # (top-level 'effectiveGods' vs preAnalysis.'effectiveFavorableGods').
+        effective_gods_x = _get_effective_gods(chart_x)
         if gender_x == 'female':
-            # Check 官殺混雜
-            has_zg = any(derive_ten_god(dm_x, s) == '正官' for s in stems_x if s and s != dm_x)
-            has_pg = any(derive_ten_god(dm_x, s) == '偏官' for s in stems_x if s and s != dm_x)
-            if has_zg and has_pg:
+            # Check 官殺混雜 — Phase 12g.1 Fix 2: weighted canonical helper
+            gs_result = check_guan_sha_hunza(pillars_x, dm_x, 'female')
+            if gs_result and gs_result['type'] == 'guan_sha_hunza':
                 stability -= 15
                 stab_factors.append({
                     'type': 'negative',
                     'desc': f'{label}方官殺混雜，感情選擇困難',
                     'impact': -15,
                 })
-            elif (has_zg or has_pg) and not (has_zg and has_pg):
-                stability += 10  # partial pure bonus
+            elif gs_result and gs_result['type'] in ('lu_guan_cang_sha', 'lu_sha_cang_guan'):
+                # Pure-side dominant — partial pure bonus per pre-12g logic
+                stability += 10
+            # Phase 12h.B Item 2 (Site #3) — 傷官見官 favorability dispatch on dual-chart layer
+            # Mirrors site #1 (compat_romance:763) but with stability-score deltas (not cat2_score).
+            has_sg_x = any(derive_ten_god(dm_x, s) == '傷官' for s in stems_x if s and s != dm_x)
+            has_zg_x = any(derive_ten_god(dm_x, s) == '正官' for s in stems_x if s and s != dm_x)
+            if has_sg_x and has_zg_x and effective_gods_x:
+                if os.environ.get('PHASE_12H_SHANGGUAN_FAVORABILITY_PROPAGATION', '1') == '1':
+                    officer_role_x = _element_role(ELEMENT_OVERCOME_BY[dm_element_x], effective_gods_x)
+                    if officer_role_x in ('用神', '喜神'):
+                        stability -= 15
+                        stab_factors.append({
+                            'type': 'negative',
+                            'desc': f'{label}方傷官見官 (官為用/喜)，對婚姻不利',
+                            'impact': -15, 'valence': 'harmful',
+                        })
+                    elif officer_role_x in ('忌神', '仇神'):
+                        stability -= 5
+                        stab_factors.append({
+                            'type': 'negative',
+                            'desc': f'{label}方傷官制忌官，壓力減輕但仍須留意',
+                            'impact': -5, 'valence': 'beneficial',
+                        })
+                    # 閒神 → suppress (no factor added)
         else:
             # Check 偏正財混雜
             has_zc = any(derive_ten_god(dm_x, s) == '正財' for s in stems_x if s and s != dm_x)
@@ -1411,10 +1454,12 @@ def compute_marriage_crisis_risk(
             risk_score += 15
 
     else:  # female
-        # 官殺混雜
+        # 官殺混雜 — Phase 12g.1 Fix 2: weighted canonical helper
+        gs_result = check_guan_sha_hunza(pillars, dm_stem, 'female')
+        # Cache for downstream checks (avoid recomputing presence flags)
         has_zg = any(derive_ten_god(dm_stem, s) == '正官' for s in stems if s and s != dm_stem)
         has_pg = any(derive_ten_god(dm_stem, s) == '偏官' for s in stems if s and s != dm_stem)
-        if has_zg and has_pg:
+        if gs_result and gs_result['type'] == 'guan_sha_hunza':
             risk_factors.append({
                 'factor': '官殺混雜',
                 'desc': '容易在正緣與偏緣之間搖擺不定',
@@ -1422,15 +1467,46 @@ def compute_marriage_crisis_risk(
             })
             risk_score += 25
 
-        # 傷官見官
+        # 傷官見官 — Phase 12h.B Item 2 favorability dispatch (gated by PHASE_12H_SHANGGUAN_FAVORABILITY_PROPAGATION).
+        # Doctrine: 三命通會「如官為忌，傷官見官反以吉論」.
+        # Site #1430 numerics (per V2 Issue #5): 用/喜→+25/高 (current); 忌/仇→+10/中; 閒→+15/中.
+        # Caveat: don't drop to 0; even when 制忌官, 配偶緣分仍須留意.
         has_sg = any(derive_ten_god(dm_stem, s) == '傷官' for s in stems if s and s != dm_stem)
         if has_sg and has_zg:
-            risk_factors.append({
-                'factor': '傷官見官',
-                'desc': '傷官剋制正官，對婚姻有破壞力',
-                'severity': '高',
-            })
-            risk_score += 25
+            if os.environ.get('PHASE_12H_SHANGGUAN_FAVORABILITY_PROPAGATION', '1') == '1':
+                officer_role = _element_role(ELEMENT_OVERCOME_BY[dm_element], effective_gods)
+                if officer_role in ('用神', '喜神'):
+                    risk_factors.append({
+                        'factor': '傷官見官',
+                        'desc': '傷官剋制正官，對婚姻有破壞力',
+                        'severity': '高',
+                        'valence': 'harmful',
+                    })
+                    risk_score += 25
+                elif officer_role in ('忌神', '仇神'):
+                    risk_factors.append({
+                        'factor': '傷官制忌官',
+                        'desc': '正官為忌仇,傷官制官減壓不為禍 (但配偶緣分仍須留意)',
+                        'severity': '中',
+                        'valence': 'beneficial',
+                    })
+                    risk_score += 10
+                else:  # 閒神
+                    risk_factors.append({
+                        'factor': '傷官見官',
+                        'desc': '傷官見官 (官為閒神，影響有限)',
+                        'severity': '中',
+                        'valence': 'neutral',
+                    })
+                    risk_score += 15
+            else:
+                # Flag disabled: legacy behavior
+                risk_factors.append({
+                    'factor': '傷官見官',
+                    'desc': '傷官剋制正官，對婚姻有破壞力',
+                    'severity': '高',
+                })
+                risk_score += 25
 
         # 財星透出 (生官殺)
         has_cai_f = any(

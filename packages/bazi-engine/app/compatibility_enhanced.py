@@ -95,6 +95,7 @@ from .constants import (
 )
 from .stem_combinations import STEM_CLASH_LOOKUP, STEM_COMBINATION_LOOKUP
 from .ten_gods import derive_ten_god
+from .interpretation_rules import check_guan_sha_hunza  # Phase 12g.1 Fix 2 — natal-doctrine awareness
 
 
 # ============================================================
@@ -594,6 +595,18 @@ def _detect_cross_guan_sha_hun_za(
 
         dm_subject = subject_chart['dayMasterStem']
         partner_pillars = partner_chart['fourPillars']
+
+        # Phase 12g.1 Fix 2: suppress cross-chart 官殺混雜 when natal is already
+        # 露官藏殺 / 露殺藏官 (per 子平真詮). The natal chart has only ONE substantive
+        # side (官 OR 殺); the partner's stem can't legitimately "mix" because there's
+        # nothing real to mix with on the subject side.
+        # Note: only suppress for romance comparisons (where natal-side doctrine
+        # governs); for business comparisons we keep the wider detection.
+        if comparison_type == 'romance':
+            subject_pillars = subject_chart.get('fourPillars', {})
+            natal_gs = check_guan_sha_hunza(subject_pillars, dm_subject, subject_gender)
+            if natal_gs and natal_gs['type'] in ('lu_guan_cang_sha', 'lu_sha_cang_guan'):
+                return None
 
         zheng_guan_count = 0
         qi_sha_count = 0

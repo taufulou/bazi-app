@@ -206,6 +206,93 @@ def check_sanxing_with_pool(
 # 自刑 (Self-Punishment): when duplicate branches appear
 SELF_PUNISHMENT_BRANCHES: Set[str] = {'辰', '午', '酉', '亥'}
 
+
+# ============================================================
+# Phase 12g.6.0 — Branch Friction Helper
+# ============================================================
+
+def check_branch_friction(natal_branch: str, target_branch: str) -> Optional[Dict]:
+    """Detect friction (沖刑害破) between a natal pillar branch and a target branch.
+
+    Typically used to detect 配偶宮 (day branch) interactions with year/month/hour
+    natal branches.
+
+    Returns single highest-severity friction dict (priority: 沖 > 刑 > 害 > 破), or None.
+
+    Priority order: 沖 > 刑 > 害 > 破.
+
+    Same-pair edge case: 同一對地支同時觸發多種 friction 是物理上不可能的
+    (per classical 子平 geometry — 12 地支間的關係已分類完備, 同一對只屬於一類).
+    But we add a defensive priority resolver in case future classical research
+    introduces new pair types or when constants are mis-edited.
+
+    Self-pair (e.g., 戌+戌) is 伏吟, NOT friction → returns None.
+
+    Reuses THREE_PUNISHMENTS[].partials, SIX_HARMS, SIX_BREAKS, SIX_CLASHES.
+    Excludes 子卯刑 from half_punishment (it's a full 2-branch 刑, but classified
+    here as 'punishment' since `partials` is empty per THREE_PUNISHMENTS data).
+
+    Returns:
+        {
+            'type': 'six_clash' | 'punishment' | 'half_punishment' | 'six_harm' | 'six_break',
+            'description': '...',
+            'severity': int,
+        }
+        or None.
+    """
+    # Self-pair (伏吟) — not friction
+    if natal_branch == target_branch:
+        return None
+
+    pair = frozenset({natal_branch, target_branch})
+
+    # 1. 六沖 (highest priority)
+    if pair in SIX_CLASHES:
+        clash = SIX_CLASHES[pair]
+        return {
+            'type': 'six_clash',
+            'description': f'{natal_branch}{target_branch}沖（{clash["elements"]}）',
+            'severity': clash['severity'],
+        }
+
+    # 2. 刑 — full 2-branch 刑 (e.g., 子卯) OR half (寅巳/巳申/寅申/丑戌/戌未/丑未)
+    for punishment in THREE_PUNISHMENTS:
+        # Full 2-branch 刑 (子卯)
+        if len(punishment['branches']) == 2 and pair == punishment['branches']:
+            return {
+                'type': 'punishment',
+                'description': f'{natal_branch}{target_branch}刑（{punishment["name"]}）',
+                'severity': punishment['severity'],
+            }
+        # Half 刑 (subset of 3-branch group)
+        for partial in punishment['partials']:
+            if pair == partial:
+                return {
+                    'type': 'half_punishment',
+                    'description': f'{natal_branch}{target_branch}半刑（{punishment["name"]}局之半）',
+                    'severity': punishment['severity'] - 20,  # half severity
+                }
+
+    # 3. 六害
+    if pair in SIX_HARMS:
+        harm = SIX_HARMS[pair]
+        return {
+            'type': 'six_harm',
+            'description': f'{natal_branch}{target_branch}害（{harm["description"]}）',
+            'severity': harm['severity'],
+        }
+
+    # 4. 六破 (lowest priority)
+    if pair in SIX_BREAKS:
+        brk = SIX_BREAKS[pair]
+        return {
+            'type': 'six_break',
+            'description': f'{natal_branch}{target_branch}破',
+            'severity': brk['severity'],
+        }
+
+    return None
+
 # ============================================================
 # 六害 (Six Harms)
 # ============================================================

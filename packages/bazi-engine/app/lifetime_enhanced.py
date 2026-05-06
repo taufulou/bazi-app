@@ -1126,12 +1126,60 @@ def _compute_romance_candidates(
         }
         signal_desc = '+'.join(signal_labels.get(n, n) for n in signal_names)
 
+        # Phase 12g.2 Fix 5 — Romance archetype (top-level label override).
+        # Doctrine: 配偶星天干透出 = 正緣桃花年 (女命正官透 / 男命正財透)
+        # is the strongest classical signal. Should TRUMP 紅鸞/天喜/桃花 labels.
+        # Source: 八字应用阐微·婚姻篇「女命遇流年正官透干，主正缘桃花」.
+        romance_archetype: Optional[str] = None
+        signal_name_set = set(signal_names)
+        if 'spouse_star_zhengcai' in signal_name_set:
+            romance_archetype = 'zheng_yuan'  # 正緣桃花年 / 正妻緣年
+        elif 'spouse_star_piancai' in signal_name_set:
+            romance_archetype = 'pian_yuan'   # 偏緣動年 / 情人緣年 (legacy comment said 偏緣年 — typo, engine emits 偏緣動年 via chong_label)
+
+        # Phase 12g.2 Fix 6 — 沖配偶宮 valence + bidirectional flag.
+        # Doctrine: 沖宮 = 「動」 (bidirectional, NOT positive-only).
+        # Per 滴天髓·夫妻論 + 三命通會·論妻妾.
+        #   沖+配偶星 → 'positive' (正緣動年: 結合或重組)
+        #   沖+紅鸞/天喜 → 'positive' (喜事動年: 結婚高機率)
+        #   沖 alone → 'mixed' (婚動年: 結婚OR磨合, bidirectional=true)
+        #   沖+比劫/桃花劫 → 'negative' (婚變年: handled by change_years)
+        chong_valence: Optional[str] = None
+        chong_label: Optional[str] = None
+        chong_bidirectional = False
+        if 'chong_day_branch_with_spouse' in signal_name_set:
+            chong_valence = 'positive'
+            # Differentiate by archetype: 正官/正財透 → 正緣動年;
+            # 七殺/偏財透 → 偏緣動年 (still positive but less binding).
+            if romance_archetype == 'zheng_yuan':
+                chong_label = '正緣動年'
+            else:
+                chong_label = '偏緣動年'
+        elif 'chong_day_branch_alone' in signal_name_set:
+            # No spouse star — check for 紅鸞/天喜 boost (note: 比劫/桃花劫 detection
+            # done at love_enhanced level since lifetime doesn't track stem ten god here).
+            if 'hongluan' in signal_name_set or 'tianxi' in signal_name_set:
+                chong_valence = 'positive'
+                chong_label = '喜事動年'
+            else:
+                chong_valence = 'mixed'
+                chong_label = '婚動年'
+                chong_bidirectional = True
+
         candidate: Dict[str, Any] = {
             'year': year,
             'tier': tier,
             'signal': signal_desc,
+            'signal_names': signal_names,  # Phase 12g.2 — expose for downstream selectors
             'score': total_score,
         }
+        if romance_archetype:
+            candidate['romance_archetype'] = romance_archetype
+        if chong_valence:
+            candidate['chong_valence'] = chong_valence
+            candidate['chong_label'] = chong_label
+            if chong_bidirectional:
+                candidate['bidirectional'] = True
         if is_kong_wang:
             candidate['is_kong_wang'] = True
 
@@ -1421,6 +1469,12 @@ def tag_romance_years_with_dayun(
         # Preserve 空亡 bypass flag for downstream starType annotation
         if romance_item.get('is_kong_wang'):
             result_item['is_kong_wang'] = True
+        # Phase 12g.2 Fix 5/Fix 6 — propagate archetype + 沖宮 valence fields
+        # for downstream label-priority logic in compute_romance_good_years.
+        for k in ('romance_archetype', 'chong_label', 'chong_valence',
+                  'bidirectional', 'signal_names'):
+            if k in romance_item:
+                result_item[k] = romance_item[k]
         tagged_results.append(result_item)
 
     return tagged_results

@@ -1,0 +1,16 @@
+chart_id,birth_date,birth_time,gender,year_branch,day_branch,year,expected_archetype,expected_label,expected_valence,bidirectional,doctrinal_split,citation
+laopo,1987-01-25,22:30,female,寅,戌,2026,,紅艷桃花年(danger),negative,no,no,Phase 12g calibration anchor (紅艷煞)
+laopo,1987-01-25,22:30,female,寅,戌,2027,,天喜桃花年,mixed,no,yes,丑戌未三刑 + 天喜 (engine emits 天喜桃花年; corpus prefers 天喜年 alone — split)
+laopo,1987-01-25,22:30,female,寅,戌,2030,pian_yuan,偏官桃花年,positive,no,no,庚=偏官透流年
+laopo,1987-01-25,22:30,female,寅,戌,2031,zheng_yuan,正緣桃花年,positive,no,no,辛=正官透流年 (Phase 12g.2 Fix 5 anchor)
+laopo,1987-01-25,22:30,female,寅,戌,2033,,紅鸞年,positive,no,no,丑=紅鸞 of 寅
+laopo,1987-01-25,22:30,female,寅,戌,2035,,合婚年,positive,no,no,卯戌六合配偶宮
+laopo,1987-01-25,22:30,female,寅,戌,2036,,婚動年,mixed,yes,no,辰戌沖配偶宮 alone (Phase 12g.2 Fix 6 anchor)
+roger,1987-04-13,05:00,male,卯,午,2027,,合婚年,positive,no,no,Roger reference chart
+roger,1987-04-13,05:00,male,卯,午,2029,,合婚年,positive,no,yes,Roger calibration — year filtered out of good_years (in change/danger list — known-acceptable harness gap)
+roger,1987-04-13,05:00,male,卯,午,2031,,合婚年,positive,no,yes,Roger calibration — year filtered out of good_years (in change/danger list — known-acceptable harness gap)
+roger,1987-04-13,05:00,male,卯,午,2033,zheng_yuan,正緣桃花年,positive,no,no,Roger 癸=正財 透流年
+roger,1987-04-13,05:00,male,卯,午,2035,,天喜桃花年,positive,no,no,Roger 天喜 anchor
+laopo,1987-01-25,22:30,female,寅,戌,2026,,紅艷桃花年(danger),negative,no,no,2026 紅艷 (duplicate row sanity check)
+laopo,1987-01-25,22:30,female,寅,戌,2029,,桃花合年(空亡年),mixed,no,no,六害+空亡 mixed signal
+roger,1987-04-13,05:00,male,卯,午,2026,,天喜年,positive,no,no,Roger 2026 calibration

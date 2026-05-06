@@ -130,8 +130,9 @@ class TestDayBranchTianxiAnnotation:
         )
         year_2023 = next((r for r in result if r['year'] == 2023), None)
         if year_2023:
-            # Higher-tier signal wins over supplementary 天喜 annotation
-            assert year_2023['starType'] in ('正緣年', '天喜桃花年'), \
+            # Higher-tier signal wins over supplementary 天喜 annotation.
+            # Phase 12g.2: archetype-promoted '正緣桃花年' replaces legacy '正緣年' for 配偶星透 alone.
+            assert year_2023['starType'] in ('正緣年', '天喜桃花年', '正緣桃花年'), \
                 f"Unexpected starType: {year_2023['starType']}"
 
     def test_roger35_2035_is_tianxi_taohua_year(self):

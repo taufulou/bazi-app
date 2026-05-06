@@ -1,0 +1,11 @@
+chart_id,birth_date,gender,dm_strength,yin_dominance,cai_role,guan_role,expected_bijie_valence,expected_shangguan_valence,citation_or_note
+laopo,1987-01-25,female,very_weak,low,unfavorable,unfavorable,not_applicable,beneficial,Phase 12g.6 anchor (DM 甲 weak; 比劫 IS 用神; 官=忌神 → 傷官制官有利)
+roger,1987-04-13,male,balanced,medium,favorable,favorable,N/A_no_bijie_pattern,harmful,Phase 12g.7 anchor (官殺=喜神 — 傷官 attacks favorable 官 → harmful)
+chart_03_strong_yin_cai_ji,1985-08-15,male,strong,high,unfavorable,N/A,beneficial,N/A,DM 強 + 印旺 + 財忌 → 比劫制忌財 反吉 (印旺條件達標)
+chart_04_strong_no_yin_cai_ji,1985-09-15,male,strong,low,unfavorable,N/A,neutral,N/A,DM 強 + 印不旺 + 財忌 → 比劫制財 但無印援 → neutral
+chart_05_strong_cai_yongshen,1985-10-15,male,strong,high,favorable,N/A,harmful,N/A,DM 強 + 財為用神 → 真奪財 (男命兼指妻緣)
+chart_06_female_strong_yin_cai_ji,1985-11-15,female,strong,high,unfavorable,N/A,beneficial,N/A,女命 reverse path — 比劫制忌財 反福 (但 valence note 不含損夫)
+chart_07_female_weak_guan_ji,1986-03-20,female,weak,low,N/A,unfavorable,not_applicable,beneficial,弱 DM + 官=忌神 → 傷官 path beneficial; 比劫 N/A (DM weak)
+chart_08_male_strong_guan_ji,1986-05-20,male,strong,high,N/A,unfavorable,N/A,beneficial,strong DM + 官=忌神 → 傷官制忌官 反吉 (annual + compat sites both fire)
+chart_09_male_strong_guan_yong,1986-07-20,male,strong,medium,N/A,favorable,N/A,harmful,strong DM + 官=用神 → 傷官 attacks 用神 → traditional 為禍百端
+chart_10_balanced_neutral,1986-12-20,female,balanced,medium,unfavorable,unfavorable,neutral,beneficial,balanced grid filler — 財忌 but 印不旺

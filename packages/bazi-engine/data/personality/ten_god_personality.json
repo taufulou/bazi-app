@@ -1,0 +1,216 @@
+{
+  "_meta": {
+    "version": "1.0.0",
+    "phase": "12g.0",
+    "description": "Polarity-aware ten god personality library. 10 ten gods × 3 polarities (favorable/unfavorable/neutral) × 4 fields (core_keywords, spouse_traits, secondary, citation). Sourced from 子平真詮·論十神, 滴天髓·六親論, 三命通會·卷六, 任鐵樵《滴天髓闡微》.",
+    "schema": {
+      "favorable": "Trait keywords when this ten god is 喜神 or 用神 in the chart's god-role assignment",
+      "unfavorable": "Trait keywords when this ten god is 忌神 or 仇神",
+      "neutral": "Trait keywords when this ten god is 閒神 (neutral)",
+      "core_keywords": "Personality traits for the chart owner (used in 婚前性格 / personality narrative)",
+      "spouse_traits": "Spouse traits when this ten god sits in 日支 (配偶宮)",
+      "secondary": "Extension keywords (used by AI for richer narrative)",
+      "citation": "Classical source (唐代-清代典籍)"
+    }
+  },
+  "正官": {
+    "favorable": {
+      "core_keywords": ["正直", "守規矩", "有正義感", "責任感", "循規蹈矩"],
+      "spouse_traits": ["正派端方", "辦事公正", "人品端正", "重視承諾"],
+      "secondary": ["廉潔公正", "心地善良", "光明磊落", "尊重禮法", "重視名譽"],
+      "citation": "子平真詮·論正官 / 三命通會·論正官「德性溫和，舉止安詳」"
+    },
+    "unfavorable": {
+      "core_keywords": ["拘謹", "刻板", "缺乏變通", "優柔寡斷"],
+      "spouse_traits": ["古板嚴肅", "過度約束", "控制欲強", "為權勢牽制"],
+      "secondary": ["處處多牽掛", "魄力不足", "墨守成規", "壓力給你"],
+      "citation": "三命通會·論正官失令 / 子平真詮·論正官破格"
+    },
+    "neutral": {
+      "core_keywords": ["有官星象意", "需配合命局判斷"],
+      "spouse_traits": ["性格中性", "需看命局其他配置"],
+      "secondary": [],
+      "citation": "閒神位置"
+    }
+  },
+  "七殺": {
+    "favorable": {
+      "core_keywords": ["有義氣", "果敢決斷", "勇於承擔", "進取心強"],
+      "spouse_traits": ["果斷有魄力", "能力強", "敢做敢當", "有領導氣場"],
+      "secondary": ["敢於改革", "言出必行", "突破力強", "領導氣場"],
+      "citation": "滴天髓·七殺章「殺以攻身，似非美物，而大貴之格多存七殺」/ 子平真詮·論偏官"
+    },
+    "unfavorable": {
+      "core_keywords": ["暴躁急性", "爭強好鬥", "性剛霸道", "報復心強"],
+      "spouse_traits": ["脾氣暴躁", "強勢霸道", "有家暴傾向", "難相處"],
+      "secondary": ["樹敵多", "知心朋友少", "過度激進", "喜怒無常"],
+      "citation": "三命通會·論七殺失制 / 滴天髓·七殺「制殺太過反不利」"
+    },
+    "neutral": {
+      "core_keywords": ["有殺星象意", "需配合命局判斷"],
+      "spouse_traits": ["性格中性"],
+      "secondary": [],
+      "citation": "閒神位置"
+    }
+  },
+  "正財": {
+    "favorable": {
+      "core_keywords": ["誠實守信", "節儉踏實", "安守本分", "做事謹慎"],
+      "spouse_traits": ["踏實可靠", "節儉持家", "忠誠顧家", "誠實"],
+      "secondary": ["珍惜金錢", "忠誠顧家", "責任心", "重視生活保障"],
+      "citation": "三命通會·論正財「財為養命之源」/ 子平真詮·論正財"
+    },
+    "unfavorable": {
+      "core_keywords": ["吝嗇貪小", "刻板乏味", "斤斤計較", "死板不通"],
+      "spouse_traits": ["吝嗇計較", "刻板無趣", "控制財務", "缺乏情趣"],
+      "secondary": ["魄力不足", "虛偽狡詐", "守財奴", "為財所困"],
+      "citation": "三命通會·財多為忌 / 滴天髓·財星"
+    },
+    "neutral": {
+      "core_keywords": ["有財星象意", "需配合命局判斷"],
+      "spouse_traits": ["性格中性"],
+      "secondary": [],
+      "citation": "閒神位置"
+    }
+  },
+  "偏財": {
+    "favorable": {
+      "core_keywords": ["慷慨大方", "交際廣", "有義氣", "口齒伶俐"],
+      "spouse_traits": ["慷慨交際廣", "活躍", "有經濟頭腦", "會賺錢"],
+      "secondary": ["經濟手腕", "敏捷奇巧", "外緣好", "決斷力強", "見多識廣"],
+      "citation": "子平真詮·論偏財「偏財者，眾人之財也」"
+    },
+    "unfavorable": {
+      "core_keywords": ["漫不經心", "得過且過", "花錢大手大腳", "生活態度隨便"],
+      "spouse_traits": ["漫不經心", "花錢大手大腳", "不顧家", "事業不求上進", "易有外遇"],
+      "secondary": ["感情不專一", "容易薄情", "風流多情", "不善理財"],
+      "citation": "三命通會·偏財為忌「偏財重於正業則風流多情」/ 子平真詮·財星雜亂"
+    },
+    "neutral": {
+      "core_keywords": ["有財星象意", "需配合命局判斷"],
+      "spouse_traits": ["性格中性"],
+      "secondary": [],
+      "citation": "閒神位置"
+    }
+  },
+  "食神": {
+    "favorable": {
+      "core_keywords": ["溫厚寬宏", "樂天知命", "藝術審美", "文人氣質"],
+      "spouse_traits": ["溫和體貼", "會生活情趣", "樂觀寬厚", "懂享受"],
+      "secondary": ["善與人相處", "長者風度", "富於享受", "心寬體胖", "多福多壽"],
+      "citation": "子平真詮·論食神「食神生財，財為食傷之喜」/ 滴天髓·食傷"
+    },
+    "unfavorable": {
+      "core_keywords": ["依賴心強", "好逸惡勞", "言過其實", "想多做少"],
+      "spouse_traits": ["慵懶被動", "依賴性強", "好逸惡勞", "不上進"],
+      "secondary": ["自我清高", "易倦怠", "現實感弱", "易陷孤芳自賞"],
+      "citation": "三命通會·食神過旺 / 滴天髓·食傷無制"
+    },
+    "neutral": {
+      "core_keywords": ["有食神象意", "需配合命局判斷"],
+      "spouse_traits": ["性格中性"],
+      "secondary": [],
+      "citation": "閒神位置"
+    }
+  },
+  "傷官": {
+    "favorable": {
+      "core_keywords": ["才華橫溢", "口才好", "聰明伶俐", "機智靈巧"],
+      "spouse_traits": ["才華洋溢", "聰明伶俐", "有創造力", "表達好"],
+      "secondary": ["外向開朗", "外交天賦", "活潑", "創造力強", "表達慾強"],
+      "citation": "子平真詮·論傷官「傷官秀氣」/ 滴天髓·傷官章"
+    },
+    "unfavorable": {
+      "core_keywords": ["任性", "傲氣", "博而不精", "放蕩不羈"],
+      "spouse_traits": ["挑剔尖刻", "傲氣", "批判性強", "難服軟", "對配偶造成精神壓力"],
+      "secondary": ["興趣太雜", "蔑視他人", "氣量狹窄", "有冤必報", "叛逆難管", "好管閒事"],
+      "citation": "三命通會·論傷官「傷官最忌見官」/ 滴天髓·女命章"
+    },
+    "neutral": {
+      "core_keywords": ["有傷官象意", "需配合命局判斷"],
+      "spouse_traits": ["性格中性"],
+      "secondary": [],
+      "citation": "閒神位置"
+    }
+  },
+  "比肩": {
+    "favorable": {
+      "core_keywords": ["自尊自立", "意志堅定", "勤勉踏實", "行事光明"],
+      "spouse_traits": ["獨立自主", "誠懇講義氣", "平等互助", "志同道合"],
+      "secondary": ["講義氣", "好友情誼真", "組織管理能力"],
+      "citation": "三命通會·論比肩劫財 / 滴天髓·六親論"
+    },
+    "unfavorable": {
+      "core_keywords": ["固執己見", "獨斷專行", "剛愎自用", "不善合作"],
+      "spouse_traits": ["固執己見", "不肯妥協", "與命主爭主導權", "競爭心強"],
+      "secondary": ["夫妻不和", "克父克妻", "易與人爭", "寡情薄義"],
+      "citation": "滴天髓·六親論「比劫敗財」/ 三命通會·比肩奪財"
+    },
+    "neutral": {
+      "core_keywords": ["有比肩象意", "需配合命局判斷"],
+      "spouse_traits": ["性格中性"],
+      "secondary": [],
+      "citation": "閒神位置"
+    }
+  },
+  "劫財": {
+    "favorable": {
+      "core_keywords": ["善於交際", "口才好", "誠懇直率", "應變敏捷"],
+      "spouse_traits": ["熱情豪爽", "社交好", "勇於承擔", "活潑開朗"],
+      "secondary": ["富社交才能", "有創業企圖心"],
+      "citation": "三命通會·論比劫 / 子平真詮·論比劫"
+    },
+    "unfavorable": {
+      "core_keywords": ["吹牛", "好色", "貪賭", "揮霍無度"],
+      "spouse_traits": ["奪命主之財", "易第三者", "貪賭好色", "揮霍", "薄情寡義"],
+      "secondary": ["薄情寡義", "家庭不和", "男女婚姻不順", "奪財傷妻", "貪小失大"],
+      "citation": "三命通會·論比劫「劫財為禍最烈」/ 滴天髓·劫財奪財"
+    },
+    "neutral": {
+      "core_keywords": ["有劫財象意", "需配合命局判斷"],
+      "spouse_traits": ["性格中性"],
+      "secondary": [],
+      "citation": "閒神位置"
+    }
+  },
+  "正印": {
+    "favorable": {
+      "core_keywords": ["慈悲為懷", "富人情味", "聰明多智", "重情重義"],
+      "spouse_traits": ["善良慈悲", "有教養", "包容", "母性/父性強"],
+      "secondary": ["相貌端莊豐滿", "學問好", "有教養", "貴氣", "有母愛/長輩庇護氣質"],
+      "citation": "子平真詮·論正印「正印者，生我者也」/ 滴天髓·六親論"
+    },
+    "unfavorable": {
+      "core_keywords": ["缺乏獨立", "依賴心重", "自私小氣", "思想幼稚"],
+      "spouse_traits": ["過度保護", "控制", "消極依賴", "缺乏行動力"],
+      "secondary": ["自尊心過強", "好面子", "懶散", "消極被動", "易受人愚弄"],
+      "citation": "三命通會·正印過旺 / 滴天髓·印星太重"
+    },
+    "neutral": {
+      "core_keywords": ["有印星象意", "需配合命局判斷"],
+      "spouse_traits": ["性格中性"],
+      "secondary": [],
+      "citation": "閒神位置"
+    }
+  },
+  "偏印": {
+    "favorable": {
+      "core_keywords": ["思維獨特", "領悟力高", "警覺性強", "洞察細密"],
+      "spouse_traits": ["思維獨特", "有特殊才能", "神秘", "有靈感"],
+      "secondary": ["適合宗教/哲學/技藝", "善辯", "口才好", "有福之人"],
+      "citation": "子平真詮·論偏印 / 三命通會·梟印"
+    },
+    "unfavorable": {
+      "core_keywords": ["多疑善變", "貌孤離群", "克害六親", "懶惰嗜睡"],
+      "spouse_traits": ["冷淡疏離", "自私", "與命主貌合神離", "心思難測"],
+      "secondary": ["淺嘗輒止", "走捷徑", "自我中心", "刻薄寡情", "自視過高", "克子女"],
+      "citation": "三命通會·論偏印「偏印奪食」/ 滴天髓·六親論"
+    },
+    "neutral": {
+      "core_keywords": ["有梟印象意", "需配合命局判斷"],
+      "spouse_traits": ["性格中性"],
+      "secondary": [],
+      "citation": "閒神位置"
+    }
+  }
+}

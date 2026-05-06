@@ -413,19 +413,67 @@ class TestAnnualCareerAnalysis:
         assert 'flowYearTenGod' in result
         assert result['flowYearTenGod'] == '偏財'
 
-    def test_shang_guan_jian_guan(self, sample_effective_gods):
-        """Test 傷官見官 detection."""
+    def test_shang_guan_jian_guan_xianshen_suppressed(self, sample_effective_gods):
+        """Phase 12h.B Item 2 — when 正官 is 閒神, 傷官見官 indicator is suppressed (per agent A doctrine).
+        Default sample_effective_gods has 正官=閒神."""
         pillars = {
             'year': {'stem': '庚', 'branch': '午'},  # 庚→戊=偏印
             'month': {'stem': '辛', 'branch': '戌'},  # 辛→戊=正印
             'day': {'stem': '戊', 'branch': '申'},
             'hour': {'stem': '乙', 'branch': '巳'},  # 乙→戊=正官
         }
-        # Flow year 辛 → 傷官. Chart has 正官(乙)
+        # Flow year 辛 → 傷官. Chart has 正官(乙). 正官=閒神 → suppress
         result = compute_annual_career_analysis(
             pillars, '戊', '辛', '卯', sample_effective_gods)
         signal_types = [s['type'] for s in result['signals']]
+        assert '傷官見官' not in signal_types, "正官=閒神 should suppress 傷官見官 signal"
+        assert '傷官制忌官' not in signal_types
+
+    def test_shang_guan_jian_guan_yongshen_negative(self):
+        """Phase 12h.B Item 2 — when 正官 is 用神, 傷官見官 fires as negative (traditional reading)."""
+        pillars = {
+            'year': {'stem': '庚', 'branch': '午'},
+            'month': {'stem': '辛', 'branch': '戌'},
+            'day': {'stem': '戊', 'branch': '申'},
+            'hour': {'stem': '乙', 'branch': '巳'},
+        }
+        # 正官=用神 (favorable) → 傷官見官 = harmful
+        eg_yongshen = {
+            '比肩': '忌神', '劫財': '忌神', '食神': '喜神', '傷官': '閒神',
+            '正財': '喜神', '偏財': '喜神', '正官': '用神', '七殺': '喜神',
+            '正印': '仇神', '偏印': '仇神',
+        }
+        result = compute_annual_career_analysis(
+            pillars, '戊', '辛', '卯', eg_yongshen)
+        signal_types = [s['type'] for s in result['signals']]
         assert '傷官見官' in signal_types
+        sg = next(s for s in result['signals'] if s['type'] == '傷官見官')
+        assert sg.get('valence') == 'harmful'
+
+    def test_shang_guan_jian_guan_jishen_beneficial(self):
+        """Phase 12h.B Item 2 — when 正官 is 忌神, 傷官制忌官 fires as positive (反吉 reading per 三命通會)."""
+        pillars = {
+            'year': {'stem': '庚', 'branch': '午'},
+            'month': {'stem': '辛', 'branch': '戌'},
+            'day': {'stem': '戊', 'branch': '申'},
+            'hour': {'stem': '乙', 'branch': '巳'},
+        }
+        # 正官=忌神 (unfavorable) → 傷官制官 = beneficial (壓力減輕)
+        eg_jishen = {
+            '比肩': '用神', '劫財': '用神', '食神': '喜神', '傷官': '喜神',
+            '正財': '忌神', '偏財': '忌神', '正官': '忌神', '七殺': '忌神',
+            '正印': '用神', '偏印': '用神',
+        }
+        result = compute_annual_career_analysis(
+            pillars, '戊', '辛', '卯', eg_jishen)
+        signal_types = [s['type'] for s in result['signals']]
+        assert '傷官制忌官' in signal_types
+        scs = next(s for s in result['signals'] if s['type'] == '傷官制忌官')
+        assert scs.get('valence') == 'beneficial'
+        assert '減壓' in scs['detail'] or '調節' in scs['detail']
+        # narrative caveat per agent A research: text MAY say "非為升遷之喜" (negative form)
+        # but must NOT promise 升遷/升職 as positive outcome
+        assert '非為升遷' in scs['detail'] or '升遷' not in scs['detail']
 
 
 class TestAnnualFinanceAnalysis:
