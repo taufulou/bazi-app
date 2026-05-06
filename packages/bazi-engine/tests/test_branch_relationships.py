@@ -481,3 +481,221 @@ class TestCompleteAnalysis:
         assert len(result['harmonies']) >= 1
         assert len(result['clashes']) >= 1
         assert len(result['interactions']) >= 1
+
+
+# ============================================================
+# Phase 12g.6.0 — check_branch_friction helper tests
+# ============================================================
+
+class TestCheckBranchFriction:
+    """Tests for check_branch_friction() — 配偶宮 friction detection helper.
+
+    Reuses THREE_PUNISHMENTS[].partials, SIX_HARMS, SIX_BREAKS, SIX_CLASHES.
+    Priority order: 沖 > 刑 > 害 > 破.
+    """
+
+    # --- 六沖 (highest priority) ---
+
+    def test_six_clash_zi_wu(self):
+        """子午沖 — highest severity 六沖."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('子', '午')
+        assert result is not None
+        assert result['type'] == 'six_clash'
+        assert '沖' in result['description']
+        assert result['severity'] == 90
+
+    def test_six_clash_chen_xu(self):
+        """辰戌沖 — Laopo 2036 case."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('辰', '戌')
+        assert result['type'] == 'six_clash'
+        assert result['severity'] == 75
+
+    def test_six_clash_yin_shen(self):
+        """寅申沖."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('寅', '申')
+        assert result['type'] == 'six_clash'
+
+    def test_six_clash_si_hai(self):
+        """巳亥沖."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('巳', '亥')['type'] == 'six_clash'
+
+    def test_six_clash_chou_wei(self):
+        """丑未沖."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('丑', '未')['type'] == 'six_clash'
+
+    def test_six_clash_mao_you(self):
+        """卯酉沖."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('卯', '酉')['type'] == 'six_clash'
+
+    # --- 刑 (full 子卯刑 — 2-branch group) ---
+
+    def test_punishment_zi_mao_full(self):
+        """子卯刑 — 無禮之刑, full 2-branch."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('子', '卯')
+        assert result['type'] == 'punishment'
+        assert '無禮之刑' in result['description']
+
+    # --- 半刑 (subset of 寅巳申 / 丑戌未) ---
+
+    def test_half_punishment_yin_si(self):
+        """寅巳半刑 (寅巳申 局之半)."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('寅', '巳')
+        assert result['type'] == 'half_punishment'
+        assert '寅巳申' in result['description'] or '無恩' in result['description']
+
+    def test_half_punishment_si_shen(self):
+        """巳申半刑."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('巳', '申')
+        # 巳申 also matches SIX_BREAKS — but 半刑 takes priority over 破
+        assert result['type'] == 'half_punishment'
+
+    def test_half_punishment_yin_shen_collides_with_clash(self):
+        """寅申 hits 六沖 first (priority over 半刑). Verify priority resolution."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('寅', '申')
+        # 寅申 is BOTH 六沖 AND 寅巳申 局之半 — 沖 wins
+        assert result['type'] == 'six_clash'
+
+    def test_half_punishment_chou_xu(self):
+        """丑戌半刑 — Laopo's spouse palace case."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('丑', '戌')
+        assert result['type'] == 'half_punishment'
+        assert '丑戌未' in result['description'] or '持勢' in result['description']
+
+    def test_half_punishment_xu_wei(self):
+        """戌未半刑."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('戌', '未')
+        # 戌未 is BOTH 六破 AND 半刑 — 半刑 wins
+        assert result['type'] == 'half_punishment'
+
+    def test_half_punishment_chou_wei_collides_with_clash(self):
+        """丑未 hits 六沖 first. Verify priority."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('丑', '未')
+        # 丑未 is BOTH 六沖 AND 丑戌未 局之半 — 沖 wins
+        assert result['type'] == 'six_clash'
+
+    # --- 六害 ---
+
+    def test_six_harm_zi_wei(self):
+        """子未害."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('子', '未')
+        assert result['type'] == 'six_harm'
+
+    def test_six_harm_you_xu(self):
+        """酉戌害."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('酉', '戌')['type'] == 'six_harm'
+
+    def test_six_harm_chou_wu_collides_with_clash(self):
+        """丑午害 — pure 害 (no other relationship)."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('丑', '午')
+        assert result['type'] == 'six_harm'
+
+    def test_six_harm_mao_chen(self):
+        """卯辰害."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('卯', '辰')['type'] == 'six_harm'
+
+    def test_six_harm_shen_hai(self):
+        """申亥害."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('申', '亥')['type'] == 'six_harm'
+
+    # --- 六破 (lowest priority) ---
+
+    def test_six_break_zi_you(self):
+        """子酉破."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('子', '酉')
+        assert result['type'] == 'six_break'
+        assert result['severity'] == 60
+
+    def test_six_break_chou_chen(self):
+        """丑辰破."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('丑', '辰')['type'] == 'six_break'
+
+    def test_six_break_yin_hai_collides_with_harmony(self):
+        """寅亥 — 六破 BUT also 六合. Helper only checks friction; harmony is separate."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('寅', '亥')
+        # 寅亥 is 六合 AND 六破 — helper detects friction (破), harmony is separate concern
+        assert result['type'] == 'six_break'
+
+    def test_six_break_mao_wu(self):
+        """卯午破."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('卯', '午')['type'] == 'six_break'
+
+    # --- Self-pair (伏吟 — NOT friction) ---
+
+    def test_self_pair_xu_returns_none(self):
+        """戌+戌 (伏吟) NOT friction."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('戌', '戌') is None
+
+    def test_self_pair_zi_returns_none(self):
+        """子+子 returns None."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('子', '子') is None
+
+    # --- Null / unrelated pairs ---
+
+    def test_yin_zi_no_friction(self):
+        """寅子 — no relationship."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('寅', '子') is None
+
+    def test_chen_si_no_friction(self):
+        """辰巳 — no relationship."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('辰', '巳') is None
+
+    def test_wu_shen_no_friction(self):
+        """午申 — no relationship."""
+        from app.branch_relationships import check_branch_friction
+        assert check_branch_friction('午', '申') is None
+
+    # --- Symmetry (order shouldn't matter) ---
+
+    def test_symmetric_zi_wu(self):
+        """check_branch_friction(子,午) == check_branch_friction(午,子) (semantically)."""
+        from app.branch_relationships import check_branch_friction
+        a = check_branch_friction('子', '午')
+        b = check_branch_friction('午', '子')
+        assert a['type'] == b['type'] and a['severity'] == b['severity']
+
+    def test_symmetric_chou_xu(self):
+        """丑戌 vs 戌丑 — both 半刑."""
+        from app.branch_relationships import check_branch_friction
+        a = check_branch_friction('丑', '戌')
+        b = check_branch_friction('戌', '丑')
+        assert a['type'] == b['type'] == 'half_punishment'
+
+    # --- Priority resolution explicit test ---
+
+    def test_priority_clash_over_half_punishment(self):
+        """寅申 matches both 六沖 AND 半刑 — 沖 wins per priority."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('寅', '申')
+        assert result['type'] == 'six_clash'
+
+    def test_priority_half_punishment_over_six_break(self):
+        """戌未 matches both 半刑 AND 六破 — 半刑 wins per priority."""
+        from app.branch_relationships import check_branch_friction
+        result = check_branch_friction('戌', '未')
+        assert result['type'] == 'half_punishment'

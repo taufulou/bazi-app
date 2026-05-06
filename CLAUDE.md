@@ -130,10 +130,13 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 - ✅ Phase 12 / 12b / 12c complete (用神 cascade, monthly forecast refinements)
 - ✅ Phase 12d complete (用神 validation gate fixes — 6 patterns; 5 default ON, 1 flag-OFF default)
 - ✅ Phase 12e complete (Pattern 12e-B — non-month 比劫祿/羊刃 V2 boost; noble3 + shishang_strong reclassified as doctrinal splits — 用神 agreement 96% → 98% under `--accept-doctrinal-splits`)
-- Next: Phase 12f (Pattern 3a flag flip after Bazi-master audit; doctrinal-split toggles for users who prefer alternate schools)
+- ✅ Phase 12f complete (BAZI_USE_WEIGHTED_IMBALANCE flag flip default ON)
+- ✅ Phase 12g complete (Love reading doctrine fixes — 6 fixes covering 官殺混雜 cross-module canonical helper, 傷官見官 layered+favorability, 流年配偶星 archetype labels, 沖宮 bidirectional valence, polarity-aware ten-god personality library, structured spouse output)
+- ✅ Phase 12g.6 complete (Love reading polish — Gap 1: `personalityDimensions` reaches AI prompt via `interpolateLoveV2Fields` injector; Gap 2: deterministic 傷官見官 「現行大運(YYYY-YYYY 干支)期間…」 sentence injection (replaces prompt-rule strengthening theater); Gap 3: `check_branch_friction` helper extension to 半刑/六破 detection on 配偶宮 + new `meta.natalFrictions` field with legacy `natalHarm` alias)
+- Phase 12h candidates: centralized `chart_doctrine.py` extraction; `career_enhanced.py`/`annual_enhanced.py` 傷官見官 favorability propagation; deprecate `love_enhanced.py` legacy `challenges[].guanCount`/`shaCount` fields after frontend migration; deprecate `marriage_palace.meta.natalHarm` legacy alias (use `natalFrictions`); fix `palace.kongWang` vs `isKongWang` camelCase mismatch (found during 12g.6 V1 review); add full 三刑 (3-branch group) detection on spouse palace; add post-generation narrative linter for AI compliance signal; Phase 12d Pattern 3a flag flip after Bazi-master audit
 
 ## Test suite sizes
-- Bazi Engine: 1998 (1991 pass, 5 xfail, 1 skip, 1 pre-existing fail unrelated) | NestJS API: 692 | Frontend: 143 | ZWDS: 289
+- Bazi Engine: 2150 (2144 pass + Phase 12g.6 additions: 31 friction helper tests + 5 natalFrictions + 5 personalityDimensions regression + 1 calendar drift, 5 xfail, 1 skip, 1 pre-existing fail unrelated) | NestJS API: 692 | Frontend: 143 | ZWDS: 289
   - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
 
 ## Reading Types
@@ -530,12 +533,14 @@ Fix 1a, 12b, 12c, 12d, 12e).
 > reason. Verified at PR #38 / Phase 12d Pattern 3a ship. See
 > `.claude/plans/phase_12d_review_v2.md` for the audit context.
 
-**Cache invalidation post-deploy** (preAnalysisVersion bumps required by Phase 12d/12e/12f):
-- LIFETIME: v2.4.0 → v2.5.0 (Phase 12d) → v2.6.0 (Phase 12e) → v2.7.0 (Phase 12f)
-- CAREER: v2.2.0 → v2.3.0 (Phase 12d) → v2.4.0 (Phase 12e) → v2.5.0 (Phase 12f)
-- ANNUAL: v2.0.0 → v2.1.0 (Phase 12d) → v2.2.0 (Phase 12e) → v2.3.0 (Phase 12f)
-- Comparison: v1.2.0 → v1.3.0 (Phase 12d) → v1.4.0 (Phase 12e) → v1.5.0 (Phase 12f)
+**Cache invalidation post-deploy** (preAnalysisVersion bumps required by Phase 12d/12e/12f/12g):
+- LIFETIME: v2.4.0 → v2.5.0 (Phase 12d) → v2.6.0 (Phase 12e) → v2.7.0 (Phase 12f) → v2.9.0 (Phase 12g romance archetype + 月令格 personality cascade)
+- CAREER: v2.2.0 → v2.3.0 (Phase 12d) → v2.4.0 (Phase 12e) → v2.5.0 (Phase 12f, unchanged in 12g)
+- ANNUAL: v2.0.0 → v2.1.0 (Phase 12d) → v2.2.0 (Phase 12e) → v2.3.0 (Phase 12f, unchanged in 12g)
+- LOVE: (was using fallback v1.1.0 — Phase 12g.1 added explicit entry) → v1.7.0 (Phase 12g.1-12g.4 cumulative) → v1.8.0 (Phase 12g.6: personalityDimensions + 傷官見官 deterministic framing + natalFrictions injection)
+- COMPATIBILITY: v1.5.0 → v1.6.0 (Phase 12g.1 cross-chart 官殺混雜 natal-doctrine suppression)
 - Operator runs `redis-cli FLUSHALL` post-deploy
+- ⚠️ **Phase 12g deploy cost note**: Bumping LOVE + COMPATIBILITY invalidates ALL cached love/compat readings. For paid-tier readings, regen = real Claude API spend. Operator MUST: (1) confirm with product owner that cache bust is acceptable, (2) stage deploy outside peak read traffic, (3) monitor Anthropic API spend dashboard for 48h post-deploy, (4) document expected regen volume in deploy ticket.
 
 **Local dev environment warning (Phase 12f flag flip)**: If you previously
 set `BAZI_USE_WEIGHTED_IMBALANCE=0` in your local `apps/api/.env` to
@@ -792,6 +797,10 @@ PHASE_12D_PATTERN_3A_CONG_QIANG_DETECTOR=0     # ⚠️ DO NOT FLIP — see Patt
 
 # Phase 12e
 PHASE_12E_PATTERN_2A_PP_NON_MONTH=1            # non-month 比劫祿/羊刃 boost
+
+# Phase 12g — Love reading doctrine fixes (all default ON; behavior-changing — see Phase 12g section below)
+# Note: Phase 12g doesn't gate via env flags individually (clean rollback via revert PR)
+# Cache invalidation in apps/api/src/ai/ai.service.ts::PRE_ANALYSIS_VERSIONS handles version routing.
 ```
 
 CI matrix runs at minimum: all-on, Phase 12 off, Fix C+F isolated. Per-rule
@@ -869,6 +878,122 @@ Plus chart-level: 用神 木→水, 喜神 水→木, 官殺混雜 → 露官藏
 桃花方位 emitted as 卯/正東 (Seer's 正南 wrong), 文昌 巳/東南, 生肖貴人
 亥豬+午馬+戌狗 with `provenance: 'folk_tradition'` flag, 調候 advisory
 `cold_wood_needs_fire`, status=`present_weak`.
+
+---
+
+## 八字愛情姻緣 Calculation — Phase 12g Doctrine Fixes
+
+This section documents Phase 12g (2026-05) — 6 doctrinal accuracy fixes for the
+love reading (八字愛情姻緣) module, derived from a comparison between our engine
+and Seer (a competitor app) using Laopo's chart as anchor. The fixes address
+cross-module rule inconsistency, layered detection, polarity-aware personality
+output, and 流年 label completeness. Plan saved at
+`.claude/plans/phase_12g_love_doctrine_fixes.md`.
+
+### The 6 fixes
+
+| Fix | Location | Doctrine source | Net effect |
+|-----|----------|-----------------|------------|
+| **Fix 2 — 官殺混雜 canonical helper** | `love_enhanced.py::compute_spouse_star_analysis`, `compatibility_romance_preanalysis.py` (3 sites), `compatibility_enhanced.py::_detect_cross_guan_sha_hun_za` | 子平真詮·論偏官「藏官露殺...勿使官混；藏殺露官...不可使殺混」 | All 5 sites now consume `interpretation_rules::check_guan_sha_hunza` (Phase 12 Fix 1b weighted). 露官藏殺/露殺藏官 → narrative-only; only 真雙透 → high-severity challenge. Suppresses cross-chart 官殺混雜 when natal already non-混雜. |
+| **Fix 3 — 傷官見官 layered + favorability** | `love_enhanced.py::compute_spouse_star_analysis` line 614+ | 三命通會「如官為忌，傷官見官反以吉論」 / 大紀元 / `career_enhanced.py:2249` reference pattern | 3-layer detection: natalSeverity (latent/moderate/high/critical) + transientActivations[] (LP+LY scan) + valence (beneficial when 正官=忌神). |
+| **Fix 5 — 正緣桃花年 archetype label** | `lifetime_enhanced.py::_compute_romance_candidates` + `love_enhanced.py::compute_romance_good_years` | 八字应用阐微·婚姻篇「女命遇流年正官透干，主正缘桃花」 | New `romance_archetype` field (zheng_yuan / pian_yuan); promotes 正緣桃花年/偏緣年/紅鸞正緣年 labels above 紅鸞/天喜 in priority. |
+| **Fix 6 — 沖配偶宮 valence** | `lifetime_enhanced.py::_compute_romance_candidates` (chong_label/chong_valence/bidirectional fields) | 滴天髓·夫妻論 + 三命通會·論妻妾 (沖宮=動, bidirectional) | Single-entry emission: 沖+配偶星透→正緣動年, 沖+紅鸞/天喜→喜事動年, 沖 alone→婚動年 (bidirectional=true), 沖+比劫→婚變年. Year never duplicated across good/change lists. |
+| **Fix 1 — Polarity-aware ten god personality** | `personality_library.py` (NEW) + `data/personality/ten_god_personality.json` (NEW) + `love_enhanced.py::compute_love_personality` | 子平真詮·論十神, 滴天髓·六親論, 三命通會·卷六 | 10 ten gods × 3 polarities × 4 fields data file. 月令格主導 + 月干透副主導 layers in `personalityDimensions` field. |
+| **Fix 4 — Structured spouse output** | `love_enhanced.py::compute_marriage_palace_analysis` | 滴天髓·夫妻論 + 盲派秘典·第5章 (form vs personality 分層) | New structured `appearance` / `personality` / `meta` blocks; ten god `archetype` polarity-aware via Fix 1 library; legacy flat fields preserved (DEPRECATED in Phase 12h). |
+
+### Output shape additions
+
+`compute_spouse_star_analysis` (`spouseStar` block):
+- `informationalNotes: List[Dict]` — 露官藏殺/露殺藏官 narrative entries
+- `challenges[].doctrineType`, `challenges[].doctrineDetail`, `challenges[].weights` (官殺混雜 only)
+- `challenges[].natalSeverity`, `transientActivations`, `valence`, `officerRole`, `permanentRisk`, `natalDetail`, `natalWeights` (傷官見官 only)
+
+`compute_marriage_palace_analysis` (`marriagePalace` block):
+- `appearance: {primarySource, grade, note, elementHint}` — branch-driven 形貌 layer
+- `personality: {primarySource, tenGod, role, archetype, caveat}` — ten-god-driven 性格 layer (polarity-aware)
+- `meta: {twelveStage, isKongWang, natalHarm}` — meta layer
+
+`compute_love_personality` (`lovePersonality` block):
+- `personalityDimensions: List[{layer, tenGod, role, keywords, secondary, citation}]` — 月令格 + 月干透 layered + polarity-aware
+
+`_compute_romance_candidates` (per candidate):
+- `romance_archetype: 'zheng_yuan' | 'pian_yuan' | None`
+- `chong_label: '正緣動年' | '偏緣動年' | '喜事動年' | '婚動年' | None`
+- `chong_valence: 'positive' | 'negative' | 'mixed' | None`
+- `bidirectional: bool`
+- `signal_names: List[str]`
+
+`compute_annual_love_forecast` annual entries:
+- `romanceArchetype: str`
+- `bidirectional: bool`
+
+### Calibration anchor — Laopo (丙寅/辛丑/甲戌/壬申 female)
+
+Use this as regression anchor for any future engine change touching Phase 12g code:
+
+| Year | Pre-12g engine | Post-12g engine | Mechanism |
+|------|----------------|-----------------|-----------|
+| 2026 丙午 | 紅艷桃花年(danger) | unchanged | Phase 12g.5 corpus row |
+| 2027 丁未 | 天喜桃花年 (post-process inversion) | 天喜桃花年 / 天喜年 | doctrinal split — protected high-priority labels preserved |
+| 2030 庚戌 | 偏官桃花年 | unchanged | 庚=偏官透 archetype=pian_yuan |
+| **2031 辛亥** | 天喜桃花年 (BUG — 正緣 trampled by 天喜 post-process) | **正緣桃花年** | Fix 5 archetype promotion |
+| 2033 癸丑 | 紅鸞年 | unchanged | 丑=紅鸞 of 寅 |
+| 2035 乙卯 | 合婚年 | unchanged | 卯戌六合配偶宮 |
+| **2036 丙辰** | 合婚年 (BUG — single-direction misleading) | **婚動年 (bidirectional=true)** | Fix 6 沖宮 valence |
+
+Plus chart-level deterministic changes:
+- `spouseStar.challenges`: 官殺混雜 entry REMOVED (露官藏殺), 傷官見官 entry has new `valence='beneficial'` + `transientActivations: ['丁酉(2023-2032)']` + `natalSeverity='latent'` (Phase 12g.1 + 12g.3)
+- `spouseStar.informationalNotes`: NEW `[{doctrineType: 'lu_guan_cang_sha', doctrineDetail: '露官藏殺只論官', ...}]`
+- `marriagePalace.personality`: `{tenGod: '偏財', role: '仇神', archetype: '漫不經心、花錢大手大腳、不顧家、事業不求上進、易有外遇', caveat: '日支偏財為仇神...'}`  (Phase 12g.4 Fix 4 polarity)
+- `lovePersonality.personalityDimensions`: 月令格 + 月干透 layers with role-aware keywords (Phase 12g.4 Fix 1)
+- `compatibilityEnhanced.guanShaHunZa`: cross-chart detection now suppressed when natal is 露官藏殺/露殺藏官 (Phase 12g.1)
+
+### Files Reference (Phase 12g)
+
+- New: `packages/bazi-engine/data/personality/ten_god_personality.json` — 10 ten gods × 3 polarities × 4 fields
+- New: `packages/bazi-engine/app/personality_library.py` — `load_personality_by_role`, `role_to_polarity`, schema constants
+- Modified: `love_enhanced.py` — `compute_spouse_star_analysis`, `compute_marriage_palace_analysis`, `compute_love_personality`, `compute_annual_love_forecast`, deterministic builder
+- Modified: `lifetime_enhanced.py` — `_compute_romance_candidates`, `tag_romance_years_with_dayun` (romance_archetype + chong_valence propagation)
+- Modified: `compatibility_romance_preanalysis.py` — 3 sites canonicalized to `check_guan_sha_hunza`
+- Modified: `compatibility_enhanced.py::_detect_cross_guan_sha_hun_za` — natal-doctrine suppression
+- Modified: `apps/api/src/ai/prompts.ts::LOVE_V2_PROMPTS` — anti-hallucination clauses + polarity guidance
+- Modified: `apps/api/src/ai/ai.service.ts::PRE_ANALYSIS_VERSIONS` — added LOVE/COMPATIBILITY entries (was missing — bug)
+- New: `packages/bazi-engine/tests/validation/romance_label_corpus.csv` — 15 fixtures across Laopo + Roger
+- New: `packages/bazi-engine/tests/validation/run_romance_label_validation.py` — strict 0-regression gate
+
+### Phase 12h candidates (deferred from 12g)
+
+- Centralized `chart_doctrine.py` module (傷官見官/比劫奪財/財星混雜 across all readings)
+- `career_enhanced.py` / `annual_enhanced.py` 傷官見官 favorability propagation
+- Deprecate `love_enhanced.py` legacy `challenges[].guanCount`/`shaCount` fields after frontend migration
+- Deprecate `marriage_palace.meta.natalHarm` legacy alias (Phase 12g.6 introduced `natalFrictions` as canonical)
+- Fix `palace.kongWang` vs `isKongWang` camelCase mismatch (separate bug found during Phase 12g.6 V1 review)
+- Full 三刑 (3-branch group) detection on spouse palace (Phase 12g.6 only does 2-branch partials)
+- Post-generation narrative linter for AI compliance signal (deferred from Phase 12g.6 Gap 2 alternative)
+- Phase 12d Pattern 3a `PHASE_12D_PATTERN_3A_CONG_QIANG_DETECTOR` flag-flip (independent of 12g)
+
+### Phase 12g.6 — Love reading polish (deltas to Phase 12g.4 wiring)
+
+3 follow-up gaps from Laopo27 post-deploy comparison vs Seer:
+
+| Gap | Issue | Fix |
+|-----|-------|-----|
+| Gap 1 | Phase 12g.4 `personalityDimensions` engine field never read by `ai.service.ts` (no-op for AI) | Added explicit injector at `interpolateLoveV2Fields` line ~3795-3835: emits 「性格維度 (polarity-aware,必須優先引用,出處:...)」 block with 月令格主導 + 月干透副主導 + keywords. Empty-array fallback to legacy archetype/elementStyle with sentinel for debuggability. Updated `love_personality 寫作規則` at prompts.ts:2608 to require AI consume the new block as PRIMARY. |
+| Gap 2 | 傷官見官 narrative didn't say 「現行大運(2023-2032)」 framing — prompt rule existed but was statistically ignored | **Deterministic injection** (NOT prompt strengthening — earlier rule text was identical). Pre-formats sentence in `interpolateLoveV2Fields`: 「傷官見官時間框架 (必須以下列文字為主敘述,不可省略): 命局層次:... / 大運觸發:現行大運(YYYY-YYYY 干支)期間... / 性質判定:... / 化解條件:...」 with valence dispatch (beneficial/harmful/neutral + null fallback). Replaced 12g.3 prompt rule. Mirrors `partner_matching` 生肖 injection pattern. |
+| Gap 3 | `marriage_palace.meta.natalHarm` only caught 六害, missed 戌+丑 半刑 (Seer correctly flagged it) | New `check_branch_friction` helper in `branch_relationships.py` reuses `THREE_PUNISHMENTS[].partials` + `SIX_HARMS` + `SIX_BREAKS` + `SIX_CLASHES`. Priority order: 沖>刑>害>破. New `meta.natalFrictions` canonical field with type discriminator; legacy `meta.natalHarm` preserved as filtered alias (six_harm only). Self-pair returns None (not friction — that's 伏吟). |
+
+**Calibration anchor — Laopo (post-Phase-12g.6)**:
+- `marriage_palace.meta.natalFrictions[]` includes `{branch:'丑', pillar:'month', type:'half_punishment', description:'丑戌半刑（持勢之刑局之半），month柱配偶宮）'}` (Gap 3)
+- `interpolateLoveV2Fields` emits 「傷官見官時間框架」 block with 大運觸發 = `現行大運(2023-2032 丁酉)期間` + 性質判定 = `正官在你命中為忌神，傷官制官反為調節壓力，並非為禍` (Gap 2)
+- `interpolateLoveV2Fields` emits 「性格維度」 block with 月令格主導=正財(仇神)→吝嗇貪小/刻板乏味, 月干透副主導=正官(忌神)→拘謹/缺乏變通 (Gap 1)
+- Calendar drift coverage: with `current_year=2035` (post-丁酉 LP), 傷官見官 transient activations correctly point to 2033-2042 丙申 LP (NOT stale 丁酉)
+
+**Files Reference (Phase 12g.6)**:
+- `packages/bazi-engine/app/branch_relationships.py::check_branch_friction` (NEW helper)
+- `packages/bazi-engine/app/love_enhanced.py::compute_marriage_palace_analysis` (extended with `natalFrictions`)
+- `apps/api/src/ai/ai.service.ts::interpolateLoveV2Fields` (Gap 1 + Gap 2 injectors)
+- `apps/api/src/ai/prompts.ts:2608` (love_personality rule), `:2629` (傷官見官 rule), `:2665` (spouse_appearance natalFrictions rule)
+- Tests: `tests/test_branch_relationships.py::TestCheckBranchFriction` (31 tests), `tests/test_love_enhanced.py` (Gap 3 regression + 4-chart polarity matrix + calendar drift)
 
 ---
 

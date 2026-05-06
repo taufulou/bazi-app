@@ -2605,10 +2605,22 @@ export const LOVE_V2_STYLE_RULES = `
   · 三合 → 「助力」
   · 空亡 → 「虛位」
 
-love_personality 專區寫作規則：
-- 必須引用預分析的十神戀愛原型和日主元素風格
+love_personality 專區寫作規則 (revised Phase 12g.6 Gap 1):
+- 必須引用預分析的十神戀愛原型和日主元素風格 (作為 SECONDARY 語境色彩)
 - 分析核心戀愛性格特徵和相處模式
 - 引用身強/身弱對感情態度的影響
+- ⚠️ Phase 12g.6 Gap 1 — 主要性格框架以「性格維度」為準 (personalityDimensions 欄位):
+  · 若 prompt 中含「性格維度 (polarity-aware,必須優先引用...)」區塊 → 必須以該區塊的 keywords 為「主要性格描述」之核心
+  · 嚴格遵守 polarity (role 欄位):
+    · 喜神/用神 → 取 favorable keywords (正面詞,如「正直、有正義感、慷慨大方」)
+    · 忌神/仇神 → 取 unfavorable keywords (負面詞,如「拘謹、刻板、吝嗇貪小」)
+    · 閒神 → 取 neutral keywords
+  · 不可自行翻轉 polarity；引擎輸出的 keywords 是唯一裁決
+  · 月令格主導 (yueling_dominant) 為性格主軸；月干透副主導 (month_stem_secondary) 為輔
+  · 若「性格維度」區塊缺失 OR 顯示「(無 — fallback 至 archetype/elementStyle)」 → fallback 到 archetype/elementStyle 法描述
+- legacy archetype (風流型/獨立型/etc.) 與 elementStyle (浪漫理想派/etc.) 仍可使用，但作為 SECONDARY 語境色彩，不應作為主要性格框架
+- 範例 (Laopo, 月令正財為仇神 + 月干正官為忌神):
+  「月令格主導為**正財**，但因正財為仇神，性格表現偏向**吝嗇貪小、刻板乏味、斤斤計較**；加上月干透**正官**副主導，正官為忌神帶出**拘謹、缺乏變通、優柔寡斷**的傾向。元素風格上你屬浪漫理想派 (secondary), 但因身弱結構 (順從型), 在感情中容易被牽制...」
 
 peach_blossom_analysis 專區寫作規則：
 - 必須分別描述正桃花和爛桃花
@@ -2620,7 +2632,18 @@ natal_marriage 專區寫作規則：
 - 必須引用配偶星類型、可見度、角色（喜/忌）
 - 必須引用配偶星與日主的力量平衡
 - 如有傷官見官/比劫奪財，必須說明嚴重程度和化解因素
-- 如有官殺混雜/財星混雜，必須提及
+- ⚠️ Phase 12g.1 — 官殺混雜 anti-hallucination：
+  · 若 challenges 中無 type='官殺混雜' 或 doctrineType='guan_sha_hunza' 條目 → 禁止提及官殺混雜/感情選擇困難/第三者風險
+  · 若 informational_notes 含 doctrineType='lu_guan_cang_sha' (露官藏殺只論官) → 主述「正官格清純，配偶星明朗」，禁止描述為混雜
+  · 若 informational_notes 含 doctrineType='lu_sha_cang_guan' (露殺藏官只論殺) → 主述「七殺格清純，配偶有魄力」，禁止描述為混雜
+  · 出處：子平真詮·論偏官「藏官露殺...勿使官混；藏殺露官...不可使殺混」
+- ⚠️ Phase 12g.6 Gap 2 — 傷官見官 deterministic framing (replaces 12g.3 prompt rule):
+  · 若 prompt 中含「傷官見官時間框架 (必須以下列文字為主敘述,不可省略)」區塊 → 必須將該區塊的「命局層次」、「大運觸發」、「性質判定」、「化解條件」內容**完整融入**敘述
+    · 不可省略「現行大運(YYYY-YYYY 干支)期間」字樣 — 必須原樣引用
+    · 不可省略 valence 判定 (反為調節 / 為禍 / 影響有限 — 依 prompt 中性質判定原樣引用)
+    · 引用 transientActivations[].stems (例:「丁酉大運引動」)
+  · 若 prompt 中無「傷官見官時間框架」區塊 → 完全不應提及傷官見官
+  · 範例 (Laopo): 「現行大運(2023-2032 丁酉)期間，丁傷官透出引動命局藏干。但正官在你命中為忌神，傷官制官反為調節壓力，並非為禍。命局有財星化解結構亦緩和衝突...」
 
 partner_matching 專區寫作規則：
 - 必須引用預分析的最佳生肖和避開生肖
@@ -2628,13 +2651,32 @@ partner_matching 專區寫作規則：
 - 避開生肖需說明原因（六沖/六害）
 
 spouse_appearance 專區寫作規則：
-- 必須引用配偶宮的地支、元素、十神
-- 必須引用性格原型和外貌傾向
-- 引用十二長生階段對伴侶特質的影響
+- ⚠️ Phase 12g.4 Fix 4 — 配偶屬性分層原則 (古典 滴天髓·夫妻論 / 盲派秘典 共識)：
+  · 形貌/體型 主取「日支地支屬性」(墓庫/桃花/長生/沐浴)，輔以日支元素
+    例：戌=四墓庫 → 配偶外貌樸實敦厚、體型紮實，不屬亮眼型
+  · 性格/個性 主取「日支十神 + 喜忌反轉」 (deterministic.marriage_palace.personality.role 為唯一裁決)
+    · 喜用神時 (favorable)：取正面詞 (例: 偏財喜用 = 慷慨大方、商業頭腦)
+    · 忌仇神時 (unfavorable)：取負面詞 (例: 偏財忌仇 = 漫不經心、揮霍、不顧家、不上進)
+  · 必須引用 deterministic.marriage_palace.personality.archetype 提供的具體 keywords，不可自行翻轉 polarity
+- 必須引用十二長生階段對伴侶特質的影響
+- 形貌與性格分兩段呈現，不要混入同一句
+- ⚠️ 嚴禁使用「但是」「然而」等對比連詞處理多源信號 — 形貌與性格非衝突而是分層描述
+- 範例：「外表敦厚穩重 (戌墓庫)，內裡卻偏隨性疏忽 (偏財為仇)」— 兩者並列不對比
+- ⚠️ Phase 12g.6 Gap 3 — 配偶宮自然互動 (沖刑害破)：
+  · 若 prompt 中含「配偶宮自然互動 (沖刑害破)」行 → 必須提及命局中對配偶宮的 沖/刑/半刑/害/破 互動
+  · 引用 type 區分敘述：six_clash=「沖配偶宮」/ punishment OR half_punishment=「刑配偶宮」/ six_harm=「害配偶宮」/ six_break=「破配偶宮」
+  · 結構性建議: 半刑/害/破 → 「晚婚較有利, 學習包容差異」; 沖 → 「需特別注意溝通, 避免衝突升級」
+  · 範例 (Laopo): 「命局中月支丑與日支戌成丑戌半刑 (持勢之刑局之半)，這代表你與配偶之間容易有理念差異或固執分歧，**晚婚對你較有利**，需學習包容對方的不同視角」
+  · 若 prompt 中無「配偶宮自然互動」行 → 不應提及命局沖刑害破 (避免幻想)
 
 romance_good_years / romance_danger_years / marriage_change_years 專區寫作規則：
 - 按年份列出，每年獨立一段
-- 好年份標注桃花類型（紅鸞年/天喜年/正緣年）
+- 好年份標注桃花類型（正緣桃花年/紅鸞正緣年/紅鸞年/天喜年/合婚年/正緣動年/喜事動年/婚動年/偏緣年/偏財桃花年/偏官桃花年）
+- ⚠️ Phase 12g.2 Fix 5/Fix 6 — 流年標籤精準度：
+  · 若 starType='正緣桃花年' (流年配偶星透干) → 必須強調「正緣」性質，是真命緣分年
+  · 若 starType='婚動年' AND bidirectional=true → 必須寫雙向敘述：「未婚者可能定情結合，已婚者注意感情磨合或調整」，禁止單向描述為純結婚或純婚變
+  · 若 starType='正緣動年' → 沖配偶宮+配偶星透干同年 — 強調結合或重組契機
+  · 若 starType='喜事動年' → 沖配偶宮+紅鸞/天喜 — 結婚高機率
 - 危險年份標注主要觸發因素
 - 變動年份均為負面（沖/刑/害），語氣需謹慎但不過於嚇人
 - 如有大運交叉標注（好年份在不利大運），必須加入警示語

@@ -60,9 +60,10 @@ from .branch_relationships import (
     SIX_HARMS,
     THREE_PUNISHMENTS,
     TRIPLE_HARMONIES,
+    check_branch_friction,
     check_sanxing_with_pool,
 )
-from .ten_gods import derive_ten_god
+from .ten_gods import derive_ten_god, compute_stem_pressure_weight
 from .lifetime_enhanced import (
     compute_partner_zodiacs,
     compute_romance_years_enriched,
@@ -70,6 +71,8 @@ from .lifetime_enhanced import (
     tag_romance_years_with_dayun,
     _find_luck_period_for_year,
 )
+from .interpretation_rules import check_guan_sha_hunza
+from .personality_library import load_personality_by_role  # Phase 12g.4 — polarity-aware lookups
 
 
 # ============================================================
@@ -454,6 +457,9 @@ def compute_spouse_star_analysis(
     gender: str,
     effective_gods: Dict[str, str],
     strength_v2: Dict,
+    luck_periods: Optional[List[Dict]] = None,
+    annual_stars: Optional[List[Dict]] = None,
+    current_year: int = 0,
 ) -> Dict[str, Any]:
     """
     Analyze spouse star (配偶星) visibility, position, and marriage-danger patterns.
@@ -585,18 +591,47 @@ def compute_spouse_star_analysis(
 
     # --- Marriage danger patterns ---
     challenges: List[Dict[str, Any]] = []
+    informational_notes: List[Dict[str, Any]] = []
 
-    # 官殺混雜 (female) / 財星混雜 (male)
+    # 官殺混雜 (female) — Phase 12g.1 Fix 2: consume canonical
+    # `check_guan_sha_hunza` helper from interpretation_rules.
+    # Doctrine: 子平真詮·論偏官「藏官露殺...勿使官混；藏殺露官...不可使殺混」
+    # — 露官藏殺只論官 / 露殺藏官只論殺 are NOT 真混雜.
+    #
+    # Adapter pattern: legacy fields (`type`, `severity`, `description`,
+    # `guanCount`, `shaCount`) preserved for frontend backward-compat.
+    # New fields (`doctrineType`, `doctrineDetail`, `weights`) added optional.
+    # DEPRECATED: schedule legacy field removal in Phase 12h after frontend migration.
     if gender == 'female':
         guan_count = len(all_ten_gods.get('正官', []))
         sha_count = len(all_ten_gods.get('偏官', []))
-        if guan_count >= 1 and sha_count >= 1:
+        gs_result = check_guan_sha_hunza(pillars, day_master_stem, gender)
+        if gs_result is None:
+            # Neither side substantive — no challenge, no informational note.
+            pass
+        elif gs_result['type'] == 'guan_sha_hunza':
+            # True 雙透 mixed — emit high-severity challenge with adapter shape.
             challenges.append({
-                'type': '官殺混雜',
-                'severity': 'high',
-                'description': '正官與七殺同時出現，感情容易搖擺不定',
-                'guanCount': guan_count,
-                'shaCount': sha_count,
+                'type': '官殺混雜',                # legacy enum
+                'severity': 'high',                # legacy
+                'description': gs_result['description'],  # legacy (now from helper)
+                'guanCount': guan_count,           # legacy
+                'shaCount': sha_count,             # legacy
+                # NEW canonical fields (optional for frontend):
+                'doctrineType': gs_result['type'],
+                'doctrineDetail': gs_result['name'],
+                'weights': gs_result['weights'],
+            })
+        else:
+            # 露官藏殺只論官 / 露殺藏官只論殺 — narrative-only informational note.
+            # NOT a challenge. AI prompt forbidden from describing 官殺混雜
+            # under this branch (anti-hallucination clause in prompts.ts).
+            informational_notes.append({
+                'doctrineType': gs_result['type'],
+                'doctrineDetail': gs_result['name'],
+                'description': gs_result['description'],
+                'weights': gs_result['weights'],
+                'significance': gs_result['significance'],
             })
     else:
         zhengcai_count = len(all_ten_gods.get('正財', []))
@@ -610,28 +645,201 @@ def compute_spouse_star_analysis(
                 'piancaiCount': piancai_count,
             })
 
-    # 傷官見官 (female)
+    # 傷官見官 (female) — Phase 12g.3 Fix 3: layered detection.
+    #
+    # Layer A (natal): transparency-weighted detection per Phase 12 Fix 1a.
+    #   Both ≥2.0 weight → critical (真雙透同強)
+    #   Stronger ≥2.0, weaker ≥1.0 → high (一透一藏)
+    #   Both <2.0 (e.g., Laopo 餘氣 only) → latent (不論)
+    # Layer B (transient): scan current LP + flow years; combined natal+LP weight.
+    # Layer C (favorability): when 正官 is 忌神/仇神, 傷官 制官 is BENEFICIAL.
+    #   Source: 三命通會「如官為忌，傷官見官反以吉論」 / 大紀元 / career_enhanced.py:2249.
+    #
+    # DEPRECATED in Phase 12h: legacy `severity` / `hasFinancialBuffer` / `shangguanCount`
+    # / `zhengguanCount` fields kept for frontend backward-compat. Schedule removal after
+    # frontend migrates to new structured fields.
     if gender == 'female':
-        shangguan_positions = all_ten_gods.get('傷官', [])
-        zhengguan_positions = all_ten_gods.get('正官', [])
-        if shangguan_positions and zhengguan_positions:
-            # Check for 財星 buffer (mediating element)
-            caixin_positions = all_ten_gods.get('正財', []) + all_ten_gods.get('偏財', [])
-            has_financial_buffer = len(caixin_positions) > 0
+        sg_stem = '癸' if day_master_stem in ('壬',) else (
+            '丁' if day_master_stem == '甲' else (
+                '丙' if day_master_stem == '乙' else (
+                    '己' if day_master_stem == '丙' else (
+                        '戊' if day_master_stem == '丁' else (
+                            '辛' if day_master_stem == '戊' else (
+                                '庚' if day_master_stem == '己' else (
+                                    '癸' if day_master_stem == '庚' else (
+                                        '壬' if day_master_stem == '辛' else (
+                                            '乙' if day_master_stem == '壬' else '甲'
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        # 傷官 = same polarity as DM but produces 食傷 element. Computed via derive_ten_god.
+        # Simpler: scan all stems in chart + LP/LY for 傷官 via derive_ten_god.
+        # Find the 傷官 stem symbol by reverse lookup.
+        from .constants import HEAVENLY_STEMS as _HS  # local import to avoid top-level reorg
+        sg_stem_sym = None
+        zg_stem_sym = None
+        for s in _HS:
+            tg = derive_ten_god(day_master_stem, s)
+            if tg == '傷官':
+                sg_stem_sym = s
+            elif tg == '正官':
+                zg_stem_sym = s
 
-            # Check for 傷官合殺 (傷官 + 七殺 combo can neutralize)
-            shangguan_he_sha = len(shangguan_positions) > 0 and len(all_ten_gods.get('偏官', [])) > 0
+        if sg_stem_sym and zg_stem_sym:
+            sg_w = compute_stem_pressure_weight(sg_stem_sym, pillars)
+            zg_w = compute_stem_pressure_weight(zg_stem_sym, pillars)
+            sg_total = sg_w['total']
+            zg_total = zg_w['total']
 
-            severity = 'moderate' if (has_financial_buffer or shangguan_he_sha) else 'critical'
-            challenges.append({
-                'type': '傷官見官',
-                'severity': severity,
-                'description': '傷官見官，婚姻容易有衝突和波折',
-                'hasFinancialBuffer': has_financial_buffer,
-                'shangGuanHeSha': shangguan_he_sha,
-                'shangguanCount': len(shangguan_positions),
-                'zhengguanCount': len(zhengguan_positions),
-            })
+            shangguan_positions = all_ten_gods.get('傷官', [])
+            zhengguan_positions = all_ten_gods.get('正官', [])
+            both_present = sg_total > 0 and zg_total > 0
+
+            if both_present:
+                # Layer A — natal severity
+                stronger = max(sg_total, zg_total)
+                weaker = min(sg_total, zg_total)
+                if stronger >= 2.0 and weaker >= 2.0:
+                    natal_severity = 'critical'
+                    natal_detail = f'命局{sg_stem_sym}(傷官)+{zg_stem_sym}(正官)雙透同強，真傷官見官'
+                elif stronger >= 2.0 and weaker >= 1.0:
+                    natal_severity = 'high'
+                    side = '透傷藏官' if sg_total > zg_total else '透官藏傷'
+                    natal_detail = f'命局{side}，一透一藏'
+                else:
+                    natal_severity = 'latent'
+                    natal_detail = (
+                        f'命局{sg_stem_sym}(傷官,權重{sg_total:.1f})+'
+                        f'{zg_stem_sym}(正官,權重{zg_total:.1f})透藏不對等，本不論真傷官見官'
+                    )
+
+                # Layer B — transient activations (LP + flow years within current LP)
+                transient_activations: List[Dict[str, Any]] = []
+                if luck_periods and current_year:
+                    active_lp = _find_active_luck_period(luck_periods, current_year)
+                    if active_lp:
+                        lp_stem = active_lp.get('stem', '')
+                        lp_branch = active_lp.get('branch', '')
+                        lp_tg_stem = derive_ten_god(day_master_stem, lp_stem) if lp_stem else ''
+                        # Combined natal + LP weight estimation
+                        lp_brings_sg = lp_tg_stem == '傷官'
+                        lp_brings_zg = lp_tg_stem == '正官'
+                        lp_branch_hidden = HIDDEN_STEMS.get(lp_branch, [])
+                        lp_branch_main_tg = (
+                            derive_ten_god(day_master_stem, lp_branch_hidden[0])
+                            if lp_branch_hidden else ''
+                        )
+                        # If LP brings the WEAKER side up via stem (3.0) — likely activates
+                        if natal_severity == 'latent':
+                            sg_with_lp = sg_total + (3.0 if lp_brings_sg else 0)
+                            zg_with_lp = zg_total + (3.0 if lp_brings_zg else 0)
+                            if (lp_brings_sg or lp_brings_zg) and \
+                               min(sg_with_lp, zg_with_lp) >= 2.0:
+                                transient_activations.append({
+                                    'level': 'dayun',
+                                    'period': f"{active_lp.get('startYear', '')}-{active_lp.get('endYear', '')}",
+                                    'stems': f'{lp_stem}{lp_branch}',
+                                    'severity': 'moderate',
+                                    'detail': (
+                                        f'大運天干{lp_stem}({lp_tg_stem})透出,'
+                                        f'引動命局藏干,期間婚姻易有口角衝突'
+                                    ),
+                                })
+                        # 流年 layer: only flag when natal+LP+LY all combine
+                        if annual_stars and (lp_brings_sg or lp_brings_zg or natal_severity != 'latent'):
+                            for ay_star in annual_stars:
+                                ay = ay_star.get('year')
+                                if not ay or ay < current_year or ay > current_year + 10:
+                                    continue
+                                ay_stem = ay_star.get('stem', '')
+                                ay_tg = derive_ten_god(day_master_stem, ay_stem) if ay_stem else ''
+                                if ay_tg in ('傷官', '正官'):
+                                    transient_activations.append({
+                                        'level': 'liunian',
+                                        'period': str(ay),
+                                        'stems': f'{ay_stem}{ay_star.get("branch", "")}',
+                                        'severity': (
+                                            'high' if natal_severity in ('high', 'critical')
+                                            else 'moderate'
+                                        ),
+                                        'detail': f'流年{ay_stem}({ay_tg})透出,當年婚姻易有變動',
+                                    })
+
+                # Layer C — favorability (officer role)
+                officer_role = effective_gods.get(spouse_element, '閒神')
+                if officer_role in ('忌神', '仇神'):
+                    valence = 'beneficial'
+                    valence_note = '正官為忌神/仇神,傷官制官反為吉,實則減壓不為禍'
+                elif officer_role in ('用神', '喜神'):
+                    valence = 'harmful'
+                    valence_note = '正官為用神/喜神,傷官攻官真為禍,須慎防'
+                else:
+                    valence = 'neutral'
+                    valence_note = '正官為閒神,傷官見官影響有限'
+
+                # Permanent risk (natal-only, ignoring LP/LY)
+                if natal_severity == 'critical':
+                    permanent_risk = 'high'
+                elif natal_severity == 'high':
+                    permanent_risk = 'medium'
+                else:
+                    permanent_risk = 'low'
+
+                # 化解 buffers (legacy fields)
+                caixin_positions = all_ten_gods.get('正財', []) + all_ten_gods.get('偏財', [])
+                has_financial_buffer = len(caixin_positions) > 0
+                shangguan_he_sha = (
+                    len(shangguan_positions) > 0 and len(all_ten_gods.get('偏官', [])) > 0
+                )
+
+                # Map natal_severity → legacy severity for backward-compat
+                if valence == 'beneficial':
+                    legacy_severity = 'moderate'  # 反為吉, downgrade severity in legacy semantics
+                elif natal_severity in ('critical', 'high'):
+                    legacy_severity = (
+                        'moderate' if (has_financial_buffer or shangguan_he_sha) else 'critical'
+                    )
+                else:
+                    # latent natal, possibly transient — moderate at most
+                    legacy_severity = (
+                        'moderate' if transient_activations else 'low'
+                    )
+
+                # Suppress challenge entry when natal latent + no transient + valence neutral/beneficial
+                emit_challenge = (
+                    natal_severity != 'latent'
+                    or transient_activations
+                    or valence == 'harmful'
+                )
+                if emit_challenge:
+                    challenges.append({
+                        # Legacy fields (backward-compat)
+                        'type': '傷官見官',
+                        'severity': legacy_severity,
+                        'description': '傷官見官，婚姻容易有衝突和波折',
+                        'hasFinancialBuffer': has_financial_buffer,
+                        'shangGuanHeSha': shangguan_he_sha,
+                        'shangguanCount': len(shangguan_positions),
+                        'zhengguanCount': len(zhengguan_positions),
+                        # Phase 12g.3 — layered + favorability fields (NEW, optional)
+                        'natalSeverity': natal_severity,
+                        'natalDetail': natal_detail,
+                        'transientActivations': transient_activations,
+                        'valence': valence,
+                        'valenceNote': valence_note,
+                        'officerRole': officer_role,
+                        'permanentRisk': permanent_risk,
+                        'natalWeights': {
+                            'shangguan': sg_total,
+                            'zhengguan': zg_total,
+                        },
+                    })
 
     # 比劫奪財 (male)
     if gender == 'male':
@@ -681,6 +889,7 @@ def compute_spouse_star_analysis(
         'lateMarriageIndicator': late_marriage_indicator,
         'hourWealthNote': hour_wealth_note,
         'challenges': challenges,
+        'informationalNotes': informational_notes,  # Phase 12g.1 — 露官藏殺/露殺藏官 etc.
     }
 
 
@@ -692,15 +901,20 @@ def compute_marriage_palace_analysis(
     pillars: Dict,
     day_master_stem: str,
     kong_wang: List[str],
+    effective_gods: Optional[Dict[str, str]] = None,
 ) -> Dict[str, Any]:
     """
     Analyze the marriage palace (日支 = 配偶宮).
 
-    Includes:
-    - Day branch element and personality archetype
-    - 十二長生 stage at day branch
-    - 空亡 check
-    - Natal 六害 check (any natal branch 六害 day branch)
+    Phase 12g.4 Fix 4 — adds structured `appearance` / `personality` / `meta` blocks
+    with polarity-aware ten god traits (favorable vs unfavorable). Legacy flat fields
+    (`appearanceHint`, `personalityArchetype`, etc.) preserved for backward-compat.
+
+    DEPRECATED in Phase 12h: legacy flat fields scheduled for removal after frontend
+    migrates to consume structured `appearance` / `personality` / `meta` blocks.
+
+    Doctrine: 滴天髓·夫妻論 + 盲派秘典·第5章. Branch属性 ⇒ 形貌, ten god ⇒ 性格,
+    polarity flip on 喜用→忌仇 of same ten god is ~70% trait inversion.
     """
     day_branch = pillars['day']['branch']
     day_stem = pillars['day']['stem']
@@ -724,66 +938,140 @@ def compute_marriage_palace_analysis(
         '水': '圓潤、靈動、皮膚較好',
     }
 
-    # Ten god personality archetype for spouse
-    ten_god_archetype = {
-        '比肩': '獨立自主，和你相似',
-        '劫財': '強勢果斷，競爭心強',
-        '食神': '溫和體貼，懂得享受',
-        '傷官': '才華洋溢，個性突出',
-        '偏財': '交際廣泛，大方慷慨',
-        '正財': '踏實穩重，理財有方',
-        '偏官': '有魄力有能力，但脾氣大',
-        '正官': '正派有責任感，循規蹈矩',
-        '偏印': '聰明特立獨行，想法另類',
-        '正印': '善良包容，有教養',
-    }
-
     # Twelve life stage at day branch
     stage = _get_twelve_stage(day_master_stem, day_branch)
 
     # 空亡 check
     is_kong_wang = day_branch in kong_wang
 
-    # Natal 六害 check
-    natal_harm = []
+    # Phase 12g.6 Gap 3 — extend friction detection beyond 六害 to include
+    # 沖/刑/半刑/六破 via shared `check_branch_friction` helper.
+    # Output split: `natal_frictions` (canonical, all types) + `natal_harm`
+    # (legacy alias, six_harm only — DEPRECATED in Phase 12h).
+    natal_frictions: List[Dict] = []
+    natal_harm: List[Dict] = []  # DEPRECATED in Phase 12h: legacy alias for backward-compat
     for pname in ['year', 'month', 'hour']:
         p_branch = pillars[pname]['branch']
-        if HARM_LOOKUP.get(p_branch) == day_branch:
-            natal_harm.append({
+        friction = check_branch_friction(p_branch, day_branch)
+        if friction:
+            entry = {
                 'pillar': pname,
                 'branch': p_branch,
-                'description': f'{p_branch}{day_branch}害（{pname}柱害配偶宮）',
-            })
+                'type': friction['type'],
+                'description': friction['description'].replace(
+                    '）',
+                    f'，{pname}柱配偶宮）',
+                ) if friction['description'].endswith('）') else (
+                    f"{friction['description']}（{pname}柱）"
+                ),
+                'severity': friction['severity'],
+            }
+            natal_frictions.append(entry)
+            if friction['type'] == 'six_harm':
+                # Legacy entry shape — preserve original description for backward-compat
+                natal_harm.append({
+                    'pillar': pname,
+                    'branch': p_branch,
+                    'description': f'{p_branch}{day_branch}害（{pname}柱害配偶宮）',
+                })
 
     # 日支四大桃花位 — classical spouse appearance indicator
-    # 子午卯酉 = 四正/四桃花: "日支坐子午卯酉，配偶相貌端莊漂亮"
-    # 寅申巳亥 = 四長生: spouse clever/capable
-    # 辰戌丑未 = 四墓庫: spouse steady/plain
     FOUR_PEACH_BRANCHES = {'子', '午', '卯', '酉'}
     FOUR_CHANGSHENG_BRANCHES = {'寅', '申', '巳', '亥'}
 
     if day_branch in FOUR_PEACH_BRANCHES:
         appearance_grade = '端莊漂亮'
         appearance_note = '日支為四大桃花位（子午卯酉），配偶外貌佳、異性緣好'
+        primary_source = 'four_peach_branch'
     elif day_branch in FOUR_CHANGSHENG_BRANCHES:
         appearance_grade = '精明幹練'
         appearance_note = '日支為四長生位（寅申巳亥），配偶聰慧能幹'
+        primary_source = 'four_changsheng_branch'
     else:
         appearance_grade = '樸素敦厚'
         appearance_note = '日支為四墓庫位（辰戌丑未），配偶穩重樸實'
+        primary_source = 'four_tomb_branch'
+
+    # --- Phase 12g.4 Fix 4 — polarity-aware ten god personality lookup ---
+    # When effective_gods provided, use polarity library; else fall back to legacy.
+    palace_role = ''
+    palace_archetype = ''
+    palace_caveat = ''
+    if palace_ten_god:
+        if effective_gods is not None:
+            # Look up role of the spouse-palace element
+            spouse_palace_element = STEM_ELEMENT.get(hidden[0], '') if hidden else ''
+            palace_role = effective_gods.get(spouse_palace_element, '閒神')
+            try:
+                cell = load_personality_by_role(palace_ten_god, palace_role)
+                spouse_traits = cell.get('spouse_traits', [])
+                if spouse_traits:
+                    # Take top 2-3 traits for the archetype line
+                    palace_archetype = '、'.join(spouse_traits[:3])
+                # When忌仇 polarity, provide explicit caveat (spouse's negative side)
+                if palace_role in ('忌神', '仇神'):
+                    palace_caveat = (
+                        f'日支{palace_ten_god}為{palace_role}，'
+                        f'需注意配偶有{palace_ten_god}負面傾向: '
+                        + '、'.join(spouse_traits[:2])
+                    )
+            except (ValueError, KeyError):
+                # Defensive — fall back to legacy archetype
+                pass
+        if not palace_archetype:
+            # Legacy fallback dict (polarity-blind)
+            legacy_archetype = {
+                '比肩': '獨立自主，和你相似',
+                '劫財': '強勢果斷，競爭心強',
+                '食神': '溫和體貼，懂得享受',
+                '傷官': '才華洋溢，個性突出',
+                '偏財': '交際廣泛，大方慷慨',
+                '正財': '踏實穩重，理財有方',
+                '偏官': '有魄力有能力，但脾氣大',
+                '正官': '正派有責任感，循規蹈矩',
+                '偏印': '聰明特立獨行，想法另類',
+                '正印': '善良包容，有教養',
+            }
+            palace_archetype = legacy_archetype.get(palace_ten_god, '')
+
+    # Phase 12g.4 — structured layers (NEW, optional)
+    appearance_layer = {
+        'primarySource': primary_source,
+        'grade': appearance_grade,
+        'note': appearance_note,
+        'elementHint': element_appearance.get(element, ''),
+    }
+    personality_layer = {
+        'primarySource': 'day_branch_ten_god',
+        'tenGod': palace_ten_god,
+        'role': palace_role,
+        'archetype': palace_archetype,
+        'caveat': palace_caveat,
+    }
+    meta_layer = {
+        'twelveStage': stage,
+        'isKongWang': is_kong_wang,
+        'natalHarm': natal_harm,           # DEPRECATED Phase 12h: legacy alias (six_harm only)
+        'natalFrictions': natal_frictions, # NEW canonical (沖/刑/半刑/害/破)
+    }
 
     return {
+        # Legacy fields (backward-compat — DEPRECATED, schedule removal in Phase 12h)
         'dayBranch': day_branch,
         'element': element,
         'appearanceHint': element_appearance.get(element, ''),
         'appearanceGrade': appearance_grade,
         'appearanceNote': appearance_note,
         'palaceTenGod': palace_ten_god,
-        'personalityArchetype': ten_god_archetype.get(palace_ten_god, ''),
+        'personalityArchetype': palace_archetype,
         'twelveStage': stage,
         'isKongWang': is_kong_wang,
         'natalHarm': natal_harm,
         'dayPillar': day_gz,
+        # Phase 12g.4 — structured layers (NEW)
+        'appearance': appearance_layer,
+        'personality': personality_layer,
+        'meta': meta_layer,
     }
 
 
@@ -1018,6 +1306,52 @@ def compute_love_personality(
                 }
                 break  # Only one overlay — the highest count ten god
 
+    # Phase 12g.4 Fix 1 — polarity-aware personality dimensions (月令格 + 月干透 layers)
+    # Doctrine: 子平真詮·論用神「月令為提綱」, 滴天髓·六親論. 月令本氣 dominates 性格主軸;
+    # 月干透 = 副主導 (when non-比劫). 喜用→正面詞, 忌仇→負面詞 polarity flip.
+    personality_dimensions: List[Dict[str, Any]] = []
+
+    # Layer 1 — 月令格 (本氣) primary
+    month_branch = pillars['month']['branch']
+    month_hidden = HIDDEN_STEMS.get(month_branch, [])
+    if month_hidden:
+        yueling_stem = month_hidden[0]
+        yueling_tg = derive_ten_god(day_master_stem, yueling_stem)
+        if yueling_tg:
+            yueling_element = STEM_ELEMENT.get(yueling_stem, '')
+            yueling_role = effective_gods.get(yueling_element, '閒神')
+            try:
+                cell = load_personality_by_role(yueling_tg, yueling_role)
+                personality_dimensions.append({
+                    'layer': 'yueling_dominant',
+                    'tenGod': yueling_tg,
+                    'role': yueling_role,
+                    'keywords': cell.get('core_keywords', []),
+                    'secondary': cell.get('secondary', []),
+                    'citation': cell.get('citation', ''),
+                })
+            except (ValueError, KeyError):
+                pass
+
+    # Layer 2 — 月干透 副主導 (only if non-比劫)
+    month_stem = pillars['month']['stem']
+    month_stem_tg = derive_ten_god(day_master_stem, month_stem)
+    if month_stem_tg and month_stem_tg not in ('比肩', '劫財'):
+        month_stem_element = STEM_ELEMENT.get(month_stem, '')
+        month_stem_role = effective_gods.get(month_stem_element, '閒神')
+        try:
+            cell = load_personality_by_role(month_stem_tg, month_stem_role)
+            personality_dimensions.append({
+                'layer': 'month_stem_secondary',
+                'tenGod': month_stem_tg,
+                'role': month_stem_role,
+                'keywords': cell.get('core_keywords', []),
+                'secondary': cell.get('secondary', []),
+                'citation': cell.get('citation', ''),
+            })
+        except (ValueError, KeyError):
+            pass
+
     return {
         'dominantTenGod': dominant_tg,
         'archetype': archetype,
@@ -1029,6 +1363,8 @@ def compute_love_personality(
         'tenGodCounts': ten_god_counts,
         'pillarPersonality': pillar_personality,
         'dominantOverlay': dominant_overlay,
+        # Phase 12g.4 Fix 1 — polarity-aware layered personality (NEW, optional)
+        'personalityDimensions': personality_dimensions,
     }
 
 
@@ -1246,50 +1582,79 @@ def compute_romance_good_years(
         annual_branch = annual_star['branch']
         annual_stem = annual_star['stem']
 
-        if annual_branch == hongluan_branch:
+        # Phase 12g.2 Fix 5/Fix 6 — priority-aware label selection.
+        # ROMANCE_LABEL_PRIORITY (highest first):
+        #   1. 紅鸞 + 正官/正財透 → 紅鸞正緣年 (compound, most precise)
+        #   2. 沖宮 + 正官/正財透 → 正緣動年
+        #   3. 正官/正財透 alone → 正緣桃花年
+        #   4. 紅鸞 + 偏財/偏官透 → 紅鸞年 + subNote (legacy semantics: 紅鸞 trumps 偏緣)
+        #   5. 沖宮 + 偏財/偏官透 → 偏緣動年
+        #   6. 紅鸞 alone (or with unrelated stem) → 紅鸞年
+        #   7. 沖宮 + 紅鸞/天喜 (no 配偶星透) → 喜事動年
+        #   8. 沖宮 alone → 婚動年 (bidirectional)
+        #   9. 偏財/偏官透 alone → 偏財桃花年 / 偏官桃花年
+        #   10. 天喜 → 天喜年
+        #   11. 六合日支 → 合婚年
+        #   12. signal-derived (桃花合年/_drop)
+        archetype = item.get('romance_archetype')
+        chong_label = item.get('chong_label')
+        on_hongluan = (annual_branch == hongluan_branch)
+        stem_tg = derive_ten_god(day_master_stem, annual_stem)
+
+        if on_hongluan and archetype == 'zheng_yuan':
+            # Compound: 紅鸞 + 正官/正財透 → most precise label.
+            item['starType'] = '紅鸞正緣年'
+        elif chong_label == '正緣動年':
+            # 沖宮 + 正官/正財透.
+            item['starType'] = '正緣動年'
+        elif archetype == 'zheng_yuan':
+            # 正官/正財透 alone (no 紅鸞, no 沖宮).
+            item['starType'] = '正緣桃花年'
+        elif on_hongluan and archetype == 'pian_yuan':
+            # 紅鸞 + 偏財/偏官透 — 紅鸞 dominant label, 偏緣 in subNote (legacy).
             item['starType'] = '紅鸞年'
-            # Check if stem also carries spouse/romance star
-            stem_tg = derive_ten_god(day_master_stem, annual_stem)
-            if stem_tg == spouse_tg:
-                item['starType'] = '紅鸞正緣年'
-            elif stem_tg == romance_tg:
-                item['starType'] = '紅鸞年'
-                item['subNote'] = f'天干見{romance_tg}，增強桃花效力'
+            item['subNote'] = f'天干見{romance_tg}，增強桃花效力'
+        elif chong_label == '偏緣動年':
+            # 沖宮 + 偏財/偏官透 (no 紅鸞).
+            item['starType'] = '偏緣動年'
+        elif on_hongluan:
+            # 紅鸞 alone or with unrelated stem.
+            item['starType'] = '紅鸞年'
+        elif chong_label == '喜事動年':
+            # 沖宮 + 紅鸞/天喜 (no 配偶星透).
+            # Note: this branch is unreachable when on_hongluan=True (handled above),
+            # so 喜事動年 only fires for chong + 天喜 (without 紅鸞).
+            item['starType'] = '喜事動年'
+        elif chong_label == '婚動年':
+            # 沖宮 alone (no archetype, no 紅鸞/天喜).
+            item['starType'] = '婚動年'
         elif annual_branch == tianxi_branch:
             item['starType'] = '天喜年'
+        elif archetype == 'pian_yuan':
+            # 偏財/偏官透 alone — 偏財桃花年 / 偏官桃花年 (legacy gendered label).
+            item['starType'] = f'{romance_tg}桃花年'
         else:
-            stem_tg = derive_ten_god(day_master_stem, annual_stem)
-            if stem_tg == romance_tg:
-                # 偏財/偏官 = casual romance, not true spouse star
-                item['starType'] = f'{romance_tg}桃花年'
-            elif stem_tg == spouse_tg:
-                # 正財/正官 = true spouse star → genuine marriage year
-                item['starType'] = '正緣年'
+            # Signal-aware labeling for non-star romance candidates
+            signal = item.get('signal', '')
+            tier = item.get('tier', '')
+            if '六合日支' in signal:
+                item['starType'] = '合婚年'
+            elif tier == 'primary':
+                # Primary tier (score>=4) with strong signals
+                item['starType'] = '合婚年'
+            elif tier == 'secondary' and ('天干合日主' in signal):
+                item['starType'] = '桃花合年'
+            elif tier == 'supplementary':
+                # Weak signals (三合, 桃花, 天喜, 配偶星藏干) = drop
+                item['starType'] = '_drop'
             else:
-                # Signal-aware labeling for non-star romance candidates
-                # With accumulative scoring, check signal field for specific mechanisms
-                # Signal-aware labeling for non-star romance candidates
-                signal = item.get('signal', '')
-                tier = item.get('tier', '')
-                if '六合日支' in signal:
-                    item['starType'] = '合婚年'
-                elif '沖開夫妻宮' in signal:
-                    item['starType'] = '合婚年'
-                elif tier == 'primary':
-                    # Primary tier (score>=4) with strong signals
-                    item['starType'] = '合婚年'
-                elif tier == 'secondary' and ('天干合日主' in signal):
-                    item['starType'] = '桃花合年'
-                elif tier == 'supplementary':
-                    # Weak signals (三合, 桃花, 天喜, 配偶星藏干) = drop
-                    item['starType'] = '_drop'
-                else:
-                    item['starType'] = '桃花合年'
+                item['starType'] = '桃花合年'
 
-    # Post-process: annotate day-branch 天喜 overlap (regardless of starType)
-    # Uses direct branch comparison, not signal string — signal field tracks
-    # the candidate's detection tier, not what stars the annual branch corresponds to
+    # Post-process: annotate day-branch 天喜 overlap (regardless of starType).
+    # Phase 12g.2 — protected labels (正緣桃花年/正緣動年/婚動年/喜事動年/偏緣年)
+    # MUST NOT be downgraded by 天喜 overlay — they trump per classical priority.
     tianxi_day_branch = TIANXI.get(day_branch, '')
+    PROTECTED_HIGH_PRIORITY = ('正緣桃花年', '正緣動年', '婚動年', '喜事動年', '偏緣年')
     for item in tagged:
         annual_star = next((s for s in annual_stars if s['year'] == item['year']), None)
         if not annual_star:
@@ -1297,14 +1662,18 @@ def compute_romance_good_years(
         annual_branch = annual_star['branch']
         has_tianxi = (annual_branch == tianxi_day_branch) or ('天喜' in item.get('signal', ''))
         if has_tianxi:
-            if item['starType'] in ('桃花合年', '_drop', '正緣年', '偏財桃花年', '偏官桃花年'):
+            current = item['starType']
+            if current in PROTECTED_HIGH_PRIORITY:
+                # Preserve archetype/chong label; just annotate the 天喜 boost.
+                item['subNote'] = item.get('subNote', '') + '天喜同年，喜上加喜'
+            elif current in ('桃花合年', '_drop'):
                 item['starType'] = '天喜桃花年'
-            elif item['starType'] == '紅鸞年':
+            elif current == '紅鸞年':
                 item['starType'] = '天喜紅鸞年'  # Both stars on same year
-            elif item['starType'] == '合婚年':
+            elif current == '合婚年':
                 # 合婚年 is stronger than 天喜 — keep label, annotate in subNote
                 item['subNote'] = item.get('subNote', '') + '天喜同年，喜上加喜'
-            elif item['starType'] == '天喜年':
+            elif current == '天喜年':
                 pass  # Already the strongest 天喜 label — dual-天喜 (year+day) is a no-op
 
     # Remove weak-tier candidates marked for dropping (after 天喜 overlay may rescue some)
@@ -1775,6 +2144,8 @@ def compute_annual_love_forecast(
     danger_year_trigger_lookup: Optional[Dict[int, str]] = None,
     change_year_type_lookup: Optional[Dict[int, str]] = None,
     danger_year_has_new_signal_lookup: Optional[Dict[int, bool]] = None,
+    bidirectional_year_lookup: Optional[Dict[int, bool]] = None,
+    romance_archetype_lookup: Optional[Dict[int, str]] = None,
 ) -> List[Dict[str, Any]]:
     """
     Compute 10-year annual love forecast with cross-reference signals.
@@ -1783,12 +2154,18 @@ def compute_annual_love_forecast(
     to produce more accurate auspiciousness ratings. Deduplication logic ensures
     signals already counted in the base scoring (interactions, romance stars) are
     not double-counted from cross-reference subsystems.
+
+    Phase 12g.2: bidirectional_year_lookup carries the 婚動年 雙向 flag;
+    romance_archetype_lookup carries 'zheng_yuan' / 'pian_yuan' for 配偶星透干年份.
+    Both surface in the per-year forecast for AI prompt routing.
     """
     # Guard against None
     good_year_type_lookup = good_year_type_lookup or {}
     danger_year_trigger_lookup = danger_year_trigger_lookup or {}
     change_year_type_lookup = change_year_type_lookup or {}
     danger_year_has_new_signal_lookup = danger_year_has_new_signal_lookup or {}
+    bidirectional_year_lookup = bidirectional_year_lookup or {}
+    romance_archetype_lookup = romance_archetype_lookup or {}
     dm_element = STEM_ELEMENT[day_master_stem]
     day_branch = pillars['day']['branch']
 
@@ -1910,6 +2287,9 @@ def compute_annual_love_forecast(
             'goodYearType': good_year_type,
             'dangerYearTrigger': danger_year_trigger_lookup.get(year, ''),
             'changeYearType': change_year_type_lookup.get(year, ''),
+            # Phase 12g.2 — Fix 5/Fix 6 surface fields for AI routing
+            'romanceArchetype': romance_archetype_lookup.get(year, ''),
+            'bidirectional': bidirectional_year_lookup.get(year, False),
         })
 
     return forecasts
@@ -2313,14 +2693,17 @@ def generate_love_pre_analysis(
         effective_gods, gender,
     )
 
-    # 2. Spouse Star Analysis
+    # 2. Spouse Star Analysis (Phase 12g.3 — pass LP/LY for layered 傷官見官)
     spouse_star = compute_spouse_star_analysis(
         pillars, day_master_stem, gender, effective_gods, strength_v2,
+        luck_periods=luck_periods,
+        annual_stars=annual_stars,
+        current_year=current_year,
     )
 
-    # 3. Marriage Palace Analysis
+    # 3. Marriage Palace Analysis (Phase 12g.4 — pass effective_gods for polarity-aware traits)
     marriage_palace = compute_marriage_palace_analysis(
-        pillars, day_master_stem, kong_wang,
+        pillars, day_master_stem, kong_wang, effective_gods,
     )
 
     # 4. Love Personality
@@ -2399,6 +2782,16 @@ def generate_love_pre_analysis(
         _good_type_map.setdefault(y['year'], []).append(y.get('starType', ''))
     good_year_type_lookup = {yr: '/'.join(types) for yr, types in _good_type_map.items()}
 
+    # Phase 12g.2 — bidirectional lookup (婚動年 雙向 flag) and archetype lookup
+    bidirectional_year_lookup = {
+        y['year']: True for y in romance_good if y.get('bidirectional')
+    }
+    romance_archetype_lookup = {
+        y['year']: y.get('romance_archetype', '')
+        for y in romance_good
+        if y.get('romance_archetype')
+    }
+
     # Danger year lookups
     danger_year_trigger_lookup = {d['year']: d['primaryTrigger'] for d in romance_danger}
     # Has new signal = any trigger NOT already in the base interactions check
@@ -2423,6 +2816,8 @@ def generate_love_pre_analysis(
         danger_year_trigger_lookup=danger_year_trigger_lookup,
         change_year_type_lookup=change_year_type_lookup,
         danger_year_has_new_signal_lookup=danger_year_has_new_signal_lookup,
+        bidirectional_year_lookup=bidirectional_year_lookup,
+        romance_archetype_lookup=romance_archetype_lookup,
     )
 
     # 11. Monthly Love Forecast — with enriched scoring (空亡, romance stars, 大運 context)
@@ -2489,6 +2884,9 @@ def generate_love_pre_analysis(
             'balance_desc': spouse_star['balanceDescription'],
             'challenges': [c['type'] for c in spouse_star['challenges']],
             'hour_wealth_note': spouse_star.get('hourWealthNote', ''),
+            # Phase 12g.1/12g.3 — full challenge objects + informational notes
+            'challenge_details': spouse_star['challenges'],
+            'informational_notes': spouse_star.get('informationalNotes', []),
         },
         'marriage_palace': {
             'day_branch': marriage_palace['dayBranch'],
@@ -2498,6 +2896,12 @@ def generate_love_pre_analysis(
             'is_kong_wang': marriage_palace['isKongWang'],
             'appearance_grade': marriage_palace.get('appearanceGrade', ''),
             'appearance_note': marriage_palace.get('appearanceNote', ''),
+            # Phase 12g.4 Fix 4 — structured layers
+            'appearance': marriage_palace.get('appearance', {}),
+            'personality': marriage_palace.get('personality', {}),
+            'meta': marriage_palace.get('meta', {}),
+            # Phase 12g.6 Gap 3 — natal_frictions surfaced for AI prompt
+            'natal_frictions': marriage_palace.get('meta', {}).get('natalFrictions', []),
         },
         'partner_recommendations': {
             'favorable': partner_recs['favorablePrimary'],
@@ -2528,6 +2932,8 @@ def generate_love_pre_analysis(
             'strengthClass': love_personality['strengthClass'],
             'dominantTenGod': (love_personality.get('dominantOverlay') or {}).get('dominantTenGod', love_personality.get('dominantTenGod', '')),
             'dominantCount': (love_personality.get('dominantOverlay') or {}).get('count', 0),
+            # Phase 12g.4 Fix 1 — polarity-aware layered personality
+            'personalityDimensions': love_personality.get('personalityDimensions', []),
         },
         'timing_indicators': {
             'earlySignals': timing_indicators.get('earlySignals', []),
@@ -2551,6 +2957,9 @@ def generate_love_pre_analysis(
                 'changeYearType': af.get('changeYearType', ''),
                 'isVoid': af.get('isVoid', False),
                 'interactions': af.get('interactions', []),
+                # Phase 12g.2 — Fix 5/Fix 6 surface
+                'romanceArchetype': af.get('romanceArchetype', ''),
+                'bidirectional': af.get('bidirectional', False),
             }
             for af in annual_forecast
         ],

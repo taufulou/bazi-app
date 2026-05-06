@@ -51,6 +51,7 @@ from .branch_relationships import (
 from .ten_gods import derive_ten_god
 from .compatibility_preanalysis import generate_compatibility_pre_analysis
 from .stem_combinations import STEM_CLASH_LOOKUP, STEM_COMBINATION_LOOKUP
+from .interpretation_rules import check_guan_sha_hunza  # Phase 12g.1 Fix 2 — canonical helper
 
 
 # ============================================================
@@ -763,12 +764,11 @@ def compute_spouse_enrichment(
             cat2_score = max(0, cat2_score - 15)
             indicators.append({'type': 'negative', 'desc': '傷官見官，對婚姻不利'})
 
-        # 官殺混雜
-        has_pianguan = any(
-            derive_ten_god(dm_stem, s) == '偏官'
-            for s in stems if s and s != dm_stem
-        )
-        if has_zhengguan and has_pianguan:
+        # 官殺混雜 — Phase 12g.1 Fix 2: use canonical weighted helper
+        # (子平真詮·論偏官 「藏官露殺...勿使官混；藏殺露官...不可使殺混」 —
+        # 露官藏殺/露殺藏官 are NOT 真混雜).
+        gs_result = check_guan_sha_hunza(pillars, dm_stem, 'female')
+        if gs_result and gs_result['type'] == 'guan_sha_hunza':
             cat2_score = max(0, cat2_score - 10)
             indicators.append({'type': 'negative', 'desc': '官殺混雜，感情選擇困難'})
     else:
@@ -1244,19 +1244,20 @@ def compute_post_marriage_quality(
         dm_x = _get_dm_stem(chart_x)
         stems_x = _get_stems(chart_x)
         gender_x = chart_x.get('gender', gdr)
+        pillars_x = _get_pillars(chart_x)
         if gender_x == 'female':
-            # Check 官殺混雜
-            has_zg = any(derive_ten_god(dm_x, s) == '正官' for s in stems_x if s and s != dm_x)
-            has_pg = any(derive_ten_god(dm_x, s) == '偏官' for s in stems_x if s and s != dm_x)
-            if has_zg and has_pg:
+            # Check 官殺混雜 — Phase 12g.1 Fix 2: weighted canonical helper
+            gs_result = check_guan_sha_hunza(pillars_x, dm_x, 'female')
+            if gs_result and gs_result['type'] == 'guan_sha_hunza':
                 stability -= 15
                 stab_factors.append({
                     'type': 'negative',
                     'desc': f'{label}方官殺混雜，感情選擇困難',
                     'impact': -15,
                 })
-            elif (has_zg or has_pg) and not (has_zg and has_pg):
-                stability += 10  # partial pure bonus
+            elif gs_result and gs_result['type'] in ('lu_guan_cang_sha', 'lu_sha_cang_guan'):
+                # Pure-side dominant — partial pure bonus per pre-12g logic
+                stability += 10
         else:
             # Check 偏正財混雜
             has_zc = any(derive_ten_god(dm_x, s) == '正財' for s in stems_x if s and s != dm_x)
@@ -1411,10 +1412,12 @@ def compute_marriage_crisis_risk(
             risk_score += 15
 
     else:  # female
-        # 官殺混雜
+        # 官殺混雜 — Phase 12g.1 Fix 2: weighted canonical helper
+        gs_result = check_guan_sha_hunza(pillars, dm_stem, 'female')
+        # Cache for downstream checks (avoid recomputing presence flags)
         has_zg = any(derive_ten_god(dm_stem, s) == '正官' for s in stems if s and s != dm_stem)
         has_pg = any(derive_ten_god(dm_stem, s) == '偏官' for s in stems if s and s != dm_stem)
-        if has_zg and has_pg:
+        if gs_result and gs_result['type'] == 'guan_sha_hunza':
             risk_factors.append({
                 'factor': '官殺混雜',
                 'desc': '容易在正緣與偏緣之間搖擺不定',

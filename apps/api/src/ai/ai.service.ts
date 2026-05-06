@@ -3769,6 +3769,61 @@ export class AIService implements OnModuleInit {
             lines.push(`⚠️ ${c['type']}`);
           }
         }
+
+        // Phase 12g.6 Gap 2 — Deterministic 傷官見官 transient framing block
+        // Pre-formats the "現行大運(YYYY-YYYY 干支)期間…" sentence so AI is
+        // required to splice it verbatim, not paraphrase or omit.
+        // Doctrine: 三命通會「如官為忌，傷官見官反以吉論」 / Phase 12g.3 layered detection.
+        const sgChallenge = challenges.find(
+          (c) => c['type'] === '傷官見官',
+        ) as Record<string, unknown> | undefined;
+        if (sgChallenge) {
+          const transientActivations =
+            (sgChallenge['transientActivations'] || []) as Array<Record<string, unknown>>;
+          const dayunActivation = transientActivations.find(
+            (t) => t['level'] === 'dayun',
+          );
+          if (dayunActivation) {
+            // valence-aware sentence; explicit null fallback for missing/unknown valence
+            const valence = sgChallenge['valence'] as string | undefined;
+            const valenceNote =
+              valence === 'beneficial'
+                ? '正官在你命中為忌神，傷官制官反為調節壓力，並非為禍'
+                : valence === 'harmful'
+                  ? '正官為用神/喜神，傷官攻官真為禍，須慎防'
+                  : valence === 'neutral'
+                    ? '正官為閒神，傷官見官影響有限'
+                    : null;
+            const framingLines: string[] = ['\n傷官見官時間框架 (必須以下列文字為主敘述,不可省略):'];
+            if (sgChallenge['natalDetail']) {
+              framingLines.push(`- 命局層次：${sgChallenge['natalDetail']}`);
+            }
+            framingLines.push(
+              `- 大運觸發：現行大運(${dayunActivation['period']} ${dayunActivation['stems']})期間${dayunActivation['detail']}`,
+            );
+            if (valenceNote) {
+              framingLines.push(`- 性質判定：${valenceNote}`);
+            }
+            // Resolution conditions
+            const resolutionParts: string[] = [];
+            if (sgChallenge['hasFinancialBuffer']) resolutionParts.push('命局有財星化解');
+            if (sgChallenge['shangGuanHeSha']) resolutionParts.push('傷官合殺結構存在');
+            if (resolutionParts.length > 0) {
+              framingLines.push(`- 化解條件：${resolutionParts.join('；')}`);
+            }
+            lines.push(framingLines.join('\n'));
+          }
+        }
+
+        // Phase 12g.1 — Informational notes (露官藏殺/露殺藏官)
+        const infoNotes = (spouse['informationalNotes'] || []) as Array<Record<string, unknown>>;
+        for (const note of infoNotes) {
+          if (note['doctrineType'] === 'lu_guan_cang_sha') {
+            lines.push(`\n${note['doctrineDetail']}：${note['description']}`);
+          } else if (note['doctrineType'] === 'lu_sha_cang_guan') {
+            lines.push(`\n${note['doctrineDetail']}：${note['description']}`);
+          }
+        }
       }
 
       // Marriage palace
@@ -3777,8 +3832,17 @@ export class AIService implements OnModuleInit {
         lines.push(`\n配偶宮：${palace['dayBranch']}（${palace['element']}行）`);
         lines.push(`十神：${palace['palaceTenGod']}，性格：${palace['personalityArchetype']}`);
         lines.push(`外貌：${palace['appearanceHint']}，十二長生：${palace['twelveStage']}`);
-        if (palace['kongWang']) lines.push(`空亡：是`);
+        if (palace['isKongWang'] || palace['kongWang']) lines.push(`空亡：是`);
         if (palace['natalHarm']) lines.push(`六害：${JSON.stringify(palace['natalHarm'])}`);
+        // Phase 12g.6 Gap 3 — natal frictions (沖/刑/半刑/害/破) on 配偶宮
+        const meta = palace['meta'] as Record<string, unknown> | undefined;
+        const natalFrictions = (meta?.['natalFrictions'] || []) as Array<Record<string, unknown>>;
+        if (natalFrictions.length > 0) {
+          const frictionDescs = natalFrictions.map(
+            (f) => `${f['description']}`,
+          ).join('；');
+          lines.push(`配偶宮自然互動 (沖刑害破)：${frictionDescs}`);
+        }
       }
 
       // Love personality
@@ -3794,6 +3858,41 @@ export class AIService implements OnModuleInit {
         }
         if (personality['strengthImpact']) {
           lines.push(`身強弱影響：${personality['strengthImpact']}`);
+        }
+
+        // Phase 12g.6 Gap 1 — polarity-aware personalityDimensions injection
+        // Surfaces 月令格主導 + 月干透副主導 keywords (Phase 12g.4 Fix 1).
+        // Doctrine: 子平真詮·論用神「月令為提綱」.
+        // AI prompt rule (love_personality 寫作規則) requires this block as PRIMARY
+        // narrative source, with archetype/elementStyle as SECONDARY context.
+        const dimensions = (personality['personalityDimensions'] || []) as Array<Record<string, unknown>>;
+        if (dimensions.length > 0) {
+          const layerLabel = (layer: string) =>
+            layer === 'yueling_dominant'
+              ? '月令格主導'
+              : layer === 'month_stem_secondary'
+                ? '月干透副主導'
+                : layer;
+          const citations = dimensions
+            .map((d) => d['citation'] as string)
+            .filter(Boolean);
+          const citationStr = citations.length > 0 ? `,出處:${citations.join(' / ')}` : '';
+          const dimLines: string[] = [
+            `\n性格維度 (polarity-aware,必須優先引用${citationStr}):`,
+          ];
+          for (const d of dimensions) {
+            const layer = layerLabel((d['layer'] as string) || '');
+            const tg = d['tenGod'] || '';
+            const role = d['role'] || '';
+            const keywords = (d['keywords'] || []) as string[];
+            dimLines.push(
+              `- ${layer}：${tg}（${role}）— 關鍵詞：${keywords.join('、')}`,
+            );
+          }
+          lines.push(dimLines.join('\n'));
+        } else {
+          // Sentinel for empty fallback (debuggability)
+          lines.push('\n性格維度：(無 — fallback 至 archetype/elementStyle)');
         }
       }
 
@@ -6992,13 +7091,19 @@ export class AIService implements OnModuleInit {
     // readings of that type on next request (no operator FLUSHALL needed —
     // though Redis flush is still recommended to release memory).
     //
-    // ZWDS_*, LOVE, HEALTH, COMPATIBILITY stay at v1.1.0 unless a future
-    // engine change actually touches their output. Avoid spurious cross-type
-    // invalidation by NOT using a default-bump pattern.
+    // ZWDS_*, HEALTH stay at v1.1.0 unless a future engine change actually
+    // touches their output. Avoid spurious cross-type invalidation by NOT
+    // using a default-bump pattern.
+    //
+    // Phase 12g (2026-05): LOVE + COMPATIBILITY entries added (were missing
+    // from this map → cache never invalidated despite engine bumps). LOVE
+    // and LIFETIME bumped through Phase 12g.1-12g.4 cumulative changes.
     const PRE_ANALYSIS_VERSIONS: Record<string, string> = {
-      [ReadingType.LIFETIME]: 'v2.7.0',  // bumped 2026-04 for Phase 12f BAZI_USE_WEIGHTED_IMBALANCE flag flip default ON
-      [ReadingType.CAREER]:   'v2.5.0',  // Fix 1a weighted dominance now production default
-      [ReadingType.ANNUAL]:   'v2.3.0',  // Annual cascades through new dominance detection
+      [ReadingType.LIFETIME]:      'v2.9.0',  // bumped Phase 12g.2 + 12g.4 (romance archetype + 月令格 personality cascade)
+      [ReadingType.CAREER]:        'v2.5.0',  // Fix 1a weighted dominance (Phase 12f)
+      [ReadingType.ANNUAL]:        'v2.3.0',  // Phase 12d/12e/12f
+      [ReadingType.LOVE]:          'v1.8.0',  // Phase 12g.6: personalityDimensions + 傷官見官 deterministic framing + natalFrictions (沖刑害破)
+      [ReadingType.COMPATIBILITY]: 'v1.6.0',  // Phase 12g.1: cross-chart 官殺混雜 natal-doctrine suppression
     };
     const preAnalysisVersion = PRE_ANALYSIS_VERSIONS[readingType] ?? 'v1.1.0';
     const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;
