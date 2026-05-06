@@ -756,10 +756,29 @@ def compute_annual_career_analysis(
         signals.append({'type': '食傷生財', 'impact': 'positive',
                         'detail': '才華化為收入，創意或技能帶來財富'})
 
-    # 傷官見官
+    # 傷官見官 — Phase 12h.B Item 2 favorability dispatch (mirrors compatibility_romance_preanalysis.py:1428-1462
+    # canonical 4-arm pattern + love_enhanced.py:780-787 Phase 12g.3 Layer C valence).
+    # Doctrine: 三命通會「如官為忌，傷官見官反以吉論」 — when 正官 is 忌神/仇神, 傷官 制忌官 reverses to beneficial.
+    # Annual narrative caveat (per agent A research): frame as "壓力減輕", NOT "升職發財" — doctrinal honesty.
+    # Gated by env flag PHASE_12H_SHANGGUAN_FAVORABILITY_PROPAGATION (default ON).
+    # Note: annual_enhanced uses TEN-GOD-KEYED effective_gods format (per _normalize_effective_gods_for_annual).
     if '傷官' in chart_ten_gods and '正官' in chart_ten_gods:
-        signals.append({'type': '傷官見官', 'impact': 'negative',
-                        'detail': '傷官見官，職場是非或與上司衝突'})
+        if _env_enabled('PHASE_12H_SHANGGUAN_FAVORABILITY_PROPAGATION', default=True):
+            officer_role = effective_gods.get('正官', '閒神')
+            if officer_role in ('用神', '喜神'):
+                # 正官 IS favorable → 傷官 attacking it IS dangerous (traditional reading)
+                signals.append({'type': '傷官見官', 'impact': 'negative', 'valence': 'harmful',
+                                'detail': '傷官見官，職場是非或與上司衝突'})
+            elif officer_role in ('忌神', '仇神'):
+                # 正官 is unfavorable → 傷官制官 is BENEFICIAL (doctrinal flip per 三命通會)
+                # Narrative caveat: frame as 壓力減輕, NOT 升遷之喜
+                signals.append({'type': '傷官制忌官', 'impact': 'positive', 'valence': 'beneficial',
+                                'detail': '正官為忌，傷官制官反為調節壓力 (非為升遷之喜)'})
+            # 閒神 → suppress entirely (no indicator) per agent A recommendation
+        else:
+            # Flag disabled: legacy behavior (always negative)
+            signals.append({'type': '傷官見官', 'impact': 'negative',
+                            'detail': '傷官見官，職場是非或與上司衝突'})
 
     # 比劫爭官
     rivalry_gods = {'比肩', '劫財'}

@@ -3760,11 +3760,32 @@ export class AIService implements OnModuleInit {
         const challenges = (spouse['challenges'] || []) as Array<Record<string, unknown>>;
         for (const c of challenges) {
           if (c['type'] === '傷官見官') {
-            const buffer = c['hasFinancialBuffer'] ? '有財星化解' : '無化解';
-            lines.push(`⚠️ 傷官見官：${c['severity']}，${buffer}`);
+            // Phase 12g.7 Issue F — gate legacy 傷官見官 directive on dayun-level transient.
+            // Intent: only emit the legacy `⚠️ 傷官見官：` directive when the new framing block
+            // (Phase 12g.6 Gap 2) will ALSO emit, which only happens for dayun-level activation.
+            // Flow-year-only transients (level='liunian' without level='dayun') are intentionally
+            // NOT given the legacy directive — narrative for those is handled by per-year
+            // annual_love section, not the natal_marriage section. Latent natal (no transient
+            // at all) gets neither — per Phase 12g.6 Gap 2 prompt rule.
+            // Verified pre-impl (Phase 12g.7 NEW-1): love_enhanced.py:745 emits level='dayun',
+            // love_enhanced.py:764 emits level='liunian' (snake_case literals match below).
+            const transientActivations = (c['transientActivations'] || []) as Array<Record<string, unknown>>;
+            const hasFramingBlock = transientActivations.some((t) => t['level'] === 'dayun');
+            if (hasFramingBlock) {
+              const buffer = c['hasFinancialBuffer'] ? '有財星化解' : '無化解';
+              lines.push(`⚠️ 傷官見官：${c['severity']}，${buffer}`);
+            }
           } else if (c['type'] === '比劫奪財') {
-            const venting = c['hasVentingFlow'] ? '有食傷洩氣' : '無洩氣';
-            lines.push(`⚠️ 比劫奪財：${c['severity']}，${venting}`);
+            // Phase 12h.B Item 8 — gate legacy 比劫奪財 directive on dayun-level transient
+            // (mirrors Phase 12g.7 Issue F gating for 傷官見官). Latent (no transient) charts
+            // suppress legacy line; AI gets the framing block below instead.
+            // Verified pre-impl: love_enhanced.py emits transientActivations with level='dayun'/'liunian'.
+            const bjTransientActivations = (c['transientActivations'] || []) as Array<Record<string, unknown>>;
+            const bjHasFramingBlock = bjTransientActivations.some((t) => t['level'] === 'dayun');
+            if (bjHasFramingBlock) {
+              const venting = c['hasVentingFlow'] ? '有食傷洩氣' : '無洩氣';
+              lines.push(`⚠️ 比劫奪財：${c['severity']}，${venting}`);
+            }
           } else if (c['type']) {
             lines.push(`⚠️ ${c['type']}`);
           }
@@ -3815,6 +3836,45 @@ export class AIService implements OnModuleInit {
           }
         }
 
+        // Phase 12h.B Item 8 — Deterministic 比劫奪財 transient framing block
+        // (mirrors Phase 12g.6 Gap 2 傷官見官 pattern). Pre-formats the
+        // "現行大運(YYYY-YYYY 干支)期間…" sentence with valence dispatch.
+        // 3-state valence: harmful / beneficial / neutral.
+        // Suppress when valence='not_applicable' (engine doesn't emit challenge).
+        // Gender-specific valence_note already pre-computed by engine.
+        const bjChallenge = challenges.find(
+          (c) => c['type'] === '比劫奪財',
+        ) as Record<string, unknown> | undefined;
+        if (bjChallenge && bjChallenge['valence'] !== 'not_applicable') {
+          const bjTransients = (bjChallenge['transientActivations'] || []) as Array<Record<string, unknown>>;
+          const bjDayun = bjTransients.find((t) => t['level'] === 'dayun');
+          if (bjDayun) {
+            const valence = bjChallenge['valence'] as string | undefined;
+            const valenceNote = bjChallenge['valenceNote'] as string | undefined;
+            const wealthRole = bjChallenge['wealthRole'] as string | undefined;
+            const bjFramingLines: string[] = ['\n比劫奪財時間框架 (必須以下列文字為主敘述,不可省略):'];
+            bjFramingLines.push(`- 命局層次：比劫${bjChallenge['biJieCount']}個 + 財星${bjChallenge['caiCount']}個 (財為${wealthRole || '閒神'})`);
+            bjFramingLines.push(
+              `- 大運觸發：現行大運(${bjDayun['period']} ${bjDayun['stems']})期間${bjDayun['detail']}`,
+            );
+            if (valenceNote) {
+              bjFramingLines.push(`- 性質判定：${valenceNote}`);
+            }
+            // Resolution conditions
+            const bjResolution: string[] = [];
+            if (bjChallenge['hasVentingFlow']) bjResolution.push('命局有食傷洩比劫');
+            if (bjChallenge['biJieInDayBranch']) bjResolution.push('比劫在配偶宮 — 配偶緣分受影響');
+            if (bjResolution.length > 0) {
+              bjFramingLines.push(`- 化解條件：${bjResolution.join('；')}`);
+            }
+            // Doctrinal note for valence='beneficial' (印旺制忌財 condition met)
+            if (valence === 'beneficial') {
+              bjFramingLines.push(`- 注意：印旺制忌財結構存在，比劫奪財反為福；非真為破財/損妻`);
+            }
+            lines.push(bjFramingLines.join('\n'));
+          }
+        }
+
         // Phase 12g.1 — Informational notes (露官藏殺/露殺藏官)
         const infoNotes = (spouse['informationalNotes'] || []) as Array<Record<string, unknown>>;
         for (const note of infoNotes) {
@@ -3832,15 +3892,31 @@ export class AIService implements OnModuleInit {
         lines.push(`\n配偶宮：${palace['dayBranch']}（${palace['element']}行）`);
         lines.push(`十神：${palace['palaceTenGod']}，性格：${palace['personalityArchetype']}`);
         lines.push(`外貌：${palace['appearanceHint']}，十二長生：${palace['twelveStage']}`);
-        if (palace['isKongWang'] || palace['kongWang']) lines.push(`空亡：是`);
-        if (palace['natalHarm']) lines.push(`六害：${JSON.stringify(palace['natalHarm'])}`);
+        // Phase 12h.A Item 5 — engine emits `isKongWang` only (camelCase).
+        // Removed `palace['kongWang']` fallback (verified via grep — no consumer emits it).
+        if (palace['isKongWang']) lines.push(`空亡：是`);
+        // Phase 12g.7 Issue 2 — removed legacy `六害：${JSON.stringify(palace['natalHarm'])}` injection.
+        // Superseded by Gap 3 `配偶宮自然互動 (沖刑害破)` block below which covers six_harm + 沖/刑/半刑/破.
+        // Engine-side `meta.natalHarm` field still emitted for Phase 12h-tracked deprecation
+        // (frontend has NO consumers per grep; field is dead data pending removal).
+        // NOTE: The unrelated annual-prompt 六害 injection at line ~2283 is OUT OF SCOPE — it
+        // serves a different prompt path (annual reading) and uses different data shape.
         // Phase 12g.6 Gap 3 — natal frictions (沖/刑/半刑/害/破) on 配偶宮
         const meta = palace['meta'] as Record<string, unknown> | undefined;
         const natalFrictions = (meta?.['natalFrictions'] || []) as Array<Record<string, unknown>>;
         if (natalFrictions.length > 0) {
-          const frictionDescs = natalFrictions.map(
-            (f) => `${f['description']}`,
-          ).join('；');
+          // Phase 12h.A Item 6 — surface window/window_branch markers for transit-via-three_punishment
+          // entries so AI can distinguish window-bound 三刑 from lifelong natal 三刑
+          // (per spouse_appearance prompt rule: type='three_punishment_via_transit' = window-bound).
+          const frictionDescs = natalFrictions.map((f) => {
+            const baseDesc = `${f['description']}`;
+            if (f['type'] === 'three_punishment_via_transit') {
+              const window = f['window'] || '';
+              const windowLabel = window === 'dayun' ? '大運引動' : window === 'liunian' ? '流年引動' : '';
+              return windowLabel ? `${baseDesc} [type=three_punishment_via_transit, window=${window}, window-bound非一輩子]` : baseDesc;
+            }
+            return baseDesc;
+          }).join('；');
           lines.push(`配偶宮自然互動 (沖刑害破)：${frictionDescs}`);
         }
       }
@@ -7101,9 +7177,9 @@ export class AIService implements OnModuleInit {
     const PRE_ANALYSIS_VERSIONS: Record<string, string> = {
       [ReadingType.LIFETIME]:      'v2.9.0',  // bumped Phase 12g.2 + 12g.4 (romance archetype + 月令格 personality cascade)
       [ReadingType.CAREER]:        'v2.5.0',  // Fix 1a weighted dominance (Phase 12f)
-      [ReadingType.ANNUAL]:        'v2.3.0',  // Phase 12d/12e/12f
-      [ReadingType.LOVE]:          'v1.8.0',  // Phase 12g.6: personalityDimensions + 傷官見官 deterministic framing + natalFrictions (沖刑害破)
-      [ReadingType.COMPATIBILITY]: 'v1.6.0',  // Phase 12g.1: cross-chart 官殺混雜 natal-doctrine suppression
+      [ReadingType.ANNUAL]:        'v2.4.0',  // Phase 12h.B Item 2 — 傷官見官 favorability propagation (annual_enhanced.py:759 4-arm dispatch)
+      [ReadingType.LOVE]:          'v1.11.0', // Phase 12h.B Item 8 — 比劫奪財 framing parity (3-state valence + gender + transient framing block); supersedes 12h.A v1.10.0
+      [ReadingType.COMPATIBILITY]: 'v1.7.0',  // Phase 12h.B Item 2 — 傷官見官 favorability propagation across compat 3 sites (compatibility_romance_preanalysis.py)
     };
     const preAnalysisVersion = PRE_ANALYSIS_VERSIONS[readingType] ?? 'v1.1.0';
     const data = `${birthDate}|${birthTime}|${birthCity}|${gender}|${readingType}|${targetYear || ''}|${targetMonth || ''}|${targetDay || ''}|${questionText || ''}|${preAnalysisVersion}`;

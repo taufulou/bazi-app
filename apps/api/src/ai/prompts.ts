@@ -2631,11 +2631,22 @@ peach_blossom_analysis 專區寫作規則：
 natal_marriage 專區寫作規則：
 - 必須引用配偶星類型、可見度、角色（喜/忌）
 - 必須引用配偶星與日主的力量平衡
-- 如有傷官見官/比劫奪財，必須說明嚴重程度和化解因素
+- ⚠️ Phase 12h.B Item 8 — 比劫奪財敘述規則 (3-state valence + gender):
+  · 若 prompt 中含「比劫奪財時間框架」區塊 → 必須將該區塊的「命局層次」、「大運觸發」、「性質判定」、「化解條件」內容**完整融入**敘述
+  · 不可省略「現行大運(YYYY-YYYY 干支)期間」字樣 — 必須原樣引用
+  · valence='harmful' (財為用神/喜神) → 按傳統「破財爭妻 (男命) / 姊妹競爭財產 (女命)」敘述
+  · valence='beneficial' (財為忌神 + 印旺制忌財) → 必須以「壓力減輕」「制忌財有利」框架敘述, 嚴禁誇大為財富/婚姻好運
+  · valence='neutral' (財為閒神 OR 印不旺) → 簡述「比劫奪財影響有限」即可
+  · ⚠️ 性別差異:
+    · 男命 → 比劫奪財 兼指 妻緣 + 財產 (literal 「剋妻財」)
+    · 女命 → 比劫奪財 僅指 財產/姊妹競爭 (NOT 損夫 — 女命損夫是 食傷剋官 不同機制)
+    · 不可在女命用「比劫奪財損夫」字樣
+  · 若 prompt 中無「比劫奪財時間框架」區塊 → 完全不應提及比劫奪財 (latent或 not_applicable case)
+- ⚠️ Phase 12g.7 Issue 4 — 傷官見官敘述規則由 Phase 12g.6 Gap 2 統一管理 (見下方傷官見官 deterministic framing 規則,不在此處重複描述)
 - ⚠️ Phase 12g.1 — 官殺混雜 anti-hallucination：
   · 若 challenges 中無 type='官殺混雜' 或 doctrineType='guan_sha_hunza' 條目 → 禁止提及官殺混雜/感情選擇困難/第三者風險
-  · 若 informational_notes 含 doctrineType='lu_guan_cang_sha' (露官藏殺只論官) → 主述「正官格清純，配偶星明朗」，禁止描述為混雜
-  · 若 informational_notes 含 doctrineType='lu_sha_cang_guan' (露殺藏官只論殺) → 主述「七殺格清純，配偶有魄力」，禁止描述為混雜
+  · 若 prompt 中含「露官藏殺只論官」標籤 (interpretation_rules.py LU_GUAN_CANG_SHA name) → 主述「正官格清純，配偶星明朗」，禁止描述為混雜
+  · 若 prompt 中含「露殺藏官只論殺」標籤 (interpretation_rules.py LU_SHA_CANG_GUAN name) → 主述「七殺格清純，配偶有魄力」，禁止描述為混雜
   · 出處：子平真詮·論偏官「藏官露殺...勿使官混；藏殺露官...不可使殺混」
 - ⚠️ Phase 12g.6 Gap 2 — 傷官見官 deterministic framing (replaces 12g.3 prompt rule):
   · 若 prompt 中含「傷官見官時間框架 (必須以下列文字為主敘述,不可省略)」區塊 → 必須將該區塊的「命局層次」、「大運觸發」、「性質判定」、「化解條件」內容**完整融入**敘述
@@ -2662,8 +2673,13 @@ spouse_appearance 專區寫作規則：
 - 形貌與性格分兩段呈現，不要混入同一句
 - ⚠️ 嚴禁使用「但是」「然而」等對比連詞處理多源信號 — 形貌與性格非衝突而是分層描述
 - 範例：「外表敦厚穩重 (戌墓庫)，內裡卻偏隨性疏忽 (偏財為仇)」— 兩者並列不對比
-- ⚠️ Phase 12g.6 Gap 3 — 配偶宮自然互動 (沖刑害破)：
+- ⚠️ Phase 12g.6 Gap 3 + Phase 12h.A Item 6 — 配偶宮自然互動 (沖刑害破)：
   · 若 prompt 中含「配偶宮自然互動 (沖刑害破)」行 → 必須提及命局中對配偶宮的 沖/刑/半刑/害/破 互動
+  · ⚠️ Phase 12h.A Item 6 — transit-vs-natal 區分:
+    · 若 friction.type='three_punishment_via_transit' (含「（大運X引動）」OR「（流年X引動）」) → 必須敘述為「在現行大運/流年期間，配偶宮三刑引動」(window-bound, NOT 一輩子)
+    · 若 friction.type='punishment' (full natal 子卯刑 or 命局原局含全三支) → 敘述為「命局三刑」(lifelong)
+    · 若 friction.type='half_punishment' → 敘述為「命局半刑」(natal but partial)
+    · 不可混淆 transit-window 與 lifelong; 避免讓用戶以為一輩子三刑當頭
   · 引用 type 區分敘述：six_clash=「沖配偶宮」/ punishment OR half_punishment=「刑配偶宮」/ six_harm=「害配偶宮」/ six_break=「破配偶宮」
   · 結構性建議: 半刑/害/破 → 「晚婚較有利, 學習包容差異」; 沖 → 「需特別注意溝通, 避免衝突升級」
   · 範例 (Laopo): 「命局中月支丑與日支戌成丑戌半刑 (持勢之刑局之半)，這代表你與配偶之間容易有理念差異或固執分歧，**晚婚對你較有利**，需學習包容對方的不同視角」

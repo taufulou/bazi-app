@@ -1135,7 +1135,7 @@ def _compute_romance_candidates(
         if 'spouse_star_zhengcai' in signal_name_set:
             romance_archetype = 'zheng_yuan'  # 正緣桃花年 / 正妻緣年
         elif 'spouse_star_piancai' in signal_name_set:
-            romance_archetype = 'pian_yuan'   # 偏緣年 / 情人緣年
+            romance_archetype = 'pian_yuan'   # 偏緣動年 / 情人緣年 (legacy comment said 偏緣年 — typo, engine emits 偏緣動年 via chong_label)
 
         # Phase 12g.2 Fix 6 — 沖配偶宮 valence + bidirectional flag.
         # Doctrine: 沖宮 = 「動」 (bidirectional, NOT positive-only).

@@ -18,6 +18,7 @@ Contains 11 pre-analysis functions + narrative anchors + master orchestrator:
 11. compute_monthly_love_forecast — 十二月感情運勢
 """
 
+import os
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .constants import (
@@ -841,8 +842,13 @@ def compute_spouse_star_analysis(
                         },
                     })
 
-    # 比劫奪財 (male)
-    if gender == 'male':
+    # 比劫奪財 — Phase 12h.B Item 8: extend to BOTH genders + 3-state valence + transient framing.
+    # Doctrine: 三命通會「比劫運見財星，破財爭妻」(男命 妻緣 + 財產 frame)
+    #          滴天髓·女命「比劫旺而無官，反害官星」(女命 indirect path — NOT direct 損夫)
+    # Gender asymmetry: 男命 includes 妻緣; 女命 only 財產/姊妹 (per agent C research).
+    # Gated by env flag PHASE_12H_BIJIE_DUOCAI_VALENCE (default ON).
+    bijie_phase_12h_enabled = os.environ.get('PHASE_12H_BIJIE_DUOCAI_VALENCE', '1') == '1'
+    if bijie_phase_12h_enabled or gender == 'male':
         bijian_positions = all_ten_gods.get('比肩', [])
         jiecai_positions = all_ten_gods.get('劫財', [])
         bijie_total = len(bijian_positions) + len(jiecai_positions)
@@ -851,7 +857,11 @@ def compute_spouse_star_analysis(
         piancai_positions = all_ten_gods.get('偏財', [])
         cai_total = len(zhengcai_positions) + len(piancai_positions)
 
-        if bijie_total >= 2 and cai_total >= 1:
+        # Phase 12h.B Item 8 — gender suppression: female only fires when flag enabled
+        # (legacy was male-only; phase 12h extends to female with 財產/姊妹 frame)
+        gender_eligible = (gender == 'male') or (gender == 'female' and bijie_phase_12h_enabled)
+
+        if gender_eligible and bijie_total >= 2 and cai_total >= 1:
             # Check for 食傷 venting flow (洩氣)
             shishang_count = len(all_ten_gods.get('食神', [])) + len(all_ten_gods.get('傷官', []))
             has_venting_flow = shishang_count >= 1
@@ -866,15 +876,106 @@ def compute_spouse_star_analysis(
                     break
 
             severity = 'moderate' if has_venting_flow else 'high'
-            challenges.append({
-                'type': '比劫奪財',
-                'severity': severity,
-                'description': '比劫多而財弱，容易有感情競爭',
-                'hasVentingFlow': has_venting_flow,
-                'biJieInDayBranch': bi_jie_in_day,
-                'biJieCount': bijie_total,
-                'caiCount': cai_total,
-            })
+
+            # Phase 12h.B Item 8 — 3-state valence dispatch
+            valence = 'neutral'
+            valence_note = ''
+            wealth_role = '閒神'
+            permanent_risk = 'medium'
+            transient_activations: List[Dict[str, Any]] = []
+
+            if bijie_phase_12h_enabled:
+                dm_classification = strength_v2.get('classification', '') if strength_v2 else ''
+                if dm_classification in ('weak', 'very_weak'):
+                    # 比劫 IS 用神 — 「奪財」frame is structurally inappropriate; suppress entirely
+                    valence = 'not_applicable'
+                else:
+                    cai_element = ELEMENT_OVERCOMES[dm_element]
+                    wealth_role = effective_gods.get(cai_element, '閒神') if effective_gods else '閒神'
+                    if wealth_role in ('用神', '喜神'):
+                        valence = 'harmful'
+                        permanent_risk = 'high'
+                    elif wealth_role in ('忌神', '仇神'):
+                        # Beneficial flip requires 印旺 (per agent C — 「印旺財忌時，比劫運制財為福」).
+                        # Phase 12h.B uses WEIGHTED 印 weight (not raw count) per Issue #9.
+                        # Threshold: total_yin_weight >= 3.0 (placeholder; calibrated against corpus in PR-B step 7).
+                        # `compute_stem_pressure_weight` already imported at module level (line 66).
+                        total_yin_weight = 0.0
+                        for s in HEAVENLY_STEMS:
+                            if derive_ten_god(day_master_stem, s) in ('正印', '偏印'):
+                                w = compute_stem_pressure_weight(s, pillars)
+                                total_yin_weight += w.get('total', 0)
+                        yin_dominant = total_yin_weight >= 3.0  # PLACEHOLDER (corpus-calibrated in Phase 12h.B step 7)
+                        if yin_dominant:
+                            valence = 'beneficial'
+                            permanent_risk = 'low'
+                        else:
+                            valence = 'neutral'
+                    # else: 閒神 — leave valence='neutral'
+
+                # Compute transient activations (LP brings 比劫 strength)
+                # Issue #12 activation rule: LP stem ten god ∈ {比肩, 劫財} AND natal cai >=1 AND natal bijie >= 2
+                if luck_periods and current_year:
+                    active_lp = _find_active_luck_period(luck_periods, current_year)
+                    if active_lp:
+                        lp_stem = active_lp.get('stem', '')
+                        lp_tg = derive_ten_god(day_master_stem, lp_stem) if lp_stem else ''
+                        if lp_tg in ('比肩', '劫財'):
+                            transient_activations.append({
+                                'level': 'dayun',
+                                'period': f"{active_lp.get('startYear', '')}-{active_lp.get('endYear', '')}",
+                                'stems': f"{lp_stem}{active_lp.get('branch', '')}",
+                                'severity': 'high' if not has_venting_flow else 'moderate',
+                                'detail': f'大運天干{lp_stem}({lp_tg})透出，加重比劫奪財傾向',
+                            })
+                            # Annual layer fires when LP active OR bijie_total >= 3
+                            if annual_stars and bijie_total >= 3:
+                                for ay in annual_stars:
+                                    yr = ay.get('year', 0)
+                                    if yr < current_year or yr > current_year + 10:
+                                        continue
+                                    ay_stem = ay.get('stem', '')
+                                    ay_tg = derive_ten_god(day_master_stem, ay_stem) if ay_stem else ''
+                                    if ay_tg in ('比肩', '劫財'):
+                                        transient_activations.append({
+                                            'level': 'liunian',
+                                            'period': str(yr),
+                                            'stems': f"{ay_stem}{ay.get('branch', '')}",
+                                            'severity': 'moderate',
+                                            'detail': f'流年天干{ay_stem}({ay_tg})透出，當年比劫加重',
+                                        })
+
+                # Gender-specific valence note dispatch
+                valence_note_map = {
+                    ('male', 'harmful'): '比劫奪用財，男命主妻緣不順、財產競爭',
+                    ('male', 'beneficial'): '財為忌神，比劫制財反為調節，妻緣壓力減輕',
+                    ('male', 'neutral'): '財為閒神或非旺，比劫奪財影響有限',
+                    ('female', 'harmful'): '比劫奪用財，女命主姊妹競爭、財產損耗 (非直接損夫)',
+                    ('female', 'beneficial'): '財為忌神，比劫制財反為福',
+                    ('female', 'neutral'): '財為閒神或非旺，比劫奪財影響有限',
+                }
+                valence_note = valence_note_map.get((gender, valence), '')
+
+            # Suppress entirely when not_applicable (DM weak — 比劫 IS 用神)
+            if valence == 'not_applicable':
+                pass  # Don't append challenge
+            else:
+                challenges.append({
+                    # Legacy fields (backward-compat)
+                    'type': '比劫奪財',
+                    'severity': severity,
+                    'description': '比劫多而財弱，容易有感情競爭',
+                    'hasVentingFlow': has_venting_flow,
+                    'biJieInDayBranch': bi_jie_in_day,
+                    'biJieCount': bijie_total,
+                    'caiCount': cai_total,
+                    # Phase 12h.B Item 8 — NEW fields
+                    'valence': valence,
+                    'valenceNote': valence_note,
+                    'wealthRole': wealth_role,
+                    'transientActivations': transient_activations,
+                    'permanentRisk': permanent_risk,
+                })
 
     return {
         'spouseStar': spouse_star_tg,
@@ -902,6 +1003,9 @@ def compute_marriage_palace_analysis(
     day_master_stem: str,
     kong_wang: List[str],
     effective_gods: Optional[Dict[str, str]] = None,
+    luck_periods: Optional[List[Dict]] = None,
+    annual_stars: Optional[List[Dict]] = None,
+    current_year: int = 0,
 ) -> Dict[str, Any]:
     """
     Analyze the marriage palace (日支 = 配偶宮).
@@ -910,7 +1014,16 @@ def compute_marriage_palace_analysis(
     with polarity-aware ten god traits (favorable vs unfavorable). Legacy flat fields
     (`appearanceHint`, `personalityArchetype`, etc.) preserved for backward-compat.
 
-    DEPRECATED in Phase 12h: legacy flat fields scheduled for removal after frontend
+    Phase 12h.A Item 4 — removed `natalHarm` legacy alias from output (frontend grep
+    verified no consumers; all readers migrated to `meta.natalFrictions`).
+
+    Phase 12h.A Item 6 — extended signature with `luck_periods` / `annual_stars` /
+    `current_year` to support 三刑 transit upgrade: when day_branch ∈ {寅,巳,申,丑,戌,未}
+    AND a natal pillar branch is part of a 三刑 group AND LP/LY supplies the 3rd branch,
+    escalate `half_punishment` → `three_punishment_via_transit` (severity 80 vs 60).
+    Reuses `check_sanxing_with_pool()` from `branch_relationships.py`.
+
+    DEPRECATED in Phase 12h+: legacy flat fields scheduled for removal after frontend
     migrates to consume structured `appearance` / `personality` / `meta` blocks.
 
     Doctrine: 滴天髓·夫妻論 + 盲派秘典·第5章. Branch属性 ⇒ 形貌, ten god ⇒ 性格,
@@ -946,13 +1059,61 @@ def compute_marriage_palace_analysis(
 
     # Phase 12g.6 Gap 3 — extend friction detection beyond 六害 to include
     # 沖/刑/半刑/六破 via shared `check_branch_friction` helper.
-    # Output split: `natal_frictions` (canonical, all types) + `natal_harm`
-    # (legacy alias, six_harm only — DEPRECATED in Phase 12h).
+    # Phase 12h.A Item 4 — removed legacy `natal_harm` list (frontend has no consumers).
+    # Phase 12h.A Item 6 — escalate `half_punishment` to `three_punishment_via_transit`
+    # when LP/LY supplies the 3rd 三刑 branch.
     natal_frictions: List[Dict] = []
-    natal_harm: List[Dict] = []  # DEPRECATED in Phase 12h: legacy alias for backward-compat
+    # Phase 12h.A Item 6 — pre-compute LP/LY context for 三刑 transit upgrade
+    natal_branches_set = {pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')}
+    active_lp = (
+        _find_active_luck_period(luck_periods, current_year)
+        if (luck_periods and current_year)
+        else None
+    )
+    lp_branch = active_lp.get('branch', '') if active_lp else ''
+    current_ly_star = (
+        next((s for s in annual_stars if s.get('year') == current_year), None)
+        if (annual_stars and current_year)
+        else None
+    )
+    ly_branch = current_ly_star.get('branch', '') if current_ly_star else ''
+    full_pool = natal_branches_set | (
+        {lp_branch} if lp_branch else set()
+    ) | (
+        {ly_branch} if ly_branch else set()
+    )
+
     for pname in ['year', 'month', 'hour']:
         p_branch = pillars[pname]['branch']
         friction = check_branch_friction(p_branch, day_branch)
+        # Phase 12h.A Item 6 — try escalation when half_punishment + LP/LY context available
+        if friction and friction['type'] == 'half_punishment' and full_pool:
+            sanxing = check_sanxing_with_pool(p_branch, day_branch, full_pool)
+            if sanxing and len(sanxing.get('branches', [])) == 3:
+                # Issue #6 — explicit third_branch extraction with empty-residual guard
+                # (Issue #5 — defensive: 自刑 piggyback / partial-set edge case)
+                residual = sanxing['branches'] - {p_branch, day_branch}
+                if residual:  # guard: skip if residual empty (edge case)
+                    third_branch = next(iter(residual))
+                    if third_branch == lp_branch:
+                        window = 'dayun'
+                        window_label = f'大運{lp_branch}引動'
+                    elif third_branch == ly_branch:
+                        window = 'liunian'
+                        window_label = f'流年{ly_branch}引動'
+                    else:
+                        # 3rd branch came from natal — not transit, leave as half_punishment
+                        window = ''
+                        window_label = ''
+                    if window:
+                        # Escalate to full 三刑 with window markers
+                        friction = {
+                            'type': 'three_punishment_via_transit',
+                            'description': f"{sanxing['name']}（{window_label}）",
+                            'severity': sanxing['severity'],  # 80 (vs 60 for 半刑)
+                            'window': window,
+                            'window_branch': third_branch,
+                        }
         if friction:
             entry = {
                 'pillar': pname,
@@ -966,14 +1127,12 @@ def compute_marriage_palace_analysis(
                 ),
                 'severity': friction['severity'],
             }
+            # Phase 12h.A Item 6 — preserve window/window_branch for transit-via-three_punishment
+            if friction.get('window'):
+                entry['window'] = friction['window']
+            if friction.get('window_branch'):
+                entry['window_branch'] = friction['window_branch']
             natal_frictions.append(entry)
-            if friction['type'] == 'six_harm':
-                # Legacy entry shape — preserve original description for backward-compat
-                natal_harm.append({
-                    'pillar': pname,
-                    'branch': p_branch,
-                    'description': f'{p_branch}{day_branch}害（{pname}柱害配偶宮）',
-                })
 
     # 日支四大桃花位 — classical spouse appearance indicator
     FOUR_PEACH_BRANCHES = {'子', '午', '卯', '酉'}
@@ -1051,12 +1210,12 @@ def compute_marriage_palace_analysis(
     meta_layer = {
         'twelveStage': stage,
         'isKongWang': is_kong_wang,
-        'natalHarm': natal_harm,           # DEPRECATED Phase 12h: legacy alias (six_harm only)
-        'natalFrictions': natal_frictions, # NEW canonical (沖/刑/半刑/害/破)
+        # Phase 12h.A Item 4 — removed `natalHarm` legacy alias (no frontend consumer per grep).
+        'natalFrictions': natal_frictions, # canonical (沖/刑/半刑/害/破)
     }
 
     return {
-        # Legacy fields (backward-compat — DEPRECATED, schedule removal in Phase 12h)
+        # Legacy fields (backward-compat — schedule removal in Phase 12i+)
         'dayBranch': day_branch,
         'element': element,
         'appearanceHint': element_appearance.get(element, ''),
@@ -1066,7 +1225,7 @@ def compute_marriage_palace_analysis(
         'personalityArchetype': palace_archetype,
         'twelveStage': stage,
         'isKongWang': is_kong_wang,
-        'natalHarm': natal_harm,
+        # Phase 12h.A Item 4 — removed top-level `natalHarm` legacy alias.
         'dayPillar': day_gz,
         # Phase 12g.4 — structured layers (NEW)
         'appearance': appearance_layer,
@@ -1651,10 +1810,11 @@ def compute_romance_good_years(
                 item['starType'] = '桃花合年'
 
     # Post-process: annotate day-branch 天喜 overlap (regardless of starType).
-    # Phase 12g.2 — protected labels (正緣桃花年/正緣動年/婚動年/喜事動年/偏緣年)
+    # Phase 12g.2 — protected labels (正緣桃花年/正緣動年/婚動年/喜事動年/偏緣動年)
     # MUST NOT be downgraded by 天喜 overlay — they trump per classical priority.
+    # Phase 12g.7 Issue 1 — fixed typo: '偏緣年' → '偏緣動年' (engine emits 偏緣動年, never 偏緣年).
     tianxi_day_branch = TIANXI.get(day_branch, '')
-    PROTECTED_HIGH_PRIORITY = ('正緣桃花年', '正緣動年', '婚動年', '喜事動年', '偏緣年')
+    PROTECTED_HIGH_PRIORITY = ('正緣桃花年', '正緣動年', '婚動年', '喜事動年', '偏緣動年')
     for item in tagged:
         annual_star = next((s for s in annual_stars if s['year'] == item['year']), None)
         if not annual_star:
@@ -2701,9 +2861,12 @@ def generate_love_pre_analysis(
         current_year=current_year,
     )
 
-    # 3. Marriage Palace Analysis (Phase 12g.4 — pass effective_gods for polarity-aware traits)
+    # 3. Marriage Palace Analysis (Phase 12g.4 — effective_gods for polarity; Phase 12h.A — LP/LY for 三刑 transit)
     marriage_palace = compute_marriage_palace_analysis(
         pillars, day_master_stem, kong_wang, effective_gods,
+        luck_periods=luck_periods,
+        annual_stars=annual_stars,
+        current_year=current_year,
     )
 
     # 4. Love Personality
