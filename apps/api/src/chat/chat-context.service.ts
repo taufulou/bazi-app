@@ -45,7 +45,23 @@ export function getChatPromptVersion(readingType: ReadingType): string {
 
 export type ChatPromptVersionKey = ReadingType;
 
-// Mirror engine's pre-analysis versions (kept in sync with ai.service.ts:7177)
+// Cache version for the chat-context slim. Each entry must be ≥ the
+// corresponding entry in ai.service.ts::PRE_ANALYSIS_VERSIONS (which tracks
+// engine pre-analysis output structure). When the engine pre-analysis bumps,
+// this MUST also bump. When the chat slim (packages/bazi-engine/app/chat_context.py)
+// makes chat-only changes that don't affect engine output, this can
+// independently bump using semver patch (engine v1.8.0 + chat slim
+// adjustments → v1.8.2) without forcing reading re-narration.
+//
+// See ai.service.ts:7178 «⚠️ SYNC REQUIRED» — that list intentionally
+// omits COMPATIBILITY because chat-only slim changes (Phase 3 follow-up
+// H1 timingSync / H4 strip ideal-spouse / H5 anti-hallucination anchors)
+// bump only this side. Both sides agree COMPATIBILITY can diverge.
+//
+// Phase 5 (PR #44 code review Issue 3): comment rewritten to reflect the
+// actual asymmetric sync contract. The original «kept in sync with
+// ai.service.ts:7177» was misleading — it implied strict mirror, which
+// breaks the moment a chat-only slim change ships.
 const PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH = {
   LIFETIME: 'v2.9.0',
   CAREER: 'v2.5.0',

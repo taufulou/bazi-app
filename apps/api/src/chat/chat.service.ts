@@ -634,7 +634,13 @@ export class ChatService {
         .reverse()
         .map((m) => ({
           role: (m.role === ChatRole.USER ? 'user' : 'assistant') as 'user' | 'assistant',
-          content: m.content,
+          // Phase 5 (PR #44 follow-up Issue 1) defense-in-depth — re-sanitize
+          // USER content at read time. Protects against any unsanitized
+          // <system-reminder> tags persisted before this fix landed (the
+          // non-streaming path was the asymmetric one — buggy persists could
+          // have escaped to DB). Idempotent on already-clean strings.
+          content:
+            m.role === ChatRole.USER ? sanitizeUserContent(m.content) : m.content,
         }));
 
       // session.messageCount BEFORE this message — when >= regrounding trigger,
@@ -645,7 +651,12 @@ export class ChatService {
       const { systemPromptText, messages } = buildPrompt({
         chatContext,
         recentMessages,
-        newUserMessage: content,
+        // Phase 5 (PR #44 follow-up Issue 1) — use sanitizedContent, NOT raw
+        // content. The non-streaming path was the asymmetric one; streaming
+        // path at chat-stream.service.ts already passes sanitizedContent.
+        // Without this, a user typing <system-reminder>…</system-reminder>
+        // escalates to system-priority (Phase 1.3 audit Bug B).
+        newUserMessage: sanitizedContent,
         // Phase 2 — per-readingType prompt routing.
         readingType: session.readingType,
         sectionContextHint,

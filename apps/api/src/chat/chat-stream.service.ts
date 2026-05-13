@@ -396,7 +396,12 @@ export class ChatStreamService {
       .reverse()
       .map((m) => ({
         role: (m.role === ChatRole.USER ? 'user' : 'assistant') as 'user' | 'assistant',
-        content: m.content,
+        // Phase 5 (PR #44 follow-up Issue 1) defense-in-depth — re-sanitize
+        // USER content at read time. Symmetric with chat.service.ts. Protects
+        // against any unsanitized <system-reminder> tags persisted before
+        // the Issue 1 fix landed. Idempotent on already-clean strings.
+        content:
+          m.role === ChatRole.USER ? sanitizeUserContent(m.content) : m.content,
       }));
 
     const shouldInjectRegrounding =
