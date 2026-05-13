@@ -7174,6 +7174,16 @@ export class AIService implements OnModuleInit {
     // Phase 12g (2026-05): LOVE + COMPATIBILITY entries added (were missing
     // from this map → cache never invalidated despite engine bumps). LOVE
     // and LIFETIME bumped through Phase 12g.1-12g.4 cumulative changes.
+    //
+    // ⚠️ SYNC REQUIRED: when bumping LIFETIME / LOVE / CAREER / ANNUAL versions
+    // here, ALSO bump the matching constant in
+    // `apps/api/src/chat/chat-context.service.ts`
+    // (`PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH`) — the chat feature has its own
+    // 24h cache keyed on those values. Forgetting to sync causes the chat
+    // AI to serve stale doctrine while the reading itself reflects the new
+    // doctrine, which silently breaks the central anti-hallucination
+    // promise of the chat feature (next-the-big-feature-proud-manatee plan
+    // Issue 22 — duplicate-source-of-truth drift risk identified in Phase 1.3 audit).
     const PRE_ANALYSIS_VERSIONS: Record<string, string> = {
       [ReadingType.LIFETIME]:      'v2.9.0',  // bumped Phase 12g.2 + 12g.4 (romance archetype + 月令格 personality cascade)
       [ReadingType.CAREER]:        'v2.5.0',  // Fix 1a weighted dominance (Phase 12f)

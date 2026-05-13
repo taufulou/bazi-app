@@ -471,6 +471,171 @@ def calculate_bazi(
     return result
 
 
+def calculate_bazi_with_all_pipelines(
+    birth_date: str,
+    birth_time: str,
+    birth_city: str,
+    birth_timezone: str,
+    gender: str,
+    birth_longitude: Optional[float] = None,
+    birth_latitude: Optional[float] = None,
+    target_year: Optional[int] = None,
+) -> Dict:
+    """
+    Calculate a complete Bazi chart AND run all 4 enhanced pipelines (lifetime,
+    love, career, annual) regardless of reading_type. Used by the AI chat feature
+    so the chat context has access to ALL doctrine flags (傷官見官 valence from
+    LOVE pipeline, 比劫奪財 valence, 沖配偶宮 bidirectional, etc.) regardless of
+    which reading the user is chatting from.
+
+    The plan's staff-engineer review (Issue 22) caught that the original
+    `calculate_bazi(reading_type='LIFETIME')` doesn't compute LOVE/CAREER/ANNUAL
+    enhanced insights — so chat would have empty doctrineFlags and the AI would
+    fall back to folk doctrine. This function fixes that gap.
+
+    Returns:
+        Same shape as `calculate_bazi(reading_type=None)` PLUS guaranteed-present:
+        - `lifetimeEnhancedInsights`
+        - `loveEnhancedInsights`
+        - `careerEnhancedInsights`
+        - `annualEnhancedInsights`
+
+    Compute cost: ~50-100ms additional vs base calculate_bazi (each pipeline is
+    light deterministic computation). Cached via chat_context cache key.
+    """
+    if target_year is None:
+        target_year = datetime.now().year
+
+    # Step 1: Base calculation with no reading_type → no enhanced pipelines run.
+    # This is a no-op cost-wise vs reading_type='LIFETIME' (only the conditional
+    # if-blocks at lines 242/325/349/372 are skipped).
+    result = calculate_bazi(
+        birth_date=birth_date,
+        birth_time=birth_time,
+        birth_city=birth_city,
+        birth_timezone=birth_timezone,
+        gender=gender,
+        birth_longitude=birth_longitude,
+        birth_latitude=birth_latitude,
+        target_year=target_year,
+        reading_type=None,
+    )
+
+    # Step 2: Extract args from base result
+    pillars = result['fourPillars']
+    day_master_stem = result['dayMasterStem']
+    pre_analysis = result['preAnalysis']
+    five_elements_balance = result['fiveElementsBalanceRaw']
+    effective_gods = pre_analysis['effectiveFavorableGods']
+    strength_v2 = pre_analysis['strengthV2']
+    cong_ge = pre_analysis.get('congGe')
+    luck_periods = result['luckPeriods']
+    annual_stars = result['annualStars']
+    monthly_stars = result['monthlyStars']
+    kong_wang = result['kongWang']
+    all_shen_sha = result['allShenSha']
+    branch_relationships = (
+        pre_analysis.get('pillarRelationships', {}).get('branchRelationships')
+    )
+    tai_yuan = result['taiYuan']
+    ming_gong = result['mingGong']
+    shen_gong = result['shenGong']
+    birth_year = int(birth_date.split('-')[0])
+
+    # Recompute prominent_god (not exposed in result)
+    prominent_god = get_prominent_ten_god(pillars, day_master_stem)
+
+    # Step 3: Run all 4 enhanced pipelines (mirrors the conditional blocks
+    # at calculator.py:242, 325, 349, 372 — but unconditional)
+    lifetime_enhanced = generate_lifetime_enhanced_insights(
+        pillars=pillars,
+        day_master_stem=day_master_stem,
+        gender=gender,
+        five_elements_balance=five_elements_balance,
+        effective_gods=effective_gods,
+        prominent_god=prominent_god,
+        strength_v2=strength_v2,
+        cong_ge=cong_ge,
+        tougan_analysis=pre_analysis.get('touganAnalysis', []),
+        ten_god_position_analysis=pre_analysis.get('tenGodPositionAnalysis', []),
+        luck_periods=luck_periods,
+        annual_stars=annual_stars,
+        kong_wang=kong_wang,
+        branch_relationships=branch_relationships,
+        birth_year=birth_year,
+        current_year=target_year,
+    )
+
+    career_enhanced = generate_career_pre_analysis(
+        pillars=pillars,
+        day_master_stem=day_master_stem,
+        gender=gender,
+        five_elements_balance=five_elements_balance,
+        effective_gods=effective_gods,
+        prominent_god=prominent_god,
+        strength_v2=strength_v2,
+        cong_ge=cong_ge,
+        luck_periods=luck_periods,
+        annual_stars=annual_stars,
+        monthly_stars=monthly_stars,
+        kong_wang=kong_wang,
+        branch_relationships=branch_relationships,
+        tai_yuan=tai_yuan,
+        ming_gong=ming_gong,
+        shen_gong=shen_gong,
+        birth_year=birth_year,
+        current_year=target_year,
+    )
+
+    from .love_enhanced import generate_love_pre_analysis
+    love_enhanced = generate_love_pre_analysis(
+        pillars=pillars,
+        day_master_stem=day_master_stem,
+        gender=gender,
+        five_elements_balance=five_elements_balance,
+        effective_gods=effective_gods,
+        prominent_god=prominent_god,
+        strength_v2=strength_v2,
+        cong_ge=cong_ge,
+        luck_periods=luck_periods,
+        annual_stars=annual_stars,
+        monthly_stars=monthly_stars,
+        kong_wang=kong_wang,
+        all_shen_sha=all_shen_sha,
+        branch_relationships=branch_relationships,
+        birth_year=birth_year,
+        current_year=target_year,
+    )
+
+    from .annual_enhanced import generate_annual_pre_analysis
+    annual_enhanced = generate_annual_pre_analysis(
+        pillars=pillars,
+        day_master_stem=day_master_stem,
+        gender=gender,
+        five_elements_balance=five_elements_balance,
+        effective_gods=effective_gods,
+        prominent_god=prominent_god,
+        strength_v2=strength_v2,
+        cong_ge=cong_ge,
+        luck_periods=luck_periods,
+        annual_stars=annual_stars,
+        monthly_stars=monthly_stars,
+        kong_wang=kong_wang,
+        branch_relationships=branch_relationships,
+        birth_year=birth_year,
+        current_year=target_year,
+        shen_sha=all_shen_sha,
+    )
+
+    # Step 4: Merge enhanced outputs into result
+    result['lifetimeEnhancedInsights'] = lifetime_enhanced
+    result['loveEnhancedInsights'] = love_enhanced
+    result['careerEnhancedInsights'] = career_enhanced
+    result['annualEnhancedInsights'] = annual_enhanced
+
+    return result
+
+
 def calculate_bazi_compatibility(
     birth_data_a: Dict,
     birth_data_b: Dict,

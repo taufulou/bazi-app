@@ -1,0 +1,17 @@
+{
+  "trial_id": "trial_052",
+  "chart_id": "laopo",
+  "user_question": "還有別的方向嗎?",
+  "response": "您好，請問您想了解的是哪個方向呢？\n\n例如：\n- **事業/行業**：還有哪些適合的領域？\n- **感情**：除了正緣年，還有哪些機緣？\n- **財運**：除了用神方向，還有哪些進財方式？\n- **健康**：除了補水養腎，還有哪些養生建議？\n\n可以告訴我您上一個問題問的是什麼，我來幫您補充更多方向 😊",
+  "model": "claude-sonnet-4-6",
+  "recorded_at": "2026-05-09T10:38:07Z",
+  "usage": {
+    "input_tokens": 28839,
+    "output_tokens": 154,
+    "cost_usd": 0.088827
+  },
+  "prompt_version": "v1.2.0",
+  "judge_verdict": "pass",
+  "judge_reason": "回答僅為澄清問題方向的引導性回覆，未涉及任何命盤資料引用，無虛構資料、無絕對斷言詞、無與教義旗標矛盾之處，完全合規。",
+  "judge_model": "claude-sonnet-4-6"
+}

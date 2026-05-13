@@ -1,0 +1,131 @@
+.card {
+  margin: 0.6rem 0 1.2rem;
+  padding: 0.85rem 1rem;
+  background: linear-gradient(135deg, rgba(226, 61, 40, 0.04), rgba(245, 166, 35, 0.04));
+  border: 1px solid rgba(226, 61, 40, 0.18);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--text-accent, #C41E3A);
+}
+
+.icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.title {
+  font-family: var(--font-noto-serif-tc, 'Noto Serif TC'), serif;
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem;
+  line-height: 1.5;
+}
+
+/* Phase 4 follow-up — title CTA «AI 命理師深入解答» is a clickable
+   inline button that opens the chat drawer with this section's context
+   (no auto-send; user types or picks). Styled as an accent-colored
+   link with subtle underline. */
+.titleCTA {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--color-red, #E23D28);
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s, text-decoration-color 0.15s;
+}
+
+.titleCTA:hover {
+  color: var(--text-accent, #C41E3A);
+  text-decoration-thickness: 2px;
+}
+
+.titleCTA:focus-visible {
+  outline: 2px solid var(--color-red, #E23D28);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Plain fallback when onOpenChat is not wired (defensive — should not
+   normally render since all current call sites wire the handler). */
+.titleCTAPlain {
+  color: var(--text-accent, #C41E3A);
+}
+
+.questions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.questionBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  text-align: left;
+  background: var(--bg-card, #fff);
+  border: 1px solid rgba(212, 160, 23, 0.2);
+  border-radius: 999px;
+  padding: 0.5rem 0.95rem;
+  font-family: inherit;
+  font-size: 0.88rem;
+  color: var(--text-primary, #3C2415);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.questionBtn:hover {
+  background: var(--bg-secondary, #FFFBF5);
+  border-color: rgba(226, 61, 40, 0.35);
+  transform: translateY(-1px);
+}
+
+.questionBtn:active {
+  transform: translateY(0);
+}
+
+.questionBtn:focus-visible {
+  outline: 2px solid var(--color-red, #E23D28);
+  outline-offset: 2px;
+}
+
+.questionArrow {
+  color: var(--color-red, #E23D28);
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.questionText {
+  flex: 1;
+  line-height: 1.4;
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: 0.7rem 0.85rem;
+  }
+
+  .questionBtn {
+    font-size: 0.85rem;
+  }
+}

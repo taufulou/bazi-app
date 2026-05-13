@@ -1,0 +1,21 @@
+{
+  "trial_id": "compat_016",
+  "chart_id_a": "roger",
+  "chart_id_b": "laopo",
+  "user_question": "他這個人整體一生大概什麼樣？他的命格如何？",
+  "response": "謝謝您的提問。關於對方整體命格與一生運勢的詳細分析，超出本《八字合盤比較》解讀的範圍——這需要結合對方命局其他面向的專業分析。想了解對方整體命格、大運序列與一生趨勢，可以另外輸入對方的生辰資料，解鎖《八字終身運》。\n\n回到您們的合盤解讀——根據您們的命盤，合盤總分 44分（需要磨合）。您想了解這個訊號嗎？",
+  "model": "claude-sonnet-4-6",
+  "recorded_at": "2026-05-12T14:56:49Z",
+  "usage": {
+    "input_tokens": 37395,
+    "output_tokens": 174,
+    "cost_usd": 0.114795
+  },
+  "prompt_version": "v1.2.1",
+  "category": "refuse_partner_lifetime",
+  "expected_refuse": true,
+  "cross_sell_target": "partner_lifetime",
+  "judge_verdict": "pass",
+  "judge_reason": "AI 助理正確處理了 refuse/answer 分流（expected_refuse=true）：使用合法拒絕開頭「超出本《八字合盤比較》解讀的範圍」，正確引導至 cross_sell_target（partner_lifetime），cross-sell 措辭「另外輸入對方的生辰資料，解鎖《八字終身運》」符合規範；未使用絕對化斷言；回到合盤核心時引用了實際命盤資料（合盤總分 44 分、需要磨合）；全文繁體中文；無 PII 風險；未違反任何 6 項檢查項目。",
+  "judge_model": "claude-haiku-4-5"
+}

@@ -22,6 +22,10 @@ const mockPrisma = {
   baziComparison: { count: jest.fn() },
   aIUsageLog: { aggregate: jest.fn(), count: jest.fn() },
   adminAuditLog: { create: jest.fn(), findMany: jest.fn(), count: jest.fn() },
+  // Phase 1.10 — chat aggregate metrics
+  chatSession: { count: jest.fn(), aggregate: jest.fn(), findMany: jest.fn() },
+  chatMessage: { count: jest.fn(), groupBy: jest.fn(), aggregate: jest.fn() },
+  chatMonthlyUsage: { groupBy: jest.fn() },
   $transaction: jest.fn(),
   $queryRaw: jest.fn(),
 };
@@ -459,6 +463,287 @@ describe('AdminService', () => {
         { type: 'LIFETIME', count: 200 },
         { type: 'ANNUAL', count: 150 },
       ]);
+    });
+  });
+
+  // ============================================================
+  // Chat Aggregate (Phase 1.10)
+  // ============================================================
+
+  describe('getChatAggregate', () => {
+    function mockChatAggregateData(overrides?: {
+      totalSessions?: number;
+      sessionsLast7Days?: number;
+      sessionsLast24Hours?: number;
+      sessionsAtHardCap?: number;
+      messagesByRole?: Array<{ role: string; _count: { id: number } }>;
+      refundedMessages?: number;
+    }) {
+      const opts = {
+        totalSessions: 100,
+        sessionsLast7Days: 25,
+        sessionsLast24Hours: 5,
+        sessionsAtHardCap: 8,
+        messagesByRole: [
+          { role: 'USER', _count: { id: 400 } },
+          { role: 'ASSISTANT', _count: { id: 400 } },
+          { role: 'SYSTEM', _count: { id: 0 } },
+        ],
+        refundedMessages: 12,
+        ...overrides,
+      };
+      mockPrisma.chatSession.count
+        .mockResolvedValueOnce(opts.totalSessions)
+        .mockResolvedValueOnce(opts.sessionsLast7Days)
+        .mockResolvedValueOnce(opts.sessionsLast24Hours)
+        .mockResolvedValueOnce(opts.sessionsAtHardCap);
+      mockPrisma.chatSession.aggregate
+        // sessionsExtendedAgg
+        .mockResolvedValueOnce({
+          _sum: { creditExtensions: 12 },
+          _count: { id: 8 },
+        })
+        // messageAggregates
+        .mockResolvedValueOnce({
+          _avg: { messageCount: 8 },
+        });
+      mockPrisma.chatMessage.groupBy
+        // messagesByRole
+        .mockResolvedValueOnce(opts.messagesByRole)
+        // llmJudgeBreakdown
+        .mockResolvedValueOnce([
+          { llmJudgeVerdict: 'pass', _count: { id: 18 } },
+          { llmJudgeVerdict: 'fail', _count: { id: 2 } },
+        ]);
+      mockPrisma.chatMessage.count.mockResolvedValueOnce(opts.refundedMessages);
+      mockPrisma.chatMessage.aggregate
+        // validatorAggregates
+        .mockResolvedValueOnce({ _count: { id: 5 } })
+        // tokenAggregates
+        .mockResolvedValueOnce({
+          _sum: {
+            cacheReadTokens: 90000,
+            cacheCreationTokens: 10000,
+            tokensInput: 100000,
+            tokensOutput: 5000,
+          },
+        });
+      mockPrisma.chatMonthlyUsage.groupBy.mockResolvedValueOnce([
+        { subscriptionTier: 'BASIC', _sum: { chatsUsed: 30 }, _count: { id: 3 } },
+        { subscriptionTier: 'PRO', _sum: { chatsUsed: 60 }, _count: { id: 2 } },
+      ]);
+      // Phase 1.11 — sessions in last 7 days for cost-bucket computation.
+      mockPrisma.chatSession.findMany.mockResolvedValueOnce([
+        // Short session (1-10 bucket, 5 messages, low cost)
+        {
+          messageCount: 5,
+          messages: [
+            { cacheReadTokens: 8000, cacheCreationTokens: 0, tokensInput: 0, tokensOutput: 200 },
+            { cacheReadTokens: 8000, cacheCreationTokens: 0, tokensInput: 0, tokensOutput: 200 },
+            { cacheReadTokens: 8000, cacheCreationTokens: 0, tokensInput: 0, tokensOutput: 200 },
+          ],
+        },
+        // Long session (21-30 bucket, 30 messages, more total cost)
+        {
+          messageCount: 30,
+          messages: [
+            // Cache write happened on first message
+            { cacheReadTokens: 0, cacheCreationTokens: 10000, tokensInput: 0, tokensOutput: 500 },
+            // Subsequent messages all cache reads
+            { cacheReadTokens: 10000, cacheCreationTokens: 0, tokensInput: 0, tokensOutput: 500 },
+            { cacheReadTokens: 10000, cacheCreationTokens: 0, tokensInput: 0, tokensOutput: 500 },
+          ],
+        },
+      ]);
+    }
+
+    it('returns aggregate metrics with correct shape and computed rates', async () => {
+      mockChatAggregateData();
+
+      const result = await service.getChatAggregate();
+
+      // Sessions
+      expect(result.sessions.total).toBe(100);
+      expect(result.sessions.last7Days).toBe(25);
+      expect(result.sessions.last24Hours).toBe(5);
+      expect(result.sessions.atHardCap).toBe(8);
+      expect(result.sessions.extended).toBe(8);
+      expect(result.sessions.avgMessagesPerSession).toBe(8);
+
+      // Messages
+      expect(result.messages.user).toBe(400);
+      expect(result.messages.assistant).toBe(400);
+      expect(result.messages.system).toBe(0);
+      expect(result.messages.total).toBe(800);
+      expect(result.messages.refunded).toBe(12);
+      // refundRate = 12 / 400 = 0.03
+      expect(result.messages.refundRate).toBeCloseTo(0.03, 4);
+
+      // Cache hit rate = 90000 / (90000 + 10000) = 0.9
+      expect(result.tokens.cacheHitRate).toBeCloseTo(0.9, 4);
+      expect(result.tokens.totalCacheRead).toBe(90000);
+      expect(result.tokens.totalCacheCreation).toBe(10000);
+
+      // LLM judge fail rate = 2 / (18 + 2) = 0.1
+      expect(result.validators.llmJudgeSampled).toBe(20);
+      expect(result.validators.llmJudgeFail).toBe(2);
+      expect(result.validators.llmJudgeFailRate).toBeCloseTo(0.1, 4);
+
+      // Tier breakdown
+      expect(result.monthly.byTier).toEqual([
+        { tier: 'BASIC', activeUsers: 3, totalChatsUsed: 30 },
+        { tier: 'PRO', activeUsers: 2, totalChatsUsed: 60 },
+      ]);
+
+      // Extensions
+      expect(result.extensions.sessionsExtendedCount).toBe(8);
+      expect(result.extensions.totalCreditsSpent).toBe(12);
+
+      // Sanity: generatedAt is an ISO string
+      expect(typeof result.generatedAt).toBe('string');
+      expect(() => new Date(result.generatedAt)).not.toThrow();
+    });
+
+    it('returns 0 rates when divisors are 0 (no data yet)', async () => {
+      mockChatAggregateData({
+        totalSessions: 0,
+        sessionsLast7Days: 0,
+        sessionsLast24Hours: 0,
+        sessionsAtHardCap: 0,
+        messagesByRole: [],
+        refundedMessages: 0,
+      });
+      // Override to remove llm-judge data + cache token data
+      mockPrisma.chatMessage.groupBy.mockReset();
+      mockPrisma.chatMessage.groupBy
+        .mockResolvedValueOnce([]) // messagesByRole — empty
+        .mockResolvedValueOnce([]); // llmJudgeBreakdown — empty
+      mockPrisma.chatMessage.aggregate.mockReset();
+      mockPrisma.chatMessage.aggregate
+        .mockResolvedValueOnce({ _count: { id: 0 } })
+        .mockResolvedValueOnce({
+          _sum: {
+            cacheReadTokens: null,
+            cacheCreationTokens: null,
+            tokensInput: null,
+            tokensOutput: null,
+          },
+        });
+      mockPrisma.chatMonthlyUsage.groupBy.mockReset();
+      mockPrisma.chatMonthlyUsage.groupBy.mockResolvedValueOnce([]);
+      mockPrisma.chatSession.aggregate.mockReset();
+      mockPrisma.chatSession.aggregate
+        .mockResolvedValueOnce({
+          _sum: { creditExtensions: null },
+          _count: { id: 0 },
+        })
+        .mockResolvedValueOnce({
+          _avg: { messageCount: null },
+        });
+      // Phase 1.11 — empty cost-bucket data
+      mockPrisma.chatSession.findMany.mockReset();
+      mockPrisma.chatSession.findMany.mockResolvedValueOnce([]);
+
+      const result = await service.getChatAggregate();
+
+      expect(result.sessions.total).toBe(0);
+      expect(result.messages.total).toBe(0);
+      expect(result.messages.refundRate).toBe(0);
+      expect(result.tokens.cacheHitRate).toBe(0);
+      expect(result.validators.llmJudgeFailRate).toBe(0);
+      expect(result.monthly.byTier).toEqual([]);
+      expect(result.extensions.totalCreditsSpent).toBe(0);
+      expect(result.sessions.avgMessagesPerSession).toBe(0);
+    });
+
+    it('does NOT expose any user-identifying or message-content data', async () => {
+      mockChatAggregateData();
+
+      const result = await service.getChatAggregate();
+      const json = JSON.stringify(result);
+
+      // PDPA Phase 1: no userId, sessionId, message contents, or anything
+      // that could identify a specific user/conversation should leak.
+      expect(json).not.toMatch(/userId/i);
+      expect(json).not.toMatch(/sessionId/i);
+      expect(json).not.toMatch(/clerk/i);
+      expect(json).not.toMatch(/content/i);
+      expect(json).not.toMatch(/email/i);
+    });
+
+    it('Phase 1.11: returns 7-day cost breakdown bucketed by session length', async () => {
+      mockChatAggregateData();
+
+      const result = await service.getChatAggregate();
+
+      expect(result.costByBucket.windowDays).toBe(7);
+      expect(result.costByBucket.buckets).toHaveLength(3);
+      // Ranges in expected order
+      expect(result.costByBucket.buckets.map((b) => b.range)).toEqual([
+        '1-10', '11-20', '21-30',
+      ]);
+
+      // Short session (msgCount=5) → 1-10 bucket
+      const shortBucket = result.costByBucket.buckets.find((b) => b.range === '1-10');
+      expect(shortBucket?.sessionCount).toBe(1);
+      // Cost per message in short session: cacheRead 8000 × $0.30/MTok + output 200 × $15/MTok
+      // = (8000 × 0.3 + 200 × 15) / 1e6 = (2400 + 3000) / 1e6 = 0.0054
+      // 3 messages × 0.0054 = 0.0162 USD per session
+      expect(shortBucket?.avgCostUsd).toBeCloseTo(0.0162, 4);
+
+      // Empty middle bucket
+      const middleBucket = result.costByBucket.buckets.find((b) => b.range === '11-20');
+      expect(middleBucket?.sessionCount).toBe(0);
+      expect(middleBucket?.avgCostUsd).toBe(0);
+
+      // Long session (msgCount=30) → 21-30 bucket
+      const longBucket = result.costByBucket.buckets.find((b) => b.range === '21-30');
+      expect(longBucket?.sessionCount).toBe(1);
+      // First message: cacheCreation 10000 × $6/MTok + output 500 × $15/MTok
+      //               = (60000 + 7500) / 1e6 = 0.0675
+      // 2 subsequent messages: each = (10000 × 0.3 + 500 × 15) / 1e6 = 0.0105
+      // Total = 0.0675 + 2 × 0.0105 = 0.0885 USD per session
+      expect(longBucket?.avgCostUsd).toBeCloseTo(0.0885, 4);
+    });
+
+    it('Phase 1.11: cost buckets are 0/0 when no sessions in window', async () => {
+      // Use the empty-data test setup
+      mockChatAggregateData({
+        totalSessions: 0,
+        sessionsLast7Days: 0,
+        sessionsLast24Hours: 0,
+        sessionsAtHardCap: 0,
+        messagesByRole: [],
+        refundedMessages: 0,
+      });
+      mockPrisma.chatSession.findMany.mockReset();
+      mockPrisma.chatSession.findMany.mockResolvedValueOnce([]);
+
+      const result = await service.getChatAggregate();
+
+      expect(result.costByBucket.buckets.every((b) => b.sessionCount === 0)).toBe(true);
+      expect(result.costByBucket.buckets.every((b) => b.avgCostUsd === 0)).toBe(true);
+    });
+
+    it('Phase 1.11: skips sessions with messageCount=0 in cost bucketing', async () => {
+      mockChatAggregateData();
+      // Override the findMany to include a session with no messages
+      mockPrisma.chatSession.findMany.mockReset();
+      mockPrisma.chatSession.findMany.mockResolvedValueOnce([
+        { messageCount: 0, messages: [] },  // empty session — should be skipped
+        {
+          messageCount: 8,
+          messages: [
+            { cacheReadTokens: 1000, cacheCreationTokens: 0, tokensInput: 0, tokensOutput: 100 },
+          ],
+        },
+      ]);
+
+      const result = await service.getChatAggregate();
+
+      // Only the 8-message session is counted in 1-10 bucket
+      const shortBucket = result.costByBucket.buckets.find((b) => b.range === '1-10');
+      expect(shortBucket?.sessionCount).toBe(1);
     });
   });
 

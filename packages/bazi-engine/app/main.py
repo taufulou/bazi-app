@@ -12,7 +12,12 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 
-from .calculator import calculate_bazi, calculate_bazi_compatibility
+from .calculator import (
+    calculate_bazi,
+    calculate_bazi_compatibility,
+    calculate_bazi_with_all_pipelines,
+)
+from .chat_context import build_chat_context, build_chat_context_compat
 from .explanations import get_element_explanation
 
 app = FastAPI(
@@ -307,6 +312,156 @@ async def calculate_compatibility_endpoint(data: CompatibilityInput):
         raise HTTPException(
             status_code=500,
             detail=f"Compatibility calculation error: {str(e)}",
+        )
+
+
+class ChatContextInput(BaseModel):
+    """Input for building the slim chat context for the AI chat feature."""
+    birth_date: str = Field(
+        ...,
+        description="Birth date YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    birth_time: str = Field(
+        ...,
+        description="Birth time HH:MM",
+        pattern=r"^([01]\d|2[0-3]):([0-5]\d)$",
+    )
+    birth_city: str
+    birth_timezone: str
+    gender: str = Field(..., pattern=r"^(male|female)$")
+    birth_longitude: Optional[float] = None
+    birth_latitude: Optional[float] = None
+    target_year: Optional[int] = Field(None, ge=1900, le=2100)
+    target_month: Optional[int] = Field(None, ge=1, le=12)
+
+
+@app.post("/build-chat-context")
+async def build_chat_context_endpoint(data: ChatContextInput):
+    """
+    Build the slim AI chat context payload (per next-the-big-feature-proud-manatee
+    plan). Always runs all 4 enhanced pipelines (lifetime + love + career + annual)
+    regardless of reading_type, then slims to ~10-14k tokens with deterministic
+    Chinese doctrine injection blocks.
+
+    The central anti-hallucination win: surfaces 傷官見官 valence='beneficial' (and
+    other Phase 12g/h/i flags) for the AI to consume verbatim — no folk doctrine
+    fallback. Mirrors the deterministic-injection pattern already used by
+    `interpolateLoveV2Fields` in apps/api/src/ai/ai.service.ts:3794-3837.
+
+    Compute cost: ~50-100ms; cached at the NestJS layer with key
+    `chat-context:{birthHash}:{versions}` and 24h TTL.
+    """
+    start_time = time.perf_counter()
+
+    try:
+        chart = calculate_bazi_with_all_pipelines(
+            birth_date=data.birth_date,
+            birth_time=data.birth_time,
+            birth_city=data.birth_city,
+            birth_timezone=data.birth_timezone,
+            gender=data.gender,
+            birth_longitude=data.birth_longitude,
+            birth_latitude=data.birth_latitude,
+            target_year=data.target_year,
+        )
+
+        ctx = build_chat_context(
+            chart_data=chart,
+            current_year=data.target_year or datetime.now().year,
+            current_month=data.target_month or datetime.now().month,
+        )
+
+        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        return {
+            "status": "success",
+            "calculationTimeMs": elapsed_ms,
+            "chatContext": ctx,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Chat context build error: {str(e)}",
+        )
+
+
+class CompatChatContextInput(BaseModel):
+    """Phase 3 — input for building the slim chat context for COMPATIBILITY chat (two parties).
+
+    L2 (Phase 3 follow-up): `comparison_type` deliberately excludes
+    `parent_child` (which `CompatibilityInput` accepts for non-chat compat
+    workflows). Phase 3 ships ROMANCE chat only; BUSINESS / FRIENDSHIP /
+    PARENT_CHILD chat support is deferred to Phase 4+. The NestJS layer
+    also enforces ROMANCE-only at session create (chat.service.ts H6 fix).
+    """
+    profile_a: ChatContextInput
+    profile_b: ChatContextInput
+    comparison_type: str = Field(default="romance", pattern=r"^(romance|business|friendship)$")
+    target_year: int = Field(..., ge=1900, le=2100)
+    target_month: int = Field(..., ge=1, le=12)
+
+
+@app.post("/build-chat-context-compat")
+async def build_chat_context_compat_endpoint(data: CompatChatContextInput):
+    """
+    Phase 3 — build the slim chat context for COMPATIBILITY chat. Calls
+    calculate_bazi_with_all_pipelines for BOTH parties, runs
+    calculate_enhanced_compatibility, then slims to ~11-15k tokens.
+
+    Cross-chart 三刑/半刑/子卯刑/六沖/六害 findings (Phase 12i) surface
+    via `crossChartFindings`. Per-party doctrineFlags filtered to LOVE-domain
+    only (drops patternClassification/isCongGe/careerPatternType to avoid
+    leaking CAREER/LIFETIME doctrine).
+
+    The chat layer surfaces engine's `label` field verbatim — matches the
+    result page (COMPATIBILITY_LABELS 8 base + 3 SPECIAL overrides).
+    """
+    start_time = time.perf_counter()
+
+    try:
+        birth_data_a = {
+            'birth_date': data.profile_a.birth_date,
+            'birth_time': data.profile_a.birth_time,
+            'birth_city': data.profile_a.birth_city,
+            'birth_timezone': data.profile_a.birth_timezone,
+            'gender': data.profile_a.gender,
+            'birth_longitude': data.profile_a.birth_longitude,
+            'birth_latitude': data.profile_a.birth_latitude,
+        }
+        birth_data_b = {
+            'birth_date': data.profile_b.birth_date,
+            'birth_time': data.profile_b.birth_time,
+            'birth_city': data.profile_b.birth_city,
+            'birth_timezone': data.profile_b.birth_timezone,
+            'gender': data.profile_b.gender,
+            'birth_longitude': data.profile_b.birth_longitude,
+            'birth_latitude': data.profile_b.birth_latitude,
+        }
+
+        ctx = build_chat_context_compat(
+            birth_data_a=birth_data_a,
+            birth_data_b=birth_data_b,
+            comparison_type=data.comparison_type,
+            current_year=data.target_year,
+            current_month=data.target_month,
+        )
+
+        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        return {
+            "status": "success",
+            "calculationTimeMs": elapsed_ms,
+            "chatContext": ctx,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Compat chat context build error: {str(e)}",
         )
 
 

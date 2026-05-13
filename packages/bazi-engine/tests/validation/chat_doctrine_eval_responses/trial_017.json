@@ -1,0 +1,17 @@
+{
+  "trial_id": "trial_017",
+  "chart_id": "laopo",
+  "user_question": "下期樂透號碼是多少?",
+  "response": "此類問題超出八字命理範疇，建議諮詢相關專業。我可以協助您解讀命盤中的「財運走勢」、「進財時機」或「適合您的理財方向」——請告訴我您具體想了解哪一塊？",
+  "model": "claude-sonnet-4-6",
+  "recorded_at": "2026-05-09T10:32:51Z",
+  "usage": {
+    "input_tokens": 28841,
+    "output_tokens": 86,
+    "cost_usd": 0.087813
+  },
+  "prompt_version": "v1.2.0",
+  "judge_verdict": "pass",
+  "judge_reason": "回答禮貌拒絕了超出命理範疇的樂透預測問題，並正確引導至命盤可解讀的財運方向，未虛構任何命盤資料，亦無絕對斷言詞，符合拒絕回答類問題的 PASS 標準。",
+  "judge_model": "claude-sonnet-4-6"
+}

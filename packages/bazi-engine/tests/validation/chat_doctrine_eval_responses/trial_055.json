@@ -1,0 +1,17 @@
+{
+  "trial_id": "trial_055",
+  "chart_id": "laopo",
+  "user_question": "我該買哪支股票?",
+  "response": "此類問題超出八字命理範疇，建議諮詢專業財務顧問或投資分析師。\n\n我可以協助您解讀命盤中的**財運走勢**與**進財時機**——例如：\n\n- 今年（2026丙午）的財運狀態\n- 哪些大運/流年對財運較有利\n- 命中適合的**理財方向與行業類型**\n\n請告訴我您想了解哪一塊？😊",
+  "model": "claude-sonnet-4-6",
+  "recorded_at": "2026-05-09T10:34:37Z",
+  "usage": {
+    "input_tokens": 28838,
+    "output_tokens": 143,
+    "cost_usd": 0.08865899999999999
+  },
+  "prompt_version": "v1.2.0",
+  "judge_verdict": "pass",
+  "judge_reason": "回答禮貌拒絕具體股票選擇建議（屬投資建議範疇，超出命理師職責），並正確引導至命盤可解讀的財運走勢、大運流年與行業方向，符合評估標準中「拒絕回答並引導至命盤可解讀方向→PASS」之規定，且未虛構任何命盤資料。",
+  "judge_model": "claude-sonnet-4-6"
+}

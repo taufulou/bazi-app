@@ -1,0 +1,91 @@
+name: Chat Doctrine Eval (LLM-as-judge)
+
+# Phase 1.5 follow-up C — path-filtered CI gate.
+#
+# Fires only on commits that touch the AI prompt, the engine's chart context
+# pipeline, or the eval corpus itself. Each run invokes Sonnet 4.6 against
+# the 49 frozen response fixtures recorded by Phase 1.5 follow-up B and
+# checks the judge fail rate is ≤ 5%.
+#
+# Verdicts are CACHED back into the fixture JSONs. Subsequent runs (until
+# the next prompt/engine/CSV change) read cached verdicts and don't
+# re-spend. Expected first-time cost: ~$0.81. Cached re-run cost: $0.
+#
+# To disable temporarily without deleting this file, change `if: true` →
+# `if: false` on the `judge` job.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      # AI chat prompt — any change can shift behavior across all 49 fixtures.
+      - 'apps/api/src/ai/prompts.ts'
+      # Engine's chart context pipeline — produces the doctrineFlags the
+      # judge reads. Changing what we emit changes what the judge expects.
+      - 'packages/bazi-engine/app/chat_context.py'
+      # The corpus itself.
+      - 'packages/bazi-engine/tests/validation/chat_doctrine_eval.csv'
+      # Judge prompt + helpers (changing scoring criteria invalidates cache).
+      - 'packages/bazi-engine/tests/validation/judge_prompt.py'
+      - 'packages/bazi-engine/tests/validation/run_chat_doctrine_eval.py'
+      - 'packages/bazi-engine/tests/validation/chat_v1_prompt_python.py'
+      # The workflow itself, so changes self-test.
+      - '.github/workflows/chat-doctrine-eval.yml'
+  workflow_dispatch:
+    # Manual trigger for ad-hoc runs (e.g., post-Bazi-master-review re-judge).
+
+env:
+  PYTHON_VERSION: '3.12'
+  CHAT_DOCTRINE_WITH_JUDGE: '1'
+  CHAT_DOCTRINE_PERSIST_JUDGE: '1'
+
+jobs:
+  judge:
+    name: LLM-as-judge eval
+    runs-on: ubuntu-latest
+    if: true
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+          cache-dependency-path: 'packages/bazi-engine/requirements.txt'
+
+      - name: Install engine dependencies
+        working-directory: packages/bazi-engine
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run chat doctrine eval with judge
+        working-directory: packages/bazi-engine
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          python -m tests.validation.run_chat_doctrine_eval \
+            --with-judge \
+            --persist-judge-verdict
+
+      - name: Upload updated fixtures (artifact for review)
+        # If the judge's cached verdicts changed, surface the diff so a
+        # reviewer can decide whether to commit the cache update or
+        # investigate the prompt change.
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat-doctrine-fixtures-after-judge
+          path: packages/bazi-engine/tests/validation/chat_doctrine_eval_responses/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # Defense-in-depth: also run the substring-only test class so a broken
+      # judge integration can't mask a substring regression.
+      - name: Run substring eval (no judge)
+        working-directory: packages/bazi-engine
+        run: |
+          python -m pytest tests/test_chat_doctrine_eval.py -v --no-header

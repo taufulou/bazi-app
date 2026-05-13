@@ -1,0 +1,16 @@
+.badge {
+  font-size: 0.78rem;
+  color: var(--text-secondary, #6B5940);
+  background: rgba(212, 160, 23, 0.08);
+  border: 1px solid rgba(212, 160, 23, 0.18);
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.paid {
+  color: var(--text-accent, #C41E3A);
+  background: rgba(226, 61, 40, 0.06);
+  border-color: rgba(226, 61, 40, 0.2);
+}

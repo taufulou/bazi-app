@@ -7,3 +7,6 @@ httpx>=0.28.0
 python-dotenv>=1.0.1
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
+# Phase 1.5 follow-up B (live mode recording for chat doctrine eval) — runner-only,
+# not used by the FastAPI engine. Can be installed dev-only if pinning matters.
+anthropic>=0.40.0

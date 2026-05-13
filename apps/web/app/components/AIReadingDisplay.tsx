@@ -2028,6 +2028,11 @@ export default function AIReadingDisplay({
               )}
             </div>
 
+            {/* Phase 1.7 — InlineAskCard / chat hook for the main rendering loop.
+                Skipped for compat-pair _a sections; the paired _b section
+                emits its own renderAfterSection at line ~2065. */}
+            {!isCompatPairA && renderAfterSection?.(section.key)}
+
             {/* Insert deterministic data card after specific sections */}
             {deterministicKey && det && !isCareerV2 && !isAnnualV2 && !isLoveV2 && !isCompatV2 && (
               <DeterministicCard

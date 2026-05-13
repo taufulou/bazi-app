@@ -1,0 +1,375 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 9998;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 90vh;
+  max-height: 100vh;
+  background: var(--bg-card, #fff);
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -4px 30px rgba(0, 0, 0, 0.15);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideUp 0.3s ease-out;
+}
+
+/* Polish item 3 — constrain drawer width on desktop so chat bubbles don't
+   stretch across the entire viewport. ChatGPT / Claude.ai use a similar
+   ~720-900px reading width. Mobile and tablet (default 0-1024px) keep
+   the full-width slide-up behavior, which feels native on those sizes. */
+@media (min-width: 1024px) {
+  .sheet {
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    max-width: 800px;
+    /* Override slideUp's transform so we keep the centered position
+       once the entry animation completes. */
+    animation: slideUpCentered 0.3s ease-out;
+  }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* Companion keyframe for the desktop centered layout — combines the
+   horizontal centering (-50% X) with the bottom-up entry. Without this,
+   the slideUp keyframe would override translateX(-50%) mid-animation
+   and the drawer would slide up off-center. */
+@keyframes slideUpCentered {
+  from { transform: translate(-50%, 100%); }
+  to { transform: translate(-50%, 0); }
+}
+
+.dragHandle {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 10px 0 6px;
+}
+
+.dragHandle::before {
+  content: '';
+  width: 40px;
+  height: 5px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.header {
+  flex-shrink: 0;
+  padding: 0 1rem 0.6rem;
+  border-bottom: 1px solid rgba(212, 160, 23, 0.15);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.headerTitleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  /* Phase 4 [H3] fix — never wrap; on tight viewports the title
+     truncates with ellipsis before the action buttons shrink. */
+  flex-wrap: nowrap;
+}
+
+.headerTitle {
+  font-family: var(--font-noto-serif-tc, 'Noto Serif TC'), serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text-accent, #C41E3A);
+  /* Phase 4 [H3] fix — allow shrink + ellipsis before button row wraps. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  /* Phase 4 [H3] fix — button row never shrinks. */
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.historyBtn,
+.browserBtn {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: var(--bg-secondary, #FFFBF5);
+  border: 1px solid rgba(212, 160, 23, 0.25);
+  color: var(--text-secondary, #6B5940);
+  font-family: inherit;
+  font-size: 0.78rem;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  /* Phase 4 [H3] fix — buttons never shrink + never wrap their text */
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.historyBtn:hover:not(:disabled),
+.browserBtn:hover:not(:disabled) {
+  background: var(--bg-card, #fff);
+  border-color: rgba(226, 61, 40, 0.3);
+}
+
+.historyBtn:disabled,
+.browserBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.historyBtn[aria-expanded="true"],
+.browserBtn[aria-expanded="true"] {
+  background: var(--bg-card, #fff);
+  border-color: rgba(226, 61, 40, 0.4);
+  color: var(--text-accent, #C41E3A);
+}
+
+.historyBtnLabel,
+.browserBtnLabel {
+  font-weight: 500;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  color: var(--text-muted, #8B7355);
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 8px;
+  transition: background 0.15s;
+}
+
+.closeBtn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.closeBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Phase 4 — body wrapper. Establishes positioning context for the
+   SampleQuestionsBrowser overlay so it anchors to body area only
+   (excluding the drawer header above). Flex: 1 lets it grow to fill
+   remaining vertical space; min-height: 0 lets ChatThread scroll
+   within. */
+.bodyWrap {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.headerMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.messageCounter {
+  font-size: 0.72rem;
+  color: var(--text-muted, #8B7355);
+}
+
+/* Tier-upgrade refund banner (Option A1).
+   Renders inside the chat drawer header area when the user gets credits
+   refunded for stranded paid messages after a subscription tier change. */
+.tierRefundBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: 0.5rem 0;
+  padding: 0.6rem 0.75rem;
+  background: linear-gradient(
+    135deg,
+    rgba(76, 175, 80, 0.08),
+    rgba(212, 160, 23, 0.08)
+  );
+  border: 1px solid rgba(76, 175, 80, 0.25);
+  border-radius: 0.6rem;
+}
+
+.tierRefundCopy {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-primary, #3C2415);
+}
+
+.tierRefundCopy strong {
+  color: var(--text-accent, #C41E3A);
+  font-weight: 700;
+}
+
+.tierRefundDismiss {
+  background: none;
+  border: none;
+  color: var(--text-muted, #8B7355);
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0.15rem 0.3rem;
+  cursor: pointer;
+  align-self: flex-start;
+  border-radius: 0.3rem;
+  flex-shrink: 0;
+}
+
+.tierRefundDismiss:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.errorBanner {
+  flex-shrink: 0;
+  background: rgba(226, 61, 40, 0.08);
+  color: var(--color-red, #E23D28);
+  padding: 0.6rem 1rem;
+  font-size: 0.85rem;
+  border-bottom: 1px solid rgba(226, 61, 40, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+
+.errorDismiss {
+  flex-shrink: 0;
+  background: var(--bg-card, #fff);
+  border: 1px solid rgba(226, 61, 40, 0.3);
+  color: var(--color-red, #E23D28);
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.lockBanner {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: rgba(212, 160, 23, 0.08);
+  border-bottom: 1px solid rgba(212, 160, 23, 0.25);
+  color: var(--text-primary, #3C2415);
+  padding: 0.65rem 1rem;
+  font-size: 0.85rem;
+}
+
+.lockIcon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.lockText {
+  flex: 1;
+  line-height: 1.45;
+}
+
+.lockNewSessionBtn {
+  flex-shrink: 0;
+  background: linear-gradient(135deg, var(--color-red, #E23D28), var(--color-orange, #F5A623));
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.lockNewSessionBtn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.lockNewSessionBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.emptyState {
+  margin: auto;
+  text-align: center;
+  padding: 1.4rem;
+  max-width: 320px;
+}
+
+.emptyHeadline {
+  font-family: var(--font-noto-serif-tc, 'Noto Serif TC'), serif;
+  font-size: 1rem;
+  color: var(--text-accent, #C41E3A);
+  margin: 0 0 0.5rem;
+  font-weight: 600;
+}
+
+.emptyHint {
+  font-size: 0.85rem;
+  color: var(--text-muted, #8B7355);
+  line-height: 1.55;
+  margin: 0 0 0.8rem;
+}
+
+.emptyQuestions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.emptyQuestionBtn {
+  background: var(--bg-card, #fff);
+  border: 1px solid rgba(212, 160, 23, 0.25);
+  border-radius: 999px;
+  padding: 0.55rem 1.1rem;
+  font-family: inherit;
+  font-size: 0.88rem;
+  color: var(--text-primary, #3C2415);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  max-width: 100%;
+}
+
+.emptyQuestionBtn:hover:not(:disabled) {
+  background: var(--bg-secondary, #FFFBF5);
+  border-color: rgba(226, 61, 40, 0.35);
+  transform: translateY(-1px);
+}
+
+.emptyQuestionBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

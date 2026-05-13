@@ -1,0 +1,17 @@
+{
+  "trial_id": "trial_053",
+  "chart_id": "laopo",
+  "user_question": "我的時柱是什麼?",
+  "response": "根據您命盤中的四柱資料，您的時柱是：\n\n**壬申**\n\n- **時干**：壬（相對日主甲木，為**偏印**）\n- **時支**：申\n- **藏干**：庚（偏官）、壬（偏印）、戊（偏財）\n- **十二長生**：絕\n- **神煞**：文昌、驛馬、空亡\n- **納音**：劍鋒金\n\n時干壬水是您的用神（水），透出於時柱，對命局有一定補益作用。時支申帶驛馬，晚年或子女宮有較多移動變化的特質。",
+  "model": "claude-sonnet-4-6",
+  "recorded_at": "2026-05-09T10:40:02Z",
+  "usage": {
+    "input_tokens": 28839,
+    "output_tokens": 200,
+    "cost_usd": 0.089517
+  },
+  "prompt_version": "v1.2.0",
+  "judge_verdict": "pass",
+  "judge_reason": "回答正確引用 <chart> 中時柱壬申、藏干庚/壬/戊、<favorability> 中用神水（壬水），以及 <shensha> 中時柱神煞文昌/驛馬/空亡，所有資料均與命盤一致，無虛構內容，亦無絕對斷言詞。",
+  "judge_model": "claude-sonnet-4-6"
+}

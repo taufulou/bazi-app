@@ -336,6 +336,274 @@ export class AdminService {
     };
   }
 
+  // ============================================================
+  // Chat aggregate metrics (Phase 1.10)
+  //
+  // Returns aggregate-only metrics — no message contents, no user-specific
+  // drill-down. PDPA-compliant for Phase 1; drill-down deferred to Phase 2
+  // with audit log + TOS update per the plan.
+  // ============================================================
+
+  /** Mirrors CHAT_SESSION_HARD_CAP_MESSAGES from chat-payment.service.ts /
+   *  @repo/shared. Inlined here to avoid cross-module imports (NestJS
+   *  cannot import @repo/shared at runtime — see CLAUDE.md). Keep in sync. */
+  private static readonly CHAT_SESSION_HARD_CAP_MESSAGES = 30;
+
+  /** Anthropic pricing constants for Claude Sonnet 4.x at 1h TTL ephemeral
+   *  cache (per the plan's cost analysis). USD per million tokens.
+   *  - Cache write at 1h TTL: 2× regular input rate ($3 × 2 = $6)
+   *  - Cache read: 0.1× regular input rate ($3 × 0.1 = $0.30)
+   *  - Regular input: $3
+   *  - Output: $15
+   *  Update if Anthropic pricing or model changes. */
+  private static readonly USD_PER_MTOK_CACHE_WRITE_1H = 6;
+  private static readonly USD_PER_MTOK_CACHE_READ = 0.3;
+  private static readonly USD_PER_MTOK_INPUT_REGULAR = 3;
+  private static readonly USD_PER_MTOK_OUTPUT = 15;
+
+  async getChatAggregate() {
+    const now = new Date();
+    const since7d = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const since24h = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const startOfMonthUTC = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+    );
+
+    // Run all aggregations in parallel.
+    const [
+      totalSessions,
+      sessionsLast7Days,
+      sessionsLast24Hours,
+      sessionsAtHardCap,
+      sessionsExtendedAgg,
+      messageAggregates,
+      messagesByRole,
+      refundedMessages,
+      validatorAggregates,
+      tokenAggregates,
+      llmJudgeBreakdown,
+      monthlyUsageByTier,
+      sessionsLast7DaysWithMessages,
+    ] = await Promise.all([
+      // Sessions
+      this.prisma.chatSession.count(),
+      this.prisma.chatSession.count({ where: { startedAt: { gte: since7d } } }),
+      this.prisma.chatSession.count({ where: { startedAt: { gte: since24h } } }),
+      this.prisma.chatSession.count({
+        where: {
+          messageCount: { gte: AdminService.CHAT_SESSION_HARD_CAP_MESSAGES },
+        },
+      }),
+      this.prisma.chatSession.aggregate({
+        _sum: { creditExtensions: true },
+        _count: { id: true },
+        where: { creditExtensions: { gt: 0 } },
+      }),
+      this.prisma.chatSession.aggregate({
+        _avg: { messageCount: true },
+      }),
+      // Messages by role (all roles tracked, then split below).
+      this.prisma.chatMessage.groupBy({
+        by: ['role'],
+        _count: { id: true },
+      }),
+      // Refunded messages — refundedAt IS NOT NULL captures all refund cases.
+      this.prisma.chatMessage.count({ where: { refundedAt: { not: null } } }),
+      // Validator stats: bannedPhraseStripped + citationAutoPrepended.
+      this.prisma.chatMessage.aggregate({
+        _count: { id: true },
+        where: {
+          OR: [
+            { bannedPhraseStripped: true },
+            { citationAutoPrepended: true },
+          ],
+        },
+      }),
+      // Cache token totals (Phase 1.6).
+      this.prisma.chatMessage.aggregate({
+        _sum: {
+          cacheReadTokens: true,
+          cacheCreationTokens: true,
+          tokensInput: true,
+          tokensOutput: true,
+        },
+      }),
+      // LLM-judge verdict breakdown (5% sampling in prod).
+      this.prisma.chatMessage.groupBy({
+        by: ['llmJudgeVerdict'],
+        _count: { id: true },
+        where: { llmJudgeVerdict: { not: null } },
+      }),
+      // Monthly usage by subscription tier (current month).
+      this.prisma.chatMonthlyUsage.groupBy({
+        by: ['subscriptionTier'],
+        _sum: { chatsUsed: true },
+        _count: { id: true },
+        where: { periodStart: startOfMonthUTC },
+      }),
+      // Phase 1.11 — sessions started in last 7 days with their message
+      // token counts, for per-bucket avg-cost computation. We bucket in
+      // JS by messageCount (1-10 / 11-20 / 21-30) — Prisma's groupBy
+      // doesn't support custom range bucketing. 7-day window keeps the
+      // result set bounded; if scale grows beyond ~10k sessions/week,
+      // move to a daily cron that materializes the buckets.
+      this.prisma.chatSession.findMany({
+        where: { startedAt: { gte: since7d } },
+        select: {
+          messageCount: true,
+          messages: {
+            select: {
+              cacheReadTokens: true,
+              cacheCreationTokens: true,
+              tokensInput: true,
+              tokensOutput: true,
+            },
+          },
+        },
+      }),
+    ]);
+    // NOTE: contextDriftedSessions metric was removed in the Phase 1.10
+    // post-ship audit — `CONTEXT_VERSION_DRIFTED` is never persisted on
+    // ChatMessage rows (drift is checked BEFORE message creation in both
+    // sync and stream paths), so the previous query always returned 0.
+    // Tracking deferred to Phase 2 — needs either a new schema field
+    // (e.g. ChatSession.driftDetectedAt) or admin-side current-version
+    // lookup via injected ChatContextService.
+
+    // Split message counts by role (groupBy returns an array of buckets).
+    const userMessages = messagesByRole.find((r) => r.role === 'USER')?._count.id ?? 0;
+    const assistantMessages =
+      messagesByRole.find((r) => r.role === 'ASSISTANT')?._count.id ?? 0;
+    const systemMessages =
+      messagesByRole.find((r) => r.role === 'SYSTEM')?._count.id ?? 0;
+    const totalMessages = userMessages + assistantMessages + systemMessages;
+
+    // Refund rate = refunded user messages / total user messages. Refunds
+    // are issued one-per-failed-turn (refundLastMessage in
+    // chat-payment.service.ts), so one user message gets refundedAt set per
+    // refund event.
+    const refundRate =
+      userMessages > 0 ? refundedMessages / userMessages : 0;
+
+    // Validator counts.
+    const validatorTotal = validatorAggregates._count.id;
+
+    // LLM-judge verdicts.
+    const llmJudgePass =
+      llmJudgeBreakdown.find((b) => b.llmJudgeVerdict === 'pass')?._count.id ?? 0;
+    const llmJudgeFail =
+      llmJudgeBreakdown.find((b) => b.llmJudgeVerdict === 'fail')?._count.id ?? 0;
+    const llmJudgeSampled = llmJudgePass + llmJudgeFail;
+    const llmJudgeFailRate =
+      llmJudgeSampled > 0 ? llmJudgeFail / llmJudgeSampled : 0;
+
+    // Cache hit rate = cacheRead / (cacheRead + cacheCreation).
+    const cacheRead = tokenAggregates._sum.cacheReadTokens ?? 0;
+    const cacheCreation = tokenAggregates._sum.cacheCreationTokens ?? 0;
+    const cacheTotal = cacheRead + cacheCreation;
+    const cacheHitRate = cacheTotal > 0 ? cacheRead / cacheTotal : 0;
+
+    // Phase 1.11 — bucket 7-day sessions by messageCount and compute avg
+    // per-session cost in each bucket. Per the plan's cost watchdog
+    // section: alert thresholds vary by bucket (long sessions cost more
+    // because history tokens scale with each turn).
+    type Bucket = '1-10' | '11-20' | '21-30';
+    const bucketsAccum: Record<Bucket, { count: number; totalCostUsd: number }> = {
+      '1-10': { count: 0, totalCostUsd: 0 },
+      '11-20': { count: 0, totalCostUsd: 0 },
+      '21-30': { count: 0, totalCostUsd: 0 },
+    };
+    for (const session of sessionsLast7DaysWithMessages) {
+      // Skip sessions with no messages — they contribute no cost data.
+      if (session.messageCount === 0 || session.messages.length === 0) continue;
+      let costUsd = 0;
+      for (const m of session.messages) {
+        costUsd +=
+          ((m.cacheCreationTokens ?? 0) *
+            AdminService.USD_PER_MTOK_CACHE_WRITE_1H) /
+          1_000_000;
+        costUsd +=
+          ((m.cacheReadTokens ?? 0) * AdminService.USD_PER_MTOK_CACHE_READ) /
+          1_000_000;
+        costUsd +=
+          ((m.tokensInput ?? 0) * AdminService.USD_PER_MTOK_INPUT_REGULAR) /
+          1_000_000;
+        costUsd +=
+          ((m.tokensOutput ?? 0) * AdminService.USD_PER_MTOK_OUTPUT) /
+          1_000_000;
+      }
+      const bucket: Bucket =
+        session.messageCount <= 10
+          ? '1-10'
+          : session.messageCount <= 20
+            ? '11-20'
+            : '21-30';
+      bucketsAccum[bucket].count += 1;
+      bucketsAccum[bucket].totalCostUsd += costUsd;
+    }
+    const costByBucket = (Object.keys(bucketsAccum) as Bucket[]).map(
+      (range) => {
+        const b = bucketsAccum[range];
+        return {
+          range,
+          sessionCount: b.count,
+          avgCostUsd: b.count > 0 ? b.totalCostUsd / b.count : 0,
+          totalCostUsd: b.totalCostUsd,
+        };
+      },
+    );
+
+    return {
+      generatedAt: now.toISOString(),
+      sessions: {
+        total: totalSessions,
+        last7Days: sessionsLast7Days,
+        last24Hours: sessionsLast24Hours,
+        atHardCap: sessionsAtHardCap,
+        extended: sessionsExtendedAgg._count.id,
+        avgMessagesPerSession: messageAggregates._avg.messageCount ?? 0,
+      },
+      messages: {
+        total: totalMessages,
+        user: userMessages,
+        assistant: assistantMessages,
+        system: systemMessages,
+        refunded: refundedMessages,
+        refundRate,
+      },
+      validators: {
+        bannedPhraseOrCitationAutoFixed: validatorTotal,
+        llmJudgeSampled,
+        llmJudgeFail,
+        llmJudgeFailRate,
+      },
+      tokens: {
+        totalInput: tokenAggregates._sum.tokensInput ?? 0,
+        totalOutput: tokenAggregates._sum.tokensOutput ?? 0,
+        totalCacheRead: cacheRead,
+        totalCacheCreation: cacheCreation,
+        cacheHitRate,
+      },
+      monthly: {
+        periodStart: startOfMonthUTC.toISOString(),
+        byTier: monthlyUsageByTier.map((t) => ({
+          tier: t.subscriptionTier,
+          activeUsers: t._count.id,
+          totalChatsUsed: t._sum.chatsUsed ?? 0,
+        })),
+      },
+      extensions: {
+        sessionsExtendedCount: sessionsExtendedAgg._count.id,
+        totalCreditsSpent: sessionsExtendedAgg._sum.creditExtensions ?? 0,
+      },
+      // Phase 1.11 — 7-day rolling cost breakdown by session-length bucket.
+      costByBucket: {
+        windowDays: 7,
+        buckets: costByBucket,
+      },
+    };
+  }
+
   async getAICosts(days = 30) {
     // Clamp days to 1-365
     days = Math.max(1, Math.min(365, days));

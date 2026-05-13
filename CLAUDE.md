@@ -1041,6 +1041,69 @@ canonical bullet at line 139.
 
 ---
 
+## AI Chat Feature — Architecture & Operations
+
+LLM chat layer on top of all 5 Bazi reading types: LIFETIME / LOVE / CAREER / ANNUAL / COMPATIBILITY. Phases 1+2+3+4 all SHIPPED + browser-tested green. Full design + rationale lives in the plan file `/Users/roger/.claude/plans/next-the-big-feature-proud-manatee.md` (Phase 1 + 2 + 3 + 4 sections, with R1-R4 review logs at the bottom of each phase). Read the plan when working on chat-feature internals; this section is a quick orientation only.
+
+### Scope by phase
+- **Phase 1** (LIFETIME only) — chat infrastructure: NestJS ChatModule, Python `chat_context.py` merges all 4 enhanced-insights pipelines (lifetime+love+career+annual), 5-layer anti-hallucination (slim ~10k-tok context + doctrine injectors + post-validators + banned-phrase regex + 5% LLM-judge), SSE streaming via Anthropic SDK `.stream()`, 1h ephemeral prompt cache, per-message billing for subscribers + per-extension billing (10 msgs/credit) for credit users, 10-msg initial / 30-msg hard cap.
+- **Phase 2** (LOVE/CAREER/ANNUAL added) — per-reading-type topic-boundary policy + 親切 refuse template + cross-sell map. New `CHAT_PROMPT_VERSIONS` map (per-type), `ChatSession.readingType` denormalized column, `ChatSampleQuestion` DB model + admin UI.
+- **Phase 3** (COMPATIBILITY added) — cross-chart chat. New nullable `ChatSession.comparisonId` + arithmetic CHECK constraint (exactly-one of readingId/comparisonId). New engine endpoint `POST /build-chat-context-compat`. 2-direction cross-sell map (user_* vs partner_*: partner-side suggests user A unlock B's reading using A's credits + B's birthdata-on-file — NOT inviting B to register). K-3 in-topic partner-LOVE answer pattern + K-3 anti-drift validators.
+- **Phase 4** (Sample Questions Browser) — «想問什麼？» button in drawer header opens full-overlay sheet listing all questions for current reading type. `ChatComposer` refactored to forwardRef + `appendToDraft` imperative API (populate-only, NOT auto-send).
+- **UX polish (2026-05-13)** — drawer header «AI 命理師對話»; floating button «問 AI 命理師»; InlineAskCard title «這段想了解更多？AI 命理師深入解答» (clickable red-underlined link → opens drawer with section context, no auto-send).
+
+### Key files
+- **Backend**: `apps/api/src/chat/` — `chat.controller`, `chat.service`, `chat-context.service`, `chat-payment.service`, `chat-stream.service`, `chat-validators.service`, `chat-sample-questions.service`, `chat-cleanup.cron`
+- **Prompts**: `apps/api/src/ai/prompts.ts` — `CHAT_V1_*` shared block + few-shot library, `CHAT_TOPIC_SCOPE_BY_READING_TYPE`, `CHAT_REFUSE_TEMPLATE_BY_READING_TYPE`, `CHAT_CROSS_SELL_LINES`, `CHAT_PROMPT_VERSIONS` (per-type map), `REFUSE_FEW_SHOTS_BY_READING_TYPE`, `CHAT_V1_TOPIC_REFUSE_OPENING_REGEX`
+- **Engine**: `packages/bazi-engine/app/chat_context.py` — `build_chat_context`, `build_chat_context_compat`, `_slim_party_for_compat`, doctrine injectors (mirror `ai.service.ts::interpolateLoveV2Fields` pattern at `:3794+`)
+- **Engine endpoints**: `/build-chat-context` + `/build-chat-context-compat` in `packages/bazi-engine/app/main.py`
+- **DB**: `ChatSession`, `ChatMessage`, `ChatMonthlyUsage`, `ChatSampleQuestion` in `apps/api/prisma/schema.prisma`. Key columns: `ChatSession.readingType` (denormalized snapshot), `ChatSession.comparisonId` (nullable, arithmetic CHECK constraint enforces exactly-one of readingId/comparisonId), `ChatSession.contextVersion`, `ChatSession.consecutiveRefuses`, `ChatMessage.isRefuse`
+- **Frontend**: `apps/web/app/components/chat/` — `ChatDrawer`, `ChatFloatingButton`, `InlineAskCard`, `ChatComposer` (forwardRef with `appendToDraft` API), `ChatThread`, `ChatMessage`, `ChatHistoryPanel`, `SampleQuestionsBrowser`, `hooks/useChatStream`, `hooks/useSampleQuestions` (also exports `useAllSampleQuestions` for Phase 4), `lib/chat-api.ts`
+- **Reading page mounts**: `apps/web/app/reading/[type]/page.tsx` (LIFETIME/LOVE/CAREER/ANNUAL), `apps/web/app/reading/compatibility/page.tsx` (gated on `step === 'result'`)
+- **Admin UI**: `apps/web/app/admin/chat-questions/page.tsx`
+
+### Cache invalidation (CRITICAL — read before changing prompts.ts)
+- `CHAT_PROMPT_VERSIONS` is a **per-reading-type map**. Bumping ONE type (e.g. `LOVE` v1.2.0 → v1.2.1) invalidates only LOVE chat sessions — other types unaffected. The version-string functions `getCurrentSnapshotVersions(readingType)` + `computeVersionString(readingType)` take the type as arg.
+- `chatSession.contextVersion` is snapshotted at session create. Mid-session messages reject when the current version drifts (string equality check) — banner directs user to start new session.
+- Operator runs `redis-cli FLUSHALL` after any prompts.ts change (matches existing Phase 12 cadence).
+- Sample-questions cache uses a SEPARATE batch-aware version stamp `chat-sample-questions:version` (invalidated by admin writes).
+- The merged chat-context cache is keyed by birth-hash + all 4 pre-analysis versions + `CHAT_PROMPT_VERSIONS[type]`. Bumping any `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH[type]` invalidates that type's chat-context cache.
+- COMPATIBILITY chat-context cache key is **order-sensitive** (A=user, B=partner; do NOT sort birth hashes). Locked by `chat-context.service.spec.ts::test_compat_cache_key_order_sensitive`.
+
+### Anti-hallucination defenses (5 layers — do not relax without doctrine review)
+1. **Layer 1** — slim chat-context merges ALL 4 enhanced-insights pipelines regardless of which reading_type invoked chat. Phase 1 calibration anchor: Laopo's chart MUST emit `doctrineFlags.shangguanJianGuan[0].valence === 'beneficial'` — CI-gated.
+2. **Layer 2** — slim trims to ~10k tokens; KEEPS narrativeAnchors, tougan_analysis, ten_god_position_analysis, all doctrineFlags, all luck periods, 15-yr annual forecast; DROPS prose `aiInterpretationJson`.
+3. **Layer 3** — system prompt ports anti-hallucination rules verbatim from existing `prompts.ts` Phase 11-12 (絕對禁止/格局/透干/中和-旺-弱/神煞/忌-vs-仇 etc.) + 10 chat-specific clauses.
+4. **Layer 4** — deterministic Chinese-sentence injection for doctrine flags (mirrors `interpolateLoveV2Fields` at `:3794+`). Server-side composes the EXACT sentence the AI must splice verbatim.
+5. **Layer 5+6** — `<system-reminder>` re-grounding injected as user-role at every turn ≥4 (preserves prompt cache — system block NEVER mutated mid-session); post-validators run banned-phrase regex strip (一定/絕對/必定/必然/肯定/百分百/etc.) + citation enforcement (response must open with `根據|您的|命局/盤中|目前的|現行`) + 5% LLM-judge sampling.
+
+### Topic-boundary policy (Phase 2+)
+- LIFETIME chat answers all topics — refuse template is `null` (NOT empty string; sentinel matters in dispatch).
+- LOVE/CAREER/ANNUAL/COMPATIBILITY refuse out-of-topic questions with warm template, end with cross-sell line, then pivot back to in-topic with `crossSellPivotHint` (e.g. «根據您的命盤，2027 丁未年（正緣動年）»).
+- Refused messages are auto-refunded via post-stream `refundLastMessage('topic-boundary-refuse')` call. The regex `CHAT_V1_TOPIC_REFUSE_OPENING_REGEX` matches the standardized opener AFTER the existing post-validator runs (`chat-stream.service.ts:496-541`).
+- Soft-warning dialog fires at 5+ consecutive refuses (`ChatSession.consecutiveRefuses` atomic counter via Prisma `{ increment: 1 }` / `{ set: 0 }` — race-safe).
+- Env `CHAT_ENABLED_READING_TYPES=LIFETIME,LOVE,CAREER,ANNUAL,COMPATIBILITY` is the runtime kill switch (no redeploy needed to gate a type).
+
+### COMPATIBILITY chat specifics (Phase 3 — do not break invariants)
+- Engine slim merges both parties via `_slim_party_for_compat`. doctrineFlags filtered to 4 LOVE keys via `LOVE_DOCTRINE_FLAG_KEYS = {shangguanJianGuan, biJieDuoCai, guanShaHunZa, spousePalaceFrictions}` to avoid CAREER doctrine leaking into COMPAT slim. doctrineInjectors pass-through (all 4 are already LOVE-domain).
+- Cross-chart findings extracted from `compat['dimensionScores']['spousePalace']['findings']` (**English camelCase** key, filtered by **Chinese** `type` strings ∈ {三刑, 半刑, 子卯刑, 六沖, 六害}). NOT from `specialFindings` (booleans only).
+- Pivot hint pairs `verbalLabel` with `adjustedScore` (NOT `overallScore` — engine's `compat['label']` is computed from `adjustedScore` at `compatibility_enhanced.py:1759`). 11 possible labels: 8 base from `COMPATIBILITY_LABELS` (天作之合/天生一對/相得益彰/互補雙星/歡喜冤家/需要磨合/挑戰重重/緣分較淺) + 3 SPECIAL overrides (相愛相殺/前世冤家/命中注定) via `special_label or label` at `:1778`.
+- **K-3 in-topic partner-LOVE pattern** (load-bearing for monetization): when user asks about partner B's character in COMPAT chat, AI must answer FULLY using `chartB.romance.lovePersonality.*` + `chartB.romance.marriagePalace.personality.*` ONLY. Do NOT use `chartB.romance.spouseStarAnalysis` / `spouseAppearance` / `marriagePalace.appearance` — those describe B's IDEAL SPOUSE (which equals user A!), would cause confusing self-reference. Opening MUST be «根據對方命盤資料」 (not refuse template). `looksLikeK3PartnerAnswer` validator in `chat-validators.service.ts` flags drift.
+- Partner cross-sell wording rule: «您使用對方生辰資料解鎖《八字XX》» (user spends own credits) — NEVER «邀請對方註冊» / «對方解鎖».
+- Phase 3 doctrine eval corpus + Bazi-master review is deferred to Phase 3.1 (sample-question seed + token-budget CI gate ≤ 15k tokens for Laopo×Roger anchor are in place; full LLM-judge corpus pending).
+
+### Operator quick-ref — deploy a chat prompt change
+1. Edit `apps/api/src/ai/prompts.ts` (the relevant clause / few-shot / refuse template)
+2. Bump corresponding `CHAT_PROMPT_VERSIONS.{type}` in same file (e.g. `lifetime: 'v1.0.0' → 'v1.0.1'`)
+3. Rebuild NestJS (`../../node_modules/.bin/nest build` from `apps/api/`)
+4. Restart NestJS
+5. `redis-cli FLUSHALL`
+6. In-flight sessions reject next message with `CONTEXT_VERSION_DRIFTED` banner — users open new session (this is intentional; mid-session prompt swap would be unsafe).
+
+⚠️ **Cost ack**: bumping `CHAT_PROMPT_VERSIONS` invalidates ALL cached sessions for that type. Cost is bounded (chats are interactive, no async re-narration like the reading pipeline), but monitor Anthropic spend dashboard for 24h post-deploy.
+
+---
+
 ## Day Master Mascot Design Bible — 日主角色卡吉祥物設計規範
 
 **Purpose**: 10 (×2 genders = 20) iconic humanoid mascots for "你的角色卡". Each represents a day master's 本質 in Chinese ink wash style. Goal: maximize shareability.
