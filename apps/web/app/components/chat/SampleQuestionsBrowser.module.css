@@ -1,0 +1,207 @@
+/**
+ * Phase 4 — SampleQuestionsBrowser overlay styles.
+ *
+ * Full-overlay sheet within the chat drawer. Covers chat thread + composer
+ * area; drawer header stays visible above. Design language matches
+ * ChatHistoryPanel (warm cream, tan borders, accent red title).
+ */
+
+.overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--bg-secondary, #FFFBF5);
+  display: flex;
+  flex-direction: column;
+  z-index: 5;  /* above ChatThread + ChatComposer; below drawer's own backdrop */
+  animation: fadeInOverlay 0.2s ease-out;
+}
+
+@keyframes fadeInOverlay {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Sub-header (title + close) */
+.subHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid rgba(212, 160, 23, 0.18);
+  background: var(--bg-card, #fff);
+  flex-shrink: 0;
+}
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.title {
+  font-family: var(--font-noto-serif-tc, 'Noto Serif TC'), serif;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-accent, #C41E3A);
+}
+
+.subtitle {
+  font-size: 0.75rem;
+  color: var(--text-muted, #8B7355);
+  line-height: 1.4;
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  color: var(--text-muted, #8B7355);
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.closeBtn:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* Inline error banner (shown when drawer's onPick blocks the pick) */
+.errorBanner {
+  margin: 0.6rem 1rem 0;
+  padding: 0.6rem 0.85rem;
+  background: rgba(226, 61, 40, 0.08);
+  border: 1px solid rgba(226, 61, 40, 0.25);
+  border-radius: 8px;
+  color: var(--color-red, #E23D28);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+/* Body (scrollable list) */
+.body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.4rem 0.6rem;
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.listItem {
+  margin: 0;
+}
+
+.empty {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: var(--text-muted, #8B7355);
+  font-size: 0.9rem;
+}
+
+/* Individual question button row */
+.questionBtn {
+  width: 100%;
+  text-align: left;
+  background: var(--bg-card, #fff);
+  border: 1px solid rgba(212, 160, 23, 0.18);
+  border-radius: 10px;
+  padding: 0.7rem 0.95rem;
+  margin: 0.3rem 0;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  font-family: inherit;
+  font-size: 0.9rem;
+  color: var(--text-primary, #3C2415);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  line-height: 1.45;
+}
+
+.questionBtn:hover {
+  background: var(--bg-secondary, #FFFBF5);
+  border-color: rgba(226, 61, 40, 0.3);
+}
+
+.questionBtn:active {
+  transform: scale(0.99);
+}
+
+.questionBtn:focus-visible {
+  outline: 2px solid var(--text-accent, #C41E3A);
+  outline-offset: 1px;
+}
+
+.questionArrow {
+  color: var(--color-red, #E23D28);
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.questionText {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Footer count */
+.footer {
+  padding: 0.5rem 1rem;
+  border-top: 1px solid rgba(212, 160, 23, 0.12);
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--text-muted, #8B7355);
+  background: var(--bg-card, #fff);
+  flex-shrink: 0;
+}
+
+/* Loading skeleton */
+.skeleton {
+  cursor: default;
+  pointer-events: none;
+}
+
+.skeleton:hover {
+  background: var(--bg-card, #fff);
+  border-color: rgba(212, 160, 23, 0.18);
+}
+
+.skeletonText {
+  display: block;
+  width: 75%;
+  height: 1em;
+  background: linear-gradient(
+    90deg,
+    rgba(212, 160, 23, 0.08) 0%,
+    rgba(212, 160, 23, 0.18) 50%,
+    rgba(212, 160, 23, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.2s ease-in-out infinite;
+  border-radius: 4px;
+}
+
+@keyframes skeletonShimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}

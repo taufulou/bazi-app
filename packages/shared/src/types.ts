@@ -690,3 +690,96 @@ export interface PromoCode {
   validUntil: string;
   isActive: boolean;
 }
+
+// ============================================================
+// AI Chat Feature (Phase 1)
+// ============================================================
+
+/** Role of a chat message — mirrors Prisma ChatRole enum on the API side. */
+export type ChatRole = 'USER' | 'ASSISTANT' | 'SYSTEM';
+
+/** Identifies one of the 7 frontend dialog/banner strings.
+ *  Source of truth for copy lives in `apps/web/app/components/chat/dialog-copy.ts`. */
+export type ChatDialogKey =
+  | 'extend_standard'             // Dialog 1
+  | 'turn20_warning_zero_balance' // Dialog 2
+  | 'turn20_warning_with_balance' // Dialog 3
+  | 'near_cap_warning'            // Dialog 4
+  | 'hard_cap_reached'            // Dialog 5
+  | 'new_session_lose_paid'       // Dialog 6
+  | 'quota_badge'                 // Persistent header badge
+  | 'disclaimer_footer';          // Persistent footer disclaimer
+
+/** A single chat message as the frontend sees it (subset of API ChatMessageDto). */
+export interface ChatMessage {
+  id: string;
+  role: ChatRole;
+  content: string;
+  isRegrounding: boolean;
+  errorCode: string | null;
+  refundedAt: string | null;
+  createdAt: string;
+}
+
+/** A single chat session as the frontend sees it (subset of API ChatSession). */
+export interface ChatSession {
+  id: string;
+  startedAt: string;
+  endedAt: string | null;
+  messageCount: number;
+  unusedPaidMessages: number;
+  lastMessagePreview: string | null;
+}
+
+/** SSE event shapes emitted by `POST /api/chat/sessions/:id/messages`.
+ *  Mirrors `StreamEvent` in `apps/api/src/chat/chat-stream.service.ts`. */
+export type ChatStreamEvent =
+  | { type: 'session_start'; messageId: string }
+  | { type: 'delta'; text: string }
+  | {
+      type: 'done';
+      messageId: string;
+      messageCount: number;
+      messagesRemaining: number;
+      usage: {
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadTokens: number;
+        cacheCreationTokens: number;
+      };
+    }
+  | {
+      type: 'error';
+      code: string;
+      message: string;
+      refunded?: boolean;
+      refundMethod?: string | null;
+    };
+
+/** Response of POST /api/chat/sessions/:id/extend. */
+export interface ChatExtendResponse {
+  paidMessagesAllowance: number;
+  messagesUntilHardCap: number;
+  creditExtensions: number;
+}
+
+/** Response of GET /api/chat/usage/me. */
+export interface ChatUsageResponse {
+  thisMonth: {
+    chatsUsed: number;
+    monthlyQuota: number;
+    resetsAt: string;
+    subscriptionTier: string;
+  };
+  sessionsThisHour: number;
+  hourlyRateLimit: number;
+  /**
+   * Surfaces a recent (within 24h) tier-upgrade refund for "stranded paid
+   * messages" so the chat drawer can show a one-time confirmation banner.
+   * `null` if no refund occurred recently.
+   */
+  recentTierUpgradeRefund: {
+    creditsRefunded: number;
+    refundedAt: string; // ISO timestamp
+  } | null;
+}

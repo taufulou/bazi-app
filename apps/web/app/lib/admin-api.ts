@@ -264,6 +264,67 @@ export async function getAdminStats(token: string): Promise<DashboardStats> {
   return apiFetch<DashboardStats>('/api/admin/stats', { token });
 }
 
+// ============ Chat aggregate (Phase 1.10) ============
+
+export interface ChatAggregateResponse {
+  generatedAt: string;
+  sessions: {
+    total: number;
+    last7Days: number;
+    last24Hours: number;
+    atHardCap: number;
+    extended: number;
+    avgMessagesPerSession: number;
+  };
+  messages: {
+    total: number;
+    user: number;
+    assistant: number;
+    system: number;
+    refunded: number;
+    refundRate: number;
+  };
+  validators: {
+    bannedPhraseOrCitationAutoFixed: number;
+    llmJudgeSampled: number;
+    llmJudgeFail: number;
+    llmJudgeFailRate: number;
+  };
+  tokens: {
+    totalInput: number;
+    totalOutput: number;
+    totalCacheRead: number;
+    totalCacheCreation: number;
+    cacheHitRate: number;
+  };
+  monthly: {
+    periodStart: string;
+    byTier: Array<{
+      tier: string;
+      activeUsers: number;
+      totalChatsUsed: number;
+    }>;
+  };
+  extensions: {
+    sessionsExtendedCount: number;
+    totalCreditsSpent: number;
+  };
+  /** Phase 1.11 — 7-day rolling cost breakdown by session-length bucket. */
+  costByBucket: {
+    windowDays: number;
+    buckets: Array<{
+      range: '1-10' | '11-20' | '21-30';
+      sessionCount: number;
+      avgCostUsd: number;
+      totalCostUsd: number;
+    }>;
+  };
+}
+
+export async function getChatAggregate(token: string): Promise<ChatAggregateResponse> {
+  return apiFetch<ChatAggregateResponse>('/api/admin/chat/aggregate', { token });
+}
+
 // ============ Services ============
 
 export async function listServices(token: string): Promise<AdminService[]> {

@@ -12,6 +12,9 @@ import BaziChart from "../../components/BaziChart";
 import AIReadingDisplay from "../../components/AIReadingDisplay";
 import InsufficientCreditsModal from "../../components/InsufficientCreditsModal";
 import PastReadingsSection from "../../components/PastReadingsSection";
+import ChatFloatingButton from "../../components/chat/ChatFloatingButton";
+import ChatDrawer from "../../components/chat/ChatDrawer";
+import InlineAskCard from "../../components/chat/InlineAskCard";
 import { getUserProfile } from "../../lib/api";
 import {
   fetchBirthProfiles,
@@ -145,6 +148,50 @@ export default function CompatibilityPage() {
 
   // View step
   const [step, setStep] = useState<ViewStep | null>(null);
+
+  // Phase 3 — COMPATIBILITY chat (only on result step)
+  const [chatOpen, setChatOpen] = useState(false);
+  // Phase 3 follow-up — InlineAskCard state (mirrors apps/web/app/reading/[type]/page.tsx
+  // pattern). When a user clicks a sample question on an InlineAskCard, we
+  // open the drawer with the section hint + auto-send the question.
+  const [chatSectionHint, setChatSectionHint] = useState<string | undefined>(undefined);
+  const [chatPendingMessage, setChatPendingMessage] = useState<string | undefined>(undefined);
+
+  const handleAskFromCard = useCallback(
+    (sectionKey: string, question: string) => {
+      setChatSectionHint(sectionKey);
+      setChatPendingMessage(question);
+      setChatOpen(true);
+    },
+    [],
+  );
+
+  const handleAskGeneral = useCallback(
+    (question: string) => {
+      setChatSectionHint(undefined);
+      setChatPendingMessage(question);
+      setChatOpen(true);
+    },
+    [],
+  );
+
+  // Phase 4 follow-up — title CTA «AI 命理師深入解答» opens the chat drawer
+  // with this section's context but WITHOUT auto-sending a question. User
+  // types or picks from sample questions inside the drawer.
+  const handleOpenChatFromCard = useCallback(
+    (sectionKey: string) => {
+      setChatSectionHint(sectionKey);
+      // No setChatPendingMessage — drawer opens without auto-send
+      setChatOpen(true);
+    },
+    [],
+  );
+
+  const handleChatDrawerClose = useCallback(() => {
+    setChatOpen(false);
+    setChatPendingMessage(undefined);
+    setChatSectionHint(undefined);
+  }, []);
 
   // Data
   const [compatData, setCompatData] = useState<CompatibilityResponse | null>(null);
@@ -600,6 +647,26 @@ export default function CompatibilityPage() {
   // Insert after love_personality_b (戀愛性格), BEFORE spouse_enrichment_a (旺夫旺妻)
   const EDUCATION_INSERT_AFTER = 'love_personality_b';
 
+  // Phase 3 follow-up — map COMPAT rendering section keys to chat sample-question
+  // section keys. Each chat section appears AT MOST once on the page (the first
+  // rendering section it maps to). Keys not in this table render no inline card.
+  // Seeded sample-question section keys come from the DB (apps/api seed); see
+  // also packages/shared/src/constants.ts COMPATIBILITY_SECTION_KEYS_ARRAY.
+  const COMPAT_SECTION_TO_CHAT_QUESTION_KEY: Record<string, string> = {
+    compatibility_basis: 'compat_overview',
+    love_personality_b: 'partner_personality',
+    spouse_enrichment_b: 'partner_appearance',
+    combined_crisis_analysis: 'interaction_dynamics',
+    marriage_crisis_b: 'conflict_warning',
+    marriage_advice: 'compatibility_advice',
+    annual_love_b: 'wedding_timing',
+    // M5 (Phase 3 follow-up) — `compatibility_summary` lands in
+    // `aiData.summary.text` via onSummary, NOT in `aiData.sections`, so
+    // `renderAfterSection` never fires for it. The 8th chat-question
+    // section `dimension_breakdown` is reachable via drawer empty-state
+    // general questions instead.
+  };
+
   return (
     <div className={styles.pageContainer}>
       {/* Header */}
@@ -811,9 +878,30 @@ export default function CompatibilityPage() {
                       isLoading={false}
                       isStreaming={isStreaming}
                       chartData={{ romancePreAnalysis: rpa, compatibilityPreAnalysis: calcData?.compatibilityPreAnalysis, chartA, chartB, currentYear }}
-                      renderAfterSection={(key) =>
-                        key === EDUCATION_INSERT_AFTER ? <KeFuKeQiEducation /> : null
-                      }
+                      renderAfterSection={(key) => {
+                        // Phase 3 follow-up — render education insert AND
+                        // inline ask card (latter only for keys mapped above).
+                        // Both may render at love_personality_b (KeFuKe block
+                        // + partner_personality InlineAskCard).
+                        const chatQuestionKey =
+                          COMPAT_SECTION_TO_CHAT_QUESTION_KEY[key];
+                        if (key !== EDUCATION_INSERT_AFTER && !chatQuestionKey) {
+                          return null;
+                        }
+                        return (
+                          <>
+                            {key === EDUCATION_INSERT_AFTER && <KeFuKeQiEducation />}
+                            {chatQuestionKey && (
+                              <InlineAskCard
+                                readingType="COMPATIBILITY"
+                                sectionKey={chatQuestionKey}
+                                onAsk={handleAskFromCard}
+                                onOpenChat={handleOpenChatFromCard}
+                              />
+                            )}
+                          </>
+                        );
+                      }}
                     />
                   </>
                 );
@@ -879,6 +967,38 @@ export default function CompatibilityPage() {
         requiredCredits={creditCost}
         readingName="合盤分析"
       />
+
+      {/* Phase 3 — COMPATIBILITY chat. Mounted ONLY on result step + AFTER
+          paywall unlock to avoid spawning sessions against a comparison
+          whose AI content isn't generated yet. H7 (Phase 3 follow-up) added
+          !showPaywall guard. M4 (Phase 3 follow-up): fresh V2 submissions use
+          window.history.replaceState which doesn't trigger useSearchParams
+          re-read — `readingIdParam` stays null until page reload. Fall back
+          to `currentComparisonIdRef.current` (already tracked at create +
+          deep-link load + reset points) so chat mounts immediately after
+          fresh submission unlock. */}
+      {(() => {
+        const effectiveComparisonId =
+          readingIdParam ?? currentComparisonIdRef.current;
+        if (step !== "result" || !effectiveComparisonId || !compatData || showPaywall) {
+          return null;
+        }
+        return (
+          <>
+            <ChatFloatingButton onClick={() => setChatOpen(true)} />
+            <ChatDrawer
+              isOpen={chatOpen}
+              onClose={handleChatDrawerClose}
+              comparisonId={effectiveComparisonId}
+              readingType="COMPATIBILITY"
+              initialSectionContextHint={chatSectionHint}
+              pendingInitialMessage={chatPendingMessage}
+              onPendingInitialMessageConsumed={() => setChatPendingMessage(undefined)}
+              onPickGeneralQuestion={handleAskGeneral}
+            />
+          </>
+        );
+      })()}
     </div>
   );
 }

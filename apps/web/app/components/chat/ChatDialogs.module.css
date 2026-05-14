@@ -1,0 +1,137 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  animation: fadeIn 0.18s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.dialog {
+  background: var(--bg-card, #fff);
+  border-radius: 16px;
+  padding: 1.4rem 1.2rem 1.1rem;
+  max-width: 380px;
+  width: 100%;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.25);
+  animation: popIn 0.22s ease-out;
+}
+
+@keyframes popIn {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.title {
+  font-family: var(--font-noto-serif-tc, 'Noto Serif TC'), serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-accent, #C41E3A);
+  margin: 0 0 0.6rem;
+  text-align: center;
+}
+
+.warning {
+  font-size: 0.85rem;
+  color: var(--color-red, #E23D28);
+  background: rgba(226, 61, 40, 0.06);
+  padding: 0.4rem 0.6rem;
+  border-radius: 8px;
+  margin-bottom: 0.7rem;
+  text-align: center;
+}
+
+.body {
+  margin: 0 0 1rem;
+  text-align: center;
+}
+
+.bodyLine {
+  font-size: 0.9rem;
+  color: var(--text-secondary, #6B5940);
+  margin: 0.25rem 0;
+  line-height: 1.5;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.actions[data-single-action] {
+  grid-template-columns: 1fr;
+}
+
+.btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 0.7rem 0.5rem;
+  border-radius: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: transform 0.1s, box-shadow 0.15s;
+  min-height: 70px;
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+/* T6 fix — disabled state for action buttons. Mirrors the in-flight
+   visual treatment used elsewhere (e.g. .historyBtn:disabled in
+   ChatDrawer.module.css): muted opacity + not-allowed cursor + no hover
+   transform. The wait-cursor variant is reserved for purchase buttons,
+   communicating «request in flight». */
+.btn:disabled {
+  opacity: 0.55;
+  cursor: wait;
+  box-shadow: none;
+}
+
+.secondary {
+  background: var(--bg-secondary, #FFFBF5);
+  color: var(--text-secondary, #6B5940);
+  border: 1px solid rgba(212, 160, 23, 0.25);
+}
+
+.primary {
+  background: linear-gradient(135deg, var(--color-red, #E23D28), var(--color-orange, #F5A623));
+  color: #fff;
+  border: none;
+  box-shadow: 0 4px 14px rgba(226, 61, 40, 0.3);
+}
+
+.btnLabel {
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.btnSublabel {
+  font-size: 0.7rem;
+  opacity: 0.85;
+  text-align: center;
+  line-height: 1.3;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sublabelLine {
+  display: block;
+}

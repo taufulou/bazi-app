@@ -1,0 +1,17 @@
+{
+  "trial_id": "trial_051",
+  "chart_id": "laopo",
+  "user_question": "再具體一點",
+  "response": "您好，請問您想深入了解命盤的哪個方向呢？\n\n例如：\n- **感情婚姻**（桃花年份、配偶特質、婚姻結構）\n- **事業財運**（適合行業、創業評估、今明年走勢）\n- **健康養生**（脆弱器官、養生方向）\n- **子女父母**（緣分結構、互動特質）\n- **大運流年**（當前丁酉大運、下一步丙申大運）\n\n告訴我您最想知道哪一塊，我來為您具體解讀。😊",
+  "model": "claude-sonnet-4-6",
+  "recorded_at": "2026-05-09T10:38:03Z",
+  "usage": {
+    "input_tokens": 28834,
+    "output_tokens": 183,
+    "cost_usd": 0.08924699999999999
+  },
+  "prompt_version": "v1.2.0",
+  "judge_verdict": "pass",
+  "judge_reason": "此回答僅為引導使用者選擇想深入了解的命盤方向，未虛構任何命理資料、未使用絕對斷言詞、未與 doctrine_flags 中的 valence/severity 矛盾，屬於中性導引性回覆，合規。",
+  "judge_model": "claude-sonnet-4-6"
+}

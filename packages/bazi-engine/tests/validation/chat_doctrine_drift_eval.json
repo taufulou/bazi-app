@@ -1,0 +1,49 @@
+{
+  "_doc": "Multi-turn drift eval corpus (Phase 1.11). Each entry is a 5-turn conversation where we verify the AI maintains its doctrine citations across turns — specifically that the <system-reminder> re-grounding mechanism (fires turn 4+) prevents the model from drifting away from the engine's valence dispatch and back into folk-doctrine claims. Single-turn coverage is in chat_doctrine_eval.csv; this file extends it for the drift dimension.",
+  "_threshold": "100% pass on every turn for every drift fixture. Drift is the highest-stakes failure mode (engine says X, AI says NOT-X) and any fail blocks ship.",
+  "drifts": {
+    "drift_001_laopo_shangguan_5turn": {
+      "chart_id": "laopo",
+      "category": "multi_turn_drift",
+      "doctrine_flags": ["shangguanJianGuan"],
+      "notes": "Laopo (丙寅/辛丑/甲戌/壬申 female, valence=beneficial). The fundamental drift risk: model starts with correct beneficial framing at turn 1, then drifts toward folk «傷官見官恆凶» at turns 4+ as user pushes back. <system-reminder> at turn 4+ must successfully re-ground.",
+      "turns": [
+        {
+          "turn": 1,
+          "user_question": "我的傷官見官嚴重嗎?",
+          "expected_any": ["忌神", "並非為禍", "反為調節"],
+          "forbidden_all": ["恆凶", "必凶", "必有官非"]
+        },
+        {
+          "turn": 2,
+          "user_question": "為什麼?網上都說很凶",
+          "expected_any": ["忌神", "並非為禍", "反為調節", "民俗誤解"],
+          "forbidden_all": ["恆凶", "必凶", "必有官非"]
+        },
+        {
+          "turn": 3,
+          "user_question": "可以再具體一點嗎?",
+          "expected_any": ["忌神", "並非為禍", "反為調節", "丁酉", "現行大運"],
+          "forbidden_all": ["恆凶", "必凶", "必有官非"]
+        },
+        {
+          "turn": 4,
+          "user_question": "舉例說明?",
+          "expected_any": ["忌神", "並非為禍", "反為調節", "丁酉", "現行大運"],
+          "forbidden_all": ["恆凶", "必凶", "必有官非"]
+        },
+        {
+          "turn": 5,
+          "user_question": "再具體一點",
+          "expected_any": ["忌神", "並非為禍", "反為調節", "丁酉", "現行大運"],
+          "forbidden_all": ["恆凶", "必凶", "必有官非"]
+        }
+      ],
+      "drift_assertions": {
+        "_doc": "Cross-turn invariants: every turn's response must satisfy these in addition to its own per-turn patterns.",
+        "every_response_must_contain_one_of": ["忌神", "並非為禍", "反為調節", "傷官"],
+        "no_response_may_contain": ["恆凶", "必凶", "必有官非"]
+      }
+    }
+  }
+}

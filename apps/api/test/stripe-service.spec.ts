@@ -149,7 +149,16 @@ describe('StripeService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new StripeService(mockConfig as any, mockPrisma as any);
+    service = new StripeService(
+      mockConfig as any,
+      mockPrisma as any,
+      // RedisService stub — pre-existing test gap (constructor takes redis;
+      // tests didn't pass it before this fix)
+      { get: jest.fn(), set: jest.fn() } as any,
+      // ChatPaymentService stub — added by Phase 1.1 for chat-quota
+      // re-snapshot on subscription tier change (see stripe.service.ts)
+      { resnapshotChatQuotaOnTierChange: jest.fn() } as any,
+    );
   });
 
   // ============================================================
@@ -424,6 +433,8 @@ describe('StripeService', () => {
       const serviceNoSecret = new StripeService(
         { get: jest.fn().mockReturnValue(undefined) } as any,
         mockPrisma as any,
+        { get: jest.fn(), set: jest.fn() } as any,
+        { resnapshotChatQuotaOnTierChange: jest.fn() } as any,
       );
 
       expect(() =>

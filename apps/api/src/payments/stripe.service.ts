@@ -12,6 +12,7 @@ import { Injectable, Logger, BadRequestException, NotFoundException } from '@nes
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { ChatPaymentService } from '../chat/chat-payment.service';
 import Stripe from 'stripe';
 
 // ============================================================
@@ -55,6 +56,7 @@ export class StripeService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly chatPaymentService: ChatPaymentService,
   ) {
     const secretKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (!secretKey) {
@@ -551,12 +553,26 @@ export class StripeService {
     }
 
     // Update user's subscription tier
+    const newTier = status === 'ACTIVE' ? planTier : 'FREE';
     await this.prisma.user.update({
       where: { id: internalUserId },
-      data: {
-        subscriptionTier: status === 'ACTIVE' ? planTier : 'FREE',
-      },
+      data: { subscriptionTier: newTier },
     });
+
+    // Re-snapshot chat monthly quota for the current month so the new tier
+    // takes effect immediately (per next-the-big-feature-proud-manatee plan).
+    // Idempotent — only updates when stored tier differs from new.
+    try {
+      await this.chatPaymentService.resnapshotChatQuotaOnTierChange(
+        internalUserId,
+        newTier,
+      );
+    } catch (err) {
+      // Don't fail the webhook on chat-quota update failure
+      this.logger.error(
+        `Failed to re-snapshot chat quota for user ${internalUserId}: ${err}`,
+      );
+    }
 
     this.logger.log(`Subscription ${sub.id} updated: status=${status}, tier=${planTier}`);
   }
@@ -586,6 +602,18 @@ export class StripeService {
       where: { id: internalUserId },
       data: { subscriptionTier: 'FREE' },
     });
+
+    // Re-snapshot chat monthly quota — downgrade caps quota at 0 for FREE tier.
+    try {
+      await this.chatPaymentService.resnapshotChatQuotaOnTierChange(
+        internalUserId,
+        'FREE',
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to re-snapshot chat quota for user ${internalUserId}: ${err}`,
+      );
+    }
 
     this.logger.log(`Subscription ${sub.id} deleted — user ${internalUserId} downgraded to FREE`);
   }
@@ -875,6 +903,21 @@ export class StripeService {
       where: { id: userId },
       data: { subscriptionTier: planTier },
     });
+
+    // Snapshot chat monthly quota for the new tier (per
+    // next-the-big-feature-proud-manatee plan). Lazy upsert in
+    // ChatPaymentService.tryConsumeFreeQuota also self-heals if this fails,
+    // but eager snapshot keeps audit trail (lastTierChangeAt) consistent.
+    try {
+      await this.chatPaymentService.resnapshotChatQuotaOnTierChange(
+        userId,
+        planTier,
+      );
+    } catch (err) {
+      this.logger.error(
+        `Failed to snapshot chat quota on subscription creation for user ${userId}: ${err}`,
+      );
+    }
 
     // Record the transaction
     await this.prisma.transaction.create({

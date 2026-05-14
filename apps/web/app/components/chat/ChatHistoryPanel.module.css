@@ -1,0 +1,153 @@
+.panel {
+  flex-shrink: 0;
+  background: var(--bg-secondary, #FFFBF5);
+  border-bottom: 1px solid rgba(212, 160, 23, 0.18);
+  max-height: 45vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    max-height: 0;
+    opacity: 0;
+  }
+  to {
+    max-height: 45vh;
+    opacity: 1;
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid rgba(212, 160, 23, 0.12);
+  flex-shrink: 0;
+}
+
+.title {
+  font-family: var(--font-noto-serif-tc, 'Noto Serif TC'), serif;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-accent, #C41E3A);
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: var(--text-muted, #8B7355);
+  cursor: pointer;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.closeBtn:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.list li {
+  margin: 0;
+}
+
+.empty {
+  padding: 1.2rem;
+  text-align: center;
+  color: var(--text-muted, #8B7355);
+  font-size: 0.85rem;
+}
+
+.row {
+  width: 100%;
+  text-align: left;
+  background: var(--bg-card, #fff);
+  border: 1px solid rgba(212, 160, 23, 0.18);
+  border-radius: 12px;
+  padding: 0.6rem 0.85rem;
+  margin: 0.3rem 0;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  font-family: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.row:hover {
+  background: var(--bg-secondary, #FFFBF5);
+  border-color: rgba(226, 61, 40, 0.25);
+}
+
+.row:active {
+  transform: scale(0.99);
+}
+
+.activeRow {
+  background: linear-gradient(135deg, rgba(226, 61, 40, 0.05), rgba(245, 166, 35, 0.05));
+  border-color: rgba(226, 61, 40, 0.4);
+}
+
+.rowTopLine {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.date {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-primary, #3C2415);
+}
+
+.statusBadge {
+  font-size: 0.7rem;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.statusActive {
+  background: rgba(46, 125, 50, 0.1);
+  color: #2E7D32;
+  border: 1px solid rgba(46, 125, 50, 0.25);
+}
+
+.statusMuted {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text-muted, #8B7355);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.rowMeta {
+  font-size: 0.75rem;
+  color: var(--text-secondary, #6B5940);
+}
+
+.paidBadge {
+  color: var(--text-accent, #C41E3A);
+  font-weight: 500;
+}
+
+.preview {
+  font-size: 0.8rem;
+  color: var(--text-muted, #8B7355);
+  line-height: 1.4;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}

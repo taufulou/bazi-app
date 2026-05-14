@@ -41,6 +41,18 @@ export class AdminController {
     return this.adminService.getDashboardStats();
   }
 
+  // ============ Chat aggregate (Phase 1.10) ============
+
+  @Get('chat/aggregate')
+  @ApiOperation({
+    summary: 'Aggregate AI chat metrics (no message-content drill-down)',
+    description:
+      'Returns counts, averages, and rates only — no per-user / per-message data. PDPA-compliant for Phase 1; drill-down deferred to Phase 2 with audit log + TOS update per the plan.',
+  })
+  async getChatAggregate() {
+    return this.adminService.getChatAggregate();
+  }
+
   // ============ Services ============
 
   @Get('services')

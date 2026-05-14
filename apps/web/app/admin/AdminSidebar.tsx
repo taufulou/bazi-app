@@ -15,6 +15,7 @@ const NAV_ITEMS = [
   { href: '/admin/credit-packages', label: 'Credit Packages', icon: '🎁' },
   { href: '/admin/gateways', label: 'Gateways', icon: '💳' },
   { href: '/admin/ai-costs', label: 'AI Costs', icon: '🤖' },
+  { href: '/admin/chat', label: 'AI Chat', icon: '💬' },
   { href: '/admin/monetization', label: 'Monetization', icon: '💰' },
   { href: '/admin/audit-log', label: 'Audit Log', icon: '📋' },
 ];

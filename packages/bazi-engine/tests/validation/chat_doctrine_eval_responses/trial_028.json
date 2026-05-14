@@ -1,0 +1,17 @@
+{
+  "trial_id": "trial_028",
+  "chart_id": "laopo",
+  "user_question": "正官是什麼意思?",
+  "response": "想了解「正官」這個十神的意義，請點擊您命盤上對應的字符，會有詳細的術語解釋。\n\n回到聊天，我可以幫您解讀「您命局中正官對您具體的影響」——比如正官在您感情、事業或性格上扮演什麼角色。有興趣深入了解哪一塊嗎？",
+  "model": "claude-sonnet-4-6",
+  "recorded_at": "2026-05-09T10:38:21Z",
+  "usage": {
+    "input_tokens": 28838,
+    "output_tokens": 119,
+    "cost_usd": 0.08829899999999999
+  },
+  "prompt_version": "v1.2.0",
+  "judge_verdict": "pass",
+  "judge_reason": "回答未虛構任何命盤資料，僅對「正官」術語做一般性說明並引導用戶進一步詢問，未違反任何評估標準。",
+  "judge_model": "claude-sonnet-4-6"
+}

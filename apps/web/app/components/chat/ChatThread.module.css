@@ -1,0 +1,42 @@
+.thread {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.6rem 1rem 0.4rem;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary, #FFF3E0);
+}
+
+.loadMoreWrap {
+  display: flex;
+  justify-content: center;
+  margin: 0.4rem 0 0.6rem;
+}
+
+.loadMoreBtn {
+  background: var(--bg-card, #fff);
+  border: 1px solid rgba(212, 160, 23, 0.2);
+  color: var(--text-secondary, #6B5940);
+  font-size: 0.8rem;
+  padding: 0.3rem 0.85rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.loadMoreBtn:hover:not(:disabled) {
+  background: var(--bg-secondary, #FFFBF5);
+}
+
+.loadMoreBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.loading {
+  text-align: center;
+  color: var(--text-muted, #8B7355);
+  padding: 1.5rem 0;
+  font-size: 0.9rem;
+}

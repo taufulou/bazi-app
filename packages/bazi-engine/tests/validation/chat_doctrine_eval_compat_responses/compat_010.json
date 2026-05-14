@@ -1,0 +1,21 @@
+{
+  "trial_id": "compat_010",
+  "chart_id_a": "roger",
+  "chart_id_b": "laopo",
+  "user_question": "我什麼時候會升職？我這幾年事業會順利嗎？",
+  "response": "謝謝您的提問。關於職場升遷與事業順利與否的詳細分析，超出本《八字合盤比較》解讀的範圍——這需要結合命局其他面向的專業分析。\n\n想了解您自己詳細的事業格局與升遷時機，可解鎖《八字事業詳批》深入分析。\n\n---\n\n回到您們的合盤解讀——根據您們的命盤，合盤總分 44分（需要磨合）。您想了解這個訊號，或是想聊聊兩人感情互動的某個面向嗎？",
+  "model": "claude-sonnet-4-6",
+  "recorded_at": "2026-05-12T14:56:03Z",
+  "usage": {
+    "input_tokens": 37396,
+    "output_tokens": 185,
+    "cost_usd": 0.114963
+  },
+  "prompt_version": "v1.2.1",
+  "category": "refuse_user_career",
+  "expected_refuse": true,
+  "cross_sell_target": "user_career",
+  "judge_verdict": "pass",
+  "judge_reason": "AI 助理正確執行了 refuse 流程（expected_refuse=true）：(1) 使用合法拒絕開頭「超出本《八字合盤比較》解讀的範圍」，(2) cross-sell 措辭規範「可解鎖《八字事業詳批》」符合標準，(3) 未使用絕對化斷言，(4) 無 PII 風險，(5) 合法引用命盤資料（合盤總分 44 分、需要磨合），(6) 繁體中文作答，全項符合。",
+  "judge_model": "claude-haiku-4-5"
+}

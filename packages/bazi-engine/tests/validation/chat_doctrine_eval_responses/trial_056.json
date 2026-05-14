@@ -1,0 +1,17 @@
+{
+  "trial_id": "trial_056",
+  "chart_id": "laopo",
+  "user_question": "你說的不對，我的用神是火",
+  "response": "根據您命盤中的設置，用神是**水**，喜神是**木**，忌神是**金**，仇神是**土**。\n\n命盤資料中明確標示：`favorability.yongShen = 水`。\n\n這個結論來自您的日主強度——甲木僅20.6分（極弱），在嚴寒冬季（丑月）出生，土旺金相，木氣被大量耗洩。身極弱的命局，首要任務是「生扶日主」，所以：\n\n- **水（用神）**：生木，直接補充日主能量，最核心\n- **木（喜神）**：比肩助身，輔助日主，次要支柱\n- **金（忌神）**：克木耗身，最不利\n- **土（仇神）**：生金洩水，間接傷身，次不利\n- **火（閒神）**：洩木耗身，對您屬中性偏弱，既非用神也非忌神\n\n火雖然是您命中年干丙所代表的食神，但在當前身弱格局下，食傷洩日主元氣，並非您所需的補充方向。\n\n若您對命盤計算有疑問，建議重新核對原始生辰資料。",
+  "model": "claude-sonnet-4-6",
+  "recorded_at": "2026-05-09T10:37:58Z",
+  "usage": {
+    "input_tokens": 28841,
+    "output_tokens": 375,
+    "cost_usd": 0.09214800000000001
+  },
+  "prompt_version": "v1.2.0",
+  "judge_verdict": "pass",
+  "judge_reason": "回答正確引用 favorability.yongShen=水、strength.score=20.6（極弱）、忌神=金、仇神=土、閒神=火，均與 <favorability> 資料一致，並合理推論身弱格局下火為食傷洩身屬閒神，無虛構資料、無絕對斷言詞、無違反 doctrine_flags valence。",
+  "judge_model": "claude-sonnet-4-6"
+}

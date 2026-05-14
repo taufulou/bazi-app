@@ -11,6 +11,11 @@ import BirthDataForm, {
 import BaziChart from "../../components/BaziChart";
 import ZwdsChart from "../../components/ZwdsChart";
 import AIReadingDisplay, { V2_ALL_SECTION_KEYS, ANNUAL_V2_ALL_SECTION_KEYS } from "../../components/AIReadingDisplay";
+import ChatDrawer from "../../components/chat/ChatDrawer";
+import ChatFloatingButton from "../../components/chat/ChatFloatingButton";
+import InlineAskCard from "../../components/chat/InlineAskCard";
+// hasSampleQuestions import removed — Phase 2 InlineAskCard handles its
+// own visibility via the useSampleQuestions hook (returns null on empty).
 import PastReadingsSection from "../../components/PastReadingsSection";
 import { getUserProfile } from "../../lib/api";
 import InsufficientCreditsModal from "../../components/InsufficientCreditsModal";
@@ -269,6 +274,56 @@ export default function ReadingPage() {
 
   // Cache hit notification
   const [cacheToast, setCacheToast] = useState(false);
+
+  // Phase 1.7 — AI chat drawer state. Chat is gated to lifetime readings only
+  // for Phase 1; readingType-check happens at render time.
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatSectionHint, setChatSectionHint] = useState<string | undefined>(undefined);
+  // Phase 1.9 — pending message to auto-send on drawer open. Set by
+  // InlineAskCard sample-question clicks + drawer empty-state buttons.
+  const [chatPendingMessage, setChatPendingMessage] = useState<string | undefined>(undefined);
+
+  const handleAskFromCard = useCallback(
+    (sectionKey: string, question: string) => {
+      setChatSectionHint(sectionKey);
+      setChatPendingMessage(question);
+      setChatOpen(true);
+    },
+    [],
+  );
+
+  // Phase 4 follow-up — InlineAskCard's title CTA «AI 命理師深入解答»
+  // opens the drawer with section context BUT no auto-send. User picks
+  // from sample questions OR types their own.
+  const handleOpenChatFromCard = useCallback(
+    (sectionKey: string) => {
+      setChatSectionHint(sectionKey);
+      // No setChatPendingMessage — drawer opens without auto-send
+      setChatOpen(true);
+    },
+    [],
+  );
+
+  const handleAskGeneral = useCallback(
+    (question: string) => {
+      setChatSectionHint(undefined);
+      setChatPendingMessage(question);
+      // Drawer is already open when general questions are picked from
+      // empty state — but it's safe to set true again.
+      setChatOpen(true);
+    },
+    [],
+  );
+
+  const handleChatDrawerClose = useCallback(() => {
+    setChatOpen(false);
+    setChatPendingMessage(undefined);
+    setChatSectionHint(undefined);
+  }, []);
+
+  const handlePendingMessageConsumed = useCallback(() => {
+    setChatPendingMessage(undefined);
+  }, []);
 
   // Two-phase paywall state (used by Career, Annual, Love, Lifetime readings)
   const [showPaywall, setShowPaywall] = useState(false);
@@ -1962,14 +2017,57 @@ export default function ReadingPage() {
 
             {/* AI Reading — hidden during reveal for full-page layout, tab-gated for others.
                 Bottom-of-page banners (degraded/refunded) injected via `beforeDisclaimer`
-                so they appear above the entertainment disclaimer (rendered inside AIReadingDisplay). */}
-            {(isFullPageLayout || tab === "reading") && (
-              isFullPageLayout ? (
-                !isRevealing && !showPaywall && (aiData || isAiLoading) && <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} summaryPosition="bottom" chartData={chartData} beforeDisclaimer={renderAiStatusBanners("bottom")} />
+                so they appear above the entertainment disclaimer (rendered inside AIReadingDisplay).
+                Phase 1.9: renderAfterSection passes InlineAskCard for lifetime readings only. */}
+            {(isFullPageLayout || tab === "reading") && (() => {
+              // Phase 2 — `chatReadingType` derives the per-reading-type
+              // chat config (sample questions, prompt). Falls back to null
+              // when chat isn't enabled for this page (which currently
+              // doesn't fire because all 4 supported types — LIFETIME,
+              // LOVE, CAREER, ANNUAL — match a branch).
+              const chatReadingType: 'LIFETIME' | 'LOVE' | 'CAREER' | 'ANNUAL' | null =
+                isLifetime ? 'LIFETIME'
+                  : isLove ? 'LOVE'
+                  : isCareer ? 'CAREER'
+                  : isAnnual ? 'ANNUAL'
+                  : null;
+              const renderAfterSection = chatReadingType
+                ? (sectionKey: string) => (
+                    <InlineAskCard
+                      readingType={chatReadingType}
+                      sectionKey={sectionKey}
+                      onAsk={handleAskFromCard}
+                      onOpenChat={handleOpenChatFromCard}
+                    />
+                  )
+                : undefined;
+              return isFullPageLayout ? (
+                !isRevealing && !showPaywall && (aiData || isAiLoading) && (
+                  <AIReadingDisplay
+                    data={aiData}
+                    readingType={readingType}
+                    isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)}
+                    isLoading={isAiLoading}
+                    isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null}
+                    summaryPosition="bottom"
+                    chartData={chartData}
+                    beforeDisclaimer={renderAiStatusBanners("bottom")}
+                    renderAfterSection={renderAfterSection}
+                  />
+                )
               ) : (
-                <AIReadingDisplay data={aiData} readingType={readingType} isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)} isLoading={isAiLoading} isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null} chartData={chartData} beforeDisclaimer={renderAiStatusBanners("bottom")} />
-              )
-            )}
+                <AIReadingDisplay
+                  data={aiData}
+                  readingType={readingType}
+                  isSubscriber={isChartOnly ? false : (isSubscriber || isPaidReading)}
+                  isLoading={isAiLoading}
+                  isStreaming={isAiLoading && aiData?.isV2 === true && aiData?.deterministic != null}
+                  chartData={chartData}
+                  beforeDisclaimer={renderAiStatusBanners("bottom")}
+                  renderAfterSection={renderAfterSection}
+                />
+              );
+            })()}
           </>
         )}
       </div>
@@ -1996,6 +2094,46 @@ export default function ReadingPage() {
         requiredCredits={meta.creditCost}
         readingName={meta.nameZhTw}
       />
+
+      {/* Phase 2 — AI chat for LIFETIME / LOVE / CAREER / ANNUAL readings.
+          Mounted at page level so it persists across the chart/reading tab
+          switch. Chat needs an existing readingId; we gate on
+          `currentReadingId` so the user can't start a chat before a reading
+          exists. The actual server-side enable is via env-var
+          `CHAT_ENABLED_READING_TYPES` — server rejects with
+          READING_TYPE_NOT_ENABLED for any non-whitelisted type, so the
+          client-side gate is just a UI optimization (don't show button for
+          types we know aren't supported). */}
+      {(() => {
+        const chatType: 'LIFETIME' | 'LOVE' | 'CAREER' | 'ANNUAL' | null =
+          isLifetime ? 'LIFETIME'
+            : isLove ? 'LOVE'
+            : isCareer ? 'CAREER'
+            : isAnnual ? 'ANNUAL'
+            : null;
+        if (!chatType || !currentReadingId || !aiData) return null;
+        return (
+          <>
+            <ChatFloatingButton
+              onClick={() => {
+                setChatSectionHint(undefined);
+                setChatPendingMessage(undefined);
+                setChatOpen(true);
+              }}
+            />
+            <ChatDrawer
+              isOpen={chatOpen}
+              onClose={handleChatDrawerClose}
+              readingId={currentReadingId}
+              readingType={chatType}
+              initialSectionContextHint={chatSectionHint}
+              pendingInitialMessage={chatPendingMessage}
+              onPendingInitialMessageConsumed={handlePendingMessageConsumed}
+              onPickGeneralQuestion={handleAskGeneral}
+            />
+          </>
+        );
+      })()}
     </div>
   );
 }

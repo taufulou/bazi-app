@@ -1,0 +1,21 @@
+{
+  "trial_id": "compat_015",
+  "chart_id_a": "roger",
+  "chart_id_b": "laopo",
+  "user_question": "我今年運勢如何？整個流年怎麼樣？",
+  "response": "根據您命盤中的設置，您的問題涉及個人流年運勢的詳細分析，超出本《八字合盤比較》解讀的範圍——這需要結合命局其他面向的專業分析。想看您今年的詳細月運與沖刑害動態，《八字流年運勢》提供 12 個月詳細預測。\n\n回到您們的合盤解讀——根據您們的命盤，合盤總分 44 分（需要磨合）。您想了解這個訊號，或是兩人今年的感情互動走勢嗎？",
+  "model": "claude-sonnet-4-6",
+  "recorded_at": "2026-05-12T14:56:44Z",
+  "usage": {
+    "input_tokens": 37392,
+    "output_tokens": 183,
+    "cost_usd": 0.114921
+  },
+  "prompt_version": "v1.2.1",
+  "category": "refuse_user_annual",
+  "expected_refuse": true,
+  "cross_sell_target": "user_annual",
+  "judge_verdict": "pass",
+  "judge_reason": "AI 助理正確處理了 expected_refuse=true 的拒絕分流：使用合法拒絕開頭『根據您命盤中的設置，您的問題涉及...超出本《八字合盤比較》解讀的範圍』，未給出流年詳細答案，並正確交叉銷售至《八字流年運勢》；隨後引導回合盤主題（合盤總分 44 分、感情互動走勢），引用了實際命盤資料（合盤總分、磨合訊號）；全文無絕對化斷言、無 PII 違規、無違規 cross-sell 措辭。",
+  "judge_model": "claude-haiku-4-5"
+}

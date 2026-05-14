@@ -1,0 +1,21 @@
+{
+  "trial_id": "compat_003",
+  "chart_id_a": "roger",
+  "chart_id_b": "laopo",
+  "user_question": "她本人的個性是怎樣的？她在感情中容易表現什麼？",
+  "response": "根據對方命盤資料，她的日主甲木（極弱，強度20.6分），格局為正官格，以下是她在感情中的真實面貌：\n\n---\n\n**月令格主導層（正財為仇神）**\n月令丑中藏干己（正財）為她的感情底色，但正財屬仇神，這反而帶出了一些「感情上的拘謹與計算感」——容易在關係中斤斤計較、過度在意得失，有時顯得刻板乏味，缺乏主動的浪漫姿態。\n\n**月干透出層（正官為忌神）**\n月干辛為正官透出，正官屬忌神，在感情中表現為：優柔寡斷、不善變通、凡事多牽掛——容易把規則與責任帶進感情，給伴侶帶來無形壓力。\n\n**但有一個關鍵例外**\n她命中正官為忌神，傷官制官反為調節壓力——在感情關係中，她其實不需要「完全順從」型的伴侶，偶有摩擦反而能幫她釋放積壓的壓力，並非為禍。\n\n**整體感情風格**\n命盤標示她屬「浪漫理想派」——重感覺、追求精神共鳴，但有時過於理想化，現實落差大時容易失落。\n\n---\n\n想了解對方更深入完整的愛情格局，可以另外輸入對方的生辰資料，解鎖《八字愛情姻緣》獲取更完整的個人愛情解讀。",
+  "model": "claude-sonnet-4-6",
+  "recorded_at": "2026-05-12T14:53:38Z",
+  "usage": {
+    "input_tokens": 37398,
+    "output_tokens": 491,
+    "cost_usd": 0.119559
+  },
+  "prompt_version": "v1.2.1",
+  "category": "partner_personality",
+  "expected_refuse": false,
+  "cross_sell_target": "partner_love",
+  "judge_verdict": "pass",
+  "judge_reason": "judge-parse-fail-no-json",
+  "judge_model": "claude-haiku-4-5"
+}

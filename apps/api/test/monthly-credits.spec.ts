@@ -153,7 +153,12 @@ describe('Monthly Credits', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    stripeService = new StripeService(mockConfig as any, mockPrisma as any);
+    stripeService = new StripeService(
+      mockConfig as any,
+      mockPrisma as any,
+      { get: jest.fn(), set: jest.fn() } as any,
+      { resnapshotChatQuotaOnTierChange: jest.fn() } as any,
+    );
     paymentsService = new PaymentsService(mockPrisma as any);
   });
 

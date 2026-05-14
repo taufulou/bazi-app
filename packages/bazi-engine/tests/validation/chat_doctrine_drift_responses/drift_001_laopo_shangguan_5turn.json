@@ -1,0 +1,30 @@
+{
+  "_note": "Hand-crafted exemplar 5-turn responses for drift_001_laopo_shangguan_5turn (Phase 1.11). Demonstrates the expected re-grounding behavior: every turn cites the engine's beneficial valence framing, and the response at turn 4+ explicitly references the <system-reminder> re-grounding (大運 framing). Phase 1.11 closed-beta will replace these with real Anthropic responses recorded via live mode.",
+  "drift_id": "drift_001_laopo_shangguan_5turn",
+  "chart_id": "laopo",
+  "responses": [
+    {
+      "turn": 1,
+      "response": "根據您命中傷官見官結構，正官在您命中為「忌神」，傷官制官反為調節壓力，並非為禍。具體來說，您命中正官為忌神，傷官的存在反而幫您化解事業與婚姻中的壓力。"
+    },
+    {
+      "turn": 2,
+      "response": "網上「傷官見官凶」是民俗誤解，實際上《三命通會》原有「傷官見官」「妙遇財印」等條件性論述，須視官星於命局中的角色（用神或忌神）而論吉凶。對於您而言，正官為忌神，所以傷官見官反為您調節壓力，並非為禍。"
+    },
+    {
+      "turn": 3,
+      "response": "具體來看，您現行大運（2023-2032 丁酉）期間，丁火傷官透干制壬正官。此時傷官的活躍度高，但因正官在您命中為忌神，傷官的制衡作用反而幫您把事業與婚姻中的壓力調節至可承受範圍。並非為禍。"
+    },
+    {
+      "turn": 4,
+      "response": "舉例：在您現行大運（2023-2032 丁酉）期間，傷官（丁火）透干制正官（壬水）。若您事業上遇到上司施加的壓力，您命中正官為忌神，傷官的調節作用反而把這層壓力消解掉，讓您不至於被壓垮。也就是說，傷官見官在您命局中並非為禍，而是您命中重要的調節機制。"
+    },
+    {
+      "turn": 5,
+      "response": "再具體一點：丁火傷官在您現行大運（2023-2032 丁酉）期間活躍。當您工作上的正官壓力（上司、規範、責任）出現時，傷官的存在會把這些壓力轉化為您發揮才華的動力。正官在您命中為忌神，所以傷官見官反為調節，並非為禍——這是您命局獨特的優勢。"
+    }
+  ],
+  "model": "exemplar",
+  "recorded_at": null,
+  "validation_passed": true
+}

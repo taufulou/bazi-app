@@ -457,6 +457,89 @@ export const COMPAT_ROMANCE_V2_SECTION_KEYS = {
 } as const;
 
 // ============================================================
+// Phase 2 chat — section keys lifted to shared (round-1 MED-#2)
+// ============================================================
+// Single source of truth for both AIReadingDisplay rendering AND the
+// admin /admin/chat-questions sectionKey dropdown. Prevents the dropdown
+// from drifting away from what's actually rendered. The arrays below
+// MUST match V2_ALL_SECTION_KEYS / ANNUAL_V2_ALL_SECTION_KEYS exports
+// in apps/web/app/components/AIReadingDisplay.tsx — that file now
+// re-exports from these constants.
+
+/** LIFETIME chat-eligible section keys (post-Phase-1, ~11 sections). */
+export const LIFETIME_V2_SECTION_KEYS_ARRAY = [
+  'chart_identity',
+  'finance_pattern',
+  'career_pattern',
+  'boss_strategy',
+  'love_pattern',
+  'health',
+  'children_analysis',
+  'parents_analysis',
+  'current_period',
+  'next_period',
+  'best_period',
+] as const;
+
+/** LOVE chat-eligible section keys (Phase 2). */
+export const LOVE_V2_SECTION_KEYS_ARRAY = [
+  LOVE_V2_SECTION_KEYS.PERSONALITY,
+  LOVE_V2_SECTION_KEYS.PEACH_BLOSSOM,
+  LOVE_V2_SECTION_KEYS.NATAL_MARRIAGE,
+  LOVE_V2_SECTION_KEYS.PARTNER_MATCHING,
+  LOVE_V2_SECTION_KEYS.SPOUSE_APPEARANCE,
+  LOVE_V2_SECTION_KEYS.ROMANCE_GOOD_YEARS,
+  LOVE_V2_SECTION_KEYS.ROMANCE_DANGER_YEARS,
+  LOVE_V2_SECTION_KEYS.MARRIAGE_CHANGE_YEARS,
+  LOVE_V2_SECTION_KEYS.LOVE_SUMMARY,
+] as const;
+
+/** CAREER chat-eligible section keys (Phase 2). Mirrors career_enhanced
+ *  pre-analysis structure + career-specific frontend sections. */
+export const CAREER_V2_SECTION_KEYS_ARRAY = [
+  'career_personality',
+  'career_pattern',
+  'industry_match',
+  'workplace_strategy',
+  'boss_subordinate',
+  'career_timing',
+  'entrepreneurship',
+  'partnership',
+  'finance_at_work',
+  'career_summary',
+] as const;
+
+/** ANNUAL chat-eligible section keys (Phase 2). Includes overview +
+ *  per-month placeholders. monthly_NN keys are kept generic so admin can
+ *  curate questions for "any month" rather than per-month. */
+export const ANNUAL_V2_SECTION_KEYS_ARRAY = [
+  'annual_overview',
+  'annual_tai_sui',
+  'annual_dayun_context',
+  'annual_career',
+  'annual_finance',
+  'annual_relationships',
+  'annual_love',
+  'annual_family',
+  'annual_health',
+  'monthly_overview', // generic — applies to any monthly_NN section in render
+] as const;
+
+/** Map readingType → its canonical section-keys array. Used by:
+ *  - chat sample-questions admin UI (sectionKey dropdown choices)
+ *  - chat sample-questions service (whitelist guard on POST/PATCH).
+ *  Also exposes the sentinel `null` for "general" floating-button questions. */
+export const CHAT_SECTION_KEYS_BY_READING_TYPE: Record<
+  'LIFETIME' | 'LOVE' | 'CAREER' | 'ANNUAL',
+  readonly string[]
+> = {
+  LIFETIME: LIFETIME_V2_SECTION_KEYS_ARRAY,
+  LOVE: LOVE_V2_SECTION_KEYS_ARRAY,
+  CAREER: CAREER_V2_SECTION_KEYS_ARRAY,
+  ANNUAL: ANNUAL_V2_SECTION_KEYS_ARRAY,
+};
+
+// ============================================================
 // API Configuration
 // ============================================================
 
@@ -473,3 +556,51 @@ export const SESSION_EXPIRY_DAYS = 90; // Clerk session expiry
 // `// mirrors @repo/shared REGENERATION_LIMIT` comment because @repo/shared
 // has a known runtime import issue with NestJS (see notes above).
 export const REGENERATION_LIMIT = 3;
+
+// ============================================================
+// AI Chat (per next-the-big-feature-proud-manatee plan)
+// ============================================================
+// NestJS files keep local mirrors of these constants since @repo/shared has
+// a known runtime import issue (see "@repo/shared runtime issue" in CLAUDE.md).
+
+/** Each credit purchase grants 10 messages of paid allowance in the current session. */
+export const CHAT_INITIAL_MESSAGES_PER_CREDIT = 10;
+
+/** Absolute hard cap on messages per chat session. Beyond this, user must start a new session. */
+export const CHAT_SESSION_HARD_CAP_MESSAGES = 30;
+
+/** After AI replies to this turn, soft warning fires recommending new session for quality. */
+export const CHAT_SOFT_WARNING_TURN = 20;
+
+/** From this turn onwards, server injects <system-reminder> as user-role to re-ground context. */
+export const CHAT_REGROUNDING_TRIGGER_TURN = 4;
+
+/** Max characters of a user input message — hard cap to bound token cost + prompt-injection surface. */
+export const CHAT_INPUT_MAX_LENGTH = 500;
+
+/** Anthropic max_tokens for assistant output per message. */
+export const CHAT_OUTPUT_MAX_TOKENS = 800;
+
+/** Per-user rate limits (defense-in-depth on top of credit system). */
+export const CHAT_SESSIONS_PER_HOUR = 5;
+export const CHAT_MESSAGES_PER_MINUTE = 30;
+
+/**
+ * Subscriber free chat quota by tier. A "chat" = 1 user message + 1 AI reply.
+ * FREE users always pay credits.
+ */
+export const CHAT_FREE_QUOTA_BY_TIER: Record<string, number> = {
+  FREE: 0,
+  BASIC: 15,
+  PRO: 30,
+  MASTER: 60,
+};
+
+/** PDPA retention: chat sessions hard-deleted after this many days. */
+export const CHAT_HISTORY_RETENTION_DAYS = 365;
+
+/** Sessions older than this are auto-rejected on next message attempt. */
+export const CHAT_SESSION_MAX_AGE_HOURS = 24;
+
+/** Page size for "Load 5 more" history pagination button. */
+export const CHAT_HISTORY_LOAD_PAGE_SIZE = 5;

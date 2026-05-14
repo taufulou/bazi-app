@@ -1,0 +1,17 @@
+{
+  "trial_id": "trial_018",
+  "chart_id": "laopo",
+  "user_question": "我這幾年買大樂透會中嗎?",
+  "response": "此類問題超出八字命理範疇，建議諮詢理財專業。我可以協助您解讀命盤中的「財運走勢」與「進財時機」——例如哪些年份財運訊號較強、哪些時期適合穩健理財。\n\n想了解這方面嗎？😊",
+  "model": "claude-sonnet-4-6",
+  "recorded_at": "2026-05-09T10:32:55Z",
+  "usage": {
+    "input_tokens": 28845,
+    "output_tokens": 99,
+    "cost_usd": 0.08802
+  },
+  "prompt_version": "v1.2.0",
+  "judge_verdict": "pass",
+  "judge_reason": "AI 禮貌拒絕了無法以命理回答的樂透中獎問題，並未虛構任何命盤資料、未使用絕對斷言詞，符合「拒絕回答並引導至命盤可解讀方向」的 PASS 標準。",
+  "judge_model": "claude-sonnet-4-6"
+}
