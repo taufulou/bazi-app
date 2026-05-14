@@ -1092,6 +1092,24 @@ LLM chat layer on top of all 5 Bazi reading types: LIFETIME / LOVE / CAREER / AN
 - Partner cross-sell wording rule: «您使用對方生辰資料解鎖《八字XX》» (user spends own credits) — NEVER «邀請對方註冊» / «對方解鎖».
 - Phase 3 doctrine eval corpus + Bazi-master review is deferred to Phase 3.1 (sample-question seed + token-budget CI gate ≤ 15k tokens for Laopo×Roger anchor are in place; full LLM-judge corpus pending).
 
+### Platform support — WEB ONLY (mobile deferred)
+
+| Surface | Chat support |
+|---|---|
+| `apps/web/` (Next.js) | ✅ Full chat — all 5 reading types |
+| `apps/api/` | ✅ Backend is client-agnostic — endpoints work for any client |
+| `apps/mobile/` (Expo RN) | ❌ NOT implemented (deliberately deferred per plan «Decisions Locked: Platforms = Web only») |
+
+Mobile chat is out of scope for Phases 1-4. The mobile app itself is still minimal (auth + dashboard only, no reading pages yet). When adding mobile chat in a future phase, the path is:
+
+1. **Build mobile reading pages first** — there's no point shipping chat on a surface that has nothing to chat ABOUT. Mobile parity with `apps/web/app/reading/[type]/page.tsx` and `apps/web/app/reading/compatibility/page.tsx` must precede chat work.
+2. **Port the web chat UI to React Native** — every component in `apps/web/app/components/chat/` needs an RN equivalent (ChatDrawer, ChatFloatingButton, InlineAskCard, ChatComposer, SampleQuestionsBrowser, ChatThread, ChatMessage, ChatHistoryPanel). The hooks at `apps/web/app/components/chat/hooks/` (`useChatStream`, `useChatSession`, `useSampleQuestions`) also need RN ports.
+3. **Replace the SSE library** — web uses `@microsoft/fetch-event-source` (NOT compatible with React Native). Use `react-native-event-source`, `react-native-sse`, or fall back to chunk-by-chunk fetch polyfill. The non-streaming `POST /messages-sync` endpoint is a viable v1 if SSE proves hard on RN.
+4. **Backend unchanged** — every chat endpoint is already client-agnostic. No new API surface required.
+5. **Style parity** — match the warm light theme (`--bg-primary: #FFF3E0`, Noto Serif TC headings, red-gold gradients per `docs/design-preview.html`). The web CSS Modules can serve as a styling spec but RN uses StyleSheet — manual port.
+
+Estimated effort once mobile reading pages exist: **~1-2 weeks** for a mobile chat surface mirroring the web feature set. Independent backend deploy not required.
+
 ### Operator quick-ref — deploy a chat prompt change
 1. Edit `apps/api/src/ai/prompts.ts` (the relevant clause / few-shot / refuse template)
 2. Bump corresponding `CHAT_PROMPT_VERSIONS.{type}` in same file (e.g. `lifetime: 'v1.0.0' → 'v1.0.1'`)
