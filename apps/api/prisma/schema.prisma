@@ -651,6 +651,13 @@ model DailyFortuneSnapshot {
   auspiciousnessLabel String?      @map("auspiciousness_label") // 7-tier label (denormalized)
   preAnalysisVersion String        @map("pre_analysis_version") // matches FORTUNE_PRE_ANALYSIS_VERSIONS[scope]
   promptVersion      String?       @map("prompt_version") // matches FORTUNE_PROMPT_VERSIONS[scope]; NULL when aiNarrativeJson is NULL
+  // AI failure circuit breaker (PR review #4 — 2026-05-17). Prevents
+  // unbounded retry-loop Anthropic spend during sustained AI outages:
+  // after MAX_AI_FAILURES consecutive failures, serve engine-only output
+  // for AI_FAILURE_BACKOFF_HOURS before re-attempting. Counter resets to
+  // 0 on a successful AI call (non-null promptVersion).
+  aiFailureCount     Int           @default(0) @map("ai_failure_count")
+  aiLastFailedAt     DateTime?     @map("ai_last_failed_at")
   generatedAt        DateTime      @default(now()) @map("generated_at")
 
   @@unique([chartHash, scope, anchorDate])

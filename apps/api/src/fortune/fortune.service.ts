@@ -69,6 +69,14 @@ const SUBSCRIBER_WINDOW_DAYS_PAST = 1;
 
 const REDIS_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 const ENGINE_REQUEST_TIMEOUT_MS = 30_000;
+
+/** AI failure circuit breaker (PR review #4 — 2026-05-17).
+ *  After MAX_AI_FAILURES consecutive failures on the same chart+date+scope,
+ *  stop retrying AI for AI_FAILURE_BACKOFF_HOURS — serve engine-only output
+ *  instead. Counter resets on a successful AI call (non-null promptVersion).
+ *  Prevents unbounded Anthropic spend during sustained provider outages. */
+const MAX_AI_FAILURES = 3;
+const AI_FAILURE_BACKOFF_HOURS = 24;
 const AI_CALL_TIMEOUT_MS = 90_000;
 
 // ============================================================
@@ -281,15 +289,47 @@ export class FortuneService {
     return dbRow;
   }
 
-  private versionsMatch(row: { preAnalysisVersion: string; promptVersion: string | null }): boolean {
+  /** Decide if a cached snapshot is fresh enough to serve as-is.
+   *
+   *  Two layers:
+   *  1. Pre-analysis version match (mandatory — output schema contract).
+   *  2. AI freshness: prompt version match, OR — when promptVersion is null
+   *     (AI previously failed) — circuit-breaker check. If we've failed
+   *     `MAX_AI_FAILURES` times in the last `AI_FAILURE_BACKOFF_HOURS`,
+   *     treat the engine-only row as cache-valid and stop retrying AI.
+   *
+   *  PR review #4 (2026-05-17): the circuit breaker prevents an unbounded
+   *  retry-loop during Anthropic outages. Without it, every request with a
+   *  promptVersion=null row would re-call engine + AI forever.
+   *
+   *  The `?? 0` and `?? null` guards handle stale Redis entries from
+   *  before the migration which deserialize without the new columns.
+   */
+  private versionsMatch(row: {
+    preAnalysisVersion: string;
+    promptVersion: string | null;
+    aiFailureCount?: number | null;
+    aiLastFailedAt?: Date | string | null;
+  }): boolean {
     if (row.preAnalysisVersion !== FORTUNE_PRE_ANALYSIS_VERSIONS.day) return false;
     // Audit I1: NULL promptVersion is treated as STALE relative to the
     // current prompt version. Previous logic (`null bypasses check`) meant
     // engine-only rows (AI failed once) were served forever even after
     // prompt bumps. Now we retry AI on subsequent fetches; if AI keeps
     // failing the row stays NULL but we attempted.
-    if (row.promptVersion !== FORTUNE_PROMPT_VERSIONS.day) return false;
-    return true;
+    if (row.promptVersion === FORTUNE_PROMPT_VERSIONS.day) return true;
+    if (row.promptVersion !== null) return false;  // mismatched non-null version → stale
+    // Circuit breaker: AI previously failed. Only retry if under the
+    // failure cap OR backoff window has elapsed.
+    const failureCount = row.aiFailureCount ?? 0;
+    if (failureCount < MAX_AI_FAILURES) return false;  // not at cap yet → retry
+    const lastFailedAt = row.aiLastFailedAt
+      ? new Date(row.aiLastFailedAt as Date | string)
+      : null;
+    if (!lastFailedAt) return false;  // hit cap but no timestamp — safer to retry
+    const backoffMs = AI_FAILURE_BACKOFF_HOURS * 60 * 60 * 1000;
+    const stillInBackoff = lastFailedAt.getTime() + backoffMs > Date.now();
+    return stillInBackoff;  // true = serve engine-only; false = retry AI
   }
 
   // ============================================================
@@ -485,6 +525,10 @@ export class FortuneService {
         auspiciousnessLabel: args.dailyOutput.auspiciousness,
         preAnalysisVersion: FORTUNE_PRE_ANALYSIS_VERSIONS.day,
         promptVersion: args.promptVersion,
+        // Circuit breaker initial state — first row, AI either succeeded (0/null)
+        // or failed (1/now). Subsequent failures use UPDATE block's atomic increment.
+        aiFailureCount: args.promptVersion === null ? 1 : 0,
+        aiLastFailedAt: args.promptVersion === null ? new Date() : null,
       },
       update: {
         engineOutputJson: args.dailyOutput as unknown as Prisma.InputJsonValue,
@@ -496,6 +540,12 @@ export class FortuneService {
         preAnalysisVersion: FORTUNE_PRE_ANALYSIS_VERSIONS.day,
         promptVersion: args.promptVersion,
         generatedAt: new Date(),
+        // Circuit breaker: increment atomically on failure (Prisma `{ increment: 1 }`
+        // generates `SET ai_failure_count = ai_failure_count + 1` — race-safe vs
+        // JS-level math which would need a prior SELECT). Reset on success.
+        ...(args.promptVersion === null
+          ? { aiFailureCount: { increment: 1 }, aiLastFailedAt: new Date() }
+          : { aiFailureCount: 0, aiLastFailedAt: null }),
       },
     });
   }

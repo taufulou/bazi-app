@@ -1,5 +1,6 @@
 /**
- * Tests for FortuneService — focused on the two-layer cache path.
+ * Tests for FortuneService — focused on the two-layer cache path + AI
+ * failure circuit breaker (PR review #4 — 2026-05-17).
  *
  * Currently covers:
  *   - Bug A5-3 fix: DB warm path repopulates Redis so subsequent reads
@@ -7,12 +8,16 @@
  *   - Negative: Redis-set failure during warm does NOT throw — the snapshot
  *     is still returned (Redis is a perf optimization, not load-bearing).
  *   - Negative: stale snapshot (version drift) is NOT warmed into Redis.
+ *   - Circuit breaker: after MAX_AI_FAILURES consecutive failures, AI is
+ *     NOT retried for AI_FAILURE_BACKOFF_HOURS (serve engine-only).
+ *   - Circuit breaker: after backoff window, AI is retried.
+ *   - Circuit breaker: successful AI call resets the counter.
  *
- * tryGetCached is a private method — accessed via `as any` cast. Public-API
- * coverage via getDailyFortune is intentionally deferred; that path has
- * many fan-out branches (auth + profile + subscription gate + engine call +
- * Anthropic call) and is better served by the existing manual A5 smoke
- * test in the plan file.
+ * versionsMatch + tryGetCached are private methods — accessed via `as any`
+ * cast. Public-API coverage via getDailyFortune is intentionally deferred;
+ * that path has many fan-out branches (auth + profile + subscription gate +
+ * engine call + Anthropic call) and is better served by the existing
+ * manual A5 smoke test in the plan file.
  */
 import { FortuneScope } from '@prisma/client';
 import { FortuneService } from './fortune.service';
@@ -141,6 +146,118 @@ describe('FortuneService — cache layer', () => {
       // double-fetch or double-warm.
       expect(dbFindUnique).not.toHaveBeenCalled();
       expect(redisSet).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('AI failure circuit breaker (PR review #4)', () => {
+    function buildFailedSnapshot(opts: {
+      aiFailureCount: number;
+      aiLastFailedAt: Date | null;
+    }) {
+      return {
+        ...buildFreshSnapshot(),
+        promptVersion: null,  // AI failed
+        aiNarrativeJson: null,
+        aiFailureCount: opts.aiFailureCount,
+        aiLastFailedAt: opts.aiLastFailedAt,
+      };
+    }
+
+    it('serves engine-only when failure count >= MAX_AI_FAILURES and within backoff window', async () => {
+      // 3 consecutive failures, last failed 1 hour ago (still within 24h backoff)
+      const recentlyFailed = buildFailedSnapshot({
+        aiFailureCount: 3,
+        aiLastFailedAt: new Date(Date.now() - 60 * 60 * 1000),
+      });
+      const { service, redisSet } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null),
+        dbFindUnique: jest.fn().mockResolvedValue(recentlyFailed),
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      // Circuit OPEN — serve the engine-only row as cache-valid.
+      expect(result).not.toBeNull();
+      expect(result.aiFailureCount).toBe(3);
+      // Redis re-warmed with the engine-only snapshot
+      expect(redisSet).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries AI when failure count >= MAX_AI_FAILURES but backoff window has elapsed', async () => {
+      // 5 failures, last failed 25 hours ago (outside 24h backoff)
+      const longAgo = buildFailedSnapshot({
+        aiFailureCount: 5,
+        aiLastFailedAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+      });
+      const { service, redisSet } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null),
+        dbFindUnique: jest.fn().mockResolvedValue(longAgo),
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      // Circuit CLOSED — backoff elapsed → treat as stale → null forces regen
+      expect(result).toBeNull();
+      // Must NOT warm Redis with stale row
+      expect(redisSet).not.toHaveBeenCalled();
+    });
+
+    it('retries AI when failure count is below cap (1 or 2 prior failures)', async () => {
+      // 2 failures — under the MAX_AI_FAILURES=3 cap; should retry
+      const partial = buildFailedSnapshot({
+        aiFailureCount: 2,
+        aiLastFailedAt: new Date(),
+      });
+      const { service, redisSet } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null),
+        dbFindUnique: jest.fn().mockResolvedValue(partial),
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      expect(result).toBeNull();  // → caller regenerates
+      expect(redisSet).not.toHaveBeenCalled();
+    });
+
+    it('handles legacy snapshots missing aiFailureCount/aiLastFailedAt (?? 0 guard)', async () => {
+      // Stale Redis-deserialized row from before the migration — fields are undefined.
+      // Must NOT crash; must NOT spuriously trip the circuit breaker.
+      const legacy = {
+        ...buildFreshSnapshot(),
+        promptVersion: null,
+        // aiFailureCount / aiLastFailedAt intentionally OMITTED (undefined)
+      };
+      delete (legacy as any).aiFailureCount;
+      delete (legacy as any).aiLastFailedAt;
+      const { service, redisSet } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null),
+        dbFindUnique: jest.fn().mockResolvedValue(legacy),
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      // failureCount defaults to 0 < MAX → should retry (return null)
+      expect(result).toBeNull();
+      expect(redisSet).not.toHaveBeenCalled();
+    });
+
+    it('serves cached row normally when promptVersion is current (AI succeeded)', async () => {
+      // Sanity: a healthy row with non-null promptVersion should NOT touch the
+      // circuit-breaker path. This locks the order of checks in versionsMatch.
+      const healthy = {
+        ...buildFreshSnapshot(),
+        aiFailureCount: 0,
+        aiLastFailedAt: null,
+      };
+      const { service } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null),
+        dbFindUnique: jest.fn().mockResolvedValue(healthy),
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      expect(result).not.toBeNull();
+      expect(result.promptVersion).toBe(FORTUNE_PROMPT_VERSIONS.day);
     });
   });
 });
