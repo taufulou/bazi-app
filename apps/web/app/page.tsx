@@ -7,6 +7,7 @@ import { READING_TYPE_META } from "@repo/shared";
 import CreditBadge from "./components/CreditBadge";
 import AccountPanel from "./components/AccountPanel";
 import HeroBanner from "./components/HeroBanner";
+import HomeDailyFortuneCard from "./components/HomeDailyFortuneCard";
 import styles from "./page.module.css";
 
 export default async function HomePage() {
@@ -78,6 +79,9 @@ export default async function HomePage() {
             </Link>
           </div>
         </div>
+
+        {/* Daily Fortune Card — compact today widget (Phase Fortune) */}
+        <HomeDailyFortuneCard />
 
         {/* Hero Banner / Carousel */}
         <HeroBanner />

@@ -5,6 +5,11 @@ const nextConfig = {
   // Enable transpilation of monorepo packages
   transpilePackages: ["@repo/ui", "@repo/shared"],
 
+  // Tree-shake icon libraries (per UX refactor R1.15) — pulls only the
+  // specific icons we import from `lucide-react` instead of the full set.
+  experimental: {
+    optimizePackageImports: ["lucide-react"],
+  },
 
   // Output standalone for Docker deployment
   output: "standalone",
