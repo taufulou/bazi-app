@@ -304,4 +304,185 @@ describe('FortuneValidatorsService', () => {
       ).toBeDefined();
     });
   });
+
+  // ============================================================
+  // PR review #10 — Folk-content sentence-level strip
+  // ============================================================
+  describe('PR review #10 — folk-content sentence-level strip', () => {
+    const completeNarrative = (
+      overrides: Record<string, unknown> = {},
+    ): Record<string, unknown> => ({
+      daily_overview: '今日宜以平常心面對。',
+      daily_romance: '感情有桃花星觸動。',
+      daily_romance_takeaway: '今日宜主動聯繫',
+      daily_career: '事業沖月柱。',
+      daily_career_takeaway: '今日宜謹慎',
+      daily_finance: '財運平穩。',
+      daily_finance_takeaway: '今日宜守',
+      daily_travel: '出行沖日支。',
+      daily_travel_takeaway: '今日宜短程',
+      daily_health: '健康木氣偏旺。',
+      daily_health_takeaway: '今日宜養筋骨',
+      daily_advice: { canTry: [], shouldHold: [] },
+      ...overrides,
+    });
+
+    it('strips entire sentence (not just substring) when folk content found', () => {
+      const r = service.validate(
+        completeNarrative({
+          daily_overview: '今日宜以平常心面對。建議穿紅色衣物增運。請多加注意人際。',
+        }),
+        SOFT_TRIGGER,
+      );
+      const sanitized = (r.sanitized as Record<string, string>).daily_overview;
+      // The entire sentence containing 「穿紅色」 must be GONE — including its
+      // surrounding clauses, terminator, and any orphaned commas.
+      expect(sanitized).not.toMatch(/紅色/);
+      expect(sanitized).not.toMatch(/建議穿/);
+      // The OTHER two sentences should remain intact.
+      expect(sanitized).toContain('平常心');
+      expect(sanitized).toContain('人際');
+      // Error finding emitted
+      expect(
+        r.findings.find(f => f.type === 'forbidden_folk_content'),
+      ).toBeDefined();
+      expect(r.passed).toBe(false);
+    });
+
+    it('drops ENTIRE list item from daily_advice.canTry (no fragment left)', () => {
+      const r = service.validate(
+        completeNarrative({
+          daily_advice: {
+            canTry: ['今日宜處理庶務', '建議穿紅色衣物', '今日宜聯繫家人'],
+            shouldHold: [],
+          },
+        }),
+        SOFT_TRIGGER,
+      );
+      const cleaned = (r.sanitized as Record<string, any>).daily_advice.canTry as string[];
+      // 3 items in → 2 items out (the folk-content item is DROPPED entirely)
+      expect(cleaned).toHaveLength(2);
+      expect(cleaned).not.toEqual(expect.arrayContaining([expect.stringMatching(/紅色/)]));
+      // The two clean items survive
+      expect(cleaned).toContain('今日宜處理庶務');
+      expect(cleaned).toContain('今日宜聯繫家人');
+      // Finding emitted with section path
+      const f = r.findings.find(
+        x => x.type === 'forbidden_folk_content' && x.section === 'daily_advice.canTry',
+      );
+      expect(f).toBeDefined();
+    });
+
+    it('regression: banned-phrase strip still works alongside folk-content strip', () => {
+      // Single section has BOTH a banned phrase AND folk content:
+      // - 「一定」 → replaced with 「易於」 (in-place substitution)
+      // - 「今日宜吃...」 sentence → entire sentence stripped
+      const r = service.validate(
+        completeNarrative({
+          daily_overview: '今日一定順利。今日宜吃水果養生。請保持平常心。',
+        }),
+        SOFT_TRIGGER,
+      );
+      const sanitized = (r.sanitized as Record<string, string>).daily_overview;
+      // Banned phrase replaced
+      expect(sanitized).not.toContain('一定');
+      expect(sanitized).toContain('易於');
+      // Folk-content sentence stripped
+      expect(sanitized).not.toContain('今日宜吃');
+      expect(sanitized).not.toContain('水果');
+      // Untouched sentence survives
+      expect(sanitized).toContain('平常心');
+      // Both findings emitted
+      expect(r.findings.find(f => f.type === 'banned_absolute_phrase')).toBeDefined();
+      expect(r.findings.find(f => f.type === 'forbidden_folk_content')).toBeDefined();
+    });
+
+    it('folk content in daily_<dim>_takeaway is stripped (sentence-level)', () => {
+      // Pull-quote takeaway field contains fabricated folk content
+      const r = service.validate(
+        completeNarrative({
+          daily_romance_takeaway: '今日宜吃辣養運',
+        }),
+        SOFT_TRIGGER,
+      );
+      const sanitized = (r.sanitized as Record<string, string>).daily_romance_takeaway;
+      // Sentence-level strip on a single-sentence field = empty string
+      expect(sanitized).not.toContain('今日宜吃');
+      expect(sanitized).not.toContain('辣');
+      expect(
+        r.findings.find(
+          f => f.type === 'forbidden_folk_content' && f.section === 'daily_romance_takeaway',
+        ),
+      ).toBeDefined();
+    });
+  });
+
+  // ============================================================
+  // PR review #5 — Validator throw safety (whole-body try/catch)
+  // ============================================================
+  describe('PR review #5 — validator tolerates malformed inputs', () => {
+    it('tolerates daily_advice.canTry being a string instead of array (no throw)', () => {
+      // The pre-fix code's list-iteration assumed canTry is always an array.
+      // If AI ever returns a string instead, validator must not throw.
+      const malformed = {
+        daily_overview: '今日宜以平常心。',
+        daily_romance: '',
+        daily_career: '',
+        daily_finance: '',
+        daily_travel: '',
+        daily_health: '',
+        daily_advice: {
+          canTry: 'a single string instead of an array',
+          shouldHold: [],
+        },
+      };
+      // Must not throw
+      const r = service.validate(malformed as any, SOFT_TRIGGER);
+      // Returned a sanitized output (graceful degradation)
+      expect(r.sanitized).toBeDefined();
+    });
+
+    it('tolerates a non-string field value (no throw)', () => {
+      // AI returns a number where a string is expected (very rare but possible)
+      const malformed = {
+        daily_overview: 12345,  // typeof !== 'string'
+        daily_romance: '',
+        daily_career: '',
+        daily_finance: '',
+        daily_travel: '',
+        daily_health: '',
+        daily_advice: { canTry: [], shouldHold: [] },
+      };
+      const r = service.validate(malformed as any, SOFT_TRIGGER);
+      expect(r.sanitized).toBeDefined();
+      // The non-string field is skipped (current behavior — typeof guard at start of loop)
+    });
+
+    it('returns original narrative if validator internal error is forced', () => {
+      // Force a throw inside _validateUnsafe by spying on stripLoneBoldMarkers.
+      const throwingService = new FortuneValidatorsService();
+      jest
+        .spyOn(throwingService as any, 'stripLoneBoldMarkers')
+        .mockImplementation(() => {
+          throw new Error('Simulated internal error');
+        });
+
+      const narrative = {
+        daily_overview: '今日宜以平常心。',
+        daily_romance: '',
+        daily_career: '',
+        daily_finance: '',
+        daily_travel: '',
+        daily_health: '',
+        daily_advice: { canTry: [], shouldHold: [] },
+      };
+      const r = throwingService.validate(narrative, SOFT_TRIGGER);
+      // Must not throw — returns original narrative + warn finding
+      expect(r.sanitized).toBe(narrative);  // original passed through, NOT discarded
+      expect(r.passed).toBe(false);
+      expect(
+        r.findings.find(f => f.type === 'validator_internal_error'),
+      ).toBeDefined();
+    });
+  });
 });

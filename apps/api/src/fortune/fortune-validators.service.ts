@@ -61,6 +61,32 @@ export class FortuneValidatorsService {
     'daily_health',
   ];
 
+  /** Strip whole sentences containing forbidden folk-content matches.
+   *
+   * PR review #10 (2026-05-17): naive `text.replace(pattern, '')` leaves
+   * grammatically broken Chinese (orphaned subjects/commas like
+   * `今日，請多加注意。`). Instead, find the containing CJK sentence
+   * and remove it entirely. Sentence boundaries: 。！？\n
+   *
+   * Returns { text: cleaned text, sentencesStripped: count }.
+   */
+  private stripFolkSentences(text: string): { text: string; sentencesStripped: number } {
+    let cleaned = text;
+    let totalStripped = 0;
+    for (const { pattern } of this.FORBIDDEN_FOLK_PATTERNS) {
+      // Build a sentence-level regex by wrapping the existing pattern in
+      // greedy non-terminator runs on both sides + optional terminator.
+      const sentenceRegex = new RegExp(
+        `[^。！？\\n]*(?:${pattern.source})[^。！？\\n]*[。！？\\n]?`,
+        'g',
+      );
+      const matches = cleaned.match(sentenceRegex);
+      if (matches) totalStripped += matches.length;
+      cleaned = cleaned.replace(sentenceRegex, '');
+    }
+    return { text: cleaned.trim(), sentencesStripped: totalStripped };
+  }
+
   /** Strip lone / mismatched `**` markdown bold markers from text.
    *
    * Per UX Sprint R1.3 + Round-2 N5 (single-pass sanitization order):
@@ -91,7 +117,15 @@ export class FortuneValidatorsService {
     };
   }
 
-  /** Validate a daily fortune AI narrative and sanitize banned phrases. */
+  /** Validate a daily fortune AI narrative and sanitize banned phrases.
+   *
+   *  PR review #5 (2026-05-17): the entire body is wrapped in try/catch.
+   *  The validator must NEVER throw — if it does, the outer catch in
+   *  `getDailyFortune` resets narrative=null and silently discards the
+   *  AI's work. Potential throw points include regex ops on non-string
+   *  field values and iteration over non-array daily_advice fields.
+   *  On internal error: return the original narrative with a warn finding.
+   */
   validate(
     narrative: Record<string, unknown> | null,
     daily: { metaFraming?: string },
@@ -102,6 +136,31 @@ export class FortuneValidatorsService {
       return { passed: true, findings, sanitized: {} };
     }
 
+    try {
+      return this._validateUnsafe(narrative, daily, findings);
+    } catch (err) {
+      const msg = (err as Error).message ?? String(err);
+      this.logger.error(`Fortune validator internal error: ${msg}`);
+      findings.push({
+        severity: 'warn',
+        type: 'validator_internal_error',
+        detail: `Validator threw — serving narrative unsanitized: ${msg}`,
+        section: 'validator',
+      });
+      return {
+        passed: false,
+        findings,
+        sanitized: narrative,
+      };
+    }
+  }
+
+  /** Inner unsanitized impl — wrapped by `validate()`'s try/catch. */
+  private _validateUnsafe(
+    narrative: Record<string, unknown>,
+    daily: { metaFraming?: string },
+    findings: FortuneValidationResult['findings'],
+  ): FortuneValidationResult {
     // Deep clone via JSON round-trip so daily_advice nested-object mutations
     // don't write back into the caller's `narrative` reference (audit C2).
     // narrative is plain-JSON-shaped (AI output) so this is safe.
@@ -160,16 +219,25 @@ export class FortuneValidatorsService {
       }
 
       // 3. Forbidden folk content fabrication
+      // PR review #10: STRIP whole sentences (not substrings — that leaves
+      // grammatically broken Chinese). Validator docstring promises "do NOT
+      // pass to client", so behavior now matches the promise.
+      let foundFolk = false;
       for (const { pattern, topic } of this.FORBIDDEN_FOLK_PATTERNS) {
         if (pattern.test(text)) {
+          foundFolk = true;
           findings.push({
             severity: 'error',
             type: 'forbidden_folk_content',
-            detail: `Phase 1 must not ship ${topic} — AI fabricated it`,
+            detail: `Phase 1 must not ship ${topic} — AI fabricated it (sentence stripped)`,
             section: sectionKey,
           });
-          this.logger.warn(`Fortune narrative: forbidden ${topic} in ${sectionKey}`);
+          this.logger.warn(`Fortune narrative: forbidden ${topic} in ${sectionKey} — sentence stripped`);
         }
+      }
+      if (foundFolk) {
+        const { text: stripped } = this.stripFolkSentences(text);
+        text = stripped;
       }
 
       sanitized[sectionKey] = text;
@@ -203,20 +271,27 @@ export class FortuneValidatorsService {
             }
           }
           // Audit I3 — same folk-content fabrication check
+          // PR review #10: list items are short single sentences. If ANY
+          // folk pattern matches, DROP the entire item (don't try to repair
+          // fragments — leaves grammatically broken Chinese). The validator
+          // docstring promises content "do NOT pass to client".
+          let folkItemFound = false;
           for (const { pattern, topic } of this.FORBIDDEN_FOLK_PATTERNS) {
             if (pattern.test(s)) {
+              folkItemFound = true;
               findings.push({
                 severity: 'error',
                 type: 'forbidden_folk_content',
-                detail: `Phase 1 must not ship ${topic} — AI fabricated it in list item`,
+                detail: `Phase 1 must not ship ${topic} — AI fabricated it in list item (item dropped)`,
                 section: `daily_advice.${listKey}`,
               });
               this.logger.warn(
-                `Fortune narrative: forbidden ${topic} in daily_advice.${listKey}`,
+                `Fortune narrative: forbidden ${topic} in daily_advice.${listKey} — item dropped`,
               );
+              break;  // one finding per item is enough; don't double-log
             }
           }
-          cleaned.push(s);
+          if (!folkItemFound) cleaned.push(s);
         }
         (sanitized['daily_advice'] as Record<string, unknown>)[listKey] = cleaned;
       }

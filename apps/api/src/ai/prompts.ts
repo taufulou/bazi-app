@@ -4434,7 +4434,7 @@ export const FORTUNE_PRE_ANALYSIS_VERSIONS = {
  * `DailyFortuneSnapshot` invalidate on bump (promptVersion string compare).
  */
 export const FORTUNE_PROMPT_VERSIONS = {
-  day: 'v1.2.2',  // UX Sprint S3.1 — added per-dim `daily_<dim>_takeaway` pull-quote fields + markdown bold marker rule for narrative key terms (2026-05-15)
+  day: 'v1.2.3',  // PR review #10 — folk-content sentence-level strip; cached responses with fabricated folk content regenerate (2026-05-17)
   month: 'v1.0.0',
   year: 'v1.0.0',
 } as const;
