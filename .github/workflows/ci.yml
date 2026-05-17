@@ -21,6 +21,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
+      - name: Generate Prisma client
+        run: cd apps/api && npx prisma generate
       - run: npx turbo lint
 
   typecheck:
@@ -33,6 +35,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
+      - name: Generate Prisma client
+        run: cd apps/api && npx prisma generate
       - name: Typecheck API
         run: cd apps/api && npx tsc --noEmit
       - name: Typecheck Web
@@ -48,6 +52,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
+      - name: Generate Prisma client
+        run: cd apps/api && npx prisma generate
       - name: Run API tests
         run: cd apps/api && npx jest --verbose --forceExit
         env:
@@ -84,6 +90,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
+      - name: Generate Prisma client
+        run: cd apps/api && npx prisma generate
       - name: Build API
         run: cd apps/api && npx nest build
       - name: Build Web
