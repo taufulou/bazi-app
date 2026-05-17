@@ -50,8 +50,14 @@ describe('FortuneService — cache layer', () => {
     redisGet?: () => Promise<string | null>;
     redisSet?: jest.Mock;
     dbFindUnique?: () => Promise<any>;
+    dbUpsert?: jest.Mock;
   }) {
     const redisSet = opts.redisSet ?? jest.fn().mockResolvedValue(undefined);
+    const dbUpsert = opts.dbUpsert ?? jest.fn().mockImplementation((args: any) => Promise.resolve({
+      id: 'persist-1',
+      ...args.create,
+      generatedAt: new Date(),
+    }));
     const redisService: any = {
       get: opts.redisGet ?? jest.fn().mockResolvedValue(null),
       set: redisSet,
@@ -59,6 +65,7 @@ describe('FortuneService — cache layer', () => {
     const prismaService: any = {
       dailyFortuneSnapshot: {
         findUnique: opts.dbFindUnique ?? jest.fn().mockResolvedValue(null),
+        upsert: dbUpsert,
       },
     };
     const configService: any = { get: (k: string) => (k === 'BAZI_ENGINE_URL' ? 'http://localhost:5001' : null) };
@@ -69,7 +76,17 @@ describe('FortuneService — cache layer', () => {
       configService,
       validatorsService,
     );
-    return { service, redisSet, redisService, prismaService };
+    return { service, redisSet, dbUpsert, redisService, prismaService };
+  }
+
+  /** Minimal valid engine output for `persistSnapshot` calls. */
+  function buildDailyOutput() {
+    return {
+      dayGanZhi: '戊子',
+      auspiciousness: '凶中有吉',
+      dimensions: {},
+      energyScore: 42,
+    } as any;
   }
 
   describe('Bug A5-3 — DB warm path repopulates Redis', () => {
@@ -258,6 +275,95 @@ describe('FortuneService — cache layer', () => {
 
       expect(result).not.toBeNull();
       expect(result.promptVersion).toBe(FORTUNE_PROMPT_VERSIONS.day);
+    });
+  });
+
+  /**
+   * persistSnapshot — verifies the WRITE side of the circuit breaker.
+   *
+   * `tryGetCached` tests above cover the READ side (when to bypass AI).
+   * These tests cover the inverse: how the failure counter mutates as
+   * snapshots are persisted. Together they form a closed loop:
+   *   persist failure → versionsMatch sees counter → bypass AI → ...
+   *   persist success → versionsMatch sees counter=0 → AI runs normally
+   *
+   * The reset behavior was implicitly trusted in the original commit
+   * (line 14 of this spec's docstring claimed coverage). Per PR #46
+   * line audit follow-up, locking it with an explicit test.
+   */
+  describe('persistSnapshot — circuit-breaker counter mutations', () => {
+    const PERSIST_ARGS = {
+      chartHash: CHART_HASH,
+      birthProfileId: 'profile-1',
+      anchorDate: new Date(`${TARGET_DATE}T00:00:00Z`),
+      dailyOutput: buildDailyOutput(),
+      narrative: null as any,
+    };
+
+    it('AI success → CREATE block initializes counter to 0 and lastFailedAt to null', async () => {
+      const dbUpsert = jest.fn().mockImplementation((args: any) => Promise.resolve({
+        id: 'persist-1', ...args.create, generatedAt: new Date(),
+      }));
+      const { service } = buildService({ dbUpsert });
+      await (service as any).persistSnapshot({
+        ...PERSIST_ARGS,
+        promptVersion: FORTUNE_PROMPT_VERSIONS.day,  // AI succeeded
+      });
+      expect(dbUpsert).toHaveBeenCalledTimes(1);
+      const call = dbUpsert.mock.calls[0][0];
+      expect(call.create.aiFailureCount).toBe(0);
+      expect(call.create.aiLastFailedAt).toBeNull();
+    });
+
+    it('AI success → UPDATE block resets counter to 0 and lastFailedAt to null', async () => {
+      const dbUpsert = jest.fn().mockResolvedValue({ id: 'persist-1' });
+      const { service } = buildService({ dbUpsert });
+      await (service as any).persistSnapshot({
+        ...PERSIST_ARGS,
+        promptVersion: FORTUNE_PROMPT_VERSIONS.day,
+      });
+      const call = dbUpsert.mock.calls[0][0];
+      // Reset path — NOT the increment path
+      expect(call.update.aiFailureCount).toBe(0);
+      expect(call.update.aiLastFailedAt).toBeNull();
+      // Sanity: success path must be a primitive `0`, NOT a Prisma
+      // `{ increment: 1 }` object — guards against accidentally inverting
+      // the ternary in `persistSnapshot`.
+      expect(typeof call.update.aiFailureCount).toBe('number');
+    });
+
+    it('AI failure → CREATE block sets counter=1 and lastFailedAt=now', async () => {
+      const dbUpsert = jest.fn().mockImplementation((args: any) => Promise.resolve({
+        id: 'persist-1', ...args.create, generatedAt: new Date(),
+      }));
+      const { service } = buildService({ dbUpsert });
+      const before = Date.now();
+      await (service as any).persistSnapshot({
+        ...PERSIST_ARGS,
+        promptVersion: null,  // AI failed
+      });
+      const call = dbUpsert.mock.calls[0][0];
+      expect(call.create.aiFailureCount).toBe(1);
+      expect(call.create.aiLastFailedAt).toBeInstanceOf(Date);
+      const lastFailedMs = (call.create.aiLastFailedAt as Date).getTime();
+      expect(lastFailedMs).toBeGreaterThanOrEqual(before);
+      expect(lastFailedMs).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('AI failure → UPDATE block uses Prisma atomic { increment: 1 } (NOT JS-level math)', async () => {
+      const dbUpsert = jest.fn().mockResolvedValue({ id: 'persist-1' });
+      const { service } = buildService({ dbUpsert });
+      await (service as any).persistSnapshot({
+        ...PERSIST_ARGS,
+        promptVersion: null,
+      });
+      const call = dbUpsert.mock.calls[0][0];
+      // Critical: must be Prisma `{ increment: 1 }` object (race-safe SQL
+      // `SET ai_failure_count = ai_failure_count + 1`), NOT a JS number
+      // like `2` which would require a prior SELECT and lose concurrent
+      // failures (see PR #46 staff-review #4).
+      expect(call.update.aiFailureCount).toEqual({ increment: 1 });
+      expect(call.update.aiLastFailedAt).toBeInstanceOf(Date);
     });
   });
 });
