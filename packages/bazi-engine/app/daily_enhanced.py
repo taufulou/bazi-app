@@ -717,9 +717,14 @@ def _apply_per_day_signal_adjustments(
         applied.append('tianxi_mitigation')
 
     # 桃花 only counts toward mitigation when day_stem ∈ {用, 喜}
+    # Note: TAOHUA is keyed by NATAL DAY BRANCH per constants.py:287 doctrine.
+    # 紅鸞/天喜 above use year_branch (FLOW-year doctrine — 三命通會 「年支起紅鸞」),
+    # which is the canonical key for those two stars and intentionally different.
+    # Pre-PR-46 bug: line used year_branch here too, causing softening to fire on
+    # wrong day vs _dispatch_romance's TAOHUA.get(natal_day_branch) at line 194.
     day_stem_element = STEM_ELEMENT.get(day_stem, '')
     day_stem_role = _get_element_role(day_stem_element, day_master_stem, effective_gods_zh)
-    if TAOHUA.get(year_branch) == day_branch and day_stem_role in FAVORABLE_ROLES:
+    if TAOHUA.get(natal_day_branch) == day_branch and day_stem_role in FAVORABLE_ROLES:
         shensha_steps += 1
         applied.append('taohua_mitigation_favorable_stem')
 

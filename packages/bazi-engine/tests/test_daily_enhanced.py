@@ -898,6 +898,139 @@ class TestSofteningLayer:
         assert any('spouse_palace_six_harm' in s for s in signals)
 
 
+class TestTaohuaMitigationLookup:
+    """Regression for PR-46 code-review #3 fix.
+
+    Pre-fix: `_apply_per_day_signal_adjustments` used `TAOHUA.get(year_branch)`
+    which produced inconsistent behavior vs `_dispatch_romance` (line 194)
+    which correctly uses `TAOHUA.get(natal_day_branch)`. Lock the fix here
+    so future refactors can't silently regress to the year_branch lookup.
+
+    Roger's chart: natal_day_branch=午 → TAOHUA[午]=卯. Year_branch=卯 →
+    TAOHUA[卯]=子. Pre-fix, mitigation fired on 子日 (e.g. 2026-05-14 戊子).
+    Post-fix, mitigation fires on 卯日 with a 用/喜 day stem.
+    """
+
+    def test_taohua_mitigation_fires_on_natal_taohua_day_with_favorable_stem(self):
+        """Mitigation fires on TAOHUA-of-natal-day-branch with favorable stem.
+
+        Uses SYNTHETIC natal_day_branch=申 (NOT Roger's 午) because Roger's
+        TAOHUA branch (午→卯) accidentally causes 午-卯 六破 friction, which
+        cancels the +1 shensha mitigation with a -1 friction step. Cleaner
+        fixture: natal=申 → TAOHUA[申]=酉, and 申-酉 have no friction.
+
+        Effective gods: 用神=金 (so 庚 stem maps to 比肩, 火→偏官, etc.)
+        Pick a 用/喜 stem that doesn't have other side effects: 庚 = 比肩
+        for 庚 DM = 比肩 → 閒神. Use 戊 DM + 用神=火 (Roger's gods) + 丁 stem
+        but switch natal_day_branch to 申 to dodge the 卯-午 collision.
+        """
+        from app.daily_enhanced import _apply_per_day_signal_adjustments
+        from app.annual_enhanced import _normalize_effective_gods_for_annual
+        gods_zh = _normalize_effective_gods_for_annual(
+            ROGER_INPUTS['effective_gods'], '戊',
+        )
+        adjusted, signals = _apply_per_day_signal_adjustments(
+            raw_label='平',
+            day_stem='丁',         # 火 element = 用神 (favorable)
+            day_branch='酉',       # TAOHUA[natal=申]=酉
+            day_ten_god='正印',
+            year_branch='卯',      # year=卯 — pre-fix TAOHUA[卯]=子 ≠ 酉, so pre-fix would NOT have fired
+            natal_day_branch='申', # synthetic — chosen to avoid friction with 酉
+            day_master_stem='戊',
+            effective_gods_zh=gods_zh,
+            branch_interactions_on_day_palace=[],
+        )
+        # Mitigation fires → shensha +1 → pos 3 - 1 = 2 = 吉中有凶
+        assert adjusted == '吉中有凶', (
+            f"Expected 吉中有凶 (mitigation fires on TAOHUA day with favorable stem); "
+            f"got {adjusted}, signals={signals}"
+        )
+        assert 'taohua_mitigation_favorable_stem' in signals
+
+    def test_taohua_mitigation_does_NOT_fire_on_pre_fix_buggy_day(self):
+        """Roger 子日 — pre-fix would fire (TAOHUA[year=卯]=子); post-fix must NOT.
+
+        This test fails under the pre-fix code (year_branch lookup) — the
+        regression guard. 戊子日 + 戊 stem still triggers 比劫 (+1 step
+        from bijie_duo_cai_beneficial_valence) and 紅鸞 (+1 from
+        honluan_mitigation), but the taohua signal name MUST NOT appear.
+        """
+        from app.daily_enhanced import _apply_per_day_signal_adjustments
+        from app.annual_enhanced import _normalize_effective_gods_for_annual
+        gods_zh = _normalize_effective_gods_for_annual(
+            ROGER_INPUTS['effective_gods'], '戊',
+        )
+        adjusted, signals = _apply_per_day_signal_adjustments(
+            raw_label='凶',
+            day_stem='戊',
+            day_branch='子',  # pre-fix bug fired here (TAOHUA[year=卯]=子)
+            day_ten_god='比肩',
+            year_branch='卯',
+            natal_day_branch='午',
+            day_master_stem='戊',
+            effective_gods_zh=gods_zh,
+            branch_interactions_on_day_palace=['六沖'],
+        )
+        # 桃花 mitigation MUST NOT fire — TAOHUA[natal=午]=卯, not 子
+        assert 'taohua_mitigation_favorable_stem' not in signals, (
+            f"taohua_mitigation should NOT fire on 子日 for Roger (natal 午); "
+            f"got signals={signals}"
+        )
+
+    def test_taohua_mitigation_requires_favorable_day_stem_gate(self):
+        """卯日 with non-favorable stem (e.g. 辛=enemyGod 金=仇神) → no mitigation.
+
+        Verifies the FAVORABLE_ROLES gate still works correctly after the fix.
+        """
+        from app.daily_enhanced import _apply_per_day_signal_adjustments
+        from app.annual_enhanced import _normalize_effective_gods_for_annual
+        gods_zh = _normalize_effective_gods_for_annual(
+            ROGER_INPUTS['effective_gods'], '戊',
+        )
+        # 辛 stem = 金 = Roger's enemyGod (仇神) — NOT in FAVORABLE_ROLES
+        adjusted, signals = _apply_per_day_signal_adjustments(
+            raw_label='平',
+            day_stem='辛',
+            day_branch='卯',  # 卯日 (correct TAOHUA branch)
+            day_ten_god='傷官',
+            year_branch='卯',
+            natal_day_branch='午',
+            day_master_stem='戊',
+            effective_gods_zh=gods_zh,
+            branch_interactions_on_day_palace=[],
+        )
+        # Stem gate blocks mitigation
+        assert 'taohua_mitigation_favorable_stem' not in signals
+
+    def test_honluan_tianxi_still_use_year_branch_correctly(self):
+        """Sanity check: HONGLUAN/TIANXI still use year_branch (NOT touched by fix).
+
+        Roger 紅鸞 = 子 (year branch 卯 → HONGLUAN[卯]=子). On a 子日,
+        紅鸞 mitigation MUST fire. This guards against a future copy-paste
+        of the TAOHUA fix to HONGLUAN/TIANXI which would break correct doctrine.
+        """
+        from app.daily_enhanced import _apply_per_day_signal_adjustments
+        from app.annual_enhanced import _normalize_effective_gods_for_annual
+        gods_zh = _normalize_effective_gods_for_annual(
+            ROGER_INPUTS['effective_gods'], '戊',
+        )
+        adjusted, signals = _apply_per_day_signal_adjustments(
+            raw_label='平',
+            day_stem='戊',
+            day_branch='子',  # HONGLUAN of year 卯
+            day_ten_god='比肩',
+            year_branch='卯',
+            natal_day_branch='午',
+            day_master_stem='戊',
+            effective_gods_zh=gods_zh,
+            branch_interactions_on_day_palace=[],
+        )
+        assert 'honluan_mitigation' in signals, (
+            "HONGLUAN must still use year_branch (classical 三命通會 doctrine) — "
+            "do NOT regress to natal_day_branch lookup."
+        )
+
+
 class TestSubordinationCapWiring:
     """Verify cap chain is wired correctly to the daily pipeline."""
 

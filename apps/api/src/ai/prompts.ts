@@ -4423,7 +4423,7 @@ export const FORTUNE_V1_PROMPTS = {
  * string compare).
  */
 export const FORTUNE_PRE_ANALYSIS_VERSIONS = {
-  day: 'v1.1.0',  // Option 2.5 (Bounded Decouple) per-day verdict — 2026-05-14
+  day: 'v1.1.1',  // TAOHUA softening lookup fix (natal_day_branch, was year_branch) — 2026-05-17
   month: 'v1.0.0',
   year: 'v1.0.0',
 } as const;
