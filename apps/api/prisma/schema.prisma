@@ -68,10 +68,11 @@ model BirthProfile {
   updatedAt       DateTime        @updatedAt @map("updated_at")
 
   // Relations
-  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  readings     BaziReading[]
-  comparisonsA BaziComparison[] @relation("ProfileA")
-  comparisonsB BaziComparison[] @relation("ProfileB")
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readings        BaziReading[]
+  comparisonsA    BaziComparison[]       @relation("ProfileA")
+  comparisonsB    BaziComparison[]       @relation("ProfileB")
+  fortuneSnapshots DailyFortuneSnapshot[]
 
   @@index([userId])
   @@map("birth_profiles")
@@ -495,6 +496,15 @@ model ChatSession {
   // createSession (the prompt assembled would just be the LIFETIME prompt,
   // which is the most permissive — no broken UX).
   readingType         ReadingType @default(LIFETIME) @map("reading_type")
+  // Phase Fortune — FORTUNE chat scope (day/month/year). NULL for non-FORTUNE
+  // sessions. Denormalized at session create; used for topic-scope + refuse
+  // template + few-shots routing within FORTUNE.
+  fortuneScope        FortuneScope? @map("fortune_scope")
+  // Phase Fortune — date the fortune session was anchored to (NULL for
+  // non-FORTUNE). For DAY scope = the Bazi day; for MONTH = 1st of month;
+  // for YEAR = 1st of year. Snapshot at session create — DB row immune to
+  // user navigating to another date later.
+  fortuneAnchorDate   DateTime?   @map("fortune_anchor_date") @db.Date
   startedAt           DateTime    @default(now()) @map("started_at")
   firstMessageAt      DateTime?   @map("first_message_at") // null until user sends 1st message
   endedAt             DateTime?   @map("ended_at") // null until 30-msg cap / 24h inactivity / user-ended
@@ -612,6 +622,44 @@ model ChatSampleQuestion {
 }
 
 // ============================================================
+// Daily/Monthly/Yearly Fortune (八字日運/月運/年運)
+//
+// Per plan `.claude/plans/ok-next-big-feature-merry-cake.md`:
+// - Free users see current day/month/year only
+// - Subscribers see current + 1 prior period + future window (Day +30 /
+//   Month +12 / Year +5)
+// - Hybrid cached AI: engine pre-analysis is deterministic; AI narrative
+//   cached per (chartHash, date, scope). 1 generation per unique chart
+//   per scope per period
+// - 7-label is source of truth; 0-100 energy score derived for display
+// - 流日 is TRIGGER not verdict — anti-hallucination clauses enforce
+//   soft-trigger language in AI prompts
+// ============================================================
+
+model DailyFortuneSnapshot {
+  id                 String        @id @default(uuid())
+  chartHash          String        @map("chart_hash") // hash of birth pillars + gender
+  birthProfileId     String?       @map("birth_profile_id") // FK -> BirthProfile (NULL if chart came from ad-hoc input)
+  birthProfile       BirthProfile? @relation(fields: [birthProfileId], references: [id], onDelete: SetNull)
+  scope              FortuneScope  // DAY | MONTH | YEAR
+  anchorDate         DateTime      @map("anchor_date") @db.Date // Bazi-boundary day (or 1st of month/year for MONTH/YEAR)
+  yearMonth          String?       @map("year_month") // 'YYYY-MM' for MONTH scope (denormalized for indexing)
+  year               Int? // YYYY for YEAR scope (denormalized for indexing)
+  engineOutputJson   Json          @map("engine_output_json") // structured pre-analysis from packages/bazi-engine
+  aiNarrativeJson    Json?         @map("ai_narrative_json") // AI-generated narrative (cached). NULL = engine-only (preview tabs)
+  energyScore        Int?          @map("energy_score") // derived 0-100 advisory (denormalized from engineOutput for filtering)
+  auspiciousnessLabel String?      @map("auspiciousness_label") // 7-tier label (denormalized)
+  preAnalysisVersion String        @map("pre_analysis_version") // matches FORTUNE_PRE_ANALYSIS_VERSIONS[scope]
+  promptVersion      String?       @map("prompt_version") // matches FORTUNE_PROMPT_VERSIONS[scope]; NULL when aiNarrativeJson is NULL
+  generatedAt        DateTime      @default(now()) @map("generated_at")
+
+  @@unique([chartHash, scope, anchorDate])
+  @@index([birthProfileId, scope, anchorDate])
+  @@index([generatedAt]) // for purge cron
+  @@map("daily_fortune_snapshots")
+}
+
+// ============================================================
 // Enums
 // ============================================================
 
@@ -642,6 +690,7 @@ enum ReadingType {
   LOVE // 愛情姻緣
   HEALTH // 先天健康分析
   COMPATIBILITY // 合盤比較
+  FORTUNE // 八字日運/月運/年運 (FORTUNE chat unified type — scope tag day/month/year denormalized via ChatSession.fortuneScope)
   ZWDS_LIFETIME // 紫微終身運
   ZWDS_ANNUAL // 紫微流年運
   ZWDS_CAREER // 紫微事業運
@@ -652,6 +701,16 @@ enum ReadingType {
   ZWDS_DAILY // 紫微每日運勢
   ZWDS_MAJOR_PERIOD // 紫微大限分析
   ZWDS_QA // 紫微問事
+}
+
+// Phase Fortune — FORTUNE chat reading type uses this discriminator
+// (`day` | `month` | `year`) to route topic-scope, refuse templates,
+// few-shots, and cross-sell. Denormalized on ChatSession.fortuneScope at
+// session create. NULL for non-FORTUNE sessions.
+enum FortuneScope {
+  DAY
+  MONTH
+  YEAR
 }
 
 enum ComparisonType {
