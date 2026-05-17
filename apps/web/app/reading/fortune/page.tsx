@@ -22,6 +22,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@clerk/nextjs';
 import { Share2 } from 'lucide-react';
+import { ENTERTAINMENT_DISCLAIMER } from '@repo/shared';
 import FortuneShell from '../../components/fortune/FortuneShell';
 import EnergyScoreRing from '../../components/fortune/EnergyScoreRing';
 import DimensionBars from '../../components/fortune/DimensionBars';
@@ -190,6 +191,16 @@ function SuccessView({ data }: { data: DailyFortuneResponse }) {
       {/* Sprint 4: disabled share placeholder — wires up when Phase 1.5
           html2canvas sharing session ships */}
       <SharePlaceholder />
+
+      {/* Entertainment disclaimer (PR review #1 — CLAUDE.md compliance:
+          all reading pages must render this. Pattern mirrors AIReadingDisplay
+          + compatibility/page.tsx) */}
+      <div className={styles.disclaimer}>
+        <span className={styles.disclaimerIcon} aria-hidden="true">⚠️</span>
+        <span className={styles.disclaimerText}>
+          {ENTERTAINMENT_DISCLAIMER['zh-TW']}
+        </span>
+      </div>
     </>
   );
 }

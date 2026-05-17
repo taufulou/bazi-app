@@ -286,3 +286,30 @@
   font-weight: 600;
   letter-spacing: 0.5px;
 }
+
+/* ==== Entertainment disclaimer (PR review #1 — CLAUDE.md compliance) ====
+ * Pattern mirrors AIReadingDisplay.module.css `.disclaimer` block.
+ * Rendered at bottom of SuccessView (after SharePlaceholder).
+ */
+.disclaimer {
+  background: rgba(212, 160, 23, 0.04);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-top: 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.disclaimerIcon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.disclaimerText {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
