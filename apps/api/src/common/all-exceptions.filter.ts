@@ -25,6 +25,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
     // throws `new ForbiddenException({code, message})` or similar — the
     // frontend uses this to dispatch between specific error UIs
     // (SUBSCRIBER_ONLY paywall vs OUT_OF_WINDOW vs NO_PRIMARY_PROFILE).
+    //
+    // Side-effect (PR #46 review #6): this passthrough also fixes a
+    // pre-existing bug in chat where `HttpException({code, message})`
+    // patterns (`CONTEXT_VERSION_DRIFTED`, `SESSION_EXPIRED`,
+    // `NEEDS_EXTENSION` thrown from `chat.service.ts`) were silently
+    // dropped by this filter pre-PR-46. Frontend chat error-dispatch
+    // logic (`useChatSession.ts:520`, `ChatDrawer.tsx:44`) now fires
+    // correctly. Any new `HttpException` with a `.code` literal in any
+    // controller will round-trip through this filter to the client.
     let code: string | undefined;
 
     if (exception instanceof HttpException) {

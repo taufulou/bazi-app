@@ -1120,6 +1120,8 @@ Estimated effort once mobile reading pages exist: **~1-2 weeks** for a mobile ch
 
 ⚠️ **Cost ack**: bumping `CHAT_PROMPT_VERSIONS` invalidates ALL cached sessions for that type. Cost is bounded (chats are interactive, no async re-narration like the reading pipeline), but monitor Anthropic spend dashboard for 24h post-deploy.
 
+> **Note** (PR #46 review #6): pre-PR-46, the `AllExceptionsFilter` stripped the `code` field from `HttpException({code, message})` responses, silently breaking the frontend's chat error-dispatch logic (`useChatSession.ts:520`, `ChatDrawer.tsx:44`). The Fortune A5-2 fix added `code` passthrough in `all-exceptions.filter.ts`, which incidentally restored the chat error UIs (`CONTEXT_VERSION_DRIFTED` banner, `SESSION_EXPIRED`, `NEEDS_EXTENSION` dialogs). These flows now fire correctly — no chat changes were needed.
+
 ---
 
 ## Day Master Mascot Design Bible — 日主角色卡吉祥物設計規範

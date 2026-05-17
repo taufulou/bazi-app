@@ -5,9 +5,12 @@
  * Layer 5 (Debt D — AI narrative anti-drift validation).
  *
  * Mirrors `chat-validators.service.ts` pattern:
- *   1. Banned-phrase regex strip (一定/必/絕對/必然/百分百/etc.) — enforced
- *      server-side BEFORE returning to client. If found, log + downgrade
- *      narrative (do NOT pass to client).
+ *   1. Banned-phrase regex strip (一定/必定/必然/絕對/百分百/etc. — bare
+ *      「必」 intentionally excluded to avoid false positives on legitimate
+ *      Chinese: 必須/必要/何必/不必/必勝. See FORTUNE_BANNED_ABSOLUTE_PHRASES
+ *      in prompts.ts for the canonical list.) — enforced server-side BEFORE
+ *      returning to client. If found, replace with 「易於」 (in-place
+ *      substitution).
  *   2. Soft-trigger framing check — narrative must use 「今日宜/今日易於/
  *      今日適合」 framing for soft-trigger content; if absent on a soft-trigger
  *      output, flag for QA.
