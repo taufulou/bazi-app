@@ -36,6 +36,7 @@ export const CHAT_PROMPT_VERSIONS: Partial<Record<ReadingType, string>> = {
   CAREER: 'v1.0.1',   // Phase 2 post-test bump — same rule (preventive)
   ANNUAL: 'v1.0.3',   // Phase 2 post-test bump — A-4 few-shot regex-friendly fix (moved «屬於命局架構層面而非流年動態» AFTER «範圍——» so isTopicBoundaryRefuse regex still matches)
   COMPATIBILITY: 'v1.1.0', // Phase 3.1 — Bazi-master review fixes: K-3 doctrinal correction (no marriagePalace.personality), 配偶星 gender hint, 六合/半合 scope, softer cross-sell wording
+  FORTUNE: 'v1.0.0',  // Phase Fortune — unified day/month/year chat (scope tag in ChatSession.fortuneScope)
 };
 
 /** Safe lookup with fallback to LIFETIME for unmapped reading types. */

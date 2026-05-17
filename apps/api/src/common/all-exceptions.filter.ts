@@ -21,6 +21,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let status: number;
     let message: string;
     let error: string;
+    // Phase Fortune (A5 bug fix): preserve `code` field when a controller
+    // throws `new ForbiddenException({code, message})` or similar — the
+    // frontend uses this to dispatch between specific error UIs
+    // (SUBSCRIBER_ONLY paywall vs OUT_OF_WINDOW vs NO_PRIMARY_PROFILE).
+    let code: string | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -32,6 +37,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         const resObj = res as Record<string, unknown>;
         message = (resObj.message as string) || exception.message;
         error = (resObj.error as string) || exception.name;
+        if (typeof resObj.code === 'string') code = resObj.code;
       }
     } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       // Prisma known errors (unique constraint, not found, etc.)
@@ -71,6 +77,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     response.status(status).json({
       statusCode: status,
+      ...(code ? { code } : {}),
       message,
       error,
       timestamp: new Date().toISOString(),
