@@ -6,6 +6,7 @@
  *          deferred to Phase 2/3.
  */
 import { Controller, Get, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentUser, type AuthPayload } from '../auth/current-user.decorator';
 import { FortuneService } from './fortune.service';
 import {
@@ -31,8 +32,21 @@ export class FortuneController {
    *
    * ClerkAuthGuard is registered globally via AuthModule (APP_GUARD), so
    * no explicit `@UseGuards` here.
+   *
+   * Rate limit: 10 req/min — matches `bazi.controller.ts::createReading`
+   * (same risk profile: AI-intensive + cacheable). Protects Anthropic
+   * spend from authenticated abuse — a subscriber hitting different dates
+   * within the +30d window would otherwise bypass cache and trigger ~100
+   * AI calls/min at the global default. Per `4c5d89c` (Phase 7A
+   * production hardening) — established pattern for AI-intensive endpoints.
+   *
+   * Known limitation: ThrottlerGuard is IP-scoped by NestJS default. An
+   * attacker on rotating IPs (VPN/mobile NAT) can multiply effective
+   * rate by IP count. User-scoped throttling requires a custom throttle-key
+   * resolver — deferred to Phase 2 when traffic warrants it.
    */
   @Get('daily')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async getDaily(
     @CurrentUser() auth: AuthPayload,
     @Query() query: GetDailyFortuneQueryDto,
