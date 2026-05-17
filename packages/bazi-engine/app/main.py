@@ -18,6 +18,7 @@ from .calculator import (
     calculate_bazi_with_all_pipelines,
 )
 from .chat_context import build_chat_context, build_chat_context_compat
+from .daily_enhanced import compute_daily_fortune, resolve_bazi_today_from_clock_time
 from .explanations import get_element_explanation
 
 app = FastAPI(
@@ -462,6 +463,170 @@ async def build_chat_context_compat_endpoint(data: CompatChatContextInput):
         raise HTTPException(
             status_code=500,
             detail=f"Compat chat context build error: {str(e)}",
+        )
+
+
+class DailyFortuneInput(BaseModel):
+    """Input for daily fortune computation (八字日運).
+
+    The endpoint accepts birth data + target_date and internally computes
+    the full chart context (用神/喜神/忌神, 空亡, 從格, 強弱, 流年/月) then
+    delegates to `compute_daily_fortune`. The NestJS API layer caches the
+    full result by `(chart_hash, date)` so we only re-compute when the
+    cache misses.
+
+    See `.claude/plans/ok-next-big-feature-merry-cake.md` for the binding
+    plan.
+    """
+    birth_date: str = Field(
+        ..., description="Birth date YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    birth_time: str = Field(
+        ..., description="Birth time HH:MM",
+        pattern=r"^([01]\d|2[0-3]):([0-5]\d)$",
+    )
+    birth_city: str
+    birth_timezone: str
+    gender: str = Field(..., pattern=r"^(male|female)$")
+    birth_longitude: Optional[float] = None
+    birth_latitude: Optional[float] = None
+    target_date: str = Field(
+        ..., description="Target date YYYY-MM-DD (caller resolves 23:00 子時 boundary before sending)",
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    target_year: Optional[int] = Field(
+        None, ge=1900, le=2100,
+        description="Flow year for context (defaults to target_date's year)",
+    )
+
+
+@app.post("/daily-fortune")
+async def daily_fortune_endpoint(data: DailyFortuneInput):
+    """Compute 八字日運 (daily fortune) for the given chart on a target date.
+
+    Returns the engine's deterministic daily pre-analysis:
+    - 7-label 吉凶 + derived 0-100 energy score
+    - 5 dimension sub-scores (感情/事業/財運/出行/健康) with signals
+    - Folk content (static 用神 wealth direction)
+    - `metaFraming='soft_trigger'` (load-bearing for AI prompt
+      anti-hallucination — daily fortune is a TRIGGER, not a verdict)
+
+    The Bazi day boundary is 23:00 (子時 start), NOT midnight. The CALLER
+    (NestJS layer) is responsible for resolving the correct Bazi-day
+    target_date from local clock time BEFORE calling this endpoint — use
+    `resolve_bazi_today_from_clock_time` for that.
+
+    Cache strategy (recommended at NestJS layer): key by
+    `(chart_hash, target_date, FORTUNE_DAILY_PRE_ANALYSIS_VERSION)`, TTL
+    24h. Persist to DB for subscriber lookback.
+    """
+    from datetime import date as _date
+
+    start_time = time.perf_counter()
+
+    try:
+        # Parse target date
+        try:
+            target_date_obj = _date.fromisoformat(data.target_date)
+        except ValueError as ve:
+            raise HTTPException(status_code=400, detail=f'Invalid target_date: {ve}')
+
+        # Default flow year = target date's year
+        flow_year = data.target_year or target_date_obj.year
+
+        # Run full chart pipeline (includes 用神/喜神/忌神 + 從格 detection +
+        # flow year metadata via annualEnhancedInsights)
+        chart = calculate_bazi_with_all_pipelines(
+            birth_date=data.birth_date,
+            birth_time=data.birth_time,
+            birth_city=data.birth_city,
+            birth_timezone=data.birth_timezone,
+            gender=data.gender,
+            birth_longitude=data.birth_longitude,
+            birth_latitude=data.birth_latitude,
+            target_year=flow_year,
+        )
+
+        # Extract daily-fortune inputs from full chart
+        pillars = chart['fourPillars']
+        day_master = chart['dayMaster']
+        effective_gods = {
+            'usefulGod': day_master.get('usefulGod', ''),
+            'favorableGod': day_master.get('favorableGod', ''),
+            'idleGod': day_master.get('idleGod', ''),
+            'tabooGod': day_master.get('tabooGod', ''),
+            'enemyGod': day_master.get('enemyGod', ''),
+        }
+        is_cong_ge = bool(chart.get('lifetimeEnhancedInsights', {})
+                          .get('deterministic', {})
+                          .get('cong_ge_detected'))
+
+        # Flow-year info for the day's context
+        annual_insights = chart.get('annualEnhancedInsights', {})
+        flow_year_data = annual_insights.get('flowYear', {})
+        flow_year_stem = flow_year_data.get('stem', '')
+        flow_year_auspiciousness = flow_year_data.get('auspiciousness', '平')
+
+        daily_result = compute_daily_fortune(
+            pillars=pillars,
+            day_master_stem=chart['dayMasterStem'],
+            effective_gods=effective_gods,
+            useful_god_element=day_master.get('usefulGod', '土'),
+            gender=data.gender,
+            kong_wang=chart.get('kongWang', []),
+            strength=day_master.get('strength', 'neutral'),
+            is_cong_ge=is_cong_ge,
+            target_date=target_date_obj,
+            flow_year_stem=flow_year_stem,
+            flow_year_auspiciousness=flow_year_auspiciousness,
+        )
+
+        # Attach chart context so the NestJS layer can build the AI prompt
+        # without re-calling /calculate. Mirrors the data the prompt builder's
+        # FortuneChartContext expects.
+        daily_result['chartContext'] = {
+            'gender': data.gender,
+            'birthDate': data.birth_date,
+            'birthTime': data.birth_time,
+            'lunarDate': (
+                f"農曆{chart.get('lunarDate', {}).get('year', '?')}-"
+                f"{chart.get('lunarDate', {}).get('month', '?')}-"
+                f"{chart.get('lunarDate', {}).get('day', '?')}"
+                if chart.get('lunarDate') else None
+            ),
+            'yearPillar': pillars['year']['stem'] + pillars['year']['branch'],
+            'monthPillar': pillars['month']['stem'] + pillars['month']['branch'],
+            'dayPillar': pillars['day']['stem'] + pillars['day']['branch'],
+            'hourPillar': pillars['hour']['stem'] + pillars['hour']['branch'],
+            'yearTenGod': pillars['year'].get('tenGod', ''),
+            'monthTenGod': pillars['month'].get('tenGod', ''),
+            'hourTenGod': pillars['hour'].get('tenGod', ''),
+            'dayMaster': chart['dayMasterStem'],
+            'dayMasterElement': day_master.get('element', ''),
+            'dayMasterYinYang': day_master.get('yinYang', ''),
+            'strengthV2': day_master.get('strength', 'neutral'),
+            'usefulGod': day_master.get('usefulGod', ''),
+            'favorableGod': day_master.get('favorableGod', ''),
+            'tabooGod': day_master.get('tabooGod', ''),
+            'enemyGod': day_master.get('enemyGod', ''),
+        }
+
+        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        return {
+            'status': 'success',
+            'calculationTimeMs': elapsed_ms,
+            'data': daily_result,
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Daily fortune calculation error: {str(e)}",
         )
 
 
