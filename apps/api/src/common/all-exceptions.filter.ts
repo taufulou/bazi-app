@@ -21,6 +21,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let status: number;
     let message: string;
     let error: string;
+    // Phase Fortune (A5 bug fix): preserve `code` field when a controller
+    // throws `new ForbiddenException({code, message})` or similar — the
+    // frontend uses this to dispatch between specific error UIs
+    // (SUBSCRIBER_ONLY paywall vs OUT_OF_WINDOW vs NO_PRIMARY_PROFILE).
+    //
+    // Side-effect (PR #46 review #6): this passthrough also fixes a
+    // pre-existing bug in chat where `HttpException({code, message})`
+    // patterns (`CONTEXT_VERSION_DRIFTED`, `SESSION_EXPIRED`,
+    // `NEEDS_EXTENSION` thrown from `chat.service.ts`) were silently
+    // dropped by this filter pre-PR-46. Frontend chat error-dispatch
+    // logic (`useChatSession.ts:520`, `ChatDrawer.tsx:44`) now fires
+    // correctly. Any new `HttpException` with a `.code` literal in any
+    // controller will round-trip through this filter to the client.
+    let code: string | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -32,6 +46,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         const resObj = res as Record<string, unknown>;
         message = (resObj.message as string) || exception.message;
         error = (resObj.error as string) || exception.name;
+        if (typeof resObj.code === 'string') code = resObj.code;
       }
     } else if (exception instanceof Prisma.PrismaClientKnownRequestError) {
       // Prisma known errors (unique constraint, not found, etc.)
@@ -71,6 +86,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     response.status(status).json({
       statusCode: status,
+      ...(code ? { code } : {}),
       message,
       error,
       timestamp: new Date().toISOString(),

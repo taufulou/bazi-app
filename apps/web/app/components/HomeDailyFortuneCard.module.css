@@ -1,0 +1,188 @@
+.card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  background: linear-gradient(135deg, var(--bg-card), var(--bg-banner-warm));
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-warm);
+  text-decoration: none;
+  color: inherit;
+  transition: transform 200ms ease, box-shadow 200ms ease;
+}
+
+.card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-warm-lg);
+}
+
+.card[data-tier='positive'] {
+  border-color: rgba(212, 160, 23, 0.4);
+}
+.card[data-tier='negative'] {
+  border-color: rgba(139, 115, 85, 0.3);
+}
+
+.scoreRing {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 78px;
+  height: 78px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 3px solid var(--color-gold);
+  box-shadow: 0 2px 8px rgba(212, 160, 23, 0.18);
+  flex-shrink: 0;
+}
+
+.card[data-tier='neutral'] .scoreRing {
+  border-color: var(--color-orange);
+}
+.card[data-tier='negative'] .scoreRing {
+  border-color: var(--text-muted);
+}
+
+.scoreNumber {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.scoreUnit {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 1.5px;
+  margin-top: 2px;
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+.headerRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.label {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-accent);
+}
+
+.dot {
+  color: var(--text-muted);
+}
+
+.mood {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.meta {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.bars {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.barCol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.barName {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.barTrack {
+  width: 100%;
+  height: 4px;
+  background: rgba(212, 160, 23, 0.12);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-gold-light), var(--color-gold));
+  border-radius: 999px;
+}
+
+.arrow {
+  font-size: 18px;
+  color: var(--text-accent);
+  flex-shrink: 0;
+}
+
+/* Loading skeleton */
+.skeleton {
+  width: 100%;
+  height: 92px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(90deg, rgba(212, 160, 23, 0.06), rgba(212, 160, 23, 0.12), rgba(212, 160, 23, 0.06));
+  background-size: 200% 100%;
+  animation: shimmerHome 1.5s linear infinite;
+}
+
+@keyframes shimmerHome {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Setup card (when no primary profile) */
+.setupCard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--bg-banner-warm);
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--border-medium);
+  text-decoration: none;
+  color: inherit;
+}
+
+.setupIcon {
+  font-size: 32px;
+}
+
+.setupBody {
+  flex: 1;
+}
+
+.setupTitle {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-accent);
+}
+
+.setupSub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.setupArrow {
+  font-size: 18px;
+  color: var(--text-accent);
+}

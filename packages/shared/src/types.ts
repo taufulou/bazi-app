@@ -388,6 +388,13 @@ export interface Phase12bMonthlyExtras {
   // Phase 12c additive fields (六害 role-aware penalty + 沖庫釋放方向性)
   liuHaiInteractions?: LiuHaiInteraction[];
   chongKuRelease?: ChongKuRelease | null;
+  /** Option 2.5 (Bounded Decouple) — pre-year-combine checkpoint label
+   *  exposed by `_compute_single_month` so the daily fortune pipeline
+   *  can apply the year cap independently without double-counting. Used
+   *  by Phase 2 monthly tab + Fortune subordination cap. Older engine
+   *  snapshots predate the field — `?` makes the contract forward-compat.
+   *  See: packages/bazi-engine/app/annual_enhanced.py:2156. */
+  bareMonthAuspiciousness?: string;
 }
 
 // ============================================================

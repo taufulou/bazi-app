@@ -1,0 +1,75 @@
+.tooltip {
+  display: inline-block;
+  position: relative;
+}
+
+/* Cross-OS reset so default disclosure marker doesn't leak through */
+.summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  color: var(--text-muted);
+  border-radius: 999px;
+  transition: color 150ms ease;
+}
+.summary::-webkit-details-marker {
+  display: none; /* Safari */
+}
+.summary::marker {
+  display: none; /* Spec */
+}
+.summary:hover,
+.summary:focus-visible {
+  color: var(--color-red);
+  outline: none;
+}
+.summary:focus-visible {
+  box-shadow: 0 0 0 2px rgba(226, 61, 40, 0.25);
+}
+
+.body {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  max-width: 320px;
+  padding: 10px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-warm);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  text-align: left;
+  z-index: 10;
+  animation: tooltipFadeIn 150ms ease-out;
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -4px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+/* On mobile narrow viewports, anchor to right to avoid overflow */
+@media (max-width: 420px) {
+  .body {
+    left: auto;
+    right: 0;
+    transform: none;
+  }
+  @keyframes tooltipFadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+}

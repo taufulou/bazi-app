@@ -1,0 +1,83 @@
+.wrap {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  padding: 20px 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-warm);
+  border: 1px solid var(--border-light);
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Lucide icon container — uses currentColor for stroke tier-tinting */
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--text-accent);
+}
+.col[data-tier='good'] .icon {
+  color: var(--color-gold);
+}
+.col[data-tier='mid'] .icon {
+  color: var(--color-orange);
+}
+.col[data-tier='low'] .icon {
+  color: var(--text-muted);
+}
+
+.barTrack {
+  position: relative;
+  width: 14px;
+  height: 90px;
+  background: rgba(212, 160, 23, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.barFill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  border-radius: 999px;
+  transition: height 600ms ease-out;
+}
+
+.col[data-tier='good'] .barFill {
+  background: linear-gradient(180deg, var(--color-gold-light), var(--color-gold));
+}
+.col[data-tier='mid'] .barFill {
+  background: linear-gradient(180deg, var(--color-amber), var(--color-orange));
+}
+.col[data-tier='low'] .barFill {
+  background: linear-gradient(180deg, rgba(139, 115, 85, 0.6), var(--text-muted));
+}
+
+.score {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.dimName {
+  font-size: 13px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.dimLabel {
+  font-size: 11px;
+  color: var(--text-muted);
+}

@@ -64,7 +64,13 @@ function parseChatEnabledReadingTypes(envValue: string | undefined): Set<Reading
   // not yet hardened for ZWDS — see plan «Out of scope» / Phase 4+).
   // HEALTH / ZWDS_* are placeholders for future phases; not enabled
   // even if an operator typo'd them into env.
-  const VALID_TYPES: ReadingType[] = ['LIFETIME', 'LOVE', 'CAREER', 'ANNUAL', 'COMPATIBILITY'];
+  // NOTE on FORTUNE: type added here so a future operator can flip the
+  // env flag without a code change once `build_chat_context_fortune` ships
+  // in the engine (Phase 2 / chat-scope routing). Until then, FORTUNE chat
+  // session creation must be omitted from `CHAT_ENABLED_READING_TYPES` —
+  // chat-context fetch will fail (no engine endpoint yet) if enabled
+  // prematurely.
+  const VALID_TYPES: ReadingType[] = ['LIFETIME', 'LOVE', 'CAREER', 'ANNUAL', 'COMPATIBILITY', 'FORTUNE'];
   const validSet = new Set<string>(VALID_TYPES);
   const parsed = envValue
     .split(',')

@@ -1,0 +1,175 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  background: var(--bg-primary);
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-light);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.backBtn,
+.shareBtn {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.backBtn:hover,
+.shareBtn:hover:not(:disabled) {
+  background: var(--bg-banner-warm);
+}
+
+.shareBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.tabs {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(212, 160, 23, 0.08);
+  border-radius: 999px;
+  max-width: 360px;
+  margin: 0 auto;
+}
+
+.tab {
+  position: relative;
+  flex: 1;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  font-family: 'Noto Serif TC', serif;
+  font-size: 14px;
+  font-weight: 500;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 200ms ease, color 200ms ease;
+}
+
+.tab[data-active='true'] {
+  background: var(--text-primary);
+  color: #fff;
+}
+
+.tab[data-ready='false'] {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.tabBadge {
+  /* Audit #6: explicit color + dark-on-gold pair for WCAG AA (~9px text
+     on `--color-gold-light` needs a high-contrast text color). */
+  position: absolute;
+  top: -8px;
+  right: -4px;
+  font-size: 9px;
+  padding: 1px 5px;
+  background: var(--color-gold-light);
+  color: var(--text-on-gold); /* #3C2415 on #F5C842 ≈ 7.6:1 contrast */
+  border-radius: 999px;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+/* Sub-header — profile chip + share-secondary-meta */
+.subHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.profileChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+/* User avatar in a colored circle (Lucide User icon, no emoji) */
+.profileAvatar {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(212, 160, 23, 0.15);
+  color: var(--text-accent);
+  border-radius: 999px;
+}
+
+.profileName {
+  font-weight: 500;
+}
+
+/* Birth date chip — replaces the previous «我的» tag (2026-05-17 UX iteration).
+   Carries useful per-chart context instead of a redundant marker. */
+.birthDateTag {
+  padding: 2px 10px;
+  font-size: 11px;
+  background: var(--color-gold-light);
+  color: var(--text-on-gold);
+  border-radius: 999px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.5px;
+}
+
+/* Switcher: icon-only RefreshCw button on right */
+.switchProfileLink {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-accent);
+  text-decoration: none;
+  border-radius: 999px;
+  transition: background 150ms ease;
+}
+
+.switchProfileLink:hover {
+  background: var(--bg-banner-warm);
+}
+
+.main {
+  flex: 1;
+  padding: 16px;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}

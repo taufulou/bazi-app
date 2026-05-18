@@ -1,0 +1,305 @@
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/* ============================================================ */
+/* Hero card (今日整體) — white bg per Sprint 2.E                */
+/* ============================================================ */
+
+.hero {
+  padding: 22px 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-warm);
+}
+
+.heroTitle {
+  margin: 0 0 10px 0;
+  font-family: 'Noto Serif TC', serif;
+  font-size: 18px;
+  color: var(--text-accent);
+  font-weight: 600;
+  border-left: 3px solid var(--color-red);
+  padding-left: 10px;
+}
+
+.heroBody {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--text-primary);
+  white-space: pre-line;
+}
+
+/* ============================================================ */
+/* Dimensions                                                   */
+/* ============================================================ */
+
+.dims {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dimBlock {
+  padding: 16px 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-warm);
+}
+
+.dimHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+/* Lucide icon container — uses currentColor for stroke tint */
+.dimIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  color: var(--text-accent);
+}
+
+.dimTitle {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-accent);
+}
+
+/* ============================================================ */
+/* Per-dim score chip — 2-line stack with tier dot (S2.F)       */
+/* ============================================================ */
+
+.dimBadge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  background: var(--bg-banner-warm);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  min-height: 28px;
+}
+
+.dimBadgeDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.dimBadge[data-tier='good'] .dimBadgeDot {
+  background: var(--color-success);
+}
+.dimBadge[data-tier='mid'] .dimBadgeDot {
+  background: var(--color-amber);
+}
+.dimBadge[data-tier='low'] .dimBadgeDot {
+  background: var(--color-red);
+}
+
+.dimBadgeScore {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.dimBadgeLabel {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1;
+}
+
+/* ============================================================ */
+/* Takeaway pull-quote (S3.E + R1.7 — no italic, border accent) */
+/* ============================================================ */
+
+.takeaway {
+  margin: 0 0 10px 0;
+  padding: 4px 0 4px 14px;
+  border-left: 3px solid var(--color-red);
+  font-family: 'Noto Serif TC', serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-accent);
+  font-weight: 500;
+  /* NO font-style: italic — Noto Serif TC has no italic face per R1.7 */
+}
+
+.dimBody {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.75;
+  color: var(--text-primary);
+}
+
+/* Bold inside narrative body via parseBoldSegments — R1.3 */
+.dimBody strong,
+.heroBody strong {
+  font-weight: 700;
+  color: var(--text-accent);
+}
+
+/* ============================================================ */
+/* Advice cards (S3.F — restructured from <ul> to card pills)   */
+/* ============================================================ */
+
+.adviceGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 600px) {
+  .adviceGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.adviceCol {
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-warm);
+  background: var(--bg-card);
+}
+
+.adviceTitle {
+  margin: 0 0 12px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'Noto Serif TC', serif;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.adviceCol[data-kind='canTry'] .adviceTitle {
+  color: var(--color-success);
+}
+.adviceCol[data-kind='shouldHold'] .adviceTitle {
+  color: var(--color-orange);
+}
+
+.adviceList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.adviceItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px 8px 12px;
+  border-radius: 8px;
+  border-left: 3px solid transparent;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.adviceItem[data-kind='canTry'] {
+  background: rgba(76, 175, 80, 0.06);
+  border-left-color: var(--color-success);
+}
+.adviceItem[data-kind='shouldHold'] {
+  background: rgba(245, 166, 35, 0.06);
+  border-left-color: var(--color-amber);
+}
+
+.adviceItemIcon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.adviceItem[data-kind='canTry'] .adviceItemIcon {
+  color: var(--color-success);
+}
+.adviceItem[data-kind='shouldHold'] .adviceItemIcon {
+  color: var(--color-amber);
+}
+
+/* ============================================================ */
+/* Disclaimer (S3.G — reframed in plain Chinese)                */
+/* ============================================================ */
+
+.disclaimer {
+  margin: 8px 0 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 0 12px;
+}
+
+/* ============================================================ */
+/* Fallback (AI unavailable)                                    */
+/* ============================================================ */
+
+.fallback {
+  padding: 22px;
+  background: var(--bg-banner-warm);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+}
+
+.fallbackLead {
+  margin: 0 0 14px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.signalsList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.signalsBlock {
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+}
+
+.signalsTitle {
+  margin: 0 0 6px 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-accent);
+}
+
+.signalsItems {
+  margin: 0;
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.signalsItems li {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--text-primary);
+}
+
+.signalsEmpty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+}

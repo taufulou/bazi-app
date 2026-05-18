@@ -17,6 +17,7 @@ import { AdsModule } from './ads/ads.module';
 import { AIModule } from './ai/ai.module';
 import { CreditsModule } from './credits/credits.module';
 import { ChatModule } from './chat/chat.module';
+import { FortuneModule } from './fortune/fortune.module';
 
 @Module({
   imports: [
@@ -70,6 +71,9 @@ import { ChatModule } from './chat/chat.module';
 
     // Chat (Phase 1 — billing only; full module in later phases)
     ChatModule,
+
+    // Fortune (八字日運/月運/年運)
+    FortuneModule,
 
     // Feature modules
     UsersModule,

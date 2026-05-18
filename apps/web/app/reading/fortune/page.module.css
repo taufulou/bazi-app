@@ -1,0 +1,315 @@
+/* Folk content card */
+.folkSection {
+  padding: 18px 18px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-warm);
+}
+
+.folkTitle {
+  margin: 0 0 12px 0;
+  font-family: 'Noto Serif TC', serif;
+  font-size: 15px;
+  color: var(--text-accent);
+  font-weight: 600;
+  border-left: 3px solid var(--color-red);
+  padding-left: 10px;
+}
+
+.folkGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 500px) {
+  .folkGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.folkCard {
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(212, 160, 23, 0.06), rgba(245, 166, 35, 0.06));
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  text-align: center;
+}
+
+.folkIcon {
+  font-size: 24px;
+  margin-bottom: 4px;
+}
+
+.folkLabel {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.folkValue {
+  margin: 4px 0;
+  font-family: 'Noto Serif TC', serif;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-accent);
+}
+
+.folkNote {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.folkCardPlaceholder {
+  padding: 14px;
+  background: var(--bg-banner-warm);
+  border: 1px dashed var(--border-medium);
+  border-radius: var(--radius-md);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.folkPlaceholderText {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.folkPlaceholderSub {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Chat CTA */
+.chatCta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  background: linear-gradient(135deg, rgba(226, 61, 40, 0.06), rgba(212, 160, 23, 0.06));
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  box-shadow: var(--shadow-warm);
+}
+
+.chatCtaIcon {
+  font-size: 24px;
+}
+
+.chatCtaBody {
+  flex: 1;
+}
+
+.chatCtaTitle {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-accent);
+}
+
+.chatCtaSub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.chatCtaArrow {
+  font-size: 18px;
+  color: var(--text-accent);
+}
+
+/* Loading skeleton */
+.skeletonWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+}
+
+.skeletonRing {
+  height: 180px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(212, 160, 23, 0.06), rgba(212, 160, 23, 0.12), rgba(212, 160, 23, 0.06));
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+  margin: 0 auto;
+  width: 180px;
+}
+
+.skeletonBars {
+  height: 130px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(90deg, rgba(212, 160, 23, 0.04), rgba(212, 160, 23, 0.1), rgba(212, 160, 23, 0.04));
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
+
+.skeletonText {
+  height: 80px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(90deg, rgba(212, 160, 23, 0.04), rgba(212, 160, 23, 0.08), rgba(212, 160, 23, 0.04));
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Partial preview placeholder (月運/年運) */
+.previewWrap {
+  text-align: center;
+  padding: 48px 32px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px dashed var(--border-medium);
+}
+
+.previewIcon {
+  font-size: 56px;
+  margin-bottom: 12px;
+}
+
+.previewTitle {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-accent);
+  margin: 0 0 12px 0;
+}
+
+.previewBody {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  margin: 8px 0;
+}
+
+.previewLink {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 8px 18px;
+  background: var(--color-red);
+  color: var(--text-on-red);
+  text-decoration: none;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.previewLink:hover {
+  background: var(--color-red-dark);
+}
+
+/* Error panel */
+.errorWrap {
+  text-align: center;
+  padding: 48px 32px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  box-shadow: var(--shadow-warm);
+}
+
+.errorIcon {
+  font-size: 56px;
+  margin-bottom: 12px;
+}
+
+.errorTitle {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-accent);
+  margin: 0 0 12px 0;
+}
+
+.errorBody {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  margin: 8px 0;
+}
+
+.errorMeta {
+  margin-top: 16px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.errorAction {
+  display: inline-block;
+  margin-top: 14px;
+  padding: 8px 18px;
+  background: var(--color-gold);
+  color: var(--text-on-gold);
+  text-decoration: none;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.errorAction:hover {
+  background: var(--color-gold-light);
+}
+
+/* Sprint 4 — disabled share placeholder (Phase 1.5 wiring) */
+.sharePlaceholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 8px auto 4px;
+  padding: 10px 20px;
+  background: var(--bg-banner-warm);
+  color: var(--text-muted);
+  border: 1px dashed var(--border-light);
+  border-radius: 999px;
+  font-family: 'Noto Serif TC', serif;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+.sharePlaceholderBadge {
+  padding: 2px 8px;
+  font-size: 10px;
+  background: var(--color-gold-light);
+  color: var(--text-on-gold);
+  border-radius: 999px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+/* ==== Entertainment disclaimer (PR review #1 — CLAUDE.md compliance) ====
+ * Pattern mirrors AIReadingDisplay.module.css `.disclaimer` block.
+ * Rendered at bottom of SuccessView (after SharePlaceholder).
+ */
+.disclaimer {
+  background: rgba(212, 160, 23, 0.04);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  margin-top: 1rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.disclaimerIcon {
+  font-size: 1rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.disclaimerText {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}

@@ -511,3 +511,90 @@ class TestLaopoIntegration:
         )
         # Neutral DM suppresses Fix C
         assert 'officerSealActivation' not in result
+
+
+# ============================================================
+# Phase 1 Fortune Option 2.5 — bareMonthAuspiciousness contract
+# ============================================================
+
+class TestBareMonthAuspiciousnessField:
+    """Locks the new `bareMonthAuspiciousness` field on _compute_single_month
+    output (P15 BLOCKER fix). This field is the month verdict BEFORE the
+    year-combine block at lines 2065-2079 — consumed by the daily fortune
+    pipeline as the month-cap input to avoid double-counting year context.
+    """
+
+    def _laopo_gods_tengod_fmt(self):
+        """Laopo's effective gods in TEN-GOD format (what _compute_single_month expects).
+        DM=甲: 水=用(印), 木=喜(比劫), 火=閒(食傷), 金=忌(官殺), 土=仇(財).
+        """
+        return {
+            '比肩': '喜神', '劫財': '喜神',
+            '食神': '閒神', '傷官': '閒神',
+            '偏財': '仇神', '正財': '仇神',
+            '偏官': '忌神', '正官': '忌神',
+            '偏印': '用神', '正印': '用神',
+        }
+
+    def _roger_gods_tengod_fmt(self):
+        """Roger's effective gods in TEN-GOD format.
+        DM=戊: 火=用(印), 木=喜(官殺), 土=閒(比劫), 水=忌(財), 金=仇(食傷).
+        """
+        return {
+            '比肩': '閒神', '劫財': '閒神',
+            '食神': '仇神', '傷官': '仇神',
+            '偏財': '忌神', '正財': '忌神',
+            '偏官': '喜神', '正官': '喜神',
+            '偏印': '用神', '正印': '用神',
+        }
+
+    def test_field_present_in_output(self):
+        """Every _compute_single_month call must include bareMonthAuspiciousness."""
+        result = _compute_single_month(
+            month_data={'stem': '丙', 'branch': '午'},
+            pillars=_laopo(), day_master_stem='甲',
+            effective_gods=self._laopo_gods_tengod_fmt(), gender='female',
+            year_branch='寅', day_branch='戌', kong_wang=['申', '酉'],
+            flow_year_auspiciousness='吉', strength='very_weak',
+            is_cong_ge=False, flow_year_stem='丙',
+        )
+        assert 'bareMonthAuspiciousness' in result
+        assert isinstance(result['bareMonthAuspiciousness'], str)
+
+    def test_bare_differs_from_combined_when_year_combine_fires(self):
+        """When bareMonth=凶 AND year=吉, combined escalates to 凶中有吉 but bare stays 凶.
+        Locks the year-combine block does NOT mutate bareMonthAuspiciousness.
+        Uses Roger's day-pillar (戊子, 2026-05-14) as month_data — matching the
+        current daily pipeline's reuse of _compute_single_month for fix detection.
+        """
+        pillars = _p('丁', '卯', '戊', '申', '戊', '午', '庚', '申')
+        result = _compute_single_month(
+            month_data={'stem': '戊', 'branch': '子'},  # 戊子 day-pillar
+            pillars=pillars, day_master_stem='戊',
+            effective_gods=self._roger_gods_tengod_fmt(), gender='male',
+            year_branch='卯', day_branch='午', kong_wang=['子', '丑'],
+            flow_year_auspiciousness='吉',
+            strength='neutral', is_cong_ge=False, flow_year_stem='丙',
+        )
+        # Per pre-implementation snapshot: bare=凶, combined=凶中有吉
+        # Year-combine: month_negative AND year_positive → combined=凶中有吉
+        assert result['bareMonthAuspiciousness'] == '凶'
+        assert result['auspiciousness'] == '凶中有吉'
+        assert result['bareMonthAuspiciousness'] != result['auspiciousness']
+
+    def test_bare_equals_combined_when_no_year_combine(self):
+        """Laopo's day-pillar 戊子 (2026-05-14) → bareMonth=吉中有凶 (mixed).
+        Year-combine block doesn't fire for mixed labels → combined == bare.
+        """
+        result = _compute_single_month(
+            month_data={'stem': '戊', 'branch': '子'},  # 戊子 day-pillar
+            pillars=_laopo(), day_master_stem='甲',
+            effective_gods=self._laopo_gods_tengod_fmt(), gender='female',
+            year_branch='寅', day_branch='戌', kong_wang=['申', '酉'],
+            flow_year_auspiciousness='吉',
+            strength='very_weak', is_cong_ge=False, flow_year_stem='丙',
+        )
+        # Per snapshot: bareMonth=吉中有凶 → neither month_positive nor month_negative
+        # → year-combine block doesn't fire → combined == bare
+        assert result['bareMonthAuspiciousness'] == '吉中有凶'
+        assert result['auspiciousness'] == result['bareMonthAuspiciousness']

@@ -2062,6 +2062,12 @@ def _compute_single_month(
             elif auspiciousness in ('凶', '大凶'):
                 auspiciousness = '凶中有吉'
 
+    # Phase 1 Fortune Option 2.5: capture the month's own verdict BEFORE
+    # year-combine. This is consumed by `daily_enhanced._compute_single_day`
+    # as the month-cap input — chaining the year-combined label as the
+    # cap input would double-count year context (P15 BLOCKER fix).
+    bare_month_auspiciousness = auspiciousness
+
     # Combine with flow year context
     combined = auspiciousness
     year_positive = flow_year_auspiciousness in ('大吉', '吉')
@@ -2147,6 +2153,7 @@ def _compute_single_month(
         'stemBase': stem_base,
         'branchBase': branch_base,
         'baseAuspiciousness': base_auspiciousness,  # after Fix C override + Fix A halving
+        'bareMonthAuspiciousness': bare_month_auspiciousness,  # post-all-fixes pre-year-combine (Option 2.5 cap input)
         'auspiciousness': combined,
         'isKongWang': is_kong_wang,
         'branchInteractions': all_branch_interactions,

@@ -1,0 +1,29 @@
+.divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 4px auto;
+  padding: 4px 0;
+  max-width: 200px;
+  user-select: none;
+}
+
+.line {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(212, 160, 23, 0.35),
+    transparent
+  );
+  max-width: 60px;
+}
+
+.diamond {
+  color: var(--color-gold);
+  font-size: 10px;
+  letter-spacing: 0;
+  opacity: 0.7;
+}

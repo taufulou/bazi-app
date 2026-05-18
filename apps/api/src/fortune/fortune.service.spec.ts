@@ -1,0 +1,369 @@
+/**
+ * Tests for FortuneService — focused on the two-layer cache path + AI
+ * failure circuit breaker (PR review #4 — 2026-05-17).
+ *
+ * Currently covers:
+ *   - Bug A5-3 fix: DB warm path repopulates Redis so subsequent reads
+ *     hit the fast Redis path instead of round-tripping to Postgres.
+ *   - Negative: Redis-set failure during warm does NOT throw — the snapshot
+ *     is still returned (Redis is a perf optimization, not load-bearing).
+ *   - Negative: stale snapshot (version drift) is NOT warmed into Redis.
+ *   - Circuit breaker: after MAX_AI_FAILURES consecutive failures, AI is
+ *     NOT retried for AI_FAILURE_BACKOFF_HOURS (serve engine-only).
+ *   - Circuit breaker: after backoff window, AI is retried.
+ *   - Circuit breaker: successful AI call resets the counter.
+ *
+ * versionsMatch + tryGetCached are private methods — accessed via `as any`
+ * cast. Public-API coverage via getDailyFortune is intentionally deferred;
+ * that path has many fan-out branches (auth + profile + subscription gate +
+ * engine call + Anthropic call) and is better served by the existing
+ * manual A5 smoke test in the plan file.
+ */
+import { FortuneScope } from '@prisma/client';
+import { FortuneService } from './fortune.service';
+import { FORTUNE_PRE_ANALYSIS_VERSIONS, FORTUNE_PROMPT_VERSIONS } from '../ai/prompts';
+
+describe('FortuneService — cache layer', () => {
+  const CHART_HASH = 'a'.repeat(32);
+  const TARGET_DATE = '2026-05-14';
+  const REDIS_KEY = `fortune:daily:${CHART_HASH}:${TARGET_DATE}`;
+  const TTL_SECONDS = 24 * 60 * 60;
+
+  function buildFreshSnapshot() {
+    return {
+      id: 'snapshot-1',
+      chartHash: CHART_HASH,
+      birthProfileId: 'profile-1',
+      scope: FortuneScope.DAY,
+      anchorDate: new Date(`${TARGET_DATE}T00:00:00Z`),
+      engineOutputJson: { dayGanZhi: '戊子', auspiciousness: '凶中有吉', dimensions: {}, energyScore: 42 },
+      aiNarrativeJson: null,
+      energyScore: 42,
+      auspiciousnessLabel: '凶中有吉',
+      preAnalysisVersion: FORTUNE_PRE_ANALYSIS_VERSIONS.day,
+      promptVersion: FORTUNE_PROMPT_VERSIONS.day,
+      generatedAt: new Date('2026-05-14T03:00:00Z'),
+    };
+  }
+
+  function buildService(opts: {
+    redisGet?: () => Promise<string | null>;
+    redisSet?: jest.Mock;
+    dbFindUnique?: () => Promise<any>;
+    dbUpsert?: jest.Mock;
+  }) {
+    const redisSet = opts.redisSet ?? jest.fn().mockResolvedValue(undefined);
+    const dbUpsert = opts.dbUpsert ?? jest.fn().mockImplementation((args: any) => Promise.resolve({
+      id: 'persist-1',
+      ...args.create,
+      generatedAt: new Date(),
+    }));
+    const redisService: any = {
+      get: opts.redisGet ?? jest.fn().mockResolvedValue(null),
+      set: redisSet,
+    };
+    const prismaService: any = {
+      dailyFortuneSnapshot: {
+        findUnique: opts.dbFindUnique ?? jest.fn().mockResolvedValue(null),
+        upsert: dbUpsert,
+      },
+    };
+    const configService: any = { get: (k: string) => (k === 'BAZI_ENGINE_URL' ? 'http://localhost:5001' : null) };
+    const validatorsService: any = {};
+    const service = new FortuneService(
+      prismaService,
+      redisService,
+      configService,
+      validatorsService,
+    );
+    return { service, redisSet, dbUpsert, redisService, prismaService };
+  }
+
+  /** Minimal valid engine output for `persistSnapshot` calls. */
+  function buildDailyOutput() {
+    return {
+      dayGanZhi: '戊子',
+      auspiciousness: '凶中有吉',
+      dimensions: {},
+      energyScore: 42,
+    } as any;
+  }
+
+  describe('Bug A5-3 — DB warm path repopulates Redis', () => {
+    it('writes the DB row back into Redis when Redis was empty', async () => {
+      const dbRow = buildFreshSnapshot();
+      const { service, redisSet } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null), // Redis MISS
+        dbFindUnique: jest.fn().mockResolvedValue(dbRow), // DB HIT
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      expect(result).toBe(dbRow);
+      expect(redisSet).toHaveBeenCalledTimes(1);
+      expect(redisSet).toHaveBeenCalledWith(
+        REDIS_KEY,
+        JSON.stringify(dbRow),
+        TTL_SECONDS,
+      );
+    });
+
+    it('still returns the DB snapshot when Redis set throws (perf optimization, not load-bearing)', async () => {
+      const dbRow = buildFreshSnapshot();
+      const redisSet = jest.fn().mockRejectedValue(new Error('Redis down'));
+      const { service } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null),
+        redisSet,
+        dbFindUnique: jest.fn().mockResolvedValue(dbRow),
+      });
+
+      // Should NOT throw — caller gets the snapshot, Redis warm failure
+      // is logged as a warn but doesn't propagate.
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      expect(result).toBe(dbRow);
+      expect(redisSet).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT warm Redis when DB row is stale (version drift)', async () => {
+      const staleRow = {
+        ...buildFreshSnapshot(),
+        preAnalysisVersion: 'v0.0.0-stale',
+      };
+      const redisSet = jest.fn();
+      const { service } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null),
+        redisSet,
+        dbFindUnique: jest.fn().mockResolvedValue(staleRow),
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      // Stale rows fall through to regen — must NOT warm Redis with stale
+      // data (would poison the cache for 24h until TTL).
+      expect(result).toBeNull();
+      expect(redisSet).not.toHaveBeenCalled();
+    });
+
+    it('does NOT touch DB or warm Redis when Redis already has fresh data (hot path)', async () => {
+      const cached = buildFreshSnapshot();
+      const cachedJson = JSON.stringify(cached);
+      const dbFindUnique = jest.fn();
+      const redisSet = jest.fn();
+      const { service } = buildService({
+        redisGet: jest.fn().mockResolvedValue(cachedJson),
+        redisSet,
+        dbFindUnique,
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      expect(result).not.toBeNull();
+      // Hot path bails before DB — verifies we didn't accidentally
+      // double-fetch or double-warm.
+      expect(dbFindUnique).not.toHaveBeenCalled();
+      expect(redisSet).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('AI failure circuit breaker (PR review #4)', () => {
+    function buildFailedSnapshot(opts: {
+      aiFailureCount: number;
+      aiLastFailedAt: Date | null;
+    }) {
+      return {
+        ...buildFreshSnapshot(),
+        promptVersion: null,  // AI failed
+        aiNarrativeJson: null,
+        aiFailureCount: opts.aiFailureCount,
+        aiLastFailedAt: opts.aiLastFailedAt,
+      };
+    }
+
+    it('serves engine-only when failure count >= MAX_AI_FAILURES and within backoff window', async () => {
+      // 3 consecutive failures, last failed 1 hour ago (still within 24h backoff)
+      const recentlyFailed = buildFailedSnapshot({
+        aiFailureCount: 3,
+        aiLastFailedAt: new Date(Date.now() - 60 * 60 * 1000),
+      });
+      const { service, redisSet } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null),
+        dbFindUnique: jest.fn().mockResolvedValue(recentlyFailed),
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      // Circuit OPEN — serve the engine-only row as cache-valid.
+      expect(result).not.toBeNull();
+      expect(result.aiFailureCount).toBe(3);
+      // Redis re-warmed with the engine-only snapshot
+      expect(redisSet).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries AI when failure count >= MAX_AI_FAILURES but backoff window has elapsed', async () => {
+      // 5 failures, last failed 25 hours ago (outside 24h backoff)
+      const longAgo = buildFailedSnapshot({
+        aiFailureCount: 5,
+        aiLastFailedAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
+      });
+      const { service, redisSet } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null),
+        dbFindUnique: jest.fn().mockResolvedValue(longAgo),
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      // Circuit CLOSED — backoff elapsed → treat as stale → null forces regen
+      expect(result).toBeNull();
+      // Must NOT warm Redis with stale row
+      expect(redisSet).not.toHaveBeenCalled();
+    });
+
+    it('retries AI when failure count is below cap (1 or 2 prior failures)', async () => {
+      // 2 failures — under the MAX_AI_FAILURES=3 cap; should retry
+      const partial = buildFailedSnapshot({
+        aiFailureCount: 2,
+        aiLastFailedAt: new Date(),
+      });
+      const { service, redisSet } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null),
+        dbFindUnique: jest.fn().mockResolvedValue(partial),
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      expect(result).toBeNull();  // → caller regenerates
+      expect(redisSet).not.toHaveBeenCalled();
+    });
+
+    it('handles legacy snapshots missing aiFailureCount/aiLastFailedAt (?? 0 guard)', async () => {
+      // Stale Redis-deserialized row from before the migration — fields are undefined.
+      // Must NOT crash; must NOT spuriously trip the circuit breaker.
+      const legacy = {
+        ...buildFreshSnapshot(),
+        promptVersion: null,
+        // aiFailureCount / aiLastFailedAt intentionally OMITTED (undefined)
+      };
+      delete (legacy as any).aiFailureCount;
+      delete (legacy as any).aiLastFailedAt;
+      const { service, redisSet } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null),
+        dbFindUnique: jest.fn().mockResolvedValue(legacy),
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      // failureCount defaults to 0 < MAX → should retry (return null)
+      expect(result).toBeNull();
+      expect(redisSet).not.toHaveBeenCalled();
+    });
+
+    it('serves cached row normally when promptVersion is current (AI succeeded)', async () => {
+      // Sanity: a healthy row with non-null promptVersion should NOT touch the
+      // circuit-breaker path. This locks the order of checks in versionsMatch.
+      const healthy = {
+        ...buildFreshSnapshot(),
+        aiFailureCount: 0,
+        aiLastFailedAt: null,
+      };
+      const { service } = buildService({
+        redisGet: jest.fn().mockResolvedValue(null),
+        dbFindUnique: jest.fn().mockResolvedValue(healthy),
+      });
+
+      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+
+      expect(result).not.toBeNull();
+      expect(result.promptVersion).toBe(FORTUNE_PROMPT_VERSIONS.day);
+    });
+  });
+
+  /**
+   * persistSnapshot — verifies the WRITE side of the circuit breaker.
+   *
+   * `tryGetCached` tests above cover the READ side (when to bypass AI).
+   * These tests cover the inverse: how the failure counter mutates as
+   * snapshots are persisted. Together they form a closed loop:
+   *   persist failure → versionsMatch sees counter → bypass AI → ...
+   *   persist success → versionsMatch sees counter=0 → AI runs normally
+   *
+   * The reset behavior was implicitly trusted in the original commit
+   * (line 14 of this spec's docstring claimed coverage). Per PR #46
+   * line audit follow-up, locking it with an explicit test.
+   */
+  describe('persistSnapshot — circuit-breaker counter mutations', () => {
+    const PERSIST_ARGS = {
+      chartHash: CHART_HASH,
+      birthProfileId: 'profile-1',
+      anchorDate: new Date(`${TARGET_DATE}T00:00:00Z`),
+      dailyOutput: buildDailyOutput(),
+      narrative: null as any,
+    };
+
+    it('AI success → CREATE block initializes counter to 0 and lastFailedAt to null', async () => {
+      const dbUpsert = jest.fn().mockImplementation((args: any) => Promise.resolve({
+        id: 'persist-1', ...args.create, generatedAt: new Date(),
+      }));
+      const { service } = buildService({ dbUpsert });
+      await (service as any).persistSnapshot({
+        ...PERSIST_ARGS,
+        promptVersion: FORTUNE_PROMPT_VERSIONS.day,  // AI succeeded
+      });
+      expect(dbUpsert).toHaveBeenCalledTimes(1);
+      const call = dbUpsert.mock.calls[0][0];
+      expect(call.create.aiFailureCount).toBe(0);
+      expect(call.create.aiLastFailedAt).toBeNull();
+    });
+
+    it('AI success → UPDATE block resets counter to 0 and lastFailedAt to null', async () => {
+      const dbUpsert = jest.fn().mockResolvedValue({ id: 'persist-1' });
+      const { service } = buildService({ dbUpsert });
+      await (service as any).persistSnapshot({
+        ...PERSIST_ARGS,
+        promptVersion: FORTUNE_PROMPT_VERSIONS.day,
+      });
+      const call = dbUpsert.mock.calls[0][0];
+      // Reset path — NOT the increment path
+      expect(call.update.aiFailureCount).toBe(0);
+      expect(call.update.aiLastFailedAt).toBeNull();
+      // Sanity: success path must be a primitive `0`, NOT a Prisma
+      // `{ increment: 1 }` object — guards against accidentally inverting
+      // the ternary in `persistSnapshot`.
+      expect(typeof call.update.aiFailureCount).toBe('number');
+    });
+
+    it('AI failure → CREATE block sets counter=1 and lastFailedAt=now', async () => {
+      const dbUpsert = jest.fn().mockImplementation((args: any) => Promise.resolve({
+        id: 'persist-1', ...args.create, generatedAt: new Date(),
+      }));
+      const { service } = buildService({ dbUpsert });
+      const before = Date.now();
+      await (service as any).persistSnapshot({
+        ...PERSIST_ARGS,
+        promptVersion: null,  // AI failed
+      });
+      const call = dbUpsert.mock.calls[0][0];
+      expect(call.create.aiFailureCount).toBe(1);
+      expect(call.create.aiLastFailedAt).toBeInstanceOf(Date);
+      const lastFailedMs = (call.create.aiLastFailedAt as Date).getTime();
+      expect(lastFailedMs).toBeGreaterThanOrEqual(before);
+      expect(lastFailedMs).toBeLessThanOrEqual(Date.now());
+    });
+
+    it('AI failure → UPDATE block uses Prisma atomic { increment: 1 } (NOT JS-level math)', async () => {
+      const dbUpsert = jest.fn().mockResolvedValue({ id: 'persist-1' });
+      const { service } = buildService({ dbUpsert });
+      await (service as any).persistSnapshot({
+        ...PERSIST_ARGS,
+        promptVersion: null,
+      });
+      const call = dbUpsert.mock.calls[0][0];
+      // Critical: must be Prisma `{ increment: 1 }` object (race-safe SQL
+      // `SET ai_failure_count = ai_failure_count + 1`), NOT a JS number
+      // like `2` which would require a prior SELECT and lose concurrent
+      // failures (see PR #46 staff-review #4).
+      expect(call.update.aiFailureCount).toEqual({ increment: 1 });
+      expect(call.update.aiLastFailedAt).toBeInstanceOf(Date);
+    });
+  });
+});
