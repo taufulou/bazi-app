@@ -17,7 +17,13 @@
  * (Next.js App Router requirement for static prerendering).
  */
 
-import { Suspense, useEffect, useMemo, useState, useCallback } from 'react';
+// React namespace import (value) — fixes `Suspense cannot be used as a JSX
+// component` (TS2786) caused by dual-`@types/react` resolution in CI. Same
+// pattern as FortuneShell.tsx + InfoTooltip.tsx. Hooks below still use named
+// destructured imports — only JSX intrinsic components need the namespace
+// reference (hooks don't trigger the JSX type identity check).
+import * as React from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth } from '@clerk/nextjs';
@@ -42,9 +48,9 @@ type Tab = 'day' | 'month' | 'year';
 // useSearchParams() prerender requirement.
 export default function FortunePage() {
   return (
-    <Suspense fallback={<div className={styles.skeletonWrap} aria-label="載入中" />}>
+    <React.Suspense fallback={<div className={styles.skeletonWrap} aria-label="載入中" />}>
       <FortuneView />
-    </Suspense>
+    </React.Suspense>
   );
 }
 

@@ -11,15 +11,19 @@
  * Native semantics: keyboard accessible, screen-reader announces
  * «summary» on focus, no JS state needed.
  */
-import type { ReactNode } from 'react';
+// Value namespace import (NOT `import type`) to force `summary` + `children`
+// to resolve through the same React namespace that JSX intrinsics use.
+// Fixes the dual-`@types/react` type-identity mismatch that surfaces in
+// CI's npm-ci dep tree. Same pattern as FortuneShell.tsx fix.
+import * as React from 'react';
 import { Info } from 'lucide-react';
 import styles from './InfoTooltip.module.css';
 
 interface Props {
   /** Short tap-target content (defaults to small ⓘ icon) */
-  summary?: ReactNode;
+  summary?: React.ReactNode;
   /** Expanded content shown when opened */
-  children: ReactNode;
+  children: React.ReactNode;
   /** Accessible label for the summary tap-target */
   ariaLabel?: string;
 }
