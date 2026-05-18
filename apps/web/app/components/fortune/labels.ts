@@ -94,9 +94,12 @@ export function formatFortuneDate(iso: string): FormattedFortuneDate {
   // Parse YYYY-MM-DD safely — avoid timezone shift
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return { dateLine: iso, short: iso };
-  const year = parseInt(m[1], 10);
-  const month = parseInt(m[2], 10);
-  const day = parseInt(m[3], 10);
+  // Non-null assertions: the regex pattern guarantees 3 capture groups
+  // when match succeeds; `if (!m) return` above proves match succeeded.
+  // Needed because tsconfig sets `noUncheckedIndexedAccess: true`.
+  const year = parseInt(m[1]!, 10);
+  const month = parseInt(m[2]!, 10);
+  const day = parseInt(m[3]!, 10);
   const date = new Date(year, month - 1, day, 12, 0, 0); // noon avoids TZ edge
 
   let dateLine: string;

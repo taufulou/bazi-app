@@ -11,7 +11,12 @@
  */
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { type ReactNode } from 'react';
+// Value namespace import (NOT `import type`) to force `children: React.ReactNode`
+// to resolve through the same React namespace that JSX intrinsics use. Fixes
+// the dual-`@types/react` type-identity mismatch that surfaces in CI's npm-ci
+// dep tree (but not local worktree symlink). Per plan staff-review R1 #2 +
+// canonical Next.js + monorepo workaround.
+import * as React from 'react';
 import { ArrowLeft, ArrowUpRight, RefreshCw, User } from 'lucide-react';
 import styles from './FortuneShell.module.css';
 
@@ -37,14 +42,17 @@ interface Props {
   birthTime?: string;
   /** Show share icon — wires to ShareFortuneButton when ready (Phase 1.5). */
   onShareClick?: () => void;
-  children: ReactNode;
+  children: React.ReactNode;
 }
 
 /** Format ISO YYYY-MM-DD + optional HH:MM → «1987.09.06 16:11» for chip display.
  *  Returns just the date when birthTime is absent or empty. */
 function formatBirthChip(iso: string, time?: string): string {
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  const datePart = m ? `${m[1]}.${m[2]}.${m[3]}` : iso;
+  // Non-null assertions: the regex pattern guarantees 3 capture groups when
+  // match succeeds; ternary already gates on `m` being non-null. Needed
+  // because tsconfig sets `noUncheckedIndexedAccess: true`.
+  const datePart = m ? `${m[1]!}.${m[2]!}.${m[3]!}` : iso;
   const t = (time ?? '').trim();
   if (!t) return datePart;
   return `${datePart} ${t}`;

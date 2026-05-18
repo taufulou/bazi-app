@@ -50,7 +50,10 @@ export function parseBoldSegments(text: string): Segment[] {
     if (match.index > lastIndex) {
       segments.push({ type: 'text', value: text.slice(lastIndex, match.index) });
     }
-    segments.push({ type: 'bold', value: match[1] });
+    // Non-null assertion: BOLD_RE = /\*\*(.+?)\*\*/g has exactly 1 capture
+    // group; `BOLD_RE.exec()` returning non-null guarantees group 1 exists.
+    // Needed because tsconfig sets `noUncheckedIndexedAccess: true`.
+    segments.push({ type: 'bold', value: match[1]! });
     lastIndex = BOLD_RE.lastIndex;
   }
 
