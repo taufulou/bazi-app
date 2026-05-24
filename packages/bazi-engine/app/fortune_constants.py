@@ -166,6 +166,6 @@ def derive_dimension_label(score: int) -> str:
 # bump → all DailyFortuneSnapshot rows older than this version are
 # regenerated lazily on next fetch.
 
-FORTUNE_DAILY_PRE_ANALYSIS_VERSION = 'v1.1.1'  # TAOHUA softening lookup fix (natal_day_branch, was year_branch) — 2026-05-17
+FORTUNE_DAILY_PRE_ANALYSIS_VERSION = 'v1.2.0'  # Phase 1.5.z folk content (吉色/吉數/吉食含忌食/吉時) — 2026-05-22
 FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION = 'v1.0.0'
 FORTUNE_YEARLY_PRE_ANALYSIS_VERSION = 'v1.0.0'

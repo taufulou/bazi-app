@@ -110,6 +110,54 @@ export interface DailyFortuneResponse {
         provenance: 'classical';
         note: string;
       };
+      /** 用神 element-keyed lucky color (chart-level invariant per Phase 1.5.z research).
+       *  null when 用神 unresolved. Cite: 黃帝內經素問·陰陽應象大論. */
+      luckyColor: {
+        element: string;
+        primary: string;
+        secondary: string;
+        tertiary?: string;
+        cite: string;
+        provenance: 'classical';
+        note: string;
+      } | null;
+      /** 用神 element-keyed lucky number (folk_tradition tier — UI shows 「民俗」 badge).
+       *  Source classical (河圖) but子平 modern-app density low. null when 用神 unresolved. */
+      luckyNumber: {
+        element: string;
+        numbers: number[];
+        cite: string;
+        provenance: 'folk_tradition';
+        note: string;
+      } | null;
+      /** 用神 element-keyed favorable food (chart-level invariant).
+       *  Cite: 黃帝內經素問·陰陽應象大論 + 五常政大論. null when 用神 unresolved. */
+      luckyFoodFavor: {
+        element: string;
+        category: string;
+        examples: string[];
+        cite: string;
+        provenance: 'classical';
+      } | null;
+      /** 用神受剋之味 — avoid food (3-source classical citations, doctrinal+strong only).
+       *  TCM_CONDITIONAL items excluded from engine emission. null when 用神 unresolved. */
+      luckyFoodAvoid: {
+        element: string;
+        category: string;
+        reason: string;
+        cite_sources: string[];
+        classification: 'doctrinal';
+        avoid_strength: 'strong';
+        provenance: 'classical';
+      } | null;
+      /** 黃道吉時 — per-day, derived from day_branch ONLY (NOT month_branch).
+       *  6 entries per day per 協紀辨方書 卷十 «日上起時神煞» (青龍訣). */
+      auspiciousHours: Array<{
+        branch: string;
+        hour_range: string;
+        classical_name: string;
+        provenance: 'classical';
+      }>;
     };
     ruleTrace: string[];
     preAnalysisVersion: string;

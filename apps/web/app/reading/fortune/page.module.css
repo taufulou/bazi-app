@@ -83,6 +83,71 @@
   font-style: italic;
 }
 
+/* Phase 1.5.z — folk content extensions (吉色/吉數/吉食/吉時) */
+
+/* Wider card (吉時 spans full row when many hours rendered) */
+.folkCardWide {
+  grid-column: 1 / -1;
+}
+
+.folkValueSecondary {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* 民俗 badge — Phase A locked decision per Sub-Agent C audit.
+   Disclosure for 河圖 folk_tradition tier. Contrast: #8b6f47 on effective
+   bg ≈ #fdf8ee (gold 12% tint on white) = ~4.8:1 — passes WCAG AA for
+   small text (≥4.5:1 threshold). Min font 12px per audit V3 #5 (10px
+   failed mobile readability). */
+.folkBadge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 600;
+  color: #8b6f47;
+  background: rgba(212, 160, 23, 0.12);
+  border: 1px solid rgba(212, 160, 23, 0.25);
+  border-radius: 6px;
+  vertical-align: middle;
+  cursor: help;
+}
+
+/* 黃道吉時 chip row — wraps if 6 chips don't fit */
+.folkHoursChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin: 6px 0;
+}
+
+.folkHourChip {
+  display: inline-block;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-family: 'Noto Serif TC', serif;
+  color: var(--text-accent);
+  background: rgba(226, 61, 40, 0.08);
+  border: 1px solid rgba(226, 61, 40, 0.18);
+  border-radius: 12px;
+}
+
+/* Medical disclaimer footer — shown only when luckyFoodAvoid emitted */
+.folkMedicalDisclaimer {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: rgba(212, 160, 23, 0.05);
+  border-left: 3px solid var(--color-gold, #D4A017);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
 /* Chat CTA */
 .chatCta {
   display: flex;
@@ -312,4 +377,18 @@
   color: var(--text-muted);
   font-size: 0.8rem;
   line-height: 1.5;
+}
+
+/* ==== Phase 1.5 — off-screen ShareableFortuneCard mount point ====
+ * Card is rendered at fixed 1200x1600 dimensions so html2canvas can
+ * rasterize it directly. Off-screen via `left: -9999px` (NOT display:none
+ * or visibility:hidden — html2canvas requires layout). pointer-events:none
+ * prevents accidental hover/scroll interactions during capture. */
+.shareCardOffscreen {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  width: 1200px;
+  height: 1600px;
+  pointer-events: none;
 }

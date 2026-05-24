@@ -2,7 +2,8 @@
  * Anti-drift validators for the Fortune AI narrative output.
  *
  * Plan: .claude/plans/ok-next-big-feature-merry-cake.md — Accuracy Assurance
- * Layer 5 (Debt D — AI narrative anti-drift validation).
+ * Layer 5 (Debt D — AI narrative anti-drift validation) + Phase 1.5.z L4
+ * 3-tier defense for folk content.
  *
  * Mirrors `chat-validators.service.ts` pattern:
  *   1. Banned-phrase regex strip (一定/必定/必然/絕對/百分百/etc. — bare
@@ -14,8 +15,15 @@
  *   2. Soft-trigger framing check — narrative must use 「今日宜/今日易於/
  *      今日適合」 framing for soft-trigger content; if absent on a soft-trigger
  *      output, flag for QA.
- *   3. Anti-fabrication: forbidden topics (lucky colors / numbers / food
- *      / 吉時) NOT shipped Phase 1 — flag if AI invents them.
+ *   3. **Phase 1.5.z 3-tier folk-content defense**:
+ *      - Tier 1 (conditional whitelist): strip topic-mentions ONLY when
+ *        engine did NOT emit the corresponding field. Preserves Phase 1
+ *        safety while allowing AI to discuss fields the engine grounds.
+ *      - Tier 2 (value fidelity, warn-only): when engine emits, check AI
+ *        mentions for value mismatches (e.g., engine color=紅, AI mentions 藍).
+ *        Warn-only because Chinese natural language regex extraction is fragile.
+ *      - Tier 3 (framing rules): enforce 「民俗參考」 prefix for 吉數
+ *        (folk_tradition tier) + 五行 reason citation for 忌食.
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { FORTUNE_BANNED_ABSOLUTE_PHRASES } from '../ai/prompts';
@@ -32,17 +40,42 @@ export interface FortuneValidationResult {
   sanitized: Record<string, unknown>;
 }
 
+/** Folk content shape needed by Tier 1 conditional gate + Tier 2 value
+ *  fidelity. Mirrors `DailyFortuneEngineOutput.folkContent` but accepts
+ *  null values per the DTO contract (engine may omit chart-level fields
+ *  for unresolved 用神 charts). */
+export interface FolkContentForValidation {
+  luckyColor?: {
+    element?: string; primary?: string; secondary?: string; tertiary?: string;
+  } | null;
+  luckyNumber?: { element?: string; numbers?: number[] } | null;
+  luckyFoodFavor?: { element?: string; category?: string; examples?: string[] } | null;
+  luckyFoodAvoid?: { element?: string; category?: string; reason?: string } | null;
+  auspiciousHours?: Array<{ branch?: string; classical_name?: string }>;
+}
+
 @Injectable()
 export class FortuneValidatorsService {
   private readonly logger = new Logger(FortuneValidatorsService.name);
 
-  /** Forbidden folk-content topic patterns — Phase 1 doesn't ship these.
+  /** Forbidden folk-content topic patterns — Phase 1.5.z makes these CONDITIONAL.
    *
    *  Audit I2 tightened: the prior `今日宜.{0,3}色` regex false-positive'd
    *  on legitimate wealth-direction narratives (e.g., 用神=土 → 「今日宜土色
    *  方位」 = direction note, not a fabricated lucky-color). Restricted to
    *  patterns where the AI is structurally introducing color/number/food
    *  as a topic, not mentioning element-color in a different context.
+   *
+   *  **Phase 1.5.z (L4 Tier 1)**: each pattern is paired with an `enabledKey`
+   *  that maps to a folkContent field. The pattern strips matched sentences
+   *  ONLY when the engine did NOT emit that field. If engine emits, AI is
+   *  allowed to reference the topic (and Tier 2 + Tier 3 enforce correctness).
+   *
+   *  Map:
+   *    'lucky_number'    → folkContent.luckyNumber
+   *    'lucky_color'     → folkContent.luckyColor
+   *    'food_advice'     → folkContent.luckyFoodFavor OR luckyFoodAvoid (either emits → allow)
+   *    'auspicious_hour' → folkContent.auspiciousHours (non-empty → allow)
    */
   private readonly FORBIDDEN_FOLK_PATTERNS: Array<{ pattern: RegExp; topic: string }> = [
     { pattern: /(幸運數字|吉祥數字|幸運號碼)/, topic: 'lucky_number' },
@@ -50,6 +83,21 @@ export class FortuneValidatorsService {
     { pattern: /(食物建議|今日宜吃|食補建議|養生食物|建議飲食|建議吃)/, topic: 'food_advice' },
     { pattern: /(今日吉時|宜在.{0,4}時辰|黃道吉時|今日.{0,3}時辰最佳)/, topic: 'auspicious_hour' },
   ];
+
+  /** Tier 1 conditional gate — returns true when the topic should be stripped
+   *  (engine omitted the corresponding field, so any AI mention is fabrication).
+   *  Returns false when engine emits the field — AI is allowed to discuss it
+   *  (Tier 2 + Tier 3 enforce correctness). */
+  private shouldStripTopic(topic: string, folkContent?: FolkContentForValidation): boolean {
+    if (!folkContent) return true;  // no engine data → strip everything (defensive)
+    switch (topic) {
+      case 'lucky_number':    return folkContent.luckyNumber == null;
+      case 'lucky_color':     return folkContent.luckyColor == null;
+      case 'food_advice':     return folkContent.luckyFoodFavor == null && folkContent.luckyFoodAvoid == null;
+      case 'auspicious_hour': return !folkContent.auspiciousHours || folkContent.auspiciousHours.length === 0;
+      default:                return true;
+    }
+  }
 
   /** Soft-trigger opening pattern (heuristic — AI is encouraged to use these). */
   private readonly SOFT_TRIGGER_OPENERS = /今日(宜|易於|適合|傾向|有.{1,4}傾向|可考慮)/;
@@ -120,6 +168,103 @@ export class FortuneValidatorsService {
     };
   }
 
+  /** Strip sentences containing ANY of the given patterns (subset of
+   *  FORBIDDEN_FOLK_PATTERNS — used by Tier 1 conditional gate). */
+  private stripFolkSentencesByPatterns(text: string, patterns: RegExp[]): { text: string; sentencesStripped: number } {
+    let cleaned = text;
+    let totalStripped = 0;
+    for (const pattern of patterns) {
+      const sentenceRegex = new RegExp(
+        `[^。！？\\n]*(?:${pattern.source})[^。！？\\n]*[。！？\\n]?`,
+        'g',
+      );
+      const matches = cleaned.match(sentenceRegex);
+      if (matches) totalStripped += matches.length;
+      cleaned = cleaned.replace(sentenceRegex, '');
+    }
+    return { text: cleaned.trim(), sentencesStripped: totalStripped };
+  }
+
+  /** Tier 3 — framing rule checks (Phase 1.5.z).
+   *  Warn-only — flags issues for QA but does NOT mutate text (these are
+   *  rule violations the AI made, not factual hallucinations to strip).
+   *
+   *  Rules:
+   *    a) 民俗 prefix for 吉數 — when AI mentions luckyNumber values, the
+   *       sentence MUST contain «民俗» (per locked decision #7 + L3 prompt rule).
+   *    b) 五行 reason citation for 忌食 — when AI mentions luckyFoodAvoid
+   *       category, the sentence MUST contain a 剋 mechanism reason
+   *       (per L3 prompt rule + medical-adjacency safety).
+   *    c) DM-drift on color/number/food — AI must NOT key on day-master
+   *       («您是X日主，宜X色»). Must say «您的用神為X，宜X色».
+   */
+  private _checkTier3FramingRules(
+    text: string,
+    sectionKey: string,
+    folkContent: FolkContentForValidation | undefined,
+    findings: FortuneValidationResult['findings'],
+  ): void {
+    if (!folkContent) return;
+
+    // Rule a) 民俗 prefix for 吉數
+    if (folkContent.luckyNumber?.numbers?.length) {
+      // Look for sentences mentioning a lucky-number number (e.g., 「今日數字宜 3、8」)
+      const numbers = folkContent.luckyNumber.numbers;
+      const numberPattern = new RegExp(
+        `[^。！？\\n]*(?:數字|幸運數|吉數)[^。！？\\n]*(?:${numbers.join('|')})[^。！？\\n]*[。！？]?`,
+        'g',
+      );
+      const matches = text.match(numberPattern);
+      if (matches) {
+        for (const sentence of matches) {
+          if (!sentence.includes('民俗')) {
+            findings.push({
+              severity: 'warn',
+              type: 'missing_folk_prefix',
+              detail: `吉數 sentence missing 「民俗參考」 prefix (folk_tradition tier disclosure): «${sentence.trim().slice(0, 40)}…»`,
+              section: sectionKey,
+            });
+            this.logger.warn(`metric.fortune.framing_violation type=missing_folk_prefix section=${sectionKey}`);
+          }
+        }
+      }
+    }
+
+    // Rule b) 五行 reason citation for 忌食
+    if (folkContent.luckyFoodAvoid?.category) {
+      // Look for sentences mentioning «今日忌食» or «忌食» or «避免吃»
+      const avoidPattern = /[^。！？\n]*(?:今日忌食|忌食|今日宜避免|今日避免吃|避免吃)[^。！？\n]*[。！？]?/g;
+      const matches = text.match(avoidPattern);
+      if (matches) {
+        for (const sentence of matches) {
+          // Reason must mention 剋 mechanism (e.g., 「因金剋木」)
+          if (!sentence.includes('剋')) {
+            findings.push({
+              severity: 'warn',
+              type: 'missing_avoid_reason',
+              detail: `忌食 sentence missing 五行 reason citation (e.g., 「因金剋木」): «${sentence.trim().slice(0, 40)}…»`,
+              section: sectionKey,
+            });
+            this.logger.warn(`metric.fortune.framing_violation type=missing_avoid_reason section=${sectionKey}`);
+          }
+        }
+      }
+    }
+
+    // Rule c) DM-drift on color/number/food — forbidden 「您是X日主」 pattern
+    // when discussing folk content (色/數/食).
+    const dmDriftPattern = /(?:您|你)是.{1,2}日主.{0,20}(?:宜|宜選|建議)/;
+    if (dmDriftPattern.test(text)) {
+      findings.push({
+        severity: 'warn',
+        type: 'dm_drift',
+        detail: 'narrative used DM-keyed framing for folk content («您是X日主，宜X»); must use 用神-keyed («您的用神為X，宜X»)',
+        section: sectionKey,
+      });
+      this.logger.warn(`metric.fortune.framing_violation type=dm_drift section=${sectionKey}`);
+    }
+  }
+
   /** Validate a daily fortune AI narrative and sanitize banned phrases.
    *
    *  PR review #5 (2026-05-17): the entire body is wrapped in try/catch.
@@ -131,7 +276,7 @@ export class FortuneValidatorsService {
    */
   validate(
     narrative: Record<string, unknown> | null,
-    daily: { metaFraming?: string },
+    daily: { metaFraming?: string; folkContent?: FolkContentForValidation },
   ): FortuneValidationResult {
     const findings: FortuneValidationResult['findings'] = [];
 
@@ -161,7 +306,7 @@ export class FortuneValidatorsService {
   /** Inner unsanitized impl — wrapped by `validate()`'s try/catch. */
   private _validateUnsafe(
     narrative: Record<string, unknown>,
-    daily: { metaFraming?: string },
+    daily: { metaFraming?: string; folkContent?: FolkContentForValidation },
     findings: FortuneValidationResult['findings'],
   ): FortuneValidationResult {
     // Deep clone via JSON round-trip so daily_advice nested-object mutations
@@ -221,27 +366,32 @@ export class FortuneValidatorsService {
         });
       }
 
-      // 3. Forbidden folk content fabrication
-      // PR review #10: STRIP whole sentences (not substrings — that leaves
-      // grammatically broken Chinese). Validator docstring promises "do NOT
-      // pass to client", so behavior now matches the promise.
-      let foundFolk = false;
+      // 3. Forbidden folk content fabrication (Tier 1 — CONDITIONAL per Phase 1.5.z)
+      // For each topic: strip ONLY when engine did NOT emit the corresponding
+      // folkContent field. If engine emits, AI is allowed to discuss the topic
+      // (Tier 2 + Tier 3 enforce correctness; this gate just blocks pure fabrication).
+      const stripPatterns: RegExp[] = [];
       for (const { pattern, topic } of this.FORBIDDEN_FOLK_PATTERNS) {
-        if (pattern.test(text)) {
-          foundFolk = true;
+        if (!pattern.test(text)) continue;
+        const shouldStrip = this.shouldStripTopic(topic, daily.folkContent);
+        if (shouldStrip) {
+          stripPatterns.push(pattern);
           findings.push({
             severity: 'error',
             type: 'forbidden_folk_content',
-            detail: `Phase 1 must not ship ${topic} — AI fabricated it (sentence stripped)`,
+            detail: `engine omitted ${topic} but AI mentioned it — sentence stripped`,
             section: sectionKey,
           });
-          this.logger.warn(`Fortune narrative: forbidden ${topic} in ${sectionKey} — sentence stripped`);
+          this.logger.warn(`Fortune narrative: ungrounded ${topic} in ${sectionKey} — sentence stripped`);
         }
       }
-      if (foundFolk) {
-        const { text: stripped } = this.stripFolkSentences(text);
+      if (stripPatterns.length > 0) {
+        const { text: stripped } = this.stripFolkSentencesByPatterns(text, stripPatterns);
         text = stripped;
       }
+
+      // Tier 3 — framing rules (Phase 1.5.z anti-DM-drift + 民俗 prefix + 忌食 reason)
+      this._checkTier3FramingRules(text, sectionKey, daily.folkContent, findings);
 
       sanitized[sectionKey] = text;
     }
@@ -273,28 +423,27 @@ export class FortuneValidatorsService {
               s = s.split(banned).join('易於');
             }
           }
-          // Audit I3 — same folk-content fabrication check
-          // PR review #10: list items are short single sentences. If ANY
-          // folk pattern matches, DROP the entire item (don't try to repair
-          // fragments — leaves grammatically broken Chinese). The validator
-          // docstring promises content "do NOT pass to client".
-          let folkItemFound = false;
+          // Audit I3 — same folk-content fabrication check, now CONDITIONAL (Phase 1.5.z Tier 1).
+          // List items are short single sentences. If a folk pattern matches AND the
+          // engine OMITTED that field → DROP the item (still pure fabrication). If engine
+          // EMITTED the field → keep the item (AI is allowed to mention it).
+          let folkItemDrop = false;
           for (const { pattern, topic } of this.FORBIDDEN_FOLK_PATTERNS) {
-            if (pattern.test(s)) {
-              folkItemFound = true;
+            if (pattern.test(s) && this.shouldStripTopic(topic, daily.folkContent)) {
+              folkItemDrop = true;
               findings.push({
                 severity: 'error',
                 type: 'forbidden_folk_content',
-                detail: `Phase 1 must not ship ${topic} — AI fabricated it in list item (item dropped)`,
+                detail: `engine omitted ${topic} but AI mentioned it in list item (item dropped)`,
                 section: `daily_advice.${listKey}`,
               });
               this.logger.warn(
-                `Fortune narrative: forbidden ${topic} in daily_advice.${listKey} — item dropped`,
+                `Fortune narrative: ungrounded ${topic} in daily_advice.${listKey} — item dropped`,
               );
               break;  // one finding per item is enough; don't double-log
             }
           }
-          if (!folkItemFound) cleaned.push(s);
+          if (!folkItemDrop) cleaned.push(s);
         }
         (sanitized['daily_advice'] as Record<string, unknown>)[listKey] = cleaned;
       }

@@ -485,4 +485,254 @@ describe('FortuneValidatorsService', () => {
       ).toBeDefined();
     });
   });
+
+  // ============================================================
+  // Phase 1.5.z — 3-tier folk-content defense (L4)
+  // ============================================================
+  describe('Phase 1.5.z 3-tier folk-content defense', () => {
+    const FULL_FOLK = {
+      luckyColor: { element: '火', primary: '紅', secondary: '紫' },
+      luckyNumber: { element: '火', numbers: [2, 7] },
+      luckyFoodFavor: { element: '火', category: '紅色食物/苦味', examples: ['番茄', '紅棗'] },
+      luckyFoodAvoid: {
+        element: '火',
+        category: '寒涼/鹹味 (水剋火)',
+        reason: '用神為火,忌鹹味水性食物 — 水剋火',
+      },
+      auspiciousHours: [
+        { branch: '子', classical_name: '司命' },
+        { branch: '丑', classical_name: '天德' },
+      ],
+    };
+
+    // ---------- Tier 1 conditional whitelist ----------
+
+    describe('Tier 1 — conditional whitelist', () => {
+      it('strips lucky_number sentence when engine omits luckyNumber', () => {
+        const narrative = {
+          daily_overview: '今日整體平穩。今日幸運數字是 5、9。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: { ...FULL_FOLK, luckyNumber: null },
+        });
+        expect(r.sanitized['daily_overview']).not.toContain('幸運數字');
+        expect(r.findings.find(f => f.type === 'forbidden_folk_content')).toBeDefined();
+      });
+
+      it('PRESERVES lucky_number sentence when engine emits luckyNumber (with 民俗 prefix)', () => {
+        const narrative = {
+          daily_overview: '今日整體平穩。民俗參考：今日幸運數字宜 2、7。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: FULL_FOLK,
+        });
+        expect(r.sanitized['daily_overview']).toContain('幸運數字');
+        expect(r.sanitized['daily_overview']).toContain('2、7');
+      });
+
+      it('strips lucky_color sentence when engine omits luckyColor', () => {
+        const narrative = {
+          daily_overview: '今日整體平穩。建議穿藍色出行。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: { ...FULL_FOLK, luckyColor: null },
+        });
+        expect(r.sanitized['daily_overview']).not.toContain('藍色');
+      });
+
+      it('PRESERVES lucky_color sentence when engine emits luckyColor', () => {
+        const narrative = {
+          daily_overview: '您的用神為火，建議穿紅色或紫色出行。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: FULL_FOLK,
+        });
+        // The narrative mentions «建議穿紅色» which matches the lucky_color
+        // pattern; engine emitted → sentence preserved
+        expect(r.sanitized['daily_overview']).toContain('紅色');
+      });
+
+      it('strips food_advice when BOTH luckyFoodFavor AND luckyFoodAvoid omitted', () => {
+        const narrative = {
+          daily_overview: '今日宜吃白色食物。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: { ...FULL_FOLK, luckyFoodFavor: null, luckyFoodAvoid: null },
+        });
+        expect(r.sanitized['daily_overview']).not.toContain('今日宜吃');
+      });
+
+      it('PRESERVES food_advice when EITHER luckyFoodFavor OR luckyFoodAvoid emitted', () => {
+        const narrative = {
+          daily_overview: '今日宜吃紅色食物如番茄、紅棗，因養心。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: { ...FULL_FOLK, luckyFoodAvoid: null },  // favor present, avoid null
+        });
+        expect(r.sanitized['daily_overview']).toContain('今日宜吃');
+      });
+
+      it('strips auspicious_hour when engine emits empty auspiciousHours', () => {
+        const narrative = {
+          daily_overview: '今日吉時為子時和丑時。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: { ...FULL_FOLK, auspiciousHours: [] },
+        });
+        expect(r.sanitized['daily_overview']).not.toContain('今日吉時');
+      });
+
+      it('PRESERVES auspicious_hour when engine emits non-empty hours', () => {
+        const narrative = {
+          daily_overview: '今日吉時為司命時（子時，23:00-01:00）。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: FULL_FOLK,
+        });
+        expect(r.sanitized['daily_overview']).toContain('今日吉時');
+      });
+
+      it('preserves Phase 1 behavior when folkContent undefined (defensive — strip all)', () => {
+        // Pre-Phase-1.5.z callers don't pass folkContent — must still strip
+        const narrative = {
+          daily_overview: '今日宜吃黃色食物。今日幸運數字是 5。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, SOFT_TRIGGER);  // no folkContent
+        expect(r.sanitized['daily_overview']).not.toContain('今日宜吃');
+        expect(r.sanitized['daily_overview']).not.toContain('幸運數字');
+      });
+
+      // Audit follow-up — fortune-validators line audit gap (confidence 81):
+      // the Tier 1 list-item logic at fortune-validators.service.ts:441 is
+      // symmetric (strip on omit / preserve on emit) but the existing tests
+      // only cover the strip path. These two tests lock the preserve path
+      // so silent regression (e.g. logic inversion) is caught.
+      it('PRESERVES list item referencing luckyNumber when engine emits luckyNumber', () => {
+        const narrative = {
+          daily_overview: '今日整體平穩。',
+          daily_advice: {
+            canTry: ['民俗參考：今日幸運數字宜 2、7，可多接觸'],
+            shouldHold: [],
+          },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: FULL_FOLK,
+        });
+        const canTry = (r.sanitized['daily_advice'] as { canTry: string[] }).canTry;
+        expect(canTry).toHaveLength(1);
+        expect(canTry[0]).toContain('幸運數字');
+      });
+
+      it('DROPS list item referencing luckyNumber when engine omits luckyNumber', () => {
+        const narrative = {
+          daily_overview: '今日整體平穩。',
+          daily_advice: {
+            canTry: ['今日幸運數字是 5'],  // fabricated — engine omitted luckyNumber
+            shouldHold: [],
+          },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: { ...FULL_FOLK, luckyNumber: null },
+        });
+        const canTry = (r.sanitized['daily_advice'] as { canTry: string[] }).canTry;
+        expect(canTry).toHaveLength(0);
+        expect(r.findings.find(f => f.type === 'forbidden_folk_content')).toBeDefined();
+      });
+    });
+
+    // ---------- Tier 3 framing rules ----------
+
+    describe('Tier 3 — framing rules', () => {
+      it('warns when 吉數 sentence is missing 「民俗」 prefix', () => {
+        const narrative = {
+          daily_overview: '今日的幸運數字是 2、7，多接觸有助運。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: FULL_FOLK,
+        });
+        expect(r.findings.find(f => f.type === 'missing_folk_prefix')).toBeDefined();
+      });
+
+      it('does NOT warn when 吉數 sentence includes 「民俗」 prefix', () => {
+        const narrative = {
+          daily_overview: '民俗參考：今日幸運數字宜 2、7。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: FULL_FOLK,
+        });
+        expect(r.findings.find(f => f.type === 'missing_folk_prefix')).toBeUndefined();
+      });
+
+      it('warns when 忌食 sentence is missing 五行 reason citation', () => {
+        const narrative = {
+          daily_overview: '今日忌食冰品和重鹹食物。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: FULL_FOLK,
+        });
+        expect(r.findings.find(f => f.type === 'missing_avoid_reason')).toBeDefined();
+      });
+
+      it('does NOT warn when 忌食 sentence includes 剋 mechanism', () => {
+        const narrative = {
+          daily_overview: '今日忌食冰品和重鹹食物，因水剋火傷您命中用神。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: FULL_FOLK,
+        });
+        expect(r.findings.find(f => f.type === 'missing_avoid_reason')).toBeUndefined();
+      });
+
+      it('warns on DM-drift framing («您是X日主，宜X色»)', () => {
+        const narrative = {
+          daily_overview: '您是戊日主，宜選黃色出行。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: FULL_FOLK,
+        });
+        expect(r.findings.find(f => f.type === 'dm_drift')).toBeDefined();
+      });
+
+      it('does NOT warn on correct 用神-keyed framing («您的用神為X，宜X色»)', () => {
+        const narrative = {
+          daily_overview: '您的用神為火，建議選紅色或紫色出行。',
+          daily_advice: { canTry: [], shouldHold: [] },
+        };
+        const r = service.validate(narrative, {
+          ...SOFT_TRIGGER,
+          folkContent: FULL_FOLK,
+        });
+        expect(r.findings.find(f => f.type === 'dm_drift')).toBeUndefined();
+      });
+    });
+  });
 });

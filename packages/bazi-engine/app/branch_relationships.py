@@ -884,3 +884,89 @@ def compute_sanhe_dm_credit(
 
     base_credit = SAN_HE_DEDI_PER_BRANCH * len(new_credit_branches) * multiplier
     return (round(base_credit, 1), kind)
+
+
+# ============================================================
+# Phase 1.5 Option 2.5 refinement — 半合化局 月令 condition check
+# ============================================================
+#
+# Per Sub-Agent C (Phase A research integrator, 2026-05-25):
+# 半合化局 (half-combination forms qi) requires TWO conditions to fully
+# convert the branch's 中氣 into the target element:
+#   1. (day_branch, month_branch) ∈ SANHE_HALF_PAIRS for target_element
+#   2. month_branch is in target_element's seasonal window (月令 condition)
+#
+# Without #2, the 半合 is only 「拱合」 (latent gather), NOT full 化局 —
+# the day_branch's 中氣 retains its independent 五行 role.
+#
+# Used by `xishen_zhongqi_dissolves_taboo_stem` rescue rule in
+# `daily_enhanced.py::_apply_per_day_signal_adjustments` (Phase 1.5 Option 2.5).
+# Without this guard, Roger 2026-05-18 fires correctly (月令=巳 NOT 水季 → 半合
+# fails → 乙 中氣 化忌神 path intact); but charts with 申辰 day in 子月 would
+# mis-fire (月令=子 IS 水季 → 半合 forms 水局 → 乙 absorbed → no rescue).
+#
+# Source: 渊海子平·地支三合 + 算准网 / 八字算命網 modern consensus.
+#
+# Element-to-season mapping (per 五行旺相休囚死 table):
+#   寅卯辰 = 春 = 木 季
+#   巳午未 = 夏 = 火 季
+#   申酉戌 = 秋 = 金 季
+#   亥子丑 = 冬 = 水 季
+# (Note: 土 has no dedicated season; 辰戌丑未 are 四季月 of each season.
+#  For 半合化局 purposes, 土 局 isn't formed via 申子辰/亥卯未/寅午戌/巳酉丑
+#  triples, so element ∈ {水,木,火,金} only.)
+
+BRANCH_SEASON_ELEMENT: Dict[str, str] = {
+    '寅': '木', '卯': '木', '辰': '木',
+    '巳': '火', '午': '火', '未': '火',
+    '申': '金', '酉': '金', '戌': '金',
+    '亥': '水', '子': '水', '丑': '水',
+}
+
+# Precomputed 半合 pairs per target element (one element of the 三合 triple
+# is missing). Each pair is unordered — direction doesn't matter for the
+# 半合 detection.
+SANHE_HALF_PAIRS: Dict[str, set] = {
+    '水': {  # 申子辰 triple — missing 1 element
+        ('申', '子'), ('子', '申'),    # 長生+帝旺 (前半合, stronger)
+        ('子', '辰'), ('辰', '子'),    # 帝旺+墓庫 (後半合)
+        ('申', '辰'), ('辰', '申'),    # 長生+墓庫 (拱合, weakest — but still 半合)
+    },
+    '木': {  # 亥卯未 triple
+        ('亥', '卯'), ('卯', '亥'),
+        ('卯', '未'), ('未', '卯'),
+        ('亥', '未'), ('未', '亥'),
+    },
+    '火': {  # 寅午戌 triple
+        ('寅', '午'), ('午', '寅'),
+        ('午', '戌'), ('戌', '午'),
+        ('寅', '戌'), ('戌', '寅'),
+    },
+    '金': {  # 巳酉丑 triple
+        ('巳', '酉'), ('酉', '巳'),
+        ('酉', '丑'), ('丑', '酉'),
+        ('巳', '丑'), ('丑', '巳'),
+    },
+}
+
+
+def banhe_forms_qi(day_branch: str, month_branch: str, target_element: str) -> bool:
+    """Check if (day_branch, month_branch) forms a full 半合化局 of target_element.
+
+    Returns True iff BOTH conditions hold:
+      1. (day_branch, month_branch) ∈ SANHE_HALF_PAIRS[target_element]
+      2. month_branch is in target_element's seasonal window
+         (BRANCH_SEASON_ELEMENT[month_branch] == target_element)
+
+    When True, the day_branch's 中氣 is absorbed into target_element flow —
+    any 中氣-based rescue (e.g., xishen_zhongqi_dissolves_taboo_stem) is VOID.
+    When False, 半合 is only 拱合 (latent gather), 中氣 retains independent role.
+
+    Source: 渊海子平·地支三合 + 算准网 modern consensus on 「化局成功條件」.
+    Phase A Sub-Agent C integrator verdict (2026-05-25); B mechanism.
+    """
+    if target_element not in SANHE_HALF_PAIRS:
+        return False  # 土 has no 半合化局 (no 三合 triple targets 土)
+    if (day_branch, month_branch) not in SANHE_HALF_PAIRS[target_element]:
+        return False  # branches don't form a 半合 pair for this element
+    return BRANCH_SEASON_ELEMENT.get(month_branch) == target_element

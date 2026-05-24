@@ -1306,18 +1306,44 @@ Full plan with 11 review rounds (staff engineer + Bazi master + accuracy gap ana
 
 ---
 
-## 八字日運/月運/年運 (Daily/Monthly/Yearly Fortune) — Phase 1 SHIPPED + A5 PASSED ✅
+## 八字日運/月運/年運 (Daily/Monthly/Yearly Fortune) — Phase 1 MERGED to main ✅
 
 LLM-narrated fortune surface on top of the existing engine. Same hybrid-cached
 pattern as the AI Chat feature (engine pre-analysis → AI narration → Redis +
 DB cache). Plan: `.claude/plans/ok-next-big-feature-merry-cake.md` (with
 research findings in `.claude/plans/ok-next-big-feature-merry-cake-agent-aea39761500551e82.md`).
 
-**Session handoff doc** (post-compaction handoff): `.claude/plans/fortune-phase-1-session-handoff.md` — read this first to pick back up. Contains full multi-session timeline, A5 manual smoke test results, calibration anchor data, DB state, pending work priority list.
+**🎉 PR #46 MERGED** at commit `c0356fb` (2026-05-18 01:42 UTC). All Phase 1 layers + 9 PR-review followup fixes + CI hardening + TS cleanup landed together as 16 commits.
 
-**Phase 1 ship status**: ALL layers shipped + A1 Prisma migration applied to dev DB + A5 manual browser smoke test passed end-to-end. **2 critical bugs found + fixed during A5** (Redis Date deserialization + AllExceptionsFilter code passthrough). 1 non-blocking perf issue logged (Bug A5-3: DB warm path doesn't re-populate Redis).
+**Session handoff doc** (post-compaction handoff): `.claude/plans/fortune-phase-1-session-handoff.md` — read this first to pick back up. Contains full multi-session timeline (Sessions 1-18), A5 manual smoke test results, PR #46 merge details, calibration anchor data, DB state, pending work priority list, lessons learned.
 
-Still pending before production ship: A2 (sub-agent QA review on 30 narratives), A3 (calibration corpus + ≥85% gate), A4 (doctrinal-split day docs). Phase 1.5 polish items (share button, profile dropdown, date navigator, chat wiring, folk content) deferred separately.
+**⚠️ Operator deploy checklist (post-merge, pending)**:
+1. `cd apps/api && prisma migrate deploy` — applies BOTH migrations (`daily_fortune_snapshots` + `ai_failure_count`/`ai_last_failed_at` columns) + enum additions
+2. `redis-cli FLUSHALL` post-deploy — required by 2 version bumps (`FORTUNE_DAILY_PRE_ANALYSIS_VERSION` v1.0→v1.1.1 + `FORTUNE_PROMPT_VERSIONS.day` v1.0→v1.2.3)
+3. Monitor Anthropic spend dashboard for 24h
+4. Expected regen cost: ~30-100 test snapshots × ~$0.03 ≈ $1-3 (Phase 1 has minimal live use)
+
+**Cache versions in main (locked)**:
+- `FORTUNE_DAILY_PRE_ANALYSIS_VERSION` (Python) = **v1.1.1** (TAOHUA softening fix — natal_day_branch lookup)
+- `FORTUNE_PRE_ANALYSIS_VERSIONS.day` (TS) = **v1.1.1** (mirrors Python)
+- `FORTUNE_PROMPT_VERSIONS.day` (TS) = **v1.2.3** (folk-content sentence-level strip)
+
+**Still pending before flipping to real users**:
+- **A2 Layer 4 sub-agent QA** — 30 narratives × 3-parallel agents (doctrine / folk-drift / Phase 12 consistency). ~half day. SHIP-READINESS GATE.
+- **Phase 1.5 Option 2.5 refinement** — 喜神/用神 stem rescue for neutral DM; lifts A3 corpus 93.3% → ~96%+. ~half day.
+
+**Phase 1.5 polish items** (deferred — separate PR per item or bundled): share button + html2canvas PNG, profile dropdown, date navigator, FortuneSampleQuestions + ChatDrawer wiring, folk content research (色/數字/食物/吉時).
+
+**Out of scope / chronic main-branch debt** (separate cleanup PR):
+- ESLint v9 config migration (CI Lint job has been red on every PR for months)
+- TS strict-mode cleanup in 8 pre-existing files (HeroBanner / ChatDrawer / ElementExplanation / MascotViewer / subscription / test specs)
+- Pre-existing Bazi engine compat test (`test_roger_laopo_full_preanalysis` — failing since 2026-03-23)
+- LLM-as-judge CI eval needs `ANTHROPIC_API_KEY` in CI secrets
+
+**Key fixes added in PR #46 that affect ALL future PRs**:
+- **CI workflow**: `.github/workflows/ci.yml` now runs `npx prisma generate` after `npm ci` in 4 jobs (Lint / TS Check / API Tests / Build). Without this, ANY new Prisma enum/model would break ALL API tests + TS check.
+- **Worktree lockfile lesson**: when adding npm deps in a worktree, the `node_modules` symlink to main can mask lockfile drift. Always run `npm install --package-lock-only --ignore-scripts` after adding a dep to regenerate `package-lock.json` before pushing.
+- **Dual `@types/react` fix pattern**: in Next.js workspaces, JSX type identity can mismatch even with same versions. Pattern: use VALUE namespace React import (`import * as React from 'react'`) + reference `React.ReactNode` / `React.Suspense`. Used in `FortuneShell.tsx`, `InfoTooltip.tsx`, `reading/fortune/page.tsx`.
 
 ### Load-bearing doctrine (do NOT relax without research review)
 

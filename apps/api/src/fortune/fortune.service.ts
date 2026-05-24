@@ -459,7 +459,12 @@ export class FortuneService {
       .join('');
 
     const narrative = this.extractJson(text);
-    const validation = this.validators.validate(narrative, daily);
+    // Phase 1.5.z: pass folkContent so Tier 1 conditional gate can distinguish
+    // engine-grounded mentions (allowed) from fabrications (stripped).
+    const validation = this.validators.validate(narrative, {
+      metaFraming: daily.metaFraming,
+      folkContent: daily.folkContent,
+    });
 
     return {
       narrative: validation.sanitized as unknown as DailyFortuneAINarrative,

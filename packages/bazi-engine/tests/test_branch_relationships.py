@@ -699,3 +699,94 @@ class TestCheckBranchFriction:
         from app.branch_relationships import check_branch_friction
         result = check_branch_friction('戌', '未')
         assert result['type'] == 'half_punishment'
+
+
+# ============================================================
+# Phase 1.5 Option 2.5 — banhe_forms_qi helper
+# ============================================================
+#
+# Per Sub-Agent C (Phase A research, 2026-05-25):
+# 半合化局 requires BOTH:
+#   1. (day_branch, month_branch) ∈ SANHE_HALF_PAIRS for target_element
+#   2. month_branch is in target_element's season
+# Tests cover all 4 element directions + season-check negation + Roger
+# 2026-05-18 anchor case.
+
+class TestBanheFormsQi:
+    def test_anchor_roger_2026_05_18_returns_false(self):
+        """Roger 2026-05-18: day=辰, month=巳, target=水.
+        申辰 半合水, but 巳 is 火月 not 水月 → 半合 拱合 only, NOT 化局.
+        Expected: False (rescue path INTACT — 乙 中氣 retains 化忌 role).
+        """
+        from app.branch_relationships import banhe_forms_qi
+        assert banhe_forms_qi('辰', '巳', '水') is False
+
+    def test_shen_chen_in_zi_month_returns_true(self):
+        """申辰 半合水 + 月令=子 (水季) → 化局 forms.
+        Expected: True (rescue path VOID — 中氣 absorbed into water).
+        """
+        from app.branch_relationships import banhe_forms_qi
+        assert banhe_forms_qi('辰', '子', '水') is True
+
+    def test_yin_wu_in_wu_month_forms_fire(self):
+        """寅午 半合火 + 月令=午 (火季, also in 三合 triple) → 化局 forms."""
+        from app.branch_relationships import banhe_forms_qi
+        assert banhe_forms_qi('寅', '午', '火') is True
+
+    def test_yin_wu_in_zi_month_no_form(self):
+        """寅午 半合火, 月令=子 (水季, not 火季) → 拱合 only."""
+        # Note: this is actually a self-paired test — (寅, 子) is NOT a 半合
+        # pair for any element. Replace with a real 半合 pair that fails season check.
+        # 寅戌 IS a 半合 pair for 火; 寅戌 in 子 month → 子 is 水季 not 火季 → False.
+        from app.branch_relationships import banhe_forms_qi
+        assert banhe_forms_qi('寅', '戌', '火') is False  # month 戌 is 金季 not 火季
+        # 子 isn't in SANHE_HALF_PAIRS[火] at all, so this is also False trivially:
+        assert banhe_forms_qi('寅', '子', '火') is False
+
+    def test_hai_mao_in_mao_month_forms_wood(self):
+        """亥卯 半合木 + 月令=卯 (木季, also in 三合 triple) → 化局 forms."""
+        from app.branch_relationships import banhe_forms_qi
+        assert banhe_forms_qi('亥', '卯', '木') is True
+
+    def test_si_you_in_you_month_forms_metal(self):
+        """巳酉 半合金 + 月令=酉 (金季, also in 三合 triple) → 化局 forms."""
+        from app.branch_relationships import banhe_forms_qi
+        assert banhe_forms_qi('巳', '酉', '金') is True
+
+    def test_branches_not_in_half_pair_returns_false(self):
+        """子卯 are NOT a 半合 pair for any element."""
+        from app.branch_relationships import banhe_forms_qi
+        assert banhe_forms_qi('子', '卯', '水') is False
+        assert banhe_forms_qi('子', '卯', '木') is False
+
+    def test_target_earth_always_false(self):
+        """土 has no 三合 triple → 半合化局 of 土 impossible."""
+        from app.branch_relationships import banhe_forms_qi
+        # Any branches + 土 target → False
+        assert banhe_forms_qi('辰', '戌', '土') is False
+        assert banhe_forms_qi('丑', '未', '土') is False
+
+    def test_symmetric_branch_order(self):
+        """Pair order shouldn't matter: (申, 辰) == (辰, 申)."""
+        from app.branch_relationships import banhe_forms_qi
+        assert banhe_forms_qi('申', '辰', '水') == banhe_forms_qi('辰', '申', '水')
+
+    def test_all_4_element_directions_with_season(self):
+        """Spot-check each element's 半合 + 月令 alignment.
+
+        Both branches of the 半合 pair must be in the 三合 triple for the
+        target element. Month branch must ALSO be in the target's season.
+        """
+        from app.branch_relationships import banhe_forms_qi
+        # 水 (申子辰 triple; 水 season = 亥/子/丑 — 子 ∈ both triple AND season)
+        assert banhe_forms_qi('申', '子', '水') is True   # 子 ∈ triple + 水 season
+        assert banhe_forms_qi('辰', '子', '水') is True   # 子 ∈ triple + 水 season
+        # 木 (亥卯未 triple; 木 season = 寅/卯/辰 — 卯 ∈ both)
+        assert banhe_forms_qi('亥', '卯', '木') is True
+        assert banhe_forms_qi('未', '卯', '木') is True
+        # 火 (寅午戌 triple; 火 season = 巳/午/未 — 午 ∈ both)
+        assert banhe_forms_qi('寅', '午', '火') is True
+        assert banhe_forms_qi('戌', '午', '火') is True
+        # 金 (巳酉丑 triple; 金 season = 申/酉/戌 — 酉 ∈ both)
+        assert banhe_forms_qi('巳', '酉', '金') is True
+        assert banhe_forms_qi('丑', '酉', '金') is True

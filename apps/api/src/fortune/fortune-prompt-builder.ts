@@ -63,6 +63,25 @@ export interface DailyEngineOutput {
   };
   folkContent?: {
     wealthDirection?: { element: string; direction: string; note?: string };
+    luckyColor?: {
+      element: string; primary: string; secondary: string; tertiary?: string;
+      cite: string; provenance: 'classical'; note?: string;
+    } | null;
+    luckyNumber?: {
+      element: string; numbers: number[]; cite: string;
+      provenance: 'folk_tradition'; note?: string;
+    } | null;
+    luckyFoodFavor?: {
+      element: string; category: string; examples: string[];
+      cite: string; provenance: 'classical';
+    } | null;
+    luckyFoodAvoid?: {
+      element: string; category: string; reason: string; cite_sources: string[];
+      classification: 'doctrinal'; avoid_strength: 'strong'; provenance: 'classical';
+    } | null;
+    auspiciousHours?: Array<{
+      branch: string; hour_range: string; classical_name: string; provenance: 'classical';
+    }>;
   };
   ruleTrace?: string[];
   preAnalysisVersion?: string;
@@ -152,9 +171,24 @@ export function interpolateFortuneV1Fields(
     '{{travelSignals}}':  renderDimSignals(daily.dimensions.travel.signals),
     '{{healthSignals}}':  renderDimSignals(daily.dimensions.health.signals),
 
-    // Folk content (Phase 1 = wealth direction only)
+    // Folk content (Phase 1.5.z = 6 total: wealthDirection + 4 new chart-level + auspiciousHours per-day)
     '{{wealthDirection}}': daily.folkContent?.wealthDirection
       ? `${daily.folkContent.wealthDirection.element} → ${daily.folkContent.wealthDirection.direction} (${daily.folkContent.wealthDirection.note ?? ''})`
+      : '（未提供）',
+    '{{luckyColor}}': daily.folkContent?.luckyColor
+      ? `${daily.folkContent.luckyColor.primary} (次選：${daily.folkContent.luckyColor.secondary}；典籍：${daily.folkContent.luckyColor.cite})`
+      : '（未提供）',
+    '{{luckyNumber}}': daily.folkContent?.luckyNumber
+      ? `${daily.folkContent.luckyNumber.numbers.join('、')} (${daily.folkContent.luckyNumber.cite})`
+      : '（未提供）',
+    '{{luckyFoodFavor}}': daily.folkContent?.luckyFoodFavor
+      ? `${daily.folkContent.luckyFoodFavor.category} (例：${daily.folkContent.luckyFoodFavor.examples.join('、')}；典籍：${daily.folkContent.luckyFoodFavor.cite})`
+      : '（未提供）',
+    '{{luckyFoodAvoid}}': daily.folkContent?.luckyFoodAvoid
+      ? `${daily.folkContent.luckyFoodAvoid.category}；原因：${daily.folkContent.luckyFoodAvoid.reason} (典籍：${daily.folkContent.luckyFoodAvoid.cite_sources.join('；')})`
+      : '（未提供）',
+    '{{auspiciousHours}}': daily.folkContent?.auspiciousHours?.length
+      ? daily.folkContent.auspiciousHours.map(h => `${h.classical_name}時 ${h.branch} (${h.hour_range})`).join('、')
       : '（未提供）',
   };
 
