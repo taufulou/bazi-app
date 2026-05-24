@@ -6,7 +6,7 @@ All calculations are deterministic (no AI). AI interpretation is handled by the 
 
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,7 +17,11 @@ from .calculator import (
     calculate_bazi_compatibility,
     calculate_bazi_with_all_pipelines,
 )
-from .chat_context import build_chat_context, build_chat_context_compat
+from .chat_context import (
+    build_chat_context,
+    build_chat_context_compat,
+    build_chat_context_fortune,
+)
 from .daily_enhanced import compute_daily_fortune, resolve_bazi_today_from_clock_time
 from .explanations import get_element_explanation
 
@@ -463,6 +467,92 @@ async def build_chat_context_compat_endpoint(data: CompatChatContextInput):
         raise HTTPException(
             status_code=500,
             detail=f"Compat chat context build error: {str(e)}",
+        )
+
+
+class FortuneChatContextInput(BaseModel):
+    """Phase Fortune — input for building the FORTUNE chat-scope context
+    (single chart's daily fortune + chart-slim base).
+
+    `precomputed_daily` is the Issue 1 optimization: when the NestJS layer
+    already has the persisted `DailyFortuneSnapshot.engineOutputJson` for
+    the same `(chart_hash, anchor_date)`, it passes the snapshot through
+    so the engine can skip the redundant `compute_daily_fortune()` call
+    (saves ~50-100ms per chat session create on the warm-snapshot path).
+
+    Caller is responsible for resolving the 23:00 子時 boundary against
+    Asia/Taipei BEFORE sending — use the NestJS-side
+    `fortune.service.ts::todayIsoDate()` helper.
+    """
+    birth_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    birth_time: str = Field(..., pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
+    birth_city: str
+    birth_timezone: str
+    gender: str = Field(..., pattern=r"^(male|female)$")
+    birth_longitude: Optional[float] = None
+    birth_latitude: Optional[float] = None
+    anchor_date: str = Field(
+        ..., description="Bazi-day-resolved date YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    target_year: int = Field(..., ge=1900, le=2100)
+    target_month: int = Field(..., ge=1, le=12)
+    precomputed_daily: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional persisted DailyFortuneSnapshot.engineOutputJson — when "
+                    "provided, skips compute_daily_fortune (Issue 1 reuse path)",
+    )
+
+
+@app.post("/build-chat-context-fortune")
+async def build_chat_context_fortune_endpoint(data: FortuneChatContextInput):
+    """Phase Fortune — build the slim chat context for FORTUNE chat (八字日運).
+
+    Merges the single-chart 4-pipeline slim (lifetime/love/career/annual)
+    PLUS the day's fortune output (`dailyFortune`). The chat AI inherits
+    ALL chart-level Phase 12 doctrine via the merged slim's `doctrineFlags`
+    + `doctrineInjectors` — day-pillar TRANSIENT findings ride in
+    `dailyFortune.dimensions[].signals[]` for the NestJS-side
+    `interpolateFortuneV1Fields` injector to consume.
+
+    Compute cost: ~50-100ms cold-cache. With `precomputed_daily` provided,
+    drops to ~30-50ms (skips compute_daily_fortune). NestJS caches by
+    `chat-context-fortune:{birthHash}:{anchorDateIso}:{versions}` 24h TTL.
+    """
+    start_time = time.perf_counter()
+
+    try:
+        birth_data = {
+            'birth_date': data.birth_date,
+            'birth_time': data.birth_time,
+            'birth_city': data.birth_city,
+            'birth_timezone': data.birth_timezone,
+            'gender': data.gender,
+            'birth_longitude': data.birth_longitude,
+            'birth_latitude': data.birth_latitude,
+        }
+
+        ctx = build_chat_context_fortune(
+            birth_data=birth_data,
+            anchor_date=data.anchor_date,
+            current_year=data.target_year,
+            current_month=data.target_month,
+            precomputed_daily=data.precomputed_daily,
+        )
+
+        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        return {
+            "status": "success",
+            "calculationTimeMs": elapsed_ms,
+            "chatContext": ctx,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Fortune chat context build error: {str(e)}",
         )
 
 

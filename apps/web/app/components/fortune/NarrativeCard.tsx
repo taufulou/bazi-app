@@ -20,6 +20,7 @@
  * Engine-only fallback: when `narrative` is null (AI failed or engine-only
  * preview), shows a graceful placeholder + deterministic engine signals.
  */
+import * as React from 'react';
 import { CircleCheck, CircleSlash } from 'lucide-react';
 import type {
   DailyFortuneNarrative,
@@ -32,13 +33,22 @@ import { dimTierFromScore } from './labels';
 import { parseBoldSegments } from './markdown';
 import styles from './NarrativeCard.module.css';
 
+/** Phase Fortune chat — per-dim render slot for InlineAskCard wiring. */
+export type FortuneDimKey = 'romance' | 'career' | 'finance' | 'travel' | 'health';
+
 interface Props {
   narrative: DailyFortuneNarrative | null;
-  dimensions: Record<'romance' | 'career' | 'finance' | 'travel' | 'health', FortuneDimension>;
+  dimensions: Record<FortuneDimKey, FortuneDimension>;
   headlinerSignals?: {
     chartContext: HeadlinerAnchor[];
     triggers: HeadlinerAnchor[];
   };
+  /** Phase Fortune chat — optional slot rendered AFTER each dim block.
+   *  Parent passes `(dimKey) => <InlineAskCard readingType="FORTUNE"
+   *  sectionKey={`daily_${dimKey}`} onAsk={...} onOpenChat={...} />`
+   *  to wire per-dim chat questions. Mirrors AIReadingDisplay's
+   *  renderAfterSection pattern at reading/[type]/page.tsx:754. */
+  renderAfterDimension?: (dimKey: FortuneDimKey) => React.ReactNode;
 }
 
 /** Per-dim takeaway field key on the narrative (e.g. 'daily_romance_takeaway') */
@@ -68,7 +78,12 @@ function RichText({ text }: { text: string }) {
   );
 }
 
-export default function NarrativeCard({ narrative, dimensions, headlinerSignals }: Props) {
+export default function NarrativeCard({
+  narrative,
+  dimensions,
+  headlinerSignals,
+  renderAfterDimension,
+}: Props) {
   if (!narrative) {
     return (
       <div className={styles.fallback}>
@@ -132,6 +147,9 @@ export default function NarrativeCard({ narrative, dimensions, headlinerSignals 
               <p className={styles.dimBody}>
                 <RichText text={text} />
               </p>
+              {/* Phase Fortune chat — per-dim InlineAskCard slot.
+                  Only fires when the dim block is actually rendered. */}
+              {renderAfterDimension ? renderAfterDimension(m.key) : null}
             </article>
           );
         })}

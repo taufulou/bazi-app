@@ -25,6 +25,7 @@ Per the next-the-big-feature-proud-manatee plan:
 Public API:
     build_chat_context(chart_data, current_year, current_month) -> dict
     build_chat_context_compat(birth_data_a, birth_data_b, comparison_type, current_year, current_month) -> dict
+    build_chat_context_fortune(birth_data, anchor_date, current_year, current_month, precomputed_daily=None) -> dict
 """
 
 from typing import Any, Dict, List, Optional
@@ -258,6 +259,189 @@ def build_chat_context_compat(
         # {'year': int, 'reason': str}). Load-bearing for `wedding_timing`
         # + `conflict_warning` sample-question answers.
         'timingSync': compat.get('timingSync', {}),
+    }
+
+
+# ============================================================
+# Phase Fortune — FORTUNE chat context (single chart + day's fortune)
+# ============================================================
+
+
+def build_chat_context_fortune(
+    birth_data: Dict,
+    anchor_date: str,
+    current_year: int,
+    current_month: int,
+    precomputed_daily: Optional[Dict] = None,
+) -> Dict:
+    """Build the slim chat context for FORTUNE chat (八字日運 chat scope).
+
+    Merges single-chart 4-pipeline slim (lifetime/love/career/annual) PLUS
+    the day's fortune output. The chat AI inherits ALL chart-level Phase 12
+    doctrine via the merged slim's `doctrineFlags` + `doctrineInjectors`
+    (傷官見官 valence, 比劫奪財, 用神/喜神/忌神, etc.).
+
+    The day-pillar TRANSIENT findings (Phase 12h.B day-of valence dispatch,
+    沖日支, 紅鸞 day trigger, etc.) ride in `dailyFortune.dimensions[].signals`
+    — the NestJS-side `interpolateFortuneV1Fields` injector reads these and
+    emits pre-formatted Chinese sentences for the AI to consume verbatim
+    (mirror Phase 12g.6 Gap 2 pattern at `ai.service.ts:3794+`).
+
+    Args:
+        birth_data: same shape as `build_chat_context_compat`'s `birth_data_a`
+            (`birth_date`, `birth_time`, `birth_city`, `birth_timezone`,
+            `gender`, optional `birth_longitude` / `birth_latitude`).
+        anchor_date: ISO date string `YYYY-MM-DD`. Caller (NestJS) is
+            responsible for resolving the 23:00 子時 boundary against
+            Asia/Taipei BEFORE calling — this function trusts the input.
+        current_year, current_month: flow-year / flow-month anchors for the
+            base chart-slim context. Should typically match the anchor_date's
+            year/month, but caller can override (e.g., 「what would today
+            look like under last year's flow」 hypothetical).
+        precomputed_daily: optional engine output from
+            `DailyFortuneSnapshot.engineOutputJson`. When provided, skips
+            the redundant `compute_daily_fortune()` call (Issue 1 plan
+            optimization — NestJS layer has the persisted snapshot for the
+            same `(chart_hash, anchor_date)` and passes it through to avoid
+            ~50-100ms recomputation).
+
+    Returns:
+        Slim payload with all `build_chat_context` fields PLUS:
+            - `anchorDate`: the ISO string passed in
+            - `dailyFortune`: slim dict of the day's fortune output —
+              `dayGanZhi`, `dayTenGod`, `auspiciousness`, `energyScore`,
+              5 `dimensions`, `headlinerSignals`, `folkContent`,
+              `metaFraming`, Option-2.5 transparency fields.
+
+    Raises:
+        ValueError: anchor_date not parseable as ISO date, or chart-pipeline
+            output missing required enhanced-insights keys (propagated from
+            `build_chat_context`).
+    """
+    # Import here to avoid circular dep (calculator + daily_enhanced import
+    # chat_context-adjacent modules indirectly)
+    from datetime import date as _date
+    from .calculator import calculate_bazi_with_all_pipelines
+    from .daily_enhanced import compute_daily_fortune
+
+    # Validate + parse anchor_date
+    try:
+        anchor_date_obj = _date.fromisoformat(anchor_date)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(
+            f"anchor_date must be YYYY-MM-DD ISO format, got: {anchor_date!r}"
+        ) from exc
+
+    # 1. Full chart pipeline (always all 4 enhanced pipelines per chat
+    # doctrine — Phase 1 Layer 1 fix). Same shape passed to
+    # build_chat_context downstream.
+    chart = calculate_bazi_with_all_pipelines(
+        birth_date=birth_data['birth_date'],
+        birth_time=birth_data['birth_time'],
+        birth_city=birth_data['birth_city'],
+        birth_timezone=birth_data['birth_timezone'],
+        gender=birth_data['gender'],
+        birth_longitude=birth_data.get('birth_longitude'),
+        birth_latitude=birth_data.get('birth_latitude'),
+        target_year=current_year,
+    )
+
+    # 2. Build the chart-slim base (gives doctrineFlags / doctrineInjectors /
+    # narrativeAnchors / luckPeriods / monthlyForecast12 / romance / etc.).
+    # FORTUNE chat inherits ALL chart-level Phase 12 doctrine through this.
+    base_ctx = build_chat_context(
+        chart_data=chart,
+        current_year=current_year,
+        current_month=current_month,
+    )
+
+    # 3. Daily fortune output — reuse caller's persisted snapshot when
+    # available (Issue 1 — avoid double-compute). Schema matches what
+    # `compute_daily_fortune` returns; callers are responsible for not
+    # passing stale snapshots (NestJS already checks
+    # `DailyFortuneSnapshot.preAnalysisVersion` against
+    # `FORTUNE_DAILY_PRE_ANALYSIS_VERSION`).
+    if precomputed_daily is not None:
+        daily_result = precomputed_daily
+    else:
+        day_master = chart['dayMaster']
+        effective_gods = {
+            'usefulGod': day_master.get('usefulGod', ''),
+            'favorableGod': day_master.get('favorableGod', ''),
+            'idleGod': day_master.get('idleGod', ''),
+            'tabooGod': day_master.get('tabooGod', ''),
+            'enemyGod': day_master.get('enemyGod', ''),
+        }
+        is_cong_ge = bool(
+            chart.get('lifetimeEnhancedInsights', {})
+                 .get('deterministic', {})
+                 .get('cong_ge_detected')
+        )
+        flow_year_data = (
+            chart.get('annualEnhancedInsights', {}).get('flowYear', {})
+        )
+        daily_result = compute_daily_fortune(
+            pillars=chart['fourPillars'],
+            day_master_stem=chart['dayMasterStem'],
+            effective_gods=effective_gods,
+            useful_god_element=day_master.get('usefulGod', '土'),
+            gender=birth_data.get('gender', 'male'),
+            kong_wang=chart.get('kongWang', []),
+            strength=day_master.get('strength', 'neutral'),
+            is_cong_ge=is_cong_ge,
+            target_date=anchor_date_obj,
+            flow_year_stem=flow_year_data.get('stem', ''),
+            flow_year_auspiciousness=flow_year_data.get('auspiciousness', '平'),
+        )
+
+    # 4. Compose final payload — base chart slim + day's slim fortune
+    return {
+        **base_ctx,
+        'anchorDate': anchor_date,
+        'dailyFortune': _slim_daily_for_chat(daily_result),
+    }
+
+
+def _slim_daily_for_chat(daily: Dict) -> Dict:
+    """Slim `compute_daily_fortune` output for chat consumption.
+
+    Keeps user-facing fields the AI must cite verbatim or reason from.
+    Drops engine-internal fields:
+      - `chartContext` (redundant — base_ctx already has chart data)
+      - `monthly_result` spread leftovers like stem-branch role/score
+      - `preAnalysisVersion` (engine-internal cache token)
+
+    Preserves Phase 1 Option 2.5 transparency fields
+    (`rawStructuralAuspiciousness` / `rawDailyAuspiciousness` /
+    `flowMonthAuspiciousness`) — the AI prompt's anti-incoherence rule keys
+    off these to avoid mistakenly framing the day with the month's
+    independent theme.
+    """
+    if not daily:
+        return {}
+    return {
+        'dayStem': daily.get('dayStem'),
+        'dayBranch': daily.get('dayBranch'),
+        'dayGanZhi': daily.get('dayGanZhi'),
+        'dayTenGod': daily.get('dayTenGod'),
+        'dateIso': daily.get('dateIso'),
+        'auspiciousness': daily.get('auspiciousness'),
+        'energyScore': daily.get('energyScore'),
+        'metaFraming': daily.get('metaFraming'),
+        # Option 2.5 transparency — load-bearing for AI anti-incoherence
+        'rawStructuralAuspiciousness': daily.get('rawStructuralAuspiciousness'),
+        'rawDailyAuspiciousness': daily.get('rawDailyAuspiciousness'),
+        'flowMonthAuspiciousness': daily.get('flowMonthAuspiciousness'),
+        'perDaySoftening': daily.get('perDaySoftening', []),
+        # 5 dimension blocks {romance, career, finance, travel, health} — each
+        # with score, label, narrative, signals[]. The signals[] are what the
+        # NestJS-side interpolateFortuneV1Fields injector reads to emit
+        # day-pillar TRANSIENT doctrine sentences.
+        'dimensions': daily.get('dimensions', {}),
+        # Pre-rendered Chinese pill-line strings (Option 2.5 UI layer)
+        'headlinerSignals': daily.get('headlinerSignals'),
+        # Static 用神 wealth direction (Phase 12 Fix 2 mapping)
+        'folkContent': daily.get('folkContent'),
     }
 
 

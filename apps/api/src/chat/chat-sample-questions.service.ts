@@ -50,6 +50,13 @@ const CHAT_SECTION_KEYS_BY_READING_TYPE_LOCAL: Record<string, readonly string[]>
     'partner_personality', 'interaction_dynamics', 'conflict_warning',
     'dimension_breakdown', 'compatibility_advice',
   ],
+  // Phase Fortune — 5 daily dimensions (mirrors daily_enhanced.py dispatchers).
+  // The «general» FORTUNE strip lives at sectionKey=NULL (no whitelist entry
+  // needed — admin can post with sectionKey=null for the homepage pill row).
+  FORTUNE: [
+    'daily_romance', 'daily_career', 'daily_finance',
+    'daily_travel', 'daily_health',
+  ],
 };
 
 const VERSION_KEY = 'chat-sample-questions:version';

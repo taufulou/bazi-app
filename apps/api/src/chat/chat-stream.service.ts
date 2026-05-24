@@ -247,6 +247,11 @@ export class ChatStreamService {
       firstMessageAt: Date | null;
       readingId: string | null;
       comparisonId: string | null; // Phase 3 — COMPATIBILITY sessions key on this instead
+      // Phase Fortune — FORTUNE sessions reference a BirthProfile +
+      // anchorDate triplet instead of readingId/comparisonId. The
+      // controller passes these through from the session record.
+      profileId: string | null;
+      fortuneAnchorDate: Date | null;
       readingType: import('@prisma/client').ReadingType;
       creditExtensions: number;
       paidMessagesUsed: number;
@@ -360,6 +365,8 @@ export class ChatStreamService {
       // Phase 2 — pass session.readingType for per-type crossSellPivotHint.
       // Phase 3 — branch on subject type: COMPATIBILITY sessions use
       // comparisonId path (dual-chart slim); all others use readingId.
+      // Phase Fortune — third subject path: FORTUNE sessions use
+      // profileId + anchorDate (no readingId / comparisonId).
       if (session.comparisonId) {
         chatContext = await this.contextService.getChatContextForComparison(
           session.comparisonId,
@@ -370,9 +377,21 @@ export class ChatStreamService {
           session.readingId,
           session.readingType,
         );
+      } else if (
+        session.readingType === 'FORTUNE' &&
+        session.profileId &&
+        session.fortuneAnchorDate
+      ) {
+        chatContext = await this.contextService.getChatContextForFortune(
+          session.profileId,
+          session.fortuneAnchorDate.toISOString().slice(0, 10),
+          session.readingType,
+        );
       } else {
         // CHECK constraint should prevent this. Defensive guard.
-        throw new Error(`Session ${sessionId} has neither readingId nor comparisonId`);
+        throw new Error(
+          `Session ${sessionId} has no resolvable subject (readingId / comparisonId / fortune triplet all missing)`,
+        );
       }
     } catch (err) {
       await this._refundOnError(response, sessionId, userId, userMessageId,

@@ -126,18 +126,34 @@ export class ChatService {
 
   async createSession(
     clerkUserId: string,
-    args: { readingId?: string; comparisonId?: string },
+    args: {
+      readingId?: string;
+      comparisonId?: string;
+      /** Phase Fortune — FORTUNE chat subject discriminator. Mutually
+       *  exclusive with readingId / comparisonId per ChatSubject. */
+      fortune?: {
+        profileId: string;
+        fortuneScope: 'DAY' | 'MONTH' | 'YEAR';
+        fortuneAnchorDate: string; // ISO YYYY-MM-DD
+      };
+    },
   ): Promise<CreateChatSessionResponse> {
-    const { readingId, comparisonId } = args;
+    const { readingId, comparisonId, fortune } = args;
 
-    // Phase 3 — validate exactly one of (readingId, comparisonId) is set.
-    // Mirrors the DB CHECK constraint at chat_sessions_subject_check.
+    // Phase Fortune — XOR across three subject kinds (reading, comparison,
+    // fortune). Mirrors the DB CHECK constraint at chat_sessions_subject_check
+    // (Phase Fortune migration relaxed it to admit the FORTUNE NULL-NULL
+    // case + profileId/fortuneScope/fortuneAnchorDate populated).
     const hasReading = Boolean(readingId);
     const hasComparison = Boolean(comparisonId);
-    if (hasReading === hasComparison) {
+    const hasFortune = Boolean(fortune);
+    const subjectCount =
+      Number(hasReading) + Number(hasComparison) + Number(hasFortune);
+    if (subjectCount !== 1) {
       throw new BadRequestException({
         code: 'INVALID_SUBJECT',
-        message: 'Exactly one of (readingId, comparisonId) must be provided.',
+        message:
+          'Exactly one of (readingId, comparisonId, fortune) must be provided.',
       });
     }
 
@@ -145,6 +161,7 @@ export class ChatService {
     if (!user) throw new NotFoundException('User not found');
 
     let resolvedReadingType: ReadingType;
+    let resolvedProfileId: string | null = null;
 
     if (hasReading) {
       // Validate reading ownership
@@ -157,7 +174,7 @@ export class ChatService {
         throw new ForbiddenException('Reading not owned by this user');
       }
       resolvedReadingType = reading.readingType;
-    } else {
+    } else if (hasComparison) {
       // Phase 3 — COMPATIBILITY path. Validate BaziComparison ownership.
       const comparison = await this.prisma.baziComparison.findUnique({
         where: { id: comparisonId! },
@@ -184,9 +201,33 @@ export class ChatService {
         });
       }
       resolvedReadingType = 'COMPATIBILITY';
+    } else {
+      // Phase Fortune — validate BirthProfile ownership. FORTUNE chat
+      // references a profile + (scope, anchorDate) instead of a reading
+      // or comparison. The DB CHECK constraint requires all 3 fortune
+      // fields populated together (validated by DTO + this branch).
+      const profile = await this.prisma.birthProfile.findUnique({
+        where: { id: fortune!.profileId },
+        select: { id: true, userId: true },
+      });
+      if (!profile) {
+        throw new NotFoundException(`Birth profile ${fortune!.profileId} not found`);
+      }
+      if (profile.userId !== user.id) {
+        throw new ForbiddenException('Birth profile not owned by this user');
+      }
+      // Phase Fortune ships DAY only — guard MONTH/YEAR until those scopes ship.
+      if (fortune!.fortuneScope !== 'DAY') {
+        throw new BadRequestException({
+          code: 'FORTUNE_SCOPE_NOT_SUPPORTED',
+          message: `FORTUNE chat is only supported for DAY scope in Phase Fortune (got: ${fortune!.fortuneScope}).`,
+        });
+      }
+      resolvedReadingType = 'FORTUNE';
+      resolvedProfileId = profile.id;
     }
 
-    // Phase 2 — env-driven whitelist. Phase 3 — whitelist now includes COMPATIBILITY.
+    // Phase 2 — env-driven whitelist. Phase Fortune — FORTUNE joins the whitelist.
     if (!this.enabledReadingTypes.has(resolvedReadingType)) {
       throw new BadRequestException({
         code: 'READING_TYPE_NOT_ENABLED',
@@ -204,10 +245,16 @@ export class ChatService {
     const session = await this.prisma.chatSession.create({
       data: {
         userId: user.id,
-        // Phase 3 — exactly one of (readingId, comparisonId) is set.
+        // Phase Fortune — exactly one of (readingId, comparisonId, fortune subject) is set.
         readingId: hasReading ? readingId : null,
         comparisonId: hasComparison ? comparisonId : null,
         readingType: resolvedReadingType,
+        // Phase Fortune — FORTUNE subject fields denormalized
+        profileId: resolvedProfileId,
+        fortuneScope: hasFortune ? fortune!.fortuneScope : null,
+        fortuneAnchorDate: hasFortune
+          ? new Date(fortune!.fortuneAnchorDate + 'T00:00:00.000Z')
+          : null,
         contextVersion: versions.contextVersion,
         preAnalysisVersion: versions.preAnalysisVersion,
         hardDeleteAt,
@@ -248,9 +295,30 @@ export class ChatService {
     return this._listSessionsByWhere(clerkUserId, { comparisonId });
   }
 
+  /** Phase Fortune — list FORTUNE chat sessions for a (profileId, anchorDate)
+   *  pair. The anchorDate filter is the load-bearing piece per plan Issue 10:
+   *  date navigation via DateNavigator must spawn a new session, NOT resume
+   *  yesterday's. */
+  async listSessionsForFortune(
+    clerkUserId: string,
+    args: { profileId: string; fortuneAnchorDate: string },
+  ): Promise<ChatSessionSummary[]> {
+    return this._listSessionsByWhere(clerkUserId, {
+      readingType: 'FORTUNE',
+      profileId: args.profileId,
+      fortuneAnchorDate: new Date(args.fortuneAnchorDate + 'T00:00:00.000Z'),
+    });
+  }
+
   private async _listSessionsByWhere(
     clerkUserId: string,
-    where: { readingId?: string; comparisonId?: string },
+    where: {
+      readingId?: string;
+      comparisonId?: string;
+      readingType?: ReadingType;
+      profileId?: string;
+      fortuneAnchorDate?: Date;
+    },
   ): Promise<ChatSessionSummary[]> {
     const user = await this.prisma.user.findUnique({ where: { clerkUserId } });
     if (!user) throw new NotFoundException('User not found');
@@ -280,6 +348,14 @@ export class ChatService {
         lastMessagePreview: lastMsg
           ? lastMsg.content.slice(0, 80) + (lastMsg.content.length > 80 ? '...' : '')
           : null,
+        // Phase Fortune — surface FORTUNE-specific subject fields to the
+        // frontend ChatHistoryPanel (MC-4 — per-date row labels +
+        // active-date highlighting).
+        fortuneScope: s.fortuneScope ?? null,
+        fortuneAnchorDate: s.fortuneAnchorDate
+          ? s.fortuneAnchorDate.toISOString().slice(0, 10)
+          : null,
+        profileId: s.profileId ?? null,
       };
     });
   }
@@ -603,6 +679,7 @@ export class ChatService {
       // Phase 2 — pass session.readingType so the per-type crossSellPivotHint
       // gets computed and substituted into the refuse template.
       // Phase 3 — branch on COMPATIBILITY sessions (comparisonId path).
+      // Phase Fortune — branch on FORTUNE sessions (profileId + anchorDate).
       let chatContext;
       if (session.comparisonId) {
         chatContext = await this.contextService.getChatContextForComparison(
@@ -614,8 +691,20 @@ export class ChatService {
           session.readingId,
           session.readingType,
         );
+      } else if (
+        session.readingType === 'FORTUNE' &&
+        session.profileId &&
+        session.fortuneAnchorDate
+      ) {
+        chatContext = await this.contextService.getChatContextForFortune(
+          session.profileId,
+          session.fortuneAnchorDate.toISOString().slice(0, 10),
+          session.readingType,
+        );
       } else {
-        throw new Error(`Session ${sessionId} has neither readingId nor comparisonId (CHECK constraint violation)`);
+        throw new Error(
+          `Session ${sessionId} has no resolvable subject (readingId/comparisonId/fortune triplet all missing) — CHECK constraint violation`,
+        );
       }
 
       // Load recent messages for context (last N user/assistant exchanges).

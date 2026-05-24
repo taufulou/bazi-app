@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Post,
@@ -56,6 +57,7 @@ export class ChatController {
     return this.chatService.createSession(auth.userId, {
       readingId: dto.readingId,
       comparisonId: dto.comparisonId,
+      fortune: dto.fortune,
     });
   }
 
@@ -78,6 +80,33 @@ export class ChatController {
     @Param('comparisonId', ParseUUIDPipe) comparisonId: string,
   ): Promise<ChatSessionSummary[]> {
     return this.chatService.listSessionsForComparison(auth.userId, comparisonId);
+  }
+
+  // Phase Fortune — parallel endpoint for FORTUNE sessions. anchorDate
+  // query parameter is REQUIRED — frontend hook filters by it so date
+  // navigation spawns new sessions per plan Issue 10.
+  @Get('profiles/:profileId/fortune-sessions')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'List FORTUNE chat sessions for a (profile, anchorDate) pair (Phase Fortune)',
+    description:
+      'anchorDate is required (YYYY-MM-DD). Returns sessions matching the exact anchor; date navigation spawns a new session rather than resuming yesterday\'s.',
+  })
+  async listSessionsForFortune(
+    @CurrentUser() auth: AuthPayload,
+    @Param('profileId', ParseUUIDPipe) profileId: string,
+    @Query('anchorDate') anchorDate: string,
+  ): Promise<ChatSessionSummary[]> {
+    if (!anchorDate || !/^\d{4}-\d{2}-\d{2}$/.test(anchorDate)) {
+      throw new BadRequestException({
+        code: 'INVALID_ANCHOR_DATE',
+        message: 'anchorDate query parameter is required in YYYY-MM-DD format',
+      });
+    }
+    return this.chatService.listSessionsForFortune(auth.userId, {
+      profileId,
+      fortuneAnchorDate: anchorDate,
+    });
   }
 
   @Get('sessions/:sessionId/messages')

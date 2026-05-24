@@ -40,6 +40,12 @@ export interface ChatSession {
   messageCount: number;
   unusedPaidMessages: number;
   lastMessagePreview: string | null;
+  // Phase Fortune — only populated when this is a FORTUNE session. Lets
+  // ChatHistoryPanel render «{fortuneAnchorDate} · X 則對話» rows + filter
+  // by active anchor (plan MC-4 + Issue 10 — date-filtered resume).
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR' | null;
+  fortuneAnchorDate?: string | null; // ISO YYYY-MM-DD
+  profileId?: string | null;
 }
 
 export type ChatStreamEvent =

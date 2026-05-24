@@ -148,7 +148,7 @@ export class ChatSampleQuestionsAdminController {
 
   @Get()
   @ApiOperation({ summary: 'List all sample questions (admin)' })
-  @ApiQuery({ name: 'readingType', required: false, enum: ['LIFETIME', 'LOVE', 'CAREER', 'ANNUAL', 'COMPATIBILITY'] })
+  @ApiQuery({ name: 'readingType', required: false, enum: ['LIFETIME', 'LOVE', 'CAREER', 'ANNUAL', 'COMPATIBILITY', 'FORTUNE'] })
   async listAll(@Query('readingType') readingType?: string) {
     if (readingType && !isValidReadingType(readingType)) {
       throw new HttpException(
@@ -240,5 +240,8 @@ export class ChatSampleQuestionsAdminController {
 // ============================================================
 
 function isValidReadingType(s: string): boolean {
-  return ['LIFETIME', 'LOVE', 'CAREER', 'ANNUAL', 'COMPATIBILITY'].includes(s);
+  // Phase Fortune — FORTUNE added to chat-enabled whitelist (plan Issue 5).
+  // Without this, admin POST/PATCH with readingType=FORTUNE returns
+  // INVALID_READING_TYPE and FORTUNE sample-question seed fails silently.
+  return ['LIFETIME', 'LOVE', 'CAREER', 'ANNUAL', 'COMPATIBILITY', 'FORTUNE'].includes(s);
 }

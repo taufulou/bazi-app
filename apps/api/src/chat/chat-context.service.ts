@@ -36,7 +36,7 @@ export const CHAT_PROMPT_VERSIONS: Partial<Record<ReadingType, string>> = {
   CAREER: 'v1.0.1',   // Phase 2 post-test bump — same rule (preventive)
   ANNUAL: 'v1.0.3',   // Phase 2 post-test bump — A-4 few-shot regex-friendly fix (moved «屬於命局架構層面而非流年動態» AFTER «範圍——» so isTopicBoundaryRefuse regex still matches)
   COMPATIBILITY: 'v1.1.0', // Phase 3.1 — Bazi-master review fixes: K-3 doctrinal correction (no marriagePalace.personality), 配偶星 gender hint, 六合/半合 scope, softer cross-sell wording
-  FORTUNE: 'v1.0.0',  // Phase Fortune — unified day/month/year chat (scope tag in ChatSession.fortuneScope)
+  FORTUNE: 'v1.1.0',  // Phase 1.5.z — folk content (吉色/吉數/吉食含忌食/吉時) now reaches chat scope via interpolateFortuneV1Fields folk block (2026-05-22)
 };
 
 /** Safe lookup with fallback to LIFETIME for unmapped reading types. */
@@ -69,6 +69,14 @@ const PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH = {
   ANNUAL: 'v2.4.0',
   LOVE: 'v1.11.0',
   COMPATIBILITY: 'v1.8.2', // Phase 3 follow-up — H1 timingSync + H4 strip ideal-spouse + H5 restore 4 anti-hallucination anchors
+  // Phase Fortune chat — mirrors FORTUNE_DAILY_PRE_ANALYSIS_VERSION='v1.1.1'
+  // in packages/bazi-engine/app/fortune_constants.py. ONLY appended to the
+  // version string when readingType === 'FORTUNE' (per-readingType conditional
+  // in computeVersionString + getCurrentSnapshotVersions per plan Issue 11 +
+  // NEW-A re-review). Adding this entry does NOT invalidate any non-FORTUNE
+  // session because the conditional gate prevents it from joining the version
+  // string for LIFETIME/LOVE/CAREER/ANNUAL/COMPAT sessions.
+  FORTUNE: 'v1.1.1',
 } as const;
 
 const CHAT_CONTEXT_TTL_SECONDS = 24 * 60 * 60; // 24h
@@ -152,6 +160,19 @@ export interface ChatContext {
    *  compatibility_enhanced.py:1798-1801. Shape: {goldenYears, challengeYears,
    *  luckCycleSyncScore}. Entry: {year, reason}, each capped at 5. */
   timingSync?: Record<string, unknown>;
+  /** Phase Fortune — present only when this payload describes a FORTUNE
+   *  (daily fortune) chat scope. Mirrors the engine's
+   *  `build_chat_context_fortune` shape. Carries the day pillar, today's
+   *  auspiciousness label + energy score, 5-dim breakdown, headliner
+   *  signals, folk content (wealth direction), plus Option 2.5 transparency
+   *  fields used by the anti-incoherence prompt rule. The day-pillar
+   *  TRANSIENT findings ride in `dailyFortune.dimensions[].signals[]` and
+   *  are consumed by `interpolateFortuneV1Fields` below. */
+  dailyFortune?: Record<string, unknown>;
+  /** Phase Fortune — ISO `YYYY-MM-DD` anchor date the FORTUNE chat session
+   *  is pinned to. Set by engine; mirrored from the
+   *  `ChatSession.fortuneAnchorDate` column. */
+  anchorDate?: string;
 }
 
 export interface ChatContextCacheKey {
@@ -346,6 +367,118 @@ export class ChatContextService {
   }
 
   /**
+   * Phase Fortune — get the chat context for a FORTUNE chat session.
+   * Subject: `(profileId, anchorDate)` — neither `readingId` nor
+   * `comparisonId`. Mirrors `getChatContextForReading` but routes to
+   * `/build-chat-context-fortune` and additionally fetches the persisted
+   * `DailyFortuneSnapshot.engineOutputJson` for the same
+   * `(chartHash, anchorDate)` to pass through as `precomputed_daily`
+   * (Issue 1 — avoid double-compute when the fortune page already
+   * generated the day's output).
+   *
+   * Cache key: `chat-context-fortune:{birthHash}:{anchorDateIso}:{versions}`.
+   * Versions string is per-readingType-conditional (Issue 11 + NEW-A —
+   * `pa-fort` only appended for FORTUNE; existing other-type cached
+   * contexts remain valid).
+   */
+  async getChatContextForFortune(
+    profileId: string,
+    anchorDate: string,
+    readingType: ReadingType = 'FORTUNE',
+  ): Promise<ChatContext> {
+    const profile = await this.prisma.birthProfile.findUnique({
+      where: { id: profileId },
+    });
+    if (!profile) {
+      throw new NotFoundException(`Birth profile not found: ${profileId}`);
+    }
+
+    const anchorYear = parseInt(anchorDate.slice(0, 4), 10);
+    const anchorMonth = parseInt(anchorDate.slice(5, 7), 10);
+    if (
+      Number.isNaN(anchorYear) ||
+      Number.isNaN(anchorMonth) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(anchorDate)
+    ) {
+      throw new Error(
+        `Invalid anchorDate format: ${anchorDate} (expected YYYY-MM-DD)`,
+      );
+    }
+
+    const birthHash = this.computeBirthHash(profile, anchorYear);
+    const versions = this.computeVersionString(readingType);
+    const cacheKey = `chat-context-fortune:${birthHash}:${anchorDate}:${versions}`;
+
+    // Try Redis cache
+    const cached = await this.redis.get(cacheKey);
+    if (cached) {
+      try {
+        const ctx = JSON.parse(cached) as ChatContext;
+        return this.withCrossSellPivotHint(ctx, readingType);
+      } catch (err) {
+        this.logger.warn(
+          `Failed to parse cached fortune chat-context for key ${cacheKey}: ${err}`,
+        );
+      }
+    }
+
+    // Reuse persisted DailyFortuneSnapshot when available (Issue 1 — skip
+    // recompute). Note: we use the chartHash convention from
+    // fortune.service.ts (which includes birthTimezone in the hash —
+    // mirrored in computeBirthHash above via profile.birthTimezone).
+    // Snapshot lookup uses the engine's chart_hash (separate from chat
+    // birthHash — `fortune.service.ts` writes it). Resolve via the
+    // `(birthProfileId, anchorDate)` index already on the snapshot table.
+    let precomputedDaily: Record<string, unknown> | undefined;
+    try {
+      const snapshot = await this.prisma.dailyFortuneSnapshot.findFirst({
+        where: {
+          birthProfileId: profileId,
+          scope: 'DAY',
+          anchorDate: new Date(anchorDate + 'T00:00:00.000Z'),
+        },
+        orderBy: { generatedAt: 'desc' },
+      });
+      if (snapshot?.engineOutputJson) {
+        precomputedDaily = snapshot.engineOutputJson as Record<string, unknown>;
+      }
+    } catch (err) {
+      // Non-fatal — fall back to engine recompute path
+      this.logger.warn(
+        `Failed to fetch DailyFortuneSnapshot for (${profileId}, ${anchorDate}): ${err}`,
+      );
+    }
+
+    const engineCtx = await this.fetchChatContextFromEngineFortune({
+      birthDate: profile.birthDate.toISOString().slice(0, 10),
+      birthTime: profile.birthTime,
+      birthCity: profile.birthCity,
+      birthTimezone: profile.birthTimezone,
+      gender: profile.gender.toLowerCase(),
+      birthLongitude: profile.birthLongitude,
+      birthLatitude: profile.birthLatitude,
+      anchorDate,
+      targetYear: anchorYear,
+      targetMonth: anchorMonth,
+      precomputedDaily,
+    });
+
+    try {
+      await this.redis.set(
+        cacheKey,
+        JSON.stringify(engineCtx),
+        CHAT_CONTEXT_TTL_SECONDS,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to cache fortune chat-context for key ${cacheKey}: ${err}`,
+      );
+    }
+
+    return this.withCrossSellPivotHint(engineCtx, readingType);
+  }
+
+  /**
    * Add the per-readingType `crossSellPivotHint` field to a chat context
    * payload. Round-1 HIGH-#2 + round-2 NEW#1 + round-3 NEW#10.
    *
@@ -384,6 +517,8 @@ export class ChatContextService {
           return this.extractAnnualPivotHint(ctx);
         case 'COMPATIBILITY':
           return this.extractCompatPivotHint(ctx);
+        case 'FORTUNE':
+          return this.extractFortunePivotHint(ctx);
         default:
           return null; // LIFETIME never refuses; no pivot needed
       }
@@ -393,6 +528,48 @@ export class ChatContextService {
       );
       return null;
     }
+  }
+
+  /**
+   * FORTUNE pivot — prefers the day's pre-rendered headliner signal
+   * narrative (rich Chinese sentence from
+   * `daily_enhanced._compute_headliner_signals`), e.g. «今日紅鸞動，子卯刑配偶宮».
+   * Falls back to `{dayGanZhi}日（{auspiciousness}，{energyScore}分）` when
+   * no headliner narrative is present. Used in FORTUNE refuse templates'
+   * «...回到今日命局：{crossSellPivotHint}» pivot clause to keep the
+   * refused conversation grounded in today (the load-bearing F-2 «cite-today-
+   * first» pattern from the Bazi-master few-shot draft).
+   */
+  private extractFortunePivotHint(ctx: ChatContext): string | null {
+    const daily = ctx.dailyFortune as Record<string, unknown> | undefined;
+    if (!daily) return null;
+
+    // 1. Prefer headliner signal — pre-rendered narrative from engine
+    const headliner = daily.headlinerSignals as
+      | Record<string, unknown>
+      | undefined;
+    if (headliner) {
+      const triggers = (headliner.triggers ?? []) as Array<Record<string, unknown>>;
+      if (Array.isArray(triggers) && triggers.length > 0) {
+        const top = triggers[0];
+        const narrative = top?.narrative as string | undefined;
+        if (typeof narrative === 'string' && narrative.length > 0) {
+          return narrative;
+        }
+      }
+    }
+
+    // 2. Fallback: dayGanZhi（auspiciousness，energyScore分）
+    const dayGanZhi = daily.dayGanZhi as string | undefined;
+    const auspiciousness = daily.auspiciousness as string | undefined;
+    const energyScore = daily.energyScore as number | undefined;
+    if (dayGanZhi && auspiciousness && typeof energyScore === 'number') {
+      return `${dayGanZhi}日（${auspiciousness}，${energyScore}分）`;
+    }
+    if (dayGanZhi) {
+      return `${dayGanZhi}日`;
+    }
+    return null;
   }
 
   /**
@@ -546,14 +723,22 @@ export class ChatContextService {
   /**
    * Returns the cache key version string. Phase 2 (round-2 NEW#2): the
    * lifetime prompt version is per-readingType; the pre-analysis hash
-   * still aggregates all 4 pipelines because the engine merges all of
-   * them regardless of which reading-type chat is invoked from (Phase 1
-   * Layer 1 fix). The cache key includes the readingType so a LOVE
-   * session's cache entry doesn't get invalidated when only CAREER's
-   * prompt version bumps.
+   * still aggregates 4 base pipelines (lifetime/love/career/annual) +
+   * compat because the engine merges them regardless of which reading-type
+   * chat is invoked from (Phase 1 Layer 1 fix). The cache key includes
+   * the readingType so a LOVE session's cache entry doesn't get
+   * invalidated when only CAREER's prompt version bumps.
+   *
+   * Phase Fortune (plan Issue 11 + NEW-A re-review): `pa-fort` is
+   * conditionally appended ONLY for `readingType === 'FORTUNE'`. Adding
+   * `FORTUNE` to `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH` therefore does NOT
+   * change the version string for any non-FORTUNE session, so existing
+   * LIFETIME/LOVE/CAREER/ANNUAL/COMPAT cached contexts stay valid. Same
+   * conditional applied in `getCurrentSnapshotVersions` below to keep the
+   * drift-check semantics aligned (`chat.service.ts:514+`).
    */
   computeVersionString(readingType: ReadingType = 'LIFETIME'): string {
-    return [
+    const parts: string[] = [
       `${readingType.toLowerCase()}=${getChatPromptVersion(readingType)}`,
       // Pre-analysis hash stays aggregate — engine merges all 4 (or all 4 + compat for COMPATIBILITY).
       `pa-life=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.LIFETIME}`,
@@ -561,7 +746,11 @@ export class ChatContextService {
       `pa-car=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.CAREER}`,
       `pa-ann=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.ANNUAL}`,
       `pa-compat=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.COMPATIBILITY}`,
-    ].join('|');
+    ];
+    if (readingType === 'FORTUNE') {
+      parts.push(`pa-fort=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE}`);
+    }
+    return parts.join('|');
   }
 
   /**
@@ -580,15 +769,25 @@ export class ChatContextService {
     contextVersion: string;
     preAnalysisVersion: string;
   } {
+    // Phase Fortune (plan Issue 11 + NEW-A re-review): `fort=...` is
+    // conditionally appended ONLY for FORTUNE sessions. This keeps existing
+    // LIFETIME/LOVE/CAREER/ANNUAL/COMPAT sessions' stored
+    // `preAnalysisVersion` snapshot byte-identical pre- and post-ship — no
+    // mass `CONTEXT_VERSION_DRIFTED` eviction on the next message
+    // (`chat.service.ts:517` drift check).
+    const paParts: string[] = [
+      `life=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.LIFETIME}`,
+      `love=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.LOVE}`,
+      `car=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.CAREER}`,
+      `ann=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.ANNUAL}`,
+      `compat=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.COMPATIBILITY}`,
+    ];
+    if (readingType === 'FORTUNE') {
+      paParts.push(`fort=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE}`);
+    }
     return {
       contextVersion: getChatPromptVersion(readingType),
-      preAnalysisVersion: [
-        `life=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.LIFETIME}`,
-        `love=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.LOVE}`,
-        `car=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.CAREER}`,
-        `ann=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.ANNUAL}`,
-        `compat=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.COMPATIBILITY}`,
-      ].join('|'),
+      preAnalysisVersion: paParts.join('|'),
     };
   }
 
@@ -730,4 +929,290 @@ export class ChatContextService {
     }
     return result.chatContext as ChatContext;
   }
+
+  /**
+   * Phase Fortune — fetch FORTUNE chat context from Python engine. When
+   * `precomputedDaily` is provided (from a persisted `DailyFortuneSnapshot`
+   * for the same `(chartHash, anchorDate)`), the engine skips its own
+   * `compute_daily_fortune()` call and uses the snapshot verbatim
+   * (Issue 1 — ~50ms saved on warm-snapshot path). Cold path computes from
+   * scratch.
+   *
+   * Timeout: 45s — matches `/build-chat-context-compat`. Two heavy ops
+   * (chart slim + daily fortune) but snapshot-reuse path keeps typical
+   * latency under 200ms.
+   */
+  private async fetchChatContextFromEngineFortune(args: {
+    birthDate: string;
+    birthTime: string;
+    birthCity: string;
+    birthTimezone: string;
+    gender: string;
+    birthLongitude: number | null;
+    birthLatitude: number | null;
+    anchorDate: string;
+    targetYear: number;
+    targetMonth: number;
+    precomputedDaily?: Record<string, unknown>;
+  }): Promise<ChatContext> {
+    const response = await fetch(
+      `${this.baziEngineUrl}/build-chat-context-fortune`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          birth_date: args.birthDate,
+          birth_time: args.birthTime,
+          birth_city: args.birthCity,
+          birth_timezone: args.birthTimezone,
+          gender: args.gender,
+          birth_longitude: args.birthLongitude,
+          birth_latitude: args.birthLatitude,
+          anchor_date: args.anchorDate,
+          target_year: args.targetYear,
+          target_month: args.targetMonth,
+          precomputed_daily: args.precomputedDaily ?? null,
+        }),
+        signal: AbortSignal.timeout(45_000),
+      },
+    );
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      this.logger.error(
+        `Engine /build-chat-context-fortune returned ${response.status}: ${errBody}`,
+      );
+      throw new Error(`Bazi engine returned ${response.status}`);
+    }
+
+    const result = await response.json();
+    if (!result.chatContext) {
+      throw new Error('Engine response missing chatContext');
+    }
+    return result.chatContext as ChatContext;
+  }
+}
+
+// ============================================================
+// Phase Fortune — day-pillar TRANSIENT doctrine injector (Issue 14)
+// ============================================================
+
+/**
+ * Build a deterministic Chinese «今日X日触發的教義事件» block from the day's
+ * `dailyFortune.dimensions[].signals[]` array. Mirrors the Phase 12g.6 Gap 2
+ * pattern at `ai.service.ts:3794+::interpolateLoveV2Fields`: the engine emits
+ * structured signal types (e.g., `shangguan_jian_guan_transient`,
+ * `bijie_duo_cai_*`, `chong_day_branch_*`, `honluan_triggered`); the
+ * interpolator pre-formats Chinese sentences for the AI to consume verbatim
+ * — anti-hallucination via deterministic phrasing.
+ *
+ * Returns null when no transient findings are present (so the
+ * chat-prompt-builder can omit the block cleanly).
+ *
+ * This is INTENTIONALLY exported as a free function (not a class method) so
+ * `chat-prompt-builder.ts` can call it after pulling the FORTUNE-typed
+ * ChatContext without depending on the service singleton.
+ */
+export function interpolateFortuneV1Fields(ctx: ChatContext): string | null {
+  const daily = ctx.dailyFortune as Record<string, unknown> | undefined;
+  if (!daily) return null;
+
+  const dayGanZhi = daily.dayGanZhi as string | undefined;
+  if (!dayGanZhi) return null;
+
+  const dims = daily.dimensions as Record<string, unknown> | undefined;
+  if (!dims || typeof dims !== 'object') return null;
+
+  const lines: string[] = [];
+  const DIM_LABELS: Record<string, string> = {
+    romance: '感情',
+    career: '事業',
+    finance: '財運',
+    travel: '出行',
+    health: '健康',
+  };
+
+  for (const [dimKey, dimLabel] of Object.entries(DIM_LABELS)) {
+    const dim = dims[dimKey] as Record<string, unknown> | undefined;
+    if (!dim) continue;
+    const signals = (dim.signals ?? []) as Array<Record<string, unknown>>;
+    if (!Array.isArray(signals) || signals.length === 0) continue;
+
+    for (const sig of signals) {
+      // Engine schema (daily_enhanced.py): each signal has a `type` field
+      // (snake_case) + optional `valence` / `narrative` / domain-specific
+      // metadata (e.g., `tenGod`, `role`, `element`).
+      const sigType = sig?.type as string | undefined;
+      const valence = sig?.valence as string | undefined;
+      const sigNarrative = sig?.narrative as string | undefined;
+      if (!sigType) continue;
+
+      // Phase 12h.B Item 2 — 傷官見官 day-transient (daily_enhanced.py:325/334)
+      if (sigType === 'shangguan_jian_guan_transient') {
+        const valenceCN =
+          valence === 'beneficial'
+            ? '反吉（正官為忌神，傷官制官有利）'
+            : valence === 'harmful'
+              ? '為禍（正官為用神或喜神，受制反凶）'
+              : '中性';
+        lines.push(
+          `• [${dimLabel}] 今日 ${dayGanZhi} 日触發 傷官見官 流日 — 性質判定：${valenceCN}` +
+            (sigNarrative ? `；${sigNarrative}` : ''),
+        );
+      }
+      // Phase 12h.B Item 8 — 比劫奪財 day-transient (daily_enhanced.py:477/488)
+      else if (sigType === 'bi_jie_duo_cai_transient') {
+        const valenceCN =
+          valence === 'beneficial'
+            ? '反吉（財為忌神，比劫敵財有利）'
+            : valence === 'harmful'
+              ? '為禍（財為用神或喜神，比劫奪之）'
+              : valence === 'not_applicable'
+                ? '不適用（日主弱不主奪）'
+                : '中性';
+        lines.push(
+          `• [${dimLabel}] 今日 ${dayGanZhi} 日触發 比劫奪財 流日 — 性質判定：${valenceCN}` +
+            (sigNarrative ? `；${sigNarrative}` : ''),
+        );
+      }
+      // 沖日支 — universal caution (3 dim-specific variants from daily_enhanced.py:372/555/627)
+      else if (
+        sigType === 'chong_day_branch_career' ||
+        sigType === 'chong_day_branch_travel' ||
+        sigType === 'chong_day_branch_health' ||
+        sigType === 'spouse_palace_chong'
+      ) {
+        lines.push(
+          `• [${dimLabel}] 今日 ${dayGanZhi} 日触發 沖日支 — 配偶宮震動／流日波動` +
+            (sigNarrative ? `；${sigNarrative}` : ''),
+        );
+      }
+      // 紅鸞星 (year-relative) — daily_enhanced.py:208
+      else if (sigType === 'honluan_triggered') {
+        lines.push(
+          `• [${dimLabel}] 今日 ${dayGanZhi} 日触發 紅鸞星動 — 流日感情訊號（非命局婚緣定論）` +
+            (sigNarrative ? `；${sigNarrative}` : ''),
+        );
+      }
+      // 配偶星透干 — daily_enhanced.py:187
+      else if (sigType === 'spouse_star_transparent') {
+        lines.push(
+          `• [${dimLabel}] 今日 ${dayGanZhi} 日触發 配偶星透干 — 流日感情訊號` +
+            (sigNarrative ? `；${sigNarrative}` : ''),
+        );
+      }
+      // 七殺/正官 day - daily_enhanced.py:284/292/299
+      else if (
+        sigType === 'guan_sha_day' ||
+        sigType === 'guan_sha_favorable' ||
+        sigType === 'guan_sha_unfavorable'
+      ) {
+        const valenceCN =
+          valence === 'beneficial' || sigType === 'guan_sha_favorable'
+            ? '正官/七殺為用，今日宜接受新責任'
+            : valence === 'harmful' || sigType === 'guan_sha_unfavorable'
+              ? '正官/七殺為忌，今日宜避免衝突'
+              : '官殺日，今日易遇權威/壓力';
+        lines.push(
+          `• [${dimLabel}] 今日 ${dayGanZhi} 日触發 官殺流日 — ${valenceCN}` +
+            (sigNarrative ? `；${sigNarrative}` : ''),
+        );
+      }
+    }
+  }
+
+  // Phase 1.5.z — folk content block (吉色/吉數/吉食含忌食/吉時).
+  // All 4 chart-level fields are 用神-keyed; 吉時 per-day. Emitted when engine
+  // provides folkContent + at least one non-null field. AI prompt at prompts.ts:3940
+  // permits chat to discuss these topics ONLY because this injector grounds them.
+  const folkLines = renderFortuneFolkContentLines(daily);
+
+  // Compose final block
+  if (lines.length === 0 && folkLines.length === 0) return null;
+
+  const out: string[] = [];
+  if (lines.length > 0) {
+    out.push(
+      `📅 今日 ${dayGanZhi} 日触發的教義事件（必須以下列文字為主敘述，不可省略）：`,
+      ...lines,
+      `⚠️ 上述為流日 trigger，非命局定論。引用必須使用「今日宜/今日易於/今日傾向」軟觸發語氣。`,
+    );
+  }
+  if (folkLines.length > 0) {
+    if (out.length > 0) out.push('');
+    out.push(
+      `🎨 今日民俗內容（必須以下列文字為主敘述）：`,
+      ...folkLines,
+      `⚠️ 「民俗參考」前綴的欄位（吉數）不可與典籍級別混段落呈現。「今日忌食」必須引用 reason。飲食建議僅為命理參考，不取代醫療建議。`,
+    );
+  }
+  return out.join('\n');
+}
+
+/** Render folk-content lines for chat-scope injection (Phase 1.5.z).
+ *  Returns empty array when folkContent absent OR when all fields are null
+ *  (chart with unresolved 用神 — auspiciousHours still emits since it's per-day).
+ */
+function renderFortuneFolkContentLines(daily: Record<string, unknown>): string[] {
+  const folk = daily.folkContent as Record<string, unknown> | undefined;
+  if (!folk) return [];
+
+  const lines: string[] = [];
+
+  const wealthDir = folk.wealthDirection as { element?: string; direction?: string; note?: string } | undefined;
+  if (wealthDir?.direction) {
+    lines.push(`• 用神方位 [典籍]：${wealthDir.element} → ${wealthDir.direction}（${wealthDir.note ?? ''}）`);
+  }
+
+  const color = folk.luckyColor as
+    | { primary?: string; secondary?: string; tertiary?: string; cite?: string }
+    | null | undefined;
+  if (color?.primary) {
+    lines.push(
+      `• 吉色 [典籍]：${color.primary}（次選：${color.secondary ?? '—'}；典籍：${color.cite ?? '—'}）`,
+    );
+  }
+
+  const number = folk.luckyNumber as { numbers?: number[]; cite?: string } | null | undefined;
+  if (number?.numbers?.length) {
+    lines.push(
+      `• 吉數 [民俗]：${number.numbers.join('、')}（${number.cite ?? '—'}）` +
+        ` — narrative 必須以「民俗參考」開頭引用`,
+    );
+  }
+
+  const foodFav = folk.luckyFoodFavor as
+    | { category?: string; examples?: string[]; cite?: string }
+    | null | undefined;
+  if (foodFav?.category) {
+    lines.push(
+      `• 今日宜食 [典籍]：${foodFav.category}（例：${(foodFav.examples ?? []).join('、')}；典籍：${foodFav.cite ?? '—'}）`,
+    );
+  }
+
+  const foodAvoid = folk.luckyFoodAvoid as
+    | { category?: string; reason?: string; cite_sources?: string[] }
+    | null | undefined;
+  if (foodAvoid?.category) {
+    lines.push(
+      `• 今日忌食 [典籍]：${foodAvoid.category}；原因：${foodAvoid.reason ?? '—'}` +
+        `（典籍：${(foodAvoid.cite_sources ?? []).join('；')}）` +
+        ` — narrative 必須引用 reason，不可僅列食物名稱`,
+    );
+  }
+
+  const hours = folk.auspiciousHours as
+    | Array<{ branch?: string; hour_range?: string; classical_name?: string }>
+    | undefined;
+  if (hours?.length) {
+    const rendered = hours
+      .map((h) => `${h.classical_name}時 ${h.branch}（${h.hour_range}）`)
+      .join('、');
+    lines.push(
+      `• 今日吉時 [典籍]：${rendered}` +
+        ` — 黃道吉時僅依日支推算，與月支無關（協紀辨方書 卷十）。narrative 提及 1-2 個與情境相關的時辰即可，不必全列`,
+    );
+  }
+
+  return lines;
 }

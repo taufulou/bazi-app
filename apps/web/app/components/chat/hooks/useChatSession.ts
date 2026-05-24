@@ -26,14 +26,24 @@ import {
   extendSession,
   getUsage,
   listSessionsForComparison,
+  listSessionsForFortune,
   type CreateChatSessionResponse,
   ChatApiError,
 } from '../../../lib/chat-api';
 
 interface UseChatSessionArgs {
-  /** Phase 3 — exactly one of (readingId, comparisonId) must be set. */
+  /** Phase 3 + Phase Fortune — exactly one of (readingId, comparisonId,
+   *  fortune) must be set. Backend XOR-validates at chat.service.ts. */
   readingId?: string;
   comparisonId?: string;
+  /** Phase Fortune — FORTUNE chat subject. When set, sessions resume
+   *  ONLY if their fortuneAnchorDate matches `fortune.fortuneAnchorDate`
+   *  (plan Issue 10 — date navigation spawns new sessions). */
+  fortune?: {
+    profileId: string;
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR';
+    fortuneAnchorDate: string; // ISO YYYY-MM-DD
+  };
   /** When false, hooks no-op so we don't fire requests for closed drawer. */
   enabled: boolean;
 }
@@ -139,18 +149,28 @@ export interface UseChatSessionReturn {
 const HARD_CAP = 30;
 
 export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
-  const { readingId, comparisonId, enabled } = args;
+  const { readingId, comparisonId, fortune, enabled } = args;
   const { getToken } = useAuth();
-  // Phase 3 — DRY helpers for «list sessions for current subject» and
-  // «create session for current subject». Backend branches on subject type
-  // automatically (one of readingId/comparisonId must be set).
-  const listSessionsForCurrentSubject = comparisonId
-    ? ({ token }: { token: string }) => listSessionsForComparison({ comparisonId, token })
-    : readingId
-      ? ({ token }: { token: string }) => listSessionsForReading({ readingId, token })
-      : ({ token: _t }: { token: string }) => Promise.resolve([]);
+  // Phase 3 + Phase Fortune — DRY helpers for «list sessions for current
+  // subject» and «create session for current subject». Backend branches on
+  // subject type automatically (one of readingId / comparisonId / fortune
+  // must be set per XOR DTO validation).
+  const listSessionsForCurrentSubject = fortune
+    ? ({ token }: { token: string }) =>
+        listSessionsForFortune({
+          profileId: fortune.profileId,
+          fortuneAnchorDate: fortune.fortuneAnchorDate,
+          token,
+        })
+    : comparisonId
+      ? ({ token }: { token: string }) =>
+          listSessionsForComparison({ comparisonId, token })
+      : readingId
+        ? ({ token }: { token: string }) =>
+            listSessionsForReading({ readingId, token })
+        : ({ token: _t }: { token: string }) => Promise.resolve([]);
   const createSessionForCurrentSubject = ({ token }: { token: string }) =>
-    createChatSession({ readingId, comparisonId, token });
+    createChatSession({ readingId, comparisonId, fortune, token });
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -244,7 +264,10 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     } finally {
       setSessionListLoading(false);
     }
-  }, [readingId, comparisonId, requireToken]);
+    // Phase Fortune — fortune.profileId + fortuneAnchorDate must be in deps
+    // so date navigation forces re-fetch (plan Issue 10).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readingId, comparisonId, fortune?.profileId, fortune?.fortuneAnchorDate, requireToken]);
 
   const resumeOpenSession = useCallback(
     async (
@@ -380,6 +403,10 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     // switchActiveSession L447) already had it; initSession was the
     // odd one out.
     comparisonId,
+    // Phase Fortune — fortune.profileId + fortuneAnchorDate must be in deps
+    // so DateNavigator changes spawn a NEW session (plan Issue 10).
+    fortune?.profileId,
+    fortune?.fortuneAnchorDate,
     requireToken,
     resumeOpenSession,
     hydrateFromCreate,
@@ -403,7 +430,15 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     } finally {
       setLoading(false);
     }
-  }, [readingId, comparisonId, requireToken, hydrateFromCreate, refreshSessionList]);
+  }, [
+    readingId,
+    comparisonId,
+    fortune?.profileId,
+    fortune?.fortuneAnchorDate,
+    requireToken,
+    hydrateFromCreate,
+    refreshSessionList,
+  ]);
 
   const switchActiveSession = useCallback(
     async (targetSessionId: string) => {
@@ -450,7 +485,15 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
         setLoading(false);
       }
     },
-    [readingId, comparisonId, requireToken, refreshHistoryFromServer, resumeOpenSession],
+    [
+      readingId,
+      comparisonId,
+      fortune?.profileId,
+      fortune?.fortuneAnchorDate,
+      requireToken,
+      refreshHistoryFromServer,
+      resumeOpenSession,
+    ],
   );
 
   const lockSession = useCallback((reason: string) => {
@@ -674,6 +717,48 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
+
+  // Phase Fortune — Issue 10 open-drawer regression fix:
+  // When DateNavigator changes `fortuneAnchorDate` WHILE the drawer is
+  // already open with an established session, the auto-init effect above
+  // (deps: [enabled]) does NOT re-fire because `enabled` hasn't changed.
+  // Without this effect, the drawer would stay pinned to yesterday's
+  // anchor — chat-context loaded against the OLD anchorDate, message
+  // routing through the OLD session. Doctrinal drift + 30-msg cap
+  // wouldn't naturally reset.
+  //
+  // Fix: when the anchorDate / profileId prop changes AND we already have
+  // a session, drop the current session id so the auto-init effect picks
+  // up the new anchor on the next render. This mirrors the closed-drawer
+  // path semantics (close → reopen → resume-or-create against the new
+  // anchor) for the always-open path.
+  //
+  // Locked by the regression spec — without this fix, the open-drawer
+  // path silently uses stale chat-context.
+  const prevFortuneAnchorRef = useRef<string | undefined>(fortune?.fortuneAnchorDate);
+  const prevFortuneProfileRef = useRef<string | undefined>(fortune?.profileId);
+  useEffect(() => {
+    if (!enabled) return;
+    if (!fortune) return;
+    const anchorChanged =
+      prevFortuneAnchorRef.current !== undefined &&
+      prevFortuneAnchorRef.current !== fortune.fortuneAnchorDate;
+    const profileChanged =
+      prevFortuneProfileRef.current !== undefined &&
+      prevFortuneProfileRef.current !== fortune.profileId;
+    if (anchorChanged || profileChanged) {
+      // Reset session so the [enabled]-keyed auto-init re-runs with the
+      // new anchor on the next render. Also clear messages so the drawer
+      // doesn't briefly show yesterday's history under today's label.
+      setSessionId(null);
+      setMessages([]);
+      setMessageCount(0);
+      setLocked(false);
+      setLockReason(null);
+    }
+    prevFortuneAnchorRef.current = fortune.fortuneAnchorDate;
+    prevFortuneProfileRef.current = fortune.profileId;
+  }, [enabled, fortune?.fortuneAnchorDate, fortune?.profileId]);
 
   return {
     sessionId,

@@ -17,7 +17,10 @@
  */
 
 import type { ReadingType } from '@prisma/client';
-import type { ChatContext } from './chat-context.service';
+import {
+  type ChatContext,
+  interpolateFortuneV1Fields,
+} from './chat-context.service';
 import {
   buildChatV1SystemPromptHeader,
   buildChatV1SystemPromptForType,
@@ -60,10 +63,28 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
     shouldInjectRegrounding,
   } = args;
 
-  // Phase 2 — pick per-type prompt assembler when readingType is one of
-  // the chat-enabled set; fall back to Phase 1 LIFETIME header otherwise.
-  const isChatEnabledType = (rt?: ReadingType): rt is 'LIFETIME' | 'LOVE' | 'CAREER' | 'ANNUAL' | 'COMPATIBILITY' =>
-    rt === 'LIFETIME' || rt === 'LOVE' || rt === 'CAREER' || rt === 'ANNUAL' || rt === 'COMPATIBILITY';
+  // Phase 2 / Phase Fortune — pick per-type prompt assembler when readingType
+  // is one of the chat-enabled set; fall back to Phase 1 LIFETIME header
+  // otherwise.
+  //
+  // ⚠️ CRITICAL — FORTUNE must be in this union. The line-audit caught a
+  // bug where omitting 'FORTUNE' caused every FORTUNE chat session to fall
+  // back to the GENERIC Phase 1 prompt header, silently dropping FORTUNE's
+  // hybrid refuse policy, soft-trigger doctrine, folk-content prohibition,
+  // refuse template, cross-sell lines, and F-1/F-2/F-3 few-shots. The
+  // regression spec at the bottom of `prompts.fortune.spec.ts` (assembly
+  // test) only verified `buildChatV1SystemPromptForType` directly — NOT
+  // the path through `buildPrompt`. Belt + suspenders: keep this union
+  // mirror-aligned with `buildChatV1SystemPromptForType`'s signature.
+  const isChatEnabledType = (
+    rt?: ReadingType,
+  ): rt is 'LIFETIME' | 'LOVE' | 'CAREER' | 'ANNUAL' | 'COMPATIBILITY' | 'FORTUNE' =>
+    rt === 'LIFETIME' ||
+    rt === 'LOVE' ||
+    rt === 'CAREER' ||
+    rt === 'ANNUAL' ||
+    rt === 'COMPATIBILITY' ||
+    rt === 'FORTUNE';
   const promptHeader = isChatEnabledType(readingType)
     ? buildChatV1SystemPromptForType(readingType)
     : buildChatV1SystemPromptHeader();
@@ -124,6 +145,24 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
   if (injectorBlocks.length > 0) {
     sections.push('\n【教義旗標 — 必須引用以下文字作為主敘述基礎】\n');
     sections.push(injectorBlocks.join('\n\n'));
+  }
+
+  // Phase Fortune — day-pillar TRANSIENT doctrine injector (Issue 14).
+  // Mirrors Phase 12g.6 Gap 2 pattern: pre-formats Chinese sentences for the
+  // day's transient findings (傷官見官 valence / 比劫奪財 valence / 沖日支 /
+  // 紅鸞 / 配偶星透干 / 官殺日) from `dailyFortune.dimensions[].signals[]`.
+  // Anti-hallucination via deterministic phrasing — AI consumes verbatim.
+  //
+  // Only fires when readingType === 'FORTUNE' (FORTUNE-specific layer; for
+  // other reading types `dailyFortune` is absent so the injector returns
+  // null anyway, but the explicit gate keeps the cache key tight on the
+  // shared injector pipeline).
+  if (readingType === 'FORTUNE') {
+    const fortuneInjector = interpolateFortuneV1Fields(chatContext);
+    if (fortuneInjector) {
+      sections.push('\n【今日流日教義事件 — 必須引用以下文字】\n');
+      sections.push(fortuneInjector);
+    }
   }
 
   // Slim chat context as JSON

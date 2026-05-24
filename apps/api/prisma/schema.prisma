@@ -73,6 +73,7 @@ model BirthProfile {
   comparisonsA    BaziComparison[]       @relation("ProfileA")
   comparisonsB    BaziComparison[]       @relation("ProfileB")
   fortuneSnapshots DailyFortuneSnapshot[]
+  chatSessions    ChatSession[]          // Phase Fortune — FORTUNE chat sessions anchored to this profile
 
   @@index([userId])
   @@map("birth_profiles")
@@ -505,6 +506,12 @@ model ChatSession {
   // for YEAR = 1st of year. Snapshot at session create — DB row immune to
   // user navigating to another date later.
   fortuneAnchorDate   DateTime?   @map("fortune_anchor_date") @db.Date
+  // Phase Fortune chat — denormalized BirthProfile reference for FORTUNE
+  // sessions (NULL for non-FORTUNE which reference readingId/comparisonId).
+  // Locked per plan NEW-C re-review: storing here avoids the round-trip to
+  // derive profileId from snapshot on every sendMessage. FK with SET NULL
+  // so deleted-profile sessions preserve history.
+  profileId           String?     @map("profile_id")
   startedAt           DateTime    @default(now()) @map("started_at")
   firstMessageAt      DateTime?   @map("first_message_at") // null until user sends 1st message
   endedAt             DateTime?   @map("ended_at") // null until 30-msg cap / 24h inactivity / user-ended
@@ -530,6 +537,7 @@ model ChatSession {
   user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   reading    BaziReading?    @relation(fields: [readingId], references: [id], onDelete: Cascade)
   comparison BaziComparison? @relation(fields: [comparisonId], references: [id], onDelete: Cascade)
+  profile    BirthProfile?   @relation(fields: [profileId], references: [id], onDelete: SetNull)
   messages   ChatMessage[]
 
   @@index([userId, readingId, startedAt])
@@ -539,6 +547,8 @@ model ChatSession {
   @@index([userId, comparisonId, startedAt])
   @@index([readingId])
   @@index([comparisonId])
+  // Phase Fortune chat — analytics + admin queries bucket by profile
+  @@index([profileId])
   @@index([hardDeleteAt]) // for cleanup cron
   @@map("chat_sessions")
 }

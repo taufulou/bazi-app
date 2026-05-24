@@ -84,10 +84,15 @@ export class ChatApiError extends Error {
 }
 
 export function createChatSession(args: {
-  // Phase 3 — exactly one of (readingId, comparisonId) must be set.
-  // Service-level validation enforces «exactly-one» at the backend.
+  // Phase 3 + Phase Fortune — exactly one of (readingId, comparisonId,
+  // fortune) must be set. Service-level validation enforces XOR at backend.
   readingId?: string;
   comparisonId?: string;
+  fortune?: {
+    profileId: string;
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR';
+    fortuneAnchorDate: string; // ISO YYYY-MM-DD
+  };
   token: string;
 }): Promise<CreateChatSessionResponse> {
   return jsonFetch('/api/chat/sessions', {
@@ -95,6 +100,7 @@ export function createChatSession(args: {
     body: JSON.stringify({
       readingId: args.readingId,
       comparisonId: args.comparisonId,
+      fortune: args.fortune,
     }),
     token: args.token,
   });
@@ -119,6 +125,24 @@ export function listSessionsForComparison(args: {
     method: 'GET',
     token: args.token,
   });
+}
+
+// Phase Fortune — list FORTUNE sessions for a (profileId, anchorDate).
+// anchorDate is required so date navigation spawns new sessions (plan
+// Issue 10 — date-filtered resume).
+export function listSessionsForFortune(args: {
+  profileId: string;
+  fortuneAnchorDate: string; // ISO YYYY-MM-DD
+  token: string;
+}): Promise<ChatSession[]> {
+  const params = new URLSearchParams({ anchorDate: args.fortuneAnchorDate });
+  return jsonFetch(
+    `/api/chat/profiles/${args.profileId}/fortune-sessions?${params.toString()}`,
+    {
+      method: 'GET',
+      token: args.token,
+    },
+  );
 }
 
 export function getMessages(args: {
@@ -157,7 +181,23 @@ export function getUsage(args: { token: string }): Promise<ChatUsageResponse> {
 // ============================================================
 
 /** Mirrors backend ChatReadingType enum subset enabled for chat. */
-export type ChatReadingType = 'LIFETIME' | 'LOVE' | 'CAREER' | 'ANNUAL' | 'COMPATIBILITY';
+export type ChatReadingType =
+  | 'LIFETIME'
+  | 'LOVE'
+  | 'CAREER'
+  | 'ANNUAL'
+  | 'COMPATIBILITY'
+  | 'FORTUNE'; // Phase Fortune — daily fortune chat scope (DAY only)
+
+/** Phase Fortune — nested discriminator for FORTUNE chat subject. All 3
+ *  fields required together (backend DTO uses @ValidateNested). */
+export interface FortuneSubject {
+  profileId: string;
+  fortuneScope: 'DAY' | 'MONTH' | 'YEAR';
+  /** ISO YYYY-MM-DD. Caller (page) is responsible for resolving the
+   *  23:00 子時 boundary against Asia/Taipei BEFORE sending. */
+  fortuneAnchorDate: string;
+}
 
 export interface SampleQuestionItem {
   id: string;

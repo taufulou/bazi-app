@@ -48,11 +48,19 @@ const LOCK_ERROR_CODES: Record<string, string> = {
 interface ChatDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  /** Phase 3 — exactly one of (readingId, comparisonId) must be set.
-   *  Backend service validates this. Both Optional in the type to allow
-   *  the chat to mount on either reading pages or the compatibility page. */
+  /** Phase 3 + Phase Fortune — exactly one of (readingId, comparisonId,
+   *  fortune) must be set. Backend service XOR-validates. Lets the chat
+   *  mount on reading pages / compatibility page / fortune page. */
   readingId?: string;
   comparisonId?: string;
+  /** Phase Fortune — FORTUNE chat subject (profileId + scope +
+   *  anchorDate). When set, sessions are pinned to anchorDate per plan
+   *  Issue 10 (date navigation spawns new session). */
+  fortune?: {
+    profileId: string;
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR';
+    fortuneAnchorDate: string; // ISO YYYY-MM-DD
+  };
   /** Phase 2 (round-1 MED-#3) — required prop. Threads the reading's type
    *  through to the empty-state sample-questions hook + downstream UI so
    *  each reading type's chat shows its own general questions. The
@@ -64,11 +72,24 @@ interface ChatDrawerProps {
   initialSectionContextHint?: string;
   /** Optional: a question to auto-send once the session is ready. Used by
    *  InlineAskCard sample-question clicks. The drawer dedupes via an
-   *  internal ref so the same value won't be sent twice. */
+   *  internal ref so the same value won't be sent twice.
+   *
+   *  Phase Fortune NOTE: when `populateOnly=true` is set, the drawer
+   *  POPULATES the composer draft (via `appendToDraft` on the composer
+   *  ref) INSTEAD of auto-sending. This is the load-bearing FORTUNE
+   *  decision per plan Issue 6 — predictable UX + explicit send step
+   *  (gesture survival was a false claim anyway since the gesture is
+   *  consumed by the async drawer mount + session init). */
   pendingInitialMessage?: string;
-  /** Called once the pendingInitialMessage has been consumed (sent). The
-   *  parent should clear its `pendingInitialMessage` state. */
+  /** Called once the pendingInitialMessage has been consumed (sent OR
+   *  populated, depending on `populateOnly`). Parent should clear its
+   *  `pendingInitialMessage` state. */
   onPendingInitialMessageConsumed?: () => void;
+  /** Phase Fortune (plan Issue 6 lock): when true, `pendingInitialMessage`
+   *  POPULATES the composer draft instead of auto-sending. Default false
+   *  preserves existing LIFETIME / LOVE / CAREER / ANNUAL / COMPATIBILITY
+   *  auto-send behavior. */
+  populateOnly?: boolean;
   /** Optional: handler invoked when the user clicks a question in the
    *  drawer's empty-state ChatSampleQuestions (general questions, no
    *  section hint). When omitted, the empty state still renders questions
@@ -81,17 +102,20 @@ export default function ChatDrawer({
   onClose,
   readingId,
   comparisonId,
+  fortune,
   readingType,
   initialSectionContextHint,
   pendingInitialMessage,
   onPendingInitialMessageConsumed,
+  populateOnly = false,
   onPickGeneralQuestion,
 }: ChatDrawerProps) {
   // Phase 2 — empty-state «general» sample questions, fetched from DB.
   // sectionKey=null means the floating-button no-section context.
   const { questions: generalSampleQuestions } = useSampleQuestions(readingType, null);
-  // Phase 3 — pass either readingId or comparisonId (exactly one) to useChatSession.
-  const session = useChatSession({ readingId, comparisonId, enabled: isOpen });
+  // Phase 3 + Phase Fortune — pass exactly one of (readingId, comparisonId,
+  // fortune) to useChatSession. The hook XOR-routes the subject.
+  const session = useChatSession({ readingId, comparisonId, fortune, enabled: isOpen });
   const stream = useChatStream({
     sessionId: session.sessionId,
     appendUserMessage: session.appendUserMessage,
@@ -243,9 +267,19 @@ export default function ChatDrawer({
   // callback) — this ref is just a guard for in-flight auto-sends.
   const sentInitialMessageRef = useRef<string | null>(null);
 
-  // Auto-send the pendingInitialMessage once the session is ready. Fires
-  // as soon as: drawer is open, session has an id, not loading, not locked,
-  // not currently streaming, and the message hasn't been auto-sent yet.
+  // Auto-send (or POPULATE if populateOnly=true) the pendingInitialMessage
+  // once the session is ready. Fires as soon as: drawer is open, session
+  // has an id, not loading, not locked, not currently streaming, and the
+  // message hasn't been consumed yet.
+  //
+  // Phase Fortune branch: when `populateOnly=true`, write to the composer
+  // draft via `appendToDraft` imperative API instead of sending. The user
+  // gets an editable preview + must explicitly tap send. This is the
+  // load-bearing FORTUNE decision per plan Issue 6 — predictable UX,
+  // no surprise sends. For populateOnly the «not locked» check is still
+  // required (locked composer is read-only); session must be ready so the
+  // composer is mounted; streaming-guard is preserved so we don't append
+  // mid-stream.
   useEffect(() => {
     if (!isOpen) return;
     if (!pendingInitialMessage) return;
@@ -253,11 +287,18 @@ export default function ChatDrawer({
     if (!session.sessionId || session.loading || session.locked) return;
     if (stream.streaming) return;
     sentInitialMessageRef.current = pendingInitialMessage;
-    handleSend(pendingInitialMessage);
+    if (populateOnly) {
+      // Populate-only — pre-fill the composer; user explicitly hits send.
+      composerRef.current?.appendToDraft(pendingInitialMessage);
+      composerRef.current?.focusInput();
+    } else {
+      handleSend(pendingInitialMessage);
+    }
     onPendingInitialMessageConsumed?.();
   }, [
     isOpen,
     pendingInitialMessage,
+    populateOnly,
     session.sessionId,
     session.loading,
     session.locked,
