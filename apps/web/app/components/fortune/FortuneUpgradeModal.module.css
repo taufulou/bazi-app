@@ -1,0 +1,127 @@
+/* FortuneUpgradeModal — mirrors InsufficientCreditsModal styling.
+ * z-index 1000 ensures it stacks above DateNavigator picker (60) + sticky header (50). */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+  animation: fadeIn 0.2s ease;
+}
+
+.modal {
+  max-width: 420px;
+  width: 100%;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 2rem;
+  border: 1px solid var(--border-light);
+  text-align: center;
+  animation: scaleUp 0.2s ease;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15);
+}
+
+.icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+  line-height: 1;
+}
+
+.title {
+  color: var(--text-accent);
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  font-family: var(--font-noto-serif-tc), serif;
+  line-height: 1.4;
+}
+
+.body {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.7;
+  margin-bottom: 1.5rem;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.primaryBtn {
+  display: block;
+  padding: 0.75rem 2rem;
+  background: var(--color-red);
+  color: var(--text-on-red);
+  font-weight: 700;
+  font-size: 1rem;
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.primaryBtn:hover {
+  background: var(--color-red-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(var(--color-red-rgb), 0.25);
+}
+
+.primaryBtn:focus-visible {
+  outline: 2px solid var(--color-red);
+  outline-offset: 2px;
+}
+
+.secondaryBtn {
+  display: block;
+  padding: 0.75rem 2rem;
+  background: transparent;
+  border: 1px solid var(--border-medium);
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.9rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.secondaryBtn:hover {
+  background: rgba(var(--color-gold-rgb), 0.08);
+  border-color: var(--color-gold);
+}
+
+.secondaryBtn:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes scaleUp {
+  from { transform: scale(0.95); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+@media (max-width: 600px) {
+  .modal {
+    width: calc(100% - 2rem);
+    padding: 1.5rem;
+  }
+
+  .title {
+    font-size: 1.1rem;
+  }
+
+  .body {
+    font-size: 0.9rem;
+  }
+}

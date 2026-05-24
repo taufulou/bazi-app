@@ -9,7 +9,6 @@
  * would compound the Suspense-boundary issue. The parent page owns the
  * URL state and passes `onSwitchTab` down as a callback.
  */
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 // Value namespace import (NOT `import type`) to force `children: React.ReactNode`
 // to resolve through the same React namespace that JSX intrinsics use. Fixes
@@ -17,7 +16,7 @@ import { useRouter } from 'next/navigation';
 // dep tree (but not local worktree symlink). Per plan staff-review R1 #2 +
 // canonical Next.js + monorepo workaround.
 import * as React from 'react';
-import { ArrowLeft, ArrowUpRight, RefreshCw, User } from 'lucide-react';
+import { ArrowLeft, ArrowUpRight, User } from 'lucide-react';
 import styles from './FortuneShell.module.css';
 
 type Tab = 'day' | 'month' | 'year';
@@ -42,6 +41,17 @@ interface Props {
   birthTime?: string;
   /** Show share icon — wires to ShareFortuneButton when ready (Phase 1.5). */
   onShareClick?: () => void;
+  /** Phase 1.5 slot: subscriber-aware DateNavigator row. Renders between
+   *  the header and subHeader when provided. Shell stays presentation-only —
+   *  the navigator is owned by the parent page along with URL state. */
+  dateNavigator?: React.ReactNode;
+  /** Phase 1.5 slot: ProfileSwitcher popover. When provided, REPLACES the
+   *  default static «RefreshCw → /dashboard/profiles» link on the right
+   *  side of the subHeader. */
+  profileSwitcher?: React.ReactNode;
+  /** Phase 1.5.x slot: AuthExpiredBanner (or any top-of-content banner).
+   *  Renders between header and dateNavigator row. Optional; backward-compat. */
+  topBanner?: React.ReactNode;
   children: React.ReactNode;
 }
 
@@ -65,6 +75,9 @@ export default function FortuneShell({
   birthDate,
   birthTime,
   onShareClick,
+  dateNavigator,
+  profileSwitcher,
+  topBanner,
   children,
 }: Props) {
   const router = useRouter();
@@ -116,6 +129,16 @@ export default function FortuneShell({
         </button>
       </header>
 
+      {/* Phase 1.5.x slot — topBanner (e.g., AuthExpiredBanner) sits between
+          header and DateNavigator row. In normal flow; sticky header overlaps
+          on scroll (intentional). */}
+      {topBanner && <div className={styles.topBannerRow}>{topBanner}</div>}
+
+      {/* Phase 1.5 slot — DateNavigator row sits between header and subHeader */}
+      {dateNavigator && (
+        <div className={styles.dateNavigatorRow}>{dateNavigator}</div>
+      )}
+
       {profileName && (
         <div className={styles.subHeader}>
           {/* Profile chip — left side */}
@@ -130,15 +153,11 @@ export default function FortuneShell({
               </span>
             )}
           </span>
-          {/* Switcher — right side (icon-only) */}
-          <Link
-            href="/dashboard/profiles"
-            className={styles.switchProfileLink}
-            aria-label="切換命盤"
-            title="切換命盤"
-          >
-            <RefreshCw size={16} strokeWidth={2} />
-          </Link>
+          {/* Switcher — right side. Phase 1.5: prefer the rich popover
+              ProfileSwitcher when provided; fall back to nothing if the
+              parent didn't supply one (single-profile users won't see one
+              even if passed — the switcher renders null when profiles.length <= 1). */}
+          <div className={styles.switcherSlot}>{profileSwitcher}</div>
         </div>
       )}
 

@@ -27,6 +27,11 @@
   --text-on-red: #FFFFFF;
   --text-on-gold: #3C2415;
   --text-accent: #C41E3A;
+  /* TODO 2026-05-19 (Phase 1.5.x): --text-muted ratio 4.486:1 against white
+   * fails WCAG AA (4.5:1) by 0.014. Used by 10+ components on white-or-light
+   * bgs. Cleanup ticket: audit each usage site and migrate to --text-secondary
+   * (6.713:1, passes AA) OR darken --text-muted globally to ~#7A6347 (5.2:1).
+   * DateNavigator's locked-state arrow already migrated (PR-A). */
   --text-muted: #8B7355;
 
   /* Borders & Shadows */
