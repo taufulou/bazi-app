@@ -1779,3 +1779,373 @@ The `daily_label_corpus.csv::doctrinal_split` column flags rows where any classi
 4. **Debt B** — build `tests/validation/daily_label_corpus.csv` via Bazi-master sub-agent grading (10-15 days × 2-3 anchor charts × 5 dimensions); calibrate dim score weights until ≥85% label agreement
 5. **Debt C** — enumerate ≥5 `DOCTRINAL_SPLIT_DAY_PATTERNS` (e.g., 沖日支 + 喜神=用神 = ambiguous 動 doctrine); document in plan + add `--accept-doctrinal-splits` harness flag
 6. **Layer 4 release gate** — generate 30 narratives × 3 calibration anchors × 10 dates → submit to 3-parallel sub-agent review (doctrine + folk-drift + Phase 12 consistency)
+
+---
+
+## 八字日運 Phase Fortune chat scope — SHIPPED 2026-05-21 (commit cc642d1, NOT yet in main)
+
+Adds FORTUNE as the 6th chat-enabled reading type. AI chat (existing CHAT Phases 1-4 — LIFETIME/LOVE/CAREER/ANNUAL/COMPATIBILITY) now supports FORTUNE for follow-up questions about today's daily fortune signals.
+
+**Session handoff**: `/Users/roger/.claude/plans/fortune-phase-2-chat-scope-session-handoff.md` — read this first for chat-scope context.
+
+### Key infrastructure
+
+**`ChatSubject` discriminator** (replaces XOR validation in chat.service.ts):
+```typescript
+type ChatSubject =
+  | { kind: 'reading'; readingId: string }
+  | { kind: 'comparison'; comparisonId: string }
+  | { kind: 'fortune'; profileId: string; fortuneScope: FortuneScope; fortuneAnchorDate: string };
+```
+Threaded through `createSession` + `_listSessionsByWhere` + `extendSession` + `sendMessage` + `chat-stream`.
+
+**`ChatSession.profileId` NEW column** — denormalized FK to `birth_profiles(id) onDelete: SetNull` for hot-path session lookup. Set at session create (not derived from snapshot at lookup time).
+
+**Partial index for FORTUNE session lookup**:
+```sql
+CREATE INDEX chat_sessions_fortune_lookup_idx
+  ON chat_sessions (user_id, reading_type, fortune_anchor_date, started_at)
+  WHERE reading_type = 'FORTUNE';
+```
+
+**Per-readingType cache version composition** (Issue 11 + NEW-A regression-locked):
+```typescript
+// chat-context.service.ts::computeVersionString + getCurrentSnapshotVersions
+const parts = [/* per-type base */];
+if (readingType === 'FORTUNE') parts.push(`pa-fort=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE}`);
+```
+Adding `FORTUNE` to `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH` does NOT invalidate other reading types' cached chat-contexts NOR trigger `CONTEXT_VERSION_DRIFTED` on their in-flight sessions. Zero mass-eviction blast radius. Per Phase Fortune Issue 11 + NEW-A v3 staff-engineer review.
+
+### Topic-boundary policy
+
+FORTUNE is HYBRID: answers any question grounded in today's signals (dim-spanning OK: 「今天適合告白嗎？」, 「為什麼今天能量低？」). REFUSES chart-level / multi-day with cross-sell to:
+- 「我命格如何？」 → LIFETIME
+- 「我和先生合不合？」 → COMPATIBILITY / LOVE
+- 「今年事業如何？」 → ANNUAL
+- 「我的婚姻幸福嗎？」 → LOVE
+
+**Hybrid refuse special rule (load-bearing — F-2 pattern)**: when user asks something PARTIALLY about today (e.g., «今年事業如何？» contains today), AI MUST cite today's specifics FIRST, THEN switch to refuse measure («不過『整年趨勢』超出本《八字日運》解讀的範圍——»), THEN cross-sell ANNUAL. Order reversed = user feels coldly rejected (violates hybrid design).
+
+3 refuse few-shots (F-1 simple chart-level / F-2 hybrid / F-3 pushback temporal-boundary proof) drafted by 3-parallel Bazi-master sub-agent + reviewed before Layer B work. Saved at `.claude/plans/fortune-refuse-few-shots-draft.md`.
+
+**Cross-sell limitation** (known, deferred to Phase 2.x): cross-sell does NOT check user ownership of target reading. If user already owns LIFETIME, FORTUNE chat still says «《八字終身運》提供完整解讀» as if they don't. Future fix: gate on `user.readings.where({readingType}).count() === 0`.
+
+### Critical audit fixes that landed
+
+**CRITICAL Issue (caught by line audit, not plan review)**: `chat-prompt-builder.ts::isChatEnabledType` originally omitted 'FORTUNE' even though the same file had FORTUNE in `buildChatV1SystemPromptForType`. Result: all FORTUNE-specific assets (scope clause, refuse template, cross-sell, F-1/F-2/F-3 few-shots) were silently dropped at runtime. Fix: `rt === 'FORTUNE'` added to the type guard. Locked by `chat-prompt-builder.fortune.spec.ts` regression spec.
+
+**HIGH Issue 14**: `interpolateFortuneV1Fields` chat-side function existed + was unit-tested but NEVER CALLED from buildPrompt. Fix: imported + wired into buildPrompt under FORTUNE gate with `【今日流日教義事件 — 必須引用以下文字】` block header. Mirrors Phase 12g.6 Gap 2 deterministic injection pattern.
+
+**HIGH H1**: DateNavigator change while drawer OPEN didn't spawn new session. Fix: `prevFortuneAnchorRef` useEffect in `useChatSession.ts` resets sessionId when `fortune.fortuneAnchorDate` OR `fortune.profileId` changes.
+
+**HIGH H2**: Pills auto-sent via `pendingInitialMessage` (violated locked Issue 6 populate-only design). Fix: `populateOnly?: boolean` prop on `ChatDrawer` branches the effect to `composerRef.current?.appendToDraft()` instead of `handleSend()`.
+
+### Engine endpoint
+
+`POST /build-chat-context-fortune` in `packages/bazi-engine/app/main.py`:
+- Reuses 4 enhanced-insights pipelines (lifetime+love+career+annual) per existing chat slim pattern
+- Adds Phase 1 daily fortune output (auspiciousness/dim scores/signals/folk content)
+- Accepts optional `precomputed_daily` param for snapshot reuse (Issue 1) — avoids double-compute when caller has cached `DailyFortuneSnapshot.engineOutputJson`
+- 45s timeout (matches existing `/build-chat-context-compat`)
+
+`build_chat_context_fortune` Python function in `packages/bazi-engine/app/chat_context.py`. Pre-formats day-pillar TRANSIENT findings (傷官見官 valence / 比劫奪財 valence / 沖日支 valence / 紅鸞 / 配偶星透干 / 官殺日) as deterministic Chinese sentences via `_slim_daily_for_chat`. AI prompt consumes verbatim.
+
+### FORTUNE refuse template (load-bearing for refund logic)
+
+Must match `CHAT_V1_TOPIC_REFUSE_OPENING_REGEX`:
+```
+/謝謝您的提問。關於.{1,30}的詳細.{0,15}分析，超出本《[^》]+》解讀的範圍/
+```
+Template opens: «謝謝您的提問。關於 {topic} 的詳細分析，超出本《八字日運》解讀的範圍——». Without prefix match → post-validator doesn't auto-refund the refused message. Locked by `prompts.fortune.spec.ts::regex matches FORTUNE refuse template`.
+
+### Test counts (Phase Fortune chat scope)
+- 14/14 engine pytest (`test_chat_context_fortune.py`) — Roger anchor, Laopo doctrine inheritance, token budget, snapshot reuse
+- 52/52 NestJS FORTUNE-specific (`chat-context.service.fortune` 23 + `chat-prompt-builder.fortune` 8 + `prompts.fortune` 21)
+- 154/154 full chat suite (zero regression vs pre-Phase-Fortune baseline)
+- 11/11 web RTL (`fortune-sample-questions` incl 4 Issue 9 Asia/Taipei TZ regression tests)
+
+### Critical files
+
+**NEW (Phase Fortune chat scope)**:
+- `apps/api/prisma/migrations/20260520233905_fortune_chat_session/migration.sql` (pre-flight check + profile_id column + relaxed CHECK + partial index)
+- `apps/api/prisma/migrations/20260521000821_seed_fortune_sample_questions/migration.sql` (24 idempotent seeds — avoids folk-content topics per session handoff)
+- `apps/api/src/chat/chat-context.service.fortune.spec.ts`
+- `apps/api/src/chat/chat-prompt-builder.fortune.spec.ts`
+- `apps/api/src/ai/prompts.fortune.spec.ts`
+- `apps/web/app/components/fortune/FortuneSampleQuestions.{tsx,module.css}`
+- `apps/web/test/fortune-sample-questions.spec.tsx`
+- `packages/bazi-engine/tests/test_chat_context_fortune.py`
+
+**Modified key files (deltas)**:
+- `packages/bazi-engine/app/chat_context.py` — added `build_chat_context_fortune` + `_slim_daily_for_chat`
+- `packages/bazi-engine/app/main.py` — added `POST /build-chat-context-fortune`
+- `apps/api/prisma/schema.prisma` — `ChatSession.profileId` column + relation + index
+- `apps/api/src/chat/chat-context.service.ts` — `getChatContextForFortune`, `extractFortunePivotHint`, `fetchChatContextFromEngineFortune`, per-readingType conditional version composition, `interpolateFortuneV1Fields` free function (chat-side)
+- `apps/api/src/chat/chat.service.ts` — `ChatSubject` discriminator threaded through 5 methods
+- `apps/api/src/chat/chat-stream.service.ts` — FORTUNE branch in `_streamWithLock`
+- `apps/api/src/chat/chat.controller.ts` — `GET /api/chat/profiles/:profileId/fortune-sessions?anchorDate=`
+- `apps/api/src/chat/chat-sample-questions.controller.ts` + `.service.ts` — FORTUNE whitelist (`isValidReadingType` + `@ApiQuery` enum + section keys local)
+- `apps/api/src/chat/dto/index.ts` — `FortuneSubjectDto` with `@ValidateNested` + nested `fortune?` field in `CreateChatSessionDto`
+- `apps/api/src/chat/chat-prompt-builder.ts` — CRITICAL audit-fix isChatEnabledType + HIGH audit-fix interpolateFortuneV1Fields wired
+- `apps/api/src/ai/prompts.ts` — `CHAT_TOPIC_SCOPE_BY_READING_TYPE.FORTUNE`, `CHAT_REFUSE_TEMPLATE_BY_READING_TYPE.FORTUNE`, `CHAT_CROSS_SELL_LINES.FORTUNE`, `CHAT_FORTUNE_REFUSE_FEW_SHOTS`, `REFUSE_FEW_SHOTS_BY_READING_TYPE.FORTUNE`
+- `apps/web/app/components/chat/ChatDrawer.tsx` — `fortune?` prop + `populateOnly?` prop + auto-send/populate branch (H2 fix)
+- `apps/web/app/components/chat/hooks/useChatSession.ts` — `fortune` arg + memo deps + `prevFortuneAnchorRef` tracking effect (H1 fix)
+- `apps/web/app/lib/chat-api.ts` — `FortuneSubject` interface + `listSessionsForFortune`
+- `apps/web/app/lib/chat-types.ts` — extended `ChatSession` interface
+- `apps/web/app/components/fortune/NarrativeCard.tsx` — `renderAfterDimension?` slot + `FortuneDimKey` export
+
+---
+
+## 八字日運 Phase 1.5.z folk content — SHIPPED 2026-05-24 (commit e5f48c8, NOT yet in main)
+
+Adds 4 folk-content fields to daily fortune: 吉色 / 吉數 (民俗 badge) / 吉食 (含 忌食) / 吉時. ALL 8 layers shipped + 3-cycle line audit clean + live browser test 100% green (Claude in Chrome MCP).
+
+**Session handoff**: `/Users/roger/.claude/plans/fortune-phase-1-5-z-option-25-session-handoff.md`.
+
+### CRITICAL doctrinal lock — 黃道吉時 keys on day_branch ONLY
+
+Per Phase A 4-parallel Bazi-master research (Sub-Agent B + C independently confirmed via 5 fresh sources):
+
+> 黃道吉時 algorithm keys on **`day_branch` ONLY** per 青龍訣 from 協紀辨方書 卷十 «日上起時神煞». **NOT** `(month_branch, day_branch)` as plan v1 incorrectly proposed (which conflated 建除十二神 with 黃黑道十二神 — they're distinct systems).
+
+The 青龍訣 mnemonic:
+```
+子午青龍起在申，卯酉之日又在寅，
+寅申須從子上起，巳亥在午不須論，
+唯有辰戌歸辰位，丑未原從戌上尋。
+```
+
+Only **6 canonical rosters exist** for the 12 day-branches (paired equivalence classes 子=午, 丑=未, 寅=申, 卯=酉, 辰=戌, 巳=亥). Algorithm produces 6 黃道 hours per day deterministically. Implementation: `packages/bazi-engine/app/folk_content.py::compute_auspicious_hours(*, day_branch: str)`.
+
+### Provenance flag dispatch
+
+Per Sub-Agent C audit:
+- 吉色: `'classical'` (黃帝內經素問·五常政大論)
+- 吉數: `'folk_tradition'` ← **OPERATOR DECISION**, user values transparency over doctrinal precision. UI shows «民俗» badge to disclose tier. 河圖 classical source but 子平 modern-app density low.
+- 吉食 favor: `'classical'` (素問·陰陽應象大論)
+- 吉食 avoid: `'classical'` for `avoid_strength='strong'` + `classification='doctrinal'` entries with ≥3 cross-source citations. `tcm_conditional` items REJECTED from engine emission (require 體質 input engine lacks).
+- 吉時: `'classical'` (協紀辨方書 卷十)
+
+### NEW engine file
+
+`packages/bazi-engine/app/folk_content.py` (~350 LoC):
+- 4 element-keyed lookup tables: `ELEMENT_COLOR`, `ELEMENT_NUMBER`, `ELEMENT_FOOD_FAVOR`, `ELEMENT_FOOD_AVOID`
+- 黃道吉時 algorithm: `DAY_BRANCH_QINGLONG_HOUR_START` + `SHENSHA_SEQUENCE` + `SHENSHA_ROAD` + `BRANCH_ORDER` + `HOUR_RANGES` (Asia/Taipei UTC+8)
+- `_TCM_CONDITIONAL_AVOIDS_DOC_ONLY` constant — documentation-only, prevents future contributors from «completing» the avoid list with body-constitution-dependent items
+- `compute_folk_content(*, useful_god_element, day_branch)` orchestrator returns 5-key payload (4 chart-level + auspiciousHours per-day)
+
+`daily_enhanced.py::_compute_static_folk_content` wraps + adds `wealthDirection` (Phase 1).
+
+### 3-tier validator defense
+
+`apps/api/src/fortune/fortune-validators.service.ts`:
+- **Tier 1 — conditional whitelist**: strip topic-mentions ONLY when engine omits corresponding field. Preserves Phase 1 safety while allowing AI to discuss fields the engine grounds.
+- **Tier 2 — value fidelity** (warn-only): when engine emits, check AI mentions for value mismatches (e.g., engine color=紅, AI says 藍). Warn-only because Chinese natural language regex is fragile.
+- **Tier 3 — framing rules**: enforce «民俗參考」 prefix for 吉數 (folk_tradition tier disclosure) + 五行 reason citation for 忌食 («因金剋木傷您命中用神») + anti-DM-drift («您是X日主» pattern check).
+
+### 民俗 badge UI spec
+
+`apps/web/app/reading/fortune/page.tsx::FolkContentCard` + `.module.css::.folkBadge`:
+- font-size ≥ **12px** (audit V3 #5 — 10px failed mobile readability)
+- italic, font-weight 600
+- color #8b6f47 on warm-cream bg ≈ 4.8:1 contrast (passes WCAG AA for small text)
+- `title` attribute tooltip: «民俗來源（河圖洛書）— 較典籍級別參考性弱»
+- Only visible on 吉數 slot (count=1 in DOM, verified by RTL spec)
+- Cursor `help`
+
+### 60-row corpus + 100% strict pass
+
+`packages/bazi-engine/tests/validation/folk_content_corpus.csv` (Roger + Laopo × 30 days, exercises all 12 day-branches). **Engine output 60/60 strict pass (100%)** — the deterministic nature of folk content makes the gate trivially passable.
+
+Pytest hook locks at relaxed ≥85% (currently 100%): `packages/bazi-engine/tests/test_folk_content_corpus_regression.py::RELAXED_GATE_PCT = 85.0`.
+
+### CRITICAL DEPLOYMENT GOTCHA — `chat-sample-questions:version` Redis key
+
+When the L6 migration (`20260524023327_seed_folk_content_sample_questions`) applies, the new 5 sample questions are inserted into the DB. BUT the `ChatSampleQuestionService` has an in-process LRU cache (5-min TTL) invalidated via the `chat-sample-questions:version` Redis key. The version key is auto-bumped only on admin-API writes — NOT on raw-SQL migrations.
+
+**Operator MUST run after `prisma migrate deploy`**:
+```bash
+redis-cli INCR 'chat-sample-questions:version'
+```
+
+Without this, the new 5 folk-content questions won't appear in the API response for up to 5 minutes (until per-cache-entry TTL expires). Discovered during Phase 1.5.z browser test §E — questions weren't visible until the version key was bumped manually.
+
+Already documented in the migration SQL header comments at `apps/api/prisma/migrations/20260524023327_seed_folk_content_sample_questions/migration.sql`.
+
+### Test counts (Phase 1.5.z)
+- 106/106 engine pytest (`test_folk_content.py`) — Roger anchor, all 5 elements, 6 canonical roster property tests
+- 4/4 corpus regression pytest hook (`test_folk_content_corpus_regression.py`)
+- 40/40 NestJS validators jest (was 23, +15 L4 + 2 audit follow-up)
+- 14/14 web RTL (`fortune-folk-content.spec.tsx`) — all 6 slots + badge + disclaimer + null cases
+- 65/65 chat-fortune jest (incl 13 new L3.5 folk-block injection tests)
+
+### Defensive guards
+
+**FolkContentCard `if (!folkContent) return null;`** — kills HMR transient errors during dev mode hot reload (production never reaches this state since engine always emits folkContent).
+
+**Anti-DM-drift prompt rule** (`prompts.ts:4500-4517` template): «禁止 DM-drift — 不可說「您是X日主，宜X色」；必須說「您的用神為X，宜X色」».
+
+### Live browser test (2026-05-24 via Claude in Chrome MCP) — PASS all sections
+
+§A render: all 6 folk slots rendered for Roger 戊戌日 (南方/紅紫/[2,7]/紅色食物/寒涼鹹味-水剋火/6 hours [寅,辰,巳,申,酉,亥]) ✓
+§B engine→API→web data flow intact ✓
+§C AI narrative quality (no DM-drift, soft-trigger throughout, Phase 12h.B 比劫奪財有益 framing) ✓
+§D live chat: AI grounded in engine values with ZERO hallucination across 4 chat-scope questions (吉色 → 用神火/紅紫 + 木生火/水剋火 mechanisms; 吉數 → 民俗 prefix + 河圖二七同道火; 忌食 → 水剋火 + 素問·陰陽應象大論 cited; 吉時 → all 6 hours match engine + no month-branch logic invoked) ✓
+§E sample questions (11 reachable after Redis cache version bump — see deployment gotcha above) ✓
+§F DateNavigator + Laopo profile switch (用神=水 → 黑/[1,6]/黑色食物/土剋水 + 北方) ✓
+§G UX polish (民俗 badge a11y verified, mobile viewport responsive) ✓
+§H console clean (only HMR-only transient errors which are non-production) ✓
+
+---
+
+## Option 2.5 refinement — SHIPPED gated default-OFF 2026-05-25 (commit e5f48c8)
+
+Two day-level rescue rules added to `_apply_per_day_signal_adjustments` for neutral-DM 喜用 stem rescue cases (Roger 2026-05-10 + 2026-05-18 outlier rows). **NULL EFFECT discovered** — rules fire correctly but Phase 12 cascade limitation prevents visible label improvement. Gated default-OFF via env flag.
+
+### Phase A research outcomes (4-parallel Bazi-master sub-agents)
+
+| Original plan | Sub-Agent verdict | What ships |
+|---|---|---|
+| Bare Pattern 4 «xishen_stem_rescue_neutral_dm» (+1 step softening) | A1: NO (genuinely doctrinally split; bare 鎮頭 lacks ≥3 modern Bazi-master convergence) | **食神制殺 day-level rescue** (narrow, unanimous per 滴天髓 + 子平真詮 + 三命通會) |
+| «cai_wang_bijie_di» 比劫敵財 (+1 step softening) | B: A2's mechanism is doctrinally WRONG (比劫敵財 REQUIRES weak DM per 三命通會; Roger neutral) | **xishen_zhongqi_dissolves_taboo_stem** («喜神中氣化忌神 + 半合未成局» per 滴天髓 «忌神入用神之化») |
+
+### NEW helper `branch_relationships.banhe_forms_qi`
+
+```python
+def banhe_forms_qi(day_branch: str, month_branch: str, target_element: str) -> bool:
+    """Per 渊海子平 / 算准网: 半合化局 requires:
+       1. (day_branch, month_branch) ∈ SANHE_HALF_PAIRS[target_element]
+       2. month_branch is in target_element's seasonal window (月令 condition)
+    Without #2, 半合 is only 「拱合」 (latent gather), NOT full 化局 —
+    day_branch's 中氣 retains independent 五行 role.
+    """
+```
+
+Reusable across Phase 12 work. Constants added: `SANHE_HALF_PAIRS` (4 element-keyed sets) + `BRANCH_SEASON_ELEMENT` (12 branches → 5 elements; 寅卯辰=春木/巳午未=夏火/申酉戌=秋金/亥子丑=冬水). 10 unit tests cover all 4 element directions + season negation + Roger 2026-05-18 anchor.
+
+### Algorithm: 食神制殺 day-level rescue (Rule A)
+
+`daily_enhanced.py::_detect_shishen_zhisha_active`. Fires when ALL hold:
+1. `day_stem.ten_god ∈ {偏官, 七殺}` (七殺-specific; 偏官 alias)
+2. `day_stem.role ∈ {用神, 喜神}`
+3. `day_branch.本氣.role ∈ {忌神, 仇神}`
+4. DM produces 食神 element; 食神 transparent in natal stems
+5. 食神 NOT destroyed by 梟印奪食 (偏印 ADJACENT to 食神 without 財星 protection) — **adjacency matters** per A1+B
+6. 食神 has root in some natal branch (本氣 OR 中氣)
+7. day_stem has root in another natal branch (not the day_branch itself)
+
+When True: +1 step softening + `applied.append('shishen_zhisha_day_rescue')`.
+
+### Algorithm: xishen_zhongqi_dissolves_taboo_stem (Rule B)
+
+`daily_enhanced.py` inline in `_apply_per_day_signal_adjustments`. Fires when ALL hold:
+1. DM strength = neutral
+2. `day_stem.role ∈ {忌神, 仇神}` + day_ten_god NOT in {偏官, 七殺, 正官} (mutual exclusion with Rule A)
+3. `day_branch.中氣.role ∈ {喜神, 用神}` (provides 化忌 path)
+4. day_stem element produces zhongqi element (化忌 reachable per 五行相生)
+5. `banhe_forms_qi(day_branch, month_branch, day_stem_element) == False` (half-combination did NOT form 化局)
+
+When True: +1 step softening + `applied.append('xishen_zhongqi_dissolves_taboo_stem')`.
+
+### Mutual exclusivity verified (Sub-Agent C Cartesian audit)
+
+- Rule A × Rule B: disjoint `day_stem.ten_god` (七殺 vs 財/non-官)
+- Either × Phase 12h.B 比劫奪財 beneficial: disjoint `day_ten_god` (七殺/財 vs 比劫)
+- Existing softening signals (紅鸞/天喜/桃花/沖日支/配偶宮 friction): independent — can stack
+- Worst-case positive stack with NEW rule: 食神制殺 + 紅鸞 + 天喜 = +3 raw → existing ±2 net cap at `_apply_per_day_signal_adjustments:797` clips to +2 correctly
+- **No new cap logic needed**
+
+### Why gated default-OFF (the «null effect» finding)
+
+`PHASE_1_5_OPTION_25_REFINEMENT_ENABLED = os.environ.get('PHASE_1_5_OPTION_25_REFINEMENT_ENABLED', '0') == '1'`
+
+Both Roger anchor rows start at `rawStructural=大凶` (NOT 凶 as Sub-Agent B's trace assumed). Phase 12 cascade firing correctly per design:
+- **Roger 2026-05-10 (甲申)**: base=凶中有吉 → Phase 12b Fix B 伏吟 × 2 pillars (natal 月支+時支 both 申, day=申 仇神) → 2 × (-1 step) = 大凶
+- **Roger 2026-05-18 (壬辰)**: base=凶 → Phase 12c Fix E 六害 (卯-辰, 卯=喜神 hit) → -1 step → 大凶
+
+3-ladder-position gap (大凶 → 凶中有吉) exceeds ±2 net softening cap. Rules add +1 step → 大凶 → 凶, but cap limits further softening. Visible label stays at 凶 = same as pre-refinement.
+
+Phase 12 cascade investigation (sub-agent verdict): **structurally correct, no bug**. Real fix = Phase 12 cascade modification («cap multi-pillar 伏吟 at -1 step total when stem is 喜神») — explicitly out of Option 2.5 scope. Flagged as **Phase 12i candidate** if user reopens the question.
+
+### Operator rollback path
+
+Already default-OFF. To enable for testing or future evaluation:
+```bash
+PHASE_1_5_OPTION_25_REFINEMENT_ENABLED=1 python -m pytest tests/test_daily_enhanced.py
+```
+
+Or to enable in production: bump `'0'` → `'1'` in `packages/bazi-engine/app/daily_enhanced.py:712` AND simultaneously address Phase 12 cascade limitation OR accept that rules deliver +1 step softening only (corpus gate climbs marginally).
+
+### Files modified for Option 2.5
+
+- `packages/bazi-engine/app/daily_enhanced.py` — `PHASE_1_5_OPTION_25_REFINEMENT_ENABLED` flag + `_detect_shishen_zhisha_active` helper + 2 inline rule blocks in `_apply_per_day_signal_adjustments` + `month_branch` + `pillars` threaded as new args from `_compute_single_day` callsite at line ~1163
+- `packages/bazi-engine/app/branch_relationships.py` — `banhe_forms_qi` helper + `SANHE_HALF_PAIRS` + `BRANCH_SEASON_ELEMENT` constants (lines 886+)
+- `packages/bazi-engine/tests/test_branch_relationships.py` — 10 new `TestBanheFormsQi` tests
+- `packages/bazi-engine/tests/test_daily_enhanced.py` — no new tests (rules default-OFF; flag re-enable would warrant test additions)
+
+---
+
+## Deployment checklist for the 3 unmerged commits (when PR(s) open + merge)
+
+When `claude/elastic-pascal-cc5187` commits 0a4007d + cc642d1 + e5f48c8 land in main:
+
+1. **Apply DB migrations**:
+   ```bash
+   cd apps/api && prisma migrate deploy
+   ```
+   Applies: `20260520233905_fortune_chat_session` + `20260521000821_seed_fortune_sample_questions` + `20260524023327_seed_folk_content_sample_questions`.
+
+2. **Set env vars** (if not already):
+   ```
+   CHAT_ENABLED_READING_TYPES=LIFETIME,LOVE,CAREER,ANNUAL,COMPATIBILITY,FORTUNE
+   ```
+   (Already set in worktree per Phase Fortune chat scope.)
+
+3. **Cache invalidation** — versions ALREADY bumped in code:
+   - `FORTUNE_DAILY_PRE_ANALYSIS_VERSION` v1.1.1 → v1.2.0 (Python)
+   - `FORTUNE_PRE_ANALYSIS_VERSIONS.day` v1.1.1 → v1.2.0 (TS mirror)
+   - `FORTUNE_PROMPT_VERSIONS.day` v1.2.3 → v1.3.0
+   - `CHAT_PROMPT_VERSIONS.FORTUNE` v1.0.0 → v1.1.0
+   - `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE` (already locked from Phase Fortune chat scope)
+
+   **Scoped Redis DEL** (NOT FLUSHALL — preserves other reading types' cache):
+   ```bash
+   redis-cli --scan --pattern "fortune:daily:*" | xargs redis-cli DEL
+   redis-cli --scan --pattern "chat-context:*FORTUNE*" | xargs redis-cli DEL
+   ```
+
+4. **CRITICAL — bump `chat-sample-questions:version`** (raw-SQL migrations don't auto-bump; in-process LRU has 5-min TTL):
+   ```bash
+   redis-cli INCR 'chat-sample-questions:version'
+   ```
+
+5. **Monitor Anthropic spend dashboard for 24h** (cache bust = real regen cost; estimated <$5 since dev/staging only).
+
+6. **Deploy off-peak** (standard practice).
+
+If future iteration changes the FORTUNE prompt: bump `CHAT_PROMPT_VERSIONS.FORTUNE` (only invalidates FORTUNE chat sessions; other types unaffected per per-readingType isolation).
+
+If Option 2.5 rules are re-enabled in future: also bump `FORTUNE_DAILY_PRE_ANALYSIS_VERSION` v1.2.0 → v1.3.0 + TS mirror; chat-side `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE` v1.1.1 → v1.3.0 (per the Option 2.5 plan v5 cache invalidation section).
+
+---
+
+## Reference patterns / utilities introduced this session block
+
+### Phase Fortune chat scope patterns (cc642d1)
+- **ChatSubject discriminator**: see `apps/api/src/chat/chat.service.ts` — applies to any future scope discriminator work (e.g., Phase 2 month/year fortune chat extension)
+- **Per-readingType version composition**: see `apps/api/src/chat/chat-context.service.ts::computeVersionString` + `getCurrentSnapshotVersions` — apply this pattern when adding new chat reading types or new pre-analysis versions (zero mass-eviction blast radius)
+- **3-cycle staff-engineer plan review rhythm** (v1 → v2 → v3): replicate for high-risk doctrinal work
+- **3-parallel line audit (engine + API + frontend)**: replicate for cross-layer features
+- **populate-only chat composer**: `ChatDrawer.populateOnly` prop branches `pendingInitialMessage` effect to `composerRef.current?.appendToDraft()` instead of `handleSend()` — preserves user-explicit-send UX
+
+### Phase 1.5.z folk content patterns (e5f48c8)
+- **Provenance flag dispatch** (`'classical' | 'folk_tradition'`): apply to any field where doctrinal authority varies. UI «民俗» badge pattern available for reuse.
+- **3-tier validator defense** (conditional + value-fidelity + framing): apply to any field where AI hallucination risk warrants layered defense
+- **NEW helper `banhe_forms_qi(day_branch, month_branch, target_element)`** in `packages/bazi-engine/app/branch_relationships.py` — checks 半合化局 月令 season condition. Reusable for Phase 12 work + future doctrine modules.
+- **4-parallel Bazi-master research methodology** (A1 GATING + A2 algorithm + B verification + C integrator) — replicate for any doctrinal work involving multiple classical schools
+
+### Operational lessons / gotchas
+- **Raw-SQL migrations don't auto-bump Redis cache version keys** — explicit `redis-cli INCR 'chat-sample-questions:version'` required post-deploy. Same may apply to other in-process LRUs (audit other services if adding raw-SQL seed migrations).
+- **Engine baseline assumption matters** — always verify `rawStructural` empirically via `build_daily_label_corpus.py` + `run_daily_label_validation.py` BEFORE assuming a softening rule will move the label. Sub-Agent B traces are based on doctrinal projection, not always actual engine output.
+- **Default-OFF env flag is a respectable outcome** when research-correct rules don't deliver visible improvement due to upstream limitations. Preserves work + avoids invisible engine changes.
+- **HMR transient errors are dev-mode-only** — defensive guards (`if (!x) return null;`) kill the noise without affecting production. Zero runtime cost.
