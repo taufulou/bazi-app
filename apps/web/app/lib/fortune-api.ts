@@ -182,12 +182,175 @@ interface FetchOpts {
   profileId?: string;
   date?: string;            // YYYY-MM-DD; client must resolve 23:00 子時 boundary
   signal?: AbortSignal;
+  /**
+   * Phase Fortune+ progressive loading: when true, the server returns the
+   * engine output (energy score, dimensions, folk content, ganzhi labels)
+   * WITHOUT running AI narration. Saves ~3-5s on cold cache.
+   *
+   * Pattern: issue 2 parallel fetches — one with `engineOnly: true` (fast),
+   * one without (slow). Render engine immediately + swap narrative skeleton
+   * with prose when full arrives. The narrative field will be null on
+   * engine-only responses (cache hits return full payload as bonus).
+   */
+  engineOnly?: boolean;
+}
+
+/**
+ * Phase Fortune Streaming — wire event types matching backend
+ * `FortuneStreamEvent` from `apps/api/src/fortune/fortune-stream.service.ts`.
+ *
+ * Sequence:
+ *   engine_ready    — engine output + chart anchors (frontend paints score/dims/folk)
+ *   section_complete × N — one per `sections.<key>` as detected by clarinet
+ *   done            — full sanitized narrative + cacheHit flag
+ *
+ * Cache hit: only engine_ready + done are emitted (no section_complete).
+ */
+export type FortuneStreamEvent =
+  | {
+      type: 'engine_ready';
+      engineOutput: DailyFortuneEngineOutput;
+      profileId: string;
+      profileBirthDate: string;
+      profileBirthTime: string;
+      date: string;
+    }
+  | { type: 'section_complete'; key: string; value: unknown }
+  | {
+      type: 'done';
+      narrative: DailyFortuneNarrative | null;
+      cacheHit: boolean;
+    }
+  | { type: 'error'; code: string; message: string };
+
+interface StreamOpts {
+  token: string;
+  profileId?: string;
+  date?: string;
+  onEvent: (event: FortuneStreamEvent) => void;
+  onError: (err: Error) => void;
+  onClose: () => void;
+}
+
+/**
+ * Open an SSE stream from `GET /api/fortune/daily/stream`. Returns a teardown
+ * function that aborts the underlying fetch + reader.
+ *
+ * Mirrors `streamChatMessage` from `chat-api.ts`: fetch + ReadableStream
+ * (not `EventSource` — no auto-reconnect; we want an authoritative one-shot
+ * stream that the frontend can re-open on retry).
+ */
+export function streamDailyFortune(opts: StreamOpts): () => void {
+  const controller = new AbortController();
+  const params = new URLSearchParams();
+  if (opts.profileId) params.set('profileId', opts.profileId);
+  if (opts.date) params.set('date', opts.date);
+  const url = `${API_BASE}/api/fortune/daily/stream${params.toString() ? `?${params}` : ''}`;
+
+  (async () => {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${opts.token}`,
+          Accept: 'text/event-stream',
+        },
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      opts.onError(err as Error);
+      opts.onClose();
+      return;
+    }
+
+    if (!response.ok) {
+      // Pre-flight errors (subscription gate, 401, throttle 429) come back
+      // as plain JSON with `{ code, message }` (per `AllExceptionsFilter`).
+      let body: { message?: string; code?: string } = {};
+      try {
+        body = await response.json();
+      } catch {
+        // ignore
+      }
+      opts.onEvent({
+        type: 'error',
+        code: body.code || `HTTP_${response.status}`,
+        message:
+          body.message ||
+          `Fortune stream failed: ${response.status} ${response.statusText}`,
+      });
+      opts.onClose();
+      return;
+    }
+
+    if (!response.body) {
+      opts.onError(new Error('Fortune stream: missing response body'));
+      opts.onClose();
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let frameEnd = buffer.indexOf('\n\n');
+        while (frameEnd !== -1) {
+          const frame = buffer.slice(0, frameEnd);
+          buffer = buffer.slice(frameEnd + 2);
+          dispatchFortuneFrame(frame, opts.onEvent);
+          frameEnd = buffer.indexOf('\n\n');
+        }
+      }
+      if (buffer.trim().length > 0) {
+        dispatchFortuneFrame(buffer, opts.onEvent);
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        opts.onError(err as Error);
+      }
+    } finally {
+      opts.onClose();
+    }
+  })();
+
+  return () => controller.abort();
+}
+
+function dispatchFortuneFrame(
+  frame: string,
+  onEvent: (event: FortuneStreamEvent) => void,
+): void {
+  const lines = frame.split('\n');
+  const dataParts: string[] = [];
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (line.startsWith('data: ')) dataParts.push(line.slice(6));
+    else if (line.startsWith('data:')) dataParts.push(line.slice(5));
+  }
+  if (dataParts.length === 0) return;
+  const payload = dataParts.join('\n');
+  try {
+    const event = JSON.parse(payload) as FortuneStreamEvent;
+    onEvent(event);
+  } catch {
+    // Drop malformed frames silently
+  }
 }
 
 export async function fetchDailyFortune(opts: FetchOpts): Promise<DailyFortuneResponse> {
   const params = new URLSearchParams();
   if (opts.profileId) params.set('profileId', opts.profileId);
   if (opts.date) params.set('date', opts.date);
+  if (opts.engineOnly) params.set('engineOnly', 'true');
 
   const url = `${API_BASE}/api/fortune/daily${params.toString() ? `?${params}` : ''}`;
   const response = await fetch(url, {

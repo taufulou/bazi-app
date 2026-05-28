@@ -12,11 +12,13 @@
  */
 import {
   CHAT_V1_TOPIC_REFUSE_OPENING_REGEX,
+  CHAT_V1_TOPIC_REFUSE_HYBRID_MARKER_REGEX,
   CHAT_TOPIC_SCOPE_BY_READING_TYPE,
   CHAT_REFUSE_TEMPLATE_BY_READING_TYPE,
   CHAT_CROSS_SELL_LINES,
   CHAT_FORTUNE_REFUSE_FEW_SHOTS,
   buildChatV1SystemPromptForType,
+  isTopicBoundaryRefuse,
 } from './prompts';
 
 describe('prompts.ts — Phase Fortune blocks', () => {
@@ -57,6 +59,80 @@ describe('prompts.ts — Phase Fortune blocks', () => {
       for (const s of samples) {
         expect(CHAT_V1_TOPIC_REFUSE_OPENING_REGEX.test(s)).toBe(true);
       }
+    });
+  });
+
+  // ============================================================
+  // Phase Fortune+ — F-2 hybrid refuse detection (cost defense)
+  // ============================================================
+  //
+  // F-2 «cite-today-first then refuse» pattern was previously missed by
+  // isTopicBoundaryRefuse because (a) the F-1 opener regex requires
+  // 「謝謝您的提問。關於...」 which F-2 doesn't use, and (b) the 200-char
+  // first-window guard cuts off before the F-2 refuse marker that lives
+  // around char ~180-300 after the cited today's signals.
+  //
+  // SECONDARY regex + wider 600-char window covers this. Without these
+  // tests, the refuse counter doesn't increment for F-2 responses → auto-
+  // refund never fires → user gets billed for refused messages.
+
+  describe('isTopicBoundaryRefuse — F-2 hybrid coverage', () => {
+    it('matches F-1 pure refuse opener in first 200 chars (regression)', () => {
+      const f1 =
+        '謝謝您的提問。關於命格定性與終身格局的詳細分析，超出本《八字日運》解讀的範圍——這需要結合八字格局。';
+      expect(isTopicBoundaryRefuse(f1)).toBe(true);
+    });
+
+    it('matches F-2 hybrid refuse (cite-today-first then «不過...超出本《...》解讀的範圍——」)', () => {
+      // Verbatim shape from CHAT_FORTUNE_REFUSE_FEW_SHOTS F-2 example.
+      const f2 =
+        '就今天事業面的訊號我可以先告訴您：根據您今日命盤，戊子日比肩當令，事業 dim 落在 42 分（凶中有吉）——今日易於與同事／合夥人協調共事，但因子午沖日支，午後出行或重大決策今日宜緩，留待明日。用神火向南方，下午往南向洽談傾向順遂。\n\n不過「整年事業趨勢」（12 個月起伏節奏、流年沖刑害動態、太歲對事業的整體影響）超出本《八字日運》解讀的範圍——這需要月運與年運的完整時間軸分析。';
+      // Pre-fix: only the 200-char window was checked + only F-1 opener
+      // pattern. F-2's «不過...超出本《...》解讀的範圍——」 marker lands at
+      // char ~180+ which is past the old window OR doesn't match the
+      // 謝謝您的提問 opener anchor.
+      expect(isTopicBoundaryRefuse(f2)).toBe(true);
+    });
+
+    it('hybrid marker regex matches «超出本《八字日運》解讀的範圍——»', () => {
+      const marker = '超出本《八字日運》解讀的範圍——';
+      expect(CHAT_V1_TOPIC_REFUSE_HYBRID_MARKER_REGEX.test(marker)).toBe(true);
+    });
+
+    it('hybrid marker regex matches all 6 reading-type variants', () => {
+      const markers = [
+        '超出本《八字日運》解讀的範圍——',
+        '超出本《八字愛情姻緣》解讀的範圍——',
+        '超出本《八字事業詳批》解讀的範圍——',
+        '超出本《八字流年運勢》解讀的範圍——',
+        '超出本《八字終身運》解讀的範圍——',
+        '超出本《合婚配對》解讀的範圍——',
+      ];
+      for (const m of markers) {
+        expect(CHAT_V1_TOPIC_REFUSE_HYBRID_MARKER_REGEX.test(m)).toBe(true);
+      }
+    });
+
+    it('does NOT false-positive on in-topic mentions of 範圍 without the doctrinal marker', () => {
+      // An in-topic answer might mention 範圍 (range) without the literal
+      // 超出本《...》解讀的範圍 + em-dash pattern.
+      const inTopic =
+        '根據您今日命盤，戊子日比肩當令，事業 dim 落在 42 分。今日適合在以下範圍內行動：上午處理協調事務、下午往南向洽談。範圍越具體越好，避免大範圍布局。';
+      expect(isTopicBoundaryRefuse(inTopic)).toBe(false);
+    });
+
+    it('returns false for empty / null text', () => {
+      expect(isTopicBoundaryRefuse('')).toBe(false);
+      expect(isTopicBoundaryRefuse(null as unknown as string)).toBe(false);
+    });
+
+    it('does NOT match when the marker appears past the 600-char window (defensive cap)', () => {
+      // Synthetic edge case — refuse marker buried very deep in a long
+      // in-topic response. We want to STILL not consider it a refuse to
+      // avoid penalizing long in-topic answers.
+      const longInTopic =
+        '一'.repeat(700) + '超出本《八字日運》解讀的範圍——';
+      expect(isTopicBoundaryRefuse(longInTopic)).toBe(false);
     });
   });
 

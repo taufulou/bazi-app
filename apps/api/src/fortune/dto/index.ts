@@ -4,7 +4,7 @@
  * Plan: .claude/plans/ok-next-big-feature-merry-cake.md
  * Phase 1: daily only. Monthly + yearly DTOs reserved for Phase 2/3.
  */
-import { IsString, IsOptional, IsUUID, Matches } from 'class-validator';
+import { IsString, IsOptional, IsUUID, Matches, IsBooleanString } from 'class-validator';
 
 // ============================================================
 // GET /api/fortune/daily
@@ -29,6 +29,28 @@ export class GetDailyFortuneQueryDto {
     message: 'date must be in YYYY-MM-DD format',
   })
   date?: string;
+
+  /**
+   * Progressive-loading hint (Phase Fortune+ UX). When 'true', the service
+   * returns the deterministic engine output (energy score, dimensions, folk
+   * content, ganzhi labels) WITHOUT running the AI narration step. Saves
+   * ~3-5s on cold cache.
+   *
+   * Cache behavior:
+   *  - Cache HIT: returns the full cached payload (narrative included as bonus)
+   *  - Cache MISS: runs engine only, returns engine data, DOES NOT persist to
+   *    DB or Redis (the subsequent full-fetch will persist with narrative)
+   *
+   * Frontend pattern: issue 2 parallel fetches on cold-load
+   *  - `engineOnly=true` → renders score/dims/folk immediately (~500ms)
+   *  - `engineOnly=false` (or omitted) → swaps narrative skeleton with prose (~3-5s)
+   *
+   * Validation as IsBooleanString since Express query strings are always strings.
+   * Service interprets 'true' (case-insensitive) as the engine-only path.
+   */
+  @IsOptional()
+  @IsBooleanString()
+  engineOnly?: string;
 }
 
 // ============================================================

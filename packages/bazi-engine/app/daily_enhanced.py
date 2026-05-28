@@ -707,7 +707,12 @@ def _compute_static_folk_content(
 # mitigation despite day branch=忌神 element. (紅艷 valence-flip is a
 # DIFFERENT shensha — same Chinese transliteration concern; see plan.)
 
+# ═══════════════════════════════════════════════════════════════════════════
+# ⚠️ DO NOT ENABLE THIS FLAG IN PRODUCTION WITHOUT FRESH RESEARCH ⚠️
+# ═══════════════════════════════════════════════════════════════════════════
+#
 # Phase 1.5 Option 2.5 refinement — DEFAULT OFF (gated rollout).
+# Decision date: 2026-05-25. Author of gating: Roger + 4 Bazi-master sub-agents.
 #
 # Per Phase A 4-parallel Bazi-master research (2026-05-25) + empirical
 # verification: the 2 implemented rules (食神制殺 carve-out + xishen_zhongqi
@@ -717,13 +722,51 @@ def _compute_static_folk_content(
 # (Phase 12b 伏吟 stacking + Phase 12c 六害 firing correctly per design); the
 # 3-ladder-position gap to corpus expected (凶中有吉) requires Phase 12
 # cascade modification (e.g., «cap multi-pillar 伏吟 at -1 total when stem
-# is 喜神») — that's beyond Option 2.5 scope.
+# is 喜神») — that's BEYOND Option 2.5 scope, was SKIPPED per user direction
+# (would require massive Phase 12 doctrinal re-research the user judged
+# not worth the engineering cost).
 #
-# Rules are preserved in code (regression-free; doctrinally accurate per
-# Sub-Agent C verdict) and gated behind this env flag for future re-enable
-# when Phase 12 cascade modification ships.
+# ─── If you are reading this because you want to flip this flag to '1' ───
 #
-# To enable for testing: `PHASE_1_5_OPTION_25_REFINEMENT_ENABLED=1 python ...`
+# READ THIS FIRST. The rules are GATED for a reason:
+#
+#   1. They ARE doctrinally accurate (Sub-Agent C verdict, regression-free).
+#      They fire correctly on the 2 anchor rows. They do NOT cause new
+#      label regressions on the other 28 rows of the daily-label corpus.
+#
+#   2. BUT they were never tested or validated in production cascade.
+#      No corpus-gate test exists that covers the flag-ON state. The
+#      corpus baseline locks the flag-OFF behavior; if you flip it ON,
+#      you ship behavior nothing in CI exercises.
+#
+#   3. Visible label improvement requires Phase 12 cascade modification
+#      (Phase 12i candidate, EXPLICITLY SKIPPED per user direction). Without
+#      that modification, flipping this flag changes nothing user-facing
+#      on the 2 outlier rows (rules add +1 step, but the ±2 net cap can't
+#      bridge the 3-ladder-position gap from 大凶 to 凶中有吉).
+#
+#   4. There IS a small chance of regression on OTHER charts the corpus
+#      doesn't cover — Phase A research validated against the 60-row corpus
+#      only. Rare 八字 configurations might trigger one of these rules
+#      unexpectedly. WITHOUT the cascade fix, that's an invisible engine
+#      output change with no test coverage and no doctrinal benefit.
+#
+# Before flipping: re-do the full 4-parallel Bazi-master research cycle
+# (cost ~$30 + 0.5 day wall-clock) OR commit to the Phase 12 cascade fix
+# work (multi-week doctrinal research per 邵偉華 / 任鐵樵 / 三命通會 cross-
+# reference). The user explicitly judged that work «not worth it» given
+# the marginal gain (2 calibration rows out of 30) — talk to them before
+# re-litigating.
+#
+# Audit trail:
+# - Phase A research: /Users/roger/.claude/plans/option-25-refinement-research-results.md
+# - Sub-Agent C verdict: agent ae52cf894731c304f
+# - Session handoff: /Users/roger/.claude/plans/fortune-phase-1-5-z-option-25-session-handoff.md
+# - User direction (2026-05-25): «skip Phase 12i Phase 12 cascade modification»
+#
+# To enable for engine TESTING only (not prod):
+#     PHASE_1_5_OPTION_25_REFINEMENT_ENABLED=1 python -m pytest tests/test_daily_enhanced.py
+# ═══════════════════════════════════════════════════════════════════════════
 PHASE_1_5_OPTION_25_REFINEMENT_ENABLED = (
     os.environ.get('PHASE_1_5_OPTION_25_REFINEMENT_ENABLED', '0') == '1'
 )

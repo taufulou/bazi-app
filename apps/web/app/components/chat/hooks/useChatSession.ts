@@ -143,7 +143,15 @@ export interface UseChatSessionReturn {
   applyDoneEvent: (args: {
     messageCount: number;
     messagesRemaining: number;
+    /** Phase Fortune+ — post-message consecutive refuse counter. Surfaced
+     *  to ChatDrawer for the «超出範圍提醒» dialog at the warning threshold. */
+    consecutiveRefuses: number;
   }) => void;
+
+  /** Phase Fortune+ — current consecutive refuse counter for the active
+   *  session. ChatDrawer watches this to fire the «超出範圍提醒» dialog
+   *  when it crosses CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD. */
+  consecutiveRefuses: number;
 }
 
 const HARD_CAP = 30;
@@ -183,6 +191,11 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     refundedAt: string;
   } | null>(null);
   const [messageCount, setMessageCount] = useState(0);
+  // Phase Fortune+ — consecutive topic-boundary refuse counter mirrored from
+  // server. Hydrated from the active session row on init/resume and updated
+  // on every SSE 'done' event. ChatDrawer fires the «超出範圍提醒» dialog
+  // when this crosses CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD.
+  const [consecutiveRefuses, setConsecutiveRefuses] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadMoreLoading, setLoadMoreLoading] = useState(false);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
@@ -241,6 +254,8 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
       paidUsed: 0,
     });
     setMessageCount(0);
+    // Brand new session — refuse counter starts at 0 by DB default.
+    setConsecutiveRefuses(0);
     setMessages([]);
     setHasMoreHistory(false);
     setLocked(false);
@@ -276,6 +291,9 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     ) => {
       setSessionId(open.id);
       setMessageCount(open.messageCount);
+      // Phase Fortune+ — hydrate refuse counter from server. Sessions resumed
+      // mid-conversation may already be at/near the warning threshold.
+      setConsecutiveRefuses(open.consecutiveRefuses ?? 0);
       setLocked(false);
       setLockReason(null);
       await refreshHistoryFromServer(open.id);
@@ -467,6 +485,10 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
           // intent. (Phase 1.8 audit Bug A1)
           setSessionId(target.id);
           setMessageCount(target.messageCount);
+          // Phase Fortune+ — also hydrate refuse counter for closed sessions
+          // (mostly cosmetic — composer is locked anyway, but keeps state
+          // consistent if user re-opens an active session next).
+          setConsecutiveRefuses(target.consecutiveRefuses ?? 0);
           setLocked(true);
           setLockReason(
             target.messageCount >= HARD_CAP
@@ -668,8 +690,15 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
   }, []);
 
   const applyDoneEvent = useCallback(
-    (done: { messageCount: number; messagesRemaining: number }) => {
+    (done: {
+      messageCount: number;
+      messagesRemaining: number;
+      consecutiveRefuses: number;
+    }) => {
       setMessageCount(done.messageCount);
+      // Phase Fortune+ — surface the post-message refuse counter so the
+      // ChatDrawer can fire the «超出範圍提醒» dialog at the threshold.
+      setConsecutiveRefuses(done.consecutiveRefuses);
       setPayment((prev) => {
         if (!prev) return prev;
         // The server's truth: messagesRemaining = freeRemaining + paidRemaining.
@@ -753,6 +782,8 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
       setSessionId(null);
       setMessages([]);
       setMessageCount(0);
+      // Phase Fortune+ — refuse counter is per-session-id; reset on switch.
+      setConsecutiveRefuses(0);
       setLocked(false);
       setLockReason(null);
     }
@@ -765,6 +796,7 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     messages,
     payment,
     messageCount,
+    consecutiveRefuses,
     hardCap: HARD_CAP,
     loading,
     loadMoreLoading,

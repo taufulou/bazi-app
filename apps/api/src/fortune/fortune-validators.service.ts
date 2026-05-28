@@ -102,6 +102,44 @@ export class FortuneValidatorsService {
   /** Soft-trigger opening pattern (heuristic — AI is encouraged to use these). */
   private readonly SOFT_TRIGGER_OPENERS = /今日(宜|易於|適合|傾向|有.{1,4}傾向|可考慮)/;
 
+  /**
+   * Phase Fortune Streaming L2 — per-section banned-phrase strip at emission.
+   *
+   * Cheap regex-style strip over a single section's text. Used by
+   * `FortuneStreamService` to enforce the «no absolute language ever reaches
+   * the user» contract from CLAUDE.md AS EACH SECTION ARRIVES, before the
+   * full validator runs at end-of-stream. Without per-section strip, the user
+   * would briefly see «今天會...必然...» between section_complete and done.
+   *
+   * Returns the sanitized text + a list of phrases that were swapped (for
+   * the Sentry sanitize_diff breadcrumb — telemetry only, no content
+   * captured).
+   *
+   * NOTE: this is INTENTIONALLY narrower than `validate()` — it does NOT do
+   * folk-fabrication gating, framing checks, takeaway/bold validation, etc.
+   * Those rules can require cross-section context or engine field comparison;
+   * they run once at end-of-stream where the full narrative is available.
+   * The contract is: per-section strip preserves the «no banned phrase
+   * ever leaks» invariant; full validate handles everything else.
+   */
+  stripBannedAbsolutePhrasesFromText(text: string): {
+    text: string;
+    strippedPhrases: string[];
+  } {
+    if (typeof text !== 'string' || text.length === 0) {
+      return { text, strippedPhrases: [] };
+    }
+    let out = text;
+    const strippedPhrases: string[] = [];
+    for (const banned of FORTUNE_BANNED_ABSOLUTE_PHRASES) {
+      if (out.includes(banned)) {
+        strippedPhrases.push(banned);
+        out = out.split(banned).join('易於');
+      }
+    }
+    return { text: out, strippedPhrases };
+  }
+
   /** Per-dim narrative keys to check for takeaway + bold marker presence
    *  (UX Sprint R1.4). Each requires a sibling `<key>_takeaway` field. */
   private readonly DIM_NARRATIVE_KEYS = [

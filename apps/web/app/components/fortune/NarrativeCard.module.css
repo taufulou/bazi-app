@@ -246,6 +246,64 @@
 }
 
 /* ============================================================ */
+/* Skeleton (progressive loading — Phase Fortune+)              */
+/* ============================================================ */
+/* Rendered while AI narrative is still being generated. The hero
+ * frame (heading + chip line) + dim card frames (title + score
+ * badge) come from engine data — only the prose body is replaced
+ * by shimmer placeholders. */
+
+.skeletonProse {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.skeletonLine {
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    rgba(212, 160, 23, 0.08) 0%,
+    rgba(212, 160, 23, 0.18) 50%,
+    rgba(212, 160, 23, 0.08) 100%
+  );
+  background-size: 200% 100%;
+  animation: narrativeShimmer 1.4s ease-in-out infinite;
+}
+
+.skeletonHint {
+  margin-top: 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  text-align: center;
+  font-style: italic;
+  opacity: 0.85;
+}
+
+@keyframes narrativeShimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: -100% 50%;
+  }
+}
+
+/* Audit H1 fix — vestibular sensitivity / WCAG 2.3.3:
+ * Honor the user's reduced-motion preference. Static color (no animation)
+ * still signals «loading» via the lighter background tint + the
+ * `aria-busy=true` attribute on the wrap. */
+@media (prefers-reduced-motion: reduce) {
+  .skeletonLine {
+    animation: none;
+    background: rgba(212, 160, 23, 0.12);
+  }
+}
+
+/* ============================================================ */
 /* Fallback (AI unavailable)                                    */
 /* ============================================================ */
 

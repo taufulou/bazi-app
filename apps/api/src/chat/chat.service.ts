@@ -356,6 +356,11 @@ export class ChatService {
           ? s.fortuneAnchorDate.toISOString().slice(0, 10)
           : null,
         profileId: s.profileId ?? null,
+        // Phase Fortune+ — surface consecutive refuse counter so the
+        // ChatDrawer can hydrate the dialog-state when resuming a session
+        // from history (don't only depend on SSE done events).
+        // `consecutiveRefuses` is non-nullable (Int @default(0) in schema).
+        consecutiveRefuses: s.consecutiveRefuses,
       };
     });
   }

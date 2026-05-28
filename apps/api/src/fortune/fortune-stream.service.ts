@@ -1,0 +1,679 @@
+/**
+ * FortuneStreamService — Phase Fortune Streaming Layer 2.
+ *
+ * SSE streaming variant of `FortuneService.getDailyFortune`. Mirrors
+ * `chat-stream.service.ts` patterns (Express SSE + Anthropic
+ * `messages.stream()` + watchdog + client-disconnect handling).
+ *
+ * Plan: `.claude/plans/ok-next-big-feature-merry-cake.md` § "Section-by-Section
+ * AI Streaming for 日運 — Implementation Plan (Option A)".
+ *
+ * SSE event sequence (cache miss):
+ *   engine_ready    — engine output + chart anchors (frontend renders score/dims/folk)
+ *   section_complete (×N) — one per `sections.<key>` as detected by clarinet
+ *   done            — full sanitized narrative + cacheHit flag
+ *
+ * SSE event sequence (cache hit):
+ *   engine_ready    — engine output (immediate)
+ *   done            — full cached narrative (immediate; NO section_complete events)
+ *
+ * On error: error event + (when applicable) persist with promptVersion=null
+ * to increment the `aiFailureCount` circuit breaker, matching non-streaming
+ * semantics exactly (plan v2 M4).
+ *
+ * On client disconnect mid-stream: if the accumulated buffer parses to a
+ * complete valid JSON object via `extractJson`, run validator + persist so
+ * we cache the work. Else discard (plan v2 M5).
+ *
+ * Cache + persist + engine-fetch helpers come from `FortuneSnapshotHelpers`
+ * (extracted Layer 3). The contract test
+ * `fortune-snapshot.helpers.contract.spec.ts` asserts both paths produce
+ * byte-identical snapshots + responses for the same input.
+ */
+import {
+  HttpException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import type { Response } from 'express';
+import * as Sentry from '@sentry/nestjs';
+import {
+  FORTUNE_PROMPT_VERSIONS,
+  FORTUNE_V1_PROMPTS,
+} from '../ai/prompts';
+import { PrismaService } from '../prisma/prisma.service';
+import {
+  buildFortuneDailyMessages,
+  type DailyEngineOutput,
+  type FortuneChartContext,
+} from './fortune-prompt-builder';
+import {
+  FortuneValidatorsService,
+  type FortuneValidationResult,
+} from './fortune-validators.service';
+import {
+  type DailyFortuneAINarrative,
+  type DailyFortuneResponse,
+} from './dto';
+import {
+  FortuneSnapshotHelpers,
+  AI_CALL_TIMEOUT_MS,
+  REDIS_TTL_SECONDS,
+} from './fortune-snapshot.helpers';
+import { createSectionDetector } from './fortune-section-detector';
+
+// ============================================================
+// SSE event types
+// ============================================================
+
+/** Wire-shape engine output (mirrors `DailyFortuneResponse.engineOutput`).
+ *  Same shape the non-streaming GET /daily emits — frontend can reuse the
+ *  existing DTO type. NOT the same as `DailyEngineOutput` from the prompt
+ *  builder (which carries extra builder-internal fields like dateIso /
+ *  baseAuspiciousness / chartContext). */
+export type FortuneStreamEngineOutput = DailyFortuneResponse['engineOutput'];
+
+export type FortuneStreamEvent =
+  | {
+      type: 'engine_ready';
+      engineOutput: FortuneStreamEngineOutput;
+      profileId: string;
+      profileBirthDate: string;
+      profileBirthTime: string;
+      date: string;
+    }
+  | { type: 'section_complete'; key: string; value: unknown }
+  | {
+      type: 'done';
+      narrative: DailyFortuneAINarrative | null;
+      cacheHit: boolean;
+    }
+  | { type: 'error'; code: string; message: string };
+
+// ============================================================
+// Constants
+// ============================================================
+
+/** Watchdog: if no text_delta event for this many ms, abort the stream. */
+const STREAM_WATCHDOG_MS = 60_000;
+
+/** Mirrors the non-streaming call at `FortuneService.runDailyAINarration`
+ *  (line ~479). NOT chat-stream's 800-token default — daily fortune narratives
+ *  routinely run 1500-2100 tokens; truncating mid-stream would silently drop
+ *  the daily_advice section + leave broken JSON. */
+const STREAM_MAX_TOKENS = 2048;
+
+/** Same as non-streaming AI call. */
+const STREAM_TEMPERATURE = 0.6;
+
+/** Same as `AI_CALL_TIMEOUT_MS` — the outer Anthropic SDK timeout. */
+const STREAM_TIMEOUT_MS = AI_CALL_TIMEOUT_MS;
+
+// ============================================================
+// Service
+// ============================================================
+
+@Injectable()
+export class FortuneStreamService {
+  private readonly logger = new Logger(FortuneStreamService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly helpers: FortuneSnapshotHelpers,
+    private readonly validators: FortuneValidatorsService,
+  ) {}
+
+  /**
+   * Stream a daily fortune via SSE.
+   *
+   * Setup mirrors `chat-stream.service.ts::streamMessage`: caller (controller)
+   * passes the Express Response; this method owns header flush + event writes
+   * + `response.end()`.
+   */
+  async streamDailyFortune(
+    clerkUserId: string,
+    args: { profileId?: string; date?: string },
+    response: Response,
+  ): Promise<void> {
+    // ============================================================
+    // SSE headers (mirror chat-stream pattern)
+    // ============================================================
+    if (!response.headersSent) {
+      response.setHeader('Content-Type', 'text/event-stream');
+      response.setHeader('Cache-Control', 'no-cache');
+      response.setHeader('Connection', 'keep-alive');
+      response.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering
+      response.flushHeaders();
+    }
+
+    // ============================================================
+    // Pre-flight: auth + profile + date + subscription gate
+    // ============================================================
+
+    try {
+      const { user, profile, targetDate, targetDateObj } = await this._preflight(
+        clerkUserId,
+        args,
+      );
+
+      const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
+      const profileBirthTime = profile.birthTime;
+      const chartHash = this.helpers.computeChartHash(profile);
+
+      // ============================================================
+      // Cache lookup — Redis then DB
+      // ============================================================
+      const cached = await this.helpers.tryGetCached(chartHash, targetDate);
+      if (cached) {
+        // Cache HIT: emit engine_ready + done in one batch. NO section_complete
+        // events per plan v2 M6 (cache means instant — inter-section delays
+        // would defeat the mental model + React 18 batches updates anyway).
+        const wireResponse: DailyFortuneResponse = this.helpers.buildResponse(
+          profile.id,
+          profileBirthDate,
+          profileBirthTime,
+          targetDate,
+          cached,
+          true,
+        );
+        this._emit(response, {
+          type: 'engine_ready',
+          engineOutput: wireResponse.engineOutput,
+          profileId: profile.id,
+          profileBirthDate,
+          profileBirthTime,
+          date: targetDate,
+        });
+        this._emit(response, {
+          type: 'done',
+          narrative: wireResponse.narrative,
+          cacheHit: true,
+        });
+        response.end();
+        return;
+      }
+
+      // ============================================================
+      // Cache miss — fetch engine output + emit engine_ready
+      // ============================================================
+      let dailyOutput: DailyEngineOutput;
+      try {
+        dailyOutput = await this.helpers.fetchDailyFromEngine(profile, targetDate);
+      } catch (err) {
+        this._emitError(response, 'ENGINE_FAILED',
+          err instanceof Error ? err.message : 'Bazi engine unreachable');
+        return;
+      }
+
+      const chartContext =
+        dailyOutput.chartContext ?? this.helpers.buildFallbackChartContext(profile);
+
+      // Emit engine_ready BEFORE opening Anthropic so the frontend can paint
+      // score/dims/folk in parallel with AI generation (~500ms vs ~3-5s).
+      // Cast: `DailyEngineOutput` is a superset of the wire shape (carries
+      // extra builder-internal fields like dateIso / baseAuspiciousness /
+      // chartContext that the frontend doesn't need). Structural assignment
+      // would TS-error on missing required wire fields if dailyOutput shape
+      // shifts; cast through unknown to keep the contract loose at this
+      // boundary. The wire-shape contract is asserted by the contract test
+      // in fortune-snapshot.helpers.contract.spec.ts.
+      this._emit(response, {
+        type: 'engine_ready',
+        engineOutput: dailyOutput as unknown as FortuneStreamEngineOutput,
+        profileId: profile.id,
+        profileBirthDate,
+        profileBirthTime,
+        date: targetDate,
+      });
+
+      // ============================================================
+      // Open Anthropic stream + run section detector
+      // ============================================================
+      await this._streamWithSectionDetector({
+        response,
+        dailyOutput,
+        chartContext,
+        chartHash,
+        birthProfileId: profile.id,
+        anchorDate: targetDateObj,
+        targetDate,
+      });
+    } catch (err) {
+      // Pre-flight errors (NotFound / Forbidden / etc.) — map to SSE error
+      if (err instanceof HttpException) {
+        const resObj = err.getResponse();
+        const code =
+          typeof resObj === 'object' && resObj !== null && 'code' in resObj
+            ? (resObj as { code: string }).code
+            : 'PREFLIGHT_FAILED';
+        const message = err.message || 'Pre-flight check failed';
+        this._emitError(response, code, message);
+        return;
+      }
+      this.logger.error(`Unexpected stream pre-flight error: ${(err as Error).message}`);
+      this._emitError(response, 'INTERNAL_ERROR', 'Unexpected error');
+    }
+  }
+
+  // ============================================================
+  // Pre-flight — shared with non-streaming path's logic (auth + profile + gate)
+  // ============================================================
+
+  private async _preflight(
+    clerkUserId: string,
+    args: { profileId?: string; date?: string },
+  ): Promise<{
+    user: { id: string; subscriptionTier: any };
+    profile: {
+      id: string;
+      birthDate: Date;
+      birthTime: string;
+      birthCity: string;
+      birthTimezone: string;
+      gender: string;
+      birthLongitude: number | null;
+      birthLatitude: number | null;
+    };
+    targetDate: string;
+    targetDateObj: Date;
+  }> {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+    if (!user) {
+      throw new NotFoundException({ code: 'USER_NOT_FOUND', message: 'User not found' });
+    }
+
+    const profile = args.profileId
+      ? await this.prisma.birthProfile.findFirst({
+          where: { id: args.profileId, userId: user.id },
+        })
+      : await this.prisma.birthProfile.findFirst({
+          where: { userId: user.id, isPrimary: true },
+        });
+    if (!profile) {
+      throw new NotFoundException({
+        code: args.profileId ? 'PROFILE_NOT_FOUND' : 'NO_PRIMARY_PROFILE',
+        message: args.profileId
+          ? 'Birth profile not found'
+          : 'No primary birth profile configured for this user',
+      });
+    }
+
+    const targetDate = args.date ?? this.helpers.todayIsoDate();
+    const targetDateObj = new Date(`${targetDate}T00:00:00Z`);
+    if (Number.isNaN(targetDateObj.getTime())) {
+      throw new NotFoundException({
+        code: 'INVALID_DATE',
+        message: `Invalid date: ${targetDate}`,
+      });
+    }
+
+    this.helpers.enforceSubscriptionGate(user.subscriptionTier, targetDate);
+
+    return { user, profile, targetDate, targetDateObj };
+  }
+
+  // ============================================================
+  // Anthropic streaming + clarinet section detector + per-section strip
+  // ============================================================
+
+  private async _streamWithSectionDetector(ctx: {
+    response: Response;
+    dailyOutput: DailyEngineOutput;
+    chartContext: FortuneChartContext;
+    chartHash: string;
+    birthProfileId: string;
+    anchorDate: Date;
+    targetDate: string;
+  }): Promise<void> {
+    const { response, dailyOutput, chartContext, chartHash, birthProfileId, anchorDate } = ctx;
+
+    if (!FORTUNE_V1_PROMPTS.daily) {
+      this._emitError(response, 'PROMPT_NOT_CONFIGURED',
+        'FORTUNE_V1_PROMPTS.daily not configured');
+      return;
+    }
+
+    const { systemPrompt, userPrompt } = buildFortuneDailyMessages(
+      dailyOutput,
+      chartContext,
+    );
+
+    let client: any;
+    try {
+      client = await this.helpers.ensureClaudeClient();
+    } catch (err) {
+      this._emitError(response, 'AI_NOT_CONFIGURED',
+        err instanceof Error ? err.message : 'AI client unavailable');
+      await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
+      return;
+    }
+    const model =
+      this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
+
+    // Plan v2 H5: section_complete may arrive out of canonical order; FE
+    // re-orders. Detector emits in AI arrival order. Track which sections
+    // we've seen, plus accumulated diff for the sanitize_diff breadcrumb.
+    const seenSectionKeys: string[] = [];
+    const sanitizeDiffSections: string[] = [];
+    let totalDiffPhraseCount = 0;
+
+    const detector = createSectionDetector((key, value) => {
+      seenSectionKeys.push(key);
+      // Plan v2 H1: per-section banned-phrase strip BEFORE emit. Preserves
+      // the «no absolute language ever reaches the user» contract per
+      // CLAUDE.md. Only applies to string section values; compound values
+      // (daily_advice with canTry/shouldHold arrays) pass through — those
+      // get the strip in the end-of-stream full validator.
+      let outValue: unknown = value;
+      if (typeof value === 'string') {
+        const { text, strippedPhrases } =
+          this.validators.stripBannedAbsolutePhrasesFromText(value);
+        if (strippedPhrases.length > 0) {
+          sanitizeDiffSections.push(key);
+          totalDiffPhraseCount += strippedPhrases.length;
+        }
+        outValue = text;
+      }
+      this._emit(response, { type: 'section_complete', key, value: outValue });
+    });
+
+    // ============================================================
+    // Watchdog + client-disconnect (mirror chat-stream pattern)
+    // ============================================================
+    const abortController = new AbortController();
+    let lastDeltaAt = Date.now();
+    let watchdogTriggered = false;
+    const watchdogTimer = setInterval(() => {
+      if (Date.now() - lastDeltaAt > STREAM_WATCHDOG_MS) {
+        this.logger.warn(`Fortune stream watchdog timeout`);
+        watchdogTriggered = true;
+        abortController.abort();
+      }
+    }, 5_000);
+
+    let clientDisconnected = false;
+    const onClientClose = () => {
+      this.logger.log(`Fortune stream — client disconnected mid-stream`);
+      clientDisconnected = true;
+      abortController.abort();
+    };
+    response.on('close', onClientClose);
+
+    let assistantBuffer = '';
+    let finalStopReason: string | null = null;
+
+    try {
+      const stream = client.messages.stream(
+        {
+          model,
+          max_tokens: STREAM_MAX_TOKENS,
+          temperature: STREAM_TEMPERATURE,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        },
+        {
+          timeout: STREAM_TIMEOUT_MS,
+          signal: abortController.signal,
+        },
+      );
+
+      for await (const event of stream) {
+        if (
+          event.type === 'content_block_delta' &&
+          event.delta.type === 'text_delta'
+        ) {
+          const text = event.delta.text as string;
+          assistantBuffer += text;
+          lastDeltaAt = Date.now();
+          detector.write(text);
+        }
+      }
+
+      const finalMessage = await stream.finalMessage();
+      finalStopReason = (finalMessage as { stop_reason?: string }).stop_reason ?? null;
+    } catch (err) {
+      clearInterval(watchdogTimer);
+      response.off('close', onClientClose);
+
+      // Client disconnect handling per plan v2 M5: if buffer parses to
+      // valid JSON, persist + warm cache (cache the work). Else discard.
+      if (clientDisconnected) {
+        await this._handleClientDisconnect({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          dailyOutput,
+          assistantBuffer,
+        });
+        // Audit LOW fix — defensive close of response to make the per-path
+        // contract uniform («every code path either emits done or closes
+        // the response»). response.end() is a no-op when the socket is
+        // already destroyed (the normal case after client disconnect), but
+        // makes the next reader of this code reliably trust that the
+        // response is closed regardless of disconnect race.
+        if (!response.writableEnded) {
+          response.end();
+        }
+        return;
+      }
+
+      const reason = watchdogTriggered
+        ? 'watchdog-timeout-no-delta-60s'
+        : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
+      this.logger.error(`Fortune stream Anthropic failure: ${reason}`);
+      detector.close();
+      this._emitError(response, 'AI_FAILED', reason);
+      await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
+      return;
+    } finally {
+      clearInterval(watchdogTimer);
+      response.off('close', onClientClose);
+    }
+
+    detector.close();
+
+    // ============================================================
+    // Stop-reason explicit branch (plan v2 follow-up #2)
+    // ============================================================
+    if (finalStopReason === 'max_tokens') {
+      this.logger.warn(
+        `Fortune stream truncated at max_tokens (${STREAM_MAX_TOKENS}) for chart=${chartHash.slice(0, 8)}…`,
+      );
+      this._emitError(response, 'TRUNCATED',
+        `AI response exceeded ${STREAM_MAX_TOKENS} tokens — narrative may be incomplete`);
+      await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
+      return;
+    }
+    if (finalStopReason === 'refusal') {
+      // Forward-compat hook — Anthropic's current Messages API stop_reason
+      // enum does NOT emit 'refusal' (real Claude refusals come through as
+      // 'end_turn' with refusal text in the content body and reach the
+      // PARSE_FAILED branch below). Kept explicit for future API additions
+      // + symmetric handling with max_tokens. Audit MEDIUM finding.
+      this.logger.warn(`Fortune stream — AI refused to generate`);
+      this._emitError(response, 'AI_REFUSED', 'AI declined to generate this narrative');
+      await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
+      return;
+    }
+
+    // ============================================================
+    // End-of-stream — full validator + persist + done
+    // ============================================================
+    const parsedNarrative = this.helpers.extractJson(assistantBuffer);
+    if (!parsedNarrative) {
+      this.logger.warn(`Fortune stream — extractJson returned null on buffer length ${assistantBuffer.length}`);
+      this._emitError(response, 'PARSE_FAILED', 'AI response was not valid JSON');
+      await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
+      return;
+    }
+
+    let validation: FortuneValidationResult;
+    try {
+      validation = this.validators.validate(parsedNarrative, {
+        metaFraming: dailyOutput.metaFraming,
+        folkContent: dailyOutput.folkContent,
+      });
+    } catch (err) {
+      this.logger.error(`Fortune validator threw on stream output: ${(err as Error).message}`);
+      this._emitError(response, 'VALIDATION_FAILED',
+        'Validator failed unexpectedly — narrative discarded');
+      await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
+      return;
+    }
+
+    const sanitizedNarrative =
+      validation.sanitized as unknown as DailyFortuneAINarrative;
+
+    // Plan v2 H1 follow-up — Sentry breadcrumb on sanitize-diff (telemetry
+    // only, content NOT captured). Lets ops measure per-section provisional→
+    // sanitized swap rate post-ship without scraping logs.
+    if (sanitizeDiffSections.length > 0) {
+      Sentry.addBreadcrumb({
+        category: 'fortune.stream.sanitize_diff',
+        level: 'info',
+        message: 'Per-section banned-phrase strip fired during streaming',
+        data: {
+          sectionKeys: sanitizeDiffSections,
+          totalDiffPhraseCount,
+        },
+      });
+    }
+
+    const snapshot = await this.helpers.persistSnapshot({
+      chartHash,
+      birthProfileId,
+      anchorDate,
+      dailyOutput,
+      narrative: sanitizedNarrative,
+      promptVersion: FORTUNE_PROMPT_VERSIONS.day,
+    });
+
+    // Warm Redis (same TTL as non-streaming path)
+    try {
+      await this.helpers.redis.set(
+        this.helpers.redisKey(chartHash, ctx.targetDate),
+        JSON.stringify(snapshot),
+        REDIS_TTL_SECONDS,
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to warm Redis after stream: ${(err as Error).message}`);
+    }
+
+    this._emit(response, {
+      type: 'done',
+      narrative: sanitizedNarrative,
+      cacheHit: false,
+    });
+    response.end();
+  }
+
+  // ============================================================
+  // Error-path persistence (mirrors non-streaming circuit-breaker)
+  // ============================================================
+
+  /** Persist a snapshot with `promptVersion=null` so the
+   *  `aiFailureCount` circuit breaker (per `FortuneSnapshotHelpers
+   *  .persistSnapshot`) increments correctly. Without this, the breaker is
+   *  uneven across streaming vs non-streaming paths — repeated stream failures
+   *  on the same chart would never trip the cap. Plan v2 M4. */
+  private async _persistAIFailure(args: {
+    chartHash: string;
+    birthProfileId: string;
+    anchorDate: Date;
+    dailyOutput: DailyEngineOutput;
+  }): Promise<void> {
+    try {
+      await this.helpers.persistSnapshot({
+        ...args,
+        narrative: null,
+        promptVersion: null,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to persist AI-failure snapshot for stream: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /** Client disconnect mid-stream: if buffer is parseable JSON, run validator
+   *  + persist as a success (cache the work — user disconnected after AI
+   *  completed). Else persist as failure so circuit breaker counts it.
+   *  Plan v2 M5. */
+  private async _handleClientDisconnect(args: {
+    chartHash: string;
+    birthProfileId: string;
+    anchorDate: Date;
+    dailyOutput: DailyEngineOutput;
+    assistantBuffer: string;
+  }): Promise<void> {
+    const parsed = this.helpers.extractJson(args.assistantBuffer);
+    if (!parsed) {
+      // Incomplete buffer — count as failure for the circuit breaker
+      await this._persistAIFailure({
+        chartHash: args.chartHash,
+        birthProfileId: args.birthProfileId,
+        anchorDate: args.anchorDate,
+        dailyOutput: args.dailyOutput,
+      });
+      return;
+    }
+    let validation: FortuneValidationResult;
+    try {
+      validation = this.validators.validate(parsed, {
+        metaFraming: args.dailyOutput.metaFraming,
+        folkContent: args.dailyOutput.folkContent,
+      });
+    } catch {
+      await this._persistAIFailure({
+        chartHash: args.chartHash,
+        birthProfileId: args.birthProfileId,
+        anchorDate: args.anchorDate,
+        dailyOutput: args.dailyOutput,
+      });
+      return;
+    }
+    const sanitized =
+      validation.sanitized as unknown as DailyFortuneAINarrative;
+    try {
+      await this.helpers.persistSnapshot({
+        chartHash: args.chartHash,
+        birthProfileId: args.birthProfileId,
+        anchorDate: args.anchorDate,
+        dailyOutput: args.dailyOutput,
+        narrative: sanitized,
+        promptVersion: FORTUNE_PROMPT_VERSIONS.day,
+      });
+      this.logger.log(
+        `Fortune stream — client disconnected but full narrative cached for chart=${args.chartHash.slice(0, 8)}…`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to persist disconnect-recovered narrative: ${(err as Error).message}`,
+      );
+    }
+    // Audit LOW fix — response.end() is called by the caller (at line ~457
+    // in `_streamWithSectionDetector` after `_handleClientDisconnect`
+    // returns) to make the service-side contract uniform: every code path
+    // either emits 'done' (success) or closes the response (failure /
+    // disconnect). No-op when socket already destroyed.
+  }
+
+  // ============================================================
+  // SSE helpers
+  // ============================================================
+
+  private _emit(response: Response, event: FortuneStreamEvent): void {
+    if (response.writableEnded) return;
+    response.write(`data: ${JSON.stringify(event)}\n\n`);
+  }
+
+  private _emitError(response: Response, code: string, message: string): void {
+    this._emit(response, { type: 'error', code, message });
+    if (!response.writableEnded) {
+      response.end();
+    }
+  }
+}

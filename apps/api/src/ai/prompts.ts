@@ -3785,14 +3785,52 @@ export const CHAT_V1_TOPIC_REFUSE_OPENING_REGEX =
   /謝謝您的提問。關於.{1,30}的詳細.{0,15}分析，超出本《[^》]+》解讀的範圍/;
 
 /**
- * Detect whether an AI response is a topic-boundary refuse. Wraps the
- * regex with a 200-char window guard so the pattern must appear early
- * (refuse openings always do; in-topic mentions of `超出` would be deeper).
+ * Phase Fortune+ — secondary pattern for F-2 «hybrid refuse» (cite-today-first,
+ * THEN switch to refuse mid-response). The F-2 few-shot opens with «就今天X
+ * 面的訊號我可以先告訴您：...» (~180+ chars of cited data) and THEN transitions
+ * with «不過「整年趨勢」(...) 超出本《八字日運》解讀的範圍——».
+ *
+ * The PRIMARY regex above misses this because:
+ *  (a) the «謝謝您的提問。關於...» opener doesn't appear (F-2 doesn't use it)
+ *  (b) the 200-char first-window guard cuts off before the «超出本《...》» marker
+ *
+ * SECONDARY regex matches just the load-bearing semantic anchor «超出本
+ * 《X》解讀的範圍» followed by the «——» em-dash (the doctrinal switch-marker
+ * required by all 3 FORTUNE few-shots). This is specific enough not to false-
+ * positive on in-topic mentions of 範圍 because:
+ *  - requires literal full-width 《》 brackets
+ *  - requires the「解讀的範圍」 standardized phrase
+ *  - requires the「——」 (or「－－」 ASCII equivalent) hard switch dash
+ */
+export const CHAT_V1_TOPIC_REFUSE_HYBRID_MARKER_REGEX =
+  /超出本《[^》]+》解讀的範圍[—\-]{1,2}/;
+
+/**
+ * Detect whether an AI response is a topic-boundary refuse. Two-pattern
+ * detection:
+ *
+ *  1. PRIMARY (F-1 style — pure refuse): «謝謝您的提問。關於X的詳細分析，
+ *     超出本《Y》解讀的範圍» anywhere in the first 200 chars. The 200-char
+ *     window guards against false positives from in-topic mentions of `超出`
+ *     deep in an answer.
+ *
+ *  2. SECONDARY (F-2 style — hybrid refuse): «超出本《Y》解讀的範圍——»
+ *     anywhere in the first 600 chars. F-2 cites today's signals first
+ *     (~180-300 chars) before switching to the refuse marker. The wider
+ *     600-char window covers this. Specificity is preserved by requiring
+ *     the literal「解讀的範圍——」 sequence (the doctrinal switch-marker).
  */
 export function isTopicBoundaryRefuse(assistantText: string): boolean {
   if (!assistantText) return false;
-  const window = assistantText.slice(0, 200);
-  return CHAT_V1_TOPIC_REFUSE_OPENING_REGEX.test(window);
+  // Tier 1: F-1 pure-refuse opener within 200 chars
+  if (CHAT_V1_TOPIC_REFUSE_OPENING_REGEX.test(assistantText.slice(0, 200))) {
+    return true;
+  }
+  // Tier 2: F-2 hybrid mid-response refuse marker within 600 chars
+  if (CHAT_V1_TOPIC_REFUSE_HYBRID_MARKER_REGEX.test(assistantText.slice(0, 600))) {
+    return true;
+  }
+  return false;
 }
 
 // ============================================================

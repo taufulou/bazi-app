@@ -572,6 +572,30 @@ export const CHAT_SESSION_HARD_CAP_MESSAGES = 30;
 /** After AI replies to this turn, soft warning fires recommending new session for quality. */
 export const CHAT_SOFT_WARNING_TURN = 20;
 
+/**
+ * Topic-boundary refuse refund cap. The first N consecutive refused messages
+ * get auto-refunded (forgive occasional mistakes). From the (N+1)th consecutive
+ * refuse onward, the refund is suppressed — user pays for repeated off-topic
+ * questions. Cost defense: every refuse still costs us an Anthropic API call,
+ * so unlimited refunding on spam = uncovered cost.
+ *
+ * Counter resets to 0 whenever the user sends an in-topic message (existing
+ * `consecutiveRefuses: { set: 0 }` behavior in chat-stream.service.ts).
+ *
+ * Aligned with `CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD` below so the user
+ * gets a clear dialog the moment refunding stops.
+ */
+export const CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT = 2;
+
+/**
+ * Show the «超出範圍提醒» soft-warning dialog as soon as the user reaches this
+ * many consecutive refuses. Set to LIMIT + 1 so the dialog fires on the
+ * first refuse that is NOT refunded — user understands why their credit was
+ * deducted.
+ */
+export const CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD =
+  CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT + 1;
+
 /** From this turn onwards, server injects <system-reminder> as user-role to re-ground context. */
 export const CHAT_REGROUNDING_TRIGGER_TURN = 4;
 

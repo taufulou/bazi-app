@@ -22,6 +22,7 @@ import { createPortal } from 'react-dom';
 import {
   CHAT_SESSION_HARD_CAP_MESSAGES,
   CHAT_SOFT_WARNING_TURN,
+  CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD,
 } from '@repo/shared';
 import { useChatSession } from './hooks/useChatSession';
 import { useChatStream } from './hooks/useChatStream';
@@ -132,6 +133,11 @@ export default function ChatDrawer({
   // Track whether we've already shown the turn-20 soft warning for this session
   // so we don't spam it on every send after turn 20.
   const [softWarningShown, setSoftWarningShown] = useState(false);
+  // Phase Fortune+ — track whether we've shown the «超出範圍提醒» refuse-cap
+  // dialog at the current consecutive-refuse run. Once shown, suppress until
+  // the run resets (consecutiveRefuses drops below threshold via an in-topic
+  // message) — otherwise spam dialogs on every consecutive refuse beyond N.
+  const [refuseLimitDialogShown, setRefuseLimitDialogShown] = useState(false);
   // Whether the history panel is open.
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -151,7 +157,28 @@ export default function ChatDrawer({
   // Reset soft-warning flag whenever we transition to a new session.
   useEffect(() => {
     setSoftWarningShown(false);
+    // Phase Fortune+ — refuse-cap dialog state is per-session, reset too.
+    setRefuseLimitDialogShown(false);
   }, [session.sessionId]);
+
+  // Phase Fortune+ — reset refuse-cap dialog flag whenever the counter drops
+  // below threshold (user asked an in-topic question → backend ran
+  // `consecutiveRefuses: { set: 0 }`). This lets the dialog fire AGAIN if
+  // the user later goes off-topic for another N consecutive turns. Without
+  // this reset, the user would only see the dialog once per session even if
+  // they hit the cap multiple times in different runs. (The dialog fire
+  // effect itself lives below the `atHardCap` declaration to avoid TDZ.)
+  //
+  // Deps only `[session.consecutiveRefuses]` is correct — `setRefuseLimit
+  // DialogShown` is a stable React setter (not needed in deps), and the
+  // threshold constant is module-scope (not needed). Setter call uses the
+  // functional form so React short-circuits when value already false (no
+  // wasted re-render).
+  useEffect(() => {
+    if (session.consecutiveRefuses < CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD) {
+      setRefuseLimitDialogShown((prev) => (prev === false ? prev : false));
+    }
+  }, [session.consecutiveRefuses]);
 
   // Body scroll lock while open.
   useEffect(() => {
@@ -373,6 +400,39 @@ export default function ChatDrawer({
     messagesUntilHardCap,
   ]);
 
+  // Phase Fortune+ — fire the «超出範圍提醒» dialog as soon as the consecutive
+  // refuse counter hits the warning threshold (matches the refund-cap, see
+  // CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT + WARNING_THRESHOLD in @repo/shared).
+  // This is the FIRST refuse that is NOT auto-refunded — show the dialog so
+  // the user understands why their credit was deducted + that future
+  // off-topic Qs will keep deducting.
+  //
+  // Suppression conditions:
+  //  - already shown this run (refuseLimitDialogShown) — wait for reset
+  //  - mid-stream (avoid interrupting AI response render)
+  //  - session locked / at hard cap — dialog 4/5 takes priority
+  //  - another dialog is already open — don't stack
+  useEffect(() => {
+    if (
+      !stream.streaming &&
+      session.consecutiveRefuses >= CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD &&
+      !refuseLimitDialogShown &&
+      !atHardCap &&
+      !session.locked &&
+      !dialogKey
+    ) {
+      setDialogKey('refuse_limit_reached');
+      setRefuseLimitDialogShown(true);
+    }
+  }, [
+    stream.streaming,
+    session.consecutiveRefuses,
+    refuseLimitDialogShown,
+    atHardCap,
+    session.locked,
+    dialogKey,
+  ]);
+
   // After hitting hard cap, show the modal. Skip when session is locked
   // (lock banner already covers this state).
   useEffect(() => {
@@ -386,14 +446,26 @@ export default function ChatDrawer({
   // ============================================================
 
   const handleDialogAction = useCallback(
-    async (action: DialogAction, _from: ChatDialogKey) => {
+    async (action: DialogAction, from: ChatDialogKey) => {
       if (action === 'cancel') {
         setDialogKey(null);
-        setPendingSend(null);
-        // L3 (Phase 3 follow-up) — clear stashed section hint too so a
-        // subsequent re-stash with a different section doesn't see a
-        // stale value during the brief overwrite window.
-        setStashedSectionHint(undefined);
+        // Phase Fortune+ — the `refuse_limit_reached` dialog is a pure
+        // info banner («您最近多個問題都超出本服務範圍...»). It does NOT
+        // intercept a queued send (refuse-cap fires post-stream when
+        // pendingSend is always null in current flow). Skip the
+        // pendingSend/stashedSectionHint cleanup which is only meaningful
+        // for quota-wall dialogs (extend_standard, near_cap_warning,
+        // turn20_warning_*) that DO queue a user message awaiting credit.
+        // Future-proofing: if some path queues a send before showing this
+        // dialog, the user's draft survives instead of being silently
+        // dropped on confirm.
+        if (from !== 'refuse_limit_reached') {
+          setPendingSend(null);
+          // L3 (Phase 3 follow-up) — clear stashed section hint too so a
+          // subsequent re-stash with a different section doesn't see a
+          // stale value during the brief overwrite window.
+          setStashedSectionHint(undefined);
+        }
         return;
       }
 

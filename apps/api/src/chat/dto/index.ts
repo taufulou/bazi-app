@@ -152,6 +152,11 @@ export interface ChatSessionSummary {
   /** Phase Fortune — denormalized BirthProfile reference for FORTUNE
    *  sessions. NULL for non-FORTUNE sessions. */
   profileId?: string | null;
+  /** Phase Fortune+ — current consecutive topic-boundary refuse count.
+   *  Resets to 0 on any in-topic message. Used by ChatDrawer to render the
+   *  «超出範圍提醒» soft-warning dialog when the cap fires (see
+   *  CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD in @repo/shared). */
+  consecutiveRefuses?: number;
 }
 
 // ============================================================

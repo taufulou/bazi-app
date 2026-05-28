@@ -504,4 +504,124 @@ describe('ChatStreamService', () => {
       );
     });
   });
+
+  // ============================================================
+  // Phase Fortune+ — topic-boundary refuse refund cap (cost defense)
+  // ============================================================
+  //
+  // Policy: first N consecutive topic-boundary refuses get refunded
+  // (forgive occasional off-topic mistakes); (N+1)th and beyond are NOT
+  // refunded (user pays for repeated off-topic spam; covers our Anthropic
+  // API spend on refuse generations). N = CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT
+  // (currently 2). Counter `consecutiveRefuses` resets to 0 on any in-topic
+  // message (existing atomic `{ set: 0 }` semantics).
+  //
+  // These tests mock the transaction's `chatSession.update` so it returns
+  // a controlled `consecutiveRefuses` value, then verify whether
+  // `refundLastMessage` was called for an AI-refuse response.
+
+  describe('Phase Fortune+ — refuse refund cap', () => {
+    function makeRefuseStream() {
+      // F-1 style refuse opener (matches CHAT_V1_TOPIC_REFUSE_OPENING_REGEX)
+      return makeAsyncIterableStream([
+        {
+          type: 'content_block_delta',
+          delta: {
+            type: 'text_delta',
+            text: '謝謝您的提問。關於命格定性與終身格局的詳細分析，超出本《八字日運》解讀的範圍——',
+          },
+        },
+        {
+          type: 'content_block_delta',
+          delta: { type: 'text_delta', text: '《八字終身運》提供完整解讀。' },
+        },
+      ]);
+    }
+
+    function setupCommonMocks(consecutiveRefusesAfterUpdate: number) {
+      mockPrisma.user.findUnique.mockResolvedValue({
+        id: 'u1',
+        clerkUserId: 'c1',
+      });
+      // Use default LIFETIME session (refuse-cap logic is reading-type
+      // agnostic — it gates purely on `consecutiveRefuses` value). FORTUNE
+      // sessions would also work but require additional fortuneScope /
+      // fortuneAnchorDate / profileId fields for context resolution.
+      mockPrisma.chatSession.findUnique.mockResolvedValue(makeFreshSession());
+      mockPrisma.chatMessage.create
+        .mockResolvedValueOnce({ id: 'msg-user' })
+        .mockResolvedValueOnce({ id: 'msg-asst' });
+      // The transaction's session.update returns the post-update value of
+      // consecutiveRefuses. This is what the refund-cap check reads.
+      mockPrisma.chatSession.update.mockResolvedValue({
+        messageCount: 1,
+        consecutiveRefuses: consecutiveRefusesAfterUpdate,
+      });
+      mockPrisma.chatSession.findUniqueOrThrow.mockResolvedValue({
+        id: 's1',
+        messageCount: 1,
+        creditExtensions: 0,
+        paidMessagesUsed: 0,
+        consecutiveRefuses: consecutiveRefusesAfterUpdate,
+      });
+      mockAnthropicStream.mockReturnValue(makeRefuseStream());
+    }
+
+    it('1st consecutive refuse (counter→1) → REFUND fires', async () => {
+      setupCommonMocks(1);
+      const res = new MockResponse() as any;
+      await service.streamMessage('c1', 's1', '我命格如何？', undefined, res);
+
+      expect(mockPaymentService.refundLastMessage).toHaveBeenCalledWith(
+        'msg-user',
+        's1',
+        'u1',
+        'topic-boundary-refuse',
+      );
+    });
+
+    it('2nd consecutive refuse (counter→2 = LIMIT) → REFUND fires', async () => {
+      setupCommonMocks(2);
+      const res = new MockResponse() as any;
+      await service.streamMessage('c1', 's1', '今年事業如何？', undefined, res);
+
+      expect(mockPaymentService.refundLastMessage).toHaveBeenCalledWith(
+        'msg-user',
+        's1',
+        'u1',
+        'topic-boundary-refuse',
+      );
+    });
+
+    it('3rd consecutive refuse (counter→3 > LIMIT) → REFUND SUPPRESSED', async () => {
+      setupCommonMocks(3);
+      const res = new MockResponse() as any;
+      await service.streamMessage('c1', 's1', '我的婚姻幸福嗎？', undefined, res);
+
+      // The crux of the cost-defense policy: 3rd consecutive refuse onward
+      // does NOT refund the user. They still get the refuse-with-pivot AI
+      // response, but their credit is deducted (covers Anthropic API cost).
+      expect(mockPaymentService.refundLastMessage).not.toHaveBeenCalled();
+    });
+
+    it('5th consecutive refuse (counter→5) → REFUND still SUPPRESSED', async () => {
+      // Spam scenario — refund stays suppressed for all subsequent refuses
+      // until counter resets (user asks an in-topic question).
+      setupCommonMocks(5);
+      const res = new MockResponse() as any;
+      await service.streamMessage('c1', 's1', '明年我會升職嗎？', undefined, res);
+
+      expect(mockPaymentService.refundLastMessage).not.toHaveBeenCalled();
+    });
+
+    it('done event surfaces consecutiveRefuses so frontend can fire warning dialog', async () => {
+      setupCommonMocks(3);
+      const res = new MockResponse() as any;
+      await service.streamMessage('c1', 's1', '我命格如何？', undefined, res);
+
+      const doneEvent = res.events[res.events.length - 1] as any;
+      expect(doneEvent.type).toBe('done');
+      expect(doneEvent.consecutiveRefuses).toBe(3);
+    });
+  });
 });

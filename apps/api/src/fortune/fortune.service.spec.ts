@@ -2,6 +2,15 @@
  * Tests for FortuneService — focused on the two-layer cache path + AI
  * failure circuit breaker (PR review #4 — 2026-05-17).
  *
+ * Phase Fortune Streaming Layer 3 (2026-05-28): the cache + persistence
+ * helpers moved to `FortuneSnapshotHelpers` (extracted so the new
+ * `FortuneStreamService` shares the same invariants). This spec now
+ * constructs a real `FortuneSnapshotHelpers` against the same mocked
+ * Prisma / Redis / Config, injects it into `FortuneService`, and exercises
+ * the helpers via that path. `helpers.tryGetCached` / `helpers.persistSnapshot`
+ * are public methods (no `as any` cast needed); `getDailyFortune` covers
+ * the full-stack orchestration.
+ *
  * Currently covers:
  *   - Bug A5-3 fix: DB warm path repopulates Redis so subsequent reads
  *     hit the fast Redis path instead of round-tripping to Postgres.
@@ -12,15 +21,11 @@
  *     NOT retried for AI_FAILURE_BACKOFF_HOURS (serve engine-only).
  *   - Circuit breaker: after backoff window, AI is retried.
  *   - Circuit breaker: successful AI call resets the counter.
- *
- * versionsMatch + tryGetCached are private methods — accessed via `as any`
- * cast. Public-API coverage via getDailyFortune is intentionally deferred;
- * that path has many fan-out branches (auth + profile + subscription gate +
- * engine call + Anthropic call) and is better served by the existing
- * manual A5 smoke test in the plan file.
+ *   - engineOnly path: skips AI + persist + warm.
  */
 import { FortuneScope } from '@prisma/client';
 import { FortuneService } from './fortune.service';
+import { FortuneSnapshotHelpers } from './fortune-snapshot.helpers';
 import { FORTUNE_PRE_ANALYSIS_VERSIONS, FORTUNE_PROMPT_VERSIONS } from '../ai/prompts';
 
 describe('FortuneService — cache layer', () => {
@@ -70,13 +75,9 @@ describe('FortuneService — cache layer', () => {
     };
     const configService: any = { get: (k: string) => (k === 'BAZI_ENGINE_URL' ? 'http://localhost:5001' : null) };
     const validatorsService: any = {};
-    const service = new FortuneService(
-      prismaService,
-      redisService,
-      configService,
-      validatorsService,
-    );
-    return { service, redisSet, dbUpsert, redisService, prismaService };
+    const helpers = new FortuneSnapshotHelpers(prismaService, redisService, configService);
+    const service = new FortuneService(prismaService, helpers, validatorsService);
+    return { service, helpers, redisSet, dbUpsert, redisService, prismaService };
   }
 
   /** Minimal valid engine output for `persistSnapshot` calls. */
@@ -92,12 +93,12 @@ describe('FortuneService — cache layer', () => {
   describe('Bug A5-3 — DB warm path repopulates Redis', () => {
     it('writes the DB row back into Redis when Redis was empty', async () => {
       const dbRow = buildFreshSnapshot();
-      const { service, redisSet } = buildService({
+      const { helpers, redisSet } = buildService({
         redisGet: jest.fn().mockResolvedValue(null), // Redis MISS
         dbFindUnique: jest.fn().mockResolvedValue(dbRow), // DB HIT
       });
 
-      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+      const result = await helpers.tryGetCached(CHART_HASH, TARGET_DATE);
 
       expect(result).toBe(dbRow);
       expect(redisSet).toHaveBeenCalledTimes(1);
@@ -111,7 +112,7 @@ describe('FortuneService — cache layer', () => {
     it('still returns the DB snapshot when Redis set throws (perf optimization, not load-bearing)', async () => {
       const dbRow = buildFreshSnapshot();
       const redisSet = jest.fn().mockRejectedValue(new Error('Redis down'));
-      const { service } = buildService({
+      const { helpers } = buildService({
         redisGet: jest.fn().mockResolvedValue(null),
         redisSet,
         dbFindUnique: jest.fn().mockResolvedValue(dbRow),
@@ -119,7 +120,7 @@ describe('FortuneService — cache layer', () => {
 
       // Should NOT throw — caller gets the snapshot, Redis warm failure
       // is logged as a warn but doesn't propagate.
-      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+      const result = await helpers.tryGetCached(CHART_HASH, TARGET_DATE);
 
       expect(result).toBe(dbRow);
       expect(redisSet).toHaveBeenCalledTimes(1);
@@ -131,13 +132,13 @@ describe('FortuneService — cache layer', () => {
         preAnalysisVersion: 'v0.0.0-stale',
       };
       const redisSet = jest.fn();
-      const { service } = buildService({
+      const { helpers } = buildService({
         redisGet: jest.fn().mockResolvedValue(null),
         redisSet,
         dbFindUnique: jest.fn().mockResolvedValue(staleRow),
       });
 
-      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+      const result = await helpers.tryGetCached(CHART_HASH, TARGET_DATE);
 
       // Stale rows fall through to regen — must NOT warm Redis with stale
       // data (would poison the cache for 24h until TTL).
@@ -150,13 +151,13 @@ describe('FortuneService — cache layer', () => {
       const cachedJson = JSON.stringify(cached);
       const dbFindUnique = jest.fn();
       const redisSet = jest.fn();
-      const { service } = buildService({
+      const { helpers } = buildService({
         redisGet: jest.fn().mockResolvedValue(cachedJson),
         redisSet,
         dbFindUnique,
       });
 
-      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+      const result = await helpers.tryGetCached(CHART_HASH, TARGET_DATE);
 
       expect(result).not.toBeNull();
       // Hot path bails before DB — verifies we didn't accidentally
@@ -173,7 +174,7 @@ describe('FortuneService — cache layer', () => {
     }) {
       return {
         ...buildFreshSnapshot(),
-        promptVersion: null,  // AI failed
+        promptVersion: null, // AI failed
         aiNarrativeJson: null,
         aiFailureCount: opts.aiFailureCount,
         aiLastFailedAt: opts.aiLastFailedAt,
@@ -186,16 +187,16 @@ describe('FortuneService — cache layer', () => {
         aiFailureCount: 3,
         aiLastFailedAt: new Date(Date.now() - 60 * 60 * 1000),
       });
-      const { service, redisSet } = buildService({
+      const { helpers, redisSet } = buildService({
         redisGet: jest.fn().mockResolvedValue(null),
         dbFindUnique: jest.fn().mockResolvedValue(recentlyFailed),
       });
 
-      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+      const result = await helpers.tryGetCached(CHART_HASH, TARGET_DATE);
 
       // Circuit OPEN — serve the engine-only row as cache-valid.
       expect(result).not.toBeNull();
-      expect(result.aiFailureCount).toBe(3);
+      expect(result!.aiFailureCount).toBe(3);
       // Redis re-warmed with the engine-only snapshot
       expect(redisSet).toHaveBeenCalledTimes(1);
     });
@@ -206,12 +207,12 @@ describe('FortuneService — cache layer', () => {
         aiFailureCount: 5,
         aiLastFailedAt: new Date(Date.now() - 25 * 60 * 60 * 1000),
       });
-      const { service, redisSet } = buildService({
+      const { helpers, redisSet } = buildService({
         redisGet: jest.fn().mockResolvedValue(null),
         dbFindUnique: jest.fn().mockResolvedValue(longAgo),
       });
 
-      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+      const result = await helpers.tryGetCached(CHART_HASH, TARGET_DATE);
 
       // Circuit CLOSED — backoff elapsed → treat as stale → null forces regen
       expect(result).toBeNull();
@@ -225,14 +226,14 @@ describe('FortuneService — cache layer', () => {
         aiFailureCount: 2,
         aiLastFailedAt: new Date(),
       });
-      const { service, redisSet } = buildService({
+      const { helpers, redisSet } = buildService({
         redisGet: jest.fn().mockResolvedValue(null),
         dbFindUnique: jest.fn().mockResolvedValue(partial),
       });
 
-      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+      const result = await helpers.tryGetCached(CHART_HASH, TARGET_DATE);
 
-      expect(result).toBeNull();  // → caller regenerates
+      expect(result).toBeNull(); // → caller regenerates
       expect(redisSet).not.toHaveBeenCalled();
     });
 
@@ -246,12 +247,12 @@ describe('FortuneService — cache layer', () => {
       };
       delete (legacy as any).aiFailureCount;
       delete (legacy as any).aiLastFailedAt;
-      const { service, redisSet } = buildService({
+      const { helpers, redisSet } = buildService({
         redisGet: jest.fn().mockResolvedValue(null),
         dbFindUnique: jest.fn().mockResolvedValue(legacy),
       });
 
-      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+      const result = await helpers.tryGetCached(CHART_HASH, TARGET_DATE);
 
       // failureCount defaults to 0 < MAX → should retry (return null)
       expect(result).toBeNull();
@@ -266,15 +267,15 @@ describe('FortuneService — cache layer', () => {
         aiFailureCount: 0,
         aiLastFailedAt: null,
       };
-      const { service } = buildService({
+      const { helpers } = buildService({
         redisGet: jest.fn().mockResolvedValue(null),
         dbFindUnique: jest.fn().mockResolvedValue(healthy),
       });
 
-      const result = await (service as any).tryGetCached(CHART_HASH, TARGET_DATE);
+      const result = await helpers.tryGetCached(CHART_HASH, TARGET_DATE);
 
       expect(result).not.toBeNull();
-      expect(result.promptVersion).toBe(FORTUNE_PROMPT_VERSIONS.day);
+      expect(result!.promptVersion).toBe(FORTUNE_PROMPT_VERSIONS.day);
     });
   });
 
@@ -304,10 +305,10 @@ describe('FortuneService — cache layer', () => {
       const dbUpsert = jest.fn().mockImplementation((args: any) => Promise.resolve({
         id: 'persist-1', ...args.create, generatedAt: new Date(),
       }));
-      const { service } = buildService({ dbUpsert });
-      await (service as any).persistSnapshot({
+      const { helpers } = buildService({ dbUpsert });
+      await helpers.persistSnapshot({
         ...PERSIST_ARGS,
-        promptVersion: FORTUNE_PROMPT_VERSIONS.day,  // AI succeeded
+        promptVersion: FORTUNE_PROMPT_VERSIONS.day, // AI succeeded
       });
       expect(dbUpsert).toHaveBeenCalledTimes(1);
       const call = dbUpsert.mock.calls[0][0];
@@ -317,8 +318,8 @@ describe('FortuneService — cache layer', () => {
 
     it('AI success → UPDATE block resets counter to 0 and lastFailedAt to null', async () => {
       const dbUpsert = jest.fn().mockResolvedValue({ id: 'persist-1' });
-      const { service } = buildService({ dbUpsert });
-      await (service as any).persistSnapshot({
+      const { helpers } = buildService({ dbUpsert });
+      await helpers.persistSnapshot({
         ...PERSIST_ARGS,
         promptVersion: FORTUNE_PROMPT_VERSIONS.day,
       });
@@ -336,11 +337,11 @@ describe('FortuneService — cache layer', () => {
       const dbUpsert = jest.fn().mockImplementation((args: any) => Promise.resolve({
         id: 'persist-1', ...args.create, generatedAt: new Date(),
       }));
-      const { service } = buildService({ dbUpsert });
+      const { helpers } = buildService({ dbUpsert });
       const before = Date.now();
-      await (service as any).persistSnapshot({
+      await helpers.persistSnapshot({
         ...PERSIST_ARGS,
-        promptVersion: null,  // AI failed
+        promptVersion: null, // AI failed
       });
       const call = dbUpsert.mock.calls[0][0];
       expect(call.create.aiFailureCount).toBe(1);
@@ -352,8 +353,8 @@ describe('FortuneService — cache layer', () => {
 
     it('AI failure → UPDATE block uses Prisma atomic { increment: 1 } (NOT JS-level math)', async () => {
       const dbUpsert = jest.fn().mockResolvedValue({ id: 'persist-1' });
-      const { service } = buildService({ dbUpsert });
-      await (service as any).persistSnapshot({
+      const { helpers } = buildService({ dbUpsert });
+      await helpers.persistSnapshot({
         ...PERSIST_ARGS,
         promptVersion: null,
       });
@@ -364,6 +365,170 @@ describe('FortuneService — cache layer', () => {
       // failures (see PR #46 staff-review #4).
       expect(call.update.aiFailureCount).toEqual({ increment: 1 });
       expect(call.update.aiLastFailedAt).toBeInstanceOf(Date);
+    });
+  });
+
+  // ============================================================
+  // Phase Fortune+ progressive loading — engineOnly path
+  // ============================================================
+  //
+  // Verifies the new short-circuit: when getDailyFortune is called with
+  // engineOnly=true, the service:
+  //   1. Skips runDailyAINarration (no Anthropic call)
+  //   2. Does NOT call persistSnapshot (no DB write — avoids polluting
+  //      cache with narrative=null + tripping aiFailureCount circuit-breaker)
+  //   3. Does NOT warm Redis (same reason)
+  //   4. Still returns engine output via buildResponse (narrative=null on wire)
+  //
+  // Cache HIT path is independent of engineOnly — already covered by the
+  // existing «Bug A5-3» suite above. When cached, full payload returns
+  // regardless of engineOnly hint.
+
+  describe('Phase Fortune+ — engineOnly path', () => {
+    /** Mock Prisma user + birth profile lookups for getDailyFortune entry. */
+    function buildFullStackService(opts: {
+      cacheHit?: boolean;
+      engineFetchOutput?: any;
+    } = {}) {
+      // Default upsert returns a valid snapshot so buildResponse doesn't
+      // blow up on snapshot.engineOutputJson access (audit I5 throw path).
+      const dbUpsert = jest.fn().mockResolvedValue(buildFreshSnapshot());
+      const redisSet = jest.fn().mockResolvedValue(undefined);
+      const redisGet = opts.cacheHit
+        ? jest.fn().mockResolvedValue(JSON.stringify(buildFreshSnapshot()))
+        : jest.fn().mockResolvedValue(null);
+
+      const prismaService: any = {
+        user: {
+          findUnique: jest.fn().mockResolvedValue({
+            id: 'user-1',
+            clerkUserId: 'clerk-1',
+            subscriptionTier: 'PRO',
+          }),
+        },
+        birthProfile: {
+          findFirst: jest.fn().mockResolvedValue({
+            id: 'profile-1',
+            userId: 'user-1',
+            birthDate: new Date('1987-09-06'),
+            birthTime: '16:11',
+            birthCity: '吉打',
+            birthTimezone: 'Asia/Kuala_Lumpur',
+            gender: 'male',
+            isPrimary: true,
+          }),
+        },
+        dailyFortuneSnapshot: {
+          findUnique: jest.fn().mockResolvedValue(null),
+          upsert: dbUpsert,
+        },
+      };
+      const redisService: any = { get: redisGet, set: redisSet };
+      const configService: any = {
+        get: (k: string) => (k === 'BAZI_ENGINE_URL' ? 'http://localhost:5001' : null),
+      };
+      const validatorsService: any = {
+        validate: jest.fn().mockImplementation((n: any) => ({
+          sanitized: n, didStrip: false, findings: [],
+        })),
+      };
+      const helpers = new FortuneSnapshotHelpers(prismaService, redisService, configService);
+      const service = new FortuneService(prismaService, helpers, validatorsService);
+
+      // Bypass subscription gate — these tests cover the engineOnly path,
+      // not subscription windowing. Test date `2026-05-14` may be outside
+      // the «±1 past, +30 forward» window depending on when the test runs.
+      jest
+        .spyOn(helpers, 'enforceSubscriptionGate')
+        .mockImplementation(() => undefined);
+
+      // Bypass chart-hash compute — uses sha256 against profile fields; we
+      // stub to a known value so cache-key lookups match buildFreshSnapshot().
+      jest.spyOn(helpers, 'computeChartHash').mockReturnValue(CHART_HASH);
+
+      // Stub engine + AI methods so we can spy without making HTTP calls.
+      const engineFetch = jest
+        .spyOn(helpers, 'fetchDailyFromEngine')
+        .mockResolvedValue(opts.engineFetchOutput ?? {
+          ...buildDailyOutput(),
+          chartContext: { dayMaster: { stem: '戊' } },
+        });
+      const aiNarration = jest
+        .spyOn(service as any, 'runDailyAINarration')
+        .mockResolvedValue({
+          narrative: { daily_overview: 'mock narrative' } as any,
+          validation: { sanitized: { daily_overview: 'mock narrative' } } as any,
+          promptVersion: FORTUNE_PROMPT_VERSIONS.day,
+        });
+
+      return { service, helpers, dbUpsert, redisSet, engineFetch, aiNarration };
+    }
+
+    it('engineOnly=true: skips AI narration entirely (no Anthropic call)', async () => {
+      const { service, aiNarration } = buildFullStackService();
+      await service.getDailyFortune('clerk-1', {
+        date: TARGET_DATE,
+        engineOnly: true,
+      });
+      expect(aiNarration).not.toHaveBeenCalled();
+    });
+
+    it('engineOnly=true: does NOT persist to DB (no aiFailureCount pollution)', async () => {
+      const { service, dbUpsert } = buildFullStackService();
+      await service.getDailyFortune('clerk-1', {
+        date: TARGET_DATE,
+        engineOnly: true,
+      });
+      expect(dbUpsert).not.toHaveBeenCalled();
+    });
+
+    it('engineOnly=true: does NOT warm Redis (avoid narrative=null pollution)', async () => {
+      const { service, redisSet } = buildFullStackService();
+      await service.getDailyFortune('clerk-1', {
+        date: TARGET_DATE,
+        engineOnly: true,
+      });
+      expect(redisSet).not.toHaveBeenCalled();
+    });
+
+    it('engineOnly=true: still calls engine + returns engine output with narrative=null', async () => {
+      const { service, engineFetch } = buildFullStackService();
+      const result = await service.getDailyFortune('clerk-1', {
+        date: TARGET_DATE,
+        engineOnly: true,
+      });
+      expect(engineFetch).toHaveBeenCalledTimes(1);
+      expect(result.narrative).toBeNull();
+      expect(result.engineOutput.dayGanZhi).toBe('戊子');
+      expect(result.cacheHit).toBe(false);
+    });
+
+    it('engineOnly=true + cache HIT: returns FULL cached payload (narrative bonus)', async () => {
+      // When cache hits, the cached row may have narrative — return as-is.
+      // This is the desirable «free upgrade» case for the progressive UX:
+      // engine-only fetcher gets full payload instantly + frontend's parallel
+      // full-fetch becomes a no-op (Redis hit returns same payload).
+      const { service, aiNarration, engineFetch } = buildFullStackService({
+        cacheHit: true,
+      });
+      const result = await service.getDailyFortune('clerk-1', {
+        date: TARGET_DATE,
+        engineOnly: true,
+      });
+      expect(engineFetch).not.toHaveBeenCalled(); // cache short-circuit
+      expect(aiNarration).not.toHaveBeenCalled();
+      expect(result.cacheHit).toBe(true);
+    });
+
+    it('engineOnly=false (default): runs AI + persists + warms Redis (regression)', async () => {
+      const { service, dbUpsert, redisSet, aiNarration } = buildFullStackService();
+      await service.getDailyFortune('clerk-1', {
+        date: TARGET_DATE,
+        // engineOnly omitted — full path
+      });
+      expect(aiNarration).toHaveBeenCalledTimes(1);
+      expect(dbUpsert).toHaveBeenCalledTimes(1);
+      expect(redisSet).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -12,11 +12,13 @@ import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { ChatRole } from '@prisma/client';
+import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import {
   ChatPaymentService,
   CHAT_SESSION_HARD_CAP_MESSAGES,
+  CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT,
 } from './chat-payment.service';
 import { ChatContextService } from './chat-context.service';
 import { ChatValidatorsService } from './chat-validators.service';
@@ -54,7 +56,20 @@ const STREAM_LOCK_TTL_SECONDS = 150;
 type StreamEvent =
   | { type: 'session_start'; messageId: string }
   | { type: 'delta'; text: string }
-  | { type: 'done'; messageId: string; messageCount: number; messagesRemaining: number; usage: TokenUsage }
+  | {
+      type: 'done';
+      messageId: string;
+      messageCount: number;
+      messagesRemaining: number;
+      /**
+       * Phase Fortune+ — current value of `ChatSession.consecutiveRefuses`
+       * after this message is persisted. Surfaced so the frontend can fire
+       * the soft-warning dialog the moment refunding stops (cost-defense
+       * policy, see CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD).
+       */
+      consecutiveRefuses: number;
+      usage: TokenUsage;
+    }
   | { type: 'error'; code: string; message: string; refunded?: boolean; refundMethod?: string | null };
 
 interface TokenUsage {
@@ -350,6 +365,15 @@ export class ChatStreamService {
         messageId: refusalMsg.id,
         messageCount: refreshed.messageCount,
         messagesRemaining: remainingFree + remainingPaid,
+        // Pre-flight refusals deliberately do NOT increment `consecutiveRefuses`.
+        // Rationale: pre-flight rejections (e.g., refuse-list match for lottery
+        // queries) incur ZERO Anthropic API cost, so the cost-defense policy
+        // (CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT) doesn't apply. Surface the
+        // current counter value unchanged so the FE soft-warning dialog fires
+        // ONLY on AI-generated topic-boundary refuses (where each refuse
+        // actually costs us API spend). `consecutiveRefuses` is non-nullable
+        // (Int @default(0) in schema) — no null-guard needed.
+        consecutiveRefuses: refreshed.consecutiveRefuses,
         usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
       });
       response.end();
@@ -584,52 +608,70 @@ export class ChatStreamService {
     // ^-anchored regex). The helper looks at the first 200 chars.
     const isRefuse = isTopicBoundaryRefuse(validation.text);
 
-    const assistantMessage = await this.prisma.$transaction(async (tx) => {
-      const am = await tx.chatMessage.create({
-        data: {
-          sessionId,
-          role: ChatRole.ASSISTANT,
-          content: validation.text,
-          tokensInput: usage.inputTokens,
-          tokensOutput: usage.outputTokens,
-          cacheReadTokens: usage.cacheReadTokens,
-          cacheCreationTokens: usage.cacheCreationTokens,
-          model: this.model,
-          bannedPhraseStripped: validation.bannedPhraseStripped,
-          citationAutoPrepended: validation.citationAutoPrepended,
-          isRefuse, // Phase 2 — set in the same insert, no second UPDATE.
-          paymentMethod: null,
-        },
-      });
-      const updated = await tx.chatSession.update({
-        where: { id: sessionId },
-        data: {
-          messageCount: { increment: 1 },
-          // Phase 2 (round-3 NEW#8) — atomic Prisma `{ increment: 1 }` /
-          // `{ set: 0 }` operators. Avoids read-modify-write race when two
-          // streams interleave for the same session (rare but possible on
-          // user retry).
-          consecutiveRefuses: isRefuse ? { increment: 1 } : { set: 0 },
-        },
-      });
-      // Auto-end at hard cap
-      if (updated.messageCount >= CHAT_SESSION_HARD_CAP_MESSAGES) {
-        await tx.chatSession.update({
-          where: { id: sessionId },
-          data: { endedAt: new Date() },
+    const { assistantMessage, sessionAfter } = await this.prisma.$transaction(
+      async (tx) => {
+        const am = await tx.chatMessage.create({
+          data: {
+            sessionId,
+            role: ChatRole.ASSISTANT,
+            content: validation.text,
+            tokensInput: usage.inputTokens,
+            tokensOutput: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheCreationTokens: usage.cacheCreationTokens,
+            model: this.model,
+            bannedPhraseStripped: validation.bannedPhraseStripped,
+            citationAutoPrepended: validation.citationAutoPrepended,
+            isRefuse, // Phase 2 — set in the same insert, no second UPDATE.
+            paymentMethod: null,
+          },
         });
-      }
-      return am;
-    });
+        const updated = await tx.chatSession.update({
+          where: { id: sessionId },
+          data: {
+            messageCount: { increment: 1 },
+            // Phase 2 (round-3 NEW#8) — atomic Prisma `{ increment: 1 }` /
+            // `{ set: 0 }` operators. Avoids read-modify-write race when two
+            // streams interleave for the same session (rare but possible on
+            // user retry).
+            consecutiveRefuses: isRefuse ? { increment: 1 } : { set: 0 },
+          },
+        });
+        // Auto-end at hard cap
+        if (updated.messageCount >= CHAT_SESSION_HARD_CAP_MESSAGES) {
+          await tx.chatSession.update({
+            where: { id: sessionId },
+            data: { endedAt: new Date() },
+          });
+        }
+        return { assistantMessage: am, sessionAfter: updated };
+      },
+    );
 
-    // Phase 2 — refund the user's upfront deduction for refuse messages.
-    // The deduction at chat-stream.service.ts:252 happens BEFORE the AI
+    // Phase 2 — refund the user's upfront deduction for refuse messages,
+    // capped at CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT consecutive refuses.
+    // The deduction at chat-stream.service.ts:~252 happens BEFORE the AI
     // runs (we don't yet know the response will be a refuse). After the
     // assistant message is persisted, we know — undo the deduction via the
     // existing idempotent refundLastMessage helper. Reason: 'topic-boundary-refuse'
-    // for audit. Out-of-band so a refund failure doesn't break the user's
-    // chat experience (they got their refused-but-helpful response).
-    if (isRefuse) {
+    // for audit.
+    //
+    // Cost-defense policy (CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT = 2):
+    //  - 1st + 2nd consecutive refuses → refund (forgive occasional mistakes)
+    //  - 3rd consecutive refuse onward → NO refund (user pays for repeated
+    //    off-topic spam; aligns incentive + recovers Anthropic API cost)
+    // Counter `consecutiveRefuses` resets to 0 on any in-topic message
+    // (existing `{ set: 0 }` semantics in the same-tx update above).
+    //
+    // The post-update counter value is also returned to the frontend in the
+    // SSE done event so the soft-warning dialog can fire when the cap is hit.
+    //
+    // Out-of-band so a refund failure doesn't break the user's chat
+    // experience (they got their refused-but-helpful response).
+    // `consecutiveRefuses` is non-nullable (Int @default(0) in schema).
+    // We read the post-tx value directly — no null-guard needed.
+    const consecutiveRefuses = sessionAfter.consecutiveRefuses;
+    if (isRefuse && consecutiveRefuses <= CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT) {
       try {
         await this.paymentService.refundLastMessage(
           userMessageId,
@@ -638,13 +680,33 @@ export class ChatStreamService {
           'topic-boundary-refuse',
         );
         this.logger.log(
-          `Refunded refuse message ${userMessageId} (session ${sessionId})`,
+          `Refunded refuse message ${userMessageId} (session ${sessionId}, consecutiveRefuses=${consecutiveRefuses})`,
         );
       } catch (err) {
         this.logger.warn(
           `Failed to refund refuse message ${userMessageId}: ${err}`,
         );
       }
+    } else if (isRefuse) {
+      this.logger.log(
+        `Suppressed refund for refuse message ${userMessageId} (session ${sessionId}, consecutiveRefuses=${consecutiveRefuses} > limit ${CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT})`,
+      );
+      // Sentry breadcrumb so product can track refund-cap fire frequency
+      // (spam-pattern detection) without scraping server logs. Info-level —
+      // not an error (this is by-design cost-defense). `level: 'info'`
+      // shows on the breadcrumb timeline if a subsequent ERROR is captured
+      // in the same session.
+      Sentry.addBreadcrumb({
+        category: 'chat.refund_cap',
+        level: 'info',
+        message: `Refund cap fired (consecutiveRefuses=${consecutiveRefuses})`,
+        data: {
+          sessionId,
+          userId,
+          consecutiveRefuses,
+          limit: CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT,
+        },
+      });
     }
 
     // LLM-as-judge async — fire and forget
@@ -683,6 +745,8 @@ export class ChatStreamService {
       messageId: assistantMessage.id,
       messageCount: refreshed.messageCount,
       messagesRemaining: remainingFree + remainingPaid,
+      // `consecutiveRefuses` is non-nullable (Int @default(0) in schema).
+      consecutiveRefuses: refreshed.consecutiveRefuses,
       usage,
     });
     response.end();

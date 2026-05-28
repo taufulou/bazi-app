@@ -24,6 +24,14 @@ export const CHAT_SESSION_HARD_CAP_MESSAGES = 30;
 /** mirrors @repo/shared CHAT_HISTORY_RETENTION_DAYS */
 export const CHAT_HISTORY_RETENTION_DAYS = 365;
 
+/**
+ * mirrors @repo/shared CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT —
+ * first N consecutive refuses get refunded; (N+1)th and later are NOT
+ * refunded (cost defense + user incentive alignment). Counter resets on
+ * any in-topic message (existing `consecutiveRefuses: { set: 0 }` semantics).
+ */
+export const CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT = 2;
+
 /** mirrors @repo/shared CHAT_FREE_QUOTA_BY_TIER */
 export const CHAT_FREE_QUOTA_BY_TIER: Record<SubscriptionTier, number> = {
   FREE: 0,

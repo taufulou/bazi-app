@@ -392,3 +392,28 @@
   height: 1600px;
   pointer-events: none;
 }
+
+/* ==== Phase Fortune Streaming H3 — stream-error banner ====
+ * Renders inline above NarrativeCard when a mid-stream error fires AFTER
+ * engine_ready (user already sees engine view + some narrative). Warm
+ * amber palette signals «attention but not fatal» — already-rendered
+ * sections remain visible per plan v2 H3.
+ */
+.streamErrorBanner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 0 1rem 0;
+  background: rgba(245, 166, 35, 0.08);
+  border: 1px solid rgba(245, 166, 35, 0.35);
+  border-radius: 12px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.streamErrorIcon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}

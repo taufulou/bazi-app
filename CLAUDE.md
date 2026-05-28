@@ -1079,10 +1079,15 @@ LLM chat layer on top of all 5 Bazi reading types: LIFETIME / LOVE / CAREER / AN
 
 ### Topic-boundary policy (Phase 2+)
 - LIFETIME chat answers all topics — refuse template is `null` (NOT empty string; sentinel matters in dispatch).
-- LOVE/CAREER/ANNUAL/COMPATIBILITY refuse out-of-topic questions with warm template, end with cross-sell line, then pivot back to in-topic with `crossSellPivotHint` (e.g. «根據您的命盤，2027 丁未年（正緣動年）»).
-- Refused messages are auto-refunded via post-stream `refundLastMessage('topic-boundary-refuse')` call. The regex `CHAT_V1_TOPIC_REFUSE_OPENING_REGEX` matches the standardized opener AFTER the existing post-validator runs (`chat-stream.service.ts:496-541`).
-- Soft-warning dialog fires at 5+ consecutive refuses (`ChatSession.consecutiveRefuses` atomic counter via Prisma `{ increment: 1 }` / `{ set: 0 }` — race-safe).
-- Env `CHAT_ENABLED_READING_TYPES=LIFETIME,LOVE,CAREER,ANNUAL,COMPATIBILITY` is the runtime kill switch (no redeploy needed to gate a type).
+- LOVE/CAREER/ANNUAL/COMPATIBILITY/FORTUNE refuse out-of-topic questions with warm template, end with cross-sell line, then pivot back to in-topic with `crossSellPivotHint` (e.g. «根據您的命盤，2027 丁未年（正緣動年）»). FORTUNE additionally supports F-2 «hybrid refuse» (cite-today-first then refuse mid-response — load-bearing for queries that PARTIALLY touch today like «今年事業如何？»).
+- Refuse detection — `isTopicBoundaryRefuse()` checks TWO patterns (`prompts.ts`):
+  - PRIMARY: `CHAT_V1_TOPIC_REFUSE_OPENING_REGEX` matches `謝謝您的提問。關於...超出本《...》解讀的範圍` in the first 200 chars (F-1 pure refuse opener)
+  - SECONDARY: `CHAT_V1_TOPIC_REFUSE_HYBRID_MARKER_REGEX` matches the load-bearing `超出本《...》解讀的範圍——` doctrinal marker in the first 600 chars (F-2 hybrid — handles cited-today preamble)
+- **Refund cap policy** (Phase Fortune+ cost defense): refused messages are auto-refunded via post-stream `refundLastMessage('topic-boundary-refuse')` call ONLY for the first N consecutive refuses (`CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT` = 2). From the (N+1)th consecutive refuse onward, refund is SUPPRESSED — user pays for repeated off-topic spam (every refuse still costs us an Anthropic API call). Counter resets on any in-topic message via atomic Prisma `{ set: 0 }`. Logged + Sentry breadcrumb emitted on each cap-fire (`category: 'chat.refund_cap'`).
+- **Soft-warning dialog «超出範圍提醒»** (`refuse_limit_reached`) fires on the FE the moment `ChatSession.consecutiveRefuses >= CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD` (= LIMIT + 1 = 3). This matches the first refuse that's NOT refunded so the user understands why the credit was deducted. Dialog state resets when counter drops below threshold (so it can re-fire on a fresh streak).
+- Pre-flight validator refuses (`refuseListPreFlight`) deliberately do NOT increment `consecutiveRefuses` (zero Anthropic cost → no cost-defense need).
+- Env `CHAT_ENABLED_READING_TYPES=LIFETIME,LOVE,CAREER,ANNUAL,COMPATIBILITY,FORTUNE` is the runtime kill switch (no redeploy needed to gate a type).
+- Constants drift lock: `chat-payment-service.spec.ts` includes a `mirror parity` describe block asserting local mirror constants in `chat-payment.service.ts` stay in sync with `@repo/shared` (catches the silent drift class).
 
 ### COMPATIBILITY chat specifics (Phase 3 — do not break invariants)
 - Engine slim merges both parties via `_slim_party_for_compat`. doctrineFlags filtered to 4 LOVE keys via `LOVE_DOCTRINE_FLAG_KEYS = {shangguanJianGuan, biJieDuoCai, guanShaHunZa, spousePalaceFrictions}` to avoid CAREER doctrine leaking into COMPAT slim. doctrineInjectors pass-through (all 4 are already LOVE-domain).
@@ -1852,11 +1857,21 @@ FORTUNE is HYBRID: answers any question grounded in today's signals (dim-spannin
 
 ### FORTUNE refuse template (load-bearing for refund logic)
 
-Must match `CHAT_V1_TOPIC_REFUSE_OPENING_REGEX`:
-```
-/謝謝您的提問。關於.{1,30}的詳細.{0,15}分析，超出本《[^》]+》解讀的範圍/
-```
-Template opens: «謝謝您的提問。關於 {topic} 的詳細分析，超出本《八字日運》解讀的範圍——». Without prefix match → post-validator doesn't auto-refund the refused message. Locked by `prompts.fortune.spec.ts::regex matches FORTUNE refuse template`.
+Must match EITHER pattern in `isTopicBoundaryRefuse()`:
+- PRIMARY `CHAT_V1_TOPIC_REFUSE_OPENING_REGEX` (F-1 pure refuse): `/謝謝您的提問。關於.{1,30}的詳細.{0,15}分析，超出本《[^》]+》解讀的範圍/` checked in first 200 chars
+- SECONDARY `CHAT_V1_TOPIC_REFUSE_HYBRID_MARKER_REGEX` (F-2 hybrid): `/超出本《[^》]+》解讀的範圍[—\-]{1,2}/` checked in first 600 chars (handles cite-today-first responses that put the refuse marker mid-response after ~180-300 chars of cited daily signals)
+
+Template opens: «謝謝您的提問。關於 {topic} 的詳細分析，超出本《八字日運》解讀的範圍——». Without ONE OF the two regexes matching → post-validator doesn't auto-refund the refused message. Both locked by `prompts.fortune.spec.ts::isTopicBoundaryRefuse — F-2 hybrid coverage`.
+
+### ChatHistoryPanel FORTUNE-specific row labels (Phase Fortune+ polish)
+
+`apps/web/app/components/chat/ChatHistoryPanel.tsx::formatSessionTitle()` dispatches:
+- FORTUNE DAY → «日運 · YYYY-MM-DD» (anchor date the pin — each anchor = separate session)
+- FORTUNE MONTH → «月運 · YYYY-MM» (Phase 2 placeholder)
+- FORTUNE YEAR → «年運 · YYYY» (Phase 3 placeholder)
+- non-FORTUNE → relative date (LIFETIME / LOVE / CAREER / ANNUAL / COMPATIBILITY unchanged)
+
+Without these labels, FORTUNE rows in history are ambiguous («哪一天的日運？») since the date-navigator pinning policy spawns a new session per anchor date. Defensive fallback to relative date when `fortuneAnchorDate` is null. Locked by `apps/web/test/chat-history-panel.spec.tsx` (6 tests).
 
 ### Test counts (Phase Fortune chat scope)
 - 14/14 engine pytest (`test_chat_context_fortune.py`) — Roger anchor, Laopo doctrine inheritance, token budget, snapshot reuse
@@ -1952,6 +1967,8 @@ Per Sub-Agent C audit:
 - `title` attribute tooltip: «民俗來源（河圖洛書）— 較典籍級別參考性弱»
 - Only visible on 吉數 slot (count=1 in DOM, verified by RTL spec)
 - Cursor `help`
+
+**Share-card parity** (Phase Fortune+ polish): `apps/web/app/components/fortune/ShareableFortuneCard.tsx` renders the same 4 folk slots (吉色 / 吉數 [民俗] / 今日宜食 / 吉時) in a 2×2 grid between takeaway + footer. Deliberately omits 「今日忌食」 (negative framing + 五行 reason + medical disclaimer don't fit positive share-image vibe). Badge font scaled to **18px** for the 1200×1600 capture (≈9-12px effective when shared on mobile — passes WCAG AA). Defensive null-handling hides individual slots OR the whole grid when engine omits the field (rare: unresolved 用神). Locked by `apps/web/test/shareable-fortune-card-folk.spec.tsx` (5 tests).
 
 ### 60-row corpus + 100% strict pass
 
@@ -2149,3 +2166,224 @@ If Option 2.5 rules are re-enabled in future: also bump `FORTUNE_DAILY_PRE_ANALY
 - **Engine baseline assumption matters** — always verify `rawStructural` empirically via `build_daily_label_corpus.py` + `run_daily_label_validation.py` BEFORE assuming a softening rule will move the label. Sub-Agent B traces are based on doctrinal projection, not always actual engine output.
 - **Default-OFF env flag is a respectable outcome** when research-correct rules don't deliver visible improvement due to upstream limitations. Preserves work + avoids invisible engine changes.
 - **HMR transient errors are dev-mode-only** — defensive guards (`if (!x) return null;`) kill the noise without affecting production. Zero runtime cost.
+
+---
+
+## Phase Fortune+ chat polish — SHIPPED (uncommitted in worktree as of 2026-05-28)
+
+3 follow-up tasks from Phase Fortune chat scope review, bundled in one shipped block:
+
+1. **Refund-cap policy** (task #21) — `chat-stream.service.ts` + `chat-payment.service.ts` + `chat-types.ts` + `constants.ts`: cap auto-refund at `CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT` (=2) consecutive refuses. From 3rd refuse onward, refund SUPPRESSED + user pays for spam. Counter resets on any in-topic message via atomic `{ set: 0 }`. Sentry breadcrumb `chat.refund_cap` info-level on cap-fire. Soft-warning dialog `refuse_limit_reached` fires when `consecutiveRefuses >= CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD` (=3). Pre-flight validator refuses (zero API cost) do NOT increment counter. 24 chat-stream + 17 chat-payment regression tests pass.
+
+2. **ChatHistoryPanel FORTUNE row labels** (task #22) — `apps/web/app/components/chat/ChatHistoryPanel.tsx::formatSessionTitle()`: dispatches FORTUNE DAY → 「日運 · YYYY-MM-DD」, MONTH → 「月運 · YYYY-MM」 (Phase 2 placeholder), YEAR → 「年運 · YYYY」 (Phase 3 placeholder); non-FORTUNE → relative date (existing behavior preserved). Defensive fallback when `fortuneAnchorDate` null. 6 RTL tests in `chat-history-panel.spec.tsx`.
+
+3. **ShareableFortuneCard folk content fields** (task #23) — `ShareableFortuneCard.tsx` + `.module.css`: 2×2 folk grid between takeaway + footer rendering 吉色 / 吉數 (民俗 badge) / 今日宜食 / 吉時. Deliberately omits 「今日忌食」 (negative framing + 五行 reason + medical disclaimer don't fit positive share-image vibe). Badge font 18px for 1200×1600 capture (≈9-12px effective when shared on mobile — passes WCAG AA). Defensive null-handling hides slots OR whole grid when engine omits. 5 RTL tests in `shareable-fortune-card-folk.spec.tsx`.
+
+---
+
+## Phase Fortune+ progressive loading — SHIPPED (uncommitted in worktree as of 2026-05-28)
+
+Split the cold-load (~3-5s) into 2 phases via 2-parallel-fetch (`engineOnly=true` + full). NOTE: this is the **PRE-streaming** architecture; superseded by Phase Fortune Streaming below. Kept here because:
+- `HomeDailyFortuneCard` still uses `engineOnly=true` (no narrative needed on homepage widget)
+- Backend `engineOnly` query param still ships as a back-compat surface for any non-SSE clients
+
+**Backend** (`fortune.service.ts` + `fortune.controller.ts` + `dto/index.ts`):
+- `GetDailyFortuneQueryDto.engineOnly` IsBooleanString param (`true|false|1|0|True|TRUE`)
+- `isTruthyQueryParam` helper at controller layer with audit-H1 fix (handles case + numeric variants)
+- `FortuneService.getDailyFortune({engineOnly})` short-circuits AI step + builds in-memory snapshot via `buildInMemoryEngineSnapshot` (no DB write, no Redis fill — avoids polluting cache with narrative=null + tripping circuit breaker)
+- `buildInMemoryEngineSnapshot` sentinel `id='in-memory-engine-only'` — future health-check consumers MUST filter this before inspecting `aiFailureCount`
+
+**Frontend** (`HomeDailyFortuneCard.tsx` + `.module.css`):
+- Homepage widget calls `fetchDailyFortune({engineOnly: true})` for instant render (~500ms)
+- `NarrativeCard.tsx` `loading` prop: when true + narrative null, renders shimmer skeleton (mirrors disclaimer layout for ≤8px Y delta)
+- 12 jest tests cover the engineOnly path semantics + IsBooleanString case-handling
+
+**4 audit fixes** applied during this work:
+- HIGH H1: case-handling for engineOnly param
+- HIGH H4: disclaimer Y position stable
+- MEDIUM M3: telemetry breadcrumb on engineOnly fetch
+- LOW M2: in-memory snapshot sentinel field documentation
+
+---
+
+## Phase Fortune Streaming (Section-by-Section SSE) — SHIPPED (uncommitted in worktree as of 2026-05-28)
+
+The biggest delta this session: section-by-section AI streaming for daily fortune. The user sees each section of the AI narrative as it completes, instead of waiting 3-30s for all 7 sections to render at once. Replaces the 2-parallel-fetch progressive loading with a SINGLE SSE connection per plan v2 «Option Z» (M7).
+
+**Plan**: `/Users/roger/.claude/plans/ok-next-big-feature-merry-cake.md` — search for `# Section-by-Section AI Streaming for 日運 — Implementation Plan (Option A)`. 17 locked design decisions + 7 implementation-PR follow-ups + comprehensive live browser test plan at the bottom.
+
+### Architecture
+
+```
+[ENGINE: existing /daily-fortune endpoint — unchanged]
+    |
+    v
+GET /api/fortune/daily/stream?date=&profileId=
+    ├─ Cache HIT: emit engine_ready + done (one batch, ~50-500ms, NO section_complete)
+    └─ Cache MISS:
+        ├─ fetchDailyFromEngine → emit engine_ready (~100ms)
+        ├─ anthropic.messages.stream({max_tokens: 2048, temperature: 0.6})
+        ├─ feed token deltas to clarinet-based section detector
+        ├─ per section_complete: strip banned phrases + emit SSE event
+        ├─ on stream end: stop-reason check (max_tokens/refusal → AI_FAILED)
+        ├─ extractJson + full validator sweep
+        ├─ persist via FortuneSnapshotHelpers (same shape as non-streaming)
+        └─ emit done event with sanitized narrative
+[FRONTEND]
+    useFortuneNarrativeStream hook (single SSE connection, AbortController teardown)
+        ├─ engine_ready → setState({status: 'engine', data}) — renders score/dims/folk ~100ms
+        ├─ section_complete × N → setStreamedSections(prev => {...prev, [key]: value})
+        ├─ done → setState({status: 'success', data: {...narrative}}) + clear streamedSections
+        └─ error → setStreamError + preserve render OR promote to fatal if pre-flight
+    NarrativeCard per-section dispatch: narrative > streamedSections > skeleton
+```
+
+### Files
+
+**NEW (this commit)**:
+- `apps/api/src/fortune/fortune-section-detector.ts` (~250 LoC) + `.spec.ts` (26 tests) — clarinet-driven streaming JSON parser. Detects when each top-level `sections.<key>` value completes. Handles BOM, markdown fence preamble (```json```), partial-escape across chunks, out-of-order section arrival, trailing post-root remarks. Uses event-driven value-tree reconstruction (NOT `parser.position`-based slicing — that counter drifts +1 per `write()` call, verified empirically).
+- `apps/api/src/fortune/fortune-snapshot.helpers.ts` (~430 LoC) — `@Injectable()` extracted from `fortune.service.ts`. Owns: `tryGetCached`, `persistSnapshot`, `extractJson`, `buildResponse`, `versionsMatch`, `redisKey`, `computeChartHash`, `enforceSubscriptionGate`, `buildInMemoryEngineSnapshot`, `fetchDailyFromEngine`, `ensureClaudeClient`, `buildFallbackChartContext`. Plus 9 exported constants (TTL, timeouts, circuit-breaker thresholds).
+- `apps/api/src/fortune/fortune-snapshot.helpers.contract.spec.ts` (5 tests) — locks byte-identical snapshot upsert args + Redis key + circuit-breaker state across streaming vs non-streaming paths. Equality scope excludes id/generatedAt/aiNarrativeJson (non-deterministic) per plan follow-up #1.
+- `apps/api/src/fortune/fortune-stream.service.ts` (~500 LoC) + `.spec.ts` (17 tests) — SSE service. `max_tokens: 2048` + `temperature: 0.6` (mirrors non-streaming exactly per plan C3). 60s watchdog. Client-disconnect persist-if-parseable (M5). Failure-path persist with `promptVersion=null` for circuit breaker parity (M4). Stop-reason explicit branches for `'max_tokens'` (TRUNCATED) + `'refusal'` (AI_REFUSED — forward-compat hook; real Anthropic API doesn't emit 'refusal' yet). Per-section banned-phrase strip via `stripBannedAbsolutePhrasesFromText` BEFORE SSE emit. Sentry breadcrumb `category: 'fortune.stream.sanitize_diff'` with `data: {sectionKeys, totalDiffPhraseCount}` (follow-up #7).
+- `apps/api/src/fortune/fortune.controller.spec.ts` — isTruthyQueryParam coverage from engineOnly work
+- `apps/web/app/components/fortune/hooks/useFortuneNarrativeStream.ts` (~150 LoC) + `apps/web/test/use-fortune-narrative-stream.spec.tsx` (13 tests, incl 1 audit regression). React hook wrapping `streamDailyFortune`. AbortController teardown on enabled toggle, profileId change, date change, unmount. Exposes `streaming` / `error` / `sectionsReceived: Set<string>` / `clearError` / `cancel`. Audit fix: `cancelled` guard at onEvent / onError / onClose to drop late callbacks from old stream after dep change.
+- `apps/web/test/narrative-card-streamed-sections.spec.tsx` (12 tests) — NarrativeCard streamedSections prop + hybrid render + canonical order + InlineAskCard visibility:hidden + disclaimer presence in all 3 modes. Uses `jest.mock('lucide-react', ...)` workaround for the dual `@types/react` JSX identity issue.
+
+**MODIFIED**:
+- `apps/api/src/fortune/fortune.service.ts` (724→272 LoC) — REFACTORED to delegate cache/persist/engine-fetch/JSON-extract to `FortuneSnapshotHelpers`. Existing 17 fortune.service.spec tests updated (test through helpers, not private methods).
+- `apps/api/src/fortune/fortune.module.ts` — registered + exported `FortuneStreamService` + `FortuneSnapshotHelpers`.
+- `apps/api/src/fortune/fortune.controller.ts` — added `@Get('daily/stream')` route, `@Throttle(10/min)` matches non-stream rate.
+- `apps/api/src/fortune/fortune-validators.service.ts` — added public `stripBannedAbsolutePhrasesFromText(text)` method. Two-tier validation: per-section strip at SSE emit + full `validate()` at end-of-stream.
+- `apps/web/app/lib/fortune-api.ts` — added `FortuneStreamEvent` wire type + `streamDailyFortune(opts)` helper (fetch + ReadableStream + AbortController, mirrors `chat-api.ts::streamChatMessage` pattern). `dispatchFortuneFrame` private helper parses SSE frames.
+- `apps/web/app/components/fortune/NarrativeCard.tsx` (+288 LoC including new render paths) — added `streamedSections` prop. Hybrid render mode: per-section dispatch `sectionText(key)` returns sanitized > provisional > skeleton (4 lines per dim per follow-up #3, was 3 in plan). Canonical render order via DIM_META iteration (H5). InlineAskCard `visibility:hidden` during un-narrated dims (H4 layout reservation). Disclaimer always present in all 3 modes (H4 — ≤8px Y delta target verified at 0px in browser).
+- `apps/web/app/components/fortune/NarrativeCard.module.css` — bumped skeleton to 4 lines per dim.
+- `apps/web/app/reading/fortune/page.tsx` — REPLACED 2-parallel-fetch with single `useFortuneNarrativeStream` hook (Option Z, M7). Added `streamedSections` + `streamError` state. Stream error banner rendered inline above NarrativeCard (follow-up #6, warm-amber palette). **CRITICAL audit fix M1/decision #15**: share button gated on `state.status === 'success'` (NOT `dataState` — PNG safety: prevents capturing engine state with null narrative).
+- `apps/web/app/reading/fortune/page.module.css` — added `.streamErrorBanner` + `.streamErrorIcon` (warm-amber palette).
+
+### Reference patterns (mirrored from existing chat feature)
+- SSE pattern: `apps/api/src/chat/chat-stream.service.ts` (express setHeader + flushHeaders + ReadableStream + 60s watchdog + AbortController)
+- Frontend SSE consumer: `apps/web/app/components/chat/hooks/useChatStream.ts` (teardownRef + AbortController + onClose pattern)
+- POST+SSE helper: `apps/web/app/lib/chat-api.ts::streamChatMessage`
+- Deterministic Chinese sentence injection: `apps/api/src/chat/chat-context.service.ts::interpolateFortuneV1Fields`
+
+### Test counts
+- **288 jest tests** across 18 fortune suites pass:
+  - 193 backend (incl 26 detector + 17 stream service + 5 contract + 12 helpers + 18 controller + 40 validators + 21 prompts + 23 chat-context-fortune + 8 chat-prompt-builder-fortune + 23 chat-payment + 24 chat-stream)
+  - 95 web (incl 13 hook + 12 NarrativeCard-streamed-sections + 14 folk-content + 5 shareable-card-folk + 6 history-panel + 14 sample-questions + others)
+- TS clean for all new files
+- No NEW console errors in browser (only pre-existing InfoTooltip chronic main-branch debt)
+
+### Line audit findings + fixes (3-parallel sub-agent audit)
+
+3 parallel sub-agents (backend / frontend / plan-conformance) ran a comprehensive line audit. Converged findings — all fixed before commit:
+
+| Severity | Issue | File | Fix |
+|---|---|---|---|
+| **CRITICAL** | Share button gated on `dataState` (engine OR success) instead of `state.status === 'success'` — plan M1 + locked #15 explicitly require gating on success only | `page.tsx:488` | Tightened gate; ShareableFortuneCard never captures provisional content. PNGs always contain validator-sanitized narrative. |
+| **HIGH** | Stale section race — old stream's late onEvent callbacks could write into new stream's `streamedSections` after DateNavigator click | `useFortuneNarrativeStream.ts:111-137` | Added `if (cancelled) return` guards at onEvent / onError / onClose. New regression test (#13). |
+| **HIGH** | `done` event before `engine_ready` (impossible in current backend, but defensive) left page stuck on LoadingSkeleton forever | `page.tsx:334-348` | Promoted to `error` state with code `STREAM_ORDER` for recoverable error UI. |
+| **MEDIUM** | `setStreamError` called inside `setState` updater (non-idiomatic React; fragile under StrictMode/concurrent mode) | `page.tsx:354-371` | Refactored: pure `setState` updater; `setStreamError` called separately (React 18 auto-batched). |
+| **MEDIUM** | Dead `'refusal'` stop_reason branch — Anthropic API never emits this | `fortune-stream.service.ts:481` | Added forward-compat comment explaining `'refusal'` isn't in current API + real refusals reach PARSE_FAILED via extractJson returning null |
+| **LOW** | `response.end()` not called after client disconnect — service-side contract inconsistency | `fortune-stream.service.ts:443-462` | Added defensive close at caller; no-op when socket destroyed |
+
+### Live browser test (2026-05-28) — ALL CRITICAL + HIGH PASS
+
+Tested via Claude in Chrome MCP. Results:
+
+| § | Test | Status |
+|---|---|---|
+| A | SSE endpoint reachable + single request fires | ✅ engine_ready at 90ms, no engineOnly or /daily non-stream calls |
+| B1 | Cold-cache progressive render | ✅ 12 section_complete events in correct order: overview@7.7s → romance@12s → career@16s → finance@20s → travel@25s → health@30s → advice@33s → done@48s |
+| B3 | Banned-phrase strip | ✅ Zero banned phrases in AI narrative (false-positive on 「今天會」 was sample-question pill text, NOT narrative output) |
+| C | Warm cache instant render | ✅ Cache hit: engine_ready + done at 425ms total, `cacheHit: true`, NO section_complete events (plan M6 locked) |
+| D | Share button gate (CRITICAL audit fix) | ✅ Engine state: `disabled=true`, no onClick. After done: `disabled=false`, React handler attached. |
+| F | DateNavigator stream switch | ✅ URL updates to new date, new stream opens at 39ms, no stale content persists |
+| H | Layout stability | ✅ Disclaimer Y position **0px delta** (target ≤8px) across 3 readings |
+| I | Console + network | ✅ Zero NEW streaming errors. React tree confirms `loadingNarrative={true} streamedSections={{}}` props wired. |
+
+### Operational notes / deploy
+
+- Both `GET /api/fortune/daily` (non-streaming) AND `GET /api/fortune/daily/stream` (SSE) ship together
+- Streaming path consumes the SAME Anthropic tokens as non-streaming — only wire delivery differs (zero cost change)
+- Both paths share `FortuneSnapshotHelpers` (extracted module) — contract test asserts byte-identical snapshots → cache rows from one path are valid for the other
+- Per-section banned-phrase strip preserves «no absolute language ever leaks» contract DURING streaming
+- Sentry breadcrumb `category: 'fortune.stream.sanitize_diff'` (info level) lets ops measure per-section sanitization rate post-ship
+- **NO new DB migrations**
+- **NO new env vars**
+- **NO version bumps** (FORTUNE_PROMPT_VERSIONS unchanged — prompt template not modified, only delivery mechanism)
+- Cache invalidation: NOT REQUIRED for streaming ship (same data shape, same persist semantics)
+
+### Known gaps (not blocking ship)
+
+1. **Signed-out UX gap** (task #60): `/reading/fortune` renders empty FortuneShell when `isSignedIn=false`. Polish task to add sign-in CTA or redirect. Discovered during browser test 2026-05-28.
+2. **Full-skeleton → hybrid layout transition** (line-audit LOW): the disclaimer Y position can shift when transitioning from full-skeleton mode (no sections yet, NarrativeSkeleton renders without InlineAskCard slot reservation) to hybrid mode (first section arrives, visibility:hidden InlineAskCard wrappers reserve space). Within hybrid mode itself, Y position is 0px stable. Polish task: thread `renderAfterDimension` through NarrativeSkeleton too.
+3. **Stream error UX** (§E test): not exercised in browser this session because triggering would break active chat sessions. Backend wiring locked by spec tests; banner JSX locked by RTL spec. Re-test in dedicated session if needed.
+
+---
+
+## Deployment checklist for the 4 unmerged commits (when PR(s) open + merge)
+
+When `claude/elastic-pascal-cc5187` commits 0a4007d + cc642d1 + e5f48c8 + 7d00bae + this new commit land in main:
+
+1. **Apply DB migrations** (unchanged from previous checklist):
+   ```bash
+   cd apps/api && prisma migrate deploy
+   ```
+   Applies: `20260520233905_fortune_chat_session` + `20260521000821_seed_fortune_sample_questions` + `20260524023327_seed_folk_content_sample_questions`.
+
+2. **Set env vars** (unchanged):
+   ```
+   CHAT_ENABLED_READING_TYPES=LIFETIME,LOVE,CAREER,ANNUAL,COMPATIBILITY,FORTUNE
+   ```
+
+3. **Cache invalidation** — versions ALREADY bumped in code from earlier commits:
+   - `FORTUNE_DAILY_PRE_ANALYSIS_VERSION` v1.1.1 → v1.2.0 (Python)
+   - `FORTUNE_PRE_ANALYSIS_VERSIONS.day` v1.1.1 → v1.2.0 (TS mirror)
+   - `FORTUNE_PROMPT_VERSIONS.day` v1.2.3 → v1.3.0
+   - `CHAT_PROMPT_VERSIONS.FORTUNE` v1.0.0 → v1.1.0
+   - **Phase Fortune Streaming adds NO new version bumps** (prompt template unchanged)
+
+   **Scoped Redis DEL**:
+   ```bash
+   redis-cli --scan --pattern "fortune:daily:*" | xargs redis-cli DEL
+   redis-cli --scan --pattern "chat-context:*FORTUNE*" | xargs redis-cli DEL
+   ```
+
+4. **CRITICAL — bump `chat-sample-questions:version`**:
+   ```bash
+   redis-cli INCR 'chat-sample-questions:version'
+   ```
+
+5. **No new infrastructure changes for streaming** (Express SSE works without proxy/nginx config changes; `X-Accel-Buffering: no` header already set in `_emit`)
+
+6. **Monitor Anthropic spend dashboard for 24h** (cache bust = real regen cost; estimated <$5 since dev/staging only)
+
+7. **Deploy off-peak** (standard practice)
+
+8. **Frontend bundle**: clarinet (~2KB gzipped) + section-detector + hook adds ~10KB to apps/api bundle. apps/web no new deps (uses native fetch + ReadableStream).
+
+---
+
+## Reference patterns / utilities introduced (Phase Fortune Streaming session)
+
+### Streaming patterns (replicate for Phase 2 month/year fortune streaming or any AI-narrative SSE feature)
+- **clarinet for streaming JSON detection**: `apps/api/src/fortune/fortune-section-detector.ts` — pure-function wrapper. Reusable for any JSON-output AI streaming use-case. Tests cover the full edge-case matrix.
+- **FortuneSnapshotHelpers extraction pattern**: when ANY service has cache + persist + extract responsibilities AND a second service needs the same invariants, extract to an `@Injectable()` with a CONTRACT TEST asserting byte-identical artifacts across consumers. Mirror this for monthly/yearly fortune streaming.
+- **Two-tier validation**: per-emission cheap strip (regex) + end-of-stream full validate. Preserves load-bearing safety contract («no banned phrase visible mid-stream») while allowing complex cross-field rules at the end.
+- **SSE consumer hook pattern**: `useFortuneNarrativeStream` — `cancelled` flag at getToken + `cancelled` guards at onEvent/onError/onClose to drop late callbacks from previous stream. Mirror for any GET-SSE consumer.
+- **dual-state per-section render**: separate `narrative` (sanitized, post-done) from `streamedSections` (provisional, per section_complete). Caller chooses precedence: NarrativeCard does `narrative > streamedSections > skeleton`. Reuse pattern for any progressive-narrative UI.
+- **canonical-order render via DIM_META iteration**: enforce render order at the iteration site, never trust SSE event arrival order. Plan H5.
+- **layout reservation via visibility:hidden**: keep InlineAskCard's vertical space during skeleton via `<div style={{visibility:'hidden'}} aria-hidden="true">{slot}</div>` wrapper.
+
+### Audit-fix gotchas (replicate audit rhythm for any new feature)
+- **3-parallel sub-agent line audit** (backend + frontend + plan-conformance) — discovered 1 CRITICAL + 3 HIGH + 3 LOW/MEDIUM issues this feature. Confidence-scored 0-100; filter ≥75. Always replicate for high-risk work.
+- **Setting state inside setState updaters is non-idiomatic React** — refactor to use the auto-batching pattern instead. Updater functions must be PURE.
+- **Test mock `jest.mock('lucide-react', ...)`** is the dual-react-types workaround when ANY test renders a component using Lucide icons. Avoids the dreaded «A React Element from an older version of React was rendered» error.
+- **`response.end()` is no-op on dead sockets** — call it defensively in client-disconnect paths to make «every path either emits done OR closes response» a uniform contract.
+
+### Operational lessons / gotchas
+- **clarinet's `parser.position` counter drifts +1 per `write()` call when input is chunked** — verified empirically. Do NOT use position for buffer slicing across multi-chunk writes. Use event-driven value-tree reconstruction instead.
+- **Anthropic API stop_reason enum**: `'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | 'pause_turn'`. The string `'refusal'` is NOT currently emitted by the real API; Claude refusals come through as `'end_turn'` with refusal text in the content body. Keep `'refusal'` branch as forward-compat hook with explicit comment.
+- **Network panel tracker initialization delay**: Chrome's MCP tool starts tracking on first `read_network_requests` call — earlier requests are NOT captured. Always init the tracker BEFORE the navigation/action you want to observe.
+- **Browser tests need active Clerk session**: SSE hook `enabled: isSignedIn` gate causes silent no-op when user signed out. Add session check to test pre-flight + redirect/CTA UI in signed-out state (TODO #60).
+

@@ -47,11 +47,12 @@ import ChatFloatingButton from '../../components/chat/ChatFloatingButton';
 import InlineAskCard from '../../components/chat/InlineAskCard';
 import type { FortuneDimKey } from '../../components/fortune/NarrativeCard';
 import {
-  fetchDailyFortune,
   resolveBaziToday,
-  FortuneApiError,
   type DailyFortuneResponse,
+  type DailyFortuneNarrative,
+  type FortuneStreamEvent,
 } from '../../lib/fortune-api';
+import { useFortuneNarrativeStream } from '../../components/fortune/hooks/useFortuneNarrativeStream';
 import { useUserTier } from '../../lib/use-user-tier';
 import { fetchBirthProfiles, type BirthProfile } from '../../lib/birth-profiles-api';
 import { getProfileDisplayName } from '../../lib/format-profile-display-name';
@@ -260,65 +261,191 @@ function FortuneView() {
   const todayBaziIso = resolveBaziToday();
   const targetDate = dateParam ?? todayBaziIso;
 
+  /**
+   * Phase Fortune Streaming page state.
+   *
+   *   idle    — before stream opens (or while waiting for auth/tab to be 'day')
+   *   loading — stream opened, waiting for first event (engine_ready typically <500ms)
+   *   engine  — engine_ready received; engine data painted; narrative streaming via
+   *             section_complete events (rendered via `streamedSections` below)
+   *   success — `done` event received; sanitized narrative replaces provisional sections
+   *   error   — fatal pre-flight error (SUBSCRIBER_ONLY / OUT_OF_WINDOW / NO_PRIMARY_PROFILE)
+   *
+   * Note: a mid-stream error AFTER engine_ready does NOT downgrade to 'error' —
+   * we keep showing the engine view + NarrativeCard's hybrid render + a stream-
+   * error banner above NarrativeCard (plan v2 H3).
+   *
+   * Streaming dual-state per plan v2 architecture:
+   *   - `state.data.narrative` is null until done (sanitized supersedes provisional)
+   *   - `streamedSections` holds per-section provisional content; cleared on done
+   *   - ShareableFortuneCard reads `state.data.narrative` only → never captures
+   *     provisional content (plan v2 M1: PNG safety)
+   */
   const [state, setState] = useState<
     | { status: 'idle' }
     | { status: 'loading' }
+    | { status: 'engine'; data: DailyFortuneResponse }
     | { status: 'success'; data: DailyFortuneResponse }
     | { status: 'error'; code: string; message: string; statusCode: number }
   >({ status: 'idle' });
 
+  /** Per-section provisional content from section_complete events. Cleared
+   *  whenever a new stream opens (date change / profile change). */
+  const [streamedSections, setStreamedSections] = useState<Partial<DailyFortuneNarrative>>({});
+
+  /** Stream-error banner state. Non-null when error event arrived AFTER
+   *  engine_ready (mid-stream); plan v2 H3 keeps partial render + shows
+   *  banner above NarrativeCard. */
+  const [streamError, setStreamError] = useState<{ code: string; message: string } | null>(null);
+
+  // Plan v2 M7 (Option Z) — page uses a SINGLE SSE connection. engine_ready
+  // event delivers engine data as fast as a separate engineOnly fetch
+  // would (~500ms). Eliminates the 2-fetch race condition + double
+  // engineOnly/full code path.
+  const handleStreamEvent = useCallback(
+    (ev: FortuneStreamEvent) => {
+      if (ev.type === 'engine_ready') {
+        // Engine arrived — render score/dims/folk immediately
+        setState({
+          status: 'engine',
+          data: {
+            date: ev.date,
+            profileId: ev.profileId,
+            profileBirthDate: ev.profileBirthDate,
+            profileBirthTime: ev.profileBirthTime,
+            engineOutput: ev.engineOutput,
+            narrative: null,
+            cacheHit: false,
+            // Provisional `generatedAt` — the `done` event's snapshot persist
+            // is the source of truth; this is just a placeholder for
+            // ShareableFortuneCard if user shares before done fires (rare,
+            // and the share card doesn't surface generatedAt prominently).
+            generatedAt: new Date().toISOString(),
+          },
+        });
+        // Reset provisional sections for the new stream
+        setStreamedSections({});
+      } else if (ev.type === 'section_complete') {
+        setStreamedSections((prev) => ({
+          ...prev,
+          [ev.key]: ev.value as never,
+        }));
+      } else if (ev.type === 'done') {
+        // Sanitized narrative supersedes provisional sections
+        setState((prev) => {
+          if (prev.status === 'engine' || prev.status === 'success') {
+            return {
+              status: 'success',
+              data: { ...prev.data, narrative: ev.narrative, cacheHit: ev.cacheHit },
+            };
+          }
+          // Audit HIGH fix — defensive: if `done` arrives before `engine_ready`
+          // (would be a backend contract violation, but possible with a future
+          // streaming-pipeline bug or out-of-order delivery), surface as a
+          // recoverable error instead of leaving the page stuck on
+          // LoadingSkeleton forever. The user gets the ErrorPanel with a
+          // «回到本月」 CTA to retry. Plan v2 noted this branch should be
+          // unreachable; this turns «unreachable» into «recoverable».
+          return {
+            status: 'error',
+            code: 'STREAM_ORDER',
+            message: '資料載入順序異常，請重新整理',
+            statusCode: 0,
+          };
+        });
+        setStreamedSections({});
+        setStreamError(null);
+      } else if (ev.type === 'error') {
+        // Plan v2 H3: keep partial render if engine view already up; just
+        // show banner. If engine_ready never arrived (pre-flight error),
+        // promote to fatal error state.
+        //
+        // Audit MEDIUM fix — both setState + setStreamError are called
+        // unconditionally. The status guard happens inside setState's
+        // PURE updater (no side effects). The streamError is harmless when
+        // state.status === 'error' (the banner only renders inside
+        // SuccessView, which is unmounted in the error branch). When
+        // state.status is engine/success, the banner renders + render is
+        // preserved per H3.
+        setState((prev) => {
+          if (prev.status === 'engine' || prev.status === 'success') {
+            // Mid-stream error — preserve render
+            return prev;
+          }
+          // Pre-flight error — fatal. Map to existing ErrorPanel shape.
+          // statusCode=0 (SSE doesn't carry HTTP status mid-event); ErrorPanel
+          // switches on `code` not statusCode for SUBSCRIBER_ONLY / OUT_OF_WINDOW
+          // / NO_PRIMARY_PROFILE / PROFILE_NOT_FOUND.
+          return {
+            status: 'error',
+            code: ev.code,
+            message: ev.message,
+            statusCode: 0,
+          };
+        });
+        // Always set the banner — render gate is at the SuccessView level
+        // (only mounts for engine/success states). React 18 batches both
+        // setState calls into a single render. Pure updater above (no side
+        // effects) means StrictMode double-invoke is also safe.
+        setStreamError({ code: ev.code, message: ev.message });
+      }
+    },
+    [],
+  );
+
+  // Open the stream when tab=day + auth ready. Hook auto-aborts + re-opens
+  // when profileId / date change (plan v2 L4).
+  const { error: streamHookError } = useFortuneNarrativeStream({
+    enabled: tab === 'day' && isLoaded && isSignedIn,
+    profileId,
+    date: targetDate,
+    onEvent: handleStreamEvent,
+  });
+
+  // Transition idle → loading when stream becomes enabled. The hook itself
+  // doesn't manage page-level state.status (only its own streaming/error
+  // flags), so flip here when deps change.
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
-    if (tab !== 'day') return;     // Phase 1: only daily fetches data
-
-    let cancelled = false;
+    if (tab !== 'day') return;
+    setState({ status: 'idle' });
+    setStreamedSections({});
+    setStreamError(null);
+    // Lift to loading so LoadingSkeleton shows until engine_ready arrives.
+    // Subsequent state transitions are driven by handleStreamEvent.
     setState({ status: 'loading' });
+  }, [isLoaded, isSignedIn, profileId, targetDate, tab]);
 
-    (async () => {
-      try {
-        const token = await getToken();
-        if (!token) {
-          setState({
-            status: 'error',
-            code: 'NO_TOKEN',
-            statusCode: 401,
-            message: '請重新登入',
-          });
-          return;
-        }
-        const data = await fetchDailyFortune({ token, profileId, date: targetDate });
-        if (!cancelled) setState({ status: 'success', data });
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof FortuneApiError) {
-          setState({
-            status: 'error',
-            statusCode: err.status,
-            code: err.code,
-            message: err.message,
-          });
-        } else {
-          setState({
-            status: 'error',
-            statusCode: 0,
-            code: 'NETWORK',
-            message: (err as Error).message ?? '網路錯誤',
-          });
-        }
+  // Network-layer errors (AUTH_FAILED / STREAM_FAILED from the hook itself)
+  // surface via streamHookError. Treat as fatal IF no engine view yet.
+  useEffect(() => {
+    if (!streamHookError) return;
+    setState((prev) => {
+      if (prev.status === 'engine' || prev.status === 'success') {
+        setStreamError(streamHookError);
+        return prev;
       }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoaded, isSignedIn, getToken, profileId, targetDate, tab]);
+      return {
+        status: 'error',
+        code: streamHookError.code,
+        message: streamHookError.message,
+        statusCode: streamHookError.code === 'AUTH_FAILED' ? 401 : 0,
+      };
+    });
+  }, [streamHookError]);
 
   // Note: Date moved INTO EnergyScoreRing (UX Sprint 1 R1.2 / S1.1).
   // The subheader no longer renders a date — kept just for profile chip.
 
+  // Phase Fortune+ progressive loading: 'engine' + 'success' both have full
+  // data object — only the narrative field differs. Most UI bits (profile chip,
+  // share button, chat drawer, etc.) need data but don't care whether narrative
+  // is loaded yet. Extract a single «hasData» state for cleaner conditionals.
+  const dataState =
+    state.status === 'engine' || state.status === 'success' ? state : null;
+
   // Active profile for the switcher (matches URL `profileId` else primary fallback)
-  const activeProfileId =
-    profileId ?? (state.status === 'success' ? state.data.profileId : undefined);
+  const activeProfileId = profileId ?? dataState?.data.profileId;
 
   // Phase 1.5.x Issue #1 fix: resolve display name from the profile list using
   // the SAME `activeProfileId` the ProfileSwitcher uses, so chip + switcher stay
@@ -346,14 +473,13 @@ function FortuneView() {
       />
     ) : undefined;
 
-  const profileSwitcherSlot =
-    state.status === 'success' ? (
-      <ProfileSwitcher
-        profiles={profiles}
-        activeProfileId={activeProfileId}
-        onSelect={handleSwitchProfile}
-      />
-    ) : undefined;
+  const profileSwitcherSlot = dataState ? (
+    <ProfileSwitcher
+      profiles={profiles}
+      activeProfileId={activeProfileId}
+      onSelect={handleSwitchProfile}
+    />
+  ) : undefined;
 
   // Audit Bug #2 fix: invoke `triggerShare()` directly via useImperativeHandle.
   // The old pattern (programmatic `.click()` on a button ref) loses iOS Safari's
@@ -368,14 +494,22 @@ function FortuneView() {
       <FortuneShell
         activeTab={tab}
         onSwitchTab={handleSwitchTab}
-        profileName={state.status === 'success' && displayName ? displayName : undefined}
-        birthDate={state.status === 'success' ? state.data.profileBirthDate : undefined}
-        birthTime={state.status === 'success' ? state.data.profileBirthTime : undefined}
+        profileName={dataState && displayName ? displayName : undefined}
+        birthDate={dataState?.data.profileBirthDate}
+        birthTime={dataState?.data.profileBirthTime}
         dateNavigator={dateNavigatorSlot}
         profileSwitcher={profileSwitcherSlot}
         topBanner={
           showAuthBanner ? <AuthExpiredBanner onDismiss={handleBannerDismiss} /> : undefined
         }
+        // CRITICAL fix per plan v2 M1 / locked decision #15: share button is
+        // gated on `state.status === 'success'` (NOT 'engine'). Rationale:
+        // during the streaming 'engine' window, `data.narrative` is null —
+        // ShareableFortuneCard reads `narrative?.daily_advice?.canTry?.[0]`
+        // for the takeaway pull-quote, so a share triggered during streaming
+        // would generate a PNG with an empty takeaway line (looks broken
+        // when shared to LINE/WeChat). Gate on success means PNGs always
+        // contain the validator-sanitized narrative.
         onShareClick={state.status === 'success' ? handleShellShareClick : undefined}
       >
         {tab !== 'day' && <PartialPreview tab={tab} />}
@@ -390,9 +524,22 @@ function FortuneView() {
           />
         )}
 
-        {tab === 'day' && state.status === 'success' && (
+        {/* Phase Fortune Streaming: render SuccessView for BOTH 'engine'
+            (engine data + per-section streaming via streamedSections) AND
+            'success' (full sanitized narrative). NarrativeCard's
+            `streamedSections` prop drives the hybrid render — sections
+            appear one-by-one as section_complete events arrive.
+
+            Stream-error banner (plan v2 H3): when a mid-stream error fires
+            AFTER engine_ready, keep partial render but show banner above
+            NarrativeCard so user knows the AI generation failed (and
+            already-rendered sections remain visible). */}
+        {tab === 'day' && dataState && (
           <SuccessView
-            data={state.data}
+            data={dataState.data}
+            loadingNarrative={state.status === 'engine'}
+            streamedSections={streamedSections}
+            streamError={streamError}
             shareCardRef={shareCardRef}
             shareCardArmed={shareCardArmed}
             onArmShareCard={() => setShareCardArmed(true)}
@@ -419,7 +566,7 @@ function FortuneView() {
           Pinned to targetDate (page's anchor) — DateNavigator changes
           spawn new sessions per plan Issue 10 (useChatSession deps
           include fortune.fortuneAnchorDate). */}
-      {tab === 'day' && state.status === 'success' && activeProfileId && (
+      {tab === 'day' && dataState && activeProfileId && (
         <>
           {/* Audit fix L1 — clear section hint before opening so a prior
               InlineAskCard click doesn't leak its `daily_X` hint into
@@ -455,6 +602,19 @@ function FortuneView() {
 
 interface SuccessViewProps {
   data: DailyFortuneResponse;
+  /** Phase Fortune+ progressive loading: when true, engine data is rendered
+   *  but the AI narrative is still being generated. NarrativeCard renders
+   *  shimmer skeletons for prose sections instead of «暫不可用» fallback.
+   *  Resolves to false when narrative arrives (or AI failed — fallback OK). */
+  loadingNarrative?: boolean;
+  /** Phase Fortune Streaming — per-section provisional content (banned-phrase
+   *  stripped on the wire). Empty on cache hit + after `done` event. */
+  streamedSections?: Partial<DailyFortuneNarrative>;
+  /** Phase Fortune Streaming H3 — mid-stream error banner. Non-null when an
+   *  error event arrived AFTER engine_ready. Rendered inline above
+   *  NarrativeCard so the user knows AI generation failed while preserving
+   *  already-rendered sections. */
+  streamError?: { code: string; message: string } | null;
   shareCardRef: React.RefObject<HTMLDivElement | null>;
   shareCardArmed: boolean;
   onArmShareCard: () => void;
@@ -475,6 +635,9 @@ interface SuccessViewProps {
 
 function SuccessView({
   data,
+  loadingNarrative = false,
+  streamedSections,
+  streamError,
   shareCardRef,
   shareCardArmed,
   onArmShareCard,
@@ -505,10 +668,22 @@ function SuccessView({
 
       <SectionDivider />
 
+      {/* Plan v2 H3 — stream error banner. Inline above NarrativeCard so it
+          scrolls with the narrative content (not at the top of SuccessView
+          which would feel disconnected from the failed section). */}
+      {streamError && (
+        <div className={styles.streamErrorBanner} role="status" aria-live="polite">
+          <span className={styles.streamErrorIcon} aria-hidden="true">⚠️</span>
+          <span>AI 解讀載入中斷，重新整理可再試一次</span>
+        </div>
+      )}
+
       <NarrativeCard
         narrative={narrative}
         dimensions={engineOutput.dimensions}
         headlinerSignals={engineOutput.headlinerSignals}
+        loading={loadingNarrative}
+        streamedSections={streamedSections}
         renderAfterDimension={(dimKey) => (
           <InlineAskCard
             readingType="FORTUNE"
