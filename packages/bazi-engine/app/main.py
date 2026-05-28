@@ -24,6 +24,7 @@ from .chat_context import (
 )
 from .daily_enhanced import compute_daily_fortune, resolve_bazi_today_from_clock_time
 from .explanations import get_element_explanation
+from .monthly_enhanced import compute_single_month_by_yearmonth
 
 app = FastAPI(
     title="Bazi Calculation Engine",
@@ -717,6 +718,106 @@ async def daily_fortune_endpoint(data: DailyFortuneInput):
         raise HTTPException(
             status_code=500,
             detail=f"Daily fortune calculation error: {str(e)}",
+        )
+
+
+class MonthlyFortuneInput(BaseModel):
+    """Input for monthly fortune computation (八字月運) — Phase 2.
+
+    The endpoint accepts birth data + target (year, month) and internally
+    resolves the active 流月 (handles cross-flow-year via cnlunar), runs
+    the full chart pipeline, and delegates to `compute_single_month_by_yearmonth`.
+
+    Caller (NestJS layer) caches by `(chart_hash, scope='MONTH', anchor_date='YYYY-MM-01')`.
+
+    Phase A research lock (2026-05-28): time partition is `tiangan_dizhi_half`
+    (2-cell split: 上半月 stem-governed / 下半月 branch-governed) per ≥5
+    modern Bazi-master sources + 司莹居士《八字泄天机》流月逼進法.
+
+    See `.claude/plans/phase-2-yueyun-phase-a-research-results.md`.
+    """
+    birth_date: str = Field(
+        ..., description="Birth date YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    birth_time: str = Field(
+        ..., description="Birth time HH:MM",
+        pattern=r"^([01]\d|2[0-3]):([0-5]\d)$",
+    )
+    birth_city: str
+    birth_timezone: str
+    gender: str = Field(..., pattern=r"^(male|female)$")
+    birth_longitude: Optional[float] = None
+    birth_latitude: Optional[float] = None
+    target_year: int = Field(
+        ..., ge=1900, le=2100,
+        description="Target Gregorian year (cross-flow-year is resolved internally)",
+    )
+    target_month: int = Field(
+        ..., ge=1, le=12,
+        description="Target Gregorian month (1-12)",
+    )
+
+
+@app.post("/monthly-fortune")
+async def monthly_fortune_endpoint(data: MonthlyFortuneInput):
+    """Compute 八字月運 (monthly fortune) for the given chart on a target (year, month).
+
+    Returns the engine's deterministic monthly pre-analysis:
+    - 7-label 吉凶 (`auspiciousness`) + derived 0-100 `energyScore`
+    - 4 dimension sub-scores (career/finance/romance/health) with signals
+      — NO 出行 dim per Phase A Sub-Agent B doctrine (驛馬 is DAY-only)
+    - `partitionSpec` (`tiangan_dizhi_half` 2-cell: 上半月/下半月)
+    - `metaFraming='soft_trigger'` (load-bearing for AI prompt; 流月 is
+      sustained TREND, not verdict per 三命通會 月運篇)
+    - Phase 12b/12c additive fields (officerSealActivation, fuYinInteractions,
+      chongKuRelease, liuHaiInteractions, etc.) inherited from
+      `_compute_single_month`
+    - `chartContext` for NestJS prompt builder reuse (avoids second
+      /calculate hop)
+
+    Cross-flow-year: queries like target_year=2027, target_month=1 are
+    correctly resolved to flow_year=2026 (still 丑月 of 2026 pre-立春)
+    via cnlunar.lunarYear.
+
+    Cache strategy (recommended at NestJS layer): key by
+    `(chart_hash, scope='MONTH', anchor_date='YYYY-MM-01', FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION)`,
+    TTL 24h. Persist to DB for subscriber lookback (last + current + +12).
+
+    Endpoint timeout (NestJS side): recommend 60s `AbortSignal.timeout`
+    — monthly is heavier than daily due to potential cross-flow-year
+    compute (up to 2 calls to calculate_bazi_with_all_pipelines).
+    """
+    start_time = time.perf_counter()
+
+    try:
+        monthly_result = compute_single_month_by_yearmonth(
+            birth_date=data.birth_date,
+            birth_time=data.birth_time,
+            birth_city=data.birth_city,
+            birth_timezone=data.birth_timezone,
+            gender=data.gender,
+            year=data.target_year,
+            month=data.target_month,
+            birth_longitude=data.birth_longitude,
+            birth_latitude=data.birth_latitude,
+        )
+
+        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        return {
+            "status": "success",
+            "calculationTimeMs": elapsed_ms,
+            "data": monthly_result,
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Monthly fortune calculation error: {str(e)}",
         )
 
 
