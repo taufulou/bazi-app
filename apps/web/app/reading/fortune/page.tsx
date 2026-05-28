@@ -46,11 +46,21 @@ import ChatDrawer from '../../components/chat/ChatDrawer';
 import ChatFloatingButton from '../../components/chat/ChatFloatingButton';
 import InlineAskCard from '../../components/chat/InlineAskCard';
 import type { FortuneDimKey } from '../../components/fortune/NarrativeCard';
+// Phase 2 月運 (L5) — monthly components
+import MonthNavigator from '../../components/fortune/MonthNavigator';
+import MonthlyEnergyRing from '../../components/fortune/MonthlyEnergyRing';
+import MonthlyDimensionBars from '../../components/fortune/MonthlyDimensionBars';
+import MonthlyTimeGrid from '../../components/fortune/MonthlyTimeGrid';
+import MonthlyNarrativeCard from '../../components/fortune/MonthlyNarrativeCard';
 import {
   resolveBaziToday,
+  resolveCurrentMonthIso,
+  fetchMonthlyFortune,
+  FortuneApiError,
   type DailyFortuneResponse,
   type DailyFortuneNarrative,
   type FortuneStreamEvent,
+  type MonthlyFortuneResponse,
 } from '../../lib/fortune-api';
 import { useFortuneNarrativeStream } from '../../components/fortune/hooks/useFortuneNarrativeStream';
 import { useUserTier } from '../../lib/use-user-tier';
@@ -169,6 +179,17 @@ function FortuneView() {
     (nextIso: string) => {
       const params = new URLSearchParams(search.toString());
       params.set('date', nextIso);
+      router.push(`/reading/fortune?${params.toString()}`);
+    },
+    [router, search],
+  );
+
+  // Phase 2 月運 (L5) — analog to handleSwitchDate for MONTH scope. Updates
+  // ?month=YYYY-MM query param; MonthlyFortuneView re-fetches via effect.
+  const handleSwitchMonth = useCallback(
+    (nextMonthIso: string) => {
+      const params = new URLSearchParams(search.toString());
+      params.set('month', nextMonthIso);
       router.push(`/reading/fortune?${params.toString()}`);
     },
     [router, search],
@@ -458,8 +479,15 @@ function FortuneView() {
     : undefined;
   const displayName = getProfileDisplayName(activeProfileForDisplay);
 
-  // Build the DateNavigator slot — only mounted when we have an active day,
-  // so it can derive `value` confidently. Hidden on month/year tabs (Phase 2/3).
+  // Phase 2 月運 (L5) — derive monthly target (YYYY-MM) from URL ?month param,
+  // fall back to current Asia/Taipei month. Independent of `targetDate` (DAY).
+  const currentMonthIso = React.useMemo(() => resolveCurrentMonthIso(), []);
+  const targetMonth = search.get('month') ?? currentMonthIso;
+
+  // Build the navigator slot — dispatch by tab:
+  //   - tab='day'   → DateNavigator (Phase 1)
+  //   - tab='month' → MonthNavigator (Phase 2, sibling component)
+  //   - tab='year'  → undefined (Phase 3 placeholder)
   const dateNavigatorSlot =
     tab === 'day' ? (
       <DateNavigator
@@ -470,6 +498,15 @@ function FortuneView() {
         onChange={handleSwitchDate}
         onLockedAttempt={handleLockedAttempt}
         isLoading={state.status === 'loading'}
+      />
+    ) : tab === 'month' ? (
+      <MonthNavigator
+        value={targetMonth}
+        currentMonthIso={currentMonthIso}
+        tier={tier}
+        isTierLoading={tierIsLoading}
+        onChange={handleSwitchMonth}
+        onLockedAttempt={handleLockedAttempt}
       />
     ) : undefined;
 
@@ -512,7 +549,19 @@ function FortuneView() {
         // contain the validator-sanitized narrative.
         onShareClick={state.status === 'success' ? handleShellShareClick : undefined}
       >
-        {tab !== 'day' && <PartialPreview tab={tab} />}
+        {/* Phase 2 月運 (L5) — replace PartialPreview for month tab with real
+            MonthlyFortuneView. Year tab still uses PartialPreview (Phase 3
+            placeholder). */}
+        {tab === 'month' && (
+          <MonthlyFortuneView
+            profileId={activeProfileId}
+            targetMonth={targetMonth}
+            getToken={getToken}
+            isSignedIn={isSignedIn}
+            isLoaded={isLoaded}
+          />
+        )}
+        {tab === 'year' && <PartialPreview tab="year" />}
 
         {tab === 'day' && state.status === 'loading' && <LoadingSkeleton />}
 
@@ -870,24 +919,177 @@ function LoadingSkeleton() {
   );
 }
 
-function PartialPreview({ tab }: { tab: 'month' | 'year' }) {
-  const labels = { month: '月運', year: '年運' } as const;
+function PartialPreview({ tab }: { tab: 'year' }) {
+  // Phase 2 月運 (L5) — month is now real (MonthlyFortuneView replaces this
+  // for the month tab). Year remains placeholder until Phase 3 ships.
+  const labels = { year: '年運' } as const;
   return (
     <div className={styles.previewWrap}>
       <div className={styles.previewIcon}>📅</div>
       <h2 className={styles.previewTitle}>{labels[tab]}完整 AI 解讀即將推出</h2>
       <p className={styles.previewBody}>
-        Phase 1 已上線「日運」深度解讀。{labels[tab]}的完整 AI 解讀正在開發中。
+        Phase 1 已上線「日運」、Phase 2 已上線「月運」深度解讀。{labels[tab]}的完整 AI 解讀正在開發中。
       </p>
       <p className={styles.previewBody}>
-        ※ 您仍可在以下處查看完整月份/年度分析：
+        ※ 您仍可在以下處查看完整年度分析：
       </p>
-      {/* Both 月運 + 年運 cross-sell to the existing 八字流年運勢 paid
-          reading. Different deep links possible in Phase 2 once the
-          ANNUAL reading has month-anchored sections. */}
+      {/* Cross-sell to the existing 八字流年運勢 paid reading. */}
       <Link href="/reading/annual" className={styles.previewLink}>
         前往《八字流年運勢》 →
       </Link>
+    </div>
+  );
+}
+
+// ============================================================
+// Phase 2 月運 (L5) — MonthlyFortuneView
+// ============================================================
+// Fetches MonthlyFortuneResponse via fetchMonthlyFortune, renders
+// MonthlyEnergyRing + MonthlyDimensionBars + MonthlyTimeGrid +
+// MonthlyNarrativeCard. Self-contained; uses AbortController for
+// cleanup on profile/month switch.
+//
+// NOTE: Phase 2 does NOT yet ship monthly streaming (L5 is the
+// initial frontend; streaming is a future iteration). Uses the
+// non-streaming `fetchMonthlyFortune` for cold loads. Loading state
+// shows full skeleton via MonthlyNarrativeCard's `loading=true` prop.
+
+type MonthlyFortuneViewState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'success'; data: MonthlyFortuneResponse }
+  | { status: 'error'; code: string; statusCode: number; message: string };
+
+interface MonthlyFortuneViewProps {
+  profileId: string | undefined;
+  targetMonth: string;
+  getToken: () => Promise<string | null>;
+  isSignedIn: boolean | undefined;
+  isLoaded: boolean;
+}
+
+function MonthlyFortuneView({
+  profileId,
+  targetMonth,
+  getToken,
+  isSignedIn,
+  isLoaded,
+}: MonthlyFortuneViewProps) {
+  const [state, setState] = useState<MonthlyFortuneViewState>({ status: 'idle' });
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    const controller = new AbortController();
+    let cancelled = false;
+
+    (async () => {
+      setState({ status: 'loading' });
+      try {
+        const token = await getToken();
+        if (!token) {
+          if (!cancelled) {
+            setState({
+              status: 'error',
+              code: 'AUTH_FAILED',
+              statusCode: 401,
+              message: '請重新登入',
+            });
+          }
+          return;
+        }
+        const result = await fetchMonthlyFortune({
+          token,
+          profileId,
+          month: targetMonth,
+          signal: controller.signal,
+        });
+        if (!cancelled) {
+          setState({ status: 'success', data: result });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        if (err instanceof FortuneApiError) {
+          setState({
+            status: 'error',
+            code: err.code,
+            statusCode: err.status,
+            message: err.message,
+          });
+        } else if ((err as Error).name === 'AbortError') {
+          // Cleanup — silent
+        } else {
+          setState({
+            status: 'error',
+            code: 'UNKNOWN',
+            statusCode: 0,
+            message: (err as Error).message,
+          });
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getToken is stable
+  }, [isLoaded, isSignedIn, profileId, targetMonth]);
+
+  if (state.status === 'idle' || state.status === 'loading') {
+    return <MonthlyNarrativeCard narrative={null} dimensions={{ career: { score: 50, label: '平穩' }, finance: { score: 50, label: '平穩' }, romance: { score: 50, label: '平穩' }, health: { score: 50, label: '平穩' } }} loading />;
+  }
+
+  if (state.status === 'error') {
+    return (
+      <ErrorPanel
+        code={state.code}
+        statusCode={state.statusCode}
+        message={state.message}
+      />
+    );
+  }
+
+  const { engineOutput, narrative, intraMonthBreakdown } = state.data;
+  // Strip labelZh from dimensions for MonthlyNarrativeCard's simpler shape
+  const dimensionsForNarrative = {
+    career: { score: engineOutput.dimensions.career.score, label: engineOutput.dimensions.career.label },
+    finance: { score: engineOutput.dimensions.finance.score, label: engineOutput.dimensions.finance.label },
+    romance: { score: engineOutput.dimensions.romance.score, label: engineOutput.dimensions.romance.label },
+    health: { score: engineOutput.dimensions.health.score, label: engineOutput.dimensions.health.label },
+  };
+
+  return (
+    <div className={styles.contentWrap}>
+      <MonthlyEnergyRing
+        label={engineOutput.auspiciousness}
+        score={engineOutput.energyScore}
+        month={state.data.month}
+        monthGanZhi={engineOutput.monthGanZhi}
+        monthTenGod={engineOutput.monthTenGod}
+      />
+
+      <SectionDivider />
+
+      <MonthlyDimensionBars dimensions={engineOutput.dimensions} />
+
+      <SectionDivider />
+
+      <MonthlyTimeGrid
+        partitionSpec={engineOutput.partitionSpec}
+        intraMonthBreakdown={intraMonthBreakdown}
+        monthStem={engineOutput.monthStem}
+        monthBranch={engineOutput.monthBranch}
+      />
+
+      <SectionDivider />
+
+      <MonthlyNarrativeCard
+        narrative={narrative}
+        dimensions={dimensionsForNarrative}
+        loading={false}
+      />
+
+      <p className={styles.bottomDisclaimer}>{ENTERTAINMENT_DISCLAIMER['zh-TW']}</p>
     </div>
   );
 }
