@@ -36,7 +36,7 @@ export const CHAT_PROMPT_VERSIONS: Partial<Record<ReadingType, string>> = {
   CAREER: 'v1.0.1',   // Phase 2 post-test bump — same rule (preventive)
   ANNUAL: 'v1.0.3',   // Phase 2 post-test bump — A-4 few-shot regex-friendly fix (moved «屬於命局架構層面而非流年動態» AFTER «範圍——» so isTopicBoundaryRefuse regex still matches)
   COMPATIBILITY: 'v1.1.0', // Phase 3.1 — Bazi-master review fixes: K-3 doctrinal correction (no marriagePalace.personality), 配偶星 gender hint, 六合/半合 scope, softer cross-sell wording
-  FORTUNE: 'v1.1.0',  // Phase 1.5.z — folk content (吉色/吉數/吉食含忌食/吉時) now reaches chat scope via interpolateFortuneV1Fields folk block (2026-05-22)
+  FORTUNE: 'v1.1.0',  // Phase 1.5.z — folk content (吉色/吉數/吉食含忌食/吉時) now reaches chat scope via interpolateFortuneV1Fields folk block (2026-05-22). UNCHANGED for Phase 2 month support — that's handled by CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE below.
 };
 
 /** Safe lookup with fallback to LIFETIME for unmapped reading types. */
@@ -45,6 +45,40 @@ export function getChatPromptVersion(readingType: ReadingType): string {
 }
 
 export type ChatPromptVersionKey = ReadingType;
+
+/**
+ * Phase 2 月運 — Separate per-fortune-scope chat prompt version map.
+ *
+ * Per plan v4 H-new-2 (type-soundness): we do NOT rename
+ * `CHAT_PROMPT_VERSIONS.FORTUNE` because the parent map is typed
+ * `Partial<Record<ReadingType, string>>`. Adding `FORTUNE_DAY`/`FORTUNE_MONTH`
+ * as keys would require a Prisma `ReadingType` enum migration (cascading
+ * risk + breaks ~18 reading-type references).
+ *
+ * Instead: a SEPARATE map keyed by `FortuneScope` ('DAY' | 'MONTH'). Sibling
+ * helper `getChatPromptVersionForFortune(scope)` dispatches. Existing FORTUNE
+ * chat sessions stored with `contextVersion='v1.1.0'` continue to match
+ * `CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE.DAY` (semantic preservation —
+ * no DB row backfill, no drift-eviction on this deploy).
+ *
+ * Reference: `/Users/roger/.claude/plans/ok-next-big-feature-merry-cake.md`
+ * Phase 2 月運 section v4 + research-results doc.
+ */
+export const CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE: Record<
+  'DAY' | 'MONTH',
+  string
+> = {
+  DAY: 'v1.1.0',   // = existing CHAT_PROMPT_VERSIONS.FORTUNE value (semantic preservation)
+  MONTH: 'v1.0.0', // NEW for Phase 2 月運 — first version
+};
+
+/** Sibling helper to `getChatPromptVersion` for FORTUNE chat sessions.
+ *  Dispatches by `FortuneScope` discriminator. */
+export function getChatPromptVersionForFortune(
+  scope: 'DAY' | 'MONTH',
+): string {
+  return CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE[scope];
+}
 
 // Cache version for the chat-context slim. Each entry must be ≥ the
 // corresponding entry in ai.service.ts::PRE_ANALYSIS_VERSIONS (which tracks
@@ -69,14 +103,21 @@ const PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH = {
   ANNUAL: 'v2.4.0',
   LOVE: 'v1.11.0',
   COMPATIBILITY: 'v1.8.2', // Phase 3 follow-up — H1 timingSync + H4 strip ideal-spouse + H5 restore 4 anti-hallucination anchors
-  // Phase Fortune chat — mirrors FORTUNE_DAILY_PRE_ANALYSIS_VERSION='v1.1.1'
+  // Phase Fortune chat — mirrors FORTUNE_DAILY_PRE_ANALYSIS_VERSION='v1.2.0'
   // in packages/bazi-engine/app/fortune_constants.py. ONLY appended to the
   // version string when readingType === 'FORTUNE' (per-readingType conditional
   // in computeVersionString + getCurrentSnapshotVersions per plan Issue 11 +
   // NEW-A re-review). Adding this entry does NOT invalidate any non-FORTUNE
   // session because the conditional gate prevents it from joining the version
   // string for LIFETIME/LOVE/CAREER/ANNUAL/COMPAT sessions.
+  //
+  // PHASE 2 月運 NOTE: Existing `FORTUNE` entry kept as legacy for DAY scope.
+  // NEW per-scope entries FORTUNE_DAY + FORTUNE_MONTH below — emit
+  // active-scope-only per plan v4 H-new-4. (See computeVersionString
+  // refactor to accept optional `fortuneScope` arg below.)
   FORTUNE: 'v1.1.1',
+  FORTUNE_DAY: 'v1.2.0',   // Phase 1.5.z folk content version (per fortune_constants.py)
+  FORTUNE_MONTH: 'v1.0.0', // Phase 2 月運 initial (per FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION)
 } as const;
 
 const CHAT_CONTEXT_TTL_SECONDS = 24 * 60 * 60; // 24h
@@ -748,7 +789,41 @@ export class ChatContextService {
       `pa-compat=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.COMPATIBILITY}`,
     ];
     if (readingType === 'FORTUNE') {
+      // Legacy DAY-scope path (no fortuneScope arg). FORTUNE-scope-aware
+      // call-sites should use computeVersionStringForFortune below.
       parts.push(`pa-fort=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE}`);
+    }
+    return parts.join('|');
+  }
+
+  /**
+   * Phase 2 月運 — sibling helper to `computeVersionString` for FORTUNE
+   * sessions. Emits ACTIVE-SCOPE-ONLY per plan v4 H-new-4:
+   * - DAY scope: emits `pa-fort-day=<DAY_VERSION>` only (NO pa-fort-month)
+   * - MONTH scope: emits `pa-fort-month=<MONTH_VERSION>` only (NO pa-fort-day)
+   *
+   * Zero cross-scope blast: bumping MONTH version does NOT invalidate
+   * cached DAY chat-contexts (and vice versa). Locked by regression spec
+   * `chat-context.service.fortune.spec.ts` — bumping either scope's
+   * version does NOT alter the other scope's version string.
+   *
+   * The base composition uses prompt-version for FORTUNE via the new
+   * `CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE` map.
+   */
+  computeVersionStringForFortune(scope: 'DAY' | 'MONTH'): string {
+    const parts: string[] = [
+      `fortune=${getChatPromptVersionForFortune(scope)}`,
+      `pa-life=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.LIFETIME}`,
+      `pa-love=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.LOVE}`,
+      `pa-car=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.CAREER}`,
+      `pa-ann=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.ANNUAL}`,
+      `pa-compat=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.COMPATIBILITY}`,
+    ];
+    // Active-scope-only emission per plan v4 H-new-4
+    if (scope === 'DAY') {
+      parts.push(`pa-fort-day=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_DAY}`);
+    } else if (scope === 'MONTH') {
+      parts.push(`pa-fort-month=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_MONTH}`);
     }
     return parts.join('|');
   }
@@ -775,6 +850,10 @@ export class ChatContextService {
     // `preAnalysisVersion` snapshot byte-identical pre- and post-ship — no
     // mass `CONTEXT_VERSION_DRIFTED` eviction on the next message
     // (`chat.service.ts:517` drift check).
+    //
+    // Phase 2 月運 NOTE: FORTUNE chat sessions should use the sibling helper
+    // `getCurrentSnapshotVersionsForFortune(scope)` below for active-scope-only
+    // emission. The legacy path here still emits `fort=` for back-compat.
     const paParts: string[] = [
       `life=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.LIFETIME}`,
       `love=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.LOVE}`,
@@ -787,6 +866,42 @@ export class ChatContextService {
     }
     return {
       contextVersion: getChatPromptVersion(readingType),
+      preAnalysisVersion: paParts.join('|'),
+    };
+  }
+
+  /**
+   * Phase 2 月運 — sibling to `getCurrentSnapshotVersions` for FORTUNE
+   * chat sessions. Dispatches by `FortuneScope` discriminator. Per plan v4
+   * H-new-3: sibling helper instead of overloading the original (cleaner
+   * than optional-arg-with-runtime-check).
+   *
+   * Returns the same shape `{contextVersion, preAnalysisVersion}` so
+   * call-sites just pick the right helper based on session.readingType.
+   *
+   * Per plan v4 H-new-4: emit ACTIVE-SCOPE-ONLY pa-fort-day OR
+   * pa-fort-month (not both) — bumping one scope's pre-analysis version
+   * does not invalidate the other scope's cached chat-contexts.
+   */
+  getCurrentSnapshotVersionsForFortune(scope: 'DAY' | 'MONTH'): {
+    contextVersion: string;
+    preAnalysisVersion: string;
+  } {
+    const paParts: string[] = [
+      `life=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.LIFETIME}`,
+      `love=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.LOVE}`,
+      `car=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.CAREER}`,
+      `ann=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.ANNUAL}`,
+      `compat=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.COMPATIBILITY}`,
+    ];
+    // Active-scope-only emission per plan v4 H-new-4
+    if (scope === 'DAY') {
+      paParts.push(`fort-day=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_DAY}`);
+    } else if (scope === 'MONTH') {
+      paParts.push(`fort-month=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_MONTH}`);
+    }
+    return {
+      contextVersion: getChatPromptVersionForFortune(scope),
       preAnalysisVersion: paParts.join('|'),
     };
   }
