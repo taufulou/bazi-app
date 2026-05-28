@@ -623,11 +623,21 @@ model ChatSampleQuestion {
   isActive       Boolean     @default(true) @map("is_active")
   // Locale code for future i18n. Default zh-TW; queries filter on this.
   locale         String      @default("zh-TW")
+  // Phase 2 月運 (2026-05-28): scope discriminator for FORTUNE questions.
+  // NULL is treated as DAY for back-compat (all pre-Phase-2 FORTUNE rows
+  // are DAY-scope). Per plan v3 M-new-1 — column approach (not sectionKey
+  // prefix) because column allows clean WHERE filtering + future YEAR
+  // scope extension. Other reading types (LIFETIME/LOVE/CAREER/ANNUAL/
+  // COMPATIBILITY) leave this NULL.
+  fortuneScope   FortuneScope? @map("fortune_scope")
   createdAt      DateTime    @default(now()) @map("created_at")
   updatedAt      DateTime    @updatedAt @map("updated_at")
 
   @@index([readingType, sectionKey, isActive, locale])
   @@index([readingType, locale]) // for general (sectionKey=NULL) lookup
+  // Phase 2 月運 index for fortuneScope-filtered queries (added when
+  // L3.5b sample-questions controller fortuneScope query param ships).
+  @@index([readingType, fortuneScope, sectionKey, isActive, locale])
   @@map("chat_sample_questions")
 }
 

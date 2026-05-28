@@ -528,4 +528,204 @@ export class FortuneValidatorsService {
     const passed = findings.every(f => f.severity !== 'error');
     return { passed, findings, sanitized };
   }
+
+  // ============================================================
+  // Phase 2 月運 — Monthly narrative validators
+  // ============================================================
+  //
+  // Mirrors daily validators scaled for MONTH scope. The shared
+  // `FORTUNE_BANNED_ABSOLUTE_PHRASES` constant now includes MONTH-scope
+  // phrases («本月會」 etc.), so `stripBannedAbsolutePhrasesFromText` handles
+  // both DAY + MONTH automatically.
+  //
+  // Per plan v4 L4 + research-results §6 clauses:
+  // - Clause 1: soft-trigger framing for 流月 (本月宜 / 本月易於 / 本月趨向
+  //   — NOT 本月會 / 本月一定)
+  // - Clause 3: 用神/喜神/忌神 chart-level only (no monthly reassignment)
+  // - Clause 7: cross-month redirect (defense-in-depth for H6) — flag AI
+  //   responses that answer about a DIFFERENT month than session anchor
+
+  /** Soft-trigger opening pattern for MONTH scope (parallel to daily). */
+  private readonly MONTHLY_SOFT_TRIGGER_OPENERS =
+    /本月(宜|易於|適合|傾向|趨向|有.{1,4}傾向|可考慮)/;
+
+  /** Cross-month query phrases (defense-in-depth for H6 redirect rule).
+   *  When session anchor month is provided, presence of these patterns
+   *  in narrative MAY indicate the AI is drifting from anchor — flag warn. */
+  private readonly CROSS_MONTH_PATTERNS = [
+    /下個月/,
+    /下下個月/,
+    /上個月/,
+    /明年.{1,3}月/,
+    /去年.{1,3}月/,
+  ];
+
+  /** Monthly 用神 reassignment forbidden pattern. */
+  private readonly MONTHLY_DM_REASSIGNMENT = /本月用神(為|是|變為|轉為)/;
+
+  /**
+   * Validate a monthly fortune AI narrative and sanitize banned phrases.
+   *
+   * Scope: lighter than `validate()` (daily). Monthly engine doesn't emit
+   * folk content (per locked decision #6), so no folk-fabrication gate.
+   * Focus is on:
+   * 1. Banned absolute phrases (universal + MONTH-specific) — strip via
+   *    existing public method (reuses unified constant — added MONTH
+   *    phrases at L4 time).
+   * 2. Soft-trigger framing presence (warn if NO 本月宜/本月易於/etc. found
+   *    in monthly_overview).
+   * 3. 用神 reassignment forbidden (warn — chart-level only doctrine).
+   * 4. Optional: cross-month-drift detection (defense-in-depth for H6
+   *    redirect rule — when `sessionAnchorMonth` is provided, warn if
+   *    narrative references a DIFFERENT month).
+   *
+   * Never throws — internal error path returns the narrative unchanged
+   * with a warn finding (matches `validate()` resilience contract).
+   */
+  validateMonthly(
+    narrative: Record<string, unknown> | null,
+    opts?: { sessionAnchorMonth?: string }
+  ): FortuneValidationResult {
+    const findings: FortuneValidationResult['findings'] = [];
+
+    if (!narrative) {
+      return { passed: true, findings, sanitized: {} };
+    }
+
+    try {
+      return this._validateMonthlyUnsafe(narrative, findings, opts);
+    } catch (err) {
+      const msg = (err as Error).message ?? String(err);
+      this.logger.error(`Fortune monthly validator internal error: ${msg}`);
+      findings.push({
+        severity: 'warn',
+        type: 'internal_error',
+        detail: msg,
+      });
+      return { passed: true, findings, sanitized: narrative };
+    }
+  }
+
+  private _validateMonthlyUnsafe(
+    narrative: Record<string, unknown>,
+    findings: FortuneValidationResult['findings'],
+    opts?: { sessionAnchorMonth?: string },
+  ): FortuneValidationResult {
+    const sanitized: Record<string, unknown> = { ...narrative };
+
+    // Iterate string-valued sections (monthly_overview, monthly_career, etc.
+    // + takeaway pull-quotes). Skip monthly_advice (object) +
+    // intra_month_breakdown (array of objects) which need structural handling.
+    const stringSections: string[] = [
+      'monthly_overview',
+      'monthly_career', 'monthly_career_takeaway',
+      'monthly_finance', 'monthly_finance_takeaway',
+      'monthly_romance', 'monthly_romance_takeaway',
+      'monthly_health', 'monthly_health_takeaway',
+    ];
+
+    let foundSoftTriggerInOverview = false;
+
+    for (const key of stringSections) {
+      const value = narrative[key];
+      if (typeof value !== 'string' || value.length === 0) continue;
+
+      // 1. Banned absolute phrase strip (universal helper — uses unified constant)
+      const { text: stripped, strippedPhrases } =
+        this.stripBannedAbsolutePhrasesFromText(value);
+      if (strippedPhrases.length > 0) {
+        findings.push({
+          severity: 'warn',
+          type: 'banned_phrase_stripped',
+          detail: `stripped ${strippedPhrases.length} banned phrase(s): ${strippedPhrases.join(', ')}`,
+          section: key,
+        });
+        this.logger.warn(
+          `Fortune monthly narrative: stripped banned phrases from ${key} (${strippedPhrases.join(', ')})`,
+        );
+      }
+      sanitized[key] = stripped;
+
+      // 2. 用神 reassignment check (Phase 12 doctrine)
+      if (this.MONTHLY_DM_REASSIGNMENT.test(stripped)) {
+        findings.push({
+          severity: 'warn',
+          type: 'monthly_dm_reassignment',
+          detail: 'narrative attempted to reassign 用神 at monthly scope; 用神 is chart-level only (子平真詮 論用神 「用神既定，不可妄改」)',
+          section: key,
+        });
+        this.logger.warn(
+          `metric.fortune.framing_violation type=monthly_dm_reassignment section=${key}`,
+        );
+      }
+
+      // 3. Cross-month drift detection (defense-in-depth for H6 redirect)
+      if (opts?.sessionAnchorMonth) {
+        for (const pattern of this.CROSS_MONTH_PATTERNS) {
+          if (pattern.test(stripped)) {
+            findings.push({
+              severity: 'warn',
+              type: 'cross_month_drift',
+              detail: `narrative references a non-anchor month (matched pattern ${pattern.source}); session anchor is ${opts.sessionAnchorMonth}. Per H6 redirect doctrine, MONTH chat should redirect cross-month queries, not answer them.`,
+              section: key,
+            });
+            this.logger.warn(
+              `metric.fortune.framing_violation type=cross_month_drift section=${key} anchor=${opts.sessionAnchorMonth} pattern=${pattern.source}`,
+            );
+            break; // one warn per section is enough
+          }
+        }
+      }
+
+      // 4. Soft-trigger framing presence (overview only — informational)
+      if (key === 'monthly_overview' && this.MONTHLY_SOFT_TRIGGER_OPENERS.test(stripped)) {
+        foundSoftTriggerInOverview = true;
+      }
+    }
+
+    if (!foundSoftTriggerInOverview && typeof narrative['monthly_overview'] === 'string') {
+      findings.push({
+        severity: 'warn',
+        type: 'missing_soft_trigger_framing',
+        detail: 'monthly_overview lacks soft-trigger phrasing (本月宜 / 本月易於 / 本月趨向 / 本月適合 etc.) — may indicate over-strict «本月會」 framing that was stripped',
+        section: 'monthly_overview',
+      });
+      this.logger.warn(
+        'metric.fortune.framing_violation type=missing_soft_trigger_framing section=monthly_overview',
+      );
+    }
+
+    // monthly_advice list-item banned-phrase strip (mirror daily logic)
+    const advice = narrative['monthly_advice'];
+    if (
+      advice && typeof advice === 'object' &&
+      !Array.isArray(advice)
+    ) {
+      const adviceObj = advice as Record<string, unknown>;
+      const sanitizedAdvice: Record<string, unknown> = { ...adviceObj };
+      for (const listKey of ['canTry', 'shouldHold']) {
+        const list = adviceObj[listKey];
+        if (Array.isArray(list)) {
+          sanitizedAdvice[listKey] = list.map((item: unknown) => {
+            if (typeof item !== 'string') return item;
+            const { text, strippedPhrases } =
+              this.stripBannedAbsolutePhrasesFromText(item);
+            if (strippedPhrases.length > 0) {
+              findings.push({
+                severity: 'warn',
+                type: 'banned_phrase_stripped',
+                detail: `stripped ${strippedPhrases.length} banned phrase(s) in monthly_advice.${listKey} item`,
+                section: `monthly_advice.${listKey}`,
+              });
+            }
+            return text;
+          });
+        }
+      }
+      sanitized['monthly_advice'] = sanitizedAdvice;
+    }
+
+    const passed = findings.every((f) => f.severity !== 'error');
+    return { passed, findings, sanitized };
+  }
 }

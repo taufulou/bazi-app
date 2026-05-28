@@ -4789,14 +4789,31 @@ export const FORTUNE_PROMPT_VERSIONS = {
 export type FortuneScopeKey = keyof typeof FORTUNE_PRE_ANALYSIS_VERSIONS;
 
 /** Banned absolute-language phrases — enforced server-side via
- *  `fortune.service.ts::validateAINarrative` post-stream regex strip. */
+ *  `fortune.service.ts::validateAINarrative` post-stream regex strip
+ *  + per-section strip during streaming via
+ *  `fortune-validators.service.ts::stripBannedAbsolutePhrasesFromText`.
+ *
+ *  Phase 2 月運 extension (2026-05-28): added MONTH-scope absolute phrases
+ *  («本月會 / 這個月會」) for monthly fortune validators. The unified
+ *  list keeps the «no absolute language ever leaks» invariant across
+ *  both DAY and MONTH scopes. */
 export const FORTUNE_BANNED_ABSOLUTE_PHRASES = [
+  // Universal absolute-language phrases (apply to DAY + MONTH + YEAR)
   '一定',
   '必定',
   '必然',
   '絕對',
   '肯定',
   '百分百',
+  // DAY-scope absolute phrases
   '今天會',
   '今日會',
+  // MONTH-scope absolute phrases (Phase 2 月運 2026-05-28)
+  '本月會',
+  '這個月會',
+  '本月必',
+  '這個月必',
+  // YEAR-scope absolute phrases (Phase 3 placeholder — harmless if absent)
+  '今年會',
+  '今年必',
 ] as const;
