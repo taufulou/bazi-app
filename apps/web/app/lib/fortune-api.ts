@@ -506,3 +506,272 @@ export function moodKeywordFromLabel(label: string): string {
   };
   return map[label] ?? '今日平穩';
 }
+
+
+// ============================================================
+// MONTHLY (八字月運) — Phase 2 web mirror
+// ============================================================
+// MUST stay in sync with apps/api/src/fortune/dto/index.ts MONTHLY DTOs.
+// Phase 1.5.z lesson: web build breaks if mirrors drift.
+//
+// Locked decisions (from Phase A research):
+// - Partition `tiangan_dizhi_half` (2-cell: 上半月/下半月)
+// - 4 dims (career/finance/romance/health); 出行 OMITTED
+// - Folk content OMITTED from monthly
+// - Subscriber window: -1 / current / +12 months INCLUSIVE
+// ============================================================
+
+// ------------------------------------------------------------
+// PartitionSpec — mirror of monthly_enhanced.py TypedDict
+// ------------------------------------------------------------
+
+export interface PartitionBucket {
+  label: string;
+  day_range: [number, number | null];
+  /** DOCTRINE-BEARING field — referenced by anti-hallucination clause 5
+   *  in FORTUNE_V1_PROMPTS.monthly. Engineering MUST mirror this. */
+  governing_pillar: 'stem' | 'branch';
+}
+
+export interface PartitionSpec {
+  scheme_id: 'tiangan_dizhi_half';
+  buckets: PartitionBucket[];
+}
+
+// ------------------------------------------------------------
+// Monthly dimension (4 dims, no travel)
+// ------------------------------------------------------------
+
+export interface MonthlyFortuneDimension {
+  score: number;
+  label: string;
+  labelZh: string;
+  signals: string[];
+}
+
+// ------------------------------------------------------------
+// Intra-month breakdown (L1.b output)
+// ------------------------------------------------------------
+
+export interface IntraMonthBucketResult {
+  label: string;
+  day_range: [number, number | null];
+  governing_pillar: 'stem' | 'branch';
+  auspicious_days: number;
+  challenging_days: number;
+  neutral_days: number;
+  peak_signals: Array<{
+    date: string | null;
+    energyScore: number;
+    label: string;
+    signals: string[];
+  }>;
+  dominant_shensha: string[];
+}
+
+export interface IntraMonthBreakdown {
+  scheme_id: 'tiangan_dizhi_half';
+  liuyue_window: {
+    start: string;
+    end: string;
+    days: number;
+  };
+  buckets: IntraMonthBucketResult[];
+}
+
+// ------------------------------------------------------------
+// Monthly AI narrative
+// ------------------------------------------------------------
+
+export interface MonthlyFortuneNarrative {
+  monthly_overview: string;
+  monthly_career: string;
+  monthly_career_takeaway?: string;
+  monthly_finance: string;
+  monthly_finance_takeaway?: string;
+  monthly_romance: string;
+  monthly_romance_takeaway?: string;
+  monthly_health: string;
+  monthly_health_takeaway?: string;
+  monthly_advice: {
+    canTry: string[];
+    shouldHold: string[];
+  };
+  intra_month_breakdown?: Array<{
+    partition_label: string;
+    narrative: string;
+  }>;
+}
+
+// ------------------------------------------------------------
+// Engine output
+// ------------------------------------------------------------
+
+export interface MonthlyFortuneEngineOutput {
+  monthStem: string;
+  monthBranch: string;
+  monthGanZhi: string;
+  monthTenGod: string;
+  monthLabel: string;
+  auspiciousness: string;
+  energyScore: number;
+  metaFraming: 'soft_trigger';
+  baseAuspiciousness?: string;
+  bareMonthAuspiciousness?: string;
+  isKongWang?: boolean;
+  officerSealActivation?: { pattern: string; direction: string; level: string };
+  fuYinInteractions?: Array<{ pillar: string; branch: string; role: string }>;
+  chongKuRelease?: { net: number; releasedStems: string[]; direction: string };
+  liuHaiInteractions?: Array<{ pillar: string; pair: string; role: string; kind: string }>;
+  dimensions: Record<'career' | 'finance' | 'romance' | 'health', MonthlyFortuneDimension>;
+  partitionSpec: PartitionSpec;
+  ruleTrace: string[];
+  preAnalysisVersion: string;
+}
+
+// ------------------------------------------------------------
+// Response
+// ------------------------------------------------------------
+
+export interface MonthlyFortuneResponse {
+  month: string;          // YYYY-MM
+  flowYear: number;
+  profileId: string;
+  profileBirthDate: string;
+  profileBirthTime: string;
+  engineOutput: MonthlyFortuneEngineOutput;
+  narrative: MonthlyFortuneNarrative | null;
+  intraMonthBreakdown?: IntraMonthBreakdown;
+  cacheHit: boolean;
+  generatedAt: string;
+}
+
+// ------------------------------------------------------------
+// API call — GET /api/fortune/monthly
+// ------------------------------------------------------------
+
+interface FetchMonthlyOpts {
+  token: string;
+  profileId?: string;
+  month?: string;          // YYYY-MM
+  signal?: AbortSignal;
+  engineOnly?: boolean;
+}
+
+export async function fetchMonthlyFortune(
+  opts: FetchMonthlyOpts,
+): Promise<MonthlyFortuneResponse> {
+  const params = new URLSearchParams();
+  if (opts.profileId) params.set('profileId', opts.profileId);
+  if (opts.month) params.set('month', opts.month);
+  if (opts.engineOnly) params.set('engineOnly', 'true');
+
+  const url = `${API_BASE}/api/fortune/monthly${params.toString() ? `?${params}` : ''}`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${opts.token}`,
+      'Content-Type': 'application/json',
+    },
+    signal: opts.signal,
+  });
+
+  if (!response.ok) {
+    let body: { message?: string; code?: string } = {};
+    try {
+      body = await response.json();
+    } catch {
+      // ignore
+    }
+    throw new FortuneApiError(
+      response.status,
+      body.code ?? `HTTP_${response.status}`,
+      body.message ?? `Monthly fortune fetch failed: ${response.status}`,
+    );
+  }
+
+  return response.json();
+}
+
+// ------------------------------------------------------------
+// Subscriber window — MONTHLY scope
+// ------------------------------------------------------------
+//
+// Per locked plan: -1 month past + current + +12 months future (INCLUSIVE).
+// From a 2026-05 anchor, 2027-05 is the last accessible month.
+// Free users see current month only (FREE_WINDOW_*_MONTH = 0).
+
+export const FREE_WINDOW_PAST_MONTH = 0;
+export const FREE_WINDOW_FUTURE_MONTH = 0;
+export const SUBSCRIBER_WINDOW_PAST_MONTH = 1;
+export const SUBSCRIBER_WINDOW_FUTURE_MONTH = 12;
+
+/** Add `n` months to a YYYY-MM string. Negative subtracts.
+ *  Handles year boundary correctly. */
+export function addMonthsIso(monthIso: string, n: number): string {
+  const m = monthIso.match(/^(\d{4})-(\d{2})$/);
+  if (!m) return monthIso;
+  let year = Number(m[1]!);
+  let month = Number(m[2]!) - 1 + n; // 0-indexed
+  // Normalize year/month
+  year += Math.floor(month / 12);
+  month = ((month % 12) + 12) % 12;
+  return `${String(year).padStart(4, '0')}-${String(month + 1).padStart(2, '0')}`;
+}
+
+/** Difference (target - reference) in whole months. Both YYYY-MM. */
+export function diffMonthsIso(target: string, reference: string): number {
+  const tm = target.match(/^(\d{4})-(\d{2})$/);
+  const rm = reference.match(/^(\d{4})-(\d{2})$/);
+  if (!tm || !rm) return 0;
+  const ty = Number(tm[1]!),
+    tmo = Number(tm[2]!);
+  const ry = Number(rm[1]!),
+    rmo = Number(rm[2]!);
+  return (ty - ry) * 12 + (tmo - rmo);
+}
+
+/** True iff target YYYY-MM is within the user's subscriber window relative
+ *  to current YYYY-MM. Mirrors backend subscription gate. */
+export function isMonthInSubscriberWindow(
+  targetMonth: string,
+  currentMonth: string,
+  tier: UserTier | undefined,
+): boolean {
+  const diff = diffMonthsIso(targetMonth, currentMonth);
+  if (tier === undefined || tier === 'FREE') {
+    return diff >= -FREE_WINDOW_PAST_MONTH && diff <= FREE_WINDOW_FUTURE_MONTH;
+  }
+  return (
+    diff >= -SUBSCRIBER_WINDOW_PAST_MONTH &&
+    diff <= SUBSCRIBER_WINDOW_FUTURE_MONTH
+  );
+}
+
+/** Resolve the current month in Asia/Taipei TZ → YYYY-MM.
+ *  Mirrors backend convention (FORTUNE_DEFAULT_TZ = 'Asia/Taipei'). */
+export function resolveCurrentMonthIso(now: Date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+  });
+  // sv-SE with year+month gives YYYY-MM
+  return formatter.format(now);
+}
+
+/** Map a 7-tier auspiciousness label to a UX-friendly monthly mood phrase. */
+export function moodKeywordFromMonthlyLabel(label: string): string {
+  const map: Record<string, string> = {
+    大吉: '本月順遂',
+    吉: '本月可把握',
+    吉中有凶: '本月吉中需謹慎',
+    平: '本月平穩',
+    凶中有吉: '本月凶中可轉機',
+    小凶: '本月宜緩',
+    凶: '本月宜守',
+    大凶: '本月宜避鋒',
+    凶上加凶: '本月大忌',
+  };
+  return map[label] ?? '本月平穩';
+}

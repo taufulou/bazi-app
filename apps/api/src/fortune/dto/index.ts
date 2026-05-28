@@ -190,3 +190,224 @@ export interface DailyFortuneResponse {
   cacheHit: boolean;
   generatedAt: string;
 }
+
+
+// ============================================================
+// MONTHLY (八字月運) — Phase 2 DTOs
+// ============================================================
+// Plan: .claude/plans/ok-next-big-feature-merry-cake.md
+// Phase A research: phase-2-yueyun-phase-a-research-results.md
+//
+// Key locked decisions:
+// - Partition LOCKED to `tiangan_dizhi_half` (2-cell: 上半月 stem-governed /
+//   下半月 branch-governed) per Sub-Agent A
+// - 4 dims locked (career/finance/romance/health) per Sub-Agent B;
+//   出行 OMITTED (DAY-only doctrine)
+// - Folk content OMITTED from monthly (DAY-only differentiator per locked
+//   decision #6)
+// - Subscriber window: -1 month / current / +12 months INCLUSIVE
+// ============================================================
+
+// ------------------------------------------------------------
+// GET /api/fortune/monthly
+// ------------------------------------------------------------
+
+export class GetMonthlyFortuneQueryDto {
+  /** Birth profile to compute fortune for. Falls back to user's primary profile when omitted. */
+  @IsOptional()
+  @IsUUID()
+  profileId?: string;
+
+  /**
+   * Target month in YYYY-MM format. Cross-flow-year is resolved internally
+   * via cnlunar's 立春-correct month8Char + Jan-rule (January = 丑月 of
+   * PREVIOUS flow year).
+   *
+   * Defaults to the user's current month (Asia/Taipei TZ) when omitted.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}-\d{2}$/, {
+    message: 'month must be in YYYY-MM format',
+  })
+  month?: string;
+
+  /**
+   * Progressive-loading hint mirroring DAY scope.
+   * - 'true' → return engine output only (no AI narration). Does NOT
+   *   persist to DB or Redis.
+   * - omitted/'false' → run full pipeline including AI narrative.
+   *
+   * Same case-handling pattern as daily: 'true'/'TRUE'/'True'/'1' all accepted.
+   */
+  @IsOptional()
+  @IsBooleanString()
+  engineOnly?: string;
+}
+
+// ------------------------------------------------------------
+// PartitionSpec — mirrors monthly_enhanced.py TypedDict
+// ------------------------------------------------------------
+// Locked from Phase A Sub-Agent A research (2026-05-28).
+// Web mirror in apps/web/app/lib/fortune-api.ts must stay in sync per
+// Phase 1.5.z lesson (web build breaks otherwise).
+// `governing_pillar` field is DOCTRINE-BEARING — referenced by
+// anti-hallucination clause 5 in FORTUNE_V1_PROMPTS.monthly.
+
+export interface PartitionBucket {
+  /** Display label in zh-TW. '上半月' or '下半月'. */
+  label: string;
+  /** [start_day, end_day_or_null] within the active 流月 day window
+   *  (NOT Gregorian dates). null end_day means «through end of 流月». */
+  day_range: [number, number | null];
+  /** Which 流月 pillar governs this bucket's qi.
+   *  - 'stem' → 上半月 (流月天干 動氣先出)
+   *  - 'branch' → 下半月 (流月地支 靜氣後沉)
+   *  Per 子平 流月逼進法 (司莹居士《八字泄天机》中卷). */
+  governing_pillar: 'stem' | 'branch';
+}
+
+export interface PartitionSpec {
+  /** LOCKED to 'tiangan_dizhi_half' per Phase A research. Future schemes
+   *  would need a new plan iteration. */
+  scheme_id: 'tiangan_dizhi_half';
+  buckets: PartitionBucket[];
+}
+
+// ------------------------------------------------------------
+// Monthly dimension (4 dims, no travel)
+// ------------------------------------------------------------
+
+export interface MonthlyFortuneDimension {
+  score: number;            // 0-100
+  label: string;            // 極佳/順遂/平穩/需謹慎/不利
+  /** Chinese label for UI (事業/財運/感情/健康) — engine-supplied
+   *  for consistency, frontend reuses. */
+  labelZh: string;
+  /** Signals from `_compute_single_month`'s `aspects[dim].signals[]`.
+   *  Plain Chinese strings, NOT typed valence objects (monthly engine
+   *  is less granular than daily — Phase 2.x candidate). */
+  signals: string[];
+}
+
+// ------------------------------------------------------------
+// Intra-month breakdown bucket result (L1.b output)
+// ------------------------------------------------------------
+
+export interface IntraMonthBucketResult {
+  label: string;
+  day_range: [number, number | null];
+  governing_pillar: 'stem' | 'branch';
+  /** Count of days in this bucket with auspicious label (大吉/吉/吉中有凶). */
+  auspicious_days: number;
+  /** Count of days with challenging label (凶中有吉/小凶/凶/大凶/凶上加凶). */
+  challenging_days: number;
+  /** Count of days at 平. */
+  neutral_days: number;
+  /** Top 3 days by abs(energyScore - 50) — biggest movers either direction. */
+  peak_signals: Array<{
+    date: string | null;          // ISO date string
+    energyScore: number;
+    label: string;
+    signals: string[];            // 1-3 representative signal strings
+  }>;
+  /** Top 3 most-frequent shensha keywords in the bucket (e.g., 紅鸞 / 比劫). */
+  dominant_shensha: string[];
+}
+
+export interface IntraMonthBreakdown {
+  scheme_id: 'tiangan_dizhi_half';
+  liuyue_window: {
+    start: string;  // ISO date — 流月 start (節氣 boundary)
+    end: string;    // ISO date — 流月 last day (NOT next 流月 start)
+    days: number;   // window length (~28-32)
+  };
+  buckets: IntraMonthBucketResult[];
+}
+
+// ------------------------------------------------------------
+// AI Narrative
+// ------------------------------------------------------------
+
+export interface MonthlyFortuneAINarrative {
+  /** Hero overview narrative for the month as a whole. */
+  monthly_overview: string;
+  /** Per-dim narratives — 4 dims only (no travel). */
+  monthly_career: string;
+  /** Optional ≤25 字 pull-quote takeaway. Backward-compat: null/missing → narrative only. */
+  monthly_career_takeaway?: string;
+  monthly_finance: string;
+  monthly_finance_takeaway?: string;
+  monthly_romance: string;
+  monthly_romance_takeaway?: string;
+  monthly_health: string;
+  monthly_health_takeaway?: string;
+  /** Concrete advice — symmetric to daily_advice. */
+  monthly_advice: {
+    canTry: string[];
+    shouldHold: string[];
+  };
+  /** Optional intra-month breakdown narrative — populated when L1.b
+   *  data is injected into the prompt. AI fills one entry per bucket
+   *  (上半月 / 下半月). Anti-hallucination clause 5: references MUST
+   *  come from `intraMonthBreakdown.buckets[].peak_signals/dominant_shensha`,
+   *  AI may NOT invent specific dates. */
+  intra_month_breakdown?: Array<{
+    partition_label: string;  // '上半月' or '下半月'
+    narrative: string;
+  }>;
+}
+
+// ------------------------------------------------------------
+// Response shape (engine output + narrative + intra-month breakdown)
+// ------------------------------------------------------------
+
+export interface MonthlyFortuneResponse {
+  /** Target month in YYYY-MM format (user-input — preserved verbatim). */
+  month: string;
+  /** Resolved flow year (may differ from target month's year for January queries). */
+  flowYear: number;
+  /** Birth profile this fortune was computed for. */
+  profileId: string;
+  /** Birth profile's ISO birth date (YYYY-MM-DD). */
+  profileBirthDate: string;
+  /** Birth profile's birth time (HH:MM). */
+  profileBirthTime: string;
+  /** Engine-deterministic output. */
+  engineOutput: {
+    monthStem: string;
+    monthBranch: string;
+    monthGanZhi: string;
+    monthTenGod: string;
+    monthLabel: string;              // e.g., '癸巳月'
+    /** Final month verdict. Inherits Phase 12b/12c Fix A-F doctrine. */
+    auspiciousness: string;           // 7-label
+    energyScore: number;              // 0-100 derived advisory
+    metaFraming: 'soft_trigger';
+    /** Phase 12b/c transparency fields (optional — present when fired). */
+    baseAuspiciousness?: string;
+    bareMonthAuspiciousness?: string;
+    isKongWang?: boolean;
+    /** Phase 12b/c additive fields — surfaced verbatim for deterministic
+     *  AI injector at chat-context layer (per L3.5). */
+    officerSealActivation?: { pattern: string; direction: string; level: string };
+    fuYinInteractions?: Array<{ pillar: string; branch: string; role: string }>;
+    chongKuRelease?: { net: number; releasedStems: string[]; direction: string };
+    liuHaiInteractions?: Array<{ pillar: string; pair: string; role: string; kind: string }>;
+    /** 4-dim scores. NO travel — Sub-Agent B's 出行 omission is doctrinally
+     *  correct per 三命通會 神煞篇 + every modern practitioner write-up. */
+    dimensions: Record<'career' | 'finance' | 'romance' | 'health', MonthlyFortuneDimension>;
+    /** LOCKED partition scheme (tiangan_dizhi_half) — 2 buckets always. */
+    partitionSpec: PartitionSpec;
+    ruleTrace: string[];
+    preAnalysisVersion: string;
+  };
+  /** AI-generated narrative — null when engine-only preview. */
+  narrative: MonthlyFortuneAINarrative | null;
+  /** Per-bucket aggregation from L1.b. Populated when caller opts in.
+   *  Drives the MonthlyTimeGrid UI component + intra-month narrative slot. */
+  intraMonthBreakdown?: IntraMonthBreakdown;
+  /** Cache metadata. */
+  cacheHit: boolean;
+  generatedAt: string;
+}
