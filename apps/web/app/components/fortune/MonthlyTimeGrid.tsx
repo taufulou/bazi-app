@@ -148,22 +148,37 @@ export default function MonthlyTimeGrid({
                   )}
 
                   {breakdown.peak_signals.length > 0 && (
-                    <ul className={styles.peakList}>
-                      {breakdown.peak_signals.slice(0, 3).map((peak) => (
-                        <li
-                          key={peak.date ?? Math.random().toString()}
-                          className={styles.peakItem}
-                          data-label={peak.label}
-                        >
-                          <span className={styles.peakDate}>{peak.date}</span>
-                          <span className={styles.peakLabel}>{peak.label}</span>
-                          {peak.signals[0] && (
-                            <span className={styles.peakSignal}>
-                              {peak.signals[0]}
+                    <ul className={styles.peakList} role="list">
+                      {breakdown.peak_signals
+                        .slice(0, 3)
+                        .map((peak, peakIdx) => (
+                          <li
+                            // Audit fix HIGH #4 (2026-05-28): use bucket+index
+                            // stable key instead of Math.random() which
+                            // generates new key per render (breaks React
+                            // reconciliation — lost focus, restarted CSS
+                            // transitions, screen-reader re-announces).
+                            // peak.date may be null per DTO; bucket label
+                            // + index is stable across renders.
+                            key={
+                              peak.date ?? `${bucket.label}-peak-${peakIdx}`
+                            }
+                            className={styles.peakItem}
+                            data-label={peak.label}
+                          >
+                            <span className={styles.peakDate}>
+                              {peak.date}
                             </span>
-                          )}
-                        </li>
-                      ))}
+                            <span className={styles.peakLabel}>
+                              {peak.label}
+                            </span>
+                            {peak.signals[0] && (
+                              <span className={styles.peakSignal}>
+                                {peak.signals[0]}
+                              </span>
+                            )}
+                          </li>
+                        ))}
                     </ul>
                   )}
                 </>

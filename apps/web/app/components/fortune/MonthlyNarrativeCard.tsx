@@ -131,8 +131,11 @@ export default function MonthlyNarrativeCard({
         </p>
       </div>
 
-      {/* 4 dim cards (no 出行 per Sub-Agent B doctrine lock) */}
-      <div className={styles.dims}>
+      {/* 4 dim cards (no 出行 per Sub-Agent B doctrine lock).
+       *  Audit fix MEDIUM #9 (2026-05-28): explicit role="list" +
+       *  role="listitem" for screen-reader navigation flow (mirror of
+       *  MonthlyDimensionBars + MonthlyTimeGrid patterns). */}
+      <div className={styles.dims} role="list">
         {MONTHLY_DIM_META.map((m) => {
           const dim = dimensions[m.key];
           const score = dim ? Math.max(0, Math.min(100, dim.score)) : 50;
@@ -143,6 +146,7 @@ export default function MonthlyNarrativeCard({
           return (
             <article
               key={m.key}
+              role="listitem"
               className={styles.dimBlock}
               data-tier={t}
             >
@@ -207,7 +211,7 @@ export default function MonthlyNarrativeCard({
       <div className={styles.adviceGrid}>
         <div className={styles.adviceCard} data-tone="positive">
           <h4 className={styles.adviceTitle}>本月可試試</h4>
-          <ul className={styles.adviceList}>
+          <ul className={styles.adviceList} role="list">
             {narrative.monthly_advice.canTry.map((item, i) => (
               <li key={i}>
                 <RichText text={item} />
@@ -217,7 +221,7 @@ export default function MonthlyNarrativeCard({
         </div>
         <div className={styles.adviceCard} data-tone="caution">
           <h4 className={styles.adviceTitle}>本月宜緩</h4>
-          <ul className={styles.adviceList}>
+          <ul className={styles.adviceList} role="list">
             {narrative.monthly_advice.shouldHold.map((item, i) => (
               <li key={i}>
                 <RichText text={item} />

@@ -199,8 +199,12 @@ function FortuneView() {
     (nextProfileId: string) => {
       const params = new URLSearchParams(search.toString());
       params.set('profileId', nextProfileId);
-      // Drop stale date when switching profiles — fresh start with new chart
+      // Drop stale date AND month when switching profiles — fresh start
+      // with new chart (audit fix HIGH #6 2026-05-28: was only dropping
+      // date; left stale `?month=` to leak into new profile causing
+      // OUT_OF_WINDOW errors or confusing stale anchors).
       params.delete('date');
+      params.delete('month');
       router.push(`/reading/fortune?${params.toString()}`);
     },
     [router, search],
@@ -484,6 +488,15 @@ function FortuneView() {
   const currentMonthIso = React.useMemo(() => resolveCurrentMonthIso(), []);
   const targetMonth = search.get('month') ?? currentMonthIso;
 
+  // Audit fix MEDIUM #8 (2026-05-28): MonthlyFortuneView publishes its
+  // loading state UP via this setter so MonthNavigator can render
+  // disabled arrows during in-flight fetch (mirror of DateNavigator's
+  // `isLoading` prop wired to `state.status === 'loading'`). Without
+  // this, rapid ◄/► clicks fire multiple fetches; AbortController
+  // prevents stale renders but UX still allows spammy clicks without
+  // disabled feedback.
+  const [monthlyIsLoading, setMonthlyIsLoading] = useState(false);
+
   // Build the navigator slot — dispatch by tab:
   //   - tab='day'   → DateNavigator (Phase 1)
   //   - tab='month' → MonthNavigator (Phase 2, sibling component)
@@ -507,6 +520,7 @@ function FortuneView() {
         isTierLoading={tierIsLoading}
         onChange={handleSwitchMonth}
         onLockedAttempt={handleLockedAttempt}
+        isLoading={monthlyIsLoading}
       />
     ) : undefined;
 
@@ -559,6 +573,7 @@ function FortuneView() {
             getToken={getToken}
             isSignedIn={isSignedIn}
             isLoaded={isLoaded}
+            onLoadingChange={setMonthlyIsLoading}
           />
         )}
         {tab === 'year' && <PartialPreview tab="year" />}
@@ -966,6 +981,9 @@ interface MonthlyFortuneViewProps {
   getToken: () => Promise<string | null>;
   isSignedIn: boolean | undefined;
   isLoaded: boolean;
+  /** Audit fix MEDIUM #8 — publish loading state UP so MonthNavigator
+   *  can render disabled arrows during in-flight fetch. */
+  onLoadingChange?: (isLoading: boolean) => void;
 }
 
 function MonthlyFortuneView({
@@ -974,16 +992,28 @@ function MonthlyFortuneView({
   getToken,
   isSignedIn,
   isLoaded,
+  onLoadingChange,
 }: MonthlyFortuneViewProps) {
   const [state, setState] = useState<MonthlyFortuneViewState>({ status: 'idle' });
 
+  // Publish loading state up (audit MEDIUM #8)
+  useEffect(() => {
+    onLoadingChange?.(state.status === 'loading');
+  }, [state.status, onLoadingChange]);
+
   useEffect(() => {
     if (!isLoaded || !isSignedIn) return;
+    // Audit fix HIGH #5 (2026-05-28): synchronous state reset BEFORE the
+    // async IIFE schedules setState. Without this, React renders ONCE
+    // with the OLD `state.status === 'success'` + stale `state.data` for
+    // the NEW prop values during the brief window between effect-cleanup
+    // and the async setState's microtask. Mirrors DAY view's reset
+    // pattern (page.tsx ~line 432).
+    setState({ status: 'loading' });
     const controller = new AbortController();
     let cancelled = false;
 
     (async () => {
-      setState({ status: 'loading' });
       try {
         const token = await getToken();
         if (!token) {
@@ -1015,14 +1045,28 @@ function MonthlyFortuneView({
             statusCode: err.status,
             message: err.message,
           });
-        } else if ((err as Error).name === 'AbortError') {
+        } else if (
+          // Audit fix MEDIUM #7 (2026-05-28): use instanceof DOMException
+          // instead of (err as Error).name — defensive against non-Error
+          // throwables (string, plain object, null) which would TypeError
+          // on `.name` access inside the catch block.
+          err instanceof DOMException &&
+          err.name === 'AbortError'
+        ) {
           // Cleanup — silent
+        } else if (err instanceof Error) {
+          setState({
+            status: 'error',
+            code: 'UNKNOWN',
+            statusCode: 0,
+            message: err.message,
+          });
         } else {
           setState({
             status: 'error',
             code: 'UNKNOWN',
             statusCode: 0,
-            message: (err as Error).message,
+            message: String(err),
           });
         }
       }
@@ -1035,8 +1079,46 @@ function MonthlyFortuneView({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- getToken is stable
   }, [isLoaded, isSignedIn, profileId, targetMonth]);
 
+  // Audit fix CRITICAL #1 (2026-05-28): render the FULL skeletal layout
+  // in loading state, NOT just MonthlyNarrativeCard alone. Plan v2 H4
+  // invariant («disclaimer Y delta ≤8px» on loading→success transition)
+  // was violated because loading only rendered the narrative card while
+  // success rendered Ring + Bars + TimeGrid + NarrativeCard + disclaimer
+  // — disclaimer Y shifted hundreds of pixels.
+  //
+  // The skeleton stack matches the success-state structure:
+  //   - MonthlyEnergyRing (placeholder with skeleton class)
+  //   - SectionDivider
+  //   - MonthlyDimensionBars (placeholder with skeleton class)
+  //   - SectionDivider
+  //   - MonthlyTimeGrid (placeholder — no breakdown data yet)
+  //   - SectionDivider
+  //   - MonthlyNarrativeCard (its internal skeleton)
+  //   - ENTERTAINMENT_DISCLAIMER
   if (state.status === 'idle' || state.status === 'loading') {
-    return <MonthlyNarrativeCard narrative={null} dimensions={{ career: { score: 50, label: '平穩' }, finance: { score: 50, label: '平穩' }, romance: { score: 50, label: '平穩' }, health: { score: 50, label: '平穩' } }} loading />;
+    return (
+      <div className={styles.monthlyContentWrap}>
+        <div className={styles.monthlyRingPlaceholder} aria-busy="true" aria-label="本月運勢載入中" />
+        <SectionDivider />
+        <div className={styles.monthlyBarsPlaceholder} aria-hidden="true" />
+        <SectionDivider />
+        <div className={styles.monthlyTimeGridPlaceholder} aria-hidden="true" />
+        <SectionDivider />
+        <MonthlyNarrativeCard
+          narrative={null}
+          dimensions={{
+            career: { score: 50, label: '平穩' },
+            finance: { score: 50, label: '平穩' },
+            romance: { score: 50, label: '平穩' },
+            health: { score: 50, label: '平穩' },
+          }}
+          loading
+        />
+        <p className={styles.monthlyBottomDisclaimer}>
+          {ENTERTAINMENT_DISCLAIMER['zh-TW']}
+        </p>
+      </div>
+    );
   }
 
   if (state.status === 'error') {
@@ -1052,14 +1134,26 @@ function MonthlyFortuneView({
   const { engineOutput, narrative, intraMonthBreakdown } = state.data;
   // Strip labelZh from dimensions for MonthlyNarrativeCard's simpler shape
   const dimensionsForNarrative = {
-    career: { score: engineOutput.dimensions.career.score, label: engineOutput.dimensions.career.label },
-    finance: { score: engineOutput.dimensions.finance.score, label: engineOutput.dimensions.finance.label },
-    romance: { score: engineOutput.dimensions.romance.score, label: engineOutput.dimensions.romance.label },
-    health: { score: engineOutput.dimensions.health.score, label: engineOutput.dimensions.health.label },
+    career: {
+      score: engineOutput.dimensions.career.score,
+      label: engineOutput.dimensions.career.label,
+    },
+    finance: {
+      score: engineOutput.dimensions.finance.score,
+      label: engineOutput.dimensions.finance.label,
+    },
+    romance: {
+      score: engineOutput.dimensions.romance.score,
+      label: engineOutput.dimensions.romance.label,
+    },
+    health: {
+      score: engineOutput.dimensions.health.score,
+      label: engineOutput.dimensions.health.label,
+    },
   };
 
   return (
-    <div className={styles.contentWrap}>
+    <div className={styles.monthlyContentWrap}>
       <MonthlyEnergyRing
         label={engineOutput.auspiciousness}
         score={engineOutput.energyScore}
@@ -1089,7 +1183,9 @@ function MonthlyFortuneView({
         loading={false}
       />
 
-      <p className={styles.bottomDisclaimer}>{ENTERTAINMENT_DISCLAIMER['zh-TW']}</p>
+      <p className={styles.monthlyBottomDisclaimer}>
+        {ENTERTAINMENT_DISCLAIMER['zh-TW']}
+      </p>
     </div>
   );
 }

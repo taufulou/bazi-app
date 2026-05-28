@@ -16,6 +16,10 @@
 import type { MonthlyFortuneDimension } from '../../lib/fortune-api';
 import { dimTierFromScore } from './labels';
 import { MONTHLY_DIM_META, type MonthlyDimKey } from './monthlyDimensions';
+// Audit fix HIGH #2 (2026-05-28): need own `.wrap` with 4-column grid
+// (DimensionBars.module.css is hardcoded 5 columns for DAY scope).
+// Other classes (col, icon, barTrack, etc.) still come from DimensionBars.
+import wrapStyles from './MonthlyDimensionBars.module.css';
 import styles from './DimensionBars.module.css';
 
 interface Props {
@@ -24,7 +28,7 @@ interface Props {
 
 export default function MonthlyDimensionBars({ dimensions }: Props) {
   return (
-    <div className={styles.wrap} role="list">
+    <div className={wrapStyles.wrap} role="list">
       {MONTHLY_DIM_META.map((m) => {
         const dim = dimensions[m.key];
         const score = Math.max(0, Math.min(100, dim?.score ?? 50));
