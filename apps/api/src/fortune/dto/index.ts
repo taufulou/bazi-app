@@ -392,7 +392,29 @@ export interface MonthlyFortuneResponse {
      *  AI injector at chat-context layer (per L3.5). */
     officerSealActivation?: { pattern: string; direction: string; level: string };
     fuYinInteractions?: Array<{ pillar: string; branch: string; role: string }>;
-    chongKuRelease?: { net: number; releasedStems: string[]; direction: string };
+    /**
+     * Audit fix HIGH #2 (2026-05-28): engine emits `releasedStems: List[Dict]`
+     * per `annual_enhanced.py:1721-1738` — each item has {stem, position,
+     * tenGod, role, weight}. Previously TS DTO had `releasedStems: string[]`
+     * which would render `[object Object]` in the prompt. Also `direction`
+     * doesn't exist at engine top-level — it's `action: 'downgrade' | 'upgrade'`
+     * + `netRoleScore` instead.
+     */
+    chongKuRelease?: {
+      natalPillar: string;
+      natalBranch: string;
+      releasedStems: Array<{
+        stem: string;
+        position: 'benqi' | 'zhongqi' | 'yuqi';
+        tenGod: string;
+        role: string;
+        weight: number;
+      }>;
+      netRoleScore: number;
+      action: 'downgrade' | 'upgrade';
+      steps: number;
+      stemRescueApplied: boolean;
+    };
     liuHaiInteractions?: Array<{ pillar: string; pair: string; role: string; kind: string }>;
     /** 4-dim scores. NO travel — Sub-Agent B's 出行 omission is doctrinally
      *  correct per 三命通會 神煞篇 + every modern practitioner write-up. */

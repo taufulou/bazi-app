@@ -52,13 +52,15 @@ export class ChatSampleQuestionsPublicController {
       'Public + throttled per IP (60/min) — these are non-PII marketing copy. ' +
       'Cached in-process with Redis-backed version-stamp invalidation; admin edits propagate within ~5min worst case.',
   })
-  @ApiQuery({ name: 'readingType', enum: ['LIFETIME', 'LOVE', 'CAREER', 'ANNUAL', 'COMPATIBILITY'] })
+  @ApiQuery({ name: 'readingType', enum: ['LIFETIME', 'LOVE', 'CAREER', 'ANNUAL', 'COMPATIBILITY', 'FORTUNE'] })
   @ApiQuery({ name: 'sectionKey', required: false })
   @ApiQuery({ name: 'locale', required: false })
+  @ApiQuery({ name: 'fortuneScope', required: false, enum: ['DAY', 'MONTH', 'YEAR'], description: 'FORTUNE only — DAY/MONTH/YEAR scope filter. Omit for DAY back-compat.' })
   async getSampleQuestions(
     @Query('readingType') readingType: string,
     @Query('sectionKey') sectionKey: string | undefined,
     @Query('locale') locale: string | undefined,
+    @Query('fortuneScope') fortuneScope: string | undefined,
   ) {
     if (!isValidReadingType(readingType)) {
       throw new HttpException(
@@ -66,11 +68,23 @@ export class ChatSampleQuestionsPublicController {
         HttpStatus.BAD_REQUEST,
       );
     }
+    // Phase 2 月運 audit fix — validate fortuneScope enum
+    let scope: 'DAY' | 'MONTH' | 'YEAR' | null = null;
+    if (fortuneScope !== undefined && fortuneScope !== '') {
+      if (fortuneScope !== 'DAY' && fortuneScope !== 'MONTH' && fortuneScope !== 'YEAR') {
+        throw new HttpException(
+          { code: 'INVALID_FORTUNE_SCOPE', message: `Invalid fortuneScope: ${fortuneScope} (expected DAY | MONTH | YEAR)` },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      scope = fortuneScope;
+    }
     const sectionKeyOrNull = sectionKey && sectionKey.length > 0 ? sectionKey : null;
     const questions = await this.service.listActive(
       readingType as ReadingType,
       sectionKeyOrNull,
       locale ?? 'zh-TW',
+      scope,
     );
     return { questions };
   }
@@ -93,11 +107,13 @@ export class ChatSampleQuestionsPublicController {
       '(sectionKey=NULL) appear at the bottom. Public + throttled (60/min/IP). ' +
       'Cached in-process with version-stamp invalidation.',
   })
-  @ApiQuery({ name: 'readingType', enum: ['LIFETIME', 'LOVE', 'CAREER', 'ANNUAL', 'COMPATIBILITY'] })
+  @ApiQuery({ name: 'readingType', enum: ['LIFETIME', 'LOVE', 'CAREER', 'ANNUAL', 'COMPATIBILITY', 'FORTUNE'] })
   @ApiQuery({ name: 'locale', required: false })
+  @ApiQuery({ name: 'fortuneScope', required: false, enum: ['DAY', 'MONTH', 'YEAR'], description: 'FORTUNE only — DAY/MONTH/YEAR scope filter. Omit for DAY back-compat.' })
   async listAllForType(
     @Query('readingType') readingType: string,
     @Query('locale') locale: string | undefined,
+    @Query('fortuneScope') fortuneScope: string | undefined,
   ) {
     if (!isValidReadingType(readingType)) {
       throw new HttpException(
@@ -105,9 +121,20 @@ export class ChatSampleQuestionsPublicController {
         HttpStatus.BAD_REQUEST,
       );
     }
+    let scope: 'DAY' | 'MONTH' | 'YEAR' | null = null;
+    if (fortuneScope !== undefined && fortuneScope !== '') {
+      if (fortuneScope !== 'DAY' && fortuneScope !== 'MONTH' && fortuneScope !== 'YEAR') {
+        throw new HttpException(
+          { code: 'INVALID_FORTUNE_SCOPE', message: `Invalid fortuneScope: ${fortuneScope} (expected DAY | MONTH | YEAR)` },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      scope = fortuneScope;
+    }
     const questions = await this.service.listAllActiveForType(
       readingType as ReadingType,
       locale ?? 'zh-TW',
+      scope,
     );
     return { questions };
   }

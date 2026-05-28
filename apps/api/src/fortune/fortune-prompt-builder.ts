@@ -257,10 +257,27 @@ export interface MonthlyEngineOutput {
     level: string;
   };
   fuYinInteractions?: Array<{ pillar: string; branch: string; role: string }>;
+  /**
+   * Audit fix HIGH #2 (2026-05-28): match actual engine shape from
+   * `annual_enhanced.py:1721-1738`. Previously had `releasedStems: string[]`
+   * which would have rendered `[object Object]` in the prompt when 沖庫釋放
+   * fires. Also no `direction` field — use `action` ('downgrade' | 'upgrade')
+   * + `netRoleScore` instead.
+   */
   chongKuRelease?: {
-    net: number;
-    releasedStems: string[];
-    direction: string;
+    natalPillar: string;
+    natalBranch: string;
+    releasedStems: Array<{
+      stem: string;
+      position: 'benqi' | 'zhongqi' | 'yuqi';
+      tenGod: string;
+      role: string;
+      weight: number;
+    }>;
+    netRoleScore: number;
+    action: 'downgrade' | 'upgrade';
+    steps: number;
+    stemRescueApplied: boolean;
   };
   liuHaiInteractions?: Array<{
     pillar: string;
@@ -326,12 +343,23 @@ function renderMonthlyTransientSignals(monthly: MonthlyEngineOutput): string {
 
   if (monthly.chongKuRelease) {
     const c = monthly.chongKuRelease;
+    // Audit fix HIGH #2: render releasedStems as Chinese list (stem+role)
+    // — NOT [object Object]. Use `action` + `netRoleScore` (engine emits
+    // these, not `direction`/`net`).
+    const stems = c.releasedStems
+      .map((s) => `${s.stem}(${s.role})`)
+      .join('、');
     lines.push(
-      `  · 沖庫釋放 (Phase 12c Fix F) — net=${c.net}, releasedStems=[${c.releasedStems.join('、')}], direction=${c.direction}`,
+      `  · 沖庫釋放 (Phase 12c Fix F) — natalPillar=${c.natalPillar}柱(${c.natalBranch}), netRoleScore=${c.netRoleScore}, action=${c.action} ${c.steps}步, releasedStems=[${stems}]`,
     );
     lines.push(
       '    ⚠️ 結構釋放型訊號，stem rescue 不能抵消 (per 滴天髓·論墓庫 doctrine)',
     );
+    if (c.action === 'downgrade') {
+      lines.push('    ⚠️ 本月此面向宜謹慎處理（用 soft-trigger 框架敘述）');
+    } else {
+      lines.push('    ⚠️ 本月此面向有開展機會（用 soft-trigger 框架敘述）');
+    }
   }
 
   if (monthly.fuYinInteractions && monthly.fuYinInteractions.length > 0) {

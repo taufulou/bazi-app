@@ -621,7 +621,23 @@ export interface MonthlyFortuneEngineOutput {
   isKongWang?: boolean;
   officerSealActivation?: { pattern: string; direction: string; level: string };
   fuYinInteractions?: Array<{ pillar: string; branch: string; role: string }>;
-  chongKuRelease?: { net: number; releasedStems: string[]; direction: string };
+  /** Audit fix HIGH #2 — engine emits releasedStems as List[Dict] not string[];
+   *  no `direction` field (use `action` instead). See API DTO comment. */
+  chongKuRelease?: {
+    natalPillar: string;
+    natalBranch: string;
+    releasedStems: Array<{
+      stem: string;
+      position: 'benqi' | 'zhongqi' | 'yuqi';
+      tenGod: string;
+      role: string;
+      weight: number;
+    }>;
+    netRoleScore: number;
+    action: 'downgrade' | 'upgrade';
+    steps: number;
+    stemRescueApplied: boolean;
+  };
   liuHaiInteractions?: Array<{ pillar: string; pair: string; role: string; kind: string }>;
   dimensions: Record<'career' | 'finance' | 'romance' | 'health', MonthlyFortuneDimension>;
   partitionSpec: PartitionSpec;

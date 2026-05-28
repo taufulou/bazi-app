@@ -482,6 +482,11 @@ def compute_single_month_by_yearmonth(
     month_result["targetMonth"] = month
     month_result["flowYear"] = flow_year
     month_result["monthLabel"] = f"{month_stem}{month_branch}月"
+    # Audit fix HIGH #3 (2026-05-28): DTO + web mirror declare monthGanZhi
+    # as required string. Engine MUST emit it explicitly — composing
+    # ad-hoc at TS-side was inconsistent and would yield undefined for
+    # any consumer reading engineOutput.monthGanZhi directly.
+    month_result["monthGanZhi"] = f"{month_stem}{month_branch}"
     month_result["energyScore"] = base_score
     month_result["dimensions"] = dimensions
     month_result["partitionSpec"] = TIANGAN_DIZHI_HALF_PARTITION

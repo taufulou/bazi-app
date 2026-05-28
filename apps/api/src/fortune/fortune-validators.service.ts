@@ -611,7 +611,13 @@ export class FortuneValidatorsService {
     findings: FortuneValidationResult['findings'],
     opts?: { sessionAnchorMonth?: string },
   ): FortuneValidationResult {
-    const sanitized: Record<string, unknown> = { ...narrative };
+    // Audit fix HIGH #4 (2026-05-28): deep-clone matches daily-path C2 fix.
+    // Previously was shallow spread `{...narrative}` — safe for current
+    // implementation (string assignments + nested rebuild), but inconsistent
+    // with `_validateUnsafe` (line 357) which uses JSON.parse(JSON.stringify).
+    // A future contributor adding nested-mutation would silently corrupt
+    // caller's narrative. Match daily path to lock the invariant.
+    const sanitized: Record<string, unknown> = JSON.parse(JSON.stringify(narrative));
 
     // Iterate string-valued sections (monthly_overview, monthly_career, etc.
     // + takeaway pull-quotes). Skip monthly_advice (object) +

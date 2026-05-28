@@ -108,13 +108,49 @@ export class ChatSampleQuestionService {
     readingType: ReadingType,
     sectionKey: string | null,
     locale: string = 'zh-TW',
+    /**
+     * Phase 2 月運 audit fix (2026-05-28 CRITICAL #1): when readingType=FORTUNE,
+     * filter by fortune_scope. Without this, MONTH-scope questions (seeded by
+     * L6 migration) leak into DAY-scope chat — DAY users see 「這個月整體運勢」
+     * mixed into 「今日宜避免什麼？」 list. Triggers refuse-cap charges + UX confusion.
+     *
+     * Back-compat semantics:
+     * - fortuneScope=null + readingType=FORTUNE → returns rows with fortune_scope IS NULL
+     *   (legacy DAY rows seeded BEFORE Phase 2 migration; treats NULL as DAY)
+     * - fortuneScope='DAY' → returns rows with fortune_scope='DAY' (post-Phase-2 explicit DAY)
+     *   OR fortune_scope IS NULL (legacy back-compat)
+     * - fortuneScope='MONTH' → returns ONLY rows with fortune_scope='MONTH'
+     * - fortuneScope='YEAR' → returns ONLY rows with fortune_scope='YEAR' (Phase 3)
+     *
+     * For non-FORTUNE reading types this arg is ignored (the column is NULL
+     * for all LIFETIME/LOVE/CAREER/ANNUAL/COMPATIBILITY rows by design).
+     */
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR' | null = null,
   ): Promise<SampleQuestionDto[]> {
-    const cacheKey = `${readingType}:${sectionKey ?? '*'}:${locale}`;
+    const cacheKey = `${readingType}:${sectionKey ?? '*'}:${locale}:${fortuneScope ?? '_'}`;
     const currentVersion = await this.getCacheVersion();
 
     const cached = this.cache.get(cacheKey);
     if (cached && cached.versionAtCacheTime === currentVersion) {
       return cached.questions;
+    }
+
+    // Compose fortune_scope filter ONLY for FORTUNE reading type.
+    // Other reading types ignore the column (always NULL by design).
+    let fortuneScopeFilter: Prisma.ChatSampleQuestionWhereInput = {};
+    if (readingType === 'FORTUNE') {
+      if (fortuneScope === null || fortuneScope === 'DAY') {
+        // null OR DAY → match both NULL (legacy) AND explicit 'DAY' rows
+        fortuneScopeFilter = {
+          OR: [
+            { fortuneScope: null },
+            { fortuneScope: 'DAY' as const },
+          ],
+        };
+      } else {
+        // 'MONTH' or 'YEAR' → exact match (no NULL leakage)
+        fortuneScopeFilter = { fortuneScope };
+      }
     }
 
     const rows = await this.prisma.chatSampleQuestion.findMany({
@@ -123,6 +159,7 @@ export class ChatSampleQuestionService {
         sectionKey,
         locale,
         isActive: true,
+        ...fortuneScopeFilter,
       },
       orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
     });
@@ -159,8 +196,14 @@ export class ChatSampleQuestionService {
   async listAllActiveForType(
     readingType: ReadingType,
     locale: string = 'zh-TW',
+    /**
+     * Phase 2 月運 audit fix (2026-05-28 CRITICAL #1 mirror): same fortune_scope
+     * filter semantics as `listActive` above. Without this, the in-drawer
+     * SampleQuestionsBrowser mixes MONTH + DAY questions for FORTUNE users.
+     */
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR' | null = null,
   ): Promise<SampleQuestionDto[]> {
-    const cacheKey = `${readingType}:__ALL__:${locale}`;
+    const cacheKey = `${readingType}:__ALL__:${locale}:${fortuneScope ?? '_'}`;
     const currentVersion = await this.getCacheVersion();
 
     const cached = this.cache.get(cacheKey);
@@ -168,8 +211,22 @@ export class ChatSampleQuestionService {
       return cached.questions;
     }
 
+    let fortuneScopeFilter: Prisma.ChatSampleQuestionWhereInput = {};
+    if (readingType === 'FORTUNE') {
+      if (fortuneScope === null || fortuneScope === 'DAY') {
+        fortuneScopeFilter = {
+          OR: [
+            { fortuneScope: null },
+            { fortuneScope: 'DAY' as const },
+          ],
+        };
+      } else {
+        fortuneScopeFilter = { fortuneScope };
+      }
+    }
+
     const rows = await this.prisma.chatSampleQuestion.findMany({
-      where: { readingType, locale, isActive: true },
+      where: { readingType, locale, isActive: true, ...fortuneScopeFilter },
       orderBy: [
         // Phase 4 follow-up — flat popularity ordering across ALL sections.
         // Earlier ordering grouped by sectionKey (alphabetical) — that
