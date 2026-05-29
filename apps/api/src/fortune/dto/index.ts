@@ -421,3 +421,170 @@ export interface MonthlyFortuneResponse {
   cacheHit: boolean;
   generatedAt: string;
 }
+
+// ============================================================
+// 年運 (Yearly Fortune) — Phase 3
+// ============================================================
+// Phase A research-locked 2026-05-29
+// (.claude/plans/phase-3-nianyun-phase-a-research-results.md):
+// - 4 dims (career/finance/romance/health) as ★1-5 STAR ratings + keyword;
+//   overall = EnergyScoreRing 0-100. NO travel. 感情=romance NOT 人際關係.
+// - 核心風險&機會: top-3 opp + bottom-3 risk MONTHS (gated; flatYear sentinel).
+// - 改運建議: deterministic luck-method cards (weakest-dim + 用神).
+// - LIGHTER PREVIEW — cross-sells to paid 八字流年運勢 (no 12-month prose /
+//   deep 太歲 / 大運 sequence).
+// - Subscriber window: -1 year / current / +4 years (matches Seer's 6 pills).
+// - Year selection maps DIRECTLY to 立春-anchored flow year (no cross-boundary).
+// ============================================================
+
+// ------------------------------------------------------------
+// GET /api/fortune/yearly
+// ------------------------------------------------------------
+
+export class GetYearlyFortuneQueryDto {
+  /** Birth profile to compute fortune for. Falls back to user's primary profile when omitted. */
+  @IsOptional()
+  @IsUUID()
+  profileId?: string;
+
+  /**
+   * Target 立春-anchored flow year (YYYY). Defaults to the user's current
+   * year (Asia/Taipei TZ) when omitted. NO cross-flow-year resolution
+   * complexity like month — a 流年 IS 立春-to-立春 by definition.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}$/, { message: 'year must be in YYYY format' })
+  year?: string;
+}
+
+// ------------------------------------------------------------
+// Yearly dimension (4 dims with ★ stars + keyword)
+// ------------------------------------------------------------
+
+export interface YearlyFortuneDimension {
+  score: number;            // 0-100 (aggregated from 12 monthly per-dim scores)
+  label: string;            // 極佳/順遂/平穩/需謹慎/不利
+  /** ★1-5 (deterministic from score band, aligned to DIMENSION_LABEL_BANDS). */
+  stars: number;
+  labelZh: string;          // 事業/財運/感情/健康
+}
+
+// ------------------------------------------------------------
+// 核心風險&機會 (engine-ranked top-3 opp + bottom-3 risk MONTHS)
+// ------------------------------------------------------------
+
+export interface YearlyRiskOpportunityEntry {
+  /** Calendar month index 1-12. */
+  month: number;
+  /** Display label «N月» (Seer shows «12月 疲勞信號»). */
+  monthLabel: string;
+  auspiciousness: string;   // 7-label
+  energyScore: number;      // 0-100
+  /** Dominant dimension for this month (max-deviation attribution). */
+  dim: 'career' | 'finance' | 'romance' | 'health';
+  dimZh: string;            // 事業/財運/感情/健康
+  deviationSign: 'positive' | 'negative';
+  /** True when an opportunity month's dominant dim deviates negative
+   *  (吉中有凶 doctrine — UI renders «機會中留意：X» caveat tag). */
+  caveat: boolean;
+  slot: 'opportunity' | 'risk';
+}
+
+export interface YearlyCoreRiskOpportunity {
+  /** Up to 3 opportunity months (energy >= 58). May be empty for flat years. */
+  opportunities: YearlyRiskOpportunityEntry[];
+  /** Up to 3 risk months (energy <= 42). May be empty for flat years. */
+  risks: YearlyRiskOpportunityEntry[];
+  /** True when both lists empty — UI shows «今年運勢平穩，無顯著起伏».
+   *  NEVER padded to 3 (padding a 平 month = fabrication). */
+  flatYear: boolean;
+}
+
+// ------------------------------------------------------------
+// 改運建議 (deterministic luck-method cards)
+// ------------------------------------------------------------
+
+export interface YearlyLuckMethodCard {
+  id: string;
+  title: string;            // 運勢整理法 / 社交磁場法 / 養生調息法 / ...
+  body: string;
+  provenance: 'classical' | 'folk_tradition' | 'mixed';
+  /** Present on the 用神-flavored card (provenance 'mixed'). */
+  flavorProvenance?: 'classical';
+  usefulGodElement?: string;
+  usefulGodDirection?: string;
+  usefulGodColor?: string;
+}
+
+export interface YearlyLuckMethods {
+  cards: YearlyLuckMethodCard[];
+  weakestDim: 'career' | 'finance' | 'romance' | 'health';
+  weakestDimZh: string;
+  /** 1-line 民俗/養生 disclaimer (UI shows below cards). */
+  disclaimer: string;
+}
+
+// ------------------------------------------------------------
+// Yearly AI Narrative
+// ------------------------------------------------------------
+
+export interface YearlyFortuneAINarrative {
+  /** Year headline keyword (≤12 char, e.g. 「穩中求進」). */
+  yearly_headline: string;
+  /** Hero overview (~120-180 char, high-level all-4-dims). */
+  yearly_overview: string;
+  /** Per-dim keyword (≤6 char, e.g. 愛意綿長) + prose. */
+  yearly_career: string;
+  yearly_career_keyword?: string;
+  yearly_finance: string;
+  yearly_finance_keyword?: string;
+  yearly_romance: string;
+  yearly_romance_keyword?: string;
+  yearly_health: string;
+  yearly_health_keyword?: string;
+  /** Actionable advice prose (~120-180 char, single paragraph). */
+  yearly_advice: string;
+  /** Risk/opportunity narratives — one per engine-supplied month, paired
+   *  BY ARRAY INDEX with coreRiskOpportunity (L3 injector enforces order).
+   *  Anti-hallucination: months MUST come from structured fields. */
+  yearly_risk_opportunities?: Array<{
+    month_label: string;     // «N月» — must echo engine monthLabel
+    type: 'risk' | 'opportunity';
+    keyword: string;         // ≤6 char (疲勞信號 / 感情升溫)
+    narrative: string;       // 1-liner
+  }>;
+}
+
+// ------------------------------------------------------------
+// Yearly response shape
+// ------------------------------------------------------------
+
+export interface YearlyFortuneResponse {
+  /** Target flow year (YYYY, user-input preserved). */
+  year: number;
+  profileId: string;
+  profileBirthDate: string;
+  profileBirthTime: string;
+  engineOutput: {
+    yearGanZhi: string;       // e.g. '丙午'
+    yearStem: string;
+    yearBranch: string;
+    yearTenGod: string;       // 流年 vs DM ten god
+    auspiciousness: string;   // 7-label (overall year)
+    energyScore: number;      // 0-100 (EnergyScoreRing)
+    metaFraming: 'soft_trigger';
+    /** 4-dim star ratings. NO travel. */
+    dimensions: Record<'career' | 'finance' | 'romance' | 'health', YearlyFortuneDimension>;
+    /** Engine-ranked top-3 opp + bottom-3 risk months (sibling, not nested
+     *  in narrative — glossary discipline: engine camelCase). */
+    coreRiskOpportunity: YearlyCoreRiskOpportunity;
+    /** Deterministic 改運 luck-method cards. */
+    luckMethods: YearlyLuckMethods;
+    preAnalysisVersion: string;
+  };
+  /** AI-generated narrative — null when engine-only preview. */
+  narrative: YearlyFortuneAINarrative | null;
+  cacheHit: boolean;
+  generatedAt: string;
+}

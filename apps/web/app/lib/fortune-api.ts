@@ -919,3 +919,260 @@ export function moodKeywordFromMonthlyLabel(label: string): string {
   };
   return map[label] ?? '本月平穩';
 }
+
+// ============================================================
+// 年運 (Yearly Fortune) — Phase 3 web mirror of apps/api dto/index.ts
+// ============================================================
+
+export interface YearlyFortuneDimension {
+  score: number;
+  label: string;
+  stars: number;        // ★1-5
+  labelZh: string;
+}
+
+export interface YearlyRiskOpportunityEntry {
+  month: number;
+  monthLabel: string;   // «N月»
+  auspiciousness: string;
+  energyScore: number;
+  dim: 'career' | 'finance' | 'romance' | 'health';
+  dimZh: string;
+  deviationSign: 'positive' | 'negative';
+  caveat: boolean;
+  slot: 'opportunity' | 'risk';
+}
+
+export interface YearlyCoreRiskOpportunity {
+  opportunities: YearlyRiskOpportunityEntry[];
+  risks: YearlyRiskOpportunityEntry[];
+  flatYear: boolean;
+}
+
+export interface YearlyLuckMethodCard {
+  id: string;
+  title: string;
+  body: string;
+  provenance: 'classical' | 'folk_tradition' | 'mixed';
+  flavorProvenance?: 'classical';
+  usefulGodElement?: string;
+  usefulGodDirection?: string;
+  usefulGodColor?: string;
+}
+
+export interface YearlyLuckMethods {
+  cards: YearlyLuckMethodCard[];
+  weakestDim: 'career' | 'finance' | 'romance' | 'health';
+  weakestDimZh: string;
+  disclaimer: string;
+}
+
+export interface YearlyFortuneNarrative {
+  yearly_headline: string;
+  yearly_overview: string;
+  yearly_career: string;
+  yearly_career_keyword?: string;
+  yearly_finance: string;
+  yearly_finance_keyword?: string;
+  yearly_romance: string;
+  yearly_romance_keyword?: string;
+  yearly_health: string;
+  yearly_health_keyword?: string;
+  yearly_advice: string;
+  yearly_risk_opportunities?: Array<{
+    month_label: string;
+    type: 'risk' | 'opportunity';
+    keyword: string;
+    narrative: string;
+  }>;
+}
+
+export interface YearlyFortuneEngineOutput {
+  yearGanZhi: string;
+  yearStem: string;
+  yearBranch: string;
+  yearTenGod: string;
+  auspiciousness: string;
+  energyScore: number;
+  metaFraming: 'soft_trigger';
+  dimensions: Record<'career' | 'finance' | 'romance' | 'health', YearlyFortuneDimension>;
+  coreRiskOpportunity: YearlyCoreRiskOpportunity;
+  luckMethods: YearlyLuckMethods;
+  preAnalysisVersion: string;
+}
+
+export interface YearlyFortuneResponse {
+  year: number;
+  profileId: string;
+  profileBirthDate: string;
+  profileBirthTime: string;
+  engineOutput: YearlyFortuneEngineOutput;
+  narrative: YearlyFortuneNarrative | null;
+  cacheHit: boolean;
+  generatedAt: string;
+}
+
+/**
+ * Phase 3 Yearly Streaming — YEAR scope wire event types matching backend
+ * `FortuneYearlyStreamEvent`. Mirrors monthly: `coreRiskOpportunity` +
+ * `luckMethods` are SIBLINGS on `engine_ready` (engine camelCase), `cacheHit`
+ * on `engine_ready`, `done` does NOT re-carry siblings (L5 spreads prev.data).
+ */
+export type FortuneYearlyStreamEvent =
+  | {
+      type: 'engine_ready';
+      engineOutput: YearlyFortuneEngineOutput;
+      profileId: string;
+      profileBirthDate: string;
+      profileBirthTime: string;
+      year: number;
+      cacheHit: boolean;
+    }
+  | { type: 'section_complete'; key: string; value: unknown }
+  | { type: 'done'; narrative: YearlyFortuneNarrative | null; cacheHit: boolean }
+  | { type: 'error'; code: string; message: string };
+
+interface YearlyStreamOpts {
+  token: string;
+  profileId?: string;
+  year?: string;        // 'YYYY'
+  onEvent: (event: FortuneStreamEvent) => void;
+  onError: (err: Error) => void;
+  onClose: () => void;
+}
+
+/**
+ * Phase 3 — Open an SSE stream from `GET /api/fortune/yearly/stream`.
+ * Mirror of `streamMonthlyFortune` for YEAR scope. Returns a teardown function.
+ */
+export function streamYearlyFortune(opts: YearlyStreamOpts): () => void {
+  const controller = new AbortController();
+  const params = new URLSearchParams();
+  if (opts.profileId) params.set('profileId', opts.profileId);
+  if (opts.year) params.set('year', opts.year);
+  const url = `${API_BASE}/api/fortune/yearly/stream${params.toString() ? `?${params}` : ''}`;
+
+  (async () => {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${opts.token}`,
+          Accept: 'text/event-stream',
+        },
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      opts.onError(err as Error);
+      opts.onClose();
+      return;
+    }
+
+    if (!response.ok) {
+      let body: { message?: string; code?: string } = {};
+      try {
+        body = await response.json();
+      } catch {
+        // ignore
+      }
+      opts.onEvent({
+        type: 'error',
+        code: body.code || `HTTP_${response.status}`,
+        message:
+          body.message ||
+          `Yearly fortune stream failed: ${response.status} ${response.statusText}`,
+      });
+      opts.onClose();
+      return;
+    }
+
+    if (!response.body) {
+      opts.onError(new Error('Yearly fortune stream: missing response body'));
+      opts.onClose();
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let frameEnd = buffer.indexOf('\n\n');
+        while (frameEnd !== -1) {
+          const frame = buffer.slice(0, frameEnd);
+          buffer = buffer.slice(frameEnd + 2);
+          dispatchFortuneFrame(frame, opts.onEvent);
+          frameEnd = buffer.indexOf('\n\n');
+        }
+      }
+      if (buffer.trim().length > 0) {
+        dispatchFortuneFrame(buffer, opts.onEvent);
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        opts.onError(err as Error);
+      }
+    } finally {
+      opts.onClose();
+    }
+  })();
+
+  return () => controller.abort();
+}
+
+// ------------------------------------------------------------
+// Subscriber window — YEARLY scope (-1 / current / +4 per Seer's 6 pills)
+// ------------------------------------------------------------
+
+export const FREE_WINDOW_PAST_YEAR = 0;
+export const FREE_WINDOW_FUTURE_YEAR = 0;
+export const SUBSCRIBER_WINDOW_PAST_YEAR = 1;
+export const SUBSCRIBER_WINDOW_FUTURE_YEAR = 4;
+
+/** Resolve the current year in Asia/Taipei TZ → YYYY. */
+export function resolveCurrentYearIso(now: Date = new Date()): string {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+  });
+  return formatter.format(now);
+}
+
+/** True iff target YYYY is within the user's subscriber window. */
+export function isYearInSubscriberWindow(
+  targetYear: string,
+  currentYear: string,
+  tier: UserTier | undefined,
+): boolean {
+  const diff = parseInt(targetYear, 10) - parseInt(currentYear, 10);
+  if (tier === undefined || tier === 'FREE') {
+    return diff >= -FREE_WINDOW_PAST_YEAR && diff <= FREE_WINDOW_FUTURE_YEAR;
+  }
+  return (
+    diff >= -SUBSCRIBER_WINDOW_PAST_YEAR && diff <= SUBSCRIBER_WINDOW_FUTURE_YEAR
+  );
+}
+
+/** Map a 7-tier auspiciousness label to a UX-friendly yearly mood phrase. */
+export function moodKeywordFromYearlyLabel(label: string): string {
+  const map: Record<string, string> = {
+    大吉: '今年順遂',
+    吉: '今年可把握',
+    吉中有凶: '今年吉中需謹慎',
+    平: '今年平穩',
+    凶中有吉: '今年凶中可轉機',
+    小凶: '今年宜緩',
+    凶: '今年宜守',
+    大凶: '今年宜避鋒',
+    凶上加凶: '今年大忌',
+  };
+  return map[label] ?? '今年平穩';
+}

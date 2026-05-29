@@ -28,6 +28,7 @@ from .monthly_enhanced import (
     compute_intra_month_breakdown,
     compute_single_month_by_yearmonth,
 )
+from .yearly_enhanced import compute_year_by_year
 
 app = FastAPI(
     title="Bazi Calculation Engine",
@@ -776,6 +777,38 @@ class MonthlyFortuneInput(BaseModel):
     )
 
 
+class YearlyFortuneInput(BaseModel):
+    """Input for yearly fortune computation (八字年運) — Phase 3.
+
+    The endpoint accepts birth data + target year and delegates to
+    `compute_year_by_year`. Year selection maps DIRECTLY to the 立春-anchored
+    flow year (NO cross-flow-year resolution like month — a 流年 IS
+    立春-to-立春). Free/subscriber LIGHTER PREVIEW that cross-sells to the
+    paid 八字流年運勢 reading.
+
+    Caller (NestJS layer) caches by `(chart_hash, scope='YEAR', anchor_date='YYYY-01-01')`.
+
+    See `.claude/plans/phase-3-nianyun-phase-a-research-results.md`.
+    """
+    birth_date: str = Field(
+        ..., description="Birth date YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    birth_time: str = Field(
+        ..., description="Birth time HH:MM",
+        pattern=r"^([01]\d|2[0-3]):([0-5]\d)$",
+    )
+    birth_city: str
+    birth_timezone: str
+    gender: str = Field(..., pattern=r"^(male|female)$")
+    birth_longitude: Optional[float] = None
+    birth_latitude: Optional[float] = None
+    target_year: int = Field(
+        ..., ge=1900, le=2100,
+        description="Target 立春-anchored flow year",
+    )
+
+
 @app.post("/monthly-fortune")
 async def monthly_fortune_endpoint(data: MonthlyFortuneInput):
     """Compute 八字月運 (monthly fortune) for the given chart on a target (year, month).
@@ -865,6 +898,63 @@ async def monthly_fortune_endpoint(data: MonthlyFortuneInput):
         raise HTTPException(
             status_code=500,
             detail=f"Monthly fortune calculation error: {str(e)}",
+        )
+
+
+@app.post("/yearly-fortune")
+async def yearly_fortune_endpoint(data: YearlyFortuneInput):
+    """Compute 八字年運 (yearly fortune) for the given chart on a flow year.
+
+    Returns the engine's deterministic yearly pre-analysis (Phase 3):
+    - 7-label 吉凶 (`auspiciousness`) + derived 0-100 `energyScore` (EnergyScoreRing)
+    - 4 star-rated dimensions (career/finance/romance/health — NO 出行;
+      感情=romance NOT 人際關係) via hybrid mean-with-peak-emphasis aggregation
+    - `coreRiskOpportunity` (top-3 opportunity + bottom-3 risk MONTHS, gated;
+      `flatYear: true` when both empty — UI shows «今年運勢平穩，無顯著起伏»)
+    - `luckMethods` (deterministic 改運 cards keyed on weakest-dim + 用神)
+    - `metaFraming='soft_trigger'` (流年 = sustained TREND per 三命通會 論流年)
+    - `chartContext` for NestJS prompt builder reuse
+
+    LIGHTER PREVIEW — does NOT include the paid 八字流年運勢's full 12-month
+    prose / deep 太歲 / 大運 sequence (those stay paywalled; free tab
+    cross-sells to /reading/annual).
+
+    Year selection maps DIRECTLY to the 立春-anchored flow year (no
+    cross-flow-year resolution like month).
+
+    Cache strategy (NestJS layer): key by
+    `(chart_hash, scope='YEAR', anchor_date='YYYY-01-01', FORTUNE_YEARLY_PRE_ANALYSIS_VERSION)`,
+    TTL 24h. Subscriber window: last year + current + +4 years.
+    """
+    start_time = time.perf_counter()
+
+    try:
+        yearly_result = compute_year_by_year(
+            birth_date=data.birth_date,
+            birth_time=data.birth_time,
+            birth_city=data.birth_city,
+            birth_timezone=data.birth_timezone,
+            gender=data.gender,
+            year=data.target_year,
+            birth_longitude=data.birth_longitude,
+            birth_latitude=data.birth_latitude,
+        )
+
+        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        return {
+            "status": "success",
+            "calculationTimeMs": elapsed_ms,
+            "data": yearly_result,
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Yearly fortune calculation error: {str(e)}",
         )
 
 

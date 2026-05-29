@@ -168,4 +168,4 @@ def derive_dimension_label(score: int) -> str:
 
 FORTUNE_DAILY_PRE_ANALYSIS_VERSION = 'v1.2.0'  # Phase 1.5.z folk content (吉色/吉數/吉食含忌食/吉時) — 2026-05-22
 FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION = 'v1.1.0'  # Phase 2.x — engine wires compute_intra_month_breakdown into /monthly-fortune (camelCase 'intraMonthBreakdown' added to response). Lazy regen on next fetch invalidates cached MONTH snapshots so they get the new field.
-FORTUNE_YEARLY_PRE_ANALYSIS_VERSION = 'v1.0.0'
+FORTUNE_YEARLY_PRE_ANALYSIS_VERSION = 'v1.1.0'  # Phase 3 — yearly_enhanced.py ships real output (4-dim stars + coreRiskOpportunity + luckMethods). Mirror FORTUNE_PRE_ANALYSIS_VERSIONS.year in prompts.ts.

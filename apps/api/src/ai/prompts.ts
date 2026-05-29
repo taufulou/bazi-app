@@ -4833,7 +4833,7 @@ export const FORTUNE_V1_PROMPTS = {
 export const FORTUNE_PRE_ANALYSIS_VERSIONS = {
   day: 'v1.2.0',  // Phase 1.5.z folk content (吉色/吉數/吉食含忌食/吉時) — 2026-05-22
   month: 'v1.1.0',  // Phase 2.x — engine wires compute_intra_month_breakdown into /monthly-fortune (camelCase 'intraMonthBreakdown' added to response shape). Mirror of FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION in fortune_constants.py:170.
-  year: 'v1.0.0',
+  year: 'v1.1.0',  // Phase 3 — yearly_enhanced.py ships real output (4-dim stars + coreRiskOpportunity + luckMethods). Mirror of FORTUNE_YEARLY_PRE_ANALYSIS_VERSION in fortune_constants.py:171.
 } as const;
 
 /**
@@ -4844,7 +4844,7 @@ export const FORTUNE_PRE_ANALYSIS_VERSIONS = {
 export const FORTUNE_PROMPT_VERSIONS = {
   day: 'v1.3.0',  // Phase 1.5.z folk content (吉色/吉數/吉食含忌食/吉時) — 5 new template fields + DM-drift rule + folk-prefix rule + medical disclaimer (2026-05-22)
   month: 'v1.1.0',  // Phase 2 月運 prompt template ready (clauses + tiangan_dizhi_half partition + intra_month_breakdown narrative rule, 2026-05-28); engine wiring of intraMonthBreakdown data shipped Phase 2.x — prompt itself unchanged because the rule is conditional («if intraMonthBreakdown provided, emit narrative; else don't emit»).
-  year: 'v1.0.0',
+  year: 'v1.1.0',  // Phase 3 年運 — FORTUNE_V1_PROMPTS.yearly template shipped (7-clause anti-hallucination + 流年為君大運為臣 framing + risk/opp ordering injector). 2026-05-29.
 } as const;
 
 export type FortuneScopeKey = keyof typeof FORTUNE_PRE_ANALYSIS_VERSIONS;
