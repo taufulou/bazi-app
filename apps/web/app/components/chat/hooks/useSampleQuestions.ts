@@ -31,8 +31,14 @@ type CacheEntry = { data: SampleQuestionItem[]; fetchedAt: number };
 const cache = new Map<CacheKey, CacheEntry>();
 const inflight = new Map<CacheKey, Promise<SampleQuestionItem[]>>();
 
-function makeCacheKey(readingType: ChatReadingType, sectionKey: string | null): CacheKey {
-  return `${readingType}:${sectionKey ?? '*'}`;
+function makeCacheKey(
+  readingType: ChatReadingType,
+  sectionKey: string | null,
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR',
+): CacheKey {
+  // Phase 2.x L3.5b — include scope discriminator so DAY + MONTH FORTUNE
+  // questions don't collide. Default 'DAY' for back-compat (matches backend).
+  return `${readingType}:${sectionKey ?? '*'}:${fortuneScope ?? 'DAY'}`;
 }
 
 /** Synchronous cache peek — used for SSR-friendly initial render. */
@@ -50,11 +56,12 @@ async function fetchAndCache(
   key: CacheKey,
   readingType: ChatReadingType,
   sectionKey: string | null,
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR',
 ): Promise<SampleQuestionItem[]> {
   const existingInflight = inflight.get(key);
   if (existingInflight) return existingInflight;
 
-  const promise = getSampleQuestions({ readingType, sectionKey })
+  const promise = getSampleQuestions({ readingType, sectionKey, fortuneScope })
     .then((data) => {
       cache.set(key, { data, fetchedAt: Date.now() });
       return data;
@@ -74,16 +81,22 @@ export interface UseSampleQuestionsResult {
 }
 
 /**
- * Hook to load sample questions for a (readingType, sectionKey) tuple.
+ * Hook to load sample questions for a (readingType, sectionKey, fortuneScope) tuple.
  *
  * Phase 2 (round-1 MED-#3) — readingType is a required prop. Caller must
  * thread it from the reading page through ChatDrawer / InlineAskCard.
+ *
+ * Phase 2.x L3.5b — fortuneScope is optional; FORTUNE callers pass 'DAY' or
+ * 'MONTH' to filter the right scope's question seeds. Non-FORTUNE callers
+ * leave it undefined (backend treats undefined as DAY back-compat — falls
+ * through to legacy WHERE clause that matches null fortune_scope rows).
  */
 export function useSampleQuestions(
   readingType: ChatReadingType,
   sectionKey: string | null,
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR',
 ): UseSampleQuestionsResult {
-  const cacheKey = makeCacheKey(readingType, sectionKey);
+  const cacheKey = makeCacheKey(readingType, sectionKey, fortuneScope);
   const [questions, setQuestions] = useState<SampleQuestionItem[]>(
     () => peekCache(cacheKey) ?? [],
   );
@@ -98,7 +111,7 @@ export function useSampleQuestions(
       return;
     }
     setLoading(true);
-    fetchAndCache(cacheKey, readingType, sectionKey)
+    fetchAndCache(cacheKey, readingType, sectionKey, fortuneScope)
       .then((data) => {
         if (!cancelled) {
           setQuestions(data);
@@ -114,7 +127,7 @@ export function useSampleQuestions(
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, readingType, sectionKey]);
+  }, [cacheKey, readingType, sectionKey, fortuneScope]);
 
   return { questions, loading };
 }
@@ -138,7 +151,30 @@ export function invalidateSampleQuestionsCache(
     return;
   }
   if (sectionKey !== undefined) {
-    cache.delete(makeCacheKey(readingType, sectionKey));
+    // Audit M#3 (L3.5b line audit) — prefix-sweep across all scopes.
+    // Cache keys are `${readingType}:${sectionKey ?? '*'}:${fortuneScope ?? 'DAY'}`
+    // (see makeCacheKey above; null sectionKey encodes as '*'). A single
+    // targeted `cache.delete(makeCacheKey(readingType, sectionKey))` would
+    // only clear the DAY-keyed entry and leave MONTH-keyed entries stale
+    // for up to 5 min TTL. After an admin write that affects a specific
+    // (readingType, sectionKey), invalidate ALL scope variants so the
+    // next public read for either scope hits backend fresh.
+    const sectionKeyEncoded = sectionKey ?? '*';
+    const prefix = `${readingType}:${sectionKeyEncoded}:`;
+    for (const key of cache.keys()) {
+      if (key.startsWith(prefix)) cache.delete(key);
+    }
+    // Staff-engineer LOW #2 (L3.5b post-fix audit) — ALSO sweep the
+    // `__ALL__` sentinel keys used by `useAllSampleQuestions` /
+    // SampleQuestionsBrowser. These keys have shape
+    // `${readingType}:__ALL__:${scope}` (see makeAllCacheKey below). An
+    // admin write to a single section was NOT invalidating the
+    // browser-sheet's «show all» cache before this — admins saw stale
+    // questions for up to 5min TTL. Sweep all __ALL__ scope variants too.
+    const allPrefix = `${readingType}:${ALL_QUESTIONS_SENTINEL}:`;
+    for (const key of cache.keys()) {
+      if (key.startsWith(allPrefix)) cache.delete(key);
+    }
     return;
   }
   // readingType only — clear all sections for this reading type AND
@@ -161,18 +197,24 @@ export function invalidateSampleQuestionsCache(
  */
 const ALL_QUESTIONS_SENTINEL = '__ALL__';
 
-function makeAllCacheKey(readingType: ChatReadingType): CacheKey {
-  return `${readingType}:${ALL_QUESTIONS_SENTINEL}`;
+function makeAllCacheKey(
+  readingType: ChatReadingType,
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR',
+): CacheKey {
+  // Phase 2.x L3.5b — include scope in the cache key so DAY + MONTH FORTUNE
+  // browser views don't collide. Default 'DAY' for back-compat.
+  return `${readingType}:${ALL_QUESTIONS_SENTINEL}:${fortuneScope ?? 'DAY'}`;
 }
 
 async function fetchAndCacheAll(
   key: CacheKey,
   readingType: ChatReadingType,
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR',
 ): Promise<SampleQuestionItem[]> {
   const existingInflight = inflight.get(key);
   if (existingInflight) return existingInflight;
 
-  const promise = getAllSampleQuestions({ readingType })
+  const promise = getAllSampleQuestions({ readingType, fortuneScope })
     .then((data) => {
       cache.set(key, { data, fetchedAt: Date.now() });
       return data;
@@ -188,16 +230,14 @@ async function fetchAndCacheAll(
  * Phase 4 — load ALL active sample questions for a reading type (across
  * all sectionKeys). Used by the in-drawer SampleQuestionsBrowser overlay.
  *
- * Return-type shape mirrors `useSampleQuestions` exactly (no `error`
- * field — failure silently returns empty list, caller renders empty
- * state). Module-level cache is shared with `useSampleQuestions` so
- * admin invalidation reaches both via the same `__ALL__` sentinel key
- * sweep.
+ * Phase 2.x L3.5b — `fortuneScope` lets FORTUNE callers filter by scope
+ * (MONTH chat shows MONTH-keyed questions, DAY chat shows DAY-keyed).
  */
 export function useAllSampleQuestions(
   readingType: ChatReadingType,
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR',
 ): UseSampleQuestionsResult {
-  const cacheKey = makeAllCacheKey(readingType);
+  const cacheKey = makeAllCacheKey(readingType, fortuneScope);
   const [questions, setQuestions] = useState<SampleQuestionItem[]>(
     () => peekCache(cacheKey) ?? [],
   );
@@ -212,7 +252,7 @@ export function useAllSampleQuestions(
       return;
     }
     setLoading(true);
-    fetchAndCacheAll(cacheKey, readingType)
+    fetchAndCacheAll(cacheKey, readingType, fortuneScope)
       .then((data) => {
         if (!cancelled) {
           setQuestions(data);
@@ -228,7 +268,7 @@ export function useAllSampleQuestions(
     return () => {
       cancelled = true;
     };
-  }, [cacheKey, readingType]);
+  }, [cacheKey, readingType, fortuneScope]);
 
   return { questions, loading };
 }

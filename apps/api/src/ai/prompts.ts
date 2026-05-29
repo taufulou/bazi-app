@@ -4058,6 +4058,36 @@ export const CHAT_REFUSE_TEMPLATE_BY_READING_TYPE: Record<
 };
 
 /**
+ * Phase 2.x L3.5b — MONTH-scope refuse template for FORTUNE chat. Mirror of
+ * DAY-scope template scaled to MONTH:
+ *   - In-topic: current month's signals (intra-month buckets, monthly dims,
+ *     month-pillar transient findings)
+ *   - Out-of-topic: 命格 → LIFETIME / 整年 → ANNUAL / 配偶整體 → LOVE
+ *   - Hybrid: questions overlapping current month («今年事業如何？») cite
+ *     current month first, then refuse to ANNUAL — M-2 hybrid pattern
+ *
+ * Dispatched at `buildChatV1SystemPromptForType` when `fortuneScope === 'MONTH'`.
+ * Refuse opener uses 「八字月運」 marker (not 「八字日運」) so
+ * `CHAT_V1_TOPIC_REFUSE_OPENING_REGEX` correctly counts MONTH refuses too.
+ */
+export const CHAT_FORTUNE_MONTH_REFUSE_TEMPLATE = `若用戶問題超出本月範疇（命格、終身大運、整年趨勢、多年規劃、配偶結構等），以親切的語氣回應，遵循以下結構：
+
+「謝謝您的提問。關於[該領域]的詳細分析，超出本《八字月運》解讀的範圍——這需要結合命局其他面向的專業分析。{crossSellTarget}
+
+回到您本月的月運解讀——根據您本月命盤資料，{crossSellPivotHint}。您想了解這個訊號在本月該如何把握嗎？」
+
+不要：
+- 用冷淡、命令式語氣（「此對話僅限...」「無法回答」）
+- 給出該領域的具體答案（即使 chat-context 合併資料中含 lifetime/love/career/annual 欄位，資料完整 ≠ 範疇內）
+- 強硬地拒絕，沒有 pivot back to 本月訊號
+
+**規則**：refuse 開場固定格式「關於 X 的詳細分析，超出本《八字月運》解讀的範圍——」中間**不可插入其他子句**（伺服端的 refuse 偵測會找這個確切結構）。
+
+**hybrid refuse 特殊規則 (load-bearing — M-2 範例)**：當用戶問題**部分包含本月時間軸**（如「今年事業如何？」中「今年」涵蓋本月），**先 cite 本月具體訊號**（月柱干支 + 十神 + 4-dim score + partition-bucket 訊號），**再切換**到 refuse 措辭，最後 cross-sell ANNUAL。順序顛倒違反 hybrid 設計。
+
+**跨月份 redirect 規則**（per FORTUNE_V1_PROMPTS.monthly Clause 7）：若問題鎖定「下個月／下下個月／明年X月」等 in-window MONTH topic（≤+12 個月內），優先 redirect：「{該月份}的詳細解讀建議切換到{該月份}的月運頁面查看——點上方日期切換器即可。本月（{current_anchor}）我可以告訴您…」+ cite current-month signals.`;
+
+/**
  * Per-readingType → per-target cross-sell line. The AI selects the
  * appropriate line based on the user's question topic (it has full text
  * available). LIFETIME's map is empty because LIFETIME never refuses
@@ -4341,6 +4371,10 @@ export const CHAT_FORTUNE_MONTH_REFUSE_FEW_SHOTS = `\
  */
 export function buildChatV1SystemPromptForType(
   readingType: 'LIFETIME' | 'LOVE' | 'CAREER' | 'ANNUAL' | 'COMPATIBILITY' | 'FORTUNE',
+  /** Phase 2.x L3.5b — for FORTUNE, dispatch refuse template + few-shots by
+   *  scope. DAY (default) uses CHAT_FORTUNE_REFUSE_FEW_SHOTS;
+   *  MONTH uses CHAT_FORTUNE_MONTH_REFUSE_FEW_SHOTS + corresponding template. */
+  fortuneScope: 'DAY' | 'MONTH' = 'DAY',
 ): string {
   const sections = [
     CHAT_V1_PERSONA,
@@ -4355,10 +4389,23 @@ export function buildChatV1SystemPromptForType(
   ];
 
   // Per-type topic scope clause.
-  sections.push('', '【本對話範疇】', CHAT_TOPIC_SCOPE_BY_READING_TYPE[readingType]);
+  // Phase 2.x L3.5b — for FORTUNE+MONTH, swap the topic-scope clause too if a
+  // MONTH-specific scope is registered (otherwise fall back to DAY clause; the
+  // refuse template + few-shots below handle the MONTH-specific framing).
+  const topicScope =
+    readingType === 'FORTUNE' && fortuneScope === 'MONTH' && CHAT_TOPIC_SCOPE_FORTUNE_MONTH
+      ? CHAT_TOPIC_SCOPE_FORTUNE_MONTH
+      : CHAT_TOPIC_SCOPE_BY_READING_TYPE[readingType];
+  sections.push('', '【本對話範疇】', topicScope);
 
   // Per-type refuse template (LIFETIME = null, no template).
-  const refuseTemplate = CHAT_REFUSE_TEMPLATE_BY_READING_TYPE[readingType];
+  // Phase 2.x L3.5b — FORTUNE+MONTH uses CHAT_FORTUNE_MONTH_REFUSE_TEMPLATE
+  // (refuse opener cites 《八字月運》 not 《八字日運》 — keeps refuse-regex
+  // counting consistent across scopes).
+  const refuseTemplate =
+    readingType === 'FORTUNE' && fortuneScope === 'MONTH'
+      ? CHAT_FORTUNE_MONTH_REFUSE_TEMPLATE
+      : CHAT_REFUSE_TEMPLATE_BY_READING_TYPE[readingType];
   if (refuseTemplate) {
     sections.push('', '【跨主題拒絕模板】', refuseTemplate);
     // Cross-sell line index — AI selects based on question topic.
@@ -4372,13 +4419,27 @@ export function buildChatV1SystemPromptForType(
   }
 
   // Per-type refuse few-shots (round-2 NEW#5 — token-budget gating).
-  const refuseFewShots = REFUSE_FEW_SHOTS_BY_READING_TYPE[readingType];
+  // Phase 2.x L3.5b — FORTUNE dispatches by scope: DAY uses F-1/F-2/F-3,
+  // MONTH uses M-1/M-2.
+  const refuseFewShots =
+    readingType === 'FORTUNE' && fortuneScope === 'MONTH'
+      ? CHAT_FORTUNE_MONTH_REFUSE_FEW_SHOTS
+      : REFUSE_FEW_SHOTS_BY_READING_TYPE[readingType];
   if (refuseFewShots) {
     sections.push('', '【跨主題拒絕範例】', refuseFewShots);
   }
 
   return sections.join('\n');
 }
+
+/**
+ * Phase 2.x L3.5b — optional MONTH-specific topic scope clause for FORTUNE chat.
+ * When unset, falls back to FORTUNE DAY clause + refuse-template handles the
+ * scope framing. Currently unset (DAY clause works for both — both are "this-period
+ * grounded, refuse out-of-period questions"); kept as an extension hook in case
+ * future MONTH-specific framing is needed.
+ */
+export const CHAT_TOPIC_SCOPE_FORTUNE_MONTH: string | null = null;
 
 const REFUSE_FEW_SHOTS_BY_READING_TYPE: Record<
   'LIFETIME' | 'LOVE' | 'CAREER' | 'ANNUAL' | 'COMPATIBILITY' | 'FORTUNE',
@@ -4771,7 +4832,7 @@ export const FORTUNE_V1_PROMPTS = {
  */
 export const FORTUNE_PRE_ANALYSIS_VERSIONS = {
   day: 'v1.2.0',  // Phase 1.5.z folk content (吉色/吉數/吉食含忌食/吉時) — 2026-05-22
-  month: 'v1.0.0',
+  month: 'v1.1.0',  // Phase 2.x — engine wires compute_intra_month_breakdown into /monthly-fortune (camelCase 'intraMonthBreakdown' added to response shape). Mirror of FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION in fortune_constants.py:170.
   year: 'v1.0.0',
 } as const;
 
@@ -4782,7 +4843,7 @@ export const FORTUNE_PRE_ANALYSIS_VERSIONS = {
  */
 export const FORTUNE_PROMPT_VERSIONS = {
   day: 'v1.3.0',  // Phase 1.5.z folk content (吉色/吉數/吉食含忌食/吉時) — 5 new template fields + DM-drift rule + folk-prefix rule + medical disclaimer (2026-05-22)
-  month: 'v1.1.0',  // Phase 2 月運 — template + 7 anti-hallucination clauses + tiangan_dizhi_half partition + intra-month breakdown (2026-05-28)
+  month: 'v1.1.0',  // Phase 2 月運 prompt template ready (clauses + tiangan_dizhi_half partition + intra_month_breakdown narrative rule, 2026-05-28); engine wiring of intraMonthBreakdown data shipped Phase 2.x — prompt itself unchanged because the rule is conditional («if intraMonthBreakdown provided, emit narrative; else don't emit»).
   year: 'v1.0.0',
 } as const;
 

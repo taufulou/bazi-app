@@ -1,13 +1,21 @@
 /**
- * useFortuneNarrativeStream — Phase Fortune Streaming Layer 4.
+ * useFortuneNarrativeStream — Phase Fortune Streaming Layer 4 (Phase 2.x scope-aware).
  *
- * Opens a single SSE connection to `GET /api/fortune/daily/stream` and
- * dispatches each event through `onEvent`. Manages the AbortController
- * teardown lifecycle:
+ * Opens a single SSE connection to `GET /api/fortune/{daily|monthly}/stream`
+ * (per `scope` arg) and dispatches each event through `onEvent`. Manages the
+ * AbortController teardown lifecycle:
  *   - enabled true → open stream
  *   - enabled toggles to false → abort current stream
- *   - dep change (new profileId / date) → abort + re-open
+ *   - dep change (new scope / profileId / date / month) → abort + re-open
  *   - unmount → abort
+ *
+ * Phase 2.x L4 refactor:
+ *   - `scope: 'day' | 'month'` discriminator dispatches to the right wire helper
+ *   - `date` (when scope='day') or `month` (when scope='month') drives URL
+ *   - Effect deps include `scope` + `month` so MonthNavigator changes re-open
+ *     the stream (plan M-5 fix)
+ *   - Invariant guards at hook entry early-return on malformed args during
+ *     profile-switch races (plan NEW-M2 fix)
  *
  * Exposes `sectionsReceived: Set<string>` so callers (e.g., the page
  * effect that controls the stream-error banner) can react to set
@@ -18,12 +26,24 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '@clerk/nextjs';
-import { streamDailyFortune, type FortuneStreamEvent } from '../../../lib/fortune-api';
+import {
+  streamDailyFortune,
+  streamMonthlyFortune,
+  type FortuneStreamEvent,
+} from '../../../lib/fortune-api';
 
 export interface UseFortuneNarrativeStreamArgs {
   enabled: boolean;
+  /** Phase 2.x: which scope's stream endpoint to open. Determines which date
+   *  field is consumed below + which SSE endpoint URL is used. Defaults to
+   *  'day' for back-compat with day-only callers that don't yet thread the
+   *  prop (existing daily callers stay unchanged). */
+  scope?: 'day' | 'month';
   profileId?: string;
+  /** Required when scope='day'. Format: YYYY-MM-DD. Ignored on month-scope. */
   date?: string;
+  /** Required when scope='month'. Format: YYYY-MM. Ignored on day-scope. */
+  month?: string;
   onEvent: (ev: FortuneStreamEvent) => void;
   onError?: (err: Error) => void;
   onClose?: () => void;
@@ -56,7 +76,7 @@ export function useFortuneNarrativeStream(
     () => new Set(),
   );
 
-  /** Holds the teardown function returned by `streamDailyFortune`. */
+  /** Holds the teardown function returned by streamDailyFortune / streamMonthlyFortune. */
   const teardownRef = useRef<(() => void) | null>(null);
 
   // Capture latest onEvent in a ref so the effect can call it without
@@ -80,8 +100,27 @@ export function useFortuneNarrativeStream(
   const clearError = useCallback(() => setError(null), []);
 
   // Open the stream when enabled + deps stable; abort + re-open on any change.
+  // Plan M-5 fix: deps include `scope` + `month` so MonthNavigator / tab switch
+  // re-opens correctly.
+  const scope = args.scope ?? 'day';
   useEffect(() => {
     if (!args.enabled) {
+      cancel();
+      setStreaming(false);
+      return;
+    }
+
+    // Plan NEW-M2 fix — scope/date/month invariant guards. Without these, a
+    // profile-switch race (where parent re-renders with date=undefined for one
+    // tick before useMemo recomputes) would fire the effect with malformed
+    // URL params → 400 from controller → unnecessary noise + error event
+    // flicker. Pattern mirrors existing daily guard at controller level.
+    if (scope === 'day' && !args.date) {
+      cancel();
+      setStreaming(false);
+      return;
+    }
+    if (scope === 'month' && !args.month) {
       cancel();
       setStreaming(false);
       return;
@@ -108,18 +147,20 @@ export function useFortuneNarrativeStream(
       }
       if (cancelled) return;
 
-      teardownRef.current = streamDailyFortune({
+      // Shared event handlers — same shape for day + month per umbrella
+      // FortuneStreamEvent union (R3 polish — single onEvent signature works
+      // for both scopes; runtime branches on ev.type + scope context).
+      const handlers = {
         token,
         profileId: args.profileId,
-        date: args.date,
-        onEvent: (ev) => {
+        onEvent: (ev: FortuneStreamEvent) => {
           // Audit HIGH fix — race guard: when deps change (e.g., DateNavigator
-          // switches to a new date), the effect's cleanup sets `cancelled =
+          // / MonthNavigator switches), the effect's cleanup sets `cancelled =
           // true` synchronously but the AbortController takes a tick to
           // propagate to the in-flight reader.read() loop. Without this guard,
           // late onEvent calls from the OLD stream could write into the NEW
           // stream's `streamedSections` state, briefly showing stale section
-          // text under the new date's engine view. Bail early on cancellation.
+          // text under the new period's engine view. Bail early on cancellation.
           if (cancelled) return;
           if (ev.type === 'section_complete') {
             setSectionsReceived((prev) => {
@@ -133,7 +174,7 @@ export function useFortuneNarrativeStream(
           }
           onEventRef.current(ev);
         },
-        onError: (err) => {
+        onError: (err: Error) => {
           if (cancelled) return;
           setError({ code: 'STREAM_FAILED', message: err.message });
           onErrorRef.current?.(err);
@@ -152,7 +193,21 @@ export function useFortuneNarrativeStream(
           teardownRef.current = null;
           onCloseRef.current?.();
         },
-      });
+      };
+
+      // Scope dispatch — pick wire helper based on scope arg.
+      // TypeScript narrowing handles the date vs month union discrimination.
+      if (scope === 'day') {
+        teardownRef.current = streamDailyFortune({
+          ...handlers,
+          date: args.date,
+        });
+      } else {
+        teardownRef.current = streamMonthlyFortune({
+          ...handlers,
+          month: args.month,
+        });
+      }
     })();
 
     return () => {
@@ -160,7 +215,7 @@ export function useFortuneNarrativeStream(
       cancel();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [args.enabled, args.profileId, args.date, getToken]);
+  }, [args.enabled, scope, args.profileId, args.date, args.month, getToken]);
 
   return { streaming, error, sectionsReceived, clearError, cancel };
 }

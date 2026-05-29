@@ -20,6 +20,7 @@ import type { ReadingType } from '@prisma/client';
 import {
   type ChatContext,
   interpolateFortuneV1Fields,
+  interpolateFortuneMonthlyFields,
 } from './chat-context.service';
 import {
   buildChatV1SystemPromptHeader,
@@ -35,6 +36,10 @@ export interface BuildPromptArgs {
    *  with any caller that doesn't yet thread it; defaults to LIFETIME
    *  (Phase 1 behavior). */
   readingType?: ReadingType;
+  /** Phase 2.x L3.5b — when readingType=FORTUNE, scope determines which refuse
+   *  template + few-shots assemble (DAY uses 《八字日運》 + F-1/F-2/F-3,
+   *  MONTH uses 《八字月運》 + M-1/M-2). Defaults to DAY for back-compat. */
+  fortuneScope?: 'DAY' | 'MONTH';
   /** Section the user clicked the InlineAskCard from. METADATA only — does
    *  NOT filter the slim payload (per plan Issue 19). */
   sectionContextHint?: string;
@@ -59,6 +64,7 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
     recentMessages,
     newUserMessage,
     readingType,
+    fortuneScope,
     sectionContextHint,
     shouldInjectRegrounding,
   } = args;
@@ -85,8 +91,11 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
     rt === 'ANNUAL' ||
     rt === 'COMPATIBILITY' ||
     rt === 'FORTUNE';
+  // Phase 2.x L3.5b — thread fortuneScope through for FORTUNE so the prompt
+  // assembler picks the right scope-specific refuse template + few-shots.
+  // For non-FORTUNE reading types the scope arg is ignored.
   const promptHeader = isChatEnabledType(readingType)
-    ? buildChatV1SystemPromptForType(readingType)
+    ? buildChatV1SystemPromptForType(readingType, fortuneScope ?? 'DAY')
     : buildChatV1SystemPromptHeader();
 
   // Phase 2 (round-3 NEW#7) — `{crossSellPivotHint}` placeholder substitution
@@ -153,15 +162,33 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
   // 紅鸞 / 配偶星透干 / 官殺日) from `dailyFortune.dimensions[].signals[]`.
   // Anti-hallucination via deterministic phrasing — AI consumes verbatim.
   //
+  // Phase 2.x L3.5b — scope-aware dispatch:
+  //   - FORTUNE + DAY → interpolateFortuneV1Fields (reads dailyFortune)
+  //   - FORTUNE + MONTH → interpolateFortuneMonthlyFields (reads monthlyFortune)
+  //                       This was MISSING before audit C#2 — MONTH chat got
+  //                       raw JSON only → anti-hallucination contract relied
+  //                       on AI luck. Mirror of Phase 12g.6 Gap 2 pattern
+  //                       (deterministic Chinese sentences for month-pillar
+  //                       findings + intraMonthBreakdown buckets).
+  //
   // Only fires when readingType === 'FORTUNE' (FORTUNE-specific layer; for
-  // other reading types `dailyFortune` is absent so the injector returns
-  // null anyway, but the explicit gate keeps the cache key tight on the
-  // shared injector pipeline).
+  // other reading types `dailyFortune`/`monthlyFortune` is absent so each
+  // injector returns null anyway, but the explicit gate keeps the cache
+  // key tight on the shared injector pipeline).
   if (readingType === 'FORTUNE') {
-    const fortuneInjector = interpolateFortuneV1Fields(chatContext);
-    if (fortuneInjector) {
-      sections.push('\n【今日流日教義事件 — 必須引用以下文字】\n');
-      sections.push(fortuneInjector);
+    if (fortuneScope === 'MONTH') {
+      const monthlyInjector = interpolateFortuneMonthlyFields(chatContext);
+      if (monthlyInjector) {
+        sections.push('\n【本月流月教義事件 — 必須引用以下文字】\n');
+        sections.push(monthlyInjector);
+      }
+    } else {
+      // DAY (default) — back-compat with pre-L3.5b behaviour
+      const fortuneInjector = interpolateFortuneV1Fields(chatContext);
+      if (fortuneInjector) {
+        sections.push('\n【今日流日教義事件 — 必須引用以下文字】\n');
+        sections.push(fortuneInjector);
+      }
     }
   }
 

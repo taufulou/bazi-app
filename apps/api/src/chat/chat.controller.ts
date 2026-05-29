@@ -85,17 +85,23 @@ export class ChatController {
   // Phase Fortune — parallel endpoint for FORTUNE sessions. anchorDate
   // query parameter is REQUIRED — frontend hook filters by it so date
   // navigation spawns new sessions per plan Issue 10.
+  //
+  // Phase 2.x L3.5b audit H#1 — fortuneScope query param added. Required
+  // for MONTH scope. Defaults to DAY for back-compat (pre-L3.5b callers).
+  // Without it, MONTH sessions and DAY sessions collide on 1st-of-month
+  // anchors and the list contains both scopes' rows (cross-scope leak).
   @Get('profiles/:profileId/fortune-sessions')
   @ApiBearerAuth()
   @ApiOperation({
-    summary: 'List FORTUNE chat sessions for a (profile, anchorDate) pair (Phase Fortune)',
+    summary: 'List FORTUNE chat sessions for a (profile, anchorDate, fortuneScope) triplet (Phase Fortune)',
     description:
-      'anchorDate is required (YYYY-MM-DD). Returns sessions matching the exact anchor; date navigation spawns a new session rather than resuming yesterday\'s.',
+      'anchorDate is required (YYYY-MM-DD). fortuneScope is optional (defaults to DAY for back-compat). Returns sessions matching the exact anchor + scope; date navigation spawns a new session rather than resuming yesterday\'s.',
   })
   async listSessionsForFortune(
     @CurrentUser() auth: AuthPayload,
     @Param('profileId', ParseUUIDPipe) profileId: string,
     @Query('anchorDate') anchorDate: string,
+    @Query('fortuneScope') fortuneScope?: string,
   ): Promise<ChatSessionSummary[]> {
     if (!anchorDate || !/^\d{4}-\d{2}-\d{2}$/.test(anchorDate)) {
       throw new BadRequestException({
@@ -103,9 +109,28 @@ export class ChatController {
         message: 'anchorDate query parameter is required in YYYY-MM-DD format',
       });
     }
+    // Validate scope when provided; back-compat default is DAY.
+    let normalizedScope: 'DAY' | 'MONTH' | 'YEAR' | undefined;
+    if (fortuneScope !== undefined && fortuneScope !== '') {
+      if (
+        fortuneScope !== 'DAY' &&
+        fortuneScope !== 'MONTH' &&
+        fortuneScope !== 'YEAR'
+      ) {
+        throw new BadRequestException({
+          code: 'INVALID_FORTUNE_SCOPE',
+          message: 'fortuneScope must be one of: DAY, MONTH, YEAR',
+        });
+      }
+      normalizedScope = fortuneScope;
+    } else {
+      // Back-compat: no scope param → assume DAY (pre-L3.5b behaviour).
+      normalizedScope = 'DAY';
+    }
     return this.chatService.listSessionsForFortune(auth.userId, {
       profileId,
       fortuneAnchorDate: anchorDate,
+      fortuneScope: normalizedScope,
     });
   }
 

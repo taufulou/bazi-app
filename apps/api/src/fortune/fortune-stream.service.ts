@@ -45,8 +45,10 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import {
   buildFortuneDailyMessages,
+  buildFortuneMonthlyMessages,
   type DailyEngineOutput,
   type FortuneChartContext,
+  type MonthlyEngineOutput,
 } from './fortune-prompt-builder';
 import {
   FortuneValidatorsService,
@@ -55,6 +57,9 @@ import {
 import {
   type DailyFortuneAINarrative,
   type DailyFortuneResponse,
+  type MonthlyFortuneAINarrative,
+  type MonthlyFortuneResponse,
+  type IntraMonthBreakdown,
 } from './dto';
 import {
   FortuneSnapshotHelpers,
@@ -74,7 +79,14 @@ import { createSectionDetector } from './fortune-section-detector';
  *  baseAuspiciousness / chartContext). */
 export type FortuneStreamEngineOutput = DailyFortuneResponse['engineOutput'];
 
-export type FortuneStreamEvent =
+/** Wire-shape monthly engine output (mirrors `MonthlyFortuneResponse.engineOutput`).
+ *  Same shape the non-streaming GET /monthly emits — frontend reuses the
+ *  existing DTO type. Distinguished from `MonthlyEngineOutput` (prompt builder
+ *  internal type that carries extra builder fields). */
+export type FortuneMonthlyStreamEngineOutput = MonthlyFortuneResponse['engineOutput'];
+
+/** Phase Fortune Streaming — DAY scope event union. */
+export type FortuneDailyStreamEvent =
   | {
       type: 'engine_ready';
       engineOutput: FortuneStreamEngineOutput;
@@ -90,6 +102,39 @@ export type FortuneStreamEvent =
       cacheHit: boolean;
     }
   | { type: 'error'; code: string; message: string };
+
+/** Phase 2.x Monthly Streaming — MONTH scope event union.
+ *
+ *  Glossary lock: `intraMonthBreakdown` is a SIBLING of `engineOutput` (NOT nested)
+ *  per the engine-side camelCase convention. `cacheHit` is on `engine_ready` (plan v3
+ *  NEW-M1 fix) so warm-cache UI surfaces read the correct value during the
+ *  engine→success gap. `done` does NOT carry `intraMonthBreakdown` (plan v3 NEW-H1
+ *  fix — single canonical source eliminates drift; L5 handler spreads prev.data).
+ */
+export type FortuneMonthlyStreamEvent =
+  | {
+      type: 'engine_ready';
+      engineOutput: FortuneMonthlyStreamEngineOutput;
+      intraMonthBreakdown?: IntraMonthBreakdown;
+      profileId: string;
+      profileBirthDate: string;
+      profileBirthTime: string;
+      month: string;     // 'YYYY-MM' input verbatim
+      flowYear: number;
+      cacheHit: boolean;
+    }
+  | { type: 'section_complete'; key: string; value: unknown }
+  | {
+      type: 'done';
+      narrative: MonthlyFortuneAINarrative | null;
+      cacheHit: boolean;
+    }
+  | { type: 'error'; code: string; message: string };
+
+/** Umbrella discriminated union for both scopes (R3 polish — implementer-friendly).
+ *  Hook signature uses this; runtime branches on scope context + ev.type.
+ *  Existing daily-only callers can use the narrower `FortuneDailyStreamEvent`. */
+export type FortuneStreamEvent = FortuneDailyStreamEvent | FortuneMonthlyStreamEvent;
 
 // ============================================================
 // Constants
@@ -674,6 +719,575 @@ export class FortuneStreamService {
     this._emit(response, { type: 'error', code, message });
     if (!response.writableEnded) {
       response.end();
+    }
+  }
+
+  // ============================================================
+  // Phase 2.x — Monthly streaming (mirrors streamDailyFortune)
+  // ============================================================
+  //
+  // Differences from daily:
+  //   - Cache key: monthly via helpers.monthlyRedisKey
+  //   - Pre-flight: month YYYY-MM + enforceMonthlySubscriptionGate
+  //   - Engine: helpers.fetchMonthlyFromEngine (carries intraMonthBreakdown
+  //     per Phase 2.x L1 — emitted as sibling on engine_ready event)
+  //   - Prompts: buildFortuneMonthlyMessages
+  //   - Validator: this.validators.validateMonthly
+  //   - Persist: helpers.persistMonthlySnapshot
+  //
+  // Same machinery: clarinet section detector, watchdog, client-disconnect
+  // rescue, stop-reason explicit branches, Sentry sanitize-diff breadcrumb.
+
+  async streamMonthlyFortune(
+    clerkUserId: string,
+    args: { profileId?: string; month?: string },
+    response: Response,
+  ): Promise<void> {
+    if (!response.headersSent) {
+      response.setHeader('Content-Type', 'text/event-stream');
+      response.setHeader('Cache-Control', 'no-cache');
+      response.setHeader('Connection', 'keep-alive');
+      response.setHeader('X-Accel-Buffering', 'no');
+      response.flushHeaders();
+    }
+
+    try {
+      const { user, profile, targetMonth, anchorDate } =
+        await this._preflightMonthly(clerkUserId, args);
+
+      const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
+      const profileBirthTime = profile.birthTime;
+      const chartHash = this.helpers.computeChartHash(profile);
+
+      // Cache lookup (Redis → DB via helpers; key derived internally)
+      const cached = await this.helpers.tryGetMonthlyCached(chartHash, anchorDate);
+      if (cached) {
+        // Cache HIT — emit engine_ready (with intraMonthBreakdown sibling +
+        // cacheHit=true) + done (cacheHit=true) only. NO section_complete.
+        const wireResponse = this.helpers.buildMonthlyResponse(
+          profile.id,
+          profileBirthDate,
+          profileBirthTime,
+          targetMonth,
+          cached,
+          true,
+        );
+        this._emit(response, {
+          type: 'engine_ready',
+          engineOutput: wireResponse.engineOutput,
+          intraMonthBreakdown: wireResponse.intraMonthBreakdown,
+          profileId: profile.id,
+          profileBirthDate,
+          profileBirthTime,
+          month: targetMonth,
+          flowYear: wireResponse.flowYear,
+          cacheHit: true,
+        });
+        this._emit(response, {
+          type: 'done',
+          narrative: wireResponse.narrative,
+          cacheHit: true,
+        });
+        response.end();
+        return;
+      }
+
+      // Cache miss → fetch engine output
+      const [year, month] = targetMonth.split('-').map(Number) as [number, number];
+      let monthlyOutput: MonthlyEngineOutput;
+      try {
+        monthlyOutput = await this.helpers.fetchMonthlyFromEngine(
+          profile,
+          year,
+          month,
+        );
+      } catch (err) {
+        this._emitError(
+          response,
+          'ENGINE_FAILED',
+          err instanceof Error ? err.message : 'Bazi engine unreachable',
+        );
+        return;
+      }
+
+      const chartContext =
+        monthlyOutput.chartContext ?? this.helpers.buildFallbackChartContext(profile);
+      const flowYear =
+        (monthlyOutput as unknown as { flowYear?: number }).flowYear ?? year;
+      // L1 lift — engine emits intraMonthBreakdown at top level of monthly_result
+      // (camelCase per glossary). Surface as sibling on engine_ready event.
+      const intraMonthBreakdown = (monthlyOutput as unknown as {
+        intraMonthBreakdown?: IntraMonthBreakdown;
+      }).intraMonthBreakdown;
+
+      // MEDIUM M1 audit fix — strip intraMonthBreakdown + chartContext from
+      // engineOutput before emit so the field appears ONLY at top-level
+      // (sibling) per Glossary lock. Without this, `engine_ready.engineOutput`
+      // would carry the breakdown nested AND chartContext leaks ~2KB of
+      // birth-pillar metadata in every cold-cache stream open. Mirrors the
+      // helpers.buildMonthlyResponse strip.
+      const {
+        intraMonthBreakdown: _stripIMB,
+        chartContext: _stripCC,
+        ...engineOutputBare
+      } = monthlyOutput as unknown as Record<string, unknown> & {
+        intraMonthBreakdown?: IntraMonthBreakdown;
+        chartContext?: unknown;
+      };
+      void _stripIMB;
+      void _stripCC;
+
+      // Emit engine_ready BEFORE Anthropic so frontend can paint
+      // Ring/Bars/TimeGrid immediately (~600-1000ms vs ~5-15s for AI).
+      this._emit(response, {
+        type: 'engine_ready',
+        engineOutput: engineOutputBare as FortuneMonthlyStreamEngineOutput,
+        intraMonthBreakdown,
+        profileId: profile.id,
+        profileBirthDate,
+        profileBirthTime,
+        month: targetMonth,
+        flowYear,
+        cacheHit: false,
+      });
+
+      // Open Anthropic stream + section detector
+      await this._streamMonthlyWithSectionDetector({
+        response,
+        monthlyOutput,
+        chartContext,
+        chartHash,
+        birthProfileId: profile.id,
+        anchorDate,
+        targetMonth,
+      });
+    } catch (err) {
+      if (err instanceof HttpException) {
+        const resObj = err.getResponse();
+        const code =
+          typeof resObj === 'object' && resObj !== null && 'code' in resObj
+            ? (resObj as { code: string }).code
+            : 'PREFLIGHT_FAILED';
+        const message = err.message || 'Pre-flight check failed';
+        this._emitError(response, code, message);
+        return;
+      }
+      this.logger.error(
+        `Unexpected monthly stream pre-flight error: ${(err as Error).message}`,
+      );
+      this._emitError(response, 'INTERNAL_ERROR', 'Unexpected error');
+    }
+  }
+
+  /** Monthly pre-flight: auth + profile + targetMonth + subscription gate. */
+  private async _preflightMonthly(
+    clerkUserId: string,
+    args: { profileId?: string; month?: string },
+  ): Promise<{
+    user: { id: string; subscriptionTier: any };
+    profile: {
+      id: string;
+      birthDate: Date;
+      birthTime: string;
+      birthCity: string;
+      birthTimezone: string;
+      gender: string;
+      birthLongitude: number | null;
+      birthLatitude: number | null;
+    };
+    targetMonth: string;
+    anchorDate: Date;
+  }> {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+    if (!user) {
+      throw new NotFoundException({ code: 'USER_NOT_FOUND', message: 'User not found' });
+    }
+
+    const profile = args.profileId
+      ? await this.prisma.birthProfile.findFirst({
+          where: { id: args.profileId, userId: user.id },
+        })
+      : await this.prisma.birthProfile.findFirst({
+          where: { userId: user.id, isPrimary: true },
+        });
+    if (!profile) {
+      throw new NotFoundException({
+        code: args.profileId ? 'PROFILE_NOT_FOUND' : 'NO_PRIMARY_PROFILE',
+        message: args.profileId
+          ? 'Birth profile not found'
+          : 'No primary birth profile configured for this user',
+      });
+    }
+
+    const targetMonth = args.month ?? this.helpers.currentMonthIso();
+    if (!/^\d{4}-\d{2}$/.test(targetMonth)) {
+      throw new NotFoundException({
+        code: 'INVALID_MONTH',
+        message: `Invalid month format: ${targetMonth} (expected YYYY-MM)`,
+      });
+    }
+
+    this.helpers.enforceMonthlySubscriptionGate(user.subscriptionTier, targetMonth);
+
+    const anchorDate = new Date(`${targetMonth}-01T00:00:00Z`);
+
+    return { user, profile, targetMonth, anchorDate };
+  }
+
+  /** Run Anthropic monthly stream + clarinet section detector + per-section
+   *  banned-phrase strip + end-of-stream validate + persist. */
+  private async _streamMonthlyWithSectionDetector(ctx: {
+    response: Response;
+    monthlyOutput: MonthlyEngineOutput;
+    chartContext: FortuneChartContext;
+    chartHash: string;
+    birthProfileId: string;
+    anchorDate: Date;
+    targetMonth: string;
+  }): Promise<void> {
+    const { response, monthlyOutput, chartContext, chartHash, birthProfileId, anchorDate, targetMonth } = ctx;
+
+    if (!FORTUNE_V1_PROMPTS.monthly) {
+      this._emitError(response, 'PROMPT_NOT_CONFIGURED', 'FORTUNE_V1_PROMPTS.monthly not configured');
+      return;
+    }
+
+    const flowYear =
+      (monthlyOutput as unknown as { flowYear?: number }).flowYear ??
+      Number(targetMonth.slice(0, 4));
+
+    const { systemPrompt, userPrompt } = buildFortuneMonthlyMessages(
+      monthlyOutput,
+      chartContext,
+      { targetMonth, flowYear },
+    );
+
+    let client: any;
+    try {
+      client = await this.helpers.ensureClaudeClient();
+    } catch (err) {
+      this._emitError(
+        response,
+        'AI_NOT_CONFIGURED',
+        err instanceof Error ? err.message : 'AI client unavailable',
+      );
+      await this._persistMonthlyAIFailure({
+        chartHash,
+        birthProfileId,
+        anchorDate,
+        yearMonth: targetMonth,
+        monthlyOutput,
+      });
+      return;
+    }
+    const model =
+      this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
+
+    const seenSectionKeys: string[] = [];
+    const sanitizeDiffSections: string[] = [];
+    let totalDiffPhraseCount = 0;
+
+    const detector = createSectionDetector((key, value) => {
+      seenSectionKeys.push(key);
+      let outValue: unknown = value;
+      if (typeof value === 'string') {
+        const { text, strippedPhrases } =
+          this.validators.stripBannedAbsolutePhrasesFromText(value);
+        if (strippedPhrases.length > 0) {
+          sanitizeDiffSections.push(key);
+          totalDiffPhraseCount += strippedPhrases.length;
+        }
+        outValue = text;
+      }
+      this._emit(response, { type: 'section_complete', key, value: outValue });
+    });
+
+    const abortController = new AbortController();
+    let lastDeltaAt = Date.now();
+    let watchdogTriggered = false;
+    const watchdogTimer = setInterval(() => {
+      if (Date.now() - lastDeltaAt > STREAM_WATCHDOG_MS) {
+        this.logger.warn(`Monthly fortune stream watchdog timeout`);
+        watchdogTriggered = true;
+        abortController.abort();
+      }
+    }, 5_000);
+
+    let clientDisconnected = false;
+    const onClientClose = () => {
+      this.logger.log(`Monthly fortune stream — client disconnected mid-stream`);
+      clientDisconnected = true;
+      abortController.abort();
+    };
+    response.on('close', onClientClose);
+
+    let assistantBuffer = '';
+    let finalStopReason: string | null = null;
+
+    try {
+      const stream = client.messages.stream(
+        {
+          model,
+          max_tokens: STREAM_MAX_TOKENS,
+          temperature: STREAM_TEMPERATURE,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        },
+        {
+          timeout: STREAM_TIMEOUT_MS,
+          signal: abortController.signal,
+        },
+      );
+
+      for await (const event of stream) {
+        if (
+          event.type === 'content_block_delta' &&
+          event.delta.type === 'text_delta'
+        ) {
+          const text = event.delta.text as string;
+          assistantBuffer += text;
+          lastDeltaAt = Date.now();
+          detector.write(text);
+        }
+      }
+
+      const finalMessage = await stream.finalMessage();
+      finalStopReason = (finalMessage as { stop_reason?: string }).stop_reason ?? null;
+    } catch (err) {
+      clearInterval(watchdogTimer);
+      response.off('close', onClientClose);
+
+      if (clientDisconnected) {
+        await this._handleMonthlyClientDisconnect({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          yearMonth: targetMonth,
+          monthlyOutput,
+          assistantBuffer,
+        });
+        if (!response.writableEnded) {
+          response.end();
+        }
+        return;
+      }
+
+      const reason = watchdogTriggered
+        ? 'watchdog-timeout-no-delta-60s'
+        : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
+      this.logger.error(`Monthly fortune stream Anthropic failure: ${reason}`);
+      detector.close();
+      this._emitError(response, 'AI_FAILED', reason);
+      await this._persistMonthlyAIFailure({
+        chartHash,
+        birthProfileId,
+        anchorDate,
+        yearMonth: targetMonth,
+        monthlyOutput,
+      });
+      return;
+    } finally {
+      clearInterval(watchdogTimer);
+      response.off('close', onClientClose);
+    }
+
+    detector.close();
+
+    if (finalStopReason === 'max_tokens') {
+      this.logger.warn(
+        `Monthly fortune stream truncated at max_tokens (${STREAM_MAX_TOKENS}) for chart=${chartHash.slice(0, 8)}…`,
+      );
+      this._emitError(
+        response,
+        'TRUNCATED',
+        `AI response exceeded ${STREAM_MAX_TOKENS} tokens — narrative may be incomplete`,
+      );
+      await this._persistMonthlyAIFailure({
+        chartHash,
+        birthProfileId,
+        anchorDate,
+        yearMonth: targetMonth,
+        monthlyOutput,
+      });
+      return;
+    }
+    if (finalStopReason === 'refusal') {
+      this.logger.warn(`Monthly fortune stream — AI refused to generate`);
+      this._emitError(response, 'AI_REFUSED', 'AI declined to generate this narrative');
+      await this._persistMonthlyAIFailure({
+        chartHash,
+        birthProfileId,
+        anchorDate,
+        yearMonth: targetMonth,
+        monthlyOutput,
+      });
+      return;
+    }
+
+    // End-of-stream — full validator + persist + done
+    const parsedNarrative = this.helpers.extractJson(assistantBuffer);
+    if (!parsedNarrative) {
+      this.logger.warn(
+        `Monthly fortune stream — extractJson returned null on buffer length ${assistantBuffer.length}`,
+      );
+      this._emitError(response, 'PARSE_FAILED', 'AI response was not valid JSON');
+      await this._persistMonthlyAIFailure({
+        chartHash,
+        birthProfileId,
+        anchorDate,
+        yearMonth: targetMonth,
+        monthlyOutput,
+      });
+      return;
+    }
+
+    let validation: FortuneValidationResult;
+    try {
+      validation = this.validators.validateMonthly(parsedNarrative, {
+        sessionAnchorMonth: targetMonth,
+      });
+    } catch (err) {
+      this.logger.error(
+        `Monthly fortune validator threw on stream output: ${(err as Error).message}`,
+      );
+      this._emitError(
+        response,
+        'VALIDATION_FAILED',
+        'Validator failed unexpectedly — narrative discarded',
+      );
+      await this._persistMonthlyAIFailure({
+        chartHash,
+        birthProfileId,
+        anchorDate,
+        yearMonth: targetMonth,
+        monthlyOutput,
+      });
+      return;
+    }
+
+    const sanitizedNarrative =
+      validation.sanitized as unknown as MonthlyFortuneAINarrative;
+
+    if (sanitizeDiffSections.length > 0) {
+      Sentry.addBreadcrumb({
+        category: 'fortune.stream.sanitize_diff',
+        level: 'info',
+        message: 'Per-section banned-phrase strip fired during monthly streaming',
+        data: {
+          scope: 'month',
+          sectionKeys: sanitizeDiffSections,
+          totalDiffPhraseCount,
+        },
+      });
+    }
+
+    const snapshot = await this.helpers.persistMonthlySnapshot({
+      chartHash,
+      birthProfileId,
+      anchorDate,
+      yearMonth: targetMonth,
+      monthlyOutput,
+      narrative: sanitizedNarrative,
+      promptVersion: FORTUNE_PROMPT_VERSIONS.month,
+    });
+
+    try {
+      await this.helpers.redis.set(
+        this.helpers.monthlyRedisKey(chartHash, targetMonth),
+        JSON.stringify(snapshot),
+        REDIS_TTL_SECONDS,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to warm Redis after monthly stream: ${(err as Error).message}`,
+      );
+    }
+
+    this._emit(response, {
+      type: 'done',
+      narrative: sanitizedNarrative,
+      cacheHit: false,
+    });
+    response.end();
+  }
+
+  /** Monthly AI-failure persistence (mirror daily _persistAIFailure). */
+  private async _persistMonthlyAIFailure(args: {
+    chartHash: string;
+    birthProfileId: string;
+    anchorDate: Date;
+    yearMonth: string;
+    monthlyOutput: MonthlyEngineOutput;
+  }): Promise<void> {
+    try {
+      await this.helpers.persistMonthlySnapshot({
+        ...args,
+        narrative: null,
+        promptVersion: null,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to persist monthly AI-failure snapshot: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /** Monthly client-disconnect handler (mirror daily _handleClientDisconnect). */
+  private async _handleMonthlyClientDisconnect(args: {
+    chartHash: string;
+    birthProfileId: string;
+    anchorDate: Date;
+    yearMonth: string;
+    monthlyOutput: MonthlyEngineOutput;
+    assistantBuffer: string;
+  }): Promise<void> {
+    const parsed = this.helpers.extractJson(args.assistantBuffer);
+    if (!parsed) {
+      await this._persistMonthlyAIFailure({
+        chartHash: args.chartHash,
+        birthProfileId: args.birthProfileId,
+        anchorDate: args.anchorDate,
+        yearMonth: args.yearMonth,
+        monthlyOutput: args.monthlyOutput,
+      });
+      return;
+    }
+    let validation: FortuneValidationResult;
+    try {
+      validation = this.validators.validateMonthly(parsed, {
+        sessionAnchorMonth: args.yearMonth,
+      });
+    } catch {
+      await this._persistMonthlyAIFailure({
+        chartHash: args.chartHash,
+        birthProfileId: args.birthProfileId,
+        anchorDate: args.anchorDate,
+        yearMonth: args.yearMonth,
+        monthlyOutput: args.monthlyOutput,
+      });
+      return;
+    }
+    const sanitized =
+      validation.sanitized as unknown as MonthlyFortuneAINarrative;
+    try {
+      await this.helpers.persistMonthlySnapshot({
+        chartHash: args.chartHash,
+        birthProfileId: args.birthProfileId,
+        anchorDate: args.anchorDate,
+        yearMonth: args.yearMonth,
+        monthlyOutput: args.monthlyOutput,
+        narrative: sanitized,
+        promptVersion: FORTUNE_PROMPT_VERSIONS.month,
+      });
+      this.logger.log(
+        `Monthly fortune stream — client disconnected but full narrative cached for chart=${args.chartHash.slice(0, 8)}…`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to persist monthly disconnect-recovered narrative: ${(err as Error).message}`,
+      );
     }
   }
 }

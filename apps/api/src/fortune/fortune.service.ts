@@ -33,7 +33,9 @@ import {
 import {
   type DailyEngineOutput,
   type FortuneChartContext,
+  type MonthlyEngineOutput,
   buildFortuneDailyMessages,
+  buildFortuneMonthlyMessages,
 } from './fortune-prompt-builder';
 import {
   FortuneValidatorsService,
@@ -42,6 +44,8 @@ import {
 import {
   type DailyFortuneResponse,
   type DailyFortuneAINarrative,
+  type MonthlyFortuneResponse,
+  type MonthlyFortuneAINarrative,
 } from './dto';
 import {
   FortuneSnapshotHelpers,
@@ -242,6 +246,193 @@ export class FortuneService {
       narrative: validation.sanitized as unknown as DailyFortuneAINarrative,
       validation,
       promptVersion: FORTUNE_PROMPT_VERSIONS.day,
+    };
+  }
+
+  // ============================================================
+  // Public API — getMonthlyFortune (Phase 2 月運 L2.5 + Phase 2.x L2 refactor)
+  // ============================================================
+  //
+  // Mirrors getDailyFortune shape (subscription gate → cache → engine
+  // → AI → validate → persist → respond) scaled to MONTH scope.
+  //
+  // Phase 2.x L2 refactor: cache/persist/engine-fetch/build-response helpers
+  // moved to FortuneSnapshotHelpers so the new streamMonthlyFortune (L3) can
+  // share invariants. Contract test at
+  // `fortune-snapshot.helpers.monthly.contract.spec.ts` asserts byte-identity.
+  //
+  // Key differences from daily:
+  //   - Subscription window: -1 month / current / +12 months INCLUSIVE
+  //   - Cache key: `fortune:monthly:{chartHash}:{YYYY-MM}` (anchor = 1st of month)
+  //   - AI prompt: FORTUNE_V1_PROMPTS.monthly + buildFortuneMonthlyMessages
+  //   - Validator: validateMonthly (4 dims, no folk)
+  //   - DB row: scope=MONTH, anchorDate=1st of month (YYYY-MM-01), yearMonth denormalized
+  //   - L1.b intraMonthBreakdown: wired in Phase 2.x — engine /monthly-fortune
+  //     includes it in response; helpers.buildMonthlyResponse lifts it to top-level.
+
+  async getMonthlyFortune(
+    clerkUserId: string,
+    args: { profileId?: string; month?: string },
+  ): Promise<MonthlyFortuneResponse> {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const profile = args.profileId
+      ? await this.prisma.birthProfile.findFirst({
+          where: { id: args.profileId, userId: user.id },
+        })
+      : await this.prisma.birthProfile.findFirst({
+          where: { userId: user.id, isPrimary: true },
+        });
+
+    if (!profile) {
+      throw new NotFoundException({
+        code: args.profileId ? 'PROFILE_NOT_FOUND' : 'NO_PRIMARY_PROFILE',
+        message: args.profileId
+          ? 'Birth profile not found'
+          : 'No primary birth profile configured for this user',
+      });
+    }
+
+    // Resolve target month (default = current month in FORTUNE_DEFAULT_TZ)
+    const targetMonth = args.month ?? this.helpers.currentMonthIso();
+    if (!/^\d{4}-\d{2}$/.test(targetMonth)) {
+      throw new NotFoundException(`Invalid month format: ${targetMonth} (expected YYYY-MM)`);
+    }
+
+    // Subscription gate (month-scope) — throws ForbiddenException on violation
+    this.helpers.enforceMonthlySubscriptionGate(user.subscriptionTier, targetMonth);
+
+    // Chart hash (shared with daily — same chart)
+    const chartHash = this.helpers.computeChartHash(profile);
+
+    // Profile metadata for response
+    const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
+    const profileBirthTime = profile.birthTime;
+
+    // Anchor for cache key + DB row: 1st of month
+    const anchorDate = new Date(`${targetMonth}-01T00:00:00Z`);
+
+    // Try cache (Redis → DB) via helpers — derives redisKey internally
+    const cached = await this.helpers.tryGetMonthlyCached(chartHash, anchorDate);
+    if (cached) {
+      return this.helpers.buildMonthlyResponse(
+        profile.id,
+        profileBirthDate,
+        profileBirthTime,
+        targetMonth,
+        cached,
+        true,
+      );
+    }
+
+    // Cache miss → compute fresh
+    const [year, month] = targetMonth.split('-').map(Number) as [number, number];
+    const monthlyOutput = await this.helpers.fetchMonthlyFromEngine(profile, year, month);
+    const chartContext = (monthlyOutput.chartContext ??
+      this.helpers.buildFallbackChartContext(profile)) as FortuneChartContext;
+    const flowYear = (monthlyOutput as unknown as { flowYear?: number }).flowYear ?? year;
+
+    let narrative: MonthlyFortuneAINarrative | null = null;
+    let promptVersion: string | null = null;
+
+    try {
+      const aiResult = await this.runMonthlyAINarration(
+        monthlyOutput,
+        chartContext,
+        targetMonth,
+        flowYear,
+      );
+      narrative = aiResult.narrative;
+      promptVersion = aiResult.promptVersion;
+    } catch (err) {
+      this.logger.error(
+        `Monthly fortune AI failure (month=${targetMonth} profile=${profile.id}): ${(err as Error).message}`,
+      );
+      narrative = null;
+      promptVersion = null;
+    }
+
+    // Persist + warm Redis via helpers
+    const snapshot = await this.helpers.persistMonthlySnapshot({
+      chartHash,
+      birthProfileId: profile.id,
+      anchorDate,
+      yearMonth: targetMonth,
+      monthlyOutput,
+      narrative,
+      promptVersion,
+    });
+
+    try {
+      const redisKey = this.helpers.monthlyRedisKey(chartHash, targetMonth);
+      await this.helpers.redis.set(redisKey, JSON.stringify(snapshot), REDIS_TTL_SECONDS);
+    } catch (err) {
+      this.logger.warn(`Failed to warm Redis monthly snapshot: ${(err as Error).message}`);
+    }
+
+    return this.helpers.buildMonthlyResponse(
+      profile.id,
+      profileBirthDate,
+      profileBirthTime,
+      targetMonth,
+      snapshot,
+      false,
+    );
+  }
+
+  /** AI narration via Anthropic SDK (mirrors runDailyAINarration pattern). */
+  private async runMonthlyAINarration(
+    monthly: MonthlyEngineOutput,
+    chart: FortuneChartContext,
+    targetMonth: string,
+    flowYear: number,
+  ): Promise<{
+    narrative: MonthlyFortuneAINarrative | null;
+    validation: FortuneValidationResult;
+    promptVersion: string;
+  }> {
+    const monthlyPrompts = FORTUNE_V1_PROMPTS.monthly;
+    if (!monthlyPrompts) {
+      throw new Error('FORTUNE_V1_PROMPTS.monthly not configured');
+    }
+
+    const { systemPrompt, userPrompt } = buildFortuneMonthlyMessages(monthly, chart, {
+      targetMonth,
+      flowYear,
+    });
+    const client = await this.helpers.ensureClaudeClient();
+    const model = this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
+
+    const response = await client.messages.create(
+      {
+        model,
+        max_tokens: 2048,
+        temperature: 0.6,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      },
+      { timeout: AI_CALL_TIMEOUT_MS },
+    );
+
+    const text = response.content
+      .filter((b: { type: string }) => b.type === 'text')
+      .map((b: { type: string; text: string }) => b.text)
+      .join('');
+
+    const parsed = this.helpers.extractJson(text);
+    const validation = this.validators.validateMonthly(parsed, {
+      sessionAnchorMonth: targetMonth,
+    });
+
+    return {
+      narrative: validation.sanitized as unknown as MonthlyFortuneAINarrative,
+      validation,
+      promptVersion: FORTUNE_PROMPT_VERSIONS.month,
     };
   }
 }

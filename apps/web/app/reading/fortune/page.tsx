@@ -55,12 +55,11 @@ import MonthlyNarrativeCard from '../../components/fortune/MonthlyNarrativeCard'
 import {
   resolveBaziToday,
   resolveCurrentMonthIso,
-  fetchMonthlyFortune,
-  FortuneApiError,
   type DailyFortuneResponse,
   type DailyFortuneNarrative,
   type FortuneStreamEvent,
   type MonthlyFortuneResponse,
+  type MonthlyFortuneNarrative,
 } from '../../lib/fortune-api';
 import { useFortuneNarrativeStream } from '../../components/fortune/hooks/useFortuneNarrativeStream';
 import { useUserTier } from '../../lib/use-user-tier';
@@ -168,6 +167,16 @@ function FortuneView() {
 
   const handleSwitchTab = useCallback(
     (next: Tab) => {
+      // Audit M#1 (L3.5b line audit) — clear chat populate state before
+      // navigating. Without this, a user who tapped an InlineAskCard on
+      // DAY tab (setting chatPendingMessage="今日感情如何？" +
+      // chatSectionHint="daily_romance") and then switched tabs BEFORE
+      // the drawer's auto-populate effect fired would leak DAY-flavored
+      // populated text + invisible DAY section hint into the MONTH
+      // composer. Section hint flows to the prompt → MONTH session sees
+      // an unexpected `[daily_romance]` topic marker.
+      setChatPendingMessage(undefined);
+      setChatSectionHint(undefined);
       const params = new URLSearchParams(search.toString());
       params.set('tab', next);
       router.push(`/reading/fortune?${params.toString()}`);
@@ -470,7 +479,13 @@ function FortuneView() {
     state.status === 'engine' || state.status === 'success' ? state : null;
 
   // Active profile for the switcher (matches URL `profileId` else primary fallback)
-  const activeProfileId = profileId ?? dataState?.data.profileId;
+  // Phase 2.x L3.5b — MonthlyFortuneView resolves the user's primary profileId
+  // via the stream's engine_ready event when ?profileId= is omitted from URL.
+  // Surfaced via `onResolvedProfileId` callback below so the page-level
+  // ChatDrawer mount can use it as `activeProfileId` on the month tab too.
+  const [monthlyResolvedProfileId, setMonthlyResolvedProfileId] = useState<string | undefined>(undefined);
+
+  const activeProfileId = profileId ?? dataState?.data.profileId ?? monthlyResolvedProfileId;
 
   // Phase 1.5.x Issue #1 fix: resolve display name from the profile list using
   // the SAME `activeProfileId` the ProfileSwitcher uses, so chip + switcher stay
@@ -574,6 +589,7 @@ function FortuneView() {
             isSignedIn={isSignedIn}
             isLoaded={isLoaded}
             onLoadingChange={setMonthlyIsLoading}
+            onResolvedProfileId={setMonthlyResolvedProfileId}
           />
         )}
         {tab === 'year' && <PartialPreview tab="year" />}
@@ -585,6 +601,7 @@ function FortuneView() {
             code={state.code}
             statusCode={state.statusCode}
             message={state.message}
+            activeTab="day"
           />
         )}
 
@@ -650,6 +667,32 @@ function FortuneView() {
             // Phase Fortune (plan Issue 6 lock) — pills POPULATE the
             // composer draft instead of auto-sending. User explicitly
             // taps send. Predictable UX + edit window.
+            populateOnly
+            onPendingInitialMessageConsumed={() => setChatPendingMessage(undefined)}
+            onPickGeneralQuestion={handleAskGeneral}
+          />
+        </>
+      )}
+
+      {/* Phase 2.x L3.5b — Mount ChatDrawer on month tab too. Anchor date is
+          the 1st of the targetMonth (matches NestJS createSession's
+          normalization at chat.service.ts:255). fortuneScope='MONTH'
+          dispatches to engine's MONTH chat-context path + M-1/M-2 refuse
+          few-shots + 25 seeded MONTH sample questions. */}
+      {tab === 'month' && activeProfileId && targetMonth && (
+        <>
+          <ChatFloatingButton onClick={handleOpenChatGeneral} />
+          <ChatDrawer
+            isOpen={chatOpen}
+            onClose={handleChatDrawerClose}
+            readingType="FORTUNE"
+            fortune={{
+              profileId: activeProfileId,
+              fortuneScope: 'MONTH',
+              fortuneAnchorDate: `${targetMonth}-01`,
+            }}
+            initialSectionContextHint={chatSectionHint}
+            pendingInitialMessage={chatPendingMessage}
             populateOnly
             onPendingInitialMessageConsumed={() => setChatPendingMessage(undefined)}
             onPickGeneralQuestion={handleAskGeneral}
@@ -959,19 +1002,43 @@ function PartialPreview({ tab }: { tab: 'year' }) {
 // ============================================================
 // Phase 2 月運 (L5) — MonthlyFortuneView
 // ============================================================
-// Fetches MonthlyFortuneResponse via fetchMonthlyFortune, renders
-// MonthlyEnergyRing + MonthlyDimensionBars + MonthlyTimeGrid +
-// MonthlyNarrativeCard. Self-contained; uses AbortController for
-// cleanup on profile/month switch.
+// Phase 2.x — Monthly streaming. Renders MonthlyEnergyRing +
+// MonthlyDimensionBars + MonthlyTimeGrid + MonthlyNarrativeCard
+// progressively as the SSE stream arrives:
+//   - engine_ready (~1s) → engine state, Ring/Bars/TimeGrid paint immediately
+//   - section_complete × N → MonthlyNarrativeCard reveals each section
+//   - done → final sanitized narrative
 //
-// NOTE: Phase 2 does NOT yet ship monthly streaming (L5 is the
-// initial frontend; streaming is a future iteration). Uses the
-// non-streaming `fetchMonthlyFortune` for cold loads. Loading state
-// shows full skeleton via MonthlyNarrativeCard's `loading=true` prop.
+// State machine: loading → engine → success → error. Plan v3 NEW-M1:
+// cacheHit consumed from engine_ready event payload (not hardcoded false).
+// Plan v3 NEW-H1: done handler spreads prev.data to preserve intraMonthBreakdown
+// (single canonical source on engine_ready event).
+//
+// Stream-error banner: plan v3 L5 — when streamError non-null + state.status==='engine',
+// show banner above MonthlyNarrativeCard but preserve already-arrived sections.
+
+/** Phase 2.x HIGH H-1 audit fix — whitelist of valid section keys the AI may
+ *  emit inside `MonthlyFortuneNarrative`. Used by MonthlyFortuneView's
+ *  `section_complete` handler to drop cross-scope keys (e.g., daily_*) that
+ *  could pollute state if the backend ever drifts. */
+const MONTHLY_NARRATIVE_KEYS = new Set<string>([
+  'monthly_overview',
+  'monthly_career',
+  'monthly_career_takeaway',
+  'monthly_finance',
+  'monthly_finance_takeaway',
+  'monthly_romance',
+  'monthly_romance_takeaway',
+  'monthly_health',
+  'monthly_health_takeaway',
+  'monthly_advice',
+  'intra_month_breakdown',
+]);
 
 type MonthlyFortuneViewState =
   | { status: 'idle' }
   | { status: 'loading' }
+  | { status: 'engine'; data: MonthlyFortuneResponse }
   | { status: 'success'; data: MonthlyFortuneResponse }
   | { status: 'error'; code: string; statusCode: number; message: string };
 
@@ -984,100 +1051,148 @@ interface MonthlyFortuneViewProps {
   /** Audit fix MEDIUM #8 — publish loading state UP so MonthNavigator
    *  can render disabled arrows during in-flight fetch. */
   onLoadingChange?: (isLoading: boolean) => void;
+  /** Phase 2.x L3.5b — publish the resolved profileId (from engine_ready event)
+   *  UP so the page-level ChatDrawer mount can use it as `fortune.profileId`
+   *  when user navigated without ?profileId= (NestJS resolves user's primary). */
+  onResolvedProfileId?: (profileId: string) => void;
 }
 
 function MonthlyFortuneView({
   profileId,
   targetMonth,
-  getToken,
+  getToken: _getToken,
   isSignedIn,
   isLoaded,
   onLoadingChange,
+  onResolvedProfileId,
 }: MonthlyFortuneViewProps) {
   const [state, setState] = useState<MonthlyFortuneViewState>({ status: 'idle' });
+  const [streamedSections, setStreamedSections] = useState<
+    Partial<MonthlyFortuneNarrative>
+  >({});
+  const [streamError, setStreamError] = useState<{ code: string; message: string } | null>(
+    null,
+  );
 
-  // Publish loading state up (audit MEDIUM #8)
+  // CRITICAL C-1 audit fix — keep `state` accessible via ref so the onEvent
+  // callback can read the CURRENT state.status when classifying error events.
+  // Without this, the callback closes over a stale snapshot at the render
+  // where it was created, causing mid-engine errors to wrongly transition to
+  // terminal 'error' state (wiping arrived engine data) in rapid event sequences.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Reset state synchronously when month/profile changes (plan v3 + audit HIGH #5
+  // parity with prior non-streaming impl). Hook's cancelled guard + effect deps
+  // handle the stream abort.
+  useEffect(() => {
+    setState({ status: 'loading' });
+    setStreamedSections({});
+    setStreamError(null);
+  }, [profileId, targetMonth]);
+
+  // Publish loading state up (audit MEDIUM #8). MonthNavigator disables arrows
+  // when stream hasn't reached 'engine' state yet.
   useEffect(() => {
     onLoadingChange?.(state.status === 'loading');
   }, [state.status, onLoadingChange]);
 
-  useEffect(() => {
-    if (!isLoaded || !isSignedIn) return;
-    // Audit fix HIGH #5 (2026-05-28): synchronous state reset BEFORE the
-    // async IIFE schedules setState. Without this, React renders ONCE
-    // with the OLD `state.status === 'success'` + stale `state.data` for
-    // the NEW prop values during the brief window between effect-cleanup
-    // and the async setState's microtask. Mirrors DAY view's reset
-    // pattern (page.tsx ~line 432).
-    setState({ status: 'loading' });
-    const controller = new AbortController();
-    let cancelled = false;
-
-    (async () => {
-      try {
-        const token = await getToken();
-        if (!token) {
-          if (!cancelled) {
-            setState({
-              status: 'error',
-              code: 'AUTH_FAILED',
-              statusCode: 401,
-              message: '請重新登入',
-            });
-          }
-          return;
-        }
-        const result = await fetchMonthlyFortune({
-          token,
-          profileId,
-          month: targetMonth,
-          signal: controller.signal,
+  useFortuneNarrativeStream({
+    enabled: !!isLoaded && !!isSignedIn,
+    scope: 'month',
+    profileId,
+    month: targetMonth,
+    onEvent: (ev) => {
+      if (ev.type === 'engine_ready' && 'month' in ev) {
+        // engine_ready arrived — render Ring/Bars/TimeGrid immediately.
+        // Plan v3 NEW-M1: cacheHit consumed from event payload (not hardcoded).
+        setState({
+          status: 'engine',
+          data: {
+            month: ev.month,
+            flowYear: ev.flowYear,
+            profileId: ev.profileId,
+            profileBirthDate: ev.profileBirthDate,
+            profileBirthTime: ev.profileBirthTime,
+            engineOutput: ev.engineOutput,
+            narrative: null,
+            intraMonthBreakdown: ev.intraMonthBreakdown,
+            cacheHit: ev.cacheHit,
+            generatedAt: new Date().toISOString(),
+          },
         });
-        if (!cancelled) {
-          setState({ status: 'success', data: result });
+        // Phase 2.x L3.5b — publish resolved profileId UP so the page-level
+        // ChatDrawer mount can use it as `fortune.profileId` even when the
+        // user didn't pass ?profileId= in URL (NestJS resolved user's primary).
+        onResolvedProfileId?.(ev.profileId);
+      } else if (ev.type === 'section_complete') {
+        // Provisional per-section text — MonthlyNarrativeCard hybrid render
+        // pulls from this until `done` event delivers sanitized narrative.
+        //
+        // HIGH H-1 audit fix — whitelist the section key. Backend should never
+        // emit cross-scope keys (e.g., `daily_*` in a monthly stream), but
+        // defensive validation against MonthlyFortuneNarrative key set catches
+        // any contract drift. Unknown keys are dropped silently with a console
+        // warn so devs notice during regression.
+        if (MONTHLY_NARRATIVE_KEYS.has(ev.key)) {
+          setStreamedSections((prev) => ({
+            ...prev,
+            [ev.key]: ev.value as never,
+          }));
+        } else if (typeof console !== 'undefined') {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[MonthlyFortuneView] dropped section_complete with unknown key: ${ev.key}`,
+          );
         }
-      } catch (err) {
-        if (cancelled) return;
-        if (err instanceof FortuneApiError) {
-          setState({
-            status: 'error',
-            code: err.code,
-            statusCode: err.status,
-            message: err.message,
-          });
-        } else if (
-          // Audit fix MEDIUM #7 (2026-05-28): use instanceof DOMException
-          // instead of (err as Error).name — defensive against non-Error
-          // throwables (string, plain object, null) which would TypeError
-          // on `.name` access inside the catch block.
-          err instanceof DOMException &&
-          err.name === 'AbortError'
-        ) {
-          // Cleanup — silent
-        } else if (err instanceof Error) {
-          setState({
-            status: 'error',
-            code: 'UNKNOWN',
-            statusCode: 0,
-            message: err.message,
-          });
+      } else if (ev.type === 'done' && 'narrative' in ev) {
+        // Plan v3 NEW-H1 fix: spread prev.data to preserve intraMonthBreakdown +
+        // cacheHit from engine_ready (single canonical source). Do NOT read
+        // ev.intraMonthBreakdown — `done` event no longer carries it.
+        setState((prev) => {
+          if (prev.status !== 'engine') return prev;
+          return {
+            status: 'success',
+            data: {
+              ...prev.data,
+              narrative: ev.narrative,
+              // Defensive: ev.cacheHit and prev.data.cacheHit should always agree
+              // (same server path emitted both). `??` guards against runtime undefined.
+              cacheHit: ev.cacheHit ?? prev.data.cacheHit,
+            },
+          };
+        });
+        setStreamedSections({});
+      } else if (ev.type === 'error') {
+        // Plan v3 L5 — pre-flight errors (subscription gate, profile not found)
+        // map to terminal 'error' state. Mid-stream errors (AI failure / truncation)
+        // set streamError but preserve partial 'engine' render.
+        //
+        // CRITICAL C-1 audit fix: read CURRENT state.status via the stateRef
+        // (not the stale snapshot from when this onEvent callback was created).
+        // Without this, rapid engine_ready → error sequences could mis-classify
+        // — terminal error wipes already-arrived engine data instead of showing
+        // the soft banner. Pattern mirrors daily handler.
+        //
+        // HIGH H-3 audit fix: when transitioning to terminal error, clear any
+        // stale streamError so the banner doesn't ghost-render.
+        const currentStatus = stateRef.current.status;
+        if (currentStatus === 'engine') {
+          setStreamError({ code: ev.code, message: ev.message });
         } else {
+          setStreamError(null);
           setState({
             status: 'error',
-            code: 'UNKNOWN',
-            statusCode: 0,
-            message: String(err),
+            code: ev.code,
+            statusCode: ev.code.startsWith('HTTP_') ? Number(ev.code.slice(5)) : 0,
+            message: ev.message,
           });
         }
       }
-    })();
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- getToken is stable
-  }, [isLoaded, isSignedIn, profileId, targetMonth]);
+    },
+  });
 
   // Audit fix CRITICAL #1 (2026-05-28): render the FULL skeletal layout
   // in loading state, NOT just MonthlyNarrativeCard alone. Plan v2 H4
@@ -1127,10 +1242,14 @@ function MonthlyFortuneView({
         code={state.code}
         statusCode={state.statusCode}
         message={state.message}
+        activeTab="month"
       />
     );
   }
 
+  // 'engine' OR 'success' — both render the real component stack. Difference:
+  //   'engine': narrative=null + streamedSections (hybrid render in NarrativeCard)
+  //   'success': full sanitized narrative
   const { engineOutput, narrative, intraMonthBreakdown } = state.data;
   // Strip labelZh from dimensions for MonthlyNarrativeCard's simpler shape
   const dimensionsForNarrative = {
@@ -1177,10 +1296,23 @@ function MonthlyFortuneView({
 
       <SectionDivider />
 
+      {/* Plan v3 L5 — stream-error banner above MonthlyNarrativeCard. Shows
+       *  when streamError set (mid-stream AI/network failure) but preserves
+       *  partial render of already-arrived sections. Reuses daily's CSS classes. */}
+      {streamError && (
+        <div className={styles.streamErrorBanner} role="alert">
+          <span className={styles.streamErrorIcon} aria-hidden="true">⚠️</span>
+          <span>AI 解讀載入中斷，重新整理可再試一次</span>
+        </div>
+      )}
+
       <MonthlyNarrativeCard
         narrative={narrative}
         dimensions={dimensionsForNarrative}
-        loading={false}
+        loading={state.status === 'engine'}
+        streamedSections={
+          state.status === 'engine' ? streamedSections : undefined
+        }
       />
 
       <p className={styles.monthlyBottomDisclaimer}>
@@ -1194,21 +1326,33 @@ function ErrorPanel({
   code,
   statusCode,
   message,
+  activeTab,
 }: {
   code: string;
   statusCode: number;
   message: string;
+  /**
+   * Active tab when this error rendered. Drives scope-aware OUT_OF_WINDOW copy
+   * + CTA (Phase 2.x #84 fix). Defaults to 'day' for back-compat with day-only
+   * callers that don't yet thread the prop.
+   */
+  activeTab?: 'day' | 'month' | 'year';
 }) {
+  const tab = activeTab ?? 'day';
+
   // Audit #2: branch SUBSCRIBER_ONLY (free user) vs OUT_OF_WINDOW
   // (subscriber asking for date outside +30/−1 day window). The latter
   // user IS a subscriber — telling them to "subscribe" is wrong.
   if (code === 'SUBSCRIBER_ONLY') {
+    // Same paywall regardless of scope; copy intentionally neutral.
     return (
       <div className={styles.errorWrap}>
         <div className={styles.errorIcon}>🔒</div>
         <h2 className={styles.errorTitle}>限訂閱用戶查看</h2>
         <p className={styles.errorBody}>
-          免費用戶僅可查看「今日」的日運。訂閱後即可查看「昨日 + 未來 30 天」範圍。
+          {tab === 'month'
+            ? '免費用戶僅可查看「本月」的月運。訂閱後即可查看「上個月 + 本月 + 未來 12 個月」範圍。'
+            : '免費用戶僅可查看「今日」的日運。訂閱後即可查看「昨日 + 未來 30 天」範圍。'}
         </p>
         <Link href="/pricing" className={styles.errorAction}>
           查看訂閱方案 →
@@ -1218,6 +1362,23 @@ function ErrorPanel({
   }
 
   if (code === 'OUT_OF_WINDOW') {
+    // Phase 2.x #84 fix — dispatch copy + CTA by tab.
+    if (tab === 'month') {
+      return (
+        <div className={styles.errorWrap}>
+          <div className={styles.errorIcon}>📅</div>
+          <h2 className={styles.errorTitle}>超出查詢範圍</h2>
+          <p className={styles.errorBody}>
+            月運可查範圍為「上個月 + 本月 + 未來 12 個月」。請選擇此範圍內的月份。
+          </p>
+          <Link href="/reading/fortune?tab=month" className={styles.errorAction}>
+            回到本月 →
+          </Link>
+        </div>
+      );
+    }
+    // 'year' is currently the «即將推出» placeholder tab; defensive default
+    // keeps the dispatch exhaustive. Fall through to day copy.
     return (
       <div className={styles.errorWrap}>
         <div className={styles.errorIcon}>📅</div>
@@ -1233,11 +1394,13 @@ function ErrorPanel({
   }
 
   if (code === 'NO_PRIMARY_PROFILE' || code === 'PROFILE_NOT_FOUND' || statusCode === 404) {
+    // Phase 2.x L-2 fix — genericize «日運功能» → «運勢功能» so the missing-profile
+    // screen reads cleanly on any tab (day/month/year).
     return (
       <div className={styles.errorWrap}>
         <div className={styles.errorIcon}>📝</div>
         <h2 className={styles.errorTitle}>找不到出生資料</h2>
-        <p className={styles.errorBody}>請先建立您的出生資料後再使用日運功能。</p>
+        <p className={styles.errorBody}>請先建立您的出生資料後再使用運勢功能。</p>
         <Link href="/dashboard/profiles" className={styles.errorAction}>
           前往建立出生資料 →
         </Link>
@@ -1248,7 +1411,7 @@ function ErrorPanel({
   return (
     <div className={styles.errorWrap}>
       <div className={styles.errorIcon}>⚠️</div>
-      <h2 className={styles.errorTitle}>暫時無法載入日運</h2>
+      <h2 className={styles.errorTitle}>暫時無法載入運勢</h2>
       <p className={styles.errorBody}>{message}</p>
       <p className={styles.errorMeta}>
         錯誤碼：{code} ({statusCode})

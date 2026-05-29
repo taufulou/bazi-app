@@ -196,8 +196,8 @@ interface FetchOpts {
 }
 
 /**
- * Phase Fortune Streaming — wire event types matching backend
- * `FortuneStreamEvent` from `apps/api/src/fortune/fortune-stream.service.ts`.
+ * Phase Fortune Streaming — DAY scope wire event types matching backend
+ * `FortuneDailyStreamEvent` from `apps/api/src/fortune/fortune-stream.service.ts`.
  *
  * Sequence:
  *   engine_ready    — engine output + chart anchors (frontend paints score/dims/folk)
@@ -206,7 +206,7 @@ interface FetchOpts {
  *
  * Cache hit: only engine_ready + done are emitted (no section_complete).
  */
-export type FortuneStreamEvent =
+export type FortuneDailyStreamEvent =
   | {
       type: 'engine_ready';
       engineOutput: DailyFortuneEngineOutput;
@@ -223,10 +223,51 @@ export type FortuneStreamEvent =
     }
   | { type: 'error'; code: string; message: string };
 
+/**
+ * Phase 2.x Monthly Streaming — MONTH scope wire event types matching backend
+ * `FortuneMonthlyStreamEvent` from `apps/api/src/fortune/fortune-stream.service.ts`.
+ *
+ * Glossary lock: `intraMonthBreakdown` is a SIBLING of `engineOutput` (not nested).
+ * `cacheHit` is on `engine_ready` (plan v3 NEW-M1) so warm-cache UI surfaces read
+ * the correct value during the engine→success gap. `done` does NOT carry
+ * `intraMonthBreakdown` (plan v3 NEW-H1) — L5 handler spreads prev.data instead.
+ */
+export type FortuneMonthlyStreamEvent =
+  | {
+      type: 'engine_ready';
+      engineOutput: MonthlyFortuneResponse['engineOutput'];
+      intraMonthBreakdown?: IntraMonthBreakdown;
+      profileId: string;
+      profileBirthDate: string;
+      profileBirthTime: string;
+      month: string;      // 'YYYY-MM' input verbatim
+      flowYear: number;
+      cacheHit: boolean;
+    }
+  | { type: 'section_complete'; key: string; value: unknown }
+  | {
+      type: 'done';
+      narrative: MonthlyFortuneNarrative | null;
+      cacheHit: boolean;
+    }
+  | { type: 'error'; code: string; message: string };
+
+/** Umbrella union for both scopes (R3 polish — single hook signature). */
+export type FortuneStreamEvent = FortuneDailyStreamEvent | FortuneMonthlyStreamEvent;
+
 interface StreamOpts {
   token: string;
   profileId?: string;
   date?: string;
+  onEvent: (event: FortuneStreamEvent) => void;
+  onError: (err: Error) => void;
+  onClose: () => void;
+}
+
+interface MonthlyStreamOpts {
+  token: string;
+  profileId?: string;
+  month?: string;        // 'YYYY-MM'
   onEvent: (event: FortuneStreamEvent) => void;
   onError: (err: Error) => void;
   onClose: () => void;
@@ -287,6 +328,95 @@ export function streamDailyFortune(opts: StreamOpts): () => void {
 
     if (!response.body) {
       opts.onError(new Error('Fortune stream: missing response body'));
+      opts.onClose();
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    try {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let frameEnd = buffer.indexOf('\n\n');
+        while (frameEnd !== -1) {
+          const frame = buffer.slice(0, frameEnd);
+          buffer = buffer.slice(frameEnd + 2);
+          dispatchFortuneFrame(frame, opts.onEvent);
+          frameEnd = buffer.indexOf('\n\n');
+        }
+      }
+      if (buffer.trim().length > 0) {
+        dispatchFortuneFrame(buffer, opts.onEvent);
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        opts.onError(err as Error);
+      }
+    } finally {
+      opts.onClose();
+    }
+  })();
+
+  return () => controller.abort();
+}
+
+/**
+ * Phase 2.x — Open an SSE stream from `GET /api/fortune/monthly/stream`.
+ * Mirror of `streamDailyFortune` for MONTH scope. Returns a teardown function.
+ */
+export function streamMonthlyFortune(opts: MonthlyStreamOpts): () => void {
+  const controller = new AbortController();
+  const params = new URLSearchParams();
+  if (opts.profileId) params.set('profileId', opts.profileId);
+  if (opts.month) params.set('month', opts.month);
+  const url = `${API_BASE}/api/fortune/monthly/stream${params.toString() ? `?${params}` : ''}`;
+
+  (async () => {
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${opts.token}`,
+          Accept: 'text/event-stream',
+        },
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      opts.onError(err as Error);
+      opts.onClose();
+      return;
+    }
+
+    if (!response.ok) {
+      // Pre-flight errors (subscription gate, 401, throttle 429) come back
+      // as plain JSON with `{ code, message }` (per `AllExceptionsFilter`).
+      let body: { message?: string; code?: string } = {};
+      try {
+        body = await response.json();
+      } catch {
+        // ignore
+      }
+      opts.onEvent({
+        type: 'error',
+        code: body.code || `HTTP_${response.status}`,
+        message:
+          body.message ||
+          `Monthly fortune stream failed: ${response.status} ${response.statusText}`,
+      });
+      opts.onClose();
+      return;
+    }
+
+    if (!response.body) {
+      opts.onError(new Error('Monthly fortune stream: missing response body'));
       opts.onClose();
       return;
     }

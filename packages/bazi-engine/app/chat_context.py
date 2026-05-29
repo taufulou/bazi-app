@@ -273,56 +273,65 @@ def build_chat_context_fortune(
     current_year: int,
     current_month: int,
     precomputed_daily: Optional[Dict] = None,
+    precomputed_monthly: Optional[Dict] = None,
+    fortune_scope: str = 'DAY',
 ) -> Dict:
-    """Build the slim chat context for FORTUNE chat (八字日運 chat scope).
+    """Build the slim chat context for FORTUNE chat (八字日運 / 月運 chat scope).
 
     Merges single-chart 4-pipeline slim (lifetime/love/career/annual) PLUS
-    the day's fortune output. The chat AI inherits ALL chart-level Phase 12
-    doctrine via the merged slim's `doctrineFlags` + `doctrineInjectors`
-    (傷官見官 valence, 比劫奪財, 用神/喜神/忌神, etc.).
+    the day's OR month's fortune output (per `fortune_scope`). The chat AI
+    inherits ALL chart-level Phase 12 doctrine via the merged slim's
+    `doctrineFlags` + `doctrineInjectors`.
 
-    The day-pillar TRANSIENT findings (Phase 12h.B day-of valence dispatch,
-    沖日支, 紅鸞 day trigger, etc.) ride in `dailyFortune.dimensions[].signals`
-    — the NestJS-side `interpolateFortuneV1Fields` injector reads these and
-    emits pre-formatted Chinese sentences for the AI to consume verbatim
-    (mirror Phase 12g.6 Gap 2 pattern at `ai.service.ts:3794+`).
+    DAY scope: day-pillar TRANSIENT findings (Phase 12h.B day-of valence,
+    沖日支, 紅鸞 day trigger, etc.) ride in `dailyFortune.dimensions[].signals`.
+
+    MONTH scope (Phase 2.x L3.5b): month-pillar TRANSIENT findings (Phase 12c
+    Fix C 殺印相生, 月柱沖刑, intra-month breakdown) ride in
+    `monthlyFortune.dimensions[].signals` + `monthlyFortune.intraMonthBreakdown`.
 
     Args:
-        birth_data: same shape as `build_chat_context_compat`'s `birth_data_a`
-            (`birth_date`, `birth_time`, `birth_city`, `birth_timezone`,
-            `gender`, optional `birth_longitude` / `birth_latitude`).
-        anchor_date: ISO date string `YYYY-MM-DD`. Caller (NestJS) is
-            responsible for resolving the 23:00 子時 boundary against
-            Asia/Taipei BEFORE calling — this function trusts the input.
+        birth_data: chart identity (birth_date/time/city/timezone/gender/long/lat)
+        anchor_date: ISO date string `YYYY-MM-DD`. For MONTH scope, the day
+            component is ignored — month is derived as `YYYY-MM`.
         current_year, current_month: flow-year / flow-month anchors for the
-            base chart-slim context. Should typically match the anchor_date's
-            year/month, but caller can override (e.g., 「what would today
-            look like under last year's flow」 hypothetical).
+            base chart-slim context. Should typically match the anchor_date.
         precomputed_daily: optional engine output from
-            `DailyFortuneSnapshot.engineOutputJson`. When provided, skips
-            the redundant `compute_daily_fortune()` call (Issue 1 plan
-            optimization — NestJS layer has the persisted snapshot for the
-            same `(chart_hash, anchor_date)` and passes it through to avoid
-            ~50-100ms recomputation).
+            `DailyFortuneSnapshot.engineOutputJson` (DAY scope only).
+        precomputed_monthly: optional engine output from MONTH snapshot —
+            same Issue-1 reuse path as `precomputed_daily` but for monthly.
+        fortune_scope: 'DAY' (default, back-compat) or 'MONTH'. YEAR deferred
+            to Phase 3.
 
     Returns:
         Slim payload with all `build_chat_context` fields PLUS:
             - `anchorDate`: the ISO string passed in
-            - `dailyFortune`: slim dict of the day's fortune output —
-              `dayGanZhi`, `dayTenGod`, `auspiciousness`, `energyScore`,
-              5 `dimensions`, `headlinerSignals`, `folkContent`,
-              `metaFraming`, Option-2.5 transparency fields.
+            - `fortuneScope`: echoed from input (lets downstream consumers + AI
+              prompt rule know which doctrine surface is loaded)
+            - `dailyFortune` (DAY scope only): slim dict of day's fortune
+            - `monthlyFortune` (MONTH scope only): slim dict of month's fortune
+              + intraMonthBreakdown sibling
 
     Raises:
-        ValueError: anchor_date not parseable as ISO date, or chart-pipeline
-            output missing required enhanced-insights keys (propagated from
-            `build_chat_context`).
+        ValueError: anchor_date not parseable, scope unknown, or chart-pipeline
+            output missing required enhanced-insights keys.
     """
     # Import here to avoid circular dep (calculator + daily_enhanced import
     # chat_context-adjacent modules indirectly)
     from datetime import date as _date
     from .calculator import calculate_bazi_with_all_pipelines
     from .daily_enhanced import compute_daily_fortune
+    from .monthly_enhanced import (
+        compute_intra_month_breakdown,
+        compute_single_month_by_yearmonth,
+    )
+
+    # Validate scope
+    if fortune_scope not in ('DAY', 'MONTH'):
+        raise ValueError(
+            f"fortune_scope must be 'DAY' or 'MONTH' (YEAR is Phase 3 deferred), "
+            f"got: {fortune_scope!r}"
+        )
 
     # Validate + parse anchor_date
     try:
@@ -355,12 +364,54 @@ def build_chat_context_fortune(
         current_month=current_month,
     )
 
-    # 3. Daily fortune output — reuse caller's persisted snapshot when
-    # available (Issue 1 — avoid double-compute). Schema matches what
-    # `compute_daily_fortune` returns; callers are responsible for not
-    # passing stale snapshots (NestJS already checks
-    # `DailyFortuneSnapshot.preAnalysisVersion` against
-    # `FORTUNE_DAILY_PRE_ANALYSIS_VERSION`).
+    # 3. Scope dispatch — DAY → compute_daily_fortune + dailyFortune slim;
+    #    MONTH → compute_single_month_by_yearmonth + monthlyFortune slim.
+    if fortune_scope == 'MONTH':
+        if precomputed_monthly is not None:
+            monthly_result = precomputed_monthly
+        else:
+            monthly_result = compute_single_month_by_yearmonth(
+                birth_date=birth_data['birth_date'],
+                birth_time=birth_data['birth_time'],
+                birth_city=birth_data['birth_city'],
+                birth_timezone=birth_data['birth_timezone'],
+                gender=birth_data['gender'],
+                year=anchor_date_obj.year,
+                month=anchor_date_obj.month,
+                birth_longitude=birth_data.get('birth_longitude'),
+                birth_latitude=birth_data.get('birth_latitude'),
+            )
+            # Wire L1.b breakdown into chat-context MONTH path (mirrors the
+            # /monthly-fortune endpoint behavior — see main.py:821). Lets the
+            # chat AI answer «本月上半月vs下半月有什麼差別?» questions grounded
+            # in real bucket stats. Defensive try/except — L1.b failure doesn't
+            # block the rest of the chat context. Skipped when caller passed
+            # precomputed_monthly (assumed to already include breakdown).
+            try:
+                breakdown_result = compute_intra_month_breakdown(
+                    birth_date=birth_data['birth_date'],
+                    birth_time=birth_data['birth_time'],
+                    birth_city=birth_data['birth_city'],
+                    birth_timezone=birth_data['birth_timezone'],
+                    gender=birth_data['gender'],
+                    year=anchor_date_obj.year,
+                    month=anchor_date_obj.month,
+                    birth_longitude=birth_data.get('birth_longitude'),
+                    birth_latitude=birth_data.get('birth_latitude'),
+                )
+                monthly_result['intraMonthBreakdown'] = breakdown_result
+            except Exception as breakdown_err:
+                # Log + omit field (chat AI gets the bare month; intraMonthBreakdown
+                # questions won't be answerable but rest of chat works).
+                print(f"WARN chat_context L1.b breakdown failed: {breakdown_err}")
+        return {
+            **base_ctx,
+            'anchorDate': anchor_date,
+            'fortuneScope': 'MONTH',
+            'monthlyFortune': _slim_monthly_for_chat(monthly_result),
+        }
+
+    # DAY scope (default) — original behavior.
     if precomputed_daily is not None:
         daily_result = precomputed_daily
     else:
@@ -394,10 +445,10 @@ def build_chat_context_fortune(
             flow_year_auspiciousness=flow_year_data.get('auspiciousness', '平'),
         )
 
-    # 4. Compose final payload — base chart slim + day's slim fortune
     return {
         **base_ctx,
         'anchorDate': anchor_date,
+        'fortuneScope': 'DAY',
         'dailyFortune': _slim_daily_for_chat(daily_result),
     }
 
@@ -442,6 +493,58 @@ def _slim_daily_for_chat(daily: Dict) -> Dict:
         'headlinerSignals': daily.get('headlinerSignals'),
         # Static 用神 wealth direction (Phase 12 Fix 2 mapping)
         'folkContent': daily.get('folkContent'),
+    }
+
+
+def _slim_monthly_for_chat(monthly: Dict) -> Dict:
+    """Phase 2.x L3.5b — slim `compute_single_month_by_yearmonth` output for
+    chat consumption. Mirror of `_slim_daily_for_chat` scaled to MONTH scope.
+
+    Keeps user-facing fields the AI must cite verbatim or reason from.
+    Drops engine-internal fields:
+      - `chartContext` (redundant — base_ctx already has chart data)
+      - `preAnalysisVersion` (engine-internal cache token)
+      - `targetYear` / `targetMonth` (caller passes anchor_date)
+
+    Includes `intraMonthBreakdown` (L1.b) so chat AI can answer questions
+    like «本月上半月vs下半月有什麼差別?» grounded in the structured per-bucket
+    stats (auspicious_days / challenging_days / dominant_shensha / peak_signals).
+    Per glossary: camelCase `intraMonthBreakdown` is a SIBLING of monthly
+    block (not nested inside dimensions / engineOutput).
+
+    Folk content OMITTED per Phase 2 locked decision #6 — DAY-only differentiator.
+    """
+    if not monthly:
+        return {}
+    return {
+        'monthStem': monthly.get('monthStem'),
+        'monthBranch': monthly.get('monthBranch'),
+        'monthGanZhi': monthly.get('monthGanZhi'),
+        'monthTenGod': monthly.get('monthTenGod'),
+        'monthLabel': monthly.get('monthLabel'),
+        'auspiciousness': monthly.get('auspiciousness'),
+        'energyScore': monthly.get('energyScore'),
+        'metaFraming': monthly.get('metaFraming'),
+        'flowYear': monthly.get('flowYear'),
+        # Phase 12b/12c transparency fields (optional — present when fired)
+        'baseAuspiciousness': monthly.get('baseAuspiciousness'),
+        'bareMonthAuspiciousness': monthly.get('bareMonthAuspiciousness'),
+        # Phase 12b/c additive fields — surfaced for deterministic AI injection
+        'officerSealActivation': monthly.get('officerSealActivation'),
+        'fuYinInteractions': monthly.get('fuYinInteractions'),
+        'chongKuRelease': monthly.get('chongKuRelease'),
+        'liuHaiInteractions': monthly.get('liuHaiInteractions'),
+        # 4 dimension blocks {career, finance, romance, health} — NO travel
+        # (Sub-Agent B doctrine lock per Phase 2 plan v4 locked decision #5).
+        # signals[] drive any future interpolateFortuneMonthlyFields injector.
+        'dimensions': monthly.get('dimensions', {}),
+        # Locked partition spec (tiangan_dizhi_half — 2 buckets per Sub-Agent A)
+        'partitionSpec': monthly.get('partitionSpec'),
+        # L1.b intra-month breakdown (sibling per glossary): per-bucket day
+        # counts + dominant 神煞 + peak signals. Drives chat answers re:
+        # 上半月/下半月 dynamics.
+        'intraMonthBreakdown': monthly.get('intraMonthBreakdown'),
+        'ruleTrace': monthly.get('ruleTrace', []),
     }
 
 

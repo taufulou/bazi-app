@@ -292,4 +292,101 @@ describe('createSectionDetector', () => {
       }).not.toThrow();
     });
   });
+
+  // ============================================================
+  // Phase 2.x M3 / NEW-M3 — monthly compound-section chunk boundary
+  // ============================================================
+  // Mirror Phase 2.x plan v3 NEW-M3 regression: monthly narrative emits
+  // sections with mixed shapes (string for prose, object for monthly_advice,
+  // array for intra_month_breakdown). Compound-section chunk boundaries
+  // are the highest-risk regression class — a future clarinet upgrade or
+  // refactor could silently double-emit on close-brace / close-bracket.
+  describe('Phase 2.x M3 — monthly compound section chunk boundaries', () => {
+    const fullMonthlyJson =
+      '{"sections":{"monthly_overview":"本月癸巳月，整體平穩",' +
+      '"monthly_advice":{"canTry":["積極推進","適合出行"],"shouldHold":["大筆投資","重要決策"]},' +
+      '"intra_month_breakdown":[' +
+      '{"partition_label":"上半月","narrative":"天干主導，9吉5挑戰"},' +
+      '{"partition_label":"下半月","narrative":"地支主導，11吉3挑戰"}' +
+      ']}}';
+
+    it('happy path — emits all 3 monthly sections in declaration order with correct value shapes', () => {
+      const emits = collect(fullMonthlyJson);
+      expect(emits.length).toBe(3);
+      // monthly_overview → string
+      expect(emits[0]).toEqual({
+        key: 'monthly_overview',
+        value: '本月癸巳月，整體平穩',
+      });
+      // monthly_advice → object (compound)
+      expect(emits[1].key).toBe('monthly_advice');
+      expect(emits[1].value).toEqual({
+        canTry: ['積極推進', '適合出行'],
+        shouldHold: ['大筆投資', '重要決策'],
+      });
+      // intra_month_breakdown → array (compound)
+      expect(emits[2].key).toBe('intra_month_breakdown');
+      expect(Array.isArray(emits[2].value)).toBe(true);
+      expect((emits[2].value as unknown[]).length).toBe(2);
+    });
+
+    it('array chunk boundary — intra_month_breakdown split mid-array emits ONCE at final close-bracket', () => {
+      // chunk1 ends mid-array (after first object), chunk2 completes array
+      const chunk1 =
+        '{"sections":{"intra_month_breakdown":[' +
+        '{"partition_label":"上半月","narrative":"天干主導"},';
+      const chunk2 =
+        '{"partition_label":"下半月","narrative":"地支主導"}' +
+        ']}}';
+      const emits = collect([chunk1, chunk2]);
+      // EXACTLY ONE emission for intra_month_breakdown (NOT two)
+      const breakdownEmits = emits.filter(
+        (e) => e.key === 'intra_month_breakdown',
+      );
+      expect(breakdownEmits.length).toBe(1);
+      expect(Array.isArray(breakdownEmits[0].value)).toBe(true);
+      expect((breakdownEmits[0].value as unknown[]).length).toBe(2);
+    });
+
+    it('NEW-M3 object-close chunk boundary — monthly_advice close-brace lands on chunk1, intra_month_breakdown on chunk2', () => {
+      // chunk1 ends right after monthly_advice's closing brace (the critical
+      // boundary clarinet must not lose track of). chunk2 begins with the
+      // next section key. Both sections MUST emit exactly once.
+      const chunk1 =
+        '{"sections":{' +
+        '"monthly_advice":{"canTry":["積極推進"],"shouldHold":["大筆投資"]}';
+      const chunk2 =
+        ',"intra_month_breakdown":[{"partition_label":"上半月","narrative":"x"}]' +
+        '}}';
+      const emits = collect([chunk1, chunk2]);
+      // EXACTLY ONE emission for each
+      const adviceEmits = emits.filter((e) => e.key === 'monthly_advice');
+      const breakdownEmits = emits.filter(
+        (e) => e.key === 'intra_month_breakdown',
+      );
+      expect(adviceEmits.length).toBe(1);
+      expect(breakdownEmits.length).toBe(1);
+      expect(adviceEmits[0].value).toEqual({
+        canTry: ['積極推進'],
+        shouldHold: ['大筆投資'],
+      });
+      expect(Array.isArray(breakdownEmits[0].value)).toBe(true);
+    });
+
+    it('stream-end mid-array → emits whatever completed before close, no partial array double-emit', () => {
+      // Truncated mid-array: only first element completes, second is partial
+      const truncated =
+        '{"sections":{"monthly_overview":"本月癸巳月",' +
+        '"intra_month_breakdown":[{"partition_label":"上半月","narrative":"x"}';
+      const emits = collect(truncated);
+      // monthly_overview completed → emits
+      const overviewEmits = emits.filter((e) => e.key === 'monthly_overview');
+      expect(overviewEmits.length).toBe(1);
+      // intra_month_breakdown array NEVER closed → must NOT emit
+      const breakdownEmits = emits.filter(
+        (e) => e.key === 'intra_month_breakdown',
+      );
+      expect(breakdownEmits.length).toBe(0);
+    });
+  });
 });

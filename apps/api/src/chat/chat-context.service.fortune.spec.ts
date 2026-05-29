@@ -518,3 +518,287 @@ describe('CHAT_PROMPT_VERSIONS.FORTUNE — per-readingType isolation (L3.5)', ()
     expect(CHAT_PROMPT_VERSIONS.COMPATIBILITY).toBe('v1.1.0');
   });
 });
+
+// ============================================================
+// L3.5b — Phase 2 月運 chat-scope MONTH wiring (audit H#2)
+// ============================================================
+
+/**
+ * H#2 (L3.5b line audit) — 5 regression locks for the scope-aware dispatch
+ * paths so audit-fix F bugs (drift check using wrong helper) cannot recur.
+ *
+ * Plus C#1 byte-identity lock: bumping the new FORTUNE_MONTH constant MUST
+ * NOT touch existing DAY sessions' stored preAnalysisVersion (would trip
+ * CONTEXT_VERSION_DRIFTED on first message post-deploy for every legacy
+ * DAY chat session in DB).
+ *
+ * Plus interpolateFortuneMonthlyFields presence + correctness checks.
+ */
+describe('L3.5b — scope-aware FORTUNE chat (audit H#2)', () => {
+  let scopeService: ChatContextService;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ChatContextService,
+        { provide: ConfigService, useValue: { get: () => 'http://localhost:5001' } },
+        { provide: PrismaService, useValue: {} as PrismaService },
+        { provide: RedisService, useValue: {} as RedisService },
+      ],
+    }).compile();
+    scopeService = moduleRef.get(ChatContextService);
+  });
+
+  describe('(a) cacheKey includes :scope: discriminator', () => {
+    it('DAY scope version string contains pa-fort= key (legacy byte-identity)', () => {
+      const versions = scopeService.computeVersionStringForFortune('DAY');
+      // Audit C#1: DAY must use LEGACY `pa-fort=` key for byte-identity
+      // with pre-L3.5b sessions (NOT pa-fort-day=).
+      expect(versions).toContain('pa-fort=');
+      expect(versions).not.toContain('pa-fort-day=');
+      expect(versions).not.toContain('pa-fort-month=');
+    });
+
+    it('MONTH scope version string contains pa-fort-month= key (NEW)', () => {
+      const versions = scopeService.computeVersionStringForFortune('MONTH');
+      expect(versions).toContain('pa-fort-month=');
+      // MUST NOT carry the legacy DAY key — active-scope-only emission.
+      expect(versions).not.toContain('pa-fort=');
+    });
+  });
+
+  describe('(b) DAY vs MONTH version strings are byte-distinct', () => {
+    it('different fortune-scope produces different version strings', () => {
+      const dayVer = scopeService.computeVersionStringForFortune('DAY');
+      const monthVer = scopeService.computeVersionStringForFortune('MONTH');
+      expect(dayVer).not.toEqual(monthVer);
+    });
+
+    it('getCurrentSnapshotVersionsForFortune outputs differ by scope', () => {
+      const day = scopeService.getCurrentSnapshotVersionsForFortune('DAY');
+      const month = scopeService.getCurrentSnapshotVersionsForFortune('MONTH');
+      expect(day.preAnalysisVersion).not.toEqual(month.preAnalysisVersion);
+      expect(day.preAnalysisVersion).toContain('fort=');
+      expect(day.preAnalysisVersion).not.toContain('fort-month=');
+      expect(month.preAnalysisVersion).toContain('fort-month=');
+      expect(month.preAnalysisVersion).not.toContain('fort=v'); // matches 'fort=' but not 'fort-month=v'
+    });
+  });
+
+  describe('(c) C#1 byte-identity — legacy DAY session drift-check survives L3.5b', () => {
+    it('getCurrentSnapshotVersionsForFortune(DAY) preAnalysisVersion === legacy getCurrentSnapshotVersions(FORTUNE)', () => {
+      // CRITICAL: pre-L3.5b DAY sessions stored preAnalysisVersion via the
+      // legacy `getCurrentSnapshotVersions('FORTUNE')` path. Post-L3.5b
+      // drift check uses `getCurrentSnapshotVersionsForFortune('DAY')`.
+      // Both MUST produce identical strings — else every existing DAY
+      // chat session in DB trips CONTEXT_VERSION_DRIFTED on first message.
+      const legacy = scopeService.getCurrentSnapshotVersions('FORTUNE');
+      const scopeAware = scopeService.getCurrentSnapshotVersionsForFortune('DAY');
+      expect(scopeAware.preAnalysisVersion).toEqual(legacy.preAnalysisVersion);
+      expect(scopeAware.contextVersion).toEqual(legacy.contextVersion);
+    });
+  });
+
+  describe('(d) interpolateFortuneMonthlyFields — MONTH-scope deterministic injector', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { interpolateFortuneMonthlyFields } = require('./chat-context.service');
+
+    it('returns null when monthlyFortune absent (graceful degrade)', () => {
+      const ctx = {} as ChatContext;
+      expect(interpolateFortuneMonthlyFields(ctx)).toBeNull();
+    });
+
+    it('returns null when monthlyFortune.monthGanZhi missing', () => {
+      const ctx = { monthlyFortune: { auspiciousness: '吉' } } as ChatContext;
+      expect(interpolateFortuneMonthlyFields(ctx)).toBeNull();
+    });
+
+    it('emits 流月教義事件 block with month-pillar findings', () => {
+      const ctx: ChatContext = {
+        monthlyFortune: {
+          monthGanZhi: '癸巳',
+          monthTenGod: '正財',
+          auspiciousness: '吉',
+          officerSealActivation: {
+            pattern: 'sha_yin',
+            level: 'full',
+            direction: 'positive',
+            seal_source: 'benqi',
+          },
+          fuYinInteractions: [
+            { pillar: 'month', role: '用神', direction: 'upgrade', weight: 1.0, applied: true },
+          ],
+          dimensions: {
+            career: { signals: ['官殺當令，有升遷或考核壓力'] },
+          },
+        },
+      } as ChatContext;
+      const block = interpolateFortuneMonthlyFields(ctx);
+      expect(block).not.toBeNull();
+      expect(block!).toContain('癸巳月');
+      expect(block!).toContain('殺印相生');
+      expect(block!).toContain('伏吟');
+      // Soft-trigger framing rule must always appear when month findings emit
+      expect(block!).toContain('本月宜');
+    });
+
+    it('emits intraMonthBreakdown bucket details', () => {
+      const ctx: ChatContext = {
+        monthlyFortune: {
+          monthGanZhi: '癸巳',
+          intraMonthBreakdown: {
+            scheme_id: 'tiangan_dizhi_half',
+            buckets: [
+              {
+                label: '上半月',
+                day_range: [1, 15],
+                governing_pillar: 'stem',
+                auspicious_days: 9,
+                challenging_days: 5,
+                neutral_days: 1,
+                dominant_shensha: ['天喜', '比劫'],
+                peak_signals: [
+                  { date: '2026-05-07', type: '紅鸞', valence: 'positive', narrative: '紅鸞動' },
+                ],
+              },
+              {
+                label: '下半月',
+                day_range: [16, 31],
+                governing_pillar: 'branch',
+                auspicious_days: 11,
+                challenging_days: 3,
+                neutral_days: 2,
+                dominant_shensha: ['驛馬'],
+                peak_signals: [],
+              },
+            ],
+          },
+        },
+      } as ChatContext;
+      const block = interpolateFortuneMonthlyFields(ctx);
+      expect(block).not.toBeNull();
+      expect(block!).toContain('上半月');
+      expect(block!).toContain('下半月');
+      expect(block!).toContain('流月天干主導');
+      expect(block!).toContain('流月地支主導');
+      expect(block!).toContain('9 天'); // auspicious_days
+      expect(block!).toContain('11 天');
+    });
+  });
+
+  describe('(f) M#2 staff-engineer post-fix — chat-side vs engine-side constant decoupling', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { FORTUNE_PRE_ANALYSIS_VERSIONS } = require('../ai/prompts');
+
+    it('engine-side FORTUNE_PRE_ANALYSIS_VERSIONS.day is past the legacy chat-side v1.1.1 lock (decoupled per audit C#1)', () => {
+      // STAFF-ENGINEER REGRESSION LOCK (post-M#2 audit fix):
+      //
+      // M#2 stale-snapshot check MUST compare against the ENGINE-side
+      // FORTUNE_PRE_ANALYSIS_VERSIONS.day (what the snapshot was actually
+      // stamped with at persist time by fortune-snapshot.helpers.ts), NOT
+      // the chat-side PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE (legacy-
+      // locked at 'v1.1.1' for C#1 byte-identity preservation).
+      //
+      // Any future engineer reading
+      // `chat-context.service.ts::getChatContextForFortune` M#2 block and
+      // tempted to "simplify" by comparing against the chat-side constant
+      // would silently defeat the Issue-1 snapshot-reuse optimization →
+      // every fresh DAY snapshot ('v1.2.0') would mismatch 'v1.1.1' →
+      // flagged stale → cold engine recompute every chat session.
+      //
+      // Lock: assert engine has moved past the legacy chat-side value.
+      // If they ever align again (engine reverted, chat unlocked, etc.),
+      // this test fails and forces explicit re-evaluation.
+      expect(FORTUNE_PRE_ANALYSIS_VERSIONS.day).toBeDefined();
+      expect(FORTUNE_PRE_ANALYSIS_VERSIONS.day).not.toBe('v1.1.1');
+    });
+
+    it('engine-side FORTUNE_PRE_ANALYSIS_VERSIONS.month constant is defined (M#2 MONTH path compares against it)', () => {
+      expect(FORTUNE_PRE_ANALYSIS_VERSIONS.month).toBeDefined();
+      expect(typeof FORTUNE_PRE_ANALYSIS_VERSIONS.month).toBe('string');
+    });
+  });
+
+  describe('(g) LOW #1 staff-engineer post-fix — extractFortunePivotHint MONTH branch', () => {
+    // Access the private method via cast (mirror existing extract() pattern below)
+    function extract(ctx: ChatContext): string | null {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (scopeService as any).extractFortunePivotHint(ctx);
+    }
+
+    it('returns formatted MONTH pivot when monthlyFortune provides all 4 fields', () => {
+      const ctx: ChatContext = {
+        monthlyFortune: {
+          monthGanZhi: '癸巳',
+          monthLabel: '2026年5月',
+          auspiciousness: '平',
+          energyScore: 50,
+        },
+      } as ChatContext;
+      // Prefers monthLabel («2026年5月») over fallback «癸巳月»
+      expect(extract(ctx)).toBe('2026年5月（平，50分）');
+    });
+
+    it('falls back to monthGanZhi + 月 suffix when monthLabel missing', () => {
+      const ctx: ChatContext = {
+        monthlyFortune: {
+          monthGanZhi: '癸巳',
+          auspiciousness: '吉',
+          energyScore: 65,
+        },
+      } as ChatContext;
+      expect(extract(ctx)).toBe('癸巳月（吉，65分）');
+    });
+
+    it('returns base label when auspiciousness or energyScore missing (degraded but useful)', () => {
+      const ctx: ChatContext = {
+        monthlyFortune: { monthGanZhi: '癸巳' },
+      } as ChatContext;
+      expect(extract(ctx)).toBe('癸巳月');
+    });
+
+    it('falls through to DAY branch when monthlyFortune.monthGanZhi+monthLabel both missing', () => {
+      // Defensive: monthly present but no usable identifier — should fall
+      // through to dailyFortune (DAY chat session that somehow carries
+      // monthly remnant in ctx — shouldn't happen but graceful degrade).
+      const ctx: ChatContext = {
+        monthlyFortune: { auspiciousness: '吉', energyScore: 60 } as Record<string, unknown>,
+        dailyFortune: { dayGanZhi: '戊子', auspiciousness: '凶中有吉', energyScore: 42 } as Record<string, unknown>,
+      } as ChatContext;
+      // Falls through to DAY branch → returns dayGanZhi formatted
+      expect(extract(ctx)).toBe('戊子日（凶中有吉，42分）');
+    });
+
+    it('returns null when both monthlyFortune AND dailyFortune absent', () => {
+      const ctx: ChatContext = {} as ChatContext;
+      expect(extract(ctx)).toBeNull();
+    });
+
+    it('DAY branch still works untouched (existing behaviour preserved)', () => {
+      // Regression lock — no DAY-only test should change behaviour.
+      const ctx: ChatContext = {
+        dailyFortune: {
+          dayGanZhi: '戊子',
+          auspiciousness: '凶中有吉',
+          energyScore: 42,
+          headlinerSignals: {
+            triggers: [{ narrative: '今日紅鸞動，子卯刑配偶宮' }],
+          },
+        },
+      } as ChatContext;
+      expect(extract(ctx)).toBe('今日紅鸞動，子卯刑配偶宮');
+    });
+  });
+
+  describe('(e) cross-scope isolation — bumping MONTH does not affect DAY', () => {
+    it('DAY snapshot version is stable across the spec run (no MONTH side-effects)', () => {
+      // The byte-identity assertion from (c) re-runs here as a separate
+      // invariant: even with all the MONTH-scope code paths exercised in
+      // this describe block, the DAY scope helper produces the SAME string
+      // as the legacy FORTUNE path. Locked.
+      const dayAfter = scopeService.getCurrentSnapshotVersionsForFortune('DAY');
+      const legacyAfter = scopeService.getCurrentSnapshotVersions('FORTUNE');
+      expect(dayAfter.preAnalysisVersion).toEqual(legacyAfter.preAnalysisVersion);
+    });
+  });
+});

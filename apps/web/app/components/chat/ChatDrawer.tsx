@@ -113,7 +113,13 @@ export default function ChatDrawer({
 }: ChatDrawerProps) {
   // Phase 2 — empty-state «general» sample questions, fetched from DB.
   // sectionKey=null means the floating-button no-section context.
-  const { questions: generalSampleQuestions } = useSampleQuestions(readingType, null);
+  // Phase 2.x L3.5b — pass fortuneScope so MONTH chat surfaces MONTH-keyed
+  // questions (25 seeded) instead of DAY questions. DAY default for non-FORTUNE.
+  const { questions: generalSampleQuestions } = useSampleQuestions(
+    readingType,
+    null,
+    fortune?.fortuneScope,
+  );
   // Phase 3 + Phase Fortune — pass exactly one of (readingId, comparisonId,
   // fortune) to useChatSession. The hook XOR-routes the subject.
   const session = useChatSession({ readingId, comparisonId, fortune, enabled: isOpen });
@@ -720,6 +726,10 @@ export default function ChatDrawer({
         <SampleQuestionsBrowser
           isOpen={browserOpen}
           readingType={readingType}
+          // Phase 2.x L3.5b — thread scope so MONTH chat surfaces MONTH-keyed
+          // questions in the browser overlay (mirror of useSampleQuestions
+          // call at line 119).
+          fortuneScope={fortune?.fortuneScope}
           onClose={() => setBrowserOpen(false)}
           errorMessage={browserError}
           onPick={(questionText) => {

@@ -270,15 +270,23 @@ export class ChatSampleQuestionService {
   }
 
   /** Admin — create. Validates sectionKey is in the per-type whitelist
-   *  (or null for general questions). Bumps cache version once. */
+   *  (or null for general questions). Bumps cache version once.
+   *
+   *  Phase 2.x L3.5b audit C#3 — accepts `fortuneScope` (REQUIRED for
+   *  FORTUNE rows; REJECTED for non-FORTUNE rows). Without this admin
+   *  could not create MONTH/YEAR sample questions via the API; only
+   *  raw-SQL migrations.
+   */
   async create(args: {
     readingType: ReadingType;
     sectionKey: string | null;
     questionText: string;
     displayOrder?: number;
     locale?: string;
+    fortuneScope?: 'DAY' | 'MONTH' | 'YEAR' | null;
   }): Promise<ChatSampleQuestion> {
     this.assertValidSectionKey(args.readingType, args.sectionKey);
+    this.assertValidFortuneScope(args.readingType, args.fortuneScope ?? null);
     const created = await this.prisma.chatSampleQuestion.create({
       data: {
         readingType: args.readingType,
@@ -286,6 +294,7 @@ export class ChatSampleQuestionService {
         questionText: args.questionText,
         displayOrder: args.displayOrder ?? 0,
         locale: args.locale ?? 'zh-TW',
+        fortuneScope: args.fortuneScope ?? null,
       },
     });
     await this.bumpCacheVersion();
@@ -301,10 +310,12 @@ export class ChatSampleQuestionService {
       questionText: string;
       displayOrder?: number;
       locale?: string;
+      fortuneScope?: 'DAY' | 'MONTH' | 'YEAR' | null;
     }>;
   }): Promise<{ count: number }> {
     for (const item of args.items) {
       this.assertValidSectionKey(item.readingType, item.sectionKey);
+      this.assertValidFortuneScope(item.readingType, item.fortuneScope ?? null);
     }
     const result = await this.prisma.chatSampleQuestion.createMany({
       data: args.items.map((i) => ({
@@ -313,6 +324,7 @@ export class ChatSampleQuestionService {
         questionText: i.questionText,
         displayOrder: i.displayOrder ?? 0,
         locale: i.locale ?? 'zh-TW',
+        fortuneScope: i.fortuneScope ?? null,
       })),
     });
     await this.bumpCacheVersion();
@@ -328,14 +340,23 @@ export class ChatSampleQuestionService {
       displayOrder: number;
       isActive: boolean;
       sectionKey: string | null;
+      fortuneScope: 'DAY' | 'MONTH' | 'YEAR' | null;
     }>,
   ): Promise<ChatSampleQuestion> {
-    if (patch.sectionKey !== undefined) {
+    // Audit C#3: validate fortuneScope is consistent with row's readingType.
+    // Fetch existing row once when either sectionKey OR fortuneScope changes,
+    // since both need readingType context.
+    if (patch.sectionKey !== undefined || patch.fortuneScope !== undefined) {
       const existing = await this.prisma.chatSampleQuestion.findUniqueOrThrow({
         where: { id },
         select: { readingType: true },
       });
-      this.assertValidSectionKey(existing.readingType, patch.sectionKey);
+      if (patch.sectionKey !== undefined) {
+        this.assertValidSectionKey(existing.readingType, patch.sectionKey);
+      }
+      if (patch.fortuneScope !== undefined) {
+        this.assertValidFortuneScope(existing.readingType, patch.fortuneScope);
+      }
     }
     const updated = await this.prisma.chatSampleQuestion.update({
       where: { id },
@@ -365,6 +386,30 @@ export class ChatSampleQuestionService {
       throw new Error(
         `Invalid sectionKey "${sectionKey}" for readingType ${readingType}. ` +
           `Valid keys: ${(valid ?? []).join(', ')} or null.`,
+      );
+    }
+  }
+
+  /** Phase 2.x L3.5b audit C#3 — fortuneScope must be null when readingType
+   *  is not FORTUNE; for FORTUNE it must be one of DAY/MONTH/YEAR (or null
+   *  to default to DAY at read-time per back-compat). Rejects mismatches
+   *  so admin UI can't create cross-type rows that would never be read.
+   */
+  private assertValidFortuneScope(
+    readingType: ReadingType,
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR' | null,
+  ): void {
+    if (fortuneScope === null) return; // null is always permitted
+    if (readingType !== 'FORTUNE') {
+      throw new Error(
+        `Invalid fortuneScope="${fortuneScope}" for readingType ${readingType}. ` +
+          `fortuneScope is only allowed when readingType === 'FORTUNE'.`,
+      );
+    }
+    // For FORTUNE: enum already constrained at TS layer; defensive runtime check.
+    if (fortuneScope !== 'DAY' && fortuneScope !== 'MONTH' && fortuneScope !== 'YEAR') {
+      throw new Error(
+        `Invalid fortuneScope="${fortuneScope}". Must be one of: DAY, MONTH, YEAR, null.`,
       );
     }
   }

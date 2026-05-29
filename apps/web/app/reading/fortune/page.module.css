@@ -438,8 +438,21 @@
   gap: 16px;
 }
 
+/* Phase 2.x L6 — placeholder min-heights tuned to actual rendered heights
+ * at desktop viewport (1280px). Measured 2026-05-28 via browser test:
+ *   - MonthlyEnergyRing: 356.5px → 360px placeholder
+ *   - MonthlyDimensionBars: 217.5px → 220px placeholder
+ *   - MonthlyTimeGrid (with L1.b breakdown wired): 758px → 760px placeholder
+ *     (much taller than pre-L1 ~331.5px because each bucket now renders 3 day
+ *     counts + 3 dominant 神煞 + 3 peak signals)
+ *
+ * Goal: narrativeHeroY delta ≤8px across loading→engine→success transitions.
+ * Streaming makes this less load-bearing (engine_ready arrives ~1s, replacing
+ * placeholders) but cold-load first paint still benefits.
+ */
+
 .monthlyRingPlaceholder {
-  min-height: 280px;
+  min-height: 360px;
   background: var(--bg-card);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-warm);
@@ -448,7 +461,7 @@
 }
 
 .monthlyBarsPlaceholder {
-  min-height: 140px;
+  min-height: 220px;
   background: var(--bg-card);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-warm);
@@ -457,7 +470,7 @@
 }
 
 .monthlyTimeGridPlaceholder {
-  min-height: 280px;
+  min-height: 760px;
   background: var(--bg-card);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-warm);

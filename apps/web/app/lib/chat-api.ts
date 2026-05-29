@@ -127,15 +127,22 @@ export function listSessionsForComparison(args: {
   });
 }
 
-// Phase Fortune — list FORTUNE sessions for a (profileId, anchorDate).
-// anchorDate is required so date navigation spawns new sessions (plan
-// Issue 10 — date-filtered resume).
+// Phase Fortune — list FORTUNE sessions for a (profileId, anchorDate,
+// fortuneScope) triplet. anchorDate is required so date navigation spawns
+// new sessions (plan Issue 10 — date-filtered resume). fortuneScope is
+// optional (defaults to DAY back-compat) but REQUIRED for MONTH callers
+// to avoid cross-scope contamination on 1st-of-month anchors
+// (Phase 2.x L3.5b audit H#1).
 export function listSessionsForFortune(args: {
   profileId: string;
   fortuneAnchorDate: string; // ISO YYYY-MM-DD
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
   token: string;
 }): Promise<ChatSession[]> {
   const params = new URLSearchParams({ anchorDate: args.fortuneAnchorDate });
+  if (args.fortuneScope) {
+    params.set('fortuneScope', args.fortuneScope);
+  }
   return jsonFetch(
     `/api/chat/profiles/${args.profileId}/fortune-sessions?${params.toString()}`,
     {
@@ -216,10 +223,14 @@ export async function getSampleQuestions(args: {
   readingType: ChatReadingType;
   sectionKey: string | null;
   locale?: string;
+  /** Phase 2.x L3.5b — FORTUNE only. DAY/MONTH/YEAR scope filter.
+   *  Omit (default) for DAY back-compat. */
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
 }): Promise<SampleQuestionItem[]> {
   const params = new URLSearchParams({ readingType: args.readingType });
   if (args.sectionKey) params.set('sectionKey', args.sectionKey);
   if (args.locale) params.set('locale', args.locale);
+  if (args.fortuneScope) params.set('fortuneScope', args.fortuneScope);
   const response = await fetch(
     `${API_BASE}/api/chat/sample-questions?${params.toString()}`,
     { method: 'GET' },
@@ -244,9 +255,12 @@ export async function getSampleQuestions(args: {
 export async function getAllSampleQuestions(args: {
   readingType: ChatReadingType;
   locale?: string;
+  /** Phase 2.x L3.5b — FORTUNE only. DAY/MONTH/YEAR scope filter. */
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
 }): Promise<SampleQuestionItem[]> {
   const params = new URLSearchParams({ readingType: args.readingType });
   if (args.locale) params.set('locale', args.locale);
+  if (args.fortuneScope) params.set('fortuneScope', args.fortuneScope);
   const response = await fetch(
     `${API_BASE}/api/chat/sample-questions/all?${params.toString()}`,
     { method: 'GET' },

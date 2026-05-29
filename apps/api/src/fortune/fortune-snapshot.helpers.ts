@@ -45,10 +45,13 @@ import {
 import {
   type DailyEngineOutput,
   type FortuneChartContext,
+  type MonthlyEngineOutput,
 } from './fortune-prompt-builder';
 import {
   type DailyFortuneResponse,
   type DailyFortuneAINarrative,
+  type MonthlyFortuneResponse,
+  type MonthlyFortuneAINarrative,
 } from './dto';
 
 // ============================================================
@@ -74,6 +77,21 @@ export const ENGINE_REQUEST_TIMEOUT_MS = 30_000;
 export const MAX_AI_FAILURES = 3;
 export const AI_FAILURE_BACKOFF_HOURS = 24;
 export const AI_CALL_TIMEOUT_MS = 90_000;
+
+// ============================================================
+// Monthly constants (Phase 2.x — mirror daily pattern)
+// ============================================================
+
+/** Free user can see ONLY the current month. */
+export const FREE_MONTH_WINDOW_FUTURE = 0;
+export const FREE_MONTH_WINDOW_PAST = 0;
+
+/** Subscriber month window per locked plan: -1 month + current + +12 months INCLUSIVE. */
+export const SUBSCRIBER_MONTH_WINDOW_FUTURE = 12;
+export const SUBSCRIBER_MONTH_WINDOW_PAST = 1;
+
+/** Monthly endpoint timeout — heavier than daily (cross-flow-year compute + L1.b breakdown). */
+export const MONTHLY_ENGINE_TIMEOUT_MS = 60_000;
 
 // ============================================================
 // FortuneSnapshotHelpers
@@ -568,5 +586,332 @@ export class FortuneSnapshotHelpers {
     const from = new Date(`${fromIso}T00:00:00Z`).getTime();
     const to = new Date(`${toIso}T00:00:00Z`).getTime();
     return Math.round((to - from) / (24 * 60 * 60 * 1000));
+  }
+
+  // ============================================================
+  // Phase 2.x — Monthly helpers (mirror daily helpers above)
+  // ============================================================
+  //
+  // Consumed by BOTH FortuneService.getMonthlyFortune (non-streaming
+  // /api/fortune/monthly) AND FortuneStreamService.streamMonthlyFortune
+  // (SSE /api/fortune/monthly/stream) so the cache + persist invariants
+  // stay identical across paths. Contract test in
+  // fortune-snapshot.helpers.monthly.contract.spec.ts asserts byte-identity.
+
+  /** Subscription gate for month scope: -1 / current / +12 INCLUSIVE. */
+  enforceMonthlySubscriptionGate(tier: SubscriptionTier, targetMonth: string): void {
+    const currentMonth = this.currentMonthIso();
+    const diffMonths = this.diffMonthsIso(currentMonth, targetMonth);
+
+    if (tier === SubscriptionTier.FREE) {
+      if (
+        diffMonths < -FREE_MONTH_WINDOW_PAST ||
+        diffMonths > FREE_MONTH_WINDOW_FUTURE
+      ) {
+        throw new ForbiddenException({
+          code: 'SUBSCRIBER_ONLY',
+          message: '此功能限訂閱用戶 — 免費用戶僅可查看當月運勢',
+        });
+      }
+      return;
+    }
+
+    if (
+      diffMonths < -SUBSCRIBER_MONTH_WINDOW_PAST ||
+      diffMonths > SUBSCRIBER_MONTH_WINDOW_FUTURE
+    ) {
+      throw new ForbiddenException({
+        code: 'OUT_OF_WINDOW',
+        message: `月運可查範圍：上個月 + 本月 + 未來 ${SUBSCRIBER_MONTH_WINDOW_FUTURE} 個月`,
+      });
+    }
+  }
+
+  /** Current month YYYY-MM in FORTUNE_DEFAULT_TZ (Asia/Taipei). */
+  currentMonthIso(): string {
+    const tz = this.config.get<string>('FORTUNE_DEFAULT_TZ') || 'Asia/Taipei';
+    // 'sv-SE' produces YYYY-MM-DD; slice to YYYY-MM
+    return new Intl.DateTimeFormat('sv-SE', { timeZone: tz })
+      .format(new Date())
+      .slice(0, 7);
+  }
+
+  /** Whole-months difference (target - reference). Both YYYY-MM. */
+  diffMonthsIso(reference: string, target: string): number {
+    const [ry, rm] = reference.split('-').map(Number);
+    const [ty, tm] = target.split('-').map(Number);
+    return (ty! - ry!) * 12 + (tm! - rm!);
+  }
+
+  /** Redis key for monthly cache: `fortune:monthly:{chartHash}:{YYYY-MM}`. */
+  monthlyRedisKey(chartHash: string, yearMonth: string): string {
+    return `fortune:monthly:${chartHash}:${yearMonth}`;
+  }
+
+  /** Try Redis → DB lookup for monthly snapshot. Returns null on miss/stale.
+   *
+   *  Signature mirrors daily `tryGetCached(chartHash, dateIso)`: 2-arg form,
+   *  caller passes `anchorDate` (1st of month at 00:00 UTC). Helper derives
+   *  `yearMonth = anchorDate.toISOString().slice(0,7)` internally → builds
+   *  Redis key via `monthlyRedisKey`. Implementer doesn't pre-build the key.
+   */
+  async tryGetMonthlyCached(
+    chartHash: string,
+    anchorDate: Date,
+  ): Promise<DailyFortuneSnapshot | null> {
+    const yearMonth = anchorDate.toISOString().slice(0, 7);
+    const redisKey = this.monthlyRedisKey(chartHash, yearMonth);
+
+    // Redis hot path
+    const cached = await this.redis.get(redisKey);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as DailyFortuneSnapshot;
+        // Restore Date columns (matches daily tryGetCached pattern — JSON
+        // serialization leaves them as ISO strings).
+        if (typeof (parsed as unknown as { generatedAt: unknown }).generatedAt === 'string') {
+          parsed.generatedAt = new Date(parsed.generatedAt as unknown as string);
+        }
+        if (typeof (parsed as unknown as { anchorDate: unknown }).anchorDate === 'string') {
+          parsed.anchorDate = new Date(parsed.anchorDate as unknown as string);
+        }
+        if (this.monthlyVersionsMatch(parsed)) {
+          return parsed;
+        }
+      } catch {
+        // fall through to DB
+      }
+    }
+
+    // DB warm path
+    const dbRow = await this.prisma.dailyFortuneSnapshot.findUnique({
+      where: {
+        chartHash_scope_anchorDate: {
+          chartHash,
+          scope: FortuneScope.MONTH,
+          anchorDate,
+        },
+      },
+    });
+
+    if (!dbRow) return null;
+    if (!this.monthlyVersionsMatch(dbRow)) {
+      this.logger.debug(
+        `MonthlyFortuneSnapshot ${dbRow.id} stale — regenerating`,
+      );
+      return null;
+    }
+
+    // Warm Redis from DB (best-effort — failure doesn't block response)
+    try {
+      await this.redis.set(redisKey, JSON.stringify(dbRow), REDIS_TTL_SECONDS);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to warm Redis monthly from DB ${dbRow.id}: ${(err as Error).message}`,
+      );
+    }
+    return dbRow;
+  }
+
+  /** Check pre-analysis + prompt versions match current month-scope versions.
+   *
+   *  HIGH H1 audit fix (Phase 2.x — 2026-05-28): mirror daily versionsMatch
+   *  circuit-breaker logic. Without this, `persistMonthlySnapshot` writes
+   *  `aiFailureCount` / `aiLastFailedAt` columns but `monthlyVersionsMatch`
+   *  never reads them → monthly will retry AI on EVERY request indefinitely
+   *  during Anthropic outages, blowing the cost ceiling that daily's breaker
+   *  protects. Now monthly + daily have invariant parity per the helpers-
+   *  extraction rationale.
+   */
+  monthlyVersionsMatch(row: {
+    preAnalysisVersion: string;
+    promptVersion: string | null;
+    aiFailureCount?: number | null;
+    aiLastFailedAt?: Date | string | null;
+  }): boolean {
+    if (row.preAnalysisVersion !== FORTUNE_PRE_ANALYSIS_VERSIONS.month) return false;
+    if (row.promptVersion === FORTUNE_PROMPT_VERSIONS.month) return true;
+    if (row.promptVersion !== null) return false;
+    // Circuit breaker: AI previously failed (promptVersion=null). Only retry
+    // if under failure cap OR backoff window has elapsed.
+    const failureCount = row.aiFailureCount ?? 0;
+    if (failureCount < MAX_AI_FAILURES) return false;  // not at cap yet → retry
+    const lastFailedAt = row.aiLastFailedAt
+      ? new Date(row.aiLastFailedAt as Date | string)
+      : null;
+    if (!lastFailedAt) return false;  // hit cap but no timestamp — safer to retry
+    const backoffMs = AI_FAILURE_BACKOFF_HOURS * 60 * 60 * 1000;
+    const stillInBackoff = lastFailedAt.getTime() + backoffMs > Date.now();
+    return stillInBackoff;  // true = serve engine-only; false = retry AI
+  }
+
+  /** Call Python engine /monthly-fortune endpoint. */
+  async fetchMonthlyFromEngine(
+    profile: {
+      birthDate: Date;
+      birthTime: string;
+      birthCity: string;
+      birthTimezone: string;
+      gender: string;
+      birthLongitude: number | null;
+      birthLatitude: number | null;
+    },
+    year: number,
+    month: number,
+  ): Promise<MonthlyEngineOutput> {
+    const birthDateIso = profile.birthDate.toISOString().slice(0, 10);
+
+    let response: Response;
+    try {
+      response = await fetch(`${this.baziEngineUrl}/monthly-fortune`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          birth_date: birthDateIso,
+          birth_time: profile.birthTime,
+          birth_city: profile.birthCity,
+          birth_timezone: profile.birthTimezone,
+          gender: profile.gender.toLowerCase(),
+          birth_longitude: profile.birthLongitude,
+          birth_latitude: profile.birthLatitude,
+          target_year: year,
+          target_month: month,
+        }),
+        signal: AbortSignal.timeout(MONTHLY_ENGINE_TIMEOUT_MS),
+      });
+    } catch (err) {
+      throw new InternalServerErrorException(
+        `Bazi engine unreachable: ${(err as Error).message}`,
+      );
+    }
+
+    if (!response.ok) {
+      const body = await response.text();
+      this.logger.error(`Engine /monthly-fortune ${response.status}: ${body}`);
+      throw new InternalServerErrorException(`Bazi engine returned ${response.status}`);
+    }
+
+    const json = (await response.json()) as { data?: MonthlyEngineOutput };
+    if (!json.data) {
+      throw new InternalServerErrorException('Engine response missing data');
+    }
+    return json.data;
+  }
+
+  /** Persist monthly snapshot (DB upsert). Anchor = 1st of month at 00:00 UTC. */
+  async persistMonthlySnapshot(args: {
+    chartHash: string;
+    birthProfileId: string;
+    anchorDate: Date;
+    yearMonth: string;
+    monthlyOutput: MonthlyEngineOutput;
+    narrative: MonthlyFortuneAINarrative | null;
+    promptVersion: string | null;
+  }): Promise<DailyFortuneSnapshot> {
+    const engineJson = args.monthlyOutput as unknown as Prisma.InputJsonValue;
+    const narrativeJson = args.narrative
+      ? (args.narrative as unknown as Prisma.InputJsonValue)
+      : Prisma.JsonNull;
+
+    return this.prisma.dailyFortuneSnapshot.upsert({
+      where: {
+        chartHash_scope_anchorDate: {
+          chartHash: args.chartHash,
+          scope: FortuneScope.MONTH,
+          anchorDate: args.anchorDate,
+        },
+      },
+      create: {
+        chartHash: args.chartHash,
+        birthProfileId: args.birthProfileId,
+        scope: FortuneScope.MONTH,
+        anchorDate: args.anchorDate,
+        yearMonth: args.yearMonth,
+        engineOutputJson: engineJson,
+        aiNarrativeJson: narrativeJson,
+        energyScore: args.monthlyOutput.energyScore,
+        auspiciousnessLabel: args.monthlyOutput.auspiciousness,
+        preAnalysisVersion: FORTUNE_PRE_ANALYSIS_VERSIONS.month,
+        promptVersion: args.promptVersion,
+        aiFailureCount: args.promptVersion === null ? 1 : 0,
+        aiLastFailedAt: args.promptVersion === null ? new Date() : null,
+      },
+      update: {
+        engineOutputJson: engineJson,
+        aiNarrativeJson: narrativeJson,
+        energyScore: args.monthlyOutput.energyScore,
+        auspiciousnessLabel: args.monthlyOutput.auspiciousness,
+        preAnalysisVersion: FORTUNE_PRE_ANALYSIS_VERSIONS.month,
+        promptVersion: args.promptVersion,
+        generatedAt: new Date(),
+        ...(args.promptVersion === null
+          ? { aiFailureCount: { increment: 1 }, aiLastFailedAt: new Date() }
+          : { aiFailureCount: 0, aiLastFailedAt: null }),
+      },
+    });
+  }
+
+  /** Build the wire response from a persisted/cached monthly snapshot.
+   *
+   *  Phase 2.x glossary lock: `intraMonthBreakdown` is a SIBLING of
+   *  `engineOutput` on `MonthlyFortuneResponse` (NOT nested inside).
+   *  Engine emits it at top level of `engineOutputJson`; we lift it
+   *  to the wire response's top level.
+   */
+  buildMonthlyResponse(
+    profileId: string,
+    profileBirthDate: string,
+    profileBirthTime: string,
+    targetMonth: string,
+    snapshot: DailyFortuneSnapshot,
+    cacheHit: boolean,
+  ): MonthlyFortuneResponse {
+    const raw = snapshot.engineOutputJson as unknown;
+    if (
+      raw === null ||
+      typeof raw !== 'object' ||
+      !('monthStem' in (raw as object)) ||
+      !('auspiciousness' in (raw as object)) ||
+      !('dimensions' in (raw as object)) ||
+      !('partitionSpec' in (raw as object))
+    ) {
+      this.logger.error(
+        `Monthly snapshot ${snapshot.id} has malformed engineOutputJson — regenerating`,
+      );
+      throw new InternalServerErrorException(
+        'Monthly fortune snapshot data is malformed — please retry',
+      );
+    }
+    // MEDIUM M1 audit fix — extract intraMonthBreakdown BEFORE building
+    // engineOutput, then strip it from engineOutput's nested shape so the
+    // field appears ONLY at top-level (sibling) per Glossary lock. Without
+    // this, the field would leak into BOTH `response.engineOutput.intraMonthBreakdown`
+    // (nested, untyped) AND `response.intraMonthBreakdown` (sibling, typed).
+    // Glossary lock says sibling-only — strip explicitly to prevent FE drift.
+    const rawObj = raw as Record<string, unknown> & {
+      intraMonthBreakdown?: MonthlyFortuneResponse['intraMonthBreakdown'];
+    };
+    const intraMonthBreakdown = rawObj.intraMonthBreakdown;
+    // Destructure to omit intraMonthBreakdown from the engineOutput typed object
+    const { intraMonthBreakdown: _unused, ...engineOutputBare } = rawObj;
+    void _unused;  // silence unused-variable lint
+    const engineOutput = engineOutputBare as MonthlyFortuneResponse['engineOutput'];
+
+    const narrative = snapshot.aiNarrativeJson as unknown as MonthlyFortuneAINarrative | null;
+    const flowYear = (engineOutput as unknown as { flowYear?: number }).flowYear
+      ?? Number(targetMonth.slice(0, 4));
+
+    return {
+      month: targetMonth,
+      flowYear,
+      profileId,
+      profileBirthDate,
+      profileBirthTime,
+      engineOutput,
+      narrative,
+      intraMonthBreakdown,
+      cacheHit,
+      generatedAt: snapshot.generatedAt.toISOString(),
+    };
   }
 }

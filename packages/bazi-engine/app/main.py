@@ -24,7 +24,10 @@ from .chat_context import (
 )
 from .daily_enhanced import compute_daily_fortune, resolve_bazi_today_from_clock_time
 from .explanations import get_element_explanation
-from .monthly_enhanced import compute_single_month_by_yearmonth
+from .monthly_enhanced import (
+    compute_intra_month_breakdown,
+    compute_single_month_by_yearmonth,
+)
 
 app = FastAPI(
     title="Bazi Calculation Engine",
@@ -493,7 +496,7 @@ class FortuneChatContextInput(BaseModel):
     birth_longitude: Optional[float] = None
     birth_latitude: Optional[float] = None
     anchor_date: str = Field(
-        ..., description="Bazi-day-resolved date YYYY-MM-DD",
+        ..., description="Bazi-day-resolved date YYYY-MM-DD (for MONTH scope, day component is ignored — month derived as YYYY-MM)",
         pattern=r"^\d{4}-\d{2}-\d{2}$",
     )
     target_year: int = Field(..., ge=1900, le=2100)
@@ -501,7 +504,19 @@ class FortuneChatContextInput(BaseModel):
     precomputed_daily: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Optional persisted DailyFortuneSnapshot.engineOutputJson — when "
-                    "provided, skips compute_daily_fortune (Issue 1 reuse path)",
+                    "provided, skips compute_daily_fortune (Issue 1 reuse path). DAY scope only.",
+    )
+    # Phase 2.x L3.5b additions
+    fortune_scope: str = Field(
+        default='DAY',
+        pattern=r"^(DAY|MONTH)$",
+        description="'DAY' (default, back-compat) or 'MONTH'. YEAR is Phase 3 deferred.",
+    )
+    precomputed_monthly: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional persisted MONTH-scope snapshot engineOutputJson — Issue-1 "
+                    "reuse path for MONTH (skips compute_single_month_by_yearmonth). "
+                    "Only consumed when fortune_scope='MONTH'.",
     )
 
 
@@ -539,6 +554,8 @@ async def build_chat_context_fortune_endpoint(data: FortuneChatContextInput):
             current_year=data.target_year,
             current_month=data.target_month,
             precomputed_daily=data.precomputed_daily,
+            precomputed_monthly=data.precomputed_monthly,
+            fortune_scope=data.fortune_scope,
         )
 
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
@@ -802,6 +819,36 @@ async def monthly_fortune_endpoint(data: MonthlyFortuneInput):
             birth_longitude=data.birth_longitude,
             birth_latitude=data.birth_latitude,
         )
+
+        # Phase 2.x L1 — wire L1.b intra-month aggregation so MonthlyTimeGrid
+        # renders real 上半月/下半月 day counts + dominant 神煞 + peak signals
+        # instead of the placeholder hint. Cold path ~150ms for 30 daily
+        # aggregations (3-tier cache inside compute_intra_month_breakdown:
+        # precomputed_days → in-process LRU → cold daily compute). Warm path
+        # ~10ms via LRU. Falls inside the 60s endpoint timeout.
+        #
+        # M-3 fix — emit as CAMELCASE 'intraMonthBreakdown' at the top level
+        # to match existing engine convention (flowYear, monthGanZhi). Inner
+        # keys (scheme_id, liuyue_window, buckets, day_range, governing_pillar)
+        # stay snake_case as the L1.b function emits them.
+        try:
+            breakdown_result = compute_intra_month_breakdown(
+                birth_date=data.birth_date,
+                birth_time=data.birth_time,
+                birth_city=data.birth_city,
+                birth_timezone=data.birth_timezone,
+                gender=data.gender,
+                year=data.target_year,
+                month=data.target_month,
+                birth_longitude=data.birth_longitude,
+                birth_latitude=data.birth_latitude,
+            )
+            monthly_result["intraMonthBreakdown"] = breakdown_result
+        except Exception as breakdown_err:
+            # Defensive: if L1.b fails (e.g., a single daily compute crashes),
+            # don't take down the whole monthly endpoint. Log + omit the field
+            # — TimeGrid falls back to the placeholder hint, page still loads.
+            print(f"WARN compute_intra_month_breakdown failed: {breakdown_err}")
 
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
 

@@ -150,6 +150,11 @@ interface CreateChatSampleQuestionDto {
   questionText: string;
   displayOrder?: number;
   locale?: string;
+  /** Phase 2.x L3.5b audit C#3 — required for FORTUNE sample questions
+   *  (allows admin to create MONTH/YEAR questions through the API instead
+   *  of needing raw-SQL migrations). MUST be null for non-FORTUNE rows
+   *  (validated server-side; rejected with INVALID_FORTUNE_SCOPE_FOR_TYPE). */
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR' | null;
 }
 
 interface UpdateChatSampleQuestionDto {
@@ -157,6 +162,9 @@ interface UpdateChatSampleQuestionDto {
   displayOrder?: number;
   isActive?: boolean;
   sectionKey?: string | null;
+  /** Phase 2.x L3.5b audit C#3 — same validation rule as create: only
+   *  allowed when the existing row's readingType === 'FORTUNE'. */
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR' | null;
 }
 
 interface CreateManyChatSampleQuestionsDto {

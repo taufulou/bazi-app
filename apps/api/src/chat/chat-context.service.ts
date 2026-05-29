@@ -4,6 +4,12 @@ import { createHash } from 'crypto';
 import { ReadingType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+// Audit M#2 staff-engineer fix — snapshot staleness check must compare
+// against the ENGINE-side version (what the snapshot was stamped with at
+// persist time), NOT the chat-side `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE`
+// which is intentionally locked at the legacy value for C#1 byte-identity.
+// These two constants are DECOUPLED post-C#1.
+import { FORTUNE_PRE_ANALYSIS_VERSIONS } from '../ai/prompts';
 
 // ============================================================
 // Constants — version map (mirror plan's CHAT_PROMPT_VERSIONS)
@@ -103,21 +109,33 @@ const PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH = {
   ANNUAL: 'v2.4.0',
   LOVE: 'v1.11.0',
   COMPATIBILITY: 'v1.8.2', // Phase 3 follow-up — H1 timingSync + H4 strip ideal-spouse + H5 restore 4 anti-hallucination anchors
-  // Phase Fortune chat — mirrors FORTUNE_DAILY_PRE_ANALYSIS_VERSION='v1.2.0'
-  // in packages/bazi-engine/app/fortune_constants.py. ONLY appended to the
-  // version string when readingType === 'FORTUNE' (per-readingType conditional
-  // in computeVersionString + getCurrentSnapshotVersions per plan Issue 11 +
-  // NEW-A re-review). Adding this entry does NOT invalidate any non-FORTUNE
-  // session because the conditional gate prevents it from joining the version
-  // string for LIFETIME/LOVE/CAREER/ANNUAL/COMPAT sessions.
+  // Phase Fortune chat — LEGACY DAY-scope chat-context version key. ONLY
+  // appended to the version string when readingType === 'FORTUNE' (per-readingType
+  // conditional in computeVersionString + getCurrentSnapshotVersions per plan
+  // Issue 11 + NEW-A re-review). Adding this entry does NOT invalidate any
+  // non-FORTUNE session because the conditional gate prevents it from joining
+  // the version string for LIFETIME/LOVE/CAREER/ANNUAL/COMPAT sessions.
   //
-  // PHASE 2 月運 NOTE: Existing `FORTUNE` entry kept as legacy for DAY scope.
-  // NEW per-scope entries FORTUNE_DAY + FORTUNE_MONTH below — emit
-  // active-scope-only per plan v4 H-new-4. (See computeVersionString
-  // refactor to accept optional `fortuneScope` arg below.)
-  FORTUNE: 'v1.1.1',
-  FORTUNE_DAY: 'v1.2.0',   // Phase 1.5.z folk content version (per fortune_constants.py)
-  FORTUNE_MONTH: 'v1.0.0', // Phase 2 月運 initial (per FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION)
+  // **IMPORTANT — DECOUPLED FROM ENGINE VERSION** (audit C#1 lock):
+  // The `FORTUNE: 'v1.1.1'` value here is NOT the current engine version
+  // (engine is at `FORTUNE_PRE_ANALYSIS_VERSIONS.day = 'v1.2.0'` per
+  // ../ai/prompts.ts). It's intentionally locked at the legacy value to
+  // preserve byte-identity with pre-L3.5b DAY chat sessions in DB. The
+  // engine output shape can evolve (folk content, etc.) without breaking
+  // chat sessions because:
+  //   1. The chat slim drops/aggregates fields the chat doesn't need.
+  //   2. Snapshot-reuse staleness gate compares against ENGINE-side
+  //      `FORTUNE_PRE_ANALYSIS_VERSIONS` separately (see
+  //      `getChatContextForFortune` snapshot-lookup block).
+  // If you ever need to invalidate chat-context cache for FORTUNE DAY,
+  // bump THIS constant — but be aware ALL existing DAY chat sessions will
+  // trip CONTEXT_VERSION_DRIFTED and users must restart. MONTH scope uses
+  // its own `FORTUNE_MONTH` constant — no legacy collision risk since no
+  // MONTH sessions existed pre-L3.5b.
+  //
+  // FORTUNE_DAY (introduced Phase 2.x then dropped audit C#1): removed.
+  FORTUNE: 'v1.1.1',       // DAY scope — used by `fort=` (snapshot) + `pa-fort=` (cache key)
+  FORTUNE_MONTH: 'v1.0.0', // MONTH scope (Phase 2) — used by `fort-month=` + `pa-fort-month=`
 } as const;
 
 const CHAT_CONTEXT_TTL_SECONDS = 24 * 60 * 60; // 24h
@@ -203,16 +221,39 @@ export interface ChatContext {
   timingSync?: Record<string, unknown>;
   /** Phase Fortune — present only when this payload describes a FORTUNE
    *  (daily fortune) chat scope. Mirrors the engine's
-   *  `build_chat_context_fortune` shape. Carries the day pillar, today's
-   *  auspiciousness label + energy score, 5-dim breakdown, headliner
+   *  `build_chat_context_fortune` shape (DAY branch). Carries the day pillar,
+   *  today's auspiciousness label + energy score, 5-dim breakdown, headliner
    *  signals, folk content (wealth direction), plus Option 2.5 transparency
    *  fields used by the anti-incoherence prompt rule. The day-pillar
    *  TRANSIENT findings ride in `dailyFortune.dimensions[].signals[]` and
-   *  are consumed by `interpolateFortuneV1Fields` below. */
+   *  are consumed by `interpolateFortuneV1Fields` below.
+   *
+   *  Note (Glossary lock per Phase 2.x): camelCase `dailyFortune` matches the
+   *  Python engine emit convention at the chat-context boundary. NEVER confuse
+   *  with the AI-output narrative key `daily_*` (snake_case, inside `narrative`).
+   */
   dailyFortune?: Record<string, unknown>;
+  /** Phase 2.x L3.5b — present only when this payload describes a FORTUNE
+   *  MONTH chat scope. Mirrors the engine's `build_chat_context_fortune`
+   *  shape (MONTH branch, slimmed via `_slim_monthly_for_chat`). Carries:
+   *  monthGanZhi, monthTenGod, auspiciousness, energyScore, 4-dim breakdown
+   *  (career/finance/romance/health — NO travel per Phase 2 doctrine), month-
+   *  pillar findings (fuYinInteractions / liuHaiInteractions / chongKuRelease /
+   *  officerSealActivation), and `intraMonthBreakdown` (per L1.b — sibling
+   *  field with `{scheme_id, liuyue_window, buckets}` shape).
+   *
+   *  Consumed by `interpolateFortuneMonthlyFields` (the MONTH-scope deterministic
+   *  injector, mirror of `interpolateFortuneV1Fields`). Folk content is OMITTED
+   *  for MONTH scope per Phase 2 locked decision #6 (DAY-only differentiator).
+   *
+   *  Glossary lock: camelCase `monthlyFortune` (engine emit). The AI narrative
+   *  uses snake_case `monthly_*` keys inside `narrative.monthly_*`. Never alias.
+   */
+  monthlyFortune?: Record<string, unknown>;
   /** Phase Fortune — ISO `YYYY-MM-DD` anchor date the FORTUNE chat session
    *  is pinned to. Set by engine; mirrored from the
-   *  `ChatSession.fortuneAnchorDate` column. */
+   *  `ChatSession.fortuneAnchorDate` column. For MONTH scope, normalized to
+   *  the 1st of the month (YYYY-MM-01). */
   anchorDate?: string;
 }
 
@@ -426,6 +467,7 @@ export class ChatContextService {
     profileId: string,
     anchorDate: string,
     readingType: ReadingType = 'FORTUNE',
+    fortuneScope: 'DAY' | 'MONTH' = 'DAY',
   ): Promise<ChatContext> {
     const profile = await this.prisma.birthProfile.findUnique({
       where: { id: profileId },
@@ -447,8 +489,17 @@ export class ChatContextService {
     }
 
     const birthHash = this.computeBirthHash(profile, anchorYear);
-    const versions = this.computeVersionString(readingType);
-    const cacheKey = `chat-context-fortune:${birthHash}:${anchorDate}:${versions}`;
+    // Phase 2.x L3.5b — scope-aware version composition. Active-scope-only
+    // emission per plan H-new-4: DAY chat keys on `pa-fort-day`, MONTH chat
+    // keys on `pa-fort-month`. Bumping one scope's version does NOT invalidate
+    // the other scope's cached chat-contexts.
+    const versions =
+      readingType === 'FORTUNE'
+        ? this.computeVersionStringForFortune(fortuneScope)
+        : this.computeVersionString(readingType);
+    // Cache key includes scope discriminator so DAY + MONTH chat sessions
+    // for the same chart on the same anchor never collide.
+    const cacheKey = `chat-context-fortune:${birthHash}:${anchorDate}:${fortuneScope}:${versions}`;
 
     // Try Redis cache
     const cached = await this.redis.get(cacheKey);
@@ -463,30 +514,70 @@ export class ChatContextService {
       }
     }
 
-    // Reuse persisted DailyFortuneSnapshot when available (Issue 1 — skip
-    // recompute). Note: we use the chartHash convention from
-    // fortune.service.ts (which includes birthTimezone in the hash —
-    // mirrored in computeBirthHash above via profile.birthTimezone).
-    // Snapshot lookup uses the engine's chart_hash (separate from chat
-    // birthHash — `fortune.service.ts` writes it). Resolve via the
-    // `(birthProfileId, anchorDate)` index already on the snapshot table.
+    // Reuse persisted snapshot when available (Issue 1 — skip recompute).
+    // Scope dispatch: DAY → look up scope='DAY' row + pass as precomputed_daily;
+    // MONTH → look up scope='MONTH' row + pass as precomputed_monthly.
+    // For MONTH, the anchor date is normalized to 1st of month (matches fortune.service.ts).
+    //
+    // Audit M#2 (L3.5b line audit) — gate snapshot reuse on engine pre-analysis
+    // version match. A stale snapshot (older preAnalysisVersion) may lack
+    // fields the current chat slim expects: for MONTH, pre-v1.1.0 snapshots
+    // lack `intraMonthBreakdown` (Phase 2.x L1.b wiring). Passing a stale
+    // payload as `precomputed_monthly` would skip recompute → AI loses
+    // bucket data silently. For DAY, pre-v1.2.0 snapshots lack `folkContent`
+    // (Phase 1.5.z). When stale, null the precomputed_* slot so engine
+    // recomputes from scratch.
+    //
+    // Staff-engineer audit fix (post-M#2): MUST compare against the ENGINE-side
+    // `FORTUNE_PRE_ANALYSIS_VERSIONS` (what the snapshot was actually stamped
+    // with at persist time by `fortune-snapshot.helpers.ts`), NOT the chat-side
+    // `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE` (legacy-locked at 'v1.1.1'
+    // for C#1 byte-identity). These two constants serve different purposes
+    // and were decoupled post-C#1 — comparing against the wrong one would
+    // flag EVERY fresh snapshot as stale → defeats Issue-1 reuse optimization
+    // → ~200-300ms cold-recompute on every chat session (correctness OK,
+    // performance regression).
     let precomputedDaily: Record<string, unknown> | undefined;
+    let precomputedMonthly: Record<string, unknown> | undefined;
+    const snapshotAnchor =
+      fortuneScope === 'MONTH'
+        ? new Date(`${anchorDate.slice(0, 7)}-01T00:00:00.000Z`)
+        : new Date(`${anchorDate}T00:00:00.000Z`);
+    const requiredPreAnalysisVersion =
+      fortuneScope === 'MONTH'
+        ? FORTUNE_PRE_ANALYSIS_VERSIONS.month
+        : FORTUNE_PRE_ANALYSIS_VERSIONS.day;
     try {
       const snapshot = await this.prisma.dailyFortuneSnapshot.findFirst({
         where: {
           birthProfileId: profileId,
-          scope: 'DAY',
-          anchorDate: new Date(anchorDate + 'T00:00:00.000Z'),
+          scope: fortuneScope,
+          anchorDate: snapshotAnchor,
         },
         orderBy: { generatedAt: 'desc' },
       });
       if (snapshot?.engineOutputJson) {
-        precomputedDaily = snapshot.engineOutputJson as Record<string, unknown>;
+        // Stale-check: only reuse when the snapshot's pre-analysis version
+        // matches the chat slim's required version. Mismatch → null out so
+        // engine recomputes (cold-path 200-300ms vs serving stale data).
+        const snapshotVersion = snapshot.preAnalysisVersion ?? '';
+        if (snapshotVersion === requiredPreAnalysisVersion) {
+          if (fortuneScope === 'MONTH') {
+            precomputedMonthly = snapshot.engineOutputJson as Record<string, unknown>;
+          } else {
+            precomputedDaily = snapshot.engineOutputJson as Record<string, unknown>;
+          }
+        } else {
+          this.logger.debug(
+            `Stale FortuneSnapshot (${fortuneScope}) for (${profileId}, ${anchorDate}): ` +
+              `snapshot=${snapshotVersion}, required=${requiredPreAnalysisVersion} — forcing engine recompute`,
+          );
+        }
       }
     } catch (err) {
       // Non-fatal — fall back to engine recompute path
       this.logger.warn(
-        `Failed to fetch DailyFortuneSnapshot for (${profileId}, ${anchorDate}): ${err}`,
+        `Failed to fetch FortuneSnapshot (${fortuneScope}) for (${profileId}, ${anchorDate}): ${err}`,
       );
     }
 
@@ -502,6 +593,8 @@ export class ChatContextService {
       targetYear: anchorYear,
       targetMonth: anchorMonth,
       precomputedDaily,
+      precomputedMonthly,
+      fortuneScope,
     });
 
     try {
@@ -572,16 +665,44 @@ export class ChatContextService {
   }
 
   /**
-   * FORTUNE pivot — prefers the day's pre-rendered headliner signal
-   * narrative (rich Chinese sentence from
+   * FORTUNE pivot — scope-aware. For DAY chat: prefers the day's pre-rendered
+   * headliner signal narrative (rich Chinese sentence from
    * `daily_enhanced._compute_headliner_signals`), e.g. «今日紅鸞動，子卯刑配偶宮».
    * Falls back to `{dayGanZhi}日（{auspiciousness}，{energyScore}分）` when
-   * no headliner narrative is present. Used in FORTUNE refuse templates'
-   * «...回到今日命局：{crossSellPivotHint}» pivot clause to keep the
-   * refused conversation grounded in today (the load-bearing F-2 «cite-today-
-   * first» pattern from the Bazi-master few-shot draft).
+   * no headliner narrative is present.
+   *
+   * Phase 2.x L3.5b post-audit (staff-engineer LOW #1) — for MONTH chat:
+   * reads `monthlyFortune.monthGanZhi` + `monthLabel` + `auspiciousness` +
+   * `energyScore` and formats as «{monthGanZhi}月（{auspiciousness}，{energyScore}分）».
+   * Pre-fix the MONTH branch returned null → refuse template's
+   * «...回到本月解讀：{crossSellPivotHint}» pivot clause was stripped to a
+   * generic «您還有其他想了解的嗎?», losing the personalized hook.
+   *
+   * Used in FORTUNE refuse templates' pivot clause to keep the refused
+   * conversation grounded (the load-bearing F-2 «cite-today-first» pattern
+   * for DAY; M-2 «cite-this-month-first» for MONTH).
    */
   private extractFortunePivotHint(ctx: ChatContext): string | null {
+    // MONTH branch first — if monthlyFortune present (scope-aware dispatch
+    // by presence — MONTH session ctx has monthlyFortune, DAY ctx has dailyFortune).
+    const monthly = ctx.monthlyFortune as Record<string, unknown> | undefined;
+    if (monthly) {
+      const monthGanZhi = monthly.monthGanZhi as string | undefined;
+      const monthLabel = monthly.monthLabel as string | undefined;
+      const auspiciousness = monthly.auspiciousness as string | undefined;
+      const energyScore = monthly.energyScore as number | undefined;
+      // Prefer monthLabel («2026年5月») when available; fall back to monthGanZhi («癸巳月»).
+      const base = monthLabel || (monthGanZhi ? `${monthGanZhi}月` : null);
+      if (base && auspiciousness && typeof energyScore === 'number') {
+        return `${base}（${auspiciousness}，${energyScore}分）`;
+      }
+      if (base) {
+        return base;
+      }
+      // monthly present but core fields missing → fall through to DAY branch below
+      // (defensive — shouldn't happen if monthly snapshot is valid)
+    }
+
     const daily = ctx.dailyFortune as Record<string, unknown> | undefined;
     if (!daily) return null;
 
@@ -799,8 +920,17 @@ export class ChatContextService {
   /**
    * Phase 2 月運 — sibling helper to `computeVersionString` for FORTUNE
    * sessions. Emits ACTIVE-SCOPE-ONLY per plan v4 H-new-4:
-   * - DAY scope: emits `pa-fort-day=<DAY_VERSION>` only (NO pa-fort-month)
-   * - MONTH scope: emits `pa-fort-month=<MONTH_VERSION>` only (NO pa-fort-day)
+   * - DAY scope: emits `pa-fort=<FORTUNE>` only (NO pa-fort-month).
+   *              ↑ Uses LEGACY `pa-fort=` key + LEGACY `FORTUNE` constant
+   *              for FULL byte-identity with pre-L3.5b sessions (audit
+   *              fix C#1). Without this, every existing DAY chat session
+   *              stored as `pa-fort=v1.1.1` would mismatch a new format
+   *              and trip CONTEXT_VERSION_DRIFTED on first message
+   *              post-deploy. Future DAY-scope bumps: just update the
+   *              `FORTUNE` constant — the KEY stays `pa-fort=` forever.
+   * - MONTH scope: emits `pa-fort-month=<FORTUNE_MONTH>` only (NO pa-fort).
+   *               No legacy collision — no MONTH sessions existed
+   *               pre-L3.5b.
    *
    * Zero cross-scope blast: bumping MONTH version does NOT invalidate
    * cached DAY chat-contexts (and vice versa). Locked by regression spec
@@ -819,9 +949,12 @@ export class ChatContextService {
       `pa-ann=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.ANNUAL}`,
       `pa-compat=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.COMPATIBILITY}`,
     ];
-    // Active-scope-only emission per plan v4 H-new-4
+    // Active-scope-only emission per plan v4 H-new-4.
+    // Audit C#1: DAY uses LEGACY `pa-fort=` key + LEGACY `FORTUNE` constant
+    // value for byte-identity with pre-L3.5b cache keys; MONTH uses NEW
+    // `pa-fort-month=` key + `FORTUNE_MONTH` constant (no legacy sessions).
     if (scope === 'DAY') {
-      parts.push(`pa-fort-day=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_DAY}`);
+      parts.push(`pa-fort=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE}`);
     } else if (scope === 'MONTH') {
       parts.push(`pa-fort-month=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_MONTH}`);
     }
@@ -894,9 +1027,16 @@ export class ChatContextService {
       `ann=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.ANNUAL}`,
       `compat=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.COMPATIBILITY}`,
     ];
-    // Active-scope-only emission per plan v4 H-new-4
+    // Active-scope-only emission per plan v4 H-new-4.
+    // Audit C#1: DAY uses LEGACY `fort=` key + LEGACY `FORTUNE` constant
+    // value (NOT `fort-day=v1.2.0`) — byte-identity with pre-L3.5b sessions.
+    // Without this, EVERY existing DAY chat session would trip
+    // CONTEXT_VERSION_DRIFTED on first message post-deploy because their
+    // stored `preAnalysisVersion` ends with `|fort=v1.1.1` but the new
+    // format would have emitted `|fort-day=v1.2.0`. MONTH uses new
+    // `fort-month=` key with `FORTUNE_MONTH` constant (no legacy concern).
     if (scope === 'DAY') {
-      paParts.push(`fort-day=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_DAY}`);
+      paParts.push(`fort=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE}`);
     } else if (scope === 'MONTH') {
       paParts.push(`fort-month=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_MONTH}`);
     }
@@ -1069,6 +1209,10 @@ export class ChatContextService {
     targetYear: number;
     targetMonth: number;
     precomputedDaily?: Record<string, unknown>;
+    /** Phase 2.x L3.5b — optional MONTH snapshot for Issue-1 reuse path. */
+    precomputedMonthly?: Record<string, unknown>;
+    /** Phase 2.x L3.5b — 'DAY' (default, back-compat) or 'MONTH'. */
+    fortuneScope?: 'DAY' | 'MONTH';
   }): Promise<ChatContext> {
     const response = await fetch(
       `${this.baziEngineUrl}/build-chat-context-fortune`,
@@ -1087,6 +1231,8 @@ export class ChatContextService {
           target_year: args.targetYear,
           target_month: args.targetMonth,
           precomputed_daily: args.precomputedDaily ?? null,
+          precomputed_monthly: args.precomputedMonthly ?? null,
+          fortune_scope: args.fortuneScope ?? 'DAY',
         }),
         signal: AbortSignal.timeout(45_000),
       },
@@ -1262,6 +1408,252 @@ export function interpolateFortuneV1Fields(ctx: ChatContext): string | null {
     );
   }
   return out.join('\n');
+}
+
+// ============================================================
+// Phase 2.x L3.5b — MONTH-scope deterministic injector
+// ============================================================
+// Mirror of `interpolateFortuneV1Fields` (DAY scope) scaled to MONTH semantics.
+// Reads `ctx.monthlyFortune` (camelCase sibling per glossary — Python engine
+// emits this; DO NOT confuse with AI narrative key `monthly_*` snake_case).
+//
+// Surfaces:
+//   1. month-pillar findings: officerSealActivation (Phase 12c Fix C),
+//      fuYinInteractions (Phase 12b Fix B), liuHaiInteractions (Phase 12c
+//      Fix E), chongKuRelease (Phase 12c Fix F).
+//   2. per-dim signal strings from `dimensions[].signals[]` (4 dims:
+//      career / finance / romance / health — NO travel per Phase 2 doctrine).
+//   3. intraMonthBreakdown buckets (L1.b — 上半月 stem-governed vs 下半月
+//      branch-governed) so AI can answer «本月上半月vs下半月差異?» with the
+//      structured per-bucket day counts + dominant 神煞 + peak signals.
+//
+// Audit C#2 — load-bearing per Phase 12g.6 Gap 2 pattern. Without this,
+// MONTH chat got raw JSON only — anti-hallucination contract relied on AI
+// luck. Browser test passed because Roger 癸巳月 anchor produced clear
+// signals; charts with subtle month-pillar dynamics would silently drift.
+export function interpolateFortuneMonthlyFields(ctx: ChatContext): string | null {
+  const monthly = ctx.monthlyFortune as Record<string, unknown> | undefined;
+  if (!monthly) return null;
+
+  const monthGanZhi = monthly.monthGanZhi as string | undefined;
+  if (!monthGanZhi) return null;
+
+  const lines: string[] = [];
+
+  // 1. Month-pillar findings (top-level structured signals from Phase 12b/12c)
+
+  // Fix C — 殺印相生 / 官印相生 transient (officer-seal activation)
+  const osa = monthly.officerSealActivation as
+    | { pattern?: string; level?: string; direction?: string; seal_source?: string }
+    | undefined;
+  if (osa?.pattern) {
+    const patternCN = osa.pattern === 'sha_yin' ? '殺印相生' : '官印相生';
+    const levelCN = osa.level === 'full' ? '全功（本氣印）' : '半功（中氣印）';
+    const directionCN =
+      osa.direction === 'positive'
+        ? '為吉（身弱逢印化煞）'
+        : osa.direction === 'reverse'
+          ? '為凶（身強逢之反為累）'
+          : '中性';
+    lines.push(
+      `• [月柱] 本月 ${monthGanZhi}月触發 ${patternCN}（Phase 12c Fix C）— ${levelCN}；性質判定：${directionCN}`,
+    );
+  }
+
+  // Fix B — 多柱伏吟 role-conditional (multi-pillar fu-yin amplification)
+  const fyiRaw = monthly.fuYinInteractions as
+    | Array<{ pillar?: string; role?: string; direction?: string; weight?: number; applied?: boolean }>
+    | undefined;
+  if (Array.isArray(fyiRaw) && fyiRaw.length > 0) {
+    for (const fy of fyiRaw) {
+      const pillar = fy.pillar ?? '?';
+      const role = fy.role ?? '?';
+      const direction = fy.direction ?? '?';
+      const weight = typeof fy.weight === 'number' ? fy.weight : 0;
+      const applied = fy.applied === true;
+      const directionCN =
+        direction === 'upgrade'
+          ? '本月吉星伏吟，福上加福'
+          : direction === 'downgrade'
+            ? '本月忌星伏吟，禍上加禍'
+            : '中性';
+      const appliedTag = applied ? '（已生效）' : `（重量 ${weight}，未達生效門檻，僅敘述）`;
+      lines.push(
+        `• [月柱] 本月 ${monthGanZhi}月触發 伏吟 — ${pillar}柱（角色：${role}）— ${directionCN}${appliedTag}`,
+      );
+    }
+  }
+
+  // Fix E — 六害 role-aware penalty + 子卯刑 piggyback
+  const lhiRaw = monthly.liuHaiInteractions as
+    | Array<{
+        pair?: string;
+        kind?: string;
+        pillar?: string;
+        role?: string;
+        effectiveScore?: number;
+        applied?: boolean;
+      }>
+    | undefined;
+  if (Array.isArray(lhiRaw) && lhiRaw.length > 0) {
+    for (const lh of lhiRaw) {
+      const pair = lh.pair ?? '?';
+      const kind = lh.kind ?? '?';
+      const kindCN = kind === 'liuxing_ziwei' ? '子卯無禮之刑（piggyback 害）' : '六害（暗箭友凶）';
+      const pillar = lh.pillar ?? '?';
+      const role = lh.role ?? '?';
+      const score = typeof lh.effectiveScore === 'number' ? lh.effectiveScore : 0;
+      const applied = lh.applied === true;
+      const appliedTag = applied
+        ? `（已生效：score=${score}，本月降一階）`
+        : `（score=${score}，未達 -1 步門檻，僅敘述）`;
+      lines.push(
+        `• [月柱] 本月 ${monthGanZhi}月触發 ${kindCN} — ${pair}（${pillar}柱角色：${role}）${appliedTag}`,
+      );
+    }
+  }
+
+  // Fix F — 沖庫釋放方向性 (downgrade-only v1)
+  const cku = monthly.chongKuRelease as
+    | {
+        natalPillar?: string;
+        natalBranch?: string;
+        releasedStems?: Array<{ stem?: string; position?: string; tenGod?: string; role?: string }>;
+        netRoleScore?: number;
+        action?: string;
+        steps?: number;
+      }
+    | undefined;
+  if (cku?.action === 'downgrade') {
+    const natalPillar = cku.natalPillar ?? '?';
+    const natalBranch = cku.natalBranch ?? '?';
+    const net = typeof cku.netRoleScore === 'number' ? cku.netRoleScore : 0;
+    // 釋放天干 — render each as "stem(tenGod, role)"
+    const releasedCN = Array.isArray(cku.releasedStems)
+      ? cku.releasedStems
+          .map((r) => `${r.stem ?? '?'}(${r.tenGod ?? '?'}, ${r.role ?? '?'})`)
+          .join('、')
+      : '（無資料）';
+    lines.push(
+      `• [月柱] 本月 ${monthGanZhi}月触發 沖庫釋放 — ${natalPillar}柱${natalBranch}庫遭沖；` +
+        `釋放天干：${releasedCN}；net=${net}，本月降一階（doctrine：天干不可救應庫沖）`,
+    );
+  }
+
+  // 2. Per-dim signals (4 dims, plain string arrays)
+  const dims = monthly.dimensions as Record<string, unknown> | undefined;
+  const DIM_LABELS_MONTH: Record<string, string> = {
+    career: '事業',
+    finance: '財運',
+    romance: '感情',
+    health: '健康',
+  };
+  if (dims && typeof dims === 'object') {
+    for (const [dimKey, dimLabel] of Object.entries(DIM_LABELS_MONTH)) {
+      const dim = dims[dimKey] as Record<string, unknown> | undefined;
+      if (!dim) continue;
+      const signals = (dim.signals ?? []) as unknown[];
+      if (!Array.isArray(signals) || signals.length === 0) continue;
+      for (const sig of signals) {
+        // Monthly signals are plain strings (NOT typed objects like daily).
+        if (typeof sig === 'string' && sig.length > 0) {
+          lines.push(`• [${dimLabel}] 本月 ${monthGanZhi}月：${sig}`);
+        }
+      }
+    }
+  }
+
+  // 3. intraMonthBreakdown buckets (L1.b)
+  // Renders 上半月/下半月 day counts + dominant 神煞 + peak signals so AI can
+  // ground answers about within-month dynamics.
+  const breakdownLines = renderIntraMonthBreakdownLines(monthly, monthGanZhi);
+
+  // Compose final block
+  if (lines.length === 0 && breakdownLines.length === 0) return null;
+
+  const out: string[] = [];
+  if (lines.length > 0) {
+    out.push(
+      `📅 本月 ${monthGanZhi}月触發的教義事件（必須以下列文字為主敘述，不可省略）：`,
+      ...lines,
+      `⚠️ 上述為流月 trigger，非命局定論。引用必須使用「本月宜/本月易於/本月趨向」軟觸發語氣。` +
+        ` 用神/喜神/忌神 為命格層級判定，不可在流月層級重新指派。`,
+    );
+  }
+  if (breakdownLines.length > 0) {
+    if (out.length > 0) out.push('');
+    out.push(
+      `📅 本月內時段分析（必須以下列文字為主敘述）：`,
+      ...breakdownLines,
+      `⚠️ intraMonthBreakdown 訊號來自 L1.b 流日聚合，引用時段（上半月/下半月）僅可基於下列 day_range / governing_pillar / peak_signals 結構化資料；禁止虛構特定日期。`,
+    );
+  }
+  return out.join('\n');
+}
+
+/** Render intraMonthBreakdown bucket lines for MONTH chat injection.
+ *  Empty array when L1.b breakdown absent or buckets empty. */
+function renderIntraMonthBreakdownLines(
+  monthly: Record<string, unknown>,
+  monthGanZhi: string,
+): string[] {
+  const breakdown = monthly.intraMonthBreakdown as
+    | {
+        scheme_id?: string;
+        liuyue_window?: { start?: string; end?: string; days?: number };
+        buckets?: Array<{
+          label?: string;
+          day_range?: [number, number];
+          governing_pillar?: string;
+          auspicious_days?: number;
+          challenging_days?: number;
+          neutral_days?: number;
+          peak_signals?: Array<{ date?: string; type?: string; valence?: string; narrative?: string }>;
+          dominant_shensha?: string[];
+        }>;
+      }
+    | undefined;
+  if (!breakdown?.buckets || breakdown.buckets.length === 0) return [];
+
+  const lines: string[] = [];
+  const window = breakdown.liuyue_window;
+  if (window?.start && window?.end) {
+    lines.push(
+      `• 流月窗口：${window.start} → ${window.end}（${window.days ?? '?'} 天，${monthGanZhi}月）`,
+    );
+  }
+  for (const bucket of breakdown.buckets) {
+    const label = bucket.label ?? '?';
+    const range = bucket.day_range
+      ? `${bucket.day_range[0]}-${bucket.day_range[1]} 日`
+      : '?';
+    // Governing pillar: 'stem' → 流月天干主導；'branch' → 流月地支主導
+    const govCN =
+      bucket.governing_pillar === 'stem'
+        ? '流月天干主導（主動氣先出）'
+        : bucket.governing_pillar === 'branch'
+          ? '流月地支主導（靜氣後沉）'
+          : '?';
+    const aDays = bucket.auspicious_days ?? 0;
+    const cDays = bucket.challenging_days ?? 0;
+    const nDays = bucket.neutral_days ?? 0;
+    const dominantShensha = (bucket.dominant_shensha ?? []).join('、') || '—';
+    lines.push(
+      `• ${label}（${range}，${govCN}）— 吉日 ${aDays} 天 / 挑戰日 ${cDays} 天 / 中性日 ${nDays} 天；主要神煞：${dominantShensha}`,
+    );
+    const peaks = bucket.peak_signals ?? [];
+    if (Array.isArray(peaks) && peaks.length > 0) {
+      const peakLines = peaks
+        .slice(0, 3)
+        .map(
+          (p) =>
+            `  - 峰值：${p.date ?? '?'}（${p.type ?? '?'}，${p.valence ?? '?'}）` +
+            (p.narrative ? `：${p.narrative}` : ''),
+        );
+      lines.push(...peakLines);
+    }
+  }
+  return lines;
 }
 
 /** Render folk-content lines for chat-scope injection (Phase 1.5.z).

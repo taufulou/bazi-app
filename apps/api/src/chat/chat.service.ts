@@ -216,11 +216,11 @@ export class ChatService {
       if (profile.userId !== user.id) {
         throw new ForbiddenException('Birth profile not owned by this user');
       }
-      // Phase Fortune ships DAY only — guard MONTH/YEAR until those scopes ship.
-      if (fortune!.fortuneScope !== 'DAY') {
+      // Phase 2.x L3.5b — DAY + MONTH supported. YEAR is Phase 3 deferred.
+      if (fortune!.fortuneScope !== 'DAY' && fortune!.fortuneScope !== 'MONTH') {
         throw new BadRequestException({
           code: 'FORTUNE_SCOPE_NOT_SUPPORTED',
-          message: `FORTUNE chat is only supported for DAY scope in Phase Fortune (got: ${fortune!.fortuneScope}).`,
+          message: `FORTUNE chat supports DAY and MONTH scope; YEAR is Phase 3 deferred (got: ${fortune!.fortuneScope}).`,
         });
       }
       resolvedReadingType = 'FORTUNE';
@@ -236,7 +236,14 @@ export class ChatService {
     }
 
     // Snapshot version strings — stored on session for mid-session drift detection.
-    const versions = this.contextService.getCurrentSnapshotVersions(resolvedReadingType);
+    // Phase 2.x L3.5b — for FORTUNE sessions, dispatch by scope so DAY + MONTH
+    // version bumps stay isolated (plan H-new-4 active-scope-only emission).
+    const versions =
+      hasFortune
+        ? this.contextService.getCurrentSnapshotVersionsForFortune(
+            fortune!.fortuneScope as 'DAY' | 'MONTH',
+          )
+        : this.contextService.getCurrentSnapshotVersions(resolvedReadingType);
 
     // 12-month PDPA hard-delete date
     const hardDeleteAt = new Date();
@@ -295,18 +302,32 @@ export class ChatService {
     return this._listSessionsByWhere(clerkUserId, { comparisonId });
   }
 
-  /** Phase Fortune — list FORTUNE chat sessions for a (profileId, anchorDate)
-   *  pair. The anchorDate filter is the load-bearing piece per plan Issue 10:
-   *  date navigation via DateNavigator must spawn a new session, NOT resume
-   *  yesterday's. */
+  /** Phase Fortune — list FORTUNE chat sessions for a (profileId, anchorDate,
+   *  fortuneScope) triplet. The anchorDate filter is the load-bearing piece
+   *  per plan Issue 10: date navigation via DateNavigator must spawn a new
+   *  session, NOT resume yesterday's.
+   *
+   *  Phase 2.x L3.5b audit H#1 — fortuneScope filter required. Without it,
+   *  on the 1st of any month, DAY drawer's anchor (e.g. '2026-05-01') and
+   *  MONTH drawer's anchor (normalized to '2026-05-01') collide → the list
+   *  returns BOTH scope sessions. User could resume a MONTH session inside
+   *  a DAY drawer (and vice versa) — backend continues using session's
+   *  stored fortuneScope, but the surrounding UI is mis-scoped. Filter
+   *  defensively by scope.
+   */
   async listSessionsForFortune(
     clerkUserId: string,
-    args: { profileId: string; fortuneAnchorDate: string },
+    args: {
+      profileId: string;
+      fortuneAnchorDate: string;
+      fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
+    },
   ): Promise<ChatSessionSummary[]> {
     return this._listSessionsByWhere(clerkUserId, {
       readingType: 'FORTUNE',
       profileId: args.profileId,
       fortuneAnchorDate: new Date(args.fortuneAnchorDate + 'T00:00:00.000Z'),
+      fortuneScope: args.fortuneScope,
     });
   }
 
@@ -318,6 +339,7 @@ export class ChatService {
       readingType?: ReadingType;
       profileId?: string;
       fortuneAnchorDate?: Date;
+      fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
     },
   ): Promise<ChatSessionSummary[]> {
     const user = await this.prisma.user.findUnique({ where: { clerkUserId } });
@@ -521,7 +543,13 @@ export class ChatService {
       // Phase 2 (round-2 NEW#2) — pass session.readingType so the version
       // check uses THIS reading-type's CHAT_PROMPT_VERSIONS entry. A
       // LOVE-only prompt bump no longer mass-invalidates LIFETIME sessions.
-      const currentVersions = this.contextService.getCurrentSnapshotVersions(session.readingType);
+      // Phase 2.x L3.5b — FORTUNE sessions use scope-aware version lookup.
+      const currentVersions =
+        session.readingType === 'FORTUNE' && session.fortuneScope
+          ? this.contextService.getCurrentSnapshotVersionsForFortune(
+              session.fortuneScope as 'DAY' | 'MONTH',
+            )
+          : this.contextService.getCurrentSnapshotVersions(session.readingType);
       if (
         session.contextVersion !== currentVersions.contextVersion ||
         session.preAnalysisVersion !== currentVersions.preAnalysisVersion
@@ -592,7 +620,13 @@ export class ChatService {
     // Mid-session version drift check (Layer 4) — Phase 2 (round-2 NEW#2)
     // uses session.readingType so per-readingType version bumps invalidate
     // only that type's sessions.
-    const currentVersions = this.contextService.getCurrentSnapshotVersions(session.readingType);
+    // Phase 2.x L3.5b — FORTUNE sessions use scope-aware version lookup.
+    const currentVersions =
+      session.readingType === 'FORTUNE' && session.fortuneScope
+        ? this.contextService.getCurrentSnapshotVersionsForFortune(
+            session.fortuneScope as 'DAY' | 'MONTH',
+          )
+        : this.contextService.getCurrentSnapshotVersions(session.readingType);
     if (
       session.contextVersion !== currentVersions.contextVersion ||
       session.preAnalysisVersion !== currentVersions.preAnalysisVersion
@@ -701,10 +735,15 @@ export class ChatService {
         session.profileId &&
         session.fortuneAnchorDate
       ) {
+        // Phase 2.x L3.5b — pass fortuneScope so engine dispatches DAY vs MONTH
+        // chat-context (different signals + intra-month breakdown for MONTH).
+        // Default 'DAY' when scope is null (back-compat with sessions created
+        // pre-L3.5b that may have null scope — should be rare).
         chatContext = await this.contextService.getChatContextForFortune(
           session.profileId,
           session.fortuneAnchorDate.toISOString().slice(0, 10),
           session.readingType,
+          (session.fortuneScope as 'DAY' | 'MONTH' | null) ?? 'DAY',
         );
       } else {
         throw new Error(
@@ -759,6 +798,10 @@ export class ChatService {
         newUserMessage: sanitizedContent,
         // Phase 2 — per-readingType prompt routing.
         readingType: session.readingType,
+        // Phase 2.x L3.5b — for FORTUNE, dispatch by scope (DAY vs MONTH)
+        // so the right refuse template + few-shots assemble. Non-FORTUNE
+        // sessions: scope is ignored downstream.
+        fortuneScope: (session.fortuneScope as 'DAY' | 'MONTH' | null) ?? undefined,
         sectionContextHint,
         shouldInjectRegrounding,
       });

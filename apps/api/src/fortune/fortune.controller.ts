@@ -13,7 +13,9 @@ import { FortuneService } from './fortune.service';
 import { FortuneStreamService } from './fortune-stream.service';
 import {
   GetDailyFortuneQueryDto,
+  GetMonthlyFortuneQueryDto,
   type DailyFortuneResponse,
+  type MonthlyFortuneResponse,
 } from './dto';
 
 @Controller('api/fortune')
@@ -101,6 +103,67 @@ export class FortuneController {
     await this.streamService.streamDailyFortune(
       auth.userId,
       { profileId: query.profileId, date: query.date },
+      response,
+    );
+  }
+
+  /**
+   * GET /api/fortune/monthly?profileId=<uuid>&month=YYYY-MM
+   *
+   * Phase 2 月運 — Returns the monthly fortune for the given chart on the
+   * given month. Subscription gate per locked plan v4:
+   *   - Free: current month only
+   *   - Subscriber: last month + current + +12 months INCLUSIVE
+   *
+   * Cross-flow-year (e.g., querying January resolves to the PREVIOUS flow
+   * year's 丑月) is handled internally by the engine via cnlunar.
+   *
+   * Rate limit: 10 req/min (matches /daily — same AI-intensive risk profile).
+   *
+   * `engineOnly` param is accepted by the DTO for parity with /daily but
+   * NOT yet wired through the monthly service. Frontend currently calls
+   * monthly always with the AI narration; engine-only-monthly may be added
+   * in a future iteration if monthly progressive-loading is required.
+   */
+  @Get('monthly')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async getMonthly(
+    @CurrentUser() auth: AuthPayload,
+    @Query() query: GetMonthlyFortuneQueryDto,
+  ): Promise<MonthlyFortuneResponse> {
+    return this.fortuneService.getMonthlyFortune(auth.userId, {
+      profileId: query.profileId,
+      month: query.month,
+    });
+  }
+
+  /**
+   * GET /api/fortune/monthly/stream?profileId=<uuid>&month=YYYY-MM
+   *
+   * Phase 2.x Monthly Streaming — SSE variant of GET /monthly. Mirrors
+   * /daily/stream pattern. Emits events as the AI completes each section:
+   *   - engine_ready (immediate, ~600-1000ms cold) — engine output + intraMonthBreakdown
+   *   - section_complete × N (one per section, ~each ~500ms-3s) — provisional prose, banned-phrase stripped
+   *   - done — full sanitized narrative (validator override)
+   *   - error — failure (engine / AI / validation)
+   *
+   * Same subscription gate + cache + persist semantics as GET /monthly.
+   * Cache hit: emits engine_ready + done immediately (NO section_complete).
+   *
+   * Rate limit: 10/min (matches GET /monthly + /daily/stream). The streaming
+   * endpoint costs the SAME Anthropic tokens as non-streaming — only the
+   * wire delivery differs.
+   */
+  @Get('monthly/stream')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async streamMonthly(
+    @CurrentUser() auth: AuthPayload,
+    @Query() query: GetMonthlyFortuneQueryDto,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.streamService.streamMonthlyFortune(
+      auth.userId,
+      { profileId: query.profileId, month: query.month },
       response,
     );
   }

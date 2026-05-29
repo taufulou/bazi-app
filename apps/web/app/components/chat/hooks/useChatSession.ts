@@ -168,6 +168,9 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
         listSessionsForFortune({
           profileId: fortune.profileId,
           fortuneAnchorDate: fortune.fortuneAnchorDate,
+          // Audit H#1 — thread scope so DAY/MONTH sessions don't
+          // collide on 1st-of-month anchors.
+          fortuneScope: fortune.fortuneScope,
           token,
         })
     : comparisonId

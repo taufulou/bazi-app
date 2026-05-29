@@ -203,7 +203,18 @@ export class ChatStreamService {
     // Mid-session version drift check (Layer 4) — Phase 2 (round-2 NEW#2)
     // pass session.readingType so a per-type version bump invalidates only
     // that type's sessions (not all chats globally).
-    const currentVersions = this.contextService.getCurrentSnapshotVersions(session.readingType);
+    //
+    // Phase 2.x L3.5b — FORTUNE sessions must use scope-aware version lookup
+    // (mirror chat.service::createSession line 245). Without this, FORTUNE
+    // MONTH sessions created with `fort-month=` version key are compared
+    // against the legacy `fort=` key and ALWAYS report drift → every MONTH
+    // chat first-message returns CONTEXT_VERSION_DRIFTED. Symmetric for DAY.
+    const currentVersions =
+      session.readingType === 'FORTUNE' && session.fortuneScope
+        ? this.contextService.getCurrentSnapshotVersionsForFortune(
+            session.fortuneScope as 'DAY' | 'MONTH',
+          )
+        : this.contextService.getCurrentSnapshotVersions(session.readingType);
     if (
       session.contextVersion !== currentVersions.contextVersion ||
       session.preAnalysisVersion !== currentVersions.preAnalysisVersion
@@ -267,6 +278,9 @@ export class ChatStreamService {
       // controller passes these through from the session record.
       profileId: string | null;
       fortuneAnchorDate: Date | null;
+      // Phase 2.x L3.5b — fortuneScope drives DAY vs MONTH chat-context
+      // dispatch + scope-specific refuse template / few-shots routing.
+      fortuneScope: import('@prisma/client').FortuneScope | null;
       readingType: import('@prisma/client').ReadingType;
       creditExtensions: number;
       paidMessagesUsed: number;
@@ -406,10 +420,14 @@ export class ChatStreamService {
         session.profileId &&
         session.fortuneAnchorDate
       ) {
+        // Phase 2.x L3.5b — pass fortuneScope so engine dispatches DAY vs MONTH
+        // chat-context. Default 'DAY' for sessions with null scope (pre-L3.5b
+        // back-compat).
         chatContext = await this.contextService.getChatContextForFortune(
           session.profileId,
           session.fortuneAnchorDate.toISOString().slice(0, 10),
           session.readingType,
+          (session.fortuneScope as 'DAY' | 'MONTH' | null) ?? 'DAY',
         );
       } else {
         // CHECK constraint should prevent this. Defensive guard.
@@ -459,6 +477,9 @@ export class ChatStreamService {
       // BaziReading.readingType). Drives topic-scope clause + refuse
       // template + readingType-specific refuse few-shots.
       readingType: session.readingType,
+      // Phase 2.x L3.5b — for FORTUNE, dispatch refuse template + few-shots
+      // by scope. DAY → 《八字日運》 + F-1/F-2/F-3; MONTH → 《八字月運》 + M-1/M-2.
+      fortuneScope: (session.fortuneScope as 'DAY' | 'MONTH' | null) ?? undefined,
       sectionContextHint,
       shouldInjectRegrounding,
     });
