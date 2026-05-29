@@ -119,11 +119,6 @@ export class FortuneController {
    * year's 丑月) is handled internally by the engine via cnlunar.
    *
    * Rate limit: 10 req/min (matches /daily — same AI-intensive risk profile).
-   *
-   * `engineOnly` param is accepted by the DTO for parity with /daily but
-   * NOT yet wired through the monthly service. Frontend currently calls
-   * monthly always with the AI narration; engine-only-monthly may be added
-   * in a future iteration if monthly progressive-loading is required.
    */
   @Get('monthly')
   @Throttle({ default: { limit: 10, ttl: 60000 } })

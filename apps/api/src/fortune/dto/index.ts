@@ -231,18 +231,6 @@ export class GetMonthlyFortuneQueryDto {
     message: 'month must be in YYYY-MM format',
   })
   month?: string;
-
-  /**
-   * Progressive-loading hint mirroring DAY scope.
-   * - 'true' → return engine output only (no AI narration). Does NOT
-   *   persist to DB or Redis.
-   * - omitted/'false' → run full pipeline including AI narrative.
-   *
-   * Same case-handling pattern as daily: 'true'/'TRUE'/'True'/'1' all accepted.
-   */
-  @IsOptional()
-  @IsBooleanString()
-  engineOnly?: string;
 }
 
 // ------------------------------------------------------------

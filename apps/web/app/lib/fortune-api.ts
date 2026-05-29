@@ -801,7 +801,6 @@ interface FetchMonthlyOpts {
   profileId?: string;
   month?: string;          // YYYY-MM
   signal?: AbortSignal;
-  engineOnly?: boolean;
 }
 
 export async function fetchMonthlyFortune(
@@ -810,7 +809,6 @@ export async function fetchMonthlyFortune(
   const params = new URLSearchParams();
   if (opts.profileId) params.set('profileId', opts.profileId);
   if (opts.month) params.set('month', opts.month);
-  if (opts.engineOnly) params.set('engineOnly', 'true');
 
   const url = `${API_BASE}/api/fortune/monthly${params.toString() ? `?${params}` : ''}`;
   const response = await fetch(url, {
