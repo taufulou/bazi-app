@@ -734,4 +734,163 @@ export class FortuneValidatorsService {
     const passed = findings.every((f) => f.severity !== 'error');
     return { passed, findings, sanitized };
   }
+
+  // ============================================================
+  // 年運 (Yearly Fortune) — Phase 3 validation
+  // ============================================================
+  //
+  // Clauses (Phase A Sub-Agent C):
+  // 1. soft-trigger framing (今年宜/今年易於/今年趨向) — banned strip handles 今年會/今年必
+  // 3. 用神 reassignment forbidden at yearly scope
+  // 6. romance≠relationships — yearly_romance must NOT use 人際關係/朋友/同事/社交圈
+  // (Clause 4 months-from-structured-fields is enforced at the injector layer
+  //  via index-pairing; AI invented months would mismatch but are low-risk —
+  //  warn-only drift check could be added later.)
+
+  /** Soft-trigger opening pattern for YEAR scope. */
+  private readonly YEARLY_SOFT_TRIGGER_OPENERS =
+    /今年(宜|易於|適合|傾向|趨向|有.{1,4}傾向|可考慮)/;
+
+  /** Yearly 用神 reassignment forbidden pattern. */
+  private readonly YEARLY_DM_REASSIGNMENT = /今年用神(為|是|變為|轉為)/;
+
+  /** romance≠relationships drift — forbidden in yearly_romance (Clause 6). */
+  private readonly YEARLY_ROMANCE_RELATIONSHIP_DRIFT =
+    /(人際關係|同事|朋友圈|社交圈)/;
+
+  /**
+   * Validate a yearly fortune AI narrative and sanitize banned phrases.
+   * Mirrors `validateMonthly` resilience contract (never throws).
+   */
+  validateYearly(
+    narrative: Record<string, unknown> | null,
+  ): FortuneValidationResult {
+    const findings: FortuneValidationResult['findings'] = [];
+    if (!narrative) {
+      return { passed: true, findings, sanitized: {} };
+    }
+    try {
+      return this._validateYearlyUnsafe(narrative, findings);
+    } catch (err) {
+      const msg = (err as Error).message ?? String(err);
+      this.logger.error(`Fortune yearly validator internal error: ${msg}`);
+      findings.push({ severity: 'warn', type: 'internal_error', detail: msg });
+      return { passed: true, findings, sanitized: narrative };
+    }
+  }
+
+  private _validateYearlyUnsafe(
+    narrative: Record<string, unknown>,
+    findings: FortuneValidationResult['findings'],
+  ): FortuneValidationResult {
+    const sanitized: Record<string, unknown> = JSON.parse(JSON.stringify(narrative));
+
+    const stringSections: string[] = [
+      'yearly_headline',
+      'yearly_overview',
+      'yearly_career', 'yearly_career_keyword',
+      'yearly_finance', 'yearly_finance_keyword',
+      'yearly_romance', 'yearly_romance_keyword',
+      'yearly_health', 'yearly_health_keyword',
+      'yearly_advice',
+    ];
+
+    let foundSoftTriggerInOverview = false;
+
+    for (const key of stringSections) {
+      const value = narrative[key];
+      if (typeof value !== 'string' || value.length === 0) continue;
+
+      // 1. Banned absolute phrase strip (handles 今年會/今年必 + universal)
+      const { text: stripped, strippedPhrases } =
+        this.stripBannedAbsolutePhrasesFromText(value);
+      if (strippedPhrases.length > 0) {
+        findings.push({
+          severity: 'warn',
+          type: 'banned_phrase_stripped',
+          detail: `stripped ${strippedPhrases.length} banned phrase(s): ${strippedPhrases.join(', ')}`,
+          section: key,
+        });
+        this.logger.warn(
+          `Fortune yearly narrative: stripped banned phrases from ${key} (${strippedPhrases.join(', ')})`,
+        );
+      }
+      sanitized[key] = stripped;
+
+      // 3. 用神 reassignment check (Phase 12 doctrine)
+      if (this.YEARLY_DM_REASSIGNMENT.test(stripped)) {
+        findings.push({
+          severity: 'warn',
+          type: 'yearly_dm_reassignment',
+          detail: 'narrative attempted to reassign 用神 at yearly scope; 用神 is chart-level only',
+          section: key,
+        });
+        this.logger.warn(
+          `metric.fortune.framing_violation type=yearly_dm_reassignment section=${key}`,
+        );
+      }
+
+      // 6. romance≠relationships drift (yearly_romance + its keyword only)
+      if (
+        (key === 'yearly_romance' || key === 'yearly_romance_keyword') &&
+        this.YEARLY_ROMANCE_RELATIONSHIP_DRIFT.test(stripped)
+      ) {
+        findings.push({
+          severity: 'warn',
+          type: 'romance_relationship_conflation',
+          detail: 'yearly_romance referenced 人際關係/朋友圈/同事/社交圈 — that is the 人際關係 block, NOT the 感情 dim (Clause 6)',
+          section: key,
+        });
+        this.logger.warn(
+          `metric.fortune.framing_violation type=romance_relationship_conflation section=${key}`,
+        );
+      }
+
+      // soft-trigger framing presence (overview only — informational)
+      if (key === 'yearly_overview' && this.YEARLY_SOFT_TRIGGER_OPENERS.test(stripped)) {
+        foundSoftTriggerInOverview = true;
+      }
+    }
+
+    if (!foundSoftTriggerInOverview && typeof narrative['yearly_overview'] === 'string') {
+      findings.push({
+        severity: 'warn',
+        type: 'missing_soft_trigger_framing',
+        detail: 'yearly_overview lacks soft-trigger phrasing (今年宜 / 今年易於 / 今年趨向 etc.)',
+        section: 'yearly_overview',
+      });
+      this.logger.warn(
+        'metric.fortune.framing_violation type=missing_soft_trigger_framing section=yearly_overview',
+      );
+    }
+
+    // yearly_risk_opportunities — array of {month_label, type, keyword, narrative}.
+    // Banned-phrase strip on keyword + narrative.
+    const riskOpp = narrative['yearly_risk_opportunities'];
+    if (Array.isArray(riskOpp)) {
+      sanitized['yearly_risk_opportunities'] = riskOpp.map((item: unknown) => {
+        if (!item || typeof item !== 'object') return item;
+        const obj = { ...(item as Record<string, unknown>) };
+        for (const field of ['keyword', 'narrative']) {
+          const v = obj[field];
+          if (typeof v === 'string') {
+            const { text, strippedPhrases } = this.stripBannedAbsolutePhrasesFromText(v);
+            if (strippedPhrases.length > 0) {
+              findings.push({
+                severity: 'warn',
+                type: 'banned_phrase_stripped',
+                detail: `stripped ${strippedPhrases.length} banned phrase(s) in yearly_risk_opportunities.${field}`,
+                section: `yearly_risk_opportunities.${field}`,
+              });
+            }
+            obj[field] = text;
+          }
+        }
+        return obj;
+      });
+    }
+
+    const passed = findings.every((f) => f.severity !== 'error');
+    return { passed, findings, sanitized };
+  }
 }

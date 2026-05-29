@@ -501,3 +501,155 @@ export function buildFortuneMonthlyMessages(
 
   return { systemPrompt, userPrompt };
 }
+
+// ============================================================
+// 年運 (Yearly Fortune) — Phase 3 prompt builder
+// ============================================================
+
+export interface YearlyEngineOutput {
+  yearGanZhi: string;
+  yearStem: string;
+  yearBranch: string;
+  yearTenGod: string;
+  auspiciousness: string;
+  energyScore: number;
+  metaFraming: string;
+  dimensions: Record<
+    'career' | 'finance' | 'romance' | 'health',
+    { score: number; label: string; stars: number; labelZh: string }
+  >;
+  coreRiskOpportunity: {
+    opportunities: Array<{
+      monthLabel: string;
+      dimZh: string;
+      energyScore: number;
+      caveat: boolean;
+    }>;
+    risks: Array<{
+      monthLabel: string;
+      dimZh: string;
+      energyScore: number;
+      caveat: boolean;
+    }>;
+    flatYear: boolean;
+  };
+  luckMethods: {
+    weakestDimZh: string;
+  };
+  preAnalysisVersion: string;
+}
+
+/**
+ * Render the 核心風險與機會 structured block in FIXED ORDER (opportunities
+ * then risks). The AI pairs `yearly_risk_opportunities` entries BY ARRAY
+ * INDEX with this order (per Phase A / L3 ordering enforcement) — never by
+ * re-parsing the month name. Flat year → explicit sentinel line.
+ */
+function renderYearlyRiskOpportunity(
+  cro: YearlyEngineOutput['coreRiskOpportunity'],
+): string {
+  if (cro.flatYear || (cro.opportunities.length === 0 && cro.risks.length === 0)) {
+    return '（flatYear：今年運勢平穩，無顯著起伏 — 請在 yearly_overview 據實表述，並省略 yearly_risk_opportunities 欄位）';
+  }
+  const lines: string[] = [];
+  lines.push('機會月（type=opportunity，yearly_risk_opportunities 必須依此順序對應 index）：');
+  if (cro.opportunities.length === 0) {
+    lines.push('  （本年無顯著高峰月）');
+  } else {
+    cro.opportunities.forEach((e, i) => {
+      const cav = e.caveat ? '（機會中留意此面向）' : '';
+      lines.push(`  ${i + 1}. ${e.monthLabel} — ${e.dimZh}（能量 ${e.energyScore}）${cav}`);
+    });
+  }
+  lines.push('風險月（type=risk，接續上方 index）：');
+  if (cro.risks.length === 0) {
+    lines.push('  （本年無顯著低谷月）');
+  } else {
+    cro.risks.forEach((e, i) => {
+      lines.push(`  ${i + 1}. ${e.monthLabel} — ${e.dimZh}（能量 ${e.energyScore}）`);
+    });
+  }
+  return lines.join('\n');
+}
+
+export function interpolateFortuneYearlyFields(
+  template: string,
+  yearly: YearlyEngineOutput,
+  chart: FortuneChartContext,
+  opts: { year: number },
+): string {
+  let out = template;
+  const d = yearly.dimensions;
+
+  const replacements: Record<string, string> = {
+    '{{gender}}': chart.gender,
+    '{{birthDate}}': chart.birthDate,
+    '{{birthTime}}': chart.birthTime,
+    '{{yearPillar}}': chart.yearPillar,
+    '{{monthPillar}}': chart.monthPillar,
+    '{{dayPillar}}': chart.dayPillar,
+    '{{hourPillar}}': chart.hourPillar,
+    '{{dayMaster}}': chart.dayMaster,
+    '{{usefulGod}}': chart.usefulGod,
+    '{{favorableGod}}': chart.favorableGod,
+    '{{tabooGod}}': chart.tabooGod,
+    '{{enemyGod}}': chart.enemyGod,
+
+    // Yearly-specific
+    '{{year}}': String(opts.year),
+    '{{yearGanZhi}}': yearly.yearGanZhi,
+    '{{yearTenGod}}': yearly.yearTenGod,
+    '{{metaFraming}}': yearly.metaFraming,
+    '{{auspiciousness}}': yearly.auspiciousness,
+    '{{energyScore}}': String(yearly.energyScore),
+
+    // 4-dim stars + scores + labels (no signals — yearly dims are aggregates)
+    '{{careerStars}}': String(d.career.stars),
+    '{{careerScore}}': String(d.career.score),
+    '{{careerLabel}}': d.career.label,
+    '{{financeStars}}': String(d.finance.stars),
+    '{{financeScore}}': String(d.finance.score),
+    '{{financeLabel}}': d.finance.label,
+    '{{romanceStars}}': String(d.romance.stars),
+    '{{romanceScore}}': String(d.romance.score),
+    '{{romanceLabel}}': d.romance.label,
+    '{{healthStars}}': String(d.health.stars),
+    '{{healthScore}}': String(d.health.score),
+    '{{healthLabel}}': d.health.label,
+
+    // 核心風險與機會 (fixed-order structured block)
+    '{{coreRiskOpportunity}}': renderYearlyRiskOpportunity(yearly.coreRiskOpportunity),
+
+    // 改運建議 anchor (engine renders cards; AI just echoes 用神/weakest)
+    '{{weakestDimZh}}': yearly.luckMethods.weakestDimZh,
+  };
+
+  for (const [token, value] of Object.entries(replacements)) {
+    out = out.split(token).join(value);
+  }
+  return out;
+}
+
+/** Build the full (system, user) prompt pair for yearly Claude call. */
+export function buildFortuneYearlyMessages(
+  yearly: YearlyEngineOutput,
+  chart: FortuneChartContext,
+  opts: { year: number },
+): { systemPrompt: string; userPrompt: string } {
+  const yearlyPrompts = FORTUNE_V1_PROMPTS.yearly;
+  if (!yearlyPrompts) {
+    throw new Error('FORTUNE_V1_PROMPTS.yearly is not configured');
+  }
+
+  const interpolated = interpolateFortuneYearlyFields(
+    yearlyPrompts.userTemplate,
+    yearly,
+    chart,
+    opts,
+  );
+
+  const userPrompt = `${interpolated}\n\n${yearlyPrompts.outputFormat}`;
+  const systemPrompt = yearlyPrompts.systemAddition;
+
+  return { systemPrompt, userPrompt };
+}
