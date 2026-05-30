@@ -23,8 +23,8 @@ type Tab = 'day' | 'month' | 'year';
 
 const TAB_META: Array<{ key: Tab; zh: string; ready: boolean }> = [
   { key: 'day',   zh: '日運', ready: true },
-  { key: 'month', zh: '月運', ready: false },
-  { key: 'year',  zh: '年運', ready: false },
+  { key: 'month', zh: '月運', ready: true },
+  { key: 'year',  zh: '年運', ready: true },
 ];
 
 interface Props {

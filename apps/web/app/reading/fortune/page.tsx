@@ -52,15 +52,27 @@ import MonthlyEnergyRing from '../../components/fortune/MonthlyEnergyRing';
 import MonthlyDimensionBars from '../../components/fortune/MonthlyDimensionBars';
 import MonthlyTimeGrid from '../../components/fortune/MonthlyTimeGrid';
 import MonthlyNarrativeCard from '../../components/fortune/MonthlyNarrativeCard';
+// Phase 3 年運 — yearly components
+import YearNavigator from '../../components/fortune/YearNavigator';
+import YearlyEnergyRing from '../../components/fortune/YearlyEnergyRing';
+import YearlyDimensionStars from '../../components/fortune/YearlyDimensionStars';
+import YearlyRiskOpportunityGrid from '../../components/fortune/YearlyRiskOpportunityGrid';
+import YearlyLuckMethodsCard from '../../components/fortune/YearlyLuckMethodsCard';
+import YearlyNarrativeCard from '../../components/fortune/YearlyNarrativeCard';
+import YearlyCrossSellCard from '../../components/fortune/YearlyCrossSellCard';
 import {
   resolveBaziToday,
   resolveCurrentMonthIso,
+  resolveCurrentYearIso,
   type DailyFortuneResponse,
   type DailyFortuneNarrative,
   type FortuneStreamEvent,
   type MonthlyFortuneResponse,
   type MonthlyFortuneNarrative,
+  type YearlyFortuneResponse,
+  type YearlyFortuneNarrative,
 } from '../../lib/fortune-api';
+import type { YearlyDimKey } from '../../components/fortune/yearlyDimensions';
 import { useFortuneNarrativeStream } from '../../components/fortune/hooks/useFortuneNarrativeStream';
 import { useUserTier } from '../../lib/use-user-tier';
 import { fetchBirthProfiles, type BirthProfile } from '../../lib/birth-profiles-api';
@@ -204,16 +216,28 @@ function FortuneView() {
     [router, search],
   );
 
+  // Phase 3 年運 — analog to handleSwitchMonth for YEAR scope. Updates
+  // ?year=YYYY query param; YearlyFortuneView re-fetches via effect.
+  const handleSwitchYear = useCallback(
+    (nextYearIso: string) => {
+      const params = new URLSearchParams(search.toString());
+      params.set('year', nextYearIso);
+      router.push(`/reading/fortune?${params.toString()}`);
+    },
+    [router, search],
+  );
+
   const handleSwitchProfile = useCallback(
     (nextProfileId: string) => {
       const params = new URLSearchParams(search.toString());
       params.set('profileId', nextProfileId);
-      // Drop stale date AND month when switching profiles — fresh start
-      // with new chart (audit fix HIGH #6 2026-05-28: was only dropping
+      // Drop stale date AND month AND year when switching profiles — fresh
+      // start with new chart (audit fix HIGH #6 2026-05-28: was only dropping
       // date; left stale `?month=` to leak into new profile causing
-      // OUT_OF_WINDOW errors or confusing stale anchors).
+      // OUT_OF_WINDOW errors or confusing stale anchors. Phase 3 adds year).
       params.delete('date');
       params.delete('month');
+      params.delete('year');
       router.push(`/reading/fortune?${params.toString()}`);
     },
     [router, search],
@@ -338,8 +362,11 @@ function FortuneView() {
   // engineOnly/full code path.
   const handleStreamEvent = useCallback(
     (ev: FortuneStreamEvent) => {
-      if (ev.type === 'engine_ready') {
-        // Engine arrived — render score/dims/folk immediately
+      if (ev.type === 'engine_ready' && 'date' in ev) {
+        // Engine arrived — render score/dims/folk immediately.
+        // `'date' in ev` narrows the umbrella union to the DAY engine_ready
+        // variant (Phase 3 widened the umbrella to 3 scopes — without this
+        // guard `ev.engineOutput` would be a 3-way union).
         setState({
           status: 'engine',
           data: {
@@ -365,12 +392,16 @@ function FortuneView() {
           [ev.key]: ev.value as never,
         }));
       } else if (ev.type === 'done') {
-        // Sanitized narrative supersedes provisional sections
+        // Sanitized narrative supersedes provisional sections. The umbrella
+        // `done` event is identical across scopes, so cast to the DAY shape
+        // (we're in the day-tab handler).
+        const dailyNarrative = ev.narrative as DailyFortuneNarrative | null;
+        const doneCacheHit = ev.cacheHit;
         setState((prev) => {
           if (prev.status === 'engine' || prev.status === 'success') {
             return {
               status: 'success',
-              data: { ...prev.data, narrative: ev.narrative, cacheHit: ev.cacheHit },
+              data: { ...prev.data, narrative: dailyNarrative, cacheHit: doneCacheHit },
             };
           }
           // Audit HIGH fix — defensive: if `done` arrives before `engine_ready`
@@ -485,7 +516,14 @@ function FortuneView() {
   // ChatDrawer mount can use it as `activeProfileId` on the month tab too.
   const [monthlyResolvedProfileId, setMonthlyResolvedProfileId] = useState<string | undefined>(undefined);
 
-  const activeProfileId = profileId ?? dataState?.data.profileId ?? monthlyResolvedProfileId;
+  // Phase 3 年運 — resolved profileId surfaced from YearlyFortuneView's
+  // engine_ready (mirrors monthlyResolvedProfileId). Declared here (before
+  // activeProfileId reads it). Reserved for any future year-scope chat mount
+  // (chat is DEFERRED for year per Phase 3 spec — not mounted).
+  const [yearlyResolvedProfileId, setYearlyResolvedProfileId] = useState<string | undefined>(undefined);
+
+  const activeProfileId =
+    profileId ?? dataState?.data.profileId ?? monthlyResolvedProfileId ?? yearlyResolvedProfileId;
 
   // Phase 1.5.x Issue #1 fix: resolve display name from the profile list using
   // the SAME `activeProfileId` the ProfileSwitcher uses, so chip + switcher stay
@@ -503,6 +541,15 @@ function FortuneView() {
   const currentMonthIso = React.useMemo(() => resolveCurrentMonthIso(), []);
   const targetMonth = search.get('month') ?? currentMonthIso;
 
+  // Phase 3 年運 — derive yearly target (YYYY) from URL ?year param, fall back
+  // to current Asia/Taipei year. Independent of targetDate / targetMonth.
+  const currentYearIso = React.useMemo(() => resolveCurrentYearIso(), []);
+  const targetYear = search.get('year') ?? currentYearIso;
+
+  // Phase 3 年運 — loading state published up so YearNavigator disables arrows
+  // during in-flight fetch (mirror of monthlyIsLoading).
+  const [yearlyIsLoading, setYearlyIsLoading] = useState(false);
+
   // Audit fix MEDIUM #8 (2026-05-28): MonthlyFortuneView publishes its
   // loading state UP via this setter so MonthNavigator can render
   // disabled arrows during in-flight fetch (mirror of DateNavigator's
@@ -515,7 +562,7 @@ function FortuneView() {
   // Build the navigator slot — dispatch by tab:
   //   - tab='day'   → DateNavigator (Phase 1)
   //   - tab='month' → MonthNavigator (Phase 2, sibling component)
-  //   - tab='year'  → undefined (Phase 3 placeholder)
+  //   - tab='year'  → YearNavigator (Phase 3, sibling component)
   const dateNavigatorSlot =
     tab === 'day' ? (
       <DateNavigator
@@ -536,6 +583,16 @@ function FortuneView() {
         onChange={handleSwitchMonth}
         onLockedAttempt={handleLockedAttempt}
         isLoading={monthlyIsLoading}
+      />
+    ) : tab === 'year' ? (
+      <YearNavigator
+        value={targetYear}
+        currentYearIso={currentYearIso}
+        tier={tier}
+        isTierLoading={tierIsLoading}
+        onChange={handleSwitchYear}
+        onLockedAttempt={handleLockedAttempt}
+        isLoading={yearlyIsLoading}
       />
     ) : undefined;
 
@@ -592,7 +649,17 @@ function FortuneView() {
             onResolvedProfileId={setMonthlyResolvedProfileId}
           />
         )}
-        {tab === 'year' && <PartialPreview tab="year" />}
+        {tab === 'year' && (
+          <YearlyFortuneView
+            profileId={activeProfileId}
+            targetYear={targetYear}
+            getToken={getToken}
+            isSignedIn={isSignedIn}
+            isLoaded={isLoaded}
+            onLoadingChange={setYearlyIsLoading}
+            onResolvedProfileId={setYearlyResolvedProfileId}
+          />
+        )}
 
         {tab === 'day' && state.status === 'loading' && <LoadingSkeleton />}
 
@@ -977,27 +1044,10 @@ function LoadingSkeleton() {
   );
 }
 
-function PartialPreview({ tab }: { tab: 'year' }) {
-  // Phase 2 月運 (L5) — month is now real (MonthlyFortuneView replaces this
-  // for the month tab). Year remains placeholder until Phase 3 ships.
-  const labels = { year: '年運' } as const;
-  return (
-    <div className={styles.previewWrap}>
-      <div className={styles.previewIcon}>📅</div>
-      <h2 className={styles.previewTitle}>{labels[tab]}完整 AI 解讀即將推出</h2>
-      <p className={styles.previewBody}>
-        Phase 1 已上線「日運」、Phase 2 已上線「月運」深度解讀。{labels[tab]}的完整 AI 解讀正在開發中。
-      </p>
-      <p className={styles.previewBody}>
-        ※ 您仍可在以下處查看完整年度分析：
-      </p>
-      {/* Cross-sell to the existing 八字流年運勢 paid reading. */}
-      <Link href="/reading/annual" className={styles.previewLink}>
-        前往《八字流年運勢》 →
-      </Link>
-    </div>
-  );
-}
+// PartialPreview removed in Phase 3 — both month (Phase 2) and year (Phase 3)
+// tabs now render real views (MonthlyFortuneView / YearlyFortuneView). The
+// cross-sell to 《八字流年運勢》 lives in <YearlyCrossSellCard> within the
+// yearly view.
 
 // ============================================================
 // Phase 2 月運 (L5) — MonthlyFortuneView
@@ -1147,20 +1197,24 @@ function MonthlyFortuneView({
             `[MonthlyFortuneView] dropped section_complete with unknown key: ${ev.key}`,
           );
         }
-      } else if (ev.type === 'done' && 'narrative' in ev) {
+      } else if (ev.type === 'done') {
         // Plan v3 NEW-H1 fix: spread prev.data to preserve intraMonthBreakdown +
         // cacheHit from engine_ready (single canonical source). Do NOT read
         // ev.intraMonthBreakdown — `done` event no longer carries it.
+        // The umbrella `done` event is identical across scopes, so cast to the
+        // MONTH narrative shape (we're in the month-tab handler).
+        const monthlyNarrative = ev.narrative as MonthlyFortuneNarrative | null;
+        const doneCacheHit = ev.cacheHit;
         setState((prev) => {
           if (prev.status !== 'engine') return prev;
           return {
             status: 'success',
             data: {
               ...prev.data,
-              narrative: ev.narrative,
-              // Defensive: ev.cacheHit and prev.data.cacheHit should always agree
+              narrative: monthlyNarrative,
+              // Defensive: doneCacheHit and prev.data.cacheHit should always agree
               // (same server path emitted both). `??` guards against runtime undefined.
-              cacheHit: ev.cacheHit ?? prev.data.cacheHit,
+              cacheHit: doneCacheHit ?? prev.data.cacheHit,
             },
           };
         });
@@ -1322,6 +1376,295 @@ function MonthlyFortuneView({
   );
 }
 
+// ============================================================
+// Phase 3 年運 — YearlyFortuneView
+// ============================================================
+// Mirror of MonthlyFortuneView. Renders YearlyEnergyRing + YearlyDimensionStars
+// + YearlyRiskOpportunityGrid + YearlyNarrativeCard + YearlyLuckMethodsCard +
+// YearlyCrossSellCard progressively as the SSE stream arrives:
+//   - engine_ready (~1s) → engine state, Ring/Stars/RiskOpp/LuckMethods paint
+//   - section_complete × N → YearlyNarrativeCard reveals each AI prose section
+//   - done → final sanitized narrative
+//
+// State machine: loading → engine → success → error. Mirrors monthly's
+// cacheHit-from-event + done-spreads-prev.data + stateRef-stale-closure fixes.
+
+/** Whitelist of valid section keys the AI may emit inside YearlyFortuneNarrative.
+ *  Drops cross-scope keys (e.g., monthly_*) if the backend ever drifts. */
+const YEARLY_NARRATIVE_KEYS = new Set<string>([
+  'yearly_headline',
+  'yearly_overview',
+  'yearly_career',
+  'yearly_career_keyword',
+  'yearly_finance',
+  'yearly_finance_keyword',
+  'yearly_romance',
+  'yearly_romance_keyword',
+  'yearly_health',
+  'yearly_health_keyword',
+  'yearly_advice',
+  'yearly_risk_opportunities',
+]);
+
+type YearlyFortuneViewState =
+  | { status: 'idle' }
+  | { status: 'loading' }
+  | { status: 'engine'; data: YearlyFortuneResponse }
+  | { status: 'success'; data: YearlyFortuneResponse }
+  | { status: 'error'; code: string; statusCode: number; message: string };
+
+interface YearlyFortuneViewProps {
+  profileId: string | undefined;
+  targetYear: string;
+  getToken: () => Promise<string | null>;
+  isSignedIn: boolean | undefined;
+  isLoaded: boolean;
+  /** Publish loading state UP so YearNavigator can disable arrows. */
+  onLoadingChange?: (isLoading: boolean) => void;
+  /** Publish resolved profileId (from engine_ready) UP. Reserved for any
+   *  future year-scope chat (chat is DEFERRED per Phase 3 spec). */
+  onResolvedProfileId?: (profileId: string) => void;
+}
+
+function YearlyFortuneView({
+  profileId,
+  targetYear,
+  getToken: _getToken,
+  isSignedIn,
+  isLoaded,
+  onLoadingChange,
+  onResolvedProfileId,
+}: YearlyFortuneViewProps) {
+  const [state, setState] = useState<YearlyFortuneViewState>({ status: 'idle' });
+  const [streamedSections, setStreamedSections] = useState<
+    Partial<YearlyFortuneNarrative>
+  >({});
+  const [streamError, setStreamError] = useState<{ code: string; message: string } | null>(
+    null,
+  );
+
+  // stateRef — keep current state.status readable in the onEvent closure so
+  // error classification reads CURRENT status (not the stale snapshot). Mirror
+  // of MonthlyFortuneView's CRITICAL C-1 audit fix.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  // Reset synchronously when year/profile changes.
+  useEffect(() => {
+    setState({ status: 'loading' });
+    setStreamedSections({});
+    setStreamError(null);
+  }, [profileId, targetYear]);
+
+  useEffect(() => {
+    onLoadingChange?.(state.status === 'loading');
+  }, [state.status, onLoadingChange]);
+
+  useFortuneNarrativeStream({
+    enabled: !!isLoaded && !!isSignedIn,
+    scope: 'year',
+    profileId,
+    year: targetYear,
+    onEvent: (ev) => {
+      if (ev.type === 'engine_ready' && 'year' in ev) {
+        setState({
+          status: 'engine',
+          data: {
+            year: ev.year,
+            profileId: ev.profileId,
+            profileBirthDate: ev.profileBirthDate,
+            profileBirthTime: ev.profileBirthTime,
+            engineOutput: ev.engineOutput,
+            narrative: null,
+            cacheHit: ev.cacheHit,
+            generatedAt: new Date().toISOString(),
+          },
+        });
+        onResolvedProfileId?.(ev.profileId);
+      } else if (ev.type === 'section_complete') {
+        if (YEARLY_NARRATIVE_KEYS.has(ev.key)) {
+          setStreamedSections((prev) => ({
+            ...prev,
+            [ev.key]: ev.value as never,
+          }));
+        } else if (typeof console !== 'undefined') {
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[YearlyFortuneView] dropped section_complete with unknown key: ${ev.key}`,
+          );
+        }
+      } else if (ev.type === 'done') {
+        // The umbrella `done` event is structurally identical across all
+        // scopes ({type, narrative, cacheHit}), so TS can't discriminate it
+        // to the YEAR variant by an `in` check. We're in scope='year' here,
+        // so the narrative IS YearlyFortuneNarrative — cast explicitly. This
+        // mirrors the daily/monthly handler pattern (the section_complete +
+        // engine_ready guards above already pin scope='year').
+        const yearlyNarrative = ev.narrative as YearlyFortuneNarrative | null;
+        const doneCacheHit = ev.cacheHit;
+        setState((prev) => {
+          if (prev.status !== 'engine') return prev;
+          return {
+            status: 'success',
+            data: {
+              ...prev.data,
+              narrative: yearlyNarrative,
+              cacheHit: doneCacheHit ?? prev.data.cacheHit,
+            },
+          };
+        });
+        setStreamedSections({});
+      } else if (ev.type === 'error') {
+        const currentStatus = stateRef.current.status;
+        if (currentStatus === 'engine') {
+          setStreamError({ code: ev.code, message: ev.message });
+        } else {
+          setStreamError(null);
+          setState({
+            status: 'error',
+            code: ev.code,
+            statusCode: ev.code.startsWith('HTTP_') ? Number(ev.code.slice(5)) : 0,
+            message: ev.message,
+          });
+        }
+      }
+    },
+  });
+
+  // Loading skeleton — full layout footprint so disclaimer Y stays stable.
+  if (state.status === 'idle' || state.status === 'loading') {
+    return (
+      <div className={styles.monthlyContentWrap}>
+        <div className={styles.monthlyRingPlaceholder} aria-busy="true" aria-label="今年運勢載入中" />
+        <SectionDivider />
+        <div className={styles.monthlyBarsPlaceholder} aria-hidden="true" />
+        <SectionDivider />
+        <div className={styles.monthlyTimeGridPlaceholder} aria-hidden="true" />
+        <SectionDivider />
+        <YearlyNarrativeCard
+          narrative={null}
+          dimensions={{
+            career: { score: 50, label: '平穩' },
+            finance: { score: 50, label: '平穩' },
+            romance: { score: 50, label: '平穩' },
+            health: { score: 50, label: '平穩' },
+          }}
+          loading
+        />
+        <p className={styles.monthlyBottomDisclaimer}>
+          {ENTERTAINMENT_DISCLAIMER['zh-TW']}
+        </p>
+      </div>
+    );
+  }
+
+  if (state.status === 'error') {
+    return (
+      <ErrorPanel
+        code={state.code}
+        statusCode={state.statusCode}
+        message={state.message}
+        activeTab="year"
+      />
+    );
+  }
+
+  // 'engine' OR 'success' — both render the real component stack.
+  const { engineOutput, narrative } = state.data;
+  const dimensionsForNarrative = {
+    career: {
+      score: engineOutput.dimensions.career.score,
+      label: engineOutput.dimensions.career.label,
+    },
+    finance: {
+      score: engineOutput.dimensions.finance.score,
+      label: engineOutput.dimensions.finance.label,
+    },
+    romance: {
+      score: engineOutput.dimensions.romance.score,
+      label: engineOutput.dimensions.romance.label,
+    },
+    health: {
+      score: engineOutput.dimensions.health.score,
+      label: engineOutput.dimensions.health.label,
+    },
+  };
+
+  // Per-dim AI keyword selector (narrative > provisional). Feeds the star cards.
+  const keywordSource = narrative ?? streamedSections;
+  const dimKeywords: Partial<Record<YearlyDimKey, string | undefined>> = {
+    career: keywordSource?.yearly_career_keyword,
+    finance: keywordSource?.yearly_finance_keyword,
+    romance: keywordSource?.yearly_romance_keyword,
+    health: keywordSource?.yearly_health_keyword,
+  };
+
+  // AI risk/opportunity entries (narrative > provisional) paired by index in
+  // the grid component.
+  const aiRiskOppEntries =
+    narrative?.yearly_risk_opportunities ??
+    streamedSections?.yearly_risk_opportunities ??
+    undefined;
+
+  return (
+    <div className={styles.monthlyContentWrap}>
+      <YearlyEnergyRing
+        label={engineOutput.auspiciousness}
+        score={engineOutput.energyScore}
+        year={state.data.year}
+        yearGanZhi={engineOutput.yearGanZhi}
+        yearTenGod={engineOutput.yearTenGod}
+      />
+
+      <SectionDivider />
+
+      <YearlyDimensionStars
+        dimensions={engineOutput.dimensions}
+        keywords={dimKeywords}
+      />
+
+      <SectionDivider />
+
+      <YearlyRiskOpportunityGrid
+        coreRiskOpportunity={engineOutput.coreRiskOpportunity}
+        aiEntries={aiRiskOppEntries}
+      />
+
+      <SectionDivider />
+
+      {streamError && (
+        <div className={styles.streamErrorBanner} role="alert">
+          <span className={styles.streamErrorIcon} aria-hidden="true">⚠️</span>
+          <span>AI 解讀載入中斷，重新整理可再試一次</span>
+        </div>
+      )}
+
+      <YearlyNarrativeCard
+        narrative={narrative}
+        dimensions={dimensionsForNarrative}
+        loading={state.status === 'engine'}
+        streamedSections={
+          state.status === 'engine' ? streamedSections : undefined
+        }
+      />
+
+      <SectionDivider />
+
+      <YearlyLuckMethodsCard luckMethods={engineOutput.luckMethods} />
+
+      <SectionDivider />
+
+      <YearlyCrossSellCard />
+
+      <p className={styles.monthlyBottomDisclaimer}>
+        {ENTERTAINMENT_DISCLAIMER['zh-TW']}
+      </p>
+    </div>
+  );
+}
+
 function ErrorPanel({
   code,
   statusCode,
@@ -1352,6 +1695,8 @@ function ErrorPanel({
         <p className={styles.errorBody}>
           {tab === 'month'
             ? '免費用戶僅可查看「本月」的月運。訂閱後即可查看「上個月 + 本月 + 未來 12 個月」範圍。'
+            : tab === 'year'
+            ? '免費用戶僅可查看「今年」的年運。訂閱後即可查看「去年 + 今年 + 未來 4 年」範圍。'
             : '免費用戶僅可查看「今日」的日運。訂閱後即可查看「昨日 + 未來 30 天」範圍。'}
         </p>
         <Link href="/pricing" className={styles.errorAction}>
@@ -1377,8 +1722,22 @@ function ErrorPanel({
         </div>
       );
     }
-    // 'year' is currently the «即將推出» placeholder tab; defensive default
-    // keeps the dispatch exhaustive. Fall through to day copy.
+    // Phase 3 — year OUT_OF_WINDOW copy + CTA.
+    if (tab === 'year') {
+      return (
+        <div className={styles.errorWrap}>
+          <div className={styles.errorIcon}>📅</div>
+          <h2 className={styles.errorTitle}>超出查詢範圍</h2>
+          <p className={styles.errorBody}>
+            年運可查範圍為「去年 + 今年 + 未來 4 年」。請選擇此範圍內的年份。
+          </p>
+          <Link href="/reading/fortune?tab=year" className={styles.errorAction}>
+            回到今年 →
+          </Link>
+        </div>
+      );
+    }
+    // Day fall-through.
     return (
       <div className={styles.errorWrap}>
         <div className={styles.errorIcon}>📅</div>

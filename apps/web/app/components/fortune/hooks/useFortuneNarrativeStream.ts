@@ -29,21 +29,24 @@ import { useAuth } from '@clerk/nextjs';
 import {
   streamDailyFortune,
   streamMonthlyFortune,
+  streamYearlyFortune,
   type FortuneStreamEvent,
 } from '../../../lib/fortune-api';
 
 export interface UseFortuneNarrativeStreamArgs {
   enabled: boolean;
-  /** Phase 2.x: which scope's stream endpoint to open. Determines which date
-   *  field is consumed below + which SSE endpoint URL is used. Defaults to
-   *  'day' for back-compat with day-only callers that don't yet thread the
-   *  prop (existing daily callers stay unchanged). */
-  scope?: 'day' | 'month';
+  /** Phase 2.x / Phase 3: which scope's stream endpoint to open. Determines
+   *  which date field is consumed below + which SSE endpoint URL is used.
+   *  Defaults to 'day' for back-compat with day-only callers that don't yet
+   *  thread the prop (existing daily callers stay unchanged). */
+  scope?: 'day' | 'month' | 'year';
   profileId?: string;
-  /** Required when scope='day'. Format: YYYY-MM-DD. Ignored on month-scope. */
+  /** Required when scope='day'. Format: YYYY-MM-DD. Ignored on month/year-scope. */
   date?: string;
-  /** Required when scope='month'. Format: YYYY-MM. Ignored on day-scope. */
+  /** Required when scope='month'. Format: YYYY-MM. Ignored on day/year-scope. */
   month?: string;
+  /** Required when scope='year'. Format: YYYY. Ignored on day/month-scope. */
+  year?: string;
   onEvent: (ev: FortuneStreamEvent) => void;
   onError?: (err: Error) => void;
   onClose?: () => void;
@@ -125,6 +128,11 @@ export function useFortuneNarrativeStream(
       setStreaming(false);
       return;
     }
+    if (scope === 'year' && !args.year) {
+      cancel();
+      setStreaming(false);
+      return;
+    }
 
     let cancelled = false;
     setError(null);
@@ -196,16 +204,21 @@ export function useFortuneNarrativeStream(
       };
 
       // Scope dispatch — pick wire helper based on scope arg.
-      // TypeScript narrowing handles the date vs month union discrimination.
+      // TypeScript narrowing handles the date vs month vs year discrimination.
       if (scope === 'day') {
         teardownRef.current = streamDailyFortune({
           ...handlers,
           date: args.date,
         });
-      } else {
+      } else if (scope === 'month') {
         teardownRef.current = streamMonthlyFortune({
           ...handlers,
           month: args.month,
+        });
+      } else {
+        teardownRef.current = streamYearlyFortune({
+          ...handlers,
+          year: args.year,
         });
       }
     })();
@@ -215,7 +228,7 @@ export function useFortuneNarrativeStream(
       cancel();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [args.enabled, scope, args.profileId, args.date, args.month, getToken]);
+  }, [args.enabled, scope, args.profileId, args.date, args.month, args.year, getToken]);
 
   return { streaming, error, sectionsReceived, clearError, cancel };
 }
