@@ -274,9 +274,10 @@ def build_chat_context_fortune(
     current_month: int,
     precomputed_daily: Optional[Dict] = None,
     precomputed_monthly: Optional[Dict] = None,
+    precomputed_yearly: Optional[Dict] = None,
     fortune_scope: str = 'DAY',
 ) -> Dict:
-    """Build the slim chat context for FORTUNE chat (八字日運 / 月運 chat scope).
+    """Build the slim chat context for FORTUNE chat (八字日運 / 月運 / 年運 chat scope).
 
     Merges single-chart 4-pipeline slim (lifetime/love/career/annual) PLUS
     the day's OR month's fortune output (per `fortune_scope`). The chat AI
@@ -290,6 +291,12 @@ def build_chat_context_fortune(
     Fix C 殺印相生, 月柱沖刑, intra-month breakdown) ride in
     `monthlyFortune.dimensions[].signals` + `monthlyFortune.intraMonthBreakdown`.
 
+    YEAR scope (Phase 3.5c L3.5c): year-level structured data (4-dim ★ ratings,
+    核心風險&機會 months, 改運建議 luck methods, flowYear 干支) ride in
+    `yearlyFortune.{dimensions, coreRiskOpportunity, luckMethods}`. The NestJS
+    `interpolateFortuneYearlyFields` injector reads these to emit «必須引用»
+    sentences the chat AI quotes verbatim.
+
     Args:
         birth_data: chart identity (birth_date/time/city/timezone/gender/long/lat)
         anchor_date: ISO date string `YYYY-MM-DD`. For MONTH scope, the day
@@ -300,8 +307,9 @@ def build_chat_context_fortune(
             `DailyFortuneSnapshot.engineOutputJson` (DAY scope only).
         precomputed_monthly: optional engine output from MONTH snapshot —
             same Issue-1 reuse path as `precomputed_daily` but for monthly.
-        fortune_scope: 'DAY' (default, back-compat) or 'MONTH'. YEAR deferred
-            to Phase 3.
+        precomputed_yearly: optional engine output from YEAR snapshot —
+            same Issue-1 reuse path but for yearly (Phase 3.5c).
+        fortune_scope: 'DAY' (default, back-compat), 'MONTH', or 'YEAR'.
 
     Returns:
         Slim payload with all `build_chat_context` fields PLUS:
@@ -311,6 +319,8 @@ def build_chat_context_fortune(
             - `dailyFortune` (DAY scope only): slim dict of day's fortune
             - `monthlyFortune` (MONTH scope only): slim dict of month's fortune
               + intraMonthBreakdown sibling
+            - `yearlyFortune` (YEAR scope only): slim dict of year's fortune
+              + coreRiskOpportunity + luckMethods siblings
 
     Raises:
         ValueError: anchor_date not parseable, scope unknown, or chart-pipeline
@@ -325,11 +335,12 @@ def build_chat_context_fortune(
         compute_intra_month_breakdown,
         compute_single_month_by_yearmonth,
     )
+    from .yearly_enhanced import compute_year_by_year
 
     # Validate scope
-    if fortune_scope not in ('DAY', 'MONTH'):
+    if fortune_scope not in ('DAY', 'MONTH', 'YEAR'):
         raise ValueError(
-            f"fortune_scope must be 'DAY' or 'MONTH' (YEAR is Phase 3 deferred), "
+            f"fortune_scope must be 'DAY', 'MONTH', or 'YEAR', "
             f"got: {fortune_scope!r}"
         )
 
@@ -409,6 +420,28 @@ def build_chat_context_fortune(
             'anchorDate': anchor_date,
             'fortuneScope': 'MONTH',
             'monthlyFortune': _slim_monthly_for_chat(monthly_result),
+        }
+
+    # YEAR scope (Phase 3.5c) — anchor is YYYY-01-01; year derived from it.
+    if fortune_scope == 'YEAR':
+        if precomputed_yearly is not None:
+            yearly_result = precomputed_yearly
+        else:
+            yearly_result = compute_year_by_year(
+                birth_date=birth_data['birth_date'],
+                birth_time=birth_data['birth_time'],
+                birth_city=birth_data['birth_city'],
+                birth_timezone=birth_data['birth_timezone'],
+                gender=birth_data['gender'],
+                year=anchor_date_obj.year,
+                birth_longitude=birth_data.get('birth_longitude'),
+                birth_latitude=birth_data.get('birth_latitude'),
+            )
+        return {
+            **base_ctx,
+            'anchorDate': anchor_date,
+            'fortuneScope': 'YEAR',
+            'yearlyFortune': _slim_yearly_for_chat(yearly_result),
         }
 
     # DAY scope (default) — original behavior.
@@ -545,6 +578,46 @@ def _slim_monthly_for_chat(monthly: Dict) -> Dict:
         # 上半月/下半月 dynamics.
         'intraMonthBreakdown': monthly.get('intraMonthBreakdown'),
         'ruleTrace': monthly.get('ruleTrace', []),
+    }
+
+
+def _slim_yearly_for_chat(yearly: Dict) -> Dict:
+    """Phase 3.5c L3.5c — slim `compute_year_by_year` output for chat
+    consumption. Mirror of `_slim_daily_for_chat` / `_slim_monthly_for_chat`
+    scaled to YEAR scope.
+
+    Keeps user-facing fields the AI must cite verbatim or reason from.
+    Drops engine-internal fields:
+      - `chartContext` (redundant — base_ctx already has chart data)
+      - `preAnalysisVersion` (engine-internal cache token)
+
+    Keeps `coreRiskOpportunity` + `luckMethods` as SIBLINGS (not nested in
+    `dimensions`) — the NestJS `interpolateFortuneYearlyFields` injector reads
+    these to emit «必須引用» Chinese sentences (the named 3 opportunity + 3 risk
+    months with dim attribution, and the 改運建議 luck-method cards) the chat AI
+    must quote verbatim. No folk content (YEAR has none).
+    """
+    if not yearly:
+        return {}
+    return {
+        'yearStem': yearly.get('yearStem'),
+        'yearBranch': yearly.get('yearBranch'),
+        'yearGanZhi': yearly.get('yearGanZhi'),
+        'yearTenGod': yearly.get('yearTenGod'),
+        'year': yearly.get('year'),
+        'auspiciousness': yearly.get('auspiciousness'),
+        'energyScore': yearly.get('energyScore'),
+        'metaFraming': yearly.get('metaFraming'),
+        'flowYear': yearly.get('flowYear'),
+        # 4 dimension blocks {career, finance, romance, health} — each with
+        # score / label / stars / labelZh (NO travel; 感情=romance NOT 人際關係).
+        'dimensions': yearly.get('dimensions', {}),
+        # SIBLING — {opportunities[], risks[], flatYear}. LOAD-BEARING: the
+        # injector quotes the named months verbatim. Drop = AI can't answer
+        # «今年哪幾個月最值得把握?».
+        'coreRiskOpportunity': yearly.get('coreRiskOpportunity'),
+        # SIBLING — {cards[], weakestDim, weakestDimZh, disclaimer}.
+        'luckMethods': yearly.get('luckMethods'),
     }
 
 

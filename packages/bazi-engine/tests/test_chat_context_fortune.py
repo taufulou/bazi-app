@@ -353,3 +353,181 @@ class TestHeadlinerSignals:
         # Phase 1 doctrine: every daily output emits metaFraming='soft_trigger'
         # so AI prompts can key off it for anti-hallucination
         assert ctx['dailyFortune']['metaFraming'] == 'soft_trigger'
+
+
+# ============================================================
+# Phase 3.5c L3.5c — YEAR scope (年運 chat)
+# ============================================================
+
+# YEAR anchor is the Jan-1 of the target flow year (Phase 3 doctrine — year
+# maps directly to the 立春-anchored flow year; NestJS normalizes the anchor
+# to YYYY-01-01).
+ANCHOR_YEAR_2026 = '2026-01-01'  # Roger → 丙午年, yearTenGod=偏印
+
+
+class TestYearlyAnchor:
+    """Roger 2026 (丙午年) — locks the YEAR chat output shape + sibling fields."""
+
+    def test_returns_chart_slim_plus_yearlyFortune(self, roger_birth):
+        ctx = build_chat_context_fortune(
+            birth_data=roger_birth,
+            anchor_date=ANCHOR_YEAR_2026,
+            current_year=2026,
+            current_month=1,
+            fortune_scope='YEAR',
+        )
+        # Chart slim must be present (inherited from build_chat_context)
+        assert 'chart' in ctx
+        assert 'doctrineFlags' in ctx
+        # FORTUNE-specific YEAR fields
+        assert ctx['anchorDate'] == ANCHOR_YEAR_2026
+        assert ctx['fortuneScope'] == 'YEAR'
+        assert 'yearlyFortune' in ctx
+        # Must NOT carry the DAY/MONTH blocks
+        assert 'dailyFortune' not in ctx
+        assert 'monthlyFortune' not in ctx
+
+        yearly = ctx['yearlyFortune']
+        assert yearly['yearGanZhi'] == '丙午'
+        assert yearly['yearStem'] == '丙'
+        assert yearly['yearBranch'] == '午'
+        # DM=戊, 丙 → 偏印
+        assert yearly['yearTenGod'] == '偏印'
+        assert yearly['year'] == 2026
+        assert yearly['metaFraming'] == 'soft_trigger'
+        # Engine-internal fields must be dropped by the slim
+        assert 'chartContext' not in yearly
+        assert 'preAnalysisVersion' not in yearly
+
+    def test_yearlyFortune_4dim_with_stars(self, roger_birth):
+        ctx = build_chat_context_fortune(
+            birth_data=roger_birth, anchor_date=ANCHOR_YEAR_2026,
+            current_year=2026, current_month=1, fortune_scope='YEAR',
+        )
+        dims = ctx['yearlyFortune']['dimensions']
+        # 4 dims — NO travel (romance=感情 NOT 人際關係)
+        assert set(dims.keys()) == {'career', 'finance', 'romance', 'health'}
+        for d in dims.values():
+            assert 'score' in d and 'label' in d
+            assert 'stars' in d and 1 <= d['stars'] <= 5
+            assert 'labelZh' in d
+
+    def test_yearlyFortune_core_risk_opportunity_sibling(self, roger_birth):
+        ctx = build_chat_context_fortune(
+            birth_data=roger_birth, anchor_date=ANCHOR_YEAR_2026,
+            current_year=2026, current_month=1, fortune_scope='YEAR',
+        )
+        cro = ctx['yearlyFortune']['coreRiskOpportunity']
+        # LOAD-BEARING — the injector quotes these named months verbatim
+        assert 'opportunities' in cro
+        assert 'risks' in cro
+        assert 'flatYear' in cro
+
+    def test_yearlyFortune_luck_methods_sibling(self, roger_birth):
+        ctx = build_chat_context_fortune(
+            birth_data=roger_birth, anchor_date=ANCHOR_YEAR_2026,
+            current_year=2026, current_month=1, fortune_scope='YEAR',
+        )
+        lm = ctx['yearlyFortune']['luckMethods']
+        assert 'cards' in lm and isinstance(lm['cards'], list)
+        assert 'weakestDim' in lm
+        assert 'disclaimer' in lm
+
+
+class TestYearlyDoctrineInheritance:
+    """The Layer-1 calibration anchor MUST survive YEAR scope too: Laopo's
+    chart-level 傷官見官 valence='beneficial' rides in the merged base slim,
+    independent of the fortune scope."""
+
+    def test_shangguan_jianguan_beneficial_survives(self, laopo_birth):
+        ctx = build_chat_context_fortune(
+            birth_data=laopo_birth, anchor_date=ANCHOR_YEAR_2026,
+            current_year=2026, current_month=1, fortune_scope='YEAR',
+        )
+        flags = ctx['doctrineFlags']
+        sjg = flags.get('shangguanJianGuan')
+        assert sjg, 'shangguanJianGuan flag missing for Laopo under YEAR scope'
+        assert sjg[0]['valence'] == 'beneficial'
+
+
+class TestYearlyTokenBudget:
+    """YEAR slim adds 4 dims + 6 risk/opp months + ~3 luck cards on top of the
+    base chart slim — verify it still fits the 14k token budget."""
+
+    @pytest.mark.parametrize('birth_fixture', ['roger_birth', 'laopo_birth'])
+    def test_payload_under_token_budget(self, request, birth_fixture):
+        birth = request.getfixturevalue(birth_fixture)
+        ctx = build_chat_context_fortune(
+            birth_data=birth, anchor_date=ANCHOR_YEAR_2026,
+            current_year=2026, current_month=1, fortune_scope='YEAR',
+        )
+        payload_str = json.dumps(ctx, ensure_ascii=False)
+        try:
+            import tiktoken  # type: ignore
+            enc = tiktoken.get_encoding('cl100k_base')
+            token_count = len(enc.encode(payload_str))
+            assert token_count < 14000, (
+                f'YEAR chat context exceeds 14k token budget '
+                f'(got {token_count} tokens for {birth_fixture})'
+            )
+        except ImportError:
+            assert len(payload_str) < 56000
+
+
+class TestYearlySnapshotReuse:
+    """Issue 1 — when NestJS passes the persisted YEAR
+    `DailyFortuneSnapshot.engineOutputJson`, the engine must skip the redundant
+    `compute_year_by_year` call."""
+
+    def test_precomputed_yearly_is_used_verbatim(self, roger_birth):
+        fake_yearly = {
+            'yearStem': '丁', 'yearBranch': '未', 'yearGanZhi': '丁未',
+            'yearTenGod': '正印', 'year': 2027,
+            'auspiciousness': '吉', 'energyScore': 70,
+            'metaFraming': 'soft_trigger',
+            'flowYear': {'stem': '丁', 'branch': '未', 'tenGod': '正印',
+                         'auspiciousness': '吉'},
+            'dimensions': {
+                'career': {'score': 70, 'label': '順遂', 'stars': 4, 'labelZh': '事業'},
+                'finance': {'score': 65, 'label': '平穩', 'stars': 3, 'labelZh': '財運'},
+                'romance': {'score': 75, 'label': '順遂', 'stars': 4, 'labelZh': '感情'},
+                'health': {'score': 60, 'label': '平穩', 'stars': 3, 'labelZh': '健康'},
+            },
+            'coreRiskOpportunity': {'opportunities': [], 'risks': [], 'flatYear': True},
+            'luckMethods': {'cards': [], 'weakestDim': 'health',
+                            'weakestDimZh': '健康', 'disclaimer': 'test'},
+            'chartContext': {'dayMaster': '戊'},
+            'preAnalysisVersion': 'vTEST',
+        }
+        with patch('app.yearly_enhanced.compute_year_by_year') as mock_compute:
+            ctx = build_chat_context_fortune(
+                birth_data=roger_birth, anchor_date='2027-01-01',
+                current_year=2027, current_month=1,
+                precomputed_yearly=fake_yearly, fortune_scope='YEAR',
+            )
+        mock_compute.assert_not_called()
+        y = ctx['yearlyFortune']
+        assert y['yearGanZhi'] == '丁未'
+        assert y['yearTenGod'] == '正印'
+        assert y['auspiciousness'] == '吉'
+        assert y['energyScore'] == 70
+        # slim drops engine-internal fields even from a precomputed snapshot
+        assert 'chartContext' not in y
+        assert 'preAnalysisVersion' not in y
+
+
+class TestYearScopeValidation:
+    def test_year_scope_no_longer_rejected(self, roger_birth):
+        """YEAR was Phase-3-deferred; L3.5c relaxes the gate."""
+        ctx = build_chat_context_fortune(
+            birth_data=roger_birth, anchor_date=ANCHOR_YEAR_2026,
+            current_year=2026, current_month=1, fortune_scope='YEAR',
+        )
+        assert ctx['fortuneScope'] == 'YEAR'
+
+    def test_unknown_scope_still_raises(self, roger_birth):
+        with pytest.raises(ValueError, match='fortune_scope'):
+            build_chat_context_fortune(
+                birth_data=roger_birth, anchor_date=ANCHOR_YEAR_2026,
+                current_year=2026, current_month=1, fortune_scope='DECADE',
+            )

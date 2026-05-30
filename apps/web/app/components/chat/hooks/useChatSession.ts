@@ -284,8 +284,13 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     }
     // Phase Fortune — fortune.profileId + fortuneAnchorDate must be in deps
     // so date navigation forces re-fetch (plan Issue 10).
+    // L3.5c Fix 6 — fortuneScope MUST be in deps too: a DAY anchor of
+    // `YYYY-01-01` (Jan 1) is string-identical to a YEAR anchor of
+    // `YYYY-01-01`, so without scope in deps a DAY↔YEAR tab switch on Jan 1
+    // would NOT recreate this callback → it captures the stale scope and the
+    // backend list query filters by the wrong scope.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readingId, comparisonId, fortune?.profileId, fortune?.fortuneAnchorDate, requireToken]);
+  }, [readingId, comparisonId, fortune?.profileId, fortune?.fortuneAnchorDate, fortune?.fortuneScope, requireToken]);
 
   const resumeOpenSession = useCallback(
     async (
@@ -428,6 +433,7 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     // so DateNavigator changes spawn a NEW session (plan Issue 10).
     fortune?.profileId,
     fortune?.fortuneAnchorDate,
+    fortune?.fortuneScope, // L3.5c Fix 6 — Jan-1 DAY↔YEAR closure staleness
     requireToken,
     resumeOpenSession,
     hydrateFromCreate,
@@ -456,6 +462,7 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     comparisonId,
     fortune?.profileId,
     fortune?.fortuneAnchorDate,
+    fortune?.fortuneScope, // L3.5c Fix 6 — Jan-1 DAY↔YEAR closure staleness
     requireToken,
     hydrateFromCreate,
     refreshSessionList,
@@ -515,6 +522,7 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
       comparisonId,
       fortune?.profileId,
       fortune?.fortuneAnchorDate,
+      fortune?.fortuneScope, // L3.5c Fix 6 — Jan-1 DAY↔YEAR closure staleness
       requireToken,
       refreshHistoryFromServer,
       resumeOpenSession,

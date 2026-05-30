@@ -802,3 +802,140 @@ describe('L3.5b — scope-aware FORTUNE chat (audit H#2)', () => {
     });
   });
 });
+
+// ============================================================
+// L3.5c — Phase 3.5c 年運 chat-scope YEAR wiring
+// ============================================================
+describe('L3.5c — scope-aware FORTUNE YEAR chat', () => {
+  let scopeService: ChatContextService;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ChatContextService,
+        { provide: ConfigService, useValue: { get: () => 'http://localhost:5001' } },
+        { provide: PrismaService, useValue: {} as PrismaService },
+        { provide: RedisService, useValue: {} as RedisService },
+      ],
+    }).compile();
+    scopeService = moduleRef.get(ChatContextService);
+  });
+
+  describe('(a) YEAR version string uses NEW pa-fort-year= key (active-scope-only)', () => {
+    it('YEAR version string contains pa-fort-year= and NOT pa-fort= / pa-fort-month=', () => {
+      const versions = scopeService.computeVersionStringForFortune('YEAR');
+      expect(versions).toContain('pa-fort-year=');
+      expect(versions).not.toContain('pa-fort-month=');
+      // NOT the legacy DAY key (`pa-fort=` would substring-match `pa-fort-year=`,
+      // so assert the EXACT DAY token form isn't present standalone).
+      expect(versions).not.toMatch(/pa-fort=v/);
+    });
+
+    it('getCurrentSnapshotVersionsForFortune(YEAR) → fort-year= (not fort= / fort-month=)', () => {
+      const year = scopeService.getCurrentSnapshotVersionsForFortune('YEAR');
+      expect(year.preAnalysisVersion).toContain('fort-year=');
+      expect(year.preAnalysisVersion).not.toContain('fort-month=');
+      expect(year.preAnalysisVersion).not.toMatch(/fort=v/);
+    });
+  });
+
+  describe('(b) YEAR is byte-distinct from DAY + MONTH (per-scope isolation, both directions)', () => {
+    it('YEAR / DAY / MONTH version strings are all distinct', () => {
+      const dayVer = scopeService.computeVersionStringForFortune('DAY');
+      const monthVer = scopeService.computeVersionStringForFortune('MONTH');
+      const yearVer = scopeService.computeVersionStringForFortune('YEAR');
+      expect(yearVer).not.toEqual(dayVer);
+      expect(yearVer).not.toEqual(monthVer);
+    });
+
+    it('adding YEAR does NOT change DAY byte-identity (C#1 regression lock)', () => {
+      const dayScopeAware = scopeService.getCurrentSnapshotVersionsForFortune('DAY');
+      const legacy = scopeService.getCurrentSnapshotVersions('FORTUNE');
+      expect(dayScopeAware.preAnalysisVersion).toEqual(legacy.preAnalysisVersion);
+    });
+  });
+
+  describe('(c) interpolateFortuneYearlyFields — YEAR-scope deterministic injector', () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { interpolateFortuneYearlyFields } = require('./chat-context.service');
+
+    it('returns null when yearlyFortune absent (graceful degrade)', () => {
+      expect(interpolateFortuneYearlyFields({} as ChatContext)).toBeNull();
+    });
+
+    it('returns null when yearlyFortune.yearGanZhi missing', () => {
+      const ctx = { yearlyFortune: { auspiciousness: '大吉' } } as ChatContext;
+      expect(interpolateFortuneYearlyFields(ctx)).toBeNull();
+    });
+
+    it('emits 流年教義事件 header + named 核心機會 months (LOAD-BEARING)', () => {
+      const ctx = {
+        yearlyFortune: {
+          yearGanZhi: '丙午',
+          yearTenGod: '偏印',
+          auspiciousness: '大吉',
+          energyScore: 88,
+          dimensions: {
+            romance: { stars: 4, labelZh: '感情', label: '溫暖和諧' },
+          },
+          coreRiskOpportunity: {
+            opportunities: [
+              { monthLabel: '9月', dimZh: '事業', auspiciousness: '大吉' },
+              { monthLabel: '3月', dimZh: '財運', auspiciousness: '大吉' },
+            ],
+            risks: [{ monthLabel: '1月', dimZh: '健康', auspiciousness: '凶中有吉' }],
+            flatYear: false,
+          },
+          luckMethods: {
+            cards: [{ title: '運勢整理法', usefulGodElement: '火', usefulGodDirection: '南方' }],
+            weakestDimZh: '健康',
+          },
+        },
+      } as ChatContext;
+      const out = interpolateFortuneYearlyFields(ctx) as string;
+      expect(out).toContain('丙午年流年教義事件');
+      expect(out).toContain('核心機會月份');
+      expect(out).toContain('9月');
+      expect(out).toContain('3月');
+      expect(out).toContain('核心風險月份');
+      expect(out).toContain('改運建議');
+      // soft-trigger doctrine reminder present
+      expect(out).toContain('今年宜/今年易於/今年趨向');
+    });
+
+    it('flatYear → emits 「無顯著起伏月份」 (no fabricated months)', () => {
+      const ctx = {
+        yearlyFortune: {
+          yearGanZhi: '丁未',
+          auspiciousness: '平',
+          energyScore: 50,
+          coreRiskOpportunity: { opportunities: [], risks: [], flatYear: true },
+        },
+      } as ChatContext;
+      const out = interpolateFortuneYearlyFields(ctx) as string;
+      expect(out).toContain('無顯著起伏月份');
+    });
+  });
+
+  describe('(d) extractFortunePivotHint — YEAR branch', () => {
+    function extract(ctx: ChatContext): string | null {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return (scopeService as any).extractFortunePivotHint(ctx);
+    }
+
+    it('returns formatted YEAR pivot «丙午年（大吉，88分）»', () => {
+      const ctx = {
+        yearlyFortune: { yearGanZhi: '丙午', auspiciousness: '大吉', energyScore: 88 },
+      } as ChatContext;
+      expect(extract(ctx)).toBe('丙午年（大吉，88分）');
+    });
+
+    it('YEAR branch takes precedence over a stray dailyFortune remnant', () => {
+      const ctx = {
+        yearlyFortune: { yearGanZhi: '丙午', auspiciousness: '大吉', energyScore: 88 },
+        dailyFortune: { dayGanZhi: '戊子', auspiciousness: '凶', energyScore: 25 },
+      } as ChatContext;
+      expect(extract(ctx)).toBe('丙午年（大吉，88分）');
+    });
+  });
+});

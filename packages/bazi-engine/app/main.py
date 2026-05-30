@@ -510,14 +510,21 @@ class FortuneChatContextInput(BaseModel):
     # Phase 2.x L3.5b additions
     fortune_scope: str = Field(
         default='DAY',
-        pattern=r"^(DAY|MONTH)$",
-        description="'DAY' (default, back-compat) or 'MONTH'. YEAR is Phase 3 deferred.",
+        pattern=r"^(DAY|MONTH|YEAR)$",
+        description="'DAY' (default, back-compat), 'MONTH', or 'YEAR'.",
     )
     precomputed_monthly: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Optional persisted MONTH-scope snapshot engineOutputJson — Issue-1 "
                     "reuse path for MONTH (skips compute_single_month_by_yearmonth). "
                     "Only consumed when fortune_scope='MONTH'.",
+    )
+    # Phase 3.5c L3.5c addition
+    precomputed_yearly: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional persisted YEAR-scope snapshot engineOutputJson — Issue-1 "
+                    "reuse path for YEAR (skips compute_year_by_year). "
+                    "Only consumed when fortune_scope='YEAR'.",
     )
 
 
@@ -556,6 +563,7 @@ async def build_chat_context_fortune_endpoint(data: FortuneChatContextInput):
             current_month=data.target_month,
             precomputed_daily=data.precomputed_daily,
             precomputed_monthly=data.precomputed_monthly,
+            precomputed_yearly=data.precomputed_yearly,
             fortune_scope=data.fortune_scope,
         )
 

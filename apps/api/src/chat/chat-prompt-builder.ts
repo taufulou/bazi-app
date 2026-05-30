@@ -21,6 +21,7 @@ import {
   type ChatContext,
   interpolateFortuneV1Fields,
   interpolateFortuneMonthlyFields,
+  interpolateFortuneYearlyFields,
 } from './chat-context.service';
 import {
   buildChatV1SystemPromptHeader,
@@ -39,7 +40,7 @@ export interface BuildPromptArgs {
   /** Phase 2.x L3.5b — when readingType=FORTUNE, scope determines which refuse
    *  template + few-shots assemble (DAY uses 《八字日運》 + F-1/F-2/F-3,
    *  MONTH uses 《八字月運》 + M-1/M-2). Defaults to DAY for back-compat. */
-  fortuneScope?: 'DAY' | 'MONTH';
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
   /** Section the user clicked the InlineAskCard from. METADATA only — does
    *  NOT filter the slim payload (per plan Issue 19). */
   sectionContextHint?: string;
@@ -181,6 +182,15 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
       if (monthlyInjector) {
         sections.push('\n【本月流月教義事件 — 必須引用以下文字】\n');
         sections.push(monthlyInjector);
+      }
+    } else if (fortuneScope === 'YEAR') {
+      // Phase 3.5c L3.5c — mirror of MONTH; reads yearlyFortune (coreRisk-
+      // Opportunity months + luckMethods + 4-dim ★). Anti-hallucination via
+      // deterministic Chinese sentences the AI quotes verbatim (Gap 2 pattern).
+      const yearlyInjector = interpolateFortuneYearlyFields(chatContext);
+      if (yearlyInjector) {
+        sections.push('\n【今年流年教義事件 — 必須引用以下文字】\n');
+        sections.push(yearlyInjector);
       }
     } else {
       // DAY (default) — back-compat with pre-L3.5b behaviour

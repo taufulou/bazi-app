@@ -71,17 +71,18 @@ export type ChatPromptVersionKey = ReadingType;
  * Phase 2 月運 section v4 + research-results doc.
  */
 export const CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE: Record<
-  'DAY' | 'MONTH',
+  'DAY' | 'MONTH' | 'YEAR',
   string
 > = {
   DAY: 'v1.1.0',   // = existing CHAT_PROMPT_VERSIONS.FORTUNE value (semantic preservation)
   MONTH: 'v1.0.0', // NEW for Phase 2 月運 — first version
+  YEAR: 'v1.0.0',  // NEW for Phase 3.5c 年運 — first version
 };
 
 /** Sibling helper to `getChatPromptVersion` for FORTUNE chat sessions.
  *  Dispatches by `FortuneScope` discriminator. */
 export function getChatPromptVersionForFortune(
-  scope: 'DAY' | 'MONTH',
+  scope: 'DAY' | 'MONTH' | 'YEAR',
 ): string {
   return CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE[scope];
 }
@@ -136,6 +137,10 @@ const PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH = {
   // FORTUNE_DAY (introduced Phase 2.x then dropped audit C#1): removed.
   FORTUNE: 'v1.1.1',       // DAY scope — used by `fort=` (snapshot) + `pa-fort=` (cache key)
   FORTUNE_MONTH: 'v1.0.0', // MONTH scope (Phase 2) — used by `fort-month=` + `pa-fort-month=`
+  // YEAR scope (Phase 3.5c) — NEW key, no legacy collision (zero pre-existing
+  // YEAR chat sessions). Value mirrors engine `FORTUNE_PRE_ANALYSIS_VERSIONS.year`
+  // — no byte-identity lock needed. Used by `fort-year=` + `pa-fort-year=`.
+  FORTUNE_YEAR: 'v1.1.0',
 } as const;
 
 const CHAT_CONTEXT_TTL_SECONDS = 24 * 60 * 60; // 24h
@@ -250,6 +255,21 @@ export interface ChatContext {
    *  uses snake_case `monthly_*` keys inside `narrative.monthly_*`. Never alias.
    */
   monthlyFortune?: Record<string, unknown>;
+  /** Phase 3.5c L3.5c — present only when this payload describes a FORTUNE
+   *  YEAR chat scope. Mirrors the engine's `build_chat_context_fortune` shape
+   *  (YEAR branch, slimmed via `_slim_yearly_for_chat`). Carries: yearGanZhi,
+   *  yearTenGod, auspiciousness, energyScore, 4-dim breakdown with ★ stars
+   *  (career/finance/romance/health — NO travel; 感情=romance NOT 人際關係),
+   *  and the SIBLING fields `coreRiskOpportunity` ({opportunities, risks,
+   *  flatYear}) + `luckMethods` ({cards, weakestDim, disclaimer}).
+   *
+   *  Consumed by `interpolateFortuneYearlyFields` (the YEAR-scope deterministic
+   *  injector, mirror of `interpolateFortuneMonthlyFields`). No folk content.
+   *
+   *  Glossary lock: camelCase `yearlyFortune` (engine emit). The AI narrative
+   *  uses snake_case `yearly_*` keys inside `narrative.yearly_*`. Never alias.
+   */
+  yearlyFortune?: Record<string, unknown>;
   /** Phase Fortune — ISO `YYYY-MM-DD` anchor date the FORTUNE chat session
    *  is pinned to. Set by engine; mirrored from the
    *  `ChatSession.fortuneAnchorDate` column. For MONTH scope, normalized to
@@ -467,7 +487,7 @@ export class ChatContextService {
     profileId: string,
     anchorDate: string,
     readingType: ReadingType = 'FORTUNE',
-    fortuneScope: 'DAY' | 'MONTH' = 'DAY',
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR' = 'DAY',
   ): Promise<ChatContext> {
     const profile = await this.prisma.birthProfile.findUnique({
       where: { id: profileId },
@@ -539,14 +559,25 @@ export class ChatContextService {
     // performance regression).
     let precomputedDaily: Record<string, unknown> | undefined;
     let precomputedMonthly: Record<string, unknown> | undefined;
+    let precomputedYearly: Record<string, unknown> | undefined;
+    // Anchor normalization: MONTH → 1st of month, YEAR → 1st of year (Jan 1),
+    // DAY → exact date. Matches how fortune.service persists each scope's
+    // DailyFortuneSnapshot.anchorDate.
     const snapshotAnchor =
       fortuneScope === 'MONTH'
         ? new Date(`${anchorDate.slice(0, 7)}-01T00:00:00.000Z`)
-        : new Date(`${anchorDate}T00:00:00.000Z`);
+        : fortuneScope === 'YEAR'
+          ? new Date(`${anchorDate.slice(0, 4)}-01-01T00:00:00.000Z`)
+          : new Date(`${anchorDate}T00:00:00.000Z`);
+    // Stale-check compares against ENGINE-side FORTUNE_PRE_ANALYSIS_VERSIONS
+    // (what the snapshot was stamped with at persist), 3-way per scope. YEAR
+    // pre-v1.1.0 snapshots would lack Phase-3 fields → recompute.
     const requiredPreAnalysisVersion =
       fortuneScope === 'MONTH'
         ? FORTUNE_PRE_ANALYSIS_VERSIONS.month
-        : FORTUNE_PRE_ANALYSIS_VERSIONS.day;
+        : fortuneScope === 'YEAR'
+          ? FORTUNE_PRE_ANALYSIS_VERSIONS.year
+          : FORTUNE_PRE_ANALYSIS_VERSIONS.day;
     try {
       const snapshot = await this.prisma.dailyFortuneSnapshot.findFirst({
         where: {
@@ -564,6 +595,8 @@ export class ChatContextService {
         if (snapshotVersion === requiredPreAnalysisVersion) {
           if (fortuneScope === 'MONTH') {
             precomputedMonthly = snapshot.engineOutputJson as Record<string, unknown>;
+          } else if (fortuneScope === 'YEAR') {
+            precomputedYearly = snapshot.engineOutputJson as Record<string, unknown>;
           } else {
             precomputedDaily = snapshot.engineOutputJson as Record<string, unknown>;
           }
@@ -594,6 +627,7 @@ export class ChatContextService {
       targetMonth: anchorMonth,
       precomputedDaily,
       precomputedMonthly,
+      precomputedYearly,
       fortuneScope,
     });
 
@@ -683,7 +717,25 @@ export class ChatContextService {
    * for DAY; M-2 «cite-this-month-first» for MONTH).
    */
   private extractFortunePivotHint(ctx: ChatContext): string | null {
-    // MONTH branch first — if monthlyFortune present (scope-aware dispatch
+    // YEAR branch first — if yearlyFortune present (scope-aware dispatch by
+    // presence; Phase 3.5c L3.5c). Formats «{yearGanZhi}年（{auspiciousness}，
+    // {energyScore}分）» for the refuse template's «回到您今年的年運解讀»。
+    const yearly = ctx.yearlyFortune as Record<string, unknown> | undefined;
+    if (yearly) {
+      const yearGanZhi = yearly.yearGanZhi as string | undefined;
+      const auspiciousness = yearly.auspiciousness as string | undefined;
+      const energyScore = yearly.energyScore as number | undefined;
+      const base = yearGanZhi ? `${yearGanZhi}年` : null;
+      if (base && auspiciousness && typeof energyScore === 'number') {
+        return `${base}（${auspiciousness}，${energyScore}分）`;
+      }
+      if (base) {
+        return base;
+      }
+      // yearly present but core fields missing → fall through (defensive).
+    }
+
+    // MONTH branch — if monthlyFortune present (scope-aware dispatch
     // by presence — MONTH session ctx has monthlyFortune, DAY ctx has dailyFortune).
     const monthly = ctx.monthlyFortune as Record<string, unknown> | undefined;
     if (monthly) {
@@ -940,7 +992,7 @@ export class ChatContextService {
    * The base composition uses prompt-version for FORTUNE via the new
    * `CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE` map.
    */
-  computeVersionStringForFortune(scope: 'DAY' | 'MONTH'): string {
+  computeVersionStringForFortune(scope: 'DAY' | 'MONTH' | 'YEAR'): string {
     const parts: string[] = [
       `fortune=${getChatPromptVersionForFortune(scope)}`,
       `pa-life=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.LIFETIME}`,
@@ -952,11 +1004,14 @@ export class ChatContextService {
     // Active-scope-only emission per plan v4 H-new-4.
     // Audit C#1: DAY uses LEGACY `pa-fort=` key + LEGACY `FORTUNE` constant
     // value for byte-identity with pre-L3.5b cache keys; MONTH uses NEW
-    // `pa-fort-month=` key + `FORTUNE_MONTH` constant (no legacy sessions).
+    // `pa-fort-month=` key; YEAR uses NEW `pa-fort-year=` key (no legacy
+    // sessions for either MONTH or YEAR).
     if (scope === 'DAY') {
       parts.push(`pa-fort=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE}`);
     } else if (scope === 'MONTH') {
       parts.push(`pa-fort-month=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_MONTH}`);
+    } else if (scope === 'YEAR') {
+      parts.push(`pa-fort-year=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_YEAR}`);
     }
     return parts.join('|');
   }
@@ -1016,7 +1071,7 @@ export class ChatContextService {
    * pa-fort-month (not both) — bumping one scope's pre-analysis version
    * does not invalidate the other scope's cached chat-contexts.
    */
-  getCurrentSnapshotVersionsForFortune(scope: 'DAY' | 'MONTH'): {
+  getCurrentSnapshotVersionsForFortune(scope: 'DAY' | 'MONTH' | 'YEAR'): {
     contextVersion: string;
     preAnalysisVersion: string;
   } {
@@ -1034,11 +1089,14 @@ export class ChatContextService {
     // CONTEXT_VERSION_DRIFTED on first message post-deploy because their
     // stored `preAnalysisVersion` ends with `|fort=v1.1.1` but the new
     // format would have emitted `|fort-day=v1.2.0`. MONTH uses new
-    // `fort-month=` key with `FORTUNE_MONTH` constant (no legacy concern).
+    // `fort-month=` key; YEAR uses new `fort-year=` key (no legacy concern
+    // for either).
     if (scope === 'DAY') {
       paParts.push(`fort=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE}`);
     } else if (scope === 'MONTH') {
       paParts.push(`fort-month=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_MONTH}`);
+    } else if (scope === 'YEAR') {
+      paParts.push(`fort-year=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_YEAR}`);
     }
     return {
       contextVersion: getChatPromptVersionForFortune(scope),
@@ -1211,8 +1269,10 @@ export class ChatContextService {
     precomputedDaily?: Record<string, unknown>;
     /** Phase 2.x L3.5b — optional MONTH snapshot for Issue-1 reuse path. */
     precomputedMonthly?: Record<string, unknown>;
-    /** Phase 2.x L3.5b — 'DAY' (default, back-compat) or 'MONTH'. */
-    fortuneScope?: 'DAY' | 'MONTH';
+    /** Phase 3.5c L3.5c — optional YEAR snapshot for Issue-1 reuse path. */
+    precomputedYearly?: Record<string, unknown>;
+    /** 'DAY' (default, back-compat), 'MONTH' (Phase 2.x), or 'YEAR' (Phase 3.5c). */
+    fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
   }): Promise<ChatContext> {
     const response = await fetch(
       `${this.baziEngineUrl}/build-chat-context-fortune`,
@@ -1232,6 +1292,7 @@ export class ChatContextService {
           target_month: args.targetMonth,
           precomputed_daily: args.precomputedDaily ?? null,
           precomputed_monthly: args.precomputedMonthly ?? null,
+          precomputed_yearly: args.precomputedYearly ?? null,
           fortune_scope: args.fortuneScope ?? 'DAY',
         }),
         signal: AbortSignal.timeout(45_000),
@@ -1654,6 +1715,130 @@ function renderIntraMonthBreakdownLines(
     }
   }
   return lines;
+}
+
+// ============================================================
+// Phase 3.5c L3.5c — YEAR-scope deterministic injector
+// ============================================================
+// Mirror of `interpolateFortuneMonthlyFields` (MONTH scope) scaled to YEAR
+// semantics. Reads `ctx.yearlyFortune` (camelCase sibling per glossary — the
+// Python engine emits this; DO NOT confuse with AI narrative key `yearly_*`
+// snake_case).
+//
+// Surfaces (so the chat AI quotes verbatim — anti-hallucination):
+//   1. flowYear 干支 + overall 吉凶 + energy score.
+//   2. 4-dim ★ trends (career/finance/romance/health — NO travel;
+//      感情=romance NOT 人際關係) — score / label / stars.
+//   3. coreRiskOpportunity — the named 機會 + 風險 months with dim attribution.
+//      LOAD-BEARING: the AI must cite these exact months for «今年哪幾個月最值得
+//      把握?» — without the injector it would fabricate months.
+//   4. luckMethods (改運建議) cards — titles + 用神 flavor.
+//
+// Mirrors Phase 12g.6 Gap 2 deterministic-injection pattern. Returns null when
+// `yearlyFortune` absent.
+export function interpolateFortuneYearlyFields(ctx: ChatContext): string | null {
+  const yearly = ctx.yearlyFortune as Record<string, unknown> | undefined;
+  if (!yearly) return null;
+
+  const yearGanZhi = yearly.yearGanZhi as string | undefined;
+  if (!yearGanZhi) return null;
+
+  const lines: string[] = [];
+
+  // 1. Year-level overview
+  const yearTenGod = yearly.yearTenGod as string | undefined;
+  const auspiciousness = yearly.auspiciousness as string | undefined;
+  const energyScore = yearly.energyScore as number | undefined;
+  lines.push(
+    `• [流年] 今年 ${yearGanZhi}年（${yearTenGod ?? '?'}）— 整體 ${auspiciousness ?? '?'}` +
+      (typeof energyScore === 'number' ? `（能量指數 ${energyScore}）` : ''),
+  );
+
+  // 2. 4-dim ★ trends
+  const dims = yearly.dimensions as Record<string, unknown> | undefined;
+  const DIM_LABELS_YEAR: Record<string, string> = {
+    career: '事業',
+    finance: '財運',
+    romance: '感情',
+    health: '健康',
+  };
+  if (dims && typeof dims === 'object') {
+    for (const [dimKey, dimLabel] of Object.entries(DIM_LABELS_YEAR)) {
+      const dim = dims[dimKey] as Record<string, unknown> | undefined;
+      if (!dim) continue;
+      const stars = typeof dim.stars === 'number' ? dim.stars : undefined;
+      const starStr =
+        typeof stars === 'number'
+          ? '★'.repeat(stars) + '☆'.repeat(Math.max(0, 5 - stars))
+          : '';
+      const label = (dim.labelZh as string | undefined) ?? dimLabel;
+      const verdict = (dim.label as string | undefined) ?? '';
+      lines.push(`• [${label}] ${starStr}${verdict ? `（${verdict}）` : ''}`);
+    }
+  }
+
+  // 3. coreRiskOpportunity — named 機會 + 風險 months (LOAD-BEARING).
+  const cro = yearly.coreRiskOpportunity as
+    | {
+        opportunities?: Array<{ monthLabel?: string; dimZh?: string; auspiciousness?: string }>;
+        risks?: Array<{ monthLabel?: string; dimZh?: string; auspiciousness?: string }>;
+        flatYear?: boolean;
+      }
+    | undefined;
+  if (cro) {
+    if (cro.flatYear) {
+      lines.push(`• [核心機會&風險] 今年運勢平穩，無顯著起伏月份`);
+    } else {
+      const opps = Array.isArray(cro.opportunities) ? cro.opportunities : [];
+      const risks = Array.isArray(cro.risks) ? cro.risks : [];
+      if (opps.length > 0) {
+        const oppStr = opps
+          .map((o) => `${o.monthLabel ?? '?'}（${o.dimZh ?? '?'}，${o.auspiciousness ?? '?'}）`)
+          .join('、');
+        lines.push(`• [核心機會月份] ${oppStr}`);
+      }
+      if (risks.length > 0) {
+        const riskStr = risks
+          .map((r) => `${r.monthLabel ?? '?'}（${r.dimZh ?? '?'}，${r.auspiciousness ?? '?'}）`)
+          .join('、');
+        lines.push(`• [核心風險月份] ${riskStr}`);
+      }
+    }
+  }
+
+  // 4. luckMethods (改運建議) — card titles + 用神 flavor.
+  const lm = yearly.luckMethods as
+    | {
+        cards?: Array<{ title?: string; usefulGodElement?: string; usefulGodDirection?: string }>;
+        weakestDimZh?: string;
+      }
+    | undefined;
+  const cards = lm && Array.isArray(lm.cards) ? lm.cards : [];
+  if (cards.length > 0) {
+    const cardStr = cards
+      .slice(0, 3)
+      .map((c) => {
+        const flavor =
+          c.usefulGodElement && c.usefulGodDirection
+            ? `（用神 ${c.usefulGodElement} → ${c.usefulGodDirection}）`
+            : '';
+        return `${c.title ?? '?'}${flavor}`;
+      })
+      .join('、');
+    lines.push(
+      `• [改運建議] ${cardStr}` +
+        (lm?.weakestDimZh ? `；今年最需留意：${lm.weakestDimZh}` : ''),
+    );
+  }
+
+  if (lines.length === 0) return null;
+
+  return [
+    `📅 今年 ${yearGanZhi}年流年教義事件（必須以下列文字為主敘述，不可省略）：`,
+    ...lines,
+    `⚠️ 上述為流年趨勢，非命局定論。引用必須使用「今年宜/今年易於/今年趨向」軟觸發語氣，禁止「今年會/今年一定/今年必」。` +
+      ` 用神/喜神/忌神 為命格層級判定，不可在流年層級重新指派。核心機會/風險月份必須引用上述結構化資料，禁止虛構月份或吉日。`,
+  ].join('\n');
 }
 
 /** Render folk-content lines for chat-scope injection (Phase 1.5.z).

@@ -305,5 +305,32 @@ describe('prompts.ts — Phase Fortune blocks', () => {
       expect(love).toContain('《八字愛情姻緣》');
       expect(love).toContain('範例 L-1');
     });
+
+    // L3.5c — YEAR scope dispatch
+    it('FORTUNE+YEAR assembles the 年運 refuse template + Y-1/Y-2 few-shots', () => {
+      const prompt = buildChatV1SystemPromptForType('FORTUNE', 'YEAR');
+      expect(prompt).toContain('【跨主題拒絕模板】');
+      // YEAR refuse template cites 《八字年運》 (not 日運/月運)
+      expect(prompt).toContain('超出本《八字年運》解讀的範圍');
+      // YEAR few-shots present (NOT the DAY F-1/F-2/F-3)
+      expect(prompt).toContain('範例 Y-1');
+      expect(prompt).toContain('範例 Y-2');
+      expect(prompt).not.toContain('範例 F-1');
+      // Cross-sell lines reused
+      expect(prompt).toContain('annual →');
+    });
+
+    it('FORTUNE+YEAR refuse opener literally matches CHAT_V1_TOPIC_REFUSE_OPENING_REGEX', () => {
+      // The refuse-detection regex uses 《[^》]+》 so 《八字年運》 must match.
+      const yearRefuseOpening =
+        '謝謝您的提問。關於命格定性與終身格局的詳細分析，超出本《八字年運》解讀的範圍——這需要結合八字格局';
+      expect(CHAT_V1_TOPIC_REFUSE_OPENING_REGEX.test(yearRefuseOpening)).toBe(true);
+    });
+
+    it('FORTUNE+MONTH still routes to 月運 (no YEAR cross-contamination)', () => {
+      const month = buildChatV1SystemPromptForType('FORTUNE', 'MONTH');
+      expect(month).toContain('超出本《八字月運》解讀的範圍');
+      expect(month).not.toContain('範例 Y-1');
+    });
   });
 });

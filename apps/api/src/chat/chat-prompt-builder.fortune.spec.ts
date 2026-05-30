@@ -192,4 +192,52 @@ describe('chat-prompt-builder — Phase Fortune wiring', () => {
       expect(systemPromptText).not.toContain('【今日流日教義事件');
     });
   });
+
+  // L3.5c — interpolateFortuneYearlyFields wired into FORTUNE+YEAR prompt
+  describe('interpolateFortuneYearlyFields wired into FORTUNE+YEAR prompt (L3.5c)', () => {
+    it('emits 今年流年教義事件 block with named 核心機會 months when YEAR ctx present', () => {
+      const ctx = mkCtx({
+        yearlyFortune: {
+          yearGanZhi: '丙午',
+          yearTenGod: '偏印',
+          auspiciousness: '大吉',
+          energyScore: 88,
+          dimensions: { romance: { stars: 4, labelZh: '感情', label: '溫暖和諧' } },
+          coreRiskOpportunity: {
+            opportunities: [{ monthLabel: '9月', dimZh: '事業', auspiciousness: '大吉' }],
+            risks: [],
+            flatYear: false,
+          },
+          luckMethods: { cards: [{ title: '運勢整理法' }], weakestDimZh: '健康' },
+        },
+      });
+      const { systemPromptText } = buildPrompt({
+        chatContext: ctx,
+        recentMessages: [],
+        newUserMessage: '今年哪幾個月最值得把握？',
+        readingType: 'FORTUNE',
+        fortuneScope: 'YEAR',
+        shouldInjectRegrounding: false,
+      });
+      expect(systemPromptText).toContain('【今年流年教義事件 — 必須引用以下文字】');
+      expect(systemPromptText).toContain('丙午年流年教義事件');
+      expect(systemPromptText).toContain('9月');
+      // YEAR scope must NOT emit the DAY or MONTH headers
+      expect(systemPromptText).not.toContain('【今日流日教義事件');
+      expect(systemPromptText).not.toContain('【本月流月教義事件');
+    });
+
+    it('returns no YEAR block when yearlyFortune absent', () => {
+      const ctx = mkCtx({ dailyFortune: { dayGanZhi: '戊子' } });
+      const { systemPromptText } = buildPrompt({
+        chatContext: ctx,
+        recentMessages: [],
+        newUserMessage: 'test',
+        readingType: 'FORTUNE',
+        fortuneScope: 'YEAR',
+        shouldInjectRegrounding: false,
+      });
+      expect(systemPromptText).not.toContain('【今年流年教義事件');
+    });
+  });
 });

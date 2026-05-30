@@ -212,7 +212,7 @@ export class ChatStreamService {
     const currentVersions =
       session.readingType === 'FORTUNE' && session.fortuneScope
         ? this.contextService.getCurrentSnapshotVersionsForFortune(
-            session.fortuneScope as 'DAY' | 'MONTH',
+            session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR',
           )
         : this.contextService.getCurrentSnapshotVersions(session.readingType);
     if (
@@ -427,7 +427,7 @@ export class ChatStreamService {
           session.profileId,
           session.fortuneAnchorDate.toISOString().slice(0, 10),
           session.readingType,
-          (session.fortuneScope as 'DAY' | 'MONTH' | null) ?? 'DAY',
+          (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? 'DAY',
         );
       } else {
         // CHECK constraint should prevent this. Defensive guard.
@@ -479,7 +479,7 @@ export class ChatStreamService {
       readingType: session.readingType,
       // Phase 2.x L3.5b — for FORTUNE, dispatch refuse template + few-shots
       // by scope. DAY → 《八字日運》 + F-1/F-2/F-3; MONTH → 《八字月運》 + M-1/M-2.
-      fortuneScope: (session.fortuneScope as 'DAY' | 'MONTH' | null) ?? undefined,
+      fortuneScope: (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? undefined,
       sectionContextHint,
       shouldInjectRegrounding,
     });

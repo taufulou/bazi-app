@@ -766,6 +766,34 @@ function FortuneView() {
           />
         </>
       )}
+
+      {/* Phase 3.5c L3.5c — Mount ChatDrawer on year tab. Anchor date is
+          Jan 1 of targetYear (matches NestJS YEAR-scope normalization +
+          fortune.service's YEAR DailyFortuneSnapshot.anchorDate). YEAR scope
+          dispatches to the engine's YEAR chat-context path + Y-1/Y-2 refuse
+          few-shots + 5 seeded YEAR general sample questions. activeProfileId
+          folds in yearlyResolvedProfileId (surfaced from YearlyFortuneView's
+          engine_ready), so the drawer mounts without ?profileId= in the URL. */}
+      {tab === 'year' && activeProfileId && targetYear && (
+        <>
+          <ChatFloatingButton onClick={handleOpenChatGeneral} />
+          <ChatDrawer
+            isOpen={chatOpen}
+            onClose={handleChatDrawerClose}
+            readingType="FORTUNE"
+            fortune={{
+              profileId: activeProfileId,
+              fortuneScope: 'YEAR',
+              fortuneAnchorDate: `${targetYear}-01-01`,
+            }}
+            initialSectionContextHint={chatSectionHint}
+            pendingInitialMessage={chatPendingMessage}
+            populateOnly
+            onPendingInitialMessageConsumed={() => setChatPendingMessage(undefined)}
+            onPickGeneralQuestion={handleAskGeneral}
+          />
+        </>
+      )}
     </>
   );
 }

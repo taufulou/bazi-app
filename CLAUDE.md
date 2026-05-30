@@ -2912,9 +2912,41 @@ When the year tab first loaded, hydration errors were STILL present despite Fix 
 - Comprehensive 年運 browser test RUN + PASSED: §A render, §B curl, §C AI quality (zero banned phrases, no DM-drift, romance≠relationships), §D picker+OUT_OF_WINDOW, §H 改運建議, §I cross-sell, §J back-button, §K hydration. §G (Laopo profile switch) + §F (flatYear) = pytest-covered (fortune page has NO inline ProfileSwitcher — deferred per "ProfileSwitcher Phase 1.5").
 
 ### Deferred after Phase 3.1 (priority order)
-1. **Commit Phase 3.1** (10 uncommitted files — awaiting user "commit", do NOT auto-commit)
-2. **YEAR chat scope (L3.5c)** — mirrors DAY+MONTH chat (yearly_* sample-questions + `CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE.YEAR` + refuse templates)
+1. ✅ **Commit Phase 3.1** — DONE (commit `12b2f5b`)
+2. ✅ **YEAR chat scope (L3.5c)** — DONE + browser-verified (uncommitted as of 2026-05-30; see L3.5c section below)
 3. **Yearly calibration corpus** — `yearly_label_corpus.csv` + pytest gate (Phase 3.x)
 4. **Share PNG for year** — Phase 3.x (year layout differs from ShareableFortuneCard)
-5. **Task #60** (pre-existing): signed-out CTA on /reading/fortune
+5. **Task #60** (pre-existing): signed-out CTA on /reading/fortune (SSE hook no-ops when signed out)
+6. **L3.5c v1 deferrals**: per-dim InlineAskCard on year narrative (`renderAfterDimension` on `YearlyNarrativeCard`) + per-dim `yearly_*` sample questions; M-3-style YEAR pushback few-shot; mobile chat (web only)
+
+---
+
+## L3.5c — YEAR Chat Scope (年運 AI chat) — SHIPPED browser-verified, UNCOMMITTED → committed 2026-05-30
+
+Adds YEAR as the 3rd FORTUNE chat sub-scope (日/月/年). The «問 AI 命理師» drawer now works on the year tab, mirroring the DAY (Phase Fortune chat) + MONTH (L3.5b) paths. Plan + comprehensive test plan: `/Users/roger/.claude/plans/ok-next-big-feature-merry-cake.md` — search «# Phase 3.5c (L3.5c) — YEAR Chat Scope» (+ v2 review fixes + «Comprehensive Test Plan — L3.5c»).
+
+### What shipped (4 layers + Phase A + 6 staff-engineer review fixes)
+- **Phase A**: Bazi-master Y-1/Y-2 refuse few-shots + topic-boundary matrix (drafted by sub-agent, not a full doctrine cycle — engine doctrine already mature).
+- **Layer A (engine)** `packages/bazi-engine/app/chat_context.py`: `_slim_yearly_for_chat` + YEAR branch in `build_chat_context_fortune` + `precomputed_yearly` param; `main.py` endpoint pattern `^(DAY|MONTH|YEAR)$` + `precomputed_yearly` field. KEEPS `coreRiskOpportunity` + `luckMethods` as SIBLINGS (the injector quotes the named months verbatim). 10 new pytest (丙午/偏印 anchor, 4-dim stars, siblings, Laopo doctrine inheritance, token<14k, snapshot reuse).
+- **Layer B (NestJS)** `chat-context.service.ts`: `CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE.YEAR='v1.0.0'` + `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_YEAR='v1.1.0'` (NEW keys `pa-fort-year=`/`fort-year=`, no legacy lock — zero pre-existing YEAR sessions); 3 version helpers + `extractFortunePivotHint` YEAR branch + NEW `interpolateFortuneYearlyFields` injector + `ChatContext.yearlyFortune?` field; **3-way stale-check** vs engine-side `FORTUNE_PRE_ANALYSIS_VERSIONS.year`; `fetchChatContextFromEngineFortune` widen + `precomputed_yearly` body field. `chat.service.ts`: relaxed YEAR gate + 2 drift casts. `chat-stream.service.ts`: 1 drift cast + dispatch. `chat-prompt-builder.ts`: injector gate `else if (fortuneScope==='YEAR')` + import. `prompts.ts`: `CHAT_FORTUNE_YEAR_REFUSE_TEMPLATE` + `CHAT_FORTUNE_YEAR_REFUSE_FEW_SHOTS` (Y-1/Y-2) + 2 dispatch branches. 10 new YEAR jest in 3 fortune specs.
+- **Layer C** `prisma/migrations/20260530070821_seed_yearly_fortune_sample_questions/`: 5 GENERAL (sectionKey=NULL) YEAR questions (v1 GENERAL-only per locked decision — no per-dim InlineAskCard slots on year narrative). Applied + idempotent + Redis `chat-sample-questions:version` bumped.
+- **Layer D (frontend)** `apps/web/app/reading/fortune/page.tsx`: year-tab ChatDrawer mount (`fortuneAnchorDate=${targetYear}-01-01`; `yearlyResolvedProfileId` was pre-wired). `useChatSession.ts`: **Fix 6** — added `fortune?.fortuneScope` to 4 deps arrays (Jan-1 DAY↔YEAR closure staleness — DAY anchor `YYYY-01-01` is string-identical to YEAR anchor).
+
+### 5 AUDIT TRAPS replicated from L3.5b (all browser-verified)
+1. **3 drift-check sites** scope-aware for YEAR (chat.service ×2 + chat-stream ×1) — else `CONTEXT_VERSION_DRIFTED` on first message (the L3.5b-F bug). §C verified zero drift.
+2. **Decoupled constants** — stale-check compares against ENGINE-side `.year` (v1.1.0), NOT chat-side `FORTUNE_YEAR`. §I verified no «Stale» log.
+3. **Scope filter** on Jan-1 degenerate anchor (DAY/MONTH/YEAR all = `2026-01-01`). §D verified YEAR query returns only YEAR, no leak.
+4. **Byte-identity** — YEAR uses NEW keys; DAY's legacy `fort=v1.1.1` untouched. §H verified DB: DAY=`fort=v1.1.1`×4, MONTH=`fort-month=`, YEAR=`fort-year=`.
+5. **Injector gate** inside `if (readingType==='FORTUNE')`. §B verified AI quoted engine months verbatim.
+
+### Calibration anchor — Roger 2026 (丙午年)
+- yearGanZhi=丙午, yearTenGod=偏印, 大吉, energyScore=88, 用神=火; 4 dims ★4; 核心機會 9月(事業)/3月(財運)/5月(健康) 大吉, 風險 1月/2月/10月 凶中有吉; luck 運勢整理法/社交磁場法/養生調息法; pivot hint «丙午年（大吉，88分）».
+- YEAR chat session stamp: `contextVersion=v1.0.0`, `…|fort-year=v1.1.0`, anchor `2026-01-01`.
+- Laopo 用神=水→北方 (vs Roger 火→南方) — per-chart dispatch verified §F.
+
+### Tests: engine 24 pytest (10 YEAR) / API 373 jest (105 FORTUNE incl. 10 YEAR + 5 prompts/builder) / web 125 RTL / tsc 0-new-errors. Live browser §A–§M ALL PASS (the injector→AI anti-hallucination + Y-2 hybrid cite-year-first both confirmed).
+
+### Deploy notes (operator)
+- Version bumps are ADDITIVE (NEW `FORTUNE_YEAR`/`pa-fort-year=` keys) — zero blast radius on existing DAY/MONTH chat sessions (active-scope-only emission). NO engine version bump (reuses `FORTUNE_YEARLY_PRE_ANALYSIS_VERSION=v1.1.0`). NO schema migration (only the seed).
+- `prisma migrate deploy` (applies the seed) → `redis-cli INCR 'chat-sample-questions:version'` (raw-SQL gotcha) → scoped `redis-cli --scan --pattern "chat-context-fortune:*:YEAR:*" | xargs redis-cli DEL`.
 

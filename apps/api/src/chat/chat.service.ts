@@ -216,11 +216,15 @@ export class ChatService {
       if (profile.userId !== user.id) {
         throw new ForbiddenException('Birth profile not owned by this user');
       }
-      // Phase 2.x L3.5b — DAY + MONTH supported. YEAR is Phase 3 deferred.
-      if (fortune!.fortuneScope !== 'DAY' && fortune!.fortuneScope !== 'MONTH') {
+      // Phase 3.5c L3.5c — DAY + MONTH + YEAR all supported.
+      if (
+        fortune!.fortuneScope !== 'DAY' &&
+        fortune!.fortuneScope !== 'MONTH' &&
+        fortune!.fortuneScope !== 'YEAR'
+      ) {
         throw new BadRequestException({
           code: 'FORTUNE_SCOPE_NOT_SUPPORTED',
-          message: `FORTUNE chat supports DAY and MONTH scope; YEAR is Phase 3 deferred (got: ${fortune!.fortuneScope}).`,
+          message: `FORTUNE chat supports DAY, MONTH, and YEAR scope (got: ${fortune!.fortuneScope}).`,
         });
       }
       resolvedReadingType = 'FORTUNE';
@@ -241,7 +245,7 @@ export class ChatService {
     const versions =
       hasFortune
         ? this.contextService.getCurrentSnapshotVersionsForFortune(
-            fortune!.fortuneScope as 'DAY' | 'MONTH',
+            fortune!.fortuneScope as 'DAY' | 'MONTH' | 'YEAR',
           )
         : this.contextService.getCurrentSnapshotVersions(resolvedReadingType);
 
@@ -547,7 +551,7 @@ export class ChatService {
       const currentVersions =
         session.readingType === 'FORTUNE' && session.fortuneScope
           ? this.contextService.getCurrentSnapshotVersionsForFortune(
-              session.fortuneScope as 'DAY' | 'MONTH',
+              session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR',
             )
           : this.contextService.getCurrentSnapshotVersions(session.readingType);
       if (
@@ -624,7 +628,7 @@ export class ChatService {
     const currentVersions =
       session.readingType === 'FORTUNE' && session.fortuneScope
         ? this.contextService.getCurrentSnapshotVersionsForFortune(
-            session.fortuneScope as 'DAY' | 'MONTH',
+            session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR',
           )
         : this.contextService.getCurrentSnapshotVersions(session.readingType);
     if (
@@ -743,7 +747,7 @@ export class ChatService {
           session.profileId,
           session.fortuneAnchorDate.toISOString().slice(0, 10),
           session.readingType,
-          (session.fortuneScope as 'DAY' | 'MONTH' | null) ?? 'DAY',
+          (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? 'DAY',
         );
       } else {
         throw new Error(
@@ -801,7 +805,7 @@ export class ChatService {
         // Phase 2.x L3.5b — for FORTUNE, dispatch by scope (DAY vs MONTH)
         // so the right refuse template + few-shots assemble. Non-FORTUNE
         // sessions: scope is ignored downstream.
-        fortuneScope: (session.fortuneScope as 'DAY' | 'MONTH' | null) ?? undefined,
+        fortuneScope: (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? undefined,
         sectionContextHint,
         shouldInjectRegrounding,
       });

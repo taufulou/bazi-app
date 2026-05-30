@@ -4356,6 +4356,57 @@ export const CHAT_FORTUNE_MONTH_REFUSE_FEW_SHOTS = `\
 備註：若問題完全沒有本月切點（「明年我會升職嗎？」），則改走 M-1 風格的純 refuse + cross-sell ANNUAL，不需 cite 本月。M-2「先 cite 本月」只適用於問題含「今年／這幾個月／最近」等與本月時間軸重疊的措辭。若問題鎖定「下個月／下下個月」等 in-window MONTH topic，AI 必須優先 redirect（per FORTUNE_V1_PROMPTS.monthly Clause 7）：「{該月份}的詳細解讀建議切換到{該月份}的月運頁面查看——點上方日期切換器即可。本月（{current_anchor}）我可以告訴您…」+ cite current-month signals.`;
 
 /**
+ * Phase 3.5c L3.5c — YEAR-scope refuse template for FORTUNE chat. Mirror of
+ * the MONTH template scaled to 年運. Refuse opener cites 《八字年運》 (not
+ * 《八字日運》/《八字月運》) so CHAT_V1_TOPIC_REFUSE_OPENING_REGEX (which uses
+ * 《[^》]+》) correctly counts YEAR refuses too. Dispatched at
+ * `buildChatV1SystemPromptForType` when `fortuneScope === 'YEAR'`.
+ */
+export const CHAT_FORTUNE_YEAR_REFUSE_TEMPLATE = `若用戶問題超出本年範疇（命格、終身大運序列、逐月細節、當年沖刑害全解、配偶結構等），以親切的語氣回應，遵循以下結構：
+
+「謝謝您的提問。關於[該領域]的詳細分析，超出本《八字年運》解讀的範圍——這需要結合命局其他面向的專業分析。{crossSellTarget}
+
+回到您今年的年運解讀——根據您今年命盤資料，{crossSellPivotHint}。您想了解這個訊號今年該如何把握嗎？」
+
+不要：
+- 用冷淡、命令式語氣（「此對話僅限...」「無法回答」）
+- 給出該領域的具體答案（即使 chat-context 合併資料中含 lifetime/love/career/annual 欄位，資料完整 ≠ 範疇內）
+- 強硬地拒絕，沒有 pivot back to 今年訊號
+
+規則：refuse 開場固定格式「關於 X 的詳細分析，超出本《八字年運》解讀的範圍——」中間不可插入其他子句（伺服端的 refuse 偵測會找這個確切結構）。
+
+hybrid refuse 特殊規則（load-bearing — Y-2 範例）：當用戶問題部分包含今年時間軸（如「我今年6月適合結婚嗎？」中「今年」涵蓋本年）→ 先 cite 今年具體訊號（年柱干支 + 十神 + 4-dim ★ 評分 + 核心機會/風險月份），再切換到 refuse 措辭，最後 cross-sell ANNUAL。順序顛倒違反 hybrid 設計。
+
+逐月 redirect 規則：若問題鎖定「某月／某幾個月的逐月深度」（如「我6月運勢如何」「上半年vs下半年逐月起伏」），年運只能 cite「該月是否為核心機會/風險月 + 該維度趨勢」概覽，逐月細批與沖刑害全解屬 ANNUAL——優先 cross-sell《八字流年運勢》，並可提示：「想看逐月細節，《八字流年運勢》提供 12 個月詳細預測。」`;
+
+/**
+ * Phase 3.5c L3.5c — FORTUNE YEAR chat refuse few-shots (2 scenarios, mirror
+ * M-1/M-2). Y-1 pure chart-level refuse → LIFETIME; Y-2 hybrid cite-this-year-
+ * first → ANNUAL (per-month detail). M-3-style pushback deferred per the MONTH
+ * precedent. In-topic citations use the Roger 2026 丙午年 calibration anchor
+ * (大吉, energyScore=88, 用神=火, 感情 ★★★★☆ 溫暖和諧, 核心機會月 9月/3月/5月).
+ * Refuse openings literally match CHAT_V1_TOPIC_REFUSE_OPENING_REGEX.
+ */
+export const CHAT_FORTUNE_YEAR_REFUSE_FEW_SHOTS = `\
+範例 Y-1（FORTUNE-YEAR chat — 簡單跨主題拒絕：問終身命格）：
+用戶問：「我命格如何？我是什麼命？」
+助理回：「謝謝您的提問。關於命格定性與終身格局的詳細分析，超出本《八字年運》解讀的範圍——這需要結合八字格局、十神結構、大運序列等專業命局分析。想了解整體命格、大運序列與一生趨勢，《八字終身運》提供完整解讀。
+
+回到您今年的年運解讀——根據您今年命盤資料，{crossSellPivotHint}。您想了解這個訊號今年該如何把握嗎？」
+要點：1) 親切致謝開頭符合 refuse regex；2) 確認越界範疇（命格 vs 今年訊號）；3) cross-sell 終身運一句；4) pivot back 用 {crossSellPivotHint}（伺服端會替換為今年具體訊號，如「今年丙午年偏印當令、整體大吉、能量指數 88」）；5) 絕對不答任何命格定性、十神格局、大運序列細節；6) 即使本對話資料中含 lifetime pre-analysis 欄位，仍不可越界——資料完整 ≠ 範疇內；7) 使用「今年宜／今年易於／今年趨向」soft-trigger phrasing，禁止「今年會／今年一定／今年必」。
+
+範例 Y-2（FORTUNE-YEAR chat — 部分相關拒絕：問特定月份婚期，先 cite 今年再拒絕）：
+⚠️ load-bearing case — 「我今年6月適合結婚嗎？」 PARTLY in-topic（今年感情趨勢、6月是否為核心機會月可答）但「特定月份婚期吉日推算」屬 ANNUAL 逐月細批範疇。正確處理順序：先 cite 今年感情 dim 趨勢 + 6月是否在核心機會月份，再 cross-sell ANNUAL。順序顛倒會冷淡。
+
+用戶問：「我今年6月適合結婚嗎？」
+助理回：「就今年感情面的訊號我可以先告訴您：根據您今年命盤，丙午年偏印當令，感情 dim 落在 ★★★★☆（溫暖和諧）——今年整體大吉（能量指數 88），用神火當旺，感情層面今年趨向溫暖順遂、易於穩定推進關係。今年的核心機會月份為 9月、3月、5月，6月雖未列入最頂尖的機會月，但落在感情 dim 順遂的整體基調內，今年宜把握上述幾個能量高點推進重要關係。
+
+不過「6月適合結婚嗎」這類特定月份的婚期吉日推算，需要逐月細批，超出本《八字年運》解讀的範圍——這需要結合每月流月干支、當月沖刑害動態與擇日的完整分析。想看逐月細節與當年沖刑害動態，《八字流年運勢》提供 12 個月詳細預測。」
+要點：1) 先答今年（cite 丙午年、偏印、感情 dim ★★★★☆、energyScore 88、用神火、核心機會月份 9月/3月/5月）— hybrid refuse 的核心；2) 誠實說明 6月相對於核心機會月份的位置（不虛構 6月是頂尖機會月）；3) 再切換 refuse 措辭「不過...超出本《八字年運》解讀的範圍」（refuse 開頭仍符合 regex）；4) cross-sell ANNUAL；5) 不再 pivot back（已 cite 過今年訊號）；6) 引用今年訊號必須來自結構化資料（核心機會/風險月份必須來自 coreRiskOpportunity 結構化欄位，禁止 AI 自行虛構吉日或月份）；7) 使用 soft-trigger phrasing（「今年趨向」「今年宜」「今年易於」），禁止「今年會結婚」「6月一定吉」。
+
+備註：若問題完全沒有今年切點（「我命中註定的正緣長什麼樣？」），則改走 Y-1 風格的純 refuse + cross-sell（配偶長相 →《八字愛情姻緣》）。Y-2「先 cite 今年」只適用於問題含「今年／這幾個月／某月」等與本年時間軸重疊、且本年資料能部分回答的措辭。`;
+
+/**
  * Build the production chat system prompt header for a specific reading
  * type. Phase 2 (round-1 + round-3 polish):
  * - Phase 1's CHAT_V1_FEW_SHOTS (11 generic) are always included
@@ -4371,10 +4422,10 @@ export const CHAT_FORTUNE_MONTH_REFUSE_FEW_SHOTS = `\
  */
 export function buildChatV1SystemPromptForType(
   readingType: 'LIFETIME' | 'LOVE' | 'CAREER' | 'ANNUAL' | 'COMPATIBILITY' | 'FORTUNE',
-  /** Phase 2.x L3.5b — for FORTUNE, dispatch refuse template + few-shots by
-   *  scope. DAY (default) uses CHAT_FORTUNE_REFUSE_FEW_SHOTS;
-   *  MONTH uses CHAT_FORTUNE_MONTH_REFUSE_FEW_SHOTS + corresponding template. */
-  fortuneScope: 'DAY' | 'MONTH' = 'DAY',
+  /** For FORTUNE, dispatch refuse template + few-shots by scope. DAY (default)
+   *  uses CHAT_FORTUNE_REFUSE_FEW_SHOTS; MONTH uses CHAT_FORTUNE_MONTH_*;
+   *  YEAR (Phase 3.5c) uses CHAT_FORTUNE_YEAR_*. */
+  fortuneScope: 'DAY' | 'MONTH' | 'YEAR' = 'DAY',
 ): string {
   const sections = [
     CHAT_V1_PERSONA,
@@ -4405,7 +4456,9 @@ export function buildChatV1SystemPromptForType(
   const refuseTemplate =
     readingType === 'FORTUNE' && fortuneScope === 'MONTH'
       ? CHAT_FORTUNE_MONTH_REFUSE_TEMPLATE
-      : CHAT_REFUSE_TEMPLATE_BY_READING_TYPE[readingType];
+      : readingType === 'FORTUNE' && fortuneScope === 'YEAR'
+        ? CHAT_FORTUNE_YEAR_REFUSE_TEMPLATE
+        : CHAT_REFUSE_TEMPLATE_BY_READING_TYPE[readingType];
   if (refuseTemplate) {
     sections.push('', '【跨主題拒絕模板】', refuseTemplate);
     // Cross-sell line index — AI selects based on question topic.
@@ -4424,7 +4477,9 @@ export function buildChatV1SystemPromptForType(
   const refuseFewShots =
     readingType === 'FORTUNE' && fortuneScope === 'MONTH'
       ? CHAT_FORTUNE_MONTH_REFUSE_FEW_SHOTS
-      : REFUSE_FEW_SHOTS_BY_READING_TYPE[readingType];
+      : readingType === 'FORTUNE' && fortuneScope === 'YEAR'
+        ? CHAT_FORTUNE_YEAR_REFUSE_FEW_SHOTS
+        : REFUSE_FEW_SHOTS_BY_READING_TYPE[readingType];
   if (refuseFewShots) {
     sections.push('', '【跨主題拒絕範例】', refuseFewShots);
   }
