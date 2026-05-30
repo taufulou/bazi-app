@@ -2977,3 +2977,23 @@ Regenerated the affected MONTH narratives against v1.2.0 → **Grader B 4/4 PASS
 ### Residual / follow-ups (not blocking)
 - The A2 sample had 3 empty/pre-existing rows (engine-only, no prose) — a fully-rigorous future run would regenerate those too. Substantive coverage (all real-prose rows passing) is strong enough to call narration ship-quality.
 - **Yearly calibration corpus** (`yearly_label_corpus.csv` + pytest gate) still deferred — DAY+MONTH have label-agreement corpora; YEAR doesn't. Separate Phase 3.x task.
+
+---
+
+## Yearly calibration corpus — SHIPPED 2026-05-30 (Phase 3.x follow-up)
+
+Closes the YEAR gap: DAY (Phase 1.5.z, 60 rows) + MONTH (Phase 2.x.1, 24 rows) had label-agreement corpora; YEAR didn't. Now the year-level 吉凶 aggregation has a regression net.
+
+**What it is**: a frozen CSV of engine-vs-expert label agreement + a pytest gate. NOT the A2 gate (that grades AI *prose*) — this grades the *engine's 9-label verdict*.
+
+**Corpus**: `tests/validation/yearly_label_corpus.csv` — 21 rows = 3 charts (roger 用神火/中和, laopo 用神水/偏弱, jenna 2021-child 用神水) × 7 flow years 2024-2030. Sweeps 用神-favorable years (丙午/丁未 for roger) AND 用神-adverse (庚戌/戊申) so the verdict swings 大吉↔大凶 across the range. Engine spread: 凶×5/吉×5/平×5/大凶×4/大吉×2.
+
+**Tooling** (mirrors monthly 1:1): `build_yearly_label_corpus.py` (engine populator, idempotent, preserves expert cols) + `populate_yearly_label_corpus.py` (grading merger) + `run_yearly_label_validation.py` (strict + relaxed gate harness, 9-label ladder within-N-step) + `test_yearly_label_corpus_regression.py` (pytest hook, `RELAXED_GATE_PCT = 55.0`).
+
+**Baseline (2026-05-30, first cycle, Bazi-master sub-agent graded all 21)**:
+- STRICT 33.3% (6/18 exact, 3 doctrinal-splits excluded)
+- RELAXED 61.9% (13/21 within 1 ladder step) — gate locked at 55% (~7pp headroom)
+
+**⚠️ Engine bias finding** (the WHOLE POINT of building it — caught a real, documented limitation): YEAR `auspiciousness` derives from `flowYear.auspiciousness` (annual pipeline). The grader found the engine's sign/DIRECTION is unreliable — it anchors on 流年天干 十神 THEME polarity (官殺→凶, 比劫/食傷→吉) rather than the doctrinally-primary 流年干支-vs-用神 五行 ALIGNMENT. For roger (用神火) it INVERTS 木火 years (scored 乙巳/甲辰 凶, but 木生火用神 → should be 吉) vs 金 years (scored 戊申/己酉 吉, but 金洩火克木 → adverse). The two 水-用神 charts get over-harsh 大凶 on 火 years where 凶中有吉 is correct. Magnitude ladder tracks OK (roger 丙午/丁未=大吉 ✓, laopo 庚戌=凶 ✓); direction drifts on 8/21 rows. → **Phase 3.x.2 engine-tuning candidate** (yearly equivalent of daily Option 2.5 / monthly 平-bias refinement): re-weight 流年 scoring toward 用神 五行 alignment over 十神 theme. After tuning, bump gate 55→70→80.
+
+**No deploy impact** — test infrastructure only (Python/pytest), never reaches prod.
