@@ -252,8 +252,13 @@ export type FortuneMonthlyStreamEvent =
     }
   | { type: 'error'; code: string; message: string };
 
-/** Umbrella union for both scopes (R3 polish — single hook signature). */
-export type FortuneStreamEvent = FortuneDailyStreamEvent | FortuneMonthlyStreamEvent;
+/** Umbrella union for all scopes (R3 polish — single hook signature).
+ *  Phase 3 adds FortuneYearlyStreamEvent (defined below near the YEARLY
+ *  section). Forward reference is fine — TS hoists type aliases. */
+export type FortuneStreamEvent =
+  | FortuneDailyStreamEvent
+  | FortuneMonthlyStreamEvent
+  | FortuneYearlyStreamEvent;
 
 interface StreamOpts {
   token: string;
