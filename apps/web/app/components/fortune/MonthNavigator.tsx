@@ -27,7 +27,7 @@
 import * as React from 'react';
 import DatePicker from 'react-datepicker';
 import { parse, format, isValid } from 'date-fns';
-import { ChevronLeft, ChevronRight, Lock, Calendar } from 'lucide-react';
+import { ChevronDown, Lock, Calendar } from 'lucide-react';
 import '../../lib/date-locale';
 import 'react-datepicker/dist/react-datepicker.css';
 import {
@@ -89,17 +89,6 @@ export default function MonthNavigator({
   // Mirror DateNavigator Scenario H tier-loading placeholder pattern
   const isFree = !isTierLoading && (tier === undefined || tier === 'FREE');
 
-  const prevIso = addMonthsIso(value, -1);
-  const nextIso = addMonthsIso(value, 1);
-  const canGoPrev =
-    !isTierLoading &&
-    !isFree &&
-    isMonthInSubscriberWindow(prevIso, currentMonthIso, tier);
-  const canGoNext =
-    !isTierLoading &&
-    !isFree &&
-    isMonthInSubscriberWindow(nextIso, currentMonthIso, tier);
-
   // Close picker on outside click + Escape
   React.useEffect(() => {
     if (!isPickerOpen) return;
@@ -122,28 +111,8 @@ export default function MonthNavigator({
     };
   }, [isPickerOpen]);
 
-  const handlePrev = () => {
-    if (isTierLoading) return;
-    if (isFree) {
-      onLockedAttempt?.();
-      return;
-    }
-    if (!canGoPrev || isLoading) return;
-    onChange(prevIso);
-  };
-
-  const handleNext = () => {
-    if (isTierLoading) return;
-    if (isFree) {
-      onLockedAttempt?.();
-      return;
-    }
-    if (!canGoNext || isLoading) return;
-    onChange(nextIso);
-  };
-
   const handleLabelClick = () => {
-    if (isTierLoading) return;
+    if (isTierLoading || isLoading) return;
     if (isFree) {
       onLockedAttempt?.();
       return;
@@ -177,55 +146,16 @@ export default function MonthNavigator({
   else if (offset > 0) offsetBadge = `+${offset} 月`;
   else offsetBadge = `${offset} 月`;
 
-  // Mirror DateNavigator arrow icon dispatch
-  const prevIcon = isTierLoading ? (
-    <ChevronLeft size={18} strokeWidth={2} aria-hidden="true" />
-  ) : isFree ? (
-    <Lock size={14} strokeWidth={2} aria-hidden="true" />
-  ) : (
-    <ChevronLeft size={18} strokeWidth={2} aria-hidden="true" />
-  );
-  const nextIcon = isTierLoading ? (
-    <ChevronRight size={18} strokeWidth={2} aria-hidden="true" />
-  ) : isFree ? (
-    <Lock size={14} strokeWidth={2} aria-hidden="true" />
-  ) : (
-    <ChevronRight size={18} strokeWidth={2} aria-hidden="true" />
-  );
-
-  const arrowState = isTierLoading ? 'loading' : isFree ? 'locked' : 'active';
-
-  // Boundary state tooltips (subscriber + at edge) — for non-loading,
-  // non-free subscriber at the very edge of the allowed window
-  const prevTooltip =
-    !isFree && !isTierLoading && !canGoPrev
-      ? '已達訂閱可查最早月份（上個月）'
-      : undefined;
-  const nextTooltip =
-    !isFree && !isTierLoading && !canGoNext
-      ? '已達訂閱可查最遠月份（+12 個月）'
-      : undefined;
+  const labelState = isTierLoading ? 'loading' : isFree ? 'locked' : 'active';
+  const hint = isFree ? '訂閱後可選擇其他月份' : '點擊選擇月份';
 
   return (
     <div
       ref={containerRef}
       className={styles.container}
       data-locked={isFree ? 'true' : 'false'}
-      data-state={arrowState}
+      data-state={labelState}
     >
-      <button
-        type="button"
-        className={styles.arrow}
-        onClick={handlePrev}
-        disabled={isTierLoading || (!isFree && (!canGoPrev || isLoading))}
-        aria-disabled={isTierLoading || (!isFree && !canGoPrev)}
-        aria-label="上個月"
-        title={prevTooltip}
-        data-state={arrowState}
-      >
-        {prevIcon}
-      </button>
-
       <button
         type="button"
         className={styles.dateLabel}
@@ -233,7 +163,7 @@ export default function MonthNavigator({
         aria-haspopup="dialog"
         aria-expanded={isPickerOpen}
         disabled={isTierLoading}
-        data-state={arrowState}
+        data-state={labelState}
       >
         <Calendar
           size={14}
@@ -243,20 +173,20 @@ export default function MonthNavigator({
         />
         <span className={styles.dateText}>{formatChineseMonth(value)}</span>
         {offsetBadge && <span className={styles.offsetBadge}>{offsetBadge}</span>}
+        {isFree && !isTierLoading ? (
+          <Lock size={13} strokeWidth={2} aria-hidden="true" className={styles.chevron} />
+        ) : (
+          <ChevronDown
+            size={14}
+            strokeWidth={2.5}
+            aria-hidden="true"
+            className={styles.chevron}
+            data-open={isPickerOpen ? 'true' : 'false'}
+          />
+        )}
       </button>
 
-      <button
-        type="button"
-        className={styles.arrow}
-        onClick={handleNext}
-        disabled={isTierLoading || (!isFree && (!canGoNext || isLoading))}
-        aria-disabled={isTierLoading || (!isFree && !canGoNext)}
-        aria-label="下個月"
-        title={nextTooltip}
-        data-state={arrowState}
-      >
-        {nextIcon}
-      </button>
+      {!isTierLoading && <span className={styles.hint}>{hint}</span>}
 
       {isPickerOpen && !isFree && !isTierLoading && (
         <div className={styles.pickerWrapper}>

@@ -1,26 +1,24 @@
 'use client';
 
 /**
- * DateNavigator — prev/next arrows + tappable date label opening a
- * react-datepicker popover. Subscriber-aware: subscribers can browse the
- * [-1, +30] day window; free users see arrows but a click fires
- * `onLockedAttempt` so the parent can pop the upgrade modal.
+ * DateNavigator — tappable date chip opening a react-datepicker popover.
  *
- * Mount location: between `<header>` and `<subHeader>` of FortuneShell as
- * an opaque ReactNode slot. Shell does NOT know about auth or tier — only
- * this component does.
+ * Phase 3.1: prev/next ARROWS REMOVED. Each arrow click used to fire a fresh
+ * AI generation (real Anthropic cost, no debounce); users who didn't realize
+ * the chip was clickable hammered arrows. Now the date chip is the SOLE
+ * interaction — a chevron-down ▾ + «點擊選擇日期» hint signal it opens a picker.
+ * Picker selection fires exactly ONE deliberate fetch.
  *
- * "Today" must be derived from `resolveBaziToday()` (23:00 子時 boundary)
- * and passed in as `todayBaziIso`. Using local `new Date()` would produce
- * off-by-one fetches for users at 23:00-23:59.
+ * Subscriber-aware: subscribers browse the [-1, +30] day window; free users'
+ * chip click fires `onLockedAttempt` (upgrade modal).
  *
- * z-index 60 popper wrapper sits above the sticky header (50) and below
- * any modal (1000).
+ * "Today" must be derived from `resolveBaziToday()` (23:00 子時 boundary) and
+ * passed in as `todayBaziIso`.
  */
 import * as React from 'react';
 import DatePicker from 'react-datepicker';
 import { parse, format, isValid } from 'date-fns';
-import { ChevronLeft, ChevronRight, Lock, Calendar } from 'lucide-react';
+import { ChevronDown, Lock, Calendar } from 'lucide-react';
 // Shared locale registration (same module DatePickerInput uses).
 import '../../lib/date-locale';
 import 'react-datepicker/dist/react-datepicker.css';
@@ -41,15 +39,13 @@ interface DateNavigatorProps {
   todayBaziIso: string;
   /** User's subscription tier; `undefined` while loading → treat as FREE */
   tier: UserTier | undefined;
-  /** True while `useUserTier` fetch is in-flight. When true, arrows render
-   *  in a neutral disabled placeholder (no lock icon, no chevron) to avoid
-   *  briefly showing locked arrows to actual subscribers (audit Scenario H). */
+  /** True while `useUserTier` fetch is in-flight — neutral placeholder. */
   isTierLoading?: boolean;
   /** Fires when navigation is allowed and user picks a new date */
   onChange: (nextIso: string) => void;
-  /** Fires when a FREE user clicks any nav control — parent opens upgrade modal */
+  /** Fires when a FREE user clicks the chip — parent opens upgrade modal */
   onLockedAttempt?: () => void;
-  /** Disables both arrows while fortune fetch is in-flight */
+  /** Disables the chip while fortune fetch is in-flight */
   isLoading?: boolean;
 }
 
@@ -80,23 +76,9 @@ export default function DateNavigator({
   const [isPickerOpen, setIsPickerOpen] = React.useState(false);
   const containerRef = React.useRef<HTMLDivElement>(null);
 
-  // Audit Scenario H fix: while tier is still resolving, render arrows in a
-  // neutral disabled placeholder state — no lock icon, no chevron — so
-  // subscribers don't briefly see locked arrows during the ~100ms tier fetch.
-  // Once tier resolves, transition cleanly to either Lock (FREE) or Chevron
-  // (subscriber). For subscribers this is placeholder → chevron (invisible);
-  // for free users it's placeholder → lock (one transition, no false promise).
   const isFree = !isTierLoading && (tier === undefined || tier === 'FREE');
 
-  // Compute prev/next eligibility for subscribers
-  const prevIso = addDaysIso(value, -1);
-  const nextIso = addDaysIso(value, 1);
-  const canGoPrev =
-    !isTierLoading && !isFree && isDateInSubscriberWindow(prevIso, todayBaziIso, tier);
-  const canGoNext =
-    !isTierLoading && !isFree && isDateInSubscriberWindow(nextIso, todayBaziIso, tier);
-
-  // Close picker on outside click
+  // Close picker on outside click + Escape
   React.useEffect(() => {
     if (!isPickerOpen) return;
     const handleClick = (e: MouseEvent) => {
@@ -115,28 +97,8 @@ export default function DateNavigator({
     };
   }, [isPickerOpen]);
 
-  const handlePrev = () => {
-    if (isTierLoading) return; // placeholder state — no interaction
-    if (isFree) {
-      onLockedAttempt?.();
-      return;
-    }
-    if (!canGoPrev || isLoading) return;
-    onChange(prevIso);
-  };
-
-  const handleNext = () => {
-    if (isTierLoading) return;
-    if (isFree) {
-      onLockedAttempt?.();
-      return;
-    }
-    if (!canGoNext || isLoading) return;
-    onChange(nextIso);
-  };
-
   const handleLabelClick = () => {
-    if (isTierLoading) return;
+    if (isTierLoading || isLoading) return;
     if (isFree) {
       onLockedAttempt?.();
       return;
@@ -166,45 +128,16 @@ export default function DateNavigator({
   else if (offset > 0) offsetBadge = `+${offset} 天`;
   else offsetBadge = `${offset} 天`;
 
-  // Arrow icon selection: placeholder during tier load, Lock for FREE, Chevron for subscribers
-  const prevIcon = isTierLoading ? (
-    <ChevronLeft size={18} strokeWidth={2} aria-hidden="true" />
-  ) : isFree ? (
-    <Lock size={14} strokeWidth={2} aria-hidden="true" />
-  ) : (
-    <ChevronLeft size={18} strokeWidth={2} aria-hidden="true" />
-  );
-  const nextIcon = isTierLoading ? (
-    <ChevronRight size={18} strokeWidth={2} aria-hidden="true" />
-  ) : isFree ? (
-    <Lock size={14} strokeWidth={2} aria-hidden="true" />
-  ) : (
-    <ChevronRight size={18} strokeWidth={2} aria-hidden="true" />
-  );
-
-  // data-state drives styling: 'loading' → neutral placeholder; 'locked' → lock UI;
-  // 'free' (omitted) → normal interactive
-  const arrowState = isTierLoading ? 'loading' : isFree ? 'locked' : 'active';
+  const labelState = isTierLoading ? 'loading' : isFree ? 'locked' : 'active';
+  const hint = isFree ? '訂閱後可選擇其他日期' : '點擊選擇日期';
 
   return (
     <div
       ref={containerRef}
       className={styles.container}
       data-locked={isFree ? 'true' : 'false'}
-      data-state={arrowState}
+      data-state={labelState}
     >
-      <button
-        type="button"
-        className={styles.arrow}
-        onClick={handlePrev}
-        disabled={isTierLoading || (!isFree && (!canGoPrev || isLoading))}
-        aria-disabled={isTierLoading || (!isFree && !canGoPrev)}
-        aria-label="前一天"
-        data-state={arrowState}
-      >
-        {prevIcon}
-      </button>
-
       <button
         type="button"
         className={styles.dateLabel}
@@ -212,24 +145,25 @@ export default function DateNavigator({
         aria-haspopup="dialog"
         aria-expanded={isPickerOpen}
         disabled={isTierLoading}
-        data-state={arrowState}
+        data-state={labelState}
       >
         <Calendar size={14} strokeWidth={2} aria-hidden="true" className={styles.calIcon} />
         <span className={styles.dateText}>{formatChinese(value)}</span>
         {offsetBadge && <span className={styles.offsetBadge}>{offsetBadge}</span>}
+        {isFree && !isTierLoading ? (
+          <Lock size={13} strokeWidth={2} aria-hidden="true" className={styles.chevron} />
+        ) : (
+          <ChevronDown
+            size={14}
+            strokeWidth={2.5}
+            aria-hidden="true"
+            className={styles.chevron}
+            data-open={isPickerOpen ? 'true' : 'false'}
+          />
+        )}
       </button>
 
-      <button
-        type="button"
-        className={styles.arrow}
-        onClick={handleNext}
-        disabled={isTierLoading || (!isFree && (!canGoNext || isLoading))}
-        aria-disabled={isTierLoading || (!isFree && !canGoNext)}
-        aria-label="後一天"
-        data-state={arrowState}
-      >
-        {nextIcon}
-      </button>
+      {!isTierLoading && <span className={styles.hint}>{hint}</span>}
 
       {isPickerOpen && !isFree && !isTierLoading && (
         <div className={styles.pickerWrapper}>

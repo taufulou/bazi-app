@@ -125,15 +125,15 @@ export default function MonthlyEnergyRing({
       {/* Friendly explanation (warm advisor tone — always visible) */}
       <p className={styles.friendlyExplanation}>{friendlyExplanation}</p>
 
-      {/* Always-visible micro-disclaimer with InfoTooltip for deeper context */}
-      <p className={styles.microDisclaimer}>
+      {/* micro-disclaimer — <div> (NOT <p>): InfoTooltip's <details> cannot be a <p> descendant (hydration error). */}
+      <div className={styles.microDisclaimer}>
         <span>※ 本月能量為輔助顯示 · 以「{label}」為主</span>
         <InfoTooltip ariaLabel="本月能量指數說明">
           此判定來自命理引擎 (Phase 12 doctrine + Phase 2 月運)。能量指數
           (0-100) 為衍生顯示值，僅供 UI 渲染參考；吉凶判定請以「{label}」為主。
           流月主一月之氣象 (per 三命通會 月運篇)，較流日為穩，較流年為動。
         </InfoTooltip>
-      </p>
+      </div>
     </div>
   );
 }

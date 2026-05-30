@@ -87,9 +87,9 @@ export default function FortuneShell({
       <header className={styles.header}>
         <button
           type="button"
-          onClick={() => router.back()}
+          onClick={() => router.push('/')}
           className={styles.backBtn}
-          aria-label="返回"
+          aria-label="返回首頁"
         >
           <ArrowLeft size={20} strokeWidth={2} aria-hidden="true" />
         </button>

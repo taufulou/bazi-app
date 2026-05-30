@@ -1,54 +1,55 @@
 /**
- * Tests for DateNavigator — prev/next arrows + picker. Subscriber-aware.
+ * Phase 3.1 — DateNavigator RTL spec (picker-only, arrows removed).
  *
- * Key behaviors locked:
- *   - FREE user click on arrow → fires onLockedAttempt, NOT onChange
- *   - Subscriber at +30 → next arrow aria-disabled
- *   - Subscriber at -1 → prev arrow disabled
- *   - "Today" derived from todayBaziIso prop (subject's 23:00 子時 boundary)
+ * Phase 3.1 reworked the navigator: prev/next arrows REMOVED; the date chip
+ * is the sole interaction (opens a day-picker). A chevron-down + «點擊選擇日期»
+ * hint signal it. FREE users' chip click → onLockedAttempt.
+ *
+ * "Today" derived from todayBaziIso prop (subject's 23:00 子時 boundary).
  */
+import * as React from 'react';
+import { describe, expect, it } from '@jest/globals';
 import { render, screen, fireEvent } from '@testing-library/react';
-import DateNavigator from '../app/components/fortune/DateNavigator';
 
-// Avoid pulling the heavy react-datepicker library into the test env. We're
-// testing the navigator's arrow/label logic, not the date-picker UI itself.
-jest.mock('react-datepicker', () => ({
-  __esModule: true,
-  default: () => null,
-  registerLocale: jest.fn(),
-}));
-
-// Same for the side-effect locale module — its only purpose is to register
-// react-datepicker's zh-TW locale, which is mocked above.
-jest.mock('../app/lib/date-locale', () => ({}));
-
-// Mock lucide-react icons as simple stub spans. Lucide uses forwardRef which
-// triggers a React identity mismatch in jsdom (multiple @types/react resolve
-// to different namespaces). Replacing with plain spans dodges this AND keeps
-// tests focused on the navigator's behavior, not icon rendering.
+// Mock lucide-react icons as plain spans (dual-react-types forwardRef dodge).
 jest.mock('lucide-react', () => ({
   __esModule: true,
-  ChevronLeft: () => <span data-icon="ChevronLeft" />,
-  ChevronRight: () => <span data-icon="ChevronRight" />,
+  ChevronDown: (props: Record<string, unknown>) => (
+    <span data-icon="ChevronDown" data-open={props['data-open']} />
+  ),
   Lock: () => <span data-icon="Lock" />,
   Calendar: () => <span data-icon="Calendar" />,
 }));
 
-describe('DateNavigator', () => {
+// Mock react-datepicker — stub that fires onChange with a fixed in-window date.
+jest.mock('react-datepicker', () => ({
+  __esModule: true,
+  default: (props: { onChange: (d: Date) => void }) => (
+    <button
+      type="button"
+      data-testid="mock-picker"
+      onClick={() => props.onChange(new Date(2026, 4, 19))}
+    >
+      picker
+    </button>
+  ),
+}));
+
+// Side-effect locale module — its only purpose is to register react-datepicker's
+// zh-TW locale, which is mocked above.
+jest.mock('../app/lib/date-locale', () => ({}));
+
+import DateNavigator from '../app/components/fortune/DateNavigator';
+
+describe('DateNavigator (picker-only)', () => {
   const TODAY = '2026-05-18';
 
-  // Use sentinel so the test can intentionally pass undefined for tier.
-  // Plain `?? 'PRO'` defaulting would treat undefined like an omitted key.
-  const TIER_UNSET = Symbol('tier-unset');
   function renderWith(opts: {
     value?: string;
-    tier?: 'FREE' | 'BASIC' | 'PRO' | 'MASTER' | undefined | typeof TIER_UNSET;
+    tier?: 'FREE' | 'BASIC' | 'PRO' | 'MASTER' | undefined;
     isTierLoading?: boolean;
   } = {}) {
-    const tier =
-      opts.tier === TIER_UNSET || !('tier' in opts)
-        ? ('PRO' as const)
-        : (opts.tier as 'FREE' | 'BASIC' | 'PRO' | 'MASTER' | undefined);
+    const tier = 'tier' in opts ? opts.tier : ('PRO' as const);
     const onChange = jest.fn();
     const onLockedAttempt = jest.fn();
     render(
@@ -64,131 +65,98 @@ describe('DateNavigator', () => {
     return { onChange, onLockedAttempt };
   }
 
-  it('renders prev/next arrows + a date label', () => {
+  it('renders the date label + offset badge + chevron, with NO prev/next arrows', () => {
     renderWith();
-    expect(screen.getByLabelText('前一天')).toBeInTheDocument();
-    expect(screen.getByLabelText('後一天')).toBeInTheDocument();
     expect(screen.getByText(/2026年5月18日/)).toBeInTheDocument();
+    expect(screen.getByText('今日')).toBeInTheDocument();
+    // Arrows are gone
+    expect(screen.queryByLabelText('前一天')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('後一天')).not.toBeInTheDocument();
+    // Chevron-down discoverability affordance present (subscriber)
+    expect(
+      screen.getByText((_c, el) => el?.getAttribute('data-icon') === 'ChevronDown'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the «點擊選擇日期» hint for subscribers', () => {
+    renderWith({ tier: 'PRO' });
+    expect(screen.getByText('點擊選擇日期')).toBeInTheDocument();
+  });
+
+  describe('offset badge', () => {
+    it('shows 明日 for today+1', () => {
+      renderWith({ value: '2026-05-19' });
+      expect(screen.getByText('明日')).toBeInTheDocument();
+    });
+    it('shows 昨日 for today-1', () => {
+      renderWith({ value: '2026-05-17' });
+      expect(screen.getByText('昨日')).toBeInTheDocument();
+    });
+    it('shows +N 天 for today+N', () => {
+      renderWith({ value: '2026-05-21' });
+      expect(screen.getByText('+3 天')).toBeInTheDocument();
+    });
   });
 
   describe('FREE tier', () => {
-    it('clicking next arrow fires onLockedAttempt, NOT onChange', () => {
+    it('clicking the date chip fires onLockedAttempt, NOT onChange (no picker)', () => {
       const { onChange, onLockedAttempt } = renderWith({ tier: 'FREE' });
-      fireEvent.click(screen.getByLabelText('後一天'));
+      fireEvent.click(screen.getByRole('button'));
       expect(onLockedAttempt).toHaveBeenCalledTimes(1);
       expect(onChange).not.toHaveBeenCalled();
+      // No picker opened
+      expect(screen.queryByTestId('mock-picker')).not.toBeInTheDocument();
     });
 
-    it('clicking prev arrow fires onLockedAttempt, NOT onChange', () => {
-      const { onChange, onLockedAttempt } = renderWith({ tier: 'FREE' });
-      fireEvent.click(screen.getByLabelText('前一天'));
-      expect(onLockedAttempt).toHaveBeenCalledTimes(1);
-      expect(onChange).not.toHaveBeenCalled();
-    });
-
-    it('clicking date label fires onLockedAttempt (not picker open)', () => {
-      const { onChange, onLockedAttempt } = renderWith({ tier: 'FREE' });
-      const label = screen.getByText(/2026年5月18日/).closest('button');
-      expect(label).not.toBeNull();
-      fireEvent.click(label!);
-      expect(onLockedAttempt).toHaveBeenCalledTimes(1);
-      expect(onChange).not.toHaveBeenCalled();
+    it('shows a Lock icon + «訂閱後可選擇其他日期» hint for free users', () => {
+      renderWith({ tier: 'FREE' });
+      expect(
+        screen.getByText((_c, el) => el?.getAttribute('data-icon') === 'Lock'),
+      ).toBeInTheDocument();
+      expect(screen.getByText('訂閱後可選擇其他日期')).toBeInTheDocument();
     });
 
     it('treats undefined tier as FREE for locking', () => {
       const { onChange, onLockedAttempt } = renderWith({ tier: undefined });
-      fireEvent.click(screen.getByLabelText('後一天'));
+      fireEvent.click(screen.getByRole('button'));
       expect(onLockedAttempt).toHaveBeenCalledTimes(1);
       expect(onChange).not.toHaveBeenCalled();
     });
   });
 
   describe('subscriber tier (PRO)', () => {
-    it('clicking next arrow fires onChange with +1 day', () => {
-      const { onChange, onLockedAttempt } = renderWith({ tier: 'PRO' });
-      fireEvent.click(screen.getByLabelText('後一天'));
-      expect(onChange).toHaveBeenCalledWith('2026-05-19');
-      expect(onLockedAttempt).not.toHaveBeenCalled();
+    it('clicking the date chip opens the picker (aria-expanded true)', () => {
+      renderWith({ tier: 'PRO' });
+      const chip = screen.getByRole('button');
+      expect(chip).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(chip);
+      expect(chip).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByTestId('mock-picker')).toBeInTheDocument();
     });
 
-    it('clicking prev arrow fires onChange with -1 day', () => {
+    it('selecting a date in the picker fires onChange with that date', () => {
       const { onChange } = renderWith({ tier: 'PRO' });
-      fireEvent.click(screen.getByLabelText('前一天'));
-      expect(onChange).toHaveBeenCalledWith('2026-05-17');
-    });
-
-    it('at +30 boundary, next arrow is aria-disabled', () => {
-      renderWith({ tier: 'PRO', value: '2026-06-17' }); // today + 30
-      const next = screen.getByLabelText('後一天');
-      expect(next).toBeDisabled();
-      expect(next).toHaveAttribute('aria-disabled', 'true');
-    });
-
-    it('at -1 boundary, prev arrow is aria-disabled', () => {
-      renderWith({ tier: 'PRO', value: '2026-05-17' }); // today - 1
-      const prev = screen.getByLabelText('前一天');
-      expect(prev).toBeDisabled();
-      expect(prev).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(screen.getByRole('button')); // open picker
+      fireEvent.click(screen.getByTestId('mock-picker')); // picks 2026-05-19
+      expect(onChange).toHaveBeenCalledWith('2026-05-19');
     });
   });
 
-  describe('tier loading state (audit Scenario H fix)', () => {
-    it('when tier is loading, BOTH arrows disabled regardless of underlying tier', () => {
+  describe('tier loading state', () => {
+    it('when tier is loading, the chip is disabled + shows no hint', () => {
       const { onChange, onLockedAttempt } = renderWith({
         tier: undefined,
         isTierLoading: true,
       });
-      const prev = screen.getByLabelText('前一天');
-      const next = screen.getByLabelText('後一天');
-      expect(prev).toBeDisabled();
-      expect(next).toBeDisabled();
-      // Clicking doesn't fire either callback — neutral placeholder
-      fireEvent.click(prev);
-      fireEvent.click(next);
+      const chip = screen.getByRole('button');
+      expect(chip).toBeDisabled();
+      expect(chip).toHaveAttribute('data-state', 'loading');
+      fireEvent.click(chip);
       expect(onChange).not.toHaveBeenCalled();
       expect(onLockedAttempt).not.toHaveBeenCalled();
-    });
-
-    it('when tier is loading, container is NOT marked as locked (no lock icons render)', () => {
-      renderWith({ tier: undefined, isTierLoading: true });
-      const prev = screen.getByLabelText('前一天');
-      // data-state attribute drives icon selection — 'loading' means
-      // neutral chevron (not Lock). data-locked stays false to avoid
-      // misleading lock styling.
-      expect(prev).toHaveAttribute('data-state', 'loading');
-    });
-
-    it('when tier loading then resolves to PRO, arrow click fires onChange', () => {
-      // First render — loading
-      const { rerender } = render(
-        <DateNavigator
-          value={TODAY}
-          todayBaziIso={TODAY}
-          tier={undefined}
-          isTierLoading={true}
-          onChange={jest.fn()}
-          onLockedAttempt={jest.fn()}
-        />,
-      );
-      let next = screen.getByLabelText('後一天');
-      expect(next).toBeDisabled();
-
-      // Re-render with tier resolved
-      const onChange2 = jest.fn();
-      rerender(
-        <DateNavigator
-          value={TODAY}
-          todayBaziIso={TODAY}
-          tier="PRO"
-          isTierLoading={false}
-          onChange={onChange2}
-          onLockedAttempt={jest.fn()}
-        />,
-      );
-      next = screen.getByLabelText('後一天');
-      expect(next).not.toBeDisabled();
-      fireEvent.click(next);
-      expect(onChange2).toHaveBeenCalledWith('2026-05-19');
+      // No hint + no Lock during the placeholder window
+      expect(screen.queryByText('點擊選擇日期')).not.toBeInTheDocument();
+      expect(screen.queryByText('訂閱後可選擇其他日期')).not.toBeInTheDocument();
     });
   });
 });

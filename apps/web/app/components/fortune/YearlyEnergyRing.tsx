@@ -117,15 +117,15 @@ export default function YearlyEnergyRing({
       {/* Friendly explanation (warm advisor tone — always visible) */}
       <p className={styles.friendlyExplanation}>{friendlyExplanation}</p>
 
-      {/* Always-visible micro-disclaimer with InfoTooltip for deeper context */}
-      <p className={styles.microDisclaimer}>
+      {/* micro-disclaimer — <div> (NOT <p>): InfoTooltip's <details> cannot be a <p> descendant (hydration error). */}
+      <div className={styles.microDisclaimer}>
         <span>※ 今年能量為輔助顯示 · 以「{label}」為主</span>
         <InfoTooltip ariaLabel="今年能量指數說明">
           此判定來自命理引擎 (Phase 12 doctrine + Phase 3 年運)。能量指數
           (0-100) 為衍生顯示值，僅供 UI 渲染參考；吉凶判定請以「{label}」為主。
           流年主一年之大勢，較流月為穩。
         </InfoTooltip>
-      </p>
+      </div>
     </div>
   );
 }

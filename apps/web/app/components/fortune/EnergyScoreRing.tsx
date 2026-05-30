@@ -105,14 +105,17 @@ export default function EnergyScoreRing({
       {/* Friendly explanation (warm advisor tone — always visible) */}
       <p className={styles.friendlyExplanation}>{friendlyExplanation}</p>
 
-      {/* Always-visible micro-disclaimer with InfoTooltip for deeper context */}
-      <p className={styles.microDisclaimer}>
+      {/* Always-visible micro-disclaimer with InfoTooltip for deeper context.
+          NOTE: must be <div> not <p> — InfoTooltip renders <details>/<summary>
+          which are block elements + cannot be descendants of <p> (HTML spec;
+          <p> auto-closes → hydration error). CSS .microDisclaimer is inline-flex. */}
+      <div className={styles.microDisclaimer}>
         <span>※ 能量為輔助顯示 · 以「{label}」為主</span>
         <InfoTooltip ariaLabel="能量指數說明">
           此判定來自命理引擎（Phase 12 doctrine）。能量指數（0-100）為衍生顯示值，
           僅供 UI 渲染參考；吉凶判定請以「{label}」為主。
         </InfoTooltip>
-      </p>
+      </div>
     </div>
   );
 }

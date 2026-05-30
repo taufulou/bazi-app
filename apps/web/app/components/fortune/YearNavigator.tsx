@@ -3,30 +3,25 @@
 /**
  * YearNavigator — Phase 3 年運 year switcher.
  *
- * Sibling component to MonthNavigator / DateNavigator (NOT a mode-prop
- * extension). ~80% pattern copy with year-mode adjustments.
+ * Phase 3.1: prev/next ARROWS REMOVED + react-datepicker YEAR-picker ADDED
+ * (it previously had no picker — the center label was a no-op). Each arrow
+ * click used to fire a fresh AI generation (real Anthropic cost, no debounce).
+ * Now the date chip is the SOLE interaction — clicking it opens a year picker;
+ * a chevron-down ▾ + «點擊選擇年份» hint signal it. Picker selection = ONE fetch.
  *
- * 5 boundary states (mirror MonthNavigator):
- *   1. At -1 year: prev arrow disabled («已達訂閱可查最早年份»)
- *   2. At +4 years: next arrow disabled («已達訂閱可查最遠年份»)
- *   3. Out-of-window URL hit: parent renders ErrorPanel (this component
- *      just shows the picker pinned to currentYearIso for navigation)
- *   4. Profile switch: parent re-anchors to caller's local-TZ current year
- *   5. Free user: prev/next/label clicks → onLockedAttempt callback
- *
- * Subscriber window math via fortune-api.ts helpers (isYearInSubscriberWindow
- * + SUBSCRIBER_WINDOW_PAST_YEAR / FUTURE_YEAR). Resolved-current-year computed
- * in Asia/Taipei via resolveCurrentYearIso.
- *
- * No react-datepicker month/day picker — year navigation uses simple
- * prev/next arrows + a static year label (no popover calendar; year picking
- * via arrows is sufficient and avoids a heavier picker).
+ * Subscriber window: -1 year / current / +4 years (matches Seer's 6 pills).
+ * Free users' chip click → onLockedAttempt (upgrade modal).
  */
 import * as React from 'react';
-import { ChevronLeft, ChevronRight, Lock, Calendar } from 'lucide-react';
+import DatePicker from 'react-datepicker';
+import { isValid } from 'date-fns';
+import { ChevronDown, Lock, Calendar } from 'lucide-react';
+import '../../lib/date-locale';
+import 'react-datepicker/dist/react-datepicker.css';
 import {
   isYearInSubscriberWindow,
   SUBSCRIBER_WINDOW_FUTURE_YEAR,
+  SUBSCRIBER_WINDOW_PAST_YEAR,
   type UserTier,
 } from '../../lib/fortune-api';
 import styles from './DateNavigator.module.css';
@@ -38,21 +33,21 @@ interface YearNavigatorProps {
   currentYearIso: string;
   /** User's subscription tier; `undefined` while loading → treat as FREE */
   tier: UserTier | undefined;
-  /** True while `useUserTier` fetch is in-flight — mirror Scenario H. */
+  /** True while `useUserTier` fetch is in-flight — neutral placeholder. */
   isTierLoading?: boolean;
   /** Fires when navigation is allowed and user picks a new year */
   onChange: (nextIso: string) => void;
-  /** Fires when a FREE user clicks any nav control — parent opens upgrade modal */
+  /** Fires when a FREE user clicks the chip — parent opens upgrade modal */
   onLockedAttempt?: () => void;
-  /** Disables both arrows while fortune fetch is in-flight */
+  /** Disables the chip while fortune fetch is in-flight */
   isLoading?: boolean;
 }
 
-/** Add `n` years to a YYYY string. Negative subtracts. */
-function addYears(iso: string, n: number): string {
+/** YYYY string → Jan-1 Date for react-datepicker (year-picker granularity). */
+function parseIsoYear(iso: string): Date | null {
   const y = parseInt(iso, 10);
-  if (Number.isNaN(y)) return iso;
-  return String(y + n);
+  if (Number.isNaN(y)) return null;
+  return new Date(y, 0, 1);
 }
 
 /** Diff (target - reference) in whole years. Both YYYY strings. */
@@ -72,47 +67,56 @@ export default function YearNavigator({
   onLockedAttempt,
   isLoading = false,
 }: YearNavigatorProps) {
+  const [isPickerOpen, setIsPickerOpen] = React.useState(false);
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
   const isFree = !isTierLoading && (tier === undefined || tier === 'FREE');
 
-  const prevIso = addYears(value, -1);
-  const nextIso = addYears(value, 1);
-  const canGoPrev =
-    !isTierLoading &&
-    !isFree &&
-    isYearInSubscriberWindow(prevIso, currentYearIso, tier);
-  const canGoNext =
-    !isTierLoading &&
-    !isFree &&
-    isYearInSubscriberWindow(nextIso, currentYearIso, tier);
-
-  const handlePrev = () => {
-    if (isTierLoading) return;
-    if (isFree) {
-      onLockedAttempt?.();
-      return;
-    }
-    if (!canGoPrev || isLoading) return;
-    onChange(prevIso);
-  };
-
-  const handleNext = () => {
-    if (isTierLoading) return;
-    if (isFree) {
-      onLockedAttempt?.();
-      return;
-    }
-    if (!canGoNext || isLoading) return;
-    onChange(nextIso);
-  };
+  // Close picker on outside click + Escape
+  React.useEffect(() => {
+    if (!isPickerOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsPickerOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsPickerOpen(false);
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, [isPickerOpen]);
 
   const handleLabelClick = () => {
-    if (isTierLoading) return;
+    if (isTierLoading || isLoading) return;
     if (isFree) {
       onLockedAttempt?.();
+      return;
     }
-    // Subscribers: label is a no-op (no popover picker for years — arrows
-    // are sufficient for the -1/+4 window).
+    setIsPickerOpen((open) => !open);
   };
+
+  const handlePickerChange = (date: Date | null) => {
+    setIsPickerOpen(false);
+    if (!date || !isValid(date)) return;
+    const iso = String(date.getFullYear());
+    if (!isYearInSubscriberWindow(iso, currentYearIso, tier)) return;
+    if (iso === value) return;
+    onChange(iso);
+  };
+
+  const curYear = parseInt(currentYearIso, 10);
+  const minDate = Number.isNaN(curYear)
+    ? undefined
+    : new Date(curYear - SUBSCRIBER_WINDOW_PAST_YEAR, 0, 1);
+  const maxDate = Number.isNaN(curYear)
+    ? undefined
+    : new Date(curYear + SUBSCRIBER_WINDOW_FUTURE_YEAR, 0, 1);
+  const selectedDate = parseIsoYear(value);
 
   // Offset from current year indicator («今年»/«明年»/«去年»/«+N 年»)
   const offset = diffYears(value, currentYearIso);
@@ -123,53 +127,24 @@ export default function YearNavigator({
   else if (offset > 0) offsetBadge = `+${offset} 年`;
   else offsetBadge = `${offset} 年`;
 
-  const prevIcon = isFree && !isTierLoading ? (
-    <Lock size={14} strokeWidth={2} aria-hidden="true" />
-  ) : (
-    <ChevronLeft size={18} strokeWidth={2} aria-hidden="true" />
-  );
-  const nextIcon = isFree && !isTierLoading ? (
-    <Lock size={14} strokeWidth={2} aria-hidden="true" />
-  ) : (
-    <ChevronRight size={18} strokeWidth={2} aria-hidden="true" />
-  );
-
-  const arrowState = isTierLoading ? 'loading' : isFree ? 'locked' : 'active';
-
-  const prevTooltip =
-    !isFree && !isTierLoading && !canGoPrev
-      ? '已達訂閱可查最早年份（去年）'
-      : undefined;
-  const nextTooltip =
-    !isFree && !isTierLoading && !canGoNext
-      ? `已達訂閱可查最遠年份（+${SUBSCRIBER_WINDOW_FUTURE_YEAR} 年）`
-      : undefined;
+  const labelState = isTierLoading ? 'loading' : isFree ? 'locked' : 'active';
+  const hint = isFree ? '訂閱後可選擇其他年份' : '點擊選擇年份';
 
   return (
     <div
+      ref={containerRef}
       className={styles.container}
       data-locked={isFree ? 'true' : 'false'}
-      data-state={arrowState}
+      data-state={labelState}
     >
-      <button
-        type="button"
-        className={styles.arrow}
-        onClick={handlePrev}
-        disabled={isTierLoading || (!isFree && (!canGoPrev || isLoading))}
-        aria-disabled={isTierLoading || (!isFree && !canGoPrev)}
-        aria-label="前一年"
-        title={prevTooltip}
-        data-state={arrowState}
-      >
-        {prevIcon}
-      </button>
-
       <button
         type="button"
         className={styles.dateLabel}
         onClick={handleLabelClick}
+        aria-haspopup="dialog"
+        aria-expanded={isPickerOpen}
         disabled={isTierLoading}
-        data-state={arrowState}
+        data-state={labelState}
       >
         <Calendar
           size={14}
@@ -179,20 +154,36 @@ export default function YearNavigator({
         />
         <span className={styles.dateText}>{value}年</span>
         <span className={styles.offsetBadge}>{offsetBadge}</span>
+        {isFree && !isTierLoading ? (
+          <Lock size={13} strokeWidth={2} aria-hidden="true" className={styles.chevron} />
+        ) : (
+          <ChevronDown
+            size={14}
+            strokeWidth={2.5}
+            aria-hidden="true"
+            className={styles.chevron}
+            data-open={isPickerOpen ? 'true' : 'false'}
+          />
+        )}
       </button>
 
-      <button
-        type="button"
-        className={styles.arrow}
-        onClick={handleNext}
-        disabled={isTierLoading || (!isFree && (!canGoNext || isLoading))}
-        aria-disabled={isTierLoading || (!isFree && !canGoNext)}
-        aria-label="後一年"
-        title={nextTooltip}
-        data-state={arrowState}
-      >
-        {nextIcon}
-      </button>
+      {!isTierLoading && <span className={styles.hint}>{hint}</span>}
+
+      {isPickerOpen && !isFree && !isTierLoading && (
+        <div className={styles.pickerWrapper}>
+          <DatePicker
+            selected={selectedDate}
+            onChange={handlePickerChange}
+            dateFormat="yyyy"
+            locale="zh-TW"
+            minDate={minDate}
+            maxDate={maxDate}
+            inline
+            showPopperArrow={false}
+            showYearPicker
+          />
+        </div>
+      )}
     </div>
   );
 }

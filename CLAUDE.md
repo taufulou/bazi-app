@@ -2847,3 +2847,74 @@ Then verify the message-send path resumes the session cleanly (no CONTEXT_VERSIO
 
 **Browser test ALWAYS beats audit alone**: this session's L3.5b-F drift-check fix was caught ONLY by browser test (CONTEXT_VERSION_DRIFTED on first MONTH chat message). The 3-parallel sub-agent audit didn't catch it because each agent saw only one layer. Audit + browser are complementary, not redundant.
 
+---
+
+## 八字年運 Phase 3 (Yearly Fortune) — SHIPPED 2026-05-30 (commits 5956b4a..f5a7eb0, NOT in main)
+
+The 3rd and last fortune scope (日/月/年). Free/subscriber 年運 tab replacing the old `PartialPreview` placeholder. **Lighter preview** that cross-sells to the paid 八字流年運勢 (`ReadingType.ANNUAL`, 3 credits, `/reading/annual`). Matches Seer's 4 sections: 年度總結 (summary + 4-dim ★ ratings) → 年度建議 → 核心風險&機會 (top-3 risk + top-3 opportunity MONTHS) → 改運建議&好運加持 (deterministic luck-method cards).
+
+**Session handoff** (read first post-compact): `/Users/roger/.claude/plans/fortune-phase-3-nianyun-session-handoff.md`.
+**Plan**: `/Users/roger/.claude/plans/ok-next-big-feature-merry-cake.md` — «# Phase 3 — 年運 (Yearly Fortune)» (v3 APPROVED after 3 staff-engineer review cycles).
+**Research**: `/Users/roger/.claude/plans/phase-3-nianyun-phase-a-research-results.md` (Sub-Agents A/B/C convergence — aggregation methodology + deterministic luck-method templates + framing/boundary/anti-hallucination).
+
+### Load-bearing architecture (DO NOT re-derive)
+
+> ⚠️ **CRITICAL call-pattern**: `yearly_enhanced.py::compute_year_by_year` calls `generate_annual_pre_analysis(...)` **DIRECTLY** with **16 params** destructured from the chart. The chart from `_get_or_compute_chart_for_flow_year` does NOT have `annualEnhancedInsights` (the helper omits `reading_type='ANNUAL'` so the annual pipeline never runs). Mirror the standalone extraction at `calculator.py:524-546` + call args at `:610-627`. Two params are NOT in the chart dict: `prominent_god` (recompute via `get_prominent_ten_god(chart['fourPillars'], chart['dayMasterStem'])`), `effective_gods` (from `chart['preAnalysis']['effectiveFavorableGods']`). `gender` from birth-data params. Guard on result `'error'` key.
+
+> 立春 anchoring is UPSTREAM (in `calculate_annual_stars` at chart-build). `generate_annual_pre_analysis` receives plain int `current_year` + matches against `chart['annualStars']`. **Year selection maps DIRECTLY to flow year — NO cross-flow-year complexity** (unlike month's Jan/Feb).
+
+> **romance ≠ relationships** (load-bearing): the 感情 dim aggregates from monthly `aspects.romance` (love/spouse signals), NOT the year-level `relationships` block (`compute_annual_relationship_analysis` = 人際關係 interpersonal). Regression-tested + AI anti-hallucination clause. Verified live: 感情 dim narrative uses 夫妻宮/桃花/正緣, never 人際關係/朋友/同事.
+
+> **核心風險&機會 pairing is INDEX-bound**: engine `compute_core_risk_opportunity` ranks 12 months → top-3 opp + bottom-3 risk + dim attribution. `interpolateFortuneYearlyFields` emits months in FIXED order with explicit index binding; `YearlyRiskOpportunityGrid` pairs engine-month↔AI-entry by ARRAY INDEX (NOT month-name reparse — engine 「壬辰月」 vs AI 「三月」 would drift). Mirrors Phase 12g.6 Gap 2.
+
+- **4-dim YEAR scores** = aggregation of 12 monthlyForecasts per-dim signals (Sub-Agent A hybrid mean-with-peak-emphasis, α=0.35, peak_quartile=3). ★1-5 star bands aligned to `DIMENSION_LABEL_BANDS` (80/65/50/35) — NOT arbitrary cutoffs.
+- **改運建議 = deterministic** (Sub-Agent B), keyed on weakest-dim + 用神 element: 2 generic cards + 1 weakest-dim card + 用神 element flavor spliced into card 0 (provenance 'mixed', 民俗 badge). NOT AI-generated. ELEMENT_DIRECTION (木=東/火=南/土=南/金=西/水=北). Engine returns 4; UI renders 3 (Seer parity).
+- **Monetization boundary**: free yearly_* sections give dim-level overviews + named key months ONLY. NO full 12-month prose, NO deep 太歲, NO 大運 sequence (paywalled). AI anti-hallucination clause enforces. `YearlyCrossSellCard` → `/reading/annual`.
+- **Subscription window**: free=current year; subscriber −1/+4. `FREE_YEAR_WINDOW_PAST/FUTURE=0`, `SUBSCRIBER_YEAR_WINDOW_PAST=1`, `SUBSCRIBER_YEAR_WINDOW_FUTURE=4`.
+- **Streaming**: `streamYearlyFortune` SSE mirrors `streamMonthlyFortune` (engine_ready w/ coreRiskOpportunity + luckMethods siblings + cacheHit → section_complete per yearly_* key → done). `useFortuneNarrativeStream({scope:'year'})`.
+- **Chat DEFERRED** (L3.5c — future phase, mirrors DAY+MONTH chat). No YEAR chat-version entries this phase.
+
+### Calibration anchor — Roger 2026 年運 (丙午年)
+- yearGanZhi=丙午, yearTenGod=偏印, auspiciousness=大吉, energyScore=88, 用神=火
+- 4 dims all ★★★★☆ 順遂: 事業 貴人提點 / 財運 穩健增長 / 感情 溫暖和諧 / 健康 穩健平和
+- coreRiskOpportunity: 機會點 [9月 事業躍升, 3月 財運亨通, 5月 養生良機] all 大吉 · 風險點 [1月 謹慎起步, 2月 沉潛蓄勢, 10月 穩守待時] all 凶中有吉
+- luckMethods: 運勢整理法 / 社交磁場法 / 養生調息法 (all 民俗 badge); card 0 chips 用神:火 / 方位:南方 / 色:紅色/紫色
+- 年度總結 headline «火土相生，穩步登高»
+- 2027 anchor: 丁未年 · 正印 (used in picker navigation test)
+
+### Files (Phase 3 — committed)
+**New**: `packages/bazi-engine/app/yearly_enhanced.py` + `tests/test_yearly_enhanced.py` (~28 tests). Frontend `apps/web/app/components/fortune/`: `YearlyEnergyRing`, `YearlyDimensionStars` (NET-NEW ★1-5), `YearlyNarrativeCard`, `YearlyRiskOpportunityGrid`, `YearlyLuckMethodsCard`, `YearNavigator`, `YearlyCrossSellCard` (+ `.module.css`).
+**Modified**: `main.py` (`/yearly-fortune`), `fortune_constants.py` (`FORTUNE_YEARLY_PRE_ANALYSIS_VERSION=v1.1.0`), `dto/index.ts`, `fortune-api.ts` (streamYearlyFortune + window helpers), `prompts.ts` (FORTUNE_V1_PROMPTS.yearly + 7 anti-hallucination clauses + version bumps), `fortune-prompt-builder.ts` (buildFortuneYearlyMessages + interpolateFortuneYearlyFields + renderYearlyRiskOpportunity), `fortune-validators.service.ts` (validateYearly), `fortune-snapshot.helpers.ts` (yearly helpers), `fortune.service.ts` (getYearlyFortune), `fortune-stream.service.ts` (streamYearlyFortune), `fortune.controller.ts` (@Get('yearly') + @Get('yearly/stream')), `useFortuneNarrativeStream.ts` (scope='year'), `reading/fortune/page.tsx` (YearlyFortuneView + ErrorPanel year branch + handleSwitchProfile clears ?year=).
+
+### Deploy notes (Phase 3)
+- Version bumps (same commit): `FORTUNE_YEARLY_PRE_ANALYSIS_VERSION` v1.0.0→v1.1.0 + `FORTUNE_PRE_ANALYSIS_VERSIONS.year` v1.0.0→v1.1.0 + `FORTUNE_PROMPT_VERSIONS.year` v1.0.0→v1.1.0
+- NO DB migration (FortuneScope.YEAR + DailyFortuneSnapshot exist). NO chat-version bumps.
+- Scoped Redis DEL: `redis-cli --scan --pattern "fortune:yearly:*" | xargs redis-cli DEL`. Regen cost (worktree) <$2.
+
+---
+
+## 八字年運 Phase 3.1 Polish — SHIPPED browser-verified, UNCOMMITTED in worktree (2026-05-30)
+
+3 UI-only fixes applying to ALL fortune scopes (shared infra). 10 files uncommitted. **NO version bumps / migration / cache invalidation** (frontend recompile only). Suggested commit msg: `fix(年運 Phase 3.1): back-button→dashboard + picker-only navigators + p→div hydration fix`.
+
+| Fix | Change | Verified |
+|---|---|---|
+| **Fix 1** back→dashboard | `FortuneShell.tsx:90` `router.back()`→`router.push('/')` (dashboard is `/`; mirrors COMPATIBILITY `<Link href="/">`). aria-label 返回→返回首頁 | §J — direct-navigate then click ← lands on `/` (not browser-back) |
+| **Fix 2** navigators picker-only | REMOVED ◄►arrows from all 3 navigators (each click = fresh AI stream, no debounce). Date chip = sole interaction + chevron-down ▾ + «點擊選擇日期/月份/年份» hint. Free chip click → onLockedAttempt. `YearNavigator` gained NEW react-datepicker `showYearPicker` (had no picker before). `DateNavigator.module.css` `.container`→column + `.chevron` rotate-on-open + `.hint`. Removed handlePrev/handleNext/ChevronLeft/ChevronRight in all 3. | §D — chevron+hint, no arrows; picker opens window-constrained (2025-2030 enabled); select 2027→URL `?year=2027`+ONE stream+丁未年·正印; OUT_OF_WINDOW(`?year=2032`)→«超出查詢範圍/去年+今年+未來4年/回到今年» |
+| **Fix 3** p→div hydration | The "6 Issues" badge = `<details>`/`<summary>`/`<div>` cannot descend `<p>` × 2 passes. `<p className="microDisclaimer">`→`<div>` in 3 energy rings (`EnergyScoreRing.tsx:112`, `YearlyEnergyRing.tsx:121`, `MonthlyEnergyRing.tsx:129`). CSS `.microDisclaimer` already `inline-flex` — NO CSS change. Clears all 6 across day/month/year | §K — live DOM `microDisclaimer`=`<DIV>` on year+day tabs; zero console hydration errors |
+
+### ⚠️ KEY GOTCHA (this session — applies to ALL future cross-session browser work)
+When the year tab first loaded, hydration errors were STILL present despite Fix 3 being in source — the **Next dev server was serving a STALE compiled bundle** (Fix 3 was edited in a PRIOR session; HMR didn't pick it up across the session boundary). A **hard reload (Cmd+Shift+R)** forced recompile and cleared it. Source was always correct (grep + tsc + jest all confirmed `<div>`). **Lesson: after editing across a session boundary, ALWAYS hard-reload before trusting the browser DOM / console.** Use the live-DOM `tagName` query (`document.querySelector('[class*="microDisclaimer"]').tagName`) for unambiguous verification — it sidesteps the console-tracking-timing caveat.
+
+### Test coverage (Phase 3.1)
+- `date-navigator.spec.tsx` + `year-navigator.spec.tsx` rewritten for picker-only (mock react-datepicker stub + lucide ChevronDown/Lock/Calendar + `jest.mock('../app/lib/date-locale', () => ({}))` to dodge registerLocale on the stub). **22 navigator tests pass.** No MonthNavigator spec exists (none to update).
+- **119 web RTL pass** (`jest --testPathPattern "fortune|navigator|energy"`), tsc clean on all 8 touched component files. No backend change.
+- Comprehensive 年運 browser test RUN + PASSED: §A render, §B curl, §C AI quality (zero banned phrases, no DM-drift, romance≠relationships), §D picker+OUT_OF_WINDOW, §H 改運建議, §I cross-sell, §J back-button, §K hydration. §G (Laopo profile switch) + §F (flatYear) = pytest-covered (fortune page has NO inline ProfileSwitcher — deferred per "ProfileSwitcher Phase 1.5").
+
+### Deferred after Phase 3.1 (priority order)
+1. **Commit Phase 3.1** (10 uncommitted files — awaiting user "commit", do NOT auto-commit)
+2. **YEAR chat scope (L3.5c)** — mirrors DAY+MONTH chat (yearly_* sample-questions + `CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE.YEAR` + refuse templates)
+3. **Yearly calibration corpus** — `yearly_label_corpus.csv` + pytest gate (Phase 3.x)
+4. **Share PNG for year** — Phase 3.x (year layout differs from ShareableFortuneCard)
+5. **Task #60** (pre-existing): signed-out CTA on /reading/fortune
+

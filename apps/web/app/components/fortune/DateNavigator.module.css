@@ -3,12 +3,36 @@
 .container {
   position: relative;
   display: flex;
+  flex-direction: column; /* picker-only: chip + hint stack vertically (arrows removed) */
   align-items: center;
   justify-content: center;
-  gap: 0.5rem;
+  gap: 0.3rem;
   padding: 0.5rem 1rem;
   background: rgba(var(--color-gold-rgb), 0.04);
   border-bottom: 1px solid var(--border-light);
+}
+
+/* Chevron-down affordance on the date chip — signals «click to open picker»
+ * (mirrors ProfileSwitcher chevron). Rotates 180° when picker is open. */
+.chevron {
+  color: var(--text-muted);
+  opacity: 0.7;
+  flex-shrink: 0;
+  margin-left: 0.1rem;
+  transition: transform 0.15s ease;
+}
+
+.chevron[data-open='true'] {
+  transform: rotate(180deg);
+}
+
+/* «點擊選擇…» discoverability hint below the date chip. */
+.hint {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-family: var(--font-noto-serif-tc), serif;
+  letter-spacing: 0.02em;
+  user-select: none;
 }
 
 .arrow {

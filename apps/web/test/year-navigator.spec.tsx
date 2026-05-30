@@ -1,13 +1,9 @@
 /**
- * Phase 3 年運 — YearNavigator RTL spec.
+ * Phase 3.1 — YearNavigator RTL spec (picker-only, arrows removed).
  *
- * Mirrors date-navigator.spec.tsx boundary-state coverage:
- *   - FREE user click → fires onLockedAttempt, NOT onChange
- *   - Subscriber click prev/next → fires onChange ±1 year
- *   - At +4 (SUBSCRIBER_WINDOW_FUTURE_YEAR) → next arrow aria-disabled
- *   - At -1 → prev arrow aria-disabled
- *   - tier loading → both arrows disabled (neutral placeholder)
- *   - offset badge shows 今年/明年/去年/+N 年
+ * Phase 3.1 reworked the navigator: prev/next arrows REMOVED; the date chip
+ * is the sole interaction (opens a year-picker). A chevron-down + «點擊選擇年份»
+ * hint signal it. FREE users' chip click → onLockedAttempt.
  */
 import * as React from 'react';
 import { describe, expect, it } from '@jest/globals';
@@ -16,15 +12,34 @@ import { render, screen, fireEvent } from '@testing-library/react';
 // Mock lucide-react icons as plain spans (dual-react-types forwardRef dodge).
 jest.mock('lucide-react', () => ({
   __esModule: true,
-  ChevronLeft: () => <span data-icon="ChevronLeft" />,
-  ChevronRight: () => <span data-icon="ChevronRight" />,
+  ChevronDown: (props: Record<string, unknown>) => (
+    <span data-icon="ChevronDown" data-open={props['data-open']} />
+  ),
   Lock: () => <span data-icon="Lock" />,
   Calendar: () => <span data-icon="Calendar" />,
 }));
 
+// Mock react-datepicker — stub that fires onChange with a fixed in-window year.
+jest.mock('react-datepicker', () => ({
+  __esModule: true,
+  default: (props: { onChange: (d: Date) => void }) => (
+    <button
+      type="button"
+      data-testid="mock-picker"
+      onClick={() => props.onChange(new Date(2028, 0, 1))}
+    >
+      picker
+    </button>
+  ),
+}));
+
+// Side-effect locale module — its only purpose is to register react-datepicker's
+// zh-TW locale (calls registerLocale, absent on the default-only mock above).
+jest.mock('../app/lib/date-locale', () => ({}));
+
 import YearNavigator from '../app/components/fortune/YearNavigator';
 
-describe('YearNavigator', () => {
+describe('YearNavigator (picker-only)', () => {
   const CURRENT = '2026';
 
   function renderWith(opts: {
@@ -48,12 +63,20 @@ describe('YearNavigator', () => {
     return { onChange, onLockedAttempt };
   }
 
-  it('renders prev/next arrows + a year label with offset badge', () => {
+  it('renders the year label + offset badge + chevron, with NO prev/next arrows', () => {
     renderWith();
-    expect(screen.getByLabelText('前一年')).toBeInTheDocument();
-    expect(screen.getByLabelText('後一年')).toBeInTheDocument();
     expect(screen.getByText('2026年')).toBeInTheDocument();
     expect(screen.getByText('今年')).toBeInTheDocument();
+    // Arrows are gone
+    expect(screen.queryByLabelText('前一年')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('後一年')).not.toBeInTheDocument();
+    // Chevron-down discoverability affordance present (subscriber)
+    expect(screen.getByText((_c, el) => el?.getAttribute('data-icon') === 'ChevronDown')).toBeInTheDocument();
+  });
+
+  it('shows the «點擊選擇年份» hint for subscribers', () => {
+    renderWith({ tier: 'PRO' });
+    expect(screen.getByText('點擊選擇年份')).toBeInTheDocument();
   });
 
   describe('offset badge', () => {
@@ -72,77 +95,62 @@ describe('YearNavigator', () => {
   });
 
   describe('FREE tier', () => {
-    it('clicking next arrow fires onLockedAttempt, NOT onChange', () => {
+    it('clicking the date chip fires onLockedAttempt, NOT onChange (no picker)', () => {
       const { onChange, onLockedAttempt } = renderWith({ tier: 'FREE' });
-      fireEvent.click(screen.getByLabelText('後一年'));
+      fireEvent.click(screen.getByRole('button'));
       expect(onLockedAttempt).toHaveBeenCalledTimes(1);
       expect(onChange).not.toHaveBeenCalled();
+      // No picker opened
+      expect(screen.queryByTestId('mock-picker')).not.toBeInTheDocument();
     });
 
-    it('clicking prev arrow fires onLockedAttempt, NOT onChange', () => {
-      const { onChange, onLockedAttempt } = renderWith({ tier: 'FREE' });
-      fireEvent.click(screen.getByLabelText('前一年'));
-      expect(onLockedAttempt).toHaveBeenCalledTimes(1);
-      expect(onChange).not.toHaveBeenCalled();
+    it('shows a Lock icon + «訂閱後可選擇其他年份» hint for free users', () => {
+      renderWith({ tier: 'FREE' });
+      expect(screen.getByText((_c, el) => el?.getAttribute('data-icon') === 'Lock')).toBeInTheDocument();
+      expect(screen.getByText('訂閱後可選擇其他年份')).toBeInTheDocument();
     });
 
     it('treats undefined tier as FREE for locking', () => {
       const { onChange, onLockedAttempt } = renderWith({ tier: undefined });
-      fireEvent.click(screen.getByLabelText('後一年'));
+      fireEvent.click(screen.getByRole('button'));
       expect(onLockedAttempt).toHaveBeenCalledTimes(1);
       expect(onChange).not.toHaveBeenCalled();
     });
   });
 
   describe('subscriber tier (PRO)', () => {
-    it('clicking next arrow fires onChange with +1 year', () => {
-      const { onChange, onLockedAttempt } = renderWith({ tier: 'PRO' });
-      fireEvent.click(screen.getByLabelText('後一年'));
-      expect(onChange).toHaveBeenCalledWith('2027');
-      expect(onLockedAttempt).not.toHaveBeenCalled();
+    it('clicking the date chip opens the picker (aria-expanded true)', () => {
+      renderWith({ tier: 'PRO' });
+      const chip = screen.getByRole('button');
+      expect(chip).toHaveAttribute('aria-expanded', 'false');
+      fireEvent.click(chip);
+      expect(chip).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByTestId('mock-picker')).toBeInTheDocument();
     });
 
-    it('clicking prev arrow fires onChange with -1 year', () => {
+    it('selecting a year in the picker fires onChange with that year', () => {
       const { onChange } = renderWith({ tier: 'PRO' });
-      fireEvent.click(screen.getByLabelText('前一年'));
-      expect(onChange).toHaveBeenCalledWith('2025');
-    });
-
-    it('at +4 boundary, next arrow is aria-disabled', () => {
-      renderWith({ tier: 'PRO', value: '2030' }); // current + 4
-      const next = screen.getByLabelText('後一年');
-      expect(next).toBeDisabled();
-      expect(next).toHaveAttribute('aria-disabled', 'true');
-    });
-
-    it('at -1 boundary, prev arrow is aria-disabled', () => {
-      renderWith({ tier: 'PRO', value: '2025' }); // current - 1
-      const prev = screen.getByLabelText('前一年');
-      expect(prev).toBeDisabled();
-      expect(prev).toHaveAttribute('aria-disabled', 'true');
+      fireEvent.click(screen.getByRole('button')); // open picker
+      fireEvent.click(screen.getByTestId('mock-picker')); // picks 2028
+      expect(onChange).toHaveBeenCalledWith('2028');
     });
   });
 
   describe('tier loading state', () => {
-    it('when tier is loading, BOTH arrows disabled regardless of tier', () => {
+    it('when tier is loading, the chip is disabled + shows no hint', () => {
       const { onChange, onLockedAttempt } = renderWith({
         tier: undefined,
         isTierLoading: true,
       });
-      const prev = screen.getByLabelText('前一年');
-      const next = screen.getByLabelText('後一年');
-      expect(prev).toBeDisabled();
-      expect(next).toBeDisabled();
-      fireEvent.click(prev);
-      fireEvent.click(next);
+      const chip = screen.getByRole('button');
+      expect(chip).toBeDisabled();
+      expect(chip).toHaveAttribute('data-state', 'loading');
+      fireEvent.click(chip);
       expect(onChange).not.toHaveBeenCalled();
       expect(onLockedAttempt).not.toHaveBeenCalled();
-    });
-
-    it('when tier is loading, data-state is "loading" (neutral chevron, not lock)', () => {
-      renderWith({ tier: undefined, isTierLoading: true });
-      const prev = screen.getByLabelText('前一年');
-      expect(prev).toHaveAttribute('data-state', 'loading');
+      // No hint + no Lock during the placeholder window
+      expect(screen.queryByText('點擊選擇年份')).not.toBeInTheDocument();
+      expect(screen.queryByText('訂閱後可選擇其他年份')).not.toBeInTheDocument();
     });
   });
 });
