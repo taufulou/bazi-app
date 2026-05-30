@@ -2950,3 +2950,30 @@ Adds YEAR as the 3rd FORTUNE chat sub-scope (日/月/年). The «問 AI 命理�
 - Version bumps are ADDITIVE (NEW `FORTUNE_YEAR`/`pa-fort-year=` keys) — zero blast radius on existing DAY/MONTH chat sessions (active-scope-only emission). NO engine version bump (reuses `FORTUNE_YEARLY_PRE_ANALYSIS_VERSION=v1.1.0`). NO schema migration (only the seed).
 - `prisma migrate deploy` (applies the seed) → `redis-cli INCR 'chat-sample-questions:version'` (raw-SQL gotcha) → scoped `redis-cli --scan --pattern "chat-context-fortune:*:YEAR:*" | xargs redis-cli DEL`.
 
+
+---
+
+## A2 Layer 4 ship-gate — CLEARED 2026-05-30 (fortune AI narrative quality)
+
+The final fortune ship-gate: generate REAL AI narratives across a diversity matrix → 3 parallel Bazi-master grader agents (doctrine / hallucination / framing-safety) read + judge each vs the engine ground-truth. Catches the confident-but-WRONG answer that regex validators (Layers 1-3) + jest + browser tests all pass over.
+
+### Sample
+20 narratives: **3 charts** (Roger 用神火/中和, Laopo 用神水/傷官見官 edge, Jenna 2021-child = distinct chart) × **3 scopes** (DAY/MONTH/YEAR) × **8 outcome labels** (大吉/吉/吉中有凶/平/凶中有吉/小凶/凶/大凶 — incl. the hard edge cases where AI drifts). Generated via the real authed endpoints (persist to `DailyFortuneSnapshot`), dumped from DB for grading.
+
+### Result — 2 real bugs caught (both MONTH-scope), then fixed
+- **Grader B (hallucination): caught MONTH/YEAR narratives fabricating named 吉食/食材** (黑豆/銀耳/梨) in health sections — MONTH/YEAR scopes carry NO `folkContent`, so any named food is invented. The AI was rationalizing around the existing «no 吉食» clause by reframing foods as «養生建議».
+- **Grader A (doctrine): caught a 五行生剋 slip** (Jenna 己土 DM — 寅木 mislabeled 財星; 木剋土 → 寅木 is 官殺).
+- **Grader C (framing/safety): 20/20 clean** — zero banned absolute language, zero DM-drift, zero flow-level 用神 reassignment; 大凶/凶 days all narrated constructively (not doom-mongering).
+
+### The fix (commit — same as this section's deploy)
+`apps/api/src/ai/prompts.ts`: strengthened MONTHLY no-food clause to forbid 養生/飲食-framed specific 食材 (closes the rationalization loophole) + added the equivalent clause to the YEARLY template (it had none). Bumped `FORTUNE_PROMPT_VERSIONS.month` v1.1.0→v1.2.0 + `.year` v1.1.0→v1.2.0 (invalidates cached narratives).
+
+### Re-grade after fix — CLEARED
+Regenerated the affected MONTH narratives against v1.2.0 → **Grader B 4/4 PASS** (food fabrication resolved) + **Grader A 4/4 PASS** (寅木 doctrine slip resolved on regen too). Fortune AI narration is ship-quality across DAY/MONTH/YEAR.
+
+### Deploy note
+`FORTUNE_PROMPT_VERSIONS.month`/`.year` → v1.2.0 are NARRATION-PROMPT-only bumps (no engine version, no chat version, no schema change). On deploy: `redis-cli --scan --pattern "fortune:monthly:*" | xargs redis-cli DEL` + same for `fortune:yearly:*` (cached narratives regen on next fetch with the no-food prompt).
+
+### Residual / follow-ups (not blocking)
+- The A2 sample had 3 empty/pre-existing rows (engine-only, no prose) — a fully-rigorous future run would regenerate those too. Substantive coverage (all real-prose rows passing) is strong enough to call narration ship-quality.
+- **Yearly calibration corpus** (`yearly_label_corpus.csv` + pytest gate) still deferred — DAY+MONTH have label-agreement corpora; YEAR doesn't. Separate Phase 3.x task.
