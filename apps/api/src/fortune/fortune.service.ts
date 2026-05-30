@@ -34,8 +34,10 @@ import {
   type DailyEngineOutput,
   type FortuneChartContext,
   type MonthlyEngineOutput,
+  type YearlyEngineOutput,
   buildFortuneDailyMessages,
   buildFortuneMonthlyMessages,
+  buildFortuneYearlyMessages,
 } from './fortune-prompt-builder';
 import {
   FortuneValidatorsService,
@@ -46,6 +48,8 @@ import {
   type DailyFortuneAINarrative,
   type MonthlyFortuneResponse,
   type MonthlyFortuneAINarrative,
+  type YearlyFortuneResponse,
+  type YearlyFortuneAINarrative,
 } from './dto';
 import {
   FortuneSnapshotHelpers,
@@ -433,6 +437,176 @@ export class FortuneService {
       narrative: validation.sanitized as unknown as MonthlyFortuneAINarrative,
       validation,
       promptVersion: FORTUNE_PROMPT_VERSIONS.month,
+    };
+  }
+
+  // ============================================================
+  // Public API — getYearlyFortune (Phase 3 年運)
+  // ============================================================
+  //
+  // Mirrors getMonthlyFortune shape (subscription gate → cache → engine
+  // → AI → validate → persist → respond) scaled to YEAR scope.
+  //
+  // Key differences from monthly:
+  //   - Subscription window: -1 year / current / +4 years INCLUSIVE
+  //   - Cache key: `fortune:yearly:{chartHash}:{YYYY}` (anchor = Jan 1)
+  //   - AI prompt: FORTUNE_V1_PROMPTS.yearly + buildFortuneYearlyMessages
+  //   - Validator: validateYearly (4 dims, no folk, single-arg signature)
+  //   - DB row: scope=YEAR, anchorDate=Jan 1 (YYYY-01-01), year denormalized
+  //   - NO intraMonthBreakdown sibling — coreRiskOpportunity + luckMethods
+  //     live INSIDE engineOutput; buildYearlyResponse passes it through verbatim.
+
+  async getYearlyFortune(
+    clerkUserId: string,
+    args: { profileId?: string; year?: string },
+  ): Promise<YearlyFortuneResponse> {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const profile = args.profileId
+      ? await this.prisma.birthProfile.findFirst({
+          where: { id: args.profileId, userId: user.id },
+        })
+      : await this.prisma.birthProfile.findFirst({
+          where: { userId: user.id, isPrimary: true },
+        });
+
+    if (!profile) {
+      throw new NotFoundException({
+        code: args.profileId ? 'PROFILE_NOT_FOUND' : 'NO_PRIMARY_PROFILE',
+        message: args.profileId
+          ? 'Birth profile not found'
+          : 'No primary birth profile configured for this user',
+      });
+    }
+
+    // Resolve target year (default = current year in FORTUNE_DEFAULT_TZ)
+    const targetYear = args.year ?? this.helpers.currentYearIso();
+    if (!/^\d{4}$/.test(targetYear)) {
+      throw new NotFoundException(`Invalid year format: ${targetYear} (expected YYYY)`);
+    }
+
+    // Subscription gate (year-scope) — throws ForbiddenException on violation
+    this.helpers.enforceYearlySubscriptionGate(user.subscriptionTier, targetYear);
+
+    // Chart hash (shared with daily/monthly — same chart)
+    const chartHash = this.helpers.computeChartHash(profile);
+
+    // Profile metadata for response
+    const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
+    const profileBirthTime = profile.birthTime;
+
+    // Anchor for cache key + DB row: Jan 1 of year
+    const anchorDate = new Date(`${targetYear}-01-01T00:00:00Z`);
+
+    // Try cache (Redis → DB) via helpers — derives redisKey internally
+    const cached = await this.helpers.tryGetYearlyCached(chartHash, anchorDate);
+    if (cached) {
+      return this.helpers.buildYearlyResponse(
+        profile.id,
+        profileBirthDate,
+        profileBirthTime,
+        Number(targetYear),
+        cached,
+        true,
+      );
+    }
+
+    // Cache miss → compute fresh
+    const year = Number(targetYear);
+    const yearlyOutput = await this.helpers.fetchYearlyFromEngine(profile, year);
+    const chartContext = ((yearlyOutput as unknown as { chartContext?: FortuneChartContext })
+      .chartContext ?? this.helpers.buildFallbackChartContext(profile)) as FortuneChartContext;
+
+    let narrative: YearlyFortuneAINarrative | null = null;
+    let promptVersion: string | null = null;
+
+    try {
+      const aiResult = await this.runYearlyAINarration(yearlyOutput, chartContext, year);
+      narrative = aiResult.narrative;
+      promptVersion = aiResult.promptVersion;
+    } catch (err) {
+      this.logger.error(
+        `Yearly fortune AI failure (year=${targetYear} profile=${profile.id}): ${(err as Error).message}`,
+      );
+      narrative = null;
+      promptVersion = null;
+    }
+
+    // Persist + warm Redis via helpers
+    const snapshot = await this.helpers.persistYearlySnapshot({
+      chartHash,
+      birthProfileId: profile.id,
+      anchorDate,
+      year,
+      yearlyOutput,
+      narrative,
+      promptVersion,
+    });
+
+    try {
+      const redisKey = this.helpers.yearlyRedisKey(chartHash, targetYear);
+      await this.helpers.redis.set(redisKey, JSON.stringify(snapshot), REDIS_TTL_SECONDS);
+    } catch (err) {
+      this.logger.warn(`Failed to warm Redis yearly snapshot: ${(err as Error).message}`);
+    }
+
+    return this.helpers.buildYearlyResponse(
+      profile.id,
+      profileBirthDate,
+      profileBirthTime,
+      year,
+      snapshot,
+      false,
+    );
+  }
+
+  /** AI narration via Anthropic SDK (mirrors runMonthlyAINarration pattern). */
+  private async runYearlyAINarration(
+    yearly: YearlyEngineOutput,
+    chart: FortuneChartContext,
+    year: number,
+  ): Promise<{
+    narrative: YearlyFortuneAINarrative | null;
+    validation: FortuneValidationResult;
+    promptVersion: string;
+  }> {
+    const yearlyPrompts = FORTUNE_V1_PROMPTS.yearly;
+    if (!yearlyPrompts) {
+      throw new Error('FORTUNE_V1_PROMPTS.yearly not configured');
+    }
+
+    const { systemPrompt, userPrompt } = buildFortuneYearlyMessages(yearly, chart, { year });
+    const client = await this.helpers.ensureClaudeClient();
+    const model = this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
+
+    const response = await client.messages.create(
+      {
+        model,
+        max_tokens: 2048,
+        temperature: 0.6,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      },
+      { timeout: AI_CALL_TIMEOUT_MS },
+    );
+
+    const text = response.content
+      .filter((b: { type: string }) => b.type === 'text')
+      .map((b: { type: string; text: string }) => b.text)
+      .join('');
+
+    const parsed = this.helpers.extractJson(text);
+    const validation = this.validators.validateYearly(parsed);
+
+    return {
+      narrative: validation.sanitized as unknown as YearlyFortuneAINarrative,
+      validation,
+      promptVersion: FORTUNE_PROMPT_VERSIONS.year,
     };
   }
 }

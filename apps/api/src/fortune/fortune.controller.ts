@@ -14,8 +14,10 @@ import { FortuneStreamService } from './fortune-stream.service';
 import {
   GetDailyFortuneQueryDto,
   GetMonthlyFortuneQueryDto,
+  GetYearlyFortuneQueryDto,
   type DailyFortuneResponse,
   type MonthlyFortuneResponse,
+  type YearlyFortuneResponse,
 } from './dto';
 
 @Controller('api/fortune')
@@ -159,6 +161,61 @@ export class FortuneController {
     await this.streamService.streamMonthlyFortune(
       auth.userId,
       { profileId: query.profileId, month: query.month },
+      response,
+    );
+  }
+
+  /**
+   * GET /api/fortune/yearly?profileId=<uuid>&year=YYYY
+   *
+   * Phase 3 年運 — Returns the yearly fortune for the given chart on the
+   * given 立春-anchored flow year. Subscription gate per locked plan (Phase A):
+   *   - Free: current year only
+   *   - Subscriber: last year + current + +4 years INCLUSIVE
+   *
+   * Year selection maps DIRECTLY to the 立春-anchored flow year (no
+   * cross-flow-year resolution complexity like month).
+   *
+   * Rate limit: 10 req/min (matches /daily + /monthly — same AI-intensive risk profile).
+   */
+  @Get('yearly')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async getYearly(
+    @CurrentUser() auth: AuthPayload,
+    @Query() query: GetYearlyFortuneQueryDto,
+  ): Promise<YearlyFortuneResponse> {
+    return this.fortuneService.getYearlyFortune(auth.userId, {
+      profileId: query.profileId,
+      year: query.year,
+    });
+  }
+
+  /**
+   * GET /api/fortune/yearly/stream?profileId=<uuid>&year=YYYY
+   *
+   * Phase 3 Yearly Streaming — SSE variant of GET /yearly. Mirrors
+   * /monthly/stream pattern. Emits events as the AI completes each section:
+   *   - engine_ready (immediate, ~600-1000ms cold) — engine output (4-dim
+   *     stars + coreRiskOpportunity + luckMethods; NO intraMonthBreakdown sibling)
+   *   - section_complete × N (one per section, ~each ~500ms-3s) — provisional prose, banned-phrase stripped
+   *   - done — full sanitized narrative (validator override)
+   *   - error — failure (engine / AI / validation)
+   *
+   * Same subscription gate + cache + persist semantics as GET /yearly.
+   * Cache hit: emits engine_ready + done immediately (NO section_complete).
+   *
+   * Rate limit: 10/min (matches GET /yearly + sibling stream endpoints).
+   */
+  @Get('yearly/stream')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async streamYearly(
+    @CurrentUser() auth: AuthPayload,
+    @Query() query: GetYearlyFortuneQueryDto,
+    @Res() response: Response,
+  ): Promise<void> {
+    await this.streamService.streamYearlyFortune(
+      auth.userId,
+      { profileId: query.profileId, year: query.year },
       response,
     );
   }

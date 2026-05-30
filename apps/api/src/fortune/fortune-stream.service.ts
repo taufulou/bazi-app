@@ -46,9 +46,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   buildFortuneDailyMessages,
   buildFortuneMonthlyMessages,
+  buildFortuneYearlyMessages,
   type DailyEngineOutput,
   type FortuneChartContext,
   type MonthlyEngineOutput,
+  type YearlyEngineOutput,
 } from './fortune-prompt-builder';
 import {
   FortuneValidatorsService,
@@ -59,6 +61,8 @@ import {
   type DailyFortuneResponse,
   type MonthlyFortuneAINarrative,
   type MonthlyFortuneResponse,
+  type YearlyFortuneAINarrative,
+  type YearlyFortuneResponse,
   type IntraMonthBreakdown,
 } from './dto';
 import {
@@ -84,6 +88,11 @@ export type FortuneStreamEngineOutput = DailyFortuneResponse['engineOutput'];
  *  existing DTO type. Distinguished from `MonthlyEngineOutput` (prompt builder
  *  internal type that carries extra builder fields). */
 export type FortuneMonthlyStreamEngineOutput = MonthlyFortuneResponse['engineOutput'];
+
+/** Wire-shape yearly engine output (mirrors `YearlyFortuneResponse.engineOutput`).
+ *  Same shape the non-streaming GET /yearly emits. Distinguished from
+ *  `YearlyEngineOutput` (prompt builder internal type). */
+export type FortuneYearlyStreamEngineOutput = YearlyFortuneResponse['engineOutput'];
 
 /** Phase Fortune Streaming — DAY scope event union. */
 export type FortuneDailyStreamEvent =
@@ -131,10 +140,38 @@ export type FortuneMonthlyStreamEvent =
     }
   | { type: 'error'; code: string; message: string };
 
-/** Umbrella discriminated union for both scopes (R3 polish — implementer-friendly).
+/** Phase 3 Yearly Streaming — YEAR scope event union.
+ *
+ *  Unlike monthly, yearly's `engine_ready` carries NO `intraMonthBreakdown`
+ *  sibling — `coreRiskOpportunity` + `luckMethods` live inside `engineOutput`.
+ *  `cacheHit` is on `engine_ready` (matches monthly NEW-M1) so warm-cache UI
+ *  surfaces read the correct value during the engine→success gap.
+ */
+export type FortuneYearlyStreamEvent =
+  | {
+      type: 'engine_ready';
+      engineOutput: FortuneYearlyStreamEngineOutput;
+      profileId: string;
+      profileBirthDate: string;
+      profileBirthTime: string;
+      year: number;
+      cacheHit: boolean;
+    }
+  | { type: 'section_complete'; key: string; value: unknown }
+  | {
+      type: 'done';
+      narrative: YearlyFortuneAINarrative | null;
+      cacheHit: boolean;
+    }
+  | { type: 'error'; code: string; message: string };
+
+/** Umbrella discriminated union for all scopes (R3 polish — implementer-friendly).
  *  Hook signature uses this; runtime branches on scope context + ev.type.
  *  Existing daily-only callers can use the narrower `FortuneDailyStreamEvent`. */
-export type FortuneStreamEvent = FortuneDailyStreamEvent | FortuneMonthlyStreamEvent;
+export type FortuneStreamEvent =
+  | FortuneDailyStreamEvent
+  | FortuneMonthlyStreamEvent
+  | FortuneYearlyStreamEvent;
 
 // ============================================================
 // Constants
@@ -1287,6 +1324,544 @@ export class FortuneStreamService {
     } catch (err) {
       this.logger.warn(
         `Failed to persist monthly disconnect-recovered narrative: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  // ============================================================
+  // Phase 3 — Yearly streaming (mirrors streamMonthlyFortune)
+  // ============================================================
+  //
+  // Differences from monthly:
+  //   - Cache key: yearly via helpers.yearlyRedisKey
+  //   - Pre-flight: year YYYY + enforceYearlySubscriptionGate
+  //   - Engine: helpers.fetchYearlyFromEngine (NO intraMonthBreakdown sibling —
+  //     coreRiskOpportunity + luckMethods live inside engineOutput)
+  //   - Prompts: buildFortuneYearlyMessages
+  //   - Validator: this.validators.validateYearly (single-arg signature)
+  //   - Persist: helpers.persistYearlySnapshot
+  //
+  // Same machinery: clarinet section detector, watchdog, client-disconnect
+  // rescue, stop-reason explicit branches, Sentry sanitize-diff breadcrumb.
+
+  async streamYearlyFortune(
+    clerkUserId: string,
+    args: { profileId?: string; year?: string },
+    response: Response,
+  ): Promise<void> {
+    if (!response.headersSent) {
+      response.setHeader('Content-Type', 'text/event-stream');
+      response.setHeader('Cache-Control', 'no-cache');
+      response.setHeader('Connection', 'keep-alive');
+      response.setHeader('X-Accel-Buffering', 'no');
+      response.flushHeaders();
+    }
+
+    try {
+      const { user, profile, targetYear, anchorDate } =
+        await this._preflightYearly(clerkUserId, args);
+
+      const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
+      const profileBirthTime = profile.birthTime;
+      const chartHash = this.helpers.computeChartHash(profile);
+
+      // Cache lookup (Redis → DB via helpers; key derived internally)
+      const cached = await this.helpers.tryGetYearlyCached(chartHash, anchorDate);
+      if (cached) {
+        // Cache HIT — emit engine_ready (cacheHit=true) + done (cacheHit=true)
+        // only. NO section_complete.
+        const wireResponse = this.helpers.buildYearlyResponse(
+          profile.id,
+          profileBirthDate,
+          profileBirthTime,
+          Number(targetYear),
+          cached,
+          true,
+        );
+        this._emit(response, {
+          type: 'engine_ready',
+          engineOutput: wireResponse.engineOutput,
+          profileId: profile.id,
+          profileBirthDate,
+          profileBirthTime,
+          year: wireResponse.year,
+          cacheHit: true,
+        });
+        this._emit(response, {
+          type: 'done',
+          narrative: wireResponse.narrative,
+          cacheHit: true,
+        });
+        response.end();
+        return;
+      }
+
+      // Cache miss → fetch engine output
+      const year = Number(targetYear);
+      let yearlyOutput: YearlyEngineOutput;
+      try {
+        yearlyOutput = await this.helpers.fetchYearlyFromEngine(profile, year);
+      } catch (err) {
+        this._emitError(
+          response,
+          'ENGINE_FAILED',
+          err instanceof Error ? err.message : 'Bazi engine unreachable',
+        );
+        return;
+      }
+
+      const chartContext =
+        (yearlyOutput as unknown as { chartContext?: FortuneChartContext }).chartContext ??
+        this.helpers.buildFallbackChartContext(profile);
+
+      // MEDIUM audit fix — strip chartContext from engineOutput before emit so
+      // we don't leak ~2KB of birth-pillar metadata in every cold-cache stream
+      // open. Mirrors the monthly engine_ready strip. Yearly has NO
+      // intraMonthBreakdown sibling, so only chartContext is stripped.
+      const { chartContext: _stripCC, ...engineOutputBare } =
+        yearlyOutput as unknown as Record<string, unknown> & { chartContext?: unknown };
+      void _stripCC;
+
+      // Emit engine_ready BEFORE Anthropic so frontend can paint
+      // Ring/Bars/risk-opp/luck-cards immediately (~600-1000ms vs ~5-15s for AI).
+      this._emit(response, {
+        type: 'engine_ready',
+        engineOutput: engineOutputBare as FortuneYearlyStreamEngineOutput,
+        profileId: profile.id,
+        profileBirthDate,
+        profileBirthTime,
+        year,
+        cacheHit: false,
+      });
+
+      // Open Anthropic stream + section detector
+      await this._streamYearlyWithSectionDetector({
+        response,
+        yearlyOutput,
+        chartContext,
+        chartHash,
+        birthProfileId: profile.id,
+        anchorDate,
+        year,
+      });
+    } catch (err) {
+      if (err instanceof HttpException) {
+        const resObj = err.getResponse();
+        const code =
+          typeof resObj === 'object' && resObj !== null && 'code' in resObj
+            ? (resObj as { code: string }).code
+            : 'PREFLIGHT_FAILED';
+        const message = err.message || 'Pre-flight check failed';
+        this._emitError(response, code, message);
+        return;
+      }
+      this.logger.error(
+        `Unexpected yearly stream pre-flight error: ${(err as Error).message}`,
+      );
+      this._emitError(response, 'INTERNAL_ERROR', 'Unexpected error');
+    }
+  }
+
+  /** Yearly pre-flight: auth + profile + targetYear + subscription gate. */
+  private async _preflightYearly(
+    clerkUserId: string,
+    args: { profileId?: string; year?: string },
+  ): Promise<{
+    user: { id: string; subscriptionTier: any };
+    profile: {
+      id: string;
+      birthDate: Date;
+      birthTime: string;
+      birthCity: string;
+      birthTimezone: string;
+      gender: string;
+      birthLongitude: number | null;
+      birthLatitude: number | null;
+    };
+    targetYear: string;
+    anchorDate: Date;
+  }> {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+    if (!user) {
+      throw new NotFoundException({ code: 'USER_NOT_FOUND', message: 'User not found' });
+    }
+
+    const profile = args.profileId
+      ? await this.prisma.birthProfile.findFirst({
+          where: { id: args.profileId, userId: user.id },
+        })
+      : await this.prisma.birthProfile.findFirst({
+          where: { userId: user.id, isPrimary: true },
+        });
+    if (!profile) {
+      throw new NotFoundException({
+        code: args.profileId ? 'PROFILE_NOT_FOUND' : 'NO_PRIMARY_PROFILE',
+        message: args.profileId
+          ? 'Birth profile not found'
+          : 'No primary birth profile configured for this user',
+      });
+    }
+
+    const targetYear = args.year ?? this.helpers.currentYearIso();
+    if (!/^\d{4}$/.test(targetYear)) {
+      throw new NotFoundException({
+        code: 'INVALID_YEAR',
+        message: `Invalid year format: ${targetYear} (expected YYYY)`,
+      });
+    }
+
+    this.helpers.enforceYearlySubscriptionGate(user.subscriptionTier, targetYear);
+
+    const anchorDate = new Date(`${targetYear}-01-01T00:00:00Z`);
+
+    return { user, profile, targetYear, anchorDate };
+  }
+
+  /** Run Anthropic yearly stream + clarinet section detector + per-section
+   *  banned-phrase strip + end-of-stream validate + persist. */
+  private async _streamYearlyWithSectionDetector(ctx: {
+    response: Response;
+    yearlyOutput: YearlyEngineOutput;
+    chartContext: FortuneChartContext;
+    chartHash: string;
+    birthProfileId: string;
+    anchorDate: Date;
+    year: number;
+  }): Promise<void> {
+    const { response, yearlyOutput, chartContext, chartHash, birthProfileId, anchorDate, year } = ctx;
+
+    if (!FORTUNE_V1_PROMPTS.yearly) {
+      this._emitError(response, 'PROMPT_NOT_CONFIGURED', 'FORTUNE_V1_PROMPTS.yearly not configured');
+      return;
+    }
+
+    const { systemPrompt, userPrompt } = buildFortuneYearlyMessages(
+      yearlyOutput,
+      chartContext,
+      { year },
+    );
+
+    let client: any;
+    try {
+      client = await this.helpers.ensureClaudeClient();
+    } catch (err) {
+      this._emitError(
+        response,
+        'AI_NOT_CONFIGURED',
+        err instanceof Error ? err.message : 'AI client unavailable',
+      );
+      await this._persistYearlyAIFailure({
+        chartHash,
+        birthProfileId,
+        anchorDate,
+        year,
+        yearlyOutput,
+      });
+      return;
+    }
+    const model =
+      this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
+
+    const seenSectionKeys: string[] = [];
+    const sanitizeDiffSections: string[] = [];
+    let totalDiffPhraseCount = 0;
+
+    const detector = createSectionDetector((key, value) => {
+      seenSectionKeys.push(key);
+      let outValue: unknown = value;
+      if (typeof value === 'string') {
+        const { text, strippedPhrases } =
+          this.validators.stripBannedAbsolutePhrasesFromText(value);
+        if (strippedPhrases.length > 0) {
+          sanitizeDiffSections.push(key);
+          totalDiffPhraseCount += strippedPhrases.length;
+        }
+        outValue = text;
+      }
+      this._emit(response, { type: 'section_complete', key, value: outValue });
+    });
+
+    const abortController = new AbortController();
+    let lastDeltaAt = Date.now();
+    let watchdogTriggered = false;
+    const watchdogTimer = setInterval(() => {
+      if (Date.now() - lastDeltaAt > STREAM_WATCHDOG_MS) {
+        this.logger.warn(`Yearly fortune stream watchdog timeout`);
+        watchdogTriggered = true;
+        abortController.abort();
+      }
+    }, 5_000);
+
+    let clientDisconnected = false;
+    const onClientClose = () => {
+      this.logger.log(`Yearly fortune stream — client disconnected mid-stream`);
+      clientDisconnected = true;
+      abortController.abort();
+    };
+    response.on('close', onClientClose);
+
+    let assistantBuffer = '';
+    let finalStopReason: string | null = null;
+
+    try {
+      const stream = client.messages.stream(
+        {
+          model,
+          max_tokens: STREAM_MAX_TOKENS,
+          temperature: STREAM_TEMPERATURE,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }],
+        },
+        {
+          timeout: STREAM_TIMEOUT_MS,
+          signal: abortController.signal,
+        },
+      );
+
+      for await (const event of stream) {
+        if (
+          event.type === 'content_block_delta' &&
+          event.delta.type === 'text_delta'
+        ) {
+          const text = event.delta.text as string;
+          assistantBuffer += text;
+          lastDeltaAt = Date.now();
+          detector.write(text);
+        }
+      }
+
+      const finalMessage = await stream.finalMessage();
+      finalStopReason = (finalMessage as { stop_reason?: string }).stop_reason ?? null;
+    } catch (err) {
+      clearInterval(watchdogTimer);
+      response.off('close', onClientClose);
+
+      if (clientDisconnected) {
+        await this._handleYearlyClientDisconnect({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          year,
+          yearlyOutput,
+          assistantBuffer,
+        });
+        if (!response.writableEnded) {
+          response.end();
+        }
+        return;
+      }
+
+      const reason = watchdogTriggered
+        ? 'watchdog-timeout-no-delta-60s'
+        : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
+      this.logger.error(`Yearly fortune stream Anthropic failure: ${reason}`);
+      detector.close();
+      this._emitError(response, 'AI_FAILED', reason);
+      await this._persistYearlyAIFailure({
+        chartHash,
+        birthProfileId,
+        anchorDate,
+        year,
+        yearlyOutput,
+      });
+      return;
+    } finally {
+      clearInterval(watchdogTimer);
+      response.off('close', onClientClose);
+    }
+
+    detector.close();
+
+    if (finalStopReason === 'max_tokens') {
+      this.logger.warn(
+        `Yearly fortune stream truncated at max_tokens (${STREAM_MAX_TOKENS}) for chart=${chartHash.slice(0, 8)}…`,
+      );
+      this._emitError(
+        response,
+        'TRUNCATED',
+        `AI response exceeded ${STREAM_MAX_TOKENS} tokens — narrative may be incomplete`,
+      );
+      await this._persistYearlyAIFailure({
+        chartHash,
+        birthProfileId,
+        anchorDate,
+        year,
+        yearlyOutput,
+      });
+      return;
+    }
+    if (finalStopReason === 'refusal') {
+      this.logger.warn(`Yearly fortune stream — AI refused to generate`);
+      this._emitError(response, 'AI_REFUSED', 'AI declined to generate this narrative');
+      await this._persistYearlyAIFailure({
+        chartHash,
+        birthProfileId,
+        anchorDate,
+        year,
+        yearlyOutput,
+      });
+      return;
+    }
+
+    // End-of-stream — full validator + persist + done
+    const parsedNarrative = this.helpers.extractJson(assistantBuffer);
+    if (!parsedNarrative) {
+      this.logger.warn(
+        `Yearly fortune stream — extractJson returned null on buffer length ${assistantBuffer.length}`,
+      );
+      this._emitError(response, 'PARSE_FAILED', 'AI response was not valid JSON');
+      await this._persistYearlyAIFailure({
+        chartHash,
+        birthProfileId,
+        anchorDate,
+        year,
+        yearlyOutput,
+      });
+      return;
+    }
+
+    let validation: FortuneValidationResult;
+    try {
+      validation = this.validators.validateYearly(parsedNarrative);
+    } catch (err) {
+      this.logger.error(
+        `Yearly fortune validator threw on stream output: ${(err as Error).message}`,
+      );
+      this._emitError(
+        response,
+        'VALIDATION_FAILED',
+        'Validator failed unexpectedly — narrative discarded',
+      );
+      await this._persistYearlyAIFailure({
+        chartHash,
+        birthProfileId,
+        anchorDate,
+        year,
+        yearlyOutput,
+      });
+      return;
+    }
+
+    const sanitizedNarrative =
+      validation.sanitized as unknown as YearlyFortuneAINarrative;
+
+    if (sanitizeDiffSections.length > 0) {
+      Sentry.addBreadcrumb({
+        category: 'fortune.stream.sanitize_diff',
+        level: 'info',
+        message: 'Per-section banned-phrase strip fired during yearly streaming',
+        data: {
+          scope: 'year',
+          sectionKeys: sanitizeDiffSections,
+          totalDiffPhraseCount,
+        },
+      });
+    }
+
+    const snapshot = await this.helpers.persistYearlySnapshot({
+      chartHash,
+      birthProfileId,
+      anchorDate,
+      year,
+      yearlyOutput,
+      narrative: sanitizedNarrative,
+      promptVersion: FORTUNE_PROMPT_VERSIONS.year,
+    });
+
+    try {
+      await this.helpers.redis.set(
+        this.helpers.yearlyRedisKey(chartHash, String(year)),
+        JSON.stringify(snapshot),
+        REDIS_TTL_SECONDS,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to warm Redis after yearly stream: ${(err as Error).message}`,
+      );
+    }
+
+    this._emit(response, {
+      type: 'done',
+      narrative: sanitizedNarrative,
+      cacheHit: false,
+    });
+    response.end();
+  }
+
+  /** Yearly AI-failure persistence (mirror monthly _persistMonthlyAIFailure). */
+  private async _persistYearlyAIFailure(args: {
+    chartHash: string;
+    birthProfileId: string;
+    anchorDate: Date;
+    year: number;
+    yearlyOutput: YearlyEngineOutput;
+  }): Promise<void> {
+    try {
+      await this.helpers.persistYearlySnapshot({
+        ...args,
+        narrative: null,
+        promptVersion: null,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to persist yearly AI-failure snapshot: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /** Yearly client-disconnect handler (mirror monthly _handleMonthlyClientDisconnect). */
+  private async _handleYearlyClientDisconnect(args: {
+    chartHash: string;
+    birthProfileId: string;
+    anchorDate: Date;
+    year: number;
+    yearlyOutput: YearlyEngineOutput;
+    assistantBuffer: string;
+  }): Promise<void> {
+    const parsed = this.helpers.extractJson(args.assistantBuffer);
+    if (!parsed) {
+      await this._persistYearlyAIFailure({
+        chartHash: args.chartHash,
+        birthProfileId: args.birthProfileId,
+        anchorDate: args.anchorDate,
+        year: args.year,
+        yearlyOutput: args.yearlyOutput,
+      });
+      return;
+    }
+    let validation: FortuneValidationResult;
+    try {
+      validation = this.validators.validateYearly(parsed);
+    } catch {
+      await this._persistYearlyAIFailure({
+        chartHash: args.chartHash,
+        birthProfileId: args.birthProfileId,
+        anchorDate: args.anchorDate,
+        year: args.year,
+        yearlyOutput: args.yearlyOutput,
+      });
+      return;
+    }
+    const sanitized =
+      validation.sanitized as unknown as YearlyFortuneAINarrative;
+    try {
+      await this.helpers.persistYearlySnapshot({
+        chartHash: args.chartHash,
+        birthProfileId: args.birthProfileId,
+        anchorDate: args.anchorDate,
+        year: args.year,
+        yearlyOutput: args.yearlyOutput,
+        narrative: sanitized,
+        promptVersion: FORTUNE_PROMPT_VERSIONS.year,
+      });
+      this.logger.log(
+        `Yearly fortune stream — client disconnected but full narrative cached for chart=${args.chartHash.slice(0, 8)}…`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `Failed to persist yearly disconnect-recovered narrative: ${(err as Error).message}`,
       );
     }
   }

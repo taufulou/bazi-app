@@ -46,12 +46,15 @@ import {
   type DailyEngineOutput,
   type FortuneChartContext,
   type MonthlyEngineOutput,
+  type YearlyEngineOutput,
 } from './fortune-prompt-builder';
 import {
   type DailyFortuneResponse,
   type DailyFortuneAINarrative,
   type MonthlyFortuneResponse,
   type MonthlyFortuneAINarrative,
+  type YearlyFortuneResponse,
+  type YearlyFortuneAINarrative,
 } from './dto';
 
 // ============================================================
@@ -92,6 +95,22 @@ export const SUBSCRIBER_MONTH_WINDOW_PAST = 1;
 
 /** Monthly endpoint timeout — heavier than daily (cross-flow-year compute + L1.b breakdown). */
 export const MONTHLY_ENGINE_TIMEOUT_MS = 60_000;
+
+// ============================================================
+// Yearly constants (Phase 3 — mirror monthly pattern)
+// ============================================================
+
+/** Free user can see ONLY the current year. */
+export const FREE_YEAR_WINDOW_FUTURE = 0;
+export const FREE_YEAR_WINDOW_PAST = 0;
+
+/** Subscriber year window per locked plan v? (Phase A): -1 year + current + +4 years INCLUSIVE.
+ *  Matches Seer's 6-pill year selector. */
+export const SUBSCRIBER_YEAR_WINDOW_FUTURE = 4;
+export const SUBSCRIBER_YEAR_WINDOW_PAST = 1;
+
+/** Yearly endpoint timeout — heavier than daily (12-month aggregation compute). */
+export const YEARLY_ENGINE_TIMEOUT_MS = 60_000;
 
 // ============================================================
 // FortuneSnapshotHelpers
@@ -910,6 +929,309 @@ export class FortuneSnapshotHelpers {
       engineOutput,
       narrative,
       intraMonthBreakdown,
+      cacheHit,
+      generatedAt: snapshot.generatedAt.toISOString(),
+    };
+  }
+
+  // ============================================================
+  // Phase 3 — Yearly helpers (mirror monthly helpers above)
+  // ============================================================
+  //
+  // Consumed by BOTH FortuneService.getYearlyFortune (non-streaming
+  // /api/fortune/yearly) AND FortuneStreamService.streamYearlyFortune
+  // (SSE /api/fortune/yearly/stream) so the cache + persist invariants
+  // stay identical across paths — same rationale as the monthly helpers.
+  //
+  // Key difference from monthly: the yearly engine output has NO
+  // `intraMonthBreakdown` sibling. `coreRiskOpportunity` + `luckMethods`
+  // live INSIDE engineOutput (not lifted to a sibling), so buildYearlyResponse
+  // passes engineOutput through unmodified — no destructure-strip needed.
+
+  /** Subscription gate for year scope: -1 / current / +4 INCLUSIVE. */
+  enforceYearlySubscriptionGate(tier: SubscriptionTier, targetYear: string): void {
+    const currentYear = this.currentYearIso();
+    const diffYears = this.diffYearsIso(currentYear, targetYear);
+
+    if (tier === SubscriptionTier.FREE) {
+      if (
+        diffYears < -FREE_YEAR_WINDOW_PAST ||
+        diffYears > FREE_YEAR_WINDOW_FUTURE
+      ) {
+        throw new ForbiddenException({
+          code: 'SUBSCRIBER_ONLY',
+          message: '此功能限訂閱用戶 — 免費用戶僅可查看當年運勢',
+        });
+      }
+      return;
+    }
+
+    if (
+      diffYears < -SUBSCRIBER_YEAR_WINDOW_PAST ||
+      diffYears > SUBSCRIBER_YEAR_WINDOW_FUTURE
+    ) {
+      throw new ForbiddenException({
+        code: 'OUT_OF_WINDOW',
+        message: `年運可查範圍：去年 + 今年 + 未來 ${SUBSCRIBER_YEAR_WINDOW_FUTURE} 年`,
+      });
+    }
+  }
+
+  /** Current year YYYY in FORTUNE_DEFAULT_TZ (Asia/Taipei). */
+  currentYearIso(): string {
+    const tz = this.config.get<string>('FORTUNE_DEFAULT_TZ') || 'Asia/Taipei';
+    // 'sv-SE' produces YYYY-MM-DD; slice to YYYY
+    return new Intl.DateTimeFormat('sv-SE', { timeZone: tz })
+      .format(new Date())
+      .slice(0, 4);
+  }
+
+  /** Whole-years difference (target - reference). Both YYYY. */
+  diffYearsIso(reference: string, target: string): number {
+    return Number(target) - Number(reference);
+  }
+
+  /** Redis key for yearly cache: `fortune:yearly:{chartHash}:{YYYY}`. */
+  yearlyRedisKey(chartHash: string, year: string): string {
+    return `fortune:yearly:${chartHash}:${year}`;
+  }
+
+  /** Try Redis → DB lookup for yearly snapshot. Returns null on miss/stale.
+   *
+   *  Signature mirrors monthly `tryGetMonthlyCached(chartHash, anchorDate)`:
+   *  caller passes `anchorDate` (Jan 1 at 00:00 UTC). Helper derives
+   *  `year = anchorDate.toISOString().slice(0,4)` internally → builds the
+   *  Redis key via `yearlyRedisKey`.
+   */
+  async tryGetYearlyCached(
+    chartHash: string,
+    anchorDate: Date,
+  ): Promise<DailyFortuneSnapshot | null> {
+    const year = anchorDate.toISOString().slice(0, 4);
+    const redisKey = this.yearlyRedisKey(chartHash, year);
+
+    // Redis hot path
+    const cached = await this.redis.get(redisKey);
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached) as DailyFortuneSnapshot;
+        // Restore Date columns (matches monthly tryGetMonthlyCached — JSON
+        // serialization leaves them as ISO strings; daily A5-1 fix pattern).
+        if (typeof (parsed as unknown as { generatedAt: unknown }).generatedAt === 'string') {
+          parsed.generatedAt = new Date(parsed.generatedAt as unknown as string);
+        }
+        if (typeof (parsed as unknown as { anchorDate: unknown }).anchorDate === 'string') {
+          parsed.anchorDate = new Date(parsed.anchorDate as unknown as string);
+        }
+        if (this.yearlyVersionsMatch(parsed)) {
+          return parsed;
+        }
+      } catch {
+        // fall through to DB
+      }
+    }
+
+    // DB warm path
+    const dbRow = await this.prisma.dailyFortuneSnapshot.findUnique({
+      where: {
+        chartHash_scope_anchorDate: {
+          chartHash,
+          scope: FortuneScope.YEAR,
+          anchorDate,
+        },
+      },
+    });
+
+    if (!dbRow) return null;
+    if (!this.yearlyVersionsMatch(dbRow)) {
+      this.logger.debug(
+        `YearlyFortuneSnapshot ${dbRow.id} stale — regenerating`,
+      );
+      return null;
+    }
+
+    // Warm Redis from DB (best-effort — failure doesn't block response)
+    try {
+      await this.redis.set(redisKey, JSON.stringify(dbRow), REDIS_TTL_SECONDS);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to warm Redis yearly from DB ${dbRow.id}: ${(err as Error).message}`,
+      );
+    }
+    return dbRow;
+  }
+
+  /** Check pre-analysis + prompt versions match current year-scope versions.
+   *  Circuit-breaker logic IDENTICAL to monthlyVersionsMatch (3 failures +
+   *  24h backoff; NULL promptVersion treated as stale → AI retried). */
+  yearlyVersionsMatch(row: {
+    preAnalysisVersion: string;
+    promptVersion: string | null;
+    aiFailureCount?: number | null;
+    aiLastFailedAt?: Date | string | null;
+  }): boolean {
+    if (row.preAnalysisVersion !== FORTUNE_PRE_ANALYSIS_VERSIONS.year) return false;
+    if (row.promptVersion === FORTUNE_PROMPT_VERSIONS.year) return true;
+    if (row.promptVersion !== null) return false;
+    // Circuit breaker: AI previously failed (promptVersion=null). Only retry
+    // if under failure cap OR backoff window has elapsed.
+    const failureCount = row.aiFailureCount ?? 0;
+    if (failureCount < MAX_AI_FAILURES) return false;  // not at cap yet → retry
+    const lastFailedAt = row.aiLastFailedAt
+      ? new Date(row.aiLastFailedAt as Date | string)
+      : null;
+    if (!lastFailedAt) return false;  // hit cap but no timestamp — safer to retry
+    const backoffMs = AI_FAILURE_BACKOFF_HOURS * 60 * 60 * 1000;
+    const stillInBackoff = lastFailedAt.getTime() + backoffMs > Date.now();
+    return stillInBackoff;  // true = serve engine-only; false = retry AI
+  }
+
+  /** Call Python engine /yearly-fortune endpoint. */
+  async fetchYearlyFromEngine(
+    profile: {
+      birthDate: Date;
+      birthTime: string;
+      birthCity: string;
+      birthTimezone: string;
+      gender: string;
+      birthLongitude: number | null;
+      birthLatitude: number | null;
+    },
+    year: number,
+  ): Promise<YearlyEngineOutput> {
+    const birthDateIso = profile.birthDate.toISOString().slice(0, 10);
+
+    let response: Response;
+    try {
+      response = await fetch(`${this.baziEngineUrl}/yearly-fortune`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          birth_date: birthDateIso,
+          birth_time: profile.birthTime,
+          birth_city: profile.birthCity,
+          birth_timezone: profile.birthTimezone,
+          gender: profile.gender.toLowerCase(),
+          birth_longitude: profile.birthLongitude,
+          birth_latitude: profile.birthLatitude,
+          target_year: year,
+        }),
+        signal: AbortSignal.timeout(YEARLY_ENGINE_TIMEOUT_MS),
+      });
+    } catch (err) {
+      throw new InternalServerErrorException(
+        `Bazi engine unreachable: ${(err as Error).message}`,
+      );
+    }
+
+    if (!response.ok) {
+      const body = await response.text();
+      this.logger.error(`Engine /yearly-fortune ${response.status}: ${body}`);
+      throw new InternalServerErrorException(`Bazi engine returned ${response.status}`);
+    }
+
+    const json = (await response.json()) as { data?: YearlyEngineOutput };
+    if (!json.data) {
+      throw new InternalServerErrorException('Engine response missing data');
+    }
+    return json.data;
+  }
+
+  /** Persist yearly snapshot (DB upsert). Anchor = Jan 1 at 00:00 UTC. */
+  async persistYearlySnapshot(args: {
+    chartHash: string;
+    birthProfileId: string;
+    anchorDate: Date;
+    year: number;
+    yearlyOutput: YearlyEngineOutput;
+    narrative: YearlyFortuneAINarrative | null;
+    promptVersion: string | null;
+  }): Promise<DailyFortuneSnapshot> {
+    const engineJson = args.yearlyOutput as unknown as Prisma.InputJsonValue;
+    const narrativeJson = args.narrative
+      ? (args.narrative as unknown as Prisma.InputJsonValue)
+      : Prisma.JsonNull;
+
+    return this.prisma.dailyFortuneSnapshot.upsert({
+      where: {
+        chartHash_scope_anchorDate: {
+          chartHash: args.chartHash,
+          scope: FortuneScope.YEAR,
+          anchorDate: args.anchorDate,
+        },
+      },
+      create: {
+        chartHash: args.chartHash,
+        birthProfileId: args.birthProfileId,
+        scope: FortuneScope.YEAR,
+        anchorDate: args.anchorDate,
+        year: args.year,
+        engineOutputJson: engineJson,
+        aiNarrativeJson: narrativeJson,
+        energyScore: args.yearlyOutput.energyScore,
+        auspiciousnessLabel: args.yearlyOutput.auspiciousness,
+        preAnalysisVersion: FORTUNE_PRE_ANALYSIS_VERSIONS.year,
+        promptVersion: args.promptVersion,
+        aiFailureCount: args.promptVersion === null ? 1 : 0,
+        aiLastFailedAt: args.promptVersion === null ? new Date() : null,
+      },
+      update: {
+        engineOutputJson: engineJson,
+        aiNarrativeJson: narrativeJson,
+        energyScore: args.yearlyOutput.energyScore,
+        auspiciousnessLabel: args.yearlyOutput.auspiciousness,
+        preAnalysisVersion: FORTUNE_PRE_ANALYSIS_VERSIONS.year,
+        promptVersion: args.promptVersion,
+        generatedAt: new Date(),
+        ...(args.promptVersion === null
+          ? { aiFailureCount: { increment: 1 }, aiLastFailedAt: new Date() }
+          : { aiFailureCount: 0, aiLastFailedAt: null }),
+      },
+    });
+  }
+
+  /** Build the wire response from a persisted/cached yearly snapshot.
+   *
+   *  Unlike monthly, yearly has NO `intraMonthBreakdown` sibling —
+   *  `coreRiskOpportunity` + `luckMethods` live INSIDE engineOutput. So we
+   *  pass engineOutput through unmodified (no destructure-strip / sibling lift).
+   */
+  buildYearlyResponse(
+    profileId: string,
+    profileBirthDate: string,
+    profileBirthTime: string,
+    year: number,
+    snapshot: DailyFortuneSnapshot,
+    cacheHit: boolean,
+  ): YearlyFortuneResponse {
+    const raw = snapshot.engineOutputJson as unknown;
+    if (
+      raw === null ||
+      typeof raw !== 'object' ||
+      !('yearGanZhi' in (raw as object)) ||
+      !('auspiciousness' in (raw as object)) ||
+      !('dimensions' in (raw as object)) ||
+      !('energyScore' in (raw as object)) ||
+      !('coreRiskOpportunity' in (raw as object)) ||
+      !('luckMethods' in (raw as object))
+    ) {
+      this.logger.error(
+        `Yearly snapshot ${snapshot.id} has malformed engineOutputJson — regenerating`,
+      );
+      throw new InternalServerErrorException(
+        'Yearly fortune snapshot data is malformed — please retry',
+      );
+    }
+    const engineOutput = raw as YearlyFortuneResponse['engineOutput'];
+    const narrative = snapshot.aiNarrativeJson as unknown as YearlyFortuneAINarrative | null;
+
+    return {
+      year,
+      profileId,
+      profileBirthDate,
+      profileBirthTime,
+      engineOutput,
+      narrative,
       cacheHit,
       generatedAt: snapshot.generatedAt.toISOString(),
     };
