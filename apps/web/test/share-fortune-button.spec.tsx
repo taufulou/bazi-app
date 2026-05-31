@@ -14,7 +14,6 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import ShareFortuneButton, {
   type ShareFortuneButtonHandle,
 } from '../app/components/fortune/ShareFortuneButton';
-import type { DailyFortuneResponse } from '../app/lib/fortune-api';
 
 // CRITICAL — dynamic imports need __esModule: true or .default returns undefined
 const mockToBlob = jest.fn((cb: BlobCallback) =>
@@ -47,44 +46,13 @@ jest.mock('@sentry/nextjs', () => ({
   captureException: jest.fn(),
 }));
 
-function makeData(): DailyFortuneResponse {
-  return {
-    date: '2026-05-18',
-    profileId: 'p1',
-    profileBirthDate: '1987-09-06',
-    profileBirthTime: '16:11',
-    engineOutput: {
-      dayStem: '辛',
-      dayBranch: '卯',
-      dayGanZhi: '辛卯',
-      dayTenGod: '傷官',
-      auspiciousness: '大吉',
-      energyScore: 80,
-      metaFraming: 'soft_trigger',
-      dimensions: {
-        romance: { score: 75, label: '順遂', signals: [] },
-        career: { score: 80, label: '順遂', signals: [] },
-        finance: { score: 70, label: '平穩', signals: [] },
-        travel: { score: 65, label: '平穩', signals: [] },
-        health: { score: 60, label: '平穩', signals: [] },
-      },
-      folkContent: {
-        wealthDirection: { element: '火', direction: '南方', provenance: 'classical', note: '' },
-        // Phase 1.5.z fields — minimal fixture (nulls + empty array OK for share-card test)
-        luckyColor: null,
-        luckyNumber: null,
-        luckyFoodFavor: null,
-        luckyFoodAvoid: null,
-        auspiciousHours: [],
-      },
-      ruleTrace: [],
-      preAnalysisVersion: 'v1.1.1',
-    },
-    narrative: null,
-    cacheHit: false,
-    generatedAt: '2026-05-18T00:00:00Z',
-  };
-}
+// Scope-agnostic share metadata (daily fixture). The component no longer
+// takes a full response — each call site (daily / yearly) derives its own
+// filename + share text. See page.tsx SuccessView (daily) + YearlyFortuneView.
+const DAILY_SHARE_META = {
+  filename: 'fortune-2026-05-18.png',
+  shareText: '2026-05-18 我的命理日運 — 大吉',
+};
 
 describe('ShareFortuneButton', () => {
   // jsdom doesn't implement document.fonts.load or URL.createObjectURL — stub
@@ -114,6 +82,8 @@ describe('ShareFortuneButton', () => {
   function renderButton(opts: {
     qrDataUrl?: string | null;
     shareCardArmed?: boolean;
+    shareMeta?: { filename: string; shareText: string };
+    idleLabel?: string;
   } = {}) {
     const cardRef = createRef<HTMLDivElement>();
     const buttonHandleRef = createRef<ShareFortuneButtonHandle>();
@@ -127,7 +97,8 @@ describe('ShareFortuneButton', () => {
         {armed && <div ref={cardRef} />}
         <ShareFortuneButton
           ref={buttonHandleRef}
-          data={makeData()}
+          shareMeta={opts.shareMeta ?? DAILY_SHARE_META}
+          idleLabel={opts.idleLabel ?? '分享今日運勢'}
           cardRef={cardRef}
           shareCardArmed={armed}
           onArmShareCard={onArmShareCard}
@@ -143,6 +114,28 @@ describe('ShareFortuneButton', () => {
   it('renders the button with idle label', () => {
     renderButton();
     expect(screen.getByText('分享今日運勢')).toBeInTheDocument();
+  });
+
+  it('is scope-agnostic — renders a custom idleLabel + shares with the given filename (yearly path)', async () => {
+    const shareMock = jest.fn(() => Promise.resolve());
+    const canShareMock = jest.fn(() => true);
+    Object.assign(navigator, { share: shareMock, canShare: canShareMock });
+
+    renderButton({
+      qrDataUrl: 'data:cached',
+      idleLabel: '分享今年運勢',
+      shareMeta: { filename: 'fortune-year-2026.png', shareText: '2026年 我的命理年運 — 大吉' },
+    });
+    expect(screen.getByText('分享今年運勢')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('分享今年運勢'));
+    await waitFor(() => expect(shareMock).toHaveBeenCalledTimes(1));
+    const arg = (shareMock.mock.calls[0] as unknown as [{ files: File[]; text: string }])[0];
+    expect(arg.files[0]!.name).toBe('fortune-year-2026.png');
+    expect(arg.text).toBe('2026年 我的命理年運 — 大吉');
+
+    delete (navigator as unknown as { share?: unknown }).share;
+    delete (navigator as unknown as { canShare?: unknown }).canShare;
   });
 
   it('generates QR + calls onQrGenerated when qrDataUrl is null', async () => {

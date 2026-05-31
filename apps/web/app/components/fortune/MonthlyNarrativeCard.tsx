@@ -139,7 +139,7 @@ export default function MonthlyNarrativeCard({
     return (
       <div className={styles.fallback}>
         <p className={styles.fallbackLead}>
-          ⚠️ 本月 AI 解讀暫不可用。請重新整理頁面再試一次。
+          AI 文字解讀暫時無法產生，可能因命理師服務忙線。上方的能量指數、四大面向與時段分析仍可參考，稍後再回來即可看到完整解讀。
         </p>
       </div>
     );

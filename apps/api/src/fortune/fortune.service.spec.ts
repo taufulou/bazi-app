@@ -300,6 +300,18 @@ describe('FortuneService — cache layer', () => {
       dailyOutput: buildDailyOutput(),
       narrative: null as any,
     };
+    // Success ⟺ a non-null narrative. The persist branch now keys on
+    // `args.narrative` presence (LKG-preservation refactor 2026-05-31), NOT on
+    // `promptVersion`, so success-path tests must supply a narrative object.
+    const SUCCESS_NARRATIVE = {
+      daily_overview: 'x',
+      daily_romance: 'x',
+      daily_career: 'x',
+      daily_finance: 'x',
+      daily_travel: 'x',
+      daily_health: 'x',
+      daily_advice: { canTry: ['a'], shouldHold: ['b'] },
+    } as any;
 
     it('AI success → CREATE block initializes counter to 0 and lastFailedAt to null', async () => {
       const dbUpsert = jest.fn().mockImplementation((args: any) => Promise.resolve({
@@ -308,6 +320,7 @@ describe('FortuneService — cache layer', () => {
       const { helpers } = buildService({ dbUpsert });
       await helpers.persistSnapshot({
         ...PERSIST_ARGS,
+        narrative: SUCCESS_NARRATIVE,
         promptVersion: FORTUNE_PROMPT_VERSIONS.day, // AI succeeded
       });
       expect(dbUpsert).toHaveBeenCalledTimes(1);
@@ -321,6 +334,7 @@ describe('FortuneService — cache layer', () => {
       const { helpers } = buildService({ dbUpsert });
       await helpers.persistSnapshot({
         ...PERSIST_ARGS,
+        narrative: SUCCESS_NARRATIVE,
         promptVersion: FORTUNE_PROMPT_VERSIONS.day,
       });
       const call = dbUpsert.mock.calls[0][0];
@@ -329,8 +343,27 @@ describe('FortuneService — cache layer', () => {
       expect(call.update.aiLastFailedAt).toBeNull();
       // Sanity: success path must be a primitive `0`, NOT a Prisma
       // `{ increment: 1 }` object — guards against accidentally inverting
-      // the ternary in `persistSnapshot`.
+      // the success/failure branch in `persistSnapshot`.
       expect(typeof call.update.aiFailureCount).toBe('number');
+      // LKG-preservation contract: success writes the narrative.
+      expect(call.update.aiNarrativeJson).toBeDefined();
+    });
+
+    it('AI failure → UPDATE block does NOT overwrite aiNarrativeJson (LKG preservation)', async () => {
+      const dbUpsert = jest.fn().mockResolvedValue({ id: 'persist-1' });
+      const { helpers } = buildService({ dbUpsert });
+      await helpers.persistSnapshot({
+        ...PERSIST_ARGS,
+        narrative: null,
+        promptVersion: null, // AI failed
+      });
+      const call = dbUpsert.mock.calls[0][0];
+      // The failure branch must OMIT aiNarrativeJson entirely so a
+      // previously-rendered reading survives the failed regen. Writing
+      // Prisma.JsonNull here would destroy the last-known-good narrative.
+      expect('aiNarrativeJson' in call.update).toBe(false);
+      expect(call.update.promptVersion).toBeNull();
+      expect(call.update.aiFailureCount).toEqual({ increment: 1 });
     });
 
     it('AI failure → CREATE block sets counter=1 and lastFailedAt=now', async () => {

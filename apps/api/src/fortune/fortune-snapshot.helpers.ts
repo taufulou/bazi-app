@@ -437,21 +437,34 @@ export class FortuneSnapshotHelpers {
         aiLastFailedAt: args.promptVersion === null ? new Date() : null,
       },
       update: {
+        // Engine data is deterministic + cheap — always refresh to current.
         engineOutputJson: args.dailyOutput as unknown as Prisma.InputJsonValue,
-        aiNarrativeJson: args.narrative
-          ? (args.narrative as unknown as Prisma.InputJsonValue)
-          : Prisma.JsonNull,
         energyScore: args.dailyOutput.energyScore,
         auspiciousnessLabel: args.dailyOutput.auspiciousness,
         preAnalysisVersion: FORTUNE_PRE_ANALYSIS_VERSIONS.day,
-        promptVersion: args.promptVersion,
         generatedAt: new Date(),
-        // Circuit breaker: increment atomically on failure (Prisma `{ increment: 1 }`
-        // generates `SET ai_failure_count = ai_failure_count + 1` — race-safe vs
-        // JS-level math which would need a prior SELECT). Reset on success.
-        ...(args.promptVersion === null
-          ? { aiFailureCount: { increment: 1 }, aiLastFailedAt: new Date() }
-          : { aiFailureCount: 0, aiLastFailedAt: null }),
+        ...(args.narrative
+          ? {
+              // SUCCESS — store new narrative + its prompt version, reset breaker.
+              aiNarrativeJson: args.narrative as unknown as Prisma.InputJsonValue,
+              promptVersion: args.promptVersion,
+              aiFailureCount: 0,
+              aiLastFailedAt: null,
+            }
+          : {
+              // FAILURE — last-known-good preservation. Do NOT overwrite
+              // `aiNarrativeJson` with null: a transient AI outage (e.g. credit
+              // exhausted) or a prompt-version bump must never DESTROY a
+              // previously-rendered reading. Omitting the field leaves the
+              // column untouched. promptVersion=null keeps the circuit breaker
+              // armed (keyed on null + failureCount); once it opens, the
+              // cache-hit path serves the preserved LKG narrative — the page
+              // never blanks for a chart that has ever rendered.
+              // Atomic `{ increment: 1 }` is race-safe vs a JS read-modify-write.
+              promptVersion: null,
+              aiFailureCount: { increment: 1 },
+              aiLastFailedAt: new Date(),
+            }),
       },
     });
   }
@@ -856,16 +869,28 @@ export class FortuneSnapshotHelpers {
         aiLastFailedAt: args.promptVersion === null ? new Date() : null,
       },
       update: {
+        // Engine data is deterministic + cheap — always refresh to current.
         engineOutputJson: engineJson,
-        aiNarrativeJson: narrativeJson,
         energyScore: args.monthlyOutput.energyScore,
         auspiciousnessLabel: args.monthlyOutput.auspiciousness,
         preAnalysisVersion: FORTUNE_PRE_ANALYSIS_VERSIONS.month,
-        promptVersion: args.promptVersion,
         generatedAt: new Date(),
-        ...(args.promptVersion === null
-          ? { aiFailureCount: { increment: 1 }, aiLastFailedAt: new Date() }
-          : { aiFailureCount: 0, aiLastFailedAt: null }),
+        ...(args.narrative
+          ? {
+              // SUCCESS — store new narrative + its prompt version, reset breaker.
+              aiNarrativeJson: narrativeJson,
+              promptVersion: args.promptVersion,
+              aiFailureCount: 0,
+              aiLastFailedAt: null,
+            }
+          : {
+              // FAILURE — last-known-good preservation (see persistSnapshot
+              // for the full rationale). Omitting aiNarrativeJson keeps a
+              // previously-rendered reading alive across a failed regen.
+              promptVersion: null,
+              aiFailureCount: { increment: 1 },
+              aiLastFailedAt: new Date(),
+            }),
       },
     });
   }
@@ -1176,16 +1201,28 @@ export class FortuneSnapshotHelpers {
         aiLastFailedAt: args.promptVersion === null ? new Date() : null,
       },
       update: {
+        // Engine data is deterministic + cheap — always refresh to current.
         engineOutputJson: engineJson,
-        aiNarrativeJson: narrativeJson,
         energyScore: args.yearlyOutput.energyScore,
         auspiciousnessLabel: args.yearlyOutput.auspiciousness,
         preAnalysisVersion: FORTUNE_PRE_ANALYSIS_VERSIONS.year,
-        promptVersion: args.promptVersion,
         generatedAt: new Date(),
-        ...(args.promptVersion === null
-          ? { aiFailureCount: { increment: 1 }, aiLastFailedAt: new Date() }
-          : { aiFailureCount: 0, aiLastFailedAt: null }),
+        ...(args.narrative
+          ? {
+              // SUCCESS — store new narrative + its prompt version, reset breaker.
+              aiNarrativeJson: narrativeJson,
+              promptVersion: args.promptVersion,
+              aiFailureCount: 0,
+              aiLastFailedAt: null,
+            }
+          : {
+              // FAILURE — last-known-good preservation (see persistSnapshot
+              // for the full rationale). Omitting aiNarrativeJson keeps a
+              // previously-rendered reading alive across a failed regen.
+              promptVersion: null,
+              aiFailureCount: { increment: 1 },
+              aiLastFailedAt: new Date(),
+            }),
       },
     });
   }

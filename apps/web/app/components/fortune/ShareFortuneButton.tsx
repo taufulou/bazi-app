@@ -21,7 +21,6 @@ import * as React from 'react';
 import * as Sentry from '@sentry/nextjs';
 import { Share2, Loader2 } from 'lucide-react';
 import {
-  fortuneShareFilename,
   fortuneShareUrl,
   generateQrDataUrl,
   loadFortuneCardFonts,
@@ -29,12 +28,23 @@ import {
   shareOrDownloadPng,
   type ShareResult,
 } from '../../lib/share-fortune';
-import type { DailyFortuneResponse } from '../../lib/fortune-api';
 import styles from './ShareFortuneButton.module.css';
 
+/** Scope-agnostic share metadata. Each call site (daily / yearly) derives
+ *  the download filename + native-share text from its own response shape,
+ *  keeping this component free of any single scope's data type. */
+export interface ShareMeta {
+  /** Download filename for the PNG (e.g. `fortune-2026-05-17.png`). */
+  filename: string;
+  /** Native-share sheet body text. */
+  shareText: string;
+}
+
 interface ShareFortuneButtonProps {
-  data: DailyFortuneResponse;
+  shareMeta: ShareMeta;
   cardRef: React.RefObject<HTMLDivElement | null>;
+  /** Idle button label (e.g. 「分享今日運勢」 / 「分享今年運勢」). */
+  idleLabel?: string;
   /** Parent state — true once user has signaled intent (hover/touch/click) */
   shareCardArmed: boolean;
   /** Parent setter — flip `shareCardArmed=true` to mount ShareableFortuneCard */
@@ -60,8 +70,9 @@ type Phase = 'idle' | 'preparing' | 'capturing' | 'error';
 const ShareFortuneButton = React.forwardRef<ShareFortuneButtonHandle, ShareFortuneButtonProps>(
   function ShareFortuneButton(
     {
-      data,
+      shareMeta,
       cardRef,
+      idleLabel = '分享運勢',
       shareCardArmed,
       onArmShareCard,
       qrDataUrl,
@@ -141,9 +152,7 @@ const ShareFortuneButton = React.forwardRef<ShareFortuneButtonHandle, ShareFortu
       });
 
       // Step 5: share / download cascade
-      const filename = fortuneShareFilename(data.date);
-      const shareText = `${data.date} 我的命理日運 — ${data.engineOutput.auspiciousness}`;
-      const result = await shareOrDownloadPng(blob, filename, shareText);
+      const result = await shareOrDownloadPng(blob, shareMeta.filename, shareMeta.shareText);
 
       setPhase('idle');
       onShareComplete?.(result);
@@ -161,7 +170,7 @@ const ShareFortuneButton = React.forwardRef<ShareFortuneButtonHandle, ShareFortu
     qrDataUrl,
     shareCardArmed,
     cardRef,
-    data,
+    shareMeta,
     onArmShareCard,
     onQrGenerated,
     onShareComplete,
@@ -181,7 +190,7 @@ const ShareFortuneButton = React.forwardRef<ShareFortuneButtonHandle, ShareFortu
       ? '準備分享…'
       : phase === 'capturing'
       ? '正在生成圖片…'
-      : '分享今日運勢';
+      : idleLabel;
 
   return (
     <div className={styles.wrapper}>

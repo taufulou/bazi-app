@@ -92,7 +92,7 @@ describe('NarrativeCard streamedSections', () => {
       expect(screen.queryByText('感情敘述')).not.toBeInTheDocument();
     });
 
-    it('renders 「暫不可用」 fallback when narrative=null + streamedSections empty + loading=false', () => {
+    it('renders honest AI-unavailable fallback when narrative=null + streamedSections empty + loading=false', () => {
       render(
         <NarrativeCard
           narrative={null}
@@ -100,7 +100,10 @@ describe('NarrativeCard streamedSections', () => {
           loading={false}
         />,
       );
-      expect(screen.getByText(/AI 解讀暫不可用/)).toBeInTheDocument();
+      // Honest copy (2026-05-31 resilience fix): the engine data above stays
+      // usable + the user is told to come back, rather than a misleading
+      // «請重新整理頁面再試一次» that wouldn't help during an AI outage.
+      expect(screen.getByText(/AI 文字解讀暫時無法產生/)).toBeInTheDocument();
     });
 
     it('renders HYBRID when narrative=null + some streamedSections + loading=true', () => {

@@ -122,7 +122,7 @@ export default function NarrativeCard({
     return (
       <div className={styles.fallback}>
         <p className={styles.fallbackLead}>
-          ⚠️ 今日 AI 解讀暫不可用。下方為命局層級的結構化訊號：
+          AI 文字解讀暫時無法產生，可能因命理師服務忙線。以下為命局層級的結構化訊號可供參考，稍後再回來即可看到完整解讀：
         </p>
         <SignalsList dimensions={dimensions} />
       </div>

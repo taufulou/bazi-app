@@ -122,7 +122,7 @@ export default function YearlyNarrativeCard({
     return (
       <div className={styles.fallback}>
         <p className={styles.fallbackLead}>
-          ⚠️ 今年 AI 解讀暫不可用。請重新整理頁面再試一次。
+          AI 文字解讀暫時無法產生，可能因命理師服務忙線。上方的能量指數、四大面向與關鍵月份仍可參考，稍後再回來即可看到完整解讀。
         </p>
       </div>
     );

@@ -218,6 +218,11 @@ function buildService(opts: {
   streamStopReason?: string;
   streamThrows?: Error;
   validatorSanitized?: any;
+  /** Row returned by the persistSnapshot spy on the FAILURE path. Defaults to
+   *  a row with `aiNarrativeJson: null` (a chart that has NEVER rendered → no
+   *  last-known-good → the AI-failure error path fires). Pass a row WITH a
+   *  narrative to exercise the LKG-serve path (done event instead of error). */
+  persistFailureReturn?: any;
 } = {}) {
   const prisma: any = {
     user: { findUnique: jest.fn().mockResolvedValue({ id: 'user-1', clerkUserId: CLERK_ID, subscriptionTier: 'PRO' }) },
@@ -246,7 +251,19 @@ function buildService(opts: {
   } else {
     jest.spyOn(helpers, 'fetchDailyFromEngine').mockResolvedValue(opts.engineOutput ?? buildDailyOutput());
   }
-  const persistSpy = jest.spyOn(helpers, 'persistSnapshot').mockResolvedValue(buildFreshSnapshot());
+  // persistSnapshot is called on BOTH success (with narrative) and failure
+  // (narrative=null). The mock returns a row whose aiNarrativeJson reflects
+  // the LKG state: by default the FAILURE path returns a row with NO prior
+  // narrative (never-rendered chart → error path fires). Tests opt into the
+  // LKG-serve path via `persistFailureReturn`.
+  const noLkgRow = { ...buildFreshSnapshot(), aiNarrativeJson: null };
+  const persistSpy = jest
+    .spyOn(helpers, 'persistSnapshot')
+    .mockImplementation(async (args: any) =>
+      args.narrative
+        ? buildFreshSnapshot() // success path
+        : (opts.persistFailureReturn ?? noLkgRow), // failure path (no LKG by default)
+    );
 
   // Mock Anthropic client
   const streamFn = opts.streamThrows
@@ -539,6 +556,28 @@ describe('FortuneStreamService', () => {
       expect(errEvent).toBeDefined();
       expect(errEvent.code).toBe('PARSE_FAILED');
       expect(persistSpy.mock.calls[0][0].promptVersion).toBeNull();
+    });
+
+    it('AI fails BUT a last-known-good narrative survives → serve it via done, NO error (LKG resilience)', async () => {
+      // The persisted row still carries a previously-generated narrative
+      // (persistSnapshot no longer nulls it on failure). The stream must serve
+      // that LKG narrative instead of blanking the page.
+      const lkgRow = buildFreshSnapshot(); // has aiNarrativeJson populated
+      const { service } = buildService({
+        streamThrows: new Error('Anthropic 400 credit balance too low'),
+        persistFailureReturn: lkgRow,
+      });
+      const res = new MockResponse() as any;
+      await service.streamDailyFortune(CLERK_ID, { date: TARGET_DATE }, res);
+
+      // No error event — instead a done event carrying the LKG narrative.
+      const errEvent = res.events.find((e: any) => e.type === 'error');
+      expect(errEvent).toBeUndefined();
+      const doneEvent = res.events.find((e: any) => e.type === 'done') as any;
+      expect(doneEvent).toBeDefined();
+      expect(doneEvent.narrative).toBeTruthy();
+      expect(doneEvent.narrative.daily_overview).toBe('今日整體偏向平穩');
+      expect(doneEvent.cacheHit).toBe(true);
     });
   });
 

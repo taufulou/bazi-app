@@ -192,6 +192,12 @@ const STREAM_TEMPERATURE = 0.6;
 /** Same as `AI_CALL_TIMEOUT_MS` — the outer Anthropic SDK timeout. */
 const STREAM_TIMEOUT_MS = AI_CALL_TIMEOUT_MS;
 
+/** Shape returned by the persist-failure wrappers — the upserted snapshot row
+ *  (or null if even the persist failed). Used by `_serveLkg` to recover a
+ *  preserved last-known-good narrative after an AI regen failure. We only read
+ *  `aiNarrativeJson`, so a structural subset is enough. */
+type LkgRow = { aiNarrativeJson: unknown; chartHash: string } | null;
+
 // ============================================================
 // Service
 // ============================================================
@@ -547,8 +553,11 @@ export class FortuneStreamService {
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Fortune stream Anthropic failure: ${reason}`);
       detector.close();
+      {
+        const failRow = await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
+        if (this._serveLkg(response, failRow, 'day')) return;
+      }
       this._emitError(response, 'AI_FAILED', reason);
-      await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
       return;
     } finally {
       clearInterval(watchdogTimer);
@@ -564,9 +573,12 @@ export class FortuneStreamService {
       this.logger.warn(
         `Fortune stream truncated at max_tokens (${STREAM_MAX_TOKENS}) for chart=${chartHash.slice(0, 8)}…`,
       );
+      {
+        const failRow = await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
+        if (this._serveLkg(response, failRow, 'day')) return;
+      }
       this._emitError(response, 'TRUNCATED',
         `AI response exceeded ${STREAM_MAX_TOKENS} tokens — narrative may be incomplete`);
-      await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
       return;
     }
     if (finalStopReason === 'refusal') {
@@ -576,8 +588,11 @@ export class FortuneStreamService {
       // PARSE_FAILED branch below). Kept explicit for future API additions
       // + symmetric handling with max_tokens. Audit MEDIUM finding.
       this.logger.warn(`Fortune stream — AI refused to generate`);
+      {
+        const failRow = await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
+        if (this._serveLkg(response, failRow, 'day')) return;
+      }
       this._emitError(response, 'AI_REFUSED', 'AI declined to generate this narrative');
-      await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
       return;
     }
 
@@ -587,8 +602,11 @@ export class FortuneStreamService {
     const parsedNarrative = this.helpers.extractJson(assistantBuffer);
     if (!parsedNarrative) {
       this.logger.warn(`Fortune stream — extractJson returned null on buffer length ${assistantBuffer.length}`);
+      {
+        const failRow = await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
+        if (this._serveLkg(response, failRow, 'day')) return;
+      }
       this._emitError(response, 'PARSE_FAILED', 'AI response was not valid JSON');
-      await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
       return;
     }
 
@@ -600,9 +618,12 @@ export class FortuneStreamService {
       });
     } catch (err) {
       this.logger.error(`Fortune validator threw on stream output: ${(err as Error).message}`);
+      {
+        const failRow = await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
+        if (this._serveLkg(response, failRow, 'day')) return;
+      }
       this._emitError(response, 'VALIDATION_FAILED',
         'Validator failed unexpectedly — narrative discarded');
-      await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
       return;
     }
 
@@ -666,9 +687,13 @@ export class FortuneStreamService {
     birthProfileId: string;
     anchorDate: Date;
     dailyOutput: DailyEngineOutput;
-  }): Promise<void> {
+  }): Promise<LkgRow> {
     try {
-      await this.helpers.persistSnapshot({
+      // Returns the upserted row so the caller can serve a preserved
+      // last-known-good narrative. persistSnapshot no longer nulls an existing
+      // narrative on failure (LKG preservation) — so this row may still carry
+      // a previously-rendered reading.
+      return await this.helpers.persistSnapshot({
         ...args,
         narrative: null,
         promptVersion: null,
@@ -677,6 +702,7 @@ export class FortuneStreamService {
       this.logger.warn(
         `Failed to persist AI-failure snapshot for stream: ${(err as Error).message}`,
       );
+      return null;
     }
   }
 
@@ -741,6 +767,47 @@ export class FortuneStreamService {
     // returns) to make the service-side contract uniform: every code path
     // either emits 'done' (success) or closes the response (failure /
     // disconnect). No-op when socket already destroyed.
+  }
+
+  // ============================================================
+  // Last-known-good (LKG) recovery
+  // ============================================================
+
+  /** When an AI regeneration fails but the persisted snapshot still carries a
+   *  previously-generated narrative (persistSnapshot no longer nulls it on
+   *  failure — LKG preservation), serve that narrative via a `done` event
+   *  instead of blanking the page with AI_FAILED. Scope-agnostic: the `done`
+   *  event shape is identical across day/month/year ({type, narrative,
+   *  cacheHit}); the narrative IS `row.aiNarrativeJson`. `engine_ready` (with
+   *  the profile fields) was already emitted upstream, so nothing else is
+   *  needed here.
+   *
+   *  Returns true if it served (emitted done + ended response) — caller then
+   *  returns. Returns false (no LKG to serve) → caller emits the honest
+   *  AI_FAILED error so the FE shows the «AI 文字解讀暫時無法產生」 fallback. */
+  private _serveLkg(response: Response, row: LkgRow, scope: 'day' | 'month' | 'year'): boolean {
+    if (!row) return false;
+    const lkg = row.aiNarrativeJson;
+    // A valid LKG narrative is a non-empty plain object. Reject JS null AND the
+    // Prisma.JsonNull write-sentinel (which is a keyless object, NOT == null) —
+    // on the real DB read path a NULL column comes back as JS null, but a
+    // freshly-failed CREATE row carries the sentinel until re-read.
+    if (lkg == null || typeof lkg !== 'object' || Object.keys(lkg).length === 0) {
+      return false;
+    }
+    if (response.writableEnded) return true;
+    this._emit(response, {
+      type: 'done',
+      // The persisted narrative is the scope's AI narrative shape; the `done`
+      // union is structurally identical across scopes, so a single cast is safe.
+      narrative: row.aiNarrativeJson as DailyFortuneAINarrative,
+      cacheHit: true,
+    });
+    response.end();
+    this.logger.log(
+      `LKG narrative served after ${scope} AI failure (chart=${row.chartHash.slice(0, 8)}…) — page preserved`,
+    );
+    return true;
   }
 
   // ============================================================
@@ -1116,14 +1183,17 @@ export class FortuneStreamService {
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Monthly fortune stream Anthropic failure: ${reason}`);
       detector.close();
+      {
+        const failRow = await this._persistMonthlyAIFailure({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          yearMonth: targetMonth,
+          monthlyOutput,
+        });
+        if (this._serveLkg(response, failRow, 'month')) return;
+      }
       this._emitError(response, 'AI_FAILED', reason);
-      await this._persistMonthlyAIFailure({
-        chartHash,
-        birthProfileId,
-        anchorDate,
-        yearMonth: targetMonth,
-        monthlyOutput,
-      });
       return;
     } finally {
       clearInterval(watchdogTimer);
@@ -1136,30 +1206,36 @@ export class FortuneStreamService {
       this.logger.warn(
         `Monthly fortune stream truncated at max_tokens (${STREAM_MAX_TOKENS}) for chart=${chartHash.slice(0, 8)}…`,
       );
+      {
+        const failRow = await this._persistMonthlyAIFailure({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          yearMonth: targetMonth,
+          monthlyOutput,
+        });
+        if (this._serveLkg(response, failRow, 'month')) return;
+      }
       this._emitError(
         response,
         'TRUNCATED',
         `AI response exceeded ${STREAM_MAX_TOKENS} tokens — narrative may be incomplete`,
       );
-      await this._persistMonthlyAIFailure({
-        chartHash,
-        birthProfileId,
-        anchorDate,
-        yearMonth: targetMonth,
-        monthlyOutput,
-      });
       return;
     }
     if (finalStopReason === 'refusal') {
       this.logger.warn(`Monthly fortune stream — AI refused to generate`);
+      {
+        const failRow = await this._persistMonthlyAIFailure({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          yearMonth: targetMonth,
+          monthlyOutput,
+        });
+        if (this._serveLkg(response, failRow, 'month')) return;
+      }
       this._emitError(response, 'AI_REFUSED', 'AI declined to generate this narrative');
-      await this._persistMonthlyAIFailure({
-        chartHash,
-        birthProfileId,
-        anchorDate,
-        yearMonth: targetMonth,
-        monthlyOutput,
-      });
       return;
     }
 
@@ -1169,14 +1245,17 @@ export class FortuneStreamService {
       this.logger.warn(
         `Monthly fortune stream — extractJson returned null on buffer length ${assistantBuffer.length}`,
       );
+      {
+        const failRow = await this._persistMonthlyAIFailure({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          yearMonth: targetMonth,
+          monthlyOutput,
+        });
+        if (this._serveLkg(response, failRow, 'month')) return;
+      }
       this._emitError(response, 'PARSE_FAILED', 'AI response was not valid JSON');
-      await this._persistMonthlyAIFailure({
-        chartHash,
-        birthProfileId,
-        anchorDate,
-        yearMonth: targetMonth,
-        monthlyOutput,
-      });
       return;
     }
 
@@ -1189,18 +1268,21 @@ export class FortuneStreamService {
       this.logger.error(
         `Monthly fortune validator threw on stream output: ${(err as Error).message}`,
       );
+      {
+        const failRow = await this._persistMonthlyAIFailure({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          yearMonth: targetMonth,
+          monthlyOutput,
+        });
+        if (this._serveLkg(response, failRow, 'month')) return;
+      }
       this._emitError(
         response,
         'VALIDATION_FAILED',
         'Validator failed unexpectedly — narrative discarded',
       );
-      await this._persistMonthlyAIFailure({
-        chartHash,
-        birthProfileId,
-        anchorDate,
-        yearMonth: targetMonth,
-        monthlyOutput,
-      });
       return;
     }
 
@@ -1257,9 +1339,9 @@ export class FortuneStreamService {
     anchorDate: Date;
     yearMonth: string;
     monthlyOutput: MonthlyEngineOutput;
-  }): Promise<void> {
+  }): Promise<LkgRow> {
     try {
-      await this.helpers.persistMonthlySnapshot({
+      return await this.helpers.persistMonthlySnapshot({
         ...args,
         narrative: null,
         promptVersion: null,
@@ -1268,6 +1350,7 @@ export class FortuneStreamService {
       this.logger.warn(
         `Failed to persist monthly AI-failure snapshot: ${(err as Error).message}`,
       );
+      return null;
     }
   }
 
@@ -1658,14 +1741,17 @@ export class FortuneStreamService {
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Yearly fortune stream Anthropic failure: ${reason}`);
       detector.close();
+      {
+        const failRow = await this._persistYearlyAIFailure({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          year,
+          yearlyOutput,
+        });
+        if (this._serveLkg(response, failRow, 'year')) return;
+      }
       this._emitError(response, 'AI_FAILED', reason);
-      await this._persistYearlyAIFailure({
-        chartHash,
-        birthProfileId,
-        anchorDate,
-        year,
-        yearlyOutput,
-      });
       return;
     } finally {
       clearInterval(watchdogTimer);
@@ -1678,30 +1764,36 @@ export class FortuneStreamService {
       this.logger.warn(
         `Yearly fortune stream truncated at max_tokens (${STREAM_MAX_TOKENS}) for chart=${chartHash.slice(0, 8)}…`,
       );
+      {
+        const failRow = await this._persistYearlyAIFailure({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          year,
+          yearlyOutput,
+        });
+        if (this._serveLkg(response, failRow, 'year')) return;
+      }
       this._emitError(
         response,
         'TRUNCATED',
         `AI response exceeded ${STREAM_MAX_TOKENS} tokens — narrative may be incomplete`,
       );
-      await this._persistYearlyAIFailure({
-        chartHash,
-        birthProfileId,
-        anchorDate,
-        year,
-        yearlyOutput,
-      });
       return;
     }
     if (finalStopReason === 'refusal') {
       this.logger.warn(`Yearly fortune stream — AI refused to generate`);
+      {
+        const failRow = await this._persistYearlyAIFailure({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          year,
+          yearlyOutput,
+        });
+        if (this._serveLkg(response, failRow, 'year')) return;
+      }
       this._emitError(response, 'AI_REFUSED', 'AI declined to generate this narrative');
-      await this._persistYearlyAIFailure({
-        chartHash,
-        birthProfileId,
-        anchorDate,
-        year,
-        yearlyOutput,
-      });
       return;
     }
 
@@ -1711,14 +1803,17 @@ export class FortuneStreamService {
       this.logger.warn(
         `Yearly fortune stream — extractJson returned null on buffer length ${assistantBuffer.length}`,
       );
+      {
+        const failRow = await this._persistYearlyAIFailure({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          year,
+          yearlyOutput,
+        });
+        if (this._serveLkg(response, failRow, 'year')) return;
+      }
       this._emitError(response, 'PARSE_FAILED', 'AI response was not valid JSON');
-      await this._persistYearlyAIFailure({
-        chartHash,
-        birthProfileId,
-        anchorDate,
-        year,
-        yearlyOutput,
-      });
       return;
     }
 
@@ -1729,18 +1824,21 @@ export class FortuneStreamService {
       this.logger.error(
         `Yearly fortune validator threw on stream output: ${(err as Error).message}`,
       );
+      {
+        const failRow = await this._persistYearlyAIFailure({
+          chartHash,
+          birthProfileId,
+          anchorDate,
+          year,
+          yearlyOutput,
+        });
+        if (this._serveLkg(response, failRow, 'year')) return;
+      }
       this._emitError(
         response,
         'VALIDATION_FAILED',
         'Validator failed unexpectedly — narrative discarded',
       );
-      await this._persistYearlyAIFailure({
-        chartHash,
-        birthProfileId,
-        anchorDate,
-        year,
-        yearlyOutput,
-      });
       return;
     }
 
@@ -1797,9 +1895,9 @@ export class FortuneStreamService {
     anchorDate: Date;
     year: number;
     yearlyOutput: YearlyEngineOutput;
-  }): Promise<void> {
+  }): Promise<LkgRow> {
     try {
-      await this.helpers.persistYearlySnapshot({
+      return await this.helpers.persistYearlySnapshot({
         ...args,
         narrative: null,
         promptVersion: null,
@@ -1808,6 +1906,7 @@ export class FortuneStreamService {
       this.logger.warn(
         `Failed to persist yearly AI-failure snapshot: ${(err as Error).message}`,
       );
+      return null;
     }
   }
 

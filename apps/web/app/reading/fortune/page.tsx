@@ -38,9 +38,11 @@ import ProfileSwitcher from '../../components/fortune/ProfileSwitcher';
 import FortuneUpgradeModal from '../../components/fortune/FortuneUpgradeModal';
 import AuthExpiredBanner from '../../components/fortune/AuthExpiredBanner';
 import ShareableFortuneCard from '../../components/fortune/ShareableFortuneCard';
+import ShareableYearlyFortuneCard from '../../components/fortune/ShareableYearlyFortuneCard';
 import ShareFortuneButton, {
   type ShareFortuneButtonHandle,
 } from '../../components/fortune/ShareFortuneButton';
+import { fortuneShareFilename } from '../../lib/share-fortune';
 import FortuneSampleQuestions from '../../components/fortune/FortuneSampleQuestions';
 import ChatDrawer from '../../components/chat/ChatDrawer';
 import ChatFloatingButton from '../../components/chat/ChatFloatingButton';
@@ -550,6 +552,10 @@ function FortuneView() {
   // during in-flight fetch (mirror of monthlyIsLoading).
   const [yearlyIsLoading, setYearlyIsLoading] = useState(false);
 
+  // Phase 3 share — YearlyFortuneView publishes share-readiness UP (true only
+  // on success). Drives the FortuneShell share-icon gate for the year tab.
+  const [yearlyShareReady, setYearlyShareReady] = useState(false);
+
   // Audit fix MEDIUM #8 (2026-05-28): MonthlyFortuneView publishes its
   // loading state UP via this setter so MonthNavigator can render
   // disabled arrows during in-flight fetch (mirror of DateNavigator's
@@ -626,14 +632,24 @@ function FortuneView() {
           showAuthBanner ? <AuthExpiredBanner onDismiss={handleBannerDismiss} /> : undefined
         }
         // CRITICAL fix per plan v2 M1 / locked decision #15: share button is
-        // gated on `state.status === 'success'` (NOT 'engine'). Rationale:
-        // during the streaming 'engine' window, `data.narrative` is null —
-        // ShareableFortuneCard reads `narrative?.daily_advice?.canTry?.[0]`
-        // for the takeaway pull-quote, so a share triggered during streaming
-        // would generate a PNG with an empty takeaway line (looks broken
-        // when shared to LINE/WeChat). Gate on success means PNGs always
+        // gated on success (NOT the streaming 'engine' window). Rationale:
+        // during streaming, `narrative` is null — the share cards read
+        // narrative fields (daily takeaway / yearly headline), so a share
+        // triggered mid-stream would generate a PNG with empty/missing copy
+        // (looks broken on LINE/WeChat). Gate on success → PNGs always
         // contain the validator-sanitized narrative.
-        onShareClick={state.status === 'success' ? handleShellShareClick : undefined}
+        //
+        // Tab-aware: day reads the outer day-state machine; year reads
+        // `yearlyShareReady` surfaced from YearlyFortuneView's own state
+        // machine. Only one tab's ShareFortuneButton is mounted at a time,
+        // so the shared shareButtonRef points to the active one. Month has
+        // no share card yet (deferred).
+        onShareClick={
+          (tab === 'day' && state.status === 'success') ||
+          (tab === 'year' && yearlyShareReady)
+            ? handleShellShareClick
+            : undefined
+        }
       >
         {/* Phase 2 月運 (L5) — replace PartialPreview for month tab with real
             MonthlyFortuneView. Year tab still uses PartialPreview (Phase 3
@@ -658,6 +674,8 @@ function FortuneView() {
             isLoaded={isLoaded}
             onLoadingChange={setYearlyIsLoading}
             onResolvedProfileId={setYearlyResolvedProfileId}
+            shareButtonRef={shareButtonRef}
+            onShareReadyChange={setYearlyShareReady}
           />
         )}
 
@@ -685,7 +703,7 @@ function FortuneView() {
         {tab === 'day' && dataState && (
           <SuccessView
             data={dataState.data}
-            loadingNarrative={state.status === 'engine'}
+            loadingNarrative={state.status === 'engine' && !streamError}
             streamedSections={streamedSections}
             streamError={streamError}
             shareCardRef={shareCardRef}
@@ -914,7 +932,11 @@ function SuccessView({
           Lazy-mounts ShareableFortuneCard on first hover/touch/click. */}
       <ShareFortuneButton
         ref={shareButtonRef}
-        data={data}
+        shareMeta={{
+          filename: fortuneShareFilename(data.date),
+          shareText: `${data.date} 我的命理日運 — ${data.engineOutput.auspiciousness}`,
+        }}
+        idleLabel="分享今日運勢"
         cardRef={shareCardRef}
         shareCardArmed={shareCardArmed}
         onArmShareCard={onArmShareCard}
@@ -1391,7 +1413,7 @@ function MonthlyFortuneView({
       <MonthlyNarrativeCard
         narrative={narrative}
         dimensions={dimensionsForNarrative}
-        loading={state.status === 'engine'}
+        loading={state.status === 'engine' && !streamError}
         streamedSections={
           state.status === 'engine' ? streamedSections : undefined
         }
@@ -1449,9 +1471,18 @@ interface YearlyFortuneViewProps {
   isLoaded: boolean;
   /** Publish loading state UP so YearNavigator can disable arrows. */
   onLoadingChange?: (isLoading: boolean) => void;
-  /** Publish resolved profileId (from engine_ready) UP. Reserved for any
-   *  future year-scope chat (chat is DEFERRED per Phase 3 spec). */
+  /** Publish resolved profileId (from engine_ready) UP. Surfaced for
+   *  year-scope chat (L3.5c). */
   onResolvedProfileId?: (profileId: string) => void;
+  /** Parent-owned imperative handle to the year ShareFortuneButton — lets
+   *  FortuneShell's top-right share icon invoke triggerShare() (preserves
+   *  iOS user-gesture). Only one tab's button is mounted at a time, so the
+   *  parent reuses the same ref it owns for the daily SuccessView. */
+  shareButtonRef?: React.RefObject<ShareFortuneButtonHandle | null>;
+  /** Publish share-readiness UP (true only on success). The shell-icon gate
+   *  reads this for the year tab — PNG capture must never include a
+   *  provisional/streaming narrative. */
+  onShareReadyChange?: (ready: boolean) => void;
 }
 
 function YearlyFortuneView({
@@ -1462,6 +1493,8 @@ function YearlyFortuneView({
   isLoaded,
   onLoadingChange,
   onResolvedProfileId,
+  shareButtonRef,
+  onShareReadyChange,
 }: YearlyFortuneViewProps) {
   const [state, setState] = useState<YearlyFortuneViewState>({ status: 'idle' });
   const [streamedSections, setStreamedSections] = useState<
@@ -1470,6 +1503,14 @@ function YearlyFortuneView({
   const [streamError, setStreamError] = useState<{ code: string; message: string } | null>(
     null,
   );
+
+  // Share state — self-contained inside the year view (the parent only owns
+  // the shared shareButtonRef). Lazy-mount the heavy ShareableYearlyFortuneCard
+  // until share intent fires (hover/touch/click), and only when state.status
+  // === 'success' so the PNG never captures a provisional narrative.
+  const [yShareArmed, setYShareArmed] = useState(false);
+  const [yQrDataUrl, setYQrDataUrl] = useState<string | null>(null);
+  const yShareCardRef = useRef<HTMLDivElement>(null);
 
   // stateRef — keep current state.status readable in the onEvent closure so
   // error classification reads CURRENT status (not the stale snapshot). Mirror
@@ -1489,6 +1530,13 @@ function YearlyFortuneView({
   useEffect(() => {
     onLoadingChange?.(state.status === 'loading');
   }, [state.status, onLoadingChange]);
+
+  // Surface share-readiness UP. True ONLY on success — the shell share icon
+  // gate (parent) reads this so PNG capture never includes a streaming/
+  // provisional narrative (PNG-safety, mirrors the daily success-only gate).
+  useEffect(() => {
+    onShareReadyChange?.(state.status === 'success');
+  }, [state.status, onShareReadyChange]);
 
   useFortuneNarrativeStream({
     enabled: !!isLoaded && !!isSignedIn,
@@ -1672,7 +1720,7 @@ function YearlyFortuneView({
       <YearlyNarrativeCard
         narrative={narrative}
         dimensions={dimensionsForNarrative}
-        loading={state.status === 'engine'}
+        loading={state.status === 'engine' && !streamError}
         streamedSections={
           state.status === 'engine' ? streamedSections : undefined
         }
@@ -1685,6 +1733,36 @@ function YearlyFortuneView({
       <SectionDivider />
 
       <YearlyCrossSellCard />
+
+      {/* Phase 3 share — mounted ONLY on success (PNG-safety: never capture a
+          provisional/streaming narrative). The visible inline button is the
+          primary share affordance; the FortuneShell top-right icon triggers
+          the same flow via the parent-owned shareButtonRef. */}
+      {state.status === 'success' && (
+        <>
+          <SectionDivider />
+          <ShareFortuneButton
+            ref={shareButtonRef}
+            shareMeta={{
+              filename: `fortune-year-${state.data.year}.png`,
+              shareText: `${state.data.year}年 我的命理年運 — ${engineOutput.auspiciousness}`,
+            }}
+            idleLabel="分享今年運勢"
+            cardRef={yShareCardRef}
+            shareCardArmed={yShareArmed}
+            onArmShareCard={() => setYShareArmed(true)}
+            qrDataUrl={yQrDataUrl}
+            onQrGenerated={setYQrDataUrl}
+          />
+          {/* Off-screen ShareableYearlyFortuneCard — mounted only after share
+              intent. 1200×1600 fixed-pixel container for html2canvas capture. */}
+          {yShareArmed && yQrDataUrl && (
+            <div className={styles.shareCardOffscreen} aria-hidden="true">
+              <ShareableYearlyFortuneCard ref={yShareCardRef} data={state.data} qrDataUrl={yQrDataUrl} />
+            </div>
+          )}
+        </>
+      )}
 
       <p className={styles.monthlyBottomDisclaimer}>
         {ENTERTAINMENT_DISCLAIMER['zh-TW']}
