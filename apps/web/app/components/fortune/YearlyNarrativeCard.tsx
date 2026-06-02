@@ -16,10 +16,11 @@
  * Canonical section order locked via YEARLY_DIM_META iteration (never trust
  * SSE event arrival order — plan H5 pattern from daily/monthly streaming).
  */
+import * as React from 'react'; // VALUE namespace import — dual @types/react JSX-identity fix (CLAUDE.md)
 import type { YearlyFortuneNarrative } from '../../lib/fortune-api';
 import { dimTierFromScore } from './labels';
 import { parseBoldSegments } from './markdown';
-import { YEARLY_DIM_META } from './yearlyDimensions';
+import { YEARLY_DIM_META, type YearlyDimKey } from './yearlyDimensions';
 import styles from './YearlyNarrativeCard.module.css';
 
 interface Props {
@@ -38,6 +39,14 @@ interface Props {
    * Mirrors monthly NarrativeCard pattern. Cleared by caller on `done` event.
    */
   streamedSections?: Partial<YearlyFortuneNarrative>;
+  /** Tier B2 (Phase 3.5c) — optional slot rendered AFTER each dim block, for
+   *  per-dim InlineAskCard wiring (parent passes a `yearly_*` sectionKey card).
+   *  Mirrors daily NarrativeCard's `renderAfterDimension`. 3-state visibility:
+   *  shown when the dim is actually rendered (has `text` OR the «今年此面向平穩»
+   *  empty-state), hidden (visibility:hidden, layout-reserving) ONLY during the
+   *  streaming skeleton — a `text`-only guard would wrongly hide the ask card
+   *  under a visibly-rendered 平穩 dim. */
+  renderAfterDimension?: (dimKey: YearlyDimKey) => React.ReactNode;
 }
 
 function RichText({ text }: { text: string }) {
@@ -72,6 +81,7 @@ export default function YearlyNarrativeCard({
   dimensions,
   loading = false,
   streamedSections,
+  renderAfterDimension,
 }: Props) {
   const hasStreamedSections =
     !narrative && !!streamedSections && Object.keys(streamedSections).length > 0;
@@ -208,6 +218,19 @@ export default function YearlyNarrativeCard({
                   <div className={styles.skeletonLine} style={{ width: '65%' }} />
                 </div>
               )}
+
+              {/* Tier B2 — per-dim InlineAskCard slot. Visible when the dim is
+                  rendered (text OR 平穩 empty-state); hidden (layout-reserving)
+                  during the streaming skeleton. */}
+              {renderAfterDimension ? (
+                text || narrative ? (
+                  renderAfterDimension(m.key)
+                ) : (
+                  <div style={{ visibility: 'hidden' }} aria-hidden="true">
+                    {renderAfterDimension(m.key)}
+                  </div>
+                )
+              ) : null}
             </article>
           );
         })}

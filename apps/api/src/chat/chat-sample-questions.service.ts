@@ -53,9 +53,13 @@ const CHAT_SECTION_KEYS_BY_READING_TYPE_LOCAL: Record<string, readonly string[]>
   // Phase Fortune — 5 daily dimensions (mirrors daily_enhanced.py dispatchers).
   // The «general» FORTUNE strip lives at sectionKey=NULL (no whitelist entry
   // needed — admin can post with sectionKey=null for the homepage pill row).
+  // Tier B2 — 4 yearly dimensions (no yearly_travel; travel is DAY-only per
+  // 三命通會 神煞篇). MONTH stays general-only (no per-dim monthly_* keys).
+  // The fortune_scope column on each row disambiguates daily_* vs yearly_*.
   FORTUNE: [
     'daily_romance', 'daily_career', 'daily_finance',
     'daily_travel', 'daily_health',
+    'yearly_career', 'yearly_finance', 'yearly_romance', 'yearly_health',
   ],
 };
 

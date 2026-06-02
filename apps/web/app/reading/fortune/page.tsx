@@ -39,6 +39,7 @@ import FortuneUpgradeModal from '../../components/fortune/FortuneUpgradeModal';
 import AuthExpiredBanner from '../../components/fortune/AuthExpiredBanner';
 import ShareableFortuneCard from '../../components/fortune/ShareableFortuneCard';
 import ShareableYearlyFortuneCard from '../../components/fortune/ShareableYearlyFortuneCard';
+import ShareableMonthlyFortuneCard from '../../components/fortune/ShareableMonthlyFortuneCard';
 import ShareFortuneButton, {
   type ShareFortuneButtonHandle,
 } from '../../components/fortune/ShareFortuneButton';
@@ -556,6 +557,10 @@ function FortuneView() {
   // on success). Drives the FortuneShell share-icon gate for the year tab.
   const [yearlyShareReady, setYearlyShareReady] = useState(false);
 
+  // Tier B1 share — MonthlyFortuneView publishes share-readiness UP (true only
+  // on success). Drives the FortuneShell share-icon gate for the month tab.
+  const [monthlyShareReady, setMonthlyShareReady] = useState(false);
+
   // Audit fix MEDIUM #8 (2026-05-28): MonthlyFortuneView publishes its
   // loading state UP via this setter so MonthNavigator can render
   // disabled arrows during in-flight fetch (mirror of DateNavigator's
@@ -639,13 +644,13 @@ function FortuneView() {
         // (looks broken on LINE/WeChat). Gate on success → PNGs always
         // contain the validator-sanitized narrative.
         //
-        // Tab-aware: day reads the outer day-state machine; year reads
-        // `yearlyShareReady` surfaced from YearlyFortuneView's own state
-        // machine. Only one tab's ShareFortuneButton is mounted at a time,
-        // so the shared shareButtonRef points to the active one. Month has
-        // no share card yet (deferred).
+        // Tab-aware: day reads the outer day-state machine; month + year read
+        // `monthlyShareReady` / `yearlyShareReady` surfaced from each view's
+        // own state machine. Only one tab's ShareFortuneButton is mounted at
+        // a time, so the shared shareButtonRef points to the active one.
         onShareClick={
           (tab === 'day' && state.status === 'success') ||
+          (tab === 'month' && monthlyShareReady) ||
           (tab === 'year' && yearlyShareReady)
             ? handleShellShareClick
             : undefined
@@ -663,6 +668,8 @@ function FortuneView() {
             isLoaded={isLoaded}
             onLoadingChange={setMonthlyIsLoading}
             onResolvedProfileId={setMonthlyResolvedProfileId}
+            shareButtonRef={shareButtonRef}
+            onShareReadyChange={setMonthlyShareReady}
           />
         )}
         {tab === 'year' && (
@@ -676,6 +683,8 @@ function FortuneView() {
             onResolvedProfileId={setYearlyResolvedProfileId}
             shareButtonRef={shareButtonRef}
             onShareReadyChange={setYearlyShareReady}
+            onAskFromCard={handleAskFromCard}
+            onOpenChatFromCard={handleOpenChatFromCard}
           />
         )}
 
@@ -1155,6 +1164,15 @@ interface MonthlyFortuneViewProps {
    *  UP so the page-level ChatDrawer mount can use it as `fortune.profileId`
    *  when user navigated without ?profileId= (NestJS resolves user's primary). */
   onResolvedProfileId?: (profileId: string) => void;
+  /** Tier B1 share — parent-owned imperative handle to the month
+   *  ShareFortuneButton (lets the shell's top-right share icon invoke
+   *  triggerShare(); only one tab's button is mounted at a time, so the
+   *  parent reuses the same ref). */
+  shareButtonRef?: React.RefObject<ShareFortuneButtonHandle | null>;
+  /** Tier B1 share — publish share-readiness UP (true only on success);
+   *  the shell-icon gate reads this so PNG capture never includes a
+   *  provisional/streaming narrative. */
+  onShareReadyChange?: (ready: boolean) => void;
 }
 
 function MonthlyFortuneView({
@@ -1165,6 +1183,8 @@ function MonthlyFortuneView({
   isLoaded,
   onLoadingChange,
   onResolvedProfileId,
+  shareButtonRef,
+  onShareReadyChange,
 }: MonthlyFortuneViewProps) {
   const [state, setState] = useState<MonthlyFortuneViewState>({ status: 'idle' });
   const [streamedSections, setStreamedSections] = useState<
@@ -1173,6 +1193,14 @@ function MonthlyFortuneView({
   const [streamError, setStreamError] = useState<{ code: string; message: string } | null>(
     null,
   );
+
+  // Tier B1 share state — self-contained inside the month view (parent owns
+  // only the shared shareButtonRef). Lazy-mount ShareableMonthlyFortuneCard
+  // until share intent fires, and only on state.status === 'success' so the
+  // PNG never captures a provisional narrative. Mirror of YearlyFortuneView.
+  const [mShareArmed, setMShareArmed] = useState(false);
+  const [mQrDataUrl, setMQrDataUrl] = useState<string | null>(null);
+  const mShareCardRef = useRef<HTMLDivElement>(null);
 
   // CRITICAL C-1 audit fix — keep `state` accessible via ref so the onEvent
   // callback can read the CURRENT state.status when classifying error events.
@@ -1198,6 +1226,13 @@ function MonthlyFortuneView({
   useEffect(() => {
     onLoadingChange?.(state.status === 'loading');
   }, [state.status, onLoadingChange]);
+
+  // Tier B1 — surface share-readiness UP. True ONLY on success (PNG-safety:
+  // the shell share-icon gate reads this so capture never includes a
+  // provisional/streaming narrative). Mirror of YearlyFortuneView.
+  useEffect(() => {
+    onShareReadyChange?.(state.status === 'success');
+  }, [state.status, onShareReadyChange]);
 
   useFortuneNarrativeStream({
     enabled: !!isLoaded && !!isSignedIn,
@@ -1419,6 +1454,36 @@ function MonthlyFortuneView({
         }
       />
 
+      {/* Tier B1 share — mounted ONLY on success (PNG-safety: never capture a
+          provisional/streaming narrative). The inline button is the primary
+          affordance; the FortuneShell top-right icon triggers the same flow
+          via the parent-owned shareButtonRef. Mirror of YearlyFortuneView. */}
+      {state.status === 'success' && (
+        <>
+          <SectionDivider />
+          <ShareFortuneButton
+            ref={shareButtonRef}
+            shareMeta={{
+              filename: `fortune-month-${state.data.month}.png`,
+              shareText: `${state.data.month} 我的命理月運 — ${engineOutput.auspiciousness}`,
+            }}
+            idleLabel="分享本月運勢"
+            cardRef={mShareCardRef}
+            shareCardArmed={mShareArmed}
+            onArmShareCard={() => setMShareArmed(true)}
+            qrDataUrl={mQrDataUrl}
+            onQrGenerated={setMQrDataUrl}
+          />
+          {/* Off-screen ShareableMonthlyFortuneCard — mounted only after share
+              intent. 1200×1600 fixed-pixel container for html2canvas capture. */}
+          {mShareArmed && mQrDataUrl && (
+            <div className={styles.shareCardOffscreen} aria-hidden="true">
+              <ShareableMonthlyFortuneCard ref={mShareCardRef} data={state.data} qrDataUrl={mQrDataUrl} />
+            </div>
+          )}
+        </>
+      )}
+
       <p className={styles.monthlyBottomDisclaimer}>
         {ENTERTAINMENT_DISCLAIMER['zh-TW']}
       </p>
@@ -1483,7 +1548,22 @@ interface YearlyFortuneViewProps {
    *  reads this for the year tab — PNG capture must never include a
    *  provisional/streaming narrative. */
   onShareReadyChange?: (ready: boolean) => void;
+  /** Tier B2 — per-dim InlineAskCard handlers (reuse the page-level chat
+   *  open/populate handlers; same ones daily's SuccessView receives). Tapping
+   *  a year per-dim card opens the page-level YEAR ChatDrawer with the
+   *  `yearly_*` sectionContextHint. */
+  onAskFromCard?: (sectionKey: string, question: string) => void;
+  onOpenChatFromCard?: (sectionKey: string) => void;
 }
+
+/** Tier B2 — year dim key → ChatSampleQuestion sectionKey (yearly_*). Mirrors
+ *  DIM_TO_CHAT_SECTION (daily). 4 dims, no travel (year scope). */
+const YEARLY_DIM_TO_CHAT_SECTION: Record<'career' | 'finance' | 'romance' | 'health', string> = {
+  career: 'yearly_career',
+  finance: 'yearly_finance',
+  romance: 'yearly_romance',
+  health: 'yearly_health',
+};
 
 function YearlyFortuneView({
   profileId,
@@ -1495,6 +1575,8 @@ function YearlyFortuneView({
   onResolvedProfileId,
   shareButtonRef,
   onShareReadyChange,
+  onAskFromCard,
+  onOpenChatFromCard,
 }: YearlyFortuneViewProps) {
   const [state, setState] = useState<YearlyFortuneViewState>({ status: 'idle' });
   const [streamedSections, setStreamedSections] = useState<
@@ -1723,6 +1805,19 @@ function YearlyFortuneView({
         loading={state.status === 'engine' && !streamError}
         streamedSections={
           state.status === 'engine' ? streamedSections : undefined
+        }
+        renderAfterDimension={
+          onAskFromCard
+            ? (dimKey) => (
+                <InlineAskCard
+                  readingType="FORTUNE"
+                  sectionKey={YEARLY_DIM_TO_CHAT_SECTION[dimKey]}
+                  fortuneScope="YEAR"
+                  onAsk={onAskFromCard}
+                  onOpenChat={onOpenChatFromCard}
+                />
+              )
+            : undefined
         }
       />
 
