@@ -2997,3 +2997,60 @@ Closes the YEAR gap: DAY (Phase 1.5.z, 60 rows) + MONTH (Phase 2.x.1, 24 rows) h
 **⚠️ Engine bias finding** (the WHOLE POINT of building it — caught a real, documented limitation): YEAR `auspiciousness` derives from `flowYear.auspiciousness` (annual pipeline). The grader found the engine's sign/DIRECTION is unreliable — it anchors on 流年天干 十神 THEME polarity (官殺→凶, 比劫/食傷→吉) rather than the doctrinally-primary 流年干支-vs-用神 五行 ALIGNMENT. For roger (用神火) it INVERTS 木火 years (scored 乙巳/甲辰 凶, but 木生火用神 → should be 吉) vs 金 years (scored 戊申/己酉 吉, but 金洩火克木 → adverse). The two 水-用神 charts get over-harsh 大凶 on 火 years where 凶中有吉 is correct. Magnitude ladder tracks OK (roger 丙午/丁未=大吉 ✓, laopo 庚戌=凶 ✓); direction drifts on 8/21 rows. → **Phase 3.x.2 engine-tuning candidate** (yearly equivalent of daily Option 2.5 / monthly 平-bias refinement): re-weight 流年 scoring toward 用神 五行 alignment over 十神 theme. After tuning, bump gate 55→70→80.
 
 **No deploy impact** — test infrastructure only (Python/pytest), never reaches prod.
+
+---
+
+## AI-failure resilience (LKG) + 年運 share PNG — SHIPPED 2026-05-30 (commit 8af719d, NOT in main)
+
+Two fortune robustness items, one commit:
+
+1. **Last-Known-Good (LKG) narrative preserve + serve** (3 scopes day/month/year). When an AI narration fails (Anthropic error / truncation / refusal), the persist path now PRESERVES the prior good `aiNarrativeJson` (doesn't overwrite with null) AND the stream path SERVES that LKG narrative instead of the «暫不可用» fallback when one exists. 3 NarrativeCards got honest fallback copy; the LKG-success path SUPPRESSES the stream-error banner (the user sees a real reading, not an error). Files: `fortune-snapshot.helpers.ts` (persist preserve) + `fortune-stream.service.ts` ×3 scopes (serve) + `NarrativeCard`/`MonthlyNarrativeCard`/`YearlyNarrativeCard` (copy).
+2. **年運 share PNG** — `ShareableYearlyFortuneCard.tsx` (1200×1600): brand → 丙午年·偏印 band → ring → 4-dim ★ → 核心風險&機會 → luck methods → QR. Wired into `YearlyFortuneView` via the shared `ShareFortuneButton` ref (gated on success). The **monthly** share PNG was still missing → filled by Tier B below.
+
+---
+
+## Tier A / B / C — SHIPPED 2026-06-02 (commits 828e1f7 + 8a00b7c + 0207466, NOT in main)
+
+The "Tier" roster (from a triage that split the old "L5 continuous safeguards" + the deferral list — **NOT in any plan file**, so don't grep for it): **Tier A** = cheap Sentry canary (DONE) · **Tier B** = monthly share PNG + YEAR chat v1 deferrals (DONE) · **Tier C** = cross-sell ownership awareness (DONE) · **Tier D** = monthly sub-agent drift-report cron (DEFERRED until production scale — scheduled-job + sub-agent infra with recurring cost; worthless at worktree/pre-launch scale). There is **no Tier A/D header in the plans** and no Tier beyond D.
+
+### Tier A — L5 energy/label divergence Sentry canary (commit 828e1f7)
+`FortuneSnapshotHelpers.checkEnergyLabelDivergence(scope, energyScore, label)` — telemetry-only canary: fires `Sentry.captureMessage` when `|energyScore − LABEL_TO_ENERGY_MIDPOINT[label]| > 10` (`ENERGY_LABEL_DIVERGENCE_THRESHOLD`) or the label is unknown. Catches engine label↔score desync in prod. Never throws / never blocks. Wired at all 3 engine-fetch boundaries: `fortune-snapshot.helpers.ts:389` (day) / `:901` (month) / `:1234` (year) — covers streaming + non-streaming on cache miss. `LABEL_TO_ENERGY_MIDPOINT` MIRRORS `fortune_constants.py::LABEL_TO_ENERGY_SCORE` (9-label, keep in sync). Tests: `fortune-snapshot.helpers.spec.ts` (Sentry mocked). **No deploy action** (telemetry-only; Sentry no-ops without DSN). This is the cheap half of old "L5 continuous safeguards"; Tier D (drift cron) is the expensive half, deferred.
+
+### Tier B — monthly share PNG + YEAR per-dim chat cards + yearly_dim questions (commit 8a00b7c)
+- **B1** `ShareableMonthlyFortuneCard.tsx` + `.module.css` + spec — 1200×1600 PNG mirroring the YEAR card: brand → month band (derived by splitting `data.month` `YYYY-MM`, since `MonthlyFortuneResponse` has NO top-level `year`) → inline 360px ring → tier label → headline (reuses `monthlyFriendlyExplanation`) → 4-dim bars → 上半月/下半月 summary from `intraMonthBreakdown.buckets` (null-guarded; omitted when absent) → QR. **NO folk grid** (folk = DAY-only). Gated on `MonthlyFortuneView` success via shared `ShareFortuneButton` ref.
+- **B2a** `InlineAskCard.tsx` gained optional `fortuneScope`; `YearlyNarrativeCard.tsx` gained `renderAfterDimension` slot (3-state guard: visible when `text || narrative`, hidden only during streaming skeleton — NOT daily's 2-state). `page.tsx` maps career/finance/romance/health → `yearly_*` keys + threads onAsk/onOpenChat into `YearlyFortuneView`.
+- **B2b** migration `20260531120000_seed_yearly_dim_sample_questions` (~3×4 rows, `fortune_scope=YEAR`, `section_key=yearly_*`; NO `yearly_travel`) + 4 `yearly_*` keys added to `CHAT_SECTION_KEYS_BY_READING_TYPE_LOCAL.FORTUNE`.
+- **B2c** Y-3 pushback few-shot appended to `CHAT_FORTUNE_YEAR_REFUSE_FEW_SHOTS` — **rides in the Tier C commit** (shares `prompts.ts`).
+- **Intentional asymmetry**: YEAR gets per-dim ask cards; MONTH stays general-only (no `monthly_*` per-dim keys, no `renderAfterDimension` on `MonthlyNarrativeCard`). Future-consistency candidate, NOT a gap.
+
+### Tier C — cross-sell ownership reword + robust output safety-net (commit 0207466)
+When a chat refuse cross-sells a paid reading the user ALREADY owns, reword «go unlock 《X》» → «您已解鎖《X》，可在「我的解讀」中回顧…». **Ownership** = a `BaziReading` row exists for `(userId, birthProfileId, readingType)`; ANNUAL is **year-scoped** via `targetYear` (FORTUNE anchorYear = `fortuneAnchorDate.getUTCFullYear()`); COMPATIBILITY → always empty owned-set (v1.1 deferral).
+- **Prompt-level** (`prompts.ts::CHAT_CROSS_SELL_OWNED_LINES` + `buildChatV1SystemPromptForType(readingType, fortuneScope, ownedCrossSellTargets)`): a whole-prompt `replaceAll` swaps owned targets in the 跨閱讀引導 block AND the refuse few-shots (which hardcode the line + the AI anchors on it). `resolveOwnedCrossSellTargets` (chat-context.service) resolves the set from `ctx.birthProfileId` + anchorYear; threaded via `chat-prompt-builder` + `chat.service`/`chat-stream.service`.
+- **Output safety-net (the robust fix — the prompt-level replaceAll is EXACT-match; refuse few-shots/topic-scope PARAPHRASE the line in 8 variants → exact-match leaks)**: `ChatValidatorsService.rewriteOwnedCrossSell` + `postValidate(text, ctx, ownedCrossSellTargets?)` 3rd arg. Splits the AI output on `[。！？\n]` boundaries; rewrites any clause that names an OWNED reading 《X》 **AND** a go-unlock verb (`提供|獲取|(?<!已)解鎖` — the `(?<!已)` lookbehind excludes 已解鎖 for idempotency) into `CHAT_CROSS_SELL_OWNED_LINES[t]` (trailing 。 stripped, re-added by the captured delimiter → no `。。`). Wired at BOTH persist funnels: `chat.service.ts:864` (non-streaming) + `chat-stream.service.ts:627` (end-of-stream). **Browser-verified end-to-end** the previously-leaking case: profile `0586718e` (owns all 4 incl ANNUAL-2026), FORTUNE-YEAR 2026 chat, per-month question → response reworded to «您已解鎖《八字流年運勢》…» (was «提供 12 個月詳細預測» pre-fix). **Cache-safe** — cross-sell text is OUTSIDE `contextVersion` → no version bump / no `CONTEXT_VERSION_DRIFTED` / no Redis flush.
+- Tests: `prompts.crosssell.spec.ts` (16) + `chat-context.service.crosssell.spec.ts` (7) + `chat-validators.crosssell.spec.ts` (15: all 8 paraphrase variants + idempotency + no-double-period + unowned-untouched + empty-set/COMPAT no-op + verb-gate-protects-opener + neutral-mention-untouched + multi-clause) + updated `chat-service.spec.ts` (postValidate 3rd-arg = `expect.any(Set)`). tsc clean; full chat+crosssell+fortune sweep 269 green.
+
+### Deploy checklist (Tier A/B/C, when they reach main)
+1. `prisma migrate deploy` — applies `20260531120000_seed_yearly_dim_sample_questions` (B2b).
+2. **CRITICAL** raw-SQL seed gotcha: `redis-cli INCR 'chat-sample-questions:version'` (else the 12 yearly_* questions invisible for ≤5min).
+3. NO version bumps for Tier A/C (Tier A telemetry-only; Tier C cache-safe). Tier B B2b is the only DB change. (Year-share-PNG/LKG commit 8af719d already bumped `FORTUNE_PROMPT_VERSIONS.month/.year` → v1.2.0 per the A2-gate section — scoped `redis-cli --scan --pattern "fortune:monthly:*"|"fortune:yearly:*" | xargs redis-cli DEL`.)
+4. NO chat-version bump (Tier C is outside contextVersion).
+
+---
+
+## Session state snapshot 2026-06-02 (read before next compact)
+
+**Branch** `claude/elastic-pascal-cc5187` (worktree) is **44 commits ahead of main** — the ENTIRE fortune feature (Phase 1 daily already in main via PR #46; Phases 1.5/1.5.z/Option-2.5/Fortune-streaming/Phase-2-月運/Phase-2.x/2.x.1/Phase-3-年運/3.1/L3.5b/L3.5c + corpora + A2 gate + LKG + Tier A/B/C) lives UNMERGED on this branch. Working tree CLEAN.
+
+**The 3 fortune scopes (日/月/年) are all feature-complete**: page render + streaming + chat (DAY+MONTH+YEAR) + share PNG (all 3) + sample questions + calibration corpora + A2 narration gate + AI-failure LKG + cross-sell ownership reword.
+
+**What's left (priority order)**:
+1. **Phase Auth — Global Signed-Out Handler** — PLAN WRITTEN + staff-reviewed (in `ok-next-big-feature-merry-cake.md`, search «Phase Auth»), NOT built. `apps/web/app/components/SignedOutRedirect.tsx` + `apps/web/app/lib/auth-redirect.ts` MISSING. Full-lockdown auto-redirect-to-sign-in (3 layers: client watcher + middleware lockdown + shared 401 handler). Supersedes pending task #60 (empty signed-out `/reading/fortune`). ⚠️ MUST keep `/reading(.*)` middleware-PUBLIC for the E2E `__e2e_auth=1` cookie-bypass family (compatibility + career-reading specs); guard real signed-out users client-side. This is the headline next feature.
+2. **Tier D** — monthly sub-agent drift-report cron. DEFERRED until production scale (recurring sub-agent cost; nothing to sample pre-launch). Its own plan later.
+3. **Phase 3.x.2** — yearly engine 用神-direction scoring tuning (the yearly corpus surfaced a documented direction-bias: engine anchors on 流年天干 十神 theme over 流年-用神 五行 alignment; INVERTS 木火 vs 金 years for 用神火 charts). After tuning, bump yearly corpus gate 55→70→80.
+4. **MONTH per-dim ask cards** (intentional asymmetry vs YEAR — future consistency).
+5. **Mobile chat** — deliberately web-only.
+6. **Phase 12i engine-doctrine backlog** (chart_doctrine.py extraction, etc. — long-standing).
+
+**Calibration anchors** (regression-pin any fortune change): Roger `1987-09-06 16:11 吉打 male` = 丁卯/戊申/戊午/庚申, DM=戊 中和, 用神=火→南方, chartHash `f9df0af5f0d5d69083aa53bf4b8e1480`, user `3c0c5b50-0b8d-44ca-820b-df10b73d969c` (PRO), primary profile `a212540f-e84b-42b4-aaf9-2dad96990de3` (owns LIFETIME only), profile `0586718e-9541-4e51-aee0-93a12f1f9d2b` (owns all 4 incl ANNUAL-2026 — the Tier C all-owned anchor). Roger 2026 年運 = 丙午/偏印/大吉/88; 核心機會 9月·3月·5月, 核心風險 1月·2月·10月; luck methods 運勢整理法/社交磁場法/養生調息法. Laopo `1987-01-25 12:00 台北 female` = 丙寅/辛丑/甲戌/壬申, DM=甲 弱, 用神=水→北方.
+
+**Key gotchas carried forward**: (a) `nest`/`npx` binary often fails as `../../node_modules/.bin/nest` from worktree → use absolute `node /Users/roger/Documents/Python/Bazi_Plotting/node_modules/.bin/nest build`. (b) Browser on `127.0.0.1:3000` (HSTS dodge) → Clerk `__session` is httpOnly, get token via `window.Clerk.session.getToken()` (async). (c) After editing chat/fortune service files, REBUILD NestJS + restart (`node --import tsx dist/main.js` with `ANTHROPIC_API_KEY` exported) — the running PID has stale code. (d) Commit/push ONLY when user explicitly asks; user paces tightly.
