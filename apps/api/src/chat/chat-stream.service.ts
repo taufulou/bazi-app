@@ -468,6 +468,26 @@ export class ChatStreamService {
     const shouldInjectRegrounding =
       session.messageCount + 1 >= CHAT_REGROUNDING_TRIGGER_TURN_LOCAL;
 
+    // Tier C — cross-sell targets the user already owns (fresh per message;
+    // outside the cached chat-context blob). Never block a stream on the lookup
+    // → empty set degrades to original "go unlock" wording. anchorYear: FORTUNE
+    // → anchor date's year; else current. Symmetric with chat.service.ts.
+    let ownedCrossSellTargets = new Set<string>();
+    try {
+      const anchorYear =
+        session.readingType === 'FORTUNE' && session.fortuneAnchorDate
+          ? session.fortuneAnchorDate.getUTCFullYear()
+          : new Date().getUTCFullYear();
+      ownedCrossSellTargets = await this.contextService.resolveOwnedCrossSellTargets({
+        userId, // _streamWithLock receives userId as a separate param (session subset omits it)
+        readingType: session.readingType,
+        birthProfileId: chatContext.birthProfileId,
+        anchorYear,
+      });
+    } catch (err) {
+      this.logger.warn(`Tier C ownership lookup failed (streaming): ${err}`);
+    }
+
     const { systemPromptText, messages } = buildPrompt({
       chatContext,
       recentMessages,
@@ -482,6 +502,7 @@ export class ChatStreamService {
       fortuneScope: (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? undefined,
       sectionContextHint,
       shouldInjectRegrounding,
+      ownedCrossSellTargets,
     });
 
     // Phase 1.6 audit Bug A — use AbortController so watchdog actually
@@ -603,7 +624,11 @@ export class ChatStreamService {
     // Post-validate, persist assistant message, emit done
     // ============================================================
 
-    const validation = this.validators.postValidate(assistantBuffer, chatContext);
+    const validation = this.validators.postValidate(
+      assistantBuffer,
+      chatContext,
+      ownedCrossSellTargets, // Tier C output safety-net (owned-reword)
+    );
 
     // If validator changed the text, emit a final delta with the diff
     // (frontend may show the corrected version)

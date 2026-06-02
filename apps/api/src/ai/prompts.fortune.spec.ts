@@ -307,7 +307,7 @@ describe('prompts.ts — Phase Fortune blocks', () => {
     });
 
     // L3.5c — YEAR scope dispatch
-    it('FORTUNE+YEAR assembles the 年運 refuse template + Y-1/Y-2 few-shots', () => {
+    it('FORTUNE+YEAR assembles the 年運 refuse template + Y-1/Y-2/Y-3 few-shots', () => {
       const prompt = buildChatV1SystemPromptForType('FORTUNE', 'YEAR');
       expect(prompt).toContain('【跨主題拒絕模板】');
       // YEAR refuse template cites 《八字年運》 (not 日運/月運)
@@ -315,6 +315,7 @@ describe('prompts.ts — Phase Fortune blocks', () => {
       // YEAR few-shots present (NOT the DAY F-1/F-2/F-3)
       expect(prompt).toContain('範例 Y-1');
       expect(prompt).toContain('範例 Y-2');
+      expect(prompt).toContain('範例 Y-3'); // Tier B2 — pushback (mirror DAY F-3)
       expect(prompt).not.toContain('範例 F-1');
       // Cross-sell lines reused
       expect(prompt).toContain('annual →');

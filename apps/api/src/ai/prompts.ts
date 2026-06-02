@@ -4152,6 +4152,25 @@ export const CHAT_CROSS_SELL_LINES: Record<
 };
 
 /**
+ * Tier C — Cross-sell OWNED variant. When the user already owns the target
+ * reading (a `BaziReading` row exists for the relevant birth profile),
+ * `buildChatV1SystemPromptForType` swaps the "go unlock" line above for the
+ * "you already have it — go view it" nudge below. Single flat map keyed by the
+ * shared target keys (lifetime/love/career/annual); the owned-nudge wording does
+ * not depend on the source reading type. COMPATIBILITY's user_ / partner_ targets
+ * are NOT included (COMPAT ownership-gating is a v1.1 follow-up — current behavior
+ * preserved). Cache-safe: the system block is already per-user (single
+ * cache_control unit incl. the slim chart context) and `contextVersion` excludes
+ * cross-sell text → no version bump, no cache invalidation.
+ */
+export const CHAT_CROSS_SELL_OWNED_LINES: Record<string, string> = {
+  lifetime: '您已解鎖《八字終身運》，可在「我的解讀」中回顧完整的命格與大運序列分析。',
+  love: '您已解鎖《八字愛情姻緣》，可在「我的解讀」中回顧完整的配偶與正緣分析。',
+  career: '您已解鎖《八字事業詳批》，可在「我的解讀」中回顧完整的事業格局與升遷分析。',
+  annual: '您已解鎖《八字流年運勢》，可在「我的解讀」中回顧今年的逐月詳細預測。',
+};
+
+/**
  * Phase 2 — per-readingType refuse few-shots (3 scenarios per type, 9 total).
  * Round-1 HIGH-#1 + round-2 NEW#5 — gated by readingType so each session
  * sees only its own type's refuse few-shots + the 11 generic LIFETIME
@@ -4404,6 +4423,20 @@ export const CHAT_FORTUNE_YEAR_REFUSE_FEW_SHOTS = `\
 不過「6月適合結婚嗎」這類特定月份的婚期吉日推算，需要逐月細批，超出本《八字年運》解讀的範圍——這需要結合每月流月干支、當月沖刑害動態與擇日的完整分析。想看逐月細節與當年沖刑害動態，《八字流年運勢》提供 12 個月詳細預測。」
 要點：1) 先答今年（cite 丙午年、偏印、感情 dim ★★★★☆、energyScore 88、用神火、核心機會月份 9月/3月/5月）— hybrid refuse 的核心；2) 誠實說明 6月相對於核心機會月份的位置（不虛構 6月是頂尖機會月）；3) 再切換 refuse 措辭「不過...超出本《八字年運》解讀的範圍」（refuse 開頭仍符合 regex）；4) cross-sell ANNUAL；5) 不再 pivot back（已 cite 過今年訊號）；6) 引用今年訊號必須來自結構化資料（核心機會/風險月份必須來自 coreRiskOpportunity 結構化欄位，禁止 AI 自行虛構吉日或月份）；7) 使用 soft-trigger phrasing（「今年趨向」「今年宜」「今年易於」），禁止「今年會結婚」「6月一定吉」。
 
+範例 Y-3（FORTUNE-YEAR chat — 用戶推回後改問今年具體用法，絕對不再 refuse）：
+⚠️ load-bearing case — 用戶在 Y-1 或 Y-2 拒絕後若推回問「那今年我該怎麼把握？」是純 in-topic，絕對不可再次 refuse。
+
+用戶第 2 輪問：「好，那今年的能量我該怎麼運用？有哪些是今年可以推進、哪些要緩的？」
+助理回：「好問題，回到今年這就具體說。
+
+您今年丙午年偏印當令，整體能量 88 分（大吉），用神火當旺，三個面向最值得把握：
+1. **事業 ★★★★☆（貴人提點）**——今年事業趨向有貴人助力，**今年宜**主動爭取曝光與合作，核心機會落在 9月。
+2. **財運 ★★★★☆（穩健增長）**——今年財運傾向穩中有進，**今年適合**在 3月前後佈局重要的財務決定。
+3. **感情 ★★★★☆（溫暖和諧）**——今年感情趨向溫暖順遂，**今年易於**在 5月推進重要關係。
+
+節奏建議：上半年著重推進與佈局（把握 3月財運、5月感情高點）；下半年穩中收成（9月事業躍升）；全年用神火，往**南向**發展或行動傾向有利。留意月份為 1月、2月、10月，宜沉潛蓄勢、穩守待時。」
+要點：1) **絕對不出現** refuse 模板開頭——這不是 refuse；2) 開場用「好問題，回到今年這就具體說」等溫暖過渡，禁止「謝謝您的提問。關於...超出...範圍」；3) 引用今年**結構化**訊號：丙午年、偏印、energyScore 88、4-dim ★、核心機會/風險月份（9月/3月/5月 vs 1月/2月/10月，必須來自 coreRiskOpportunity 結構化欄位）、用神火南方；4) soft-trigger phrasing 全篇貫穿（今年宜／今年適合／今年易於／今年趨向）；5) 給「上半年／下半年／全年」分段的可行節奏建議；6) 禁止擴展到「終身命格／大運序列」（屬 LIFETIME）或「逐月吉日細批」（屬 ANNUAL）；禁止把今年訊號推為命格層次的定論（如「您一生事業旺」）。
+
 備註：若問題完全沒有今年切點（「我命中註定的正緣長什麼樣？」），則改走 Y-1 風格的純 refuse + cross-sell（配偶長相 →《八字愛情姻緣》）。Y-2「先 cite 今年」只適用於問題含「今年／這幾個月／某月」等與本年時間軸重疊、且本年資料能部分回答的措辭。`;
 
 /**
@@ -4426,6 +4459,11 @@ export function buildChatV1SystemPromptForType(
    *  uses CHAT_FORTUNE_REFUSE_FEW_SHOTS; MONTH uses CHAT_FORTUNE_MONTH_*;
    *  YEAR (Phase 3.5c) uses CHAT_FORTUNE_YEAR_*. */
   fortuneScope: 'DAY' | 'MONTH' | 'YEAR' = 'DAY',
+  /** Tier C — cross-sell targets the user ALREADY owns (a BaziReading row
+   *  exists for the relevant birth profile). For each owned target, the
+   *  cross-sell line is swapped from "go unlock" → CHAT_CROSS_SELL_OWNED_LINES
+   *  "you already have it, go view". Defaults to empty (current behavior). */
+  ownedCrossSellTargets: ReadonlySet<string> = new Set(),
 ): string {
   const sections = [
     CHAT_V1_PERSONA,
@@ -4462,11 +4500,25 @@ export function buildChatV1SystemPromptForType(
   if (refuseTemplate) {
     sections.push('', '【跨主題拒絕模板】', refuseTemplate);
     // Cross-sell line index — AI selects based on question topic.
+    // Tier C — for OWNED targets, swap the "go unlock" line for the
+    // "you already have it, go view" nudge (CHAT_CROSS_SELL_OWNED_LINES).
     const crossSellLines = CHAT_CROSS_SELL_LINES[readingType];
     if (crossSellLines && Object.keys(crossSellLines).length > 0) {
       sections.push('', '【跨閱讀引導語句（依問題主題選擇對應 line）】');
+      let anyOwned = false;
       for (const [target, line] of Object.entries(crossSellLines)) {
-        sections.push(`- ${target} → ${line}`);
+        const ownedLine = ownedCrossSellTargets.has(target)
+          ? CHAT_CROSS_SELL_OWNED_LINES[target]
+          : undefined;
+        if (ownedLine) anyOwned = true;
+        sections.push(`- ${target} → ${ownedLine ?? line}`);
+      }
+      // Only emitted when ≥1 target is owned → empty owned-set path stays
+      // byte-identical to pre-Tier-C behavior.
+      if (anyOwned) {
+        sections.push(
+          '⚠️ 標記為「您已解鎖」措辭的 target，請以『回顧您已解鎖的《XX》』語氣引導，不可再說『提供完整解讀／可解鎖』或暗示需付費。',
+        );
       }
     }
   }
@@ -4484,7 +4536,21 @@ export function buildChatV1SystemPromptForType(
     sections.push('', '【跨主題拒絕範例】', refuseFewShots);
   }
 
-  return sections.join('\n');
+  let assembled = sections.join('\n');
+  // Tier C — the refuse FEW-SHOTS hardcode the original "go unlock" cross-sell
+  // line verbatim (e.g. Y-1 demonstrates the lifetime cross-sell). The AI
+  // anchors on those concrete examples over the 【跨閱讀引導語句】 block list, so
+  // swapping only the block (above) is insufficient for OWNED targets. Replace
+  // every occurrence of an owned target's ORIGINAL line with the owned-nudge
+  // across the WHOLE assembled header (block already swapped → this catches the
+  // few-shot occurrences). Per-readingType original text; `.split().join()` =
+  // literal replaceAll (no regex escaping).
+  for (const target of ownedCrossSellTargets) {
+    const orig = CHAT_CROSS_SELL_LINES[readingType]?.[target];
+    const owned = CHAT_CROSS_SELL_OWNED_LINES[target];
+    if (orig && owned) assembled = assembled.split(orig).join(owned);
+  }
+  return assembled;
 }
 
 /**

@@ -476,10 +476,12 @@ describe('ChatService', () => {
 
       const result = await service.sendMessage('clerk-1', 's1', '我會發財嗎？');
 
-      // Validator was called with the raw Anthropic output
+      // Validator was called with the raw Anthropic output + the owned-cross-sell
+      // target set (Tier C output safety-net — 3rd arg).
       expect(mockValidators.postValidate).toHaveBeenCalledWith(
         '您一定會發大財，絕對不會失敗',
         expect.any(Object),
+        expect.any(Set),
       );
 
       // The validated text is what gets returned + persisted

@@ -791,6 +791,26 @@ export class ChatService {
       const shouldInjectRegrounding =
         session.messageCount + 1 >= CHAT_REGROUNDING_TRIGGER_TURN_LOCAL;
 
+      // Tier C — cross-sell targets the user already owns (fresh per message;
+      // outside the cached chat-context blob so it never goes stale). Never
+      // block a message on the lookup → empty set degrades to original "go
+      // unlock" wording. anchorYear: FORTUNE → anchor date's year; else current.
+      let ownedCrossSellTargets = new Set<string>();
+      try {
+        const anchorYear =
+          session.readingType === 'FORTUNE' && session.fortuneAnchorDate
+            ? session.fortuneAnchorDate.getUTCFullYear()
+            : new Date().getUTCFullYear();
+        ownedCrossSellTargets = await this.contextService.resolveOwnedCrossSellTargets({
+          userId: session.userId,
+          readingType: session.readingType,
+          birthProfileId: chatContext.birthProfileId,
+          anchorYear,
+        });
+      } catch (err) {
+        this.logger.warn(`Tier C ownership lookup failed (non-streaming): ${err}`);
+      }
+
       const { systemPromptText, messages } = buildPrompt({
         chatContext,
         recentMessages,
@@ -808,6 +828,7 @@ export class ChatService {
         fortuneScope: (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? undefined,
         sectionContextHint,
         shouldInjectRegrounding,
+        ownedCrossSellTargets,
       });
 
       // 5. Call Anthropic (non-streaming for Phase 1.3).
@@ -840,7 +861,11 @@ export class ChatService {
       //   Stage A: banned-phrase regex strip (一定/絕對/必定/...)
       //   Stage B: citation enforcement (auto-prepends if missing)
       //   Stage C: LLM-as-judge sample (5% in prod, async, non-blocking)
-      const validation = this.validators.postValidate(assistantContent, chatContext);
+      const validation = this.validators.postValidate(
+        assistantContent,
+        chatContext,
+        ownedCrossSellTargets, // Tier C output safety-net (owned-reword)
+      );
       const finalAssistantContent = validation.text;
 
       // Stage C — LLM-as-judge async sample. Don't block the response on it;

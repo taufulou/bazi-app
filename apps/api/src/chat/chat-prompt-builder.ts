@@ -47,6 +47,12 @@ export interface BuildPromptArgs {
   /** Layer 5: from session.messageCount >= 3 the server inserts a
    *  <system-reminder> as user-role msg before the new user question. */
   shouldInjectRegrounding: boolean;
+  /** Tier C — cross-sell targets the user already owns (a BaziReading row
+   *  exists for the relevant birth profile). The assembler swaps each owned
+   *  target's cross-sell line from "go unlock" → "you already have it, go view".
+   *  Computed fresh per message by the service layer; defaults to empty
+   *  (current behavior). Only consulted for chat-enabled reading types. */
+  ownedCrossSellTargets?: ReadonlySet<string>;
 }
 
 export interface AnthropicMessageBlock {
@@ -68,6 +74,7 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
     fortuneScope,
     sectionContextHint,
     shouldInjectRegrounding,
+    ownedCrossSellTargets,
   } = args;
 
   // Phase 2 / Phase Fortune — pick per-type prompt assembler when readingType
@@ -96,7 +103,11 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
   // assembler picks the right scope-specific refuse template + few-shots.
   // For non-FORTUNE reading types the scope arg is ignored.
   const promptHeader = isChatEnabledType(readingType)
-    ? buildChatV1SystemPromptForType(readingType, fortuneScope ?? 'DAY')
+    ? buildChatV1SystemPromptForType(
+        readingType,
+        fortuneScope ?? 'DAY',
+        ownedCrossSellTargets ?? new Set<string>(), // Tier C — swap owned cross-sell lines
+      )
     : buildChatV1SystemPromptHeader();
 
   // Phase 2 (round-3 NEW#7) — `{crossSellPivotHint}` placeholder substitution

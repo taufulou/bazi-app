@@ -76,7 +76,7 @@ export const CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE: Record<
 > = {
   DAY: 'v1.1.0',   // = existing CHAT_PROMPT_VERSIONS.FORTUNE value (semantic preservation)
   MONTH: 'v1.0.0', // NEW for Phase 2 月運 — first version
-  YEAR: 'v1.0.0',  // NEW for Phase 3.5c 年運 — first version
+  YEAR: 'v1.1.0',  // Tier B2 — bumped (Y-3 pushback few-shot added to system prompt)
 };
 
 /** Sibling helper to `getChatPromptVersion` for FORTUNE chat sessions.
@@ -275,6 +275,13 @@ export interface ChatContext {
    *  `ChatSession.fortuneAnchorDate` column. For MONTH scope, normalized to
    *  the 1st of the month (YYYY-MM-01). */
   anchorDate?: string;
+  /** Tier C — the birth profile this chat is about, surfaced POST-CACHE
+   *  (mirrors `crossSellPivotHint` / `withCrossSellPivotHint` — set after the
+   *  engine context is Redis-cached so it can NEVER go stale). Used by
+   *  `resolveOwnedCrossSellTargets` to gate cross-sell ownership without an
+   *  extra query. FORTUNE → session.profileId; LOVE/CAREER/ANNUAL → the
+   *  reading's birthProfileId (already loaded); COMPATIBILITY → null (v1 no-op). */
+  birthProfileId?: string | null;
 }
 
 export interface ChatContextCacheKey {
@@ -282,6 +289,20 @@ export interface ChatContextCacheKey {
   /** Combined version key — bump invalidates all cached chat contexts. */
   versions: string;
 }
+
+/**
+ * Tier C — maps an owned `BaziReading.readingType` to the cross-sell target key
+ * used in `CHAT_CROSS_SELL_LINES` / `CHAT_CROSS_SELL_OWNED_LINES`. Only the 4
+ * single-profile reading types that appear as cross-sell targets are listed;
+ * COMPATIBILITY + HEALTH + ZWDS_* are intentionally absent (never cross-sell
+ * targets, or deferred to v1.1).
+ */
+export const READING_TYPE_TO_CROSSSELL_TARGET: Partial<Record<ReadingType, string>> = {
+  LIFETIME: 'lifetime',
+  LOVE: 'love',
+  CAREER: 'career',
+  ANNUAL: 'annual',
+};
 
 // ============================================================
 // Service
@@ -357,7 +378,7 @@ export class ChatContextService {
         const ctx = JSON.parse(cached) as ChatContext;
         // Compute pivot hint AFTER cache hit — hint depends on readingType
         // so it can't be baked into the shared engine cache.
-        return this.withCrossSellPivotHint(ctx, readingType);
+        return this.withCrossSellPivotHint(ctx, readingType, reading.birthProfileId);
       } catch (err) {
         this.logger.warn(`Failed to parse cached chat-context for key ${cacheKey}: ${err}`);
       }
@@ -386,7 +407,7 @@ export class ChatContextService {
       this.logger.warn(`Failed to cache chat-context for key ${cacheKey}: ${err}`);
     }
 
-    return this.withCrossSellPivotHint(engineCtx, readingType);
+    return this.withCrossSellPivotHint(engineCtx, readingType, reading.birthProfileId);
   }
 
   /**
@@ -429,7 +450,9 @@ export class ChatContextService {
     if (cached) {
       try {
         const ctx = JSON.parse(cached) as ChatContext;
-        return this.withCrossSellPivotHint(ctx, readingType);
+        // Tier C — COMPATIBILITY ownership-gating deferred to v1.1 (partner-profile
+        // semantics); birthProfileId = null → resolveOwnedCrossSellTargets no-ops.
+        return this.withCrossSellPivotHint(ctx, readingType, null);
       } catch (err) {
         this.logger.warn(`Failed to parse cached compat chat-context for key ${cacheKey}: ${err}`);
       }
@@ -465,7 +488,7 @@ export class ChatContextService {
       this.logger.warn(`Failed to cache compat chat-context for key ${cacheKey}: ${err}`);
     }
 
-    return this.withCrossSellPivotHint(engineCtx, readingType);
+    return this.withCrossSellPivotHint(engineCtx, readingType, null);
   }
 
   /**
@@ -526,7 +549,7 @@ export class ChatContextService {
     if (cached) {
       try {
         const ctx = JSON.parse(cached) as ChatContext;
-        return this.withCrossSellPivotHint(ctx, readingType);
+        return this.withCrossSellPivotHint(ctx, readingType, profileId);
       } catch (err) {
         this.logger.warn(
           `Failed to parse cached fortune chat-context for key ${cacheKey}: ${err}`,
@@ -643,7 +666,7 @@ export class ChatContextService {
       );
     }
 
-    return this.withCrossSellPivotHint(engineCtx, readingType);
+    return this.withCrossSellPivotHint(engineCtx, readingType, profileId);
   }
 
   /**
@@ -663,11 +686,71 @@ export class ChatContextService {
   private withCrossSellPivotHint(
     ctx: ChatContext,
     readingType: ReadingType | undefined,
+    /** Tier C — birth profile this chat is about, surfaced POST-CACHE here so
+     *  it never lands in the Redis-cached engine blob. Used by
+     *  `resolveOwnedCrossSellTargets` to gate cross-sell ownership query-free.
+     *  null for COMPATIBILITY (v1 no-op). */
+    birthProfileId?: string | null,
   ): ChatContext {
     return {
       ...ctx,
       crossSellPivotHint: this.extractCrossSellPivotHint(ctx, readingType),
+      birthProfileId: birthProfileId ?? null,
     };
+  }
+
+  /**
+   * Tier C — resolve the set of cross-sell target keys the user ALREADY owns
+   * for the relevant birth profile, so the prompt builder can reword
+   * "go unlock X" → "you already have X, go view it".
+   *
+   * Computed FRESH per message (NOT cached — ownership changes on unlock and
+   * must not be stale). `birthProfileId` comes from `ChatContext.birthProfileId`
+   * (surfaced post-cache by `withCrossSellPivotHint`) → no extra profile lookup.
+   * Returns a Set of target keys ('lifetime' | 'love' | 'career' | 'annual').
+   * Never throws meaningfully (caller still wraps in try/catch defensively).
+   *
+   * - ANNUAL is YEAR-SCOPED against `anchorYear`: a 2024 annual reading does NOT
+   *   count as owning this year's 流年運勢 (the cross-sell pitch is about THIS year).
+   *   Other targets are year-agnostic.
+   * - COMPATIBILITY → empty set (v1.1 deferral; partner-profile semantics).
+   * - Missing birthProfileId → empty set (cross-sell falls back to "go unlock").
+   */
+  async resolveOwnedCrossSellTargets(args: {
+    userId: string;
+    readingType: ReadingType;
+    birthProfileId?: string | null;
+    anchorYear: number;
+  }): Promise<Set<string>> {
+    const { userId, readingType, birthProfileId, anchorYear } = args;
+    const owned = new Set<string>();
+    if (readingType === 'COMPATIBILITY') return owned; // v1.1 deferral
+    if (!birthProfileId) return owned;
+
+    // Year-agnostic targets (lifetime/love/career) + year-scoped ANNUAL, in
+    // parallel. Both birthProfileId-indexed (~1ms each).
+    const [yearAgnostic, annualThisYear] = await Promise.all([
+      this.prisma.baziReading.findMany({
+        where: {
+          userId,
+          birthProfileId,
+          readingType: { in: ['LIFETIME', 'LOVE', 'CAREER'] },
+        },
+        select: { readingType: true },
+        distinct: ['readingType'],
+      }),
+      this.prisma.baziReading.findFirst({
+        where: { userId, birthProfileId, readingType: 'ANNUAL', targetYear: anchorYear },
+        select: { id: true },
+      }),
+    ]);
+
+    for (const row of yearAgnostic) {
+      const target = READING_TYPE_TO_CROSSSELL_TARGET[row.readingType];
+      if (target) owned.add(target);
+    }
+    if (annualThisYear) owned.add('annual');
+    return owned;
   }
 
   private extractCrossSellPivotHint(
