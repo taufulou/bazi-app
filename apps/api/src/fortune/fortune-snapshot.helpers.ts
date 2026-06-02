@@ -30,6 +30,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
+import * as Sentry from '@sentry/nestjs';
 import {
   FortuneScope,
   Prisma,
@@ -111,6 +112,32 @@ export const SUBSCRIBER_YEAR_WINDOW_PAST = 1;
 
 /** Yearly endpoint timeout — heavier than daily (12-month aggregation compute). */
 export const YEARLY_ENGINE_TIMEOUT_MS = 60_000;
+
+// ============================================================
+// Energy/label divergence canary (L5 post-deploy safeguard)
+// ============================================================
+
+/** Label → energy-score midpoint. MIRROR of
+ *  packages/bazi-engine/app/fortune_constants.py::LABEL_TO_ENERGY_SCORE.
+ *  The engine DERIVES energyScore from the auspiciousness label via
+ *  derive_energy_score(), so the two must always agree. A divergence here
+ *  means the engine desynced label↔score (or a label fell out of the table)
+ *  — surfaced as a Sentry anomaly. KEEP IN SYNC with the Python constant
+ *  (the 9-label system is the engine's source of truth and rarely changes). */
+export const LABEL_TO_ENERGY_MIDPOINT: Record<string, number> = {
+  大吉: 88,
+  吉: 72,
+  吉中有凶: 58,
+  平: 50,
+  凶中有吉: 42,
+  小凶: 35,
+  凶: 25,
+  大凶: 15,
+  凶上加凶: 8,
+};
+
+/** Divergence beyond this (|energyScore − label midpoint|) trips the canary. */
+export const ENERGY_LABEL_DIVERGENCE_THRESHOLD = 10;
 
 // ============================================================
 // FortuneSnapshotHelpers
@@ -266,6 +293,48 @@ export class FortuneSnapshotHelpers {
   }
 
   // ============================================================
+  // Energy/label divergence canary (L5 post-deploy safeguard)
+  // ============================================================
+
+  /** L5 safeguard: the engine derives `energyScore` from the auspiciousness
+   *  label, so they must agree. If `|energyScore − midpoint(label)| > 10`
+   *  (or the label is unknown), something desynced — emit a Sentry anomaly so
+   *  ops catches engine/label drift in production. Telemetry-only: never
+   *  throws, never blocks the response. Called at the engine-fetch boundary
+   *  (covers daily/monthly/yearly × streaming/non-streaming on cache miss;
+   *  cache hits were already checked when first fetched). Returns the diff for
+   *  unit-test assertions. */
+  checkEnergyLabelDivergence(
+    scope: 'day' | 'month' | 'year',
+    energyScore: number,
+    auspiciousnessLabel: string,
+  ): { anomaly: boolean; diff: number | null } {
+    const midpoint = LABEL_TO_ENERGY_MIDPOINT[auspiciousnessLabel];
+    if (midpoint === undefined) {
+      this.logger.warn(
+        `metric.fortune.energy_label_anomaly scope=${scope} reason=unknown_label label=${auspiciousnessLabel} score=${energyScore}`,
+      );
+      Sentry.captureMessage(
+        `Fortune energy/label anomaly: unknown auspiciousness label «${auspiciousnessLabel}» (${scope})`,
+        { level: 'warning', tags: { feature: 'fortune', scope, anomaly: 'unknown_label' } },
+      );
+      return { anomaly: true, diff: null };
+    }
+    const diff = Math.abs(energyScore - midpoint);
+    if (diff > ENERGY_LABEL_DIVERGENCE_THRESHOLD) {
+      this.logger.warn(
+        `metric.fortune.energy_label_anomaly scope=${scope} label=${auspiciousnessLabel} score=${energyScore} midpoint=${midpoint} diff=${diff}`,
+      );
+      Sentry.captureMessage(
+        `Fortune energy/label divergence >${ENERGY_LABEL_DIVERGENCE_THRESHOLD}: ${scope} score=${energyScore} label=${auspiciousnessLabel} midpoint=${midpoint} diff=${diff}`,
+        { level: 'warning', tags: { feature: 'fortune', scope, anomaly: 'score_divergence' } },
+      );
+      return { anomaly: true, diff };
+    }
+    return { anomaly: false, diff };
+  }
+
+  // ============================================================
   // Engine call — POST /daily-fortune
   // ============================================================
 
@@ -316,7 +385,9 @@ export class FortuneSnapshotHelpers {
     if (!json.data) {
       throw new InternalServerErrorException('Engine response missing data');
     }
-    return json.data as DailyEngineOutput;
+    const data = json.data as DailyEngineOutput;
+    this.checkEnergyLabelDivergence('day', data.energyScore, data.auspiciousness);
+    return data;
   }
 
   /** Minimal fallback for chart context when the engine response is
@@ -827,6 +898,7 @@ export class FortuneSnapshotHelpers {
     if (!json.data) {
       throw new InternalServerErrorException('Engine response missing data');
     }
+    this.checkEnergyLabelDivergence('month', json.data.energyScore, json.data.auspiciousness);
     return json.data;
   }
 
@@ -1159,6 +1231,7 @@ export class FortuneSnapshotHelpers {
     if (!json.data) {
       throw new InternalServerErrorException('Engine response missing data');
     }
+    this.checkEnergyLabelDivergence('year', json.data.energyScore, json.data.auspiciousness);
     return json.data;
   }
 
