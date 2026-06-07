@@ -54,11 +54,13 @@ const CHAT_SECTION_KEYS_BY_READING_TYPE_LOCAL: Record<string, readonly string[]>
   // The «general» FORTUNE strip lives at sectionKey=NULL (no whitelist entry
   // needed — admin can post with sectionKey=null for the homepage pill row).
   // Tier B2 — 4 yearly dimensions (no yearly_travel; travel is DAY-only per
-  // 三命通會 神煞篇). MONTH stays general-only (no per-dim monthly_* keys).
-  // The fortune_scope column on each row disambiguates daily_* vs yearly_*.
+  // 三命通會 神煞篇). MONTH per-dim parity (4 monthly_* keys, also no travel).
+  // The fortune_scope column on each row disambiguates daily_* / monthly_* /
+  // yearly_* (the GET filter matches fortuneScope exactly for MONTH + YEAR).
   FORTUNE: [
     'daily_romance', 'daily_career', 'daily_finance',
     'daily_travel', 'daily_health',
+    'monthly_career', 'monthly_finance', 'monthly_romance', 'monthly_health',
     'yearly_career', 'yearly_finance', 'yearly_romance', 'yearly_health',
   ],
 };

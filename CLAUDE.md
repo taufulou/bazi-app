@@ -3021,7 +3021,7 @@ The "Tier" roster (from a triage that split the old "L5 continuous safeguards" +
 - **B2a** `InlineAskCard.tsx` gained optional `fortuneScope`; `YearlyNarrativeCard.tsx` gained `renderAfterDimension` slot (3-state guard: visible when `text || narrative`, hidden only during streaming skeleton — NOT daily's 2-state). `page.tsx` maps career/finance/romance/health → `yearly_*` keys + threads onAsk/onOpenChat into `YearlyFortuneView`.
 - **B2b** migration `20260531120000_seed_yearly_dim_sample_questions` (~3×4 rows, `fortune_scope=YEAR`, `section_key=yearly_*`; NO `yearly_travel`) + 4 `yearly_*` keys added to `CHAT_SECTION_KEYS_BY_READING_TYPE_LOCAL.FORTUNE`.
 - **B2c** Y-3 pushback few-shot appended to `CHAT_FORTUNE_YEAR_REFUSE_FEW_SHOTS` — **rides in the Tier C commit** (shares `prompts.ts`).
-- **Intentional asymmetry**: YEAR gets per-dim ask cards; MONTH stays general-only (no `monthly_*` per-dim keys, no `renderAfterDimension` on `MonthlyNarrativeCard`). Future-consistency candidate, NOT a gap.
+- **~~Intentional asymmetry~~ RESOLVED (2026-06-06)**: MONTH now ALSO has per-dim ask cards — parity with YEAR achieved. See «MONTH per-dim ask cards» section below.
 
 ### Tier C — cross-sell ownership reword + robust output safety-net (commit 0207466)
 When a chat refuse cross-sells a paid reading the user ALREADY owns, reword «go unlock 《X》» → «您已解鎖《X》，可在「我的解讀」中回顧…». **Ownership** = a `BaziReading` row exists for `(userId, birthProfileId, readingType)`; ANNUAL is **year-scoped** via `targetYear` (FORTUNE anchorYear = `fortuneAnchorDate.getUTCFullYear()`); COMPATIBILITY → always empty owned-set (v1.1 deferral).
@@ -3037,6 +3037,24 @@ When a chat refuse cross-sells a paid reading the user ALREADY owns, reword «go
 
 ---
 
+## MONTH per-dim ask cards — parity with 年運 (SHIPPED 2026-06-06, committed)
+
+Closes the Tier-B2 «intentional asymmetry»: 月運 now has per-dimension «AI 命理師深入解答» InlineAskCards under each of the 4 dims (事業/財運/感情/健康), a 1:1 mirror of 年運 Tier B2a.
+
+**Changes (4 files, NO new migration)**:
+- `apps/web/app/components/fortune/MonthlyNarrativeCard.tsx` — `renderAfterDimension?: (dimKey: MonthlyDimKey) => React.ReactNode` prop + per-dim slot inside the dim `.map()` with the **3-state guard** (visible when `text || narrative`; `visibility:hidden` only during streaming skeleton — same as YEAR, since the card has the «本月此面向平穩» empty-state). `import * as React` for `React.ReactNode`.
+- `apps/web/app/reading/fortune/page.tsx` — `MONTHLY_DIM_TO_CHAT_SECTION` map (career→`monthly_career` … NO travel); `onAskFromCard`/`onOpenChatFromCard` on `MonthlyFortuneViewProps`, threaded mount→view→**success-state** `MonthlyNarrativeCard` (NOT the loading-skeleton instance); `renderAfterDimension` gated `onAskFromCard ? … : undefined` with `fortuneScope="MONTH"` on the InlineAskCard.
+- `apps/api/src/chat/chat-sample-questions.service.ts` — 4 `monthly_*` keys added to `CHAT_SECTION_KEYS_BY_READING_TYPE_LOCAL.FORTUNE` (gates ADMIN writes only; the public read path was always reachable).
+- `apps/web/test/monthly-narrative-card-ask-cards.spec.tsx` — 4 RTL tests (slot count, 3-state guard incl. 平穩-empty-state visibility, hybrid-streaming hide, no-slot-when-omitted).
+
+**NO new migration**: the `monthly_*` per-dim questions (5/dim) were ALREADY seeded by Phase 2 L6 migration `20260528082123_seed_monthly_fortune_sample_questions` (seeded ahead of the frontend wiring). A redundant seed migration was written then **fully reverted** (rows + `_prisma_migrations` row + folder; `prisma migrate status` clean). The only real gaps were the frontend slot + the admin whitelist.
+
+**Verification**: independent subagent line audit clean (byte-comparable to YEAR); RTL 21/21; web+API tsc clean; **live browser end-to-end** (signed-in Roger, 月運 2026-05): 4 per-dim cards render with 本月-scoped questions → tap pill → MONTH ChatDrawer opens + composer populated (not auto-sent) → send → fresh MONTH session (`fortune_scope=MONTH`) with USER msg `section_context_hint=monthly_finance` + MONTH-grounded AI reply (癸巳月 / 財運 dim 55分). Console clean. (Stale L3.5b test session `54accb06` was deleted during testing to clear a `CONTEXT_VERSION_DRIFTED` on the old session — a pre-existing chat behavior, not this change.)
+
+**Deploy**: no new migration, no version bump, no cache invalidation. Frontend recompile + NestJS rebuild (whitelist) only. The L6-seeded `monthly_*` questions already exist in any DB that ran the Phase 2 migrations.
+
+---
+
 ## Session state snapshot 2026-06-02 (read before next compact)
 
 **Branch** `claude/elastic-pascal-cc5187` (worktree) is **44 commits ahead of main** — the ENTIRE fortune feature (Phase 1 daily already in main via PR #46; Phases 1.5/1.5.z/Option-2.5/Fortune-streaming/Phase-2-月運/Phase-2.x/2.x.1/Phase-3-年運/3.1/L3.5b/L3.5c + corpora + A2 gate + LKG + Tier A/B/C) lives UNMERGED on this branch. Working tree CLEAN.
@@ -3046,8 +3064,8 @@ When a chat refuse cross-sells a paid reading the user ALREADY owns, reword «go
 **What's left (priority order)**:
 1. **Phase Auth — Global Signed-Out Handler** — PLAN WRITTEN + staff-reviewed (in `ok-next-big-feature-merry-cake.md`, search «Phase Auth»), NOT built. `apps/web/app/components/SignedOutRedirect.tsx` + `apps/web/app/lib/auth-redirect.ts` MISSING. Full-lockdown auto-redirect-to-sign-in (3 layers: client watcher + middleware lockdown + shared 401 handler). Supersedes pending task #60 (empty signed-out `/reading/fortune`). ⚠️ MUST keep `/reading(.*)` middleware-PUBLIC for the E2E `__e2e_auth=1` cookie-bypass family (compatibility + career-reading specs); guard real signed-out users client-side. This is the headline next feature.
 2. **Tier D** — monthly sub-agent drift-report cron. DEFERRED until production scale (recurring sub-agent cost; nothing to sample pre-launch). Its own plan later.
-3. **Phase 3.x.2** — yearly engine 用神-direction scoring tuning (the yearly corpus surfaced a documented direction-bias: engine anchors on 流年天干 十神 theme over 流年-用神 五行 alignment; INVERTS 木火 vs 金 years for 用神火 charts). After tuning, bump yearly corpus gate 55→70→80.
-4. **MONTH per-dim ask cards** (intentional asymmetry vs YEAR — future consistency).
+3. ~~**Phase 3.x.2** — yearly engine 用神-direction tuning~~ — ⛔ **TRIED + ABANDONED 2026-06-06** (regressed the yearly corpus 61.9%→52.4%; premise false — `effectiveFavorableGods` is already DM-aware via 病藥. See the ⛔ «Phase 3.x.2» section above. No simple element-mapping fix beats baseline.)
+4. ~~**MONTH per-dim ask cards**~~ — ✅ **DONE 2026-06-06** (parity with YEAR; see «MONTH per-dim ask cards» section above).
 5. **Mobile chat** — deliberately web-only.
 6. **Phase 12i engine-doctrine backlog** (chart_doctrine.py extraction, etc. — long-standing).
 

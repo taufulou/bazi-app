@@ -670,6 +670,8 @@ function FortuneView() {
             onResolvedProfileId={setMonthlyResolvedProfileId}
             shareButtonRef={shareButtonRef}
             onShareReadyChange={setMonthlyShareReady}
+            onAskFromCard={handleAskFromCard}
+            onOpenChatFromCard={handleOpenChatFromCard}
           />
         )}
         {tab === 'year' && (
@@ -1173,7 +1175,23 @@ interface MonthlyFortuneViewProps {
    *  the shell-icon gate reads this so PNG capture never includes a
    *  provisional/streaming narrative. */
   onShareReadyChange?: (ready: boolean) => void;
+  /** MONTH per-dim parity (mirror Tier B2 YEAR) — per-dim InlineAskCard
+   *  handlers (reuse the page-level chat open/populate handlers; same ones
+   *  daily's SuccessView + YearlyFortuneView receive). Tapping a month per-dim
+   *  card opens the page-level MONTH ChatDrawer with the `monthly_*`
+   *  sectionContextHint. */
+  onAskFromCard?: (sectionKey: string, question: string) => void;
+  onOpenChatFromCard?: (sectionKey: string) => void;
 }
+
+/** MONTH per-dim parity (mirror YEARLY_DIM_TO_CHAT_SECTION) — month dim key →
+ *  ChatSampleQuestion sectionKey (monthly_*). 4 dims, no travel (month scope). */
+const MONTHLY_DIM_TO_CHAT_SECTION: Record<'career' | 'finance' | 'romance' | 'health', string> = {
+  career: 'monthly_career',
+  finance: 'monthly_finance',
+  romance: 'monthly_romance',
+  health: 'monthly_health',
+};
 
 function MonthlyFortuneView({
   profileId,
@@ -1185,6 +1203,8 @@ function MonthlyFortuneView({
   onResolvedProfileId,
   shareButtonRef,
   onShareReadyChange,
+  onAskFromCard,
+  onOpenChatFromCard,
 }: MonthlyFortuneViewProps) {
   const [state, setState] = useState<MonthlyFortuneViewState>({ status: 'idle' });
   const [streamedSections, setStreamedSections] = useState<
@@ -1451,6 +1471,19 @@ function MonthlyFortuneView({
         loading={state.status === 'engine' && !streamError}
         streamedSections={
           state.status === 'engine' ? streamedSections : undefined
+        }
+        renderAfterDimension={
+          onAskFromCard
+            ? (dimKey) => (
+                <InlineAskCard
+                  readingType="FORTUNE"
+                  sectionKey={MONTHLY_DIM_TO_CHAT_SECTION[dimKey]}
+                  fortuneScope="MONTH"
+                  onAsk={onAskFromCard}
+                  onOpenChat={onOpenChatFromCard}
+                />
+              )
+            : undefined
         }
       />
 

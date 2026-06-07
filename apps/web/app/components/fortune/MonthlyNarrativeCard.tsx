@@ -21,10 +21,11 @@
  * (intra-month references only from structured data) enforced AT PROMPT
  * level — no validator backstop here yet (Phase 2.x candidate).
  */
+import * as React from 'react'; // VALUE namespace import — dual @types/react JSX-identity fix (CLAUDE.md)
 import type { MonthlyFortuneNarrative } from '../../lib/fortune-api';
 import { dimTierFromScore } from './labels';
 import { parseBoldSegments } from './markdown';
-import { MONTHLY_DIM_META } from './monthlyDimensions';
+import { MONTHLY_DIM_META, type MonthlyDimKey } from './monthlyDimensions';
 import styles from './MonthlyNarrativeCard.module.css';
 
 interface Props {
@@ -50,6 +51,14 @@ interface Props {
    * selector still resolves correctly on the next render.
    */
   streamedSections?: Partial<MonthlyFortuneNarrative>;
+  /** MONTH per-dim parity (mirror Tier B2 YEAR) — optional slot rendered AFTER
+   *  each dim block, for per-dim InlineAskCard wiring (parent passes a
+   *  `monthly_*` sectionKey card). 3-state visibility: shown when the dim is
+   *  actually rendered (has `text` OR the «本月此面向平穩» empty-state), hidden
+   *  (visibility:hidden, layout-reserving) ONLY during the streaming skeleton —
+   *  a `text`-only guard would wrongly hide the ask card under a visibly-
+   *  rendered 平穩 dim (mirror of YearlyNarrativeCard). */
+  renderAfterDimension?: (dimKey: MonthlyDimKey) => React.ReactNode;
 }
 
 function RichText({ text }: { text: string }) {
@@ -84,6 +93,7 @@ export default function MonthlyNarrativeCard({
   dimensions,
   loading = false,
   streamedSections,
+  renderAfterDimension,
 }: Props) {
   // Phase 2.x — hybrid mode: streamedSections present + narrative not yet final.
   // In this state, per-section text comes from `narrative[key] ?? streamedSections[key] ?? null`.
@@ -247,6 +257,19 @@ export default function MonthlyNarrativeCard({
                   <div className={styles.skeletonLine} style={{ width: '65%' }} />
                 </div>
               )}
+
+              {/* MONTH per-dim InlineAskCard slot (parity with YEAR Tier B2).
+                  Visible when the dim is rendered (text OR 平穩 empty-state);
+                  hidden (layout-reserving) during the streaming skeleton. */}
+              {renderAfterDimension ? (
+                text || narrative ? (
+                  renderAfterDimension(m.key)
+                ) : (
+                  <div style={{ visibility: 'hidden' }} aria-hidden="true">
+                    {renderAfterDimension(m.key)}
+                  </div>
+                )
+              ) : null}
             </article>
           );
         })}
