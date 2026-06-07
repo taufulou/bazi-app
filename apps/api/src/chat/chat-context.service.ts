@@ -1405,7 +1405,7 @@ export class ChatContextService {
 /**
  * Build a deterministic Chinese «今日X日触發的教義事件» block from the day's
  * `dailyFortune.dimensions[].signals[]` array. Mirrors the Phase 12g.6 Gap 2
- * pattern at `ai.service.ts:3794+::interpolateLoveV2Fields`: the engine emits
+ * pattern at `ai.service.ts:3712::interpolateLoveV2Fields`: the engine emits
  * structured signal types (e.g., `shangguan_jian_guan_transient`,
  * `bijie_duo_cai_*`, `chong_day_branch_*`, `honluan_triggered`); the
  * interpolator pre-formats Chinese sentences for the AI to consume verbatim

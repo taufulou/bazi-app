@@ -202,7 +202,7 @@ const ShareableMonthlyFortuneCard = React.forwardRef<HTMLDivElement, ShareableMo
             <div className={styles.footerText}>
               <div className={styles.footerDomain}>baziapp.com</div>
               <div className={styles.footerTagline}>掃描查看您自己的命理月運</div>
-              <div className={styles.footerDisclaimer}>※ 流月為趨勢，僅供參考</div>
+              <div className={styles.footerDisclaimer}>※ 流月為趨勢，僅供參考，不構成任何專業建議</div>
             </div>
           </div>
         </div>

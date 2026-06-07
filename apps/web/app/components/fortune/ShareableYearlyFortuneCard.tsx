@@ -199,7 +199,7 @@ const ShareableYearlyFortuneCard = React.forwardRef<HTMLDivElement, ShareableYea
             <div className={styles.footerText}>
               <div className={styles.footerDomain}>baziapp.com</div>
               <div className={styles.footerTagline}>掃描查看您自己的命理年運</div>
-              <div className={styles.footerDisclaimer}>※ 流年為趨勢，僅供參考</div>
+              <div className={styles.footerDisclaimer}>※ 流年為趨勢，僅供參考，不構成任何專業建議</div>
             </div>
           </div>
         </div>

@@ -26,8 +26,10 @@ const TARGET_TO_READING_NAME: Record<string, string> = {
 
 /** Go-buy verb gate (paraphrase-proof). `(?<!已)解鎖` excludes «已解鎖» so the
  *  owned reword (which contains «您已解鎖《X》») can never re-match its own
- *  output → idempotent. */
-const GO_UNLOCK_VERB_RE = /提供|獲取|(?<!已)解鎖/;
+ *  output → idempotent. `提供(?!的)` blocks the citation form «《X》提供的數據…»
+ *  (a neutral mention of an owned reading's data, NOT a go-buy pitch) while
+ *  still matching go-buy phrasings «提供完整解讀 / 提供 12 個月分析». */
+const GO_UNLOCK_VERB_RE = /提供(?!的)|獲取|(?<!已)解鎖/;
 
 // ============================================================
 // Types

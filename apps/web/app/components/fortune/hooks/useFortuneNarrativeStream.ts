@@ -1,19 +1,19 @@
 /**
  * useFortuneNarrativeStream — Phase Fortune Streaming Layer 4 (Phase 2.x scope-aware).
  *
- * Opens a single SSE connection to `GET /api/fortune/{daily|monthly}/stream`
+ * Opens a single SSE connection to `GET /api/fortune/{daily|monthly|yearly}/stream`
  * (per `scope` arg) and dispatches each event through `onEvent`. Manages the
  * AbortController teardown lifecycle:
  *   - enabled true → open stream
  *   - enabled toggles to false → abort current stream
- *   - dep change (new scope / profileId / date / month) → abort + re-open
+ *   - dep change (new scope / profileId / date / month / year) → abort + re-open
  *   - unmount → abort
  *
- * Phase 2.x L4 refactor:
- *   - `scope: 'day' | 'month'` discriminator dispatches to the right wire helper
- *   - `date` (when scope='day') or `month` (when scope='month') drives URL
- *   - Effect deps include `scope` + `month` so MonthNavigator changes re-open
- *     the stream (plan M-5 fix)
+ * Phase 2.x / Phase 3 refactor:
+ *   - `scope: 'day' | 'month' | 'year'` discriminator dispatches to the right wire helper
+ *   - `date` (scope='day') / `month` (scope='month') / `year` (scope='year') drives URL
+ *   - Effect deps include `scope` + `month` + `year` so MonthNavigator /
+ *     YearNavigator changes re-open the stream (plan M-5 fix)
  *   - Invariant guards at hook entry early-return on malformed args during
  *     profile-switch races (plan NEW-M2 fix)
  *

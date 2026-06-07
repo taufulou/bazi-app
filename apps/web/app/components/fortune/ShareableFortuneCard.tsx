@@ -204,7 +204,7 @@ const ShareableFortuneCard = React.forwardRef<HTMLDivElement, ShareableFortuneCa
             <div className={styles.footerText}>
               <div className={styles.footerDomain}>baziapp.com</div>
               <div className={styles.footerTagline}>掃描查看您自己的命理日運</div>
-              <div className={styles.footerDisclaimer}>※ 流日為觸發點，僅供參考</div>
+              <div className={styles.footerDisclaimer}>※ 流日為觸發點，僅供參考，不構成任何專業建議</div>
             </div>
           </div>
         </div>

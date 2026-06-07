@@ -739,12 +739,13 @@ export class FortuneValidatorsService {
   // 年運 (Yearly Fortune) — Phase 3 validation
   // ============================================================
   //
-  // Clauses (Phase A Sub-Agent C):
-  // 1. soft-trigger framing (今年宜/今年易於/今年趨向) — banned strip handles 今年會/今年必
-  // 3. 用神 reassignment forbidden at yearly scope
-  // 6. romance≠relationships — yearly_romance must NOT use 人際關係/朋友/同事/社交圈
-  // (Clause 4 months-from-structured-fields is enforced at the injector layer
-  //  via index-pairing; AI invented months would mismatch but are low-risk —
+  // Yearly-scope checks (Phase A Sub-Agent C) — bulleted (no prompt-clause
+  // numbering, which previously read 1→3→6 and looked like a gap):
+  //   • soft-trigger framing (今年宜/今年易於/今年趨向) — banned strip handles 今年會/今年必
+  //   • 用神 reassignment forbidden at yearly scope
+  //   • romance≠relationships — yearly_romance must NOT use 人際關係/同事/朋友圈/社交圈
+  // (Months-from-structured-fields is enforced at the injector layer via
+  //  index-pairing; AI-invented months would mismatch but are low-risk —
   //  warn-only drift check could be added later.)
 
   /** Soft-trigger opening pattern for YEAR scope. */

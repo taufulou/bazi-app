@@ -1313,9 +1313,11 @@ function MonthlyFortuneView({
           );
         }
       } else if (ev.type === 'done') {
-        // Plan v3 NEW-H1 fix: spread prev.data to preserve intraMonthBreakdown +
-        // cacheHit from engine_ready (single canonical source). Do NOT read
-        // ev.intraMonthBreakdown — `done` event no longer carries it.
+        // Plan v3 NEW-H1 fix: spread prev.data to preserve intraMonthBreakdown
+        // (engine_ready is its single canonical source — do NOT read
+        // ev.intraMonthBreakdown; the `done` event no longer carries it).
+        // cacheHit, by contrast, IS read from the `done` event below
+        // (ev.cacheHit), falling back to prev.data.cacheHit.
         // The umbrella `done` event is identical across scopes, so cast to the
         // MONTH narrative shape (we're in the month-tab handler).
         const monthlyNarrative = ev.narrative as MonthlyFortuneNarrative | null;

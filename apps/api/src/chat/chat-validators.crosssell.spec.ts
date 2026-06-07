@@ -101,6 +101,16 @@ describe('Tier C — rewriteOwnedCrossSell (output safety-net)', () => {
     expect(out).toBe(text);
   });
 
+  // PR #47 Issue 5 — the citation form «《X》提供的數據…» merely CITES an owned
+  // reading's data; it is NOT a go-buy pitch. The `提供(?!的)` verb-gate must
+  // leave it untouched even when the reading is owned.
+  it('citation form 「《X》提供的數據」 (owned) → untouched (提供的 is not a go-buy verb)', () => {
+    const text = '根據《八字流年運勢》提供的數據，今年整體順遂。';
+    const { text: out, rewritten } = rw(text, ['annual']);
+    expect(rewritten).toBe(false);
+    expect(out).toBe(text);
+  });
+
   it('multi-clause refuse — only the go-buy cross-sell clause is rewritten; opener + pivot preserved', () => {
     const refuse =
       '謝謝您的提問。關於命格定性與終身格局的詳細分析，超出本《八字年運》解讀的範圍——這需要結合八字格局、大運序列等專業命局分析。' +

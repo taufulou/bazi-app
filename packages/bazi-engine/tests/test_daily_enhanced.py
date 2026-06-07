@@ -19,6 +19,7 @@ from typing import Any, Dict
 import pytest
 
 from app.daily_enhanced import (
+    _detect_shishen_zhisha_active,
     compute_daily_fortune,
     get_day_pillar,
     resolve_bazi_today_from_clock_time,
@@ -1138,5 +1139,49 @@ class TestHeadlinerSignals:
                 assert chong_idx < honluan_idx, (
                     f'chong_day_branch should rank before honluan_mitigation; got {types}'
                 )
+
+
+class TestShishenZhishaNatalDayBranchExclusion:
+    """PR #47 Issue 4 — `_detect_shishen_zhisha_active` rule-7 («day_stem must
+    root in ANOTHER branch») must exclude the NATAL day pillar, not the FLOW
+    day's branch. The dormant Option-2.5 食神制殺 rescue is gated behind
+    PHASE_1_5_OPTION_25_REFINEMENT_ENABLED (default OFF); the function itself is
+    pure, so we exercise it directly.
+
+    Fixture (戊 DM, 食神=金): year/month/hour stems = 庚/戊/壬 (庚=食神 transparent,
+    rooted via 申/酉); day_stem 甲(木) roots ONLY in the natal day branch 卯; the
+    flow day_branch is 午 (≠ 卯). Pre-fix («b != day_branch») kept 卯 in scope →
+    甲 rooted → True (rule fired wrongly). Post-fix («b != pillars['day']['branch']»)
+    excludes 卯 → 甲 rootless elsewhere → False.
+    """
+
+    def test_root_only_in_natal_day_branch_does_not_fire(self):
+        result = _detect_shishen_zhisha_active(
+            dm_stem='戊', dm_element='土', natal_stems=['庚', '戊', '壬'],
+            day_stem='甲', day_branch='午',
+            pillars={
+                'year': {'branch': '申'},
+                'month': {'branch': '酉'},
+                'day': {'branch': '卯'},  # 甲's only 木 root — the natal day pillar
+                'hour': {'branch': '戌'},
+            },
+            effective_gods_zh={},
+        )
+        assert result is False
+
+    def test_root_in_non_day_branch_still_fires(self):
+        # Positive control: 甲 also roots in 寅 (year, non-day) → rule fires.
+        result = _detect_shishen_zhisha_active(
+            dm_stem='戊', dm_element='土', natal_stems=['庚', '戊', '壬'],
+            day_stem='甲', day_branch='午',
+            pillars={
+                'year': {'branch': '寅'},  # 甲 roots here (non-day) → check 7 passes
+                'month': {'branch': '酉'},  # 食神 金 root (check 6)
+                'day': {'branch': '卯'},
+                'hour': {'branch': '戌'},
+            },
+            effective_gods_zh={},
+        )
+        assert result is True
 
 

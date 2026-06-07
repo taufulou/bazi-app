@@ -867,9 +867,9 @@ def _detect_shishen_zhisha_active(
     if not shishen_rooted:
         return False
 
-    # day_stem must have root in ANOTHER branch (not the day's flow branch itself)
+    # day_stem must have root in ANOTHER branch (not the natal day pillar itself)
     day_stem_element = STEM_ELEMENT.get(day_stem, '')
-    other_branches = [b for b in natal_branches if b != day_branch]
+    other_branches = [b for b in natal_branches if b != pillars['day']['branch']]
     day_stem_rooted = False
     for b in other_branches:
         hidden = HIDDEN_STEMS.get(b, [])
