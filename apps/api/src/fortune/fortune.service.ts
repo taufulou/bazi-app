@@ -191,12 +191,17 @@ export class FortuneService {
       promptVersion,
     });
 
-    // Warm Redis
-    await this.helpers.redis.set(
-      this.helpers.redisKey(chartHash, targetDate),
-      JSON.stringify(snapshot),
-      REDIS_TTL_SECONDS,
-    );
+    // Warm Redis (best-effort — a Redis flap must not 500 a successful AI+persist;
+    // mirrors the monthly/yearly try/catch).
+    try {
+      await this.helpers.redis.set(
+        this.helpers.redisKey(chartHash, targetDate),
+        JSON.stringify(snapshot),
+        REDIS_TTL_SECONDS,
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to warm Redis (daily): ${(err as Error).message}`);
+    }
 
     return this.helpers.buildResponse(profile.id, profileBirthDate, profileBirthTime, targetDate, snapshot, false);
   }
@@ -239,6 +244,12 @@ export class FortuneService {
       .join('');
 
     const narrative = this.helpers.extractJson(text);
+    // Review fix: treat unparseable AI output as a FAILURE, not an empty-{} success.
+    // validate(null) returns sanitized={}; without this guard the caller persists a
+    // blank narrative as success — clobbering LKG + resetting the circuit breaker.
+    if (!narrative) {
+      throw new Error('Daily AI response could not be parsed as JSON');
+    }
     // Phase 1.5.z: pass folkContent so Tier 1 conditional gate can distinguish
     // engine-grounded mentions (allowed) from fabrications (stripped).
     const validation = this.validators.validate(narrative, {
@@ -429,6 +440,11 @@ export class FortuneService {
       .join('');
 
     const parsed = this.helpers.extractJson(text);
+    // Review fix: unparseable AI output is a FAILURE (else validate(null)→sanitized={}
+    // persists a blank narrative as success, clobbering LKG + resetting the breaker).
+    if (!parsed) {
+      throw new Error('Monthly AI response could not be parsed as JSON');
+    }
     const validation = this.validators.validateMonthly(parsed, {
       sessionAnchorMonth: targetMonth,
     });
@@ -601,6 +617,11 @@ export class FortuneService {
       .join('');
 
     const parsed = this.helpers.extractJson(text);
+    // Review fix: unparseable AI output is a FAILURE (else validate(null)→sanitized={}
+    // persists a blank narrative as success, clobbering LKG + resetting the breaker).
+    if (!parsed) {
+      throw new Error('Yearly AI response could not be parsed as JSON');
+    }
     const validation = this.validators.validateYearly(parsed);
 
     return {

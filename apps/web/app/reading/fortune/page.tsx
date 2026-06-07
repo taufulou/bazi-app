@@ -488,9 +488,13 @@ function FortuneView() {
   // surface via streamHookError. Treat as fatal IF no engine view yet.
   useEffect(() => {
     if (!streamHookError) return;
+    // Review fix: keep the setState updater PURE (StrictMode double-invokes it).
+    // Hoist the side-effecting setStreamError out of the updater — mirror of the
+    // monthly view's audit C-1 fix.
+    let midStream = false;
     setState((prev) => {
       if (prev.status === 'engine' || prev.status === 'success') {
-        setStreamError(streamHookError);
+        midStream = true;
         return prev;
       }
       return {
@@ -500,6 +504,7 @@ function FortuneView() {
         statusCode: streamHookError.code === 'AUTH_FAILED' ? 401 : 0,
       };
     });
+    if (midStream) setStreamError(streamHookError);
   }, [streamHookError]);
 
   // Note: Date moved INTO EnergyScoreRing (UX Sprint 1 R1.2 / S1.1).
@@ -1263,7 +1268,7 @@ function MonthlyFortuneView({
       if (ev.type === 'engine_ready' && 'month' in ev) {
         // engine_ready arrived — render Ring/Bars/TimeGrid immediately.
         // Plan v3 NEW-M1: cacheHit consumed from event payload (not hardcoded).
-        setState({
+        const engineState: MonthlyFortuneViewState = {
           status: 'engine',
           data: {
             month: ev.month,
@@ -1277,7 +1282,12 @@ function MonthlyFortuneView({
             cacheHit: ev.cacheHit,
             generatedAt: new Date().toISOString(),
           },
-        });
+        };
+        // Review fix (#9): sync stateRef synchronously so an error event in the
+        // SAME tick as engine_ready reads 'engine' (keep partial render) instead
+        // of the stale prior status (which would take the fatal path).
+        stateRef.current = engineState;
+        setState(engineState);
         // Phase 2.x L3.5b — publish resolved profileId UP so the page-level
         // ChatDrawer mount can use it as `fortune.profileId` even when the
         // user didn't pass ?profileId= in URL (NestJS resolved user's primary).
@@ -1660,7 +1670,7 @@ function YearlyFortuneView({
     year: targetYear,
     onEvent: (ev) => {
       if (ev.type === 'engine_ready' && 'year' in ev) {
-        setState({
+        const engineState: YearlyFortuneViewState = {
           status: 'engine',
           data: {
             year: ev.year,
@@ -1672,7 +1682,11 @@ function YearlyFortuneView({
             cacheHit: ev.cacheHit,
             generatedAt: new Date().toISOString(),
           },
-        });
+        };
+        // Review fix (#9): sync stateRef synchronously so a same-tick error event
+        // reads 'engine' (keep partial render) not the stale prior status.
+        stateRef.current = engineState;
+        setState(engineState);
         onResolvedProfileId?.(ev.profileId);
       } else if (ev.type === 'section_complete') {
         if (YEARLY_NARRATIVE_KEYS.has(ev.key)) {

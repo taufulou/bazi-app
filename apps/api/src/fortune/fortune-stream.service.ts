@@ -795,7 +795,15 @@ export class FortuneStreamService {
     if (lkg == null || typeof lkg !== 'object' || Object.keys(lkg).length === 0) {
       return false;
     }
-    if (response.writableEnded) return true;
+    if (response.writableEnded) {
+      // Review fix (defensive): cannot occur today, but if the socket is already
+      // ended, log + still report "served" so the caller suppresses the duplicate
+      // _emitError — guards against a silent hang in a future refactor.
+      this.logger.warn(
+        `_serveLkg: response already ended before LKG emit (scope=${scope}, chart=${row.chartHash.slice(0, 8)}…)`,
+      );
+      return true;
+    }
     this._emit(response, {
       type: 'done',
       // The persisted narrative is the scope's AI narrative shape; the `done`

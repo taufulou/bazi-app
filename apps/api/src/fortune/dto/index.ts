@@ -4,7 +4,7 @@
  * Plan: .claude/plans/ok-next-big-feature-merry-cake.md
  * Phase 1: daily only. Monthly + yearly DTOs reserved for Phase 2/3.
  */
-import { IsString, IsOptional, IsUUID, Matches, IsBooleanString } from 'class-validator';
+import { IsString, IsOptional, IsUUID, Matches, IsBooleanString, IsDateString } from 'class-validator';
 
 // ============================================================
 // GET /api/fortune/daily
@@ -28,6 +28,9 @@ export class GetDailyFortuneQueryDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, {
     message: 'date must be in YYYY-MM-DD format',
   })
+  // Review fix: @Matches checks format but accepts impossible dates (2026-02-30);
+  // strict ISO-8601 rejects them → clean 400 instead of a DB 500.
+  @IsDateString({ strict: true }, { message: 'date must be a valid calendar date' })
   date?: string;
 
   /**

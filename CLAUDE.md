@@ -3033,7 +3033,8 @@ When a chat refuse cross-sells a paid reading the user ALREADY owns, reword «go
 1. `prisma migrate deploy` — applies `20260531120000_seed_yearly_dim_sample_questions` (B2b).
 2. **CRITICAL** raw-SQL seed gotcha: `redis-cli INCR 'chat-sample-questions:version'` (else the 12 yearly_* questions invisible for ≤5min).
 3. NO version bumps for Tier A/C (Tier A telemetry-only; Tier C cache-safe). Tier B B2b is the only DB change. (Year-share-PNG/LKG commit 8af719d already bumped `FORTUNE_PROMPT_VERSIONS.month/.year` → v1.2.0 per the A2-gate section — scoped `redis-cli --scan --pattern "fortune:monthly:*"|"fortune:yearly:*" | xargs redis-cli DEL`.)
-4. NO chat-version bump (Tier C is outside contextVersion).
+4. ~~NO chat-version bump~~ **CORRECTION (review fix)**: Tier B2c DID bump `CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE.YEAR` v1.0.0→v1.1.0 (Y-3 pushback few-shot). Flush stale YEAR chat-context: `redis-cli --scan --pattern "chat-context-fortune:*:YEAR:*" | xargs redis-cli DEL`. (Blast radius zero today — no prod YEAR sessions — but required for correctness on any future deploy after a YEAR session is cached.) Tier C cross-sell reword IS cache-safe (outside contextVersion).
+   - ⚠️ **Raw-SQL seed gotcha clarification** (applies to ALL seed migrations incl. the older `20260521…seed_fortune_sample_questions`, whose header comment wrongly says `FLUSHALL`): the scoped fix is `redis-cli INCR 'chat-sample-questions:version'`, NOT `FLUSHALL`. (The applied migration's comment is not edited — editing an applied migration trips Prisma's checksum drift check.)
 
 ---
 

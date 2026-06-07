@@ -346,6 +346,11 @@ export const READING_TYPE_TIERS: Record<string, { tier: ReadingCostTier; label: 
   ZWDS_COMPATIBILITY: { tier: 'comprehensive', label: 'ZWDS Compatibility' },
   ZWDS_MAJOR_PERIOD:  { tier: 'comprehensive', label: 'ZWDS Major Period' },
   ANNUAL:             { tier: 'periodic', label: 'Bazi Annual' },
+  // FORTUNE (八字日/月/年運) — free/subscriber surface, NOT a purchasable reading
+  // (so it is intentionally absent from the ReadingType union + READING_TYPE_META).
+  // Listed here only so admin cost-bucketing classifies FORTUNE chat sessions
+  // instead of falling through to «unclassified».
+  FORTUNE:            { tier: 'periodic', label: 'Bazi Fortune (日/月/年運)' },
   ZWDS_ANNUAL:        { tier: 'periodic', label: 'ZWDS Annual' },
   ZWDS_MONTHLY:       { tier: 'periodic', label: 'ZWDS Monthly' },
   ZWDS_DAILY:         { tier: 'daily', label: 'ZWDS Daily' },

@@ -545,7 +545,7 @@ export default function ChatDrawer({
       if (action === 'new_session') {
         // If they have unused paid messages AND came from a non-warning path,
         // confirm first.
-        if (remainingPaid > 0 && _from !== 'new_session_lose_paid') {
+        if (remainingPaid > 0 && from !== 'new_session_lose_paid') {
           setDialogKey('new_session_lose_paid');
           return;
         }

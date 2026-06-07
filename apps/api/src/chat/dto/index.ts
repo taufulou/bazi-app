@@ -43,6 +43,9 @@ export class FortuneSubjectDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, {
     message: 'fortuneAnchorDate must be YYYY-MM-DD',
   })
+  // Review fix: strict ISO-8601 rejects impossible dates (2026-02-30) that the
+  // format regex alone would let through to a DB 500.
+  @IsDateString({ strict: true }, { message: 'fortuneAnchorDate must be a valid calendar date' })
   fortuneAnchorDate!: string;
 }
 
