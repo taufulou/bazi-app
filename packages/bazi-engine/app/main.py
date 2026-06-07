@@ -6,7 +6,7 @@ All calculations are deterministic (no AI). AI interpretation is handled by the 
 
 import time
 from datetime import datetime
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,9 +17,18 @@ from .calculator import (
     calculate_bazi_compatibility,
     calculate_bazi_with_all_pipelines,
 )
-from .chat_context import build_chat_context, build_chat_context_compat
+from .chat_context import (
+    build_chat_context,
+    build_chat_context_compat,
+    build_chat_context_fortune,
+)
 from .daily_enhanced import compute_daily_fortune, resolve_bazi_today_from_clock_time
 from .explanations import get_element_explanation
+from .monthly_enhanced import (
+    compute_intra_month_breakdown,
+    compute_single_month_by_yearmonth,
+)
+from .yearly_enhanced import compute_year_by_year
 
 app = FastAPI(
     title="Bazi Calculation Engine",
@@ -466,6 +475,114 @@ async def build_chat_context_compat_endpoint(data: CompatChatContextInput):
         )
 
 
+class FortuneChatContextInput(BaseModel):
+    """Phase Fortune — input for building the FORTUNE chat-scope context
+    (single chart's daily fortune + chart-slim base).
+
+    `precomputed_daily` is the Issue 1 optimization: when the NestJS layer
+    already has the persisted `DailyFortuneSnapshot.engineOutputJson` for
+    the same `(chart_hash, anchor_date)`, it passes the snapshot through
+    so the engine can skip the redundant `compute_daily_fortune()` call
+    (saves ~50-100ms per chat session create on the warm-snapshot path).
+
+    Caller is responsible for resolving the 23:00 子時 boundary against
+    Asia/Taipei BEFORE sending — use the NestJS-side
+    `fortune.service.ts::todayIsoDate()` helper.
+    """
+    birth_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    birth_time: str = Field(..., pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
+    birth_city: str
+    birth_timezone: str
+    gender: str = Field(..., pattern=r"^(male|female)$")
+    birth_longitude: Optional[float] = None
+    birth_latitude: Optional[float] = None
+    anchor_date: str = Field(
+        ..., description="Bazi-day-resolved date YYYY-MM-DD (for MONTH scope, day component is ignored — month derived as YYYY-MM)",
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    target_year: int = Field(..., ge=1900, le=2100)
+    target_month: int = Field(..., ge=1, le=12)
+    precomputed_daily: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional persisted DailyFortuneSnapshot.engineOutputJson — when "
+                    "provided, skips compute_daily_fortune (Issue 1 reuse path). DAY scope only.",
+    )
+    # Phase 2.x L3.5b additions
+    fortune_scope: str = Field(
+        default='DAY',
+        pattern=r"^(DAY|MONTH|YEAR)$",
+        description="'DAY' (default, back-compat), 'MONTH', or 'YEAR'.",
+    )
+    precomputed_monthly: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional persisted MONTH-scope snapshot engineOutputJson — Issue-1 "
+                    "reuse path for MONTH (skips compute_single_month_by_yearmonth). "
+                    "Only consumed when fortune_scope='MONTH'.",
+    )
+    # Phase 3.5c L3.5c addition
+    precomputed_yearly: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Optional persisted YEAR-scope snapshot engineOutputJson — Issue-1 "
+                    "reuse path for YEAR (skips compute_year_by_year). "
+                    "Only consumed when fortune_scope='YEAR'.",
+    )
+
+
+@app.post("/build-chat-context-fortune")
+async def build_chat_context_fortune_endpoint(data: FortuneChatContextInput):
+    """Phase Fortune — build the slim chat context for FORTUNE chat (八字日運).
+
+    Merges the single-chart 4-pipeline slim (lifetime/love/career/annual)
+    PLUS the day's fortune output (`dailyFortune`). The chat AI inherits
+    ALL chart-level Phase 12 doctrine via the merged slim's `doctrineFlags`
+    + `doctrineInjectors` — day-pillar TRANSIENT findings ride in
+    `dailyFortune.dimensions[].signals[]` for the NestJS-side
+    `interpolateFortuneV1Fields` injector to consume.
+
+    Compute cost: ~50-100ms cold-cache. With `precomputed_daily` provided,
+    drops to ~30-50ms (skips compute_daily_fortune). NestJS caches by
+    `chat-context-fortune:{birthHash}:{anchorDateIso}:{versions}` 24h TTL.
+    """
+    start_time = time.perf_counter()
+
+    try:
+        birth_data = {
+            'birth_date': data.birth_date,
+            'birth_time': data.birth_time,
+            'birth_city': data.birth_city,
+            'birth_timezone': data.birth_timezone,
+            'gender': data.gender,
+            'birth_longitude': data.birth_longitude,
+            'birth_latitude': data.birth_latitude,
+        }
+
+        ctx = build_chat_context_fortune(
+            birth_data=birth_data,
+            anchor_date=data.anchor_date,
+            current_year=data.target_year,
+            current_month=data.target_month,
+            precomputed_daily=data.precomputed_daily,
+            precomputed_monthly=data.precomputed_monthly,
+            precomputed_yearly=data.precomputed_yearly,
+            fortune_scope=data.fortune_scope,
+        )
+
+        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        return {
+            "status": "success",
+            "calculationTimeMs": elapsed_ms,
+            "chatContext": ctx,
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Fortune chat context build error: {str(e)}",
+        )
+
+
 class DailyFortuneInput(BaseModel):
     """Input for daily fortune computation (八字日運).
 
@@ -627,6 +744,225 @@ async def daily_fortune_endpoint(data: DailyFortuneInput):
         raise HTTPException(
             status_code=500,
             detail=f"Daily fortune calculation error: {str(e)}",
+        )
+
+
+class MonthlyFortuneInput(BaseModel):
+    """Input for monthly fortune computation (八字月運) — Phase 2.
+
+    The endpoint accepts birth data + target (year, month) and internally
+    resolves the active 流月 (handles cross-flow-year via cnlunar), runs
+    the full chart pipeline, and delegates to `compute_single_month_by_yearmonth`.
+
+    Caller (NestJS layer) caches by `(chart_hash, scope='MONTH', anchor_date='YYYY-MM-01')`.
+
+    Phase A research lock (2026-05-28): time partition is `tiangan_dizhi_half`
+    (2-cell split: 上半月 stem-governed / 下半月 branch-governed) per ≥5
+    modern Bazi-master sources + 司莹居士《八字泄天机》流月逼進法.
+
+    See `.claude/plans/phase-2-yueyun-phase-a-research-results.md`.
+    """
+    birth_date: str = Field(
+        ..., description="Birth date YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    birth_time: str = Field(
+        ..., description="Birth time HH:MM",
+        pattern=r"^([01]\d|2[0-3]):([0-5]\d)$",
+    )
+    birth_city: str
+    birth_timezone: str
+    gender: str = Field(..., pattern=r"^(male|female)$")
+    birth_longitude: Optional[float] = None
+    birth_latitude: Optional[float] = None
+    target_year: int = Field(
+        ..., ge=1900, le=2100,
+        description="Target Gregorian year (cross-flow-year is resolved internally)",
+    )
+    target_month: int = Field(
+        ..., ge=1, le=12,
+        description="Target Gregorian month (1-12)",
+    )
+
+
+class YearlyFortuneInput(BaseModel):
+    """Input for yearly fortune computation (八字年運) — Phase 3.
+
+    The endpoint accepts birth data + target year and delegates to
+    `compute_year_by_year`. Year selection maps DIRECTLY to the 立春-anchored
+    flow year (NO cross-flow-year resolution like month — a 流年 IS
+    立春-to-立春). Free/subscriber LIGHTER PREVIEW that cross-sells to the
+    paid 八字流年運勢 reading.
+
+    Caller (NestJS layer) caches by `(chart_hash, scope='YEAR', anchor_date='YYYY-01-01')`.
+
+    See `.claude/plans/phase-3-nianyun-phase-a-research-results.md`.
+    """
+    birth_date: str = Field(
+        ..., description="Birth date YYYY-MM-DD",
+        pattern=r"^\d{4}-\d{2}-\d{2}$",
+    )
+    birth_time: str = Field(
+        ..., description="Birth time HH:MM",
+        pattern=r"^([01]\d|2[0-3]):([0-5]\d)$",
+    )
+    birth_city: str
+    birth_timezone: str
+    gender: str = Field(..., pattern=r"^(male|female)$")
+    birth_longitude: Optional[float] = None
+    birth_latitude: Optional[float] = None
+    target_year: int = Field(
+        ..., ge=1900, le=2100,
+        description="Target 立春-anchored flow year",
+    )
+
+
+@app.post("/monthly-fortune")
+async def monthly_fortune_endpoint(data: MonthlyFortuneInput):
+    """Compute 八字月運 (monthly fortune) for the given chart on a target (year, month).
+
+    Returns the engine's deterministic monthly pre-analysis:
+    - 7-label 吉凶 (`auspiciousness`) + derived 0-100 `energyScore`
+    - 4 dimension sub-scores (career/finance/romance/health) with signals
+      — NO 出行 dim per Phase A Sub-Agent B doctrine (驛馬 is DAY-only)
+    - `partitionSpec` (`tiangan_dizhi_half` 2-cell: 上半月/下半月)
+    - `metaFraming='soft_trigger'` (load-bearing for AI prompt; 流月 is
+      sustained TREND, not verdict per 三命通會 月運篇)
+    - Phase 12b/12c additive fields (officerSealActivation, fuYinInteractions,
+      chongKuRelease, liuHaiInteractions, etc.) inherited from
+      `_compute_single_month`
+    - `chartContext` for NestJS prompt builder reuse (avoids second
+      /calculate hop)
+
+    Cross-flow-year: queries like target_year=2027, target_month=1 are
+    correctly resolved to flow_year=2026 (still 丑月 of 2026 pre-立春)
+    via cnlunar.lunarYear.
+
+    Cache strategy (recommended at NestJS layer): key by
+    `(chart_hash, scope='MONTH', anchor_date='YYYY-MM-01', FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION)`,
+    TTL 24h. Persist to DB for subscriber lookback (last + current + +12).
+
+    Endpoint timeout (NestJS side): recommend 60s `AbortSignal.timeout`
+    — monthly is heavier than daily due to potential cross-flow-year
+    compute (up to 2 calls to calculate_bazi_with_all_pipelines).
+    """
+    start_time = time.perf_counter()
+
+    try:
+        monthly_result = compute_single_month_by_yearmonth(
+            birth_date=data.birth_date,
+            birth_time=data.birth_time,
+            birth_city=data.birth_city,
+            birth_timezone=data.birth_timezone,
+            gender=data.gender,
+            year=data.target_year,
+            month=data.target_month,
+            birth_longitude=data.birth_longitude,
+            birth_latitude=data.birth_latitude,
+        )
+
+        # Phase 2.x L1 — wire L1.b intra-month aggregation so MonthlyTimeGrid
+        # renders real 上半月/下半月 day counts + dominant 神煞 + peak signals
+        # instead of the placeholder hint. Cold path ~150ms for 30 daily
+        # aggregations (3-tier cache inside compute_intra_month_breakdown:
+        # precomputed_days → in-process LRU → cold daily compute). Warm path
+        # ~10ms via LRU. Falls inside the 60s endpoint timeout.
+        #
+        # M-3 fix — emit as CAMELCASE 'intraMonthBreakdown' at the top level
+        # to match existing engine convention (flowYear, monthGanZhi). Inner
+        # keys (scheme_id, liuyue_window, buckets, day_range, governing_pillar)
+        # stay snake_case as the L1.b function emits them.
+        try:
+            breakdown_result = compute_intra_month_breakdown(
+                birth_date=data.birth_date,
+                birth_time=data.birth_time,
+                birth_city=data.birth_city,
+                birth_timezone=data.birth_timezone,
+                gender=data.gender,
+                year=data.target_year,
+                month=data.target_month,
+                birth_longitude=data.birth_longitude,
+                birth_latitude=data.birth_latitude,
+            )
+            monthly_result["intraMonthBreakdown"] = breakdown_result
+        except Exception as breakdown_err:
+            # Defensive: if L1.b fails (e.g., a single daily compute crashes),
+            # don't take down the whole monthly endpoint. Log + omit the field
+            # — TimeGrid falls back to the placeholder hint, page still loads.
+            print(f"WARN compute_intra_month_breakdown failed: {breakdown_err}")
+
+        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        return {
+            "status": "success",
+            "calculationTimeMs": elapsed_ms,
+            "data": monthly_result,
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Monthly fortune calculation error: {str(e)}",
+        )
+
+
+@app.post("/yearly-fortune")
+async def yearly_fortune_endpoint(data: YearlyFortuneInput):
+    """Compute 八字年運 (yearly fortune) for the given chart on a flow year.
+
+    Returns the engine's deterministic yearly pre-analysis (Phase 3):
+    - 7-label 吉凶 (`auspiciousness`) + derived 0-100 `energyScore` (EnergyScoreRing)
+    - 4 star-rated dimensions (career/finance/romance/health — NO 出行;
+      感情=romance NOT 人際關係) via hybrid mean-with-peak-emphasis aggregation
+    - `coreRiskOpportunity` (top-3 opportunity + bottom-3 risk MONTHS, gated;
+      `flatYear: true` when both empty — UI shows «今年運勢平穩，無顯著起伏»)
+    - `luckMethods` (deterministic 改運 cards keyed on weakest-dim + 用神)
+    - `metaFraming='soft_trigger'` (流年 = sustained TREND per 三命通會 論流年)
+    - `chartContext` for NestJS prompt builder reuse
+
+    LIGHTER PREVIEW — does NOT include the paid 八字流年運勢's full 12-month
+    prose / deep 太歲 / 大運 sequence (those stay paywalled; free tab
+    cross-sells to /reading/annual).
+
+    Year selection maps DIRECTLY to the 立春-anchored flow year (no
+    cross-flow-year resolution like month).
+
+    Cache strategy (NestJS layer): key by
+    `(chart_hash, scope='YEAR', anchor_date='YYYY-01-01', FORTUNE_YEARLY_PRE_ANALYSIS_VERSION)`,
+    TTL 24h. Subscriber window: last year + current + +4 years.
+    """
+    start_time = time.perf_counter()
+
+    try:
+        yearly_result = compute_year_by_year(
+            birth_date=data.birth_date,
+            birth_time=data.birth_time,
+            birth_city=data.birth_city,
+            birth_timezone=data.birth_timezone,
+            gender=data.gender,
+            year=data.target_year,
+            birth_longitude=data.birth_longitude,
+            birth_latitude=data.birth_latitude,
+        )
+
+        elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+
+        return {
+            "status": "success",
+            "calculationTimeMs": elapsed_ms,
+            "data": yearly_result,
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Yearly fortune calculation error: {str(e)}",
         )
 
 

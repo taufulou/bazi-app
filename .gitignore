@@ -1,5 +1,10 @@
 # Dependencies
 node_modules/
+# Worktree-local symlinks to main repo's node_modules (claude/elastic-pascal
+# worktree pattern — see CLAUDE.md «Worktree Development Guide»). The temp
+# suffix varies per worktree; pattern catches all variants. Symlinks point
+# to local /Users paths that don't exist on CI / other machines.
+.node_modules-*
 
 # Build outputs
 dist/
@@ -18,7 +23,9 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+.venv
 venv/
+venv
 .pytest_cache/
 .coverage
 build/

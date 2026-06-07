@@ -1079,10 +1079,15 @@ LLM chat layer on top of all 5 Bazi reading types: LIFETIME / LOVE / CAREER / AN
 
 ### Topic-boundary policy (Phase 2+)
 - LIFETIME chat answers all topics — refuse template is `null` (NOT empty string; sentinel matters in dispatch).
-- LOVE/CAREER/ANNUAL/COMPATIBILITY refuse out-of-topic questions with warm template, end with cross-sell line, then pivot back to in-topic with `crossSellPivotHint` (e.g. «根據您的命盤，2027 丁未年（正緣動年）»).
-- Refused messages are auto-refunded via post-stream `refundLastMessage('topic-boundary-refuse')` call. The regex `CHAT_V1_TOPIC_REFUSE_OPENING_REGEX` matches the standardized opener AFTER the existing post-validator runs (`chat-stream.service.ts:496-541`).
-- Soft-warning dialog fires at 5+ consecutive refuses (`ChatSession.consecutiveRefuses` atomic counter via Prisma `{ increment: 1 }` / `{ set: 0 }` — race-safe).
-- Env `CHAT_ENABLED_READING_TYPES=LIFETIME,LOVE,CAREER,ANNUAL,COMPATIBILITY` is the runtime kill switch (no redeploy needed to gate a type).
+- LOVE/CAREER/ANNUAL/COMPATIBILITY/FORTUNE refuse out-of-topic questions with warm template, end with cross-sell line, then pivot back to in-topic with `crossSellPivotHint` (e.g. «根據您的命盤，2027 丁未年（正緣動年）»). FORTUNE additionally supports F-2 «hybrid refuse» (cite-today-first then refuse mid-response — load-bearing for queries that PARTIALLY touch today like «今年事業如何？»).
+- Refuse detection — `isTopicBoundaryRefuse()` checks TWO patterns (`prompts.ts`):
+  - PRIMARY: `CHAT_V1_TOPIC_REFUSE_OPENING_REGEX` matches `謝謝您的提問。關於...超出本《...》解讀的範圍` in the first 200 chars (F-1 pure refuse opener)
+  - SECONDARY: `CHAT_V1_TOPIC_REFUSE_HYBRID_MARKER_REGEX` matches the load-bearing `超出本《...》解讀的範圍——` doctrinal marker in the first 600 chars (F-2 hybrid — handles cited-today preamble)
+- **Refund cap policy** (Phase Fortune+ cost defense): refused messages are auto-refunded via post-stream `refundLastMessage('topic-boundary-refuse')` call ONLY for the first N consecutive refuses (`CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT` = 2). From the (N+1)th consecutive refuse onward, refund is SUPPRESSED — user pays for repeated off-topic spam (every refuse still costs us an Anthropic API call). Counter resets on any in-topic message via atomic Prisma `{ set: 0 }`. Logged + Sentry breadcrumb emitted on each cap-fire (`category: 'chat.refund_cap'`).
+- **Soft-warning dialog «超出範圍提醒»** (`refuse_limit_reached`) fires on the FE the moment `ChatSession.consecutiveRefuses >= CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD` (= LIMIT + 1 = 3). This matches the first refuse that's NOT refunded so the user understands why the credit was deducted. Dialog state resets when counter drops below threshold (so it can re-fire on a fresh streak).
+- Pre-flight validator refuses (`refuseListPreFlight`) deliberately do NOT increment `consecutiveRefuses` (zero Anthropic cost → no cost-defense need).
+- Env `CHAT_ENABLED_READING_TYPES=LIFETIME,LOVE,CAREER,ANNUAL,COMPATIBILITY,FORTUNE` is the runtime kill switch (no redeploy needed to gate a type).
+- Constants drift lock: `chat-payment-service.spec.ts` includes a `mirror parity` describe block asserting local mirror constants in `chat-payment.service.ts` stay in sync with `@repo/shared` (catches the silent drift class).
 
 ### COMPATIBILITY chat specifics (Phase 3 — do not break invariants)
 - Engine slim merges both parties via `_slim_party_for_compat`. doctrineFlags filtered to 4 LOVE keys via `LOVE_DOCTRINE_FLAG_KEYS = {shangguanJianGuan, biJieDuoCai, guanShaHunZa, spousePalaceFrictions}` to avoid CAREER doctrine leaking into COMPAT slim. doctrineInjectors pass-through (all 4 are already LOVE-domain).
@@ -1306,18 +1311,44 @@ Full plan with 11 review rounds (staff engineer + Bazi master + accuracy gap ana
 
 ---
 
-## 八字日運/月運/年運 (Daily/Monthly/Yearly Fortune) — Phase 1 SHIPPED + A5 PASSED ✅
+## 八字日運/月運/年運 (Daily/Monthly/Yearly Fortune) — Phase 1 MERGED to main ✅
 
 LLM-narrated fortune surface on top of the existing engine. Same hybrid-cached
 pattern as the AI Chat feature (engine pre-analysis → AI narration → Redis +
 DB cache). Plan: `.claude/plans/ok-next-big-feature-merry-cake.md` (with
 research findings in `.claude/plans/ok-next-big-feature-merry-cake-agent-aea39761500551e82.md`).
 
-**Session handoff doc** (post-compaction handoff): `.claude/plans/fortune-phase-1-session-handoff.md` — read this first to pick back up. Contains full multi-session timeline, A5 manual smoke test results, calibration anchor data, DB state, pending work priority list.
+**🎉 PR #46 MERGED** at commit `c0356fb` (2026-05-18 01:42 UTC). All Phase 1 layers + 9 PR-review followup fixes + CI hardening + TS cleanup landed together as 16 commits.
 
-**Phase 1 ship status**: ALL layers shipped + A1 Prisma migration applied to dev DB + A5 manual browser smoke test passed end-to-end. **2 critical bugs found + fixed during A5** (Redis Date deserialization + AllExceptionsFilter code passthrough). 1 non-blocking perf issue logged (Bug A5-3: DB warm path doesn't re-populate Redis).
+**Session handoff doc** (post-compaction handoff): `.claude/plans/fortune-phase-1-session-handoff.md` — read this first to pick back up. Contains full multi-session timeline (Sessions 1-18), A5 manual smoke test results, PR #46 merge details, calibration anchor data, DB state, pending work priority list, lessons learned.
 
-Still pending before production ship: A2 (sub-agent QA review on 30 narratives), A3 (calibration corpus + ≥85% gate), A4 (doctrinal-split day docs). Phase 1.5 polish items (share button, profile dropdown, date navigator, chat wiring, folk content) deferred separately.
+**⚠️ Operator deploy checklist (post-merge, pending)**:
+1. `cd apps/api && prisma migrate deploy` — applies BOTH migrations (`daily_fortune_snapshots` + `ai_failure_count`/`ai_last_failed_at` columns) + enum additions
+2. `redis-cli FLUSHALL` post-deploy — required by 2 version bumps (`FORTUNE_DAILY_PRE_ANALYSIS_VERSION` v1.0→v1.1.1 + `FORTUNE_PROMPT_VERSIONS.day` v1.0→v1.2.3)
+3. Monitor Anthropic spend dashboard for 24h
+4. Expected regen cost: ~30-100 test snapshots × ~$0.03 ≈ $1-3 (Phase 1 has minimal live use)
+
+**Cache versions in main (locked)**:
+- `FORTUNE_DAILY_PRE_ANALYSIS_VERSION` (Python) = **v1.1.1** (TAOHUA softening fix — natal_day_branch lookup)
+- `FORTUNE_PRE_ANALYSIS_VERSIONS.day` (TS) = **v1.1.1** (mirrors Python)
+- `FORTUNE_PROMPT_VERSIONS.day` (TS) = **v1.2.3** (folk-content sentence-level strip)
+
+**Still pending before flipping to real users**:
+- **A2 Layer 4 sub-agent QA** — 30 narratives × 3-parallel agents (doctrine / folk-drift / Phase 12 consistency). ~half day. SHIP-READINESS GATE.
+- **Phase 1.5 Option 2.5 refinement** — 喜神/用神 stem rescue for neutral DM; lifts A3 corpus 93.3% → ~96%+. ~half day.
+
+**Phase 1.5 polish items** (deferred — separate PR per item or bundled): share button + html2canvas PNG, profile dropdown, date navigator, FortuneSampleQuestions + ChatDrawer wiring, folk content research (色/數字/食物/吉時).
+
+**Out of scope / chronic main-branch debt** (separate cleanup PR):
+- ESLint v9 config migration (CI Lint job has been red on every PR for months)
+- TS strict-mode cleanup in 8 pre-existing files (HeroBanner / ChatDrawer / ElementExplanation / MascotViewer / subscription / test specs)
+- Pre-existing Bazi engine compat test (`test_roger_laopo_full_preanalysis` — failing since 2026-03-23)
+- LLM-as-judge CI eval needs `ANTHROPIC_API_KEY` in CI secrets
+
+**Key fixes added in PR #46 that affect ALL future PRs**:
+- **CI workflow**: `.github/workflows/ci.yml` now runs `npx prisma generate` after `npm ci` in 4 jobs (Lint / TS Check / API Tests / Build). Without this, ANY new Prisma enum/model would break ALL API tests + TS check.
+- **Worktree lockfile lesson**: when adding npm deps in a worktree, the `node_modules` symlink to main can mask lockfile drift. Always run `npm install --package-lock-only --ignore-scripts` after adding a dep to regenerate `package-lock.json` before pushing.
+- **Dual `@types/react` fix pattern**: in Next.js workspaces, JSX type identity can mismatch even with same versions. Pattern: use VALUE namespace React import (`import * as React from 'react'`) + reference `React.ReactNode` / `React.Suspense`. Used in `FortuneShell.tsx`, `InfoTooltip.tsx`, `reading/fortune/page.tsx`.
 
 ### Load-bearing doctrine (do NOT relax without research review)
 
@@ -1753,3 +1784,1306 @@ The `daily_label_corpus.csv::doctrinal_split` column flags rows where any classi
 4. **Debt B** — build `tests/validation/daily_label_corpus.csv` via Bazi-master sub-agent grading (10-15 days × 2-3 anchor charts × 5 dimensions); calibrate dim score weights until ≥85% label agreement
 5. **Debt C** — enumerate ≥5 `DOCTRINAL_SPLIT_DAY_PATTERNS` (e.g., 沖日支 + 喜神=用神 = ambiguous 動 doctrine); document in plan + add `--accept-doctrinal-splits` harness flag
 6. **Layer 4 release gate** — generate 30 narratives × 3 calibration anchors × 10 dates → submit to 3-parallel sub-agent review (doctrine + folk-drift + Phase 12 consistency)
+
+---
+
+## 八字日運 Phase Fortune chat scope — SHIPPED 2026-05-21 (commit cc642d1, NOT yet in main)
+
+Adds FORTUNE as the 6th chat-enabled reading type. AI chat (existing CHAT Phases 1-4 — LIFETIME/LOVE/CAREER/ANNUAL/COMPATIBILITY) now supports FORTUNE for follow-up questions about today's daily fortune signals.
+
+**Session handoff**: `/Users/roger/.claude/plans/fortune-phase-2-chat-scope-session-handoff.md` — read this first for chat-scope context.
+
+### Key infrastructure
+
+**`ChatSubject` discriminator** (replaces XOR validation in chat.service.ts):
+```typescript
+type ChatSubject =
+  | { kind: 'reading'; readingId: string }
+  | { kind: 'comparison'; comparisonId: string }
+  | { kind: 'fortune'; profileId: string; fortuneScope: FortuneScope; fortuneAnchorDate: string };
+```
+Threaded through `createSession` + `_listSessionsByWhere` + `extendSession` + `sendMessage` + `chat-stream`.
+
+**`ChatSession.profileId` NEW column** — denormalized FK to `birth_profiles(id) onDelete: SetNull` for hot-path session lookup. Set at session create (not derived from snapshot at lookup time).
+
+**Partial index for FORTUNE session lookup**:
+```sql
+CREATE INDEX chat_sessions_fortune_lookup_idx
+  ON chat_sessions (user_id, reading_type, fortune_anchor_date, started_at)
+  WHERE reading_type = 'FORTUNE';
+```
+
+**Per-readingType cache version composition** (Issue 11 + NEW-A regression-locked):
+```typescript
+// chat-context.service.ts::computeVersionString + getCurrentSnapshotVersions
+const parts = [/* per-type base */];
+if (readingType === 'FORTUNE') parts.push(`pa-fort=${PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE}`);
+```
+Adding `FORTUNE` to `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH` does NOT invalidate other reading types' cached chat-contexts NOR trigger `CONTEXT_VERSION_DRIFTED` on their in-flight sessions. Zero mass-eviction blast radius. Per Phase Fortune Issue 11 + NEW-A v3 staff-engineer review.
+
+### Topic-boundary policy
+
+FORTUNE is HYBRID: answers any question grounded in today's signals (dim-spanning OK: 「今天適合告白嗎？」, 「為什麼今天能量低？」). REFUSES chart-level / multi-day with cross-sell to:
+- 「我命格如何？」 → LIFETIME
+- 「我和先生合不合？」 → COMPATIBILITY / LOVE
+- 「今年事業如何？」 → ANNUAL
+- 「我的婚姻幸福嗎？」 → LOVE
+
+**Hybrid refuse special rule (load-bearing — F-2 pattern)**: when user asks something PARTIALLY about today (e.g., «今年事業如何？» contains today), AI MUST cite today's specifics FIRST, THEN switch to refuse measure («不過『整年趨勢』超出本《八字日運》解讀的範圍——»), THEN cross-sell ANNUAL. Order reversed = user feels coldly rejected (violates hybrid design).
+
+3 refuse few-shots (F-1 simple chart-level / F-2 hybrid / F-3 pushback temporal-boundary proof) drafted by 3-parallel Bazi-master sub-agent + reviewed before Layer B work. Saved at `.claude/plans/fortune-refuse-few-shots-draft.md`.
+
+**Cross-sell limitation** (known, deferred to Phase 2.x): cross-sell does NOT check user ownership of target reading. If user already owns LIFETIME, FORTUNE chat still says «《八字終身運》提供完整解讀» as if they don't. Future fix: gate on `user.readings.where({readingType}).count() === 0`.
+
+### Critical audit fixes that landed
+
+**CRITICAL Issue (caught by line audit, not plan review)**: `chat-prompt-builder.ts::isChatEnabledType` originally omitted 'FORTUNE' even though the same file had FORTUNE in `buildChatV1SystemPromptForType`. Result: all FORTUNE-specific assets (scope clause, refuse template, cross-sell, F-1/F-2/F-3 few-shots) were silently dropped at runtime. Fix: `rt === 'FORTUNE'` added to the type guard. Locked by `chat-prompt-builder.fortune.spec.ts` regression spec.
+
+**HIGH Issue 14**: `interpolateFortuneV1Fields` chat-side function existed + was unit-tested but NEVER CALLED from buildPrompt. Fix: imported + wired into buildPrompt under FORTUNE gate with `【今日流日教義事件 — 必須引用以下文字】` block header. Mirrors Phase 12g.6 Gap 2 deterministic injection pattern.
+
+**HIGH H1**: DateNavigator change while drawer OPEN didn't spawn new session. Fix: `prevFortuneAnchorRef` useEffect in `useChatSession.ts` resets sessionId when `fortune.fortuneAnchorDate` OR `fortune.profileId` changes.
+
+**HIGH H2**: Pills auto-sent via `pendingInitialMessage` (violated locked Issue 6 populate-only design). Fix: `populateOnly?: boolean` prop on `ChatDrawer` branches the effect to `composerRef.current?.appendToDraft()` instead of `handleSend()`.
+
+### Engine endpoint
+
+`POST /build-chat-context-fortune` in `packages/bazi-engine/app/main.py`:
+- Reuses 4 enhanced-insights pipelines (lifetime+love+career+annual) per existing chat slim pattern
+- Adds Phase 1 daily fortune output (auspiciousness/dim scores/signals/folk content)
+- Accepts optional `precomputed_daily` param for snapshot reuse (Issue 1) — avoids double-compute when caller has cached `DailyFortuneSnapshot.engineOutputJson`
+- 45s timeout (matches existing `/build-chat-context-compat`)
+
+`build_chat_context_fortune` Python function in `packages/bazi-engine/app/chat_context.py`. Pre-formats day-pillar TRANSIENT findings (傷官見官 valence / 比劫奪財 valence / 沖日支 valence / 紅鸞 / 配偶星透干 / 官殺日) as deterministic Chinese sentences via `_slim_daily_for_chat`. AI prompt consumes verbatim.
+
+### FORTUNE refuse template (load-bearing for refund logic)
+
+Must match EITHER pattern in `isTopicBoundaryRefuse()`:
+- PRIMARY `CHAT_V1_TOPIC_REFUSE_OPENING_REGEX` (F-1 pure refuse): `/謝謝您的提問。關於.{1,30}的詳細.{0,15}分析，超出本《[^》]+》解讀的範圍/` checked in first 200 chars
+- SECONDARY `CHAT_V1_TOPIC_REFUSE_HYBRID_MARKER_REGEX` (F-2 hybrid): `/超出本《[^》]+》解讀的範圍[—\-]{1,2}/` checked in first 600 chars (handles cite-today-first responses that put the refuse marker mid-response after ~180-300 chars of cited daily signals)
+
+Template opens: «謝謝您的提問。關於 {topic} 的詳細分析，超出本《八字日運》解讀的範圍——». Without ONE OF the two regexes matching → post-validator doesn't auto-refund the refused message. Both locked by `prompts.fortune.spec.ts::isTopicBoundaryRefuse — F-2 hybrid coverage`.
+
+### ChatHistoryPanel FORTUNE-specific row labels (Phase Fortune+ polish)
+
+`apps/web/app/components/chat/ChatHistoryPanel.tsx::formatSessionTitle()` dispatches:
+- FORTUNE DAY → «日運 · YYYY-MM-DD» (anchor date the pin — each anchor = separate session)
+- FORTUNE MONTH → «月運 · YYYY-MM» (Phase 2 placeholder)
+- FORTUNE YEAR → «年運 · YYYY» (Phase 3 placeholder)
+- non-FORTUNE → relative date (LIFETIME / LOVE / CAREER / ANNUAL / COMPATIBILITY unchanged)
+
+Without these labels, FORTUNE rows in history are ambiguous («哪一天的日運？») since the date-navigator pinning policy spawns a new session per anchor date. Defensive fallback to relative date when `fortuneAnchorDate` is null. Locked by `apps/web/test/chat-history-panel.spec.tsx` (6 tests).
+
+### Test counts (Phase Fortune chat scope)
+- 14/14 engine pytest (`test_chat_context_fortune.py`) — Roger anchor, Laopo doctrine inheritance, token budget, snapshot reuse
+- 52/52 NestJS FORTUNE-specific (`chat-context.service.fortune` 23 + `chat-prompt-builder.fortune` 8 + `prompts.fortune` 21)
+- 154/154 full chat suite (zero regression vs pre-Phase-Fortune baseline)
+- 11/11 web RTL (`fortune-sample-questions` incl 4 Issue 9 Asia/Taipei TZ regression tests)
+
+### Critical files
+
+**NEW (Phase Fortune chat scope)**:
+- `apps/api/prisma/migrations/20260520233905_fortune_chat_session/migration.sql` (pre-flight check + profile_id column + relaxed CHECK + partial index)
+- `apps/api/prisma/migrations/20260521000821_seed_fortune_sample_questions/migration.sql` (24 idempotent seeds — avoids folk-content topics per session handoff)
+- `apps/api/src/chat/chat-context.service.fortune.spec.ts`
+- `apps/api/src/chat/chat-prompt-builder.fortune.spec.ts`
+- `apps/api/src/ai/prompts.fortune.spec.ts`
+- `apps/web/app/components/fortune/FortuneSampleQuestions.{tsx,module.css}`
+- `apps/web/test/fortune-sample-questions.spec.tsx`
+- `packages/bazi-engine/tests/test_chat_context_fortune.py`
+
+**Modified key files (deltas)**:
+- `packages/bazi-engine/app/chat_context.py` — added `build_chat_context_fortune` + `_slim_daily_for_chat`
+- `packages/bazi-engine/app/main.py` — added `POST /build-chat-context-fortune`
+- `apps/api/prisma/schema.prisma` — `ChatSession.profileId` column + relation + index
+- `apps/api/src/chat/chat-context.service.ts` — `getChatContextForFortune`, `extractFortunePivotHint`, `fetchChatContextFromEngineFortune`, per-readingType conditional version composition, `interpolateFortuneV1Fields` free function (chat-side)
+- `apps/api/src/chat/chat.service.ts` — `ChatSubject` discriminator threaded through 5 methods
+- `apps/api/src/chat/chat-stream.service.ts` — FORTUNE branch in `_streamWithLock`
+- `apps/api/src/chat/chat.controller.ts` — `GET /api/chat/profiles/:profileId/fortune-sessions?anchorDate=`
+- `apps/api/src/chat/chat-sample-questions.controller.ts` + `.service.ts` — FORTUNE whitelist (`isValidReadingType` + `@ApiQuery` enum + section keys local)
+- `apps/api/src/chat/dto/index.ts` — `FortuneSubjectDto` with `@ValidateNested` + nested `fortune?` field in `CreateChatSessionDto`
+- `apps/api/src/chat/chat-prompt-builder.ts` — CRITICAL audit-fix isChatEnabledType + HIGH audit-fix interpolateFortuneV1Fields wired
+- `apps/api/src/ai/prompts.ts` — `CHAT_TOPIC_SCOPE_BY_READING_TYPE.FORTUNE`, `CHAT_REFUSE_TEMPLATE_BY_READING_TYPE.FORTUNE`, `CHAT_CROSS_SELL_LINES.FORTUNE`, `CHAT_FORTUNE_REFUSE_FEW_SHOTS`, `REFUSE_FEW_SHOTS_BY_READING_TYPE.FORTUNE`
+- `apps/web/app/components/chat/ChatDrawer.tsx` — `fortune?` prop + `populateOnly?` prop + auto-send/populate branch (H2 fix)
+- `apps/web/app/components/chat/hooks/useChatSession.ts` — `fortune` arg + memo deps + `prevFortuneAnchorRef` tracking effect (H1 fix)
+- `apps/web/app/lib/chat-api.ts` — `FortuneSubject` interface + `listSessionsForFortune`
+- `apps/web/app/lib/chat-types.ts` — extended `ChatSession` interface
+- `apps/web/app/components/fortune/NarrativeCard.tsx` — `renderAfterDimension?` slot + `FortuneDimKey` export
+
+---
+
+## 八字日運 Phase 1.5.z folk content — SHIPPED 2026-05-24 (commit e5f48c8, NOT yet in main)
+
+Adds 4 folk-content fields to daily fortune: 吉色 / 吉數 (民俗 badge) / 吉食 (含 忌食) / 吉時. ALL 8 layers shipped + 3-cycle line audit clean + live browser test 100% green (Claude in Chrome MCP).
+
+**Session handoff**: `/Users/roger/.claude/plans/fortune-phase-1-5-z-option-25-session-handoff.md`.
+
+### CRITICAL doctrinal lock — 黃道吉時 keys on day_branch ONLY
+
+Per Phase A 4-parallel Bazi-master research (Sub-Agent B + C independently confirmed via 5 fresh sources):
+
+> 黃道吉時 algorithm keys on **`day_branch` ONLY** per 青龍訣 from 協紀辨方書 卷十 «日上起時神煞». **NOT** `(month_branch, day_branch)` as plan v1 incorrectly proposed (which conflated 建除十二神 with 黃黑道十二神 — they're distinct systems).
+
+The 青龍訣 mnemonic:
+```
+子午青龍起在申，卯酉之日又在寅，
+寅申須從子上起，巳亥在午不須論，
+唯有辰戌歸辰位，丑未原從戌上尋。
+```
+
+Only **6 canonical rosters exist** for the 12 day-branches (paired equivalence classes 子=午, 丑=未, 寅=申, 卯=酉, 辰=戌, 巳=亥). Algorithm produces 6 黃道 hours per day deterministically. Implementation: `packages/bazi-engine/app/folk_content.py::compute_auspicious_hours(*, day_branch: str)`.
+
+### Provenance flag dispatch
+
+Per Sub-Agent C audit:
+- 吉色: `'classical'` (黃帝內經素問·五常政大論)
+- 吉數: `'folk_tradition'` ← **OPERATOR DECISION**, user values transparency over doctrinal precision. UI shows «民俗» badge to disclose tier. 河圖 classical source but 子平 modern-app density low.
+- 吉食 favor: `'classical'` (素問·陰陽應象大論)
+- 吉食 avoid: `'classical'` for `avoid_strength='strong'` + `classification='doctrinal'` entries with ≥3 cross-source citations. `tcm_conditional` items REJECTED from engine emission (require 體質 input engine lacks).
+- 吉時: `'classical'` (協紀辨方書 卷十)
+
+### NEW engine file
+
+`packages/bazi-engine/app/folk_content.py` (~350 LoC):
+- 4 element-keyed lookup tables: `ELEMENT_COLOR`, `ELEMENT_NUMBER`, `ELEMENT_FOOD_FAVOR`, `ELEMENT_FOOD_AVOID`
+- 黃道吉時 algorithm: `DAY_BRANCH_QINGLONG_HOUR_START` + `SHENSHA_SEQUENCE` + `SHENSHA_ROAD` + `BRANCH_ORDER` + `HOUR_RANGES` (Asia/Taipei UTC+8)
+- `_TCM_CONDITIONAL_AVOIDS_DOC_ONLY` constant — documentation-only, prevents future contributors from «completing» the avoid list with body-constitution-dependent items
+- `compute_folk_content(*, useful_god_element, day_branch)` orchestrator returns 5-key payload (4 chart-level + auspiciousHours per-day)
+
+`daily_enhanced.py::_compute_static_folk_content` wraps + adds `wealthDirection` (Phase 1).
+
+### 3-tier validator defense
+
+`apps/api/src/fortune/fortune-validators.service.ts`:
+- **Tier 1 — conditional whitelist**: strip topic-mentions ONLY when engine omits corresponding field. Preserves Phase 1 safety while allowing AI to discuss fields the engine grounds.
+- **Tier 2 — value fidelity** (warn-only): when engine emits, check AI mentions for value mismatches (e.g., engine color=紅, AI says 藍). Warn-only because Chinese natural language regex is fragile.
+- **Tier 3 — framing rules**: enforce «民俗參考」 prefix for 吉數 (folk_tradition tier disclosure) + 五行 reason citation for 忌食 («因金剋木傷您命中用神») + anti-DM-drift («您是X日主» pattern check).
+
+### 民俗 badge UI spec
+
+`apps/web/app/reading/fortune/page.tsx::FolkContentCard` + `.module.css::.folkBadge`:
+- font-size ≥ **12px** (audit V3 #5 — 10px failed mobile readability)
+- italic, font-weight 600
+- color #8b6f47 on warm-cream bg ≈ 4.8:1 contrast (passes WCAG AA for small text)
+- `title` attribute tooltip: «民俗來源（河圖洛書）— 較典籍級別參考性弱»
+- Only visible on 吉數 slot (count=1 in DOM, verified by RTL spec)
+- Cursor `help`
+
+**Share-card parity** (Phase Fortune+ polish): `apps/web/app/components/fortune/ShareableFortuneCard.tsx` renders the same 4 folk slots (吉色 / 吉數 [民俗] / 今日宜食 / 吉時) in a 2×2 grid between takeaway + footer. Deliberately omits 「今日忌食」 (negative framing + 五行 reason + medical disclaimer don't fit positive share-image vibe). Badge font scaled to **18px** for the 1200×1600 capture (≈9-12px effective when shared on mobile — passes WCAG AA). Defensive null-handling hides individual slots OR the whole grid when engine omits the field (rare: unresolved 用神). Locked by `apps/web/test/shareable-fortune-card-folk.spec.tsx` (5 tests).
+
+### 60-row corpus + 100% strict pass
+
+`packages/bazi-engine/tests/validation/folk_content_corpus.csv` (Roger + Laopo × 30 days, exercises all 12 day-branches). **Engine output 60/60 strict pass (100%)** — the deterministic nature of folk content makes the gate trivially passable.
+
+Pytest hook locks at relaxed ≥85% (currently 100%): `packages/bazi-engine/tests/test_folk_content_corpus_regression.py::RELAXED_GATE_PCT = 85.0`.
+
+### CRITICAL DEPLOYMENT GOTCHA — `chat-sample-questions:version` Redis key
+
+When the L6 migration (`20260524023327_seed_folk_content_sample_questions`) applies, the new 5 sample questions are inserted into the DB. BUT the `ChatSampleQuestionService` has an in-process LRU cache (5-min TTL) invalidated via the `chat-sample-questions:version` Redis key. The version key is auto-bumped only on admin-API writes — NOT on raw-SQL migrations.
+
+**Operator MUST run after `prisma migrate deploy`**:
+```bash
+redis-cli INCR 'chat-sample-questions:version'
+```
+
+Without this, the new 5 folk-content questions won't appear in the API response for up to 5 minutes (until per-cache-entry TTL expires). Discovered during Phase 1.5.z browser test §E — questions weren't visible until the version key was bumped manually.
+
+Already documented in the migration SQL header comments at `apps/api/prisma/migrations/20260524023327_seed_folk_content_sample_questions/migration.sql`.
+
+### Test counts (Phase 1.5.z)
+- 106/106 engine pytest (`test_folk_content.py`) — Roger anchor, all 5 elements, 6 canonical roster property tests
+- 4/4 corpus regression pytest hook (`test_folk_content_corpus_regression.py`)
+- 40/40 NestJS validators jest (was 23, +15 L4 + 2 audit follow-up)
+- 14/14 web RTL (`fortune-folk-content.spec.tsx`) — all 6 slots + badge + disclaimer + null cases
+- 65/65 chat-fortune jest (incl 13 new L3.5 folk-block injection tests)
+
+### Defensive guards
+
+**FolkContentCard `if (!folkContent) return null;`** — kills HMR transient errors during dev mode hot reload (production never reaches this state since engine always emits folkContent).
+
+**Anti-DM-drift prompt rule** (`prompts.ts:4500-4517` template): «禁止 DM-drift — 不可說「您是X日主，宜X色」；必須說「您的用神為X，宜X色」».
+
+### Live browser test (2026-05-24 via Claude in Chrome MCP) — PASS all sections
+
+§A render: all 6 folk slots rendered for Roger 戊戌日 (南方/紅紫/[2,7]/紅色食物/寒涼鹹味-水剋火/6 hours [寅,辰,巳,申,酉,亥]) ✓
+§B engine→API→web data flow intact ✓
+§C AI narrative quality (no DM-drift, soft-trigger throughout, Phase 12h.B 比劫奪財有益 framing) ✓
+§D live chat: AI grounded in engine values with ZERO hallucination across 4 chat-scope questions (吉色 → 用神火/紅紫 + 木生火/水剋火 mechanisms; 吉數 → 民俗 prefix + 河圖二七同道火; 忌食 → 水剋火 + 素問·陰陽應象大論 cited; 吉時 → all 6 hours match engine + no month-branch logic invoked) ✓
+§E sample questions (11 reachable after Redis cache version bump — see deployment gotcha above) ✓
+§F DateNavigator + Laopo profile switch (用神=水 → 黑/[1,6]/黑色食物/土剋水 + 北方) ✓
+§G UX polish (民俗 badge a11y verified, mobile viewport responsive) ✓
+§H console clean (only HMR-only transient errors which are non-production) ✓
+
+---
+
+## Option 2.5 refinement — SHIPPED gated default-OFF 2026-05-25 (commit e5f48c8)
+
+Two day-level rescue rules added to `_apply_per_day_signal_adjustments` for neutral-DM 喜用 stem rescue cases (Roger 2026-05-10 + 2026-05-18 outlier rows). **NULL EFFECT discovered** — rules fire correctly but Phase 12 cascade limitation prevents visible label improvement. Gated default-OFF via env flag.
+
+### Phase A research outcomes (4-parallel Bazi-master sub-agents)
+
+| Original plan | Sub-Agent verdict | What ships |
+|---|---|---|
+| Bare Pattern 4 «xishen_stem_rescue_neutral_dm» (+1 step softening) | A1: NO (genuinely doctrinally split; bare 鎮頭 lacks ≥3 modern Bazi-master convergence) | **食神制殺 day-level rescue** (narrow, unanimous per 滴天髓 + 子平真詮 + 三命通會) |
+| «cai_wang_bijie_di» 比劫敵財 (+1 step softening) | B: A2's mechanism is doctrinally WRONG (比劫敵財 REQUIRES weak DM per 三命通會; Roger neutral) | **xishen_zhongqi_dissolves_taboo_stem** («喜神中氣化忌神 + 半合未成局» per 滴天髓 «忌神入用神之化») |
+
+### NEW helper `branch_relationships.banhe_forms_qi`
+
+```python
+def banhe_forms_qi(day_branch: str, month_branch: str, target_element: str) -> bool:
+    """Per 渊海子平 / 算准网: 半合化局 requires:
+       1. (day_branch, month_branch) ∈ SANHE_HALF_PAIRS[target_element]
+       2. month_branch is in target_element's seasonal window (月令 condition)
+    Without #2, 半合 is only 「拱合」 (latent gather), NOT full 化局 —
+    day_branch's 中氣 retains independent 五行 role.
+    """
+```
+
+Reusable across Phase 12 work. Constants added: `SANHE_HALF_PAIRS` (4 element-keyed sets) + `BRANCH_SEASON_ELEMENT` (12 branches → 5 elements; 寅卯辰=春木/巳午未=夏火/申酉戌=秋金/亥子丑=冬水). 10 unit tests cover all 4 element directions + season negation + Roger 2026-05-18 anchor.
+
+### Algorithm: 食神制殺 day-level rescue (Rule A)
+
+`daily_enhanced.py::_detect_shishen_zhisha_active`. Fires when ALL hold:
+1. `day_stem.ten_god ∈ {偏官, 七殺}` (七殺-specific; 偏官 alias)
+2. `day_stem.role ∈ {用神, 喜神}`
+3. `day_branch.本氣.role ∈ {忌神, 仇神}`
+4. DM produces 食神 element; 食神 transparent in natal stems
+5. 食神 NOT destroyed by 梟印奪食 (偏印 ADJACENT to 食神 without 財星 protection) — **adjacency matters** per A1+B
+6. 食神 has root in some natal branch (本氣 OR 中氣)
+7. day_stem has root in another natal branch (not the day_branch itself)
+
+When True: +1 step softening + `applied.append('shishen_zhisha_day_rescue')`.
+
+### Algorithm: xishen_zhongqi_dissolves_taboo_stem (Rule B)
+
+`daily_enhanced.py` inline in `_apply_per_day_signal_adjustments`. Fires when ALL hold:
+1. DM strength = neutral
+2. `day_stem.role ∈ {忌神, 仇神}` + day_ten_god NOT in {偏官, 七殺, 正官} (mutual exclusion with Rule A)
+3. `day_branch.中氣.role ∈ {喜神, 用神}` (provides 化忌 path)
+4. day_stem element produces zhongqi element (化忌 reachable per 五行相生)
+5. `banhe_forms_qi(day_branch, month_branch, day_stem_element) == False` (half-combination did NOT form 化局)
+
+When True: +1 step softening + `applied.append('xishen_zhongqi_dissolves_taboo_stem')`.
+
+### Mutual exclusivity verified (Sub-Agent C Cartesian audit)
+
+- Rule A × Rule B: disjoint `day_stem.ten_god` (七殺 vs 財/non-官)
+- Either × Phase 12h.B 比劫奪財 beneficial: disjoint `day_ten_god` (七殺/財 vs 比劫)
+- Existing softening signals (紅鸞/天喜/桃花/沖日支/配偶宮 friction): independent — can stack
+- Worst-case positive stack with NEW rule: 食神制殺 + 紅鸞 + 天喜 = +3 raw → existing ±2 net cap at `_apply_per_day_signal_adjustments:797` clips to +2 correctly
+- **No new cap logic needed**
+
+### Why gated default-OFF (the «null effect» finding)
+
+`PHASE_1_5_OPTION_25_REFINEMENT_ENABLED = os.environ.get('PHASE_1_5_OPTION_25_REFINEMENT_ENABLED', '0') == '1'`
+
+Both Roger anchor rows start at `rawStructural=大凶` (NOT 凶 as Sub-Agent B's trace assumed). Phase 12 cascade firing correctly per design:
+- **Roger 2026-05-10 (甲申)**: base=凶中有吉 → Phase 12b Fix B 伏吟 × 2 pillars (natal 月支+時支 both 申, day=申 仇神) → 2 × (-1 step) = 大凶
+- **Roger 2026-05-18 (壬辰)**: base=凶 → Phase 12c Fix E 六害 (卯-辰, 卯=喜神 hit) → -1 step → 大凶
+
+3-ladder-position gap (大凶 → 凶中有吉) exceeds ±2 net softening cap. Rules add +1 step → 大凶 → 凶, but cap limits further softening. Visible label stays at 凶 = same as pre-refinement.
+
+Phase 12 cascade investigation (sub-agent verdict): **structurally correct, no bug**. Real fix = Phase 12 cascade modification («cap multi-pillar 伏吟 at -1 step total when stem is 喜神») — explicitly out of Option 2.5 scope. Flagged as **Phase 12i candidate** if user reopens the question.
+
+### Operator rollback path
+
+Already default-OFF. To enable for testing or future evaluation:
+```bash
+PHASE_1_5_OPTION_25_REFINEMENT_ENABLED=1 python -m pytest tests/test_daily_enhanced.py
+```
+
+Or to enable in production: bump `'0'` → `'1'` in `packages/bazi-engine/app/daily_enhanced.py:712` AND simultaneously address Phase 12 cascade limitation OR accept that rules deliver +1 step softening only (corpus gate climbs marginally).
+
+### Files modified for Option 2.5
+
+- `packages/bazi-engine/app/daily_enhanced.py` — `PHASE_1_5_OPTION_25_REFINEMENT_ENABLED` flag + `_detect_shishen_zhisha_active` helper + 2 inline rule blocks in `_apply_per_day_signal_adjustments` + `month_branch` + `pillars` threaded as new args from `_compute_single_day` callsite at line ~1163
+- `packages/bazi-engine/app/branch_relationships.py` — `banhe_forms_qi` helper + `SANHE_HALF_PAIRS` + `BRANCH_SEASON_ELEMENT` constants (lines 886+)
+- `packages/bazi-engine/tests/test_branch_relationships.py` — 10 new `TestBanheFormsQi` tests
+- `packages/bazi-engine/tests/test_daily_enhanced.py` — no new tests (rules default-OFF; flag re-enable would warrant test additions)
+
+---
+
+## Deployment checklist for the 3 unmerged commits (when PR(s) open + merge)
+
+When `claude/elastic-pascal-cc5187` commits 0a4007d + cc642d1 + e5f48c8 land in main:
+
+1. **Apply DB migrations**:
+   ```bash
+   cd apps/api && prisma migrate deploy
+   ```
+   Applies: `20260520233905_fortune_chat_session` + `20260521000821_seed_fortune_sample_questions` + `20260524023327_seed_folk_content_sample_questions`.
+
+2. **Set env vars** (if not already):
+   ```
+   CHAT_ENABLED_READING_TYPES=LIFETIME,LOVE,CAREER,ANNUAL,COMPATIBILITY,FORTUNE
+   ```
+   (Already set in worktree per Phase Fortune chat scope.)
+
+3. **Cache invalidation** — versions ALREADY bumped in code:
+   - `FORTUNE_DAILY_PRE_ANALYSIS_VERSION` v1.1.1 → v1.2.0 (Python)
+   - `FORTUNE_PRE_ANALYSIS_VERSIONS.day` v1.1.1 → v1.2.0 (TS mirror)
+   - `FORTUNE_PROMPT_VERSIONS.day` v1.2.3 → v1.3.0
+   - `CHAT_PROMPT_VERSIONS.FORTUNE` v1.0.0 → v1.1.0
+   - `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE` (already locked from Phase Fortune chat scope)
+
+   **Scoped Redis DEL** (NOT FLUSHALL — preserves other reading types' cache):
+   ```bash
+   redis-cli --scan --pattern "fortune:daily:*" | xargs redis-cli DEL
+   redis-cli --scan --pattern "chat-context:*FORTUNE*" | xargs redis-cli DEL
+   ```
+
+4. **CRITICAL — bump `chat-sample-questions:version`** (raw-SQL migrations don't auto-bump; in-process LRU has 5-min TTL):
+   ```bash
+   redis-cli INCR 'chat-sample-questions:version'
+   ```
+
+5. **Monitor Anthropic spend dashboard for 24h** (cache bust = real regen cost; estimated <$5 since dev/staging only).
+
+6. **Deploy off-peak** (standard practice).
+
+If future iteration changes the FORTUNE prompt: bump `CHAT_PROMPT_VERSIONS.FORTUNE` (only invalidates FORTUNE chat sessions; other types unaffected per per-readingType isolation).
+
+If Option 2.5 rules are re-enabled in future: also bump `FORTUNE_DAILY_PRE_ANALYSIS_VERSION` v1.2.0 → v1.3.0 + TS mirror; chat-side `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE` v1.1.1 → v1.3.0 (per the Option 2.5 plan v5 cache invalidation section).
+
+---
+
+## Reference patterns / utilities introduced this session block
+
+### Phase Fortune chat scope patterns (cc642d1)
+- **ChatSubject discriminator**: see `apps/api/src/chat/chat.service.ts` — applies to any future scope discriminator work (e.g., Phase 2 month/year fortune chat extension)
+- **Per-readingType version composition**: see `apps/api/src/chat/chat-context.service.ts::computeVersionString` + `getCurrentSnapshotVersions` — apply this pattern when adding new chat reading types or new pre-analysis versions (zero mass-eviction blast radius)
+- **3-cycle staff-engineer plan review rhythm** (v1 → v2 → v3): replicate for high-risk doctrinal work
+- **3-parallel line audit (engine + API + frontend)**: replicate for cross-layer features
+- **populate-only chat composer**: `ChatDrawer.populateOnly` prop branches `pendingInitialMessage` effect to `composerRef.current?.appendToDraft()` instead of `handleSend()` — preserves user-explicit-send UX
+
+### Phase 1.5.z folk content patterns (e5f48c8)
+- **Provenance flag dispatch** (`'classical' | 'folk_tradition'`): apply to any field where doctrinal authority varies. UI «民俗» badge pattern available for reuse.
+- **3-tier validator defense** (conditional + value-fidelity + framing): apply to any field where AI hallucination risk warrants layered defense
+- **NEW helper `banhe_forms_qi(day_branch, month_branch, target_element)`** in `packages/bazi-engine/app/branch_relationships.py` — checks 半合化局 月令 season condition. Reusable for Phase 12 work + future doctrine modules.
+- **4-parallel Bazi-master research methodology** (A1 GATING + A2 algorithm + B verification + C integrator) — replicate for any doctrinal work involving multiple classical schools
+
+### Operational lessons / gotchas
+- **Raw-SQL migrations don't auto-bump Redis cache version keys** — explicit `redis-cli INCR 'chat-sample-questions:version'` required post-deploy. Same may apply to other in-process LRUs (audit other services if adding raw-SQL seed migrations).
+- **Engine baseline assumption matters** — always verify `rawStructural` empirically via `build_daily_label_corpus.py` + `run_daily_label_validation.py` BEFORE assuming a softening rule will move the label. Sub-Agent B traces are based on doctrinal projection, not always actual engine output.
+- **Default-OFF env flag is a respectable outcome** when research-correct rules don't deliver visible improvement due to upstream limitations. Preserves work + avoids invisible engine changes.
+- **HMR transient errors are dev-mode-only** — defensive guards (`if (!x) return null;`) kill the noise without affecting production. Zero runtime cost.
+
+---
+
+## Phase Fortune+ chat polish — SHIPPED (uncommitted in worktree as of 2026-05-28)
+
+3 follow-up tasks from Phase Fortune chat scope review, bundled in one shipped block:
+
+1. **Refund-cap policy** (task #21) — `chat-stream.service.ts` + `chat-payment.service.ts` + `chat-types.ts` + `constants.ts`: cap auto-refund at `CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT` (=2) consecutive refuses. From 3rd refuse onward, refund SUPPRESSED + user pays for spam. Counter resets on any in-topic message via atomic `{ set: 0 }`. Sentry breadcrumb `chat.refund_cap` info-level on cap-fire. Soft-warning dialog `refuse_limit_reached` fires when `consecutiveRefuses >= CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD` (=3). Pre-flight validator refuses (zero API cost) do NOT increment counter. 24 chat-stream + 17 chat-payment regression tests pass.
+
+2. **ChatHistoryPanel FORTUNE row labels** (task #22) — `apps/web/app/components/chat/ChatHistoryPanel.tsx::formatSessionTitle()`: dispatches FORTUNE DAY → 「日運 · YYYY-MM-DD」, MONTH → 「月運 · YYYY-MM」 (Phase 2 placeholder), YEAR → 「年運 · YYYY」 (Phase 3 placeholder); non-FORTUNE → relative date (existing behavior preserved). Defensive fallback when `fortuneAnchorDate` null. 6 RTL tests in `chat-history-panel.spec.tsx`.
+
+3. **ShareableFortuneCard folk content fields** (task #23) — `ShareableFortuneCard.tsx` + `.module.css`: 2×2 folk grid between takeaway + footer rendering 吉色 / 吉數 (民俗 badge) / 今日宜食 / 吉時. Deliberately omits 「今日忌食」 (negative framing + 五行 reason + medical disclaimer don't fit positive share-image vibe). Badge font 18px for 1200×1600 capture (≈9-12px effective when shared on mobile — passes WCAG AA). Defensive null-handling hides slots OR whole grid when engine omits. 5 RTL tests in `shareable-fortune-card-folk.spec.tsx`.
+
+---
+
+## Phase Fortune+ progressive loading — SHIPPED (uncommitted in worktree as of 2026-05-28)
+
+Split the cold-load (~3-5s) into 2 phases via 2-parallel-fetch (`engineOnly=true` + full). NOTE: this is the **PRE-streaming** architecture; superseded by Phase Fortune Streaming below. Kept here because:
+- `HomeDailyFortuneCard` still uses `engineOnly=true` (no narrative needed on homepage widget)
+- Backend `engineOnly` query param still ships as a back-compat surface for any non-SSE clients
+
+**Backend** (`fortune.service.ts` + `fortune.controller.ts` + `dto/index.ts`):
+- `GetDailyFortuneQueryDto.engineOnly` IsBooleanString param (`true|false|1|0|True|TRUE`)
+- `isTruthyQueryParam` helper at controller layer with audit-H1 fix (handles case + numeric variants)
+- `FortuneService.getDailyFortune({engineOnly})` short-circuits AI step + builds in-memory snapshot via `buildInMemoryEngineSnapshot` (no DB write, no Redis fill — avoids polluting cache with narrative=null + tripping circuit breaker)
+- `buildInMemoryEngineSnapshot` sentinel `id='in-memory-engine-only'` — future health-check consumers MUST filter this before inspecting `aiFailureCount`
+
+**Frontend** (`HomeDailyFortuneCard.tsx` + `.module.css`):
+- Homepage widget calls `fetchDailyFortune({engineOnly: true})` for instant render (~500ms)
+- `NarrativeCard.tsx` `loading` prop: when true + narrative null, renders shimmer skeleton (mirrors disclaimer layout for ≤8px Y delta)
+- 12 jest tests cover the engineOnly path semantics + IsBooleanString case-handling
+
+**4 audit fixes** applied during this work:
+- HIGH H1: case-handling for engineOnly param
+- HIGH H4: disclaimer Y position stable
+- MEDIUM M3: telemetry breadcrumb on engineOnly fetch
+- LOW M2: in-memory snapshot sentinel field documentation
+
+---
+
+## Phase Fortune Streaming (Section-by-Section SSE) — SHIPPED (uncommitted in worktree as of 2026-05-28)
+
+The biggest delta this session: section-by-section AI streaming for daily fortune. The user sees each section of the AI narrative as it completes, instead of waiting 3-30s for all 7 sections to render at once. Replaces the 2-parallel-fetch progressive loading with a SINGLE SSE connection per plan v2 «Option Z» (M7).
+
+**Plan**: `/Users/roger/.claude/plans/ok-next-big-feature-merry-cake.md` — search for `# Section-by-Section AI Streaming for 日運 — Implementation Plan (Option A)`. 17 locked design decisions + 7 implementation-PR follow-ups + comprehensive live browser test plan at the bottom.
+
+### Architecture
+
+```
+[ENGINE: existing /daily-fortune endpoint — unchanged]
+    |
+    v
+GET /api/fortune/daily/stream?date=&profileId=
+    ├─ Cache HIT: emit engine_ready + done (one batch, ~50-500ms, NO section_complete)
+    └─ Cache MISS:
+        ├─ fetchDailyFromEngine → emit engine_ready (~100ms)
+        ├─ anthropic.messages.stream({max_tokens: 2048, temperature: 0.6})
+        ├─ feed token deltas to clarinet-based section detector
+        ├─ per section_complete: strip banned phrases + emit SSE event
+        ├─ on stream end: stop-reason check (max_tokens/refusal → AI_FAILED)
+        ├─ extractJson + full validator sweep
+        ├─ persist via FortuneSnapshotHelpers (same shape as non-streaming)
+        └─ emit done event with sanitized narrative
+[FRONTEND]
+    useFortuneNarrativeStream hook (single SSE connection, AbortController teardown)
+        ├─ engine_ready → setState({status: 'engine', data}) — renders score/dims/folk ~100ms
+        ├─ section_complete × N → setStreamedSections(prev => {...prev, [key]: value})
+        ├─ done → setState({status: 'success', data: {...narrative}}) + clear streamedSections
+        └─ error → setStreamError + preserve render OR promote to fatal if pre-flight
+    NarrativeCard per-section dispatch: narrative > streamedSections > skeleton
+```
+
+### Files
+
+**NEW (this commit)**:
+- `apps/api/src/fortune/fortune-section-detector.ts` (~250 LoC) + `.spec.ts` (26 tests) — clarinet-driven streaming JSON parser. Detects when each top-level `sections.<key>` value completes. Handles BOM, markdown fence preamble (```json```), partial-escape across chunks, out-of-order section arrival, trailing post-root remarks. Uses event-driven value-tree reconstruction (NOT `parser.position`-based slicing — that counter drifts +1 per `write()` call, verified empirically).
+- `apps/api/src/fortune/fortune-snapshot.helpers.ts` (~430 LoC) — `@Injectable()` extracted from `fortune.service.ts`. Owns: `tryGetCached`, `persistSnapshot`, `extractJson`, `buildResponse`, `versionsMatch`, `redisKey`, `computeChartHash`, `enforceSubscriptionGate`, `buildInMemoryEngineSnapshot`, `fetchDailyFromEngine`, `ensureClaudeClient`, `buildFallbackChartContext`. Plus 9 exported constants (TTL, timeouts, circuit-breaker thresholds).
+- `apps/api/src/fortune/fortune-snapshot.helpers.contract.spec.ts` (5 tests) — locks byte-identical snapshot upsert args + Redis key + circuit-breaker state across streaming vs non-streaming paths. Equality scope excludes id/generatedAt/aiNarrativeJson (non-deterministic) per plan follow-up #1.
+- `apps/api/src/fortune/fortune-stream.service.ts` (~500 LoC) + `.spec.ts` (17 tests) — SSE service. `max_tokens: 2048` + `temperature: 0.6` (mirrors non-streaming exactly per plan C3). 60s watchdog. Client-disconnect persist-if-parseable (M5). Failure-path persist with `promptVersion=null` for circuit breaker parity (M4). Stop-reason explicit branches for `'max_tokens'` (TRUNCATED) + `'refusal'` (AI_REFUSED — forward-compat hook; real Anthropic API doesn't emit 'refusal' yet). Per-section banned-phrase strip via `stripBannedAbsolutePhrasesFromText` BEFORE SSE emit. Sentry breadcrumb `category: 'fortune.stream.sanitize_diff'` with `data: {sectionKeys, totalDiffPhraseCount}` (follow-up #7).
+- `apps/api/src/fortune/fortune.controller.spec.ts` — isTruthyQueryParam coverage from engineOnly work
+- `apps/web/app/components/fortune/hooks/useFortuneNarrativeStream.ts` (~150 LoC) + `apps/web/test/use-fortune-narrative-stream.spec.tsx` (13 tests, incl 1 audit regression). React hook wrapping `streamDailyFortune`. AbortController teardown on enabled toggle, profileId change, date change, unmount. Exposes `streaming` / `error` / `sectionsReceived: Set<string>` / `clearError` / `cancel`. Audit fix: `cancelled` guard at onEvent / onError / onClose to drop late callbacks from old stream after dep change.
+- `apps/web/test/narrative-card-streamed-sections.spec.tsx` (12 tests) — NarrativeCard streamedSections prop + hybrid render + canonical order + InlineAskCard visibility:hidden + disclaimer presence in all 3 modes. Uses `jest.mock('lucide-react', ...)` workaround for the dual `@types/react` JSX identity issue.
+
+**MODIFIED**:
+- `apps/api/src/fortune/fortune.service.ts` (724→272 LoC) — REFACTORED to delegate cache/persist/engine-fetch/JSON-extract to `FortuneSnapshotHelpers`. Existing 17 fortune.service.spec tests updated (test through helpers, not private methods).
+- `apps/api/src/fortune/fortune.module.ts` — registered + exported `FortuneStreamService` + `FortuneSnapshotHelpers`.
+- `apps/api/src/fortune/fortune.controller.ts` — added `@Get('daily/stream')` route, `@Throttle(10/min)` matches non-stream rate.
+- `apps/api/src/fortune/fortune-validators.service.ts` — added public `stripBannedAbsolutePhrasesFromText(text)` method. Two-tier validation: per-section strip at SSE emit + full `validate()` at end-of-stream.
+- `apps/web/app/lib/fortune-api.ts` — added `FortuneStreamEvent` wire type + `streamDailyFortune(opts)` helper (fetch + ReadableStream + AbortController, mirrors `chat-api.ts::streamChatMessage` pattern). `dispatchFortuneFrame` private helper parses SSE frames.
+- `apps/web/app/components/fortune/NarrativeCard.tsx` (+288 LoC including new render paths) — added `streamedSections` prop. Hybrid render mode: per-section dispatch `sectionText(key)` returns sanitized > provisional > skeleton (4 lines per dim per follow-up #3, was 3 in plan). Canonical render order via DIM_META iteration (H5). InlineAskCard `visibility:hidden` during un-narrated dims (H4 layout reservation). Disclaimer always present in all 3 modes (H4 — ≤8px Y delta target verified at 0px in browser).
+- `apps/web/app/components/fortune/NarrativeCard.module.css` — bumped skeleton to 4 lines per dim.
+- `apps/web/app/reading/fortune/page.tsx` — REPLACED 2-parallel-fetch with single `useFortuneNarrativeStream` hook (Option Z, M7). Added `streamedSections` + `streamError` state. Stream error banner rendered inline above NarrativeCard (follow-up #6, warm-amber palette). **CRITICAL audit fix M1/decision #15**: share button gated on `state.status === 'success'` (NOT `dataState` — PNG safety: prevents capturing engine state with null narrative).
+- `apps/web/app/reading/fortune/page.module.css` — added `.streamErrorBanner` + `.streamErrorIcon` (warm-amber palette).
+
+### Reference patterns (mirrored from existing chat feature)
+- SSE pattern: `apps/api/src/chat/chat-stream.service.ts` (express setHeader + flushHeaders + ReadableStream + 60s watchdog + AbortController)
+- Frontend SSE consumer: `apps/web/app/components/chat/hooks/useChatStream.ts` (teardownRef + AbortController + onClose pattern)
+- POST+SSE helper: `apps/web/app/lib/chat-api.ts::streamChatMessage`
+- Deterministic Chinese sentence injection: `apps/api/src/chat/chat-context.service.ts::interpolateFortuneV1Fields`
+
+### Test counts
+- **288 jest tests** across 18 fortune suites pass:
+  - 193 backend (incl 26 detector + 17 stream service + 5 contract + 12 helpers + 18 controller + 40 validators + 21 prompts + 23 chat-context-fortune + 8 chat-prompt-builder-fortune + 23 chat-payment + 24 chat-stream)
+  - 95 web (incl 13 hook + 12 NarrativeCard-streamed-sections + 14 folk-content + 5 shareable-card-folk + 6 history-panel + 14 sample-questions + others)
+- TS clean for all new files
+- No NEW console errors in browser (only pre-existing InfoTooltip chronic main-branch debt)
+
+### Line audit findings + fixes (3-parallel sub-agent audit)
+
+3 parallel sub-agents (backend / frontend / plan-conformance) ran a comprehensive line audit. Converged findings — all fixed before commit:
+
+| Severity | Issue | File | Fix |
+|---|---|---|---|
+| **CRITICAL** | Share button gated on `dataState` (engine OR success) instead of `state.status === 'success'` — plan M1 + locked #15 explicitly require gating on success only | `page.tsx:488` | Tightened gate; ShareableFortuneCard never captures provisional content. PNGs always contain validator-sanitized narrative. |
+| **HIGH** | Stale section race — old stream's late onEvent callbacks could write into new stream's `streamedSections` after DateNavigator click | `useFortuneNarrativeStream.ts:111-137` | Added `if (cancelled) return` guards at onEvent / onError / onClose. New regression test (#13). |
+| **HIGH** | `done` event before `engine_ready` (impossible in current backend, but defensive) left page stuck on LoadingSkeleton forever | `page.tsx:334-348` | Promoted to `error` state with code `STREAM_ORDER` for recoverable error UI. |
+| **MEDIUM** | `setStreamError` called inside `setState` updater (non-idiomatic React; fragile under StrictMode/concurrent mode) | `page.tsx:354-371` | Refactored: pure `setState` updater; `setStreamError` called separately (React 18 auto-batched). |
+| **MEDIUM** | Dead `'refusal'` stop_reason branch — Anthropic API never emits this | `fortune-stream.service.ts:481` | Added forward-compat comment explaining `'refusal'` isn't in current API + real refusals reach PARSE_FAILED via extractJson returning null |
+| **LOW** | `response.end()` not called after client disconnect — service-side contract inconsistency | `fortune-stream.service.ts:443-462` | Added defensive close at caller; no-op when socket destroyed |
+
+### Live browser test (2026-05-28) — ALL CRITICAL + HIGH PASS
+
+Tested via Claude in Chrome MCP. Results:
+
+| § | Test | Status |
+|---|---|---|
+| A | SSE endpoint reachable + single request fires | ✅ engine_ready at 90ms, no engineOnly or /daily non-stream calls |
+| B1 | Cold-cache progressive render | ✅ 12 section_complete events in correct order: overview@7.7s → romance@12s → career@16s → finance@20s → travel@25s → health@30s → advice@33s → done@48s |
+| B3 | Banned-phrase strip | ✅ Zero banned phrases in AI narrative (false-positive on 「今天會」 was sample-question pill text, NOT narrative output) |
+| C | Warm cache instant render | ✅ Cache hit: engine_ready + done at 425ms total, `cacheHit: true`, NO section_complete events (plan M6 locked) |
+| D | Share button gate (CRITICAL audit fix) | ✅ Engine state: `disabled=true`, no onClick. After done: `disabled=false`, React handler attached. |
+| F | DateNavigator stream switch | ✅ URL updates to new date, new stream opens at 39ms, no stale content persists |
+| H | Layout stability | ✅ Disclaimer Y position **0px delta** (target ≤8px) across 3 readings |
+| I | Console + network | ✅ Zero NEW streaming errors. React tree confirms `loadingNarrative={true} streamedSections={{}}` props wired. |
+
+### Operational notes / deploy
+
+- Both `GET /api/fortune/daily` (non-streaming) AND `GET /api/fortune/daily/stream` (SSE) ship together
+- Streaming path consumes the SAME Anthropic tokens as non-streaming — only wire delivery differs (zero cost change)
+- Both paths share `FortuneSnapshotHelpers` (extracted module) — contract test asserts byte-identical snapshots → cache rows from one path are valid for the other
+- Per-section banned-phrase strip preserves «no absolute language ever leaks» contract DURING streaming
+- Sentry breadcrumb `category: 'fortune.stream.sanitize_diff'` (info level) lets ops measure per-section sanitization rate post-ship
+- **NO new DB migrations**
+- **NO new env vars**
+- **NO version bumps** (FORTUNE_PROMPT_VERSIONS unchanged — prompt template not modified, only delivery mechanism)
+- Cache invalidation: NOT REQUIRED for streaming ship (same data shape, same persist semantics)
+
+### Known gaps (not blocking ship)
+
+1. **Signed-out UX gap** (task #60): `/reading/fortune` renders empty FortuneShell when `isSignedIn=false`. Polish task to add sign-in CTA or redirect. Discovered during browser test 2026-05-28.
+2. **Full-skeleton → hybrid layout transition** (line-audit LOW): the disclaimer Y position can shift when transitioning from full-skeleton mode (no sections yet, NarrativeSkeleton renders without InlineAskCard slot reservation) to hybrid mode (first section arrives, visibility:hidden InlineAskCard wrappers reserve space). Within hybrid mode itself, Y position is 0px stable. Polish task: thread `renderAfterDimension` through NarrativeSkeleton too.
+3. **Stream error UX** (§E test): not exercised in browser this session because triggering would break active chat sessions. Backend wiring locked by spec tests; banner JSX locked by RTL spec. Re-test in dedicated session if needed.
+
+---
+
+## Deployment checklist for the 4 unmerged commits (when PR(s) open + merge)
+
+When `claude/elastic-pascal-cc5187` commits 0a4007d + cc642d1 + e5f48c8 + 7d00bae + this new commit land in main:
+
+1. **Apply DB migrations** (unchanged from previous checklist):
+   ```bash
+   cd apps/api && prisma migrate deploy
+   ```
+   Applies: `20260520233905_fortune_chat_session` + `20260521000821_seed_fortune_sample_questions` + `20260524023327_seed_folk_content_sample_questions`.
+
+2. **Set env vars** (unchanged):
+   ```
+   CHAT_ENABLED_READING_TYPES=LIFETIME,LOVE,CAREER,ANNUAL,COMPATIBILITY,FORTUNE
+   ```
+
+3. **Cache invalidation** — versions ALREADY bumped in code from earlier commits:
+   - `FORTUNE_DAILY_PRE_ANALYSIS_VERSION` v1.1.1 → v1.2.0 (Python)
+   - `FORTUNE_PRE_ANALYSIS_VERSIONS.day` v1.1.1 → v1.2.0 (TS mirror)
+   - `FORTUNE_PROMPT_VERSIONS.day` v1.2.3 → v1.3.0
+   - `CHAT_PROMPT_VERSIONS.FORTUNE` v1.0.0 → v1.1.0
+   - **Phase Fortune Streaming adds NO new version bumps** (prompt template unchanged)
+
+   **Scoped Redis DEL**:
+   ```bash
+   redis-cli --scan --pattern "fortune:daily:*" | xargs redis-cli DEL
+   redis-cli --scan --pattern "chat-context:*FORTUNE*" | xargs redis-cli DEL
+   ```
+
+4. **CRITICAL — bump `chat-sample-questions:version`**:
+   ```bash
+   redis-cli INCR 'chat-sample-questions:version'
+   ```
+
+5. **No new infrastructure changes for streaming** (Express SSE works without proxy/nginx config changes; `X-Accel-Buffering: no` header already set in `_emit`)
+
+6. **Monitor Anthropic spend dashboard for 24h** (cache bust = real regen cost; estimated <$5 since dev/staging only)
+
+7. **Deploy off-peak** (standard practice)
+
+8. **Frontend bundle**: clarinet (~2KB gzipped) + section-detector + hook adds ~10KB to apps/api bundle. apps/web no new deps (uses native fetch + ReadableStream).
+
+---
+
+## Reference patterns / utilities introduced (Phase Fortune Streaming session)
+
+### Streaming patterns (replicate for Phase 2 month/year fortune streaming or any AI-narrative SSE feature)
+- **clarinet for streaming JSON detection**: `apps/api/src/fortune/fortune-section-detector.ts` — pure-function wrapper. Reusable for any JSON-output AI streaming use-case. Tests cover the full edge-case matrix.
+- **FortuneSnapshotHelpers extraction pattern**: when ANY service has cache + persist + extract responsibilities AND a second service needs the same invariants, extract to an `@Injectable()` with a CONTRACT TEST asserting byte-identical artifacts across consumers. Mirror this for monthly/yearly fortune streaming.
+- **Two-tier validation**: per-emission cheap strip (regex) + end-of-stream full validate. Preserves load-bearing safety contract («no banned phrase visible mid-stream») while allowing complex cross-field rules at the end.
+- **SSE consumer hook pattern**: `useFortuneNarrativeStream` — `cancelled` flag at getToken + `cancelled` guards at onEvent/onError/onClose to drop late callbacks from previous stream. Mirror for any GET-SSE consumer.
+- **dual-state per-section render**: separate `narrative` (sanitized, post-done) from `streamedSections` (provisional, per section_complete). Caller chooses precedence: NarrativeCard does `narrative > streamedSections > skeleton`. Reuse pattern for any progressive-narrative UI.
+- **canonical-order render via DIM_META iteration**: enforce render order at the iteration site, never trust SSE event arrival order. Plan H5.
+- **layout reservation via visibility:hidden**: keep InlineAskCard's vertical space during skeleton via `<div style={{visibility:'hidden'}} aria-hidden="true">{slot}</div>` wrapper.
+
+### Audit-fix gotchas (replicate audit rhythm for any new feature)
+- **3-parallel sub-agent line audit** (backend + frontend + plan-conformance) — discovered 1 CRITICAL + 3 HIGH + 3 LOW/MEDIUM issues this feature. Confidence-scored 0-100; filter ≥75. Always replicate for high-risk work.
+- **Setting state inside setState updaters is non-idiomatic React** — refactor to use the auto-batching pattern instead. Updater functions must be PURE.
+- **Test mock `jest.mock('lucide-react', ...)`** is the dual-react-types workaround when ANY test renders a component using Lucide icons. Avoids the dreaded «A React Element from an older version of React was rendered» error.
+- **`response.end()` is no-op on dead sockets** — call it defensively in client-disconnect paths to make «every path either emits done OR closes response» a uniform contract.
+
+### Operational lessons / gotchas
+- **clarinet's `parser.position` counter drifts +1 per `write()` call when input is chunked** — verified empirically. Do NOT use position for buffer slicing across multi-chunk writes. Use event-driven value-tree reconstruction instead.
+- **Anthropic API stop_reason enum**: `'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | 'pause_turn'`. The string `'refusal'` is NOT currently emitted by the real API; Claude refusals come through as `'end_turn'` with refusal text in the content body. Keep `'refusal'` branch as forward-compat hook with explicit comment.
+- **Network panel tracker initialization delay**: Chrome's MCP tool starts tracking on first `read_network_requests` call — earlier requests are NOT captured. Always init the tracker BEFORE the navigation/action you want to observe.
+- **Browser tests need active Clerk session**: SSE hook `enabled: isSignedIn` gate causes silent no-op when user signed out. Add session check to test pre-flight + redirect/CTA UI in signed-out state (TODO #60).
+
+---
+
+## L2.5 — NestJS controller + service for `/api/fortune/monthly` (gap backfill, uncommitted in worktree as of 2026-05-28)
+
+During browser test of just-shipped Phase 2 月運, discovered Phase 2 plan listed `FortuneService.getMonthlyFortune` + `@Get('monthly')` controller route in modify list but neither shipped — frontend was 404ing. Backfilled in this session:
+
+- `FortuneService.getMonthlyFortune` (~150 LoC mirroring `getDailyFortune` — subscription gate + Redis cache + DB cache + engine fetch + AI narration + validate + persist + warm Redis)
+- `GetMonthlyFortuneQueryDto` already declared in Phase 2 dto/index.ts; now consumed
+- `@Get('monthly')` route with `@Throttle({default:{limit:10, ttl:60000}})`
+
+This non-streaming endpoint stays as back-compat surface for any non-SSE clients. Phase 2.x ships the streaming `/monthly/stream` alongside (see next section).
+
+---
+
+## Phase 2.x — Monthly Fortune Progressive Loading + Streaming + Fixes — SHIPPED (uncommitted in worktree as of 2026-05-28)
+
+Mirrors Phase Fortune Streaming for daily but for MONTH scope. Single SSE connection per page load. Plan v3 approved after 3-round staff-engineer review (16 → 6 → 0 material issues + 3 polish nits applied inline).
+
+**Plan**: `/Users/roger/.claude/plans/ok-next-big-feature-merry-cake.md` — search «# Phase 2.x — Monthly Fortune Progressive Loading + Streaming + Fixes (Implementation Plan)».
+
+### Architecture
+
+```
+GET /api/fortune/monthly/stream?profileId=&month=
+    ├─ Cache HIT: emit engine_ready + done (NO section_complete, ~50-500ms)
+    └─ Cache MISS:
+        ├─ fetchMonthlyFromEngine (incl L1.b intraMonthBreakdown) → emit engine_ready (~600-1000ms)
+        ├─ Anthropic stream({max_tokens:2048, temperature:0.6})
+        ├─ feed deltas to clarinet section detector
+        ├─ per section_complete: strip banned phrases + emit SSE
+        ├─ stop-reason check (max_tokens → TRUNCATED + persist null; refusal → AI_REFUSED forward-compat)
+        ├─ extractJson + validators.validateMonthly
+        ├─ persist via FortuneSnapshotHelpers (with circuit breaker writes)
+        └─ emit done with sanitized narrative + cacheHit:false
+
+[FRONTEND]
+    useFortuneNarrativeStream({scope:'month', profileId, month, token, onEvent})
+        ├─ engine_ready → setState({status:'engine'}) — renders Ring/Bars/TimeGrid + intraMonthBreakdown ~1s
+        ├─ section_complete → setStreamedSections(prev => {...prev, [key]:value}) (whitelist gate)
+        ├─ done → setState({status:'success', data:{...prev.data, narrative}}) (preserve sibling)
+        └─ error → setStreamError + preserve render (or promote to terminal if pre-flight)
+    MonthlyNarrativeCard hybrid: narrative[key] > streamedSections[key] > skeleton (canonical order via MONTHLY_DIM_META)
+```
+
+### Layers shipped (L0-L6 + 5 audit fixes)
+
+**L0 — Fix #84 ErrorPanel scope-aware copy**:
+- `ErrorPanel` accepts `activeTab?: 'day' | 'month' | 'year'`
+- `OUT_OF_WINDOW` month copy: «月運可查範圍為「上個月 + 本月 + 未來 12 個月」 / 回到本月»
+- `SUBSCRIBER_ONLY` month copy: «免費用戶僅可查看「本月」»
+- `NO_PRIMARY_PROFILE` genericized: «日運功能» → «運勢功能» (L-2)
+- Default fallback: «暫時無法載入運勢»
+- Both ErrorPanel callsites pass `activeTab` (day line 587, month line 1138)
+
+**L1 — Wire L1.b breakdown into engine endpoint**:
+- `packages/bazi-engine/app/main.py::monthly_fortune_endpoint` calls `compute_intra_month_breakdown` after `compute_single_month_by_yearmonth`
+- Attached as **CAMELCASE** `monthly_result['intraMonthBreakdown']` per Glossary lock (matches `flowYear` / `monthGanZhi` convention)
+- Defensive try/except — L1.b failure logs + omits field, doesn't take down endpoint
+- **Version bumps** (3 places — keep in sync):
+  - `FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION` v1.0.0 → v1.1.0 in `fortune_constants.py:170` (Python source)
+  - `FORTUNE_PRE_ANALYSIS_VERSIONS.month` v1.0.0 → v1.1.0 in `prompts.ts:4774` (TS mirror)
+  - `FORTUNE_PROMPT_VERSIONS.month` UNCHANGED at v1.1.0 — comment at `prompts.ts:4785` updated (H-2)
+
+**L2 — FortuneSnapshotHelpers extraction (monthly methods)**:
+9 monthly methods added to `apps/api/src/fortune/fortune-snapshot.helpers.ts`:
+- `enforceMonthlySubscriptionGate(tier, targetMonth)`
+- `currentMonthIso()` (Asia/Taipei TZ via FORTUNE_DEFAULT_TZ env)
+- `diffMonthsIso(reference, target)`
+- `monthlyRedisKey(chartHash, yearMonth)`
+- `tryGetMonthlyCached(chartHash, anchorDate)` — 2-arg form (M-1), derives Redis key internally
+- `monthlyVersionsMatch(row)` — audit-fix H1: circuit breaker logic (3 failures + 24h backoff)
+- `fetchMonthlyFromEngine(profile, year, month)` — 60s timeout
+- `persistMonthlySnapshot(args)` — DB upsert with breaker writes
+- `buildMonthlyResponse(...)` — wire response with `intraMonthBreakdown` sibling extracted from `engineOutputJson`; M1 audit fix: strips field from nested engineOutput so only sibling form ships
+
+Exported constants: `FREE_MONTH_WINDOW_*`, `SUBSCRIBER_MONTH_WINDOW_*`, `MONTHLY_ENGINE_TIMEOUT_MS=60_000`.
+
+`FortuneService.getMonthlyFortune` refactored ~250 LoC inline → ~80 LoC orchestrator calling helpers. Contract: both `getMonthlyFortune` and `streamMonthlyFortune` consume identical helpers for byte-identity (contract test deferred).
+
+**L3 — Stream service + controller**:
+- New `streamMonthlyFortune(userId, args, response)` in `fortune-stream.service.ts` (~400 LoC)
+- New event types `FortuneMonthlyStreamEvent` union:
+  - `engine_ready` carries `cacheHit: boolean` (NEW-M1) + `intraMonthBreakdown` SIBLING (per Glossary)
+  - `done` does NOT carry `intraMonthBreakdown` (NEW-H1 — single canonical source = engine_ready; eliminates drift)
+- Renamed: `FortuneStreamEvent` → `FortuneDailyStreamEvent`. Added umbrella `FortuneStreamEvent = FortuneDailyStreamEvent | FortuneMonthlyStreamEvent` (R3 polish)
+- Cache-hit emits `engine_ready` + `done` only (NO section_complete per locked decision #7)
+- Cache-miss: `engine_ready` (with sibling intraMonthBreakdown + cacheHit:false) + per-section + done
+- Per-section banned-phrase strip via `stripBannedAbsolutePhrasesFromText`
+- Stop-reason explicit branches: `max_tokens` → TRUNCATED + persist null promptVersion; `refusal` → AI_REFUSED forward-compat
+- Watchdog 60s + client-disconnect rescue (mirror daily M5)
+- Sentry breadcrumb `category: 'fortune.stream.sanitize_diff'` with `data: {scope:'month', sectionKeys, totalDiffPhraseCount}`
+- **M1 audit fix**: strips `intraMonthBreakdown` + `chartContext` from `engineOutput` on `engine_ready` (mirror buildMonthlyResponse strip — keeps wire shape clean per glossary, ~2KB SSE payload savings)
+- New controller route `@Get('monthly/stream')` with `@Throttle({default:{limit:10, ttl:60000}})`
+
+**L4 — Hook refactor + monthly wire helper**:
+- `apps/web/app/lib/fortune-api.ts`: added `FortuneDailyStreamEvent` (renamed), `FortuneMonthlyStreamEvent` (NEW), umbrella `FortuneStreamEvent`
+- New `streamMonthlyFortune(opts)` wire helper (~80 LoC mirror of streamDailyFortune; hits `/api/fortune/monthly/stream`)
+- `useFortuneNarrativeStream` accepts `scope?: 'day' | 'month'` (default `'day'` for back-compat)
+- Effect deps include `scope`, `args.profileId`, `args.date`, `args.month` (M-5)
+- **NEW-M2 invariant guards**: `scope==='day' && !date` OR `scope==='month' && !month` → teardown + early-return
+- Cancellation guard preserved on onEvent/onError/onClose
+- Scope dispatch internally selects `streamDailyFortune` vs `streamMonthlyFortune`
+
+**L5 — MonthlyFortuneView streaming + MonthlyNarrativeCard streamedSections**:
+- `MonthlyFortuneView` state machine: `loading → engine → success → error`
+- `engine_ready` handler reads `ev.cacheHit` from payload (NEW-M1)
+- `done` handler spreads `prev.data` to preserve `intraMonthBreakdown` (NEW-H1)
+- Stream-error banner above MonthlyNarrativeCard when `streamError && state.status==='engine'`
+- `MonthlyNarrativeCard` accepts `streamedSections?: Partial<MonthlyFortuneNarrative>` prop
+- Hybrid render: `sectionText(key)` selector `narrative[key] ?? streamedSections[key] ?? null`
+- **M-2 mirror**: compound sections (monthly_advice + intra_month_breakdown) ALSO pull from streamedSections (mirror daily adviceContent at NarrativeCard.tsx:141)
+- Wholesale placeholder swap on engine_ready (L-1 fix — no aria-busy leak)
+- Profile/month change → synchronous `setState({status:'loading'})` + clear streamedSections + clear streamError
+
+**L6 — Placeholder height tuning (#83 fix)**:
+- Measured actual heights at desktop viewport: Ring=356.5px, Bars=217.5px, TimeGrid=758px (much taller post-L1 wiring)
+- Updated `apps/web/app/reading/fortune/page.module.css` min-heights: Ring 280→**360**, Bars 140→**220**, TimeGrid 280→**760**
+- Target: ≤8px disclaimer Y delta loading→success
+
+### 5 audit fixes (3-parallel line audit: backend + frontend + cross-layer plan-conformance)
+
+| Severity | Issue | Fix |
+|---|---|---|
+| **C-1 CRITICAL** (frontend) | `onEvent` reads stale `state.status` from closure for error classification → wipes engine data on rapid engine_ready→error sequences | `stateRef = useRef(state)` mirrored via useEffect; error classifier reads `stateRef.current.status` (mirror daily handler pattern) |
+| **H1 HIGH** (backend) | `monthlyVersionsMatch` lacked circuit breaker but `persistMonthlySnapshot` writes breaker columns → unbounded AI retry during Anthropic outages | Ported daily breaker logic (3 failures + 24h backoff) |
+| **H-1 HIGH** (frontend) | `setStreamedSections` used `as never` cast → cross-scope key drift could pollute state | Added `MONTHLY_NARRATIVE_KEYS` whitelist (11 keys); unknown keys dropped with `console.warn` |
+| **H-3 HIGH** (frontend) | `streamError` not cleared on terminal-error transition → ghost state risk | `setStreamError(null)` in terminal error branch |
+| **M1 MEDIUM** (backend) | `intraMonthBreakdown` leaked into BOTH `engineOutput` (nested) AND sibling — Glossary says sibling only | Destructure-strip in `buildMonthlyResponse` + `streamMonthlyFortune` cache-miss path; also strips `chartContext` (~2KB SSE savings) |
+
+H-2 frontend was a false positive (audit agent confused engine `intraMonthBreakdown` shape with AI `intra_month_breakdown` shape — they're intentionally different per glossary).
+
+### Glossary lock (CRITICAL — DO NOT alias these two)
+
+| Name | Casing | Origin | Lives at | Shape | Consumer |
+|---|---|---|---|---|---|
+| `intraMonthBreakdown` | camelCase | Engine (Python L1.b `compute_intra_month_breakdown`) | `MonthlyFortuneResponse.intraMonthBreakdown` (SIBLING of `engineOutput`, NOT nested) | `{ scheme_id, liuyue_window:{start,end,days}, buckets: [{label, day_range, governing_pillar, auspicious_days, challenging_days, neutral_days, peak_signals, dominant_shensha}] }` | `MonthlyTimeGrid` renders day counts + dominant 神煞 + peak signals per bucket |
+| `intra_month_breakdown` | snake_case | AI (Claude generates inside `sections.intra_month_breakdown` per FORTUNE_V1_PROMPTS.monthly output format) | `MonthlyFortuneResponse.narrative.intra_month_breakdown` (inside narrative object) | `Array<{ partition_label: string, narrative: string }>` | `MonthlyNarrativeCard`'s «本月時段建議» block renders prose per partition |
+
+**Convention** (locked):
+- Engine + DTO + wire response → **camelCase** `intraMonthBreakdown` (SIBLING)
+- AI prompt output + narrative type → **snake_case** `intra_month_breakdown` (inside narrative)
+- Section detector emits `section_complete` with `key='intra_month_breakdown'` (matches AI's JSON key)
+- Hook `onEvent` handler routes `engine_ready.intraMonthBreakdown` → page state's `intraMonthBreakdown` field; routes `section_complete[intra_month_breakdown]` → `streamedSections.intra_month_breakdown`. Two distinct slots, never aliased.
+
+### Calibration anchor — Roger 2026-05 monthly
+
+- chartHash: `f9df0af5f0d5d69083aa53bf4b8e1480` (Roger primary profile)
+- Roger 2026-05 = **癸巳月**
+- 月柱 ten god: **正財** (DM=戊, sees 癸 yin water = 我克異性)
+- 用神=火 → 巳火 in month branch is 用神 (good month)
+- partition: `tiangan_dizhi_half` (locked from Phase A research)
+- 上半月 (1-15): governed by 流月天干 癸 (stem-主動氣先出)
+  - 9 auspicious / 5 challenging / 1 neutral days; dominant 神煞: 正官 + 天喜 + 比劫
+  - peak signals: 2026-05-07, 2026-05-08
+- 下半月 (16-31): governed by 流月地支 巳 (branch-靜氣後沉)
+  - 11 auspicious / 3 challenging / 2 neutral days; dominant 神煞: 比劫 + 正官 + 驛馬
+  - peak signals: 2026-05-22, 2026-05-23, 2026-05-24
+
+### Files Reference (Phase 2.x)
+
+**NEW**: none (all changes via existing files in helpers + stream + page)
+
+**Modified**:
+- `packages/bazi-engine/app/main.py` — `/monthly-fortune` endpoint wires L1.b
+- `packages/bazi-engine/app/fortune_constants.py` — version bump v1.0.0 → v1.1.0
+- `apps/api/src/fortune/fortune-snapshot.helpers.ts` — 9 monthly helpers added (~350 LoC); circuit breaker on monthlyVersionsMatch; intraMonthBreakdown destructure-strip in buildMonthlyResponse
+- `apps/api/src/fortune/fortune.service.ts` — new `getMonthlyFortune` orchestrator (L2.5); refactored to consume helpers
+- `apps/api/src/fortune/fortune.controller.ts` — `@Get('monthly')` + `@Get('monthly/stream')` routes
+- `apps/api/src/fortune/fortune-stream.service.ts` — `streamMonthlyFortune` method (~400 LoC); `FortuneMonthlyStreamEvent` union; umbrella `FortuneStreamEvent` rename
+- `apps/api/src/ai/prompts.ts` — `FORTUNE_PRE_ANALYSIS_VERSIONS.month` bump; H-2 comment update
+- `apps/web/app/reading/fortune/page.tsx` — ErrorPanel scope-aware copy (#84); MonthlyFortuneView state machine + streaming; MONTHLY_NARRATIVE_KEYS whitelist; stateRef for stale-closure fix
+- `apps/web/app/reading/fortune/page.module.css` — placeholder min-heights tuned (#83): Ring 360, Bars 220, TimeGrid 760
+- `apps/web/app/components/fortune/MonthlyNarrativeCard.tsx` — `streamedSections` prop + hybrid render + sectionText() selector; compound sections per M-2
+- `apps/web/app/components/fortune/hooks/useFortuneNarrativeStream.ts` — `scope?: 'day'|'month'` arg + invariant guards + dispatch
+- `apps/web/app/lib/fortune-api.ts` — `FortuneDailyStreamEvent` (renamed) + `FortuneMonthlyStreamEvent` (NEW) + umbrella `FortuneStreamEvent`; `streamMonthlyFortune` wire helper
+
+---
+
+## L3.5b — Chat-scope MONTH wiring — SHIPPED (uncommitted in worktree as of 2026-05-28)
+
+Extends FORTUNE chat from DAY-only to DAY+MONTH (YEAR still blocked — Phase 3). Goal: complete monthly UX so users can chat about monthly fortune via the existing AI chat drawer.
+
+### Layers (A-F)
+
+**A — Python engine** (`packages/bazi-engine/app/chat_context.py` + `main.py`):
+- `build_chat_context_fortune` accepts `fortune_scope: 'DAY' | 'MONTH'` + `precomputed_monthly` arg (Issue-1 reuse path)
+- For MONTH: calls `compute_single_month_by_yearmonth` instead of `compute_daily_fortune`, ALSO calls `compute_intra_month_breakdown` (L1.b) defensively so chat AI can answer «本月上半月vs下半月有什麼差別?» grounded in bucket stats
+- New `_slim_monthly_for_chat(monthly)` helper drops engine-internal fields, keeps doctrine + intraMonthBreakdown sibling, folk content OMITTED (DAY-only per Phase 2 locked decision #6)
+- FastAPI `FortuneChatContextInput` DTO extended with `fortune_scope` field + `precomputed_monthly`
+
+**B — NestJS chat-context.service** (`apps/api/src/chat/chat-context.service.ts`):
+- `getChatContextForFortune(profileId, anchorDate, readingType, fortuneScope='DAY')` accepts scope (4th positional arg)
+- Cache key now includes scope: `chat-context-fortune:{birthHash}:{anchorDate}:{scope}:{versions}`
+- DAY vs MONTH dispatch:
+  - Snapshot lookup filters `scope: fortuneScope` (DAY → look up DAY snapshot + pass as `precomputed_daily`; MONTH → look up MONTH snapshot + pass as `precomputed_monthly`)
+  - Anchor date normalization: MONTH = 1st of month (`YYYY-MM-01`), DAY = exact date
+- Version composition: FORTUNE sessions use `computeVersionStringForFortune(scope)` per **active-scope-only emission** (plan H-new-4: DAY emits `fort-day=v1.1.0`; MONTH emits `fort-month=v1.0.0`; never both → cross-scope bumps don't invalidate)
+- `fetchChatContextFromEngineFortune` accepts + passes `fortuneScope` + `precomputedMonthly`
+
+**C — NestJS chat.service** (`apps/api/src/chat/chat.service.ts`):
+- Removed `FORTUNE_SCOPE_NOT_SUPPORTED` DAY-only gate at line 220 (now allows DAY + MONTH; YEAR still blocked)
+- `createSession` for FORTUNE uses `getCurrentSnapshotVersionsForFortune(scope)`
+- `sendMessage` context fetch passes `fortuneScope` from session row through to `getChatContextForFortune`
+- Same scope dispatch in `chat-stream.service.ts` FORTUNE branch
+
+**D — Prompts + chat-prompt-builder**:
+- New `CHAT_FORTUNE_MONTH_REFUSE_TEMPLATE` exported (refuse opener cites 《八字月運》 not 《八字日運》 so refuse-regex counting stays consistent across scopes)
+- `buildChatV1SystemPromptForType(readingType, fortuneScope='DAY')` dispatches:
+  - DAY → `CHAT_FORTUNE_REFUSE_FEW_SHOTS` (F-1/F-2/F-3) + 《八字日運》 template
+  - MONTH → `CHAT_FORTUNE_MONTH_REFUSE_FEW_SHOTS` (M-1/M-2 already shipped Phase 2) + 《八字月運》 template
+- `CHAT_TOPIC_SCOPE_FORTUNE_MONTH = null` extension hook (kept as null — DAY topic clause works for both today)
+- `BuildPromptArgs.fortuneScope?: 'DAY' | 'MONTH'` added; `buildPrompt` threads it to `buildChatV1SystemPromptForType`
+- Both call sites updated: `chat.service.ts:773` + `chat-stream.service.ts:467` pass `session.fortuneScope`
+
+**E — Frontend** (page.tsx + ChatDrawer.tsx + useSampleQuestions + SampleQuestionsBrowser + fortune-api.ts + chat-api.ts):
+- Mount ChatDrawer on month tab (mirror DAY mount): `tab === 'month' && activeProfileId && targetMonth` → `<ChatFloatingButton/> + <ChatDrawer fortune={{profileId, fortuneScope:'MONTH', fortuneAnchorDate: \`${targetMonth}-01\`}}>`
+- New `monthlyResolvedProfileId` state + `onResolvedProfileId` callback prop on MonthlyFortuneView — surfaces resolved primary profileId from engine_ready event up to page so ChatDrawer can mount without requiring `?profileId=` in URL
+- `useSampleQuestions(readingType, sectionKey, fortuneScope?)` accepts scope + threads to backend
+- `useAllSampleQuestions(readingType, fortuneScope?)` same treatment
+- Cache key includes scope: `${readingType}:${sectionKey ?? '*'}:${fortuneScope ?? 'DAY'}`
+- `getSampleQuestions` + `getAllSampleQuestions` wire helpers pass `fortuneScope` query param
+- `SampleQuestionsBrowser` accepts `fortuneScope?` prop + passes to `useAllSampleQuestions`
+- `ChatDrawer` threads `fortune?.fortuneScope` to both `useSampleQuestions` + `SampleQuestionsBrowser`
+
+**F — Audit fix discovered during browser test: scope-aware drift check at 3 sites**:
+After fresh MONTH session created with `fort-month=v1.0.0`, sending first message returned `CONTEXT_VERSION_DRIFTED`. Root cause: 3 drift-check sites used legacy `getCurrentSnapshotVersions(readingType)` which emits `fort=v1.1.1` (DAY format). Now dispatches to `getCurrentSnapshotVersionsForFortune(scope)` when readingType=FORTUNE:
+- `chat-stream.service.ts:206` (mid-session drift check before streaming)
+- `chat.service.ts:531` (extendSession drift check)
+- `chat.service.ts:608` (sendMessage drift check)
+
+Pattern:
+```typescript
+const currentVersions = session.readingType === 'FORTUNE' && session.fortuneScope
+  ? this.contextService.getCurrentSnapshotVersionsForFortune(session.fortuneScope)
+  : this.contextService.getCurrentSnapshotVersions(session.readingType);
+```
+
+Also added `fortuneScope: FortuneScope | null` to `_streamWithLock` session inline-type at chat-stream.service.ts:272 (was missing — TS error caught it).
+
+### End-to-end browser verification (2026-05-28)
+
+After full L3.5b deploy + DB cleanup of stale sessions:
+- ✅ `/reading/fortune?tab=month` renders MonthlyFortuneView + chat floating button («開啟 AI 命理師對話»)
+- ✅ Click button → drawer opens, populates with 5 MONTH-keyed sample questions (ZERO DAY-keyed leakage)
+- ✅ Click pill «本月上半月與下半月，哪段能量較順？» → composer populated
+- ✅ Click 傳送 → fresh MONTH session created with `fort-month=v1.0.0`
+- ✅ AI streams ~25s response, 392 chars, MONTH-grounded:
+  - Cites 癸巳月 + 用神/正財/仇神/喜神 framing
+  - References engine-structured data: «天干癸主導» «地支巳主導» (governing_pillar)
+  - Real day counts: «9天/5天/11天/3天» (auspicious_days/challenging_days from intraMonthBreakdown buckets)
+  - Specific peak dates: «5月7日、8日» «5月22日、23日、24日» (peak_signals from L1.b)
+- ✅ Zero real banned phrases
+
+### Known gap (browser-test discovered, locked by L3.5b-F fix)
+
+**Stale MONTH session blocks first message with CONTEXT_VERSION_DRIFTED** if drift-check sites use the legacy `getCurrentSnapshotVersions(readingType)` instead of scope-aware variant. Fixed via 3-site dispatch (audit-fix F). Required DB cleanup of stale sessions for clean testing post-fix:
+```bash
+psql -c "DELETE FROM chat_messages WHERE session_id IN (SELECT id FROM chat_sessions WHERE reading_type='FORTUNE' AND fortune_scope='MONTH'); DELETE FROM chat_sessions WHERE reading_type='FORTUNE' AND fortune_scope='MONTH';"
+```
+
+### Files Reference (L3.5b)
+
+**Modified**:
+- `packages/bazi-engine/app/main.py` — `/build-chat-context-fortune` accepts `fortune_scope` + `precomputed_monthly`
+- `packages/bazi-engine/app/chat_context.py` — `build_chat_context_fortune` scope dispatch + `_slim_monthly_for_chat` helper + L1.b wired into MONTH chat context
+- `apps/api/src/chat/chat-context.service.ts` — `getChatContextForFortune(scope)`; cache key includes scope; snapshot lookup dispatches DAY/MONTH; engine fetch threads scope+precomputedMonthly
+- `apps/api/src/chat/chat.service.ts` — removed DAY-only gate; scope-aware version dispatch; 2 drift-check sites scope-aware (lines 531 + 608)
+- `apps/api/src/chat/chat-stream.service.ts` — FORTUNE branch passes scope; 1 drift-check site scope-aware (line 206); `fortuneScope` added to session inline-type at line 272
+- `apps/api/src/chat/chat-prompt-builder.ts` — `BuildPromptArgs.fortuneScope?` added; threaded to `buildChatV1SystemPromptForType`
+- `apps/api/src/ai/prompts.ts` — `CHAT_FORTUNE_MONTH_REFUSE_TEMPLATE` exported; `buildChatV1SystemPromptForType` dispatch by scope
+- `apps/web/app/reading/fortune/page.tsx` — mount ChatDrawer on month tab; `monthlyResolvedProfileId` state + `onResolvedProfileId` callback wiring
+- `apps/web/app/components/chat/ChatDrawer.tsx` — threads `fortune?.fortuneScope` to useSampleQuestions + SampleQuestionsBrowser
+- `apps/web/app/components/chat/hooks/useSampleQuestions.ts` — both hooks accept scope; cache key includes scope
+- `apps/web/app/components/chat/SampleQuestionsBrowser.tsx` — `fortuneScope?` prop threaded
+- `apps/web/app/lib/chat-api.ts` — `getSampleQuestions` + `getAllSampleQuestions` accept `fortuneScope`
+
+---
+
+## Deployment checklist for the 4-commit batch (Phase 2.x + L3.5b)
+
+When `claude/elastic-pascal-cc5187` commits land in main, ON TOP OF the existing prior batch checklist (Phase Fortune + Phase 1.5.z + Option 2.5 + Phase Fortune+ progressive + Streaming):
+
+1. **No new DB migrations** (only existing Phase 2 migrations need apply)
+
+2. **No new env vars**
+
+3. **Version bumps** in this session (already in code):
+   - `FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION` v1.0.0 → v1.1.0 (Python source)
+   - `FORTUNE_PRE_ANALYSIS_VERSIONS.month` v1.0.0 → v1.1.0 (TS mirror)
+   - `FORTUNE_PROMPT_VERSIONS.month` UNCHANGED (comment updated only)
+   - `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_MONTH` activates for first time via L3.5b active-scope-only emission
+
+4. **Scoped Redis DEL**:
+   ```bash
+   redis-cli --scan --pattern "fortune:monthly:*" | xargs redis-cli DEL
+   redis-cli --scan --pattern "chat-context-fortune:*MONTH*" | xargs redis-cli DEL
+   ```
+
+5. **Clean stale MONTH chat sessions** (their stored versions don't match new active-scope-only format):
+   ```bash
+   psql -c "DELETE FROM chat_messages WHERE session_id IN (SELECT id FROM chat_sessions WHERE reading_type='FORTUNE' AND fortune_scope='MONTH'); DELETE FROM chat_sessions WHERE reading_type='FORTUNE' AND fortune_scope='MONTH';"
+   ```
+
+6. **CRITICAL — bump sample-questions cache version** (same gotcha as Phase 1.5.z raw-SQL migration):
+   ```bash
+   redis-cli INCR 'chat-sample-questions:version'
+   ```
+
+7. **Monitor Anthropic spend dashboard for 24h**. Expected regen cost (worktree scope): ~50 cached MONTH snapshots × ~$0.05 ≈ $2-3. Prod scope (NOT this deploy): ~$650 for 1000 subs × 13 months.
+
+8. **Deploy off-peak**.
+
+If future iteration bumps MONTH versions: only invalidates MONTH chat-context cache + MONTH snapshots; DAY sessions completely unaffected per active-scope-only emission lock.
+
+---
+
+## Reference patterns / utilities introduced (Phase 2.x + L3.5b session)
+
+### Phase 2.x monthly streaming patterns
+- **Active-scope-only version emission** (`computeVersionStringForFortune(scope)` + `getCurrentSnapshotVersionsForFortune(scope)`): when a feature has multiple sub-scopes (DAY/MONTH/YEAR) and version drift checks must isolate by scope, emit ONLY the active scope's version key. DAY sessions emit `fort-day=v1.1.0`; MONTH sessions emit `fort-month=v1.0.0`; never both. Bumping one scope's version invalidates ONLY that scope's cache + sessions. Mirror this for any multi-scope per-readingType work.
+- **Monthly helpers extraction pattern**: when extending `FortuneSnapshotHelpers` for new scopes, add methods 1:1 with daily naming (`enforceMonthlySubscriptionGate` vs `enforceDailySubscriptionGate`, etc.). Both services consume same helpers — same byte-identity contract as daily.
+- **Glossary lock pattern**: when engine emits snake_case data + AI emits snake_case prose with the SAME root name, intentionally diverge casing at the engine boundary (camelCase for engine emit; snake_case for AI emit). Document in glossary block with consumer-shape table. Destructure-strip the engine-camelCase field from any DTO that would otherwise mirror it INSIDE the AI-shaped narrative object — keeps wire shape clean.
+- **Stale state closure fix via stateRef**: when an `onEvent` SSE handler needs current state for routing decisions (e.g. error classification by state.status), DO NOT rely on closure — capture via `useRef(state)` + `useEffect(() => { ref.current = state })` so the handler always reads the latest value. Mirror pattern from daily.
+- **MONTHLY_NARRATIVE_KEYS whitelist gate**: when accepting cross-scope keys from SSE into a shared state setter, gate via per-scope key whitelist + drop unknown keys with `console.warn`. Prevents drift if a DAY-scope event somehow reaches a MONTH-scope state setter (defensive — the umbrella `FortuneStreamEvent` discriminated union should already prevent this at type level).
+- **Wholesale placeholder swap on engine_ready**: when state transitions `loading → engine`, the placeholder block (`aria-busy="true"`) MUST be REPLACED by real components, not rendered alongside them. Use `state.status === 'loading' ? <placeholders/> : <realComponents/>` not both. Prevents screen reader announcing «busy» indefinitely + double DOM overhead.
+
+### L3.5b chat-scope patterns
+- **Scope-aware drift check at every site**: when a chat session row carries a sub-scope discriminator (`session.fortuneScope`), EVERY drift-check site (mid-session + extendSession + sendMessage) MUST dispatch to the scope-aware version helper. Easy to miss — caught only in browser test via CONTEXT_VERSION_DRIFTED on first message. Pattern: `session.readingType === X && session.subScope ? scopeAwareVersions(scope) : legacyVersions(readingType)`. Three sites to update in lockstep.
+- **Scope-aware refuse template + few-shots dispatch**: when extending an existing chat reading type with a new sub-scope, both the refuse template (cites different work) AND few-shots library (M-1/M-2 vs F-1/F-2/F-3) need scope-keyed dispatch via the system-prompt builder. Pass scope arg explicitly through `BuildPromptArgs` to avoid implicit defaults.
+- **Resolved profileId callback from sub-view to page**: when a feature mounts subordinate components (ChatDrawer) that require a profileId that the parent doesn't have (because the sub-view resolved primary via engine_ready event), thread back via callback prop (`onResolvedProfileId(uuid)`) + parent state slot. Avoids requiring `?profileId=` in URL while still letting parent gate UI.
+- **Sample-questions scope filter (M7)**: when sample-questions are per-readingType AND per-sub-scope, the API endpoint MUST accept the scope discriminator + the in-process LRU cache key MUST include it. Otherwise DAY chat sees MONTH questions (or vice versa). Plus the L6 migration adds a `fortune_scope` column on `ChatSampleQuestion` for clean WHERE clauses.
+
+### Audit-fix gotchas (replicate audit rhythm for any new feature)
+- **3-parallel sub-agent line audit** (backend + frontend + cross-layer plan-conformance) is the load-bearing pattern. Discovered 5 actionable findings this feature (1 CRITICAL + 3 HIGH + 1 MEDIUM). Confidence-scored 0-100; filter ≥75. Always replicate for high-risk doctrinal or cross-layer work.
+- **End-to-end browser test catches what audits don't**: 3-parallel audit didn't catch the L3.5b-F drift-check bug because each agent saw only one layer. Browser test surfaced CONTEXT_VERSION_DRIFTED on first MONTH chat message → led to 3-site fix. Always run end-to-end browser verification after audit fixes land.
+- **TS error caught a missing inline-type field**: adding `session.fortuneScope` read at chat-stream.service.ts surfaced a TS error because the inline-type at line 272 didn't include it. The TS compiler was the second line of defense after manual code review — always rebuild + tsc after audit fixes.
+
+### Operational lessons / gotchas
+- **Sentry breadcrumb data shape for cross-scope features**: include `scope: 'day' | 'month'` in `data` field so post-hoc analytics can bucket sanitize-diff rate by scope. Pattern: `Sentry.addBreadcrumb({ category: 'fortune.stream.sanitize_diff', level: 'info', data: { scope, sectionKeys, totalDiffPhraseCount } })`.
+- **DTO field optionality matters at TS boundary**: when an API field is sibling-only (per glossary), DTO declares it OPTIONAL on the response (`intraMonthBreakdown?: IntraMonthBreakdown`) so cache-miss vs cache-hit paths can both type-check while only cache-miss path populates it. Don't make it required and force the cache-hit path to fabricate.
+- **AI substring-match false positive on idiomatic Chinese**: substring `'一定'` flags «帶有一定的能量消耗» («has a certain amount of») even though it's not the absolute «一定» («definitely»). Backend FORTUNE_BANNED_ABSOLUTE_PHRASES uses regex with word-boundary context; naive substring scan in manual audits will overflag — defer to validator's regex-based decision, not substring matches in human-eye scans.
+
+---
+
+## L3.5b Line Audit — 9-fix batch + M#2 staff-engineer post-fix + 2 LOW findings + 3 deferred jest specs (SHIPPED 2026-05-29, uncommitted)
+
+After L3.5b chat-scope MONTH wiring shipped, a 3-parallel sub-agent line audit (backend + frontend + cross-layer plan-conformance) surfaced 9 actionable findings ≥75 confidence: 3 CRITICAL + 3 HIGH + 3 MEDIUM. ALL fixed + verified end-to-end this session. Staff-engineer verification sub-agent then caught 1 real performance regression in M#2 (wrong-constant comparison) — also fixed + regression-locked. Then 2 LOW findings (extractFortunePivotHint MONTH-blind + invalidateSampleQuestionsCache `__ALL__` sentinel sweep) fixed. Then 3 deferred jest specs from Phase 2.x written (M1 contract + M2 stream + M3 detector). Net delta: 19 new automated tests across API/web.
+
+**Session handoff doc**: `/Users/roger/.claude/plans/fortune-phase-2-x-session-handoff.md` (read this first to pick back up).
+**Plan + test plan**: `/Users/roger/.claude/plans/ok-next-big-feature-merry-cake.md` — search «Comprehensive Test Plan — L3.5b (Full AI MONTH Chat Feature)».
+
+### The 9 line-audit fixes
+
+| # | Severity | Fix | File |
+|---|---|---|---|
+| **C#1** | CRITICAL | Preserve byte-identity for pre-L3.5b DAY FORTUNE sessions — `getCurrentSnapshotVersionsForFortune('DAY')` emits LEGACY `fort=v1.1.1` key + value (NOT new `fort-day=v1.2.0`). Drops `FORTUNE_DAY` constant (was 'v1.2.0'). Without this, every existing DAY chat session in DB trips `CONTEXT_VERSION_DRIFTED` on first message post-deploy. | `chat-context.service.ts` |
+| **C#2** | CRITICAL | Add `interpolateFortuneMonthlyFields` deterministic injector — MONTH chat had NO injector; AI got raw JSON only (anti-hallucination contract relied on AI luck). New free function reads `ctx.monthlyFortune.officerSealActivation` + `fuYinInteractions` + `liuHaiInteractions` + `chongKuRelease` + `dimensions[].signals[]` + `intraMonthBreakdown.buckets[]` and emits «【本月流月教義事件 — 必須引用以下文字】» block. Wired from `chat-prompt-builder.ts` behind `fortuneScope === 'MONTH'` branch. Mirror of Phase 12g.6 Gap 2 pattern. | `chat-context.service.ts` + `chat-prompt-builder.ts` |
+| **C#3** | CRITICAL | Admin DTO `fortuneScope` field — Create + Update DTOs gained `fortuneScope?: 'DAY'|'MONTH'|'YEAR'|null`. Service-side `assertValidFortuneScope` rejects non-FORTUNE+scope mismatch. Without this admin couldn't create MONTH/YEAR sample questions via API (would need raw-SQL migrations forever). | `chat-sample-questions.controller.ts` + `chat-sample-questions.service.ts` |
+| **H#1** | HIGH | listSessionsForFortune scope filter (3 layers) — On 1st of any month, DAY drawer's anchor and MONTH drawer's anchor both = `'2026-MM-01'` → cross-scope leak. Added `fortuneScope?` query param to endpoint + wire helper + hook. Backend default = 'DAY' for back-compat. Invalid scope → 400 `INVALID_FORTUNE_SCOPE`. | `chat.service.ts` + `chat.controller.ts` + `chat-api.ts` + `useChatSession.ts` |
+| **H#2** | HIGH | 9 spec assertions for L3.5b regression coverage — extended `chat-context.service.fortune.spec.ts` with 5 sub-describes (a-e) covering: DAY uses `pa-fort=` key (NOT `pa-fort-day=`); MONTH uses `pa-fort-month=`; cross-scope version-string isolation; C#1 byte-identity assertion (`getCurrentSnapshotVersionsForFortune('DAY').preAnalysisVersion === getCurrentSnapshotVersions('FORTUNE').preAnalysisVersion`); interpolateFortuneMonthlyFields null guards + 流月教義事件 block + intraMonthBreakdown buckets. | `chat-context.service.fortune.spec.ts` |
+| **H#3** | HIGH | Add `monthlyFortune?: Record<string, unknown>` to ChatContext interface — engine emits it but TS compiled via `any` paths; new C#2 injector now type-safe. JSDoc references glossary lock. | `chat-context.service.ts` |
+| **M#1** | MEDIUM | Clear `chatPendingMessage` + `chatSectionHint` on tab switch — page-level state shared across both DAY+MONTH drawer mounts. Race: user clicks DAY InlineAskCard → switches tabs before populate effect fires → MONTH drawer mounts with DAY-flavored populated text + invisible `daily_romance` sectionHint flowing into MONTH session prompt. Fixed in `handleSwitchTab` (2-line state clear before router.push). | `reading/fortune/page.tsx` |
+| **M#2** | MEDIUM | Stale MONTH/DAY snapshot version check before reuse — `getChatContextForFortune` snapshot-lookup was blindly using `engineOutputJson` as `precomputed_*` without version match. Stale snapshots (pre-v1.1.0 for MONTH or pre-v1.2.0 for DAY) lacked `intraMonthBreakdown` / `folkContent` → AI silently lost data. Fix: compare snapshot.preAnalysisVersion against required engine-side version; null out precomputed_* on mismatch to force engine recompute. **Staff-engineer follow-up**: original fix compared against WRONG constant (`PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE='v1.1.1'` — the chat-side BYTE-IDENTITY-LOCKED legacy value) instead of `FORTUNE_PRE_ANALYSIS_VERSIONS.day='v1.2.0'` (engine-side, what snapshot actually has). Result: every fresh snapshot flagged stale → defeated Issue-1 optimization → 200-300ms wasted per chat session. Re-fixed to import + compare against engine-side. Decoupling regression test added: `FORTUNE_PRE_ANALYSIS_VERSIONS.day !== 'v1.1.1'` lock prevents future re-coupling. | `chat-context.service.ts` |
+| **M#3** | MEDIUM | Prefix-sweep cache invalidation in `useSampleQuestions` — `invalidateSampleQuestionsCache(readingType, sectionKey)` was deleting only `${readingType}:${sectionKey}:DAY` key. MONTH-keyed entries stayed stale 5min. Fix: replace `cache.delete(makeCacheKey(...))` with `for (key of cache.keys()) if (key.startsWith(prefix)) cache.delete(key)` to sweep all scope variants. (See LOW #2 below — also extended to sweep `__ALL__` sentinel keys.) | `useSampleQuestions.ts` |
+
+**Plus L3.5b-F**: 3 drift-check sites (chat-stream.service.ts:206 + chat.service.ts:531 + chat.service.ts:608) needed scope-aware dispatch to `getCurrentSnapshotVersionsForFortune('MONTH')` when `session.readingType === 'FORTUNE'`. Was missing — caused CONTEXT_VERSION_DRIFTED on first MONTH chat message (caught via browser test, not audit).
+
+### Staff-engineer M#2 post-fix (the «two constants» trap)
+
+The single sentence to remember: **the chat-side `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE='v1.1.1'` and engine-side `FORTUNE_PRE_ANALYSIS_VERSIONS.day='v1.2.0'` are intentionally decoupled.** Their values diverge because:
+- Chat-side constant is locked at the legacy value for C#1 byte-identity (don't ever bump it without backfilling existing DAY sessions' stored preAnalysisVersion column)
+- Engine-side constant is the live engine version (bumped to 'v1.2.0' for Phase 1.5.z folk content)
+
+Snapshots are stamped at persist time with the ENGINE-side value. So when checking «is this snapshot fresh?», compare against ENGINE-side. When checking «does the chat session's stored preAnalysisVersion match what new sessions get?», compare against CHAT-side. **These two compares serve different purposes and must use different constants.** Anyone tempted to «simplify» by aliasing them would silently break either C#1 (chat-side bump = mass eviction) or M#2 (engine-side compare = defeats Issue-1 optimization).
+
+Regression test: `chat-context.service.fortune.spec.ts::(f)` asserts `FORTUNE_PRE_ANALYSIS_VERSIONS.day !== 'v1.1.1'` so any future engineer who tries to re-couple them fails the test + has to read the comment.
+
+### 2 LOW findings (from staff-engineer verification — also FIXED this session)
+
+**LOW #1 — `extractFortunePivotHint` MONTH-blind**: MONTH chat refuse templates' «...回到本月解讀：{crossSellPivotHint}」 pivot was stripped to generic «您還有其他想了解的嗎？» because the extractor only had a DAY branch. Fixed by adding MONTH branch reading `ctx.monthlyFortune.monthGanZhi + monthLabel + auspiciousness + energyScore`. Output format: `«2026年5月（平，50分）»` (prefers monthLabel) or `«癸巳月（吉，65分）»` fallback. Falls through to DAY branch if both base identifiers missing (defensive). 6 regression tests added in `chat-context.service.fortune.spec.ts::(g)`.
+
+**LOW #2 — `invalidateSampleQuestionsCache` `__ALL__` sentinel sweep**: M#3 prefix-sweep covered `${readingType}:${sectionKey}:DAY|MONTH` but NOT `${readingType}:__ALL__:DAY|MONTH` keys used by `useAllSampleQuestions` (the SampleQuestionsBrowser «show all» view). Admin PATCH to a single FORTUNE question would invalidate per-section but the show-all sheet stayed stale 5min. Fix: after targeted prefix-sweep, ALSO sweep `${readingType}:${ALL_QUESTIONS_SENTINEL}:` via second loop. New 5-test regression spec at `apps/web/test/use-sample-questions-cache-invalidation.spec.ts`.
+
+### 3 deferred jest specs (Phase 2.x audit follow-up — now WRITTEN this session)
+
+| Spec | File | Test count | Coverage |
+|---|---|---|---|
+| **M1** — Monthly contract test | `fortune-snapshot.helpers.monthly.contract.spec.ts` (NEW) | 5 | Both `getMonthlyFortune` + `streamMonthlyFortune` produce byte-identical snapshot upsert args; `intraMonthBreakdown` survives `engineOutputJson` round-trip per H-3 (deep-equal on scheme_id + buckets[].governing_pillar + auspicious_days); scope='MONTH' + anchorDate normalized to 1st-of-month; promptVersion + preAnalysisVersion match `FORTUNE_PROMPT_VERSIONS.month` + `FORTUNE_PRE_ANALYSIS_VERSIONS.month`; both warm Redis with `fortune:monthly:{chartHash}:{yearMonth}` key shape |
+| **M2** — Monthly stream service | `fortune-stream.service.monthly.spec.ts` (NEW) | 4 + 1 skipped | Cache MISS happy path emits engine_ready→section_complete×N→done; H-3 engine_ready event has `intraMonthBreakdown` as SIBLING (NOT inside engineOutput) — M1 audit-fix regression lock; per-section banned-phrase strip («必然» → stripped); stop_reason='max_tokens' → AI_TRUNCATED + persists with promptVersion=null. Cache HIT path skipped — covered by M1 contract spec |
+| **M3** — Section-detector chunk boundaries | extended `fortune-section-detector.spec.ts` | +4 (26→30 total) | Monthly compound-section happy path (3 sections, mixed string/object/array shapes); array chunk boundary (intra_month_breakdown split mid-array emits ONCE at close-bracket); NEW-M3 object-close chunk boundary (monthly_advice close-brace on chunk1, intra_month_breakdown on chunk2 — both emit exactly once); stream-end mid-array emits only completed sections (no double-emit) |
+
+### Pre-existing typo fixed (discovered during sweep)
+
+`apps/api/src/ai/prompts.ts:4046` had ASCII `,` instead of full-width `，` after «詳細分析» in `CHAT_REFUSE_TEMPLATE_BY_READING_TYPE.FORTUNE` DAY refuse template. Never caught because my earlier sweeps used `--testPathPattern "chat"` which doesn't match `src/ai/prompts.fortune.spec.ts` (in `src/ai/` not `src/chat/`). 1-char fix → all 28 prompts.fortune tests now pass.
+
+### Final test counts (after this session)
+
+- **API jest**: 358 passing (was 339; +19 new this session — 9 H#2 regression locks + 6 LOW #1 tests + 4 M3 section-detector + 5 M1 contract + 4 M2 stream + 2 M#2 decoupling minus 1 skipped)
+- **Web jest**: 94 passing (was 89; +5 new — LOW #2 cache invalidation spec)
+- **Engine pytest**: 71 passing (monthly + chat-context — unchanged)
+- **TS clean** on apps/api (exit 0)
+
+### Comprehensive browser verification PASSED (2026-05-29)
+
+Critical regression locks verified end-to-end via Claude in Chrome MCP at `/reading/fortune?tab=month`:
+- **§B (C#2) — anti-hallucination injector reaches AI** ✅: Fresh cold-cache MONTH chat sent «本月有什麼月柱層級的訊號？上半月跟下半月差在哪裡？» → AI responded with structured Markdown table citing every L1.b injector field verbatim: governing_pillar mappings («月干癸主導/月支巳主導»), bucket day counts («9吉/5挑戰», «11吉/3挑戰»), peak dates («5月7、8日», «5月22、23、24日»), dominant 神煞 («正官、天喜、比劫»/«比劫、正官、驛馬»). The 「【本月流月教義事件】」 block is reaching the AI and being consumed verbatim.
+- **§D (C#1) — DB byte-identity** ✅: psql baseline showed 4 existing DAY sessions all with `pa_fort_tokens={fort=v1.1.1}`. After deploy, fresh DAY chat created session with same legacy stamp format (no drift). Zero `CONTEXT_VERSION_DRIFTED` events in NestJS log.
+- **§E (H#1) — scope filter on 1st-of-month** ✅: In-browser fetch via Clerk JWT verified `?anchorDate=2026-05-01&fortuneScope=DAY` returns 0 sessions (no MONTH leak); `?anchorDate=2026-05-01&fortuneScope=MONTH` returns 1 (the MONTH session 54accb06); back-compat default returns 0; `?fortuneScope=INVALID` → HTTP 400.
+- **§H (M#2) — snapshot reuse** ✅: NestJS log shows zero «Stale FortuneSnapshot» warnings after the post-staff-engineer constant fix. Reuse path is firing correctly.
+
+### Critical files (L3.5b line audit + LOW fixes + deferred specs)
+
+**Modified**:
+- `apps/api/src/chat/chat-context.service.ts` — 5 audit fixes (C#1 byte-identity / C#2 injector / H#3 monthlyFortune type / M#2 stale-check + post-fix / LOW #1 MONTH pivot)
+- `apps/api/src/chat/chat-context.service.fortune.spec.ts` — 3 new describe blocks (H#2 5 tests + M#2 decoupling 2 tests + LOW #1 6 tests)
+- `apps/api/src/chat/chat-prompt-builder.ts` — C#2 dispatch to MONTH injector via fortuneScope arg
+- `apps/api/src/chat/chat-sample-questions.controller.ts` — C#3 admin DTO fortuneScope field
+- `apps/api/src/chat/chat-sample-questions.service.ts` — C#3 service `assertValidFortuneScope` + persistence
+- `apps/api/src/chat/chat.controller.ts` — H#1 endpoint scope query param + validation
+- `apps/api/src/chat/chat.service.ts` — H#1 `listSessionsForFortune` + `_listSessionsByWhere` scope filter
+- `apps/api/src/fortune/fortune-section-detector.spec.ts` — M3 4 monthly chunk-boundary tests
+- `apps/api/src/ai/prompts.ts` — pre-existing ASCII comma typo fix at line 4046
+- `apps/web/app/components/chat/hooks/useChatSession.ts` — H#1 frontend scope arg
+- `apps/web/app/components/chat/hooks/useSampleQuestions.ts` — M#3 prefix-sweep + LOW #2 `__ALL__` sentinel sweep
+- `apps/web/app/reading/fortune/page.tsx` — M#1 tab-switch state clear (`setChatPendingMessage(undefined) + setChatSectionHint(undefined)` in `handleSwitchTab`)
+
+**NEW**:
+- `apps/api/src/fortune/fortune-snapshot.helpers.monthly.contract.spec.ts` — M1 deferred contract spec (~5 tests)
+- `apps/api/src/fortune/fortune-stream.service.monthly.spec.ts` — M2 deferred stream service spec (~4 tests + 1 skipped)
+- `apps/web/test/use-sample-questions-cache-invalidation.spec.ts` — LOW #2 cache invalidation regression spec (~5 tests)
+
+### Operator deploy checklist (when L3.5b + audit fixes + LOW fixes land in main)
+
+Already documented above for Phase 2.x + L3.5b. NO additional steps for the audit fix batch beyond what was already noted:
+- Scoped Redis DEL for MONTH chat-context + monthly fortune cache (already documented)
+- `redis-cli INCR 'chat-sample-questions:version'` (already documented)
+- Monitor Anthropic spend for 24h (already documented)
+- No new DB migrations
+- No new env vars
+- NO NEW VERSION BUMPS — audit fixes are bug fixes, not feature releases. Specifically:
+  - `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE` STAYS at v1.1.1 (C#1 byte-identity lock)
+  - `CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE.DAY` STAYS at v1.1.0
+  - `CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE.MONTH` STAYS at v1.0.0
+  - Existing DAY chat sessions in DB (4 of them as of this session's snapshot) will NOT trip drift on first message post-deploy
+
+### Reference patterns / utilities introduced (this session)
+
+**Decoupled-constants pattern**: when 2 systems need the same conceptual version stamp but for different purposes (cache invalidation vs back-compat byte-identity), DECOUPLE the constants in different files + add a regression test asserting they MUST diverge in value. Mirror this for any future scope-vs-version split.
+
+**Synthetic legacy session test**: when verifying byte-identity on an audit fix that requires old DB rows to survive a deploy, the regression test SHOULD include synthetic legacy-row creation:
+```sql
+INSERT INTO chat_sessions (id, user_id, reading_type, fortune_scope, fortune_anchor_date, profile_id, context_version, pre_analysis_version, started_at, message_count, paid_messages_used, credit_extensions)
+VALUES ('test-c1-legacy-day-' || gen_random_uuid()::text, '<user-uuid>', 'FORTUNE', 'DAY', CURRENT_DATE, '<profile-uuid>', 'v1.1.0', 'life=v2.9.0|love=v1.11.0|car=v2.5.0|ann=v2.4.0|compat=v1.8.2|fort=v1.1.1', NOW(), 0, 0, 0);
+```
+Then verify the message-send path resumes the session cleanly (no CONTEXT_VERSION_DRIFTED).
+
+**Test-pattern grep gotcha**: `--testPathPattern "chat"` only matches `src/chat/` — NOT `src/ai/` even when the spec is named `prompts.fortune.spec.ts` (test concerns chat-prompt behavior). Use broader pattern `"chat|fortune|prompts"` when sweeping for FORTUNE-related test coverage. The pre-existing comma typo went undetected for many sessions because of this exact filter bug.
+
+**Browser test ALWAYS beats audit alone**: this session's L3.5b-F drift-check fix was caught ONLY by browser test (CONTEXT_VERSION_DRIFTED on first MONTH chat message). The 3-parallel sub-agent audit didn't catch it because each agent saw only one layer. Audit + browser are complementary, not redundant.
+
+---
+
+## 八字年運 Phase 3 (Yearly Fortune) — SHIPPED 2026-05-30 (commits 5956b4a..f5a7eb0, NOT in main)
+
+The 3rd and last fortune scope (日/月/年). Free/subscriber 年運 tab replacing the old `PartialPreview` placeholder. **Lighter preview** that cross-sells to the paid 八字流年運勢 (`ReadingType.ANNUAL`, 3 credits, `/reading/annual`). Matches Seer's 4 sections: 年度總結 (summary + 4-dim ★ ratings) → 年度建議 → 核心風險&機會 (top-3 risk + top-3 opportunity MONTHS) → 改運建議&好運加持 (deterministic luck-method cards).
+
+**Session handoff** (read first post-compact): `/Users/roger/.claude/plans/fortune-phase-3-nianyun-session-handoff.md`.
+**Plan**: `/Users/roger/.claude/plans/ok-next-big-feature-merry-cake.md` — «# Phase 3 — 年運 (Yearly Fortune)» (v3 APPROVED after 3 staff-engineer review cycles).
+**Research**: `/Users/roger/.claude/plans/phase-3-nianyun-phase-a-research-results.md` (Sub-Agents A/B/C convergence — aggregation methodology + deterministic luck-method templates + framing/boundary/anti-hallucination).
+
+### Load-bearing architecture (DO NOT re-derive)
+
+> ⚠️ **CRITICAL call-pattern**: `yearly_enhanced.py::compute_year_by_year` calls `generate_annual_pre_analysis(...)` **DIRECTLY** with **16 params** destructured from the chart. Mirror the standalone extraction at `calculator.py:524-546` + call args at `:610-627`. Two params are NOT in the chart dict: `prominent_god` (recompute via `get_prominent_ten_god(chart['fourPillars'], chart['dayMasterStem'])`), `effective_gods` (from `chart['preAnalysis']['effectiveFavorableGods']`). `gender` from birth-data params. Guard on result `'error'` key.
+>
+> 🔧 **Correction (2026-06-07 — PR #47 false-positive lesson; verify by running the engine, NOT by trusting this note)**: an earlier version of this note claimed the chart from `_get_or_compute_chart_for_flow_year` does **NOT** have `annualEnhancedInsights` ("the annual pipeline never runs"). **That was FALSE.** `_get_or_compute_chart_for_flow_year` (`monthly_enhanced.py:235`) calls **`calculate_bazi_with_all_pipelines`**, which populates `annualEnhancedInsights` **UNCONDITIONALLY** (`calculator.py:610-634`; its docstring: "all enhanced pipelines … regardless of reading_type"). The `reading_type=='ANNUAL'` gate is on the SEPARATE base `calculate_bazi` at `:372`, NOT this helper. The chart's `annualEnhancedInsights.flowYear` is keyed to the requested flow year. **Consequences**: (a) `yearly_enhanced`'s direct `generate_annual_pre_analysis` call is **redundant-but-harmless** (same `flowYear` already on the chart) — leave it, but it is NOT load-bearing; (b) the **MONTHLY** path (`monthly_enhanced.py::compute_single_month_by_yearmonth` reading `chart["annualEnhancedInsights"]` at `:444`) is **NOT year-blind** — `combine_month_year` already fires (verified by running the engine + a byte-identical re-implementation). A PR #47 code review filed a CRITICAL "月運 ignores flow-year context" bug off the OLD false note; it was **retracted**. Do NOT re-file it.
+
+> 立春 anchoring is UPSTREAM (in `calculate_annual_stars` at chart-build). `generate_annual_pre_analysis` receives plain int `current_year` + matches against `chart['annualStars']`. **Year selection maps DIRECTLY to flow year — NO cross-flow-year complexity** (unlike month's Jan/Feb).
+
+> **romance ≠ relationships** (load-bearing): the 感情 dim aggregates from monthly `aspects.romance` (love/spouse signals), NOT the year-level `relationships` block (`compute_annual_relationship_analysis` = 人際關係 interpersonal). Regression-tested + AI anti-hallucination clause. Verified live: 感情 dim narrative uses 夫妻宮/桃花/正緣, never 人際關係/朋友/同事.
+
+> **核心風險&機會 pairing is INDEX-bound**: engine `compute_core_risk_opportunity` ranks 12 months → top-3 opp + bottom-3 risk + dim attribution. `interpolateFortuneYearlyFields` emits months in FIXED order with explicit index binding; `YearlyRiskOpportunityGrid` pairs engine-month↔AI-entry by ARRAY INDEX (NOT month-name reparse — engine 「壬辰月」 vs AI 「三月」 would drift). Mirrors Phase 12g.6 Gap 2.
+
+- **4-dim YEAR scores** = aggregation of 12 monthlyForecasts per-dim signals (Sub-Agent A hybrid mean-with-peak-emphasis, α=0.35, peak_quartile=3). ★1-5 star bands aligned to `DIMENSION_LABEL_BANDS` (80/65/50/35) — NOT arbitrary cutoffs.
+- **改運建議 = deterministic** (Sub-Agent B), keyed on weakest-dim + 用神 element: 2 generic cards + 1 weakest-dim card + 用神 element flavor spliced into card 0 (provenance 'mixed', 民俗 badge). NOT AI-generated. ELEMENT_DIRECTION (木=東/火=南/土=南/金=西/水=北). Engine returns 4; UI renders 3 (Seer parity).
+- **Monetization boundary**: free yearly_* sections give dim-level overviews + named key months ONLY. NO full 12-month prose, NO deep 太歲, NO 大運 sequence (paywalled). AI anti-hallucination clause enforces. `YearlyCrossSellCard` → `/reading/annual`.
+- **Subscription window**: free=current year; subscriber −1/+4. `FREE_YEAR_WINDOW_PAST/FUTURE=0`, `SUBSCRIBER_YEAR_WINDOW_PAST=1`, `SUBSCRIBER_YEAR_WINDOW_FUTURE=4`.
+- **Streaming**: `streamYearlyFortune` SSE mirrors `streamMonthlyFortune` (engine_ready w/ coreRiskOpportunity + luckMethods siblings + cacheHit → section_complete per yearly_* key → done). `useFortuneNarrativeStream({scope:'year'})`.
+- **Chat DEFERRED** (L3.5c — future phase, mirrors DAY+MONTH chat). No YEAR chat-version entries this phase.
+
+### Calibration anchor — Roger 2026 年運 (丙午年)
+- yearGanZhi=丙午, yearTenGod=偏印, auspiciousness=大吉, energyScore=88, 用神=火
+- 4 dims all ★★★★☆ 順遂: 事業 貴人提點 / 財運 穩健增長 / 感情 溫暖和諧 / 健康 穩健平和
+- coreRiskOpportunity: 機會點 [9月 事業躍升, 3月 財運亨通, 5月 養生良機] all 大吉 · 風險點 [1月 謹慎起步, 2月 沉潛蓄勢, 10月 穩守待時] all 凶中有吉
+- luckMethods: 運勢整理法 / 社交磁場法 / 養生調息法 (all 民俗 badge); card 0 chips 用神:火 / 方位:南方 / 色:紅色/紫色
+- 年度總結 headline «火土相生，穩步登高»
+- 2027 anchor: 丁未年 · 正印 (used in picker navigation test)
+
+### Files (Phase 3 — committed)
+**New**: `packages/bazi-engine/app/yearly_enhanced.py` + `tests/test_yearly_enhanced.py` (~28 tests). Frontend `apps/web/app/components/fortune/`: `YearlyEnergyRing`, `YearlyDimensionStars` (NET-NEW ★1-5), `YearlyNarrativeCard`, `YearlyRiskOpportunityGrid`, `YearlyLuckMethodsCard`, `YearNavigator`, `YearlyCrossSellCard` (+ `.module.css`).
+**Modified**: `main.py` (`/yearly-fortune`), `fortune_constants.py` (`FORTUNE_YEARLY_PRE_ANALYSIS_VERSION=v1.1.0`), `dto/index.ts`, `fortune-api.ts` (streamYearlyFortune + window helpers), `prompts.ts` (FORTUNE_V1_PROMPTS.yearly + 7 anti-hallucination clauses + version bumps), `fortune-prompt-builder.ts` (buildFortuneYearlyMessages + interpolateFortuneYearlyFields + renderYearlyRiskOpportunity), `fortune-validators.service.ts` (validateYearly), `fortune-snapshot.helpers.ts` (yearly helpers), `fortune.service.ts` (getYearlyFortune), `fortune-stream.service.ts` (streamYearlyFortune), `fortune.controller.ts` (@Get('yearly') + @Get('yearly/stream')), `useFortuneNarrativeStream.ts` (scope='year'), `reading/fortune/page.tsx` (YearlyFortuneView + ErrorPanel year branch + handleSwitchProfile clears ?year=).
+
+### Deploy notes (Phase 3)
+- Version bumps (same commit): `FORTUNE_YEARLY_PRE_ANALYSIS_VERSION` v1.0.0→v1.1.0 + `FORTUNE_PRE_ANALYSIS_VERSIONS.year` v1.0.0→v1.1.0 + `FORTUNE_PROMPT_VERSIONS.year` v1.0.0→v1.1.0
+- NO DB migration (FortuneScope.YEAR + DailyFortuneSnapshot exist). NO chat-version bumps.
+- Scoped Redis DEL: `redis-cli --scan --pattern "fortune:yearly:*" | xargs redis-cli DEL`. Regen cost (worktree) <$2.
+
+---
+
+## 八字年運 Phase 3.1 Polish — SHIPPED browser-verified, UNCOMMITTED in worktree (2026-05-30)
+
+3 UI-only fixes applying to ALL fortune scopes (shared infra). 10 files uncommitted. **NO version bumps / migration / cache invalidation** (frontend recompile only). Suggested commit msg: `fix(年運 Phase 3.1): back-button→dashboard + picker-only navigators + p→div hydration fix`.
+
+| Fix | Change | Verified |
+|---|---|---|
+| **Fix 1** back→dashboard | `FortuneShell.tsx:90` `router.back()`→`router.push('/')` (dashboard is `/`; mirrors COMPATIBILITY `<Link href="/">`). aria-label 返回→返回首頁 | §J — direct-navigate then click ← lands on `/` (not browser-back) |
+| **Fix 2** navigators picker-only | REMOVED ◄►arrows from all 3 navigators (each click = fresh AI stream, no debounce). Date chip = sole interaction + chevron-down ▾ + «點擊選擇日期/月份/年份» hint. Free chip click → onLockedAttempt. `YearNavigator` gained NEW react-datepicker `showYearPicker` (had no picker before). `DateNavigator.module.css` `.container`→column + `.chevron` rotate-on-open + `.hint`. Removed handlePrev/handleNext/ChevronLeft/ChevronRight in all 3. | §D — chevron+hint, no arrows; picker opens window-constrained (2025-2030 enabled); select 2027→URL `?year=2027`+ONE stream+丁未年·正印; OUT_OF_WINDOW(`?year=2032`)→«超出查詢範圍/去年+今年+未來4年/回到今年» |
+| **Fix 3** p→div hydration | The "6 Issues" badge = `<details>`/`<summary>`/`<div>` cannot descend `<p>` × 2 passes. `<p className="microDisclaimer">`→`<div>` in 3 energy rings (`EnergyScoreRing.tsx:112`, `YearlyEnergyRing.tsx:121`, `MonthlyEnergyRing.tsx:129`). CSS `.microDisclaimer` already `inline-flex` — NO CSS change. Clears all 6 across day/month/year | §K — live DOM `microDisclaimer`=`<DIV>` on year+day tabs; zero console hydration errors |
+
+### ⚠️ KEY GOTCHA (this session — applies to ALL future cross-session browser work)
+When the year tab first loaded, hydration errors were STILL present despite Fix 3 being in source — the **Next dev server was serving a STALE compiled bundle** (Fix 3 was edited in a PRIOR session; HMR didn't pick it up across the session boundary). A **hard reload (Cmd+Shift+R)** forced recompile and cleared it. Source was always correct (grep + tsc + jest all confirmed `<div>`). **Lesson: after editing across a session boundary, ALWAYS hard-reload before trusting the browser DOM / console.** Use the live-DOM `tagName` query (`document.querySelector('[class*="microDisclaimer"]').tagName`) for unambiguous verification — it sidesteps the console-tracking-timing caveat.
+
+### Test coverage (Phase 3.1)
+- `date-navigator.spec.tsx` + `year-navigator.spec.tsx` rewritten for picker-only (mock react-datepicker stub + lucide ChevronDown/Lock/Calendar + `jest.mock('../app/lib/date-locale', () => ({}))` to dodge registerLocale on the stub). **22 navigator tests pass.** No MonthNavigator spec exists (none to update).
+- **119 web RTL pass** (`jest --testPathPattern "fortune|navigator|energy"`), tsc clean on all 8 touched component files. No backend change.
+- Comprehensive 年運 browser test RUN + PASSED: §A render, §B curl, §C AI quality (zero banned phrases, no DM-drift, romance≠relationships), §D picker+OUT_OF_WINDOW, §H 改運建議, §I cross-sell, §J back-button, §K hydration. §G (Laopo profile switch) + §F (flatYear) = pytest-covered (fortune page has NO inline ProfileSwitcher — deferred per "ProfileSwitcher Phase 1.5").
+
+### Deferred after Phase 3.1 (priority order)
+1. ✅ **Commit Phase 3.1** — DONE (commit `12b2f5b`)
+2. ✅ **YEAR chat scope (L3.5c)** — DONE + browser-verified (uncommitted as of 2026-05-30; see L3.5c section below)
+3. **Yearly calibration corpus** — `yearly_label_corpus.csv` + pytest gate (Phase 3.x)
+4. **Share PNG for year** — Phase 3.x (year layout differs from ShareableFortuneCard)
+5. **Task #60** (pre-existing): signed-out CTA on /reading/fortune (SSE hook no-ops when signed out)
+6. **L3.5c v1 deferrals**: per-dim InlineAskCard on year narrative (`renderAfterDimension` on `YearlyNarrativeCard`) + per-dim `yearly_*` sample questions; M-3-style YEAR pushback few-shot; mobile chat (web only)
+
+---
+
+## L3.5c — YEAR Chat Scope (年運 AI chat) — SHIPPED browser-verified, UNCOMMITTED → committed 2026-05-30
+
+Adds YEAR as the 3rd FORTUNE chat sub-scope (日/月/年). The «問 AI 命理師» drawer now works on the year tab, mirroring the DAY (Phase Fortune chat) + MONTH (L3.5b) paths. Plan + comprehensive test plan: `/Users/roger/.claude/plans/ok-next-big-feature-merry-cake.md` — search «# Phase 3.5c (L3.5c) — YEAR Chat Scope» (+ v2 review fixes + «Comprehensive Test Plan — L3.5c»).
+
+### What shipped (4 layers + Phase A + 6 staff-engineer review fixes)
+- **Phase A**: Bazi-master Y-1/Y-2 refuse few-shots + topic-boundary matrix (drafted by sub-agent, not a full doctrine cycle — engine doctrine already mature).
+- **Layer A (engine)** `packages/bazi-engine/app/chat_context.py`: `_slim_yearly_for_chat` + YEAR branch in `build_chat_context_fortune` + `precomputed_yearly` param; `main.py` endpoint pattern `^(DAY|MONTH|YEAR)$` + `precomputed_yearly` field. KEEPS `coreRiskOpportunity` + `luckMethods` as SIBLINGS (the injector quotes the named months verbatim). 10 new pytest (丙午/偏印 anchor, 4-dim stars, siblings, Laopo doctrine inheritance, token<14k, snapshot reuse).
+- **Layer B (NestJS)** `chat-context.service.ts`: `CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE.YEAR='v1.0.0'` + `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE_YEAR='v1.1.0'` (NEW keys `pa-fort-year=`/`fort-year=`, no legacy lock — zero pre-existing YEAR sessions); 3 version helpers + `extractFortunePivotHint` YEAR branch + NEW `interpolateFortuneYearlyFields` injector + `ChatContext.yearlyFortune?` field; **3-way stale-check** vs engine-side `FORTUNE_PRE_ANALYSIS_VERSIONS.year`; `fetchChatContextFromEngineFortune` widen + `precomputed_yearly` body field. `chat.service.ts`: relaxed YEAR gate + 2 drift casts. `chat-stream.service.ts`: 1 drift cast + dispatch. `chat-prompt-builder.ts`: injector gate `else if (fortuneScope==='YEAR')` + import. `prompts.ts`: `CHAT_FORTUNE_YEAR_REFUSE_TEMPLATE` + `CHAT_FORTUNE_YEAR_REFUSE_FEW_SHOTS` (Y-1/Y-2) + 2 dispatch branches. 10 new YEAR jest in 3 fortune specs.
+- **Layer C** `prisma/migrations/20260530070821_seed_yearly_fortune_sample_questions/`: 5 GENERAL (sectionKey=NULL) YEAR questions (v1 GENERAL-only per locked decision — no per-dim InlineAskCard slots on year narrative). Applied + idempotent + Redis `chat-sample-questions:version` bumped.
+- **Layer D (frontend)** `apps/web/app/reading/fortune/page.tsx`: year-tab ChatDrawer mount (`fortuneAnchorDate=${targetYear}-01-01`; `yearlyResolvedProfileId` was pre-wired). `useChatSession.ts`: **Fix 6** — added `fortune?.fortuneScope` to 4 deps arrays (Jan-1 DAY↔YEAR closure staleness — DAY anchor `YYYY-01-01` is string-identical to YEAR anchor).
+
+### 5 AUDIT TRAPS replicated from L3.5b (all browser-verified)
+1. **3 drift-check sites** scope-aware for YEAR (chat.service ×2 + chat-stream ×1) — else `CONTEXT_VERSION_DRIFTED` on first message (the L3.5b-F bug). §C verified zero drift.
+2. **Decoupled constants** — stale-check compares against ENGINE-side `.year` (v1.1.0), NOT chat-side `FORTUNE_YEAR`. §I verified no «Stale» log.
+3. **Scope filter** on Jan-1 degenerate anchor (DAY/MONTH/YEAR all = `2026-01-01`). §D verified YEAR query returns only YEAR, no leak.
+4. **Byte-identity** — YEAR uses NEW keys; DAY's legacy `fort=v1.1.1` untouched. §H verified DB: DAY=`fort=v1.1.1`×4, MONTH=`fort-month=`, YEAR=`fort-year=`.
+5. **Injector gate** inside `if (readingType==='FORTUNE')`. §B verified AI quoted engine months verbatim.
+
+### Calibration anchor — Roger 2026 (丙午年)
+- yearGanZhi=丙午, yearTenGod=偏印, 大吉, energyScore=88, 用神=火; 4 dims ★4; 核心機會 9月(事業)/3月(財運)/5月(健康) 大吉, 風險 1月/2月/10月 凶中有吉; luck 運勢整理法/社交磁場法/養生調息法; pivot hint «丙午年（大吉，88分）».
+- YEAR chat session stamp: `contextVersion=v1.0.0`, `…|fort-year=v1.1.0`, anchor `2026-01-01`.
+- Laopo 用神=水→北方 (vs Roger 火→南方) — per-chart dispatch verified §F.
+
+### Tests: engine 24 pytest (10 YEAR) / API 373 jest (105 FORTUNE incl. 10 YEAR + 5 prompts/builder) / web 125 RTL / tsc 0-new-errors. Live browser §A–§M ALL PASS (the injector→AI anti-hallucination + Y-2 hybrid cite-year-first both confirmed).
+
+### Deploy notes (operator)
+- Version bumps are ADDITIVE (NEW `FORTUNE_YEAR`/`pa-fort-year=` keys) — zero blast radius on existing DAY/MONTH chat sessions (active-scope-only emission). NO engine version bump (reuses `FORTUNE_YEARLY_PRE_ANALYSIS_VERSION=v1.1.0`). NO schema migration (only the seed).
+- `prisma migrate deploy` (applies the seed) → `redis-cli INCR 'chat-sample-questions:version'` (raw-SQL gotcha) → scoped `redis-cli --scan --pattern "chat-context-fortune:*:YEAR:*" | xargs redis-cli DEL`.
+
+
+---
+
+## A2 Layer 4 ship-gate — CLEARED 2026-05-30 (fortune AI narrative quality)
+
+The final fortune ship-gate: generate REAL AI narratives across a diversity matrix → 3 parallel Bazi-master grader agents (doctrine / hallucination / framing-safety) read + judge each vs the engine ground-truth. Catches the confident-but-WRONG answer that regex validators (Layers 1-3) + jest + browser tests all pass over.
+
+### Sample
+20 narratives: **3 charts** (Roger 用神火/中和, Laopo 用神水/傷官見官 edge, Jenna 2021-child = distinct chart) × **3 scopes** (DAY/MONTH/YEAR) × **8 outcome labels** (大吉/吉/吉中有凶/平/凶中有吉/小凶/凶/大凶 — incl. the hard edge cases where AI drifts). Generated via the real authed endpoints (persist to `DailyFortuneSnapshot`), dumped from DB for grading.
+
+### Result — 2 real bugs caught (both MONTH-scope), then fixed
+- **Grader B (hallucination): caught MONTH/YEAR narratives fabricating named 吉食/食材** (黑豆/銀耳/梨) in health sections — MONTH/YEAR scopes carry NO `folkContent`, so any named food is invented. The AI was rationalizing around the existing «no 吉食» clause by reframing foods as «養生建議».
+- **Grader A (doctrine): caught a 五行生剋 slip** (Jenna 己土 DM — 寅木 mislabeled 財星; 木剋土 → 寅木 is 官殺).
+- **Grader C (framing/safety): 20/20 clean** — zero banned absolute language, zero DM-drift, zero flow-level 用神 reassignment; 大凶/凶 days all narrated constructively (not doom-mongering).
+
+### The fix (commit — same as this section's deploy)
+`apps/api/src/ai/prompts.ts`: strengthened MONTHLY no-food clause to forbid 養生/飲食-framed specific 食材 (closes the rationalization loophole) + added the equivalent clause to the YEARLY template (it had none). Bumped `FORTUNE_PROMPT_VERSIONS.month` v1.1.0→v1.2.0 + `.year` v1.1.0→v1.2.0 (invalidates cached narratives).
+
+### Re-grade after fix — CLEARED
+Regenerated the affected MONTH narratives against v1.2.0 → **Grader B 4/4 PASS** (food fabrication resolved) + **Grader A 4/4 PASS** (寅木 doctrine slip resolved on regen too). Fortune AI narration is ship-quality across DAY/MONTH/YEAR.
+
+### Deploy note
+`FORTUNE_PROMPT_VERSIONS.month`/`.year` → v1.2.0 are NARRATION-PROMPT-only bumps (no engine version, no chat version, no schema change). On deploy: `redis-cli --scan --pattern "fortune:monthly:*" | xargs redis-cli DEL` + same for `fortune:yearly:*` (cached narratives regen on next fetch with the no-food prompt).
+
+### Residual / follow-ups (not blocking)
+- The A2 sample had 3 empty/pre-existing rows (engine-only, no prose) — a fully-rigorous future run would regenerate those too. Substantive coverage (all real-prose rows passing) is strong enough to call narration ship-quality.
+- **Yearly calibration corpus** (`yearly_label_corpus.csv` + pytest gate) still deferred — DAY+MONTH have label-agreement corpora; YEAR doesn't. Separate Phase 3.x task.
+
+---
+
+## Yearly calibration corpus — SHIPPED 2026-05-30 (Phase 3.x follow-up)
+
+Closes the YEAR gap: DAY (Phase 1.5.z, 60 rows) + MONTH (Phase 2.x.1, 24 rows) had label-agreement corpora; YEAR didn't. Now the year-level 吉凶 aggregation has a regression net.
+
+**What it is**: a frozen CSV of engine-vs-expert label agreement + a pytest gate. NOT the A2 gate (that grades AI *prose*) — this grades the *engine's 9-label verdict*.
+
+**Corpus**: `tests/validation/yearly_label_corpus.csv` — 21 rows = 3 charts (roger 用神火/中和, laopo 用神水/偏弱, jenna 2021-child 用神水) × 7 flow years 2024-2030. Sweeps 用神-favorable years (丙午/丁未 for roger) AND 用神-adverse (庚戌/戊申) so the verdict swings 大吉↔大凶 across the range. Engine spread: 凶×5/吉×5/平×5/大凶×4/大吉×2.
+
+**Tooling** (mirrors monthly 1:1): `build_yearly_label_corpus.py` (engine populator, idempotent, preserves expert cols) + `populate_yearly_label_corpus.py` (grading merger) + `run_yearly_label_validation.py` (strict + relaxed gate harness, 9-label ladder within-N-step) + `test_yearly_label_corpus_regression.py` (pytest hook, `RELAXED_GATE_PCT = 55.0`).
+
+**Baseline (2026-05-30, first cycle, Bazi-master sub-agent graded all 21)**:
+- STRICT 33.3% (6/18 exact, 3 doctrinal-splits excluded)
+- RELAXED 61.9% (13/21 within 1 ladder step) — gate locked at 55% (~7pp headroom)
+
+**⚠️ Engine bias finding** (the WHOLE POINT of building it — caught a real, documented limitation): YEAR `auspiciousness` derives from `flowYear.auspiciousness` (annual pipeline). The grader found the engine's sign/DIRECTION is unreliable — it anchors on 流年天干 十神 THEME polarity (官殺→凶, 比劫/食傷→吉) rather than the doctrinally-primary 流年干支-vs-用神 五行 ALIGNMENT. For roger (用神火) it INVERTS 木火 years (scored 乙巳/甲辰 凶, but 木生火用神 → should be 吉) vs 金 years (scored 戊申/己酉 吉, but 金洩火克木 → adverse). The two 水-用神 charts get over-harsh 大凶 on 火 years where 凶中有吉 is correct. Magnitude ladder tracks OK (roger 丙午/丁未=大吉 ✓, laopo 庚戌=凶 ✓); direction drifts on 8/21 rows. → **Phase 3.x.2 engine-tuning candidate** (yearly equivalent of daily Option 2.5 / monthly 平-bias refinement): re-weight 流年 scoring toward 用神 五行 alignment over 十神 theme. After tuning, bump gate 55→70→80.
+
+**No deploy impact** — test infrastructure only (Python/pytest), never reaches prod.
+
+---
+
+## AI-failure resilience (LKG) + 年運 share PNG — SHIPPED 2026-05-30 (commit 8af719d, NOT in main)
+
+Two fortune robustness items, one commit:
+
+1. **Last-Known-Good (LKG) narrative preserve + serve** (3 scopes day/month/year). When an AI narration fails (Anthropic error / truncation / refusal), the persist path now PRESERVES the prior good `aiNarrativeJson` (doesn't overwrite with null) AND the stream path SERVES that LKG narrative instead of the «暫不可用» fallback when one exists. 3 NarrativeCards got honest fallback copy; the LKG-success path SUPPRESSES the stream-error banner (the user sees a real reading, not an error). Files: `fortune-snapshot.helpers.ts` (persist preserve) + `fortune-stream.service.ts` ×3 scopes (serve) + `NarrativeCard`/`MonthlyNarrativeCard`/`YearlyNarrativeCard` (copy).
+2. **年運 share PNG** — `ShareableYearlyFortuneCard.tsx` (1200×1600): brand → 丙午年·偏印 band → ring → 4-dim ★ → 核心風險&機會 → luck methods → QR. Wired into `YearlyFortuneView` via the shared `ShareFortuneButton` ref (gated on success). The **monthly** share PNG was still missing → filled by Tier B below.
+
+---
+
+## Tier A / B / C — SHIPPED 2026-06-02 (commits 828e1f7 + 8a00b7c + 0207466, NOT in main)
+
+The "Tier" roster (from a triage that split the old "L5 continuous safeguards" + the deferral list — **NOT in any plan file**, so don't grep for it): **Tier A** = cheap Sentry canary (DONE) · **Tier B** = monthly share PNG + YEAR chat v1 deferrals (DONE) · **Tier C** = cross-sell ownership awareness (DONE) · **Tier D** = monthly sub-agent drift-report cron (DEFERRED until production scale — scheduled-job + sub-agent infra with recurring cost; worthless at worktree/pre-launch scale). There is **no Tier A/D header in the plans** and no Tier beyond D.
+
+### Tier A — L5 energy/label divergence Sentry canary (commit 828e1f7)
+`FortuneSnapshotHelpers.checkEnergyLabelDivergence(scope, energyScore, label)` — telemetry-only canary: fires `Sentry.captureMessage` when `|energyScore − LABEL_TO_ENERGY_MIDPOINT[label]| > 10` (`ENERGY_LABEL_DIVERGENCE_THRESHOLD`) or the label is unknown. Catches engine label↔score desync in prod. Never throws / never blocks. Wired at all 3 engine-fetch boundaries: `fortune-snapshot.helpers.ts:389` (day) / `:901` (month) / `:1234` (year) — covers streaming + non-streaming on cache miss. `LABEL_TO_ENERGY_MIDPOINT` MIRRORS `fortune_constants.py::LABEL_TO_ENERGY_SCORE` (9-label, keep in sync). Tests: `fortune-snapshot.helpers.spec.ts` (Sentry mocked). **No deploy action** (telemetry-only; Sentry no-ops without DSN). This is the cheap half of old "L5 continuous safeguards"; Tier D (drift cron) is the expensive half, deferred.
+
+### Tier B — monthly share PNG + YEAR per-dim chat cards + yearly_dim questions (commit 8a00b7c)
+- **B1** `ShareableMonthlyFortuneCard.tsx` + `.module.css` + spec — 1200×1600 PNG mirroring the YEAR card: brand → month band (derived by splitting `data.month` `YYYY-MM`, since `MonthlyFortuneResponse` has NO top-level `year`) → inline 360px ring → tier label → headline (reuses `monthlyFriendlyExplanation`) → 4-dim bars → 上半月/下半月 summary from `intraMonthBreakdown.buckets` (null-guarded; omitted when absent) → QR. **NO folk grid** (folk = DAY-only). Gated on `MonthlyFortuneView` success via shared `ShareFortuneButton` ref.
+- **B2a** `InlineAskCard.tsx` gained optional `fortuneScope`; `YearlyNarrativeCard.tsx` gained `renderAfterDimension` slot (3-state guard: visible when `text || narrative`, hidden only during streaming skeleton — NOT daily's 2-state). `page.tsx` maps career/finance/romance/health → `yearly_*` keys + threads onAsk/onOpenChat into `YearlyFortuneView`.
+- **B2b** migration `20260531120000_seed_yearly_dim_sample_questions` (~3×4 rows, `fortune_scope=YEAR`, `section_key=yearly_*`; NO `yearly_travel`) + 4 `yearly_*` keys added to `CHAT_SECTION_KEYS_BY_READING_TYPE_LOCAL.FORTUNE`.
+- **B2c** Y-3 pushback few-shot appended to `CHAT_FORTUNE_YEAR_REFUSE_FEW_SHOTS` — **rides in the Tier C commit** (shares `prompts.ts`).
+- **~~Intentional asymmetry~~ RESOLVED (2026-06-06)**: MONTH now ALSO has per-dim ask cards — parity with YEAR achieved. See «MONTH per-dim ask cards» section below.
+
+### Tier C — cross-sell ownership reword + robust output safety-net (commit 0207466)
+When a chat refuse cross-sells a paid reading the user ALREADY owns, reword «go unlock 《X》» → «您已解鎖《X》，可在「我的解讀」中回顧…». **Ownership** = a `BaziReading` row exists for `(userId, birthProfileId, readingType)`; ANNUAL is **year-scoped** via `targetYear` (FORTUNE anchorYear = `fortuneAnchorDate.getUTCFullYear()`); COMPATIBILITY → always empty owned-set (v1.1 deferral).
+- **Prompt-level** (`prompts.ts::CHAT_CROSS_SELL_OWNED_LINES` + `buildChatV1SystemPromptForType(readingType, fortuneScope, ownedCrossSellTargets)`): a whole-prompt `replaceAll` swaps owned targets in the 跨閱讀引導 block AND the refuse few-shots (which hardcode the line + the AI anchors on it). `resolveOwnedCrossSellTargets` (chat-context.service) resolves the set from `ctx.birthProfileId` + anchorYear; threaded via `chat-prompt-builder` + `chat.service`/`chat-stream.service`.
+- **Output safety-net (the robust fix — the prompt-level replaceAll is EXACT-match; refuse few-shots/topic-scope PARAPHRASE the line in 8 variants → exact-match leaks)**: `ChatValidatorsService.rewriteOwnedCrossSell` + `postValidate(text, ctx, ownedCrossSellTargets?)` 3rd arg. Splits the AI output on `[。！？\n]` boundaries; rewrites any clause that names an OWNED reading 《X》 **AND** a go-unlock verb (`提供|獲取|(?<!已)解鎖` — the `(?<!已)` lookbehind excludes 已解鎖 for idempotency) into `CHAT_CROSS_SELL_OWNED_LINES[t]` (trailing 。 stripped, re-added by the captured delimiter → no `。。`). Wired at BOTH persist funnels: `chat.service.ts:864` (non-streaming) + `chat-stream.service.ts:627` (end-of-stream). **Browser-verified end-to-end** the previously-leaking case: profile `0586718e` (owns all 4 incl ANNUAL-2026), FORTUNE-YEAR 2026 chat, per-month question → response reworded to «您已解鎖《八字流年運勢》…» (was «提供 12 個月詳細預測» pre-fix). **Cache-safe** — cross-sell text is OUTSIDE `contextVersion` → no version bump / no `CONTEXT_VERSION_DRIFTED` / no Redis flush.
+- Tests: `prompts.crosssell.spec.ts` (16) + `chat-context.service.crosssell.spec.ts` (7) + `chat-validators.crosssell.spec.ts` (15: all 8 paraphrase variants + idempotency + no-double-period + unowned-untouched + empty-set/COMPAT no-op + verb-gate-protects-opener + neutral-mention-untouched + multi-clause) + updated `chat-service.spec.ts` (postValidate 3rd-arg = `expect.any(Set)`). tsc clean; full chat+crosssell+fortune sweep 269 green.
+
+### Deploy checklist (Tier A/B/C, when they reach main)
+1. `prisma migrate deploy` — applies `20260531120000_seed_yearly_dim_sample_questions` (B2b).
+2. **CRITICAL** raw-SQL seed gotcha: `redis-cli INCR 'chat-sample-questions:version'` (else the 12 yearly_* questions invisible for ≤5min).
+3. NO version bumps for Tier A/C (Tier A telemetry-only; Tier C cache-safe). Tier B B2b is the only DB change. (Year-share-PNG/LKG commit 8af719d already bumped `FORTUNE_PROMPT_VERSIONS.month/.year` → v1.2.0 per the A2-gate section — scoped `redis-cli --scan --pattern "fortune:monthly:*"|"fortune:yearly:*" | xargs redis-cli DEL`.)
+4. ~~NO chat-version bump~~ **CORRECTION (review fix)**: Tier B2c DID bump `CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE.YEAR` v1.0.0→v1.1.0 (Y-3 pushback few-shot). Flush stale YEAR chat-context: `redis-cli --scan --pattern "chat-context-fortune:*:YEAR:*" | xargs redis-cli DEL`. (Blast radius zero today — no prod YEAR sessions — but required for correctness on any future deploy after a YEAR session is cached.) Tier C cross-sell reword IS cache-safe (outside contextVersion).
+   - ⚠️ **Raw-SQL seed gotcha clarification** (applies to ALL seed migrations incl. the older `20260521…seed_fortune_sample_questions`, whose header comment wrongly says `FLUSHALL`): the scoped fix is `redis-cli INCR 'chat-sample-questions:version'`, NOT `FLUSHALL`. (The applied migration's comment is not edited — editing an applied migration trips Prisma's checksum drift check.)
+
+---
+
+## MONTH per-dim ask cards — parity with 年運 (SHIPPED 2026-06-06, committed)
+
+Closes the Tier-B2 «intentional asymmetry»: 月運 now has per-dimension «AI 命理師深入解答» InlineAskCards under each of the 4 dims (事業/財運/感情/健康), a 1:1 mirror of 年運 Tier B2a.
+
+**Changes (4 files, NO new migration)**:
+- `apps/web/app/components/fortune/MonthlyNarrativeCard.tsx` — `renderAfterDimension?: (dimKey: MonthlyDimKey) => React.ReactNode` prop + per-dim slot inside the dim `.map()` with the **3-state guard** (visible when `text || narrative`; `visibility:hidden` only during streaming skeleton — same as YEAR, since the card has the «本月此面向平穩» empty-state). `import * as React` for `React.ReactNode`.
+- `apps/web/app/reading/fortune/page.tsx` — `MONTHLY_DIM_TO_CHAT_SECTION` map (career→`monthly_career` … NO travel); `onAskFromCard`/`onOpenChatFromCard` on `MonthlyFortuneViewProps`, threaded mount→view→**success-state** `MonthlyNarrativeCard` (NOT the loading-skeleton instance); `renderAfterDimension` gated `onAskFromCard ? … : undefined` with `fortuneScope="MONTH"` on the InlineAskCard.
+- `apps/api/src/chat/chat-sample-questions.service.ts` — 4 `monthly_*` keys added to `CHAT_SECTION_KEYS_BY_READING_TYPE_LOCAL.FORTUNE` (gates ADMIN writes only; the public read path was always reachable).
+- `apps/web/test/monthly-narrative-card-ask-cards.spec.tsx` — 4 RTL tests (slot count, 3-state guard incl. 平穩-empty-state visibility, hybrid-streaming hide, no-slot-when-omitted).
+
+**NO new migration**: the `monthly_*` per-dim questions (5/dim) were ALREADY seeded by Phase 2 L6 migration `20260528082123_seed_monthly_fortune_sample_questions` (seeded ahead of the frontend wiring). A redundant seed migration was written then **fully reverted** (rows + `_prisma_migrations` row + folder; `prisma migrate status` clean). The only real gaps were the frontend slot + the admin whitelist.
+
+**Verification**: independent subagent line audit clean (byte-comparable to YEAR); RTL 21/21; web+API tsc clean; **live browser end-to-end** (signed-in Roger, 月運 2026-05): 4 per-dim cards render with 本月-scoped questions → tap pill → MONTH ChatDrawer opens + composer populated (not auto-sent) → send → fresh MONTH session (`fortune_scope=MONTH`) with USER msg `section_context_hint=monthly_finance` + MONTH-grounded AI reply (癸巳月 / 財運 dim 55分). Console clean. (Stale L3.5b test session `54accb06` was deleted during testing to clear a `CONTEXT_VERSION_DRIFTED` on the old session — a pre-existing chat behavior, not this change.)
+
+**Deploy**: no new migration, no version bump, no cache invalidation. Frontend recompile + NestJS rebuild (whitelist) only. The L6-seeded `monthly_*` questions already exist in any DB that ran the Phase 2 migrations.
+
+---
+
+## Session state snapshot 2026-06-02 (read before next compact)
+
+**Branch** `claude/elastic-pascal-cc5187` (worktree) is **44 commits ahead of main** — the ENTIRE fortune feature (Phase 1 daily already in main via PR #46; Phases 1.5/1.5.z/Option-2.5/Fortune-streaming/Phase-2-月運/Phase-2.x/2.x.1/Phase-3-年運/3.1/L3.5b/L3.5c + corpora + A2 gate + LKG + Tier A/B/C) lives UNMERGED on this branch. Working tree CLEAN.
+
+**The 3 fortune scopes (日/月/年) are all feature-complete**: page render + streaming + chat (DAY+MONTH+YEAR) + share PNG (all 3) + sample questions + calibration corpora + A2 narration gate + AI-failure LKG + cross-sell ownership reword.
+
+**What's left (priority order)**:
+1. **Phase Auth — Global Signed-Out Handler** — PLAN WRITTEN + staff-reviewed (in `ok-next-big-feature-merry-cake.md`, search «Phase Auth»), NOT built. `apps/web/app/components/SignedOutRedirect.tsx` + `apps/web/app/lib/auth-redirect.ts` MISSING. Full-lockdown auto-redirect-to-sign-in (3 layers: client watcher + middleware lockdown + shared 401 handler). Supersedes pending task #60 (empty signed-out `/reading/fortune`). ⚠️ MUST keep `/reading(.*)` middleware-PUBLIC for the E2E `__e2e_auth=1` cookie-bypass family (compatibility + career-reading specs); guard real signed-out users client-side. This is the headline next feature.
+2. **Tier D** — monthly sub-agent drift-report cron. DEFERRED until production scale (recurring sub-agent cost; nothing to sample pre-launch). Its own plan later.
+3. ~~**Phase 3.x.2** — yearly engine 用神-direction tuning~~ — ⛔ **TRIED + ABANDONED 2026-06-06** (regressed the yearly corpus 61.9%→52.4%; premise false — `effectiveFavorableGods` is already DM-aware via 病藥. See the ⛔ «Phase 3.x.2» section above. No simple element-mapping fix beats baseline.)
+4. ~~**MONTH per-dim ask cards**~~ — ✅ **DONE 2026-06-06** (parity with YEAR; see «MONTH per-dim ask cards» section above).
+5. **Mobile chat** — deliberately web-only.
+6. **Phase 12i engine-doctrine backlog** (chart_doctrine.py extraction, etc. — long-standing).
+
+**Calibration anchors** (regression-pin any fortune change): Roger `1987-09-06 16:11 吉打 male` = 丁卯/戊申/戊午/庚申, DM=戊 中和, 用神=火→南方, chartHash `f9df0af5f0d5d69083aa53bf4b8e1480`, user `3c0c5b50-0b8d-44ca-820b-df10b73d969c` (PRO), primary profile `a212540f-e84b-42b4-aaf9-2dad96990de3` (owns LIFETIME only), profile `0586718e-9541-4e51-aee0-93a12f1f9d2b` (owns all 4 incl ANNUAL-2026 — the Tier C all-owned anchor). Roger 2026 年運 = 丙午/偏印/大吉/88; 核心機會 9月·3月·5月, 核心風險 1月·2月·10月; luck methods 運勢整理法/社交磁場法/養生調息法. Laopo `1987-01-25 12:00 台北 female` = 丙寅/辛丑/甲戌/壬申, DM=甲 弱, 用神=水→北方.
+
+**Key gotchas carried forward**: (a) `nest`/`npx` binary often fails as `../../node_modules/.bin/nest` from worktree → use absolute `node /Users/roger/Documents/Python/Bazi_Plotting/node_modules/.bin/nest build`. (b) Browser on `127.0.0.1:3000` (HSTS dodge) → Clerk `__session` is httpOnly, get token via `window.Clerk.session.getToken()` (async). (c) After editing chat/fortune service files, REBUILD NestJS + restart (`node --import tsx dist/main.js` with `ANTHROPIC_API_KEY` exported) — the running PID has stale code. (d) Commit/push ONLY when user explicitly asks; user paces tightly.
+
+---
+
+## ⛔ Phase 3.x.2 — 流年/流月 用神-Direction Fix — TRIED + ABANDONED (2026-06-06, fully reverted)
+
+**Do NOT re-attempt this naively.** A full implementation was built, empirically validated, found to REGRESS, and fully reverted (working tree back to baseline; nothing committed). Detailed record: `/Users/roger/.claude/plans/phase-3x2-flow-direction-research-results.md §5` + the «Phase 3.x.2» section of `ok-next-big-feature-merry-cake.md` (status: ABANDONED-ON-EMPIRICAL-REGRESSION).
+
+**The hypothesis** (from the yearly-corpus regression docstring): the engine scores 流年/流月 吉凶 by the flow element's 十神 THEME (官殺→凶, 比劫/食傷→吉) instead of the "doctrinally-primary 流年干支-vs-用神 五行 alignment", inverting the sign on ~8 of 21 yearly rows (e.g. for 用神=火, a 木 year 木生火 scored 凶 but "should be" 吉). Plan proposed an element-direct assessor keyed on the chart's 用神/喜神/忌神/仇神/閒神 + a 干支 combine + a 忌/仇 magnitude flip (任鐵樵: 忌神=大凶 worst, 仇神=凶 lesser). It cleared a 4-pass staff-engineer review (clean APPROVE) and a 2-agent Bazi-master research lock — **the empirical test is what caught it, not the reviews.**
+
+**Why it FAILED (the load-bearing lesson)**: the premise was false. The engine's `effectiveFavorableGods` uses **病藥 (illness-medicine, DM-aware) role assignment** — e.g. Roger (DM=戊, 用神=火) gets `{用神:火, 喜神:土, 閒神:金, 忌神:木, 仇神:水}`. **木 is correctly tagged 忌神** (it's the 官殺 attacking the DM) *even though 木生火 feeds the 用神*. The legacy 十神-detour ALREADY reads these chart roles, so element-direct ("view A") yields the SAME direction — it does NOT resolve the "flipped" rows. Pure 用神-五行 alignment ("view B" — classify elements only by 五行 relationship to the 用神 element) is **DM-blind**: it can't see that 比劫/印 years rescue a weak DM, which the expert grades weigh heavily (e.g. laopo@2024 甲辰 graded 吉 because 甲=比劫 helps the weak 甲 DM). Empirical yearly-corpus relaxed agreement: **baseline (legacy) 61.9% → view A 52.4% → view B 28.6%.** The engine was already doing it the MORE chart-aware way; the "8 flipped rows" are mostly doctrinal-splits / full-chart-analysis cases, not a sign-inversion bug.
+
+**Conclusion**: there is NO simple element-mapping fix that beats the 61.9% baseline. A real improvement would need a DM-strength-aware, chart-structural flow model (far beyond element mapping; uncertain payoff). The existing 日運/月運/年運 + paid ANNUAL are at best-available quality. **If anyone reopens this**: the bottleneck is chart-level 用神 determination + DM-strength weighting, NOT the flow scorer. Validate ANY candidate against `tests/validation/run_yearly_label_validation.py` (+ daily/monthly) BEFORE committing — the corpus catches the regression in seconds.

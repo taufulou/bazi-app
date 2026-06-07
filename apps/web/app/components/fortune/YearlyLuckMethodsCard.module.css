@@ -1,0 +1,124 @@
+/* YearlyLuckMethodsCard — Phase 3 年運 改運建議&好運加持.
+ * Method cards + 民俗 badge (mirrors daily FolkContentCard badge). */
+
+.section {
+  padding: 18px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-warm);
+  border: 1px solid var(--border-light);
+}
+
+.header {
+  margin-bottom: 14px;
+}
+
+.title {
+  font-family: var(--font-heading);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-accent);
+  margin: 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--color-red);
+}
+
+.subtitle {
+  margin: 6px 0 0 12px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+/* ============================================================ */
+/* Card grid                                                    */
+/* ============================================================ */
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+@media (min-width: 640px) {
+  .grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.card {
+  padding: 14px 16px;
+  background: rgba(212, 160, 23, 0.04);
+  border-radius: var(--radius-md, 12px);
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--color-gold, #D4A017);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cardTitle {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* 民俗 disclosure badge — mirrors daily page.module.css .folkBadge.
+   Contrast: #8b6f47 on gold-tint bg ≈ 4.8:1 (passes WCAG AA small text). */
+.folkBadge {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 600;
+  color: #8b6f47;
+  background: rgba(212, 160, 23, 0.12);
+  border: 1px solid rgba(212, 160, 23, 0.25);
+  border-radius: 6px;
+  vertical-align: middle;
+  cursor: help;
+}
+
+.cardBody {
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.cardMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cardMetaChip {
+  font-size: 11.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(226, 61, 40, 0.07);
+  border: 1px solid rgba(226, 61, 40, 0.15);
+  color: var(--text-accent);
+}
+
+/* ============================================================ */
+/* Disclaimer                                                   */
+/* ============================================================ */
+
+.disclaimer {
+  margin: 14px 4px 0;
+  padding: 10px 14px;
+  background: rgba(212, 160, 23, 0.05);
+  border-left: 3px solid var(--color-gold, #D4A017);
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}

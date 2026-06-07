@@ -12,11 +12,13 @@ import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { ChatRole } from '@prisma/client';
+import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import {
   ChatPaymentService,
   CHAT_SESSION_HARD_CAP_MESSAGES,
+  CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT,
 } from './chat-payment.service';
 import { ChatContextService } from './chat-context.service';
 import { ChatValidatorsService } from './chat-validators.service';
@@ -54,7 +56,20 @@ const STREAM_LOCK_TTL_SECONDS = 150;
 type StreamEvent =
   | { type: 'session_start'; messageId: string }
   | { type: 'delta'; text: string }
-  | { type: 'done'; messageId: string; messageCount: number; messagesRemaining: number; usage: TokenUsage }
+  | {
+      type: 'done';
+      messageId: string;
+      messageCount: number;
+      messagesRemaining: number;
+      /**
+       * Phase Fortune+ — current value of `ChatSession.consecutiveRefuses`
+       * after this message is persisted. Surfaced so the frontend can fire
+       * the soft-warning dialog the moment refunding stops (cost-defense
+       * policy, see CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD).
+       */
+      consecutiveRefuses: number;
+      usage: TokenUsage;
+    }
   | { type: 'error'; code: string; message: string; refunded?: boolean; refundMethod?: string | null };
 
 interface TokenUsage {
@@ -188,7 +203,18 @@ export class ChatStreamService {
     // Mid-session version drift check (Layer 4) — Phase 2 (round-2 NEW#2)
     // pass session.readingType so a per-type version bump invalidates only
     // that type's sessions (not all chats globally).
-    const currentVersions = this.contextService.getCurrentSnapshotVersions(session.readingType);
+    //
+    // Phase 2.x L3.5b — FORTUNE sessions must use scope-aware version lookup
+    // (mirror chat.service::createSession line 245). Without this, FORTUNE
+    // MONTH sessions created with `fort-month=` version key are compared
+    // against the legacy `fort=` key and ALWAYS report drift → every MONTH
+    // chat first-message returns CONTEXT_VERSION_DRIFTED. Symmetric for DAY.
+    const currentVersions =
+      session.readingType === 'FORTUNE' && session.fortuneScope
+        ? this.contextService.getCurrentSnapshotVersionsForFortune(
+            session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR',
+          )
+        : this.contextService.getCurrentSnapshotVersions(session.readingType);
     if (
       session.contextVersion !== currentVersions.contextVersion ||
       session.preAnalysisVersion !== currentVersions.preAnalysisVersion
@@ -247,6 +273,14 @@ export class ChatStreamService {
       firstMessageAt: Date | null;
       readingId: string | null;
       comparisonId: string | null; // Phase 3 — COMPATIBILITY sessions key on this instead
+      // Phase Fortune — FORTUNE sessions reference a BirthProfile +
+      // anchorDate triplet instead of readingId/comparisonId. The
+      // controller passes these through from the session record.
+      profileId: string | null;
+      fortuneAnchorDate: Date | null;
+      // Phase 2.x L3.5b — fortuneScope drives DAY vs MONTH chat-context
+      // dispatch + scope-specific refuse template / few-shots routing.
+      fortuneScope: import('@prisma/client').FortuneScope | null;
       readingType: import('@prisma/client').ReadingType;
       creditExtensions: number;
       paidMessagesUsed: number;
@@ -345,6 +379,15 @@ export class ChatStreamService {
         messageId: refusalMsg.id,
         messageCount: refreshed.messageCount,
         messagesRemaining: remainingFree + remainingPaid,
+        // Pre-flight refusals deliberately do NOT increment `consecutiveRefuses`.
+        // Rationale: pre-flight rejections (e.g., refuse-list match for lottery
+        // queries) incur ZERO Anthropic API cost, so the cost-defense policy
+        // (CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT) doesn't apply. Surface the
+        // current counter value unchanged so the FE soft-warning dialog fires
+        // ONLY on AI-generated topic-boundary refuses (where each refuse
+        // actually costs us API spend). `consecutiveRefuses` is non-nullable
+        // (Int @default(0) in schema) — no null-guard needed.
+        consecutiveRefuses: refreshed.consecutiveRefuses,
         usage: { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 },
       });
       response.end();
@@ -360,6 +403,8 @@ export class ChatStreamService {
       // Phase 2 — pass session.readingType for per-type crossSellPivotHint.
       // Phase 3 — branch on subject type: COMPATIBILITY sessions use
       // comparisonId path (dual-chart slim); all others use readingId.
+      // Phase Fortune — third subject path: FORTUNE sessions use
+      // profileId + anchorDate (no readingId / comparisonId).
       if (session.comparisonId) {
         chatContext = await this.contextService.getChatContextForComparison(
           session.comparisonId,
@@ -370,9 +415,25 @@ export class ChatStreamService {
           session.readingId,
           session.readingType,
         );
+      } else if (
+        session.readingType === 'FORTUNE' &&
+        session.profileId &&
+        session.fortuneAnchorDate
+      ) {
+        // Phase 2.x L3.5b — pass fortuneScope so engine dispatches DAY vs MONTH
+        // chat-context. Default 'DAY' for sessions with null scope (pre-L3.5b
+        // back-compat).
+        chatContext = await this.contextService.getChatContextForFortune(
+          session.profileId,
+          session.fortuneAnchorDate.toISOString().slice(0, 10),
+          session.readingType,
+          (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? 'DAY',
+        );
       } else {
         // CHECK constraint should prevent this. Defensive guard.
-        throw new Error(`Session ${sessionId} has neither readingId nor comparisonId`);
+        throw new Error(
+          `Session ${sessionId} has no resolvable subject (readingId / comparisonId / fortune triplet all missing)`,
+        );
       }
     } catch (err) {
       await this._refundOnError(response, sessionId, userId, userMessageId,
@@ -407,6 +468,26 @@ export class ChatStreamService {
     const shouldInjectRegrounding =
       session.messageCount + 1 >= CHAT_REGROUNDING_TRIGGER_TURN_LOCAL;
 
+    // Tier C — cross-sell targets the user already owns (fresh per message;
+    // outside the cached chat-context blob). Never block a stream on the lookup
+    // → empty set degrades to original "go unlock" wording. anchorYear: FORTUNE
+    // → anchor date's year; else current. Symmetric with chat.service.ts.
+    let ownedCrossSellTargets = new Set<string>();
+    try {
+      const anchorYear =
+        session.readingType === 'FORTUNE' && session.fortuneAnchorDate
+          ? session.fortuneAnchorDate.getUTCFullYear()
+          : new Date().getUTCFullYear();
+      ownedCrossSellTargets = await this.contextService.resolveOwnedCrossSellTargets({
+        userId, // _streamWithLock receives userId as a separate param (session subset omits it)
+        readingType: session.readingType,
+        birthProfileId: chatContext.birthProfileId,
+        anchorYear,
+      });
+    } catch (err) {
+      this.logger.warn(`Tier C ownership lookup failed (streaming): ${err}`);
+    }
+
     const { systemPromptText, messages } = buildPrompt({
       chatContext,
       recentMessages,
@@ -416,8 +497,12 @@ export class ChatStreamService {
       // BaziReading.readingType). Drives topic-scope clause + refuse
       // template + readingType-specific refuse few-shots.
       readingType: session.readingType,
+      // Phase 2.x L3.5b — for FORTUNE, dispatch refuse template + few-shots
+      // by scope. DAY → 《八字日運》 + F-1/F-2/F-3; MONTH → 《八字月運》 + M-1/M-2.
+      fortuneScope: (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? undefined,
       sectionContextHint,
       shouldInjectRegrounding,
+      ownedCrossSellTargets,
     });
 
     // Phase 1.6 audit Bug A — use AbortController so watchdog actually
@@ -539,7 +624,11 @@ export class ChatStreamService {
     // Post-validate, persist assistant message, emit done
     // ============================================================
 
-    const validation = this.validators.postValidate(assistantBuffer, chatContext);
+    const validation = this.validators.postValidate(
+      assistantBuffer,
+      chatContext,
+      ownedCrossSellTargets, // Tier C output safety-net (owned-reword)
+    );
 
     // If validator changed the text, emit a final delta with the diff
     // (frontend may show the corrected version)
@@ -565,52 +654,70 @@ export class ChatStreamService {
     // ^-anchored regex). The helper looks at the first 200 chars.
     const isRefuse = isTopicBoundaryRefuse(validation.text);
 
-    const assistantMessage = await this.prisma.$transaction(async (tx) => {
-      const am = await tx.chatMessage.create({
-        data: {
-          sessionId,
-          role: ChatRole.ASSISTANT,
-          content: validation.text,
-          tokensInput: usage.inputTokens,
-          tokensOutput: usage.outputTokens,
-          cacheReadTokens: usage.cacheReadTokens,
-          cacheCreationTokens: usage.cacheCreationTokens,
-          model: this.model,
-          bannedPhraseStripped: validation.bannedPhraseStripped,
-          citationAutoPrepended: validation.citationAutoPrepended,
-          isRefuse, // Phase 2 — set in the same insert, no second UPDATE.
-          paymentMethod: null,
-        },
-      });
-      const updated = await tx.chatSession.update({
-        where: { id: sessionId },
-        data: {
-          messageCount: { increment: 1 },
-          // Phase 2 (round-3 NEW#8) — atomic Prisma `{ increment: 1 }` /
-          // `{ set: 0 }` operators. Avoids read-modify-write race when two
-          // streams interleave for the same session (rare but possible on
-          // user retry).
-          consecutiveRefuses: isRefuse ? { increment: 1 } : { set: 0 },
-        },
-      });
-      // Auto-end at hard cap
-      if (updated.messageCount >= CHAT_SESSION_HARD_CAP_MESSAGES) {
-        await tx.chatSession.update({
-          where: { id: sessionId },
-          data: { endedAt: new Date() },
+    const { assistantMessage, sessionAfter } = await this.prisma.$transaction(
+      async (tx) => {
+        const am = await tx.chatMessage.create({
+          data: {
+            sessionId,
+            role: ChatRole.ASSISTANT,
+            content: validation.text,
+            tokensInput: usage.inputTokens,
+            tokensOutput: usage.outputTokens,
+            cacheReadTokens: usage.cacheReadTokens,
+            cacheCreationTokens: usage.cacheCreationTokens,
+            model: this.model,
+            bannedPhraseStripped: validation.bannedPhraseStripped,
+            citationAutoPrepended: validation.citationAutoPrepended,
+            isRefuse, // Phase 2 — set in the same insert, no second UPDATE.
+            paymentMethod: null,
+          },
         });
-      }
-      return am;
-    });
+        const updated = await tx.chatSession.update({
+          where: { id: sessionId },
+          data: {
+            messageCount: { increment: 1 },
+            // Phase 2 (round-3 NEW#8) — atomic Prisma `{ increment: 1 }` /
+            // `{ set: 0 }` operators. Avoids read-modify-write race when two
+            // streams interleave for the same session (rare but possible on
+            // user retry).
+            consecutiveRefuses: isRefuse ? { increment: 1 } : { set: 0 },
+          },
+        });
+        // Auto-end at hard cap
+        if (updated.messageCount >= CHAT_SESSION_HARD_CAP_MESSAGES) {
+          await tx.chatSession.update({
+            where: { id: sessionId },
+            data: { endedAt: new Date() },
+          });
+        }
+        return { assistantMessage: am, sessionAfter: updated };
+      },
+    );
 
-    // Phase 2 — refund the user's upfront deduction for refuse messages.
-    // The deduction at chat-stream.service.ts:252 happens BEFORE the AI
+    // Phase 2 — refund the user's upfront deduction for refuse messages,
+    // capped at CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT consecutive refuses.
+    // The deduction at chat-stream.service.ts:~252 happens BEFORE the AI
     // runs (we don't yet know the response will be a refuse). After the
     // assistant message is persisted, we know — undo the deduction via the
     // existing idempotent refundLastMessage helper. Reason: 'topic-boundary-refuse'
-    // for audit. Out-of-band so a refund failure doesn't break the user's
-    // chat experience (they got their refused-but-helpful response).
-    if (isRefuse) {
+    // for audit.
+    //
+    // Cost-defense policy (CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT = 2):
+    //  - 1st + 2nd consecutive refuses → refund (forgive occasional mistakes)
+    //  - 3rd consecutive refuse onward → NO refund (user pays for repeated
+    //    off-topic spam; aligns incentive + recovers Anthropic API cost)
+    // Counter `consecutiveRefuses` resets to 0 on any in-topic message
+    // (existing `{ set: 0 }` semantics in the same-tx update above).
+    //
+    // The post-update counter value is also returned to the frontend in the
+    // SSE done event so the soft-warning dialog can fire when the cap is hit.
+    //
+    // Out-of-band so a refund failure doesn't break the user's chat
+    // experience (they got their refused-but-helpful response).
+    // `consecutiveRefuses` is non-nullable (Int @default(0) in schema).
+    // We read the post-tx value directly — no null-guard needed.
+    const consecutiveRefuses = sessionAfter.consecutiveRefuses;
+    if (isRefuse && consecutiveRefuses <= CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT) {
       try {
         await this.paymentService.refundLastMessage(
           userMessageId,
@@ -619,13 +726,33 @@ export class ChatStreamService {
           'topic-boundary-refuse',
         );
         this.logger.log(
-          `Refunded refuse message ${userMessageId} (session ${sessionId})`,
+          `Refunded refuse message ${userMessageId} (session ${sessionId}, consecutiveRefuses=${consecutiveRefuses})`,
         );
       } catch (err) {
         this.logger.warn(
           `Failed to refund refuse message ${userMessageId}: ${err}`,
         );
       }
+    } else if (isRefuse) {
+      this.logger.log(
+        `Suppressed refund for refuse message ${userMessageId} (session ${sessionId}, consecutiveRefuses=${consecutiveRefuses} > limit ${CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT})`,
+      );
+      // Sentry breadcrumb so product can track refund-cap fire frequency
+      // (spam-pattern detection) without scraping server logs. Info-level —
+      // not an error (this is by-design cost-defense). `level: 'info'`
+      // shows on the breadcrumb timeline if a subsequent ERROR is captured
+      // in the same session.
+      Sentry.addBreadcrumb({
+        category: 'chat.refund_cap',
+        level: 'info',
+        message: `Refund cap fired (consecutiveRefuses=${consecutiveRefuses})`,
+        data: {
+          sessionId,
+          userId,
+          consecutiveRefuses,
+          limit: CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT,
+        },
+      });
     }
 
     // LLM-as-judge async — fire and forget
@@ -664,6 +791,8 @@ export class ChatStreamService {
       messageId: assistantMessage.id,
       messageCount: refreshed.messageCount,
       messagesRemaining: remainingFree + remainingPaid,
+      // `consecutiveRefuses` is non-nullable (Int @default(0) in schema).
+      consecutiveRefuses: refreshed.consecutiveRefuses,
       usage,
     });
     response.end();

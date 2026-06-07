@@ -21,6 +21,7 @@ import {
   NEAR_CAP_WARNING,
   HARD_CAP_REACHED,
   NEW_SESSION_LOSE_PAID,
+  REFUSE_LIMIT_REACHED,
   type ChatDialogKey,
   type DialogAction,
 } from './dialog-copy';
@@ -244,6 +245,24 @@ function renderDialog(
           <div className={styles.actions}>
             <ActionBtn label={c.secondary.label} sublabel={c.secondary.sublabel} onClick={() => onAction(c.secondary.action, key)} />
             <ActionBtn primary label={c.primary.label} sublabel={c.primary.sublabel} onClick={() => onAction(c.primary.action, key)} />
+          </div>
+        </>
+      );
+    }
+
+    case 'refuse_limit_reached': {
+      const c = REFUSE_LIMIT_REACHED;
+      return (
+        <>
+          <h3 id="chat-dialog-title" className={styles.title}>{c.title}</h3>
+          <div className={styles.warning}>{c.warning}</div>
+          <div className={styles.body}>
+            {c.body.map((line) => (
+              <p key={line} className={styles.bodyLine}>{line}</p>
+            ))}
+          </div>
+          <div className={styles.actions} data-single-action>
+            <ActionBtn primary label={c.primary.label} onClick={() => onAction(c.primary.action, key)} />
           </div>
         </>
       );

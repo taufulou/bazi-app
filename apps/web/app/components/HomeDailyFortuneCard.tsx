@@ -54,9 +54,15 @@ export default function HomeDailyFortuneCard() {
           if (!cancelled) setState({ kind: 'error' });
           return;
         }
+        // Phase Fortune+ progressive loading: homepage widget only renders
+        // engine output (score, dimensions, ganzhi labels) — no AI narrative
+        // shown here. Use engineOnly=true to skip the ~3-5s Anthropic call
+        // on cold cache. Warm cache returns full payload (narrative bonus
+        // unused but harmless). Net effect: ~500ms cold load vs ~3-5s before.
         const data = await fetchDailyFortune({
           token,
           date: resolveBaziToday(),
+          engineOnly: true,
         });
         if (!cancelled) setState({ kind: 'ready', data });
       } catch (err) {

@@ -83,6 +83,71 @@
   font-style: italic;
 }
 
+/* Phase 1.5.z — folk content extensions (吉色/吉數/吉食/吉時) */
+
+/* Wider card (吉時 spans full row when many hours rendered) */
+.folkCardWide {
+  grid-column: 1 / -1;
+}
+
+.folkValueSecondary {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* 民俗 badge — Phase A locked decision per Sub-Agent C audit.
+   Disclosure for 河圖 folk_tradition tier. Contrast: #8b6f47 on effective
+   bg ≈ #fdf8ee (gold 12% tint on white) = ~4.8:1 — passes WCAG AA for
+   small text (≥4.5:1 threshold). Min font 12px per audit V3 #5 (10px
+   failed mobile readability). */
+.folkBadge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 12px;
+  font-style: italic;
+  font-weight: 600;
+  color: #8b6f47;
+  background: rgba(212, 160, 23, 0.12);
+  border: 1px solid rgba(212, 160, 23, 0.25);
+  border-radius: 6px;
+  vertical-align: middle;
+  cursor: help;
+}
+
+/* 黃道吉時 chip row — wraps if 6 chips don't fit */
+.folkHoursChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  margin: 6px 0;
+}
+
+.folkHourChip {
+  display: inline-block;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-family: 'Noto Serif TC', serif;
+  color: var(--text-accent);
+  background: rgba(226, 61, 40, 0.08);
+  border: 1px solid rgba(226, 61, 40, 0.18);
+  border-radius: 12px;
+}
+
+/* Medical disclaimer footer — shown only when luckyFoodAvoid emitted */
+.folkMedicalDisclaimer {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: rgba(212, 160, 23, 0.05);
+  border-left: 3px solid var(--color-gold, #D4A017);
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
 /* Chat CTA */
 .chatCta {
   display: flex;
@@ -312,4 +377,125 @@
   color: var(--text-muted);
   font-size: 0.8rem;
   line-height: 1.5;
+}
+
+/* ==== Phase 1.5 — off-screen ShareableFortuneCard mount point ====
+ * Card is rendered at fixed 1200x1600 dimensions so html2canvas can
+ * rasterize it directly. Off-screen via `left: -9999px` (NOT display:none
+ * or visibility:hidden — html2canvas requires layout). pointer-events:none
+ * prevents accidental hover/scroll interactions during capture. */
+.shareCardOffscreen {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  width: 1200px;
+  height: 1600px;
+  pointer-events: none;
+}
+
+/* ==== Phase Fortune Streaming H3 — stream-error banner ====
+ * Renders inline above NarrativeCard when a mid-stream error fires AFTER
+ * engine_ready (user already sees engine view + some narrative). Warm
+ * amber palette signals «attention but not fatal» — already-rendered
+ * sections remain visible per plan v2 H3.
+ */
+.streamErrorBanner {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  margin: 0.5rem 0 1rem 0;
+  background: rgba(245, 166, 35, 0.08);
+  border: 1px solid rgba(245, 166, 35, 0.35);
+  border-radius: 12px;
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.streamErrorIcon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* ============================================================ */
+/* Phase 2 月運 (L5) — MonthlyFortuneView wrapper + skeletons   */
+/* ============================================================ */
+/* Audit fix HIGH #3 + CRITICAL #1 (2026-05-28):
+ * - .monthlyContentWrap: outer wrapper with vertical stack flow + gap
+ *   (was `.contentWrap` which didn't exist — silent unstyled render).
+ * - .monthly*Placeholder: loading-state skeletons matching the success
+ *   layout's component footprints. Preserves H4 invariant («disclaimer Y
+ *   delta ≤8px on loading→success transition»). Each placeholder height
+ *   matches its real component (Ring ~280px / Bars ~140px / TimeGrid
+ *   ~280px) so the disclaimer's Y position doesn't shift.
+ * - .monthlyBottomDisclaimer: footer micro-disclaimer (was
+ *   `.bottomDisclaimer`).
+ */
+.monthlyContentWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Phase 2.x L6 — placeholder min-heights tuned to actual rendered heights
+ * at desktop viewport (1280px). Measured 2026-05-28 via browser test:
+ *   - MonthlyEnergyRing: 356.5px → 360px placeholder
+ *   - MonthlyDimensionBars: 217.5px → 220px placeholder
+ *   - MonthlyTimeGrid (with L1.b breakdown wired): 758px → 760px placeholder
+ *     (much taller than pre-L1 ~331.5px because each bucket now renders 3 day
+ *     counts + 3 dominant 神煞 + 3 peak signals)
+ *
+ * Goal: narrativeHeroY delta ≤8px across loading→engine→success transitions.
+ * Streaming makes this less load-bearing (engine_ready arrives ~1s, replacing
+ * placeholders) but cold-load first paint still benefits.
+ */
+
+.monthlyRingPlaceholder {
+  min-height: 360px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-warm);
+  border: 1px solid var(--border-light);
+  animation: monthlyShimmerPlaceholder 1.6s ease-in-out infinite;
+}
+
+.monthlyBarsPlaceholder {
+  min-height: 220px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-warm);
+  border: 1px solid var(--border-light);
+  animation: monthlyShimmerPlaceholder 1.6s ease-in-out infinite;
+}
+
+.monthlyTimeGridPlaceholder {
+  min-height: 760px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-warm);
+  border: 1px solid var(--border-light);
+  animation: monthlyShimmerPlaceholder 1.6s ease-in-out infinite;
+}
+
+@keyframes monthlyShimmerPlaceholder {
+  0%, 100% { background-color: var(--bg-card); }
+  50% { background-color: rgba(212, 160, 23, 0.04); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .monthlyRingPlaceholder,
+  .monthlyBarsPlaceholder,
+  .monthlyTimeGridPlaceholder {
+    animation: none;
+  }
+}
+
+.monthlyBottomDisclaimer {
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 12px 4px 0;
+  font-style: italic;
+  text-align: center;
 }

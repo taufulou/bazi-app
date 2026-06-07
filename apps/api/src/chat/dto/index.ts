@@ -4,7 +4,19 @@
  * Per next-the-big-feature-proud-manatee plan — Phase 1.3 (non-streaming first).
  * Streaming response shapes (SSE) come in Phase 1.6.
  */
-import { IsString, IsOptional, MaxLength, IsInt, Min, IsUUID } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  MaxLength,
+  IsInt,
+  Min,
+  IsUUID,
+  IsIn,
+  IsDateString,
+  ValidateNested,
+  Matches,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 // mirrors @repo/shared CHAT_INPUT_MAX_LENGTH (NestJS has known runtime issue
 // importing @repo/shared at runtime — see CLAUDE.md «@repo/shared runtime issue»)
@@ -14,9 +26,35 @@ export const CHAT_INPUT_MAX_LENGTH_LOCAL = 500;
 // POST /api/chat/sessions
 // ============================================================
 
+/** Phase Fortune — nested discriminator for FORTUNE chat scope. All 3 fields
+ *  required together; missing any one is rejected at DTO level.
+ *  Note: `fortuneScope` is currently DAY-only (Phase Fortune ships daily;
+ *  MONTH/YEAR deferred). */
+export class FortuneSubjectDto {
+  @IsUUID()
+  profileId!: string;
+
+  @IsIn(['DAY', 'MONTH', 'YEAR'])
+  fortuneScope!: 'DAY' | 'MONTH' | 'YEAR';
+
+  /** ISO YYYY-MM-DD. Caller (frontend) is responsible for resolving the
+   *  23:00 子時 boundary against Asia/Taipei BEFORE sending — backend
+   *  trusts the value and uses it verbatim as the BaziDate anchor. */
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'fortuneAnchorDate must be YYYY-MM-DD',
+  })
+  // Review fix: strict ISO-8601 rejects impossible dates (2026-02-30) that the
+  // format regex alone would let through to a DB 500.
+  @IsDateString({ strict: true }, { message: 'fortuneAnchorDate must be a valid calendar date' })
+  fortuneAnchorDate!: string;
+}
+
 export class CreateChatSessionDto {
-  // Phase 3 — exactly one of (readingId, comparisonId) must be set.
-  // Service-level validation enforces the «exactly-one» rule.
+  // Phase 3 — exactly one of (readingId, comparisonId, fortune) must be set
+  // (XOR enforced at service layer). Phase Fortune adds the nested
+  // `fortune` discriminator for FORTUNE chat sessions which reference a
+  // BirthProfile + fortuneScope + fortuneAnchorDate instead of a
+  // BaziReading or BaziComparison.
   @IsOptional()
   @IsUUID()
   readingId?: string;
@@ -24,6 +62,11 @@ export class CreateChatSessionDto {
   @IsOptional()
   @IsUUID()
   comparisonId?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => FortuneSubjectDto)
+  fortune?: FortuneSubjectDto;
 }
 
 export interface CreateChatSessionResponse {
@@ -104,6 +147,19 @@ export interface ChatSessionSummary {
    *  Used by the frontend's "new-session-loses-paid" warning dialog. */
   unusedPaidMessages: number;
   lastMessagePreview: string | null;
+  /** Phase Fortune — populated only when this is a FORTUNE session. Lets
+   *  the frontend ChatHistoryPanel render «{fortuneAnchorDate} · X 則對話»
+   *  rows and filter by the currently-active anchor date (MC-4). */
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR' | null;
+  fortuneAnchorDate?: string | null; // ISO YYYY-MM-DD
+  /** Phase Fortune — denormalized BirthProfile reference for FORTUNE
+   *  sessions. NULL for non-FORTUNE sessions. */
+  profileId?: string | null;
+  /** Phase Fortune+ — current consecutive topic-boundary refuse count.
+   *  Resets to 0 on any in-topic message. Used by ChatDrawer to render the
+   *  «超出範圍提醒» soft-warning dialog when the cap fires (see
+   *  CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD in @repo/shared). */
+  consecutiveRefuses?: number;
 }
 
 // ============================================================

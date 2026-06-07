@@ -6,6 +6,7 @@
  * (outlined), primary action on right (filled, recommended).
  */
 
+import { CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT } from '@repo/shared';
 import type { ChatDialogKey } from '../../lib/chat-types';
 
 export type { ChatDialogKey };
@@ -131,6 +132,42 @@ export const NEW_SESSION_LOSE_PAID = {
   ],
   secondary: { label: '仍要開啟新對話', sublabel: '1 點數', action: 'force_new_session' as const },
   primary: { label: '回到當前對話', sublabel: '(取消)', action: 'cancel' as const },
+};
+
+// ============================================================
+// Dialog 7 — Topic-boundary refuse cap reached (Phase Fortune+)
+// ============================================================
+
+/**
+ * Fires when `ChatSession.consecutiveRefuses` >= the warning threshold
+ * (CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD in @repo/shared, currently 3).
+ *
+ * At this point the cost-defense policy kicks in:
+ *  - The 1st and 2nd consecutive off-topic Qs were auto-refunded (forgive
+ *    occasional mistakes).
+ *  - The 3rd onward is NO LONGER refunded — user pays for repeated off-topic
+ *    spam (covers our Anthropic API spend on refuse generations).
+ *
+ * Counter resets whenever the user asks an in-topic question.
+ *
+ * Closeable, no destructive action — purely informational + single «OK»
+ * confirmation. Re-fires only if counter hits the threshold AGAIN after
+ * a reset (rare).
+ */
+export const REFUSE_LIMIT_REACHED = {
+  key: 'refuse_limit_reached' as const,
+  title: '超出範圍提醒',
+  warning: '您最近多個問題都超出本服務範圍',
+  // Body lines are templatized from CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT so
+  // the displayed count stays in sync if the policy ever changes (e.g.,
+  // bump to LIMIT=3 → body auto-reads «前 3 個…»). No drift between code
+  // semantics and user-facing copy.
+  body: [
+    `前 ${CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT} 個超出範圍問題已自動退款，但後續超出範圍問題仍會扣除訊息額度`,
+    '若想了解命格、感情、事業、流年等深入分析，請查閱對應的解讀服務',
+  ],
+  primary: { label: '我知道了', action: 'cancel' as const },
+  closeable: true,
 };
 
 // ============================================================

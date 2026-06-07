@@ -148,6 +148,16 @@
   100% { background-position: -200% 0; }
 }
 
+/* Audit H1 fix (Phase Fortune+ progressive loading) — honor reduced-motion
+ * preference (WCAG 2.3.3). Backported to keep parity with NarrativeCard's
+ * skeleton + match project precedent at HeroBanner.module.css:130. */
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+    background: rgba(212, 160, 23, 0.10);
+  }
+}
+
 /* Setup card (when no primary profile) */
 .setupCard {
   display: flex;

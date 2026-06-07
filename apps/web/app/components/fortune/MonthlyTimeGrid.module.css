@@ -1,0 +1,232 @@
+/* MonthlyTimeGrid — Phase 2 月運 2-cell tiangan_dizhi_half partition display.
+ * Warm-cream theme aligned with FolkContentCard / NarrativeCard. */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 16px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-warm);
+  border: 1px solid var(--border-light);
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.title {
+  font-family: var(--font-heading);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-accent);
+  margin: 0;
+  padding-left: 12px;
+  border-left: 3px solid var(--color-red);
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  padding-left: 15px;
+}
+
+/* ============================================================ */
+/* 2-cell grid (上半月 / 下半月)                                  */
+/* ============================================================ */
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 540px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 16px;
+  background: var(--bg-secondary, #FFFBF5);
+  border-radius: 12px;
+  border: 1px solid var(--border-light);
+}
+
+/* Stem-governed (上半月) → warm red-gold accent
+ * Branch-governed (下半月) → cool brown earth accent */
+.card[data-pillar='stem'] {
+  border-left: 3px solid var(--color-red, #E23D28);
+}
+
+.card[data-pillar='branch'] {
+  border-left: 3px solid var(--text-secondary, #6B5940);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.cardTitle {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.pillarBadge {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.pillarBadge[data-pillar='stem'] {
+  background: rgba(226, 61, 40, 0.08);
+  color: var(--color-red);
+}
+
+.pillarBadge[data-pillar='branch'] {
+  background: rgba(107, 89, 64, 0.10);
+  color: var(--text-secondary);
+}
+
+.cardRange {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ============================================================ */
+/* Day count breakdown                                          */
+/* ============================================================ */
+
+.dayCounts {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.countItem {
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.countItem[data-tier='good'] {
+  background: rgba(46, 125, 50, 0.10);
+  color: #2E7D32;
+}
+
+.countItem[data-tier='mid'] {
+  background: rgba(212, 160, 23, 0.10);
+  color: var(--text-muted);
+}
+
+.countItem[data-tier='low'] {
+  background: rgba(196, 30, 58, 0.10);
+  color: var(--text-accent);
+}
+
+/* ============================================================ */
+/* Shensha tags row                                             */
+/* ============================================================ */
+
+.shenshaRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.shenshaLabel {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-right: 2px;
+}
+
+.shenshaTag {
+  font-size: 11px;
+  padding: 2px 6px;
+  background: rgba(212, 160, 23, 0.10);
+  color: var(--text-secondary);
+  border-radius: 3px;
+}
+
+/* ============================================================ */
+/* Peak days list                                               */
+/* ============================================================ */
+
+.peakList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.peakItem {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 0;
+  border-top: 1px dashed var(--border-light);
+}
+
+.peakItem:first-child {
+  border-top: none;
+}
+
+.peakDate {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.peakLabel {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(212, 160, 23, 0.10);
+  color: var(--text-secondary);
+}
+
+.peakSignal {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex: 1 1 100%;
+  margin-top: 2px;
+}
+
+.placeholderHint {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+.windowInfo {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: right;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}

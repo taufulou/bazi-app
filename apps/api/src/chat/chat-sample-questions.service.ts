@@ -50,6 +50,19 @@ const CHAT_SECTION_KEYS_BY_READING_TYPE_LOCAL: Record<string, readonly string[]>
     'partner_personality', 'interaction_dynamics', 'conflict_warning',
     'dimension_breakdown', 'compatibility_advice',
   ],
+  // Phase Fortune — 5 daily dimensions (mirrors daily_enhanced.py dispatchers).
+  // The «general» FORTUNE strip lives at sectionKey=NULL (no whitelist entry
+  // needed — admin can post with sectionKey=null for the homepage pill row).
+  // Tier B2 — 4 yearly dimensions (no yearly_travel; travel is DAY-only per
+  // 三命通會 神煞篇). MONTH per-dim parity (4 monthly_* keys, also no travel).
+  // The fortune_scope column on each row disambiguates daily_* / monthly_* /
+  // yearly_* (the GET filter matches fortuneScope exactly for MONTH + YEAR).
+  FORTUNE: [
+    'daily_romance', 'daily_career', 'daily_finance',
+    'daily_travel', 'daily_health',
+    'monthly_career', 'monthly_finance', 'monthly_romance', 'monthly_health',
+    'yearly_career', 'yearly_finance', 'yearly_romance', 'yearly_health',
+  ],
 };
 
 const VERSION_KEY = 'chat-sample-questions:version';
@@ -101,13 +114,49 @@ export class ChatSampleQuestionService {
     readingType: ReadingType,
     sectionKey: string | null,
     locale: string = 'zh-TW',
+    /**
+     * Phase 2 月運 audit fix (2026-05-28 CRITICAL #1): when readingType=FORTUNE,
+     * filter by fortune_scope. Without this, MONTH-scope questions (seeded by
+     * L6 migration) leak into DAY-scope chat — DAY users see 「這個月整體運勢」
+     * mixed into 「今日宜避免什麼？」 list. Triggers refuse-cap charges + UX confusion.
+     *
+     * Back-compat semantics:
+     * - fortuneScope=null + readingType=FORTUNE → returns rows with fortune_scope IS NULL
+     *   (legacy DAY rows seeded BEFORE Phase 2 migration; treats NULL as DAY)
+     * - fortuneScope='DAY' → returns rows with fortune_scope='DAY' (post-Phase-2 explicit DAY)
+     *   OR fortune_scope IS NULL (legacy back-compat)
+     * - fortuneScope='MONTH' → returns ONLY rows with fortune_scope='MONTH'
+     * - fortuneScope='YEAR' → returns ONLY rows with fortune_scope='YEAR' (Phase 3)
+     *
+     * For non-FORTUNE reading types this arg is ignored (the column is NULL
+     * for all LIFETIME/LOVE/CAREER/ANNUAL/COMPATIBILITY rows by design).
+     */
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR' | null = null,
   ): Promise<SampleQuestionDto[]> {
-    const cacheKey = `${readingType}:${sectionKey ?? '*'}:${locale}`;
+    const cacheKey = `${readingType}:${sectionKey ?? '*'}:${locale}:${fortuneScope ?? '_'}`;
     const currentVersion = await this.getCacheVersion();
 
     const cached = this.cache.get(cacheKey);
     if (cached && cached.versionAtCacheTime === currentVersion) {
       return cached.questions;
+    }
+
+    // Compose fortune_scope filter ONLY for FORTUNE reading type.
+    // Other reading types ignore the column (always NULL by design).
+    let fortuneScopeFilter: Prisma.ChatSampleQuestionWhereInput = {};
+    if (readingType === 'FORTUNE') {
+      if (fortuneScope === null || fortuneScope === 'DAY') {
+        // null OR DAY → match both NULL (legacy) AND explicit 'DAY' rows
+        fortuneScopeFilter = {
+          OR: [
+            { fortuneScope: null },
+            { fortuneScope: 'DAY' as const },
+          ],
+        };
+      } else {
+        // 'MONTH' or 'YEAR' → exact match (no NULL leakage)
+        fortuneScopeFilter = { fortuneScope };
+      }
     }
 
     const rows = await this.prisma.chatSampleQuestion.findMany({
@@ -116,6 +165,7 @@ export class ChatSampleQuestionService {
         sectionKey,
         locale,
         isActive: true,
+        ...fortuneScopeFilter,
       },
       orderBy: [{ displayOrder: 'asc' }, { createdAt: 'asc' }],
     });
@@ -152,8 +202,14 @@ export class ChatSampleQuestionService {
   async listAllActiveForType(
     readingType: ReadingType,
     locale: string = 'zh-TW',
+    /**
+     * Phase 2 月運 audit fix (2026-05-28 CRITICAL #1 mirror): same fortune_scope
+     * filter semantics as `listActive` above. Without this, the in-drawer
+     * SampleQuestionsBrowser mixes MONTH + DAY questions for FORTUNE users.
+     */
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR' | null = null,
   ): Promise<SampleQuestionDto[]> {
-    const cacheKey = `${readingType}:__ALL__:${locale}`;
+    const cacheKey = `${readingType}:__ALL__:${locale}:${fortuneScope ?? '_'}`;
     const currentVersion = await this.getCacheVersion();
 
     const cached = this.cache.get(cacheKey);
@@ -161,8 +217,22 @@ export class ChatSampleQuestionService {
       return cached.questions;
     }
 
+    let fortuneScopeFilter: Prisma.ChatSampleQuestionWhereInput = {};
+    if (readingType === 'FORTUNE') {
+      if (fortuneScope === null || fortuneScope === 'DAY') {
+        fortuneScopeFilter = {
+          OR: [
+            { fortuneScope: null },
+            { fortuneScope: 'DAY' as const },
+          ],
+        };
+      } else {
+        fortuneScopeFilter = { fortuneScope };
+      }
+    }
+
     const rows = await this.prisma.chatSampleQuestion.findMany({
-      where: { readingType, locale, isActive: true },
+      where: { readingType, locale, isActive: true, ...fortuneScopeFilter },
       orderBy: [
         // Phase 4 follow-up — flat popularity ordering across ALL sections.
         // Earlier ordering grouped by sectionKey (alphabetical) — that
@@ -206,15 +276,23 @@ export class ChatSampleQuestionService {
   }
 
   /** Admin — create. Validates sectionKey is in the per-type whitelist
-   *  (or null for general questions). Bumps cache version once. */
+   *  (or null for general questions). Bumps cache version once.
+   *
+   *  Phase 2.x L3.5b audit C#3 — accepts `fortuneScope` (REQUIRED for
+   *  FORTUNE rows; REJECTED for non-FORTUNE rows). Without this admin
+   *  could not create MONTH/YEAR sample questions via the API; only
+   *  raw-SQL migrations.
+   */
   async create(args: {
     readingType: ReadingType;
     sectionKey: string | null;
     questionText: string;
     displayOrder?: number;
     locale?: string;
+    fortuneScope?: 'DAY' | 'MONTH' | 'YEAR' | null;
   }): Promise<ChatSampleQuestion> {
     this.assertValidSectionKey(args.readingType, args.sectionKey);
+    this.assertValidFortuneScope(args.readingType, args.fortuneScope ?? null);
     const created = await this.prisma.chatSampleQuestion.create({
       data: {
         readingType: args.readingType,
@@ -222,6 +300,7 @@ export class ChatSampleQuestionService {
         questionText: args.questionText,
         displayOrder: args.displayOrder ?? 0,
         locale: args.locale ?? 'zh-TW',
+        fortuneScope: args.fortuneScope ?? null,
       },
     });
     await this.bumpCacheVersion();
@@ -237,10 +316,12 @@ export class ChatSampleQuestionService {
       questionText: string;
       displayOrder?: number;
       locale?: string;
+      fortuneScope?: 'DAY' | 'MONTH' | 'YEAR' | null;
     }>;
   }): Promise<{ count: number }> {
     for (const item of args.items) {
       this.assertValidSectionKey(item.readingType, item.sectionKey);
+      this.assertValidFortuneScope(item.readingType, item.fortuneScope ?? null);
     }
     const result = await this.prisma.chatSampleQuestion.createMany({
       data: args.items.map((i) => ({
@@ -249,6 +330,7 @@ export class ChatSampleQuestionService {
         questionText: i.questionText,
         displayOrder: i.displayOrder ?? 0,
         locale: i.locale ?? 'zh-TW',
+        fortuneScope: i.fortuneScope ?? null,
       })),
     });
     await this.bumpCacheVersion();
@@ -264,14 +346,23 @@ export class ChatSampleQuestionService {
       displayOrder: number;
       isActive: boolean;
       sectionKey: string | null;
+      fortuneScope: 'DAY' | 'MONTH' | 'YEAR' | null;
     }>,
   ): Promise<ChatSampleQuestion> {
-    if (patch.sectionKey !== undefined) {
+    // Audit C#3: validate fortuneScope is consistent with row's readingType.
+    // Fetch existing row once when either sectionKey OR fortuneScope changes,
+    // since both need readingType context.
+    if (patch.sectionKey !== undefined || patch.fortuneScope !== undefined) {
       const existing = await this.prisma.chatSampleQuestion.findUniqueOrThrow({
         where: { id },
         select: { readingType: true },
       });
-      this.assertValidSectionKey(existing.readingType, patch.sectionKey);
+      if (patch.sectionKey !== undefined) {
+        this.assertValidSectionKey(existing.readingType, patch.sectionKey);
+      }
+      if (patch.fortuneScope !== undefined) {
+        this.assertValidFortuneScope(existing.readingType, patch.fortuneScope);
+      }
     }
     const updated = await this.prisma.chatSampleQuestion.update({
       where: { id },
@@ -301,6 +392,30 @@ export class ChatSampleQuestionService {
       throw new Error(
         `Invalid sectionKey "${sectionKey}" for readingType ${readingType}. ` +
           `Valid keys: ${(valid ?? []).join(', ')} or null.`,
+      );
+    }
+  }
+
+  /** Phase 2.x L3.5b audit C#3 — fortuneScope must be null when readingType
+   *  is not FORTUNE; for FORTUNE it must be one of DAY/MONTH/YEAR (or null
+   *  to default to DAY at read-time per back-compat). Rejects mismatches
+   *  so admin UI can't create cross-type rows that would never be read.
+   */
+  private assertValidFortuneScope(
+    readingType: ReadingType,
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR' | null,
+  ): void {
+    if (fortuneScope === null) return; // null is always permitted
+    if (readingType !== 'FORTUNE') {
+      throw new Error(
+        `Invalid fortuneScope="${fortuneScope}" for readingType ${readingType}. ` +
+          `fortuneScope is only allowed when readingType === 'FORTUNE'.`,
+      );
+    }
+    // For FORTUNE: enum already constrained at TS layer; defensive runtime check.
+    if (fortuneScope !== 'DAY' && fortuneScope !== 'MONTH' && fortuneScope !== 'YEAR') {
+      throw new Error(
+        `Invalid fortuneScope="${fortuneScope}". Must be one of: DAY, MONTH, YEAR, null.`,
       );
     }
   }

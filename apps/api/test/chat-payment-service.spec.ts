@@ -11,7 +11,48 @@ import {
   CHAT_FREE_QUOTA_BY_TIER,
   CHAT_INITIAL_MESSAGES_PER_CREDIT,
   CHAT_SESSION_HARD_CAP_MESSAGES,
+  CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT,
+  CHAT_HISTORY_RETENTION_DAYS,
 } from '../src/chat/chat-payment.service';
+import * as shared from '@repo/shared';
+
+// ============================================================
+// Constant drift detection — locks the local mirror values against
+// @repo/shared. Per CLAUDE.md «@repo/shared runtime issue» the NestJS
+// chat-payment.service.ts keeps a local copy of these constants instead
+// of importing from @repo/shared at runtime. The downside is that the
+// two definitions can drift silently — e.g. someone bumps the shared
+// value and forgets the mirror. The behaviors split: FE thinks the new
+// limit applies, BE keeps using the old. These tests catch that.
+// ============================================================
+describe('chat-payment constants — mirror parity with @repo/shared', () => {
+  it('CHAT_INITIAL_MESSAGES_PER_CREDIT matches shared', () => {
+    expect(CHAT_INITIAL_MESSAGES_PER_CREDIT).toBe(shared.CHAT_INITIAL_MESSAGES_PER_CREDIT);
+  });
+  it('CHAT_SESSION_HARD_CAP_MESSAGES matches shared', () => {
+    expect(CHAT_SESSION_HARD_CAP_MESSAGES).toBe(shared.CHAT_SESSION_HARD_CAP_MESSAGES);
+  });
+  it('CHAT_HISTORY_RETENTION_DAYS matches shared', () => {
+    expect(CHAT_HISTORY_RETENTION_DAYS).toBe(shared.CHAT_HISTORY_RETENTION_DAYS);
+  });
+  it('CHAT_FREE_QUOTA_BY_TIER matches shared (deep equal)', () => {
+    expect(CHAT_FREE_QUOTA_BY_TIER).toStrictEqual(shared.CHAT_FREE_QUOTA_BY_TIER);
+  });
+  it('CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT matches shared', () => {
+    expect(CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT).toBe(
+      shared.CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT,
+    );
+  });
+  it('shared WARNING_THRESHOLD is LIMIT + 1 (load-bearing invariant for FE dialog)', () => {
+    // The dialog fires the moment refunding stops — i.e. on the first
+    // refuse NOT covered by the cap. If WARNING_THRESHOLD ever drifts
+    // (e.g. someone hardcodes 5), the dialog would fire BEFORE the user
+    // is actually being charged, confusing them.
+    expect(shared.CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD).toBe(
+      shared.CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT + 1,
+    );
+  });
+});
 
 describe('ChatPaymentService', () => {
   let mockChatSession: any;

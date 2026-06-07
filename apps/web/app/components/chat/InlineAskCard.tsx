@@ -24,6 +24,12 @@ import styles from './InlineAskCard.module.css';
 interface InlineAskCardProps {
   readingType: ChatReadingType;
   sectionKey: string;
+  /** FORTUNE sub-scope discriminator. Threaded to `useSampleQuestions` so
+   *  per-dim cards fetch scope-correct rows (e.g. YEAR per-dim must query
+   *  `yearly_*` rows seeded with fortune_scope='YEAR', not the DAY default).
+   *  Omit for non-FORTUNE reading types or the DAY scope (the hook's
+   *  null|'DAY' branch matches the NULL-seeded daily rows). */
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
   /** Called when the user clicks one of the questions. The handler should
    *  open the drawer with the supplied sectionKey + question text. */
   onAsk: (sectionKey: string, question: string) => void;
@@ -37,10 +43,11 @@ interface InlineAskCardProps {
 export default function InlineAskCard({
   readingType,
   sectionKey,
+  fortuneScope,
   onAsk,
   onOpenChat,
 }: InlineAskCardProps) {
-  const { questions, loading } = useSampleQuestions(readingType, sectionKey);
+  const { questions, loading } = useSampleQuestions(readingType, sectionKey, fortuneScope);
 
   // Don't render anything while loading or if no curated questions exist
   // for this (readingType, sectionKey) — keeps the reading page clean.

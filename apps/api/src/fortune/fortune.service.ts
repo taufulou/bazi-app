@@ -18,33 +18,26 @@
  *   - Free: today only (1 day window)
  *   - Subscriber (BASIC/PRO/MASTER): yesterday + today + +30 days
  *   - Past beyond 1 day = 403 even for subscribers (intentional)
+ *
+ * Cache + persist + engine-fetch + AI-client helpers live in
+ * `FortuneSnapshotHelpers` (extracted per Phase Fortune Streaming L3 so
+ * `FortuneStreamService` shares the same invariants — locked by
+ * `fortune-snapshot.helpers.contract.spec.ts`).
  */
-import {
-  Injectable,
-  Logger,
-  NotFoundException,
-  ForbiddenException,
-  InternalServerErrorException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { createHash } from 'crypto';
-import {
-  FortuneScope,
-  Prisma,
-  SubscriptionTier,
-  type DailyFortuneSnapshot,
-} from '@prisma/client';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { RedisService } from '../redis/redis.service';
 import {
-  FORTUNE_PRE_ANALYSIS_VERSIONS,
   FORTUNE_PROMPT_VERSIONS,
   FORTUNE_V1_PROMPTS,
 } from '../ai/prompts';
 import {
   type DailyEngineOutput,
   type FortuneChartContext,
+  type MonthlyEngineOutput,
+  type YearlyEngineOutput,
   buildFortuneDailyMessages,
+  buildFortuneMonthlyMessages,
+  buildFortuneYearlyMessages,
 } from './fortune-prompt-builder';
 import {
   FortuneValidatorsService,
@@ -53,31 +46,16 @@ import {
 import {
   type DailyFortuneResponse,
   type DailyFortuneAINarrative,
+  type MonthlyFortuneResponse,
+  type MonthlyFortuneAINarrative,
+  type YearlyFortuneResponse,
+  type YearlyFortuneAINarrative,
 } from './dto';
-
-// ============================================================
-// Constants
-// ============================================================
-
-/** Free user can see ONLY today's daily fortune. */
-const FREE_USER_WINDOW_DAYS_FUTURE = 0;
-const FREE_USER_WINDOW_DAYS_PAST = 0;
-
-/** Subscriber window per locked plan: yesterday + today + +30 days. */
-const SUBSCRIBER_WINDOW_DAYS_FUTURE = 30;
-const SUBSCRIBER_WINDOW_DAYS_PAST = 1;
-
-const REDIS_TTL_SECONDS = 24 * 60 * 60; // 24 hours
-const ENGINE_REQUEST_TIMEOUT_MS = 30_000;
-
-/** AI failure circuit breaker (PR review #4 — 2026-05-17).
- *  After MAX_AI_FAILURES consecutive failures on the same chart+date+scope,
- *  stop retrying AI for AI_FAILURE_BACKOFF_HOURS — serve engine-only output
- *  instead. Counter resets on a successful AI call (non-null promptVersion).
- *  Prevents unbounded Anthropic spend during sustained provider outages. */
-const MAX_AI_FAILURES = 3;
-const AI_FAILURE_BACKOFF_HOURS = 24;
-const AI_CALL_TIMEOUT_MS = 90_000;
+import {
+  FortuneSnapshotHelpers,
+  AI_CALL_TIMEOUT_MS,
+  REDIS_TTL_SECONDS,
+} from './fortune-snapshot.helpers';
 
 // ============================================================
 // Service
@@ -86,17 +64,12 @@ const AI_CALL_TIMEOUT_MS = 90_000;
 @Injectable()
 export class FortuneService {
   private readonly logger = new Logger(FortuneService.name);
-  private readonly baziEngineUrl: string;
-  private claudeClient: any = null;
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly redis: RedisService,
-    private readonly config: ConfigService,
+    private readonly helpers: FortuneSnapshotHelpers,
     private readonly validators: FortuneValidatorsService,
-  ) {
-    this.baziEngineUrl = this.config.get<string>('BAZI_ENGINE_URL') || 'http://localhost:5001';
-  }
+  ) {}
 
   // ============================================================
   // Public API — getDailyFortune
@@ -104,7 +77,7 @@ export class FortuneService {
 
   async getDailyFortune(
     clerkUserId: string,
-    args: { profileId?: string; date?: string },
+    args: { profileId?: string; date?: string; engineOnly?: boolean },
   ): Promise<DailyFortuneResponse> {
     const user = await this.prisma.user.findUnique({
       where: { clerkUserId },
@@ -131,17 +104,17 @@ export class FortuneService {
     }
 
     // Resolve target date (default = today, server local TZ)
-    const targetDate = args.date ?? this.todayIsoDate();
+    const targetDate = args.date ?? this.helpers.todayIsoDate();
     const targetDateObj = new Date(`${targetDate}T00:00:00Z`);
     if (Number.isNaN(targetDateObj.getTime())) {
       throw new NotFoundException(`Invalid date: ${targetDate}`);
     }
 
     // Subscription gate
-    this.enforceSubscriptionGate(user.subscriptionTier, targetDate);
+    this.helpers.enforceSubscriptionGate(user.subscriptionTier, targetDate);
 
     // Compute chart hash (stable per chart — used as cache key)
-    const chartHash = this.computeChartHash(profile);
+    const chartHash = this.helpers.computeChartHash(profile);
 
     // Birth-date + birth-time ISO strings for UI display (subheader chip —
     // UX iteration 2026-05-17). Schema guarantees both are present.
@@ -149,14 +122,45 @@ export class FortuneService {
     const profileBirthTime = profile.birthTime; // HH:MM
 
     // Try cache (Redis first, then DB)
-    const cached = await this.tryGetCached(chartHash, targetDate);
+    const cached = await this.helpers.tryGetCached(chartHash, targetDate);
     if (cached) {
-      return this.buildResponse(profile.id, profileBirthDate, profileBirthTime, targetDate, cached, true);
+      return this.helpers.buildResponse(profile.id, profileBirthDate, profileBirthTime, targetDate, cached, true);
     }
 
     // Cache miss → compute fresh
-    const dailyOutput = await this.fetchDailyFromEngine(profile, targetDate);
-    const chartContext = dailyOutput.chartContext ?? this.buildFallbackChartContext(profile);
+    const dailyOutput = await this.helpers.fetchDailyFromEngine(profile, targetDate);
+    const chartContext = dailyOutput.chartContext ?? this.helpers.buildFallbackChartContext(profile);
+
+    // Phase Fortune+ progressive loading: when engineOnly=true, skip the AI
+    // narration step entirely and return an in-memory engine-only snapshot.
+    // We deliberately DO NOT persist this to DB or Redis — the subsequent
+    // full fetch (issued in parallel by the frontend) will persist with the
+    // AI narrative. This avoids both:
+    //   (a) AI circuit breaker (`aiFailureCount`) misfiring on null-narrative rows
+    //   (b) Cache being polluted with narrative=null that future requests would have to refresh
+    if (args.engineOnly) {
+      // Audit M3 fix — log tag so ops can distinguish engineOnly traffic
+      // from full traffic during outages / cost analysis. Engine fetch
+      // failures are logged generically; this debug breadcrumb lets log
+      // queries correlate them with the progressive-loading path.
+      this.logger.debug(
+        `engineOnly fetch served: profile=${profile.id} date=${targetDate} chartHash=${chartHash.slice(0, 8)}…`,
+      );
+      const engineOnlySnapshot = this.helpers.buildInMemoryEngineSnapshot({
+        chartHash,
+        birthProfileId: profile.id,
+        anchorDate: targetDateObj,
+        dailyOutput,
+      });
+      return this.helpers.buildResponse(
+        profile.id,
+        profileBirthDate,
+        profileBirthTime,
+        targetDate,
+        engineOnlySnapshot,
+        false,
+      );
+    }
 
     let narrative: DailyFortuneAINarrative | null = null;
     let validationResult: FortuneValidationResult | null = null;
@@ -178,7 +182,7 @@ export class FortuneService {
     const sanitizedNarrative = validationResult
       ? (validationResult.sanitized as unknown as DailyFortuneAINarrative)
       : narrative;
-    const snapshot = await this.persistSnapshot({
+    const snapshot = await this.helpers.persistSnapshot({
       chartHash,
       birthProfileId: profile.id,
       anchorDate: targetDateObj,
@@ -187,243 +191,24 @@ export class FortuneService {
       promptVersion,
     });
 
-    // Warm Redis
-    await this.redis.set(
-      this.redisKey(chartHash, targetDate),
-      JSON.stringify(snapshot),
-      REDIS_TTL_SECONDS,
-    );
-
-    return this.buildResponse(profile.id, profileBirthDate, profileBirthTime, targetDate, snapshot, false);
-  }
-
-  // ============================================================
-  // Subscription gate
-  // ============================================================
-
-  private enforceSubscriptionGate(tier: SubscriptionTier, targetDateIso: string) {
-    const today = this.todayIsoDate();
-    const diffDays = this.daysBetween(today, targetDateIso);
-
-    if (tier === SubscriptionTier.FREE) {
-      if (diffDays < -FREE_USER_WINDOW_DAYS_PAST || diffDays > FREE_USER_WINDOW_DAYS_FUTURE) {
-        throw new ForbiddenException({
-          code: 'SUBSCRIBER_ONLY',
-          message: '此功能限訂閱用戶 — 免費用戶僅可查看當日運勢',
-        });
-      }
-      return;
-    }
-
-    // Subscriber tiers (BASIC/PRO/MASTER): yesterday + today + +30 days
-    if (diffDays < -SUBSCRIBER_WINDOW_DAYS_PAST || diffDays > SUBSCRIBER_WINDOW_DAYS_FUTURE) {
-      throw new ForbiddenException({
-        code: 'OUT_OF_WINDOW',
-        message: `日運可查範圍：昨日至今日後 ${SUBSCRIBER_WINDOW_DAYS_FUTURE} 天`,
-      });
-    }
-  }
-
-  // ============================================================
-  // Cache lookup — Redis → DB → null
-  // ============================================================
-
-  private async tryGetCached(
-    chartHash: string,
-    targetDateIso: string,
-  ): Promise<DailyFortuneSnapshot | null> {
-    // Redis hot path
-    const redisKey = this.redisKey(chartHash, targetDateIso);
-    const cached = await this.redis.get(redisKey);
-    if (cached) {
-      try {
-        const parsed = JSON.parse(cached) as DailyFortuneSnapshot;
-        // A5 bug fix: JSON.parse leaves Date columns as ISO strings,
-        // but the typed cast lies and pretends they're Date objects.
-        // Subsequent calls like `snapshot.generatedAt.toISOString()`
-        // would then throw. Restore the proper shape here.
-        if (typeof (parsed as unknown as { generatedAt: unknown }).generatedAt === 'string') {
-          parsed.generatedAt = new Date(parsed.generatedAt as unknown as string);
-        }
-        if (typeof (parsed as unknown as { anchorDate: unknown }).anchorDate === 'string') {
-          parsed.anchorDate = new Date(parsed.anchorDate as unknown as string);
-        }
-        if (this.versionsMatch(parsed)) {
-          return parsed;
-        }
-      } catch {
-        // Fall through to DB
-      }
-    }
-
-    // DB warm path
-    const dbRow = await this.prisma.dailyFortuneSnapshot.findUnique({
-      where: {
-        chartHash_scope_anchorDate: {
-          chartHash,
-          scope: FortuneScope.DAY,
-          anchorDate: new Date(`${targetDateIso}T00:00:00Z`),
-        },
-      },
-    });
-
-    if (!dbRow) return null;
-    if (!this.versionsMatch(dbRow)) {
-      // Stale — fall through to regenerate
-      this.logger.debug(
-        `DailyFortuneSnapshot ${dbRow.id} stale (versions drifted) — regenerating`,
-      );
-      return null;
-    }
-    // Bug A5-3 fix: repopulate Redis from the DB warm path so subsequent
-    // reads hit the fast Redis path instead of round-tripping to Postgres.
-    // Failure here should NOT block the response — the snapshot is valid,
-    // Redis is just a perf optimization.
+    // Warm Redis (best-effort — a Redis flap must not 500 a successful AI+persist;
+    // mirrors the monthly/yearly try/catch).
     try {
-      await this.redis.set(redisKey, JSON.stringify(dbRow), REDIS_TTL_SECONDS);
-    } catch (err) {
-      this.logger.warn(
-        `Failed to warm Redis from DB snapshot ${dbRow.id}: ${(err as Error).message}`,
+      await this.helpers.redis.set(
+        this.helpers.redisKey(chartHash, targetDate),
+        JSON.stringify(snapshot),
+        REDIS_TTL_SECONDS,
       );
-    }
-    return dbRow;
-  }
-
-  /** Decide if a cached snapshot is fresh enough to serve as-is.
-   *
-   *  Two layers:
-   *  1. Pre-analysis version match (mandatory — output schema contract).
-   *  2. AI freshness: prompt version match, OR — when promptVersion is null
-   *     (AI previously failed) — circuit-breaker check. If we've failed
-   *     `MAX_AI_FAILURES` times in the last `AI_FAILURE_BACKOFF_HOURS`,
-   *     treat the engine-only row as cache-valid and stop retrying AI.
-   *
-   *  PR review #4 (2026-05-17): the circuit breaker prevents an unbounded
-   *  retry-loop during Anthropic outages. Without it, every request with a
-   *  promptVersion=null row would re-call engine + AI forever.
-   *
-   *  The `?? 0` and `?? null` guards handle stale Redis entries from
-   *  before the migration which deserialize without the new columns.
-   */
-  private versionsMatch(row: {
-    preAnalysisVersion: string;
-    promptVersion: string | null;
-    aiFailureCount?: number | null;
-    aiLastFailedAt?: Date | string | null;
-  }): boolean {
-    if (row.preAnalysisVersion !== FORTUNE_PRE_ANALYSIS_VERSIONS.day) return false;
-    // Audit I1: NULL promptVersion is treated as STALE relative to the
-    // current prompt version. Previous logic (`null bypasses check`) meant
-    // engine-only rows (AI failed once) were served forever even after
-    // prompt bumps. Now we retry AI on subsequent fetches; if AI keeps
-    // failing the row stays NULL but we attempted.
-    if (row.promptVersion === FORTUNE_PROMPT_VERSIONS.day) return true;
-    if (row.promptVersion !== null) return false;  // mismatched non-null version → stale
-    // Circuit breaker: AI previously failed. Only retry if under the
-    // failure cap OR backoff window has elapsed.
-    const failureCount = row.aiFailureCount ?? 0;
-    if (failureCount < MAX_AI_FAILURES) return false;  // not at cap yet → retry
-    const lastFailedAt = row.aiLastFailedAt
-      ? new Date(row.aiLastFailedAt as Date | string)
-      : null;
-    if (!lastFailedAt) return false;  // hit cap but no timestamp — safer to retry
-    const backoffMs = AI_FAILURE_BACKOFF_HOURS * 60 * 60 * 1000;
-    const stillInBackoff = lastFailedAt.getTime() + backoffMs > Date.now();
-    return stillInBackoff;  // true = serve engine-only; false = retry AI
-  }
-
-  // ============================================================
-  // Engine call — POST /daily-fortune
-  // ============================================================
-
-  private async fetchDailyFromEngine(
-    profile: { birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; gender: string; birthLongitude: number | null; birthLatitude: number | null },
-    targetDateIso: string,
-  ): Promise<DailyEngineOutput> {
-    const birthDateIso = profile.birthDate.toISOString().slice(0, 10);
-
-    let response: Response;
-    try {
-      response = await fetch(`${this.baziEngineUrl}/daily-fortune`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          birth_date: birthDateIso,
-          birth_time: profile.birthTime,
-          birth_city: profile.birthCity,
-          birth_timezone: profile.birthTimezone,
-          gender: profile.gender.toLowerCase(),
-          birth_longitude: profile.birthLongitude,
-          birth_latitude: profile.birthLatitude,
-          target_date: targetDateIso,
-        }),
-        signal: AbortSignal.timeout(ENGINE_REQUEST_TIMEOUT_MS),
-      });
     } catch (err) {
-      throw new InternalServerErrorException(
-        `Bazi engine unreachable: ${(err as Error).message}`,
-      );
+      this.logger.warn(`Failed to warm Redis (daily): ${(err as Error).message}`);
     }
 
-    if (!response.ok) {
-      const body = await response.text();
-      this.logger.error(`Engine /daily-fortune ${response.status}: ${body}`);
-      throw new InternalServerErrorException(`Bazi engine returned ${response.status}`);
-    }
-
-    const json = await response.json();
-    if (!json.data) {
-      throw new InternalServerErrorException('Engine response missing data');
-    }
-    return json.data as DailyEngineOutput;
-  }
-
-  /** Minimal fallback for chart context when the engine response is
-   *  missing it (shouldn't happen since /daily-fortune now attaches
-   *  chartContext, but defensive). Mostly empty strings so the AI prompt
-   *  doesn't render literal '?' placeholders.
-   */
-  private buildFallbackChartContext(
-    profile: { birthDate: Date; birthTime: string; gender: string },
-  ): FortuneChartContext {
-    this.logger.warn('Engine response missing chartContext — using fallback');
-    return {
-      gender: profile.gender,
-      birthDate: profile.birthDate.toISOString().slice(0, 10),
-      birthTime: profile.birthTime,
-      lunarDate: null,
-      yearPillar: '',
-      monthPillar: '',
-      dayPillar: '',
-      hourPillar: '',
-      yearTenGod: '',
-      monthTenGod: '',
-      hourTenGod: '',
-      dayMaster: '',
-      dayMasterElement: '',
-      dayMasterYinYang: '',
-      strengthV2: '',
-      usefulGod: '',
-      favorableGod: '',
-      tabooGod: '',
-      enemyGod: '',
-    };
+    return this.helpers.buildResponse(profile.id, profileBirthDate, profileBirthTime, targetDate, snapshot, false);
   }
 
   // ============================================================
   // AI narration via Anthropic SDK
   // ============================================================
-
-  private async ensureClaudeClient() {
-    if (this.claudeClient) return this.claudeClient;
-    const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
-    if (!apiKey) {
-      throw new InternalServerErrorException('ANTHROPIC_API_KEY not configured');
-    }
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    this.claudeClient = new Anthropic({ apiKey });
-    return this.claudeClient;
-  }
 
   private async runDailyAINarration(
     daily: DailyEngineOutput,
@@ -439,8 +224,8 @@ export class FortuneService {
     }
 
     const { systemPrompt, userPrompt } = buildFortuneDailyMessages(daily, chart);
-    const client = await this.ensureClaudeClient();
-    const model = this.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
+    const client = await this.helpers.ensureClaudeClient();
+    const model = this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
 
     const response = await client.messages.create(
       {
@@ -458,8 +243,19 @@ export class FortuneService {
       .map((b: { type: string; text: string }) => b.text)
       .join('');
 
-    const narrative = this.extractJson(text);
-    const validation = this.validators.validate(narrative, daily);
+    const narrative = this.helpers.extractJson(text);
+    // Review fix: treat unparseable AI output as a FAILURE, not an empty-{} success.
+    // validate(null) returns sanitized={}; without this guard the caller persists a
+    // blank narrative as success — clobbering LKG + resetting the circuit breaker.
+    if (!narrative) {
+      throw new Error('Daily AI response could not be parsed as JSON');
+    }
+    // Phase 1.5.z: pass folkContent so Tier 1 conditional gate can distinguish
+    // engine-grounded mentions (allowed) from fabrications (stripped).
+    const validation = this.validators.validate(narrative, {
+      metaFraming: daily.metaFraming,
+      folkContent: daily.folkContent,
+    });
 
     return {
       narrative: validation.sanitized as unknown as DailyFortuneAINarrative,
@@ -468,181 +264,370 @@ export class FortuneService {
     };
   }
 
-  private extractJson(text: string): Record<string, unknown> | null {
-    // Audit C3: trim BOTH ends. Claude commonly appends a trailing
-    // remark («希望對您有幫助») after the JSON which makes JSON.parse
-    // throw and silently drops the entire narrative. Use first `{`
-    // and last `}` to bracket the JSON region.
-    const cleaned = text.replace(/```json\s*|\s*```/g, '');
-    const firstBrace = cleaned.indexOf('{');
-    const lastBrace = cleaned.lastIndexOf('}');
-    if (firstBrace === -1 || lastBrace === -1 || lastBrace < firstBrace) {
-      return null;
-    }
-    try {
-      const parsed = JSON.parse(cleaned.slice(firstBrace, lastBrace + 1));
-      // The prompt asks for `{ sections: {...} }` — return the inner object
-      if (parsed && typeof parsed === 'object' && 'sections' in parsed) {
-        return parsed.sections as Record<string, unknown>;
-      }
-      return parsed as Record<string, unknown>;
-    } catch (err) {
-      this.logger.warn(`Fortune AI JSON parse failed: ${(err as Error).message}`);
-      return null;
-    }
-  }
-
   // ============================================================
-  // Persistence
+  // Public API — getMonthlyFortune (Phase 2 月運 L2.5 + Phase 2.x L2 refactor)
   // ============================================================
+  //
+  // Mirrors getDailyFortune shape (subscription gate → cache → engine
+  // → AI → validate → persist → respond) scaled to MONTH scope.
+  //
+  // Phase 2.x L2 refactor: cache/persist/engine-fetch/build-response helpers
+  // moved to FortuneSnapshotHelpers so the new streamMonthlyFortune (L3) can
+  // share invariants. Contract test at
+  // `fortune-snapshot.helpers.monthly.contract.spec.ts` asserts byte-identity.
+  //
+  // Key differences from daily:
+  //   - Subscription window: -1 month / current / +12 months INCLUSIVE
+  //   - Cache key: `fortune:monthly:{chartHash}:{YYYY-MM}` (anchor = 1st of month)
+  //   - AI prompt: FORTUNE_V1_PROMPTS.monthly + buildFortuneMonthlyMessages
+  //   - Validator: validateMonthly (4 dims, no folk)
+  //   - DB row: scope=MONTH, anchorDate=1st of month (YYYY-MM-01), yearMonth denormalized
+  //   - L1.b intraMonthBreakdown: wired in Phase 2.x — engine /monthly-fortune
+  //     includes it in response; helpers.buildMonthlyResponse lifts it to top-level.
 
-  private async persistSnapshot(args: {
-    chartHash: string;
-    birthProfileId: string;
-    anchorDate: Date;
-    dailyOutput: DailyEngineOutput;
-    narrative: DailyFortuneAINarrative | null;
-    promptVersion: string | null;
-  }): Promise<DailyFortuneSnapshot> {
-    return this.prisma.dailyFortuneSnapshot.upsert({
-      where: {
-        chartHash_scope_anchorDate: {
-          chartHash: args.chartHash,
-          scope: FortuneScope.DAY,
-          anchorDate: args.anchorDate,
-        },
-      },
-      create: {
-        chartHash: args.chartHash,
-        birthProfileId: args.birthProfileId,
-        scope: FortuneScope.DAY,
-        anchorDate: args.anchorDate,
-        engineOutputJson: args.dailyOutput as unknown as Prisma.InputJsonValue,
-        aiNarrativeJson: args.narrative
-          ? (args.narrative as unknown as Prisma.InputJsonValue)
-          : Prisma.JsonNull,
-        energyScore: args.dailyOutput.energyScore,
-        auspiciousnessLabel: args.dailyOutput.auspiciousness,
-        preAnalysisVersion: FORTUNE_PRE_ANALYSIS_VERSIONS.day,
-        promptVersion: args.promptVersion,
-        // Circuit breaker initial state — first row, AI either succeeded (0/null)
-        // or failed (1/now). Subsequent failures use UPDATE block's atomic increment.
-        aiFailureCount: args.promptVersion === null ? 1 : 0,
-        aiLastFailedAt: args.promptVersion === null ? new Date() : null,
-      },
-      update: {
-        engineOutputJson: args.dailyOutput as unknown as Prisma.InputJsonValue,
-        aiNarrativeJson: args.narrative
-          ? (args.narrative as unknown as Prisma.InputJsonValue)
-          : Prisma.JsonNull,
-        energyScore: args.dailyOutput.energyScore,
-        auspiciousnessLabel: args.dailyOutput.auspiciousness,
-        preAnalysisVersion: FORTUNE_PRE_ANALYSIS_VERSIONS.day,
-        promptVersion: args.promptVersion,
-        generatedAt: new Date(),
-        // Circuit breaker: increment atomically on failure (Prisma `{ increment: 1 }`
-        // generates `SET ai_failure_count = ai_failure_count + 1` — race-safe vs
-        // JS-level math which would need a prior SELECT). Reset on success.
-        ...(args.promptVersion === null
-          ? { aiFailureCount: { increment: 1 }, aiLastFailedAt: new Date() }
-          : { aiFailureCount: 0, aiLastFailedAt: null }),
-      },
+  async getMonthlyFortune(
+    clerkUserId: string,
+    args: { profileId?: string; month?: string },
+  ): Promise<MonthlyFortuneResponse> {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
     });
-  }
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
 
-  // ============================================================
-  // Response shaping
-  // ============================================================
+    const profile = args.profileId
+      ? await this.prisma.birthProfile.findFirst({
+          where: { id: args.profileId, userId: user.id },
+        })
+      : await this.prisma.birthProfile.findFirst({
+          where: { userId: user.id, isPrimary: true },
+        });
 
-  private buildResponse(
-    profileId: string,
-    profileBirthDate: string,
-    profileBirthTime: string,
-    targetDateIso: string,
-    snapshot: DailyFortuneSnapshot,
-    cacheHit: boolean,
-  ): DailyFortuneResponse {
-    // Audit I5: runtime check the required shape of the engine output —
-    // a stale cached row from a pre-v1.0.0 version (or a corrupted Json
-    // payload) could lack required fields. We throw rather than silently
-    // serve undefined fields.
-    const raw = snapshot.engineOutputJson as unknown;
-    if (
-      raw === null ||
-      typeof raw !== 'object' ||
-      !('dayGanZhi' in (raw as object)) ||
-      !('auspiciousness' in (raw as object)) ||
-      !('dimensions' in (raw as object)) ||
-      !('energyScore' in (raw as object))
-    ) {
-      this.logger.error(
-        `Snapshot ${snapshot.id} has malformed engineOutputJson — likely stale schema; regenerating`,
-      );
-      throw new InternalServerErrorException(
-        'Daily fortune snapshot data is malformed — please retry',
+    if (!profile) {
+      throw new NotFoundException({
+        code: args.profileId ? 'PROFILE_NOT_FOUND' : 'NO_PRIMARY_PROFILE',
+        message: args.profileId
+          ? 'Birth profile not found'
+          : 'No primary birth profile configured for this user',
+      });
+    }
+
+    // Resolve target month (default = current month in FORTUNE_DEFAULT_TZ)
+    const targetMonth = args.month ?? this.helpers.currentMonthIso();
+    if (!/^\d{4}-\d{2}$/.test(targetMonth)) {
+      throw new NotFoundException(`Invalid month format: ${targetMonth} (expected YYYY-MM)`);
+    }
+
+    // Subscription gate (month-scope) — throws ForbiddenException on violation
+    this.helpers.enforceMonthlySubscriptionGate(user.subscriptionTier, targetMonth);
+
+    // Chart hash (shared with daily — same chart)
+    const chartHash = this.helpers.computeChartHash(profile);
+
+    // Profile metadata for response
+    const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
+    const profileBirthTime = profile.birthTime;
+
+    // Anchor for cache key + DB row: 1st of month
+    const anchorDate = new Date(`${targetMonth}-01T00:00:00Z`);
+
+    // Try cache (Redis → DB) via helpers — derives redisKey internally
+    const cached = await this.helpers.tryGetMonthlyCached(chartHash, anchorDate);
+    if (cached) {
+      return this.helpers.buildMonthlyResponse(
+        profile.id,
+        profileBirthDate,
+        profileBirthTime,
+        targetMonth,
+        cached,
+        true,
       );
     }
-    const engineOutput = raw as DailyFortuneResponse['engineOutput'];
-    const narrative = snapshot.aiNarrativeJson as unknown as DailyFortuneAINarrative | null;
-    return {
-      date: targetDateIso,
-      profileId,
+
+    // Cache miss → compute fresh
+    const [year, month] = targetMonth.split('-').map(Number) as [number, number];
+    const monthlyOutput = await this.helpers.fetchMonthlyFromEngine(profile, year, month);
+    const chartContext = (monthlyOutput.chartContext ??
+      this.helpers.buildFallbackChartContext(profile)) as FortuneChartContext;
+    const flowYear = (monthlyOutput as unknown as { flowYear?: number }).flowYear ?? year;
+
+    let narrative: MonthlyFortuneAINarrative | null = null;
+    let promptVersion: string | null = null;
+
+    try {
+      const aiResult = await this.runMonthlyAINarration(
+        monthlyOutput,
+        chartContext,
+        targetMonth,
+        flowYear,
+      );
+      narrative = aiResult.narrative;
+      promptVersion = aiResult.promptVersion;
+    } catch (err) {
+      this.logger.error(
+        `Monthly fortune AI failure (month=${targetMonth} profile=${profile.id}): ${(err as Error).message}`,
+      );
+      narrative = null;
+      promptVersion = null;
+    }
+
+    // Persist + warm Redis via helpers
+    const snapshot = await this.helpers.persistMonthlySnapshot({
+      chartHash,
+      birthProfileId: profile.id,
+      anchorDate,
+      yearMonth: targetMonth,
+      monthlyOutput,
+      narrative,
+      promptVersion,
+    });
+
+    try {
+      const redisKey = this.helpers.monthlyRedisKey(chartHash, targetMonth);
+      await this.helpers.redis.set(redisKey, JSON.stringify(snapshot), REDIS_TTL_SECONDS);
+    } catch (err) {
+      this.logger.warn(`Failed to warm Redis monthly snapshot: ${(err as Error).message}`);
+    }
+
+    return this.helpers.buildMonthlyResponse(
+      profile.id,
       profileBirthDate,
       profileBirthTime,
-      engineOutput,
-      narrative,
-      cacheHit,
-      generatedAt: snapshot.generatedAt.toISOString(),
+      targetMonth,
+      snapshot,
+      false,
+    );
+  }
+
+  /** AI narration via Anthropic SDK (mirrors runDailyAINarration pattern). */
+  private async runMonthlyAINarration(
+    monthly: MonthlyEngineOutput,
+    chart: FortuneChartContext,
+    targetMonth: string,
+    flowYear: number,
+  ): Promise<{
+    narrative: MonthlyFortuneAINarrative | null;
+    validation: FortuneValidationResult;
+    promptVersion: string;
+  }> {
+    const monthlyPrompts = FORTUNE_V1_PROMPTS.monthly;
+    if (!monthlyPrompts) {
+      throw new Error('FORTUNE_V1_PROMPTS.monthly not configured');
+    }
+
+    const { systemPrompt, userPrompt } = buildFortuneMonthlyMessages(monthly, chart, {
+      targetMonth,
+      flowYear,
+    });
+    const client = await this.helpers.ensureClaudeClient();
+    const model = this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
+
+    const response = await client.messages.create(
+      {
+        model,
+        max_tokens: 2048,
+        temperature: 0.6,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      },
+      { timeout: AI_CALL_TIMEOUT_MS },
+    );
+
+    const text = response.content
+      .filter((b: { type: string }) => b.type === 'text')
+      .map((b: { type: string; text: string }) => b.text)
+      .join('');
+
+    const parsed = this.helpers.extractJson(text);
+    // Review fix: unparseable AI output is a FAILURE (else validate(null)→sanitized={}
+    // persists a blank narrative as success, clobbering LKG + resetting the breaker).
+    if (!parsed) {
+      throw new Error('Monthly AI response could not be parsed as JSON');
+    }
+    const validation = this.validators.validateMonthly(parsed, {
+      sessionAnchorMonth: targetMonth,
+    });
+
+    return {
+      narrative: validation.sanitized as unknown as MonthlyFortuneAINarrative,
+      validation,
+      promptVersion: FORTUNE_PROMPT_VERSIONS.month,
     };
   }
 
   // ============================================================
-  // Helpers
+  // Public API — getYearlyFortune (Phase 3 年運)
   // ============================================================
+  //
+  // Mirrors getMonthlyFortune shape (subscription gate → cache → engine
+  // → AI → validate → persist → respond) scaled to YEAR scope.
+  //
+  // Key differences from monthly:
+  //   - Subscription window: -1 year / current / +4 years INCLUSIVE
+  //   - Cache key: `fortune:yearly:{chartHash}:{YYYY}` (anchor = Jan 1)
+  //   - AI prompt: FORTUNE_V1_PROMPTS.yearly + buildFortuneYearlyMessages
+  //   - Validator: validateYearly (4 dims, no folk, single-arg signature)
+  //   - DB row: scope=YEAR, anchorDate=Jan 1 (YYYY-01-01), year denormalized
+  //   - NO intraMonthBreakdown sibling — coreRiskOpportunity + luckMethods
+  //     live INSIDE engineOutput; buildYearlyResponse passes it through verbatim.
 
-  private computeChartHash(profile: {
-    birthDate: Date;
-    birthTime: string;
-    birthCity: string;
-    birthTimezone: string;
-    gender: string;
-  }): string {
-    // Audit I4: include birthTimezone in the hash. The engine uses it for
-    // 大運/流年 alignment (even with True Solar Time disabled), so two
-    // profiles with same date/time/city but different TZ overrides
-    // produce different chart contexts and must not share cache entries.
-    const inputs = [
-      profile.birthDate.toISOString().slice(0, 10),
-      profile.birthTime,
-      profile.birthCity,
-      profile.birthTimezone,
-      profile.gender,
-    ].join('|');
-    return createHash('sha256').update(inputs).digest('hex').slice(0, 32);
+  async getYearlyFortune(
+    clerkUserId: string,
+    args: { profileId?: string; year?: string },
+  ): Promise<YearlyFortuneResponse> {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const profile = args.profileId
+      ? await this.prisma.birthProfile.findFirst({
+          where: { id: args.profileId, userId: user.id },
+        })
+      : await this.prisma.birthProfile.findFirst({
+          where: { userId: user.id, isPrimary: true },
+        });
+
+    if (!profile) {
+      throw new NotFoundException({
+        code: args.profileId ? 'PROFILE_NOT_FOUND' : 'NO_PRIMARY_PROFILE',
+        message: args.profileId
+          ? 'Birth profile not found'
+          : 'No primary birth profile configured for this user',
+      });
+    }
+
+    // Resolve target year (default = current year in FORTUNE_DEFAULT_TZ)
+    const targetYear = args.year ?? this.helpers.currentYearIso();
+    if (!/^\d{4}$/.test(targetYear)) {
+      throw new NotFoundException(`Invalid year format: ${targetYear} (expected YYYY)`);
+    }
+
+    // Subscription gate (year-scope) — throws ForbiddenException on violation
+    this.helpers.enforceYearlySubscriptionGate(user.subscriptionTier, targetYear);
+
+    // Chart hash (shared with daily/monthly — same chart)
+    const chartHash = this.helpers.computeChartHash(profile);
+
+    // Profile metadata for response
+    const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
+    const profileBirthTime = profile.birthTime;
+
+    // Anchor for cache key + DB row: Jan 1 of year
+    const anchorDate = new Date(`${targetYear}-01-01T00:00:00Z`);
+
+    // Try cache (Redis → DB) via helpers — derives redisKey internally
+    const cached = await this.helpers.tryGetYearlyCached(chartHash, anchorDate);
+    if (cached) {
+      return this.helpers.buildYearlyResponse(
+        profile.id,
+        profileBirthDate,
+        profileBirthTime,
+        Number(targetYear),
+        cached,
+        true,
+      );
+    }
+
+    // Cache miss → compute fresh
+    const year = Number(targetYear);
+    const yearlyOutput = await this.helpers.fetchYearlyFromEngine(profile, year);
+    const chartContext = ((yearlyOutput as unknown as { chartContext?: FortuneChartContext })
+      .chartContext ?? this.helpers.buildFallbackChartContext(profile)) as FortuneChartContext;
+
+    let narrative: YearlyFortuneAINarrative | null = null;
+    let promptVersion: string | null = null;
+
+    try {
+      const aiResult = await this.runYearlyAINarration(yearlyOutput, chartContext, year);
+      narrative = aiResult.narrative;
+      promptVersion = aiResult.promptVersion;
+    } catch (err) {
+      this.logger.error(
+        `Yearly fortune AI failure (year=${targetYear} profile=${profile.id}): ${(err as Error).message}`,
+      );
+      narrative = null;
+      promptVersion = null;
+    }
+
+    // Persist + warm Redis via helpers
+    const snapshot = await this.helpers.persistYearlySnapshot({
+      chartHash,
+      birthProfileId: profile.id,
+      anchorDate,
+      year,
+      yearlyOutput,
+      narrative,
+      promptVersion,
+    });
+
+    try {
+      const redisKey = this.helpers.yearlyRedisKey(chartHash, targetYear);
+      await this.helpers.redis.set(redisKey, JSON.stringify(snapshot), REDIS_TTL_SECONDS);
+    } catch (err) {
+      this.logger.warn(`Failed to warm Redis yearly snapshot: ${(err as Error).message}`);
+    }
+
+    return this.helpers.buildYearlyResponse(
+      profile.id,
+      profileBirthDate,
+      profileBirthTime,
+      year,
+      snapshot,
+      false,
+    );
   }
 
-  private redisKey(chartHash: string, dateIso: string): string {
-    return `fortune:daily:${chartHash}:${dateIso}`;
-  }
+  /** AI narration via Anthropic SDK (mirrors runMonthlyAINarration pattern). */
+  private async runYearlyAINarration(
+    yearly: YearlyEngineOutput,
+    chart: FortuneChartContext,
+    year: number,
+  ): Promise<{
+    narrative: YearlyFortuneAINarrative | null;
+    validation: FortuneValidationResult;
+    promptVersion: string;
+  }> {
+    const yearlyPrompts = FORTUNE_V1_PROMPTS.yearly;
+    if (!yearlyPrompts) {
+      throw new Error('FORTUNE_V1_PROMPTS.yearly not configured');
+    }
 
-  private todayIsoDate(): string {
-    // Per Bazi doctrine the day flips at 23:00 子時. The CLIENT is
-    // expected to resolve that boundary and send `date` explicitly.
-    //
-    // When `date` is omitted we default to the current calendar date in
-    // the FORTUNE_DEFAULT_TZ timezone (defaults to Asia/Taipei — the
-    // platform's primary market: TW/HK/MY). This is NOT UTC: a server
-    // running in UTC but serving Taipei users would otherwise report
-    // yesterday's date between 16:00-23:59 UTC (= 00:00-07:59 next-day
-    // Taipei). See audit Issue C1.
-    const tz = this.config.get<string>('FORTUNE_DEFAULT_TZ') || 'Asia/Taipei';
-    // 'sv-SE' produces YYYY-MM-DD natively
-    return new Intl.DateTimeFormat('sv-SE', { timeZone: tz }).format(new Date());
-  }
+    const { systemPrompt, userPrompt } = buildFortuneYearlyMessages(yearly, chart, { year });
+    const client = await this.helpers.ensureClaudeClient();
+    const model = this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
 
-  private daysBetween(fromIso: string, toIso: string): number {
-    const from = new Date(`${fromIso}T00:00:00Z`).getTime();
-    const to = new Date(`${toIso}T00:00:00Z`).getTime();
-    return Math.round((to - from) / (24 * 60 * 60 * 1000));
+    const response = await client.messages.create(
+      {
+        model,
+        max_tokens: 2048,
+        temperature: 0.6,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      },
+      { timeout: AI_CALL_TIMEOUT_MS },
+    );
+
+    const text = response.content
+      .filter((b: { type: string }) => b.type === 'text')
+      .map((b: { type: string; text: string }) => b.text)
+      .join('');
+
+    const parsed = this.helpers.extractJson(text);
+    // Review fix: unparseable AI output is a FAILURE (else validate(null)→sanitized={}
+    // persists a blank narrative as success, clobbering LKG + resetting the breaker).
+    if (!parsed) {
+      throw new Error('Yearly AI response could not be parsed as JSON');
+    }
+    const validation = this.validators.validateYearly(parsed);
+
+    return {
+      narrative: validation.sanitized as unknown as YearlyFortuneAINarrative,
+      validation,
+      promptVersion: FORTUNE_PROMPT_VERSIONS.year,
+    };
   }
 }

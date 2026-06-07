@@ -35,6 +35,9 @@ interface UseChatStreamArgs {
   applyDoneEvent: (args: {
     messageCount: number;
     messagesRemaining: number;
+    /** Phase Fortune+ — post-message consecutive refuse counter. Passed
+     *  through to ChatDrawer's «超出範圍提醒» dialog trigger effect. */
+    consecutiveRefuses: number;
   }) => void;
 }
 
@@ -123,6 +126,14 @@ export function useChatStream(args: UseChatStreamArgs): UseChatStreamReturn {
               args.applyDoneEvent({
                 messageCount: ev.messageCount,
                 messagesRemaining: ev.messagesRemaining,
+                // Defensive: if an older / non-Phase-Fortune-aware backend
+                // omits `consecutiveRefuses`, fall back to 0 instead of
+                // propagating undefined → NaN state corruption that would
+                // silently disable the refuse-cap dialog (comparison with
+                // NaN always returns false). Backend currently always
+                // emits this field; the fallback is belt-and-braces for
+                // cross-deploy windows + raw SSE clients.
+                consecutiveRefuses: ev.consecutiveRefuses ?? 0,
               });
               break;
             case 'error':

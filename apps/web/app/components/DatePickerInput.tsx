@@ -1,12 +1,12 @@
 "use client";
 
-import DatePicker, { registerLocale } from "react-datepicker";
+import DatePicker from "react-datepicker";
 import { parse, format, isValid } from "date-fns";
-import { zhTW } from "date-fns/locale/zh-TW";
 import "react-datepicker/dist/react-datepicker.css";
 import "./DateTimePickerTheme.css";
-
-registerLocale("zh-TW", zhTW);
+// Side-effect: registers zh-TW locale exactly once for the entire app.
+// Shared with Fortune Phase 1.5 DateNavigator (see app/lib/date-locale.ts).
+import "../lib/date-locale";
 
 const MIN_DATE = new Date(1920, 0, 1);
 const DEFAULT_OPEN_DATE = new Date(1990, 0, 1); // Default calendar view: Jan 1990

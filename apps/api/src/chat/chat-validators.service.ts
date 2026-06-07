@@ -6,8 +6,30 @@ import {
   CHAT_V1_CITATION_OPENING_REGEX,
   CHAT_V1_REFUSAL_OPENING_REGEX,
   CHAT_V1_REFUSE_PATTERNS,
+  CHAT_CROSS_SELL_OWNED_LINES,
 } from '../ai/prompts';
 import type { ChatContext } from './chat-context.service';
+
+/**
+ * Tier C output safety-net — maps a cross-sell target key to the reading's
+ * invariant display NAME. Used by `rewriteOwnedCrossSell` to find go-buy
+ * mentions of a reading the user OWNS and rewrite them to the owned reword.
+ * Only the 4 single-profile cross-sell targets (COMPAT user_/partner_ excluded
+ * — that owned-set is always empty in v1).
+ */
+const TARGET_TO_READING_NAME: Record<string, string> = {
+  lifetime: '《八字終身運》',
+  love: '《八字愛情姻緣》',
+  career: '《八字事業詳批》',
+  annual: '《八字流年運勢》',
+};
+
+/** Go-buy verb gate (paraphrase-proof). `(?<!已)解鎖` excludes «已解鎖» so the
+ *  owned reword (which contains «您已解鎖《X》») can never re-match its own
+ *  output → idempotent. `提供(?!的)` blocks the citation form «《X》提供的數據…»
+ *  (a neutral mention of an owned reading's data, NOT a go-buy pitch) while
+ *  still matching go-buy phrasings «提供完整解讀 / 提供 12 個月分析». */
+const GO_UNLOCK_VERB_RE = /提供(?!的)|獲取|(?<!已)解鎖/;
 
 // ============================================================
 // Types
@@ -30,6 +52,9 @@ export interface PostValidationResult {
   citationAutoPrepended: boolean;
   /** List of banned phrases that were stripped (for telemetry / prompt tuning). */
   strippedPhrases: string[];
+  /** Tier C — did the owned-cross-sell safety net rewrite any «go-buy 《X》»
+   *  clause to the owned reword? (telemetry / regression signal) */
+  ownedCrossSellRewritten: boolean;
 }
 
 // ============================================================
@@ -269,17 +294,70 @@ export class ChatValidatorsService {
   // Combined post-validation (A + B)
   // ============================================================
 
+  /**
+   * Tier C output safety-net — rewrite any «go-buy 《X》» clause into the owned
+   * reword for readings the user OWNS. Robust against paraphrase: the
+   * prompt-level swap only catches exact-constant occurrences, but refuse
+   * few-shots / topic-scope clauses paraphrase the cross-sell line, so the AI
+   * can still emit a go-buy pitch for an owned reading. This clause-level pass
+   * keys on the invariant reading NAME 《X》 + a go-unlock verb (NOT the full
+   * sentence), so it catches all phrasings.
+   *
+   * Clause boundaries: `。！？\n` ONLY (not 「」 — the owned reword contains
+   * «「我的解讀」» and cross-sell clauses are full sentences). The owned line's
+   * trailing 。 is stripped before splice because the captured delimiter is
+   * re-added on rejoin (else → «。。»). Idempotent via the `(?<!已)解鎖` gate.
+   */
+  rewriteOwnedCrossSell(
+    text: string,
+    ownedTargets: ReadonlySet<string>,
+  ): { text: string; rewritten: boolean } {
+    if (!ownedTargets || ownedTargets.size === 0) return { text, rewritten: false };
+    // Build the list of (readingName, ownedLine) pairs for owned targets that
+    // have both a name + an owned reword (skips COMPAT user_/partner_ keys).
+    const pairs: Array<{ name: string; ownedLine: string }> = [];
+    for (const t of ownedTargets) {
+      const name = TARGET_TO_READING_NAME[t];
+      const ownedLine = CHAT_CROSS_SELL_OWNED_LINES[t];
+      if (name && ownedLine) pairs.push({ name, ownedLine: ownedLine.replace(/[。！？]+$/, '') });
+    }
+    if (pairs.length === 0) return { text, rewritten: false };
+
+    // Split keeping delimiters so they can be re-attached verbatim on rejoin.
+    const parts = text.split(/([。！？\n]+)/);
+    let rewritten = false;
+    for (let i = 0; i < parts.length; i++) {
+      const clause = parts[i];
+      if (!clause || /^[。！？\n]+$/.test(clause)) continue; // skip delimiter segments
+      if (!GO_UNLOCK_VERB_RE.test(clause)) continue; // must be a go-buy clause
+      const hit = pairs.find((p) => clause.includes(p.name));
+      if (!hit) continue; // must mention an OWNED reading
+      parts[i] = hit.ownedLine; // replace the whole clause; delimiter re-added on join
+      rewritten = true;
+    }
+    return rewritten ? { text: parts.join(''), rewritten: true } : { text, rewritten: false };
+  }
+
   postValidate(
     text: string,
     chatContext: ChatContext,
+    ownedCrossSellTargets?: ReadonlySet<string>,
   ): PostValidationResult {
     const { text: stripped, strippedPhrases } = this.stripBannedPhrases(text);
-    const { text: cited, prepended } = this.enforceCitation(stripped, chatContext);
+    // Tier C — rewrite owned cross-sells BEFORE citation (citation prepends at
+    // the START; the cross-sell clause is mid/late, so order is independent —
+    // doing it here keeps the citation pass operating on final wording).
+    const { text: reworded, rewritten: ownedCrossSellRewritten } = this.rewriteOwnedCrossSell(
+      stripped,
+      ownedCrossSellTargets ?? new Set<string>(),
+    );
+    const { text: cited, prepended } = this.enforceCitation(reworded, chatContext);
     return {
       text: cited,
       bannedPhraseStripped: strippedPhrases.length > 0,
       citationAutoPrepended: prepended,
       strippedPhrases,
+      ownedCrossSellRewritten,
     };
   }
 

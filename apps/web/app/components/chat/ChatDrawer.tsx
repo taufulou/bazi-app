@@ -22,6 +22,7 @@ import { createPortal } from 'react-dom';
 import {
   CHAT_SESSION_HARD_CAP_MESSAGES,
   CHAT_SOFT_WARNING_TURN,
+  CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD,
 } from '@repo/shared';
 import { useChatSession } from './hooks/useChatSession';
 import { useChatStream } from './hooks/useChatStream';
@@ -48,11 +49,19 @@ const LOCK_ERROR_CODES: Record<string, string> = {
 interface ChatDrawerProps {
   isOpen: boolean;
   onClose: () => void;
-  /** Phase 3 — exactly one of (readingId, comparisonId) must be set.
-   *  Backend service validates this. Both Optional in the type to allow
-   *  the chat to mount on either reading pages or the compatibility page. */
+  /** Phase 3 + Phase Fortune — exactly one of (readingId, comparisonId,
+   *  fortune) must be set. Backend service XOR-validates. Lets the chat
+   *  mount on reading pages / compatibility page / fortune page. */
   readingId?: string;
   comparisonId?: string;
+  /** Phase Fortune — FORTUNE chat subject (profileId + scope +
+   *  anchorDate). When set, sessions are pinned to anchorDate per plan
+   *  Issue 10 (date navigation spawns new session). */
+  fortune?: {
+    profileId: string;
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR';
+    fortuneAnchorDate: string; // ISO YYYY-MM-DD
+  };
   /** Phase 2 (round-1 MED-#3) — required prop. Threads the reading's type
    *  through to the empty-state sample-questions hook + downstream UI so
    *  each reading type's chat shows its own general questions. The
@@ -64,11 +73,24 @@ interface ChatDrawerProps {
   initialSectionContextHint?: string;
   /** Optional: a question to auto-send once the session is ready. Used by
    *  InlineAskCard sample-question clicks. The drawer dedupes via an
-   *  internal ref so the same value won't be sent twice. */
+   *  internal ref so the same value won't be sent twice.
+   *
+   *  Phase Fortune NOTE: when `populateOnly=true` is set, the drawer
+   *  POPULATES the composer draft (via `appendToDraft` on the composer
+   *  ref) INSTEAD of auto-sending. This is the load-bearing FORTUNE
+   *  decision per plan Issue 6 — predictable UX + explicit send step
+   *  (gesture survival was a false claim anyway since the gesture is
+   *  consumed by the async drawer mount + session init). */
   pendingInitialMessage?: string;
-  /** Called once the pendingInitialMessage has been consumed (sent). The
-   *  parent should clear its `pendingInitialMessage` state. */
+  /** Called once the pendingInitialMessage has been consumed (sent OR
+   *  populated, depending on `populateOnly`). Parent should clear its
+   *  `pendingInitialMessage` state. */
   onPendingInitialMessageConsumed?: () => void;
+  /** Phase Fortune (plan Issue 6 lock): when true, `pendingInitialMessage`
+   *  POPULATES the composer draft instead of auto-sending. Default false
+   *  preserves existing LIFETIME / LOVE / CAREER / ANNUAL / COMPATIBILITY
+   *  auto-send behavior. */
+  populateOnly?: boolean;
   /** Optional: handler invoked when the user clicks a question in the
    *  drawer's empty-state ChatSampleQuestions (general questions, no
    *  section hint). When omitted, the empty state still renders questions
@@ -81,17 +103,26 @@ export default function ChatDrawer({
   onClose,
   readingId,
   comparisonId,
+  fortune,
   readingType,
   initialSectionContextHint,
   pendingInitialMessage,
   onPendingInitialMessageConsumed,
+  populateOnly = false,
   onPickGeneralQuestion,
 }: ChatDrawerProps) {
   // Phase 2 — empty-state «general» sample questions, fetched from DB.
   // sectionKey=null means the floating-button no-section context.
-  const { questions: generalSampleQuestions } = useSampleQuestions(readingType, null);
-  // Phase 3 — pass either readingId or comparisonId (exactly one) to useChatSession.
-  const session = useChatSession({ readingId, comparisonId, enabled: isOpen });
+  // Phase 2.x L3.5b — pass fortuneScope so MONTH chat surfaces MONTH-keyed
+  // questions (25 seeded) instead of DAY questions. DAY default for non-FORTUNE.
+  const { questions: generalSampleQuestions } = useSampleQuestions(
+    readingType,
+    null,
+    fortune?.fortuneScope,
+  );
+  // Phase 3 + Phase Fortune — pass exactly one of (readingId, comparisonId,
+  // fortune) to useChatSession. The hook XOR-routes the subject.
+  const session = useChatSession({ readingId, comparisonId, fortune, enabled: isOpen });
   const stream = useChatStream({
     sessionId: session.sessionId,
     appendUserMessage: session.appendUserMessage,
@@ -108,6 +139,11 @@ export default function ChatDrawer({
   // Track whether we've already shown the turn-20 soft warning for this session
   // so we don't spam it on every send after turn 20.
   const [softWarningShown, setSoftWarningShown] = useState(false);
+  // Phase Fortune+ — track whether we've shown the «超出範圍提醒» refuse-cap
+  // dialog at the current consecutive-refuse run. Once shown, suppress until
+  // the run resets (consecutiveRefuses drops below threshold via an in-topic
+  // message) — otherwise spam dialogs on every consecutive refuse beyond N.
+  const [refuseLimitDialogShown, setRefuseLimitDialogShown] = useState(false);
   // Whether the history panel is open.
   const [historyOpen, setHistoryOpen] = useState(false);
 
@@ -127,7 +163,28 @@ export default function ChatDrawer({
   // Reset soft-warning flag whenever we transition to a new session.
   useEffect(() => {
     setSoftWarningShown(false);
+    // Phase Fortune+ — refuse-cap dialog state is per-session, reset too.
+    setRefuseLimitDialogShown(false);
   }, [session.sessionId]);
+
+  // Phase Fortune+ — reset refuse-cap dialog flag whenever the counter drops
+  // below threshold (user asked an in-topic question → backend ran
+  // `consecutiveRefuses: { set: 0 }`). This lets the dialog fire AGAIN if
+  // the user later goes off-topic for another N consecutive turns. Without
+  // this reset, the user would only see the dialog once per session even if
+  // they hit the cap multiple times in different runs. (The dialog fire
+  // effect itself lives below the `atHardCap` declaration to avoid TDZ.)
+  //
+  // Deps only `[session.consecutiveRefuses]` is correct — `setRefuseLimit
+  // DialogShown` is a stable React setter (not needed in deps), and the
+  // threshold constant is module-scope (not needed). Setter call uses the
+  // functional form so React short-circuits when value already false (no
+  // wasted re-render).
+  useEffect(() => {
+    if (session.consecutiveRefuses < CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD) {
+      setRefuseLimitDialogShown((prev) => (prev === false ? prev : false));
+    }
+  }, [session.consecutiveRefuses]);
 
   // Body scroll lock while open.
   useEffect(() => {
@@ -243,9 +300,19 @@ export default function ChatDrawer({
   // callback) — this ref is just a guard for in-flight auto-sends.
   const sentInitialMessageRef = useRef<string | null>(null);
 
-  // Auto-send the pendingInitialMessage once the session is ready. Fires
-  // as soon as: drawer is open, session has an id, not loading, not locked,
-  // not currently streaming, and the message hasn't been auto-sent yet.
+  // Auto-send (or POPULATE if populateOnly=true) the pendingInitialMessage
+  // once the session is ready. Fires as soon as: drawer is open, session
+  // has an id, not loading, not locked, not currently streaming, and the
+  // message hasn't been consumed yet.
+  //
+  // Phase Fortune branch: when `populateOnly=true`, write to the composer
+  // draft via `appendToDraft` imperative API instead of sending. The user
+  // gets an editable preview + must explicitly tap send. This is the
+  // load-bearing FORTUNE decision per plan Issue 6 — predictable UX,
+  // no surprise sends. For populateOnly the «not locked» check is still
+  // required (locked composer is read-only); session must be ready so the
+  // composer is mounted; streaming-guard is preserved so we don't append
+  // mid-stream.
   useEffect(() => {
     if (!isOpen) return;
     if (!pendingInitialMessage) return;
@@ -253,11 +320,18 @@ export default function ChatDrawer({
     if (!session.sessionId || session.loading || session.locked) return;
     if (stream.streaming) return;
     sentInitialMessageRef.current = pendingInitialMessage;
-    handleSend(pendingInitialMessage);
+    if (populateOnly) {
+      // Populate-only — pre-fill the composer; user explicitly hits send.
+      composerRef.current?.appendToDraft(pendingInitialMessage);
+      composerRef.current?.focusInput();
+    } else {
+      handleSend(pendingInitialMessage);
+    }
     onPendingInitialMessageConsumed?.();
   }, [
     isOpen,
     pendingInitialMessage,
+    populateOnly,
     session.sessionId,
     session.loading,
     session.locked,
@@ -332,6 +406,39 @@ export default function ChatDrawer({
     messagesUntilHardCap,
   ]);
 
+  // Phase Fortune+ — fire the «超出範圍提醒» dialog as soon as the consecutive
+  // refuse counter hits the warning threshold (matches the refund-cap, see
+  // CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT + WARNING_THRESHOLD in @repo/shared).
+  // This is the FIRST refuse that is NOT auto-refunded — show the dialog so
+  // the user understands why their credit was deducted + that future
+  // off-topic Qs will keep deducting.
+  //
+  // Suppression conditions:
+  //  - already shown this run (refuseLimitDialogShown) — wait for reset
+  //  - mid-stream (avoid interrupting AI response render)
+  //  - session locked / at hard cap — dialog 4/5 takes priority
+  //  - another dialog is already open — don't stack
+  useEffect(() => {
+    if (
+      !stream.streaming &&
+      session.consecutiveRefuses >= CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD &&
+      !refuseLimitDialogShown &&
+      !atHardCap &&
+      !session.locked &&
+      !dialogKey
+    ) {
+      setDialogKey('refuse_limit_reached');
+      setRefuseLimitDialogShown(true);
+    }
+  }, [
+    stream.streaming,
+    session.consecutiveRefuses,
+    refuseLimitDialogShown,
+    atHardCap,
+    session.locked,
+    dialogKey,
+  ]);
+
   // After hitting hard cap, show the modal. Skip when session is locked
   // (lock banner already covers this state).
   useEffect(() => {
@@ -345,14 +452,26 @@ export default function ChatDrawer({
   // ============================================================
 
   const handleDialogAction = useCallback(
-    async (action: DialogAction, _from: ChatDialogKey) => {
+    async (action: DialogAction, from: ChatDialogKey) => {
       if (action === 'cancel') {
         setDialogKey(null);
-        setPendingSend(null);
-        // L3 (Phase 3 follow-up) — clear stashed section hint too so a
-        // subsequent re-stash with a different section doesn't see a
-        // stale value during the brief overwrite window.
-        setStashedSectionHint(undefined);
+        // Phase Fortune+ — the `refuse_limit_reached` dialog is a pure
+        // info banner («您最近多個問題都超出本服務範圍...»). It does NOT
+        // intercept a queued send (refuse-cap fires post-stream when
+        // pendingSend is always null in current flow). Skip the
+        // pendingSend/stashedSectionHint cleanup which is only meaningful
+        // for quota-wall dialogs (extend_standard, near_cap_warning,
+        // turn20_warning_*) that DO queue a user message awaiting credit.
+        // Future-proofing: if some path queues a send before showing this
+        // dialog, the user's draft survives instead of being silently
+        // dropped on confirm.
+        if (from !== 'refuse_limit_reached') {
+          setPendingSend(null);
+          // L3 (Phase 3 follow-up) — clear stashed section hint too so a
+          // subsequent re-stash with a different section doesn't see a
+          // stale value during the brief overwrite window.
+          setStashedSectionHint(undefined);
+        }
         return;
       }
 
@@ -426,7 +545,7 @@ export default function ChatDrawer({
       if (action === 'new_session') {
         // If they have unused paid messages AND came from a non-warning path,
         // confirm first.
-        if (remainingPaid > 0 && _from !== 'new_session_lose_paid') {
+        if (remainingPaid > 0 && from !== 'new_session_lose_paid') {
           setDialogKey('new_session_lose_paid');
           return;
         }
@@ -607,6 +726,10 @@ export default function ChatDrawer({
         <SampleQuestionsBrowser
           isOpen={browserOpen}
           readingType={readingType}
+          // Phase 2.x L3.5b — thread scope so MONTH chat surfaces MONTH-keyed
+          // questions in the browser overlay (mirror of useSampleQuestions
+          // call at line 119).
+          fortuneScope={fortune?.fortuneScope}
           onClose={() => setBrowserOpen(false)}
           errorMessage={browserError}
           onPick={(questionText) => {

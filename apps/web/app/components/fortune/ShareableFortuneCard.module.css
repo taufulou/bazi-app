@@ -1,0 +1,329 @@
+/* ShareableFortuneCard — fixed 1200x1600 layout for html2canvas capture.
+ * Off-screen positioning is applied by the parent (page.tsx) — this stylesheet
+ * defines the card's internal layout only. */
+
+.card {
+  width: 1200px;
+  height: 1600px;
+  padding: 80px 80px 0;
+  background: var(--bg-primary);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: 'Noto Serif TC', serif;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ============================================================ */
+/* Brand wordmark header                                        */
+/* ============================================================ */
+
+.brandHeader {
+  align-self: flex-start;
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  margin-bottom: 60px;
+}
+
+.brandWordmark {
+  font-size: 36px;
+  font-weight: 700;
+  color: var(--text-accent);
+  letter-spacing: 2px;
+}
+
+.brandTagline {
+  font-size: 20px;
+  color: var(--text-muted);
+  letter-spacing: 4px;
+}
+
+/* ============================================================ */
+/* Date band                                                    */
+/* ============================================================ */
+
+.dateBand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 50px;
+}
+
+.dateLine {
+  font-size: 48px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 2px;
+}
+
+.baziLine {
+  font-size: 28px;
+  color: var(--text-secondary);
+  letter-spacing: 4px;
+}
+
+/* ============================================================ */
+/* Ring (scaled to 360 from EnergyScoreRing's 150)              */
+/* ============================================================ */
+
+.ringWrap {
+  position: relative;
+  width: 360px;
+  height: 360px;
+  margin-bottom: 30px;
+}
+
+.ring {
+  width: 100%;
+  height: 100%;
+}
+
+.ringTrack {
+  stroke: rgba(212, 160, 23, 0.12);
+}
+
+.ringWrap[data-tier='positive'] .ringProgress {
+  stroke: var(--color-success);
+}
+
+.ringWrap[data-tier='default'] .ringProgress {
+  stroke: var(--color-gold);
+}
+
+.scoreText {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.scoreNumber {
+  font-size: 110px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.scoreUnit {
+  margin-top: 8px;
+  font-size: 24px;
+  color: var(--text-muted);
+  letter-spacing: 6px;
+}
+
+/* ============================================================ */
+/* Label band                                                   */
+/* ============================================================ */
+
+.labelBand {
+  display: inline-flex;
+  align-items: center;
+  padding: 14px 50px;
+  border-radius: 999px;
+  font-weight: 700;
+  border: 2px solid transparent;
+  margin-bottom: 18px;
+}
+
+.labelBand[data-tier='positive'] {
+  background: rgba(76, 175, 80, 0.1);
+  border-color: rgba(76, 175, 80, 0.35);
+  color: var(--color-success);
+}
+
+.labelBand[data-tier='default'] {
+  background: rgba(212, 160, 23, 0.12);
+  border-color: rgba(212, 160, 23, 0.4);
+  color: var(--text-accent);
+}
+
+.labelText {
+  font-size: 44px;
+  letter-spacing: 6px;
+}
+
+.friendlyExplanation {
+  margin: 0 0 40px;
+  font-size: 28px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+/* ============================================================ */
+/* Headliner anchor row                                         */
+/* ============================================================ */
+
+.headliner {
+  margin-bottom: 36px;
+  transform: scale(1.6);
+  transform-origin: center;
+}
+
+/* ============================================================ */
+/* Takeaway box                                                 */
+/* ============================================================ */
+
+.takeawayBox {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin: 0 40px 40px;
+  padding: 28px 36px;
+  background: rgba(255, 255, 255, 0.55);
+  border-left: 6px solid var(--color-red);
+  border-radius: var(--radius-sm);
+  max-width: 880px;
+}
+
+.takeawayQuoteMark {
+  font-size: 56px;
+  line-height: 1;
+  color: var(--color-red);
+  font-weight: 700;
+}
+
+.takeawayText {
+  flex: 1;
+  font-size: 30px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* ============================================================ */
+/* Folk content 2×2 grid (Phase 1.5.z)                           */
+/* ============================================================ */
+/*
+ * Compact 4-slot grid showing 吉色 / 吉數 / 今日宜食 / 吉時.
+ * Sized to fit the ~330px vertical margin between the takeaway box
+ * and footer (margin-top:auto). Each slot is a label + value pair;
+ * 吉數 has an inline 「民俗」 badge per Phase 1.5.z provenance dispatch.
+ */
+.folkGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px 60px;
+  margin: 0 40px 30px;
+  padding: 24px 36px;
+  background: rgba(255, 248, 240, 0.7);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(212, 160, 23, 0.18);
+  max-width: 880px;
+}
+
+.folkSlot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.folkLabel {
+  font-size: 20px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.folkValue {
+  font-size: 28px;
+  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: 1px;
+  /* Truncate gracefully if the value (e.g. 6-branch hours roster) is
+   * longer than the slot width. Share card uses ellipsis instead of
+   * wrapping to keep grid rows aligned. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/*
+ * 民俗 badge — same visual treatment as the page's FolkContentCard
+ * badge (≥12px italic, ~4.8:1 contrast on warm-cream bg) but scaled
+ * up for the 1200x1600 share card. The 「民俗」 chip discloses the
+ * 河圖洛書 doctrinal tier per Phase 1.5.z provenance dispatch.
+ *
+ * Font size 18px is calibrated for the 1200×1600 capture pixel grid:
+ * typical mobile share viewers scale the PNG to ~600-800px wide, so
+ * 18px → ~9-12px effective — passes WCAG AA readability floor for
+ * informational text. (14px tested too small; would render ~7-9px
+ * effective and become illegible on mobile.)
+ */
+.folkBadge {
+  font-size: 18px;
+  font-style: italic;
+  font-weight: 600;
+  color: #8b6f47;
+  letter-spacing: 0;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: rgba(212, 160, 23, 0.14);
+}
+
+/* ============================================================ */
+/* Footer (QR + brand)                                          */
+/* ============================================================ */
+
+.footer {
+  margin-top: auto;
+  width: 100%;
+  padding-bottom: 60px;
+}
+
+.footerDivider {
+  height: 1px;
+  background: var(--border-light);
+  margin-bottom: 40px;
+}
+
+.footerInner {
+  display: flex;
+  align-items: center;
+  gap: 36px;
+  padding: 0 60px;
+}
+
+.qr {
+  width: 160px;
+  height: 160px;
+  flex-shrink: 0;
+  background: white;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-light);
+}
+
+.footerText {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.footerDomain {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--text-accent);
+  letter-spacing: 2px;
+}
+
+.footerTagline {
+  font-size: 22px;
+  color: var(--text-secondary);
+  letter-spacing: 2px;
+}
+
+.footerDisclaimer {
+  margin-top: 6px;
+  font-size: 18px;
+  color: var(--text-muted);
+  letter-spacing: 2px;
+}

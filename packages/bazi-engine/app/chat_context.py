@@ -25,6 +25,7 @@ Per the next-the-big-feature-proud-manatee plan:
 Public API:
     build_chat_context(chart_data, current_year, current_month) -> dict
     build_chat_context_compat(birth_data_a, birth_data_b, comparison_type, current_year, current_month) -> dict
+    build_chat_context_fortune(birth_data, anchor_date, current_year, current_month, precomputed_daily=None) -> dict
 """
 
 from typing import Any, Dict, List, Optional
@@ -258,6 +259,365 @@ def build_chat_context_compat(
         # {'year': int, 'reason': str}). Load-bearing for `wedding_timing`
         # + `conflict_warning` sample-question answers.
         'timingSync': compat.get('timingSync', {}),
+    }
+
+
+# ============================================================
+# Phase Fortune — FORTUNE chat context (single chart + day's fortune)
+# ============================================================
+
+
+def build_chat_context_fortune(
+    birth_data: Dict,
+    anchor_date: str,
+    current_year: int,
+    current_month: int,
+    precomputed_daily: Optional[Dict] = None,
+    precomputed_monthly: Optional[Dict] = None,
+    precomputed_yearly: Optional[Dict] = None,
+    fortune_scope: str = 'DAY',
+) -> Dict:
+    """Build the slim chat context for FORTUNE chat (八字日運 / 月運 / 年運 chat scope).
+
+    Merges single-chart 4-pipeline slim (lifetime/love/career/annual) PLUS
+    the day's OR month's fortune output (per `fortune_scope`). The chat AI
+    inherits ALL chart-level Phase 12 doctrine via the merged slim's
+    `doctrineFlags` + `doctrineInjectors`.
+
+    DAY scope: day-pillar TRANSIENT findings (Phase 12h.B day-of valence,
+    沖日支, 紅鸞 day trigger, etc.) ride in `dailyFortune.dimensions[].signals`.
+
+    MONTH scope (Phase 2.x L3.5b): month-pillar TRANSIENT findings (Phase 12c
+    Fix C 殺印相生, 月柱沖刑, intra-month breakdown) ride in
+    `monthlyFortune.dimensions[].signals` + `monthlyFortune.intraMonthBreakdown`.
+
+    YEAR scope (Phase 3.5c L3.5c): year-level structured data (4-dim ★ ratings,
+    核心風險&機會 months, 改運建議 luck methods, flowYear 干支) ride in
+    `yearlyFortune.{dimensions, coreRiskOpportunity, luckMethods}`. The NestJS
+    `interpolateFortuneYearlyFields` injector reads these to emit «必須引用»
+    sentences the chat AI quotes verbatim.
+
+    Args:
+        birth_data: chart identity (birth_date/time/city/timezone/gender/long/lat)
+        anchor_date: ISO date string `YYYY-MM-DD`. For MONTH scope, the day
+            component is ignored — month is derived as `YYYY-MM`.
+        current_year, current_month: flow-year / flow-month anchors for the
+            base chart-slim context. Should typically match the anchor_date.
+        precomputed_daily: optional engine output from
+            `DailyFortuneSnapshot.engineOutputJson` (DAY scope only).
+        precomputed_monthly: optional engine output from MONTH snapshot —
+            same Issue-1 reuse path as `precomputed_daily` but for monthly.
+        precomputed_yearly: optional engine output from YEAR snapshot —
+            same Issue-1 reuse path but for yearly (Phase 3.5c).
+        fortune_scope: 'DAY' (default, back-compat), 'MONTH', or 'YEAR'.
+
+    Returns:
+        Slim payload with all `build_chat_context` fields PLUS:
+            - `anchorDate`: the ISO string passed in
+            - `fortuneScope`: echoed from input (lets downstream consumers + AI
+              prompt rule know which doctrine surface is loaded)
+            - `dailyFortune` (DAY scope only): slim dict of day's fortune
+            - `monthlyFortune` (MONTH scope only): slim dict of month's fortune
+              + intraMonthBreakdown sibling
+            - `yearlyFortune` (YEAR scope only): slim dict of year's fortune
+              + coreRiskOpportunity + luckMethods siblings
+
+    Raises:
+        ValueError: anchor_date not parseable, scope unknown, or chart-pipeline
+            output missing required enhanced-insights keys.
+    """
+    # Import here to avoid circular dep (calculator + daily_enhanced import
+    # chat_context-adjacent modules indirectly)
+    from datetime import date as _date
+    from .calculator import calculate_bazi_with_all_pipelines
+    from .daily_enhanced import compute_daily_fortune
+    from .monthly_enhanced import (
+        compute_intra_month_breakdown,
+        compute_single_month_by_yearmonth,
+    )
+    from .yearly_enhanced import compute_year_by_year
+
+    # Validate scope
+    if fortune_scope not in ('DAY', 'MONTH', 'YEAR'):
+        raise ValueError(
+            f"fortune_scope must be 'DAY', 'MONTH', or 'YEAR', "
+            f"got: {fortune_scope!r}"
+        )
+
+    # Validate + parse anchor_date
+    try:
+        anchor_date_obj = _date.fromisoformat(anchor_date)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(
+            f"anchor_date must be YYYY-MM-DD ISO format, got: {anchor_date!r}"
+        ) from exc
+
+    # 1. Full chart pipeline (always all 4 enhanced pipelines per chat
+    # doctrine — Phase 1 Layer 1 fix). Same shape passed to
+    # build_chat_context downstream.
+    chart = calculate_bazi_with_all_pipelines(
+        birth_date=birth_data['birth_date'],
+        birth_time=birth_data['birth_time'],
+        birth_city=birth_data['birth_city'],
+        birth_timezone=birth_data['birth_timezone'],
+        gender=birth_data['gender'],
+        birth_longitude=birth_data.get('birth_longitude'),
+        birth_latitude=birth_data.get('birth_latitude'),
+        target_year=current_year,
+    )
+
+    # 2. Build the chart-slim base (gives doctrineFlags / doctrineInjectors /
+    # narrativeAnchors / luckPeriods / monthlyForecast12 / romance / etc.).
+    # FORTUNE chat inherits ALL chart-level Phase 12 doctrine through this.
+    base_ctx = build_chat_context(
+        chart_data=chart,
+        current_year=current_year,
+        current_month=current_month,
+    )
+
+    # 3. Scope dispatch — DAY → compute_daily_fortune + dailyFortune slim;
+    #    MONTH → compute_single_month_by_yearmonth + monthlyFortune slim.
+    if fortune_scope == 'MONTH':
+        if precomputed_monthly is not None:
+            monthly_result = precomputed_monthly
+        else:
+            monthly_result = compute_single_month_by_yearmonth(
+                birth_date=birth_data['birth_date'],
+                birth_time=birth_data['birth_time'],
+                birth_city=birth_data['birth_city'],
+                birth_timezone=birth_data['birth_timezone'],
+                gender=birth_data['gender'],
+                year=anchor_date_obj.year,
+                month=anchor_date_obj.month,
+                birth_longitude=birth_data.get('birth_longitude'),
+                birth_latitude=birth_data.get('birth_latitude'),
+            )
+            # Wire L1.b breakdown into chat-context MONTH path (mirrors the
+            # /monthly-fortune endpoint behavior — see main.py:821). Lets the
+            # chat AI answer «本月上半月vs下半月有什麼差別?» questions grounded
+            # in real bucket stats. Defensive try/except — L1.b failure doesn't
+            # block the rest of the chat context. Skipped when caller passed
+            # precomputed_monthly (assumed to already include breakdown).
+            try:
+                breakdown_result = compute_intra_month_breakdown(
+                    birth_date=birth_data['birth_date'],
+                    birth_time=birth_data['birth_time'],
+                    birth_city=birth_data['birth_city'],
+                    birth_timezone=birth_data['birth_timezone'],
+                    gender=birth_data['gender'],
+                    year=anchor_date_obj.year,
+                    month=anchor_date_obj.month,
+                    birth_longitude=birth_data.get('birth_longitude'),
+                    birth_latitude=birth_data.get('birth_latitude'),
+                )
+                monthly_result['intraMonthBreakdown'] = breakdown_result
+            except Exception as breakdown_err:
+                # Log + omit field (chat AI gets the bare month; intraMonthBreakdown
+                # questions won't be answerable but rest of chat works).
+                print(f"WARN chat_context L1.b breakdown failed: {breakdown_err}")
+        return {
+            **base_ctx,
+            'anchorDate': anchor_date,
+            'fortuneScope': 'MONTH',
+            'monthlyFortune': _slim_monthly_for_chat(monthly_result),
+        }
+
+    # YEAR scope (Phase 3.5c) — anchor is YYYY-01-01; year derived from it.
+    if fortune_scope == 'YEAR':
+        if precomputed_yearly is not None:
+            yearly_result = precomputed_yearly
+        else:
+            yearly_result = compute_year_by_year(
+                birth_date=birth_data['birth_date'],
+                birth_time=birth_data['birth_time'],
+                birth_city=birth_data['birth_city'],
+                birth_timezone=birth_data['birth_timezone'],
+                gender=birth_data['gender'],
+                year=anchor_date_obj.year,
+                birth_longitude=birth_data.get('birth_longitude'),
+                birth_latitude=birth_data.get('birth_latitude'),
+            )
+        return {
+            **base_ctx,
+            'anchorDate': anchor_date,
+            'fortuneScope': 'YEAR',
+            'yearlyFortune': _slim_yearly_for_chat(yearly_result),
+        }
+
+    # DAY scope (default) — original behavior.
+    if precomputed_daily is not None:
+        daily_result = precomputed_daily
+    else:
+        day_master = chart['dayMaster']
+        effective_gods = {
+            'usefulGod': day_master.get('usefulGod', ''),
+            'favorableGod': day_master.get('favorableGod', ''),
+            'idleGod': day_master.get('idleGod', ''),
+            'tabooGod': day_master.get('tabooGod', ''),
+            'enemyGod': day_master.get('enemyGod', ''),
+        }
+        is_cong_ge = bool(
+            chart.get('lifetimeEnhancedInsights', {})
+                 .get('deterministic', {})
+                 .get('cong_ge_detected')
+        )
+        flow_year_data = (
+            chart.get('annualEnhancedInsights', {}).get('flowYear', {})
+        )
+        daily_result = compute_daily_fortune(
+            pillars=chart['fourPillars'],
+            day_master_stem=chart['dayMasterStem'],
+            effective_gods=effective_gods,
+            useful_god_element=day_master.get('usefulGod', '土'),
+            gender=birth_data.get('gender', 'male'),
+            kong_wang=chart.get('kongWang', []),
+            strength=day_master.get('strength', 'neutral'),
+            is_cong_ge=is_cong_ge,
+            target_date=anchor_date_obj,
+            flow_year_stem=flow_year_data.get('stem', ''),
+            flow_year_auspiciousness=flow_year_data.get('auspiciousness', '平'),
+        )
+
+    return {
+        **base_ctx,
+        'anchorDate': anchor_date,
+        'fortuneScope': 'DAY',
+        'dailyFortune': _slim_daily_for_chat(daily_result),
+    }
+
+
+def _slim_daily_for_chat(daily: Dict) -> Dict:
+    """Slim `compute_daily_fortune` output for chat consumption.
+
+    Keeps user-facing fields the AI must cite verbatim or reason from.
+    Drops engine-internal fields:
+      - `chartContext` (redundant — base_ctx already has chart data)
+      - `monthly_result` spread leftovers like stem-branch role/score
+      - `preAnalysisVersion` (engine-internal cache token)
+
+    Preserves Phase 1 Option 2.5 transparency fields
+    (`rawStructuralAuspiciousness` / `rawDailyAuspiciousness` /
+    `flowMonthAuspiciousness`) — the AI prompt's anti-incoherence rule keys
+    off these to avoid mistakenly framing the day with the month's
+    independent theme.
+    """
+    if not daily:
+        return {}
+    return {
+        'dayStem': daily.get('dayStem'),
+        'dayBranch': daily.get('dayBranch'),
+        'dayGanZhi': daily.get('dayGanZhi'),
+        'dayTenGod': daily.get('dayTenGod'),
+        'dateIso': daily.get('dateIso'),
+        'auspiciousness': daily.get('auspiciousness'),
+        'energyScore': daily.get('energyScore'),
+        'metaFraming': daily.get('metaFraming'),
+        # Option 2.5 transparency — load-bearing for AI anti-incoherence
+        'rawStructuralAuspiciousness': daily.get('rawStructuralAuspiciousness'),
+        'rawDailyAuspiciousness': daily.get('rawDailyAuspiciousness'),
+        'flowMonthAuspiciousness': daily.get('flowMonthAuspiciousness'),
+        'perDaySoftening': daily.get('perDaySoftening', []),
+        # 5 dimension blocks {romance, career, finance, travel, health} — each
+        # with score, label, narrative, signals[]. The signals[] are what the
+        # NestJS-side interpolateFortuneV1Fields injector reads to emit
+        # day-pillar TRANSIENT doctrine sentences.
+        'dimensions': daily.get('dimensions', {}),
+        # Pre-rendered Chinese pill-line strings (Option 2.5 UI layer)
+        'headlinerSignals': daily.get('headlinerSignals'),
+        # Static 用神 wealth direction (Phase 12 Fix 2 mapping)
+        'folkContent': daily.get('folkContent'),
+    }
+
+
+def _slim_monthly_for_chat(monthly: Dict) -> Dict:
+    """Phase 2.x L3.5b — slim `compute_single_month_by_yearmonth` output for
+    chat consumption. Mirror of `_slim_daily_for_chat` scaled to MONTH scope.
+
+    Keeps user-facing fields the AI must cite verbatim or reason from.
+    Drops engine-internal fields:
+      - `chartContext` (redundant — base_ctx already has chart data)
+      - `preAnalysisVersion` (engine-internal cache token)
+      - `targetYear` / `targetMonth` (caller passes anchor_date)
+
+    Includes `intraMonthBreakdown` (L1.b) so chat AI can answer questions
+    like «本月上半月vs下半月有什麼差別?» grounded in the structured per-bucket
+    stats (auspicious_days / challenging_days / dominant_shensha / peak_signals).
+    Per glossary: camelCase `intraMonthBreakdown` is a SIBLING of monthly
+    block (not nested inside dimensions / engineOutput).
+
+    Folk content OMITTED per Phase 2 locked decision #6 — DAY-only differentiator.
+    """
+    if not monthly:
+        return {}
+    return {
+        'monthStem': monthly.get('monthStem'),
+        'monthBranch': monthly.get('monthBranch'),
+        'monthGanZhi': monthly.get('monthGanZhi'),
+        'monthTenGod': monthly.get('monthTenGod'),
+        'monthLabel': monthly.get('monthLabel'),
+        'auspiciousness': monthly.get('auspiciousness'),
+        'energyScore': monthly.get('energyScore'),
+        'metaFraming': monthly.get('metaFraming'),
+        'flowYear': monthly.get('flowYear'),
+        # Phase 12b/12c transparency fields (optional — present when fired)
+        'baseAuspiciousness': monthly.get('baseAuspiciousness'),
+        'bareMonthAuspiciousness': monthly.get('bareMonthAuspiciousness'),
+        # Phase 12b/c additive fields — surfaced for deterministic AI injection
+        'officerSealActivation': monthly.get('officerSealActivation'),
+        'fuYinInteractions': monthly.get('fuYinInteractions'),
+        'chongKuRelease': monthly.get('chongKuRelease'),
+        'liuHaiInteractions': monthly.get('liuHaiInteractions'),
+        # 4 dimension blocks {career, finance, romance, health} — NO travel
+        # (Sub-Agent B doctrine lock per Phase 2 plan v4 locked decision #5).
+        # signals[] drive any future interpolateFortuneMonthlyFields injector.
+        'dimensions': monthly.get('dimensions', {}),
+        # Locked partition spec (tiangan_dizhi_half — 2 buckets per Sub-Agent A)
+        'partitionSpec': monthly.get('partitionSpec'),
+        # L1.b intra-month breakdown (sibling per glossary): per-bucket day
+        # counts + dominant 神煞 + peak signals. Drives chat answers re:
+        # 上半月/下半月 dynamics.
+        'intraMonthBreakdown': monthly.get('intraMonthBreakdown'),
+        'ruleTrace': monthly.get('ruleTrace', []),
+    }
+
+
+def _slim_yearly_for_chat(yearly: Dict) -> Dict:
+    """Phase 3.5c L3.5c — slim `compute_year_by_year` output for chat
+    consumption. Mirror of `_slim_daily_for_chat` / `_slim_monthly_for_chat`
+    scaled to YEAR scope.
+
+    Keeps user-facing fields the AI must cite verbatim or reason from.
+    Drops engine-internal fields:
+      - `chartContext` (redundant — base_ctx already has chart data)
+      - `preAnalysisVersion` (engine-internal cache token)
+
+    Keeps `coreRiskOpportunity` + `luckMethods` as SIBLINGS (not nested in
+    `dimensions`) — the NestJS `interpolateFortuneYearlyFields` injector reads
+    these to emit «必須引用» Chinese sentences (the named 3 opportunity + 3 risk
+    months with dim attribution, and the 改運建議 luck-method cards) the chat AI
+    must quote verbatim. No folk content (YEAR has none).
+    """
+    if not yearly:
+        return {}
+    return {
+        'yearStem': yearly.get('yearStem'),
+        'yearBranch': yearly.get('yearBranch'),
+        'yearGanZhi': yearly.get('yearGanZhi'),
+        'yearTenGod': yearly.get('yearTenGod'),
+        'year': yearly.get('year'),
+        'auspiciousness': yearly.get('auspiciousness'),
+        'energyScore': yearly.get('energyScore'),
+        'metaFraming': yearly.get('metaFraming'),
+        'flowYear': yearly.get('flowYear'),
+        # 4 dimension blocks {career, finance, romance, health} — each with
+        # score / label / stars / labelZh (NO travel; 感情=romance NOT 人際關係).
+        'dimensions': yearly.get('dimensions', {}),
+        # SIBLING — {opportunities[], risks[], flatYear}. LOAD-BEARING: the
+        # injector quotes the named months verbatim. Drop = AI can't answer
+        # «今年哪幾個月最值得把握?».
+        'coreRiskOpportunity': yearly.get('coreRiskOpportunity'),
+        # SIBLING — {cards[], weakestDim, weakestDimZh, disclaimer}.
+        'luckMethods': yearly.get('luckMethods'),
     }
 
 

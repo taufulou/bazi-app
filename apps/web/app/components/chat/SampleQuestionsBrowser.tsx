@@ -27,6 +27,9 @@ import styles from './SampleQuestionsBrowser.module.css';
 interface SampleQuestionsBrowserProps {
   isOpen: boolean;
   readingType: ChatReadingType;
+  /** Phase 2.x L3.5b — FORTUNE only. DAY/MONTH/YEAR scope filter. When set,
+   *  the browser surfaces ONLY questions matching the scope. */
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
   /** Called when user closes the overlay (✕ tap or Escape). */
   onClose: () => void;
   /** Called when user picks a question. Drawer must check session.locked
@@ -40,11 +43,12 @@ interface SampleQuestionsBrowserProps {
 export default function SampleQuestionsBrowser({
   isOpen,
   readingType,
+  fortuneScope,
   onClose,
   onPick,
   errorMessage,
 }: SampleQuestionsBrowserProps) {
-  const { questions, loading } = useAllSampleQuestions(readingType);
+  const { questions, loading } = useAllSampleQuestions(readingType, fortuneScope);
 
   // Escape to close
   useEffect(() => {

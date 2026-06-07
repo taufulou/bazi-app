@@ -126,18 +126,34 @@ export class ChatService {
 
   async createSession(
     clerkUserId: string,
-    args: { readingId?: string; comparisonId?: string },
+    args: {
+      readingId?: string;
+      comparisonId?: string;
+      /** Phase Fortune — FORTUNE chat subject discriminator. Mutually
+       *  exclusive with readingId / comparisonId per ChatSubject. */
+      fortune?: {
+        profileId: string;
+        fortuneScope: 'DAY' | 'MONTH' | 'YEAR';
+        fortuneAnchorDate: string; // ISO YYYY-MM-DD
+      };
+    },
   ): Promise<CreateChatSessionResponse> {
-    const { readingId, comparisonId } = args;
+    const { readingId, comparisonId, fortune } = args;
 
-    // Phase 3 — validate exactly one of (readingId, comparisonId) is set.
-    // Mirrors the DB CHECK constraint at chat_sessions_subject_check.
+    // Phase Fortune — XOR across three subject kinds (reading, comparison,
+    // fortune). Mirrors the DB CHECK constraint at chat_sessions_subject_check
+    // (Phase Fortune migration relaxed it to admit the FORTUNE NULL-NULL
+    // case + profileId/fortuneScope/fortuneAnchorDate populated).
     const hasReading = Boolean(readingId);
     const hasComparison = Boolean(comparisonId);
-    if (hasReading === hasComparison) {
+    const hasFortune = Boolean(fortune);
+    const subjectCount =
+      Number(hasReading) + Number(hasComparison) + Number(hasFortune);
+    if (subjectCount !== 1) {
       throw new BadRequestException({
         code: 'INVALID_SUBJECT',
-        message: 'Exactly one of (readingId, comparisonId) must be provided.',
+        message:
+          'Exactly one of (readingId, comparisonId, fortune) must be provided.',
       });
     }
 
@@ -145,6 +161,7 @@ export class ChatService {
     if (!user) throw new NotFoundException('User not found');
 
     let resolvedReadingType: ReadingType;
+    let resolvedProfileId: string | null = null;
 
     if (hasReading) {
       // Validate reading ownership
@@ -157,7 +174,7 @@ export class ChatService {
         throw new ForbiddenException('Reading not owned by this user');
       }
       resolvedReadingType = reading.readingType;
-    } else {
+    } else if (hasComparison) {
       // Phase 3 — COMPATIBILITY path. Validate BaziComparison ownership.
       const comparison = await this.prisma.baziComparison.findUnique({
         where: { id: comparisonId! },
@@ -184,9 +201,37 @@ export class ChatService {
         });
       }
       resolvedReadingType = 'COMPATIBILITY';
+    } else {
+      // Phase Fortune — validate BirthProfile ownership. FORTUNE chat
+      // references a profile + (scope, anchorDate) instead of a reading
+      // or comparison. The DB CHECK constraint requires all 3 fortune
+      // fields populated together (validated by DTO + this branch).
+      const profile = await this.prisma.birthProfile.findUnique({
+        where: { id: fortune!.profileId },
+        select: { id: true, userId: true },
+      });
+      if (!profile) {
+        throw new NotFoundException(`Birth profile ${fortune!.profileId} not found`);
+      }
+      if (profile.userId !== user.id) {
+        throw new ForbiddenException('Birth profile not owned by this user');
+      }
+      // Phase 3.5c L3.5c — DAY + MONTH + YEAR all supported.
+      if (
+        fortune!.fortuneScope !== 'DAY' &&
+        fortune!.fortuneScope !== 'MONTH' &&
+        fortune!.fortuneScope !== 'YEAR'
+      ) {
+        throw new BadRequestException({
+          code: 'FORTUNE_SCOPE_NOT_SUPPORTED',
+          message: `FORTUNE chat supports DAY, MONTH, and YEAR scope (got: ${fortune!.fortuneScope}).`,
+        });
+      }
+      resolvedReadingType = 'FORTUNE';
+      resolvedProfileId = profile.id;
     }
 
-    // Phase 2 — env-driven whitelist. Phase 3 — whitelist now includes COMPATIBILITY.
+    // Phase 2 — env-driven whitelist. Phase Fortune — FORTUNE joins the whitelist.
     if (!this.enabledReadingTypes.has(resolvedReadingType)) {
       throw new BadRequestException({
         code: 'READING_TYPE_NOT_ENABLED',
@@ -195,7 +240,14 @@ export class ChatService {
     }
 
     // Snapshot version strings — stored on session for mid-session drift detection.
-    const versions = this.contextService.getCurrentSnapshotVersions(resolvedReadingType);
+    // Phase 2.x L3.5b — for FORTUNE sessions, dispatch by scope so DAY + MONTH
+    // version bumps stay isolated (plan H-new-4 active-scope-only emission).
+    const versions =
+      hasFortune
+        ? this.contextService.getCurrentSnapshotVersionsForFortune(
+            fortune!.fortuneScope as 'DAY' | 'MONTH' | 'YEAR',
+          )
+        : this.contextService.getCurrentSnapshotVersions(resolvedReadingType);
 
     // 12-month PDPA hard-delete date
     const hardDeleteAt = new Date();
@@ -204,10 +256,16 @@ export class ChatService {
     const session = await this.prisma.chatSession.create({
       data: {
         userId: user.id,
-        // Phase 3 — exactly one of (readingId, comparisonId) is set.
+        // Phase Fortune — exactly one of (readingId, comparisonId, fortune subject) is set.
         readingId: hasReading ? readingId : null,
         comparisonId: hasComparison ? comparisonId : null,
         readingType: resolvedReadingType,
+        // Phase Fortune — FORTUNE subject fields denormalized
+        profileId: resolvedProfileId,
+        fortuneScope: hasFortune ? fortune!.fortuneScope : null,
+        fortuneAnchorDate: hasFortune
+          ? new Date(fortune!.fortuneAnchorDate + 'T00:00:00.000Z')
+          : null,
         contextVersion: versions.contextVersion,
         preAnalysisVersion: versions.preAnalysisVersion,
         hardDeleteAt,
@@ -248,9 +306,45 @@ export class ChatService {
     return this._listSessionsByWhere(clerkUserId, { comparisonId });
   }
 
+  /** Phase Fortune — list FORTUNE chat sessions for a (profileId, anchorDate,
+   *  fortuneScope) triplet. The anchorDate filter is the load-bearing piece
+   *  per plan Issue 10: date navigation via DateNavigator must spawn a new
+   *  session, NOT resume yesterday's.
+   *
+   *  Phase 2.x L3.5b audit H#1 — fortuneScope filter required. Without it,
+   *  on the 1st of any month, DAY drawer's anchor (e.g. '2026-05-01') and
+   *  MONTH drawer's anchor (normalized to '2026-05-01') collide → the list
+   *  returns BOTH scope sessions. User could resume a MONTH session inside
+   *  a DAY drawer (and vice versa) — backend continues using session's
+   *  stored fortuneScope, but the surrounding UI is mis-scoped. Filter
+   *  defensively by scope.
+   */
+  async listSessionsForFortune(
+    clerkUserId: string,
+    args: {
+      profileId: string;
+      fortuneAnchorDate: string;
+      fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
+    },
+  ): Promise<ChatSessionSummary[]> {
+    return this._listSessionsByWhere(clerkUserId, {
+      readingType: 'FORTUNE',
+      profileId: args.profileId,
+      fortuneAnchorDate: new Date(args.fortuneAnchorDate + 'T00:00:00.000Z'),
+      fortuneScope: args.fortuneScope,
+    });
+  }
+
   private async _listSessionsByWhere(
     clerkUserId: string,
-    where: { readingId?: string; comparisonId?: string },
+    where: {
+      readingId?: string;
+      comparisonId?: string;
+      readingType?: ReadingType;
+      profileId?: string;
+      fortuneAnchorDate?: Date;
+      fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
+    },
   ): Promise<ChatSessionSummary[]> {
     const user = await this.prisma.user.findUnique({ where: { clerkUserId } });
     if (!user) throw new NotFoundException('User not found');
@@ -280,6 +374,19 @@ export class ChatService {
         lastMessagePreview: lastMsg
           ? lastMsg.content.slice(0, 80) + (lastMsg.content.length > 80 ? '...' : '')
           : null,
+        // Phase Fortune — surface FORTUNE-specific subject fields to the
+        // frontend ChatHistoryPanel (MC-4 — per-date row labels +
+        // active-date highlighting).
+        fortuneScope: s.fortuneScope ?? null,
+        fortuneAnchorDate: s.fortuneAnchorDate
+          ? s.fortuneAnchorDate.toISOString().slice(0, 10)
+          : null,
+        profileId: s.profileId ?? null,
+        // Phase Fortune+ — surface consecutive refuse counter so the
+        // ChatDrawer can hydrate the dialog-state when resuming a session
+        // from history (don't only depend on SSE done events).
+        // `consecutiveRefuses` is non-nullable (Int @default(0) in schema).
+        consecutiveRefuses: s.consecutiveRefuses,
       };
     });
   }
@@ -440,7 +547,13 @@ export class ChatService {
       // Phase 2 (round-2 NEW#2) — pass session.readingType so the version
       // check uses THIS reading-type's CHAT_PROMPT_VERSIONS entry. A
       // LOVE-only prompt bump no longer mass-invalidates LIFETIME sessions.
-      const currentVersions = this.contextService.getCurrentSnapshotVersions(session.readingType);
+      // Phase 2.x L3.5b — FORTUNE sessions use scope-aware version lookup.
+      const currentVersions =
+        session.readingType === 'FORTUNE' && session.fortuneScope
+          ? this.contextService.getCurrentSnapshotVersionsForFortune(
+              session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR',
+            )
+          : this.contextService.getCurrentSnapshotVersions(session.readingType);
       if (
         session.contextVersion !== currentVersions.contextVersion ||
         session.preAnalysisVersion !== currentVersions.preAnalysisVersion
@@ -511,7 +624,13 @@ export class ChatService {
     // Mid-session version drift check (Layer 4) — Phase 2 (round-2 NEW#2)
     // uses session.readingType so per-readingType version bumps invalidate
     // only that type's sessions.
-    const currentVersions = this.contextService.getCurrentSnapshotVersions(session.readingType);
+    // Phase 2.x L3.5b — FORTUNE sessions use scope-aware version lookup.
+    const currentVersions =
+      session.readingType === 'FORTUNE' && session.fortuneScope
+        ? this.contextService.getCurrentSnapshotVersionsForFortune(
+            session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR',
+          )
+        : this.contextService.getCurrentSnapshotVersions(session.readingType);
     if (
       session.contextVersion !== currentVersions.contextVersion ||
       session.preAnalysisVersion !== currentVersions.preAnalysisVersion
@@ -603,6 +722,7 @@ export class ChatService {
       // Phase 2 — pass session.readingType so the per-type crossSellPivotHint
       // gets computed and substituted into the refuse template.
       // Phase 3 — branch on COMPATIBILITY sessions (comparisonId path).
+      // Phase Fortune — branch on FORTUNE sessions (profileId + anchorDate).
       let chatContext;
       if (session.comparisonId) {
         chatContext = await this.contextService.getChatContextForComparison(
@@ -614,8 +734,25 @@ export class ChatService {
           session.readingId,
           session.readingType,
         );
+      } else if (
+        session.readingType === 'FORTUNE' &&
+        session.profileId &&
+        session.fortuneAnchorDate
+      ) {
+        // Phase 2.x L3.5b — pass fortuneScope so engine dispatches DAY vs MONTH
+        // chat-context (different signals + intra-month breakdown for MONTH).
+        // Default 'DAY' when scope is null (back-compat with sessions created
+        // pre-L3.5b that may have null scope — should be rare).
+        chatContext = await this.contextService.getChatContextForFortune(
+          session.profileId,
+          session.fortuneAnchorDate.toISOString().slice(0, 10),
+          session.readingType,
+          (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? 'DAY',
+        );
       } else {
-        throw new Error(`Session ${sessionId} has neither readingId nor comparisonId (CHECK constraint violation)`);
+        throw new Error(
+          `Session ${sessionId} has no resolvable subject (readingId/comparisonId/fortune triplet all missing) — CHECK constraint violation`,
+        );
       }
 
       // Load recent messages for context (last N user/assistant exchanges).
@@ -654,6 +791,26 @@ export class ChatService {
       const shouldInjectRegrounding =
         session.messageCount + 1 >= CHAT_REGROUNDING_TRIGGER_TURN_LOCAL;
 
+      // Tier C — cross-sell targets the user already owns (fresh per message;
+      // outside the cached chat-context blob so it never goes stale). Never
+      // block a message on the lookup → empty set degrades to original "go
+      // unlock" wording. anchorYear: FORTUNE → anchor date's year; else current.
+      let ownedCrossSellTargets = new Set<string>();
+      try {
+        const anchorYear =
+          session.readingType === 'FORTUNE' && session.fortuneAnchorDate
+            ? session.fortuneAnchorDate.getUTCFullYear()
+            : new Date().getUTCFullYear();
+        ownedCrossSellTargets = await this.contextService.resolveOwnedCrossSellTargets({
+          userId: session.userId,
+          readingType: session.readingType,
+          birthProfileId: chatContext.birthProfileId,
+          anchorYear,
+        });
+      } catch (err) {
+        this.logger.warn(`Tier C ownership lookup failed (non-streaming): ${err}`);
+      }
+
       const { systemPromptText, messages } = buildPrompt({
         chatContext,
         recentMessages,
@@ -665,8 +822,13 @@ export class ChatService {
         newUserMessage: sanitizedContent,
         // Phase 2 — per-readingType prompt routing.
         readingType: session.readingType,
+        // Phase 2.x L3.5b — for FORTUNE, dispatch by scope (DAY vs MONTH)
+        // so the right refuse template + few-shots assemble. Non-FORTUNE
+        // sessions: scope is ignored downstream.
+        fortuneScope: (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? undefined,
         sectionContextHint,
         shouldInjectRegrounding,
+        ownedCrossSellTargets,
       });
 
       // 5. Call Anthropic (non-streaming for Phase 1.3).
@@ -699,7 +861,11 @@ export class ChatService {
       //   Stage A: banned-phrase regex strip (一定/絕對/必定/...)
       //   Stage B: citation enforcement (auto-prepends if missing)
       //   Stage C: LLM-as-judge sample (5% in prod, async, non-blocking)
-      const validation = this.validators.postValidate(assistantContent, chatContext);
+      const validation = this.validators.postValidate(
+        assistantContent,
+        chatContext,
+        ownedCrossSellTargets, // Tier C output safety-net (owned-reword)
+      );
       const finalAssistantContent = validation.text;
 
       // Stage C — LLM-as-judge async sample. Don't block the response on it;

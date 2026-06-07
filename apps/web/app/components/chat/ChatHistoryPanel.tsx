@@ -99,7 +99,18 @@ function SessionRow({
         aria-current={isActive ? 'true' : undefined}
       >
         <div className={styles.rowTopLine}>
-          <span className={styles.date}>{formatRelativeDate(session.startedAt)}</span>
+          {/*
+            Phase Fortune+ — for FORTUNE sessions, surface the scope + the
+            anchor date the chat was pinned to instead of only the relative
+            「started-at」 timestamp. Without this, multiple FORTUNE rows in
+            history look ambiguous («哪一天的日運？») since each anchor date
+            spawns a separate session per the date-navigator pin policy.
+            Non-FORTUNE sessions fall back to the original relative-date
+            label (no regression).
+          */}
+          <span className={styles.date}>
+            {formatSessionTitle(session)}
+          </span>
           <span
             className={`${styles.statusBadge} ${
               status.tone === 'active' ? styles.statusActive : styles.statusMuted
@@ -134,6 +145,30 @@ function SessionRow({
 // ============================================================
 // Date formatting
 // ============================================================
+
+/**
+ * Phase Fortune+ — top-line label for a chat-history row.
+ *
+ * Format dispatch:
+ *  - FORTUNE DAY    → 「日運 · 2026-05-25」    (anchorDate is the pin)
+ *  - FORTUNE MONTH  → 「月運 · 2026-05」       (Phase 2 — placeholder)
+ *  - FORTUNE YEAR   → 「年運 · 2026」          (Phase 3 — placeholder)
+ *  - non-FORTUNE    → relative date            (original behavior)
+ *
+ * The FORTUNE scope/anchorDate fields are denormalized into the
+ * ChatSessionSummary by chat.service.ts::mapSessionSummary so the panel
+ * doesn't need to fetch additional data.
+ */
+function formatSessionTitle(session: ChatSession): string {
+  const scope = session.fortuneScope;
+  const anchor = session.fortuneAnchorDate;
+  if (scope && anchor) {
+    if (scope === 'DAY') return `日運 · ${anchor}`;
+    if (scope === 'MONTH') return `月運 · ${anchor.slice(0, 7)}`;
+    if (scope === 'YEAR') return `年運 · ${anchor.slice(0, 4)}`;
+  }
+  return formatRelativeDate(session.startedAt);
+}
 
 function formatRelativeDate(iso: string): string {
   const date = new Date(iso);

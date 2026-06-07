@@ -20,6 +20,7 @@ export type ChatDialogKey =
   | 'near_cap_warning'
   | 'hard_cap_reached'
   | 'new_session_lose_paid'
+  | 'refuse_limit_reached'
   | 'quota_badge'
   | 'disclaimer_footer';
 
@@ -40,6 +41,16 @@ export interface ChatSession {
   messageCount: number;
   unusedPaidMessages: number;
   lastMessagePreview: string | null;
+  // Phase Fortune — only populated when this is a FORTUNE session. Lets
+  // ChatHistoryPanel render «{fortuneAnchorDate} · X 則對話» rows + filter
+  // by active anchor (plan MC-4 + Issue 10 — date-filtered resume).
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR' | null;
+  fortuneAnchorDate?: string | null; // ISO YYYY-MM-DD
+  profileId?: string | null;
+  // Phase Fortune+ — current consecutive refuse counter. Resets to 0 on
+  // any in-topic message. Used by the ChatDrawer to fire the «超出範圍提醒»
+  // dialog when the cap is hit (see CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD).
+  consecutiveRefuses?: number;
 }
 
 export type ChatStreamEvent =
@@ -50,6 +61,13 @@ export type ChatStreamEvent =
       messageId: string;
       messageCount: number;
       messagesRemaining: number;
+      /**
+       * Phase Fortune+ — post-message value of `ChatSession.consecutiveRefuses`.
+       * When this reaches CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD,
+       * ChatDrawer fires the «超出範圍提醒» dialog informing the user that
+       * further off-topic questions will NOT be refunded.
+       */
+      consecutiveRefuses: number;
       usage: {
         inputTokens: number;
         outputTokens: number;

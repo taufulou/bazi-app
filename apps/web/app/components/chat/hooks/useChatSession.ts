@@ -26,14 +26,24 @@ import {
   extendSession,
   getUsage,
   listSessionsForComparison,
+  listSessionsForFortune,
   type CreateChatSessionResponse,
   ChatApiError,
 } from '../../../lib/chat-api';
 
 interface UseChatSessionArgs {
-  /** Phase 3 — exactly one of (readingId, comparisonId) must be set. */
+  /** Phase 3 + Phase Fortune — exactly one of (readingId, comparisonId,
+   *  fortune) must be set. Backend XOR-validates at chat.service.ts. */
   readingId?: string;
   comparisonId?: string;
+  /** Phase Fortune — FORTUNE chat subject. When set, sessions resume
+   *  ONLY if their fortuneAnchorDate matches `fortune.fortuneAnchorDate`
+   *  (plan Issue 10 — date navigation spawns new sessions). */
+  fortune?: {
+    profileId: string;
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR';
+    fortuneAnchorDate: string; // ISO YYYY-MM-DD
+  };
   /** When false, hooks no-op so we don't fire requests for closed drawer. */
   enabled: boolean;
 }
@@ -133,24 +143,45 @@ export interface UseChatSessionReturn {
   applyDoneEvent: (args: {
     messageCount: number;
     messagesRemaining: number;
+    /** Phase Fortune+ — post-message consecutive refuse counter. Surfaced
+     *  to ChatDrawer for the «超出範圍提醒» dialog at the warning threshold. */
+    consecutiveRefuses: number;
   }) => void;
+
+  /** Phase Fortune+ — current consecutive refuse counter for the active
+   *  session. ChatDrawer watches this to fire the «超出範圍提醒» dialog
+   *  when it crosses CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD. */
+  consecutiveRefuses: number;
 }
 
 const HARD_CAP = 30;
 
 export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
-  const { readingId, comparisonId, enabled } = args;
+  const { readingId, comparisonId, fortune, enabled } = args;
   const { getToken } = useAuth();
-  // Phase 3 — DRY helpers for «list sessions for current subject» and
-  // «create session for current subject». Backend branches on subject type
-  // automatically (one of readingId/comparisonId must be set).
-  const listSessionsForCurrentSubject = comparisonId
-    ? ({ token }: { token: string }) => listSessionsForComparison({ comparisonId, token })
-    : readingId
-      ? ({ token }: { token: string }) => listSessionsForReading({ readingId, token })
-      : ({ token: _t }: { token: string }) => Promise.resolve([]);
+  // Phase 3 + Phase Fortune — DRY helpers for «list sessions for current
+  // subject» and «create session for current subject». Backend branches on
+  // subject type automatically (one of readingId / comparisonId / fortune
+  // must be set per XOR DTO validation).
+  const listSessionsForCurrentSubject = fortune
+    ? ({ token }: { token: string }) =>
+        listSessionsForFortune({
+          profileId: fortune.profileId,
+          fortuneAnchorDate: fortune.fortuneAnchorDate,
+          // Audit H#1 — thread scope so DAY/MONTH sessions don't
+          // collide on 1st-of-month anchors.
+          fortuneScope: fortune.fortuneScope,
+          token,
+        })
+    : comparisonId
+      ? ({ token }: { token: string }) =>
+          listSessionsForComparison({ comparisonId, token })
+      : readingId
+        ? ({ token }: { token: string }) =>
+            listSessionsForReading({ readingId, token })
+        : ({ token: _t }: { token: string }) => Promise.resolve([]);
   const createSessionForCurrentSubject = ({ token }: { token: string }) =>
-    createChatSession({ readingId, comparisonId, token });
+    createChatSession({ readingId, comparisonId, fortune, token });
 
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -163,6 +194,11 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     refundedAt: string;
   } | null>(null);
   const [messageCount, setMessageCount] = useState(0);
+  // Phase Fortune+ — consecutive topic-boundary refuse counter mirrored from
+  // server. Hydrated from the active session row on init/resume and updated
+  // on every SSE 'done' event. ChatDrawer fires the «超出範圍提醒» dialog
+  // when this crosses CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD.
+  const [consecutiveRefuses, setConsecutiveRefuses] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadMoreLoading, setLoadMoreLoading] = useState(false);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
@@ -221,6 +257,8 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
       paidUsed: 0,
     });
     setMessageCount(0);
+    // Brand new session — refuse counter starts at 0 by DB default.
+    setConsecutiveRefuses(0);
     setMessages([]);
     setHasMoreHistory(false);
     setLocked(false);
@@ -244,7 +282,15 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     } finally {
       setSessionListLoading(false);
     }
-  }, [readingId, comparisonId, requireToken]);
+    // Phase Fortune — fortune.profileId + fortuneAnchorDate must be in deps
+    // so date navigation forces re-fetch (plan Issue 10).
+    // L3.5c Fix 6 — fortuneScope MUST be in deps too: a DAY anchor of
+    // `YYYY-01-01` (Jan 1) is string-identical to a YEAR anchor of
+    // `YYYY-01-01`, so without scope in deps a DAY↔YEAR tab switch on Jan 1
+    // would NOT recreate this callback → it captures the stale scope and the
+    // backend list query filters by the wrong scope.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readingId, comparisonId, fortune?.profileId, fortune?.fortuneAnchorDate, fortune?.fortuneScope, requireToken]);
 
   const resumeOpenSession = useCallback(
     async (
@@ -253,6 +299,9 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     ) => {
       setSessionId(open.id);
       setMessageCount(open.messageCount);
+      // Phase Fortune+ — hydrate refuse counter from server. Sessions resumed
+      // mid-conversation may already be at/near the warning threshold.
+      setConsecutiveRefuses(open.consecutiveRefuses ?? 0);
       setLocked(false);
       setLockReason(null);
       await refreshHistoryFromServer(open.id);
@@ -380,6 +429,11 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     // switchActiveSession L447) already had it; initSession was the
     // odd one out.
     comparisonId,
+    // Phase Fortune — fortune.profileId + fortuneAnchorDate must be in deps
+    // so DateNavigator changes spawn a NEW session (plan Issue 10).
+    fortune?.profileId,
+    fortune?.fortuneAnchorDate,
+    fortune?.fortuneScope, // L3.5c Fix 6 — Jan-1 DAY↔YEAR closure staleness
     requireToken,
     resumeOpenSession,
     hydrateFromCreate,
@@ -403,7 +457,16 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     } finally {
       setLoading(false);
     }
-  }, [readingId, comparisonId, requireToken, hydrateFromCreate, refreshSessionList]);
+  }, [
+    readingId,
+    comparisonId,
+    fortune?.profileId,
+    fortune?.fortuneAnchorDate,
+    fortune?.fortuneScope, // L3.5c Fix 6 — Jan-1 DAY↔YEAR closure staleness
+    requireToken,
+    hydrateFromCreate,
+    refreshSessionList,
+  ]);
 
   const switchActiveSession = useCallback(
     async (targetSessionId: string) => {
@@ -432,6 +495,10 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
           // intent. (Phase 1.8 audit Bug A1)
           setSessionId(target.id);
           setMessageCount(target.messageCount);
+          // Phase Fortune+ — also hydrate refuse counter for closed sessions
+          // (mostly cosmetic — composer is locked anyway, but keeps state
+          // consistent if user re-opens an active session next).
+          setConsecutiveRefuses(target.consecutiveRefuses ?? 0);
           setLocked(true);
           setLockReason(
             target.messageCount >= HARD_CAP
@@ -450,7 +517,16 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
         setLoading(false);
       }
     },
-    [readingId, comparisonId, requireToken, refreshHistoryFromServer, resumeOpenSession],
+    [
+      readingId,
+      comparisonId,
+      fortune?.profileId,
+      fortune?.fortuneAnchorDate,
+      fortune?.fortuneScope, // L3.5c Fix 6 — Jan-1 DAY↔YEAR closure staleness
+      requireToken,
+      refreshHistoryFromServer,
+      resumeOpenSession,
+    ],
   );
 
   const lockSession = useCallback((reason: string) => {
@@ -625,8 +701,15 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
   }, []);
 
   const applyDoneEvent = useCallback(
-    (done: { messageCount: number; messagesRemaining: number }) => {
+    (done: {
+      messageCount: number;
+      messagesRemaining: number;
+      consecutiveRefuses: number;
+    }) => {
       setMessageCount(done.messageCount);
+      // Phase Fortune+ — surface the post-message refuse counter so the
+      // ChatDrawer can fire the «超出範圍提醒» dialog at the threshold.
+      setConsecutiveRefuses(done.consecutiveRefuses);
       setPayment((prev) => {
         if (!prev) return prev;
         // The server's truth: messagesRemaining = freeRemaining + paidRemaining.
@@ -675,11 +758,56 @@ export function useChatSession(args: UseChatSessionArgs): UseChatSessionReturn {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled]);
 
+  // Phase Fortune — Issue 10 open-drawer regression fix:
+  // When DateNavigator changes `fortuneAnchorDate` WHILE the drawer is
+  // already open with an established session, the auto-init effect above
+  // (deps: [enabled]) does NOT re-fire because `enabled` hasn't changed.
+  // Without this effect, the drawer would stay pinned to yesterday's
+  // anchor — chat-context loaded against the OLD anchorDate, message
+  // routing through the OLD session. Doctrinal drift + 30-msg cap
+  // wouldn't naturally reset.
+  //
+  // Fix: when the anchorDate / profileId prop changes AND we already have
+  // a session, drop the current session id so the auto-init effect picks
+  // up the new anchor on the next render. This mirrors the closed-drawer
+  // path semantics (close → reopen → resume-or-create against the new
+  // anchor) for the always-open path.
+  //
+  // Locked by the regression spec — without this fix, the open-drawer
+  // path silently uses stale chat-context.
+  const prevFortuneAnchorRef = useRef<string | undefined>(fortune?.fortuneAnchorDate);
+  const prevFortuneProfileRef = useRef<string | undefined>(fortune?.profileId);
+  useEffect(() => {
+    if (!enabled) return;
+    if (!fortune) return;
+    const anchorChanged =
+      prevFortuneAnchorRef.current !== undefined &&
+      prevFortuneAnchorRef.current !== fortune.fortuneAnchorDate;
+    const profileChanged =
+      prevFortuneProfileRef.current !== undefined &&
+      prevFortuneProfileRef.current !== fortune.profileId;
+    if (anchorChanged || profileChanged) {
+      // Reset session so the [enabled]-keyed auto-init re-runs with the
+      // new anchor on the next render. Also clear messages so the drawer
+      // doesn't briefly show yesterday's history under today's label.
+      setSessionId(null);
+      setMessages([]);
+      setMessageCount(0);
+      // Phase Fortune+ — refuse counter is per-session-id; reset on switch.
+      setConsecutiveRefuses(0);
+      setLocked(false);
+      setLockReason(null);
+    }
+    prevFortuneAnchorRef.current = fortune.fortuneAnchorDate;
+    prevFortuneProfileRef.current = fortune.profileId;
+  }, [enabled, fortune?.fortuneAnchorDate, fortune?.profileId]);
+
   return {
     sessionId,
     messages,
     payment,
     messageCount,
+    consecutiveRefuses,
     hardCap: HARD_CAP,
     loading,
     loadMoreLoading,

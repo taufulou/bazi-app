@@ -1,0 +1,141 @@
+/* FortuneSampleQuestions — horizontal pill strip variant of InlineAskCard.
+ * Mirrors warm-cream + accent-red palette per design-preview.html.
+ */
+
+.card {
+  margin: 0.6rem 0 1.2rem;
+  padding: 0.85rem 1rem;
+  background: linear-gradient(135deg, rgba(226, 61, 40, 0.04), rgba(245, 166, 35, 0.04));
+  border: 1px solid rgba(226, 61, 40, 0.18);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--text-accent, #C41E3A);
+}
+
+.icon {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.title {
+  font-family: var(--font-noto-serif-tc, 'Noto Serif TC'), serif;
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem;
+  line-height: 1.5;
+}
+
+.titleCTA {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: var(--color-red, #E23D28);
+  text-decoration: underline;
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  transition: color 0.15s, text-decoration-color 0.15s;
+}
+
+.titleCTA:hover {
+  color: var(--text-accent, #C41E3A);
+  text-decoration-thickness: 2px;
+}
+
+.titleCTA:focus-visible {
+  outline: 2px solid var(--color-red, #E23D28);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* Pill strip — horizontally-scrollable on narrow viewports.
+ * Hides scrollbar visually but preserves scroll touch. */
+.pills {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 0.5rem;
+  padding: 0.1rem 0;
+  /* iOS smooth scroll */
+  -webkit-overflow-scrolling: touch;
+}
+
+.pills::-webkit-scrollbar {
+  display: none;
+}
+
+.pills {
+  scrollbar-width: none;
+}
+
+.pill {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.5rem 0.85rem;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(226, 61, 40, 0.25);
+  border-radius: 999px;
+  color: var(--text-primary, #3C2415);
+  font-size: 0.85rem;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+}
+
+.pill:hover {
+  background: rgba(245, 166, 35, 0.12);
+  border-color: rgba(226, 61, 40, 0.45);
+}
+
+.pill:active {
+  transform: scale(0.98);
+}
+
+.pill:focus-visible {
+  outline: 2px solid var(--color-red, #E23D28);
+  outline-offset: 2px;
+}
+
+.pillArrow {
+  color: var(--color-red, #E23D28);
+  font-weight: 700;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.pillText {
+  line-height: 1.25;
+}
+
+@media (max-width: 600px) {
+  .card {
+    padding: 0.75rem 0.9rem;
+  }
+
+  .title {
+    font-size: 0.85rem;
+  }
+
+  .pill {
+    padding: 0.45rem 0.7rem;
+    font-size: 0.8rem;
+  }
+}

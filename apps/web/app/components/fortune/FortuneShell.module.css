@@ -98,6 +98,21 @@
   font-weight: 600;
 }
 
+/* Phase 1.5.x — topBanner row (e.g., AuthExpiredBanner) between header and
+ * DateNavigator. Sits in normal flow; sticky header (z-index 50) correctly
+ * overlaps on scroll. */
+.topBannerRow {
+  background: var(--bg-card);
+}
+
+/* Phase 1.5 — DateNavigator row between header and subHeader. The
+ * DateNavigator component owns its own padding/background; this wrapper just
+ * provides position for the picker popover to anchor against. */
+.dateNavigatorRow {
+  position: relative;
+  background: var(--bg-card);
+}
+
 /* Sub-header — profile chip + share-secondary-meta */
 .subHeader {
   display: flex;
@@ -145,22 +160,13 @@
   letter-spacing: 0.5px;
 }
 
-/* Switcher: icon-only RefreshCw button on right */
-.switchProfileLink {
+/* Switcher slot — right-aligned wrapper for ProfileSwitcher popover.
+ * Phase 1.5: ProfileSwitcher renders null when profiles.length <= 1, so the
+ * slot may be visually empty for single-profile users (deliberate). */
+.switcherSlot {
   margin-left: auto;
-  width: 32px;
-  height: 32px;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  color: var(--text-accent);
-  text-decoration: none;
-  border-radius: 999px;
-  transition: background 150ms ease;
-}
-
-.switchProfileLink:hover {
-  background: var(--bg-banner-warm);
 }
 
 .main {

@@ -29,6 +29,7 @@ DO NOT add daily-specific 用神 reassignment. 用神 is chart-level only
 
 from __future__ import annotations
 
+import os
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -45,9 +46,10 @@ from .annual_enhanced import (
     _get_element_role,
     _normalize_effective_gods_for_annual,
 )
-from .branch_relationships import check_branch_friction
+from .branch_relationships import banhe_forms_qi, check_branch_friction
 from .constants import (
     BRANCH_ELEMENT,
+    HIDDEN_STEMS,
     HONGLUAN,
     STEM_ELEMENT,
     TAOHUA,
@@ -61,6 +63,7 @@ from .fortune_constants import (
     derive_energy_score,
 )
 from .label_subordination import apply_subordination_cap
+from .folk_content import compute_folk_content
 from .lifetime_enhanced import ELEMENT_DIRECTION
 from .ten_gods import derive_ten_god
 
@@ -643,16 +646,30 @@ def _dispatch_health(
 def _compute_static_folk_content(
     *,
     useful_god_element: str,
-    day_master_stem: str,
-    effective_gods: Dict,
+    day_branch: str,
 ) -> Dict[str, Any]:
-    """Compute static folk content based on 用神 element.
+    """Compute folk content for one day.
 
-    All Phase 1 folk content is STATIC per chart (用神-derived). Dynamic
-    per-day folk (e.g., today's lucky color shifting) is Phase 1.5 pending
-    classical-basis research.
+    Phase 1.5.z — extends Phase 1's wealthDirection with 4 new fields
+    (luckyColor/luckyNumber/luckyFoodFavor/luckyFoodAvoid chart-level
+    invariant + auspiciousHours per-day). All chart-level fields key on
+    用神 element (mirrors wealthDirection precedent). 黃道吉時 algorithm
+    keys on day_branch ONLY (per 協紀辨方書 卷十 «日上起時神煞» — NOT
+    confused with month-branch-keyed 建除十二神).
+
+    NOTE (audit follow-up 2026-05-22): removed unused `day_master_stem`
+    + `effective_gods` parameters per engine line-audit cleanup. Folk
+    content is purely 用神-keyed; DM stem would have been a DM-drift
+    risk vector. If you need DM in scope, derive at the caller, not here.
+
+    Research artifacts + classical citations:
+        /Users/roger/.claude/plans/fortune-folk-content-research-results.md
     """
     direction = ELEMENT_DIRECTION.get(useful_god_element, '')
+    folk = compute_folk_content(
+        useful_god_element=useful_god_element,
+        day_branch=day_branch,
+    )
     return {
         'wealthDirection': {
             'element': useful_god_element,
@@ -660,8 +677,11 @@ def _compute_static_folk_content(
             'provenance': 'classical',
             'note': '用神方位（命格層級，每日不變）',
         },
-        # 吉祥色/幸運數字/食物/吉時 are NOT shipped Phase 1 — research+ship
-        # cycle in Phase 1.5. AI prompt MUST NOT fabricate these.
+        'luckyColor': folk['luckyColor'],
+        'luckyNumber': folk['luckyNumber'],
+        'luckyFoodFavor': folk['luckyFoodFavor'],
+        'luckyFoodAvoid': folk['luckyFoodAvoid'],
+        'auspiciousHours': folk['auspiciousHours'],
     }
 
 
@@ -687,6 +707,181 @@ def _compute_static_folk_content(
 # mitigation despite day branch=忌神 element. (紅艷 valence-flip is a
 # DIFFERENT shensha — same Chinese transliteration concern; see plan.)
 
+# ═══════════════════════════════════════════════════════════════════════════
+# ⚠️ DO NOT ENABLE THIS FLAG IN PRODUCTION WITHOUT FRESH RESEARCH ⚠️
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Phase 1.5 Option 2.5 refinement — DEFAULT OFF (gated rollout).
+# Decision date: 2026-05-25. Author of gating: Roger + 4 Bazi-master sub-agents.
+#
+# Per Phase A 4-parallel Bazi-master research (2026-05-25) + empirical
+# verification: the 2 implemented rules (食神制殺 carve-out + xishen_zhongqi
+# dissolves_taboo_stem) are DOCTRINALLY CORRECT but INSUFFICIENT to deliver
+# visible label improvement under the current Phase 12 cascade. Both anchor
+# rows (roger@2026-05-10 + roger@2026-05-18) start at rawStructural=大凶
+# (Phase 12b 伏吟 stacking + Phase 12c 六害 firing correctly per design); the
+# 3-ladder-position gap to corpus expected (凶中有吉) requires Phase 12
+# cascade modification (e.g., «cap multi-pillar 伏吟 at -1 total when stem
+# is 喜神») — that's BEYOND Option 2.5 scope, was SKIPPED per user direction
+# (would require massive Phase 12 doctrinal re-research the user judged
+# not worth the engineering cost).
+#
+# ─── If you are reading this because you want to flip this flag to '1' ───
+#
+# READ THIS FIRST. The rules are GATED for a reason:
+#
+#   1. They ARE doctrinally accurate (Sub-Agent C verdict, regression-free).
+#      They fire correctly on the 2 anchor rows. They do NOT cause new
+#      label regressions on the other 28 rows of the daily-label corpus.
+#
+#   2. BUT they were never tested or validated in production cascade.
+#      No corpus-gate test exists that covers the flag-ON state. The
+#      corpus baseline locks the flag-OFF behavior; if you flip it ON,
+#      you ship behavior nothing in CI exercises.
+#
+#   3. Visible label improvement requires Phase 12 cascade modification
+#      (Phase 12i candidate, EXPLICITLY SKIPPED per user direction). Without
+#      that modification, flipping this flag changes nothing user-facing
+#      on the 2 outlier rows (rules add +1 step, but the ±2 net cap can't
+#      bridge the 3-ladder-position gap from 大凶 to 凶中有吉).
+#
+#   4. There IS a small chance of regression on OTHER charts the corpus
+#      doesn't cover — Phase A research validated against the 60-row corpus
+#      only. Rare 八字 configurations might trigger one of these rules
+#      unexpectedly. WITHOUT the cascade fix, that's an invisible engine
+#      output change with no test coverage and no doctrinal benefit.
+#
+# Before flipping: re-do the full 4-parallel Bazi-master research cycle
+# (cost ~$30 + 0.5 day wall-clock) OR commit to the Phase 12 cascade fix
+# work (multi-week doctrinal research per 邵偉華 / 任鐵樵 / 三命通會 cross-
+# reference). The user explicitly judged that work «not worth it» given
+# the marginal gain (2 calibration rows out of 30) — talk to them before
+# re-litigating.
+#
+# Audit trail:
+# - Phase A research: /Users/roger/.claude/plans/option-25-refinement-research-results.md
+# - Sub-Agent C verdict: agent ae52cf894731c304f
+# - Session handoff: /Users/roger/.claude/plans/fortune-phase-1-5-z-option-25-session-handoff.md
+# - User direction (2026-05-25): «skip Phase 12i Phase 12 cascade modification»
+#
+# To enable for engine TESTING only (not prod):
+#     PHASE_1_5_OPTION_25_REFINEMENT_ENABLED=1 python -m pytest tests/test_daily_enhanced.py
+# ═══════════════════════════════════════════════════════════════════════════
+PHASE_1_5_OPTION_25_REFINEMENT_ENABLED = (
+    os.environ.get('PHASE_1_5_OPTION_25_REFINEMENT_ENABLED', '0') == '1'
+)
+
+
+# Element produces (生) relation: A produces B if A is the parent in the
+# 五行相生 chain. Used by xishen_zhongqi_dissolves_taboo_stem to verify the
+# 化忌神 path (day_stem element → zhongqi element).
+_PRODUCES: Dict[str, str] = {
+    '木': '火', '火': '土', '土': '金', '金': '水', '水': '木',
+}
+
+
+def _element_produces(parent: str, child: str) -> bool:
+    """True if `parent` element produces `child` per 五行相生 chain."""
+    return _PRODUCES.get(parent) == child
+
+
+def _detect_shishen_zhisha_active(
+    *,
+    dm_stem: str,
+    dm_element: str,
+    natal_stems: List[str],
+    day_stem: str,
+    day_branch: str,
+    pillars: Dict,
+    effective_gods_zh: Dict,
+) -> bool:
+    """Detect 食神制殺 (Food God controlling Seven Killings) for daily rescue.
+
+    Per Sub-Agent A1 + B + C Phase A research (2026-05-25):
+    Requires ALL of:
+      1. day_stem.ten_god ∈ {偏官, 七殺} (七殺-specific; 偏官 = 七殺 alias)
+      2. day_stem.role ∈ {用神, 喜神}
+      3. day_branch.本氣.role ∈ {忌神, 仇神}
+      4. DM produces 食神 element; 食神 transparent in natal stems
+      5. 食神 NOT destroyed by 梟印奪食 (偏印 transparent adjacent to 食神
+         without 財星 protection)
+      6. 食神 has root in some natal branch (本氣 OR 中氣)
+      7. day_stem has root in another natal branch (not the day_branch itself)
+
+    Source: 三命通會 卷六·論七殺 «殺以制為貴»; 子平真詮·論七殺 «七殺最喜食神制之»;
+    滴天髓闡微·七殺 «七殺乃陽剛之氣，有制則為偏官» — all 3 pillar sources agree
+    (no doctrinal split). Sub-Agent C verdict: ship this NARROW carve-out
+    instead of bare Pattern 4 (which is genuinely split).
+    """
+    # 食神 element = element DM produces
+    shishen_element = _PRODUCES.get(dm_element)
+    if not shishen_element:
+        return False
+
+    # 食神 transparent in natal stems (year/month/hour — NOT day stem position)
+    shishen_stems_natal = [s for s in natal_stems if STEM_ELEMENT.get(s) == shishen_element]
+    if not shishen_stems_natal:
+        return False
+
+    # 梟印 = 偏印 element; element that produces DM (i.e., reverse of _PRODUCES from DM-side)
+    pian_yin_element = None
+    for parent_el, child_el in _PRODUCES.items():
+        if child_el == dm_element:
+            pian_yin_element = parent_el
+            break
+    if pian_yin_element:
+        # Check if 梟印 is ADJACENT to 食神 in natal stem positions
+        # (natal_stems order: [year, month, hour] — day excluded per natal_stems builder).
+        # Per Sub-Agent A1+B: «梟印 transparent ADJACENT to 食神 without 財星 protection»
+        # destroys 食神. Non-adjacent 梟印 (e.g., 年 + 時 separated by 月+日 stems) does
+        # NOT trigger 奪食.
+        CONTROLS = {'木': '土', '火': '金', '土': '水', '金': '木', '水': '火'}
+        cai_element = CONTROLS.get(dm_element)
+        cai_stems_natal = [s for s in natal_stems if STEM_ELEMENT.get(s) == cai_element]
+        # Find positions of 梟印 + 食神 in natal_stems
+        for i, s in enumerate(natal_stems):
+            if STEM_ELEMENT.get(s) != pian_yin_element:
+                continue
+            # 梟印 at position i. Check immediate neighbors (i-1, i+1) for 食神.
+            for j in (i - 1, i + 1):
+                if 0 <= j < len(natal_stems):
+                    neighbor = natal_stems[j]
+                    if STEM_ELEMENT.get(neighbor) == shishen_element:
+                        # Adjacent 梟印 + 食神 — check 財星 protection
+                        if not cai_stems_natal:
+                            return False  # 奪食 destroys 食神 — rule does NOT fire
+
+    # 食神 has root in some natal branch (本氣 OR 中氣)
+    natal_branches = [
+        pillars['year']['branch'],
+        pillars['month']['branch'],
+        pillars['day']['branch'],
+        pillars['hour']['branch'],
+    ]
+    shishen_rooted = False
+    for b in natal_branches:
+        hidden = HIDDEN_STEMS.get(b, [])
+        if any(STEM_ELEMENT.get(s) == shishen_element for s in hidden[:2]):
+            shishen_rooted = True
+            break
+    if not shishen_rooted:
+        return False
+
+    # day_stem must have root in ANOTHER branch (not the natal day pillar itself)
+    day_stem_element = STEM_ELEMENT.get(day_stem, '')
+    other_branches = [b for b in natal_branches if b != pillars['day']['branch']]
+    day_stem_rooted = False
+    for b in other_branches:
+        hidden = HIDDEN_STEMS.get(b, [])
+        if any(STEM_ELEMENT.get(s) == day_stem_element for s in hidden[:2]):
+            day_stem_rooted = True
+            break
+    if not day_stem_rooted:
+        return False
+
+    return True
+
+
 def _apply_per_day_signal_adjustments(
     raw_label: str,
     *,
@@ -698,6 +893,11 @@ def _apply_per_day_signal_adjustments(
     day_master_stem: str,
     effective_gods_zh: Dict,
     branch_interactions_on_day_palace: List[str],
+    # Phase 1.5 Option 2.5 refinement (research-LOCKED 2026-05-25):
+    # additional context needed for 食神制殺 carve-out + xishen_zhongqi rescue
+    strength: str = 'neutral',
+    flow_month_branch: str = '',
+    pillars: Optional[Dict] = None,
 ) -> Tuple[str, List[str]]:
     """Apply per-day mitigation/acceleration signals on top of raw_label.
 
@@ -772,10 +972,91 @@ def _apply_per_day_signal_adjustments(
                 chong_steps = -1
                 applied.append('chong_day_branch_unfavorable_valence')
 
+    # --- Phase 1.5 Option 2.5 refinement (research-LOCKED 2026-05-25) ---
+    # Two new rules from Phase A 4-parallel Bazi-master research:
+    #   Rule A: 食神制殺 day-level rescue (replaces bare Pattern 4)
+    #   Rule B: xishen_zhongqi_dissolves_taboo_stem (replaces 比劫敵財 framing)
+    # Both rules: +1 step softening; neutral-DM only; mutually exclusive (disjoint
+    # day_stem ten_god conditions). Both mutually exclusive with Phase 12h.B
+    # 比劫奪財 beneficial valence (also disjoint day_ten_god).
+    # Source: Sub-Agent C integrator verdict.
+    option_25_steps = 0
+    if (
+        PHASE_1_5_OPTION_25_REFINEMENT_ENABLED
+        and strength == 'neutral'
+        and pillars is not None
+    ):
+        natal_stems = [
+            pillars['year']['stem'],
+            pillars['month']['stem'],
+            pillars['hour']['stem'],
+            # NOTE: day_master_stem is natal day stem; not included to avoid
+            # self-reference (we want 食神 in OTHER pillars besides day).
+        ]
+
+        # Rule A — 食神制殺 day-level rescue
+        # Day stem must be 七殺 attacking DM + day stem ∈ {用神, 喜神} + day branch
+        # 本氣 ∈ {忌神, 仇神} + structural 制殺 chain active.
+        day_stem_element_local = STEM_ELEMENT.get(day_stem, '')
+        day_stem_role_local = _get_element_role(
+            day_stem_element_local, day_master_stem, effective_gods_zh,
+        )
+        day_branch_benqi = HIDDEN_STEMS.get(day_branch, [''])[0]
+        day_branch_benqi_element = STEM_ELEMENT.get(day_branch_benqi, '')
+        day_branch_benqi_role = _get_element_role(
+            day_branch_benqi_element, day_master_stem, effective_gods_zh,
+        )
+        dm_element_local = STEM_ELEMENT.get(day_master_stem, '')
+
+        if (
+            day_ten_god in ('偏官', '七殺')
+            and day_stem_role_local in {'用神', '喜神'}
+            and day_branch_benqi_role in {'忌神', '仇神'}
+            and _detect_shishen_zhisha_active(
+                dm_stem=day_master_stem,
+                dm_element=dm_element_local,
+                natal_stems=natal_stems,
+                day_stem=day_stem,
+                day_branch=day_branch,
+                pillars=pillars,
+                effective_gods_zh=effective_gods_zh,
+            )
+        ):
+            option_25_steps += 1
+            applied.append('shishen_zhisha_day_rescue')
+
+        # Rule B — xishen_zhongqi_dissolves_taboo_stem
+        # Day stem ∈ {忌神, 仇神} + day branch 中氣 ∈ {喜神, 用神} + 化忌 path
+        # (day_stem element produces zhongqi element) + 半合化局 fails 月令.
+        # Mutually exclusive with Rule A (disjoint day_ten_god — Rule A is 七殺,
+        # Rule B is non-官殺 忌神).
+        if (
+            day_stem_role_local in {'忌神', '仇神'}
+            and day_ten_god not in ('偏官', '七殺', '正官')  # not officer (Rule A territory)
+            and 'shishen_zhisha_day_rescue' not in applied  # mutual exclusion safety net
+        ):
+            hidden = HIDDEN_STEMS.get(day_branch, [])
+            if len(hidden) >= 2:
+                zhongqi_stem = hidden[1]
+                zhongqi_element = STEM_ELEMENT.get(zhongqi_stem, '')
+                zhongqi_role = _get_element_role(
+                    zhongqi_element, day_master_stem, effective_gods_zh,
+                )
+                if (
+                    zhongqi_role in {'喜神', '用神'}
+                    and _element_produces(day_stem_element_local, zhongqi_element)
+                    and flow_month_branch
+                    and not banhe_forms_qi(day_branch, flow_month_branch, day_stem_element_local)
+                ):
+                    option_25_steps += 1
+                    applied.append('xishen_zhongqi_dissolves_taboo_stem')
+
     # --- Total net adjustment ---
     # Cap at ±2 step total (allow 凶→凶中有吉 transition from stacked
     # mitigations like 紅鸞 + 比劫奪財; cap prevents 凶→吉 jumps).
-    net_steps = shensha_steps + bijie_steps + friction_steps + chong_steps
+    # Option 2.5 refinement rules are mutually exclusive (+0 or +1) but
+    # can stack with 紅鸞/天喜/比劫奪財 — the ±2 cap remains load-bearing.
+    net_steps = shensha_steps + bijie_steps + friction_steps + chong_steps + option_25_steps
     net_steps = max(-2, min(2, net_steps))
 
     # Position delta: positive net_steps (mitigation) → DECREASE position (toward 大吉)
@@ -1152,6 +1433,10 @@ def _compute_single_day(
         day_master_stem=day_master_stem,
         effective_gods_zh=effective_gods_zh,
         branch_interactions_on_day_palace=bi_on_day_palace,
+        # Phase 1.5 Option 2.5 refinement — new args for 食神制殺 + xishen_zhongqi rules
+        strength=strength,
+        flow_month_branch=flow_month_branch,
+        pillars=pillars,
     )
 
     final_auspiciousness = apply_subordination_cap(
@@ -1177,11 +1462,10 @@ def _compute_single_day(
         day_master_stem=day_master_stem,
     )
 
-    # Folk content (Phase 1 — static 用神 direction only)
+    # Folk content (Phase 1.5.z — direction + color + number + food (favor/avoid) + hours)
     folk_content = _compute_static_folk_content(
         useful_god_element=useful_god_element,
-        day_master_stem=day_master_stem,
-        effective_gods=effective_gods_zh,
+        day_branch=day_branch,
     )
 
     # Compose final result (preserving all month-level fields for AI prompt)

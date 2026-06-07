@@ -1,0 +1,126 @@
+/* YearlyDimensionStars — Phase 3 年運 4-dim ★ star-rating cards.
+ *
+ * NET-NEW (monthly uses bars; year uses stars per locked hybrid design).
+ * Warm-cream theme via globals.css CSS vars. 4-column grid on wide screens,
+ * 2-column on narrow. */
+
+.wrap {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  padding: 16px 12px;
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-warm);
+  border: 1px solid var(--border-light);
+}
+
+@media (max-width: 560px) {
+  .wrap {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    padding: 14px 8px;
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border-radius: var(--radius-md, 12px);
+  background: rgba(212, 160, 23, 0.04);
+  border: 1px solid var(--border-light);
+}
+
+.card[data-tier='good'] {
+  border-top: 3px solid #2E7D32;
+}
+
+.card[data-tier='mid'] {
+  border-top: 3px solid var(--color-gold, #D4A017);
+}
+
+.card[data-tier='low'] {
+  border-top: 3px solid var(--text-accent);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.icon {
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+}
+
+.dimName {
+  font-family: 'Noto Serif TC', serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ============================================================ */
+/* Star row                                                     */
+/* ============================================================ */
+
+.stars {
+  display: flex;
+  gap: 1px;
+  letter-spacing: 1px;
+}
+
+.star {
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-muted);
+}
+
+.star[data-filled='true'] {
+  color: var(--color-gold, #D4A017);
+}
+
+/* ============================================================ */
+/* AI keyword (optional)                                        */
+/* ============================================================ */
+
+.keyword {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* ============================================================ */
+/* Verdict label                                                */
+/* ============================================================ */
+
+.dimLabel {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(212, 160, 23, 0.1);
+  color: var(--text-secondary);
+}
+
+.dimLabel[data-tier='good'] {
+  background: rgba(46, 125, 50, 0.1);
+  color: #2E7D32;
+}
+
+.dimLabel[data-tier='mid'] {
+  background: rgba(212, 160, 23, 0.1);
+  color: var(--text-secondary);
+}
+
+.dimLabel[data-tier='low'] {
+  background: rgba(196, 30, 58, 0.1);
+  color: var(--text-accent);
+}

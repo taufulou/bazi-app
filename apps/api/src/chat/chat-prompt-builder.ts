@@ -17,7 +17,12 @@
  */
 
 import type { ReadingType } from '@prisma/client';
-import type { ChatContext } from './chat-context.service';
+import {
+  type ChatContext,
+  interpolateFortuneV1Fields,
+  interpolateFortuneMonthlyFields,
+  interpolateFortuneYearlyFields,
+} from './chat-context.service';
 import {
   buildChatV1SystemPromptHeader,
   buildChatV1SystemPromptForType,
@@ -32,12 +37,22 @@ export interface BuildPromptArgs {
    *  with any caller that doesn't yet thread it; defaults to LIFETIME
    *  (Phase 1 behavior). */
   readingType?: ReadingType;
+  /** Phase 2.x L3.5b — when readingType=FORTUNE, scope determines which refuse
+   *  template + few-shots assemble (DAY uses 《八字日運》 + F-1/F-2/F-3,
+   *  MONTH uses 《八字月運》 + M-1/M-2). Defaults to DAY for back-compat. */
+  fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
   /** Section the user clicked the InlineAskCard from. METADATA only — does
    *  NOT filter the slim payload (per plan Issue 19). */
   sectionContextHint?: string;
   /** Layer 5: from session.messageCount >= 3 the server inserts a
    *  <system-reminder> as user-role msg before the new user question. */
   shouldInjectRegrounding: boolean;
+  /** Tier C — cross-sell targets the user already owns (a BaziReading row
+   *  exists for the relevant birth profile). The assembler swaps each owned
+   *  target's cross-sell line from "go unlock" → "you already have it, go view".
+   *  Computed fresh per message by the service layer; defaults to empty
+   *  (current behavior). Only consulted for chat-enabled reading types. */
+  ownedCrossSellTargets?: ReadonlySet<string>;
 }
 
 export interface AnthropicMessageBlock {
@@ -56,16 +71,43 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
     recentMessages,
     newUserMessage,
     readingType,
+    fortuneScope,
     sectionContextHint,
     shouldInjectRegrounding,
+    ownedCrossSellTargets,
   } = args;
 
-  // Phase 2 — pick per-type prompt assembler when readingType is one of
-  // the chat-enabled set; fall back to Phase 1 LIFETIME header otherwise.
-  const isChatEnabledType = (rt?: ReadingType): rt is 'LIFETIME' | 'LOVE' | 'CAREER' | 'ANNUAL' | 'COMPATIBILITY' =>
-    rt === 'LIFETIME' || rt === 'LOVE' || rt === 'CAREER' || rt === 'ANNUAL' || rt === 'COMPATIBILITY';
+  // Phase 2 / Phase Fortune — pick per-type prompt assembler when readingType
+  // is one of the chat-enabled set; fall back to Phase 1 LIFETIME header
+  // otherwise.
+  //
+  // ⚠️ CRITICAL — FORTUNE must be in this union. The line-audit caught a
+  // bug where omitting 'FORTUNE' caused every FORTUNE chat session to fall
+  // back to the GENERIC Phase 1 prompt header, silently dropping FORTUNE's
+  // hybrid refuse policy, soft-trigger doctrine, folk-content prohibition,
+  // refuse template, cross-sell lines, and F-1/F-2/F-3 few-shots. The
+  // regression spec at the bottom of `prompts.fortune.spec.ts` (assembly
+  // test) only verified `buildChatV1SystemPromptForType` directly — NOT
+  // the path through `buildPrompt`. Belt + suspenders: keep this union
+  // mirror-aligned with `buildChatV1SystemPromptForType`'s signature.
+  const isChatEnabledType = (
+    rt?: ReadingType,
+  ): rt is 'LIFETIME' | 'LOVE' | 'CAREER' | 'ANNUAL' | 'COMPATIBILITY' | 'FORTUNE' =>
+    rt === 'LIFETIME' ||
+    rt === 'LOVE' ||
+    rt === 'CAREER' ||
+    rt === 'ANNUAL' ||
+    rt === 'COMPATIBILITY' ||
+    rt === 'FORTUNE';
+  // Phase 2.x L3.5b — thread fortuneScope through for FORTUNE so the prompt
+  // assembler picks the right scope-specific refuse template + few-shots.
+  // For non-FORTUNE reading types the scope arg is ignored.
   const promptHeader = isChatEnabledType(readingType)
-    ? buildChatV1SystemPromptForType(readingType)
+    ? buildChatV1SystemPromptForType(
+        readingType,
+        fortuneScope ?? 'DAY',
+        ownedCrossSellTargets ?? new Set<string>(), // Tier C — swap owned cross-sell lines
+      )
     : buildChatV1SystemPromptHeader();
 
   // Phase 2 (round-3 NEW#7) — `{crossSellPivotHint}` placeholder substitution
@@ -124,6 +166,51 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
   if (injectorBlocks.length > 0) {
     sections.push('\n【教義旗標 — 必須引用以下文字作為主敘述基礎】\n');
     sections.push(injectorBlocks.join('\n\n'));
+  }
+
+  // Phase Fortune — day-pillar TRANSIENT doctrine injector (Issue 14).
+  // Mirrors Phase 12g.6 Gap 2 pattern: pre-formats Chinese sentences for the
+  // day's transient findings (傷官見官 valence / 比劫奪財 valence / 沖日支 /
+  // 紅鸞 / 配偶星透干 / 官殺日) from `dailyFortune.dimensions[].signals[]`.
+  // Anti-hallucination via deterministic phrasing — AI consumes verbatim.
+  //
+  // Phase 2.x L3.5b — scope-aware dispatch:
+  //   - FORTUNE + DAY → interpolateFortuneV1Fields (reads dailyFortune)
+  //   - FORTUNE + MONTH → interpolateFortuneMonthlyFields (reads monthlyFortune)
+  //                       This was MISSING before audit C#2 — MONTH chat got
+  //                       raw JSON only → anti-hallucination contract relied
+  //                       on AI luck. Mirror of Phase 12g.6 Gap 2 pattern
+  //                       (deterministic Chinese sentences for month-pillar
+  //                       findings + intraMonthBreakdown buckets).
+  //
+  // Only fires when readingType === 'FORTUNE' (FORTUNE-specific layer; for
+  // other reading types `dailyFortune`/`monthlyFortune` is absent so each
+  // injector returns null anyway, but the explicit gate keeps the cache
+  // key tight on the shared injector pipeline).
+  if (readingType === 'FORTUNE') {
+    if (fortuneScope === 'MONTH') {
+      const monthlyInjector = interpolateFortuneMonthlyFields(chatContext);
+      if (monthlyInjector) {
+        sections.push('\n【本月流月教義事件 — 必須引用以下文字】\n');
+        sections.push(monthlyInjector);
+      }
+    } else if (fortuneScope === 'YEAR') {
+      // Phase 3.5c L3.5c — mirror of MONTH; reads yearlyFortune (coreRisk-
+      // Opportunity months + luckMethods + 4-dim ★). Anti-hallucination via
+      // deterministic Chinese sentences the AI quotes verbatim (Gap 2 pattern).
+      const yearlyInjector = interpolateFortuneYearlyFields(chatContext);
+      if (yearlyInjector) {
+        sections.push('\n【今年流年教義事件 — 必須引用以下文字】\n');
+        sections.push(yearlyInjector);
+      }
+    } else {
+      // DAY (default) — back-compat with pre-L3.5b behaviour
+      const fortuneInjector = interpolateFortuneV1Fields(chatContext);
+      if (fortuneInjector) {
+        sections.push('\n【今日流日教義事件 — 必須引用以下文字】\n');
+        sections.push(fortuneInjector);
+      }
+    }
   }
 
   // Slim chat context as JSON

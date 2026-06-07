@@ -63,6 +63,25 @@ export interface DailyEngineOutput {
   };
   folkContent?: {
     wealthDirection?: { element: string; direction: string; note?: string };
+    luckyColor?: {
+      element: string; primary: string; secondary: string; tertiary?: string;
+      cite: string; provenance: 'classical'; note?: string;
+    } | null;
+    luckyNumber?: {
+      element: string; numbers: number[]; cite: string;
+      provenance: 'folk_tradition'; note?: string;
+    } | null;
+    luckyFoodFavor?: {
+      element: string; category: string; examples: string[];
+      cite: string; provenance: 'classical';
+    } | null;
+    luckyFoodAvoid?: {
+      element: string; category: string; reason: string; cite_sources: string[];
+      classification: 'doctrinal'; avoid_strength: 'strong'; provenance: 'classical';
+    } | null;
+    auspiciousHours?: Array<{
+      branch: string; hour_range: string; classical_name: string; provenance: 'classical';
+    }>;
   };
   ruleTrace?: string[];
   preAnalysisVersion?: string;
@@ -152,9 +171,24 @@ export function interpolateFortuneV1Fields(
     '{{travelSignals}}':  renderDimSignals(daily.dimensions.travel.signals),
     '{{healthSignals}}':  renderDimSignals(daily.dimensions.health.signals),
 
-    // Folk content (Phase 1 = wealth direction only)
+    // Folk content (Phase 1.5.z = 6 total: wealthDirection + 4 new chart-level + auspiciousHours per-day)
     '{{wealthDirection}}': daily.folkContent?.wealthDirection
       ? `${daily.folkContent.wealthDirection.element} → ${daily.folkContent.wealthDirection.direction} (${daily.folkContent.wealthDirection.note ?? ''})`
+      : '（未提供）',
+    '{{luckyColor}}': daily.folkContent?.luckyColor
+      ? `${daily.folkContent.luckyColor.primary} (次選：${daily.folkContent.luckyColor.secondary}；典籍：${daily.folkContent.luckyColor.cite})`
+      : '（未提供）',
+    '{{luckyNumber}}': daily.folkContent?.luckyNumber
+      ? `${daily.folkContent.luckyNumber.numbers.join('、')} (${daily.folkContent.luckyNumber.cite})`
+      : '（未提供）',
+    '{{luckyFoodFavor}}': daily.folkContent?.luckyFoodFavor
+      ? `${daily.folkContent.luckyFoodFavor.category} (例：${daily.folkContent.luckyFoodFavor.examples.join('、')}；典籍：${daily.folkContent.luckyFoodFavor.cite})`
+      : '（未提供）',
+    '{{luckyFoodAvoid}}': daily.folkContent?.luckyFoodAvoid
+      ? `${daily.folkContent.luckyFoodAvoid.category}；原因：${daily.folkContent.luckyFoodAvoid.reason} (典籍：${daily.folkContent.luckyFoodAvoid.cite_sources.join('；')})`
+      : '（未提供）',
+    '{{auspiciousHours}}': daily.folkContent?.auspiciousHours?.length
+      ? daily.folkContent.auspiciousHours.map(h => `${h.classical_name}時 ${h.branch} (${h.hour_range})`).join('、')
       : '（未提供）',
   };
 
@@ -187,6 +221,435 @@ export function buildFortuneDailyMessages(
 
   const userPrompt = `${interpolated}\n\n${dailyPrompts.outputFormat}`;
   const systemPrompt = dailyPrompts.systemAddition;
+
+  return { systemPrompt, userPrompt };
+}
+
+
+// ============================================================
+// Phase 2 — MONTHLY (八字月運) interpolator + builder
+// ============================================================
+//
+// Separate function (per plan v4 H5 — locked decision #10): NOT branching
+// inside `interpolateFortuneV1Fields`. Keeps DAY/MONTH paths independent +
+// individually testable. Caller dispatches by scope.
+//
+// Engine output comes from `monthly_enhanced.compute_single_month_by_yearmonth`
+// + optional `compute_intra_month_breakdown` (L1.b) injected as
+// `intraMonthBreakdown` field on the engine output object.
+
+/** Minimal shape contract for monthly engine output (subset). */
+export interface MonthlyEngineOutput {
+  monthStem: string;
+  monthBranch: string;
+  monthTenGod: string;
+  monthLabel: string;             // e.g., '癸巳月'
+  /** Final post-Phase-12-fix label */
+  auspiciousness: string;
+  energyScore: number;
+  metaFraming: 'soft_trigger';
+  ruleTrace?: string[];
+  preAnalysisVersion?: string;
+  /** Phase 12b/c additive — used in deterministic injector below */
+  officerSealActivation?: {
+    pattern: string;
+    direction: string;
+    level: string;
+  };
+  fuYinInteractions?: Array<{ pillar: string; branch: string; role: string }>;
+  /**
+   * Audit fix HIGH #2 (2026-05-28): match actual engine shape from
+   * `annual_enhanced.py:1721-1738`. Previously had `releasedStems: string[]`
+   * which would have rendered `[object Object]` in the prompt when 沖庫釋放
+   * fires. Also no `direction` field — use `action` ('downgrade' | 'upgrade')
+   * + `netRoleScore` instead.
+   */
+  chongKuRelease?: {
+    natalPillar: string;
+    natalBranch: string;
+    releasedStems: Array<{
+      stem: string;
+      position: 'benqi' | 'zhongqi' | 'yuqi';
+      tenGod: string;
+      role: string;
+      weight: number;
+    }>;
+    netRoleScore: number;
+    action: 'downgrade' | 'upgrade';
+    steps: number;
+    stemRescueApplied: boolean;
+  };
+  liuHaiInteractions?: Array<{
+    pillar: string;
+    pair: string;
+    role: string;
+    kind: string;
+  }>;
+  /** 4 dims locked (no travel) per Sub-Agent B */
+  dimensions: {
+    career: { score: number; signals: string[] };
+    finance: { score: number; signals: string[] };
+    romance: { score: number; signals: string[] };
+    health: { score: number; signals: string[] };
+  };
+  /** Optional L1.b breakdown — injector emits structured 上半月/下半月 block
+   *  when present; otherwise emits «（無資料）» */
+  intraMonthBreakdown?: {
+    scheme_id: 'tiangan_dizhi_half';
+    liuyue_window: { start: string; end: string; days: number };
+    buckets: Array<{
+      label: string;
+      governing_pillar: 'stem' | 'branch';
+      day_range: [number, number | null];
+      auspicious_days: number;
+      challenging_days: number;
+      neutral_days: number;
+      peak_signals: Array<{
+        date: string | null;
+        energyScore: number;
+        label: string;
+        signals: string[];
+      }>;
+      dominant_shensha: string[];
+    }>;
+  };
+  chartContext?: FortuneChartContext & {
+    flowYear?: number;
+    flowYearStem?: string;
+  };
+}
+
+function renderMonthlyDimSignals(signals: string[]): string {
+  if (!signals || signals.length === 0) {
+    return '  （無觸發訊號 — 本月該維度平穩無動向）';
+  }
+  return signals.map((s) => `  · ${s}`).join('\n');
+}
+
+function renderMonthlyTransientSignals(monthly: MonthlyEngineOutput): string {
+  const lines: string[] = [];
+
+  if (monthly.officerSealActivation) {
+    const a = monthly.officerSealActivation;
+    lines.push(
+      `  · 殺印/官印相生 transient (Phase 12b Fix C) — pattern=${a.pattern}, direction=${a.direction}, level=${a.level}`,
+    );
+    if (a.direction === 'positive') {
+      lines.push('    ⚠️ 本月趨向得長輩／貴人助力（用 soft-trigger 框架敘述）');
+    } else {
+      lines.push('    ⚠️ 本月宜謹慎處理權威關係（用 soft-trigger 框架敘述）');
+    }
+  }
+
+  if (monthly.chongKuRelease) {
+    const c = monthly.chongKuRelease;
+    // Audit fix HIGH #2: render releasedStems as Chinese list (stem+role)
+    // — NOT [object Object]. Use `action` + `netRoleScore` (engine emits
+    // these, not `direction`/`net`).
+    const stems = c.releasedStems
+      .map((s) => `${s.stem}(${s.role})`)
+      .join('、');
+    lines.push(
+      `  · 沖庫釋放 (Phase 12c Fix F) — natalPillar=${c.natalPillar}柱(${c.natalBranch}), netRoleScore=${c.netRoleScore}, action=${c.action} ${c.steps}步, releasedStems=[${stems}]`,
+    );
+    lines.push(
+      '    ⚠️ 結構釋放型訊號，stem rescue 不能抵消 (per 滴天髓·論墓庫 doctrine)',
+    );
+    if (c.action === 'downgrade') {
+      lines.push('    ⚠️ 本月此面向宜謹慎處理（用 soft-trigger 框架敘述）');
+    } else {
+      lines.push('    ⚠️ 本月此面向有開展機會（用 soft-trigger 框架敘述）');
+    }
+  }
+
+  if (monthly.fuYinInteractions && monthly.fuYinInteractions.length > 0) {
+    for (const fy of monthly.fuYinInteractions) {
+      lines.push(
+        `  · 伏吟月柱與命中 ${fy.pillar}柱 (${fy.branch})，角色 ${fy.role} — 本月此面向有「停滯／重複／放大」傾向`,
+      );
+    }
+  }
+
+  if (monthly.liuHaiInteractions && monthly.liuHaiInteractions.length > 0) {
+    for (const lh of monthly.liuHaiInteractions) {
+      lines.push(
+        `  · 六害 (Phase 12c Fix E) — 月柱與命中 ${lh.pillar}柱 (${lh.pair})，對 ${lh.role} 神有暗箭之耗 (kind=${lh.kind})`,
+      );
+    }
+  }
+
+  if (lines.length === 0) {
+    return '  （無月柱 transient 觸發 — 本月以基本月柱影響為主）';
+  }
+  return lines.join('\n');
+}
+
+function renderIntraMonthBreakdown(
+  monthly: MonthlyEngineOutput,
+): string {
+  const imb = monthly.intraMonthBreakdown;
+  if (!imb || !imb.buckets || imb.buckets.length === 0) {
+    return '  （未提供月內時段資料 — AI 不可輸出 intra_month_breakdown 欄位）';
+  }
+  const lines: string[] = [
+    `  scheme: ${imb.scheme_id}`,
+    `  流月窗口: ${imb.liuyue_window.start} → ${imb.liuyue_window.end} (${imb.liuyue_window.days} 天)`,
+  ];
+  for (const b of imb.buckets) {
+    lines.push('');
+    lines.push(`  ◆ ${b.label} (主氣: ${b.governing_pillar === 'stem' ? '流月天干' : '流月地支'}, day-range ${b.day_range[0]}-${b.day_range[1] ?? '末'})`);
+    lines.push(`    日吉凶分布: 吉=${b.auspicious_days} / 凶=${b.challenging_days} / 平=${b.neutral_days}`);
+    if (b.dominant_shensha.length > 0) {
+      lines.push(`    主導神煞: ${b.dominant_shensha.join('、')}`);
+    }
+    if (b.peak_signals.length > 0) {
+      const peakLines = b.peak_signals
+        .map((p) => `      · ${p.date ?? '?'} ${p.label}(${p.energyScore})${p.signals.length ? '：' + p.signals.slice(0, 2).join('；') : ''}`)
+        .join('\n');
+      lines.push('    高峰日 (top 3 by |score-50|):');
+      lines.push(peakLines);
+    }
+  }
+  return lines.join('\n');
+}
+
+/** Monthly V1 template field interpolation. Mirrors `interpolateFortuneV1Fields`
+ *  structure scaled for MONTH scope (no folk, no travel, monthly transients). */
+export function interpolateFortuneMonthlyFields(
+  template: string,
+  monthly: MonthlyEngineOutput,
+  chart: FortuneChartContext,
+  opts: { targetMonth: string; flowYear: number },
+): string {
+  let out = template;
+
+  const replacements: Record<string, string> = {
+    // Chart context (mirrors daily template — but uses natalMonthPillar/TenGod
+    // to disambiguate from FLOW monthPillar)
+    '{{gender}}': chart.gender,
+    '{{birthDate}}': chart.birthDate,
+    '{{birthTime}}': chart.birthTime,
+    '{{yearPillar}}': chart.yearPillar,
+    '{{yearTenGod}}': chart.yearTenGod,
+    '{{natalMonthPillar}}': chart.monthPillar,
+    '{{natalMonthTenGod}}': chart.monthTenGod,
+    '{{dayPillar}}': chart.dayPillar,
+    '{{hourPillar}}': chart.hourPillar,
+    '{{hourTenGod}}': chart.hourTenGod,
+    '{{dayMaster}}': chart.dayMaster,
+    '{{dayMasterElement}}': chart.dayMasterElement,
+    '{{dayMasterYinYang}}': chart.dayMasterYinYang,
+    '{{strengthV2}}': chart.strengthV2,
+    '{{usefulGod}}': chart.usefulGod,
+    '{{favorableGod}}': chart.favorableGod,
+    '{{tabooGod}}': chart.tabooGod,
+    '{{enemyGod}}': chart.enemyGod,
+
+    // Monthly-specific placeholders
+    '{{targetMonth}}': opts.targetMonth,
+    '{{flowYear}}': String(opts.flowYear),
+    '{{monthGanZhi}}': `${monthly.monthStem}${monthly.monthBranch}`,
+    '{{monthTenGod}}': monthly.monthTenGod,
+    '{{metaFraming}}': monthly.metaFraming,
+    '{{auspiciousness}}': monthly.auspiciousness,
+    '{{energyScore}}': String(monthly.energyScore),
+    '{{ruleTrace}}': (monthly.ruleTrace ?? []).join(' → ') || '（無）',
+
+    // 4 dim scores + signals (no travel — locked per Sub-Agent B)
+    '{{careerScore}}': String(monthly.dimensions.career.score),
+    '{{financeScore}}': String(monthly.dimensions.finance.score),
+    '{{romanceScore}}': String(monthly.dimensions.romance.score),
+    '{{healthScore}}': String(monthly.dimensions.health.score),
+    '{{careerSignals}}': renderMonthlyDimSignals(monthly.dimensions.career.signals),
+    '{{financeSignals}}': renderMonthlyDimSignals(monthly.dimensions.finance.signals),
+    '{{romanceSignals}}': renderMonthlyDimSignals(monthly.dimensions.romance.signals),
+    '{{healthSignals}}': renderMonthlyDimSignals(monthly.dimensions.health.signals),
+
+    // Monthly transient signals (Phase 12b/c structured fields)
+    '{{monthlyTransientSignals}}': renderMonthlyTransientSignals(monthly),
+
+    // L1.b intra-month breakdown (optional)
+    '{{intraMonthBreakdown}}': renderIntraMonthBreakdown(monthly),
+  };
+
+  for (const [token, value] of Object.entries(replacements)) {
+    out = out.split(token).join(value);
+  }
+  return out;
+}
+
+/** Build the full (system, user) prompt pair for monthly Claude call. */
+export function buildFortuneMonthlyMessages(
+  monthly: MonthlyEngineOutput,
+  chart: FortuneChartContext,
+  opts: { targetMonth: string; flowYear: number },
+): { systemPrompt: string; userPrompt: string } {
+  const monthlyPrompts = FORTUNE_V1_PROMPTS.monthly;
+  if (!monthlyPrompts) {
+    throw new Error('FORTUNE_V1_PROMPTS.monthly is not configured');
+  }
+
+  const interpolated = interpolateFortuneMonthlyFields(
+    monthlyPrompts.userTemplate,
+    monthly,
+    chart,
+    opts,
+  );
+
+  const userPrompt = `${interpolated}\n\n${monthlyPrompts.outputFormat}`;
+  const systemPrompt = monthlyPrompts.systemAddition;
+
+  return { systemPrompt, userPrompt };
+}
+
+// ============================================================
+// 年運 (Yearly Fortune) — Phase 3 prompt builder
+// ============================================================
+
+export interface YearlyEngineOutput {
+  yearGanZhi: string;
+  yearStem: string;
+  yearBranch: string;
+  yearTenGod: string;
+  auspiciousness: string;
+  energyScore: number;
+  metaFraming: string;
+  dimensions: Record<
+    'career' | 'finance' | 'romance' | 'health',
+    { score: number; label: string; stars: number; labelZh: string }
+  >;
+  coreRiskOpportunity: {
+    opportunities: Array<{
+      monthLabel: string;
+      dimZh: string;
+      energyScore: number;
+      caveat: boolean;
+    }>;
+    risks: Array<{
+      monthLabel: string;
+      dimZh: string;
+      energyScore: number;
+      caveat: boolean;
+    }>;
+    flatYear: boolean;
+  };
+  luckMethods: {
+    weakestDimZh: string;
+  };
+  preAnalysisVersion: string;
+}
+
+/**
+ * Render the 核心風險與機會 structured block in FIXED ORDER (opportunities
+ * then risks). The AI pairs `yearly_risk_opportunities` entries BY ARRAY
+ * INDEX with this order (per Phase A / L3 ordering enforcement) — never by
+ * re-parsing the month name. Flat year → explicit sentinel line.
+ */
+function renderYearlyRiskOpportunity(
+  cro: YearlyEngineOutput['coreRiskOpportunity'],
+): string {
+  if (cro.flatYear || (cro.opportunities.length === 0 && cro.risks.length === 0)) {
+    return '（flatYear：今年運勢平穩，無顯著起伏 — 請在 yearly_overview 據實表述，並省略 yearly_risk_opportunities 欄位）';
+  }
+  const lines: string[] = [];
+  lines.push('機會月（type=opportunity，yearly_risk_opportunities 必須依此順序對應 index）：');
+  if (cro.opportunities.length === 0) {
+    lines.push('  （本年無顯著高峰月）');
+  } else {
+    cro.opportunities.forEach((e, i) => {
+      const cav = e.caveat ? '（機會中留意此面向）' : '';
+      lines.push(`  ${i + 1}. ${e.monthLabel} — ${e.dimZh}（能量 ${e.energyScore}）${cav}`);
+    });
+  }
+  lines.push('風險月（type=risk，接續上方 index）：');
+  if (cro.risks.length === 0) {
+    lines.push('  （本年無顯著低谷月）');
+  } else {
+    cro.risks.forEach((e, i) => {
+      lines.push(`  ${i + 1}. ${e.monthLabel} — ${e.dimZh}（能量 ${e.energyScore}）`);
+    });
+  }
+  return lines.join('\n');
+}
+
+export function interpolateFortuneYearlyFields(
+  template: string,
+  yearly: YearlyEngineOutput,
+  chart: FortuneChartContext,
+  opts: { year: number },
+): string {
+  let out = template;
+  const d = yearly.dimensions;
+
+  const replacements: Record<string, string> = {
+    '{{gender}}': chart.gender,
+    '{{birthDate}}': chart.birthDate,
+    '{{birthTime}}': chart.birthTime,
+    '{{yearPillar}}': chart.yearPillar,
+    '{{monthPillar}}': chart.monthPillar,
+    '{{dayPillar}}': chart.dayPillar,
+    '{{hourPillar}}': chart.hourPillar,
+    '{{dayMaster}}': chart.dayMaster,
+    '{{usefulGod}}': chart.usefulGod,
+    '{{favorableGod}}': chart.favorableGod,
+    '{{tabooGod}}': chart.tabooGod,
+    '{{enemyGod}}': chart.enemyGod,
+
+    // Yearly-specific
+    '{{year}}': String(opts.year),
+    '{{yearGanZhi}}': yearly.yearGanZhi,
+    '{{yearTenGod}}': yearly.yearTenGod,
+    '{{metaFraming}}': yearly.metaFraming,
+    '{{auspiciousness}}': yearly.auspiciousness,
+    '{{energyScore}}': String(yearly.energyScore),
+
+    // 4-dim stars + scores + labels (no signals — yearly dims are aggregates)
+    '{{careerStars}}': String(d.career.stars),
+    '{{careerScore}}': String(d.career.score),
+    '{{careerLabel}}': d.career.label,
+    '{{financeStars}}': String(d.finance.stars),
+    '{{financeScore}}': String(d.finance.score),
+    '{{financeLabel}}': d.finance.label,
+    '{{romanceStars}}': String(d.romance.stars),
+    '{{romanceScore}}': String(d.romance.score),
+    '{{romanceLabel}}': d.romance.label,
+    '{{healthStars}}': String(d.health.stars),
+    '{{healthScore}}': String(d.health.score),
+    '{{healthLabel}}': d.health.label,
+
+    // 核心風險與機會 (fixed-order structured block)
+    '{{coreRiskOpportunity}}': renderYearlyRiskOpportunity(yearly.coreRiskOpportunity),
+
+    // 改運建議 anchor (engine renders cards; AI just echoes 用神/weakest)
+    '{{weakestDimZh}}': yearly.luckMethods.weakestDimZh,
+  };
+
+  for (const [token, value] of Object.entries(replacements)) {
+    out = out.split(token).join(value);
+  }
+  return out;
+}
+
+/** Build the full (system, user) prompt pair for yearly Claude call. */
+export function buildFortuneYearlyMessages(
+  yearly: YearlyEngineOutput,
+  chart: FortuneChartContext,
+  opts: { year: number },
+): { systemPrompt: string; userPrompt: string } {
+  const yearlyPrompts = FORTUNE_V1_PROMPTS.yearly;
+  if (!yearlyPrompts) {
+    throw new Error('FORTUNE_V1_PROMPTS.yearly is not configured');
+  }
+
+  const interpolated = interpolateFortuneYearlyFields(
+    yearlyPrompts.userTemplate,
+    yearly,
+    chart,
+    opts,
+  );
+
+  const userPrompt = `${interpolated}\n\n${yearlyPrompts.outputFormat}`;
+  const systemPrompt = yearlyPrompts.systemAddition;
 
   return { systemPrompt, userPrompt };
 }
