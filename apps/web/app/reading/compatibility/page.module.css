@@ -107,51 +107,6 @@
   font-size: 1.5rem;
 }
 
-/* ==== Auth Guard ==== */
-.authGuard {
-  max-width: 400px;
-  margin: 4rem auto;
-  text-align: center;
-  background: var(--bg-card, #fff);
-  border: 1px solid var(--border-light);
-  border-radius: 16px;
-  padding: 3rem 2rem;
-  box-shadow: var(--shadow-warm);
-  position: relative;
-  z-index: 1;
-}
-
-.authTitle {
-  color: var(--text-primary);
-  font-size: 1.5rem;
-  font-weight: 700;
-  margin-bottom: 0.75rem;
-}
-
-.authSubtitle {
-  color: var(--text-secondary);
-  font-size: 0.95rem;
-  margin-bottom: 1.5rem;
-}
-
-.signInBtn {
-  padding: 0.75rem 2rem;
-  background: var(--color-red);
-  border: none;
-  border-radius: 12px;
-  color: #FFFFFF;
-  font-size: 1rem;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.signInBtn:hover {
-  opacity: 0.9;
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-warm);
-}
-
 /* ==== Loading ==== */
 .loadingSkeleton {
   max-width: 600px;
@@ -600,10 +555,6 @@
 @media (max-width: 480px) {
   .pageContainer {
     padding: 0.75rem;
-  }
-
-  .authGuard {
-    padding: 2rem 1.5rem;
   }
 
   .compatTitle {

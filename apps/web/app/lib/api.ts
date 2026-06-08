@@ -2,6 +2,8 @@
  * API client for communicating with the NestJS backend.
  */
 
+import { redirectToSignInOnExpiry } from './auth-redirect';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 /**
@@ -28,6 +30,13 @@ export async function apiFetch<T>(
   });
 
   if (!response.ok) {
+    // Layer C — mid-session expiry. Only redirect for AUTHENTICATED requests
+    // (a token was attached). `apiFetch` also serves tokenless @Public()
+    // endpoints (plans / credit-packages) which can 401 without the session
+    // being invalid — a blanket redirect there would misfire.
+    if (response.status === 401 && token) {
+      redirectToSignInOnExpiry();
+    }
     const errorBody = await response.json().catch(() => ({}));
     throw new Error(
       errorBody.message || `API error: ${response.status} ${response.statusText}`,

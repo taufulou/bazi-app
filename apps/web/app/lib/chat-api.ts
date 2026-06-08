@@ -14,6 +14,7 @@ import type {
   ChatExtendResponse,
   ChatUsageResponse,
 } from './chat-types';
+import { redirectToSignInOnExpiry } from './auth-redirect';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
@@ -54,6 +55,11 @@ async function jsonFetch<T>(
     },
   });
   if (!response.ok) {
+    // Layer C — chat endpoints are always authenticated (a token is required),
+    // so a 401 unconditionally means the session expired → redirect.
+    if (response.status === 401) {
+      redirectToSignInOnExpiry();
+    }
     let body: { message?: string; code?: string } = {};
     try {
       body = await response.json();
@@ -323,6 +329,11 @@ export function streamChatMessage(args: {
     }
 
     if (!response.ok) {
+      // Layer C — pre-flight 401 (session expired). Chat streaming is always
+      // authenticated → redirect. Fire BEFORE emitting the error event.
+      if (response.status === 401) {
+        redirectToSignInOnExpiry();
+      }
       // Non-2xx (e.g., NEEDS_EXTENSION 402, HARD_CAP_REACHED 409). Backend
       // emits these via the SSE error event normally, but pre-flight errors
       // (auth, throttle) come back as plain JSON with the error.

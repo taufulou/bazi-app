@@ -3087,3 +3087,38 @@ Closes the Tier-B2 «intentional asymmetry»: 月運 now has per-dimension «AI 
 **Why it FAILED (the load-bearing lesson)**: the premise was false. The engine's `effectiveFavorableGods` uses **病藥 (illness-medicine, DM-aware) role assignment** — e.g. Roger (DM=戊, 用神=火) gets `{用神:火, 喜神:土, 閒神:金, 忌神:木, 仇神:水}`. **木 is correctly tagged 忌神** (it's the 官殺 attacking the DM) *even though 木生火 feeds the 用神*. The legacy 十神-detour ALREADY reads these chart roles, so element-direct ("view A") yields the SAME direction — it does NOT resolve the "flipped" rows. Pure 用神-五行 alignment ("view B" — classify elements only by 五行 relationship to the 用神 element) is **DM-blind**: it can't see that 比劫/印 years rescue a weak DM, which the expert grades weigh heavily (e.g. laopo@2024 甲辰 graded 吉 because 甲=比劫 helps the weak 甲 DM). Empirical yearly-corpus relaxed agreement: **baseline (legacy) 61.9% → view A 52.4% → view B 28.6%.** The engine was already doing it the MORE chart-aware way; the "8 flipped rows" are mostly doctrinal-splits / full-chart-analysis cases, not a sign-inversion bug.
 
 **Conclusion**: there is NO simple element-mapping fix that beats the 61.9% baseline. A real improvement would need a DM-strength-aware, chart-structural flow model (far beyond element mapping; uncertain payoff). The existing 日運/月運/年運 + paid ANNUAL are at best-available quality. **If anyone reopens this**: the bottleneck is chart-level 用神 determination + DM-strength weighting, NOT the flow scorer. Validate ANY candidate against `tests/validation/run_yearly_label_validation.py` (+ daily/monthly) BEFORE committing — the corpus catches the regression in seconds.
+
+---
+
+## Global Signed-Out Handler — auto-redirect to sign-in (SHIPPED, uncommitted in worktree 2026-06-08)
+
+App-wide "signed-out → auto-redirect to `/sign-in?redirect_url=<current>`" mechanism. **WEB-ONLY** (`apps/web`) — NO engine / NestJS / DB / migration / env var / version bump / cache invalidation (frontend recompile only). Plan (APPROVED, 3-round staff-engineer review): `/Users/roger/.claude/plans/global-signed-out-handler.md`. Supersedes old task #60 (empty signed-out `/reading/fortune`).
+
+**User decision: FULL LOCKDOWN** — every page except `/sign-in` + `/sign-up` redirects signed-out users to sign-in. Deliberately REMOVES the free signed-out reading funnel + signed-out access to `/pricing` + `/store`.
+
+### 3 layers (defense in depth)
+- **Layer A — `apps/web/app/components/SignedOutRedirect.tsx`** (NEW, client): mounted once in `app/layout.tsx` inside `<ClerkProvider>`/`<PostHogProvider>`. `useAuth()`+`usePathname()`+`useRouter()`; `useEffect` with `useRef` single-flight (resets when `isSignedIn` flips true). Gated on `isLoaded`; skips `/sign-in`+`/sign-up`; skips when `__e2e_auth=1` cookie; reads return URL from `window.location` (NOT `useSearchParams` → no Suspense). LOAD-BEARING guard for the whole `/reading(.*)` subtree (kept middleware-public for E2E) + client backstop elsewhere + catches mid-session/cross-tab sign-out.
+- **Layer B — `apps/web/middleware.ts`**: `isPublicRoute` shrunk — REMOVED `/pricing(.*)`+`/store(.*)`; ADDED `/api/og(.*)`; KEPT `/reading(.*)` (E2E cookie-bypass) + sign-in/up + webhooks + 3 calc endpoints. Everything else → `auth.protect()` server-redirect.
+- **Layer C — `apps/web/app/lib/auth-redirect.ts`** (NEW): `redirectToSignInOnExpiry()` — module single-flight, `__e2e_auth` bypass, full `window.location.href` nav. Mid-session NestJS-API 401 (cross-origin, bypasses middleware). Wired on `status===401` BEFORE the error emit/throw in: `api.ts::apiFetch` (ONLY when a token was attached — tokenless `@Public()` calls don't misfire), `chat-api.ts::jsonFetch` + `streamChatMessage` pre-flight, `fortune-api.ts` fetchDaily/fetchMonthly JSON + 3 SSE pre-flight (daily/monthly/yearly). 8 call sites total.
+
+### Cleanup + interstitials
+- `reading/compatibility/page.tsx`: removed bespoke `!isSignedIn` `<SignInButton>` CTA + `SignInButton` import → replaced with «正在前往登入…» interstitial (same JSX position; keeps `__e2e_auth` bypass). `page.module.css`: removed `authGuard`/`authTitle`/`authSubtitle`/`signInBtn` (+:hover +responsive).
+- `reading/[type]/page.tsx` + `reading/fortune/page.tsx`: `if (isLoaded && !isSignedIn) return <interstitial>` placed AFTER all hooks, immediately before main return (rules-of-hooks). `[type]` folds in `__e2e_auth` → career-reading E2E with cookie renders normally.
+
+### CRITICAL E2E constraint
+`/reading(.*)` MUST stay middleware-PUBLIC for the `__e2e_auth=1` cookie-bypass family (`e2e/compatibility.spec.ts`, `e2e/career-reading.spec.ts`) — they have no real Clerk session. Layers A + C short-circuit on the cookie.
+
+### Verification (2026-06-08, all rigorous w/ stash baseline)
+- **tsc**: ZERO new errors. 124-error pre-existing baseline IDENTICAL before/after (the 2 `ChatDrawer cannot be used as a JSX component` errors in `[type]`/compatibility are pre-existing dual-`@types/react` JSX-identity debt — present on pristine HEAD, just shifted line numbers).
+- **web jest**: 338 passed; the 3 failing suites (pricing-page/bazi-chart/reading-history, 14 fails) are PRE-EXISTING — identical 14-fail/39-pass on pristine HEAD.
+- **middleware live (curl)**: `/pricing`+`/store`+`/` → `x-clerk-auth-reason: protect-rewrite` + `signed-out` (LOCKED); `/reading/compatibility`+`/reading/fortune` → 200 (public). The cookie-less curl "404" is Clerk's interstitial-rewrite — a real browser redirects to sign-in.
+- **Playwright (2 cookie-bypass specs, stash baseline diff by line#)**: pristine 17–18 fail / mine 23 fail. The delta = **8 NEW failures, ALL no-cookie (signed-out) tests** that exercise the now-removed signed-out reading access — **EXPECTED BREAKS by design**, NOT regressions: career `421/438` (Form Page UI no-cookie), `468/491/507` (Unauthenticated Flow — the free funnel being removed), `685` (Full-Page Layout no-cookie), `809` (Navigation no-cookie); compat `447` (Auth Guard signed-out CTA). **ZERO cookie-bypass (authenticated) tests newly fail** — my changes are byte-inert under the `__e2e_auth` cookie (verified by code + line-diff). The 15 shared failures are pre-existing stale-spec/form-drift (e.g. compat specs expect old «八字合盤分析» title + `/dashboard` back link; actual = «八字感情合盤» + `/`). 3 compat OG-image-route failures are flaky (network/engine timing).
+
+> ⚠️ The plan's E2E-impact section listed compatibility + career-reading as wholesale "PRESERVED" — that's only true for their **cookie-bypass** describes. Their **signed-out (no-cookie)** describes (compat "Auth Guard"; career "Form Page UI" no-cookie + "Unauthenticated Flow" + "Full-Page Layout" no-cookie + "Navigation" no-cookie) break BY DESIGN under full lockdown — same "EXPECTED TO BREAK" bucket as the standalone anon specs (landing/pricing/reading-page/free-reading/credit-store).
+
+### Follow-up (separate PR, OUT OF SCOPE here)
+- Update/skip the now-broken signed-out E2E tests (the 8 above + the standalone anon specs landing/pricing/reading-page/free-reading/credit-store). Playwright suite is NOT in CI / not all-green on main.
+- Protect-or-remove the still-public calc API endpoints (`/api/zwds-calculate`, `/api/bazi-calculate`, `/api/explain-element` — deliberate keep; stateless, no sensitive data).
+
+### Files (11)
+NEW: `apps/web/app/components/SignedOutRedirect.tsx`, `apps/web/app/lib/auth-redirect.ts`. MODIFIED: `app/layout.tsx` (mount), `middleware.ts` (lockdown), `app/lib/api.ts` + `chat-api.ts` + `fortune-api.ts` (401 wiring), `app/reading/compatibility/page.tsx` (+`.module.css`), `app/reading/[type]/page.tsx`, `app/reading/fortune/page.tsx` (interstitials).

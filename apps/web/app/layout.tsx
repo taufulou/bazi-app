@@ -4,6 +4,7 @@ import { zhTW } from "@clerk/localizations";
 import localFont from "next/font/local";
 import { Noto_Serif_TC } from "next/font/google";
 import { PostHogProvider } from "./providers";
+import SignedOutRedirect from "./components/SignedOutRedirect";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -77,7 +78,10 @@ export default function RootLayout({
     >
       <html lang="zh-TW">
         <body className={`${geistSans.variable} ${geistMono.variable} ${notoSerifTC.variable}`}>
-          <PostHogProvider>{children}</PostHogProvider>
+          <PostHogProvider>
+            <SignedOutRedirect />
+            {children}
+          </PostHogProvider>
         </body>
       </html>
     </ClerkProvider>

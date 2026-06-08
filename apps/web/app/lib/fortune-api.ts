@@ -7,6 +7,8 @@
  * Pattern mirrors `apps/web/app/lib/chat-api.ts`.
  */
 
+import { redirectToSignInOnExpiry } from './auth-redirect';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
 // ============================================================
@@ -312,6 +314,11 @@ export function streamDailyFortune(opts: StreamOpts): () => void {
     }
 
     if (!response.ok) {
+      // Layer C — pre-flight 401 (session expired). Fortune streams are always
+      // authenticated → redirect. Fire BEFORE emitting the error event.
+      if (response.status === 401) {
+        redirectToSignInOnExpiry();
+      }
       // Pre-flight errors (subscription gate, 401, throttle 429) come back
       // as plain JSON with `{ code, message }` (per `AllExceptionsFilter`).
       let body: { message?: string; code?: string } = {};
@@ -401,6 +408,11 @@ export function streamMonthlyFortune(opts: MonthlyStreamOpts): () => void {
     }
 
     if (!response.ok) {
+      // Layer C — pre-flight 401 (session expired). Fortune streams are always
+      // authenticated → redirect. Fire BEFORE emitting the error event.
+      if (response.status === 401) {
+        redirectToSignInOnExpiry();
+      }
       // Pre-flight errors (subscription gate, 401, throttle 429) come back
       // as plain JSON with `{ code, message }` (per `AllExceptionsFilter`).
       let body: { message?: string; code?: string } = {};
@@ -498,6 +510,10 @@ export async function fetchDailyFortune(opts: FetchOpts): Promise<DailyFortuneRe
   });
 
   if (!response.ok) {
+    // Layer C — this is an authenticated fetch; a 401 means the session expired.
+    if (response.status === 401) {
+      redirectToSignInOnExpiry();
+    }
     let body: { message?: string; code?: string } = {};
     try {
       body = await response.json();
@@ -826,6 +842,10 @@ export async function fetchMonthlyFortune(
   });
 
   if (!response.ok) {
+    // Layer C — this is an authenticated fetch; a 401 means the session expired.
+    if (response.status === 401) {
+      redirectToSignInOnExpiry();
+    }
     let body: { message?: string; code?: string } = {};
     try {
       body = await response.json();
@@ -1076,6 +1096,11 @@ export function streamYearlyFortune(opts: YearlyStreamOpts): () => void {
     }
 
     if (!response.ok) {
+      // Layer C — pre-flight 401 (session expired). Fortune streams are always
+      // authenticated → redirect. Fire BEFORE emitting the error event.
+      if (response.status === 401) {
+        redirectToSignInOnExpiry();
+      }
       let body: { message?: string; code?: string } = {};
       try {
         body = await response.json();

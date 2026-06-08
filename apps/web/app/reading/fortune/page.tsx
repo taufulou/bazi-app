@@ -628,6 +628,27 @@ function FortuneView() {
     void shareButtonRef.current?.triggerShare();
   }, []);
 
+  // Global Signed-Out Handler — real signed-out users are auto-redirected to
+  // sign-in by Layer A (SignedOutRedirect). This interstitial just prevents the
+  // empty FortuneShell render (old task #60 bug — the SSE hook no-ops when
+  // signed out) during the ~100-300ms redirect window. Placed AFTER all hooks.
+  if (isLoaded && !isSignedIn) {
+    return (
+      <div
+        style={{
+          minHeight: '60vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: 'var(--text-secondary, #6B5940)',
+          fontSize: '0.95rem',
+        }}
+      >
+        正在前往登入…
+      </div>
+    );
+  }
+
   return (
     <>
       <FortuneShell

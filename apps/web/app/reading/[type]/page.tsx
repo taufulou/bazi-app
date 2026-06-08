@@ -1692,6 +1692,29 @@ export default function ReadingPage() {
     </>
   );
 
+  // Global Signed-Out Handler — real signed-out users are auto-redirected to
+  // sign-in by Layer A (SignedOutRedirect). This interstitial just prevents a
+  // confusing empty/partial render in the ~100-300ms redirect window. Placed
+  // AFTER all hooks (immediately before the main return) so it never skips a
+  // hook (rules-of-hooks). `isLoaded`/`isSignedIn` fold in the `__e2e_auth=1`
+  // cookie, so the career-reading E2E spec renders normally (no interstitial).
+  if (isLoaded && !isSignedIn) {
+    return (
+      <div
+        style={{
+          minHeight: "60vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "var(--text-secondary, #6B5940)",
+          fontSize: "0.95rem",
+        }}
+      >
+        正在前往登入…
+      </div>
+    );
+  }
+
   return (
     <div className={`${styles.pageContainer} ${isFullPageLayout ? styles.pageContainerLifetime : ''}`}>
       {/* Header */}

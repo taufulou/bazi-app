@@ -1,6 +1,17 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
 
-// Public routes that don't require authentication
+// Public routes that don't require authentication.
+//
+// Global Signed-Out Handler (Layer B lockdown): everything NOT listed here is
+// server-locked via `auth.protect()` → instant redirect to sign-in for signed-out
+// users (homepage, /pricing, /store, /dashboard/*, /admin/*). `/pricing` + `/store`
+// were intentionally REMOVED from this list per the full-lockdown decision.
+//
+// `/reading(.*)` is deliberately KEPT public so the `__e2e_auth=1` cookie-bypass
+// Playwright specs (compatibility + career-reading) keep working (they have no
+// real Clerk session, so `auth.protect()` would block them). Real signed-out
+// users on `/reading/*` are redirected CLIENT-side by Layer A (SignedOutRedirect),
+// which short-circuits when the E2E cookie is present.
 const isPublicRoute = createRouteMatcher([
   '/sign-in(.*)',
   '/sign-up(.*)',
@@ -8,9 +19,8 @@ const isPublicRoute = createRouteMatcher([
   '/api/zwds-calculate(.*)',
   '/api/bazi-calculate(.*)',
   '/api/explain-element(.*)',
-  '/reading(.*)',
-  '/pricing(.*)',
-  '/store(.*)',
+  '/api/og(.*)', // crawler-facing OG-image routes (social share previews — no auth)
+  '/reading(.*)', // kept public for E2E cookie-bypass; guarded client-side by Layer A
 ]);
 
 export default clerkMiddleware(async (auth, request) => {

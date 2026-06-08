@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useAuth, SignInButton } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import DualBirthDataForm from "../../components/DualBirthDataForm";
 import CompatibilityScoreReveal from "../../components/CompatibilityScoreReveal";
@@ -682,16 +682,23 @@ export default function CompatibilityPage() {
         <div style={{ width: 60 }} /> {/* Spacer for centering */}
       </div>
 
-      {/* Auth guard: show sign-in prompt for unauthenticated users */}
+      {/* Global Signed-Out Handler — real signed-out users are auto-redirected
+          to sign-in by Layer A (SignedOutRedirect). This interstitial just
+          prevents a confusing empty render in the ~100-300ms redirect window.
+          The `__e2e_auth=1` cookie folds into `isSignedIn`, so the E2E specs
+          render normally (no interstitial). */}
       {!isSignedIn && (
-        <div className={styles.authGuard}>
-          <h2 className={styles.authTitle}>請先登入</h2>
-          <p className={styles.authSubtitle}>
-            合盤分析需要登入後才能使用
-          </p>
-          <SignInButton mode="modal">
-            <button className={styles.signInBtn}>登入 / 註冊</button>
-          </SignInButton>
+        <div
+          style={{
+            minHeight: "50vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "var(--text-secondary, #6B5940)",
+            fontSize: "0.95rem",
+          }}
+        >
+          正在前往登入…
         </div>
       )}
 
