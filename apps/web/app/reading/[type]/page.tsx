@@ -9,6 +9,7 @@ import BirthDataForm, {
   type SaveProfileIntent,
 } from "../../components/BirthDataForm";
 import BaziChart from "../../components/BaziChart";
+import SignedOutInterstitial from "../../components/SignedOutInterstitial";
 import ZwdsChart from "../../components/ZwdsChart";
 import AIReadingDisplay, { V2_ALL_SECTION_KEYS, ANNUAL_V2_ALL_SECTION_KEYS } from "../../components/AIReadingDisplay";
 import ChatDrawer from "../../components/chat/ChatDrawer";
@@ -1699,20 +1700,7 @@ export default function ReadingPage() {
   // hook (rules-of-hooks). `isLoaded`/`isSignedIn` fold in the `__e2e_auth=1`
   // cookie, so the career-reading E2E spec renders normally (no interstitial).
   if (isLoaded && !isSignedIn) {
-    return (
-      <div
-        style={{
-          minHeight: "60vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          color: "var(--text-secondary, #6B5940)",
-          fontSize: "0.95rem",
-        }}
-      >
-        正在前往登入…
-      </div>
-    );
+    return <SignedOutInterstitial />;
   }
 
   return (

@@ -61,14 +61,12 @@ export default function SignedOutRedirect() {
     if (redirectedRef.current) return;
     redirectedRef.current = true;
 
-    // Read the return URL from `window.location` (client-only) — do NOT use
-    // useSearchParams() here, which would force a <Suspense> boundary around the
-    // layout. usePathname() is the reactive trigger; window.location supplies
-    // the precise return target (path + query).
-    const back =
-      typeof window !== 'undefined'
-        ? window.location.pathname + window.location.search
-        : '/';
+    // Build the return URL from the reactive `pathname` (guaranteed current —
+    // it's this effect's trigger) for the path, plus window.location.search for
+    // the query. This runs inside a 'use client' effect, so `window` is always
+    // defined (no typeof guard needed). We avoid useSearchParams() here, which
+    // would force a <Suspense> boundary around the layout.
+    const back = (pathname || window.location.pathname) + window.location.search;
     router.replace(`/sign-in?redirect_url=${encodeURIComponent(back)}`);
   }, [isLoaded, isSignedIn, pathname, router]);
 

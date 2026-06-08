@@ -4,6 +4,7 @@
  */
 
 import { apiFetch } from './api';
+import { redirectToSignInOnExpiry } from './auth-redirect';
 import { LOVE_V2_SECTION_KEYS } from '@repo/shared';
 
 // Compatibility Romance V2 section keys — imported directly from worktree source
@@ -1134,6 +1135,8 @@ export function streamBaziReading(
       });
 
       if (!response.ok) {
+        // Layer C — mid-session expiry. Always authenticated → redirect on 401.
+        if (response.status === 401) redirectToSignInOnExpiry();
         const err = await response.json().catch(() => ({}));
         callbacks.onError({ message: (err as Record<string, string>).message || `HTTP ${response.status}` });
         return;
@@ -1217,6 +1220,8 @@ export async function regenerateBaziReading(
     },
   });
   if (!response.ok) {
+    // Layer C — mid-session expiry. Always authenticated → redirect on 401.
+    if (response.status === 401) redirectToSignInOnExpiry();
     const err = await response.json().catch(() => ({ message: `HTTP ${response.status}` }));
     throw new Error((err as { message?: string }).message || 'Regenerate failed');
   }
@@ -1327,6 +1332,8 @@ export function streamCompatibilityReading(
 
       console.log(`[CompatV2SSE] Response status=${response.status}`);
       if (!response.ok) {
+        // Layer C — mid-session expiry. Always authenticated → redirect on 401.
+        if (response.status === 401) redirectToSignInOnExpiry();
         const err = await response.json().catch(() => ({}));
         console.error(`[CompatV2SSE] HTTP error:`, err);
         callbacks.onError({ message: (err as Record<string, string>).message || `HTTP ${response.status}` });

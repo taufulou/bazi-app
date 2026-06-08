@@ -1,0 +1,8 @@
+.interstitial {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary, #6B5940);
+  font-size: 0.95rem;
+}

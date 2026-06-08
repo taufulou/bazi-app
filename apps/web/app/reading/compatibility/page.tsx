@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import DualBirthDataForm from "../../components/DualBirthDataForm";
+import SignedOutInterstitial from "../../components/SignedOutInterstitial";
 import CompatibilityScoreReveal from "../../components/CompatibilityScoreReveal";
 import CompatibilityResultPage from "../../components/CompatibilityResultPage";
 import CompatibilityRomancePaywallCTA from "../../components/CompatibilityRomancePaywallCTA";
@@ -686,21 +687,9 @@ export default function CompatibilityPage() {
           to sign-in by Layer A (SignedOutRedirect). This interstitial just
           prevents a confusing empty render in the ~100-300ms redirect window.
           The `__e2e_auth=1` cookie folds into `isSignedIn`, so the E2E specs
-          render normally (no interstitial). */}
-      {!isSignedIn && (
-        <div
-          style={{
-            minHeight: "50vh",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "var(--text-secondary, #6B5940)",
-            fontSize: "0.95rem",
-          }}
-        >
-          正在前往登入…
-        </div>
-      )}
+          render normally (no interstitial). isLoaded is already guaranteed true
+          here by the earlier `if (!isLoaded || step === null) return` guard. */}
+      {!isSignedIn && <SignedOutInterstitial />}
 
       {/* Input step — hide form when loading (show analyzing state instead) */}
       {isSignedIn && step === "input" && !isLoading && (

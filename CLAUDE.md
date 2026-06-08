@@ -3122,3 +3122,10 @@ App-wide "signed-out → auto-redirect to `/sign-in?redirect_url=<current>`" mec
 
 ### Files (11)
 NEW: `apps/web/app/components/SignedOutRedirect.tsx`, `apps/web/app/lib/auth-redirect.ts`. MODIFIED: `app/layout.tsx` (mount), `middleware.ts` (lockdown), `app/lib/api.ts` + `chat-api.ts` + `fortune-api.ts` (401 wiring), `app/reading/compatibility/page.tsx` (+`.module.css`), `app/reading/[type]/page.tsx`, `app/reading/fortune/page.tsx` (interstitials).
+
+### Follow-up fixes (post code-review, staff-engineer-approved — plan: `~/.claude/plans/signed-out-handler-followup-fixes.md`)
+Three fixes from the PR #48 code review (2 minor + 1 low-confidence; two other low-confidence findings dropped as theoretical/layering-violation after review):
+- **Fix 1 (CSS Modules compliance):** the 3 inline-styled «正在前往登入…» interstitials replaced by a shared pure-presentational `app/components/SignedOutInterstitial.tsx` + `.module.css` (no `'use client'`). CLAUDE.md mandates CSS Modules only.
+- **Fix 2 (Layer C coverage):** `redirectToSignInOnExpiry()` also wired on `status===401` into the 3 authenticated raw-`fetch` sites in `app/lib/readings-api.ts` (`streamBaziReading`, `regenerateBaziReading`, `streamCompatibilityReading`) — unconditional (always authenticated). Layer C is now **11 call sites** (8 + 3). The file's `create*/get*` helpers already route through the wired `apiFetch`.
+- **Fix 3 (return-URL source):** `SignedOutRedirect` builds `redirect_url` from the reactive `pathname` (`(pathname || window.location.pathname) + window.location.search`), dropping a dead `typeof window` guard.
+- **Dropped:** single-flight watchdog (already safe — full-nav resets the module) and suppressing the `useUserTier` Sentry/banner on expiry (layering violation; negligible benefit).

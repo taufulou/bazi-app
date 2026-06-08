@@ -28,6 +28,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { useAuth, useSession } from '@clerk/nextjs';
 import { ENTERTAINMENT_DISCLAIMER } from '@repo/shared';
+import SignedOutInterstitial from '../../components/SignedOutInterstitial';
 import FortuneShell from '../../components/fortune/FortuneShell';
 import EnergyScoreRing from '../../components/fortune/EnergyScoreRing';
 import DimensionBars from '../../components/fortune/DimensionBars';
@@ -633,20 +634,7 @@ function FortuneView() {
   // empty FortuneShell render (old task #60 bug — the SSE hook no-ops when
   // signed out) during the ~100-300ms redirect window. Placed AFTER all hooks.
   if (isLoaded && !isSignedIn) {
-    return (
-      <div
-        style={{
-          minHeight: '60vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: 'var(--text-secondary, #6B5940)',
-          fontSize: '0.95rem',
-        }}
-      >
-        正在前往登入…
-      </div>
-    );
+    return <SignedOutInterstitial />;
   }
 
   return (
