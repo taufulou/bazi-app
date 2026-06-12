@@ -73,6 +73,10 @@ def _accumulate_raw_element_scores(pillars: Dict) -> Dict[str, float]:
 
     for pillar_name in ['year', 'month', 'day', 'hour']:
         pillar = pillars[pillar_name]
+        # Unknown 時辰: skip the blanked hour pillar (excludes its ~25% mass from
+        # the 五行 tally — the chart is assessed on 年/月/日 only).
+        if not pillar['stem']:
+            continue
         stem_element = STEM_ELEMENT[pillar['stem']]
         element_scores[stem_element] += 1.0
 
@@ -313,6 +317,9 @@ def calculate_element_counts(pillars: Dict) -> Dict[str, Dict[str, int]]:
         stem = pillar['stem']
         branch = pillar['branch']
 
+        if not stem:  # unknown 時辰 — skip blanked hour pillar
+            continue
+
         stems[STEM_ELEMENT[stem]] += 1
         branches[BRANCH_ELEMENT[branch]] += 1
 
@@ -380,6 +387,9 @@ def analyze_day_master_strength(
         pillar = pillars[pillar_name]
         stem = pillar['stem']
         branch = pillar['branch']
+
+        if not stem:  # unknown 時辰 — skip blanked hour pillar
+            continue
 
         # Stem contribution (skip day stem — it IS the day master)
         if pillar_name != 'day':

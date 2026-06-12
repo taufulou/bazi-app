@@ -494,7 +494,8 @@ export interface NestJSReadingResponse {
   birthProfile?: {
     name: string;
     birthDate: string;
-    birthTime: string;
+    birthTime: string | null;
+    hourKnown?: boolean;
     gender: 'MALE' | 'FEMALE';
     birthCity: string;
     birthTimezone: string;

@@ -1312,7 +1312,9 @@ export class AIService implements OnModuleInit {
 
           const birthDataHash = this.generateBirthDataHash(
             calculationData['birthDate'] as string || '',
-            calculationData['birthTime'] as string || '',
+            // 時辰未知: match the lookup-side sentinel (bazi.service) so the streaming
+            // write key equals the read key — else hour-unknown readings never cache-hit.
+            (calculationData['birthTime'] as string | null) ?? 'HOUR_UNKNOWN',
             calculationData['birthCity'] as string || '',
             calculationData['gender'] as string || '',
             readingType,
@@ -2844,6 +2846,30 @@ export class AIService implements OnModuleInit {
     data: Record<string, unknown>,
   ): string {
     let result = template;
+
+    // 時辰未知 — deterministic suppression directive (Phase 1). Hour-dependent
+    // sections (時柱/子女宮/晚年/命宮/身宮) are already structured-null in the engine
+    // output; this block forbids the AI from fabricating them. Only injected when
+    // the hour is unknown, so hour-known prompts stay byte-identical (cache-safe).
+    if (data['hourKnown'] === false) {
+      const dm = (data['dayMaster'] as Record<string, unknown> | undefined) ?? {};
+      const block = [
+        '【時辰未知 — 嚴格限制（必須遵守）】',
+        '本命盤時辰未知，僅有年、月、日三柱。',
+        '禁止「編造」或「詳細分析」以下時柱相關項目：時柱十神／藏干／神煞、子女緣分（子女宮）、晚年／晚運、命宮、身宮。',
+        '但「不可」整段省略不提 —— 在相應段落請以「一句」簡短說明帶過，讓讀者知道該項因缺時辰而從略。例如：在六親／家庭段落補一句「子女緣分需要出生時辰方能完整分析」；在運勢／人生指引段落補一句「晚年運勢需補上時辰才能細看」。',
+        '若提及補時辰的好處，措辭一律為「日後得知時辰，可另建新的命盤查看完整分析」之意（強調「另建新命盤」，本次無法補算或即時解鎖）；禁止寫成「我可以為你提供完整分析」「補上即可解鎖」等暗示本次解讀可補算的語句。',
+        '禁止虛構任何與時辰相關的具體內容（例如子女數目、子女性格、晚年具體事件、時柱神煞）。',
+        '神煞僅就現有年、月、日三柱論述；禁止斷言「命中無某神煞」（時支神煞無法判斷）。',
+        '用神／五行比重僅供參考，請於相關段落註明「（時辰未知，僅供參考）」。',
+        dm['geJuStatus'] === 'undetermined_without_hour'
+          ? '格局因缺時辰未能確定，僅說明大致傾向，須加註「格局待確認」。'
+          : '',
+        '',
+      ].filter(Boolean).join('\n');
+      result = `${block}\n${result}`;
+    }
+
     const enhanced = data['lifetimeEnhancedInsights'] as Record<string, unknown> | undefined;
 
     // Pattern Narrative

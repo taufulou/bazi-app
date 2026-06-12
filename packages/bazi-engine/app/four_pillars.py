@@ -333,6 +333,40 @@ def calculate_tai_xi(day_stem: str, day_branch: str) -> Dict[str, str]:
     return {'stem': stem, 'branch': branch, 'naYin': get_nayin(stem, branch)}
 
 
+def is_hour_unknown(chart_or_pillars: Dict) -> bool:
+    """Return True when the birth hour is unknown (the hour pillar's stem is empty).
+
+    Accepts either a full chart dict (with 'fourPillars') or a bare pillars dict.
+    Canonical convention: an empty hour-pillar stem signals an unknown 時辰.
+    """
+    if not isinstance(chart_or_pillars, dict):
+        return False
+    pillars = chart_or_pillars.get('fourPillars', chart_or_pillars)
+    hour = pillars.get('hour', {}) if isinstance(pillars, dict) else {}
+    return not hour.get('stem')
+
+
+def _empty_hour_pillar() -> Dict:
+    """Build a blanked hour pillar for unknown-時辰 charts.
+
+    Empty stem/branch so every analytical loop's empty-guard skips it, while the
+    structure stays shape-compatible with downstream consumers.
+    """
+    return {
+        'stem': '',
+        'branch': '',
+        'stemElement': None,
+        'branchElement': None,
+        'stemYinYang': None,
+        'branchYinYang': None,
+        'hiddenStems': [],
+        'naYin': None,
+        'tenGod': None,
+        'hiddenStemGods': [],
+        'shenSha': [],
+    }
+
+
 def calculate_four_pillars(
     birth_date: str,
     birth_time: str,
@@ -341,6 +375,7 @@ def calculate_four_pillars(
     gender: str,
     birth_longitude: Optional[float] = None,
     birth_latitude: Optional[float] = None,
+    hour_known: bool = True,
 ) -> Dict:
     """
     Calculate the Four Pillars (四柱) of Bazi.
@@ -350,16 +385,27 @@ def calculate_four_pillars(
 
     Args:
         birth_date: YYYY-MM-DD format
-        birth_time: HH:MM format (24-hour)
+        birth_time: HH:MM format (24-hour). When hour_known is False this may be
+            None/empty; a noon placeholder is used internally for y/m/d + 大運.
         birth_city: City name
         birth_timezone: IANA timezone
         gender: 'male' or 'female'
         birth_longitude: Optional longitude
         birth_latitude: Optional latitude
+        hour_known: When False, the 時辰 is unknown — y/m/d resolve at a noon
+            placeholder and the hour pillar is blanked (empty stem/branch) so the
+            is_hour_unknown convention fires downstream. The noon hour is NEVER
+            used for analysis.
 
     Returns:
         Dictionary with all four pillars and related data
     """
+    # When the birth hour is unknown, resolve y/m/d + 大運 internals at a NOON
+    # placeholder (noon avoids the 23:00 早/晚子時 day boundary and gives 起運 a
+    # defensible midpoint). The hour pillar is blanked after computation; the noon
+    # hour is never used for any analytical aggregation.
+    effective_birth_time = birth_time if hour_known else "12:00"
+
     # Step 1: Calculate True Solar Time (kept for reference data, not used for pillar calculation)
     # NOTE: TST is DISABLED by default to match industry standard.
     # Major platforms (科技紫微網, 先知命局, 靈機八字, 卜易居, 非常運勢網) all default
@@ -370,7 +416,7 @@ def calculate_four_pillars(
     # of wall_clock_dt for pillar calculations below.
     solar_time_data = calculate_true_solar_time(
         birth_date=birth_date,
-        birth_time=birth_time,
+        birth_time=effective_birth_time,
         birth_city=birth_city,
         birth_timezone=birth_timezone,
         birth_longitude=birth_longitude,
@@ -452,8 +498,16 @@ def calculate_four_pillars(
         'hour': build_pillar(hour_stem, hour_branch),
     }
 
+    # Blank the hour pillar when the 時辰 is unknown — the noon hour computed above
+    # is a placeholder for y/m/d + 大運 only and must never reach an analytical loop.
+    hour_ganzhi = f'{hour_stem}{hour_branch}'
+    if not hour_known:
+        pillars['hour'] = _empty_hour_pillar()
+        hour_ganzhi = ''
+
     return {
         'fourPillars': pillars,
+        'hourKnown': hour_known,
         'dayMasterStem': day_stem,
         'dayMasterBranch': day_branch,
         'trueSolarTime': {
@@ -479,5 +533,5 @@ def calculate_four_pillars(
         'yearGanZhi': year_gz,
         'monthGanZhi': month_gz,
         'dayGanZhi': day_gz,
-        'hourGanZhi': f'{hour_stem}{hour_branch}',
+        'hourGanZhi': hour_ganzhi,
     }

@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsBoolean,
   Matches,
+  ValidateIf,
 } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 import { Gender, RelationshipTag } from '@prisma/client';
@@ -19,11 +20,26 @@ export class CreateBirthProfileDto {
   @IsDateString()
   birthDate!: string;
 
-  @ApiProperty({ example: '14:30', description: 'Birth time (HH:MM, 24-hour)' })
+  @ApiProperty({
+    required: false,
+    default: true,
+    description:
+      'Whether the birth 時辰 is known. When false, birthTime is omitted and a 3-pillar (年/月/日) reading is produced. Immutable after creation.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  hourKnown?: boolean;
+
+  @ApiProperty({
+    required: false,
+    example: '14:30',
+    description: 'Birth time (HH:MM, 24-hour). Required unless hourKnown is false.',
+  })
+  @ValidateIf((o) => o.hourKnown !== false)
   @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
     message: 'birthTime must be in HH:MM format (24-hour)',
   })
-  birthTime!: string;
+  birthTime?: string;
 
   @ApiProperty({ example: '台北市' })
   @IsString()

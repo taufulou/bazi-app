@@ -70,12 +70,15 @@ export class UsersService {
       });
     }
 
+    // 時辰未知: store birthTime as null and hourKnown=false (immutable after creation).
+    const hourKnown = dto.hourKnown !== false; // default true
     return this.prisma.birthProfile.create({
       data: {
         userId: user.id,
         name: dto.name,
         birthDate: new Date(dto.birthDate),
-        birthTime: dto.birthTime,
+        birthTime: hourKnown ? (dto.birthTime ?? null) : null,
+        hourKnown,
         birthCity: dto.birthCity,
         birthTimezone: dto.birthTimezone,
         birthLongitude: dto.birthLongitude,

@@ -277,14 +277,17 @@ export class ZwdsService {
    */
   private async _executeCreateReading(
     user: { id: string; credits: number; subscriptionTier: string },
-    profile: { id: string; birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string; isLunarDate: boolean; lunarBirthDate: string | null; isLeapMonth: boolean },
+    // 時辰未知: birthTime is now nullable (BirthProfile.birthTime).
+    profile: { id: string; birthDate: Date; birthTime: string | null; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string; isLunarDate: boolean; lunarBirthDate: string | null; isLeapMonth: boolean },
     dto: CreateZwdsReadingDto,
     service: { creditCost: number; type: string },
   ) {
     // Generate birth data hash for cache lookup
     const birthDataHash = this.aiService.generateBirthDataHash(
       profile.birthDate.toISOString().split('T')[0],
-      profile.birthTime,
+      // 時辰未知: sentinel keeps an unknown hour in a distinct, non-colliding
+      // birthDataHash vs a known hour.
+      profile.birthTime ?? 'HOUR_UNKNOWN',
       profile.birthCity,
       profile.gender.toLowerCase(),
       dto.readingType,
@@ -323,7 +326,10 @@ export class ZwdsService {
     try {
       chartData = await this.generateChart(
         solarDate,
-        profile.birthTime,
+        // TODO(時辰未知 Phase 2): handle null hour for ZWDS chart generation
+        // (iztro requires an hour → time index). Coerce to '' to compile;
+        // known-hour path is byte-identical.
+        profile.birthTime ?? '',
         profile.gender.toLowerCase(),
         targetDate,
         lunarOptions,
@@ -496,7 +502,9 @@ export class ZwdsService {
     const lunarOptions = profile.isLunarDate && profile.lunarBirthDate
       ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
       : undefined;
-    return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), undefined, lunarOptions);
+    // TODO(時辰未知 Phase 2): handle null hour for ZWDS chart generation;
+    // coerce to '' to compile (known-hour path byte-identical).
+    return this.generateChart(solarDate, profile.birthTime ?? '', profile.gender.toLowerCase(), undefined, lunarOptions);
   }
 
   // ============================================================
@@ -524,7 +532,9 @@ export class ZwdsService {
     const lunarOptions = profile.isLunarDate && profile.lunarBirthDate
       ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
       : undefined;
-    return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), dto.targetDate, lunarOptions);
+    // TODO(時辰未知 Phase 2): handle null hour for ZWDS chart generation;
+    // coerce to '' to compile (known-hour path byte-identical).
+    return this.generateChart(solarDate, profile.birthTime ?? '', profile.gender.toLowerCase(), dto.targetDate, lunarOptions);
   }
 
   // ============================================================
@@ -588,14 +598,18 @@ export class ZwdsService {
         [chartA, chartB] = await Promise.all([
           this.generateChart(
             this.formatSolarDate(profileA.birthDate),
-            profileA.birthTime,
+            // TODO(時辰未知 Phase 2): handle null hour for ZWDS chart generation;
+            // coerce to '' to compile (known-hour path byte-identical).
+            profileA.birthTime ?? '',
             profileA.gender.toLowerCase(),
             undefined,
             lunarOptionsA,
           ),
           this.generateChart(
             this.formatSolarDate(profileB.birthDate),
-            profileB.birthTime,
+            // TODO(時辰未知 Phase 2): handle null hour for ZWDS chart generation;
+            // coerce to '' to compile (known-hour path byte-identical).
+            profileB.birthTime ?? '',
             profileB.gender.toLowerCase(),
             undefined,
             lunarOptionsB,
@@ -745,7 +759,9 @@ export class ZwdsService {
           const lunarOpts = profile.isLunarDate && profile.lunarBirthDate
             ? { lunarDate: profile.lunarBirthDate, isLeapMonth: profile.isLeapMonth }
             : undefined;
-          return this.generateChart(solarDate, profile.birthTime, profile.gender.toLowerCase(), targetDate, lunarOpts);
+          // TODO(時辰未知 Phase 2): handle null hour for ZWDS chart generation;
+          // coerce to '' to compile (known-hour path byte-identical).
+          return this.generateChart(solarDate, profile.birthTime ?? '', profile.gender.toLowerCase(), targetDate, lunarOpts);
         })(),
       ]);
 
@@ -874,7 +890,9 @@ export class ZwdsService {
     try {
       chartData = await this.generateChart(
         solarDate,
-        profile.birthTime,
+        // TODO(時辰未知 Phase 2): handle null hour for ZWDS chart generation;
+        // coerce to '' to compile (known-hour path byte-identical).
+        profile.birthTime ?? '',
         profile.gender.toLowerCase(),
         targetDate,
         deepLunarOptions,

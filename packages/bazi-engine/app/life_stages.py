@@ -32,6 +32,10 @@ def get_life_stage(stem: str, branch: str) -> str:
     Returns:
         Life stage name (e.g., '長生', '帝旺', '墓')
     """
+    # Unknown 時辰: empty stem or branch (blanked hour pillar) → no life stage.
+    if not stem or not branch:
+        return ''
+
     start_branch = CHANGSHENG_BRANCH.get(stem)
     if start_branch is None:
         return ''

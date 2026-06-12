@@ -53,7 +53,8 @@ model BirthProfile {
   userId          String          @map("user_id")
   name            String
   birthDate       DateTime        @map("birth_date") @db.Date
-  birthTime       String          @map("birth_time") // HH:MM format
+  birthTime       String?         @map("birth_time") // HH:MM format; null when hourKnown=false (時辰未知)
+  hourKnown       Boolean         @default(true) @map("hour_known") // false → 3-pillar (年/月/日) reading; immutable after creation
   birthCity       String          @map("birth_city")
   birthTimezone   String          @map("birth_timezone") // IANA timezone
   birthLongitude  Float?          @map("birth_longitude")

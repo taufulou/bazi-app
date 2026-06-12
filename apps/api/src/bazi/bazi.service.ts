@@ -115,14 +115,16 @@ export class BaziService {
    */
   private async _executeCreateReading(
     user: { id: string; credits: number; subscriptionTier: string },
-    profile: { id: string; birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
+    profile: { id: string; birthDate: Date; birthTime: string | null; hourKnown: boolean; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
     dto: CreateReadingDto,
     service: { creditCost: number; type: string },
   ) {
     // Generate birth data hash for cache lookup
     const birthDataHash = this.aiService.generateBirthDataHash(
       profile.birthDate.toISOString().split('T')[0],
-      profile.birthTime,
+      // Unknown 時辰: distinct, non-colliding cache key (birthTime is null →
+      // sentinel). Known-hour keys keep their real time → byte-identical, no regen.
+      profile.birthTime ?? 'HOUR_UNKNOWN',
       profile.birthCity,
       profile.gender.toLowerCase(),
       dto.readingType,
@@ -174,6 +176,7 @@ export class BaziService {
           gender: profile.gender.toLowerCase(),
           birthDate: profile.birthDate.toISOString().split('T')[0],
           birthTime: profile.birthTime,
+          hourKnown: profile.hourKnown,
           targetYear: dto.targetYear,
         };
 
@@ -707,13 +710,13 @@ export class BaziService {
     const comparisonHash = this.aiService.generateComparisonHash(
       {
         birthDate: profileA.birthDate.toISOString().split('T')[0],
-        birthTime: profileA.birthTime,
+        birthTime: profileA.birthTime ?? 'HOUR_UNKNOWN',
         birthCity: profileA.birthCity,
         gender: profileA.gender.toLowerCase(),
       },
       {
         birthDate: profileB.birthDate.toISOString().split('T')[0],
-        birthTime: profileB.birthTime,
+        birthTime: profileB.birthTime ?? 'HOUR_UNKNOWN',
         birthCity: profileB.birthCity,
         gender: profileB.gender.toLowerCase(),
       },
@@ -1168,13 +1171,13 @@ export class BaziService {
         const comparisonHash = this.aiService.generateComparisonHash(
           {
             birthDate: comparison.profileA.birthDate.toISOString().split('T')[0],
-            birthTime: comparison.profileA.birthTime,
+            birthTime: comparison.profileA.birthTime ?? 'HOUR_UNKNOWN',
             birthCity: comparison.profileA.birthCity,
             gender: comparison.profileA.gender.toLowerCase(),
           },
           {
             birthDate: comparison.profileB.birthDate.toISOString().split('T')[0],
-            birthTime: comparison.profileB.birthTime,
+            birthTime: comparison.profileB.birthTime ?? 'HOUR_UNKNOWN',
             birthCity: comparison.profileB.birthCity,
             gender: comparison.profileB.gender.toLowerCase(),
           },
@@ -1274,7 +1277,7 @@ export class BaziService {
   // ============ Engine Communication ============
 
   private async callBaziEngine(
-    profile: { birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
+    profile: { birthDate: Date; birthTime: string | null; hourKnown: boolean; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
     dto: CreateReadingDto,
   ): Promise<Prisma.InputJsonValue> {
     const response = await fetch(`${this.baziEngineUrl}/calculate`, {
@@ -1282,7 +1285,8 @@ export class BaziService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         birth_date: profile.birthDate.toISOString().split('T')[0],
-        birth_time: profile.birthTime,
+        birth_time: profile.hourKnown ? profile.birthTime : null,
+        hour_known: profile.hourKnown,
         birth_city: profile.birthCity,
         birth_timezone: profile.birthTimezone,
         birth_longitude: profile.birthLongitude,
@@ -1304,8 +1308,8 @@ export class BaziService {
   }
 
   private async callBaziCompatibility(
-    profileA: { birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
-    profileB: { birthDate: Date; birthTime: string; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
+    profileA: { birthDate: Date; birthTime: string | null; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
+    profileB: { birthDate: Date; birthTime: string | null; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
     dto: CreateComparisonDto,
   ): Promise<Prisma.InputJsonValue> {
     const response = await fetch(`${this.baziEngineUrl}/compatibility`, {

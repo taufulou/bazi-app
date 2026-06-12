@@ -1194,7 +1194,8 @@ export class ChatContextService {
   private computeBirthHash(
     profile: {
       birthDate: Date;
-      birthTime: string;
+      // 時辰未知: birthTime is now nullable (BirthProfile.birthTime).
+      birthTime: string | null;
       birthCity: string;
       birthTimezone: string;
       gender: string;
@@ -1205,7 +1206,9 @@ export class ChatContextService {
   ): string {
     const inputs = [
       profile.birthDate.toISOString().slice(0, 10),
-      profile.birthTime,
+      // 時辰未知: 'HOUR_UNKNOWN' sentinel so an unknown hour hashes to a
+      // distinct, non-colliding cache key vs a known hour.
+      profile.birthTime ?? 'HOUR_UNKNOWN',
       profile.birthCity,
       profile.birthTimezone,
       profile.gender.toLowerCase(),
@@ -1218,7 +1221,8 @@ export class ChatContextService {
 
   private async fetchChatContextFromEngine(args: {
     birthDate: string;
-    birthTime: string;
+    // 時辰未知: nullable; engine accepts null birth_time (no default invented).
+    birthTime: string | null;
     birthCity: string;
     birthTimezone: string;
     gender: string;
@@ -1266,7 +1270,8 @@ export class ChatContextService {
   private async fetchChatContextFromEngineCompat(args: {
     profileA: {
       birthDate: string;
-      birthTime: string;
+      // 時辰未知: nullable; engine accepts null birth_time (no default invented).
+      birthTime: string | null;
       birthCity: string;
       birthTimezone: string;
       gender: string;
@@ -1275,7 +1280,8 @@ export class ChatContextService {
     };
     profileB: {
       birthDate: string;
-      birthTime: string;
+      // 時辰未知: nullable; engine accepts null birth_time (no default invented).
+      birthTime: string | null;
       birthCity: string;
       birthTimezone: string;
       gender: string;
@@ -1340,7 +1346,8 @@ export class ChatContextService {
    */
   private async fetchChatContextFromEngineFortune(args: {
     birthDate: string;
-    birthTime: string;
+    // 時辰未知: nullable; engine accepts null birth_time (no default invented).
+    birthTime: string | null;
     birthCity: string;
     birthTimezone: string;
     gender: string;

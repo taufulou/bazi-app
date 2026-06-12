@@ -14,6 +14,7 @@ function makeProfile(overrides: Partial<BirthProfile> = {}): BirthProfile {
     name: 'Roger',
     birthDate: '1987-09-06',
     birthTime: '16:11',
+    hourKnown: true,
     birthCity: '吉打',
     birthTimezone: 'Asia/Kuala_Lumpur',
     birthLongitude: null,

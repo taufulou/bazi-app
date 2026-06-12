@@ -586,7 +586,10 @@ def build_children_insights(
     # Count manifest 食傷 in Heavenly Stems (年/月/時干, NOT 日干)
     manifest_count = 0
     for pname in ('year', 'month', 'hour'):
-        stem_el = STEM_ELEMENT[pillars[pname]['stem']]
+        stem = pillars[pname]['stem']
+        if not stem:  # unknown 時辰 — skip blanked hour pillar
+            continue
+        stem_el = STEM_ELEMENT[stem]
         if stem_el == shishan_element:
             manifest_count += 1
 
@@ -4048,6 +4051,11 @@ def _build_children_anchors(
     hour_branch = pillars['hour']['branch']
     hour_hidden = HIDDEN_STEMS.get(hour_branch, [])
     hour_main_qi = hour_hidden[0] if hour_hidden else ''
+
+    # Unknown 時辰: 子女宮 = 時柱 is unavailable — suppress the children narrative
+    # entirely rather than fabricate it from a blanked hour pillar.
+    if not hour_stem:
+        return ['（時辰未知）子女宮分析需要出生時辰，故本次不提供。']
 
     anchors = []
 

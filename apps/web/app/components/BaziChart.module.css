@@ -695,3 +695,32 @@
   0%, 70% { opacity: 1; }
   100% { opacity: 0; }
 }
+
+/* ── 時辰未知 (unknown birth hour) ── */
+.hourUnknownTag {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+}
+
+.hourUnknownCell {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  line-height: 1.3;
+  text-align: center;
+  font-family: var(--font-noto-serif-tc), serif;
+}
+
+.hourUnknownBasis {
+  margin-top: 0.5rem;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.78rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+}

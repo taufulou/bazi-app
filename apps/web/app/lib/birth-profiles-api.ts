@@ -14,7 +14,8 @@ export interface BirthProfile {
   id: string;
   name: string;
   birthDate: string;
-  birthTime: string;
+  birthTime: string | null; // null when hourKnown=false (時辰未知)
+  hourKnown: boolean;
   birthCity: string;
   birthTimezone: string;
   birthLongitude: number | null;
@@ -32,7 +33,8 @@ export interface BirthProfile {
 export interface CreateBirthProfilePayload {
   name: string;
   birthDate: string;
-  birthTime: string;
+  birthTime?: string | null; // omit/null when hourKnown=false
+  hourKnown?: boolean; // default true
   birthCity: string;
   birthTimezone: string;
   gender: 'MALE' | 'FEMALE';
@@ -67,7 +69,8 @@ export function profileToFormValues(profile: BirthProfile): BirthDataFormValues 
     name: profile.name,
     gender: genderFromApi(profile.gender),
     birthDate: profile.birthDate.substring(0, 10), // "1990-05-15T00:00:00.000Z" → "1990-05-15"
-    birthTime: profile.birthTime,
+    birthTime: profile.birthTime ?? "",
+    hourKnown: profile.hourKnown ?? true,
     birthCity: profile.birthCity,
     birthTimezone: profile.birthTimezone,
     isLunarDate: profile.isLunarDate ?? false,
@@ -84,7 +87,9 @@ export function formValuesToPayload(
   return {
     name: data.name,
     birthDate: data.birthDate,
-    birthTime: data.birthTime,
+    hourKnown: data.hourKnown ?? true,
+    // 時辰未知: omit birthTime so the backend stores null and produces a 3-pillar reading.
+    birthTime: (data.hourKnown ?? true) ? data.birthTime : undefined,
     birthCity: data.birthCity,
     birthTimezone: data.birthTimezone,
     gender: genderToApi(data.gender),

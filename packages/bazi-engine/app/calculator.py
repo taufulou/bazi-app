@@ -81,6 +81,7 @@ def calculate_bazi(
     birth_latitude: Optional[float] = None,
     target_year: Optional[int] = None,
     reading_type: Optional[str] = None,
+    hour_known: bool = True,
 ) -> Dict:
     """
     Calculate a complete Bazi chart from birth data.
@@ -113,6 +114,7 @@ def calculate_bazi(
         gender=gender,
         birth_longitude=birth_longitude,
         birth_latitude=birth_latitude,
+        hour_known=hour_known,
     )
 
     pillars = pillar_data['fourPillars']
@@ -162,7 +164,10 @@ def calculate_bazi(
     pattern = PATTERN_TYPES.get(prominent_god, f'{prominent_god}格')
 
     # Step 10: Calculate Luck Periods
-    birth_dt = datetime.strptime(f"{birth_date} {birth_time}", "%Y-%m-%d %H:%M")
+    # Unknown 時辰: noon placeholder for the 起運 datetime (≤±2mo turnover-date drift;
+    # the integer 起運 age is hour-independent). 干支 sequence + direction need no hour.
+    effective_birth_time = birth_time if hour_known else "12:00"
+    birth_dt = datetime.strptime(f"{birth_date} {effective_birth_time}", "%Y-%m-%d %H:%M")
     year_stem = pillars['year']['stem']
     month_stem = pillars['month']['stem']
     month_branch = pillars['month']['branch']
@@ -270,6 +275,20 @@ def calculate_bazi(
         'strengthScoreV2': _v2,
     }
 
+    # D7 — Unknown 時辰: 用神 is led by 月令 (hour-independent) so the direction is
+    # usually robust, but flag reduced confidence, escalate when the 3-pillar
+    # strength sits near a class boundary (the ~25% hour mass could tip it), and
+    # withhold the 格局 verdict when 從格 is detected (the hour is decisive there).
+    if not hour_known:
+        score = _v2['score']
+        boundaries = (25, 40, 55, 70)  # V2 cutoffs: very_weak<25 ≤weak<40 ≤neutral<55 ≤strong<70 ≤very_strong
+        is_borderline = any(abs(score - b) <= 3 for b in boundaries)
+        day_master_result['hourUnknown'] = True
+        day_master_result['yongShenConfidence'] = 'reduced'
+        day_master_result['yongShenCaveat'] = 'borderline' if is_borderline else 'reduced'
+        if pre_analysis.get('congGe'):
+            day_master_result['geJuStatus'] = 'undetermined_without_hour'
+
     # Convert seasonal balance to English keys for TypeScript compatibility (display)
     five_elements_balance_en = {
         'wood': five_elements_balance_seasonal.get('木', 0),
@@ -299,16 +318,25 @@ def calculate_bazi(
     kong_wang_per_pillar = {}
     for pname in ['year', 'month', 'day', 'hour']:
         p = pillars[pname]
+        if not p['stem']:  # unknown 時辰 — blanked hour pillar
+            kong_wang_per_pillar[pname] = []
+            continue
         kong_wang_per_pillar[pname] = calculate_kong_wang(p['stem'], p['branch'])
 
     # R1: 旺相休囚死 seasonal state labels
     seasonal_states = get_seasonal_state_labels(month_branch)
 
     # F1: 胎元/命宮/胎息/身宮
+    # 胎元 (month) + 胎息 (day) survive without the hour; 命宮/身宮 need the 時支 → null.
     tai_yuan = calculate_tai_yuan(month_stem, month_branch)
-    ming_gong = calculate_ming_gong(month_branch, pillars['hour']['branch'], year_stem)
     tai_xi = calculate_tai_xi(day_master_stem, day_master_branch)
-    shen_gong = calculate_shen_gong(month_branch, pillars['hour']['branch'], year_stem)
+    hour_branch_for_palace = pillars['hour']['branch']
+    if hour_branch_for_palace:
+        ming_gong = calculate_ming_gong(month_branch, hour_branch_for_palace, year_stem)
+        shen_gong = calculate_shen_gong(month_branch, hour_branch_for_palace, year_stem)
+    else:
+        ming_gong = None
+        shen_gong = None
 
     # F2: Precise 起運 date calculation
     lp_direction = calculate_luck_period_direction(year_stem, gender)
@@ -398,6 +426,7 @@ def calculate_bazi(
 
     result = {
         'fourPillars': pillars,
+        'hourKnown': hour_known,
         'fiveElementsBalance': five_elements_balance_en,
         'fiveElementsBalanceZh': five_elements_balance_seasonal,
         'fiveElementsBalanceRaw': five_elements_balance,

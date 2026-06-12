@@ -51,8 +51,13 @@ def derive_ten_god(day_master_stem: str, target_stem: str) -> str:
         target_stem: The target Heavenly Stem to compare (e.g., '庚')
 
     Returns:
-        Ten God name (e.g., '偏官')
+        Ten God name (e.g., '偏官'), or '' when the target stem is empty
+        (unknown 時辰 — the blanked hour pillar has no Ten God).
     """
+    # Unknown 時辰: blanked hour pillar has an empty stem → no Ten God.
+    if not target_stem:
+        return ''
+
     dm_element = STEM_ELEMENT[day_master_stem]
     target_element = STEM_ELEMENT[target_stem]
     dm_yinyang = STEM_YINYANG[day_master_stem]
@@ -123,6 +128,12 @@ def apply_ten_gods_to_pillars(pillars: Dict, day_master_stem: str) -> Dict:
         stem = pillar['stem']
         branch = pillar['branch']
 
+        # Unknown 時辰: blanked hour pillar (empty stem) — leave its labels empty.
+        if not stem:
+            pillar['tenGod'] = None
+            pillar['hiddenStemGods'] = []
+            continue
+
         # Day pillar stem = Day Master itself
         if pillar_name == 'day':
             pillar['tenGod'] = None  # Day Master has no Ten God
@@ -151,6 +162,10 @@ def get_ten_god_distribution(pillars: Dict, day_master_stem: str) -> Dict[str, i
 
     for pillar_name in ['year', 'month', 'day', 'hour']:
         pillar = pillars[pillar_name]
+
+        # Unknown 時辰: skip the blanked hour pillar entirely.
+        if not pillar['stem']:
+            continue
 
         # Count manifest stem's Ten God (skip Day Master)
         if pillar_name != 'day':

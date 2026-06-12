@@ -34,6 +34,7 @@ export interface BirthDataFormValues {
   gender: "male" | "female";
   birthDate: string;
   birthTime: string;
+  hourKnown: boolean; // false → 時辰未知 (3-pillar reading)
   birthCity: string;
   birthTimezone: string;
   isLunarDate: boolean;
@@ -104,6 +105,7 @@ export default function BirthDataForm({
     gender: initialValues?.gender ?? "male",
     birthDate: initialValues?.birthDate ?? "",
     birthTime: initialValues?.birthTime ?? "",
+    hourKnown: initialValues?.hourKnown ?? true,
     birthCity: initialValues?.birthCity ?? "台北市",
     birthTimezone: initialValues?.birthTimezone ?? "Asia/Taipei",
     isLunarDate: initialValues?.isLunarDate ?? false,
@@ -113,6 +115,8 @@ export default function BirthDataForm({
   const [isLunarDate, setIsLunarDate] = useState(initialValues?.isLunarDate ?? false);
   const [isLeapMonth, setIsLeapMonth] = useState(initialValues?.isLeapMonth ?? false);
   const [submitError, setSubmitError] = useState("");
+  // 時辰未知 (D6): confirmation modal shown on submit when the hour is unknown.
+  const [showHourUnknownConfirm, setShowHourUnknownConfirm] = useState(false);
 
   // Date/time split into individual dropdown states
   const [birthYear, setBirthYear] = useState(() => initialValues?.birthDate?.substring(0, 4) ?? "");
@@ -151,6 +155,11 @@ export default function BirthDataForm({
   }, [birthYear, birthMonth, birthDay]);
 
   useEffect(() => {
+    // 時辰未知: birthTime is always empty regardless of the (disabled) dropdowns.
+    if (!form.hourKnown) {
+      setForm((prev) => (prev.birthTime === "" ? prev : { ...prev, birthTime: "" }));
+      return;
+    }
     if (birthHour !== "" && birthMinute !== "") {
       const h24 = to24Hour(birthHour, birthPeriod);
       setForm((prev) => ({
@@ -160,7 +169,7 @@ export default function BirthDataForm({
     } else {
       setForm((prev) => ({ ...prev, birthTime: "" }));
     }
-  }, [birthHour, birthMinute, birthPeriod]);
+  }, [birthHour, birthMinute, birthPeriod, form.hourKnown]);
 
   // Clamp day when month/year changes (e.g., Jan 31 → Feb → clamp to 28/29)
   useEffect(() => {
@@ -216,7 +225,15 @@ export default function BirthDataForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // 時辰未知 (D6): confirm before 排盤 so the user acknowledges the unavailable sections.
+    if (!form.hourKnown) {
+      setShowHourUnknownConfirm(true);
+      return;
+    }
+    performSubmit();
+  };
 
+  const performSubmit = () => {
     let submittedForm = { ...form };
 
     // If lunar date, convert to solar before submitting
@@ -310,7 +327,8 @@ export default function BirthDataForm({
   };
 
   const selectProfile = (profile: BirthProfile) => {
-    const timeStr = profile.birthTime;
+    const timeStr = profile.birthTime ?? "";
+    const profileHourKnown = profile.hourKnown ?? true;
     const gender = profile.gender === "MALE" ? "male" : "female" as const;
 
     // Determine which date to show in the dropdowns
@@ -337,17 +355,24 @@ export default function BirthDataForm({
       gender,
       birthDate: profile.birthDate.substring(0, 10),
       birthTime: timeStr,
+      hourKnown: profileHourKnown,
       birthCity: profile.birthCity,
       birthTimezone: profile.birthTimezone,
       isLunarDate: profile.isLunarDate ?? false,
       isLeapMonth: profile.isLeapMonth ?? false,
     });
 
-    // Sync time dropdowns
-    const { hour12, period } = to12Hour(timeStr.substring(0, 2));
-    setBirthHour(hour12);
-    setBirthPeriod(period);
-    setBirthMinute(timeStr.substring(3, 5));
+    // Sync time dropdowns (時辰未知 profiles have no time → clear them)
+    if (timeStr) {
+      const { hour12, period } = to12Hour(timeStr.substring(0, 2));
+      setBirthHour(hour12);
+      setBirthPeriod(period);
+      setBirthMinute(timeStr.substring(3, 5));
+    } else {
+      setBirthHour("");
+      setBirthMinute("");
+      setBirthPeriod("AM");
+    }
     setSelectedRegion(getRegionForCity(profile.birthCity) ?? "taiwan");
     setSelectedProfileId(profile.id);
     setRelationshipTag(profile.relationshipTag);
@@ -375,7 +400,7 @@ export default function BirthDataForm({
   const isValid =
     form.name.trim() !== "" &&
     form.birthDate !== "" &&
-    form.birthTime !== "" &&
+    (form.hourKnown ? form.birthTime !== "" : true) &&
     form.birthCity.trim() !== "";
 
   const tzGroups = groupByRegion<TimezoneEntry>(TIMEZONES);
@@ -564,12 +589,22 @@ export default function BirthDataForm({
         </div>
         <div className={styles.fieldGroup}>
           <label className={styles.label}>出生時間</label>
+          <label className={styles.hourUnknownToggle}>
+            <input
+              type="checkbox"
+              className={styles.checkbox}
+              checked={!form.hourKnown}
+              onChange={(e) => updateField("hourKnown", !e.target.checked)}
+            />
+            我不知道出生時辰
+          </label>
           <div className={styles.timeRow}>
             <select
               className={styles.dateSelect}
               value={birthHour}
               onChange={(e) => setBirthHour(e.target.value)}
               aria-label="時"
+              disabled={!form.hourKnown}
             >
               <option value="">時</option>
               {HOUR_12_OPTIONS.map((h) => (
@@ -581,6 +616,7 @@ export default function BirthDataForm({
               value={birthMinute}
               onChange={(e) => setBirthMinute(e.target.value)}
               aria-label="分"
+              disabled={!form.hourKnown}
             >
               <option value="">分</option>
               {MINUTE_OPTIONS.map((m) => (
@@ -592,11 +628,17 @@ export default function BirthDataForm({
               value={birthPeriod}
               onChange={(e) => setBirthPeriod(e.target.value as "AM" | "PM")}
               aria-label="午別"
+              disabled={!form.hourKnown}
             >
               <option value="AM">上午</option>
               <option value="PM">下午</option>
             </select>
           </div>
+          {!form.hourKnown && (
+            <p className={styles.hourUnknownHint}>
+              將以年、月、日三柱推算（約可掌握命局七成）。時柱、子女宮、晚年運勢、命宮／身宮暫不提供。
+            </p>
+          )}
         </div>
       </div>
 
@@ -709,6 +751,48 @@ export default function BirthDataForm({
         </button>
       )}
       {afterSubmit}
+
+      {/* 時辰未知 confirmation (D6) — acknowledge unavailable sections before 排盤 */}
+      {showHourUnknownConfirm && (
+        <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="時辰未知提醒">
+          <div className={styles.modalCard}>
+            <h3 className={styles.modalTitle}>以「時辰未知」建立命盤？</h3>
+            <p className={styles.modalBody}>
+              將以 <strong>年、月、日 三柱</strong> 為您推算（約可掌握命局七成）。
+            </p>
+            <p className={styles.modalBody}>以下項目因缺少時辰<strong>暫不提供</strong>：</p>
+            <ul className={styles.modalList}>
+              <li>時柱與其十神／神煞</li>
+              <li>子女宮與子女運</li>
+              <li>晚年運勢</li>
+              <li>命宮／身宮</li>
+              <li>部分與時支相關的神煞</li>
+            </ul>
+            <p className={styles.modalNote}>
+              用神／五行比重將標註「僅供參考」。出生時辰於建立後<strong>無法更改</strong>；若日後得知，請另建新的命盤。
+            </p>
+            <div className={styles.modalActions}>
+              <button
+                type="button"
+                className={styles.modalCancel}
+                onClick={() => setShowHourUnknownConfirm(false)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className={styles.modalConfirm}
+                onClick={() => {
+                  setShowHourUnknownConfirm(false);
+                  performSubmit();
+                }}
+              >
+                我了解，繼續排盤
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </form>
   );
 }

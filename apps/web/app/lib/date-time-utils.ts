@@ -108,6 +108,12 @@ export function toBirthDataFormValues(fields: PersonFieldValues) {
     gender: (fields.gender || 'male') as 'male' | 'female',
     birthDate,
     birthTime,
+    // 時辰未知 for the compatibility/PersonFields path is Phase 3 (the compat engine
+    // isn't guarded for the blanked hour pillar yet). Keep hourKnown=true here so
+    // quick-mode behaves exactly as before (birthTime='' → server DTO rejects),
+    // not creating an hour-unknown profile that would crash the compat engine.
+    // LIFETIME uses BirthDataForm, which wires hourKnown directly.
+    hourKnown: true,
     birthCity: fields.cityCode,
     birthTimezone: fields.timezone,
     isLunarDate: fields.calendarType === 'lunar',
@@ -123,7 +129,7 @@ export function profileToPersonFields(profile: {
   name: string;
   gender: string;
   birthDate: string;
-  birthTime: string;
+  birthTime: string | null;
   birthCity: string;
   birthTimezone: string;
   isLunarDate?: boolean;

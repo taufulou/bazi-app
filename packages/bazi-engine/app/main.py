@@ -59,11 +59,15 @@ class BirthDataInput(BaseModel):
         pattern=r"^\d{4}-\d{2}-\d{2}$",
         examples=["1990-05-15"],
     )
-    birth_time: str = Field(
-        ...,
-        description="Birth time in HH:MM format (24-hour)",
+    birth_time: Optional[str] = Field(
+        None,
+        description="Birth time in HH:MM format (24-hour). None/omitted when hour_known is False.",
         pattern=r"^([01]\d|2[0-3]):([0-5]\d)$",
         examples=["14:30"],
+    )
+    hour_known: bool = Field(
+        True,
+        description="Whether the birth 時辰 is known. When False, birth_time may be None and the engine returns a 3-pillar (年/月/日) chart with the hour pillar blanked.",
     )
     birth_city: str = Field(
         ...,
@@ -247,6 +251,7 @@ async def calculate_bazi_endpoint(data: BirthDataInput):
             birth_latitude=data.birth_latitude,
             target_year=data.target_year,
             reading_type=data.reading_type,
+            hour_known=data.hour_known,
         )
 
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)

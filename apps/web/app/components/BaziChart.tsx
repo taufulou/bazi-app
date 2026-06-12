@@ -163,6 +163,8 @@ const PILLAR_LABELS: Record<string, string> = {
 
 export default function BaziChart({ data, name, birthDate, birthTime, visibleSections, hideSections, isSubscriber, gender, onElementClick }: BaziChartProps) {
   const { fourPillars: fp, dayMaster: dm, lunarDate } = data;
+  // 時辰未知: the engine blanks the hour pillar (empty stem) for unknown-時辰 charts.
+  const hourUnknown = !fp.hour?.stem;
   const pillars = [
     { key: "hour", label: "時柱", data: fp.hour },
     { key: "day", label: "日柱", data: fp.day },
@@ -229,10 +231,15 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
         <div className={styles.profileHeader}>
           {name && <div className={styles.profileName}>{name} 的八字命盤</div>}
           <div className={styles.profileDates}>
-            {birthDate && <>公曆：{birthDate} {birthTime}<br /></>}
+            {birthDate && <>公曆：{birthDate} {hourUnknown ? "（時辰未知）" : birthTime}<br /></>}
             農曆：{lunarDate.year}年{lunarDate.isLeapMonth ? "閏" : ""}
             {lunarDate.month}月{lunarDate.day}日
           </div>
+          {hourUnknown && (
+            <div className={styles.hourUnknownBasis}>
+              本命盤以年、月、日三柱推算（時辰未知），約可掌握命局七成；時柱、子女、晚年運、命宮／身宮等暫不提供。
+            </div>
+          )}
         </div>
       )}
 
@@ -257,7 +264,12 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
               <tr>
                 <th></th>
                 {pillars.map((p) => (
-                  <th key={p.key}>{p.label}</th>
+                  <th key={p.key}>
+                    {p.label}
+                    {p.key === "hour" && hourUnknown && (
+                      <span className={styles.hourUnknownTag}>時辰未知</span>
+                    )}
+                  </th>
                 ))}
               </tr>
             </thead>
@@ -280,25 +292,31 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
                 <td className={styles.pillarLabel}>天干<br/>地支</td>
                 {pillars.map((p) => (
                   <td key={p.key} className={styles.stemBranchCell}>
-                    <div
-                      className={`${styles.stemChar} ${styles.clickableInline}`}
-                      style={{ color: getChartElementColor(p.data.stemElement) }}
-                      onClick={() => handleElementClick("stem", p.data.stem, p.key)}
-                    >
-                      {p.data.stem}
-                    </div>
-                    <div className={styles.branchWrap}>
-                      <span
-                        className={`${styles.branchChar} ${styles.clickableInline}`}
-                        style={{ color: getChartElementColor(p.data.branchElement) }}
-                        onClick={() => handleElementClick("branch", p.data.branch, p.key)}
-                      >
-                        {p.data.branch}
-                      </span>
-                      <span className={styles.zodiacLabel}>
-                        {BRANCH_ZODIAC[p.data.branch] || ""}
-                      </span>
-                    </div>
+                    {p.key === "hour" && hourUnknown ? (
+                      <div className={styles.hourUnknownCell}>時辰<br />未知</div>
+                    ) : (
+                      <>
+                        <div
+                          className={`${styles.stemChar} ${styles.clickableInline}`}
+                          style={{ color: getChartElementColor(p.data.stemElement) }}
+                          onClick={() => handleElementClick("stem", p.data.stem, p.key)}
+                        >
+                          {p.data.stem}
+                        </div>
+                        <div className={styles.branchWrap}>
+                          <span
+                            className={`${styles.branchChar} ${styles.clickableInline}`}
+                            style={{ color: getChartElementColor(p.data.branchElement) }}
+                            onClick={() => handleElementClick("branch", p.data.branch, p.key)}
+                          >
+                            {p.data.branch}
+                          </span>
+                          <span className={styles.zodiacLabel}>
+                            {BRANCH_ZODIAC[p.data.branch] || ""}
+                          </span>
+                        </div>
+                      </>
+                    )}
                   </td>
                 ))}
               </tr>

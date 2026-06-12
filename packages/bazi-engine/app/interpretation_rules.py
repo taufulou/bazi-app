@@ -427,6 +427,10 @@ def calculate_strength_score_v2(pillars: Dict, day_master_stem: str) -> Dict:
     total_weight = 0.0
     for pillar_name in ['year', 'month', 'day', 'hour']:
         pillar = pillars[pillar_name]
+        # Unknown 時辰: exclude the blanked hour pillar — 得勢 self-normalizes by
+        # total_weight, so dropping its 1.0 (+0.6 本氣) weight is mathematically clean.
+        if not pillar['stem']:
+            continue
         # Manifest stem (skip day stem = Day Master itself)
         if pillar_name != 'day':
             stem_el = STEM_ELEMENT[pillar['stem']]
@@ -568,6 +572,8 @@ def check_cong_ge(
     yin_bijie_count = 0
     for pillar_name in ['year', 'month', 'day', 'hour']:
         pillar = pillars[pillar_name]
+        if not pillar['stem']:  # unknown 時辰 — skip blanked hour pillar (3-pillar 從格 check)
+            continue
         # Check manifest stem (skip day master itself)
         if pillar_name != 'day':
             stem = pillar['stem']

@@ -480,7 +480,8 @@ export default function ReadingPage() {
         setFormValues({
           name: bp.name,
           birthDate: bp.birthDate.substring(0, 10),
-          birthTime: bp.birthTime,
+          birthTime: bp.birthTime ?? "",
+          hourKnown: bp.hourKnown ?? true,
           gender: genderFromApi(bp.gender),
           birthCity: bp.birthCity,
           birthTimezone: bp.birthTimezone,
@@ -568,7 +569,8 @@ export default function ReadingPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             birth_date: data.birthDate,
-            birth_time: data.birthTime,
+            birth_time: data.hourKnown ? data.birthTime : null,
+            hour_known: data.hourKnown,
             birth_city: data.birthCity,
             birth_timezone: data.birthTimezone,
             gender: data.gender,
@@ -792,7 +794,8 @@ export default function ReadingPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           birth_date: data.birthDate,
-          birth_time: data.birthTime,
+          birth_time: data.hourKnown ? data.birthTime : null,
+          hour_known: data.hourKnown,
           birth_city: data.birthCity,
           birth_timezone: data.birthTimezone,
           gender: data.gender,

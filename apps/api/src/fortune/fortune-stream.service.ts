@@ -246,8 +246,15 @@ export class FortuneStreamService {
       );
 
       const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
-      const profileBirthTime = profile.birthTime;
-      const chartHash = this.helpers.computeChartHash(profile);
+      // TODO(時辰未知 Phase 2): handle null hour for daily fortune UI display
+      const profileBirthTime = profile.birthTime ?? '';
+      // 時辰未知: 'HOUR_UNKNOWN' sentinel keeps an unknown hour in a distinct
+      // cache key; null hour sent to the engine (it accepts null), no default.
+      const chartHash = this.helpers.computeChartHash({
+        ...profile,
+        birthTime: profile.birthTime ?? 'HOUR_UNKNOWN',
+      });
+      const engineProfile = { ...profile, birthTime: profile.birthTime ?? null };
 
       // ============================================================
       // Cache lookup — Redis then DB
@@ -287,7 +294,10 @@ export class FortuneStreamService {
       // ============================================================
       let dailyOutput: DailyEngineOutput;
       try {
-        dailyOutput = await this.helpers.fetchDailyFromEngine(profile, targetDate);
+        dailyOutput = await this.helpers.fetchDailyFromEngine(
+          engineProfile as Parameters<typeof this.helpers.fetchDailyFromEngine>[0],
+          targetDate,
+        );
       } catch (err) {
         this._emitError(response, 'ENGINE_FAILED',
           err instanceof Error ? err.message : 'Bazi engine unreachable');
@@ -295,7 +305,10 @@ export class FortuneStreamService {
       }
 
       const chartContext =
-        dailyOutput.chartContext ?? this.helpers.buildFallbackChartContext(profile);
+        dailyOutput.chartContext ??
+        this.helpers.buildFallbackChartContext(
+          engineProfile as Parameters<typeof this.helpers.buildFallbackChartContext>[0],
+        );
 
       // Emit engine_ready BEFORE opening Anthropic so the frontend can paint
       // score/dims/folk in parallel with AI generation (~500ms vs ~3-5s).
@@ -356,7 +369,8 @@ export class FortuneStreamService {
     profile: {
       id: string;
       birthDate: Date;
-      birthTime: string;
+      // 時辰未知: birthTime is now nullable (BirthProfile.birthTime).
+      birthTime: string | null;
       birthCity: string;
       birthTimezone: string;
       gender: string;
@@ -868,8 +882,14 @@ export class FortuneStreamService {
         await this._preflightMonthly(clerkUserId, args);
 
       const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
-      const profileBirthTime = profile.birthTime;
-      const chartHash = this.helpers.computeChartHash(profile);
+      // TODO(時辰未知 Phase 2): handle null hour for monthly fortune UI display
+      const profileBirthTime = profile.birthTime ?? '';
+      // 時辰未知: sentinel for cache hash; null hour to the engine (no default).
+      const chartHash = this.helpers.computeChartHash({
+        ...profile,
+        birthTime: profile.birthTime ?? 'HOUR_UNKNOWN',
+      });
+      const engineProfile = { ...profile, birthTime: profile.birthTime ?? null };
 
       // Cache lookup (Redis → DB via helpers; key derived internally)
       const cached = await this.helpers.tryGetMonthlyCached(chartHash, anchorDate);
@@ -909,7 +929,7 @@ export class FortuneStreamService {
       let monthlyOutput: MonthlyEngineOutput;
       try {
         monthlyOutput = await this.helpers.fetchMonthlyFromEngine(
-          profile,
+          engineProfile as Parameters<typeof this.helpers.fetchMonthlyFromEngine>[0],
           year,
           month,
         );
@@ -923,7 +943,10 @@ export class FortuneStreamService {
       }
 
       const chartContext =
-        monthlyOutput.chartContext ?? this.helpers.buildFallbackChartContext(profile);
+        monthlyOutput.chartContext ??
+        this.helpers.buildFallbackChartContext(
+          engineProfile as Parameters<typeof this.helpers.buildFallbackChartContext>[0],
+        );
       const flowYear =
         (monthlyOutput as unknown as { flowYear?: number }).flowYear ?? year;
       // L1 lift — engine emits intraMonthBreakdown at top level of monthly_result
@@ -1000,7 +1023,8 @@ export class FortuneStreamService {
     profile: {
       id: string;
       birthDate: Date;
-      birthTime: string;
+      // 時辰未知: birthTime is now nullable (BirthProfile.birthTime).
+      birthTime: string | null;
       birthCity: string;
       birthTimezone: string;
       gender: string;
@@ -1453,8 +1477,14 @@ export class FortuneStreamService {
         await this._preflightYearly(clerkUserId, args);
 
       const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
-      const profileBirthTime = profile.birthTime;
-      const chartHash = this.helpers.computeChartHash(profile);
+      // TODO(時辰未知 Phase 2): handle null hour for yearly fortune UI display
+      const profileBirthTime = profile.birthTime ?? '';
+      // 時辰未知: sentinel for cache hash; null hour to the engine (no default).
+      const chartHash = this.helpers.computeChartHash({
+        ...profile,
+        birthTime: profile.birthTime ?? 'HOUR_UNKNOWN',
+      });
+      const engineProfile = { ...profile, birthTime: profile.birthTime ?? null };
 
       // Cache lookup (Redis → DB via helpers; key derived internally)
       const cached = await this.helpers.tryGetYearlyCached(chartHash, anchorDate);
@@ -1491,7 +1521,10 @@ export class FortuneStreamService {
       const year = Number(targetYear);
       let yearlyOutput: YearlyEngineOutput;
       try {
-        yearlyOutput = await this.helpers.fetchYearlyFromEngine(profile, year);
+        yearlyOutput = await this.helpers.fetchYearlyFromEngine(
+          engineProfile as Parameters<typeof this.helpers.fetchYearlyFromEngine>[0],
+          year,
+        );
       } catch (err) {
         this._emitError(
           response,
@@ -1503,7 +1536,9 @@ export class FortuneStreamService {
 
       const chartContext =
         (yearlyOutput as unknown as { chartContext?: FortuneChartContext }).chartContext ??
-        this.helpers.buildFallbackChartContext(profile);
+        this.helpers.buildFallbackChartContext(
+          engineProfile as Parameters<typeof this.helpers.buildFallbackChartContext>[0],
+        );
 
       // MEDIUM audit fix — strip chartContext from engineOutput before emit so
       // we don't leak ~2KB of birth-pillar metadata in every cold-cache stream
@@ -1562,7 +1597,8 @@ export class FortuneStreamService {
     profile: {
       id: string;
       birthDate: Date;
-      birthTime: string;
+      // 時辰未知: birthTime is now nullable (BirthProfile.birthTime).
+      birthTime: string | null;
       birthCity: string;
       birthTimezone: string;
       gender: string;

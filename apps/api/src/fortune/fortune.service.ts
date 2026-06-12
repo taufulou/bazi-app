@@ -113,13 +113,19 @@ export class FortuneService {
     // Subscription gate
     this.helpers.enforceSubscriptionGate(user.subscriptionTier, targetDate);
 
-    // Compute chart hash (stable per chart — used as cache key)
-    const chartHash = this.helpers.computeChartHash(profile);
+    // Compute chart hash (stable per chart — used as cache key).
+    // 時辰未知: an unknown hour gets the 'HOUR_UNKNOWN' sentinel so it hashes
+    // to a distinct, non-colliding cache key vs a known hour.
+    const chartHash = this.helpers.computeChartHash({
+      ...profile,
+      birthTime: profile.birthTime ?? 'HOUR_UNKNOWN',
+    });
 
     // Birth-date + birth-time ISO strings for UI display (subheader chip —
-    // UX iteration 2026-05-17). Schema guarantees both are present.
+    // UX iteration 2026-05-17). birthTime is now nullable (時辰未知).
     const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
-    const profileBirthTime = profile.birthTime; // HH:MM
+    // TODO(時辰未知 Phase 2): handle null hour for daily fortune UI display
+    const profileBirthTime = profile.birthTime ?? ''; // HH:MM
 
     // Try cache (Redis first, then DB)
     const cached = await this.helpers.tryGetCached(chartHash, targetDate);
@@ -127,9 +133,20 @@ export class FortuneService {
       return this.helpers.buildResponse(profile.id, profileBirthDate, profileBirthTime, targetDate, cached, true);
     }
 
-    // Cache miss → compute fresh
-    const dailyOutput = await this.helpers.fetchDailyFromEngine(profile, targetDate);
-    const chartContext = dailyOutput.chartContext ?? this.helpers.buildFallbackChartContext(profile);
+    // Cache miss → compute fresh.
+    // 時辰未知: send null hour to the engine (it now accepts null); do NOT
+    // invent a noon default. Cast via Parameters<> to satisfy the helper's
+    // string-typed param without re-spelling its shape.
+    const engineProfile = { ...profile, birthTime: profile.birthTime ?? null };
+    const dailyOutput = await this.helpers.fetchDailyFromEngine(
+      engineProfile as Parameters<typeof this.helpers.fetchDailyFromEngine>[0],
+      targetDate,
+    );
+    const chartContext =
+      dailyOutput.chartContext ??
+      this.helpers.buildFallbackChartContext(
+        engineProfile as Parameters<typeof this.helpers.buildFallbackChartContext>[0],
+      );
 
     // Phase Fortune+ progressive loading: when engineOnly=true, skip the AI
     // narration step entirely and return an in-memory engine-only snapshot.
@@ -322,12 +339,17 @@ export class FortuneService {
     // Subscription gate (month-scope) — throws ForbiddenException on violation
     this.helpers.enforceMonthlySubscriptionGate(user.subscriptionTier, targetMonth);
 
-    // Chart hash (shared with daily — same chart)
-    const chartHash = this.helpers.computeChartHash(profile);
+    // Chart hash (shared with daily — same chart). 時辰未知 sentinel keeps
+    // an unknown hour in a distinct cache key.
+    const chartHash = this.helpers.computeChartHash({
+      ...profile,
+      birthTime: profile.birthTime ?? 'HOUR_UNKNOWN',
+    });
 
-    // Profile metadata for response
+    // Profile metadata for response (birthTime now nullable — 時辰未知)
     const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
-    const profileBirthTime = profile.birthTime;
+    // TODO(時辰未知 Phase 2): handle null hour for monthly fortune UI display
+    const profileBirthTime = profile.birthTime ?? '';
 
     // Anchor for cache key + DB row: 1st of month
     const anchorDate = new Date(`${targetMonth}-01T00:00:00Z`);
@@ -345,11 +367,20 @@ export class FortuneService {
       );
     }
 
-    // Cache miss → compute fresh
+    // Cache miss → compute fresh.
+    // 時辰未知: send null hour to the engine; cast via Parameters<> to satisfy
+    // the helper's string-typed param without re-spelling its shape.
     const [year, month] = targetMonth.split('-').map(Number) as [number, number];
-    const monthlyOutput = await this.helpers.fetchMonthlyFromEngine(profile, year, month);
+    const engineProfile = { ...profile, birthTime: profile.birthTime ?? null };
+    const monthlyOutput = await this.helpers.fetchMonthlyFromEngine(
+      engineProfile as Parameters<typeof this.helpers.fetchMonthlyFromEngine>[0],
+      year,
+      month,
+    );
     const chartContext = (monthlyOutput.chartContext ??
-      this.helpers.buildFallbackChartContext(profile)) as FortuneChartContext;
+      this.helpers.buildFallbackChartContext(
+        engineProfile as Parameters<typeof this.helpers.buildFallbackChartContext>[0],
+      )) as FortuneChartContext;
     const flowYear = (monthlyOutput as unknown as { flowYear?: number }).flowYear ?? year;
 
     let narrative: MonthlyFortuneAINarrative | null = null;
@@ -509,12 +540,17 @@ export class FortuneService {
     // Subscription gate (year-scope) — throws ForbiddenException on violation
     this.helpers.enforceYearlySubscriptionGate(user.subscriptionTier, targetYear);
 
-    // Chart hash (shared with daily/monthly — same chart)
-    const chartHash = this.helpers.computeChartHash(profile);
+    // Chart hash (shared with daily/monthly — same chart). 時辰未知 sentinel
+    // keeps an unknown hour in a distinct cache key.
+    const chartHash = this.helpers.computeChartHash({
+      ...profile,
+      birthTime: profile.birthTime ?? 'HOUR_UNKNOWN',
+    });
 
-    // Profile metadata for response
+    // Profile metadata for response (birthTime now nullable — 時辰未知)
     const profileBirthDate = profile.birthDate.toISOString().slice(0, 10);
-    const profileBirthTime = profile.birthTime;
+    // TODO(時辰未知 Phase 2): handle null hour for yearly fortune UI display
+    const profileBirthTime = profile.birthTime ?? '';
 
     // Anchor for cache key + DB row: Jan 1 of year
     const anchorDate = new Date(`${targetYear}-01-01T00:00:00Z`);
@@ -532,11 +568,20 @@ export class FortuneService {
       );
     }
 
-    // Cache miss → compute fresh
+    // Cache miss → compute fresh.
+    // 時辰未知: send null hour to the engine; cast via Parameters<> to satisfy
+    // the helper's string-typed param without re-spelling its shape.
     const year = Number(targetYear);
-    const yearlyOutput = await this.helpers.fetchYearlyFromEngine(profile, year);
+    const engineProfile = { ...profile, birthTime: profile.birthTime ?? null };
+    const yearlyOutput = await this.helpers.fetchYearlyFromEngine(
+      engineProfile as Parameters<typeof this.helpers.fetchYearlyFromEngine>[0],
+      year,
+    );
     const chartContext = ((yearlyOutput as unknown as { chartContext?: FortuneChartContext })
-      .chartContext ?? this.helpers.buildFallbackChartContext(profile)) as FortuneChartContext;
+      .chartContext ??
+      this.helpers.buildFallbackChartContext(
+        engineProfile as Parameters<typeof this.helpers.buildFallbackChartContext>[0],
+      )) as FortuneChartContext;
 
     let narrative: YearlyFortuneAINarrative | null = null;
     let promptVersion: string | null = null;
