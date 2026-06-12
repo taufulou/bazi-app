@@ -3129,3 +3129,50 @@ Three fixes from the PR #48 code review (2 minor + 1 low-confidence; two other l
 - **Fix 2 (Layer C coverage):** `redirectToSignInOnExpiry()` also wired on `status===401` into the 3 authenticated raw-`fetch` sites in `app/lib/readings-api.ts` (`streamBaziReading`, `regenerateBaziReading`, `streamCompatibilityReading`) — unconditional (always authenticated). Layer C is now **11 call sites** (8 + 3). The file's `create*/get*` helpers already route through the wired `apiFetch`.
 - **Fix 3 (return-URL source):** `SignedOutRedirect` builds `redirect_url` from the reactive `pathname` (`(pathname || window.location.pathname) + window.location.search`), dropping a dead `typeof window` guard.
 - **Dropped:** single-flight watchdog (already safe — full-nav resets the module) and suppressing the `useUserTier` Sentry/banner on expiry (layering violation; negligible benefit).
+
+---
+
+## 八字時辰未知 (Unknown Birth Hour) — Phase 1 SHIPPED (committed `354bebe` on branch `feat/unknown-birth-hour`, NOT in main)
+
+First-class **「時辰未知」** path → an honest **3-pillar (年/月/日)** Bazi reading when the user doesn't know their birth hour. **Phase 1 = LIFETIME (八字終身運) only + make-it-not-crash.** Other reading types + chat are Phase 2/3.
+
+**Session handoff (read first):** `.claude/plans/unknown-birth-hour-session-handoff.md`.
+**Approved plan + full review/impl log:** `/Users/roger/.claude/plans/i-just-switch-to-quizzical-church.md` (12 decisions D1–D12, Central engine strategy, §1–8, Round 1–3 staff-engineer review, Phase 1 browser-test log). Design doc: `.claude/plans/plan-unknown-birth-hour.md`. Research (gold standard / competitors / engine impact): `.claude/plans/research-unknown-birth-hour.md`.
+
+### Central engine strategy (load-bearing — do NOT re-derive)
+> When `hour_known=false`: use a **transient NOON placeholder** for y/m/d + 大運 datetime internals (noon avoids the 23:00 子時 day boundary + gives 起運 a midpoint), then **blank the hour pillar** (empty stem/branch) before `calculate_four_pillars` returns. The empty hour stem is the canonical unknown signal (`four_pillars.is_hour_unknown`). Every analytical loop gets a `if not pillar['stem']: continue` guard so 五行/strength/十神/從格 compute on 3 pillars without `KeyError: ''`. The naive "empty stem flows through" idea crashes the calculator — `STEM_ELEMENT['']` across ~115 loops.
+
+**Hour-dependence (engine-verified):** SURVIVE = 日主, 年/月/日 三柱, 月令格局, **配偶宮=日支** + 紅鸞/沖日支, **胎元** (month) / **胎息** (day), 大運 sequence, 生肖. LOST (null) = 時柱 + 時柱十神/神煞, 子女宮, 晚年, **命宮/身宮** (need 時支). DEGRADED = 用神/五行比重 (3-pillar, flagged), 起運 age (≤±2mo via noon), 神煞 completeness.
+
+### Files (Phase 1)
+- Engine (`packages/bazi-engine/app/`): `four_pillars.py` (`is_hour_unknown`, `_empty_hour_pillar`, `calculate_four_pillars(hour_known=)` noon+blank), `calculator.py` (thread `hour_known`, noon `birth_dt`, null 命宮/身宮, guard kong_wang, **D7 用神 flags**), guard sweep in `ten_gods.py` / `five_elements.py` / `life_stages.py` (`get_life_stage` empty-safe) / `interpretation_rules.py` (V2 得勢 + **`check_cong_ge`**) / `lifetime_enhanced.py` (children narrative → 時辰未知 marker), `main.py` (`BirthDataInput.birth_time` Optional + `hour_known`). Test: `tests/test_unknown_hour.py` (9 tests, Roger neutral + Laopo weak-DM).
+- API: `apps/api/prisma/schema.prisma` (`birthTime String?` + `hourKnown`) + migration `20260609000000_add_hour_known_to_birth_profiles`; `users/dto/create-birth-profile.dto.ts` (`@ValidateIf((o)=>o.hourKnown!==false)`); `users.service.ts`; `bazi.service.ts` (`hour_known` payload + cache-hash sentinel `?? 'HOUR_UNKNOWN'`); **`ai.service.ts::interpolateLifetimeV2Fields`** (deterministic suppression block, gated `data['hourKnown']===false` → cache-safe). Compile-only widening (Phase 2/3 TODO): `fortune.service.ts`, `fortune-stream.service.ts`, `chat-context.service.ts`, `zwds.service.ts`.
+- Web: `BirthDataForm.tsx` (+`.module.css`) 時辰未知 toggle + D6 confirmation modal; `BaziChart.tsx` (+`.module.css`) 時柱 column placeholder + header tag + basis line; nullable `birthTime` in `birth-profiles-api.ts`/`readings-api.ts`/`date-time-utils.ts`; `reading/[type]/page.tsx` (`callDirectEngine` ×2 now send `hour_known`).
+
+### D7 用神 flags (on `dayMaster`)
+`hourUnknown:true`, `yongShenConfidence:'reduced'`, `yongShenCaveat:'borderline'` when V2 score within ±3 of a band boundary `(25,40,55,70)`, `geJuStatus:'undetermined_without_hour'` when 從格 detected.
+
+### AI suppression block (ai.service.ts injector) — apply SAME shape to every reading type in Phase 2/3
+- No fabrication/detail of hour items; **in-place 「需要出生時辰」 note, NOT silent omission** (D8 — the AI was silently dropping 子女關係; now it renders a 「⚠️時辰未知限制說明」 section).
+- **神煞 false-negative guard:** 「禁止斷言『命中無某神煞』」 (時支 神煞 could exist).
+- 用神「（時辰未知，僅供參考）」 + 「格局待確認」 when undetermined.
+- **D2-aligned 補時辰 phrasing:** 「日後得知時辰，可另建新的命盤查看完整分析」 — NEVER 「我可以為你提供」/「補上即可解鎖」.
+
+### Verification (all green)
+Engine: **9 new pytest + 2944 suite pass** (only documented pre-existing `test_roger_laopo_full_preanalysis` fails). API tsc clean; web tsc only the pre-existing ChatDrawer JSX-identity error. 3-parallel line audit caught 2 criticals the single-anchor test missed (`check_cong_ge` weak-DM crash; frontend `callDirectEngine` missing `hour_known` → 422) — fixed. **LIFETIME browser E2E PASS** incl. live Claude AI (zero fabricated hour content) + re-verified the in-place 子女關係 note on a fresh chart.
+
+### Calibration anchors
+Roger `1987-09-06 16:11 吉打 male` unknown-hour = 丁卯/戊申/戊午/(blank), 用神 火, 中和 42分 (borderline), 食神格 (y/m/d byte-identical to known 丁卯/戊申/戊午/庚申). Laopo `1987-01-25 12:00 台北 female` = 丙寅/辛丑/甲戌/壬申, DM 甲 weak (the `check_cong_ge` regression anchor).
+
+### ⚠️ DEFERRED — do NOT assume these work
+- **CHAT is Phase 2 + UNGUARDED**: chat-context build merges all 4 pipelines (love/career/annual unguarded) → **crashes** on hour-unknown; no chat suppression yet. Readings show a 「問 AI 命理師」 button — DON'T use on hour-unknown until Phase 2.
+- **Non-LIFETIME reading types** (CAREER/ANNUAL/LOVE/COMPAT/FORTUNE/ZWDS): engines unguarded → **500 if picked for an hour-unknown profile**. User declined a frontend availability gate (app not live). Phase 2 guards them.
+- Minor: ElementExplanation 時柱-click note; UpdateBirthProfileDto birthTime immutability; modal a11y; ProfileCard marker; API-jest + Web-RTL coverage.
+
+### Gotchas
+- **Restart servers DETACHED** (`nohup … & disown`), NOT `run_in_background` (killed between turns). After editing `ai.service.ts`/services → **rebuild NestJS** (`../../node_modules/.bin/nest build`) + restart (stale PID). Next.js HMR goes stale across session boundary → hard-reload / restart.
+- **Reading cache key has NO prompt version** (`birthDataHash` = birthDate|birthTime-sentinel|city|gender|readingType|targetYear). A prompt change won't reflect for the SAME chart — flush Redis or use a different birth date.
+- **Migration applied non-destructively** on dev (direct `ALTER` + `migrate resolve --applied`) because `migrate dev` wanted to RESET (pre-existing folk-content checksum drift, unrelated). Prod: `prisma migrate deploy`.
+
+### Phase 2 (next)
+LOVE + CAREER + ANNUAL + FORTUNE: per-module deref-audit (guard every `['hour']` deref) + the SAME AI suppression block in each injector + **chat AI guard** (guard chat-context pipelines + suppression directive). Phase 3 = COMPATIBILITY partial + 神煞 partial-scan.
