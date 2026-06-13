@@ -24,12 +24,24 @@ Implemented + independent line audit: **CORRECT + COMPLETE**, no BUG/INCOMPLETE.
 - **ANNUAL** `annual_enhanced.compute_pillar_impact_analysis` (`:428-499`, esp. `491-497`): skip the hour pillar when `branch==''` (or tag `hourUnknown:True`). Cascades to `compute_annual_relationship_analysis` (`:909-951`, the false 「子女宮平穩」) and the TS injector leak (2c).
 - **LOVE** `love_enhanced.py`: `compute_spouse_star_analysis` 晚婚指標/時支藏財 (`:569-591`) → `None`/skip when hour blank; `classify_peach_blossoms` 牆外桃花 loop (`:252-417`) → `if not p_branch: continue`; `compute_marriage_timing_indicators` (`:1573-1596`) visible-spouse/晚婚 → build from 3 known pillars, flag 時柱 as undetermined (never confirmed-absent).
 
+### 2b — DONE + line-audited (2026-06-13) ✅ (commit 651f71a)
+ANNUAL phantom 子女宮 row skip + 3 LOVE false-negative fixes (晚婚指標→None, 牆外桃花 skip, visible-spouse softened). Line audit: CORRECT + COMPLETE; hour-known byte-identical; downstream consumers iterate `pillarImpacts`/`palaceRelationships` safely (no `'hour'` assumption); `lateMarriageIndicator: None` blast radius zero (emitted, never read). 18 unknown-hour tests + 425 neighbouring regression tests green.
+- **NIT → fold into 2c/2e:** `AIReadingDisplay.tsx:881` `annual_family` 子女宮 InfoStrip goes silently empty for hour-unknown (honest-degrade, no crash). Resolved when 2c ports the ANNUAL in-place 「需要出生時辰」 note + the frontend renders it.
+
 ### 2c — AI suppression injectors (port the LIFETIME block, gated `data['hourKnown']===false` → cache-safe)
 LIFETIME reference: `ai.service.ts::interpolateLifetimeV2Fields` `:2854-2871`. `hourKnown` is on the top-level chart dict (`calculator.py:429` / `four_pillars.py:510`), reachable in every injector's `data` arg.
 - `interpolateLoveV2Fields` (`ai.service.ts:3738`; inject at `~:3742` before the `enhanced` early-return). Reword for LOVE loss profile (子女; forbid asserting 晚婚/牆外/時支藏財 absence).
 - `interpolateCareerV2Fields` (`ai.service.ts:2492`; invoked `:2453/:2454`). Add 用神/五行比重/十神比重 「就現有三柱，僅供參考」 + 時柱 position/officer/wealth bonuses not counted.
 - `interpolateAnnualV2Fields` (`ai.service.ts:1914`; invoked `:1901/:1902`). Skip the `hour柱(子女宮)` line in `{{annualPillarImpacts}}` + emit in-place note + 神煞 false-negative guard.
 - **FORTUNE (3 reading-page injectors)** in `fortune-prompt-builder.ts`: `interpolateFortuneV1Fields` (`:119`, DAY), `interpolateFortuneMonthlyFields` (`:418`), `interpolateFortuneYearlyFields` (`:575`). **Prereq:** add `hourKnown` to the engine `chartContext` emit (`main.py:710`, `monthly_enhanced.py:497`, `yearly_enhanced.py:513`) + the `FortuneChartContext` DTO, then gate each injector on it.
+
+### 2c — DONE + line-audited + browser-verified (2026-06-13) ✅
+Reading-page AI suppression for LOVE/CAREER/ANNUAL via shared `buildHourUnknownSuppressionBlock` helper (gated `data['hourKnown']===false` → hour-known byte-identical). Line audit: CONFIRMED-CORRECT (data-flow traced — block emits via `enrichedData` on both stream + non-stream paths; no double-application; tsc exit 0). **Browser-verified live (3 credits CAREER + 3 ANNUAL):**
+- CAREER: no fabrication (zero 時上格局/晚年/部屬/子女), no false 命中無神煞, basis line correct, shared UnlockConfirmModal warning shows for CAREER, 2a crash-fix confirmed (full 25-section reading, no crash).
+- ANNUAL: **in-place note fires** 「子女緣分需要出生時辰方能完整分析…暫無法深入論斷子女宮互動」 (家庭關係 section); 2b phantom-row removal confirmed end-to-end (no false 子女宮平穩; 年柱長輩宮 analyzed normally); no fabrication.
+- **比重 caveat (the CAREER gap) FIXED in this slice** (not deferred to 2e): `ElementCapabilityChart` + `TenGodCapabilityChart` take `hourUnknown` prop → render 「※ 時辰未知：本比重以年、月、日三柱估算（已扣除時柱），僅供參考」; wired from `AIReadingDisplay` via `!!chartData && !fourPillars.hour.stem`. Browser-verified rendering on both charts (caveatCount=2, no credit — re-opened via reading history). tsc exit 0, no console errors.
+
+Remaining 2c tail (FORTUNE half — next slice): `fortune.service.ts` hour_known threading + 3 FORTUNE injectors in `fortune-prompt-builder.ts` + N1/N3/N4 DTO hardening.
 
 ### 2d — Chat guard
 - Chat-side fortune injectors mirror in `chat-context.service.ts` (`:1428/:1585/:1829`, dispatched from `chat-prompt-builder.ts:178-208`).

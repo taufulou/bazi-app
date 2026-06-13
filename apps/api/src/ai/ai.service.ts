@@ -1916,6 +1916,18 @@ export class AIService implements OnModuleInit {
     data: Record<string, unknown>,
   ): string {
     let result = template;
+    // 時辰未知 (Phase 2c): prepend the suppression directive. The engine already
+    // omits the 子女宮 (時柱) pillar-impact row (Phase 2b); this forbids the AI
+    // narrating it + flags 用神. Gated on hourKnown===false → hour-known byte-identical.
+    if (data['hourKnown'] === false) {
+      result = `${this.buildHourUnknownSuppressionBlock(data, {
+        readingLabel: '流年運勢解讀',
+        extraLines: [
+          '子女宮（時柱）流年互動因缺時辰不予論斷；在家庭／六親段落以一句「子女宮分析需要出生時辰」說明即可。',
+          '流年與年、月、日三柱及大運的互動不受影響，仍須完整分析。',
+        ],
+      })}\n${result}`;
+    }
     const insights = data['annualEnhancedInsights'] as Record<string, unknown> | undefined;
     if (!insights) {
       // Clear all annual placeholders
@@ -2494,6 +2506,18 @@ export class AIService implements OnModuleInit {
     data: Record<string, unknown>,
   ): string {
     let result = template;
+    // 時辰未知 (Phase 2c): prepend the suppression directive. 五行比重／十神比重 are
+    // 3-pillar estimates (Phase 2a drops the blank hour's mass) → flag as 僅供參考;
+    // 晚年事業／部屬／時上格局 not judged. Gated → hour-known byte-identical.
+    if (data['hourKnown'] === false) {
+      result = `${this.buildHourUnknownSuppressionBlock(data, {
+        readingLabel: '事業詳批',
+        extraLines: [
+          '五行比重／十神比重為三柱估算，請於相關段落註明「就現有三柱，僅供參考」。',
+          '晚年事業、部屬運、時上格局（時上偏財／時上一位貴／日祿歸時）因缺時辰不予論斷。',
+        ],
+      })}\n${result}`;
+    }
     const enhanced = data['careerEnhancedInsights'] as Record<string, unknown> | undefined;
     // Read from full enhanced insights (camelCase keys), NOT just the deterministic subset.
     // The deterministic sub-object is for frontend rendering only; AI needs all career data.
@@ -2841,6 +2865,38 @@ export class AIService implements OnModuleInit {
   /**
    * Interpolate V2-specific placeholders (patternNarrative, childrenInsights, etc.)
    */
+  /**
+   * 時辰未知 — shared deterministic suppression directive for the V2 reading
+   * injectors (LOVE/CAREER/ANNUAL; FORTUNE uses its own builder). Mirrors the
+   * Phase-1 block inlined in interpolateLifetimeV2Fields. Only emitted when the
+   * hour is unknown, so hour-known prompts stay byte-identical (cache-safe).
+   * Forbids fabricating 時柱-derived content (時柱十神/藏干/神煞, 子女宮, 晚年,
+   * 命宮, 身宮), requires an in-place 「需要出生時辰」 note (NOT silent omission),
+   * guards against 神煞 false-negatives, and flags 用神/比重 as 僅供參考.
+   * Per-type specifics go in opts.extraLines.
+   */
+  private buildHourUnknownSuppressionBlock(
+    data: Record<string, unknown>,
+    opts: { readingLabel: string; extraLines?: string[] },
+  ): string {
+    const dm = (data['dayMaster'] as Record<string, unknown> | undefined) ?? {};
+    return [
+      '【時辰未知 — 嚴格限制（必須遵守）】',
+      `本${opts.readingLabel}以年、月、日三柱推算，時辰未知。`,
+      '禁止「編造」或「詳細分析」以下時柱相關項目：時柱十神／藏干／神煞、子女緣分（子女宮）、晚年／晚運、命宮、身宮。',
+      '但「不可」整段省略不提 —— 在相應段落以「一句」簡短說明帶過，讓讀者知道該項因缺時辰而從略（例如「子女緣分需要出生時辰方能完整分析」）。',
+      '若提及補時辰的好處，措辭一律為「日後得知時辰，可另建新的命盤查看完整分析」之意（強調「另建新命盤」，本次無法補算或即時解鎖）；禁止寫成「我可以為你提供完整分析」「補上即可解鎖」。',
+      '禁止虛構任何與時辰相關的具體內容（子女數目／性格、晚年具體事件、時柱神煞等）。',
+      '神煞僅就現有年、月、日三柱論述；禁止斷言「命中無某神煞」（時支神煞無法判斷）。',
+      '用神／五行比重僅供參考，請於相關段落註明「（時辰未知，僅供參考）」。',
+      dm['geJuStatus'] === 'undetermined_without_hour'
+        ? '格局因缺時辰未能確定，僅說明大致傾向，須加註「格局待確認」。'
+        : '',
+      ...(opts.extraLines ?? []),
+      '',
+    ].filter(Boolean).join('\n');
+  }
+
   private interpolateLifetimeV2Fields(
     template: string,
     data: Record<string, unknown>,
@@ -3740,6 +3796,19 @@ export class AIService implements OnModuleInit {
     data: Record<string, unknown>,
   ): string {
     let result = template;
+    // 時辰未知 (Phase 2c): prepend the suppression directive. LOVE's core (配偶宮=日支,
+    // 配偶星, 正緣桃花, 紅鸞) is day-based and SURVIVES — the directive says so, so the
+    // AI doesn't over-withhold; only 時柱-derived items (子女, 時柱桃花, 晚婚指標) are
+    // suppressed/undetermined (Phase 2b). Gated → hour-known byte-identical.
+    if (data['hourKnown'] === false) {
+      result = `${this.buildHourUnknownSuppressionBlock(data, {
+        readingLabel: '愛情姻緣解讀',
+        extraLines: [
+          '配偶宮（日支）、配偶星、正緣桃花、紅鸞等以日柱／年月推算的內容不受影響，仍須完整分析；僅「時柱」衍生項目（子女、時柱桃花、晚婚指標）因缺時辰從略或標為待確認。',
+          '若命局未見配偶星透干，須註明「就現有三柱未見，時柱未知無法完全確定」，不可斷言配偶星不透出。',
+        ],
+      })}\n${result}`;
+    }
     const enhanced = data['loveEnhancedInsights'] as Record<string, unknown> | undefined;
     if (!enhanced) return result;
 

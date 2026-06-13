@@ -22,11 +22,14 @@ interface ElementData {
 interface ElementCapabilityChartProps {
   data: Record<string, ElementData>;
   title?: string;
+  /** 時辰未知: weights are computed on 3 pillars (hour mass dropped) → show a caveat. */
+  hourUnknown?: boolean;
 }
 
 export default function ElementCapabilityChart({
   data,
   title = "先天潛在能力（五行比重）",
+  hourUnknown = false,
 }: ElementCapabilityChartProps) {
   if (!data) return null;
 
@@ -43,6 +46,11 @@ export default function ElementCapabilityChart({
         <p className={styles.subtitle}>
           已根據五行旺衰（旺相休囚死）進行加權調整，更精準反映命格能量分佈
         </p>
+        {hourUnknown && (
+          <p className={styles.hourUnknownNote}>
+            ※ 時辰未知：本比重以年、月、日三柱估算（已扣除時柱），僅供參考
+          </p>
+        )}
       </div>
 
       <div className={styles.chartList}>

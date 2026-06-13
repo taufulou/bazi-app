@@ -27,6 +27,15 @@
   line-height: 1.4;
 }
 
+/* 時辰未知 caveat — 3-pillar weighted estimate */
+.hourUnknownNote {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin: 6px 0 0 0;
+  line-height: 1.4;
+  font-style: italic;
+}
+
 .chartList {
   display: flex;
   flex-direction: column;

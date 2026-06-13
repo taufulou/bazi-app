@@ -1818,12 +1818,18 @@ export default function AIReadingDisplay({
 
             {/* Five Elements Capability */}
             {cdet.weightedElements && (
-              <ElementCapabilityChart data={cdet.weightedElements} />
+              <ElementCapabilityChart
+                data={cdet.weightedElements}
+                hourUnknown={!!chartData && !((chartData.fourPillars as { hour?: { stem?: string } } | undefined)?.hour?.stem)}
+              />
             )}
 
             {/* Ten God Capability */}
             {cdet.weightedTenGods && (
-              <TenGodCapabilityChart data={cdet.weightedTenGods} />
+              <TenGodCapabilityChart
+                data={cdet.weightedTenGods}
+                hourUnknown={!!chartData && !((chartData.fourPillars as { hour?: { stem?: string } } | undefined)?.hour?.stem)}
+              />
             )}
           </>
         );
