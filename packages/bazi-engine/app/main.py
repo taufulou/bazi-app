@@ -337,10 +337,14 @@ class ChatContextInput(BaseModel):
         description="Birth date YYYY-MM-DD",
         pattern=r"^\d{4}-\d{2}-\d{2}$",
     )
-    birth_time: str = Field(
-        ...,
-        description="Birth time HH:MM",
+    birth_time: Optional[str] = Field(
+        None,
+        description="Birth time HH:MM (None/omitted when hour_known is False)",
         pattern=r"^([01]\d|2[0-3]):([0-5]\d)$",
+    )
+    hour_known: bool = Field(
+        True,
+        description="When False, birth_time may be None and the engine builds a 3-pillar (年/月/日) chat context with the hour pillar blanked.",
     )
     birth_city: str
     birth_timezone: str
@@ -379,6 +383,7 @@ async def build_chat_context_endpoint(data: ChatContextInput):
             birth_longitude=data.birth_longitude,
             birth_latitude=data.birth_latitude,
             target_year=data.target_year,
+            hour_known=data.hour_known,
         )
 
         ctx = build_chat_context(
@@ -495,7 +500,11 @@ class FortuneChatContextInput(BaseModel):
     `fortune.service.ts::todayIsoDate()` helper.
     """
     birth_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
-    birth_time: str = Field(..., pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
+    birth_time: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):([0-5]\d)$")
+    hour_known: bool = Field(
+        True,
+        description="When False, birth_time may be None and the engine builds a 3-pillar chat context with the hour pillar blanked.",
+    )
     birth_city: str
     birth_timezone: str
     gender: str = Field(..., pattern=r"^(male|female)$")
@@ -570,6 +579,7 @@ async def build_chat_context_fortune_endpoint(data: FortuneChatContextInput):
             precomputed_monthly=data.precomputed_monthly,
             precomputed_yearly=data.precomputed_yearly,
             fortune_scope=data.fortune_scope,
+            hour_known=data.hour_known,
         )
 
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)

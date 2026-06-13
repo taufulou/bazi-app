@@ -170,6 +170,11 @@ export function yearToGanzhi(year: number): string {
 // ============================================================
 
 export interface ChatContext {
+  /** 時辰未知 (Phase 2d) — false when the chat's birth profile has no known
+   *  hour (3-pillar 年/月/日 chart). Emitted top-level by every engine
+   *  build_chat_context* slim; gates the prompt-builder's 時辰未知 suppression
+   *  directive (mirror of ai.service.ts `data['hourKnown'] === false`). */
+  hourKnown?: boolean;
   // Single-chart fields (LIFETIME / LOVE / CAREER / ANNUAL). All optional
   // at the type level so the same interface can describe COMPATIBILITY
   // payloads (which use chartA/chartB instead — see below). The single-chart
@@ -395,6 +400,7 @@ export class ChatContextService {
       gender: profile.gender.toLowerCase(),
       birthLongitude: profile.birthLongitude,
       birthLatitude: profile.birthLatitude,
+      hourKnown: profile.hourKnown,
       targetYear,
       targetMonth,
     });
@@ -645,6 +651,7 @@ export class ChatContextService {
       gender: profile.gender.toLowerCase(),
       birthLongitude: profile.birthLongitude,
       birthLatitude: profile.birthLatitude,
+      hourKnown: profile.hourKnown,
       anchorDate,
       targetYear: anchorYear,
       targetMonth: anchorMonth,
@@ -1228,6 +1235,7 @@ export class ChatContextService {
     gender: string;
     birthLongitude: number | null;
     birthLatitude: number | null;
+    hourKnown: boolean;
     targetYear: number;
     targetMonth: number;
   }): Promise<ChatContext> {
@@ -1242,6 +1250,7 @@ export class ChatContextService {
         gender: args.gender,
         birth_longitude: args.birthLongitude,
         birth_latitude: args.birthLatitude,
+        hour_known: args.hourKnown,
         target_year: args.targetYear,
         target_month: args.targetMonth,
       }),
@@ -1353,6 +1362,7 @@ export class ChatContextService {
     gender: string;
     birthLongitude: number | null;
     birthLatitude: number | null;
+    hourKnown: boolean;
     anchorDate: string;
     targetYear: number;
     targetMonth: number;
@@ -1377,6 +1387,7 @@ export class ChatContextService {
           gender: args.gender,
           birth_longitude: args.birthLongitude,
           birth_latitude: args.birthLatitude,
+          hour_known: args.hourKnown,
           anchor_date: args.anchorDate,
           target_year: args.targetYear,
           target_month: args.targetMonth,

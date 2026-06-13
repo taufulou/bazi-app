@@ -17,6 +17,7 @@ from datetime import date
 import pytest
 
 from app.calculator import calculate_bazi, calculate_bazi_with_all_pipelines
+from app.chat_context import build_chat_context, build_chat_context_fortune
 from app.daily_enhanced import compute_daily_fortune
 from app.four_pillars import is_hour_unknown
 from app.monthly_enhanced import compute_single_month_by_yearmonth
@@ -262,3 +263,38 @@ def test_love_no_fabricated_hour_peach_blossom(roger_all_pipelines_unknown):
     pb = roger_all_pipelines_unknown["loveEnhancedInsights"]["peachBlossoms"]
     for entry in pb.get("positive", []) + pb.get("negative", []):
         assert entry.get("pillar") != "hour"  # no 時柱 桃花 fabricated/claimed-absent
+
+
+# ── Phase 2d — chat-context honours the unknown hour (no crash + hourKnown signal) ──
+# The slim chat context must surface a top-level hourKnown=False so the NestJS
+# chat-prompt builder can gate its 時辰未知 suppression directive, and the build
+# must not crash for any chat scope on a blanked hour.
+
+
+def test_chat_context_surfaces_hour_unknown(roger_all_pipelines_unknown):
+    ctx = build_chat_context(
+        chart_data=roger_all_pipelines_unknown, current_year=2026, current_month=6
+    )
+    assert ctx.get("hourKnown") is False
+    assert ctx["chart"]["fourPillars"]["hour"]["stem"] == ""
+
+
+@pytest.mark.parametrize("scope", ["DAY", "MONTH", "YEAR"])
+def test_chat_context_fortune_hour_unknown_no_crash(scope):
+    birth_data = dict(
+        birth_date="1987-09-06",
+        birth_time=None,
+        birth_city="吉打",
+        birth_timezone="Asia/Kuala_Lumpur",
+        gender="male",
+    )
+    ctx = build_chat_context_fortune(
+        birth_data=birth_data,
+        anchor_date="2026-06-13",
+        current_year=2026,
+        current_month=6,
+        fortune_scope=scope,
+        hour_known=False,
+    )
+    assert ctx is not None
+    assert ctx.get("hourKnown") is False

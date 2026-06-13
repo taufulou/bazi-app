@@ -213,6 +213,25 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
     }
   }
 
+  // 時辰未知 (Phase 2d): suppression directive. Gated on the engine's top-level
+  // hourKnown===false (mirror of ai.service.ts). Placed BEFORE the raw 命盤資料
+  // JSON so it governs how the AI reads the (blanked-hour) chart. Applies to all
+  // chat reading types (LIFETIME/LOVE/CAREER/ANNUAL/FORTUNE) — the slim always
+  // sets hourKnown. (COMPATIBILITY profiles stay hour-known → never fires.)
+  if (chatContext.hourKnown === false) {
+    sections.push(
+      '\n【時辰未知 — 嚴格限制（必須遵守）】\n' +
+        [
+          '本命盤時辰未知，僅有年、月、日三柱（命盤資料中 hour 柱為空）。',
+          '禁止「編造」或「詳細分析」以下時柱相關項目：時柱十神／藏干／神煞、子女緣分（子女宮）、晚年／晚運、命宮、身宮。',
+          '若使用者問到上述項目，請以一句簡短說明帶過（例如「子女緣分需要出生時辰方能完整分析」），不可虛構具體內容，也不可整段略過不回應。',
+          '若提及補時辰的好處，措辭一律為「日後得知時辰，可另建新的命盤查看完整分析」之意；禁止「我可以為你提供完整分析」「補上即可解鎖」等暗示本次可補算的語句。',
+          '神煞僅就現有年、月、日三柱論述；禁止斷言「命中無某神煞」（時支神煞無法判斷）。',
+          '用神／五行比重僅供參考，提及時請註明「（時辰未知，僅供參考）」。',
+        ].join('\n'),
+    );
+  }
+
   // Slim chat context as JSON
   sections.push('\n【命盤資料】\n');
   sections.push('```json\n' + JSON.stringify(chatContext, null, 2) + '\n```');

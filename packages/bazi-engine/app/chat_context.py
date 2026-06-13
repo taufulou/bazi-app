@@ -123,6 +123,9 @@ def build_chat_context(
 
     return {
         'chart': chart,
+        # 時辰未知: top-level signal so the NestJS chat-prompt builder can gate the
+        # suppression directive (mirrors ai.service.ts data['hourKnown'] === false).
+        'hourKnown': chart_data.get('hourKnown', True),
         'strength': strength,
         'favorability': favorability,
         'fiveElements': five_elements,
@@ -276,6 +279,7 @@ def build_chat_context_fortune(
     precomputed_monthly: Optional[Dict] = None,
     precomputed_yearly: Optional[Dict] = None,
     fortune_scope: str = 'DAY',
+    hour_known: bool = True,
 ) -> Dict:
     """Build the slim chat context for FORTUNE chat (八字日運 / 月運 / 年運 chat scope).
 
@@ -364,6 +368,7 @@ def build_chat_context_fortune(
         birth_longitude=birth_data.get('birth_longitude'),
         birth_latitude=birth_data.get('birth_latitude'),
         target_year=current_year,
+        hour_known=hour_known,
     )
 
     # 2. Build the chart-slim base (gives doctrineFlags / doctrineInjectors /
@@ -391,6 +396,7 @@ def build_chat_context_fortune(
                 month=anchor_date_obj.month,
                 birth_longitude=birth_data.get('birth_longitude'),
                 birth_latitude=birth_data.get('birth_latitude'),
+                hour_known=hour_known,
             )
             # Wire L1.b breakdown into chat-context MONTH path (mirrors the
             # /monthly-fortune endpoint behavior — see main.py:821). Lets the
@@ -409,6 +415,7 @@ def build_chat_context_fortune(
                     month=anchor_date_obj.month,
                     birth_longitude=birth_data.get('birth_longitude'),
                     birth_latitude=birth_data.get('birth_latitude'),
+                    hour_known=hour_known,
                 )
                 monthly_result['intraMonthBreakdown'] = breakdown_result
             except Exception as breakdown_err:
@@ -436,6 +443,7 @@ def build_chat_context_fortune(
                 year=anchor_date_obj.year,
                 birth_longitude=birth_data.get('birth_longitude'),
                 birth_latitude=birth_data.get('birth_latitude'),
+                hour_known=hour_known,
             )
         return {
             **base_ctx,
