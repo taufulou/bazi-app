@@ -428,6 +428,15 @@ def compute_pillar_impact_analysis(
     for pname in ('year', 'month', 'day', 'hour'):
         natal_stem = pillars[pname]['stem']
         natal_branch = pillars[pname]['branch']
+
+        # 時辰未知: skip the blanked hour pillar entirely. Emitting a phantom
+        # 子女宮 row (empty stem/branch, no interactions) reads downstream as
+        # "子女宮 exists and is uneventful" (a false negative) and leaks
+        # `hour柱(子女宮)：無特殊交互` into the AI prompt. 子女宮 is hour-dependent
+        # → omit it here; the 2c AI injector adds an in-place 「需要出生時辰」 note.
+        if not natal_stem and not natal_branch:
+            continue
+
         interactions = []
 
         # --- Stem interactions ---

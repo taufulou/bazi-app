@@ -254,6 +254,13 @@ def classify_peach_blossoms(
         pillar = pillars[pname]
         p_branch = pillar['branch']
         p_stem = pillar['stem']
+
+        # 時辰未知: skip the blanked hour — we can't claim a 時柱 桃花 (e.g. 牆外桃花)
+        # exists OR is absent (the hour branch is unknown). The 2c AI injector adds
+        # the 「就現有三柱」 framing + 神煞 false-negative guard.
+        if not p_branch:
+            continue
+
         pillar_gz = p_stem + p_branch  # 干支 combo
 
         # --- 桃花 基本檢測 (by day branch or year branch) ---
@@ -565,9 +572,14 @@ def compute_spouse_star_analysis(
         balance = 'balanced'
         balance_desc = '身星平衡'
 
-    # Late marriage indicator: 時支藏 spouse star
-    hour_hidden = HIDDEN_STEMS.get(pillars['hour']['branch'], [])
-    late_marriage_indicator = False
+    # Late marriage indicator: 時支藏 spouse star.
+    # 時辰未知: when the 時支 is unknown the indicator is UNDETERMINED (None), never a
+    # confirmed False — a hidden spouse star in the unknown 時支 is a real
+    # late-marriage signal we simply can't observe (a false-negative would violate
+    # the 「never 命中無」 rule). 時支藏財 note likewise stays '' (hour_hidden==[]).
+    hour_branch = pillars['hour']['branch']
+    hour_hidden = HIDDEN_STEMS.get(hour_branch, [])
+    late_marriage_indicator = False if hour_branch else None
     if hour_hidden:
         for hs in hour_hidden:
             tg = derive_ten_god(day_master_stem, hs)
@@ -1570,7 +1582,10 @@ def compute_marriage_timing_indicators(
         if derive_ten_god(day_master_stem, month_hidden[0]) == spouse_star_tg:
             early_signals.append(f'月柱地支藏{spouse_star_tg}')
 
-    # Check hour pillar for spouse star (late indicator)
+    # Check hour pillar for spouse star (late indicator).
+    # 時辰未知: blank hour → '' stem + [] hidden → this block is inert (adds nothing),
+    # which is correct: it's a positive-signal detector, so silence here is "not
+    # observed", never a claim that the 時柱 has no spouse star.
     hour_stem_tg = derive_ten_god(day_master_stem, pillars['hour']['stem'])
     hour_hidden = HIDDEN_STEMS.get(pillars['hour']['branch'], [])
     if hour_stem_tg == spouse_star_tg:
@@ -1591,9 +1606,16 @@ def compute_marriage_timing_indicators(
             visible_spouse = True
             break
     if not visible_spouse:
-        late_signals.append(
-            f'{spouse_star_tg}不透出，不宜早婚，晚婚對事業發展和家庭幸福較有利'
-        )
+        if pillars['hour']['stem']:
+            late_signals.append(
+                f'{spouse_star_tg}不透出，不宜早婚，晚婚對事業發展和家庭幸福較有利'
+            )
+        else:
+            # 時辰未知: cannot assert 「不透出」 — the spouse star may sit in the
+            # unknown 時干. Soften to explicit-undetermined (no 不宜早婚 verdict).
+            late_signals.append(
+                f'就現有年、月、日三柱未見{spouse_star_tg}透干（時柱未知，無法完全確定是否透出）'
+            )
 
     # Shen sha indicators
     for sha in all_shen_sha:

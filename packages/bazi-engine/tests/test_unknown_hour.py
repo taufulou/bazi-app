@@ -216,3 +216,49 @@ def test_daily_fortune_no_crash_unknown_hour():
     )
     assert daily is not None
     assert daily.get("dayGanZhi")
+
+
+# ── Phase 2b — WRONG-OUTPUT phantom-hour cleanups (ANNUAL + LOVE) ──
+# These charts must NEVER assert a 時柱-based finding as confirmed-absent (the
+# 「never 命中無」 rule). The hour is unknown, so hour-keyed结论 are omitted or
+# marked undetermined, not silently rendered as "exists and uneventful".
+
+
+@pytest.fixture(scope="module")
+def roger_all_pipelines_unknown():
+    return calculate_bazi_with_all_pipelines(
+        birth_time=None, hour_known=False, target_year=2026, **ROGER_PIPE
+    )
+
+
+def test_annual_no_phantom_hour_pillar(roger_all_pipelines_unknown):
+    ann = roger_all_pipelines_unknown["annualEnhancedInsights"]
+    # No phantom 子女宮 (hour) row in the pillar-impact analysis...
+    assert "hour" not in [x["pillar"] for x in ann["pillarImpacts"]]
+    # ...and no cascaded false 「子女宮平穩」 in the relationship palaces.
+    assert "hour" not in ann["relationships"]["palaceRelationships"]
+
+
+def test_love_late_marriage_indicator_undetermined(roger_all_pipelines_unknown):
+    ssa = roger_all_pipelines_unknown["loveEnhancedInsights"]["spouseStarAnalysis"]
+    # None (undetermined) — NOT a confirmed False (a 時支-hidden spouse star is a
+    # real late-marriage signal we just can't observe).
+    assert ssa.get("lateMarriageIndicator") is None
+    assert ssa.get("hourWealthNote") == ""
+
+
+def test_love_visible_spouse_not_falsely_absent(roger_all_pipelines_unknown):
+    mti = roger_all_pipelines_unknown["loveEnhancedInsights"]["marriageTimingIndicators"]
+    joined = "".join(mti.get("lateSignals", []))
+    # Must NOT assert the hard 「不透出，不宜早婚」 verdict when the 時干 is unknown.
+    assert "不透出，不宜早婚" not in joined
+    # When the spouse star is absent from the 3 known stems, the softened
+    # explicit-undetermined note appears instead.
+    if "未見" in joined:
+        assert "時柱未知" in joined
+
+
+def test_love_no_fabricated_hour_peach_blossom(roger_all_pipelines_unknown):
+    pb = roger_all_pipelines_unknown["loveEnhancedInsights"]["peachBlossoms"]
+    for entry in pb.get("positive", []) + pb.get("negative", []):
+        assert entry.get("pillar") != "hour"  # no 時柱 桃花 fabricated/claimed-absent
