@@ -12,10 +12,15 @@ Locks the hour-unknown behavior:
 Anchor: Roger (1987-09-06 吉打 male) = 丁卯/戊申/戊午/(庚申), DM 戊, 用神 火.
 """
 
+from datetime import date
+
 import pytest
 
-from app.calculator import calculate_bazi
+from app.calculator import calculate_bazi, calculate_bazi_with_all_pipelines
+from app.daily_enhanced import compute_daily_fortune
 from app.four_pillars import is_hour_unknown
+from app.monthly_enhanced import compute_single_month_by_yearmonth
+from app.yearly_enhanced import compute_year_by_year
 
 ROGER = dict(
     birth_date="1987-09-06",
@@ -134,3 +139,80 @@ def test_children_narrative_suppressed(roger_unknown):
     assert "時辰未知" in joined
     # Must not fabricate a 時支 children narrative.
     assert "子女宮的核心能量" not in joined
+
+
+# ── Phase 2a — all-pipelines + FORTUNE wrappers must not crash on a blank hour ──
+# calculate_bazi_with_all_pipelines runs love+career+annual+lifetime regardless of
+# reading_type (chat + FORTUNE entry point). It is the path that hits the CAREER
+# calculate_weighted_ten_gods KeyError (the only Phase 2 engine crash). The
+# FORTUNE month/year wrappers build their own blank-hour chart via
+# _get_or_compute_chart_for_flow_year (hour_known threaded).
+
+ROGER_PIPE = dict(
+    birth_date="1987-09-06",
+    birth_city="吉打",
+    birth_timezone="Asia/Kuala_Lumpur",
+    gender="male",
+)
+LAOPO_PIPE = dict(
+    birth_date="1987-01-25",
+    birth_city="台北市",
+    birth_timezone="Asia/Taipei",
+    gender="female",
+)
+
+
+@pytest.mark.parametrize("birth", [ROGER_PIPE, LAOPO_PIPE])
+def test_all_pipelines_no_crash_unknown_hour(birth):
+    # The CAREER 十神比重 crash regression + love/annual/lifetime no-crash.
+    chart = calculate_bazi_with_all_pipelines(
+        birth_time=None, hour_known=False, target_year=2026, **birth
+    )
+    assert chart is not None
+    assert chart["fourPillars"]["hour"]["stem"] == ""
+    assert chart.get("hourKnown") is False
+    assert chart.get("loveEnhancedInsights") is not None
+    assert chart.get("careerEnhancedInsights") is not None
+    assert chart.get("annualEnhancedInsights") is not None
+    assert chart.get("lifetimeEnhancedInsights") is not None
+
+
+@pytest.mark.parametrize("birth", [ROGER_PIPE, LAOPO_PIPE])
+def test_fortune_month_year_wrappers_no_crash_unknown_hour(birth):
+    monthly = compute_single_month_by_yearmonth(
+        birth_time=None, hour_known=False, year=2026, month=5, **birth
+    )
+    assert monthly is not None
+    assert monthly.get("chartContext", {}).get("hourKnown") is False
+    yearly = compute_year_by_year(
+        birth_time=None, hour_known=False, year=2026, **birth
+    )
+    assert yearly is not None
+    assert yearly.get("chartContext", {}).get("hourKnown") is False
+
+
+def test_daily_fortune_no_crash_unknown_hour():
+    # Daily receives the already-blanked pillars from the all-pipelines chart;
+    # the 5-dim dispatchers + folk content must tolerate the blank hour.
+    chart = calculate_bazi_with_all_pipelines(
+        birth_time=None, hour_known=False, target_year=2026, **ROGER_PIPE
+    )
+    dm = chart["dayMaster"]
+    daily = compute_daily_fortune(
+        pillars=chart["fourPillars"],
+        day_master_stem=chart["dayMasterStem"],
+        effective_gods={
+            "usefulGod": dm.get("usefulGod", ""),
+            "favorableGod": dm.get("favorableGod", ""),
+            "idleGod": dm.get("idleGod", ""),
+            "tabooGod": dm.get("tabooGod", ""),
+            "enemyGod": dm.get("enemyGod", ""),
+        },
+        useful_god_element=dm.get("usefulGod", "土"),
+        gender="male",
+        kong_wang=chart.get("kongWang", []),
+        strength=dm.get("strength", "neutral"),
+        target_date=date(2026, 5, 14),
+    )
+    assert daily is not None
+    assert daily.get("dayGanZhi")

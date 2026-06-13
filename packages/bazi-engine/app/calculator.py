@@ -502,13 +502,14 @@ def calculate_bazi(
 
 def calculate_bazi_with_all_pipelines(
     birth_date: str,
-    birth_time: str,
+    birth_time: Optional[str],
     birth_city: str,
     birth_timezone: str,
     gender: str,
     birth_longitude: Optional[float] = None,
     birth_latitude: Optional[float] = None,
     target_year: Optional[int] = None,
+    hour_known: bool = True,
 ) -> Dict:
     """
     Calculate a complete Bazi chart AND run all 4 enhanced pipelines (lifetime,
@@ -548,6 +549,7 @@ def calculate_bazi_with_all_pipelines(
         birth_latitude=birth_latitude,
         target_year=target_year,
         reading_type=None,
+        hour_known=hour_known,
     )
 
     # Step 2: Extract args from base result

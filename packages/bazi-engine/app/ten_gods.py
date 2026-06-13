@@ -322,6 +322,13 @@ def calculate_weighted_ten_gods(
     for pillar_name in ['year', 'month', 'day', 'hour']:
         pillar = pillars[pillar_name]
 
+        # 時辰未知: the blanked hour pillar has an empty stem/branch — skip it so
+        # its mass is dropped (yields a valid 3-pillar 十神比重, DEGRADED + flagged
+        # downstream). Mirrors the guard in five_elements._accumulate_raw_element_scores.
+        # Without this, _get_seasonal_multiplier('') → STEM_ELEMENT[''] → KeyError.
+        if not pillar['stem']:
+            continue
+
         # Manifest stem (skip day master)
         if pillar_name != 'day':
             ten_god = derive_ten_god(day_master_stem, pillar['stem'])

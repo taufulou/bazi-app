@@ -381,13 +381,14 @@ def compute_yearly_luck_methods(
 def compute_year_by_year(
     *,
     birth_date: str,
-    birth_time: str,
+    birth_time: Optional[str],
     birth_city: str,
     birth_timezone: str,
     gender: str,
     year: int,
     birth_longitude: Optional[float] = None,
     birth_latitude: Optional[float] = None,
+    hour_known: bool = True,
 ) -> Dict[str, Any]:
     """Compute 八字年運 (yearly fortune) for the given chart on a flow year.
 
@@ -407,6 +408,7 @@ def compute_year_by_year(
         flow_year=year,
         birth_longitude=birth_longitude,
         birth_latitude=birth_latitude,
+        hour_known=hour_known,
     )
 
     # 2. Destructure 16 params from chart (mirror calculator.py:524-628).
@@ -514,6 +516,7 @@ def compute_year_by_year(
             "gender": gender,
             "birthDate": birth_date,
             "birthTime": birth_time,
+            "hourKnown": chart.get("hourKnown", True),
             "yearPillar": pillars["year"]["stem"] + pillars["year"]["branch"],
             "monthPillar": pillars["month"]["stem"] + pillars["month"]["branch"],
             "dayPillar": pillars["day"]["stem"] + pillars["day"]["branch"],

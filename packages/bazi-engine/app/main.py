@@ -604,9 +604,13 @@ class DailyFortuneInput(BaseModel):
         ..., description="Birth date YYYY-MM-DD",
         pattern=r"^\d{4}-\d{2}-\d{2}$",
     )
-    birth_time: str = Field(
-        ..., description="Birth time HH:MM",
+    birth_time: Optional[str] = Field(
+        None, description="Birth time HH:MM (None/omitted when hour_known is False)",
         pattern=r"^([01]\d|2[0-3]):([0-5]\d)$",
+    )
+    hour_known: bool = Field(
+        True,
+        description="When False, birth_time may be None and the engine returns a 3-pillar (年/月/日) chart with the hour pillar blanked.",
     )
     birth_city: str
     birth_timezone: str
@@ -668,6 +672,7 @@ async def daily_fortune_endpoint(data: DailyFortuneInput):
             birth_longitude=data.birth_longitude,
             birth_latitude=data.birth_latitude,
             target_year=flow_year,
+            hour_known=data.hour_known,
         )
 
         # Extract daily-fortune inputs from full chart
@@ -711,6 +716,7 @@ async def daily_fortune_endpoint(data: DailyFortuneInput):
             'gender': data.gender,
             'birthDate': data.birth_date,
             'birthTime': data.birth_time,
+            'hourKnown': data.hour_known,
             'lunarDate': (
                 f"農曆{chart.get('lunarDate', {}).get('year', '?')}-"
                 f"{chart.get('lunarDate', {}).get('month', '?')}-"
@@ -771,9 +777,13 @@ class MonthlyFortuneInput(BaseModel):
         ..., description="Birth date YYYY-MM-DD",
         pattern=r"^\d{4}-\d{2}-\d{2}$",
     )
-    birth_time: str = Field(
-        ..., description="Birth time HH:MM",
+    birth_time: Optional[str] = Field(
+        None, description="Birth time HH:MM (None/omitted when hour_known is False)",
         pattern=r"^([01]\d|2[0-3]):([0-5]\d)$",
+    )
+    hour_known: bool = Field(
+        True,
+        description="When False, birth_time may be None and the engine returns a 3-pillar chart with the hour pillar blanked.",
     )
     birth_city: str
     birth_timezone: str
@@ -807,9 +817,13 @@ class YearlyFortuneInput(BaseModel):
         ..., description="Birth date YYYY-MM-DD",
         pattern=r"^\d{4}-\d{2}-\d{2}$",
     )
-    birth_time: str = Field(
-        ..., description="Birth time HH:MM",
+    birth_time: Optional[str] = Field(
+        None, description="Birth time HH:MM (None/omitted when hour_known is False)",
         pattern=r"^([01]\d|2[0-3]):([0-5]\d)$",
+    )
+    hour_known: bool = Field(
+        True,
+        description="When False, birth_time may be None and the engine returns a 3-pillar chart with the hour pillar blanked.",
     )
     birth_city: str
     birth_timezone: str
@@ -864,6 +878,7 @@ async def monthly_fortune_endpoint(data: MonthlyFortuneInput):
             month=data.target_month,
             birth_longitude=data.birth_longitude,
             birth_latitude=data.birth_latitude,
+            hour_known=data.hour_known,
         )
 
         # Phase 2.x L1 — wire L1.b intra-month aggregation so MonthlyTimeGrid
@@ -888,6 +903,7 @@ async def monthly_fortune_endpoint(data: MonthlyFortuneInput):
                 month=data.target_month,
                 birth_longitude=data.birth_longitude,
                 birth_latitude=data.birth_latitude,
+                hour_known=data.hour_known,
             )
             monthly_result["intraMonthBreakdown"] = breakdown_result
         except Exception as breakdown_err:
@@ -951,6 +967,7 @@ async def yearly_fortune_endpoint(data: YearlyFortuneInput):
             year=data.target_year,
             birth_longitude=data.birth_longitude,
             birth_latitude=data.birth_latitude,
+            hour_known=data.hour_known,
         )
 
         elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)

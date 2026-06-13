@@ -182,7 +182,7 @@ def _derive_dim_score(base_score: int, signals: List[str]) -> int:
 # ============================================================
 
 _FLOW_YEAR_CACHE_MAXSIZE = 8
-_flow_year_cache: Dict[Tuple[str, int], Dict[str, Any]] = {}
+_flow_year_cache: Dict[Tuple[str, int, bool], Dict[str, Any]] = {}
 
 
 def _compute_chart_hash(
@@ -206,13 +206,14 @@ def _compute_chart_hash(
 def _get_or_compute_chart_for_flow_year(
     *,
     birth_date: str,
-    birth_time: str,
+    birth_time: Optional[str],
     birth_city: str,
     birth_timezone: str,
     gender: str,
     flow_year: int,
     birth_longitude: Optional[float] = None,
     birth_latitude: Optional[float] = None,
+    hour_known: bool = True,
 ) -> Dict[str, Any]:
     """Get chart for the given flow_year. In-process LRU cached.
 
@@ -227,7 +228,7 @@ def _get_or_compute_chart_for_flow_year(
     chart_hash = _compute_chart_hash(
         birth_date, birth_time, birth_city, birth_timezone, gender
     )
-    cache_key = (chart_hash, flow_year)
+    cache_key = (chart_hash, flow_year, hour_known)
 
     if cache_key in _flow_year_cache:
         return _flow_year_cache[cache_key]
@@ -241,6 +242,7 @@ def _get_or_compute_chart_for_flow_year(
         birth_longitude=birth_longitude,
         birth_latitude=birth_latitude,
         target_year=flow_year,
+        hour_known=hour_known,
     )
 
     if len(_flow_year_cache) >= _FLOW_YEAR_CACHE_MAXSIZE:
@@ -353,7 +355,7 @@ def _resolve_liuyue_day_window(
 def compute_single_month_by_yearmonth(
     *,
     birth_date: str,
-    birth_time: str,
+    birth_time: Optional[str],
     birth_city: str,
     birth_timezone: str,
     gender: str,
@@ -361,6 +363,7 @@ def compute_single_month_by_yearmonth(
     month: int,
     birth_longitude: Optional[float] = None,
     birth_latitude: Optional[float] = None,
+    hour_known: bool = True,
 ) -> Dict[str, Any]:
     """Compute 八字月運 for the given chart on a target Gregorian (year, month).
 
@@ -404,6 +407,7 @@ def compute_single_month_by_yearmonth(
         flow_year=flow_year,
         birth_longitude=birth_longitude,
         birth_latitude=birth_latitude,
+        hour_known=hour_known,
     )
 
     # 3. Build monthly_stars for the flow_year + find matching month
@@ -498,6 +502,7 @@ def compute_single_month_by_yearmonth(
         "gender": gender,
         "birthDate": birth_date,
         "birthTime": birth_time,
+        "hourKnown": chart.get("hourKnown", True),
         "yearPillar": pillars["year"]["stem"] + pillars["year"]["branch"],
         "monthPillar": pillars["month"]["stem"] + pillars["month"]["branch"],
         "dayPillar": pillars["day"]["stem"] + pillars["day"]["branch"],
@@ -691,7 +696,7 @@ def _aggregate_bucket(
 def compute_intra_month_breakdown(
     *,
     birth_date: str,
-    birth_time: str,
+    birth_time: Optional[str],
     birth_city: str,
     birth_timezone: str,
     gender: str,
@@ -701,6 +706,7 @@ def compute_intra_month_breakdown(
     birth_longitude: Optional[float] = None,
     birth_latitude: Optional[float] = None,
     precomputed_days: Optional[Dict[str, Dict[str, Any]]] = None,
+    hour_known: bool = True,
 ) -> Dict[str, Any]:
     """Aggregate per-day signals across a 流月 into per-partition buckets.
 
@@ -760,6 +766,7 @@ def compute_intra_month_breakdown(
         flow_year=flow_year,
         birth_longitude=birth_longitude,
         birth_latitude=birth_latitude,
+        hour_known=hour_known,
     )
 
     # 3. Get monthly_stars + resolve 流月 day window
