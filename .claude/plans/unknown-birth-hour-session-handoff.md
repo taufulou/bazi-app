@@ -13,7 +13,7 @@ Feature: a first-class **「時辰未知」** path that produces an honest **3-p
 4. Staff-engineer review files (Round 1–3): `.claude/plans/i-just-switch-to-quizzical-church-agent-{a5dca…, a2ba…, abf9…}.md`
 
 ## Locked product decisions (D1–D12) — see plan for full table
-D1 first-class 時辰未知 → honest 3-pillar, never silent-guess for analysis. D2 no in-place unlock CTA (only a NEW reading with the hour). D3 immutable hour state (set at creation). D4 keep exact time picker + toggle. D5 no 定盤/tiers. D6 confirmation modal. D7 用神 "A + auto-detect tail". D8 in-place 「需要出生時辰」 notes + global hint. D9 compat partial (Phase 3). D10 fortune available (Phase 2). D11 ZWDS ignored/dropped. D12 header basis line + 三柱 badge.
+D1 first-class 時辰未知 → honest 3-pillar, never silent-guess for analysis. D2 no in-place unlock CTA (only a NEW reading with the hour). D3 immutable hour state (set at creation). D4 keep exact time picker + toggle. D5 no 定盤/tiers. D6 acknowledgement at the spend-credits step (NOT at 排盤) — revised 2026-06-13. D7 用神 "A + auto-detect tail". D8 in-place 「需要出生時辰」 notes + global hint. D9 compat partial (Phase 3). D10 fortune available (Phase 2). D11 ZWDS ignored/dropped. D12 header basis line + 三柱 badge.
 
 ## What Phase 1 delivered (architecture)
 
@@ -27,7 +27,16 @@ D1 first-class 時辰未知 → honest 3-pillar, never silent-guess for analysis
 
 **AI suppression block** (`ai.service.ts::interpolateLifetimeV2Fields`) enforces: no fabrication/detail of hour items; **in-place 「需要出生時辰」 note, NOT silent omission** (D8); **神煞 false-negative guard** (禁止「命中無某神煞」); 用神「（時辰未知，僅供參考）」; 格局待確認 when undetermined; **D2-aligned 補時辰 phrasing** (「日後得知時辰，可另建新的命盤查看完整分析」, never 「我可以為你提供」).
 
-**Frontend:** `BirthDataForm.tsx` 時辰未知 toggle (disables time dropdowns + hint) + D6 confirmation modal (`performSubmit` gated); `BaziChart.tsx` 時柱 column placeholder + header tag + basis line + 公曆「（時辰未知）」; nullable `birthTime` types across `birth-profiles-api`/`readings-api`/`date-time-utils`.
+**Frontend:** `BirthDataForm.tsx` 時辰未知 toggle **below the time row** (disables time dropdowns + plain hint); **no submit-time modal** — 開始排盤 → free 3-pillar preview directly, and the acknowledgement rides inside the shared `UnlockConfirmModal` via a `hourUnknown` prop (gated `!!chartData && !chartData.fourPillars?.hour?.stem`) at 解鎖完整報告; `BaziChart.tsx` 時柱 column placeholder + header tag + basis line (`text-align:left`) + 公曆「（時辰未知）」; nullable `birthTime` types across `birth-profiles-api`/`readings-api`/`date-time-utils`. Wording is plain/beginner-friendly throughout (revised 2026-06-13 — see refinements below).
+
+## Phase 1 UI/UX refinements (2026-06-13) — browser-verified. **These set the style Phase 2/3 must follow.**
+Owner-feedback polish on the shipped LIFETIME flow. Full rules in the master plan (D6, D8, §5, §6, §7 + the "Phase 1 UI/UX refinements" review-log entry). The four changes:
+1. **Toggle below the time picker** — `我不知道出生時辰` sits under the 時／分／午別 row (was above) + plain hint on tick. `BirthDataForm.tsx` (+`.module.css`).
+2. **Acknowledgement at unlock, not at 排盤** (D6) — deleted the submit-time modal (JSX + state + dead `.modal*` CSS); `handleSubmit`→`performSubmit()`. Warning now rides inside `UnlockConfirmModal` via `hourUnknown` prop, gated `hourUnknown={!!chartData && !chartData.fourPillars?.hour?.stem}`. **Reuse this prop on every paywall surface** — LIFETIME/LOVE/CAREER/ANNUAL share `UnlockConfirmModal` (free); **FORTUNE (`FortuneUpgradeModal`) + COMPATIBILITY must port the block in Phase 2/3.**
+3. **Plain wording everywhere** (D8) — basis line / form hint / unlock-modal warning / AI in-place notes all lead with 「由於未提供出生時辰…」, gloss 時柱→「出生時辰那一柱」. Keep the unlock-modal list ↔ AI in-place notes in sync.
+4. **Basis line left-aligned** — `.hourUnknownBasis { text-align:left; }` (sits in a centered header). `BaziChart.tsx` (+`.module.css`).
+
+Files touched: `BirthDataForm.tsx`/`.module.css`, `UnlockConfirmModal.tsx`/`.module.css`, `BaziChart.tsx`/`.module.css`, `reading/[type]/page.tsx`. Frontend-only (no engine/NestJS rebuild). Browser E2E (fresh chart 1995-11-08 時辰未知): toggle-below + plain hint ✓; 開始排盤 → free preview, no popup ✓; basis line `text-align:left` + plain copy ✓; 解鎖完整報告 → `UnlockConfirmModal` warm-amber warning block (5 plain bullets + 「僅供參考」 + 「另建新命盤」) above feature grid + 💎 cost ✓; cancelled (no credits); zero console errors.
 
 ## Verification (all green)
 - Engine: **9 new `test_unknown_hour.py`** (Roger neutral + Laopo weak-DM no-crash) + **2944 suite pass** (only the documented pre-existing `test_roger_laopo_full_preanalysis` fails). API `tsc` clean; web `tsc` only the pre-existing ChatDrawer JSX-identity error.

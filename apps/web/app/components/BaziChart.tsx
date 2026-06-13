@@ -237,7 +237,7 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
           </div>
           {hourUnknown && (
             <div className={styles.hourUnknownBasis}>
-              本命盤以年、月、日三柱推算（時辰未知），約可掌握命局七成；時柱、子女、晚年運、命宮／身宮等暫不提供。
+              由於未提供出生時辰，本命盤只用「年、月、日」推算，約可掌握七成。與時辰有關的內容（出生那個時辰、子女運、晚年運等）暫不顯示。
             </div>
           )}
         </div>

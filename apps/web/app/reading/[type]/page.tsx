@@ -1964,6 +1964,7 @@ export default function ReadingPage() {
             {/* Unlock Confirmation Modal — shared by all paywall reading types */}
             <UnlockConfirmModal
               isOpen={showUnlockConfirm}
+              hourUnknown={!!chartData && !chartData.fourPillars?.hour?.stem}
               onClose={() => setShowUnlockConfirm(false)}
               onConfirm={() => {
                 setShowUnlockConfirm(false);

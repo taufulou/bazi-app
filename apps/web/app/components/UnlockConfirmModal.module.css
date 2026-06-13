@@ -38,6 +38,38 @@
   font-family: var(--font-noto-serif-tc), serif;
 }
 
+/* 時辰未知 limitation (shown only when the chart has no birth hour) */
+.hourUnknownWarn {
+  text-align: left;
+  background: rgba(var(--color-gold-rgb), 0.08);
+  border: 1px solid rgba(var(--color-gold-rgb), 0.25);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.hourUnknownWarnLead {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  margin: 0 0 0.5rem;
+}
+
+.hourUnknownWarnList {
+  margin: 0 0 0.5rem;
+  padding-left: 1.2rem;
+  font-size: 0.83rem;
+  line-height: 1.7;
+  color: var(--text-secondary);
+}
+
+.hourUnknownWarnNote {
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--text-muted);
+  margin: 0;
+}
+
 /* Feature preview box */
 .featureBox {
   background: var(--bg-secondary);

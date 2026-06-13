@@ -13,6 +13,8 @@ interface UnlockConfirmModalProps {
   features: string[];
   effectiveCost: number;
   currentCredits: number | null;
+  /** When the chart has no birth hour, show the 3-pillar limitation block before unlocking. */
+  hourUnknown?: boolean;
 }
 
 export default function UnlockConfirmModal({
@@ -25,6 +27,7 @@ export default function UnlockConfirmModal({
   features,
   effectiveCost,
   currentCredits,
+  hourUnknown = false,
 }: UnlockConfirmModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const primaryBtnRef = useRef<HTMLButtonElement>(null);
@@ -94,6 +97,24 @@ export default function UnlockConfirmModal({
         <h3 id="unlock-confirm-title" className={styles.title}>
           即將為您解鎖{readingName}
         </h3>
+
+        {hourUnknown && (
+          <div className={styles.hourUnknownWarn}>
+            <p className={styles.hourUnknownWarnLead}>
+              ⚠️ 因為沒有出生時辰，這份報告會以「年、月、日」來推算（大約七成）。下列與時辰有關的內容，這次不會包含：
+            </p>
+            <ul className={styles.hourUnknownWarnList}>
+              <li>出生時辰那一柱的分析</li>
+              <li>子女緣分與子女運</li>
+              <li>晚年運勢</li>
+              <li>命宮、身宮</li>
+              <li>部分與時辰有關的神煞</li>
+            </ul>
+            <p className={styles.hourUnknownWarnNote}>
+              用神、五行比重會標示「僅供參考」。出生時辰無法事後補上；若日後得知，可另外建立一張新命盤查看完整分析。
+            </p>
+          </div>
+        )}
 
         <div className={styles.featureBox}>
           <div className={styles.featureGrid}>

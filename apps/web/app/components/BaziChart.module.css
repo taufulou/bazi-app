@@ -719,6 +719,9 @@
   padding: 0.45rem 0.7rem;
   font-size: 0.78rem;
   line-height: 1.55;
+  /* Left-align: the parent .profileHeader is text-align:center, which makes
+     this multi-line note read ragged. Force a clean left-aligned paragraph. */
+  text-align: left;
   color: var(--text-secondary);
   background: var(--bg-secondary);
   border: 1px solid var(--border-light);

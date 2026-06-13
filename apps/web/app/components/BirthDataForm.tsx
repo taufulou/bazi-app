@@ -116,7 +116,6 @@ export default function BirthDataForm({
   const [isLeapMonth, setIsLeapMonth] = useState(initialValues?.isLeapMonth ?? false);
   const [submitError, setSubmitError] = useState("");
   // 時辰未知 (D6): confirmation modal shown on submit when the hour is unknown.
-  const [showHourUnknownConfirm, setShowHourUnknownConfirm] = useState(false);
 
   // Date/time split into individual dropdown states
   const [birthYear, setBirthYear] = useState(() => initialValues?.birthDate?.substring(0, 4) ?? "");
@@ -225,11 +224,8 @@ export default function BirthDataForm({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // 時辰未知 (D6): confirm before 排盤 so the user acknowledges the unavailable sections.
-    if (!form.hourKnown) {
-      setShowHourUnknownConfirm(true);
-      return;
-    }
+    // 時辰未知: no popup here — go straight to the free 3-pillar preview.
+    // The acknowledgement now lives in UnlockConfirmModal (the spend-credits step).
     performSubmit();
   };
 
@@ -589,15 +585,6 @@ export default function BirthDataForm({
         </div>
         <div className={styles.fieldGroup}>
           <label className={styles.label}>出生時間</label>
-          <label className={styles.hourUnknownToggle}>
-            <input
-              type="checkbox"
-              className={styles.checkbox}
-              checked={!form.hourKnown}
-              onChange={(e) => updateField("hourKnown", !e.target.checked)}
-            />
-            我不知道出生時辰
-          </label>
           <div className={styles.timeRow}>
             <select
               className={styles.dateSelect}
@@ -634,9 +621,18 @@ export default function BirthDataForm({
               <option value="PM">下午</option>
             </select>
           </div>
+          <label className={styles.hourUnknownToggle}>
+            <input
+              type="checkbox"
+              className={styles.checkbox}
+              checked={!form.hourKnown}
+              onChange={(e) => updateField("hourKnown", !e.target.checked)}
+            />
+            我不知道出生時辰
+          </label>
           {!form.hourKnown && (
             <p className={styles.hourUnknownHint}>
-              將以年、月、日三柱推算（約可掌握命局七成）。時柱、子女宮、晚年運勢、命宮／身宮暫不提供。
+              沒有出生時辰也可以排盤：將以「年、月、日」推算（約七成）。與時辰有關的內容（子女運、晚年運等）會略過。
             </p>
           )}
         </div>
@@ -752,47 +748,6 @@ export default function BirthDataForm({
       )}
       {afterSubmit}
 
-      {/* 時辰未知 confirmation (D6) — acknowledge unavailable sections before 排盤 */}
-      {showHourUnknownConfirm && (
-        <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="時辰未知提醒">
-          <div className={styles.modalCard}>
-            <h3 className={styles.modalTitle}>以「時辰未知」建立命盤？</h3>
-            <p className={styles.modalBody}>
-              將以 <strong>年、月、日 三柱</strong> 為您推算（約可掌握命局七成）。
-            </p>
-            <p className={styles.modalBody}>以下項目因缺少時辰<strong>暫不提供</strong>：</p>
-            <ul className={styles.modalList}>
-              <li>時柱與其十神／神煞</li>
-              <li>子女宮與子女運</li>
-              <li>晚年運勢</li>
-              <li>命宮／身宮</li>
-              <li>部分與時支相關的神煞</li>
-            </ul>
-            <p className={styles.modalNote}>
-              用神／五行比重將標註「僅供參考」。出生時辰於建立後<strong>無法更改</strong>；若日後得知，請另建新的命盤。
-            </p>
-            <div className={styles.modalActions}>
-              <button
-                type="button"
-                className={styles.modalCancel}
-                onClick={() => setShowHourUnknownConfirm(false)}
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                className={styles.modalConfirm}
-                onClick={() => {
-                  setShowHourUnknownConfirm(false);
-                  performSubmit();
-                }}
-              >
-                我了解，繼續排盤
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </form>
   );
 }
