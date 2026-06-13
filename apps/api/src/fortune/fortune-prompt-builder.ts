@@ -33,6 +33,9 @@ export interface FortuneChartContext {
   favorableGod: string;
   tabooGod: string;
   enemyGod: string;
+  /** 時辰未知 — false when the birth hour is unknown (3-pillar reading). Engine
+   *  emits it on chartContext; gates the suppression block in the injectors. */
+  hourKnown?: boolean;
 }
 
 export interface DailyEngineOutput {
@@ -110,6 +113,27 @@ function renderDimSignals(signals: Array<Record<string, unknown>>): string {
     return '  （無觸發訊號 — 今日該維度平穩無動向）';
   }
   return signals.map(renderSignalLine).join('\n');
+}
+
+/**
+ * 時辰未知 — deterministic suppression directive for FORTUNE prompts. Mirrors
+ * `ai.service.ts::buildHourUnknownSuppressionBlock` (which is private to AIService
+ * and not importable here). Only prepended when `chart.hourKnown === false`, so
+ * hour-known prompts stay byte-identical (cache-safe; hour-unknown is a distinct
+ * chart-hash bucket anyway). `extraLines` carries per-scope specifics.
+ */
+function buildFortuneHourUnknownBlock(readingLabel: string, extraLines: string[] = []): string {
+  return [
+    '【時辰未知 — 嚴格限制（必須遵守）】',
+    `本${readingLabel}以年、月、日三柱推算，時辰未知。`,
+    '禁止「編造」時柱相關項目：時柱十神／神煞、子女宮、晚年、命宮、身宮。',
+    '若需提及，請以「一句」簡短說明帶過（例：「此項需要出生時辰方能完整分析」），不可整段省略亦不可虛構。',
+    '若提及補時辰，措辭一律為「日後得知時辰，可另建新的命盤查看完整分析」之意；禁止「我可以為你提供」「補上即可解鎖」。',
+    '神煞僅就現有年、月、日三柱論述；禁止斷言「命中無某神煞」（時支神煞無法判斷）。',
+    '用神／五行比重僅供參考，相關段落請註明「（時辰未知，僅供參考）」。',
+    ...extraLines,
+    '',
+  ].filter(Boolean).join('\n');
 }
 
 // ============================================================
@@ -195,6 +219,15 @@ export function interpolateFortuneV1Fields(
   for (const [token, value] of Object.entries(replacements)) {
     // Use split/join for global replace without regex escaping
     out = out.split(token).join(value);
+  }
+
+  // 時辰未知 (Phase FORTUNE): prepend the suppression directive. Engine blanks the
+  // hour pillar + emits chart.hourKnown=false; this forbids the AI narrating
+  // 時柱/子女/晚年 + flags 用神. Gated → hour-known byte-identical.
+  if (chart.hourKnown === false) {
+    out = `${buildFortuneHourUnknownBlock('八字日運解讀', [
+      '流日與年、月、日三柱及大運的互動不受影響，仍須完整分析。',
+    ])}\n${out}`;
   }
 
   return out;
@@ -475,6 +508,14 @@ export function interpolateFortuneMonthlyFields(
   for (const [token, value] of Object.entries(replacements)) {
     out = out.split(token).join(value);
   }
+
+  // 時辰未知 (Phase FORTUNE): prepend the suppression directive (gated → hour-known byte-identical).
+  if (chart.hourKnown === false) {
+    out = `${buildFortuneHourUnknownBlock('八字月運解讀', [
+      '流月與年、月、日三柱及大運的互動不受影響，仍須完整分析。',
+    ])}\n${out}`;
+  }
+
   return out;
 }
 
@@ -627,6 +668,14 @@ export function interpolateFortuneYearlyFields(
   for (const [token, value] of Object.entries(replacements)) {
     out = out.split(token).join(value);
   }
+
+  // 時辰未知 (Phase FORTUNE): prepend the suppression directive (gated → hour-known byte-identical).
+  if (chart.hourKnown === false) {
+    out = `${buildFortuneHourUnknownBlock('八字年運解讀', [
+      '流年與年、月、日三柱及大運的互動不受影響，仍須完整分析。',
+    ])}\n${out}`;
+  }
+
   return out;
 }
 

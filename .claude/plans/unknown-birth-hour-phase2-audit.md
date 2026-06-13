@@ -43,6 +43,11 @@ Reading-page AI suppression for LOVE/CAREER/ANNUAL via shared `buildHourUnknownS
 
 Remaining 2c tail (FORTUNE half — next slice): `fortune.service.ts` hour_known threading + 3 FORTUNE injectors in `fortune-prompt-builder.ts` + N1/N3/N4 DTO hardening.
 
+### FORTUNE half — DONE + line-audited + endpoint-verified (2026-06-13) ✅
+NestJS FORTUNE path (日/月/年運) made honest. **A (threading):** the 3 engine-fetch payloads in `fortune-snapshot.helpers.ts` now send `hour_known: profile.hourKnown ?? true`; fetch param types + the 3 stream-preflight return types + `buildFallbackChartContext` gained `hourKnown` (`profile.hourKnown` loads full-row, survives the `engineProfile` spread + the `Parameters<>` cast — non-stream `fortune.service.ts` auto-threaded). **B (injectors):** `FortuneChartContext.hourKnown?` + a `buildFortuneHourUnknownBlock` free function prepended (gated `chart.hourKnown===false`) in all 3 injectors. Line audit CONFIRMED-CORRECT (both data-flow directions; tsc exit 0). **Live endpoint verify** (page blocked — see below — so verified via the non-streaming endpoints with a real Clerk token): DAILY + MONTHLY both round-trip `hourKnown:false` (戊午 / 甲午), narrative generated, zero hour fabrication (`時上格局`/`命中無`/`子女宮`/`時柱`/`晚年` all absent), soft-trigger framing intact, 配偶宮(日支)+用神 correctly used. YEARLY = identical helper/gate/flow (audit + engine-emits-hourKnown confirmed). Regression lock: `fortune-prompt-builder.hour-unknown.spec.ts` (3 tests). Full fortune jest 144 pass. Deferred N1/N3/N4 DTO-hardening to a dedicated step (so the N1 validator doesn't 422 the not-yet-threaded chat/compat paths).
+
+> ⚠️ **Pre-existing blocker (NOT hour-unknown, flagged as task_a7ccb703):** `/reading/fortune` 500s for ALL profiles — `share-fortune.ts:66` html2canvas dynamic import → Next 16 `Cannot find module 'react-dom/server.browser'` (reproducible after clean `next dev` restart; last touched by PR #47). Blocks the through-the-page browser test; backend endpoints verified directly instead.
+
 ### 2d — Chat guard
 - Chat-side fortune injectors mirror in `chat-context.service.ts` (`:1428/:1585/:1829`, dispatched from `chat-prompt-builder.ts:178-208`).
 - Guard the engine chat-context pipelines (`chat_context.py` merges all 4 enhanced-insights — same crash surface, fixed by 2a) + add the suppression directive to the chat system prompt for hour-unknown.

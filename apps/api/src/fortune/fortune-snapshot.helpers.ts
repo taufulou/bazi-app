@@ -341,12 +341,13 @@ export class FortuneSnapshotHelpers {
   async fetchDailyFromEngine(
     profile: {
       birthDate: Date;
-      birthTime: string;
+      birthTime: string | null;
       birthCity: string;
       birthTimezone: string;
       gender: string;
       birthLongitude: number | null;
       birthLatitude: number | null;
+      hourKnown: boolean;
     },
     targetDateIso: string,
   ): Promise<DailyEngineOutput> {
@@ -366,6 +367,7 @@ export class FortuneSnapshotHelpers {
           birth_longitude: profile.birthLongitude,
           birth_latitude: profile.birthLatitude,
           target_date: targetDateIso,
+          hour_known: profile.hourKnown ?? true,
         }),
         signal: AbortSignal.timeout(ENGINE_REQUEST_TIMEOUT_MS),
       });
@@ -396,13 +398,14 @@ export class FortuneSnapshotHelpers {
    *  doesn't render literal '?' placeholders.
    */
   buildFallbackChartContext(
-    profile: { birthDate: Date; birthTime: string; gender: string },
+    profile: { birthDate: Date; birthTime: string | null; gender: string; hourKnown: boolean },
   ): FortuneChartContext {
     this.logger.warn('Engine response missing chartContext — using fallback');
     return {
       gender: profile.gender,
       birthDate: profile.birthDate.toISOString().slice(0, 10),
-      birthTime: profile.birthTime,
+      birthTime: profile.birthTime ?? '',
+      hourKnown: profile.hourKnown ?? true,
       lunarDate: null,
       yearPillar: '',
       monthPillar: '',
@@ -852,12 +855,13 @@ export class FortuneSnapshotHelpers {
   async fetchMonthlyFromEngine(
     profile: {
       birthDate: Date;
-      birthTime: string;
+      birthTime: string | null;
       birthCity: string;
       birthTimezone: string;
       gender: string;
       birthLongitude: number | null;
       birthLatitude: number | null;
+      hourKnown: boolean;
     },
     year: number,
     month: number,
@@ -879,6 +883,7 @@ export class FortuneSnapshotHelpers {
           birth_latitude: profile.birthLatitude,
           target_year: year,
           target_month: month,
+          hour_known: profile.hourKnown ?? true,
         }),
         signal: AbortSignal.timeout(MONTHLY_ENGINE_TIMEOUT_MS),
       });
@@ -1187,12 +1192,13 @@ export class FortuneSnapshotHelpers {
   async fetchYearlyFromEngine(
     profile: {
       birthDate: Date;
-      birthTime: string;
+      birthTime: string | null;
       birthCity: string;
       birthTimezone: string;
       gender: string;
       birthLongitude: number | null;
       birthLatitude: number | null;
+      hourKnown: boolean;
     },
     year: number,
   ): Promise<YearlyEngineOutput> {
@@ -1212,6 +1218,7 @@ export class FortuneSnapshotHelpers {
           birth_longitude: profile.birthLongitude,
           birth_latitude: profile.birthLatitude,
           target_year: year,
+          hour_known: profile.hourKnown ?? true,
         }),
         signal: AbortSignal.timeout(YEARLY_ENGINE_TIMEOUT_MS),
       });

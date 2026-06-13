@@ -376,6 +376,7 @@ export class FortuneStreamService {
       gender: string;
       birthLongitude: number | null;
       birthLatitude: number | null;
+      hourKnown: boolean;
     };
     targetDate: string;
     targetDateObj: Date;
@@ -1030,6 +1031,7 @@ export class FortuneStreamService {
       gender: string;
       birthLongitude: number | null;
       birthLatitude: number | null;
+      hourKnown: boolean;
     };
     targetMonth: string;
     anchorDate: Date;
@@ -1604,6 +1606,7 @@ export class FortuneStreamService {
       gender: string;
       birthLongitude: number | null;
       birthLatitude: number | null;
+      hourKnown: boolean;
     };
     targetYear: string;
     anchorDate: Date;
