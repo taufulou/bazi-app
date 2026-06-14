@@ -37,6 +37,7 @@ from app.compatibility_constants import (
     YONGSHEN_RAW_MIN,
     YONGSHEN_RANGE,
 )
+from app.compatibility import calculate_compatibility
 from app.compatibility_enhanced import (
     _calculate_tiande_mitigation,
     analyze_cross_chart_branches,
@@ -1132,3 +1133,119 @@ class TestEdgeCases:
             luck_periods_a=None, luck_periods_b=None,
         )
         assert 5 <= result['adjustedScore'] <= 99
+
+
+# ============================================================
+# Phase 3 — 時辰未知 (unknown birth hour) honest-partial 合盤
+# ============================================================
+# When one/both parties lack a birth hour the engine blanks that party's hour
+# pillar (empty stem/branch). Per D9: 合盤 degrades gracefully (配偶宮=日支 core
+# survives); the only score-distortion site is Dim 6b's max_*-denominator (it
+# accumulated weight for blank-hour pairs, diluting the score). Phase 3 skips
+# blank-hour pairs (honest score) + emits partial/hourUnknownParties flags.
+
+class TestCompatHourUnknown:
+    """Phase 3 — honest-partial compatibility for blanked hour pillars."""
+
+    def _pair(self, blank_a=False, blank_b=False):
+        chart_a, chart_b, pre_a, pre_b = TestEnhancedCompatibility()._make_test_pair()
+        if blank_a:
+            chart_a['fourPillars']['hour'] = {'stem': '', 'branch': ''}
+        if blank_b:
+            chart_b['fourPillars']['hour'] = {'stem': '', 'branch': ''}
+        return chart_a, chart_b, pre_a, pre_b
+
+    # ---- top-level partial / hourUnknownParties flags (enhanced) ----
+
+    def test_enhanced_flags_a_only(self):
+        chart_a, chart_b, pre_a, pre_b = self._pair(blank_a=True)
+        r = calculate_enhanced_compatibility(chart_a, chart_b, pre_a, pre_b, 'male', 'female', 'romance', 2026)
+        assert r['partial'] is True
+        assert r['hourUnknownParties'] == ['A']
+        assert 5 <= r['adjustedScore'] <= 99  # no crash / valid range
+
+    def test_enhanced_flags_b_only(self):
+        chart_a, chart_b, pre_a, pre_b = self._pair(blank_b=True)
+        r = calculate_enhanced_compatibility(chart_a, chart_b, pre_a, pre_b, 'male', 'female', 'romance', 2026)
+        assert r['partial'] is True
+        assert r['hourUnknownParties'] == ['B']
+
+    def test_enhanced_flags_both(self):
+        chart_a, chart_b, pre_a, pre_b = self._pair(blank_a=True, blank_b=True)
+        r = calculate_enhanced_compatibility(chart_a, chart_b, pre_a, pre_b, 'male', 'female', 'romance', 2026)
+        assert r['partial'] is True
+        assert r['hourUnknownParties'] == ['A', 'B']
+        assert 5 <= r['adjustedScore'] <= 99  # both-unknown: no divide-by-zero
+
+    def test_enhanced_both_known_not_partial(self):
+        chart_a, chart_b, pre_a, pre_b = self._pair()
+        r = calculate_enhanced_compatibility(chart_a, chart_b, pre_a, pre_b, 'male', 'female', 'romance', 2026)
+        assert r['partial'] is False
+        assert r['hourUnknownParties'] == []
+
+    # ---- Dim 6b: no phantom hour pair + honest score (no dilution) ----
+
+    def test_dim6b_no_phantom_hour_pair(self):
+        chart_a, chart_b, pre_a, pre_b = self._pair(blank_a=True)
+        r = calculate_enhanced_compatibility(chart_a, chart_b, pre_a, pre_b, 'male', 'female', 'romance', 2026)
+        findings = r['dimensionScores']['fullPillarInteraction']['findings']
+        # No cross finding may reference party A's (blanked) hour pillar.
+        assert all(f.get('pillarA') != 'hour' for f in findings)
+
+    def test_dim6b_honest_score_no_dilution(self):
+        # A has exactly one 六合 with B (子丑, day-day) + a DEAD-WEIGHT hour (卯,
+        # relates to nothing in B). A known dead-weight hour inflates max_positive
+        # → dilutes the score. A BLANKED hour must NOT be penalized that way — its
+        # score must be >= the dead-weight-hour score (the dilution is removed).
+        b_pillars = {
+            'year': {'stem': '丁', 'branch': '巳'},
+            'month': {'stem': '丁', 'branch': '巳'},
+            'day': {'stem': '己', 'branch': '丑'},
+            'hour': {'stem': '丁', 'branch': '巳'},
+        }
+        a_known = {
+            'year': {'stem': '丁', 'branch': '卯'},
+            'month': {'stem': '丁', 'branch': '卯'},
+            'day': {'stem': '甲', 'branch': '子'},
+            'hour': {'stem': '丁', 'branch': '卯'},  # dead weight: 卯 relates to none of 巳/丑
+        }
+        a_blank = {**{k: dict(v) for k, v in a_known.items()}, 'hour': {'stem': '', 'branch': ''}}
+        pre = make_pre_analysis()
+        s_deadweight = analyze_cross_chart_branches(a_known, b_pillars, pre, pre)['rawScore']
+        blank_res = analyze_cross_chart_branches(a_blank, b_pillars, pre, pre)
+        s_blank = blank_res['rawScore']
+        # STRICT >: the blank removes the 4 A-hour pairs from max_positive, so the
+        # honest score is HIGHER than the dead-weight-hour score. If the Dim 6b
+        # guard were reverted, the blank '' hour would inflate max_positive the
+        # same as the dead-weight 卯 → s_blank == s_deadweight → this assertion
+        # would FAIL. So `>` (not `>=`) genuinely regression-locks the fix.
+        assert s_blank > s_deadweight  # dilution removed (reverting the fix breaks this)
+        # And the blank run carries no A-hour finding.
+        assert all(f.get('pillarA') != 'hour' for f in blank_res['findings'])
+
+    # ---- basic compatibility.py: flags only, score already honest ----
+
+    def test_basic_flags_and_honest_score(self):
+        # Dead-weight known hour (卯 — relates to none of B's 巳/丑) vs blanked
+        # hour. The legacy score is a ratio of FOUND relationships, and a
+        # dead-weight hour contributes none → blanking it must produce the SAME
+        # overall score (proves no distortion) and just add the partial flag.
+        b = make_chart(day_stem='己', pillars={
+            'year': {'stem': '丁', 'branch': '巳'}, 'month': {'stem': '丁', 'branch': '巳'},
+            'day': {'stem': '己', 'branch': '丑'}, 'hour': {'stem': '丁', 'branch': '巳'},
+        })
+        a_known = make_chart(day_stem='甲', pillars={
+            'year': {'stem': '丁', 'branch': '卯'}, 'month': {'stem': '丁', 'branch': '卯'},
+            'day': {'stem': '甲', 'branch': '子'}, 'hour': {'stem': '丁', 'branch': '卯'},
+        })
+        a_blank = make_chart(day_stem='甲', pillars={
+            **{k: dict(v) for k, v in a_known['fourPillars'].items()},
+            'hour': {'stem': '', 'branch': ''},
+        })
+        r_known = calculate_compatibility(a_known, b, 'romance')
+        r_blank = calculate_compatibility(a_blank, b, 'romance')
+        assert r_known['partial'] is False and r_known['hourUnknownParties'] == []
+        assert r_blank['partial'] is True and r_blank['hourUnknownParties'] == ['A']
+        assert r_known['overallScore'] == r_blank['overallScore']  # dead-weight hour → no distortion
+        # No phantom hour pair leaked into the relationship list.
+        assert all(rel.get('pillarA') != 'hour' for rel in r_blank['allBranchRelationships'])

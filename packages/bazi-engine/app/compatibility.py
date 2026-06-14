@@ -173,6 +173,16 @@ def calculate_compatibility(
     pillars_a = chart_a['fourPillars']
     pillars_b = chart_b['fourPillars']
 
+    # 時辰未知 (Phase 3): per-party blank-hour status (empty hour stem = Phase 1
+    # convention). This legacy score is a ratio of FOUND relationships only
+    # (analyze_branch_relationship('',X)→[]), so it's already honest without the
+    # hour — these flags are output-only signals, not a score fix.
+    hour_unknown_a = not pillars_a.get('hour', {}).get('stem')
+    hour_unknown_b = not pillars_b.get('hour', {}).get('stem')
+    hour_unknown_parties = [
+        p for p, unk in (('A', hour_unknown_a), ('B', hour_unknown_b)) if unk
+    ]
+
     day_stem_a = chart_a['dayMasterStem']
     day_stem_b = chart_b['dayMasterStem']
     day_branch_a = pillars_a['day']['branch']
@@ -195,6 +205,11 @@ def calculate_compatibility(
         for pillar_name_b in ['year', 'month', 'day', 'hour']:
             branch_a = pillars_a[pillar_name_a]['branch']
             branch_b = pillars_b[pillar_name_b]['branch']
+            # 時辰未知: blanked hour branch matches no relationship anyway; skip
+            # explicitly for clarity + consistency with the engine-wide
+            # skip-empty convention (no score effect — defensive only).
+            if not branch_a or not branch_b:
+                continue
             rels = analyze_branch_relationship(branch_a, branch_b)
             for rel in rels:
                 rel['pillarA'] = pillar_name_a
@@ -320,4 +335,7 @@ def calculate_compatibility(
         'strengths': strengths,
         'challenges': challenges,
         'comparisonType': comparison_type,
+        # 時辰未知 (Phase 3): honest-partial signal (see top-of-function note).
+        'partial': len(hour_unknown_parties) > 0,
+        'hourUnknownParties': hour_unknown_parties,
     }

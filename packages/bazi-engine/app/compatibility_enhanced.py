@@ -967,6 +967,15 @@ def analyze_cross_chart_branches(
         branch_a = pillars_a[pa_name]['branch']
         for pb_name in pillar_names:
             branch_b = pillars_b[pb_name]['branch']
+            # 時辰未知 (Phase 3): skip any pair touching a blanked hour branch so
+            # it never accumulates into max_positive/max_negative — otherwise a
+            # missing hour inflates the denominator and dishonestly dilutes the
+            # dimension score (empirically 100→87.5). The blank branch IS the
+            # unknown-hour signal (Phase 1 convention). Excluding from BOTH the
+            # matched-weight and the theoretical-max keeps the partial score
+            # honest. 三合/三刑 below are subset checks — '' is never in a trio.
+            if not branch_a or not branch_b:
+                continue
             weight = CROSS_PILLAR_BRANCH_WEIGHTS.get(
                 (pa_name, pb_name), branch_default_weight
             )
@@ -1577,6 +1586,16 @@ def calculate_enhanced_compatibility(
     luck_periods_a = luck_periods_a or []
     luck_periods_b = luck_periods_b or []
 
+    # 時辰未知 (Phase 3): per-party blank-hour status (empty hour stem = Phase 1
+    # convention). Drives the top-level partial/hourUnknownParties flags so the
+    # AI/UI can frame the result as a 3-pillar partial 合盤 (D9) — the day-branch
+    # 配偶宮 core survives; only hour-keyed cross-interactions are lost.
+    hour_unknown_a = not pillars_a.get('hour', {}).get('stem')
+    hour_unknown_b = not pillars_b.get('hour', {}).get('stem')
+    hour_unknown_parties = [
+        p for p, unk in (('A', hour_unknown_a), ('B', hour_unknown_b)) if unk
+    ]
+
     all_branches_a = [pillars_a[p]['branch'] for p in ['year', 'month', 'day', 'hour']]
     all_branches_b = [pillars_b[p]['branch'] for p in ['year', 'month', 'day', 'hour']]
 
@@ -1801,6 +1820,13 @@ def calculate_enhanced_compatibility(
             'luckCycleSyncScore': dim8['rawScore'],
         },
         'comparisonType': comparison_type,
+        # 時辰未知 (Phase 3): honest-partial signal. partial=True means ≥1 party
+        # is 3-pillar; hourUnknownParties lists which ('A'/'B'). Per D9 the score
+        # is NOT penalized — it's computed over available pillars + flagged so the
+        # AI/UI frames it as preliminary (用神/五行 at lower confidence, 子女緣/
+        # 晚年 withheld, no 「命中無」 神煞 claims for the unknown party).
+        'partial': len(hour_unknown_parties) > 0,
+        'hourUnknownParties': hour_unknown_parties,
         'calibration': {
             'sigmoidSteepness': _steepness,
             'knockoutPenaltyCap': KNOCKOUT_PENALTY_CAP_ROMANCE if comparison_type == 'romance' else None,
