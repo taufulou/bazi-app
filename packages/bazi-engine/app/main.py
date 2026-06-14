@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .calculator import (
     calculate_bazi,
@@ -51,7 +51,32 @@ app.add_middleware(
 # Request/Response Models
 # ============================================================
 
-class BirthDataInput(BaseModel):
+class _HourKnownValidatedInput(BaseModel):
+    """Mixin (N1): reject a known-hour request that omits the time.
+
+    When ``hour_known`` is True but ``birth_time`` is None/empty, the engine
+    would silently fall through to its internal NOON placeholder and produce a
+    WRONG hour pillar (a different person's 時柱). That is far worse than a 422 —
+    a malformed payload would yield a confidently-wrong chart. Reject it at the
+    API boundary instead.
+
+    Subclasses must declare ``birth_time: Optional[str]`` and ``hour_known: bool``
+    (all FastAPI birth-data inputs do). ``hour_known=False`` with no time is the
+    intended 三柱 path and passes; ``hour_known=True`` with a time is normal and
+    passes. Only ``hour_known=True`` + no time is rejected.
+    """
+
+    @model_validator(mode="after")
+    def _require_time_when_hour_known(self):
+        if getattr(self, "hour_known", True) and not getattr(self, "birth_time", None):
+            raise ValueError(
+                "birth_time is required when hour_known is True; "
+                "omit birth_time only when hour_known is False (三柱/時辰未知)"
+            )
+        return self
+
+
+class BirthDataInput(_HourKnownValidatedInput):
     """Input for Bazi calculation."""
     birth_date: str = Field(
         ...,
@@ -330,7 +355,7 @@ async def calculate_compatibility_endpoint(data: CompatibilityInput):
         )
 
 
-class ChatContextInput(BaseModel):
+class ChatContextInput(_HourKnownValidatedInput):
     """Input for building the slim chat context for the AI chat feature."""
     birth_date: str = Field(
         ...,
@@ -485,7 +510,7 @@ async def build_chat_context_compat_endpoint(data: CompatChatContextInput):
         )
 
 
-class FortuneChatContextInput(BaseModel):
+class FortuneChatContextInput(_HourKnownValidatedInput):
     """Phase Fortune — input for building the FORTUNE chat-scope context
     (single chart's daily fortune + chart-slim base).
 
@@ -598,7 +623,7 @@ async def build_chat_context_fortune_endpoint(data: FortuneChatContextInput):
         )
 
 
-class DailyFortuneInput(BaseModel):
+class DailyFortuneInput(_HourKnownValidatedInput):
     """Input for daily fortune computation (八字日運).
 
     The endpoint accepts birth data + target_date and internally computes
@@ -768,7 +793,7 @@ async def daily_fortune_endpoint(data: DailyFortuneInput):
         )
 
 
-class MonthlyFortuneInput(BaseModel):
+class MonthlyFortuneInput(_HourKnownValidatedInput):
     """Input for monthly fortune computation (八字月運) — Phase 2.
 
     The endpoint accepts birth data + target (year, month) and internally
@@ -810,7 +835,7 @@ class MonthlyFortuneInput(BaseModel):
     )
 
 
-class YearlyFortuneInput(BaseModel):
+class YearlyFortuneInput(_HourKnownValidatedInput):
     """Input for yearly fortune computation (八字年運) — Phase 3.
 
     The endpoint accepts birth data + target year and delegates to

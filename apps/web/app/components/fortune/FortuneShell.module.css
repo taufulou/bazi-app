@@ -179,3 +179,15 @@
   flex-direction: column;
   gap: 16px;
 }
+
+/* 時辰未知 basis line — aligns with the .main content column below it. */
+.hourUnknownNote {
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 10px 16px 0;
+  text-align: left;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}

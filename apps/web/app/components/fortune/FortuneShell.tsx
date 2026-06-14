@@ -39,6 +39,11 @@ interface Props {
   birthDate?: string;
   /** Birth profile's birth time (HH:MM). Appended to the chip if provided. */
   birthTime?: string;
+  /** 時辰未知 — when true, render a 3-pillar basis caveat under the header.
+   *  Derived from the active profile's `hourKnown` flag (NOT from birthTime
+   *  presence), so it shows on day/month/year tabs alike — the per-tab fortune
+   *  response only populates birthDate/birthTime on the day state machine. */
+  hourUnknown?: boolean;
   /** Show share icon — wires to ShareFortuneButton when ready (Phase 1.5). */
   onShareClick?: () => void;
   /** Phase 1.5 slot: subscriber-aware DateNavigator row. Renders between
@@ -74,6 +79,7 @@ export default function FortuneShell({
   profileName,
   birthDate,
   birthTime,
+  hourUnknown = false,
   onShareClick,
   dateNavigator,
   profileSwitcher,
@@ -159,6 +165,17 @@ export default function FortuneShell({
               even if passed — the switcher renders null when profiles.length <= 1). */}
           <div className={styles.switcherSlot}>{profileSwitcher}</div>
         </div>
+      )}
+
+      {/* 時辰未知 basis line — shown for 3-pillar charts. Gated on the active
+          profile's `hourUnknown` flag (passed by the page), NOT on birthTime
+          presence: the day/month/year tabs each have their own state machine
+          and only the day one populates birthDate/birthTime on the shell, so a
+          birthTime-absence proxy would miss the month/year tabs entirely. */}
+      {hourUnknown && (
+        <p className={styles.hourUnknownNote}>
+          由於未提供出生時辰，本運勢以「年、月、日」三柱推算；與時辰有關的內容已略過，用神與五行僅供參考。
+        </p>
       )}
 
       <main className={styles.main}>{children}</main>

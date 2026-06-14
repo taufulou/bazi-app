@@ -73,7 +73,7 @@ from .lifetime_enhanced import generate_lifetime_enhanced_insights
 
 def calculate_bazi(
     birth_date: str,
-    birth_time: str,
+    birth_time: Optional[str],
     birth_city: str,
     birth_timezone: str,
     gender: str,

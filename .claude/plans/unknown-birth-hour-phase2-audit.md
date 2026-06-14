@@ -57,8 +57,11 @@ Chat guard for hour-unknown. **Crash verdict (audit):** chat 422'd today at the 
 - Guard the engine chat-context pipelines (`chat_context.py` merges all 4 enhanced-insights — same crash surface, fixed by 2a) + add the suppression directive to the chat system prompt for hour-unknown.
 - NestJS API threading: `bazi.service.ts` already threads `hour_known` (Phase 1); `fortune.service.ts` + `chat-context.service.ts` engine calls must pass `hour_known` (Phase 1 left these compile-only-widened).
 
-### 2e — UI (paywall parity, per the 2026-06-13 style lock)
-- Port the `UnlockConfirmModal` `hourUnknown` warning block into **FORTUNE's `FortuneUpgradeModal`** (FORTUNE has its own paywall surface). COMPATIBILITY is Phase 3.
+### 2e — UI (paywall parity, per the 2026-06-13 style lock) — ✅ DONE in (a) (2026-06-14)
+- **DECISION (deviation):** the Fortune caveat went on **`FortuneShell`** (page banner, all 3 tabs, gated on the active profile's `hourKnown` flag), NOT `FortuneUpgradeModal`. That modal is the **date-range subscription upsell** — invisible to a user viewing today's (free) fortune, so the caveat would never show on the common path. The page is the surface every hour-unknown viewer sees. `FortuneUpgradeModal` left untouched.
+- **annual_family note** also landed here: `AIReadingDisplay` annual_family strip → 「子女宮需出生時辰，此處僅評印星（長輩庇蔭）」 (resolves the NIT at line 29 above).
+- COMPATIBILITY's own paywall still needs the block in Phase 3.
+- (Also in (a): N1 DTO `@model_validator` mixin, N3 `Optional[str]` annotations, N4 `_l1b_daily_cache` key + hour_known — all the "Deferred NITs" at lines 18-21.)
 
 ## Per-pipeline crash/wrong-output detail
 
@@ -69,7 +72,7 @@ Chat guard for hour-unknown. **Crash verdict (audit):** chat 422'd today at the 
 No 時上格局/晚年/部屬 scoring in this module (those matrix items are N/A here). `:324` 時干財星 / `:1772` 時干官星 use `STEM_ELEMENT.get(...)` → correctly don't fire (degrade). `calculate_weighted_five_elements` already degrades correctly (its loop is guarded); only `calculate_weighted_ten_gods` lacks the guard. Both weighted-% charts are DEGRADED → must be flagged (2c).
 
 ### ANNUAL (`annual_enhanced.py`) — 0 CRASH
-All Phase-12 Fix A–F natal-pillar loops already skip the blank hour (explicit `if not …: continue` guards). Branch-relationship helpers tolerate `''`. WRONG-OUTPUT: phantom 子女宮 row (2b) → leaks to AI via `{{annualPillarImpacts}}` (2c).
+All Phase-12 Fix A–F natal-pillar loops already skip the blank hour (explicit `if not …: continue` guards). Branch-relationship helpers tolerate `''`. WRONG-OUTPUT: phantom 子女宮 row (2b) → leaks to AI via `{{annualPillarImpacts}}` (2c). **(a) addendum:** `compute_tai_sui_analysis` was the ONE annual loop WITHOUT the skip-empty guard — "safe by accident" (empty branch fails all 5 太歲 lookups) but inconsistent; (a) added the explicit guard + 三刑-pool filter + `test_annual_no_phantom_hour_taisui` (line-audit Item 5).
 
 ### FORTUNE (`daily_/monthly_/yearly_enhanced.py`, `folk_content.py`) — 0 FORTUNE-specific CRASH
 The 5 dim dispatchers are hour-clean (桃花/紅鸞/驛馬 key on day/year branch, never hour). 黃道吉時 keys on day_branch only; 吉色/吉數/吉食 key on 用神 element — all hour-independent. The only blocker is the all-pipelines threading (2a-2/3). Latent WRONG-OUTPUT in the default-OFF Option 2.5 path (`_detect_shishen_zhisha_active` degraded rooting) — low priority, flag-gated OFF.

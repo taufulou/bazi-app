@@ -731,7 +731,7 @@ function getFamilyScore(sealStar?: AnnualV2DeterministicData['sealStar']): numbe
 }
 
 /** Master dispatcher — renders appropriate sub-header badges per annual section */
-function AnnualSectionBadge({ sectionKey, det }: { sectionKey: string; det: AnnualV2DeterministicData }) {
+function AnnualSectionBadge({ sectionKey, det, hourUnknown = false }: { sectionKey: string; det: AnnualV2DeterministicData; hourUnknown?: boolean }) {
   // === annual_overview ===
   if (sectionKey === 'annual_overview') {
     const auspiciousness = det.flowYear?.auspiciousness;
@@ -879,7 +879,14 @@ function AnnualSectionBadge({ sectionKey, det }: { sectionKey: string; det: Annu
       : ss?.sealRole === '忌神' || ss?.sealRole === '仇神' ? 'negative'
       : 'neutral';
     const hourPalace = det.relationships?.palaceRelationships?.hour;
-    const detail = hourPalace?.status ? `子女宮${hourPalace.status}` : '';
+    // 子女宮 = 時支. For a 時辰未知 chart the hour palace is blanked upstream
+    // (engine Phase 2b skips it), so make the gap explicit rather than silently
+    // showing only the 印星 (長輩) half — mirrors the AI prose's in-place note.
+    const detail = hourPalace?.status
+      ? `子女宮${hourPalace.status}`
+      : hourUnknown
+        ? '子女宮需出生時辰，此處僅評印星（長輩庇蔭）'
+        : '';
     return (
       <>
         <StarRating score={familyScore} indicatorLabel={familyLabel} />
@@ -1767,6 +1774,13 @@ export default function AIReadingDisplay({
     (item) => item.slug !== readingType,
   );
 
+  // 時辰未知 (hour unknown): the chart's hour pillar is blanked (3-pillar reading).
+  // Drives the 僅供參考 caveat on the deterministic capability charts and the
+  // explicit 子女宮 limitation note in the annual_family strip (D8 "one voice").
+  const hourUnknown =
+    !!chartData &&
+    !((chartData.fourPillars as { hour?: { stem?: string } } | undefined)?.hour?.stem);
+
   return (
     <div className={styles.readingContainer}>
       {/* Summary (top position — default for non-lifetime readings) */}
@@ -1820,7 +1834,7 @@ export default function AIReadingDisplay({
             {cdet.weightedElements && (
               <ElementCapabilityChart
                 data={cdet.weightedElements}
-                hourUnknown={!!chartData && !((chartData.fourPillars as { hour?: { stem?: string } } | undefined)?.hour?.stem)}
+                hourUnknown={hourUnknown}
               />
             )}
 
@@ -1828,7 +1842,7 @@ export default function AIReadingDisplay({
             {cdet.weightedTenGods && (
               <TenGodCapabilityChart
                 data={cdet.weightedTenGods}
-                hourUnknown={!!chartData && !((chartData.fourPillars as { hour?: { stem?: string } } | undefined)?.hour?.stem)}
+                hourUnknown={hourUnknown}
               />
             )}
           </>
@@ -1953,7 +1967,7 @@ export default function AIReadingDisplay({
               {/* Annual V2 section sub-header badges */}
               {isAnnualV2 && det && (() => {
                 const annualDet = normalizeAnnualDeterministic(det as unknown as Record<string, unknown>);
-                return annualDet ? <AnnualSectionBadge sectionKey={section.key} det={annualDet} /> : null;
+                return annualDet ? <AnnualSectionBadge sectionKey={section.key} det={annualDet} hourUnknown={hourUnknown} /> : null;
               })()}
 
               {/* Love V2 section sub-header badges */}

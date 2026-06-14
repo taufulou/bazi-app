@@ -369,7 +369,7 @@ def _empty_hour_pillar() -> Dict:
 
 def calculate_four_pillars(
     birth_date: str,
-    birth_time: str,
+    birth_time: Optional[str],
     birth_city: str,
     birth_timezone: str,
     gender: str,

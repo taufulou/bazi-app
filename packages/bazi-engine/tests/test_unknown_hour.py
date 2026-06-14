@@ -240,6 +240,14 @@ def test_annual_no_phantom_hour_pillar(roger_all_pipelines_unknown):
     assert "hour" not in ann["relationships"]["palaceRelationships"]
 
 
+def test_annual_no_phantom_hour_taisui(roger_all_pipelines_unknown):
+    # 太歲 loops all 4 pillar branches; the blanked hour must NOT surface as a
+    # 時柱犯太歲 finding (line-audit Item 5 — engine skip-empty guard).
+    ann = roger_all_pipelines_unknown["annualEnhancedInsights"]
+    ts = ann.get("taiSui", {})
+    assert "hour" not in [r["pillar"] for r in ts.get("pillarResults", [])]
+
+
 def test_love_late_marriage_indicator_undetermined(roger_all_pipelines_unknown):
     ssa = roger_all_pipelines_unknown["loveEnhancedInsights"]["spouseStarAnalysis"]
     # None (undetermined) — NOT a confirmed False (a 時支-hidden spouse star is a
@@ -298,3 +306,112 @@ def test_chat_context_fortune_hour_unknown_no_crash(scope):
     )
     assert ctx is not None
     assert ctx.get("hourKnown") is False
+
+
+# ── N1 — API-boundary validation: birth_time required when hour_known is True ──
+# A known 時辰 with no time would silently fall through to the engine's NOON
+# placeholder → a WRONG hour pillar. The shared `_HourKnownValidatedInput` mixin
+# rejects it at the FastAPI boundary (422) instead of producing a confident-wrong
+# chart. hour_known=False with no time is the intended 三柱 path and must pass.
+
+from pydantic import ValidationError  # noqa: E402
+from app.main import (  # noqa: E402
+    _HourKnownValidatedInput,
+    BirthDataInput,
+    ChatContextInput,
+    DailyFortuneInput,
+    FortuneChatContextInput,
+    MonthlyFortuneInput,
+    YearlyFortuneInput,
+)
+
+_N1_BASE = dict(
+    birth_date="1987-09-06",
+    birth_city="吉打",
+    birth_timezone="Asia/Kuala_Lumpur",
+    gender="male",
+)
+
+
+def test_n1_rejects_known_hour_without_time():
+    with pytest.raises(ValidationError):
+        BirthDataInput(hour_known=True, birth_time=None, **_N1_BASE)
+
+
+def test_n1_rejects_default_hour_without_time():
+    # hour_known defaults to True → omitting BOTH must reject (the common
+    # malformed-payload case: caller forgot to send hour_known=False).
+    with pytest.raises(ValidationError):
+        BirthDataInput(**_N1_BASE)
+
+
+def test_n1_accepts_known_hour_with_time():
+    m = BirthDataInput(hour_known=True, birth_time="16:11", **_N1_BASE)
+    assert m.birth_time == "16:11" and m.hour_known is True
+
+
+def test_n1_accepts_unknown_hour_without_time():
+    m = BirthDataInput(hour_known=False, birth_time=None, **_N1_BASE)
+    assert m.hour_known is False and m.birth_time is None
+
+
+def test_n1_fortune_dto_inherits_validation():
+    # A fortune DTO (not just BirthDataInput) must also reject — proves the
+    # mixin propagates, not a one-off on the base input.
+    with pytest.raises(ValidationError):
+        DailyFortuneInput(hour_known=True, birth_time=None, target_date="2026-05-14", **_N1_BASE)
+    ok = DailyFortuneInput(hour_known=False, birth_time=None, target_date="2026-05-14", **_N1_BASE)
+    assert ok.hour_known is False
+
+
+def test_n1_all_birthdata_dtos_inherit_mixin():
+    # Structural lock: every birth-data-bearing FastAPI input inherits the
+    # validator (catches a future refactor that reverts one back to BaseModel).
+    for dto in (
+        BirthDataInput,
+        ChatContextInput,
+        DailyFortuneInput,
+        FortuneChatContextInput,
+        MonthlyFortuneInput,
+        YearlyFortuneInput,
+    ):
+        assert issubclass(dto, _HourKnownValidatedInput), dto.__name__
+
+
+# ── N4 — L1.b per-day cache key includes hour_known (no cross-chart collision) ──
+# An hour-known vs hour-unknown chart for the SAME person produces DIFFERENT
+# effective_gods/strength (the hour pillar changes the 五行 tally), so their
+# per-day fortunes must NOT share a cache entry. Passing the SAME birth_time
+# under both flags isolates hour_known as the sole key differentiator (chart_hash
+# is identical), proving the flag is genuinely part of the key.
+
+
+def test_n4_l1b_cache_key_distinguishes_hour_known():
+    from app.monthly_enhanced import (
+        compute_intra_month_breakdown,
+        _l1b_daily_cache,
+        _reset_l1b_cache_for_tests,
+    )
+
+    _reset_l1b_cache_for_tests()
+    common = dict(
+        birth_date="1987-09-06",
+        birth_time="16:11",  # SAME time under both flags → identical chart_hash
+        birth_city="吉打",
+        birth_timezone="Asia/Kuala_Lumpur",
+        gender="male",
+        year=2026,
+        month=5,
+    )
+    compute_intra_month_breakdown(hour_known=True, **common)
+    compute_intra_month_breakdown(hour_known=False, **common)
+
+    keys = list(_l1b_daily_cache.keys())
+    assert all(len(k) == 3 for k in keys), "cache key must be a 3-tuple"
+    dates_known = {k[1] for k in keys if k[2] is True}
+    dates_unknown = {k[1] for k in keys if k[2] is False}
+    assert dates_known, "hour-known run produced no cache entries"
+    assert dates_unknown, "hour-unknown run produced no cache entries"
+    # The same (chart_hash, date) coexists under BOTH flags → no collision.
+    assert dates_known & dates_unknown, "an iso date must appear under both hour_known flags"
+    _reset_l1b_cache_for_tests()

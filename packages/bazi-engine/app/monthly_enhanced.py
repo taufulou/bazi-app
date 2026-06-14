@@ -540,7 +540,12 @@ def compute_single_month_by_yearmonth(
 # circuit breaker on rows with `promptVersion=null`.
 
 _L1B_DAILY_CACHE_MAXSIZE = 64
-_l1b_daily_cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
+# Key: (chart_hash, iso_date, hour_known). hour_known is part of the key (N1/N4)
+# because an hour-known vs hour-unknown chart for the same person produces
+# DIFFERENT effective_gods/strength (the hour pillar changes the 五行 tally),
+# so their per-day fortunes must NOT collide. chart_hash alone is insufficient
+# only when birth_time happens to coincide; the explicit flag is belt-and-braces.
+_l1b_daily_cache: Dict[Tuple[str, str, bool], Dict[str, Any]] = {}
 
 
 def _reset_l1b_cache_for_tests() -> None:
@@ -714,7 +719,7 @@ def compute_intra_month_breakdown(
     `compute_daily_fortune`, with 3-tier cache:
     1. `precomputed_days` (caller-supplied dict from NestJS
        DailyFortuneSnapshot cache, keyed by ISO date string)
-    2. `_l1b_daily_cache` (in-process LRU, keyed by (chart_hash, iso_date))
+    2. `_l1b_daily_cache` (in-process LRU, keyed by (chart_hash, iso_date, hour_known))
     3. Cold compute via `compute_daily_fortune`
 
     NEVER writes to DailyFortuneSnapshot DB (per plan v4 H-new-1 fix —
@@ -818,7 +823,7 @@ def compute_intra_month_breakdown(
 
         # Tier 2: in-process LRU cache
         if day_result is None:
-            cache_key = (chart_hash, iso_str)
+            cache_key = (chart_hash, iso_str, hour_known)
             if cache_key in _l1b_daily_cache:
                 day_result = _l1b_daily_cache[cache_key]
             else:

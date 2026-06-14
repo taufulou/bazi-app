@@ -645,6 +645,10 @@ function FortuneView() {
         profileName={dataState && displayName ? displayName : undefined}
         birthDate={dataState?.data.profileBirthDate}
         birthTime={dataState?.data.profileBirthTime}
+        // 時辰未知 caveat — from the active profile's authoritative hourKnown flag
+        // (resolved from the tab-independent `profiles` list), so the banner shows
+        // on day/month/year alike (the per-tab `dataState` only exists for day).
+        hourUnknown={activeProfileForDisplay?.hourKnown === false}
         dateNavigator={dateNavigatorSlot}
         profileSwitcher={profileSwitcherSlot}
         topBanner={

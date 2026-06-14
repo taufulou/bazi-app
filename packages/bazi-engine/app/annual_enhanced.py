@@ -312,6 +312,13 @@ def compute_tai_sui_analysis(
 
     for pname in ('year', 'month', 'day', 'hour'):
         natal_branch = pillars[pname]['branch']
+        # 時辰未知: the hour pillar is blanked (empty branch). Skip it so no
+        # phantom 子女宮/時柱 犯太歲 finding is emitted (matches the Phase 2b
+        # skip-empty pattern used by compute_pillar_impact_analysis). Without
+        # this, the empty branch happens to fail all 5 太歲 lookups today, but
+        # that is implicit/fragile — guard it explicitly.
+        if not natal_branch:
+            continue
         types = []
 
         # 值太歲
@@ -322,8 +329,10 @@ def compute_tai_sui_analysis(
         if CLASH_LOOKUP.get(natal_branch) == flow_year_branch:
             types.append('沖太歲')
 
-        # 刑太歲 — shared helper requiring all 3 branches for 3-branch groups
-        all_br = {pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')} | {flow_year_branch}
+        # 刑太歲 — shared helper requiring all 3 branches for 3-branch groups.
+        # Exclude blanked (empty) branches from the 三刑 pool so an unknown hour
+        # never acts as a (non-existent) 3rd branch.
+        all_br = {pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour') if pillars[p]['branch']} | {flow_year_branch}
         sanxing_hit = check_sanxing_with_pool(natal_branch, flow_year_branch, all_br)
         if sanxing_hit:
             types.append('刑太歲')
