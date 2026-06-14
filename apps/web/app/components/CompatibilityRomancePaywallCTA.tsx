@@ -12,6 +12,10 @@ interface CompatibilityRomancePaywallCTAProps {
   onUnlock: () => void;
   isUnlocking: boolean;
   onCreditsRefresh: () => void;
+  /** 時辰未知 (Phase 3d): party A (男方) lacks a birth hour → 3-pillar partial. */
+  hourUnknownA?: boolean;
+  /** 時辰未知 (Phase 3d): party B (女方) lacks a birth hour → 3-pillar partial. */
+  hourUnknownB?: boolean;
 }
 
 export default function CompatibilityRomancePaywallCTA({
@@ -22,6 +26,8 @@ export default function CompatibilityRomancePaywallCTA({
   onUnlock,
   isUnlocking,
   onCreditsRefresh,
+  hourUnknownA = false,
+  hourUnknownB = false,
 }: CompatibilityRomancePaywallCTAProps) {
   // Re-fetch credits when user returns from /pricing tab
   useEffect(() => {
@@ -39,12 +45,35 @@ export default function CompatibilityRomancePaywallCTA({
   const hasEnoughCredits =
     isSubscriber || (currentCredits !== null && currentCredits >= creditCost);
 
+  // 時辰未知 (Phase 3d): which party lacks a birth hour (banner convention: A=男方,
+  // B=女方, matching the post-unlock page banner).
+  const hourUnknownWho =
+    hourUnknownA && hourUnknownB ? '雙方' : hourUnknownA ? '男方' : hourUnknownB ? '女方' : '';
+
   return (
     <div className={styles.container}>
       <div className={styles.header}>
         <span className={styles.headerIcon}>💑</span>
         <h3 className={styles.headerTitle}>八字感情合盤完整報告</h3>
       </div>
+
+      {hourUnknownWho && (
+        <div className={styles.hourUnknownWarn}>
+          <p className={styles.hourUnknownWarnLead}>
+            ⚠️ 因為{hourUnknownWho}沒有出生時辰，這份合盤會以「年、月、日」三柱推算（大約七成）。下列與時辰有關的內容，這次不會包含：
+          </p>
+          <ul className={styles.hourUnknownWarnList}>
+            <li>{hourUnknownWho}出生時辰那一柱的分析</li>
+            <li>{hourUnknownWho}的子女緣分與晚年同心程度</li>
+            <li>{hourUnknownWho}的命宮、身宮</li>
+            <li>與時辰有關的雙方互動（部分合、沖、刑、害）</li>
+            <li>部分與時辰有關的神煞</li>
+          </ul>
+          <p className={styles.hourUnknownWarnNote}>
+            以「日支夫妻宮」為核心的合盤判斷仍然成立；用神、五行互補僅供參考。出生時辰無法事後補上；若日後得知，可另外建立一張新命盤查看完整合盤。
+          </p>
+        </div>
+      )}
 
       <div className={styles.featureList}>
         <p className={styles.featureIntro}>包含以下深度分析：</p>

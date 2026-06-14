@@ -108,12 +108,12 @@ export function toBirthDataFormValues(fields: PersonFieldValues) {
     gender: (fields.gender || 'male') as 'male' | 'female',
     birthDate,
     birthTime,
-    // 時辰未知 for the compatibility/PersonFields path is Phase 3 (the compat engine
-    // isn't guarded for the blanked hour pillar yet). Keep hourKnown=true here so
-    // quick-mode behaves exactly as before (birthTime='' → server DTO rejects),
-    // not creating an hour-unknown profile that would crash the compat engine.
-    // LIFETIME uses BirthDataForm, which wires hourKnown directly.
-    hourKnown: true,
+    // 時辰未知 (Phase 3d): honor the quick-mode toggle. quickMode → hourKnown=false
+    // → formValuesToPayload omits birthTime → the profile is stored 3-pillar, and
+    // the compat engine (Phase 3a/3b guarded) returns an honest partial 合盤.
+    // (Pre-Phase-3 this was hard-coded true because the compat engine wasn't
+    // guarded yet; 3a/3b fixed that + thread hour_known end-to-end.)
+    hourKnown: !fields.quickMode,
     birthCity: fields.cityCode,
     birthTimezone: fields.timezone,
     isLunarDate: fields.calendarType === 'lunar',

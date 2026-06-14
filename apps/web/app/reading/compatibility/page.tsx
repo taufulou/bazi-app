@@ -820,6 +820,8 @@ export default function CompatibilityPage() {
                 onUnlock={handleRomanceUnlock}
                 isUnlocking={isUnlocking}
                 onCreditsRefresh={refreshUserProfile}
+                hourUnknownA={!!(compatData?.calculationData as any)?.romancePreAnalysis?.lovePersonalityA?.hourUnknown}
+                hourUnknownB={!!(compatData?.calculationData as any)?.romancePreAnalysis?.lovePersonalityB?.hourUnknown}
               />
             </div>
           )}
