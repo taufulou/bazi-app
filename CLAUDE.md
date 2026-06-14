@@ -3132,9 +3132,9 @@ Three fixes from the PR #48 code review (2 minor + 1 low-confidence; two other l
 
 ---
 
-## 八字時辰未知 (Unknown Birth Hour) — Phase 1 SHIPPED (committed `354bebe` on branch `feat/unknown-birth-hour`, NOT in main)
+## 八字時辰未知 (Unknown Birth Hour) — Phase 1 + Phase 2 SHIPPED (branch `feat/unknown-birth-hour`, NOT in main)
 
-First-class **「時辰未知」** path → an honest **3-pillar (年/月/日)** Bazi reading when the user doesn't know their birth hour. **Phase 1 = LIFETIME (八字終身運) only + make-it-not-crash.** Other reading types + chat are Phase 2/3.
+First-class **「時辰未知」** path → an honest **3-pillar (年/月/日)** Bazi reading when the user doesn't know their birth hour. **Phase 1 = LIFETIME. Phase 2 = LOVE + CAREER + ANNUAL + FORTUNE(日/月/年運) + CHAT — all crash-safe + AI-suppressed (5 commits 2026-06-13/14: `268bf49` 2a, `651f71a` 2b, `c261382` 2c, `7e84351` FORTUNE, `a23c3cc` 2d).** Phase 3 (COMPATIBILITY) not started. **Detailed per-slice work-list + line-audit outcomes: `.claude/plans/unknown-birth-hour-phase2-audit.md`.** ⚠️ Testing so far = per-slice line audits + targeted unit tests + ~1-anchor browser spot-checks; the **comprehensive test run** (chart-diversity matrix, all-types-live, A2 narrative-QA, web RTL) is still PENDING (planned for after Phase 3).
 
 **Session handoff (read first):** `.claude/plans/unknown-birth-hour-session-handoff.md`.
 **Approved plan + full review/impl log:** `/Users/roger/.claude/plans/i-just-switch-to-quizzical-church.md` (12 decisions D1–D12, Central engine strategy, §1–8, Round 1–3 staff-engineer review, Phase 1 browser-test log). Design doc: `.claude/plans/plan-unknown-birth-hour.md`. Research (gold standard / competitors / engine impact): `.claude/plans/research-unknown-birth-hour.md`.
@@ -3177,5 +3177,12 @@ Roger `1987-09-06 16:11 吉打 male` unknown-hour = 丁卯/戊申/戊午/(blank)
 - **Reading cache key has NO prompt version** (`birthDataHash` = birthDate|birthTime-sentinel|city|gender|readingType|targetYear). A prompt change won't reflect for the SAME chart — flush Redis or use a different birth date.
 - **Migration applied non-destructively** on dev (direct `ALTER` + `migrate resolve --applied`) because `migrate dev` wanted to RESET (pre-existing folk-content checksum drift, unrelated). Prod: `prisma migrate deploy`.
 
-### Phase 2 (next)
-LOVE + CAREER + ANNUAL + FORTUNE: per-module deref-audit (guard every `['hour']` deref) + the SAME AI suppression block in each injector + **chat AI guard** (guard chat-context pipelines + suppression directive). Phase 3 = COMPATIBILITY partial + 神煞 partial-scan.
+### Phase 2 — DONE (2026-06-13/14)
+LOVE + CAREER + ANNUAL + FORTUNE + CHAT all shipped (5 commits above; per-slice detail in `.claude/plans/unknown-birth-hour-phase2-audit.md`). Key patterns: shared suppression-block helpers gated `hourKnown===false` (hour-known byte-identical → **no cache version bumps**); `hourKnown` flows engine top-level → slim/chartContext → NestJS injector gates; NestJS profiles load full-row so `profile.hourKnown` always present. The ONE real engine crash was `ten_gods.calculate_weighted_ten_gods` (CAREER); everything else was `.get()`-safe. **Bonus:** fixed the pre-existing `/reading/fortune` 500 (`html2canvas` declared-but-not-installed → `npm install --ignore-scripts`).
+
+### Remaining (after Phase 2)
+- **Live chat-message test** (env-blocked: CAREER chat disabled here, LIFETIME needs unlock — mechanism identical to verified injectors).
+- **N1/N3/N4 DTO-hardening** (now safe — all callers thread hour_known): N1 `@model_validator` (birth_time required when hour_known True), N3 `birth_time: Optional[str]` annotations on `calculate_bazi`/`calculate_four_pillars`, N4 `_l1b_daily_cache` key.
+- **2e UI**: `FortuneUpgradeModal` 時辰未知 warning; `AIReadingDisplay` `annual_family` 子女宮 strip.
+- **Comprehensive test run** (chart-diversity matrix × all types live × A2 3-parallel narrative-QA × web RTL × hour-known byte-identical diff) — planned for after Phase 3.
+- **Phase 3 = COMPATIBILITY** partial + 神煞 partial-scan (compat currently keeps `hourKnown:true` via `toBirthDataFormValues`, so not live-broken; needs compat-engine 4-pillar guards + `build_chat_context_compat` threading + D9 partial-合盤 + compat injector).
