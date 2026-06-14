@@ -2897,6 +2897,39 @@ export class AIService implements OnModuleInit {
     ].filter(Boolean).join('\n');
   }
 
+  /**
+   * 時辰未知 (Phase 3c) — per-party suppression block for COMPATIBILITY (合盤).
+   * Unlike the single-chart helper, compat data is two charts; each carries its
+   * own `hourKnown`. Returns '' when both hours are known (→ byte-identical,
+   * cache-safe). Per the Bazi-master review (D9): the day-branch 配偶宮 core
+   * survives, so the partial 合盤 is valid — but the unknown party's 時柱-keyed
+   * items + cross-interactions + 子女緣/晚年 compatibility must be withheld, and
+   * 用神/五行 framed at lower confidence. Reading-path voice: 男方/女方/雙方.
+   */
+  private buildCompatHourUnknownSuppressionBlock(
+    chartA: Record<string, unknown> | undefined,
+    chartB: Record<string, unknown> | undefined,
+  ): string {
+    const aUnknown = chartA?.['hourKnown'] === false;
+    const bUnknown = chartB?.['hourKnown'] === false;
+    if (!aUnknown && !bUnknown) return '';
+    const label = (c?: Record<string, unknown>) =>
+      ((c?.['gender'] as string) === 'female' ? '女方' : '男方');
+    const who = aUnknown && bUnknown ? '雙方' : aUnknown ? label(chartA) : label(chartB);
+    return [
+      '【時辰未知 — 嚴格限制（必須遵守）】',
+      `本合盤中，${who}未提供出生時辰，僅以年、月、日三柱推算（時柱為空）。`,
+      `禁止「編造」或「詳細分析」${who}的下列時柱項目：時柱十神／藏干／神煞、命宮、身宮、子女緣分（子女宮）、晚年運勢。`,
+      `${who}的「子女緣分」與「晚年同偕」屬時柱範疇，本次無法判斷 —— 禁止對其作任何合盤論斷（不可論子女多寡／賢愚，不可論晚年是否偕老）。`,
+      `${who}的時柱與對方的合／沖／刑／害交互無法判斷，禁止編造任何涉及其時柱的跨盤互動。`,
+      `神煞僅就現有年、月、日三柱論述；禁止斷言${who}「命中無某神煞」（時支神煞無法判斷）。`,
+      `${who}的用神／五行互補參考性較低 —— 論及時須註明「（因缺時辰，僅供參考）」，其確定性低於以日支夫妻宮為核心的判斷。`,
+      '但「不可」整段省略 —— 在相應段落以一句簡短說明帶過（例如「子女緣分需雙方完整時辰方能論斷」）。',
+      '若提及補時辰的好處，措辭一律為「日後得知時辰，可另建新的命盤查看完整分析」之意；禁止「我可以提供完整分析」「補上即可解鎖」。',
+      '',
+    ].join('\n');
+  }
+
   private interpolateLifetimeV2Fields(
     template: string,
     data: Record<string, unknown>,
@@ -4886,7 +4919,7 @@ export class AIService implements OnModuleInit {
     calculationData: Record<string, unknown>,
   ): { systemPrompt: string; call1User: string; call2User: string; call3User: string } {
     const basePrompt = buildCompatRomanceV2SystemPrompt();
-    const systemPrompt = basePrompt + '\n\n' +
+    let systemPrompt = basePrompt + '\n\n' +
       COMPAT_ROMANCE_V2_PROMPTS.systemAddition + '\n' +
       COMPAT_ROMANCE_V2_STYLE_RULES;
 
@@ -4896,6 +4929,12 @@ export class AIService implements OnModuleInit {
     const chartA = calculationData['chartA'] as Record<string, unknown> | undefined;
     const chartB = calculationData['chartB'] as Record<string, unknown> | undefined;
     const currentYear = String(calculationData['currentYear'] || new Date().getFullYear());
+
+    // 時辰未知 (Phase 3c): prepend the per-party suppression block to the shared
+    // system prompt (governs all 3 calls). Returns '' when both hours known →
+    // byte-identical, cache-safe.
+    const hourUnknownBlock = this.buildCompatHourUnknownSuppressionBlock(chartA, chartB);
+    if (hourUnknownBlock) systemPrompt = hourUnknownBlock + '\n' + systemPrompt;
 
     // === Call 1: Per-person sections ===
     let call1Template = COMPAT_ROMANCE_V2_PROMPTS.userTemplateCall1;

@@ -232,6 +232,33 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
     );
   }
 
+  // 時辰未知 (Phase 3c): COMPATIBILITY chat is a dual-chart slim — per-party
+  // hourKnown rides inside chartA/chartB (NOT the top-level flag above). Emit a
+  // per-party directive in the chat voice (本人/對方). Gated so a both-known
+  // compat never fires it (byte-identical, cache-safe).
+  {
+    const compatA = (chatContext as { chartA?: Record<string, unknown> }).chartA;
+    const compatB = (chatContext as { chartB?: Record<string, unknown> }).chartB;
+    const unknownParties: string[] = [];
+    if (compatA?.['hourKnown'] === false) unknownParties.push('您（本人）');
+    if (compatB?.['hourKnown'] === false) unknownParties.push('對方');
+    if (unknownParties.length > 0) {
+      const who = unknownParties.length === 2 ? '雙方' : unknownParties[0];
+      sections.push(
+        '\n【時辰未知 — 嚴格限制（必須遵守）】\n' +
+          [
+            `本合盤中，${who}未提供出生時辰，僅有年、月、日三柱。`,
+            `禁止「編造」或「詳細分析」${who}的時柱相關項目：時柱十神／藏干／神煞、命宮、身宮、子女緣分（子女宮）、晚年運勢。`,
+            `${who}的子女緣分與晚年同偕屬時柱範疇，本次無法判斷，禁止對其作合盤論斷。`,
+            `${who}的時柱與對方的合／沖／刑／害交互無法判斷，禁止編造。`,
+            `神煞僅就現有三柱論述；禁止斷言${who}「命中無某神煞」。`,
+            `${who}的用神／五行互補參考性較低，提及時請註明「（因缺時辰，僅供參考）」。`,
+            '若使用者問到上述項目，以一句簡短說明帶過，不可虛構也不可整段略過；補時辰的好處措辭一律為「日後得知時辰，可另建新的命盤查看完整分析」。',
+          ].join('\n'),
+      );
+    }
+  }
+
   // Slim chat context as JSON
   sections.push('\n【命盤資料】\n');
   sections.push('```json\n' + JSON.stringify(chatContext, null, 2) + '\n```');
