@@ -198,6 +198,7 @@ def build_chat_context_compat(
         birth_longitude=birth_data_a.get('birth_longitude'),
         birth_latitude=birth_data_a.get('birth_latitude'),
         target_year=current_year,
+        hour_known=birth_data_a.get('hour_known', True),  # 時辰未知 (Phase 3b)
     )
     chart_b = calculate_bazi_with_all_pipelines(
         birth_date=birth_data_b['birth_date'],
@@ -208,6 +209,7 @@ def build_chat_context_compat(
         birth_longitude=birth_data_b.get('birth_longitude'),
         birth_latitude=birth_data_b.get('birth_latitude'),
         target_year=current_year,
+        hour_known=birth_data_b.get('hour_known', True),  # 時辰未知 (Phase 3b)
     )
 
     # 2. Per-party slim contexts (full romance pre-analysis kept)
@@ -255,6 +257,10 @@ def build_chat_context_compat(
         'crossChartFindings': _extract_cross_chart_findings(compat),
         'specialFindings': compat.get('specialFindings', {}),
         'knockoutConditions': compat.get('knockoutConditions', []),
+        # 時辰未知 (Phase 3b): top-level partial signal (per-party hourKnown also
+        # rides inside chartA/chartB below for the per-party AI suppression in 3c).
+        'partial': compat.get('partial', False),
+        'hourUnknownParties': compat.get('hourUnknownParties', []),
         # H1 (Phase 3 follow-up) — surface engine's `timingSync` from
         # compatibility_enhanced.py:1798-1801. Pre-slimmed at engine
         # (goldenYears/challengeYears each capped at 5 entries via
@@ -714,6 +720,10 @@ def _slim_party_for_compat(ctx: Dict) -> Dict:
 
     return {
         'chart': ctx['chart'],
+        # 時辰未知 (Phase 3b): per-party flag so the compat chat-prompt builder
+        # (3c) can gate the per-party 男方/女方 suppression directive. Mirrors
+        # the single-chart slim's top-level hourKnown (build_chat_context).
+        'hourKnown': ctx.get('hourKnown', True),
         'strength': ctx['strength'],
         'favorability': ctx['favorability'],
         'fiveElements': ctx['fiveElements'],

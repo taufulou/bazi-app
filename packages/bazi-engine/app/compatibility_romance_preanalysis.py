@@ -1695,9 +1695,11 @@ def compute_combined_crisis_assessment(
                     'desc': f'{sa}{partner}合（{combo_name}）化{result_element}（{who}忌神）',
                 })
 
-    # 命宮相衝
-    mg_a = chart_a.get('mingGong', {}).get('branch', '')
-    mg_b = chart_b.get('mingGong', {}).get('branch', '')
+    # 命宮相衝 — 時辰未知 (Phase 3): 命宮 needs 時支, so it's None (not absent) for
+    # a 3-pillar chart; `.get('mingGong', {})` returns that None → `or {}` guards
+    # it. The `if mg_a and mg_b` below then correctly skips 命宮相衝 (mg='').
+    mg_a = (chart_a.get('mingGong') or {}).get('branch', '')
+    mg_b = (chart_b.get('mingGong') or {}).get('branch', '')
     if mg_a and mg_b and _is_liuchong(mg_a, mg_b):
         warning_flags.append({
             'position': 'mingGong',

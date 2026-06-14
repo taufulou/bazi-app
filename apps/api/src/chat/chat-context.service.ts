@@ -468,6 +468,7 @@ export class ChatContextService {
       profileA: {
         birthDate: profileA.birthDate.toISOString().slice(0, 10),
         birthTime: profileA.birthTime,
+        hourKnown: profileA.hourKnown,  // 時辰未知 (Phase 3b)
         birthCity: profileA.birthCity,
         birthTimezone: profileA.birthTimezone,
         gender: profileA.gender.toLowerCase(),
@@ -477,6 +478,7 @@ export class ChatContextService {
       profileB: {
         birthDate: profileB.birthDate.toISOString().slice(0, 10),
         birthTime: profileB.birthTime,
+        hourKnown: profileB.hourKnown,  // 時辰未知 (Phase 3b)
         birthCity: profileB.birthCity,
         birthTimezone: profileB.birthTimezone,
         gender: profileB.gender.toLowerCase(),
@@ -1281,6 +1283,7 @@ export class ChatContextService {
       birthDate: string;
       // 時辰未知: nullable; engine accepts null birth_time (no default invented).
       birthTime: string | null;
+      hourKnown: boolean;  // 時辰未知 (Phase 3b): per-party 3-pillar signal
       birthCity: string;
       birthTimezone: string;
       gender: string;
@@ -1291,6 +1294,7 @@ export class ChatContextService {
       birthDate: string;
       // 時辰未知: nullable; engine accepts null birth_time (no default invented).
       birthTime: string | null;
+      hourKnown: boolean;  // 時辰未知 (Phase 3b): per-party 3-pillar signal
       birthCity: string;
       birthTimezone: string;
       gender: string;
@@ -1304,6 +1308,7 @@ export class ChatContextService {
     const buildPayload = (p: typeof args.profileA) => ({
       birth_date: p.birthDate,
       birth_time: p.birthTime,
+      hour_known: p.hourKnown,  // 時辰未知 (Phase 3b)
       birth_city: p.birthCity,
       birth_timezone: p.birthTimezone,
       gender: p.gender,

@@ -16,8 +16,16 @@ from datetime import date
 
 import pytest
 
-from app.calculator import calculate_bazi, calculate_bazi_with_all_pipelines
-from app.chat_context import build_chat_context, build_chat_context_fortune
+from app.calculator import (
+    calculate_bazi,
+    calculate_bazi_compatibility,
+    calculate_bazi_with_all_pipelines,
+)
+from app.chat_context import (
+    build_chat_context,
+    build_chat_context_compat,
+    build_chat_context_fortune,
+)
 from app.daily_enhanced import compute_daily_fortune
 from app.four_pillars import is_hour_unknown
 from app.monthly_enhanced import compute_single_month_by_yearmonth
@@ -306,6 +314,61 @@ def test_chat_context_fortune_hour_unknown_no_crash(scope):
     )
     assert ctx is not None
     assert ctx.get("hourKnown") is False
+
+
+# ── Phase 3b — FULL compat pipeline (calculate_bazi_compatibility) no-crash ──
+# The dimension funcs are unit-tested with synthetic charts, but the full
+# orchestrator ALSO runs compatibility_romance_preanalysis, which derefs 命宮
+# (None for a 3-pillar chart) — a crash class the synthetic tests missed. This
+# locks the full path for all 3 hour-unknown cases (A-only / B-only / both).
+
+@pytest.mark.parametrize("hk_a,hk_b,expected", [
+    (False, True, ['A']),
+    (True, False, ['B']),
+    (False, False, ['A', 'B']),
+    (True, True, []),
+])
+def test_full_compat_pipeline_no_crash(hk_a, hk_b, expected):
+    a = dict(birth_date="1987-09-06", birth_time=("16:11" if hk_a else None),
+             hour_known=hk_a, birth_city="吉打", birth_timezone="Asia/Kuala_Lumpur", gender="male")
+    b = dict(birth_date="1987-01-25", birth_time=("12:00" if hk_b else None),
+             hour_known=hk_b, birth_city="台北市", birth_timezone="Asia/Taipei", gender="female")
+    r = calculate_bazi_compatibility(birth_data_a=a, birth_data_b=b, comparison_type="romance", current_year=2026)
+    enh = r["compatibilityEnhanced"]
+    assert enh["hourUnknownParties"] == expected
+    assert enh["partial"] is (len(expected) > 0)
+    assert 5 <= enh["adjustedScore"] <= 99
+    # romancePreAnalysis must be present (the 命宮 crash used to abort it)
+    assert r.get("romancePreAnalysis") is not None
+
+
+# ── Phase 3b — compat chat-context threads hour_known per party ──
+# build_chat_context_compat must (a) not crash when a party lacks the hour,
+# (b) surface the top-level partial/hourUnknownParties signal, and (c) carry
+# per-party hourKnown inside chartA/chartB so the compat chat-prompt builder
+# (3c) can gate the per-party 男方/女方 suppression directive.
+
+
+def test_chat_context_compat_threads_hour_known():
+    a_unknown = dict(
+        birth_date="1987-09-06", birth_time=None, birth_city="吉打",
+        birth_timezone="Asia/Kuala_Lumpur", gender="male", hour_known=False,
+    )
+    b_known = dict(
+        birth_date="1987-01-25", birth_time="12:00", birth_city="台北市",
+        birth_timezone="Asia/Taipei", gender="female", hour_known=True,
+    )
+    ctx = build_chat_context_compat(
+        birth_data_a=a_unknown, birth_data_b=b_known,
+        comparison_type="romance", current_year=2026, current_month=6,
+    )
+    assert ctx is not None
+    assert ctx["partial"] is True
+    assert ctx["hourUnknownParties"] == ["A"]
+    assert ctx["chartA"]["hourKnown"] is False
+    assert ctx["chartB"]["hourKnown"] is True
+    # Party A's hour pillar is blanked in the slim chart.
+    assert ctx["chartA"]["chart"]["fourPillars"]["hour"]["stem"] == ""
 
 
 # ── N1 — API-boundary validation: birth_time required when hour_known is True ──

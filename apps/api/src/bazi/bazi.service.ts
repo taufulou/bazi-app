@@ -1308,8 +1308,8 @@ export class BaziService {
   }
 
   private async callBaziCompatibility(
-    profileA: { birthDate: Date; birthTime: string | null; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
-    profileB: { birthDate: Date; birthTime: string | null; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
+    profileA: { birthDate: Date; birthTime: string | null; hourKnown: boolean; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
+    profileB: { birthDate: Date; birthTime: string | null; hourKnown: boolean; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
     dto: CreateComparisonDto,
   ): Promise<Prisma.InputJsonValue> {
     const response = await fetch(`${this.baziEngineUrl}/compatibility`, {
@@ -1319,6 +1319,12 @@ export class BaziService {
         profile_a: {
           birth_date: profileA.birthDate.toISOString().split('T')[0],
           birth_time: profileA.birthTime,
+          // 時辰未知 (Phase 3b): thread per-party hour_known so the engine
+          // returns a 3-pillar partial 合盤 instead of fabricating the hour.
+          // Also fixes a live 500: a pre-existing hour-unknown profile
+          // (birthTime=null) was 422'd by the engine's N1 validator because
+          // hour_known was omitted (defaulted True).
+          hour_known: profileA.hourKnown,
           birth_city: profileA.birthCity,
           birth_timezone: profileA.birthTimezone,
           birth_longitude: profileA.birthLongitude,
@@ -1328,6 +1334,7 @@ export class BaziService {
         profile_b: {
           birth_date: profileB.birthDate.toISOString().split('T')[0],
           birth_time: profileB.birthTime,
+          hour_known: profileB.hourKnown,  // 時辰未知 (Phase 3b)
           birth_city: profileB.birthCity,
           birth_timezone: profileB.birthTimezone,
           birth_longitude: profileB.birthLongitude,

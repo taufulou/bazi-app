@@ -320,6 +320,7 @@ async def calculate_compatibility_endpoint(data: CompatibilityInput):
             'birth_longitude': data.profile_a.birth_longitude,
             'birth_latitude': data.profile_a.birth_latitude,
             'target_year': data.profile_a.target_year,
+            'hour_known': data.profile_a.hour_known,  # 時辰未知 (Phase 3b): per-party 3-pillar
         }
         birth_data_b = {
             'birth_date': data.profile_b.birth_date,
@@ -330,6 +331,7 @@ async def calculate_compatibility_endpoint(data: CompatibilityInput):
             'birth_longitude': data.profile_b.birth_longitude,
             'birth_latitude': data.profile_b.birth_latitude,
             'target_year': data.profile_b.target_year,
+            'hour_known': data.profile_b.hour_known,  # 時辰未知 (Phase 3b): per-party 3-pillar
         }
 
         result = calculate_bazi_compatibility(
@@ -475,6 +477,7 @@ async def build_chat_context_compat_endpoint(data: CompatChatContextInput):
             'gender': data.profile_a.gender,
             'birth_longitude': data.profile_a.birth_longitude,
             'birth_latitude': data.profile_a.birth_latitude,
+            'hour_known': data.profile_a.hour_known,  # 時辰未知 (Phase 3b): per-party 3-pillar
         }
         birth_data_b = {
             'birth_date': data.profile_b.birth_date,
@@ -484,6 +487,7 @@ async def build_chat_context_compat_endpoint(data: CompatChatContextInput):
             'gender': data.profile_b.gender,
             'birth_longitude': data.profile_b.birth_longitude,
             'birth_latitude': data.profile_b.birth_latitude,
+            'hour_known': data.profile_b.hour_known,  # 時辰未知 (Phase 3b): per-party 3-pillar
         }
 
         ctx = build_chat_context_compat(
