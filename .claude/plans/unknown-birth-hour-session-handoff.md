@@ -2,7 +2,9 @@
 
 **Read this first to pick back up after compaction.**
 
-## Status: Phase 1 + 2 + 3 SHIPPED (branch `feat/unknown-birth-hour` — PUSHED to GitHub `origin/feat/unknown-birth-hour`, NOT in main; PR-ready, 16 commits ahead of main)
+## Status: Phase 1 + 2 + 3 SHIPPED + COMPREHENSIVE QA DONE (branch `feat/unknown-birth-hour` — NOT in main; PR-ready)
+
+> **✅ Comprehensive ship-gate QA DONE 2026-06-16 (commit `20b312b`).** The full ship-gate run (4-chart × all-6-types live matrix + Full-A2 3-grader narrative grading + engine sweep + survivor diff) found **6 bugs → 5 fixed+verified, 1 false-positive**, + 1 documented non-blocking limitation (從格-candidate 用神 over-commit — a string-strip linter will NOT fix it; see CLAUDE.md). Full log: `.claude/plans/unknown-birth-hour-comprehensive-test-plan.md`; summary now in CLAUDE.md "Comprehensive ship-gate QA" subsection. The feature is ship-quality on all dangerous axes. **No cache-version bump** (hour-known byte-identical). QA artefacts left in dev DB: Roger credits bumped 9→999; `QA-A1/A2/A3/A4-HU` profiles + test readings.
 
 Feature: a first-class **「時辰未知」** path that produces an honest **3-pillar (年/月/日)** Bazi reading when the user doesn't know their birth hour. Phase 1 = LIFETIME. **Phase 2 = LOVE + CAREER + ANNUAL + FORTUNE(日/月/年運) + CHAT (committed 2026-06-13/14).** **"(a)" hardening = N1/N3/N4 DTO/cache + 2e UI polish (2026-06-14).** **Phase 3 = COMPATIBILITY (合盤): engine honest-partial + threading + per-party AI suppression + frontend, all crash-safe + AI-suppressed, committed + line-audited + browser-verified end-to-end 2026-06-15 (see «Phase 3» section below).** ALL reading types now support 時辰未知. Remaining = the full comprehensive QA run (deferred) + minor polish.
 
