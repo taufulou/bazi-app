@@ -1014,6 +1014,12 @@ export class AIService implements OnModuleInit {
     let activeProviderConfig = this.providers[0]!;
     let call2TotalInputTokens = 0;
     let call2TotalOutputTokens = 0;
+    // 時辰未知/degraded diagnostics (2026-06-15): record WHY a call ended short so
+    // a degraded reading's failedReason distinguishes timeout vs max_tokens vs
+    // model-shortfall (previously only the section count was stored).
+    let call1TimedOut = false;
+    let call2TimedOut = false;
+    let call2StopReason: string | undefined;
 
     const streamCall2Enabled =
       this.configService.get<string>('AI_STREAM_CALL2') !== '0'; // default ON
@@ -1037,7 +1043,7 @@ export class AIService implements OnModuleInit {
         //   streaming: { streamed: true, inputTokens, outputTokens }  ← already emitted sections
         //   non-streaming: { content, inputTokens, outputTokens }     ← caller parses + emits
         //   null = complete failure for this provider; advance to next
-        type Call2Streamed = { streamed: true; inputTokens: number; outputTokens: number };
+        type Call2Streamed = { streamed: true; inputTokens: number; outputTokens: number; timedOut?: boolean; stopReason?: string };
         type Call2NonStreamed = { content: string; inputTokens: number; outputTokens: number };
         let call2Promise: Promise<Call2Streamed | Call2NonStreamed | null>;
         if (haveCall2) {
@@ -1153,6 +1159,7 @@ export class AIService implements OnModuleInit {
               call1Err = err instanceof Error ? err : new Error(String(err));
               if ((call1Err as any).name === 'AbortError') {
                 this.logger.warn(`${tag} Call 1 aborted_timeout provider=${providerConfig.provider}`);
+                call1TimedOut = true;
                 break;
               }
               if (yieldedAny) {
@@ -1203,6 +1210,10 @@ export class AIService implements OnModuleInit {
         if (call2Result) {
           call2TotalInputTokens += call2Result.inputTokens;
           call2TotalOutputTokens += call2Result.outputTokens;
+          if ('streamed' in call2Result) {
+            if (call2Result.timedOut) call2TimedOut = true;
+            if (call2Result.stopReason) call2StopReason = call2Result.stopReason;
+          }
           // Streaming path already emitted sections inside the loop;
           // non-streaming path returns {content, ...} to parse+emit here.
           if ('content' in call2Result) {
@@ -1294,7 +1305,8 @@ export class AIService implements OnModuleInit {
             aiModel: activeProviderConfig.model,
             ...(status === 'degraded' && {
               isDegraded: true,
-              failedReason: `partial: ${totalGot}/${expectedTotal} sections (call1=${call1Got}/${expectedCall1Count}, call2=${call2Got}/${expectedCall2Count})`,
+              failedReason: `partial: ${totalGot}/${expectedTotal} sections (call1=${call1Got}/${expectedCall1Count}, call2=${call2Got}/${expectedCall2Count})` +
+                ` [cause: call1Timeout=${call1TimedOut}, call2Timeout=${call2TimedOut}, call2Stop=${call2StopReason ?? 'n/a'}]`,
             }),
           },
         }).catch((err) => this.logger.error(`Failed to update ${readingType} reading ${readingId}: ${err}`));
@@ -1424,7 +1436,7 @@ export class AIService implements OnModuleInit {
     pendingTimeouts: Set<ReturnType<typeof setTimeout>>;
     tag: string;
     externalControllers?: Set<AbortController>;
-  }): Promise<{ streamed: true; inputTokens: number; outputTokens: number } | null> {
+  }): Promise<{ streamed: true; inputTokens: number; outputTokens: number; timedOut?: boolean; stopReason?: string } | null> {
     const {
       providerConfig, systemPrompt, userPromptCall2, subscriber, readingType: _readingType,
       call2FixedSections, emittedKeys, call2ExpectedKeys, call2Parser, fixSection,
@@ -1432,7 +1444,7 @@ export class AIService implements OnModuleInit {
       pendingTimeouts, tag, externalControllers,
     } = opts;
 
-    const usageOut = { inputTokens: 0, outputTokens: 0 };
+    const usageOut: { inputTokens: number; outputTokens: number; stopReason?: string } = { inputTokens: 0, outputTokens: 0 };
     const threshold = Math.floor(expectedCall2Count * degradeConfig.call2CompletionMin);
     let chunkCount = 0;
 
@@ -1510,7 +1522,7 @@ export class AIService implements OnModuleInit {
           } as MessageEvent);
         }
 
-        return { streamed: true, inputTokens: usageOut.inputTokens, outputTokens: usageOut.outputTokens };
+        return { streamed: true, inputTokens: usageOut.inputTokens, outputTokens: usageOut.outputTokens, stopReason: usageOut.stopReason };
       } catch (err) {
         const e = err instanceof Error ? err : new Error(String(err));
         const extracted = Object.keys(call2FixedSections).length;
@@ -1521,7 +1533,7 @@ export class AIService implements OnModuleInit {
             `extracted=${extracted}/${expectedCall2Count}`,
           );
           // No retry on timeout; caller falls through to next provider.
-          return { streamed: true, inputTokens: usageOut.inputTokens, outputTokens: usageOut.outputTokens };
+          return { streamed: true, inputTokens: usageOut.inputTokens, outputTokens: usageOut.outputTokens, timedOut: true, stopReason: 'timeout_abort' };
         }
 
         if (yieldedAny) {
@@ -5598,7 +5610,7 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal?: AbortSignal,
-    usageOut?: { inputTokens: number; outputTokens: number },
+    usageOut?: { inputTokens: number; outputTokens: number; stopReason?: string },
   ): AsyncGenerator<string> {
     if (!this.claudeClient) {
       const { default: Anthropic } = await import('@anthropic-ai/sdk');
@@ -5630,6 +5642,11 @@ export class AIService implements OnModuleInit {
       } else if (event.type === 'message_delta' && usageOut) {
         const u = (event as any).usage;
         if (u?.output_tokens != null) usageOut.outputTokens = u.output_tokens;
+        // stop_reason arrives on message_delta (Anthropic SDK). Capture it so the
+        // degraded-reading failedReason can record WHY a call ended short:
+        // 'max_tokens' (truncation), 'end_turn' (model emitted fewer sections), etc.
+        const sr = (event as any).delta?.stop_reason;
+        if (sr) usageOut.stopReason = sr;
       }
     }
   }
