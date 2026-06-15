@@ -822,6 +822,8 @@ export default function CompatibilityPage() {
                 onCreditsRefresh={refreshUserProfile}
                 hourUnknownA={!!(compatData?.calculationData as any)?.romancePreAnalysis?.lovePersonalityA?.hourUnknown}
                 hourUnknownB={!!(compatData?.calculationData as any)?.romancePreAnalysis?.lovePersonalityB?.hourUnknown}
+                genderA={((compatData?.calculationData as any)?.chartA?.gender as string) || 'male'}
+                genderB={((compatData?.calculationData as any)?.chartB?.gender as string) || 'female'}
               />
             </div>
           )}
@@ -851,12 +853,13 @@ export default function CompatibilityPage() {
                 romancePA={romancePA}
               />
 
-              {/* Unknown birth time warning */}
+              {/* Unknown birth time warning — label by actual gender so it agrees
+                  with the AI narrative (BUG-1, comprehensive QA 2026-06-15). */}
               {(rpa?.lovePersonalityA?.hourUnknown || rpa?.lovePersonalityB?.hourUnknown) && (
                 <div className={styles.hourUnknownBanner}>
                   <span>&#9888;&#65039;</span> 部分時辰相關分析受限
-                  {rpa?.lovePersonalityA?.hourUnknown && <span>（男方時辰未知）</span>}
-                  {rpa?.lovePersonalityB?.hourUnknown && <span>（女方時辰未知）</span>}
+                  {rpa?.lovePersonalityA?.hourUnknown && <span>（{genderA === 'female' ? '女方' : '男方'}時辰未知）</span>}
+                  {rpa?.lovePersonalityB?.hourUnknown && <span>（{genderB === 'female' ? '女方' : '男方'}時辰未知）</span>}
                 </div>
               )}
               {(() => {

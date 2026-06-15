@@ -2895,14 +2895,15 @@ export class AIService implements OnModuleInit {
     return [
       '【時辰未知 — 嚴格限制（必須遵守）】',
       `本${opts.readingLabel}以年、月、日三柱推算，時辰未知。`,
-      '禁止「編造」或「詳細分析」以下時柱相關項目：時柱十神／藏干／神煞、子女緣分（子女宮）、晚年／晚運、命宮、身宮。',
+      '禁止「編造」或「詳細分析」以下時柱相關項目：時柱十神／藏干／神煞、子女相關（子女宮／子女緣分／子女數目／子女性格，並涵蓋「添丁、懷孕、生育、家庭添丁喜事」等任何子女或生育預測——即使在流年、感情、家庭等段落，也一律不可預言生育或添丁）、晚年／晚運、命宮、身宮。',
       '但「不可」整段省略不提 —— 在相應段落以「一句」簡短說明帶過，讓讀者知道該項因缺時辰而從略（例如「子女緣分需要出生時辰方能完整分析」）。',
       '若提及補時辰的好處，措辭一律為「日後得知時辰，可另建新的命盤查看完整分析」之意（強調「另建新命盤」，本次無法補算或即時解鎖）；禁止寫成「我可以為你提供完整分析」「補上即可解鎖」。',
       '禁止虛構任何與時辰相關的具體內容（子女數目／性格、晚年具體事件、時柱神煞等）。',
       '神煞僅就現有年、月、日三柱論述；禁止斷言「命中無某神煞」（時支神煞無法判斷）。',
-      '用神／五行比重僅供參考，請於相關段落註明「（時辰未知，僅供參考）」。',
+      '用神／喜忌／五行比重皆以三柱估算，確定性下降：凡論及用神、喜神、忌神、仇神或五行比重時，必須緊接註明「（時辰未知，僅供參考）」，不可當作已確定的結論陳述。',
+      '五行比重僅為三柱（缺時柱約四分之一）之估算，禁止當作完整五行分佈論斷，不可寫「五行齊全」「五行均衡／平衡」之類暗示命局完整的語句。',
       dm['geJuStatus'] === 'undetermined_without_hour'
-        ? '格局因缺時辰未能確定，僅說明大致傾向，須加註「格局待確認」。'
+        ? '⚠️ 格局因缺時辰未能確定（時柱可能補根或破格）：禁止斷言本命「屬於從格／從勢／從財／化氣／專旺」等特殊格局；一律改述為「就現有三柱看似有某傾向，惟因缺時辰，格局待確認」。亦禁止據假設之從格重新推導用神／喜忌 —— 用神一律沿用命盤已提供之數值並註明「僅供參考」。'
         : '',
       ...(opts.extraLines ?? []),
       '',
@@ -2957,14 +2958,15 @@ export class AIService implements OnModuleInit {
       const block = [
         '【時辰未知 — 嚴格限制（必須遵守）】',
         '本命盤時辰未知，僅有年、月、日三柱。',
-        '禁止「編造」或「詳細分析」以下時柱相關項目：時柱十神／藏干／神煞、子女緣分（子女宮）、晚年／晚運、命宮、身宮。',
+        '禁止「編造」或「詳細分析」以下時柱相關項目：時柱十神／藏干／神煞、子女相關（子女宮／子女緣分／子女數目／子女性格，並涵蓋「添丁、懷孕、生育、家庭添丁喜事」等任何子女或生育預測——即使在流年、感情、家庭等段落，也一律不可預言生育或添丁）、晚年／晚運、命宮、身宮。',
         '但「不可」整段省略不提 —— 在相應段落請以「一句」簡短說明帶過，讓讀者知道該項因缺時辰而從略。例如：在六親／家庭段落補一句「子女緣分需要出生時辰方能完整分析」；在運勢／人生指引段落補一句「晚年運勢需補上時辰才能細看」。',
         '若提及補時辰的好處，措辭一律為「日後得知時辰，可另建新的命盤查看完整分析」之意（強調「另建新命盤」，本次無法補算或即時解鎖）；禁止寫成「我可以為你提供完整分析」「補上即可解鎖」等暗示本次解讀可補算的語句。',
         '禁止虛構任何與時辰相關的具體內容（例如子女數目、子女性格、晚年具體事件、時柱神煞）。',
         '神煞僅就現有年、月、日三柱論述；禁止斷言「命中無某神煞」（時支神煞無法判斷）。',
-        '用神／五行比重僅供參考，請於相關段落註明「（時辰未知，僅供參考）」。',
+        '用神／喜忌／五行比重皆以三柱估算，確定性下降：凡論及用神、喜神、忌神、仇神或五行比重時，必須緊接註明「（時辰未知，僅供參考）」，不可當作已確定的結論陳述。',
+      '五行比重僅為三柱（缺時柱約四分之一）之估算，禁止當作完整五行分佈論斷，不可寫「五行齊全」「五行均衡／平衡」之類暗示命局完整的語句。',
         dm['geJuStatus'] === 'undetermined_without_hour'
-          ? '格局因缺時辰未能確定，僅說明大致傾向，須加註「格局待確認」。'
+          ? '⚠️ 格局因缺時辰未能確定（時柱可能補根或破格）：禁止斷言本命「屬於從格／從勢／從財／化氣／專旺」等特殊格局（不可寫「屬於從勢格命局」「你是從勢格順應者」之類語句）；一律改述為「就現有三柱看似有某傾向，惟因缺時辰，格局待確認」。亦禁止據假設之從格重新推導用神／喜忌 —— 用神一律沿用命盤已提供之數值並註明「僅供參考」，不可因「從格」改寫用神方向。'
           : '',
         '',
       ].filter(Boolean).join('\n');
@@ -6088,9 +6090,14 @@ export class AIService implements OnModuleInit {
       result = result.replace(/\{\{strengthV2\}\}/g, '（資料未提供）');
     }
 
+    // 時辰未知 + 從格 uncertain: detect per-chart so formatPreAnalysis reframes
+    // the 從格用神 line instead of asserting it (BUG-3, comprehensive QA 2026-06-15).
+    const geJuUndet = (d: Record<string, unknown> | undefined) =>
+      ((d?.['dayMaster'] as Record<string, unknown> | undefined)?.['geJuStatus']) === 'undetermined_without_hour';
+
     // Phase 11C: Pre-Analysis (compressed format for AI consumption)
     if (preAnalysis) {
-      const preAnalysisText = this.formatPreAnalysis(preAnalysis, readingType);
+      const preAnalysisText = this.formatPreAnalysis(preAnalysis, readingType, geJuUndet(data));
       result = result.replace(/\{\{preAnalysis\}\}/g, preAnalysisText);
     } else {
       result = result.replace(/\{\{preAnalysis\}\}/g, '（本次分析未包含預分析數據）');
@@ -6101,13 +6108,13 @@ export class AIService implements OnModuleInit {
     const chartB = data['chartB'] as Record<string, unknown> | undefined;
     if (chartA?.['preAnalysis']) {
       result = result.replace(/\{\{preAnalysisA\}\}/g,
-        this.formatPreAnalysis(chartA['preAnalysis'] as Record<string, unknown>, readingType));
+        this.formatPreAnalysis(chartA['preAnalysis'] as Record<string, unknown>, readingType, geJuUndet(chartA)));
     } else {
       result = result.replace(/\{\{preAnalysisA\}\}/g, '（資料未提供）');
     }
     if (chartB?.['preAnalysis']) {
       result = result.replace(/\{\{preAnalysisB\}\}/g,
-        this.formatPreAnalysis(chartB['preAnalysis'] as Record<string, unknown>, readingType));
+        this.formatPreAnalysis(chartB['preAnalysis'] as Record<string, unknown>, readingType, geJuUndet(chartB)));
     } else {
       result = result.replace(/\{\{preAnalysisB\}\}/g, '（資料未提供）');
     }
@@ -6476,6 +6483,10 @@ export class AIService implements OnModuleInit {
   private formatPreAnalysis(
     preAnalysis: Record<string, unknown>,
     readingType: ReadingType,
+    // 時辰未知 + 從格 uncertain (geJuStatus='undetermined_without_hour'): the
+    // engine still computes a 從格 + effectiveFavorableGods, but the 時柱 could
+    //補根/破格, so we must NOT feed the AI a confident 從格用神 (BUG-3, QA 2026-06-15).
+    geJuUndetermined = false,
   ): string {
     const lines: string[] = [];
 
@@ -6646,7 +6657,16 @@ export class AIService implements OnModuleInit {
     // Effective favorable gods (may differ from original if 從格)
     const effectiveGods = preAnalysis['effectiveFavorableGods'] as Record<string, string>;
     if (effectiveGods && congGe) {
-      lines.push(`從格用神：${effectiveGods['usefulGod']}（忌=${effectiveGods['tabooGod']}）`);
+      if (geJuUndetermined) {
+        // 時辰未知: the 從格 itself is unconfirmed. Do NOT name the 從格 用神 here
+        // (the AI would adopt it over the chart's primary 用神). Defer entirely to
+        // {{usefulGod}} (= dayMaster 用神, what the chart displays). BUG-3b, QA 2026-06-15.
+        lines.push(
+          '格局待確認（時辰未知）：本命三柱看似有從格傾向，但時柱可能補根或破格，本次無法斷定是否成從格 —— 禁止逕稱本命為從格／從勢／從財，亦禁止另立「從格用神」；用神一律沿用本盤「日主分析」所列之用神（即本命用神）並註明「僅供參考」。',
+        );
+      } else {
+        lines.push(`從格用神：${effectiveGods['usefulGod']}（忌=${effectiveGods['tabooGod']}）`);
+      }
     }
 
     // Special day pillars (Phase 11D)

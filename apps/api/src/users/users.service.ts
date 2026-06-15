@@ -114,6 +114,16 @@ export class UsersService {
       updateData.birthDate = new Date(dto.birthDate);
     }
 
+    // D3 — hour state (hourKnown) is IMMUTABLE per profile (set at creation only;
+    // to add/remove an hour the user creates a NEW profile). Enforce it here so an
+    // edit can never (a) flip hourKnown, nor (b) write a birthTime onto a 3-pillar
+    // (hour-unknown) profile — which would leave an inconsistent hourKnown=false +
+    // birthTime!=null row that silently mis-renders downstream (BUG-2, QA 2026-06-15).
+    delete (updateData as { hourKnown?: unknown }).hourKnown;
+    if (!profile.hourKnown) {
+      delete (updateData as { birthTime?: unknown }).birthTime;
+    }
+
     return this.prisma.birthProfile.update({
       where: { id: profileId },
       data: updateData,

@@ -96,4 +96,22 @@ describe('CompatibilityRomancePaywallCTA — 時辰未知 warning (Phase 3d)', (
     render(<CompatibilityRomancePaywallCTA {...ctaProps} />);
     expect(screen.queryByText(new RegExp(WARN))).not.toBeInTheDocument();
   });
+
+  // BUG-1 (comprehensive QA 2026-06-15): label by ACTUAL gender so the CTA
+  // agrees with the AI narrative (which labels by gender, not position).
+  it('female-A unknown → 女方 (not the positional 男方)', () => {
+    render(<CompatibilityRomancePaywallCTA {...ctaProps} hourUnknownA genderA="female" genderB="male" />);
+    expect(screen.getByText(/因為女方沒有出生時辰/)).toBeInTheDocument();
+    expect(screen.queryByText(/因為男方沒有出生時辰/)).not.toBeInTheDocument();
+  });
+
+  it('male-B unknown → 男方 (not the positional 女方)', () => {
+    render(<CompatibilityRomancePaywallCTA {...ctaProps} hourUnknownB genderA="female" genderB="male" />);
+    expect(screen.getByText(/因為男方沒有出生時辰/)).toBeInTheDocument();
+  });
+
+  it('same-sex (both female), A unknown → 女方', () => {
+    render(<CompatibilityRomancePaywallCTA {...ctaProps} hourUnknownA genderA="female" genderB="female" />);
+    expect(screen.getByText(/因為女方沒有出生時辰/)).toBeInTheDocument();
+  });
 });

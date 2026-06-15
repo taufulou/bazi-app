@@ -75,6 +75,37 @@ def test_weak_dm_full_pipeline_no_crash(laopo_unknown):
     assert laopo_unknown["dayMaster"].get("hourUnknown") is True
 
 
+# A3 anchor (comprehensive QA 2026-06-15): a chart whose 3-pillar (hour-blanked)
+# pre-analysis fires 從格 (congGe) → the engine withholds the 格局 verdict via
+# geJuStatus='undetermined_without_hour'. Pins the otherwise-rare geJuStatus path
+# (≈1.7% of charts) so it can never silently regress to dead code. 1993-03-08 台北
+# male = 癸酉/乙卯/戊子, DM 戊土 very_weak 0, 從勢格.
+CONG_A3 = dict(
+    birth_date="1993-03-08",
+    birth_city="台北市",
+    birth_timezone="Asia/Taipei",
+    gender="male",
+    reading_type="LIFETIME",
+)
+
+
+@pytest.fixture(scope="module")
+def cong_a3_unknown():
+    return calculate_bazi(birth_time=None, hour_known=False, **CONG_A3)
+
+
+def test_a3_congge_withholds_geju_verdict(cong_a3_unknown):
+    dm = cong_a3_unknown["dayMaster"]
+    assert dm.get("hourUnknown") is True
+    assert dm.get("strength") == "very_weak"
+    # 3-pillar 從格 detected → verdict withheld (the 格局待確認 path).
+    assert dm.get("geJuStatus") == "undetermined_without_hour"
+    assert cong_a3_unknown["preAnalysis"].get("congGe")  # truthy
+    # Survivors still present even on this extreme chart.
+    assert cong_a3_unknown.get("taiYuan") and cong_a3_unknown.get("taiXi")
+    assert cong_a3_unknown.get("mingGong") is None
+
+
 def test_full_pipeline_runs_without_exception(roger_unknown):
     # The critical regression: the analytical guard sweep must let the whole
     # LIFETIME pipeline complete on a blanked hour pillar (no KeyError/ValueError).

@@ -12,10 +12,14 @@ interface CompatibilityRomancePaywallCTAProps {
   onUnlock: () => void;
   isUnlocking: boolean;
   onCreditsRefresh: () => void;
-  /** 時辰未知 (Phase 3d): party A (男方) lacks a birth hour → 3-pillar partial. */
+  /** 時辰未知 (Phase 3d): party A lacks a birth hour → 3-pillar partial. */
   hourUnknownA?: boolean;
-  /** 時辰未知 (Phase 3d): party B (女方) lacks a birth hour → 3-pillar partial. */
+  /** 時辰未知 (Phase 3d): party B lacks a birth hour → 3-pillar partial. */
   hourUnknownB?: boolean;
+  /** Party A's gender ('male'|'female') — drives the 男方/女方 label so it
+   *  agrees with the AI narrative (which labels by actual gender). */
+  genderA?: string;
+  genderB?: string;
 }
 
 export default function CompatibilityRomancePaywallCTA({
@@ -28,6 +32,8 @@ export default function CompatibilityRomancePaywallCTA({
   onCreditsRefresh,
   hourUnknownA = false,
   hourUnknownB = false,
+  genderA = 'male',
+  genderB = 'female',
 }: CompatibilityRomancePaywallCTAProps) {
   // Re-fetch credits when user returns from /pricing tab
   useEffect(() => {
@@ -45,10 +51,19 @@ export default function CompatibilityRomancePaywallCTA({
   const hasEnoughCredits =
     isSubscriber || (currentCredits !== null && currentCredits >= creditCost);
 
-  // 時辰未知 (Phase 3d): which party lacks a birth hour (banner convention: A=男方,
-  // B=女方, matching the post-unlock page banner).
+  // 時辰未知 (Phase 3d): which party lacks a birth hour. Label by the unknown
+  // party's ACTUAL gender so it agrees with the AI narrative (ai.service
+  // buildCompatHourUnknownSuppressionBlock labels by gender, not position) —
+  // fixes the female-A / same-sex divergence (BUG-1, comprehensive QA 2026-06-15).
+  const labelFor = (g?: string) => (g === 'female' ? '女方' : '男方');
   const hourUnknownWho =
-    hourUnknownA && hourUnknownB ? '雙方' : hourUnknownA ? '男方' : hourUnknownB ? '女方' : '';
+    hourUnknownA && hourUnknownB
+      ? '雙方'
+      : hourUnknownA
+        ? labelFor(genderA)
+        : hourUnknownB
+          ? labelFor(genderB)
+          : '';
 
   return (
     <div className={styles.container}>
