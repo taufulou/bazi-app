@@ -2886,6 +2886,13 @@ export class AIService implements OnModuleInit {
    * 命宮, 身宮), requires an in-place 「需要出生時辰」 note (NOT silent omission),
    * guards against 神煞 false-negatives, and flags 用神/比重 as 僅供參考.
    * Per-type specifics go in opts.extraLines.
+   *
+   * ⚠️ KEEP IN SYNC with the LIFETIME inline copy in interpolateLifetimeV2Fields
+   * (~L2965+). That block is deliberately NOT a call to this helper: it carries
+   * LIFETIME-specific section-anchored 子女/晚年 in-place examples + 從格 anti-pattern
+   * examples that occupy the SAME fixed slots as this helper's generic in-place/
+   * geJuStatus lines (so they can't be appended via extraLines without duplicating
+   * those directives). Any doctrine/clause edit here MUST be mirrored there.
    */
   private buildHourUnknownSuppressionBlock(
     data: Record<string, unknown>,
@@ -2953,6 +2960,10 @@ export class AIService implements OnModuleInit {
     // sections (時柱/子女宮/晚年/命宮/身宮) are already structured-null in the engine
     // output; this block forbids the AI from fabricating them. Only injected when
     // the hour is unknown, so hour-known prompts stay byte-identical (cache-safe).
+    // ⚠️ KEEP IN SYNC with buildHourUnknownSuppressionBlock (~L2890). This inline
+    // copy is intentional (LIFETIME carries section-anchored 子女/晚年 examples +
+    // 從格 anti-pattern examples that occupy the same fixed slots as the helper's
+    // generic lines). Mirror any doctrine/clause edit there into this block too.
     if (data['hourKnown'] === false) {
       const dm = (data['dayMaster'] as Record<string, unknown> | undefined) ?? {};
       const block = [

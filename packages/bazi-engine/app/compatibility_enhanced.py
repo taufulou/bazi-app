@@ -1027,8 +1027,10 @@ def analyze_cross_chart_branches(
                 })
 
     # Cross-chart 三合 detection
-    all_branches_a = [pillars_a[p]['branch'] for p in pillar_names]
-    all_branches_b = [pillars_b[p]['branch'] for p in pillar_names]
+    # 時辰未知: drop the blanked hour branch ('') — behaviour-preserving (subset/in
+    # checks only ever test real branches), removes a latent foot-gun.
+    all_branches_a = [pillars_a[p]['branch'] for p in pillar_names if pillars_a[p]['branch']]
+    all_branches_b = [pillars_b[p]['branch'] for p in pillar_names if pillars_b[p]['branch']]
     combined_branches = set(all_branches_a + all_branches_b)
     individual_a = set(all_branches_a)
     individual_b = set(all_branches_b)
@@ -1596,8 +1598,11 @@ def calculate_enhanced_compatibility(
         p for p, unk in (('A', hour_unknown_a), ('B', hour_unknown_b)) if unk
     ]
 
-    all_branches_a = [pillars_a[p]['branch'] for p in ['year', 'month', 'day', 'hour']]
-    all_branches_b = [pillars_b[p]['branch'] for p in ['year', 'month', 'day', 'hour']]
+    # 時辰未知: drop the blanked hour branch ('') from the pool. Behaviour-preserving
+    # today (all consumers use set/issubset/in against real branches), but removes a
+    # latent foot-gun for any future `x in pool` membership check.
+    all_branches_a = [pillars_a[p]['branch'] for p in ['year', 'month', 'day', 'hour'] if pillars_a[p]['branch']]
+    all_branches_b = [pillars_b[p]['branch'] for p in ['year', 'month', 'day', 'hour'] if pillars_b[p]['branch']]
 
     # Identical chart detection
     identical_charts = (

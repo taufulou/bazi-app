@@ -217,7 +217,9 @@ export function buildPrompt(args: BuildPromptArgs): BuiltPrompt {
   // hourKnown===false (mirror of ai.service.ts). Placed BEFORE the raw 命盤資料
   // JSON so it governs how the AI reads the (blanked-hour) chart. Applies to all
   // chat reading types (LIFETIME/LOVE/CAREER/ANNUAL/FORTUNE) — the slim always
-  // sets hourKnown. (COMPATIBILITY profiles stay hour-known → never fires.)
+  // sets hourKnown. (COMPATIBILITY uses a dual-chart slim with per-party hourKnown
+  // in chartA/chartB and no top-level hourKnown, so this gate never fires for compat
+  // — the Phase-3c block below handles per-party hour-unknown suppression.)
   if (chatContext.hourKnown === false) {
     sections.push(
       '\n【時辰未知 — 嚴格限制（必須遵守）】\n' +

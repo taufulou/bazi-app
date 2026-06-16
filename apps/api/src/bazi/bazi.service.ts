@@ -496,6 +496,12 @@ export class BaziService {
         birthDate: reading.birthProfile?.birthDate?.toISOString().split('T')[0],
         birthTime: reading.birthProfile?.birthTime,
         birthCity: reading.birthProfile?.birthCity || '',
+        // 時辰未知: set hourKnown EXPLICITLY (mirrors the first-stream path) rather
+        // than relying on it riding in via the calculationData spread — guards the
+        // suppression injectors if the engine output schema ever changes.
+        hourKnown: reading.birthProfile?.hourKnown
+          ?? (reading.calculationData as Record<string, unknown>)?.['hourKnown']
+          ?? true,
       };
       if (reading.readingType === 'ANNUAL' && reading.targetYear != null) {
         enrichedData.targetYear = reading.targetYear;
