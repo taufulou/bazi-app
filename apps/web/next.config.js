@@ -1,5 +1,13 @@
 import { withSentryConfig } from '@sentry/nextjs';
 
+// Cloudflare R2 public host for admin-managed banner images (e.g.
+// "pub-<hash>.r2.dev" or a custom domain). Added to BOTH images.remotePatterns
+// AND the CSP img-src directive below — the latter is load-bearing: without it
+// the browser blocks the R2 <img> outright (remotePatterns alone does NOT
+// affect CSP and isn't consulted by raw <picture>/<img>).
+const r2Host = process.env.NEXT_PUBLIC_R2_PUBLIC_HOST?.trim();
+const r2ImgSrc = r2Host ? ` https://${r2Host}` : '';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Enable transpilation of monorepo packages
@@ -21,6 +29,9 @@ const nextConfig = {
         protocol: "https",
         hostname: "img.clerk.com",
       },
+      ...(r2Host
+        ? [{ protocol: "https", hostname: r2Host }]
+        : []),
     ],
   },
 
@@ -63,7 +74,7 @@ const nextConfig = {
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.accounts.dev https://challenges.cloudflare.com",
               "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: blob: https://img.clerk.com https://*.clerk.accounts.dev",
+              "img-src 'self' data: blob: https://img.clerk.com https://*.clerk.accounts.dev" + r2ImgSrc,
               "font-src 'self' data:",
               `connect-src 'self' https://*.clerk.accounts.dev https://api.clerk.com https://api.stripe.com wss://*.clerk.accounts.dev ${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'} https://*.ingest.sentry.io https://*.i.posthog.com`,
               "frame-src https://*.clerk.accounts.dev https://challenges.cloudflare.com https://js.stripe.com",

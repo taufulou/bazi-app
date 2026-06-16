@@ -37,6 +37,27 @@
   overflow: hidden;
 }
 
+/* Image slides (admin-managed) — full-bleed clickable picture. Needs an
+   EXPLICIT height (not just min-height) so object-fit:cover has a sized box. */
+.slideImage {
+  padding: 0;
+  height: 180px;
+  text-decoration: none;
+}
+
+.picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
 .ornament {
   position: absolute;
   right: 2rem;
@@ -144,6 +165,11 @@
   .slide {
     min-height: 150px;
     padding: 2rem 1.5rem;
+  }
+
+  .slideImage {
+    height: 150px;
+    padding: 0;
   }
 
   .slideTitle {
