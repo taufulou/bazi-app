@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { CreateBannerSlideDto } from './dto/create-banner-slide.dto';
+import { UpdateBannerSlideDto } from './dto/update-banner-slide.dto';
 
 async function linkHrefErrors(linkHref: string) {
   const dto = plainToInstance(CreateBannerSlideDto, {
@@ -67,5 +68,23 @@ describe('CreateBannerSlideDto image-URL validation (https-only)', () => {
     ]) {
       expect(await imageUrlErrors(bad)).toBeDefined();
     }
+  });
+});
+
+async function updateImageUrlErrors(imageUrlDesktop: string) {
+  const dto = plainToInstance(UpdateBannerSlideDto, { imageUrlDesktop });
+  const errs = await validate(dto);
+  return errs.find((e) => e.property === 'imageUrlDesktop');
+}
+
+describe('UpdateBannerSlideDto image-URL validation (https-only, optional)', () => {
+  it('accepts an empty patch (all fields optional) and an https URL', async () => {
+    expect((await validate(plainToInstance(UpdateBannerSlideDto, {}))).length).toBe(0);
+    expect(await updateImageUrlErrors('https://cdn.test/banners/x.png')).toBeUndefined();
+  });
+
+  it('rejects data: URIs and plain http when present', async () => {
+    expect(await updateImageUrlErrors('data:image/svg+xml,<svg></svg>')).toBeDefined();
+    expect(await updateImageUrlErrors('http://cdn.test/x.png')).toBeDefined();
   });
 });
