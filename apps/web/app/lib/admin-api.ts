@@ -4,6 +4,7 @@
  */
 
 import { apiFetch } from './api';
+import { redirectToSignInOnExpiry } from './auth-redirect';
 
 // ============ Types ============
 
@@ -627,6 +628,9 @@ export async function uploadBannerImage(token: string, file: File): Promise<stri
     body: form,
   });
   if (!res.ok) {
+    // Layer C (Global Signed-Out Handler) — authenticated raw fetch must
+    // redirect to sign-in on a mid-session 401 (mirrors readings-api.ts).
+    if (res.status === 401) redirectToSignInOnExpiry();
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Upload failed: ${res.status}`);
   }

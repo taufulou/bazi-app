@@ -1,5 +1,6 @@
 import {
   IsString,
+  IsUrl,
   IsOptional,
   IsBoolean,
   IsInt,
@@ -20,11 +21,13 @@ export class UpdateBannerSlideDto {
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
+  @IsUrl({ require_protocol: true, protocols: ['https'] })
   imageUrlDesktop?: string;
 
   @ApiProperty({ required: false })
   @IsOptional()
   @IsString()
+  @IsUrl({ require_protocol: true, protocols: ['https'] })
   imageUrlMobile?: string;
 
   @ApiProperty({ required: false, example: '/reading/annual' })

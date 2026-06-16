@@ -38,6 +38,7 @@ describe('BannerAdminController.upload', () => {
   const r2 = {
     uploadImage: jest.fn().mockResolvedValue('https://cdn.test/banners/x.png'),
     deleteImage: jest.fn(),
+    isConfigured: jest.fn().mockReturnValue(true),
   };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const ctrl = new BannerAdminController({} as any, r2 as any);
@@ -45,7 +46,10 @@ describe('BannerAdminController.upload', () => {
   const file = (buf: Buffer, size = buf.length) =>
     ({ buffer: buf, size } as Express.Multer.File);
 
-  beforeEach(() => r2.uploadImage.mockClear());
+  beforeEach(() => {
+    r2.uploadImage.mockClear();
+    r2.isConfigured.mockReturnValue(true);
+  });
 
   it('400 when no file is provided', async () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -66,5 +70,19 @@ describe('BannerAdminController.upload', () => {
     const res = await ctrl.upload(file(PNG));
     expect(res).toEqual({ url: 'https://cdn.test/banners/x.png' });
     expect(r2.uploadImage).toHaveBeenCalledWith(PNG, 'png', 'image/png');
+  });
+
+  it('503 R2_NOT_CONFIGURED when R2 is unconfigured (NOT rewrapped as UPLOAD_FAILED 500)', async () => {
+    r2.isConfigured.mockReturnValueOnce(false);
+    let caught: HttpException | undefined;
+    try {
+      await ctrl.upload(file(PNG));
+    } catch (e) {
+      caught = e as HttpException;
+    }
+    expect(caught).toBeInstanceOf(HttpException);
+    expect(caught!.getStatus()).toBe(503);
+    expect((caught!.getResponse() as { code: string }).code).toBe('R2_NOT_CONFIGURED');
+    expect(r2.uploadImage).not.toHaveBeenCalled();
   });
 });

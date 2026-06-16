@@ -1,5 +1,6 @@
 import {
   IsString,
+  IsUrl,
   IsOptional,
   IsBoolean,
   IsInt,
@@ -27,10 +28,12 @@ export class CreateBannerSlideDto {
 
   @ApiProperty({ description: 'R2 public URL for the desktop crop' })
   @IsString()
+  @IsUrl({ require_protocol: true, protocols: ['https'] })
   imageUrlDesktop!: string;
 
   @ApiProperty({ description: 'R2 public URL for the mobile crop' })
   @IsString()
+  @IsUrl({ require_protocol: true, protocols: ['https'] })
   imageUrlMobile!: string;
 
   @ApiProperty({ example: '/reading/annual', description: 'Internal absolute path' })

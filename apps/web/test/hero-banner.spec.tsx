@@ -77,7 +77,7 @@ describe('HeroBanner', () => {
         altText: null,
       },
     ]);
-    render(<HeroBanner />);
+    const { container } = render(<HeroBanner />);
 
     const img1 = await screen.findByAltText('年運優惠');
     expect(img1).toHaveAttribute('src', 'https://cdn.test/banners/d1.png');
@@ -88,6 +88,10 @@ describe('HeroBanner', () => {
 
     const links = screen.getAllByRole('link');
     expect(links.some((a) => a.getAttribute('href') === '/pricing')).toBe(true);
+
+    // Each image slide is wrapped in a role="group" carousel-slide container.
+    // The [data-index] qualifier avoids matching the dots' own role="group".
+    expect(container.querySelector('[role="group"][data-index="0"]')).toBeInTheDocument();
   });
 
   it('emits a mobile <source> with the mobile crop for art direction', async () => {

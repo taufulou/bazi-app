@@ -126,6 +126,9 @@ export class BannerAdminController {
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: MULTER_HARD_CAP_BYTES } }),
   )
+  // Dedicated tighter limit than the class 30/min — each call hits R2 and
+  // buffers up to 8 MB (mirrors the cost-endpoint precedent in fortune.controller).
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async upload(@UploadedFile() file: Express.Multer.File) {
     if (!file || !file.buffer) {
       throw new HttpException(
@@ -150,6 +153,15 @@ export class BannerAdminController {
           message: 'File must be a PNG, JPEG, or WebP image.',
         },
         HttpStatus.BAD_REQUEST,
+      );
+    }
+    // Distinct, clear error when R2 isn't configured. MUST stay OUTSIDE the
+    // try/catch below — that blanket `catch` would otherwise rewrap this as a
+    // generic UPLOAD_FAILED / 500, losing the 503 + R2_NOT_CONFIGURED code.
+    if (!this.r2.isConfigured()) {
+      throw new HttpException(
+        { code: 'R2_NOT_CONFIGURED', message: 'Image storage (R2) is not configured.' },
+        HttpStatus.SERVICE_UNAVAILABLE,
       );
     }
     try {

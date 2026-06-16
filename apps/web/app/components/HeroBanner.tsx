@@ -161,7 +161,7 @@ export default function HeroBanner() {
     stopAutoPlay();
   }, [stopAutoPlay]);
 
-  // Dot click — user takes permanent control
+  // Dot click — pause autoplay; resumes on mouse-leave (unlike CTA click)
   const handleDotClick = (index: number) => {
     stopAutoPlay();
     scrollToSlide(index);
@@ -179,25 +179,31 @@ export default function HeroBanner() {
       <div className={styles.track} ref={trackRef} aria-live="off">
         {useImages
           ? banners!.map((slide, i) => (
-              <Link
+              <div
                 key={slide.id}
-                href={slide.linkHref}
                 className={`${styles.slide} ${styles.slideImage}`}
                 data-index={i}
+                role="group"
                 aria-roledescription="slide"
-                aria-label={slide.altText || `橫幅 ${i + 1}，共 ${banners!.length} 張`}
-                onClick={handleCtaClick}
+                aria-label={`第 ${i + 1} 張，共 ${banners!.length} 張`}
               >
-                <picture className={styles.picture}>
-                  <source media="(max-width: 768px)" srcSet={slide.imageUrlMobile} />
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={slide.imageUrlDesktop}
-                    alt={slide.altText ?? ""}
-                    className={styles.image}
-                  />
-                </picture>
-              </Link>
+                <Link
+                  href={slide.linkHref}
+                  className={styles.slideLink}
+                  aria-label={slide.altText || `橫幅 ${i + 1}`}
+                  onClick={handleCtaClick}
+                >
+                  <picture className={styles.picture}>
+                    <source media="(max-width: 768px)" srcSet={slide.imageUrlMobile} />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={slide.imageUrlDesktop}
+                      alt={slide.altText ?? ""}
+                      className={styles.image}
+                    />
+                  </picture>
+                </Link>
+              </div>
             ))
           : FALLBACK_SLIDES.map((slide, i) => (
               <div

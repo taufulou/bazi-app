@@ -41,3 +41,31 @@ describe('CreateBannerSlideDto.linkHref validation', () => {
     }
   });
 });
+
+async function imageUrlErrors(imageUrlDesktop: string) {
+  const dto = plainToInstance(CreateBannerSlideDto, {
+    imageUrlDesktop,
+    imageUrlMobile: 'https://cdn.test/banners/m.png',
+    linkHref: '/reading/lifetime',
+  });
+  const errs = await validate(dto);
+  return errs.find((e) => e.property === 'imageUrlDesktop');
+}
+
+describe('CreateBannerSlideDto image-URL validation (https-only)', () => {
+  it('accepts https R2 URLs', async () => {
+    expect(await imageUrlErrors('https://pub-abc123.r2.dev/banners/x.png')).toBeUndefined();
+    expect(await imageUrlErrors('https://cdn.test/banners/x.png')).toBeUndefined();
+  });
+
+  it('rejects data: URIs, non-URLs, empty strings, and plain http', async () => {
+    for (const bad of [
+      'data:image/svg+xml,<svg onload="alert(1)"></svg>',
+      'not-a-url',
+      '',
+      'http://cdn.test/x.png', // https-only
+    ]) {
+      expect(await imageUrlErrors(bad)).toBeDefined();
+    }
+  });
+});
