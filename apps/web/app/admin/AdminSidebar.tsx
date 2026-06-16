@@ -8,6 +8,7 @@ import styles from './layout.module.css';
 const NAV_ITEMS = [
   { href: '/admin', label: 'Dashboard', icon: '📊' },
   { href: '/admin/services', label: 'Services', icon: '⚙️' },
+  { href: '/admin/banners', label: 'Banners', icon: '🖼️' },
   { href: '/admin/plans', label: 'Plans', icon: '💎' },
   { href: '/admin/promos', label: 'Promo Codes', icon: '🎟️' },
   { href: '/admin/prompts', label: 'Prompts', icon: '📝' },

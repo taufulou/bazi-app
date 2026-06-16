@@ -688,6 +688,39 @@ model DailyFortuneSnapshot {
 }
 
 // ============================================================
+// Dashboard Banner (admin-managed homepage carousel)
+//
+// Image-only clickable slides shown in apps/web HeroBanner. Admin uploads
+// separate desktop + mobile crops to Cloudflare R2 and sets an internal
+// link target (e.g. "/reading/annual"). Public read at GET /api/banners
+// returns active slides ordered by displayOrder. See plan
+// `.claude/plans/1-how-the-image-mutable-anchor.md`.
+// ============================================================
+
+model BannerSlide {
+  id              String   @id @default(uuid())
+  // Admin-only label to identify the slide in the admin list (NOT rendered).
+  label           String?
+  // R2 public URLs for the two art-directed crops (see plan for recommended
+  // sizes: desktop ~1920×384, mobile ~1200×420).
+  imageUrlDesktop String   @map("image_url_desktop")
+  imageUrlMobile  String   @map("image_url_mobile")
+  // Internal absolute path the slide links to, e.g. "/reading/lifetime".
+  // Validated server-side to reject external / protocol-relative URLs.
+  linkHref        String   @map("link_href")
+  // Image alt text for accessibility.
+  altText         String?  @map("alt_text")
+  // Sort order in the carousel. Lower = first. Tie-break by createdAt.
+  displayOrder    Int      @default(0) @map("display_order")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  @@index([isActive, displayOrder])
+  @@map("banner_slides")
+}
+
+// ============================================================
 // Enums
 // ============================================================
 

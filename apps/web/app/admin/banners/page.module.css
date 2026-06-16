@@ -1,0 +1,132 @@
+/* Admin banner manager — dark admin theme (matches layout.module.css) */
+
+.help {
+  color: #a0a0a0;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 16px;
+}
+
+.help b {
+  color: #d0d0d0;
+}
+
+/* Slide list thumbnails */
+.thumbRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thumbDesktop {
+  width: 160px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+}
+
+.thumbMobile {
+  width: 56px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 4px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+}
+
+/* Order cell with up/down controls */
+.orderCell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.moveBtn {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  color: #c0c0c0;
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+}
+
+.moveBtn:hover:not(:disabled) {
+  background: #3a3a3a;
+}
+
+.moveBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Crop upload grid (desktop + mobile side by side) */
+.cropGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+@media (max-width: 640px) {
+  .cropGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.crop {
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 12px;
+  background: #1c1c1c;
+}
+
+.cropTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e0e0e0;
+  margin-bottom: 2px;
+}
+
+.cropHint {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 8px;
+}
+
+.cropPreview {
+  width: 100%;
+  aspect-ratio: 5 / 1;
+  background: #111;
+  border: 1px dashed #3a3a3a;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.cropPreview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cropPlaceholder {
+  color: #555;
+  font-size: 12px;
+}
+
+.dimWarn {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #d4a017;
+  line-height: 1.4;
+}

@@ -4,6 +4,7 @@
  */
 
 import { apiFetch } from './api';
+import { redirectToSignInOnExpiry } from './auth-redirect';
 
 // ============ Types ============
 
@@ -546,4 +547,93 @@ export async function getAuditLog(
     `/api/admin/audit-log${qs ? `?${qs}` : ''}`,
     { token },
   );
+}
+
+// ============ Dashboard Banner Slides ============
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+
+export interface AdminBannerSlide {
+  id: string;
+  label: string | null;
+  imageUrlDesktop: string;
+  imageUrlMobile: string;
+  linkHref: string;
+  altText: string | null;
+  displayOrder: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BannerSlideInput {
+  label?: string;
+  imageUrlDesktop: string;
+  imageUrlMobile: string;
+  linkHref: string;
+  altText?: string;
+  displayOrder?: number;
+  isActive?: boolean;
+}
+
+export async function listBannerSlides(token: string): Promise<AdminBannerSlide[]> {
+  const res = await apiFetch<{ items: AdminBannerSlide[] }>('/api/admin/banners', {
+    token,
+  });
+  return res.items;
+}
+
+export async function createBannerSlide(
+  token: string,
+  data: BannerSlideInput,
+): Promise<AdminBannerSlide> {
+  const res = await apiFetch<{ item: AdminBannerSlide }>('/api/admin/banners', {
+    method: 'POST',
+    token,
+    body: JSON.stringify(data),
+  });
+  return res.item;
+}
+
+export async function updateBannerSlide(
+  token: string,
+  id: string,
+  data: Partial<BannerSlideInput>,
+): Promise<AdminBannerSlide> {
+  const res = await apiFetch<{ item: AdminBannerSlide }>(
+    `/api/admin/banners/${id}`,
+    { method: 'PATCH', token, body: JSON.stringify(data) },
+  );
+  return res.item;
+}
+
+export async function deleteBannerSlide(token: string, id: string): Promise<void> {
+  await apiFetch<{ ok: boolean }>(`/api/admin/banners/${id}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+/**
+ * Upload a banner image to R2. Uses a raw `fetch` with `FormData` (NOT
+ * apiFetch — apiFetch force-sets `Content-Type: application/json`, but
+ * multipart needs the browser to set the boundary). Returns the public URL.
+ */
+export async function uploadBannerImage(token: string, file: File): Promise<string> {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch(`${API_BASE}/api/admin/banners/upload`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }, // no Content-Type — browser sets multipart boundary
+    body: form,
+  });
+  if (!res.ok) {
+    // Layer C (Global Signed-Out Handler) — authenticated raw fetch must
+    // redirect to sign-in on a mid-session 401 (mirrors readings-api.ts).
+    if (res.status === 401) redirectToSignInOnExpiry();
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Upload failed: ${res.status}`);
+  }
+  const data = (await res.json()) as { url: string };
+  return data.url;
 }

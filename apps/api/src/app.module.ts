@@ -18,6 +18,7 @@ import { AIModule } from './ai/ai.module';
 import { CreditsModule } from './credits/credits.module';
 import { ChatModule } from './chat/chat.module';
 import { FortuneModule } from './fortune/fortune.module';
+import { BannerModule } from './banner/banner.module';
 
 @Module({
   imports: [
@@ -37,6 +38,13 @@ import { FortuneModule } from './fortune/fortune.module';
         STRIPE_SECRET_KEY: Joi.string().allow('').optional().default(''),
         STRIPE_WEBHOOK_SECRET: Joi.string().allow('').optional().default(''),
         BAZI_ENGINE_URL: Joi.string().default('http://localhost:5001'),
+        // Cloudflare R2 (banner image uploads) — optional so the app boots
+        // without R2; the admin /upload endpoint fails loudly when unset.
+        R2_ACCOUNT_ID: Joi.string().allow('').optional().default(''),
+        R2_ACCESS_KEY_ID: Joi.string().allow('').optional().default(''),
+        R2_SECRET_ACCESS_KEY: Joi.string().allow('').optional().default(''),
+        R2_BUCKET: Joi.string().allow('').optional().default(''),
+        R2_PUBLIC_BASE_URL: Joi.string().allow('').optional().default(''),
         CORS_ORIGINS: Joi.string().optional().default('http://localhost:3000'),
         PORT: Joi.number().default(4000),
         NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
@@ -74,6 +82,9 @@ import { FortuneModule } from './fortune/fortune.module';
 
     // Fortune (八字日運/月運/年運)
     FortuneModule,
+
+    // Dashboard banner (admin-managed homepage carousel)
+    BannerModule,
 
     // Feature modules
     UsersModule,
