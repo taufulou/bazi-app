@@ -30,7 +30,7 @@
 }
 
 .title {
-  font-family: var(--font-noto-serif-tc, var(--font-noto-serif-tc)), serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 0.95rem;
   font-weight: 600;
   color: var(--text-accent, #C41E3A);
