@@ -47,7 +47,7 @@
 }
 
 .scoreLabelInRing {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 1.15rem;
   font-weight: 700;
   color: var(--text-accent, #C41E3A);
@@ -215,7 +215,7 @@
 }
 
 .masterNoteTitle {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--text-accent, #C41E3A);
@@ -270,7 +270,7 @@
 }
 
 .metricValue {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--text-primary, #3C2415);

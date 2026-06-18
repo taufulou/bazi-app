@@ -23,6 +23,7 @@ model User {
   subscriptionTier  SubscriptionTier @default(FREE) @map("subscription_tier")
   credits           Int              @default(0)
   languagePref      Language         @default(ZH_TW) @map("language_pref")
+  languageChosen    Boolean          @default(false) @map("language_chosen")
   deviceFingerprint String?          @map("device_fingerprint")
   createdAt         DateTime         @default(now()) @map("created_at")
   updatedAt         DateTime         @updatedAt @map("updated_at")
@@ -705,6 +706,10 @@ model BannerSlide {
   // sizes: desktop ~1920×384, mobile ~1200×420).
   imageUrlDesktop String   @map("image_url_desktop")
   imageUrlMobile  String   @map("image_url_mobile")
+  // Optional 簡體中文 (Simplified) variants — shown to zh-CN users; fall back to the
+  // Traditional crops above when null. Same R2 public URLs, art-directed per script.
+  imageUrlDesktopSimplified String? @map("image_url_desktop_simplified")
+  imageUrlMobileSimplified  String? @map("image_url_mobile_simplified")
   // Internal absolute path the slide links to, e.g. "/reading/lifetime".
   // Validated server-side to reject external / protocol-relative URLs.
   linkHref        String   @map("link_href")

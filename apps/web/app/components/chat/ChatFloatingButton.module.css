@@ -15,7 +15,7 @@
   border: none;
   border-radius: 999px;
   box-shadow: 0 6px 20px rgba(226, 61, 40, 0.35);
-  font-family: var(--font-noto-serif-tc, 'Noto Serif TC'), serif;
+  font-family: var(--font-noto-serif-tc, var(--font-noto-serif-tc)), serif;
   font-size: 0.88rem;
   font-weight: 600;
   white-space: nowrap;

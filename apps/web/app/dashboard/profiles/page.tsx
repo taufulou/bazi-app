@@ -201,7 +201,7 @@ export default function ProfileManagerPage() {
           <div className={styles.formSection}>
             <div className={styles.formHeader}>
               <span className={styles.formTitle}>
-                編輯「{editingProfile.name}」
+                編輯「<span data-no-zh="">{editingProfile.name}</span>」
               </span>
               <button className={styles.cancelBtn} onClick={handleCancel}>
                 取消

@@ -1641,7 +1641,7 @@ li.goldBulletItemCategory {
 }
 
 .dimChartHeader strong {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 1.1rem;
   color: var(--text-accent, #C41E3A);
 }

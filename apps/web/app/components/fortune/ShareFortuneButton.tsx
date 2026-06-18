@@ -28,6 +28,8 @@ import {
   shareOrDownloadPng,
   type ShareResult,
 } from '../../lib/share-fortune';
+import { useLang } from '../LanguageContext';
+import { convertSubtree, ensureConverter } from '../../lib/zh-convert';
 import styles from './ShareFortuneButton.module.css';
 
 /** Scope-agnostic share metadata. Each call site (daily / yearly) derives
@@ -83,6 +85,7 @@ const ShareFortuneButton = React.forwardRef<ShareFortuneButtonHandle, ShareFortu
   ) {
   const [phase, setPhase] = React.useState<Phase>('idle');
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const lang = useLang();
 
   /** Pre-arm on hover/touch/focus — does two things:
    *   1. Arms the card mount (parent setState)
@@ -139,9 +142,17 @@ const ShareFortuneButton = React.forwardRef<ShareFortuneButtonHandle, ShareFortu
         throw new Error('Share card failed to mount');
       }
 
-      // Step 4: force-load Noto Serif TC + rasterize
+      // Step 4: for zh-CN, convert the card's DOM to Simplified BEFORE capture.
+      // The freshly-armed card mounts only 1-2 RAF before this — the global
+      // observer may not have converted it yet, so do it synchronously here
+      // (covers narrative + dayTenGod + folk + footer, not just narrative).
       setPhase('capturing');
-      await loadFortuneCardFonts();
+      if (lang === 'zh-CN') {
+        await ensureConverter();
+        convertSubtree(cardRef.current);
+      }
+      // Force-load the right serif weights (SC for zh-CN, else TC) + rasterize.
+      await loadFortuneCardFonts(lang === 'zh-CN');
       const canvas = await rasterizeNode(cardRef.current);
 
       const blob = await new Promise<Blob>((resolve, reject) => {
@@ -171,6 +182,7 @@ const ShareFortuneButton = React.forwardRef<ShareFortuneButtonHandle, ShareFortu
     shareCardArmed,
     cardRef,
     shareMeta,
+    lang,
     onArmShareCard,
     onQrGenerated,
     onShareComplete,

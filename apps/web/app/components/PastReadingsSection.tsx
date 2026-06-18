@@ -194,15 +194,15 @@ export default function PastReadingsSection({
               const partnerName = reading.profileB?.name ?? "未命名";
               line1 = (
                 <>
-                  <span>{primaryName}</span>
+                  <span data-no-zh="">{primaryName}</span>
                   <span className={styles.vsLabel}>×</span>
-                  <span>{partnerName}</span>
+                  <span data-no-zh="">{partnerName}</span>
                 </>
               );
             } else if (readingType === "annual" && reading.targetYear) {
               line1 = (
                 <>
-                  <span>{primaryName}</span>
+                  <span data-no-zh="">{primaryName}</span>
                   {birthDateText && (
                     <>
                       <span className={styles.metaDot}>·</span>
@@ -216,7 +216,7 @@ export default function PastReadingsSection({
             } else {
               line1 = (
                 <>
-                  <span>{primaryName}</span>
+                  <span data-no-zh="">{primaryName}</span>
                   {birthDateText && (
                     <>
                       <span className={styles.metaDot}>·</span>

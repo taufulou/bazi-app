@@ -283,7 +283,7 @@
 }
 
 .compatTitle {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 1.5rem;
   background: linear-gradient(135deg, var(--color-red), var(--color-orange));
   -webkit-background-clip: text;
@@ -315,7 +315,7 @@
 .chartPanelLabel {
   text-align: center;
   padding: 10px 0 4px;
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-accent, #C41E3A);
@@ -372,7 +372,7 @@
 }
 
 .educationalTitle {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 1.1rem;
   color: var(--text-accent);
   margin: 0;
@@ -507,7 +507,7 @@
 
 .formLabelA,
 .formLabelB {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 1rem;
   font-weight: 700;
   color: var(--text-accent, #C41E3A);
@@ -658,7 +658,7 @@
   font-weight: 600;
   letter-spacing: 0.02em;
   white-space: nowrap;
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .pillSubtext {
@@ -666,7 +666,7 @@
   font-size: 0.65rem;
   font-weight: 400;
   white-space: nowrap;
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;

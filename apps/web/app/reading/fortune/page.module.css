@@ -9,7 +9,7 @@
 
 .folkTitle {
   margin: 0 0 12px 0;
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 15px;
   color: var(--text-accent);
   font-weight: 600;
@@ -49,7 +49,7 @@
 
 .folkValue {
   margin: 4px 0;
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 18px;
   font-weight: 600;
   color: var(--text-accent);
@@ -129,7 +129,7 @@
   display: inline-block;
   padding: 3px 8px;
   font-size: 12px;
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   color: var(--text-accent);
   background: rgba(226, 61, 40, 0.08);
   border: 1px solid rgba(226, 61, 40, 0.18);
@@ -170,7 +170,7 @@
 }
 
 .chatCtaTitle {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-accent);
@@ -241,7 +241,7 @@
 }
 
 .previewTitle {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 20px;
   font-weight: 600;
   color: var(--text-accent);
@@ -287,7 +287,7 @@
 }
 
 .errorTitle {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 20px;
   font-weight: 600;
   color: var(--text-accent);
@@ -335,7 +335,7 @@
   color: var(--text-muted);
   border: 1px dashed var(--border-light);
   border-radius: 999px;
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 14px;
   font-weight: 500;
   cursor: not-allowed;

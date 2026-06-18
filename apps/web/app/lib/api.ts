@@ -82,20 +82,72 @@ export async function calculateBaziDirect(params: {
 // User Profile API
 // ---------------------------------------------------------------------------
 
+/** UI-facing language preference (kebab). The DB/Prisma enum is `ZH_TW`/`ZH_CN`. */
+export type LanguagePref = 'zh-TW' | 'zh-CN';
+
+/** Map the Prisma `Language` enum (`ZH_TW`/`ZH_CN`) → UI kebab. Defaults to zh-TW. */
+export function langEnumToKebab(v: string | null | undefined): LanguagePref {
+  return v === 'ZH_CN' ? 'zh-CN' : 'zh-TW';
+}
+
+/** Map UI kebab → the Prisma `Language` enum value expected by PATCH /api/users/me. */
+export function langKebabToEnum(v: LanguagePref): 'ZH_TW' | 'ZH_CN' {
+  return v === 'zh-CN' ? 'ZH_CN' : 'ZH_TW';
+}
+
 /** Shape returned by GET /api/users/me (cherry-picked fields) */
 export interface UserProfile {
   id: string;
   credits: number;
   subscriptionTier: 'FREE' | 'BASIC' | 'PRO' | 'MASTER';
   name: string | null;
+  /** UI kebab form, mapped from the DB enum on read. */
+  languagePref: LanguagePref;
+  /** Whether the user has explicitly picked a script (drives the one-time modal). */
+  languageChosen: boolean;
+}
+
+/** Raw GET /api/users/me payload (server returns the full Prisma User; enum is ZH_TW/ZH_CN). */
+interface RawUserProfile {
+  id: string;
+  credits: number;
+  subscriptionTier: 'FREE' | 'BASIC' | 'PRO' | 'MASTER';
+  name: string | null;
+  languagePref?: string | null;
+  languageChosen?: boolean;
 }
 
 /**
- * Get the current user's profile (credits, tier, etc.).
- * GET /api/users/me
+ * Get the current user's profile (credits, tier, language, etc.).
+ * GET /api/users/me — maps the DB `Language` enum → UI kebab on read.
  */
 export async function getUserProfile(token: string): Promise<UserProfile> {
-  return apiFetch<UserProfile>('/api/users/me', { token });
+  const raw = await apiFetch<RawUserProfile>('/api/users/me', { token });
+  return {
+    id: raw.id,
+    credits: raw.credits,
+    subscriptionTier: raw.subscriptionTier,
+    name: raw.name,
+    languagePref: langEnumToKebab(raw.languagePref),
+    languageChosen: raw.languageChosen ?? false,
+  };
+}
+
+/**
+ * Persist the user's language preference (and mark it explicitly chosen so the
+ * one-time first-run modal never re-fires). Maps UI kebab → the DB `Language` enum.
+ * PATCH /api/users/me
+ */
+export async function updateLanguagePref(
+  token: string,
+  pref: LanguagePref,
+  markChosen = true,
+): Promise<void> {
+  await apiFetch<unknown>('/api/users/me', {
+    token,
+    method: 'PATCH',
+    body: JSON.stringify({ languagePref: langKebabToEnum(pref), languageChosen: markChosen }),
+  });
 }
 
 // ---------------------------------------------------------------------------

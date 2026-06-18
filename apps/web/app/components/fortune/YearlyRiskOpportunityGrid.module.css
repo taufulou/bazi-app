@@ -145,7 +145,7 @@
 }
 
 .entryMonth {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);

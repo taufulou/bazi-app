@@ -606,13 +606,13 @@
 }
 
 .palaceStem {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 1rem;
   font-weight: 700;
 }
 
 .palaceBranch {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 1rem;
   font-weight: 700;
 }

@@ -1,0 +1,133 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(60, 36, 21, 0.45);
+  backdrop-filter: blur(3px);
+  animation: fadeIn 0.2s ease;
+}
+
+.card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-card, #ffffff);
+  border: 1px solid var(--border-light, rgba(212, 160, 23, 0.15));
+  border-radius: 16px;
+  box-shadow: var(--shadow-warm, 0 4px 20px rgba(226, 61, 40, 0.08)),
+    0 12px 40px rgba(60, 36, 21, 0.18);
+  padding: 2rem 1.75rem 1.5rem;
+  text-align: center;
+  animation: pop 0.22s ease;
+}
+
+.ornament {
+  color: var(--color-gold, #d4a017);
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.title {
+  font-family: var(--font-noto-serif-tc), serif;
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: var(--text-accent, #c41e3a);
+  margin: 0 0 0.4rem;
+}
+
+.subtitle {
+  font-size: 0.9rem;
+  color: var(--text-secondary, #6b5940);
+  margin: 0 0 1.5rem;
+}
+
+.options {
+  display: flex;
+  gap: 0.85rem;
+}
+
+.option {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 1.1rem 0.75rem;
+  background: var(--bg-secondary, #fffbf5);
+  border: 1.5px solid var(--border-light, rgba(212, 160, 23, 0.25));
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, transform 0.12s ease;
+  position: relative;
+}
+
+.option:hover:not(:disabled) {
+  border-color: var(--color-red, #e23d28);
+  background: #fff;
+  transform: translateY(-2px);
+}
+
+.option:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.optionMain {
+  font-family: var(--font-noto-serif-tc), serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary, #3c2415);
+}
+
+.optionSub {
+  font-size: 0.75rem;
+  color: var(--text-muted, #8b7355);
+  letter-spacing: 0.04em;
+}
+
+.note {
+  margin: 1.4rem 0 0;
+  font-size: 0.75rem;
+  color: var(--text-muted, #8b7355);
+}
+
+.spinner {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--border-light, rgba(212, 160, 23, 0.3));
+  border-top-color: var(--color-red, #e23d28);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -131,9 +131,9 @@ export default function ReadingHistoryPage() {
                         <div className={styles.cardBody}>
                           <div className={styles.cardTitle}>{ctMeta.label}</div>
                           <div className={styles.cardMeta}>
-                            <span>{reading.birthProfile?.name || "未命名"}</span>
+                            <span data-no-zh="">{reading.birthProfile?.name || "未命名"}</span>
                             <span className={styles.vsLabel}>vs</span>
-                            <span>{reading.profileB?.name || "未命名"}</span>
+                            <span data-no-zh="">{reading.profileB?.name || "未命名"}</span>
                             <span className={styles.metaDot}>·</span>
                             <span className={styles.cardDate}>
                               {formatDate(reading.createdAt)}

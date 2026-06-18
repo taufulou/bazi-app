@@ -18,7 +18,7 @@
 
 .heroTitle {
   margin: 0 0 10px 0;
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 18px;
   color: var(--text-accent);
   font-weight: 600;
@@ -70,7 +70,7 @@
 }
 
 .dimTitle {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 15px;
   font-weight: 600;
   color: var(--text-accent);
@@ -110,7 +110,7 @@
 }
 
 .dimBadgeScore {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 16px;
   font-weight: 700;
   color: var(--text-primary);
@@ -131,7 +131,7 @@
   margin: 0 0 10px 0;
   padding: 4px 0 4px 14px;
   border-left: 3px solid var(--color-red);
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 14px;
   line-height: 1.6;
   color: var(--text-accent);
@@ -182,7 +182,7 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 14px;
   font-weight: 600;
 }

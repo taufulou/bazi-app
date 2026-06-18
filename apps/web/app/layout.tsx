@@ -2,9 +2,11 @@ import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { zhTW } from "@clerk/localizations";
 import localFont from "next/font/local";
-import { Noto_Serif_TC } from "next/font/google";
+import { Noto_Serif_TC, Noto_Serif_SC } from "next/font/google";
 import { PostHogProvider } from "./providers";
 import SignedOutRedirect from "./components/SignedOutRedirect";
+import LanguageProvider from "./components/LanguageProvider";
+import LanguageFirstRunModal from "./components/LanguageFirstRunModal";
 import "./globals.css";
 
 const geistSans = localFont({
@@ -21,6 +23,17 @@ const notoSerifTC = Noto_Serif_TC({
   weight: ["400", "700"],
   display: "swap",
   variable: "--font-noto-serif-tc",
+});
+
+// Simplified serif — loaded for zh-CN users. `preload: false` keeps it off the
+// critical path for zh-TW users; the body-scoped `[data-lang="zh-CN"]` remap in
+// globals.css points `--font-noto-serif-tc` at this variable.
+const notoSerifSC = Noto_Serif_SC({
+  subsets: ["latin"],
+  weight: ["400", "700"],
+  display: "swap",
+  variable: "--font-noto-serif-sc",
+  preload: false,
 });
 
 const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://bazi-platform.com';
@@ -77,10 +90,13 @@ export default function RootLayout({
       }}
     >
       <html lang="zh-TW">
-        <body className={`${geistSans.variable} ${geistMono.variable} ${notoSerifTC.variable}`}>
+        <body className={`${geistSans.variable} ${geistMono.variable} ${notoSerifTC.variable} ${notoSerifSC.variable}`}>
           <PostHogProvider>
-            <SignedOutRedirect />
-            {children}
+            <LanguageProvider>
+              <SignedOutRedirect />
+              <LanguageFirstRunModal />
+              {children}
+            </LanguageProvider>
           </PostHogProvider>
         </body>
       </html>

@@ -31,7 +31,7 @@
 }
 
 .heroHeadline {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 18px;
   font-weight: 700;
   line-height: 1.6;

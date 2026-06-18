@@ -27,13 +27,16 @@ export interface ShareResult {
  * Safe to call repeatedly — `document.fonts.load` resolves immediately for
  * already-loaded faces.
  */
-export async function loadFortuneCardFonts(): Promise<void> {
+export async function loadFortuneCardFonts(simplified = false): Promise<void> {
   if (typeof document === 'undefined' || !document.fonts) return;
+  // For zh-CN the card's var(--font-noto-serif-tc) is remapped to Noto Serif SC, so
+  // load the SC weights instead — else html2canvas captures system-fallback glyphs.
+  const family = simplified ? '"Noto Serif SC"' : '"Noto Serif TC"';
   try {
     await Promise.all([
-      document.fonts.load('700 64px "Noto Serif TC"'),
-      document.fonts.load('400 24px "Noto Serif TC"'),
-      document.fonts.load('700 28px "Noto Serif TC"'),
+      document.fonts.load(`700 64px ${family}`),
+      document.fonts.load(`400 24px ${family}`),
+      document.fonts.load(`700 28px ${family}`),
     ]);
     await document.fonts.ready;
   } catch {

@@ -538,7 +538,7 @@
   font-weight: 600;
   letter-spacing: 0.02em;
   white-space: nowrap;
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .pillBar {
@@ -805,7 +805,7 @@
   font-weight: 700;
   color: var(--text-accent);
   margin-bottom: 6px;
-  font-family: "Noto Serif TC", serif;
+  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .aiBannerBody {

@@ -7,6 +7,7 @@ import {
   StyleSheet,
   SafeAreaView,
 } from 'react-native';
+import { useZh } from '../lib/language';
 
 export default function HomeScreen() {
   let isSignedIn = false;
@@ -24,11 +25,12 @@ export default function HomeScreen() {
   }
 
   const router = useRouter();
+  const zh = useZh();
 
   if (!isLoaded) {
     return (
       <View style={styles.container}>
-        <Text style={styles.loadingText}>載入中...</Text>
+        <Text style={styles.loadingText}>{zh('載入中...')}</Text>
       </View>
     );
   }
@@ -46,7 +48,7 @@ export default function HomeScreen() {
           <Text style={styles.logo}>☯</Text>
           <Text style={styles.title}>天命</Text>
           <Text style={styles.subtitle}>
-            預見你的一生
+            {zh('預見你的一生')}
           </Text>
         </View>
 
@@ -64,20 +66,20 @@ export default function HomeScreen() {
             style={styles.primaryButton}
             onPress={() => router.push('/sign-up')}
           >
-            <Text style={styles.primaryButtonText}>免費開始</Text>
+            <Text style={styles.primaryButtonText}>{zh('免費開始')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
             style={styles.secondaryButton}
             onPress={() => router.push('/sign-in')}
           >
-            <Text style={styles.secondaryButtonText}>已有帳號？登入</Text>
+            <Text style={styles.secondaryButtonText}>{zh('已有帳號？登入')}</Text>
           </TouchableOpacity>
         </View>
 
         {/* Disclaimer */}
         <Text style={styles.disclaimer}>
-          本服務僅供參考與娛樂用途，不構成任何專業建議
+          {zh('本服務僅供參考與娛樂用途，不構成任何專業建議')}
         </Text>
       </View>
     </SafeAreaView>
@@ -85,10 +87,11 @@ export default function HomeScreen() {
 }
 
 function FeatureItem({ icon, text }: { icon: string; text: string }) {
+  const zh = useZh();
   return (
     <View style={styles.featureItem}>
       <Text style={styles.featureIcon}>{icon}</Text>
-      <Text style={styles.featureText}>{text}</Text>
+      <Text style={styles.featureText}>{zh(text)}</Text>
     </View>
   );
 }

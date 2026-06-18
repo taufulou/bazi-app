@@ -30,6 +30,18 @@ export class UpdateBannerSlideDto {
   @IsUrl({ require_protocol: true, protocols: ['https'] })
   imageUrlMobile?: string;
 
+  @ApiProperty({ required: false, description: 'R2 URL for the Simplified (簡體) desktop crop' })
+  @IsOptional()
+  @IsString()
+  @IsUrl({ require_protocol: true, protocols: ['https'] })
+  imageUrlDesktopSimplified?: string;
+
+  @ApiProperty({ required: false, description: 'R2 URL for the Simplified (簡體) mobile crop' })
+  @IsOptional()
+  @IsString()
+  @IsUrl({ require_protocol: true, protocols: ['https'] })
+  imageUrlMobileSimplified?: string;
+
   @ApiProperty({ required: false, example: '/reading/annual' })
   @IsOptional()
   @IsString()

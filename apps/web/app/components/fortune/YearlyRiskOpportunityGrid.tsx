@@ -26,6 +26,7 @@ import type {
   YearlyFortuneNarrative,
 } from '../../lib/fortune-api';
 import { parseBoldSegments } from './markdown';
+import { useZh } from '../LanguageContext';
 import styles from './YearlyRiskOpportunityGrid.module.css';
 
 type AiEntry = NonNullable<
@@ -40,7 +41,8 @@ interface Props {
 }
 
 function RichText({ text }: { text: string }) {
-  const segments = parseBoldSegments(text);
+  const zh = useZh();
+  const segments = parseBoldSegments(zh(text));
   return (
     <>
       {segments.map((seg, i) =>
