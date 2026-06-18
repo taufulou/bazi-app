@@ -2,6 +2,7 @@ import { ClerkProvider, ClerkLoaded } from '@clerk/clerk-expo';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { tokenCache } from '../lib/clerk-token-cache';
+import { LanguageProvider } from '../lib/language';
 
 const publishableKey = process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
@@ -39,6 +40,7 @@ export default function RootLayout() {
     <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
       <ClerkLoaded>
         <StatusBar style="light" />
+        <LanguageProvider>
         <Stack
           screenOptions={{
             headerStyle: { backgroundColor: '#1a1a2e' },
@@ -64,6 +66,7 @@ export default function RootLayout() {
             options={{ headerShown: false }}
           />
         </Stack>
+        </LanguageProvider>
       </ClerkLoaded>
     </ClerkProvider>
   );

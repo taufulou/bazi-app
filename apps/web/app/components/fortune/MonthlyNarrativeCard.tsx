@@ -25,6 +25,7 @@ import * as React from 'react'; // VALUE namespace import — dual @types/react 
 import type { MonthlyFortuneNarrative } from '../../lib/fortune-api';
 import { dimTierFromScore } from './labels';
 import { parseBoldSegments } from './markdown';
+import { useZh } from '../LanguageContext';
 import { MONTHLY_DIM_META, type MonthlyDimKey } from './monthlyDimensions';
 import styles from './MonthlyNarrativeCard.module.css';
 
@@ -62,7 +63,8 @@ interface Props {
 }
 
 function RichText({ text }: { text: string }) {
-  const segments = parseBoldSegments(text);
+  const zh = useZh();
+  const segments = parseBoldSegments(zh(text));
   return (
     <>
       {segments.map((seg, i) =>

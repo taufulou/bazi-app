@@ -47,7 +47,7 @@
 }
 
 .scoreNumber {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 28px;
   font-weight: 700;
   color: var(--text-primary);
@@ -73,7 +73,7 @@
 }
 
 .label {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 17px;
   font-weight: 600;
   color: var(--text-accent);
@@ -180,7 +180,7 @@
 }
 
 .setupTitle {
-  font-family: 'Noto Serif TC', serif;
+  font-family: var(--font-noto-serif-tc), serif;
   font-size: 15px;
   font-weight: 600;
   color: var(--text-accent);

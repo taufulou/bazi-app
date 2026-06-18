@@ -105,6 +105,20 @@ body {
   color: var(--text-primary);
   background: var(--bg-primary);
   font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  /* Heading serif token — defined at `body` scope (NOT :root) so the var() resolves
+     where next/font declares `--font-noto-serif-tc`. Several components reference
+     var(--font-heading); it now inherits the TC→SC remap below automatically. */
+  --font-heading: var(--font-noto-serif-tc);
+}
+
+/* 簡體中文 font swap. next/font declares `--font-noto-serif-tc` on the `.variable`
+   class applied to <body>, so the override MUST be body-scoped to win (the more
+   specific `html[data-lang] body` (0,1,2) beats the `.variable` class (0,1,0); an
+   html-scoped override would be shadowed by body's value for all descendants).
+   Remapping the single TC variable swaps every `var(--font-noto-serif-tc)` site
+   (incl. headings via --font-heading + share cards) to Simplified serif at once. */
+html[data-lang="zh-CN"] body {
+  --font-noto-serif-tc: var(--font-noto-serif-sc), "Noto Serif SC", serif;
 }
 
 * {

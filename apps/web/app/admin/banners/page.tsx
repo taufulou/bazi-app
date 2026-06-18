@@ -22,6 +22,8 @@ interface BannerFormData {
   label: string;
   imageUrlDesktop: string;
   imageUrlMobile: string;
+  imageUrlDesktopSimplified: string;
+  imageUrlMobileSimplified: string;
   linkHref: string;
   altText: string;
   displayOrder: number;
@@ -32,6 +34,8 @@ const EMPTY_FORM: BannerFormData = {
   label: '',
   imageUrlDesktop: '',
   imageUrlMobile: '',
+  imageUrlDesktopSimplified: '',
+  imageUrlMobileSimplified: '',
   linkHref: BANNER_LINK_OPTIONS[0]?.href ?? '/',
   altText: '',
   displayOrder: 0,
@@ -93,6 +97,8 @@ export default function AdminBannersPage() {
         label: formData.label || undefined,
         imageUrlDesktop: formData.imageUrlDesktop,
         imageUrlMobile: formData.imageUrlMobile,
+        imageUrlDesktopSimplified: formData.imageUrlDesktopSimplified || undefined,
+        imageUrlMobileSimplified: formData.imageUrlMobileSimplified || undefined,
         linkHref: formData.linkHref,
         altText: formData.altText || undefined,
         displayOrder: slides.length,
@@ -119,6 +125,9 @@ export default function AdminBannersPage() {
         label: formData.label || undefined,
         imageUrlDesktop: formData.imageUrlDesktop,
         imageUrlMobile: formData.imageUrlMobile,
+        // null (not undefined) so clearing an SC crop resets it to the TC fallback.
+        imageUrlDesktopSimplified: formData.imageUrlDesktopSimplified || null,
+        imageUrlMobileSimplified: formData.imageUrlMobileSimplified || null,
         linkHref: formData.linkHref,
         altText: formData.altText || undefined,
         isActive: formData.isActive,
@@ -188,6 +197,8 @@ export default function AdminBannersPage() {
       label: s.label ?? '',
       imageUrlDesktop: s.imageUrlDesktop,
       imageUrlMobile: s.imageUrlMobile,
+      imageUrlDesktopSimplified: s.imageUrlDesktopSimplified ?? '',
+      imageUrlMobileSimplified: s.imageUrlMobileSimplified ?? '',
       linkHref: s.linkHref,
       altText: s.altText ?? '',
       displayOrder: s.displayOrder,
@@ -360,7 +371,7 @@ function BannerForm({
     <div>
       <div className={banner.cropGrid}>
         <CropUpload
-          title="桌面版（Desktop）"
+          title="繁體 · 桌面版（Desktop）"
           hint={`${BANNER_IMAGE_GUIDANCE.desktop.width}×${BANNER_IMAGE_GUIDANCE.desktop.height} · ${BANNER_IMAGE_GUIDANCE.desktop.ratio}`}
           rec={BANNER_IMAGE_GUIDANCE.desktop}
           value={data.imageUrlDesktop}
@@ -369,13 +380,39 @@ function BannerForm({
           onUploaded={(url) => onChange({ ...data, imageUrlDesktop: url })}
         />
         <CropUpload
-          title="手機版（Mobile）"
+          title="繁體 · 手機版（Mobile）"
           hint={`${BANNER_IMAGE_GUIDANCE.mobile.width}×${BANNER_IMAGE_GUIDANCE.mobile.height} · ${BANNER_IMAGE_GUIDANCE.mobile.ratio}`}
           rec={BANNER_IMAGE_GUIDANCE.mobile}
           value={data.imageUrlMobile}
           getToken={getToken}
           onError={onError}
           onUploaded={(url) => onChange({ ...data, imageUrlMobile: url })}
+        />
+      </div>
+
+      <p className={banner.help} style={{ marginTop: 4 }}>
+        簡體版（選填）— 上傳後，簡體中文用戶會看到此圖；留空則簡體用戶顯示上方繁體圖。
+      </p>
+      <div className={banner.cropGrid}>
+        <CropUpload
+          title="簡體 · 桌面版（Desktop）"
+          hint={`${BANNER_IMAGE_GUIDANCE.desktop.width}×${BANNER_IMAGE_GUIDANCE.desktop.height} · ${BANNER_IMAGE_GUIDANCE.desktop.ratio}`}
+          rec={BANNER_IMAGE_GUIDANCE.desktop}
+          value={data.imageUrlDesktopSimplified}
+          getToken={getToken}
+          onError={onError}
+          onUploaded={(url) => onChange({ ...data, imageUrlDesktopSimplified: url })}
+          onClear={() => onChange({ ...data, imageUrlDesktopSimplified: '' })}
+        />
+        <CropUpload
+          title="簡體 · 手機版（Mobile）"
+          hint={`${BANNER_IMAGE_GUIDANCE.mobile.width}×${BANNER_IMAGE_GUIDANCE.mobile.height} · ${BANNER_IMAGE_GUIDANCE.mobile.ratio}`}
+          rec={BANNER_IMAGE_GUIDANCE.mobile}
+          value={data.imageUrlMobileSimplified}
+          getToken={getToken}
+          onError={onError}
+          onUploaded={(url) => onChange({ ...data, imageUrlMobileSimplified: url })}
+          onClear={() => onChange({ ...data, imageUrlMobileSimplified: '' })}
         />
       </div>
 
@@ -449,6 +486,7 @@ function CropUpload({
   getToken,
   onUploaded,
   onError,
+  onClear,
 }: {
   title: string;
   hint: string;
@@ -457,6 +495,8 @@ function CropUpload({
   getToken: () => Promise<string | null>;
   onUploaded: (url: string) => void;
   onError: (msg: string) => void;
+  /** When provided, an optional crop — shows a 移除 button to clear the image. */
+  onClear?: () => void;
 }) {
   const [uploading, setUploading] = useState(false);
   const [dimWarn, setDimWarn] = useState('');
@@ -526,6 +566,17 @@ function CropUpload({
       >
         {uploading ? '上傳中…' : value ? '更換圖片' : '上傳圖片'}
       </button>
+      {onClear && value && (
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.btnSecondary}`}
+          style={{ fontSize: 12, padding: '4px 12px', width: '100%', marginTop: 6, color: '#ff6b6b' }}
+          onClick={() => { setDimWarn(''); onClear(); }}
+          disabled={uploading}
+        >
+          移除簡體圖
+        </button>
+      )}
       {dimWarn && <div className={banner.dimWarn}>{dimWarn}</div>}
     </div>
   );

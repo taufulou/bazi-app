@@ -23,6 +23,8 @@ export interface PublicBannerSlide {
   id: string;
   imageUrlDesktop: string;
   imageUrlMobile: string;
+  imageUrlDesktopSimplified: string | null;
+  imageUrlMobileSimplified: string | null;
   linkHref: string;
   altText: string | null;
 }
@@ -54,6 +56,8 @@ export class BannerService {
       id: r.id,
       imageUrlDesktop: r.imageUrlDesktop,
       imageUrlMobile: r.imageUrlMobile,
+      imageUrlDesktopSimplified: r.imageUrlDesktopSimplified,
+      imageUrlMobileSimplified: r.imageUrlMobileSimplified,
       linkHref: r.linkHref,
       altText: r.altText,
     }));
@@ -86,6 +90,8 @@ export class BannerService {
         label: data.label ?? null,
         imageUrlDesktop: data.imageUrlDesktop,
         imageUrlMobile: data.imageUrlMobile,
+        imageUrlDesktopSimplified: data.imageUrlDesktopSimplified ?? null,
+        imageUrlMobileSimplified: data.imageUrlMobileSimplified ?? null,
         linkHref: data.linkHref,
         altText: data.altText ?? null,
         displayOrder: data.displayOrder ?? 0,
@@ -120,6 +126,23 @@ export class BannerService {
     if (data.imageUrlMobile && data.imageUrlMobile !== existing.imageUrlMobile) {
       await this.r2.deleteImage(existing.imageUrlMobile);
     }
+    // Simplified crops — clean up the old object on replace OR clear (DTO field
+    // present, differs, and an old value existed). `!== undefined` lets a null
+    // (clear-back-to-fallback) trigger cleanup too.
+    if (
+      data.imageUrlDesktopSimplified !== undefined &&
+      existing.imageUrlDesktopSimplified &&
+      data.imageUrlDesktopSimplified !== existing.imageUrlDesktopSimplified
+    ) {
+      await this.r2.deleteImage(existing.imageUrlDesktopSimplified);
+    }
+    if (
+      data.imageUrlMobileSimplified !== undefined &&
+      existing.imageUrlMobileSimplified &&
+      data.imageUrlMobileSimplified !== existing.imageUrlMobileSimplified
+    ) {
+      await this.r2.deleteImage(existing.imageUrlMobileSimplified);
+    }
 
     await this.logAudit(adminUserId, 'update_banner_slide', id, existing, updated);
     await this.invalidate();
@@ -133,6 +156,12 @@ export class BannerService {
     await this.prisma.bannerSlide.delete({ where: { id } });
     await this.r2.deleteImage(existing.imageUrlDesktop);
     await this.r2.deleteImage(existing.imageUrlMobile);
+    if (existing.imageUrlDesktopSimplified) {
+      await this.r2.deleteImage(existing.imageUrlDesktopSimplified);
+    }
+    if (existing.imageUrlMobileSimplified) {
+      await this.r2.deleteImage(existing.imageUrlMobileSimplified);
+    }
 
     await this.logAudit(adminUserId, 'delete_banner_slide', id, existing, null);
     await this.invalidate();

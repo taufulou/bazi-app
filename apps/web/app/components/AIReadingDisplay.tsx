@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import Link from "next/link";
 import styles from "./AIReadingDisplay.module.css";
+import { useZh } from "./LanguageContext";
 import { ENTERTAINMENT_DISCLAIMER, LOVE_V2_SECTION_KEYS } from "@repo/shared";
 import type {
   AIReadingData,
@@ -1735,6 +1736,12 @@ export default function AIReadingDisplay({
   renderAfterSection,
   beforeDisclaimer,
 }: AIReadingDisplayProps) {
+  // Render-time 繁→簡 for streamed AI prose (the main reading pipeline). Re-renders
+  // when the converter loads (useZh identity changes) so streamed tokens show as
+  // Simplified without a flicker. The deterministic engine-prose blocks
+  // (detExplain/dpdSectionText) are intentionally NOT render-converted — the global
+  // observer handles them (so they're never frozen by an over-scoped data-no-zh).
+  const zh = useZh();
   const isGuide = readingType === 'lifetime'; // LIFETIME always uses guide style
   const isCareerV2 = readingType === 'career' && data?.isV2 === true;
   const isAnnualV2 = readingType === 'annual' && data?.isV2 === true;
@@ -1791,7 +1798,7 @@ export default function AIReadingDisplay({
             <h3 className={styles.sectionTitle}>{readingType === 'love' ? '感情命理總覽' : '命理總覽'}</h3>
           </div>
           <div className={styles.sectionContent}>
-            {renderFormattedContent(data.summary.text)}
+            {renderFormattedContent(data.summary.text, zh)}
           </div>
         </div>
       )}
@@ -2007,15 +2014,15 @@ export default function AIReadingDisplay({
 
               {isSubscriber || isNoPaywallSection ? (
                 <div className={styles.sectionContent}>
-                  {renderFormattedContent(section.full || '')}
+                  {renderFormattedContent(section.full || '', zh)}
                 </div>
               ) : isMonthlySection ? (
                 <div className={styles.sectionContent}>
-                  {renderFormattedContent(section.full || '')}
+                  {renderFormattedContent(section.full || '', zh)}
                 </div>
               ) : (
                 <div className={styles.paywallWrapper}>
-                  <div className={styles.previewContent}>{renderFormattedContent(section.preview || '')}</div>
+                  <div className={styles.previewContent}>{renderFormattedContent(section.preview || '', zh)}</div>
                   {section.full && section.full !== section.preview && (
                     <>
                       <div className={styles.paywallBlur}>
@@ -2083,7 +2090,7 @@ export default function AIReadingDisplay({
                       <CompatSectionBadge sectionKey={bSection.key} chartData={chartData} />
                     )}
                     <div className={styles.sectionContent}>
-                      {renderFormattedContent(bSection.full || '')}
+                      {renderFormattedContent(bSection.full || '', zh)}
                     </div>
                   </div>
                   {/* Insert extra content after this paired group (e.g., educational card) */}
@@ -2281,7 +2288,7 @@ export default function AIReadingDisplay({
             <h3 className={styles.sectionTitle}>{readingType === 'love' ? '感情命理總覽' : '命理總覽'}</h3>
           </div>
           <div className={styles.sectionContent}>
-            {renderFormattedContent(data.summary.text)}
+            {renderFormattedContent(data.summary.text, zh)}
           </div>
         </div>
       )}
@@ -2804,8 +2811,14 @@ function postProcessSectionText(text: string): string {
  * - Emoji sub-headers (🔥 強項 etc.) become styled sub-headers
  * - Other text becomes paragraphs
  */
-function renderFormattedContent(text: string): React.ReactNode {
-  const processed = postProcessSectionText(text);
+function renderFormattedContent(
+  text: string,
+  convert: (s: string) => string = (s) => s,
+): React.ReactNode {
+  // Convert the RAW string up-front (before bold-split/formatting) so segmentation
+  // never sees a half-phrase. Defaults to identity → callers without a converter
+  // (and zh-TW / tests) get byte-identical Traditional output.
+  const processed = postProcessSectionText(convert(text));
   const lines = processed.split('\n');
   const elements: React.ReactNode[] = [];
   let bulletBuffer: string[] = [];

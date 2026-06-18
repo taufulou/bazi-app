@@ -9,6 +9,9 @@ export interface BannerSlide {
   id: string;
   imageUrlDesktop: string;
   imageUrlMobile: string;
+  /** Optional 簡體 crops — shown to zh-CN users; null → fall back to the TC crops. */
+  imageUrlDesktopSimplified: string | null;
+  imageUrlMobileSimplified: string | null;
   linkHref: string;
   altText: string | null;
 }

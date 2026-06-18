@@ -150,7 +150,14 @@ describe('BaziChart', () => {
           birthTime="14:30"
         />,
       );
-      expect(screen.getByText('王小明 的八字命盤')).toBeInTheDocument();
+      // The profile name is wrapped in a <span data-no-zh> (skip-list for the
+      // 繁/簡 converter — user-entered names must never convert), so the heading
+      // text spans two nodes. Match on the container's concatenated textContent.
+      expect(
+        screen.getByText(
+          (_content, element) => element?.textContent === '王小明 的八字命盤',
+        ),
+      ).toBeInTheDocument();
     });
 
     it('should display birth date and time', () => {

@@ -13,10 +13,12 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
+import { useZh } from '../lib/language';
 
 export default function SignInScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
   const router = useRouter();
+  const zh = useZh();
   const [emailAddress, setEmailAddress] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -40,11 +42,11 @@ export default function SignInScreen() {
       }
     } catch (err: unknown) {
       const error = err as { errors?: Array<{ message: string }> };
-      Alert.alert('登入失敗', error.errors?.[0]?.message || '請檢查您的帳號和密碼');
+      Alert.alert(zh('登入失敗'), error.errors?.[0]?.message || zh('請檢查您的帳號和密碼'));
     } finally {
       setLoading(false);
     }
-  }, [isLoaded, signIn, emailAddress, password, setActive, router]);
+  }, [isLoaded, signIn, emailAddress, password, setActive, router, zh]);
 
   return (
     <KeyboardAvoidingView
@@ -56,18 +58,18 @@ export default function SignInScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <Text style={styles.title}>歡迎回來</Text>
-          <Text style={styles.subtitle}>登入您的帳號</Text>
+          <Text style={styles.title}>{zh('歡迎回來')}</Text>
+          <Text style={styles.subtitle}>{zh('登入您的帳號')}</Text>
         </View>
 
         <View style={styles.form}>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>電子郵件</Text>
+            <Text style={styles.label}>{zh('電子郵件')}</Text>
             <TextInput
               style={styles.input}
               value={emailAddress}
               onChangeText={setEmailAddress}
-              placeholder="輸入您的電子郵件"
+              placeholder={zh('輸入您的電子郵件')}
               placeholderTextColor="#666"
               keyboardType="email-address"
               autoCapitalize="none"
@@ -76,12 +78,12 @@ export default function SignInScreen() {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>密碼</Text>
+            <Text style={styles.label}>{zh('密碼')}</Text>
             <TextInput
               style={styles.input}
               value={password}
               onChangeText={setPassword}
-              placeholder="輸入您的密碼"
+              placeholder={zh('輸入您的密碼')}
               placeholderTextColor="#666"
               secureTextEntry
             />
@@ -95,7 +97,7 @@ export default function SignInScreen() {
             {loading ? (
               <ActivityIndicator color="#1a1a2e" />
             ) : (
-              <Text style={styles.buttonText}>登入</Text>
+              <Text style={styles.buttonText}>{zh('登入')}</Text>
             )}
           </TouchableOpacity>
 
@@ -104,7 +106,7 @@ export default function SignInScreen() {
             onPress={() => router.push('/sign-up')}
           >
             <Text style={styles.linkText}>
-              還沒有帳號？ <Text style={styles.linkHighlight}>註冊</Text>
+              {zh('還沒有帳號？')} <Text style={styles.linkHighlight}>{zh('註冊')}</Text>
             </Text>
           </TouchableOpacity>
         </View>

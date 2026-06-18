@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
+import { useZh, useLang, useChangeLanguage } from '../../lib/language';
 
 const readingTypes = [
   { slug: 'lifetime', icon: '🌟', name: '八字終身運', description: '全面分析您的八字命盤', credits: 2 },
@@ -22,12 +23,15 @@ export default function DashboardScreen() {
   const { user } = useUser();
   const { signOut } = useAuth();
   const router = useRouter();
+  const zh = useZh();
+  const lang = useLang();
+  const changeLang = useChangeLanguage();
 
   const handleSignOut = async () => {
-    Alert.alert('登出', '確定要登出嗎？', [
-      { text: '取消', style: 'cancel' },
+    Alert.alert(zh('登出'), zh('確定要登出嗎？'), [
+      { text: zh('取消'), style: 'cancel' },
       {
-        text: '確定',
+        text: zh('確定'),
         style: 'destructive',
         onPress: async () => {
           await signOut();
@@ -41,30 +45,40 @@ export default function DashboardScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* User Info */}
       <View style={styles.userSection}>
-        <View>
+        <View style={styles.userInfo}>
           <Text style={styles.greeting}>
-            歡迎回來{user?.firstName ? `，${user.firstName}` : ''}
+            {zh('歡迎回來')}{user?.firstName ? `，${user.firstName}` : ''}
           </Text>
           <Text style={styles.email}>
             {user?.primaryEmailAddress?.emailAddress || ''}
           </Text>
         </View>
-        <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
-          <Text style={styles.signOutText}>登出</Text>
-        </TouchableOpacity>
+        <View style={styles.userActions}>
+          <TouchableOpacity
+            onPress={() => changeLang(lang === 'zh-CN' ? 'zh-TW' : 'zh-CN')}
+            style={styles.langButton}
+            accessibilityLabel="切換語言"
+          >
+            {/* Shows the script you'd switch TO (繁 from simplified, 简 from traditional). */}
+            <Text style={styles.langText}>{lang === 'zh-CN' ? '繁' : '简'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleSignOut} style={styles.signOutButton}>
+            <Text style={styles.signOutText}>{zh('登出')}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Reading Type Cards */}
-      <Text style={styles.sectionTitle}>選擇服務</Text>
+      <Text style={styles.sectionTitle}>{zh('選擇服務')}</Text>
       <View style={styles.grid}>
         {readingTypes.map((reading) => (
           <TouchableOpacity key={reading.slug} style={styles.card} activeOpacity={0.7}>
             <Text style={styles.cardIcon}>{reading.icon}</Text>
-            <Text style={styles.cardName}>{reading.name}</Text>
-            <Text style={styles.cardDescription}>{reading.description}</Text>
+            <Text style={styles.cardName}>{zh(reading.name)}</Text>
+            <Text style={styles.cardDescription}>{zh(reading.description)}</Text>
             <View style={styles.cardFooter}>
-              <Text style={styles.cardCredits}>{reading.credits} 點數</Text>
-              <Text style={styles.cardAction}>開始 →</Text>
+              <Text style={styles.cardCredits}>{reading.credits} {zh('點數')}</Text>
+              <Text style={styles.cardAction}>{zh('開始 →')}</Text>
             </View>
           </TouchableOpacity>
         ))}
@@ -90,6 +104,29 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(232, 213, 183, 0.15)',
     marginBottom: 24,
+  },
+  userInfo: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  userActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  langButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(232, 213, 183, 0.3)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  langText: {
+    color: '#e8d5b7',
+    fontSize: 16,
+    fontWeight: '600',
   },
   greeting: {
     fontSize: 22,

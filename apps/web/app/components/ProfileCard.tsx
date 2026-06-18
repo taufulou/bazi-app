@@ -74,7 +74,7 @@ export default function ProfileCard({
               ★
             </span>
           )}
-          <span className={styles.name}>{profile.name}</span>
+          <span className={styles.name} data-no-zh="">{profile.name}</span>
         </div>
         {(onEdit || onDelete || onSetPrimary) && (
           <div className={styles.actions}>

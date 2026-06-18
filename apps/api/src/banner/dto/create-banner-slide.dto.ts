@@ -36,6 +36,18 @@ export class CreateBannerSlideDto {
   @IsUrl({ require_protocol: true, protocols: ['https'] })
   imageUrlMobile!: string;
 
+  @ApiProperty({ required: false, description: 'R2 URL for the Simplified (簡體) desktop crop' })
+  @IsOptional()
+  @IsString()
+  @IsUrl({ require_protocol: true, protocols: ['https'] })
+  imageUrlDesktopSimplified?: string;
+
+  @ApiProperty({ required: false, description: 'R2 URL for the Simplified (簡體) mobile crop' })
+  @IsOptional()
+  @IsString()
+  @IsUrl({ require_protocol: true, protocols: ['https'] })
+  imageUrlMobileSimplified?: string;
+
   @ApiProperty({ example: '/reading/annual', description: 'Internal absolute path' })
   @IsString()
   @Matches(INTERNAL_PATH_REGEX, {

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { getActiveBanners, type BannerSlide } from "../lib/banner-api";
+import { useLang } from "./LanguageContext";
 import styles from "./HeroBanner.module.css";
 
 interface GradientSlide {
@@ -49,6 +50,7 @@ const SLIDE_BG_CLASSES: Record<string, string | undefined> = {
 const AUTO_PLAY_INTERVAL = 5000;
 
 export default function HeroBanner() {
+  const lang = useLang();
   const [banners, setBanners] = useState<BannerSlide[] | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -178,7 +180,21 @@ export default function HeroBanner() {
     >
       <div className={styles.track} ref={trackRef} aria-live="off">
         {useImages
-          ? banners!.map((slide, i) => (
+          ? banners!.map((slide, i) => {
+              // zh-CN users see the Simplified crop when one was uploaded;
+              // otherwise fall back to the Traditional crop. Banner text is
+              // baked into the image, so this image swap is the only way to
+              // localize it (the DOM converter can't touch pixels).
+              const isCn = lang === "zh-CN";
+              const desktopSrc =
+                isCn && slide.imageUrlDesktopSimplified
+                  ? slide.imageUrlDesktopSimplified
+                  : slide.imageUrlDesktop;
+              const mobileSrc =
+                isCn && slide.imageUrlMobileSimplified
+                  ? slide.imageUrlMobileSimplified
+                  : slide.imageUrlMobile;
+              return (
               <div
                 key={slide.id}
                 className={`${styles.slide} ${styles.slideImage}`}
@@ -194,17 +210,18 @@ export default function HeroBanner() {
                   onClick={handleCtaClick}
                 >
                   <picture className={styles.picture}>
-                    <source media="(max-width: 768px)" srcSet={slide.imageUrlMobile} />
+                    <source media="(max-width: 768px)" srcSet={mobileSrc} />
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={slide.imageUrlDesktop}
+                      src={desktopSrc}
                       alt={slide.altText ?? ""}
                       className={styles.image}
                     />
                   </picture>
                 </Link>
               </div>
-            ))
+              );
+            })
           : FALLBACK_SLIDES.map((slide, i) => (
               <div
                 key={slide.id}

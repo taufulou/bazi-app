@@ -558,6 +558,8 @@ export interface AdminBannerSlide {
   label: string | null;
   imageUrlDesktop: string;
   imageUrlMobile: string;
+  imageUrlDesktopSimplified: string | null;
+  imageUrlMobileSimplified: string | null;
   linkHref: string;
   altText: string | null;
   displayOrder: number;
@@ -570,6 +572,9 @@ export interface BannerSlideInput {
   label?: string;
   imageUrlDesktop: string;
   imageUrlMobile: string;
+  // Optional 簡體 crops. Send `null` to clear back to the TC fallback on update.
+  imageUrlDesktopSimplified?: string | null;
+  imageUrlMobileSimplified?: string | null;
   linkHref: string;
   altText?: string;
   displayOrder?: number;

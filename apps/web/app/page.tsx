@@ -1,9 +1,9 @@
 import Link from "next/link";
 import Image from "next/image";
-import { UserButton } from "@clerk/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
 import { READING_TYPE_META } from "@repo/shared";
+import AppUserButton from "./components/AppUserButton";
 import CreditBadge from "./components/CreditBadge";
 import AccountPanel from "./components/AccountPanel";
 import HeroBanner from "./components/HeroBanner";
@@ -52,14 +52,7 @@ export default async function HomePage() {
             <span className={styles.userName}>
               {user.firstName || user.emailAddresses[0]?.emailAddress || "用戶"}
             </span>
-            <UserButton
-              afterSignOutUrl="/"
-              appearance={{
-                elements: {
-                  avatarBox: "w-10 h-10",
-                },
-              }}
-            />
+            <AppUserButton />
           </div>
         </header>
 

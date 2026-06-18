@@ -13,10 +13,12 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
+import { useZh } from '../lib/language';
 
 export default function SignUpScreen() {
   const { signUp, setActive, isLoaded } = useSignUp();
   const router = useRouter();
+  const zh = useZh();
   const [emailAddress, setEmailAddress] = useState('');
   const [password, setPassword] = useState('');
   const [pendingVerification, setPendingVerification] = useState(false);
@@ -38,11 +40,11 @@ export default function SignUpScreen() {
       setPendingVerification(true);
     } catch (err: unknown) {
       const error = err as { errors?: Array<{ message: string }> };
-      Alert.alert('註冊失敗', error.errors?.[0]?.message || '請檢查您的資料後重試');
+      Alert.alert(zh('註冊失敗'), error.errors?.[0]?.message || zh('請檢查您的資料後重試'));
     } finally {
       setLoading(false);
     }
-  }, [isLoaded, signUp, emailAddress, password]);
+  }, [isLoaded, signUp, emailAddress, password, zh]);
 
   const onVerify = useCallback(async () => {
     if (!isLoaded) return;
@@ -59,11 +61,11 @@ export default function SignUpScreen() {
       }
     } catch (err: unknown) {
       const error = err as { errors?: Array<{ message: string }> };
-      Alert.alert('驗證失敗', error.errors?.[0]?.message || '驗證碼不正確，請重試');
+      Alert.alert(zh('驗證失敗'), error.errors?.[0]?.message || zh('驗證碼不正確，請重試'));
     } finally {
       setLoading(false);
     }
-  }, [isLoaded, signUp, code, setActive, router]);
+  }, [isLoaded, signUp, code, setActive, router, zh]);
 
   // Verification code screen
   if (pendingVerification) {
@@ -77,20 +79,20 @@ export default function SignUpScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.header}>
-            <Text style={styles.title}>驗證電子郵件</Text>
+            <Text style={styles.title}>{zh('驗證電子郵件')}</Text>
             <Text style={styles.subtitle}>
-              我們已將驗證碼發送到 {emailAddress}
+              {zh('我們已將驗證碼發送到')} {emailAddress}
             </Text>
           </View>
 
           <View style={styles.form}>
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>驗證碼</Text>
+              <Text style={styles.label}>{zh('驗證碼')}</Text>
               <TextInput
                 style={styles.input}
                 value={code}
                 onChangeText={setCode}
-                placeholder="輸入驗證碼"
+                placeholder={zh('輸入驗證碼')}
                 placeholderTextColor="#666"
                 keyboardType="number-pad"
               />
@@ -104,7 +106,7 @@ export default function SignUpScreen() {
               {loading ? (
                 <ActivityIndicator color="#1a1a2e" />
               ) : (
-                <Text style={styles.buttonText}>驗證</Text>
+                <Text style={styles.buttonText}>{zh('驗證')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -124,18 +126,18 @@ export default function SignUpScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
-          <Text style={styles.title}>建立帳號</Text>
-          <Text style={styles.subtitle}>開始您的命理之旅</Text>
+          <Text style={styles.title}>{zh('建立帳號')}</Text>
+          <Text style={styles.subtitle}>{zh('開始您的命理之旅')}</Text>
         </View>
 
         <View style={styles.form}>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>電子郵件</Text>
+            <Text style={styles.label}>{zh('電子郵件')}</Text>
             <TextInput
               style={styles.input}
               value={emailAddress}
               onChangeText={setEmailAddress}
-              placeholder="輸入您的電子郵件"
+              placeholder={zh('輸入您的電子郵件')}
               placeholderTextColor="#666"
               keyboardType="email-address"
               autoCapitalize="none"
@@ -144,12 +146,12 @@ export default function SignUpScreen() {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>密碼</Text>
+            <Text style={styles.label}>{zh('密碼')}</Text>
             <TextInput
               style={styles.input}
               value={password}
               onChangeText={setPassword}
-              placeholder="設定您的密碼"
+              placeholder={zh('設定您的密碼')}
               placeholderTextColor="#666"
               secureTextEntry
             />
@@ -163,7 +165,7 @@ export default function SignUpScreen() {
             {loading ? (
               <ActivityIndicator color="#1a1a2e" />
             ) : (
-              <Text style={styles.buttonText}>註冊</Text>
+              <Text style={styles.buttonText}>{zh('註冊')}</Text>
             )}
           </TouchableOpacity>
 
@@ -172,7 +174,7 @@ export default function SignUpScreen() {
             onPress={() => router.push('/sign-in')}
           >
             <Text style={styles.linkText}>
-              已有帳號？ <Text style={styles.linkHighlight}>登入</Text>
+              {zh('已有帳號？')} <Text style={styles.linkHighlight}>{zh('登入')}</Text>
             </Text>
           </TouchableOpacity>
         </View>

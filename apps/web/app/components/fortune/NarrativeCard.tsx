@@ -31,6 +31,7 @@ import HeadlinerAnchorLine from './HeadlinerAnchorLine';
 import { DIM_META } from './dimensions';
 import { dimTierFromScore } from './labels';
 import { parseBoldSegments } from './markdown';
+import { useZh } from '../LanguageContext';
 import styles from './NarrativeCard.module.css';
 
 /** Phase Fortune chat — per-dim render slot for InlineAskCard wiring. */
@@ -84,7 +85,10 @@ function takeawayKeyFor(dimKey: typeof DIM_META[number]['key']): TakeawayKey {
  * Safe — uses React text escaping via segment values, no dangerouslySetInnerHTML.
  */
 function RichText({ text }: { text: string }) {
-  const segments = parseBoldSegments(text);
+  // Convert the raw string BEFORE bold-splitting (render-time 繁→簡 for zh-CN; no-op
+  // for zh-TW / before the converter loads). Covers all prose rendered via RichText.
+  const zh = useZh();
+  const segments = parseBoldSegments(zh(text));
   return (
     <>
       {segments.map((seg, i) =>

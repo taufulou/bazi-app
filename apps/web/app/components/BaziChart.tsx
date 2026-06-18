@@ -229,7 +229,7 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
       {/* Section 0: Profile Header */}
       {isVisible(0) && revealWrap(
         <div className={styles.profileHeader}>
-          {name && <div className={styles.profileName}>{name} 的八字命盤</div>}
+          {name && <div className={styles.profileName}><span data-no-zh="">{name}</span> 的八字命盤</div>}
           <div className={styles.profileDates}>
             {birthDate && <>公曆：{birthDate} {hourUnknown ? "（時辰未知）" : birthTime}<br /></>}
             農曆：{lunarDate.year}年{lunarDate.isLeapMonth ? "閏" : ""}
