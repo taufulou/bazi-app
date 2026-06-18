@@ -183,14 +183,18 @@ class PillarInput(BaseModel):
     @field_validator('stem')
     @classmethod
     def validate_stem(cls, v: str) -> str:
-        if v not in _VALID_STEMS:
+        # Empty string is the canonical 時辰未知 (unknown-hour) signal for the
+        # hour pillar. Accept it — cross-pillar detection skips empty pillars
+        # (never matches a real stem, contributes no hidden stems).
+        if v and v not in _VALID_STEMS:
             raise ValueError(f'Invalid stem: {v}. Must be one of {_VALID_STEMS}')
         return v
 
     @field_validator('branch')
     @classmethod
     def validate_branch(cls, v: str) -> str:
-        if v not in _VALID_BRANCHES:
+        # Empty string allowed for the 時辰未知 hour pillar (see validate_stem).
+        if v and v not in _VALID_BRANCHES:
             raise ValueError(f'Invalid branch: {v}. Must be one of {_VALID_BRANCHES}')
         return v
 
