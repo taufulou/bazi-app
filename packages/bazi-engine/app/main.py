@@ -172,8 +172,8 @@ _VALID_BRANCHES = {'子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申'
 
 class PillarInput(BaseModel):
     """Individual pillar data for cross-pillar interaction detection."""
-    stem: str = Field(..., description="Heavenly stem: 甲-癸")
-    branch: str = Field(..., description="Earthly branch: 子-亥")
+    stem: str = Field(..., description="Heavenly stem: 甲-癸, or empty string for the 時辰未知 (unknown-hour) hour pillar")
+    branch: str = Field(..., description="Earthly branch: 子-亥, or empty string for the 時辰未知 (unknown-hour) hour pillar")
     tenGod: str = Field("", description="Ten god of this pillar's stem (empty for day pillar)")
     hiddenStemGods: List[str] = Field(
         default_factory=list,
@@ -183,9 +183,11 @@ class PillarInput(BaseModel):
     @field_validator('stem')
     @classmethod
     def validate_stem(cls, v: str) -> str:
-        # Empty string is the canonical 時辰未知 (unknown-hour) signal for the
-        # hour pillar. Accept it — cross-pillar detection skips empty pillars
-        # (never matches a real stem, contributes no hidden stems).
+        # Empty string is the canonical 時辰未知 (unknown-hour) signal. An empty
+        # stem never matches a real stem (and an empty branch contributes no
+        # hidden stems), so cross-pillar detection produces no output for it.
+        # The empty value is restricted to the hour pillar by
+        # ExplainElementInput.validate_four_pillars.
         if v and v not in _VALID_STEMS:
             raise ValueError(f'Invalid stem: {v}. Must be one of {_VALID_STEMS}')
         return v
@@ -194,6 +196,7 @@ class PillarInput(BaseModel):
     @classmethod
     def validate_branch(cls, v: str) -> str:
         # Empty string allowed for the 時辰未知 hour pillar (see validate_stem).
+        # Hour-only restriction enforced by ExplainElementInput.validate_four_pillars.
         if v and v not in _VALID_BRANCHES:
             raise ValueError(f'Invalid branch: {v}. Must be one of {_VALID_BRANCHES}')
         return v
@@ -221,6 +224,17 @@ class ExplainElementInput(BaseModel):
             required = {'year', 'month', 'day', 'hour'}
             if set(v.keys()) != required:
                 raise ValueError(f'four_pillars must have exactly these keys: {required}')
+            # PillarInput permits an empty stem/branch (the 時辰未知 signal), but
+            # only the hour pillar may legitimately be empty. An empty year/month/day
+            # stem or branch indicates a malformed payload — reject it so a frontend
+            # bug can't silently produce degraded cross-pillar output.
+            for key in ('year', 'month', 'day'):
+                pillar = v[key]
+                if not pillar.stem or not pillar.branch:
+                    raise ValueError(
+                        f"Pillar '{key}' must have a non-empty stem and branch; "
+                        "only the 'hour' pillar may be empty (時辰未知)."
+                    )
         return v
 
 
