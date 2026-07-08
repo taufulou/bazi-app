@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useImperativeHandle, forwardRef } fro
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { getUserProfile } from "../lib/api";
+import { redirectToSignInOnExpiry } from "../lib/auth-redirect";
 import styles from "./CreditBadge.module.css";
 
 const TIER_LABELS: Record<string, string> = {
@@ -31,7 +32,14 @@ const CreditBadge = forwardRef<CreditBadgeHandle, CreditBadgeProps>(function Cre
   const fetchProfile = useCallback(async () => {
     try {
       const token = await getToken();
-      if (!token) return;
+      if (!token) {
+        // Signed-in but Clerk returned no token — the most common silent-expiry
+        // signal (broken/stale session). Redirect to re-login rather than
+        // hiding the badge silently. (A genuine API 401 with a token is handled
+        // inside apiFetch via the same helper.)
+        redirectToSignInOnExpiry();
+        return;
+      }
       const profile = await getUserProfile(token);
       setCredits(profile.credits);
       setTier(profile.subscriptionTier);
