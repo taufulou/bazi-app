@@ -10,15 +10,6 @@ import HeroBanner from "./components/HeroBanner";
 import HomeDailyFortuneCard from "./components/HomeDailyFortuneCard";
 import styles from "./page.module.css";
 
-// Feature card artwork (falls back to the emoji icon when a slug is absent)
-const FEATURE_IMAGES: Record<string, string> = {
-  lifetime: "/features/lifetime.webp",
-  annual: "/features/annual.webp",
-  career: "/features/career.webp",
-  love: "/features/love.webp",
-  compatibility: "/features/compatibility.webp",
-};
-
 export default async function HomePage() {
   const user = await currentUser();
 
@@ -34,6 +25,7 @@ export default async function HomePage() {
     icon: meta.icon,
     name: meta.nameZhTw,
     description: meta.description["zh-TW"],
+    image: meta.image,
   }));
 
   const baziTypes = allTypes.filter(
@@ -99,9 +91,9 @@ export default async function HomePage() {
                 className={styles.cardLink}
               >
                 <div className={styles.card}>
-                  {FEATURE_IMAGES[reading.slug] ? (
+                  {reading.image ? (
                     <Image
-                      src={FEATURE_IMAGES[reading.slug]}
+                      src={reading.image}
                       alt={reading.name}
                       width={80}
                       height={80}
