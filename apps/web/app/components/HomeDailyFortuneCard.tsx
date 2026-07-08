@@ -1,10 +1,19 @@
 'use client';
 
 /**
- * HomeDailyFortuneCard — compact daily-fortune widget for the homepage.
+ * HomeDailyFortuneCard — the homepage 今日運勢 section: a self-contained heading
+ * + slim daily-fortune strip (below the readings grid). Shows the essentials:
+ * energy score (gold ring), auspiciousness label (吉/…), a 1-line friendly mood
+ * keyword, and today's date. Tap → `/reading/fortune?tab=day` for the full
+ * breakdown (dimensions, AI narrative, folk content, chat).
  *
- * Shows today's energy score (large), label, 1-line mood keyword, and a
- * 5-bar mini sparkline for the 5 dimensions. Tap → `/reading/fortune`.
+ * The 今日運勢 heading is rendered HERE (not in page.tsx) so it hides together
+ * with the card on any failure/unauth/SSR path — preserving the "render nothing
+ * on failure" graceful-degradation contract (see dev-warn.ts), consistent with
+ * WelcomeFortunePill + CreditBadge.
+ *
+ * The 干支/十神 jargon meta line and the 5 dimension bars were intentionally
+ * removed from this glance-level card — they live on the full 日運 page.
  *
  * Phase 1: shows for the user's primary birth profile. Falls back to a
  * setup-prompt card when no primary profile exists.
@@ -16,23 +25,14 @@ import { useAuth } from '@clerk/nextjs';
 import {
   fetchDailyFortune,
   resolveBaziToday,
+  civilTodayTaipei,
   moodKeywordFromLabel,
+  tierOf,
   FortuneApiError,
   type DailyFortuneResponse,
 } from '../lib/fortune-api';
 import { devWarnServiceDown } from '../lib/dev-warn';
 import styles from './HomeDailyFortuneCard.module.css';
-
-const DIM_META: Array<{
-  key: 'romance' | 'career' | 'finance' | 'travel' | 'health';
-  zh: string;
-}> = [
-  { key: 'romance', zh: '感情' },
-  { key: 'career', zh: '事業' },
-  { key: 'finance', zh: '財運' },
-  { key: 'travel', zh: '出行' },
-  { key: 'health', zh: '健康' },
-];
 
 type State =
   | { kind: 'loading' }
@@ -92,79 +92,84 @@ export default function HomeDailyFortuneCard() {
 
   if (!isLoaded || !isSignedIn) return null;
 
+  // The 今日運勢 heading lives inside this component (not page.tsx) so it hides
+  // together with the card on every failure/unauth/SSR path — preserving the
+  // "render nothing on failure" contract. Mirrors page.module.css .sectionLabel.
+  const heading = <h3 className={styles.sectionHeading}>今日運勢</h3>;
+
   if (state.kind === 'loading') {
     return (
-      <Link href="/reading/fortune" className={styles.card}>
-        <div className={styles.skeleton} aria-label="今日運勢載入中" />
-      </Link>
+      <>
+        {heading}
+        <Link href="/reading/fortune" className={styles.card}>
+          <div className={styles.skeleton} aria-label="今日運勢載入中" />
+        </Link>
+      </>
     );
   }
 
   if (state.kind === 'no_profile') {
     return (
-      <Link href="/dashboard/profiles" className={styles.setupCard}>
-        <div className={styles.setupIcon}>🌅</div>
-        <div className={styles.setupBody}>
-          <div className={styles.setupTitle}>建立出生資料以查看每日運勢</div>
-          <div className={styles.setupSub}>完成後即可解鎖「今日能量」儀表板</div>
-        </div>
-        <span className={styles.setupArrow}>→</span>
-      </Link>
+      <>
+        {heading}
+        <Link href="/dashboard/profiles" className={styles.setupCard}>
+          <div className={styles.setupIcon}>🌅</div>
+          <div className={styles.setupBody}>
+            <div className={styles.setupTitle}>建立出生資料以查看每日運勢</div>
+            <div className={styles.setupSub}>完成後即可解鎖「今日能量」儀表板</div>
+          </div>
+          <span className={styles.setupArrow}>→</span>
+        </Link>
+      </>
     );
   }
 
   if (state.kind === 'error') {
-    // Silent failure — homepage is graceful when fortune unavailable
+    // Silent failure — render nothing (heading + card both absent), matching
+    // WelcomeFortunePill + CreditBadge + the dev-warn.ts "invisible on failure"
+    // contract. The parent's empty <section> collapses to no visible artifact.
     return null;
   }
 
   const { engineOutput } = state.data;
   const tier = tierOf(engineOutput.auspiciousness);
   const moodKeyword = moodKeywordFromLabel(engineOutput.auspiciousness);
+  // The Bazi day rolls at 23:00 (子時), so during 23:00–midnight the shown date
+  // is one civil day ahead. Detect it to swap the label + surface a plain-language
+  // note so users don't read the future date as a bug.
+  const civilDate = civilTodayTaipei();
+  const isZiShiRollover = state.data.date !== civilDate;
 
   return (
-    <Link href="/reading/fortune?tab=day" className={styles.card} data-tier={tier}>
-      <div className={styles.scoreRing}>
-        <span className={styles.scoreNumber}>{engineOutput.energyScore}</span>
-        <span className={styles.scoreUnit}>能量</span>
-      </div>
+    <>
+      {heading}
+      <Link href="/reading/fortune?tab=day" className={styles.card} data-tier={tier}>
+        <div className={styles.scoreRing}>
+          <span className={styles.scoreNumber}>{engineOutput.energyScore}</span>
+          <span className={styles.scoreUnit}>能量</span>
+        </div>
 
-      <div className={styles.body}>
-        <div className={styles.headerRow}>
-          <span className={styles.label}>{engineOutput.auspiciousness}</span>
-          <span className={styles.dot}>·</span>
-          <span className={styles.mood}>{moodKeyword}</span>
+        <div className={styles.body}>
+          <div className={styles.headerRow}>
+            <span className={styles.label}>{engineOutput.auspiciousness}</span>
+            <span className={styles.mood}>{moodKeyword}</span>
+          </div>
+          <div className={styles.meta}>
+            {isZiShiRollover ? '命理日' : '今天'} · {formatDateZH(state.data.date)}
+          </div>
+          {isZiShiRollover && (
+            <div className={styles.ziShiNote}>
+              八字晚上 11 點換日，現在已進入 {formatDateZH(state.data.date)} 的運勢（國曆仍是 {formatDateZH(civilDate)}）
+            </div>
+          )}
         </div>
-        <div className={styles.meta}>
-          {formatDateZH(state.data.date)} · {engineOutput.dayGanZhi}日 · {engineOutput.dayTenGod}
-        </div>
-        <div className={styles.bars} aria-hidden="true">
-          {DIM_META.map((m) => {
-            const score = engineOutput.dimensions[m.key]?.score ?? 50;
-            return (
-              <div key={m.key} className={styles.barCol}>
-                <span className={styles.barName}>{m.zh}</span>
-                <div className={styles.barTrack}>
-                  <div
-                    className={styles.barFill}
-                    style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
 
-      <span className={styles.arrow}>→</span>
-    </Link>
+        <span className={styles.cta}>
+          查看<span className={styles.ctaArrow} aria-hidden="true">→</span>
+        </span>
+      </Link>
+    </>
   );
-}
-
-function tierOf(label: string): 'positive' | 'neutral' | 'negative' {
-  if (['大吉', '吉', '吉中有凶'].includes(label)) return 'positive';
-  if (['凶中有吉', '平'].includes(label)) return 'neutral';
-  return 'negative';
 }
 
 function formatDateZH(iso: string): string {

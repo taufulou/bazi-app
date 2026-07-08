@@ -1,0 +1,82 @@
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  /* Frosted white — matches the quick-link pills over the hero background */
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  text-decoration: none;
+  color: inherit;
+  transition: background 200ms ease, border-color 200ms ease;
+}
+
+.pill:hover {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: var(--border-medium);
+}
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--color-gold);
+  flex-shrink: 0;
+}
+.pill[data-tier='neutral'] .dot {
+  background: var(--color-orange);
+}
+.pill[data-tier='negative'] .dot {
+  background: var(--text-muted);
+}
+
+.energyWord {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.score {
+  font-family: var(--font-noto-serif-tc), serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1;
+}
+
+.sep {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.statusWord {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.label {
+  font-family: var(--font-noto-serif-tc), serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-accent);
+}
+
+/* Soft-trigger framing: gentle muted tone on inauspicious days, never red */
+.pill[data-tier='negative'] .label {
+  color: var(--text-secondary);
+}
+
+/* Loading placeholder — same footprint to avoid a layout shift */
+.skeleton {
+  display: inline-block;
+  width: 148px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(212, 160, 23, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill {
+    transition: none;
+  }
+}
