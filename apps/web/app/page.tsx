@@ -8,6 +8,7 @@ import CreditBadge from "./components/CreditBadge";
 import AccountPanel from "./components/AccountPanel";
 import HeroBanner from "./components/HeroBanner";
 import HomeDailyFortuneCard from "./components/HomeDailyFortuneCard";
+import WelcomeFortunePill from "./components/WelcomeFortunePill";
 import styles from "./page.module.css";
 
 export default async function HomePage() {
@@ -57,11 +58,15 @@ export default async function HomePage() {
           </div>
         </header>
 
-        {/* Welcome Row — greeting + quick link pills */}
+        {/* Welcome Row — greeting + compact daily-fortune glance + quick links */}
         <div className={styles.welcomeRow}>
-          <h2 className={styles.welcomeTitle}>
-            歡迎回來{user.firstName ? `，${user.firstName}` : ""}
-          </h2>
+          <div className={styles.welcomeLeft}>
+            <h2 className={styles.welcomeTitle}>
+              歡迎回來{user.firstName ? `，${user.firstName}` : ""}
+            </h2>
+            {/* Compact daily-fortune glance beside the greeting (full strip below the readings) */}
+            <WelcomeFortunePill />
+          </div>
           <div className={styles.quickLinks}>
             <Link href="/dashboard/profiles" className={styles.quickLink}>
               <span className={styles.quickLinkIcon}>👤</span>
@@ -74,13 +79,10 @@ export default async function HomePage() {
           </div>
         </div>
 
-        {/* Daily Fortune Card — compact today widget (Phase Fortune) */}
-        <HomeDailyFortuneCard />
-
-        {/* Hero Banner / Carousel */}
+        {/* Hero Banner / Carousel — primary hero slot */}
         <HeroBanner />
 
-        {/* Bazi Reading Types */}
+        {/* Bazi Reading Types — the core product, lifted directly under the banner */}
         <section className={styles.readingsSection} id="readings">
           <h3 className={styles.sectionLabel}>八字命理分析</h3>
           <div className={styles.grid}>
@@ -111,6 +113,12 @@ export default async function HomePage() {
               </Link>
             ))}
           </div>
+        </section>
+
+        {/* Daily Fortune — full strip below the readings so users won't miss it */}
+        <section className={styles.fortuneSection}>
+          <h3 className={styles.sectionLabel}>今日運勢</h3>
+          <HomeDailyFortuneCard />
         </section>
 
         {/* ZWDS Reading Types — hidden for now, will re-enable in Phase B */}

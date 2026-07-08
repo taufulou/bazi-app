@@ -1,10 +1,15 @@
 'use client';
 
 /**
- * HomeDailyFortuneCard — compact daily-fortune widget for the homepage.
+ * HomeDailyFortuneCard — compact daily-fortune teaser for the homepage.
  *
- * Shows today's energy score (large), label, 1-line mood keyword, and a
- * 5-bar mini sparkline for the 5 dimensions. Tap → `/reading/fortune`.
+ * Sits just below the hero banner as a slim strip. Shows only the essentials:
+ * energy score (gold ring), auspiciousness label (吉/…), a 1-line friendly
+ * mood keyword, and today's date. Tap → `/reading/fortune?tab=day` for the
+ * full breakdown (dimensions, AI narrative, folk content, chat).
+ *
+ * The 干支/十神 jargon meta line and the 5 dimension bars were intentionally
+ * removed from this glance-level card — they live on the full 日運 page.
  *
  * Phase 1: shows for the user's primary birth profile. Falls back to a
  * setup-prompt card when no primary profile exists.
@@ -16,23 +21,13 @@ import { useAuth } from '@clerk/nextjs';
 import {
   fetchDailyFortune,
   resolveBaziToday,
+  civilTodayTaipei,
   moodKeywordFromLabel,
   FortuneApiError,
   type DailyFortuneResponse,
 } from '../lib/fortune-api';
 import { devWarnServiceDown } from '../lib/dev-warn';
 import styles from './HomeDailyFortuneCard.module.css';
-
-const DIM_META: Array<{
-  key: 'romance' | 'career' | 'finance' | 'travel' | 'health';
-  zh: string;
-}> = [
-  { key: 'romance', zh: '感情' },
-  { key: 'career', zh: '事業' },
-  { key: 'finance', zh: '財運' },
-  { key: 'travel', zh: '出行' },
-  { key: 'health', zh: '健康' },
-];
 
 type State =
   | { kind: 'loading' }
@@ -121,6 +116,11 @@ export default function HomeDailyFortuneCard() {
   const { engineOutput } = state.data;
   const tier = tierOf(engineOutput.auspiciousness);
   const moodKeyword = moodKeywordFromLabel(engineOutput.auspiciousness);
+  // The Bazi day rolls at 23:00 (子時), so during 23:00–midnight the shown date
+  // is one civil day ahead. Detect it to swap the label + surface a plain-language
+  // note so users don't read the future date as a bug.
+  const civilDate = civilTodayTaipei();
+  const isZiShiRollover = state.data.date !== civilDate;
 
   return (
     <Link href="/reading/fortune?tab=day" className={styles.card} data-tier={tier}>
@@ -132,31 +132,21 @@ export default function HomeDailyFortuneCard() {
       <div className={styles.body}>
         <div className={styles.headerRow}>
           <span className={styles.label}>{engineOutput.auspiciousness}</span>
-          <span className={styles.dot}>·</span>
           <span className={styles.mood}>{moodKeyword}</span>
         </div>
         <div className={styles.meta}>
-          {formatDateZH(state.data.date)} · {engineOutput.dayGanZhi}日 · {engineOutput.dayTenGod}
+          {isZiShiRollover ? '命理日' : '今天'} · {formatDateZH(state.data.date)}
         </div>
-        <div className={styles.bars} aria-hidden="true">
-          {DIM_META.map((m) => {
-            const score = engineOutput.dimensions[m.key]?.score ?? 50;
-            return (
-              <div key={m.key} className={styles.barCol}>
-                <span className={styles.barName}>{m.zh}</span>
-                <div className={styles.barTrack}>
-                  <div
-                    className={styles.barFill}
-                    style={{ width: `${Math.max(0, Math.min(100, score))}%` }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
+        {isZiShiRollover && (
+          <div className={styles.ziShiNote}>
+            八字晚上 11 點換日，現在已進入 {formatDateZH(state.data.date)} 的運勢（國曆仍是 {formatDateZH(civilDate)}）
+          </div>
+        )}
       </div>
 
-      <span className={styles.arrow}>→</span>
+      <span className={styles.cta}>
+        查看<span className={styles.ctaArrow} aria-hidden="true">→</span>
+      </span>
     </Link>
   );
 }

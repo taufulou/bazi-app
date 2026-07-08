@@ -589,6 +589,22 @@ export function resolveBaziToday(now: Date = new Date()): string {
   return taipeiDate;
 }
 
+/**
+ * The current civil (國曆) calendar date in Asia/Taipei — the un-rolled
+ * counterpart to resolveBaziToday(). Equal to resolveBaziToday() for most of
+ * the day; during the 23:00–24:00 子時 window the Bazi day is one calendar day
+ * AHEAD of this. Used to detect + explain that rollover in the UI so the
+ * displayed date (which follows the Bazi 子時 boundary) isn't mistaken for a bug.
+ */
+export function civilTodayTaipei(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat('sv-SE', {
+    timeZone: 'Asia/Taipei',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now);
+}
+
 // ============================================================
 // Subscriber window math (mirrors backend at fortune.service.ts:62-68)
 // ============================================================

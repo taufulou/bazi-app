@@ -1,8 +1,9 @@
 .card {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 16px 18px;
+  gap: 14px;
+  padding: 13px 16px;
+  margin-bottom: 2rem;
   background: linear-gradient(135deg, var(--bg-card), var(--bg-banner-warm));
   border-radius: var(--radius-lg);
   border: 1px solid var(--border-light);
@@ -30,8 +31,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  width: 78px;
-  height: 78px;
+  width: 54px;
+  height: 54px;
   border-radius: 999px;
   background: var(--bg-card);
   border: 3px solid var(--color-gold);
@@ -48,14 +49,14 @@
 
 .scoreNumber {
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 28px;
+  font-size: 21px;
   font-weight: 700;
   color: var(--text-primary);
   line-height: 1;
 }
 
 .scoreUnit {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-muted);
   letter-spacing: 1.5px;
   margin-top: 2px;
@@ -69,7 +70,15 @@
 .headerRow {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.eyebrow {
+  align-self: center;
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-muted);
 }
 
 .label {
@@ -79,8 +88,9 @@
   color: var(--text-accent);
 }
 
-.dot {
-  color: var(--text-muted);
+/* Soft-trigger framing: never an alarming red on inauspicious days */
+.card[data-tier='negative'] .label {
+  color: var(--text-secondary);
 }
 
 .mood {
@@ -89,54 +99,38 @@
 }
 
 .meta {
-  margin-top: 2px;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+/* Beginner note shown only during the 23:00–midnight 子時 window, when the
+   Bazi day is one civil day ahead */
+.ziShiNote {
+  margin-top: 4px;
   font-size: 11px;
-  color: var(--text-muted);
+  line-height: 1.5;
+  color: var(--text-secondary);
 }
 
-.bars {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.barCol {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.barName {
-  font-size: 10px;
-  color: var(--text-muted);
-  text-align: center;
-}
-
-.barTrack {
-  width: 100%;
-  height: 4px;
-  background: rgba(212, 160, 23, 0.12);
-  border-radius: 999px;
-  overflow: hidden;
-}
-
-.barFill {
-  height: 100%;
-  background: linear-gradient(90deg, var(--color-gold-light), var(--color-gold));
-  border-radius: 999px;
-}
-
-.arrow {
-  font-size: 18px;
+.cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
   color: var(--text-accent);
+  white-space: nowrap;
   flex-shrink: 0;
+}
+
+.ctaArrow {
+  font-size: 15px;
 }
 
 /* Loading skeleton */
 .skeleton {
   width: 100%;
-  height: 92px;
+  height: 54px;
   border-radius: var(--radius-md);
   background: linear-gradient(90deg, rgba(212, 160, 23, 0.06), rgba(212, 160, 23, 0.12), rgba(212, 160, 23, 0.06));
   background-size: 200% 100%;
@@ -164,6 +158,7 @@
   align-items: center;
   gap: 14px;
   padding: 16px 18px;
+  margin-bottom: 2rem;
   background: var(--bg-banner-warm);
   border-radius: var(--radius-lg);
   border: 1px dashed var(--border-medium);
