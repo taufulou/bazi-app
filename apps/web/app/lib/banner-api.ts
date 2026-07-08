@@ -4,6 +4,7 @@
  */
 
 import { apiFetch } from './api';
+import { devWarnServiceDown } from './dev-warn';
 
 export interface BannerSlide {
   id: string;
@@ -25,7 +26,12 @@ export async function getActiveBanners(): Promise<BannerSlide[]> {
   try {
     const res = await apiFetch<{ slides: BannerSlide[] }>('/api/banners');
     return res.slides ?? [];
-  } catch {
+  } catch (err) {
+    devWarnServiceDown(
+      'Dashboard banners',
+      'is the API on :4000 running? (falling back to gradient slides)',
+      err,
+    );
     return [];
   }
 }

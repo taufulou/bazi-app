@@ -7,6 +7,8 @@
     "dev:web": "turbo run dev --filter=web",
     "dev:api": "turbo run dev --filter=api",
     "dev:mobile": "turbo run dev --filter=mobile",
+    "dev:all": "bash scripts/dev-all.sh",
+    "dev:status": "bash scripts/dev-status.sh",
     "lint": "turbo run lint",
     "check-types": "turbo run check-types",
     "test": "turbo run test",

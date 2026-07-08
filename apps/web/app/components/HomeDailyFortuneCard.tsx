@@ -20,6 +20,7 @@ import {
   FortuneApiError,
   type DailyFortuneResponse,
 } from '../lib/fortune-api';
+import { devWarnServiceDown } from '../lib/dev-warn';
 import styles from './HomeDailyFortuneCard.module.css';
 
 const DIM_META: Array<{
@@ -73,6 +74,12 @@ export default function HomeDailyFortuneCard() {
         ) {
           setState({ kind: 'no_profile' });
         } else {
+          // Genuine service failure (not the "no birth profile" 404 above).
+          devWarnServiceDown(
+            'Daily fortune',
+            'is the API (:4000) + Bazi engine (:5001) running?',
+            err,
+          );
           setState({ kind: 'error' });
         }
       }

@@ -28,7 +28,9 @@ docker/               — Dockerfiles + docker-compose
 ## Key Commands
 ```bash
 export PATH="/opt/homebrew/opt/node@22/bin:$PATH"
-npm run dev               # Start all apps (turbo)
+npm run dev:all           # ★ Start EVERYTHING: web + API + Bazi engine + health check (recommended)
+npm run dev:status        # Read-only: which dev services are up/down (web/api/engine/pg/redis)
+npm run dev               # turbo only — web + API (+ mobile). Does NOT start the Python engine (:5001)!
 npm run dev:web           # Web only (localhost:3000)
 npm run dev:api           # API only (localhost:4000)
 npm run build             # Build all
