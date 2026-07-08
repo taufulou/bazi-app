@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { getUserProfile } from "../lib/api";
 import { redirectToSignInOnExpiry } from "../lib/auth-redirect";
+import { devWarnServiceDown } from "../lib/dev-warn";
 import styles from "./CreditBadge.module.css";
 
 const TIER_LABELS: Record<string, string> = {
@@ -43,8 +44,13 @@ const CreditBadge = forwardRef<CreditBadgeHandle, CreditBadgeProps>(function Cre
       const profile = await getUserProfile(token);
       setCredits(profile.credits);
       setTier(profile.subscriptionTier);
-    } catch {
-      // Silent — don't show badge if API unreachable
+    } catch (err) {
+      // Silent degrade (badge hides). In dev, hint when the API is genuinely
+      // unreachable (fetch throws TypeError) — not for HTTP-error responses,
+      // where a 401 already triggered the redirect above.
+      if (err instanceof TypeError) {
+        devWarnServiceDown("Credit badge", "is the API on :4000 running?", err);
+      }
     }
   }, [getToken]);
 
