@@ -127,6 +127,12 @@ export const READING_TYPE_META: Record<ReadingType, {
   themeColor: string;
   creditCost: number;
   description: Record<Language, string>;
+  /**
+   * Web-only Next.js /public path to homepage feature-card artwork
+   * (e.g. "/features/lifetime.webp"). Optional — unset entries fall back to `icon`.
+   * NOT a portable asset id; apps/mobile must resolve its own artwork separately.
+   */
+  image?: string;
 }> = {
   lifetime: {
     nameZhTw: '八字終身運',
@@ -139,6 +145,7 @@ export const READING_TYPE_META: Record<ReadingType, {
       'zh-TW': '全面分析您的八字命盤，深入了解一生的命運走向',
       'zh-CN': '全面分析您的八字命盘，深入了解一生的命运走向',
     },
+    image: '/features/lifetime.webp',
   },
   annual: {
     nameZhTw: '八字流年運勢',
@@ -151,6 +158,7 @@ export const READING_TYPE_META: Record<ReadingType, {
       'zh-TW': '預測您今年的運勢變化，掌握每月吉凶',
       'zh-CN': '预测您今年的运势变化，掌握每月吉凶',
     },
+    image: '/features/annual.webp',
   },
   career: {
     nameZhTw: '八字事業詳批',
@@ -163,6 +171,7 @@ export const READING_TYPE_META: Record<ReadingType, {
       'zh-TW': '詳細批算你的事業運，幫你找到最佳職業方向、財富格局和發展時機',
       'zh-CN': '详细批算你的事业运，帮你找到最佳职业方向、财富格局和发展时机',
     },
+    image: '/features/career.webp',
   },
   love: {
     nameZhTw: '八字愛情姻緣',
@@ -175,6 +184,7 @@ export const READING_TYPE_META: Record<ReadingType, {
       'zh-TW': '深度剖析先天桃花運、配偶星、婚姻宮，精準預測感情好壞年份與婚配建議',
       'zh-CN': '深度剖析先天桃花运、配偶星、婚姻宫，精准预测感情好坏年份与婚配建议',
     },
+    image: '/features/love.webp',
   },
   health: {
     nameZhTw: '先天健康分析',
@@ -199,6 +209,7 @@ export const READING_TYPE_META: Record<ReadingType, {
       'zh-TW': '比較兩人八字，分析感情或事業合作的契合度',
       'zh-CN': '比较两人八字，分析感情或事业合作的契合度',
     },
+    image: '/features/compatibility.webp',
   },
   'zwds-lifetime': {
     nameZhTw: '紫微終身運',

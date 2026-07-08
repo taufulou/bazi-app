@@ -202,6 +202,15 @@
   flex-shrink: 0;
 }
 
+.cardImage {
+  flex-shrink: 0;
+  width: 80px;
+  height: 80px;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+  box-shadow: var(--shadow-warm);
+}
+
 .cardBody {
   flex: 1;
   min-width: 0;

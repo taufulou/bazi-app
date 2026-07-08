@@ -25,6 +25,7 @@ export default async function HomePage() {
     icon: meta.icon,
     name: meta.nameZhTw,
     description: meta.description["zh-TW"],
+    image: meta.image,
   }));
 
   const baziTypes = allTypes.filter(
@@ -90,7 +91,17 @@ export default async function HomePage() {
                 className={styles.cardLink}
               >
                 <div className={styles.card}>
-                  <span className={styles.cardIcon}>{reading.icon}</span>
+                  {reading.image ? (
+                    <Image
+                      src={reading.image}
+                      alt={reading.name}
+                      width={80}
+                      height={80}
+                      className={styles.cardImage}
+                    />
+                  ) : (
+                    <span className={styles.cardIcon}>{reading.icon}</span>
+                  )}
                   <div className={styles.cardBody}>
                     <h3 className={styles.cardTitle}>{reading.name}</h3>
                     <p className={styles.cardDescription}>{reading.description}</p>
