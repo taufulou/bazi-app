@@ -674,6 +674,17 @@ export function moodKeywordFromLabel(label: string): string {
   return map[label] ?? '今日平穩';
 }
 
+/**
+ * Map a 7-tier auspiciousness label to a display tier for coloring
+ * (gold / orange / muted). Shared by HomeDailyFortuneCard + WelcomeFortunePill
+ * so the classification stays in one place.
+ */
+export function tierOf(label: string): 'positive' | 'neutral' | 'negative' {
+  if (['大吉', '吉', '吉中有凶'].includes(label)) return 'positive';
+  if (['凶中有吉', '平'].includes(label)) return 'neutral';
+  return 'negative';
+}
+
 
 // ============================================================
 // MONTHLY (八字月運) — Phase 2 web mirror

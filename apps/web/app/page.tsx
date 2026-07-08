@@ -115,9 +115,11 @@ export default async function HomePage() {
           </div>
         </section>
 
-        {/* Daily Fortune — full strip below the readings so users won't miss it */}
+        {/* Daily Fortune — full strip below the readings so users won't miss it.
+            The 今日運勢 heading is rendered inside HomeDailyFortuneCard so it hides
+            together with the card on failure — do NOT re-add an <h3> here, it
+            would orphan on a downed fortune service. */}
         <section className={styles.fortuneSection}>
-          <h3 className={styles.sectionLabel}>今日運勢</h3>
           <HomeDailyFortuneCard />
         </section>
 

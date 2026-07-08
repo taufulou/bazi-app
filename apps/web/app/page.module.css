@@ -173,6 +173,13 @@
   margin-bottom: 2rem;
 }
 
+/* Daily-fortune section wrapper. Owns the section's trailing spacing so it's
+   state-independent (the heading + card are supplied by HomeDailyFortuneCard and
+   vanish together on failure, leaving this empty section to collapse cleanly). */
+.fortuneSection {
+  margin-bottom: 2rem;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

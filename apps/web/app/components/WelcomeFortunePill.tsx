@@ -19,6 +19,7 @@ import { useAuth } from '@clerk/nextjs';
 import {
   fetchDailyFortune,
   resolveBaziToday,
+  tierOf,
   FortuneApiError,
   type DailyFortuneResponse,
 } from '../lib/fortune-api';
@@ -100,10 +101,4 @@ export default function WelcomeFortunePill() {
       <span className={styles.label}>{engineOutput.auspiciousness}</span>
     </Link>
   );
-}
-
-function tierOf(label: string): 'positive' | 'neutral' | 'negative' {
-  if (['大吉', '吉', '吉中有凶'].includes(label)) return 'positive';
-  if (['凶中有吉', '平'].includes(label)) return 'neutral';
-  return 'negative';
 }
