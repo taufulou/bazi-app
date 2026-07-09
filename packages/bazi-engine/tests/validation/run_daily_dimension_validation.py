@@ -12,13 +12,18 @@ grader. This harness adds non-band, raw-score assertions:
        (day-stem element role + day-branch 本氣 role vs the chart's effective
        gods) — NOT the engine's own dfi — so this is a real correlation check,
        not a tautology.
-  G2 — HEALTH FLOOR (guards MC-1 double-count): min health over a 60-day sweep
-       must stay >= _HEALTH_FLOOR (the old un-de-dup'd double-count bottomed at
-       32; the de-dup keeps it above).
+  G2 — HEALTH SANITY FLOOR: min health over a 60-day sweep stays >= _HEALTH_FLOOR
+       (=25). This is a SANITY floor only, NOT the MC-1 double-count guard — DR-4
+       (headline coupling) legitimately pulls health toward a 凶 headline, so
+       health can dip into the low-30s by correct subordination. The MC-1
+       organ-overload single-nudge de-dup is guarded directly by
+       test_daily_enhanced.py::test_mc1_overload_single_nudge_not_per_element.
   G3 — ANTI-RUNAWAY CEILING: no dimension may exceed _DIM_CEILING (guards
        baseline-vs-dispatch compounding, e.g. 財=用神 finance days).
-  G4 — FLAG-OFF byte-identical: with the master flag OFF, no dayEnergyAlignment
-       and scores match the pre-baseline engine.
+  G4 — BASELINE ACTIVE: with the master flag ON, the output DIFFERS from the
+       flag-OFF output on at least one day (i.e. the baseline is doing something).
+       NOTE: this does NOT verify flag-off byte-identity — that guarantee is
+       tested by test_daily_enhanced.py::test_flag_off_is_byte_identical.
 
 The Bazi-master sub-agent BAND grading of a widened corpus is deferred (per the
 user's "deterministic gate now" decision). This raw-score gate is what actually

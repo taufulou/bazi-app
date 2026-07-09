@@ -1563,11 +1563,28 @@ class TestDR5YimaNuance:
         assert r['score'] > 50 + 10  # stronger than the flat boost
 
     def test_yima_he_blocked(self):
-        # 申 驛馬 逢合 (巳申) → 掣足, mild
+        # 申 驛馬 逢合 (巳申) → 掣足 (blocked, HARMFUL) → must LOWER travel below base.
         r = _dispatch_travel(day_branch='申', pillars=self._pillars('巳'), day_master_stem='丙',
                              effective_gods=self._EG_BING_CAI_USEFUL, branch_interactions_on_day_palace=[],
                              yima_nuance_active=True)
         assert 'yima_he_blocked' in [s['type'] for s in r['signals']]
+        assert r['score'] < 50  # review-fix: harmful 掣足 must be a NEGATIVE delta (was +2)
+
+    def test_yima_he_plus_day_chong_no_double_narrative(self):
+        # Review-fix (precedence): natal 日支=寅 ∈ 四生 (驛馬=申=沖[寅]) AND another
+        # pillar (巳) 六合s the 申 驛馬 (巳申合) → yima_he AND day_chong both true. The
+        # generic 沖日支 caution must STILL be suppressed (yima_owns_day_chong set
+        # upfront), so only the 合-blocked signal reaches the AI — no «遠行順遂» vs
+        # «不宜長途» contradiction.
+        pillars = {'year': {'stem': '乙', 'branch': '巳'}, 'month': {'stem': '丙', 'branch': '午'},
+                   'day': {'stem': '丙', 'branch': '寅'}, 'hour': {'stem': '戊', 'branch': '戌'}}
+        r = _dispatch_travel(day_branch='申', pillars=pillars, day_master_stem='丙',
+                             effective_gods=self._EG_BING_CAI_USEFUL,
+                             branch_interactions_on_day_palace=['六沖'],  # 申沖寅 日支
+                             yima_nuance_active=True)
+        types = [s['type'] for s in r['signals']]
+        assert 'yima_he_blocked' in types
+        assert 'chong_day_branch_travel' not in types  # generic caution suppressed (no contradiction)
 
     def test_flag_off_flat_yima(self):
         # yima_nuance_active=False → flat yima_aligned +10 (byte-identical)

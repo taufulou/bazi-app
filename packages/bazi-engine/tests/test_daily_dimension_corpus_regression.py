@@ -3,7 +3,8 @@
 Enforces the DETERMINISTIC raw-score gates from
 `tests/validation/run_daily_dimension_validation.py`:
   - G1 monotonicity (用神-aligned days score higher than 忌神 days)
-  - G2 health floor (MC-1 no-double-count)
+  - G2 health SANITY floor (not the MC-1 guard — that is
+    test_daily_enhanced.py::test_mc1_overload_single_nudge_not_per_element)
   - G3 anti-runaway ceiling
   - G4 baseline active under the flag
 
@@ -37,11 +38,15 @@ def test_monotonicity_margin_per_chart():
         assert delta >= gate._MONO_MARGIN, f'{name}: monotonicity Δ={delta:.1f} < {gate._MONO_MARGIN}'
 
 
-def test_health_floor_guards_mc1_double_count():
+def test_health_sanity_floor():
+    # SANITY floor only (=25). NOT the MC-1 double-count guard — that is
+    # test_daily_enhanced.py::test_mc1_overload_single_nudge_not_per_element.
+    # DR-4 legitimately pulls health toward a 凶 headline, so this just catches
+    # arithmetic bugs / absurd pileups.
     for name, chart in gate.CHARTS.items():
         rows = gate._sweep(chart, '1')
         min_health = min(sc['health'] for _, sc in rows)
-        assert min_health >= gate._HEALTH_FLOOR, f'{name}: health floor {min_health} < {gate._HEALTH_FLOOR} (MC-1 double-count?)'
+        assert min_health >= gate._HEALTH_FLOOR, f'{name}: health {min_health} < sanity floor {gate._HEALTH_FLOOR}'
 
 
 def teardown_module(_module):

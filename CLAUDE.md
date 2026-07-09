@@ -3228,3 +3228,27 @@ The `/code-review` on PR #49 surfaced 7 candidate issues → 5 fixed (1 commit),
 - ~~Live chat-message test~~ — **DONE (2026-06-16).** (a) Engine regression: `tests/test_chat_context_hour_unknown.py` (10 tests) locks crash-safety + the hourKnown/partial signals for `build_chat_context` / `_compat` / `_fortune` under `hour_known=False` (the cross-cutting all-4-pipelines merge). (b) Live: 9 hour-related questions across LIFETIME(5)/LOVE(2)/FORTUNE-day(1)/COMPATIBILITY(1) via `messages-sync` → **2 Bazi-master grader panels: suppression ALL PASS + doctrine SOUND.** Chat correctly refuses 時柱/命宮/身宮/子女(count+timing)/晚年, avoids false「命中無」(神煞 trap), declines 100% 用神 certainty, uses 「另建新命盤」 (not 「補上即可解鎖」), FORTUNE 添丁→soft-trigger (no childbirth prediction — Fix 1 live-validated), COMPAT per-party refusal (both-HU), and the CONTROL (配偶/正緣, survives on 日支) is correctly ANSWERED (no over-refusal). Suppression gate is type-agnostic for single-chart (LIFETIME representative) + Phase-3c for compat. (2 sub-threshold cosmetic notes: the 晚年 answer echoed the prompt directive 「請以一句話帶過為宜」; a 大運-aside 正官 role label — neither doctrine/suppression.)
 - Minor: ElementExplanation 時柱-click note; ProfileCard 時辰未知 marker; the A=男方/B=女方 compat label assumes A=male (pre-existing same-sex limitation); the 晚年 chat answer occasionally echoes the 「一句話帶過」 prompt directive (cosmetic).
 - **Deploy:** `prisma migrate deploy` (Phase 1 migration only); NO cache version bumps; **set `AI_STREAM_TIMEOUT_MS=300000` in prod env**; reading-cache has no prompt version (flush `reading_cache` Redis+DB only if staging generated pre-final-prompt hour-unknown readings — prod has none).
+
+---
+
+## 八字日運 用神-alignment 5-dimension baseline — SHIPPED (PR #55, branch claude/daily-fortune-scoring-05949c)
+
+Fixes the reported flatness where the daily 5 dimensions (感情/事業/財運/出行/健康) clustered at ~50. Adds a continuous **用神-alignment baseline** so each day differentiates, preserving 流日 soft-trigger doctrine. Cells-stuck-at-50: **36→2 (Roger) / 39→2 (Laopo)** over 14 days. Plan: `.claude/plans/come-up-an-comprehensive-nested-hollerith.md`; test plan + browser results: `.claude/plans/daily-baseline-comprehensive-test-plan.md`.
+
+**Engine** (`packages/bazi-engine/app/daily_enhanced.py`, gated `FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED` default ON → flag OFF byte-identical):
+- Component A `_day_favorability_index` — stem/branch separate (40/60), 通根-scaled, seasonal, directional 蓋頭截腳 → global shift ±8
+- Component B `_domain_affinity` — per-dim 藏干 ten-god affinity (±6)
+- Component C `_hehua_adjust_stem_val` — 天干五合 合化/合絆 sign-flip on the stem term
+- Component D — net cap ±10 + MC-1 health organ-overload single-nudge de-dup; one global `dayEnergyAlignment` (MC-8)
+- Phase-2 sub-flags: `DIM_KONGWANG_MODULATION` (空亡 填實則實), `DIM_HEADLINE_COUPLING` (大運/流年 ~15% pull), `DIM_YIMA_NUANCE` (驛馬 沖/合) — **all also require the master flag**.
+
+**Validation**: `run_daily_dimension_validation.py` (deterministic: monotonicity/health-sanity-floor/ceiling) + `run_daily_dimension_band_validation.py` (full Bazi-master band grading, **98.7% within-1-band**, 150 blind grades). Pytest: `test_daily_dimension_corpus_regression.py`, `test_daily_dimension_band_regression.py`.
+
+**Cache versions (bumped — operator MUST flush on deploy)**:
+- `FORTUNE_DAILY_PRE_ANALYSIS_VERSION` v1.2.0 → **v1.4.0** (`fortune_constants.py`) + TS mirror `FORTUNE_PRE_ANALYSIS_VERSIONS.day`
+- `FORTUNE_PROMPT_VERSIONS.day` v1.3.0 → **v1.5.0**
+- Deploy: `redis-cli --scan --pattern "fortune:daily:*" | xargs redis-cli DEL` + `redis-cli --scan --pattern "chat-context-fortune:*:DAY:*" | xargs redis-cli DEL`. NO migration, NO chat-hash-version bump.
+
+**Known finding (Phase 2.x candidate, not shipped)**: dimension scores are **range-compressed toward the middle** — never reach 極佳/不利 (empirical ~[28,66]) because soft-trigger deltas + net cap top out ~64-66. Day-to-day differentiation is fixed; absolute range is intentionally narrow. Widening it must re-run the band grading (corpus + 3 grader prompts are in place).
+
+**Deferred follow-ups (from PR #55 code review)**: (1) wire `dayEnergyAlignment` + the 8 new signal types into FORTUNE **chat** (`chat_context.py::_slim_daily_for_chat` allowlist + `chat-context.service.ts::interpolateFortuneV1Fields` dispatch — currently DAY chat drops them; the C#2 pattern, per-dim signals still reach raw JSON); (2) fix the pre-existing `_dispatch_career` `('正官','七殺')` → should be `('正官','偏官')` (misses 偏官 days; `derive_ten_god` emits 偏官) — deferred because it would invalidate the fresh band corpus.

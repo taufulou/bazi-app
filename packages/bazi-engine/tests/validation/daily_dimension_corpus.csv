@@ -10,7 +10,7 @@ roger,2026-05-14,戊子,比肩,neutral,火,凶中有吉,37,需謹慎,honluan_tri
 roger,2026-05-15,己丑,劫財,neutral,火,凶中有吉,39,需謹慎,spouse_palace_six_harm|domain_affinity,48,需謹慎,(none),50,平穩,bi_jie_duo_cai_transient|domain_affinity,48,需謹慎,(none),48,需謹慎,(none),需謹慎,平穩,平穩,平穩,平穩,,,
 roger,2026-05-16,庚寅,食神,neutral,火,吉,53,平穩,(none),46,需謹慎,shi_shang_day|career_palace_chong|domain_affinity,53,平穩,(none),54,平穩,(none),51,平穩,unfavorable_element_overload,平穩,平穩,平穩,平穩,需謹慎,,,
 laopo,2026-05-07,辛巳,正官,very_weak,水,凶,56,平穩,spouse_star_transparent,36,需謹慎,guan_sha_day|guan_sha_unfavorable|domain_affinity,46,需謹慎,(none),46,需謹慎,(none),43,需謹慎,unfavorable_element_overload,需謹慎,不利,需謹慎,需謹慎,不利,,,
-laopo,2026-05-08,壬午,偏印,very_weak,水,大吉,57,平穩,(none),57,平穩,yin_day,55,平穩,domain_affinity,57,平穩,(none),57,平穩,(none),順遂,極佳,順遂,順遂,順遂,,,
+laopo,2026-05-08,壬午,偏印,very_weak,水,大吉,57,平穩,(none),57,平穩,yin_day,55,平穩,domain_affinity,57,平穩,(none),57,平穩,(none),順遂,極佳,順遂,順遂,順遂,"career 極佳: 壬偏印=用神扶極弱身 + 官印相生, 大吉日; 引擎將 career 壓至 平穩 (favorable-end range compression)",子平真詮·論印綬（官印相生）,career_favorable_compression
 laopo,2026-05-09,癸未,正印,very_weak,水,凶中有吉,47,需謹慎,tianxi_triggered|spouse_palace_half_punishment,39,需謹慎,yin_day|career_palace_chong,46,需謹慎,domain_affinity,49,需謹慎,(none),46,需謹慎,unfavorable_element_overload,需謹慎,平穩,需謹慎,需謹慎,需謹慎,,,
 laopo,2026-05-10,甲申,比肩,very_weak,水,平,46,需謹慎,domain_affinity,46,需謹慎,domain_affinity,51,平穩,bi_jie_day,50,平穩,yima_chong_intensified,41,需謹慎,unfavorable_element_overload|chong_year_branch_health,需謹慎,平穩,需謹慎,需謹慎,需謹慎,,,
 laopo,2026-05-11,乙酉,劫財,very_weak,水,凶中有吉,35,需謹慎,spouse_palace_six_harm|domain_affinity,41,需謹慎,domain_affinity,49,需謹慎,bi_jie_day,45,需謹慎,(none),40,需謹慎,unfavorable_element_overload|domain_affinity,需謹慎,需謹慎,需謹慎,需謹慎,需謹慎,,,
@@ -24,7 +24,7 @@ strong,2026-05-08,壬午,偏印,strong,土,吉中有凶,53,平穩,domain_affinit
 strong,2026-05-09,癸未,正印,strong,土,大吉,63,平穩,tianxi_triggered|domain_affinity,56,平穩,yin_day,59,平穩,domain_affinity,57,平穩,(none),54,平穩,unfavorable_element_overload,順遂,平穩,順遂,順遂,需謹慎,,,
 strong,2026-05-10,甲申,比肩,strong,土,凶,37,需謹慎,spouse_palace_chong,38,需謹慎,chong_day_branch_career,37,需謹慎,bi_jie_duo_cai_transient,32,不利,yima_chong_day,35,需謹慎,unfavorable_element_overload|chong_year_branch_health|chong_day_branch_health,不利,需謹慎,不利,需謹慎,不利,,,
 strong,2026-05-11,乙酉,劫財,strong,土,凶,45,需謹慎,(none),36,需謹慎,career_palace_chong,37,需謹慎,bi_jie_duo_cai_transient,45,需謹慎,(none),43,需謹慎,unfavorable_element_overload,需謹慎,需謹慎,不利,平穩,需謹慎,,,
-strong,2026-05-12,丙戌,食神,strong,土,大吉,64,平穩,domain_affinity,67,順遂,shi_shang_day|career_palace_he,64,平穩,domain_affinity,62,平穩,(none),62,平穩,(none),順遂,順遂,極佳,順遂,順遂,,,
+strong,2026-05-12,丙戌,食神,strong,土,大吉,64,平穩,domain_affinity,67,順遂,shi_shang_day|career_palace_he,64,平穩,domain_affinity,62,平穩,(none),62,平穩,(none),順遂,順遂,極佳,順遂,順遂,"finance 極佳: 食神生財 + 戌財庫=用神 (財為用), 大吉日; 引擎將 finance 壓至 平穩 (favorable-end range compression)",淵海子平·論食神生財,finance_favorable_compression
 strong,2026-05-13,丁亥,傷官,strong,土,小凶,52,平穩,spouse_palace_he,43,需謹慎,shi_shang_day,43,需謹慎,(none),47,需謹慎,he_day_branch_travel,42,需謹慎,unfavorable_element_overload,平穩,平穩,平穩,平穩,需謹慎,,,
 strong,2026-05-14,戊子,偏財,strong,土,凶,52,平穩,spouse_star_transparent,45,需謹慎,(none),56,平穩,wealth_star_favorable,45,需謹慎,(none),43,需謹慎,unfavorable_element_overload,平穩,平穩,順遂,平穩,需謹慎,,,
 strong,2026-05-15,己丑,正財,strong,土,大吉,75,順遂,spouse_star_transparent|honluan_triggered|domain_affinity,57,平穩,(none),70,順遂,wealth_star_favorable|domain_affinity,57,平穩,(none),57,平穩,(none),極佳,平穩,極佳,順遂,順遂,,,

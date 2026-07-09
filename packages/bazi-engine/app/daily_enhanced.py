@@ -573,17 +573,23 @@ def _dispatch_travel(
             yima_chong = any('六沖' in _check_branch_interaction(b, day_branch) for b in natal_branches)
             yima_he = any('六合' in _check_branch_interaction(b, day_branch) for b in natal_branches)
             day_chong = '六沖' in branch_interactions_on_day_palace  # the 驛馬 IS the 沖日支?
+            # DR-5 owns the 沖日支 whenever the 驛馬 (day_branch) is itself the 沖日支 —
+            # regardless of which sub-branch (合/沖/flat) fires below — so the generic
+            # 沖日支 caution is suppressed and only ONE coherent travel narrative reaches
+            # the AI. MUST be set BEFORE the 合/沖 ladder, else a 合+沖 overlap (natal 日支
+            # ∈ 四生 AND another pillar 六合s the 驛馬) would take the yima_he branch and
+            # skip the suppression, re-emitting the contradictory generic caption (Audit #1).
+            yima_owns_day_chong = day_chong
             yima_role = _get_element_role(BRANCH_ELEMENT.get(day_branch, ''), day_master_stem, effective_gods)
             yima_fav = yima_role in FAVORABLE_ROLES
             if yima_he:
-                score += 2
+                score -= 2  # 驛馬逢合=掣足 (movement blocked) → harmful, must LOWER travel
                 signals.append({
                     'type': 'yima_he_blocked', 'valence': 'harmful',
                     'narrative': '驛馬逢合，掣足難行，出行或計畫易生牽絆延宕',
                 })
             elif yima_chong and day_chong:
-                # 驛馬逢沖 IS the 沖日支 — one coherent signal, suppress the generic caution.
-                yima_owns_day_chong = True
+                # 驛馬逢沖 IS the 沖日支 — one coherent signal (generic 沖日支 suppressed above).
                 score += -6 if yima_fav else -15
                 signals.append({
                     'type': 'yima_chong_day',
@@ -734,9 +740,11 @@ FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED = (
     os.environ.get('FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED', '1') == '1'
 )
 
-# Phase 2 refinement sub-flags (each independently reversible). DR-3/DR-4 are
-# baseline refinements (also require the master flag); DR-5 is an independent
-# dispatch rewrite.
+# Phase 2 refinement sub-flags (each independently reversible). ALL THREE also
+# require the master flag: DR-3/DR-4 read it directly; DR-5 is gated at its call
+# site as `FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED and DIM_YIMA_NUANCE`. So master
+# OFF disables every refinement (preserving flag-off byte-identity); a sub-flag
+# OFF disables only its own refinement while the master stays ON.
 DIM_KONGWANG_MODULATION = os.environ.get('DIM_KONGWANG_MODULATION', '1') == '1'   # DR-3 空亡
 DIM_HEADLINE_COUPLING = os.environ.get('DIM_HEADLINE_COUPLING', '1') == '1'       # DR-4 大運/流年
 DIM_YIMA_NUANCE = os.environ.get('DIM_YIMA_NUANCE', '1') == '1'                   # DR-5 驛馬
