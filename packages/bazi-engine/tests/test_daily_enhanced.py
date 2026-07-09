@@ -1185,3 +1185,421 @@ class TestShishenZhishaNatalDayBranchExclusion:
         assert result is True
 
 
+
+
+# ============================================================
+# 用神-Alignment Baseline (Plan Phase 1 — Components A–D)
+# See .claude/plans/come-up-an-comprehensive-nested-hollerith.md
+# ============================================================
+
+from app.daily_enhanced import (  # noqa: E402
+    _apply_yongshen_baseline,
+    _day_favorability_index,
+    _domain_affinity,
+    _gaitou_jiejiao_moderate_dfi,
+    _hehua_adjust_stem_val,
+    _stem_has_root,
+)
+
+# Synthetic weak-甲 chart. Ten-god-keyed effective_gods_zh:
+#   用神=水(印) · 喜神=木(比劫) · 閒神=火(食傷) · 仇神=土(財) · 忌神=金(官殺)
+WEAK_JIA_EG = {
+    '正印': '用神', '偏印': '用神',
+    '比肩': '喜神', '劫財': '喜神',
+    '食神': '閒神', '傷官': '閒神',
+    '正財': '仇神', '偏財': '仇神',
+    '正官': '忌神', '偏官': '忌神',  # derive_ten_god emits 偏官 (not 七殺)
+}
+WEAK_JIA_PILLARS = {
+    'year':  {'stem': '壬', 'branch': '子'},   # 水 root for the 用神
+    'month': {'stem': '辛', 'branch': '亥'},
+    'day':   {'stem': '甲', 'branch': '寅'},
+    'hour':  {'stem': '丙', 'branch': '午'},
+}
+
+
+class TestBaselineComponentA:
+    """Component A — day-favorability index (用神 alignment gradient)."""
+
+    def test_useful_god_day_is_positive(self):
+        # 壬子: 壬=偏印=用神, 子藏癸=正印=用神 → strongly favorable day
+        dfi, _ = _day_favorability_index('壬', '子', '甲', WEAK_JIA_EG, WEAK_JIA_PILLARS, '子')
+        assert dfi > 0.5
+
+    def test_taboo_god_day_is_negative(self):
+        # 庚酉: 庚=七殺=忌, 酉藏辛=正官=忌 → strongly unfavorable day
+        dfi, _ = _day_favorability_index('庚', '酉', '甲', WEAK_JIA_EG, WEAK_JIA_PILLARS, '子')
+        assert dfi < -0.5
+
+    def test_useful_gt_taboo_monotonic(self):
+        good, _ = _day_favorability_index('壬', '子', '甲', WEAK_JIA_EG, WEAK_JIA_PILLARS, '子')
+        bad, _ = _day_favorability_index('庚', '酉', '甲', WEAK_JIA_EG, WEAK_JIA_PILLARS, '子')
+        assert good > bad
+
+    def test_rootless_stem_is_weaker_than_rooted(self):
+        # 用神 壬(水) with a water root vs a chart with no water root.
+        rooted_p = WEAK_JIA_PILLARS  # has 子/亥 water
+        rootless_p = {
+            'year':  {'stem': '甲', 'branch': '寅'}, 'month': {'stem': '丙', 'branch': '午'},
+            'day':   {'stem': '甲', 'branch': '戌'}, 'hour': {'stem': '戊', 'branch': '未'},
+        }
+        # day branch 巳 has no water either → 壬 rootless in the rootless chart
+        assert _stem_has_root('壬', '子', ['子', '亥', '寅', '午'])
+        assert not _stem_has_root('壬', '巳', ['寅', '午', '戌', '未'])
+        r_dfi, _ = _day_favorability_index('壬', '子', '甲', WEAK_JIA_EG, rooted_p, '子')
+        rl_dfi, _ = _day_favorability_index('壬', '巳', '甲', WEAK_JIA_EG, rootless_p, '子')
+        # both 用神 days, but the rootless one's stem contribution is halved
+        assert r_dfi > rl_dfi
+
+
+class TestBaselineGaitouDirectional:
+    """MC-6 — 蓋頭/截腳 moderation is DIRECTIONAL (用神制忌 must NOT be dampened)."""
+
+    def test_gaitou_taboo_stem_caps_useful_branch_is_dampened(self):
+        # 蓋頭 pair + 忌 stem (<0) capping 用 branch (>0) → dampened to half
+        out = _gaitou_jiejiao_moderate_dfi(2.0, '戊', '子', stem_val=-2.0, branch_val=1.0)
+        assert out == 1.0
+
+    def test_gaitou_useful_stem_controls_taboo_branch_not_dampened(self):
+        # 用神制忌: 用 stem (>0) 蓋頭-caps 忌 branch (<0) → BENEFICIAL, keep dfi
+        out = _gaitou_jiejiao_moderate_dfi(0.4, '戊', '子', stem_val=2.0, branch_val=-1.0)
+        assert out == 0.4
+
+    def test_non_gaitou_pillar_never_dampened(self):
+        out = _gaitou_jiejiao_moderate_dfi(0.5, '甲', '子', stem_val=1.0, branch_val=-1.0)
+        assert out == 0.5
+
+    def test_jiejiao_taboo_branch_cuts_useful_stem_is_dampened(self):
+        # 截腳 pair (甲申) + 忌 branch (<0) cutting 用 stem (>0) → dampened
+        out = _gaitou_jiejiao_moderate_dfi(1.0, '甲', '申', stem_val=1.0, branch_val=-2.0)
+        assert out == 0.5
+
+
+class TestBaselineDomainAffinity:
+    """Component B — per-dimension 藏干 ten-god affinity."""
+
+    def test_finance_up_when_wealth_is_useful(self):
+        eg = dict(WEAK_JIA_EG, 正財='用神', 偏財='用神')  # 財=用神
+        # 辰藏 戊乙癸 → 戊=偏財. Weak DM so strong_dm False.
+        delta, sig = _domain_affinity('finance', '辰', '甲', eg, 'weak', 'male')
+        assert delta > 0 and sig is not None and sig['valence'] == 'beneficial'
+
+    def test_finance_down_when_wealth_is_taboo(self):
+        # base WEAK_JIA_EG has 財=仇神 (unfavorable). 戌藏 戊辛丁 → 戊=偏財(仇).
+        delta, _ = _domain_affinity('finance', '戌', '甲', WEAK_JIA_EG, 'weak', 'male')
+        assert delta < 0
+
+    def test_romance_gender_dispatch(self):
+        # Male spouse-star = 財星; female = 官殺. 酉藏辛 → derive 正官 (for 甲).
+        male = _domain_affinity('romance', '酉', '甲', WEAK_JIA_EG, 'weak', 'male')[0]
+        female = _domain_affinity('romance', '酉', '甲', WEAK_JIA_EG, 'weak', 'female')[0]
+        # 辛=正官: for female it's the spouse star (忌 here → negative);
+        # for male 官 is not the spouse star → different tilt
+        assert male != female
+
+    def test_health_guansha_is_negative(self):
+        # 酉藏辛=正官 → 官殺剋身 risk lowers health
+        delta, _ = _domain_affinity('health', '酉', '甲', WEAK_JIA_EG, 'weak', 'male')
+        assert delta < 0
+
+    def test_affinity_clamped(self):
+        for dim in DIMENSION_KEYS:
+            for br in ('子', '午', '卯', '酉', '寅', '申', '辰', '戌'):
+                d, _ = _domain_affinity(dim, br, '甲', WEAK_JIA_EG, 'weak', 'male')
+                assert -6 <= d <= 6
+
+
+class TestBaselineHehuaGate:
+    """Component C — 天干五合 合化/合絆 sign-flip on the stem term."""
+
+    def _pillars_with(self, year_stem='丙', month_stem='辛', hour_stem='壬'):
+        return {
+            'year':  {'stem': year_stem, 'branch': '子'},
+            'month': {'stem': month_stem, 'branch': '亥'},
+            'day':   {'stem': '甲', 'branch': '寅'},
+            'hour':  {'stem': hour_stem, 'branch': '午'},
+        }
+
+    def test_taboo_stem_bound_flips_positive(self):
+        # day_stem 庚(七殺=忌, val -2) 合s a natal 乙 → 忌神被合 → 反吉 (positive)
+        p = self._pillars_with(month_stem='乙')  # 乙庚合
+        adj, note = _hehua_adjust_stem_val(
+            '庚', -2.0, '忌神', '甲', WEAK_JIA_EG, p, '酉', '子', ['子', '亥', '寅', '午'])
+        assert adj > 0 and note is not None and note['type'] == 'he_ban'
+
+    def test_useful_stem_bound_flips_negative(self):
+        # day_stem 壬(用神) 合s a natal 丁 → 用神被合 → 逢吉不為吉 (negative)
+        p = self._pillars_with(hour_stem='丁')  # 丁壬合
+        adj, note = _hehua_adjust_stem_val(
+            '壬', 2.0, '用神', '甲', WEAK_JIA_EG, p, '子', '子', ['子', '亥', '寅', '午'])
+        assert adj < 0 and note['boundRole'] == '用神'
+
+    def test_zhenghe_two_partners_skipped(self):
+        # two natal 乙 competing to combine day_stem 庚 → 爭合 → impure, no flip
+        p = {'year': {'stem': '乙', 'branch': '子'}, 'month': {'stem': '乙', 'branch': '亥'},
+             'day': {'stem': '甲', 'branch': '寅'}, 'hour': {'stem': '壬', 'branch': '午'}}
+        adj, note = _hehua_adjust_stem_val(
+            '庚', -2.0, '忌神', '甲', WEAK_JIA_EG, p, '酉', '子', ['子', '亥', '寅', '午'])
+        assert adj == -2.0 and note['type'] == 'zheng_he'
+
+    def test_year_stem_heji_half_effect(self):
+        # 合 with the YEAR stem is 隔位 → ~30% ratio (weaker flip than adjacent)
+        p_year = {'year': {'stem': '乙', 'branch': '子'}, 'month': {'stem': '辛', 'branch': '亥'},
+                  'day': {'stem': '甲', 'branch': '寅'}, 'hour': {'stem': '壬', 'branch': '午'}}
+        p_month = self._pillars_with(month_stem='乙')
+        adj_year, _ = _hehua_adjust_stem_val('庚', -2.0, '忌神', '甲', WEAK_JIA_EG, p_year, '酉', '子', ['子', '亥', '寅', '午'])
+        adj_month, _ = _hehua_adjust_stem_val('庚', -2.0, '忌神', '甲', WEAK_JIA_EG, p_month, '酉', '子', ['子', '亥', '寅', '午'])
+        assert 0 < adj_year < adj_month  # both positive flip, year weaker
+
+    def test_no_combination_unchanged(self):
+        p = self._pillars_with()  # no combinable partner for 甲's day... use 戊 day
+        adj, note = _hehua_adjust_stem_val('戊', -1.0, '仇神', '甲', WEAK_JIA_EG, p, '辰', '子', ['子', '亥', '寅', '午'])
+        assert adj == -1.0 and note is None  # 戊 partner=癸, none present
+
+
+class TestBaselineIntegration:
+    """Flag gating + MC-1 health de-dup + end-to-end shape."""
+
+    def test_flag_off_is_byte_identical(self, monkeypatch):
+        import app.daily_enhanced as d
+        monkeypatch.setattr(d, 'FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED', False)
+        r = d.compute_daily_fortune(target_date=date(2026, 5, 14), **ROGER_INPUTS)
+        assert 'dayEnergyAlignment' not in r
+        # every dimension is a plain int in range (untouched by the baseline)
+        for k in DIMENSION_KEYS:
+            assert 0 <= r['dimensions'][k]['score'] <= 100
+
+    def test_flag_on_emits_global_signal(self, monkeypatch):
+        import app.daily_enhanced as d
+        monkeypatch.setattr(d, 'FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED', True)
+        r = d.compute_daily_fortune(target_date=date(2026, 5, 14), **ROGER_INPUTS)
+        dea = r.get('dayEnergyAlignment')
+        assert dea is not None
+        assert dea['type'] == 'day_energy_alignment'
+        assert dea['valence'] in ('beneficial', 'harmful', 'neutral')
+        assert -8 <= dea['shift'] <= 8
+        assert dea['metaFraming'] == META_FRAMING_SOFT_TRIGGER
+
+    def test_only_one_global_signal(self, monkeypatch):
+        # MC-8: exactly ONE day_energy_alignment (top-level, not per-dimension)
+        import app.daily_enhanced as d
+        monkeypatch.setattr(d, 'FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED', True)
+        r = d.compute_daily_fortune(target_date=date(2026, 5, 14), **ROGER_INPUTS)
+        per_dim_global = sum(
+            1 for k in DIMENSION_KEYS for s in r['dimensions'][k]['signals']
+            if s.get('type') == 'day_energy_alignment'
+        )
+        assert per_dim_global == 0
+
+    def test_scores_stay_in_range_over_sweep(self, monkeypatch):
+        import app.daily_enhanced as d
+        monkeypatch.setattr(d, 'FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED', True)
+        for i in range(31):
+            r = d.compute_daily_fortune(target_date=date(2026, 5, 1) + timedelta(days=i), **ROGER_INPUTS)
+            for k in DIMENSION_KEYS:
+                assert 0 <= r['dimensions'][k]['score'] <= 100
+
+    def test_mc1_health_dedup_softens_overload(self, monkeypatch):
+        # On a day with an unfavorable-element organ overload, baseline ON must
+        # NOT double-count: health floor stays well above the old double-count 32.
+        import app.daily_enhanced as d
+        monkeypatch.setattr(d, 'FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED', True)
+        worst = min(
+            d.compute_daily_fortune(target_date=date(2026, 5, 1) + timedelta(days=i), **ROGER_INPUTS)['dimensions']['health']['score']
+            for i in range(31)
+        )
+        assert worst >= 33  # MC-1: no 50 −8 (A) −10 (dispatch) = 32 double-count
+
+    def test_mc1_overload_single_nudge_not_per_element(self, monkeypatch):
+        # Audit #1: on a day where BOTH the day stem and day branch are 忌/仇
+        # elements, the organ overload must charge a SINGLE −3 (not −6). We assert
+        # the property directly: two overload signals may appear, but the score
+        # impact is capped. Construct 己丑 for Laopo-like weak 甲 (己=正財=仇, 丑本氣
+        # 己=正財=仇 → both stem+branch unfavorable).
+        import app.daily_enhanced as d
+        # DM 甲, WEAK_JIA_EG: 土(財)=仇, 金(官)=忌 — two DISTINCT unfavorable elements.
+        # 戊(土,偏財=仇) stem + 酉(金,正官=忌) branch → both overload, different elements.
+        base = _dispatch_health_scores(d, WEAK_JIA_PILLARS, '甲', WEAK_JIA_EG, '戊', '酉')
+        # ON: single −3 nudge; OFF: −5 per element (−10). ON must be strictly higher.
+        assert base['on'] > base['off']
+        # ON overload contribution is exactly −3 (single), OFF is −10 (two × −5)
+        assert base['on_overload_delta'] == -3
+        assert base['off_overload_delta'] == -10
+
+    def test_audit_pileup_chart_no_mc1_double_count_regression(self, monkeypatch):
+        # Audit #1 breaking class (年支==日支==寅, 官殺=金=忌, weak DM). The MC-1
+        # single-nudge fix means the baseline (Components A–D, DR-3, DR-5 but NOT
+        # the DR-4 subordination pull) does not push health BELOW the pre-baseline
+        # engine via the organ-overload double-count. We isolate MC-1 by turning
+        # DR-4 OFF (DR-4 legitimately lowers health toward a 凶 headline — that is
+        # correct subordination, tested separately, not a double-count).
+        import app.daily_enhanced as d
+        monkeypatch.setattr(d, 'FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED', True)
+        monkeypatch.setattr(d, 'DIM_HEADLINE_COUPLING', False)  # isolate MC-1 from DR-4
+        chart = dict(
+            pillars={'year': {'stem': '甲', 'branch': '寅'}, 'month': {'stem': '丙', 'branch': '午'},
+                     'day': {'stem': '甲', 'branch': '寅'}, 'hour': {'stem': '戊', 'branch': '辰'}},
+            day_master_stem='甲',
+            effective_gods={'usefulGod': '水', 'favorableGod': '木', 'idleGod': '火', 'tabooGod': '土', 'enemyGod': '金'},
+            useful_god_element='水', gender='male', kong_wang=['子', '丑'],
+            strength='weak', is_cong_ge=False, flow_year_stem='丙', flow_year_auspiciousness='凶')
+        worst = min(
+            d.compute_daily_fortune(target_date=date(2026, 1, 1) + timedelta(days=i), **chart)['dimensions']['health']['score']
+            for i in range(90)
+        )
+        assert worst >= 33  # single-nudge overload keeps this class ≥33 (was 32 double-count)
+
+
+def _dispatch_health_scores(d, pillars, dm, eg, day_stem, day_branch):
+    """Helper: isolate the health dispatch overload delta ON vs OFF for a
+    constructed day pillar (both stem+branch unfavorable)."""
+    bi = []  # no palace 沖 for this isolation
+    on = d._dispatch_health(day_stem=day_stem, day_branch=day_branch, day_master_stem=dm,
+                            effective_gods=eg, branch_interactions_on_day_palace=bi,
+                            branch_interactions_on_year_palace=bi, baseline_active=True)
+    off = d._dispatch_health(day_stem=day_stem, day_branch=day_branch, day_master_stem=dm,
+                             effective_gods=eg, branch_interactions_on_day_palace=bi,
+                             branch_interactions_on_year_palace=bi, baseline_active=False)
+    return {
+        'on': on['score'], 'off': off['score'],
+        'on_overload_delta': on['score'] - 50,   # only overload contributes (no 沖)
+        'off_overload_delta': off['score'] - 50,
+    }
+
+
+# ============================================================
+# Phase 2 refinements — DR-3 空亡 / DR-4 headline coupling / DR-5 驛馬 nuance
+# ============================================================
+
+from app.daily_enhanced import (  # noqa: E402
+    _apply_headline_coupling,
+    _dispatch_travel,
+    _kongwang_modulation,
+)
+
+
+class TestDR3KongWang:
+    """DR-3 — 空亡 role-flip modulation (填實 / 沖空則實)."""
+
+    def test_filling_useful_void_is_positive(self):
+        # 填實則實: day_branch 子 ∈ kong_wang, 子=水=用神 → 用神被引動 (+)
+        mod, sig = _kongwang_modulation('子', '甲', WEAK_JIA_EG, ['子', '丑'], WEAK_JIA_PILLARS)
+        assert mod > 0 and sig['type'] == 'kongwang_useful_filled'
+
+    def test_filling_taboo_void_is_caution(self):
+        # 填實則實: 酉=金=忌 in kong_wang → 忌神被引動 (−)
+        mod, sig = _kongwang_modulation('酉', '甲', WEAK_JIA_EG, ['酉', '申'], WEAK_JIA_PILLARS)
+        assert mod < 0 and sig['type'] == 'kongwang_taboo_filled'
+
+    def test_chong_void_emits_timing_signal_no_score(self):
+        # day_branch 午 not void, but 午 沖 子 (a void branch) → 沖空則實 note, mod=0
+        mod, sig = _kongwang_modulation('午', '甲', WEAK_JIA_EG, ['子', '丑'], WEAK_JIA_PILLARS)
+        assert mod == 0 and sig is not None and sig['type'] == 'kongwang_chong'
+
+    def test_empty_kongwang_noop(self):
+        assert _kongwang_modulation('子', '甲', WEAK_JIA_EG, [], WEAK_JIA_PILLARS) == (0, None)
+
+    def test_flag_off_no_kongwang(self, monkeypatch):
+        import app.daily_enhanced as d
+        monkeypatch.setattr(d, 'FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED', True)
+        monkeypatch.setattr(d, 'DIM_KONGWANG_MODULATION', False)
+        # sweep — no dayEnergyAlignment.kongWang key should ever appear
+        for i in range(31):
+            r = d.compute_daily_fortune(target_date=date(2026, 5, 1) + timedelta(days=i), **ROGER_INPUTS)
+            assert 'kongWang' not in (r.get('dayEnergyAlignment') or {})
+
+
+class TestDR4HeadlineCoupling:
+    """DR-4 — soft ~15% pull of each dimension toward the day's energyScore."""
+
+    def test_pulls_toward_energy_score(self):
+        dims = {k: {'score': 40, 'label': '', 'signals': []} for k in DIMENSION_KEYS}
+        _apply_headline_coupling(dims, energy_score=72)
+        # 40 + (72-40)*0.15 = 40 + 4.8 → 45
+        for k in DIMENSION_KEYS:
+            assert dims[k]['score'] == 45
+
+    def test_pull_is_soft_not_clamp(self):
+        # a high dim on a low-energy day is only nudged down ~15%, not clamped
+        dims = {'romance': {'score': 70, 'label': '', 'signals': []}}
+        dims.update({k: {'score': 50, 'label': '', 'signals': []} for k in DIMENSION_KEYS if k != 'romance'})
+        _apply_headline_coupling(dims, energy_score=25)
+        # 70 + (25-70)*0.15 = 70 - 6.75 → 63 (still well above 25)
+        assert dims['romance']['score'] == 63
+
+    def test_flag_off_no_coupling(self, monkeypatch):
+        import app.daily_enhanced as d
+        monkeypatch.setattr(d, 'FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED', True)
+        monkeypatch.setattr(d, 'DIM_HEADLINE_COUPLING', False)
+        monkeypatch.setattr(d, 'DIM_KONGWANG_MODULATION', False)
+        # With coupling off, scores are Component A/B/C only (no pull toward headline).
+        r = d.compute_daily_fortune(target_date=date(2026, 5, 14), **ROGER_INPUTS)
+        # sanity: dims still in range, dayEnergyAlignment present
+        assert r.get('dayEnergyAlignment') is not None
+
+
+class TestDR5YimaNuance:
+    """DR-5 — 驛馬逢沖=馬後加鞭 (intensified) / 驛馬逢合=掣足 (blocked)."""
+
+    # DM 丙; 申=偏財. Make 財=用神 so 申 is favorable.
+    _EG_BING_CAI_USEFUL = {
+        '偏財': '用神', '正財': '用神', '比肩': '喜神', '劫財': '喜神',
+        '食神': '閒神', '傷官': '閒神', '正官': '忌神', '偏官': '忌神',
+        '正印': '仇神', '偏印': '仇神',
+    }
+
+    def _pillars(self, extra_branch):
+        # natal_day_branch=午 → YIMA=申; `extra_branch` sits in the year pillar
+        return {'year': {'stem': '甲', 'branch': extra_branch}, 'month': {'stem': '丙', 'branch': '午'},
+                'day': {'stem': '丙', 'branch': '午'}, 'hour': {'stem': '戊', 'branch': '戌'}}
+
+    def test_yima_chong_intensified_favorable(self):
+        # 申 驛馬 逢沖 (寅申) + 申=用神 → 馬後加鞭 beneficial, higher than flat +10
+        r = _dispatch_travel(day_branch='申', pillars=self._pillars('寅'), day_master_stem='丙',
+                             effective_gods=self._EG_BING_CAI_USEFUL, branch_interactions_on_day_palace=[],
+                             yima_nuance_active=True)
+        types = [s['type'] for s in r['signals']]
+        assert 'yima_chong_intensified' in types
+        assert r['score'] > 50 + 10  # stronger than the flat boost
+
+    def test_yima_he_blocked(self):
+        # 申 驛馬 逢合 (巳申) → 掣足, mild
+        r = _dispatch_travel(day_branch='申', pillars=self._pillars('巳'), day_master_stem='丙',
+                             effective_gods=self._EG_BING_CAI_USEFUL, branch_interactions_on_day_palace=[],
+                             yima_nuance_active=True)
+        assert 'yima_he_blocked' in [s['type'] for s in r['signals']]
+
+    def test_flag_off_flat_yima(self):
+        # yima_nuance_active=False → flat yima_aligned +10 (byte-identical)
+        r = _dispatch_travel(day_branch='申', pillars=self._pillars('寅'), day_master_stem='丙',
+                             effective_gods=self._EG_BING_CAI_USEFUL, branch_interactions_on_day_palace=[],
+                             yima_nuance_active=False)
+        assert 'yima_aligned' in [s['type'] for s in r['signals']]
+        assert r['score'] == 60  # 50 + 10
+
+    def test_yima_owns_day_chong_no_contradiction(self):
+        # Audit #1 (Finding 1): natal 日支=寅 ∈ 四生, so YIMA[寅]=申=沖[寅]. A 申 day
+        # is BOTH 驛馬逢沖 AND 沖日支 — must emit ONE coherent signal, NOT both the
+        # yima «遠行順遂» and the generic «不宜長途».
+        pillars = {'year': {'stem': '甲', 'branch': '子'}, 'month': {'stem': '丙', 'branch': '午'},
+                   'day': {'stem': '丙', 'branch': '寅'}, 'hour': {'stem': '戊', 'branch': '戌'}}
+        r = _dispatch_travel(day_branch='申', pillars=pillars, day_master_stem='丙',
+                             effective_gods=self._EG_BING_CAI_USEFUL,
+                             branch_interactions_on_day_palace=['六沖'],  # 申沖寅 = 沖日支
+                             yima_nuance_active=True)
+        types = [s['type'] for s in r['signals']]
+        assert 'yima_chong_day' in types
+        assert 'chong_day_branch_travel' not in types  # generic caution suppressed
+        assert 'yima_chong_intensified' not in types   # not the non-day-chong variant
+
+    def test_yima_owns_day_chong_off_keeps_both(self):
+        # With DR-5 OFF, the pre-feature behavior stands (flat 驛馬 +10 AND −18 沖日支).
+        pillars = {'year': {'stem': '甲', 'branch': '子'}, 'month': {'stem': '丙', 'branch': '午'},
+                   'day': {'stem': '丙', 'branch': '寅'}, 'hour': {'stem': '戊', 'branch': '戌'}}
+        r = _dispatch_travel(day_branch='申', pillars=pillars, day_master_stem='丙',
+                             effective_gods=self._EG_BING_CAI_USEFUL,
+                             branch_interactions_on_day_palace=['六沖'],
+                             yima_nuance_active=False)
+        types = [s['type'] for s in r['signals']]
+        assert 'yima_aligned' in types and 'chong_day_branch_travel' in types  # 50+10−18=42
+        assert r['score'] == 42

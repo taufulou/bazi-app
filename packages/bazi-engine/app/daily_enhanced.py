@@ -50,13 +50,17 @@ from .branch_relationships import banhe_forms_qi, check_branch_friction
 from .constants import (
     BRANCH_ELEMENT,
     HIDDEN_STEMS,
+    HIDDEN_STEM_WEIGHTS,
     HONGLUAN,
+    SEASON_MULTIPLIER,
+    SEASON_STRENGTH,
     STEM_ELEMENT,
     TAOHUA,
     TIANXI,
     YIMA,
 )
 from .fortune_constants import (
+    DIMENSION_KEYS,
     FORTUNE_DAILY_PRE_ANALYSIS_VERSION,
     META_FRAMING_SOFT_TRIGGER,
     derive_dimension_label,
@@ -64,7 +68,8 @@ from .fortune_constants import (
 )
 from .label_subordination import apply_subordination_cap
 from .folk_content import compute_folk_content
-from .lifetime_enhanced import ELEMENT_DIRECTION
+from .lifetime_enhanced import ELEMENT_DIRECTION, GAITOU_SET, JIEJIAO_SET
+from .stem_combinations import STEM_COMBINATION_LOOKUP
 from .ten_gods import derive_ten_god
 
 
@@ -531,28 +536,79 @@ def _dispatch_travel(
     day_master_stem: str,
     effective_gods: Dict,
     branch_interactions_on_day_palace: List[str],
+    yima_nuance_active: bool = False,
 ) -> Dict[str, Any]:
     """Compute the day's travel-dimension signals.
 
     Doctrine: 三命通會·驛馬 + universal app rule: 「沖日支不利遠行」.
+
+    DR-5 (Phase 2, gated `yima_nuance_active`): the flat 驛馬 +10 becomes
+    valence-aware — 驛馬逢沖=馬後加鞭 (intensified; direction by 用神), 驛馬逢合=
+    掣足 (movement blocked). Flag off → the original flat +10 (byte-identical).
     """
     signals: List[Dict[str, Any]] = []
     score = _DIMENSION_BASE
 
     natal_day_branch = pillars['day']['branch']
     yima_partner = YIMA.get(natal_day_branch)
+    # When the natal 日支 is a 四生 branch (寅申巳亥), its 驛馬 IS its 沖 partner,
+    # so a 驛馬逢沖 day is the SAME event as 沖日支. DR-5 then owns the 沖 and the
+    # generic 沖日支 caution below is suppressed (else two contradictory narratives
+    # — «遠行順遂» vs «不宜長途» — reach the AI). Audit #1 fix.
+    yima_owns_day_chong = False
 
     # --- 驛馬 today (sympathy with natal 日支's 驛馬) ---
     if yima_partner == day_branch:
-        score += _YIMA_TRIGGER_BOOST
-        signals.append({
-            'type': 'yima_aligned',
-            'branch': day_branch,
-            'narrative': '今日逢驛馬，遠行或變動訊息較順',
-        })
+        if not yima_nuance_active:
+            score += _YIMA_TRIGGER_BOOST
+            signals.append({
+                'type': 'yima_aligned',
+                'branch': day_branch,
+                'narrative': '今日逢驛馬，遠行或變動訊息較順',
+            })
+        else:
+            # DR-5 — is the 驛馬 (day_branch) itself 沖'd (馬後加鞭) or 合'd (掣足)
+            # by a natal branch? 三命通會·論驛馬: 驛馬逢沖=更動, 驛馬逢合=掣足.
+            natal_branches = [pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')]
+            yima_chong = any('六沖' in _check_branch_interaction(b, day_branch) for b in natal_branches)
+            yima_he = any('六合' in _check_branch_interaction(b, day_branch) for b in natal_branches)
+            day_chong = '六沖' in branch_interactions_on_day_palace  # the 驛馬 IS the 沖日支?
+            yima_role = _get_element_role(BRANCH_ELEMENT.get(day_branch, ''), day_master_stem, effective_gods)
+            yima_fav = yima_role in FAVORABLE_ROLES
+            if yima_he:
+                score += 2
+                signals.append({
+                    'type': 'yima_he_blocked', 'valence': 'harmful',
+                    'narrative': '驛馬逢合，掣足難行，出行或計畫易生牽絆延宕',
+                })
+            elif yima_chong and day_chong:
+                # 驛馬逢沖 IS the 沖日支 — one coherent signal, suppress the generic caution.
+                yima_owns_day_chong = True
+                score += -6 if yima_fav else -15
+                signals.append({
+                    'type': 'yima_chong_day',
+                    'valence': 'beneficial' if yima_fav else 'harmful',
+                    'narrative': ('驛馬逢沖（即沖動日支），動能強、變動中有機會，遠行宜妥善規劃、把握節奏'
+                                  if yima_fav else
+                                  '驛馬逢沖（即沖動日支），動盪較大，遠行、簽約宜審慎、先求穩'),
+                })
+            elif yima_chong:
+                score += 12 if yima_fav else 3
+                signals.append({
+                    'type': 'yima_chong_intensified',
+                    'valence': 'beneficial' if yima_fav else 'neutral',
+                    'narrative': ('驛馬逢沖，馬後加鞭，動能強、遠行順遂，宜把握' if yima_fav
+                                  else '驛馬逢沖，馬後加鞭，變動加劇，出行宜妥善安排、勿倉促'),
+                })
+            else:
+                score += _YIMA_TRIGGER_BOOST
+                signals.append({
+                    'type': 'yima_aligned', 'branch': day_branch,
+                    'narrative': '今日逢驛馬，遠行或變動訊息較順',
+                })
 
-    # --- 沖日支 → universal travel caution ---
-    if '六沖' in branch_interactions_on_day_palace:
+    # --- 沖日支 → universal travel caution (skipped when DR-5 already owns this 沖) ---
+    if '六沖' in branch_interactions_on_day_palace and not yima_owns_day_chong:
         score -= 18
         signals.append({
             'type': 'chong_day_branch_travel',
@@ -583,6 +639,7 @@ def _dispatch_health(
     effective_gods: Dict,
     branch_interactions_on_day_palace: List[str],
     branch_interactions_on_year_palace: List[str],
+    baseline_active: bool = False,
 ) -> Dict[str, Any]:
     """Compute the day's health-dimension signals.
 
@@ -598,6 +655,14 @@ def _dispatch_health(
     day_stem_element = STEM_ELEMENT.get(day_stem, '')
 
     # Element overload onto a 忌神 → organ caution (養生 only, NOT verdict)
+    # MC-1 de-dup (audit fix): the 用神-alignment baseline (Component A) already
+    # carries this 忌神-element negativity globally + PER-element. When the baseline
+    # is active we therefore add a SINGLE token nudge (_HEALTH_OVERLOAD_SOFTENED,
+    # −3) for the whole day — NOT −3 per element — so a chart whose day stem AND
+    # branch are both 忌/仇 doesn't double-fire (−6) on top of Component A. Signals
+    # for BOTH elements are still emitted (for the organ narrative); only the score
+    # impact is capped. Flag OFF keeps the original −5 per element.
+    _overload_charged = False
     for element in {day_branch_element, day_stem_element}:
         if not element:
             continue
@@ -605,7 +670,12 @@ def _dispatch_health(
         if role in UNFAVORABLE_ROLES:
             organ_info = ELEMENT_ORGAN_MAP.get(element, {})
             if organ_info:
-                score -= 5
+                if baseline_active:
+                    if not _overload_charged:
+                        score += _HEALTH_OVERLOAD_SOFTENED   # single −3 for the day
+                        _overload_charged = True
+                else:
+                    score -= 5                               # original per-element
                 signals.append({
                     'type': 'unfavorable_element_overload',
                     'element': element,
@@ -637,6 +707,417 @@ def _dispatch_health(
         'label': derive_dimension_label(score),
         'signals': signals,
     }
+
+
+# ============================================================
+# 用神-Alignment Baseline for 5-dimension scoring (Plan Phase 1, Components A–D)
+# Plan: .claude/plans/come-up-an-comprehensive-nested-hollerith.md
+# ============================================================
+#
+# Adds a CONTINUOUS per-day baseline shift so each day's 5 dimensions get a
+# distinct fingerprint even with no discrete trigger. The existing dispatch
+# only moves a dim off 50 on a sparse 干支 coincidence, so most dims sit at 50.
+#
+# Doctrine (Bazi-master reviewed, 3 rounds — see plan Review Log):
+#   - A continuous 用神/喜/閒/仇/忌 alignment gradient is the primary quiet-day
+#     mechanism (算准网 2761/2153, 滴天髓 忌神攻).
+#   - Ten-god theme is the cross-dimension differentiator (keystar/163).
+#   - 旺相休囚死 keys to the flow-MONTH and scales amplitude (三命通會).
+#   - 流日 is a SOFT trigger → deltas stay small (natal ≈60% of a day's effect).
+#
+# ALL logic gated on FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED → flag OFF is
+# byte-identical to the pre-baseline engine (every dim base stays 50).
+
+# Master flag (default ON in dev; measured before prod flip). Mirrors the
+# PHASE_1_5_OPTION_25_REFINEMENT_ENABLED gating pattern.
+FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED = (
+    os.environ.get('FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED', '1') == '1'
+)
+
+# Phase 2 refinement sub-flags (each independently reversible). DR-3/DR-4 are
+# baseline refinements (also require the master flag); DR-5 is an independent
+# dispatch rewrite.
+DIM_KONGWANG_MODULATION = os.environ.get('DIM_KONGWANG_MODULATION', '1') == '1'   # DR-3 空亡
+DIM_HEADLINE_COUPLING = os.environ.get('DIM_HEADLINE_COUPLING', '1') == '1'       # DR-4 大運/流年
+DIM_YIMA_NUANCE = os.environ.get('DIM_YIMA_NUANCE', '1') == '1'                   # DR-5 驛馬
+
+# Research-confirmed 5-level role scale (忌 worst pole; 仇 the milder accomplice).
+_ROLE_VALUE: Dict[str, float] = {
+    '用神': 2.0, '喜神': 1.0, '閒神': 0.0, '仇神': -1.0, '忌神': -2.0,
+}
+
+_DFI_K = 2.5                    # dfi∈[-3,+3] → round(dfi*K) capped at ±_DFI_SHIFT_CAP
+_DFI_SHIFT_CAP = 8             # Component A global shift magnitude cap
+_BASELINE_STEM_WEIGHT = 0.40   # 天干=應事
+_BASELINE_BRANCH_WEIGHT = 0.60  # 地支=吉凶 (heavier, per doctrine)
+_ROOTLESS_STEM_FACTOR = 0.5     # 通根: a rootless stem is 虛浮 — halve its say (DR-2/I-6)
+_GAITOU_MODERATE_FACTOR = 0.5   # 蓋頭/截腳: pull dfi ~50% toward 0 (I-5/MC-6)
+_DOMAIN_AFFINITY_CAP = 6        # Component B per-dimension cap (bumped 5→6 per spread report — cross-dim contrast)
+_BASELINE_NET_CAP = 10          # Component D per-dimension net cap (A+B+C)
+_HEALTH_OVERLOAD_SOFTENED = -3  # MC-1 de-dup: soften dispatch overload when baseline ON
+_KONGWANG_MODULATION = 3        # DR-3 空亡 role-flip magnitude (small — school-dependent)
+_HEADLINE_COUPLING_FRAC = 0.15  # DR-4 soft pull toward the day's post-cap energyScore
+
+# Ten-god category sets. Vocabulary MUST match derive_ten_god's output, which
+# emits 偏官 (NOT 七殺) for the yang-overcomes-yang 官殺. (Note: the existing
+# _dispatch_career checks ('正官','七殺') — a pre-existing latent miss on 偏官
+# days; out of scope for this baseline, flagged for follow-up.)
+_TG_CAI = {'正財', '偏財'}
+_TG_GUANSHA = {'正官', '偏官'}
+_TG_YIN = {'正印', '偏印'}
+_TG_SHISHANG = {'食神', '傷官'}
+_TG_BIJIE = {'比肩', '劫財'}
+
+
+def _stem_has_root(stem: str, day_branch: str, natal_branches: List[str]) -> bool:
+    """通根: does this stem's element appear as a hidden stem (藏干) of the day
+    branch OR any natal branch? A rooted stem 'lands'; a rootless one is 虛浮
+    (浮財不足為用). Mirrors the rooting check at interpretation_rules.py:556.
+    """
+    el = STEM_ELEMENT.get(stem, '')
+    if not el:
+        return False
+    branches = [day_branch, *natal_branches] if day_branch else list(natal_branches)
+    for br in branches:
+        for hs in HIDDEN_STEMS.get(br, []):
+            if STEM_ELEMENT.get(hs, '') == el:
+                return True
+    return False
+
+
+def _true_hua_on_flow(
+    day_stem: str, partner_stem: str, day_branch: str,
+    flow_month_branch: str, natal_branches: List[str],
+) -> bool:
+    """MC-5: flow-day 真化 adapter (detect_true_transformed_stems is natal-only).
+    真化 requires (i) 化神 strict 旺 in the FLOW-month branch, (ii) 化神 rooted
+    (本氣/中氣 of some branch), (iii) the 變性 (day) stem rootless. Rare on an
+    ordinary flow day → the default path is 合絆 (sign-flip).
+    """
+    combo = STEM_COMBINATION_LOOKUP.get(day_stem)
+    if not combo or combo[0] != partner_stem:
+        return False
+    hua_el = combo[1]
+    # (i) 化神 當令 (strict 旺 → multiplier 1.5)
+    season = SEASON_STRENGTH.get(hua_el, {}).get(flow_month_branch, 3)
+    if SEASON_MULTIPLIER.get(season, 1.0) < 1.5:
+        return False
+    # (ii) 化神 rooted in 本氣/中氣 of some branch
+    pool = [day_branch, *natal_branches] if day_branch else list(natal_branches)
+    hua_rooted = any(
+        hua_el in {STEM_ELEMENT.get(hs, '') for hs in HIDDEN_STEMS.get(br, [])[:2]}
+        for br in pool
+    )
+    if not hua_rooted:
+        return False
+    # (iii) the 變性 (day) stem must be rootless for a clean 真化
+    if _stem_has_root(day_stem, day_branch, natal_branches):
+        return False
+    return True
+
+
+def _hehua_adjust_stem_val(
+    day_stem: str, stem_val: float, stem_role: str, day_master_stem: str,
+    effective_gods_zh: Dict, pillars: Dict, day_branch: str,
+    flow_month_branch: str, natal_branches: List[str],
+) -> Tuple[float, Optional[Dict[str, Any]]]:
+    """Component C — 天干五合 合化/合絆 gate on the Component-A stem term.
+
+    Doctrine (Bazi-master reviewed): a day stem that 合s a natal stem is
+    re-evaluated — 忌神被合→反吉 (逢凶不為凶), 用/喜神被合→反凶 (逢吉不為吉);
+    真化→re-score by 化神 role. Exclusions: 隔位 (year stem → ~30%), 爭合/妒合
+    (≥2 natal copies of the partner → impure → skip).
+
+    Phase-1 slice (MC-5): applies ONLY to the DFI stem term. Dispatch-level
+    合化 correction + 貪合忘沖 reconciliation with dispatch 沖 are deferred to
+    DIM_HEHUA_GATE_DISPATCH (the DFI stem term carries no branch 沖).
+    Returns (adjusted_stem_val, note | None).
+    """
+    combo = STEM_COMBINATION_LOOKUP.get(day_stem)
+    if not combo:
+        return stem_val, None
+    partner, hua_el, name = combo
+    # Candidate natal transparent stems (skip DM at day pillar = 日主被合, romance-scope)
+    positions = {
+        'year': pillars['year']['stem'],
+        'month': pillars['month']['stem'],
+        'hour': pillars['hour']['stem'],
+    }
+    matches = [pos for pos, st in positions.items() if st == partner]
+    if not matches:
+        return stem_val, None
+    # 爭合/妒合: ≥2 natal partners competing → impure, skip the sign-flip
+    if len(matches) >= 2:
+        return stem_val, {
+            'type': 'zheng_he', 'name': name,
+            'narrative': f'今日{day_stem}逢爭合（{name}），合而不專，影響淡化',
+        }
+    ratio = 0.3 if matches[0] == 'year' else 1.0  # 隔位 (year) → ~30%
+    # 真化 → re-score by 化神 role
+    if _true_hua_on_flow(day_stem, partner, day_branch, flow_month_branch, natal_branches):
+        hua_role = _get_element_role(hua_el, day_master_stem, effective_gods_zh)
+        return _ROLE_VALUE.get(hua_role, 0.0) * ratio, {
+            'type': 'zhen_hua', 'name': name, 'huaElement': hua_el, 'huaRole': hua_role,
+            'narrative': f'今日{day_stem}{partner}合化{hua_el}（{name}），以化神論',
+        }
+    # 合絆 (bind, the default) → flip the sign by the bound god's role
+    _FLIP = {'忌神': 1.0, '仇神': 0.5, '用神': -1.0, '喜神': -0.5, '閒神': 0.0}
+    return _FLIP.get(stem_role, 0.0) * ratio, {
+        'type': 'he_ban', 'name': name, 'boundRole': stem_role,
+        'narrative': (
+            f'今日{day_stem}逢合絆（{name}），'
+            + ('忌神被合，逢凶不為凶' if stem_role in UNFAVORABLE_ROLES
+               else '喜用被合，逢吉不為吉' if stem_role in FAVORABLE_ROLES
+               else '閒神被合，影響平淡')
+        ),
+    }
+
+
+def _gaitou_jiejiao_moderate_dfi(
+    dfi: float, day_stem: str, day_branch: str, stem_val: float, branch_val: float,
+) -> float:
+    """MC-6 continuous adaptation of 蓋頭/截腳 moderation (「逢吉不見其吉」, 滴天髓).
+
+    DIRECTIONAL: only dampen when an UNFAVORABLE component 克s a FAVORABLE one
+    (the favorable effect is suppressed). Do NOT dampen 用神制忌 (a favorable
+    stem/branch controlling an unfavorable one) — that is BENEFICIAL, not
+    suppressed. A naive sign-mismatch gate would wrongly kill 用神制忌 days
+    (e.g. Laopo 癸巳: 用神 癸水 蓋頭-caps the 巳 忌/仇 branch → good day).
+      - 蓋頭 (天干克地支): dampen iff 忌 stem caps 用 branch (stem_val<0<branch_val)
+      - 截腳 (地支克天干): dampen iff 忌 branch cuts 用 stem (branch_val<0<stem_val)
+    """
+    gz = f'{day_stem}{day_branch}'
+    if gz in GAITOU_SET and stem_val < 0 < branch_val:
+        return dfi * _GAITOU_MODERATE_FACTOR
+    if gz in JIEJIAO_SET and branch_val < 0 < stem_val:
+        return dfi * _GAITOU_MODERATE_FACTOR
+    return dfi
+
+
+def _day_favorability_index(
+    day_stem: str, day_branch: str, day_master_stem: str,
+    effective_gods_zh: Dict, pillars: Dict, flow_month_branch: str,
+) -> Tuple[float, Optional[Dict[str, Any]]]:
+    """Component A — continuous day-pillar favorability vs the chart's 用神
+    structure. Stem + branch scored separately (地支 heavier), 通根-scaled,
+    合化-gated (Component C), 蓋頭截腳-moderated, seasonally amplified.
+    Returns (dfi ≈ [-3,+3], hehua_note | None).
+    """
+    natal_branches = [pillars[p]['branch'] for p in ('year', 'month', 'day', 'hour')]
+    # --- stem term ---
+    stem_role = _get_element_role(STEM_ELEMENT[day_stem], day_master_stem, effective_gods_zh)
+    stem_val = _ROLE_VALUE.get(stem_role, 0.0)
+    if not _stem_has_root(day_stem, day_branch, natal_branches):
+        stem_val *= _ROOTLESS_STEM_FACTOR                      # 通根 (I-6)
+    stem_val, hehua_note = _hehua_adjust_stem_val(             # 合化 gate (Component C)
+        day_stem, stem_val, stem_role, day_master_stem, effective_gods_zh,
+        pillars, day_branch, flow_month_branch, natal_branches,
+    )
+    # --- branch term (藏干-weighted role blend) ---
+    hidden = HIDDEN_STEMS.get(day_branch, [])
+    weights = HIDDEN_STEM_WEIGHTS.get(day_branch, [1.0])
+    branch_val = sum(
+        w * _ROLE_VALUE.get(_get_element_role(STEM_ELEMENT[s], day_master_stem, effective_gods_zh), 0.0)
+        for s, w in zip(hidden, weights)
+    )
+    dfi = _BASELINE_STEM_WEIGHT * stem_val + _BASELINE_BRANCH_WEIGHT * branch_val
+    dfi = _gaitou_jiejiao_moderate_dfi(dfi, day_stem, day_branch, stem_val, branch_val)
+    # seasonal amplitude (flow-month; day-stem element as amplitude proxy — approximation)
+    season = SEASON_STRENGTH.get(STEM_ELEMENT[day_stem], {}).get(flow_month_branch, 3)
+    dfi *= SEASON_MULTIPLIER.get(season, 1.0)
+    return dfi, hehua_note
+
+
+def _domain_affinity(
+    dim_key: str, day_branch: str, day_master_stem: str,
+    effective_gods_zh: Dict, strength: str, gender: str,
+) -> Tuple[int, Optional[Dict[str, Any]]]:
+    """Component B — per-dimension 藏干 ten-god affinity (latent, avoids double-
+    counting the transparent-stem dispatch triggers). Reads the day-branch 藏干
+    ten-gods and tilts the dimension by its governing ten-god(s). Returns
+    (delta clamped to ±_DOMAIN_AFFINITY_CAP, signal | None).
+    """
+    hidden = HIDDEN_STEMS.get(day_branch, [])
+    weights = HIDDEN_STEM_WEIGHTS.get(day_branch, [1.0])
+    tgs = [(derive_ten_god(day_master_stem, s), w) for s, w in zip(hidden, weights)]
+    tgs = [(tg, w) for tg, w in tgs if tg]
+
+    def role(tg: str) -> str:
+        return effective_gods_zh.get(tg, '閒神')
+
+    def fav(tg: str) -> bool:
+        return role(tg) in FAVORABLE_ROLES
+
+    def unfav(tg: str) -> bool:
+        return role(tg) in UNFAVORABLE_ROLES
+
+    cai_fav = any(effective_gods_zh.get(t) in FAVORABLE_ROLES for t in _TG_CAI)
+    weak_dm = strength in ('weak', 'very_weak')
+    strong_dm = strength in ('strong', 'very_strong')
+    is_male = gender.upper() in ('MALE', '男')
+
+    delta = 0.0
+    if dim_key == 'finance':
+        for tg, w in tgs:
+            if tg in _TG_CAI:
+                delta += w * (6 if fav(tg) else -5 if unfav(tg) else 1)
+            elif tg in _TG_SHISHANG and cai_fav:
+                delta += w * 2                       # 食傷生財
+            elif tg in _TG_BIJIE:
+                if weak_dm:
+                    delta += w * 1                   # 比劫扶身
+                elif cai_fav:
+                    delta -= w * 3                   # 比劫破財/劫財
+    elif dim_key == 'career':
+        for tg, w in tgs:
+            if tg in _TG_GUANSHA:
+                delta += w * (6 if fav(tg) else -5 if unfav(tg) else 1)
+            elif tg == '傷官' and effective_gods_zh.get('正官') in FAVORABLE_ROLES:
+                delta -= w * 4                       # 傷官見官 為禍百端
+            elif tg in _TG_YIN:
+                delta += w * (3 if fav(tg) else -1 if unfav(tg) else 1)  # 官印相生/名譽
+            elif tg in _TG_SHISHANG and fav(tg):
+                delta += w * 1                       # 表現/創意
+    elif dim_key == 'romance':
+        spouse = _TG_CAI if is_male else _TG_GUANSHA
+        for tg, w in tgs:
+            if tg in spouse:
+                delta += w * (6 if fav(tg) else -4 if unfav(tg) else 1)
+            elif tg in _TG_BIJIE:
+                delta -= w * 2                       # 情敵/競爭
+    elif dim_key == 'health':
+        for tg, w in tgs:
+            # 官殺剋身 risk — but 身強不畏官殺 (audit #5): only penalize when the
+            # 官殺 is unfavorable OR the DM is weak. A strong DM with 官殺=用神
+            # is career-good and body can bear it → no health penalty.
+            if tg in _TG_GUANSHA and (unfav(tg) or weak_dm):
+                delta -= w * 3
+            elif weak_dm and (tg in _TG_YIN or tg in _TG_BIJIE):
+                delta += w * 2                       # 扶身/recovery
+            elif strong_dm and tg in _TG_SHISHANG:
+                delta += w * 2                       # 洩秀
+    elif dim_key == 'travel':
+        for tg, w in tgs:                            # mostly dispatch-owned (驛馬/沖=動)
+            if fav(tg):
+                delta += w * 1
+            elif unfav(tg):
+                delta -= w * 1
+
+    clamped = max(-_DOMAIN_AFFINITY_CAP, min(_DOMAIN_AFFINITY_CAP, round(delta)))
+    if abs(clamped) < 2:
+        return clamped, None
+    valence = 'beneficial' if clamped > 0 else 'harmful'
+    tone = '今日此面向氣機偏順' if clamped > 0 else '今日此面向宜多加留意'
+    return clamped, {
+        'type': 'domain_affinity', 'dimension': dim_key, 'valence': valence,
+        'narrative': f'{tone}（藏干十神latent傾向）',
+    }
+
+
+def _kongwang_modulation(
+    day_branch: str, day_master_stem: str, effective_gods_zh: Dict,
+    kong_wang: List[str], pillars: Dict,
+) -> Tuple[int, Optional[Dict[str, Any]]]:
+    """DR-3 (Phase 2, gated) — 空亡 填實則實 activation. When the flow day FILLS a
+    natal-void branch (day_branch ∈ kong_wang, 填實), the previously-dormant branch
+    is RE-ACTIVATED for that day (填實則實, mainstream modern 子平), so its normal
+    role resumes: filling a 用/喜 void = the help returns (+), filling a 忌/仇 void
+    = the harm returns (−). Small (±_KONGWANG_MODULATION) because 空亡 is
+    school-dependent (子平 treats it as a minor 神煞). Also emits a 沖空則實 timing
+    note when the day 沖s a natal-void branch. Returns (modulation, signal | None).
+
+    NB (audit #2): the SIGN is 填實-as-activation, NOT the static «凶神空亡不凶»
+    role-flip — on the day the void is filled, the standing relief ends.
+    """
+    if not kong_wang:
+        return 0, None
+    # 沖空則實 — day 沖s a void branch (timing/activation, no score change)
+    chong_void = any('六沖' in _check_branch_interaction(vb, day_branch) for vb in kong_wang)
+    if day_branch not in kong_wang:
+        if chong_void:
+            return 0, {'type': 'kongwang_chong', 'valence': 'neutral',
+                       'narrative': '今日沖動命中空亡，塵封之事或被觸發（沖空則實）'}
+        return 0, None
+    # 填實 — flow day fills a natal-void branch → 填實則實 (activation): the
+    # branch's normal role resumes for the day.
+    role = _get_element_role(BRANCH_ELEMENT.get(day_branch, ''), day_master_stem, effective_gods_zh)
+    if role in UNFAVORABLE_ROLES:
+        return -_KONGWANG_MODULATION, {
+            'type': 'kongwang_taboo_filled', 'valence': 'harmful',
+            'narrative': '今日填實命中空亡，所空之忌神被引動，宜多加留意'}
+    if role in FAVORABLE_ROLES:
+        return _KONGWANG_MODULATION, {
+            'type': 'kongwang_useful_filled', 'valence': 'beneficial',
+            'narrative': '今日填實命中空亡，所空之喜用被引動，宜順勢把握'}
+    return 0, {'type': 'kongwang_neutral', 'valence': 'neutral',
+               'narrative': '今日觸動命中空亡，影響平淡'}
+
+
+def _apply_yongshen_baseline(
+    dimensions: Dict[str, Dict[str, Any]], *, day_stem: str, day_branch: str,
+    day_master_stem: str, effective_gods_zh: Dict, pillars: Dict,
+    flow_month_branch: str, strength: str, gender: str, kong_wang: List[str],
+) -> Dict[str, Any]:
+    """Apply Components A (global shift) + B (per-dim affinity), with C folded
+    into A and D (net cap) applied per dim, plus DR-3 空亡 modulation (gated).
+    Mutates `dimensions` in place; returns the single global
+    `day_energy_alignment` signal (MC-8).
+    """
+    dfi, hehua_note = _day_favorability_index(
+        day_stem, day_branch, day_master_stem, effective_gods_zh, pillars, flow_month_branch,
+    )
+    raw_shift = round(dfi * _DFI_K)
+    # DR-3 — 空亡 role-flip folded into the global shift (gated).
+    kongwang_mod, kongwang_signal = (0, None)
+    if DIM_KONGWANG_MODULATION:
+        kongwang_mod, kongwang_signal = _kongwang_modulation(
+            day_branch, day_master_stem, effective_gods_zh, kong_wang, pillars,
+        )
+    global_shift = max(-_DFI_SHIFT_CAP, min(_DFI_SHIFT_CAP, raw_shift + kongwang_mod))
+    if global_shift > 0:
+        valence, narrative = 'beneficial', '今日整體氣場偏向用神，宜順勢而為、把握機會'
+    elif global_shift < 0:
+        valence, narrative = 'harmful', '今日忌神氣較重，宜守不宜攻、以穩為要'
+    else:
+        valence, narrative = 'neutral', '今日整體氣場平和，維持節奏即可'
+
+    for dim_key in DIMENSION_KEYS:
+        affinity, aff_signal = _domain_affinity(
+            dim_key, day_branch, day_master_stem, effective_gods_zh, strength, gender,
+        )
+        net = max(-_BASELINE_NET_CAP, min(_BASELINE_NET_CAP, global_shift + affinity))
+        dim = dimensions[dim_key]
+        dim['score'] = max(0, min(100, dim['score'] + net))
+        dim['label'] = derive_dimension_label(dim['score'])
+        if aff_signal:
+            dim['signals'].append(aff_signal)
+
+    day_energy: Dict[str, Any] = {
+        'type': 'day_energy_alignment',
+        'shift': global_shift,
+        'valence': valence,
+        'metaFraming': META_FRAMING_SOFT_TRIGGER,
+        'narrative': narrative,
+    }
+    if hehua_note:
+        day_energy['hehua'] = hehua_note
+    if kongwang_signal:
+        day_energy['kongWang'] = kongwang_signal
+    return day_energy
+
+
+def _apply_headline_coupling(dimensions: Dict[str, Dict[str, Any]], energy_score: int) -> None:
+    """DR-4 (Phase 2) — soft pull of each dimension toward the day's post-cap
+    energyScore. A SOFT ~15% nudge (not a clamp) so the dimensions stay coherent
+    with the overall verdict (a 大凶 day won't show all-60 dims) while day-to-day
+    + cross-dim variation survives. Mutates `dimensions` in place.
+    """
+    for dim_key in DIMENSION_KEYS:
+        dim = dimensions[dim_key]
+        pull = round((energy_score - dim['score']) * _HEADLINE_COUPLING_FRAC)
+        if pull:
+            dim['score'] = max(0, min(100, dim['score'] + pull))
+            dim['label'] = derive_dimension_label(dim['score'])
 
 
 # ============================================================
@@ -1400,6 +1881,7 @@ def _compute_single_day(
             day_master_stem=day_master_stem,
             effective_gods=effective_gods_zh,
             branch_interactions_on_day_palace=bi_on_day_palace,
+            yima_nuance_active=FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED and DIM_YIMA_NUANCE,
         ),
         'health': _dispatch_health(
             day_stem=day_stem,
@@ -1408,8 +1890,29 @@ def _compute_single_day(
             effective_gods=effective_gods_zh,
             branch_interactions_on_day_palace=bi_on_day_palace,
             branch_interactions_on_year_palace=bi_on_year_palace,
+            baseline_active=FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED,
         ),
     }
+
+    # === 用神-Alignment Baseline (Plan Phase 1, Components A–D) ===
+    # Continuous per-day shift so the 5 dimensions differentiate instead of
+    # clustering at 50. Gated on FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED → flag
+    # OFF is byte-identical (dimensions untouched). Mutates `dimensions` in
+    # place and returns the single global day_energy_alignment signal (MC-8).
+    day_energy_alignment: Optional[Dict[str, Any]] = None
+    if FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED:
+        day_energy_alignment = _apply_yongshen_baseline(
+            dimensions,
+            day_stem=day_stem,
+            day_branch=day_branch,
+            day_master_stem=day_master_stem,
+            effective_gods_zh=effective_gods_zh,
+            pillars=pillars,
+            flow_month_branch=flow_month_branch,
+            strength=strength,
+            gender=gender,
+            kong_wang=kong_wang,
+        )
 
     # =====================================================================
     # Phase 1 Fortune Option 2.5 — daily verdict = bareMonth(Call A) + softening + cap
@@ -1447,6 +1950,14 @@ def _compute_single_day(
 
     auspiciousness = final_auspiciousness
     energy_score = derive_energy_score(auspiciousness)
+
+    # DR-4 (Phase 2, gated) — subordination-consistent soft coupling: gently pull
+    # each dimension toward the day's post-cap energyScore (which encodes month +
+    # year via the cap), so dimensions never wildly contradict the overall verdict.
+    # SOFT (~15%) → day-to-day + cross-dim variation survives. Runs AFTER the cap
+    # so energyScore is final; mutates `dimensions` in place.
+    if FORTUNE_DIM_YONGSHEN_BASELINE_ENABLED and DIM_HEADLINE_COUPLING:
+        _apply_headline_coupling(dimensions, energy_score)
 
     # Compose headliner signals (chartContext + triggers) for the frontend
     # tech-anchor pill line (Option 2.5 UI layer).
@@ -1493,6 +2004,8 @@ def _compute_single_day(
     result['flowMonthAuspiciousness'] = flow_month_bare  # cap input (independent month theme)
     if softening_signals:
         result['perDaySoftening'] = softening_signals  # which mitigation/acceleration fired
+    if day_energy_alignment is not None:
+        result['dayEnergyAlignment'] = day_energy_alignment  # global 用神-alignment shift (MC-8)
     # AI prompt should prefer `auspiciousness` (final capped value) as the day's verdict.
 
     # Option 2.5 UI layer — pre-composed headliner pill line (chartContext + triggers)

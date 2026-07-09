@@ -61,9 +61,14 @@ export function ringTierFromLabel(label: string): RingTier {
 export type DimTier = 'good' | 'mid' | 'low';
 
 export function dimTierFromScore(score: number): DimTier {
-  if (score >= 60) return 'good';
-  if (score >= 40) return 'mid';
-  return 'low';
+  // Aligned to the engine's 5-band dimension labels (derive_dimension_label:
+  // 極佳80 / 順遂65 / 平穩50 / 需謹慎35 / 不利0) so the color tier matches the
+  // text label. Pre-用神-baseline, scores clustered at 50 so the old 60/40
+  // cutoffs never surfaced the mismatch; the baseline now pushes many scores
+  // into 55–65, where a green "good" bar next to a "平穩" label read oddly.
+  if (score >= 65) return 'good';   // 順遂 / 極佳
+  if (score >= 50) return 'mid';    // 平穩
+  return 'low';                      // 需謹慎 / 不利
 }
 
 // ============================================================

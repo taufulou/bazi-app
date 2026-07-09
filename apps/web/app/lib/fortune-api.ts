@@ -120,6 +120,18 @@ export interface DailyFortuneEngineOutput {
   energyScore: number;            // 0-100 derived advisory
   metaFraming: 'soft_trigger';
   dimensions: Record<'romance' | 'career' | 'finance' | 'travel' | 'health', FortuneDimension>;
+  /** Global 用神-alignment shift (Plan Phase 1, MC-8) — one signal for the whole
+   *  day; the 5 dimension scores already carry the effect. Absent when the
+   *  baseline flag is off. */
+  dayEnergyAlignment?: {
+    type: string;
+    shift: number;
+    valence: 'beneficial' | 'harmful' | 'neutral';
+    narrative: string;
+    metaFraming?: string;
+    hehua?: Record<string, unknown>;
+    kongWang?: Record<string, unknown>;  // DR-3 空亡 role-flip / 沖空則實 note
+  };
   folkContent: {
     wealthDirection: {
       element: string;
