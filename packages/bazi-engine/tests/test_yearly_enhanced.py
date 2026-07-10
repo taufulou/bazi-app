@@ -213,7 +213,7 @@ def test_roger_2026_anchor():
     assert r["auspiciousness"] == "大吉"
     assert r["energyScore"] == 88
     assert r["metaFraming"] == "soft_trigger"
-    assert r["preAnalysisVersion"] == "v1.1.0"
+    assert r["preAnalysisVersion"] == "v1.2.0"
     # 4 dims, all present with stars
     assert set(r["dimensions"].keys()) == {"career", "finance", "romance", "health"}
     for dim in r["dimensions"].values():
