@@ -285,7 +285,11 @@ def _dispatch_career(
     score = _DIMENSION_BASE
 
     # --- Day's 十神 → career theme ---
-    if day_ten_god in ('正官', '七殺'):
+    # NOTE: `_TG_GUANSHA` = {'正官','偏官'}. MUST use 偏官 (NOT 七殺) — `derive_ten_god`
+    # emits 偏官 for the yang-overcomes-yang 官殺, so `day_ten_god` is never '七殺'.
+    # The former ('正官','七殺') check silently skipped every 偏官(七殺) day's career
+    # signal (fixed follow-up to the PR #55 baseline; see the _TG_GUANSHA comment).
+    if day_ten_god in _TG_GUANSHA:
         # Valence depends on natal favorability of 官殺
         role = effective_gods.get(day_ten_god, '閒神')
         signals.append({
@@ -767,9 +771,9 @@ _KONGWANG_MODULATION = 3        # DR-3 空亡 role-flip magnitude (small — sch
 _HEADLINE_COUPLING_FRAC = 0.15  # DR-4 soft pull toward the day's post-cap energyScore
 
 # Ten-god category sets. Vocabulary MUST match derive_ten_god's output, which
-# emits 偏官 (NOT 七殺) for the yang-overcomes-yang 官殺. (Note: the existing
-# _dispatch_career checks ('正官','七殺') — a pre-existing latent miss on 偏官
-# days; out of scope for this baseline, flagged for follow-up.)
+# emits 偏官 (NOT 七殺) for the yang-overcomes-yang 官殺. (`_dispatch_career` now
+# uses `_TG_GUANSHA` here — the former ('正官','七殺') literal silently missed
+# every 偏官 day; fixed as a follow-up to the PR #55 baseline.)
 _TG_CAI = {'正財', '偏財'}
 _TG_GUANSHA = {'正官', '偏官'}
 _TG_YIN = {'正印', '偏印'}
@@ -1018,7 +1022,7 @@ def _domain_affinity(
     tone = '今日此面向氣機偏順' if clamped > 0 else '今日此面向宜多加留意'
     return clamped, {
         'type': 'domain_affinity', 'dimension': dim_key, 'valence': valence,
-        'narrative': f'{tone}（藏干十神latent傾向）',
+        'narrative': f'{tone}（藏干十神潛藏傾向）',
     }
 
 

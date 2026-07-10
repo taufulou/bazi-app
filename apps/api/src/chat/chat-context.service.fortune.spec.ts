@@ -337,6 +337,131 @@ describe('interpolateFortuneV1Fields — day-pillar TRANSIENT doctrine injector 
     });
     expect(interpolateFortuneV1Fields(ctx)).toBeNull();
   });
+
+  // ── PR #55 — baseline signal wiring (domain_affinity / 驛馬 nuance / dayEnergyAlignment) ──
+  function buildCtxWith(opts: {
+    dimensions?: Record<string, unknown>;
+    dayEnergyAlignment?: Record<string, unknown>;
+  }): ChatContext {
+    return {
+      dailyFortune: {
+        dayGanZhi: '戊子',
+        dimensions: opts.dimensions ?? {},
+        ...(opts.dayEnergyAlignment
+          ? { dayEnergyAlignment: opts.dayEnergyAlignment }
+          : {}),
+      },
+    } as ChatContext;
+  }
+
+  it('emits domain_affinity 藏干十神傾向 line (beneficial / harmful / neutral)', () => {
+    const ben = interpolateFortuneV1Fields(
+      buildCtxWith({
+        dimensions: {
+          finance: {
+            score: 56,
+            label: 'beneficial',
+            signals: [
+              { type: 'domain_affinity', valence: 'beneficial', narrative: '財星藏干得氣' },
+            ],
+          },
+        },
+      }),
+    );
+    expect(ben!).toContain('[財運] 今日 戊子 日 藏干十神傾向 — 氣機偏順');
+    expect(ben!).toContain('財星藏干得氣');
+
+    const harm = interpolateFortuneV1Fields(
+      buildCtxWith({
+        dimensions: {
+          career: {
+            score: 44,
+            label: 'harmful',
+            signals: [{ type: 'domain_affinity', valence: 'harmful' }],
+          },
+        },
+      }),
+    );
+    expect(harm!).toContain('[事業] 今日 戊子 日 藏干十神傾向 — 宜多加留意');
+  });
+
+  it('emits 驛馬流日 line for all 4 variants (逢沖 / 馬後加鞭 / 逢合掣足 / plain 驛馬)', () => {
+    const cases: Array<[string, string, string]> = [
+      ['yima_chong_day', 'beneficial', '動能強、遠行順遂'],
+      ['yima_chong_intensified', 'beneficial', '動能強、遠行順遂'],
+      ['yima_he_blocked', 'harmful', '動盪／掣足，遠行宜審慎'],
+      ['yima_aligned', 'neutral', '主變動'],
+    ];
+    for (const [type, valence, expected] of cases) {
+      const block = interpolateFortuneV1Fields(
+        buildCtxWith({
+          dimensions: {
+            travel: { score: 55, label: 'neutral', signals: [{ type, valence }] },
+          },
+        }),
+      );
+      expect(block!).toContain('[出行] 今日 戊子 日触發 驛馬流日');
+      expect(block!).toContain(expected);
+    }
+  });
+
+  it('emits the global 今日整體氣場 line mirroring the reading-page format', () => {
+    // Reading page (fortune-prompt-builder.ts) renders `${narrative}（傾向=${valence}）` —
+    // chat must ground on the identical string (plan §2b consistency goal).
+    const ben = interpolateFortuneV1Fields(
+      buildCtxWith({
+        dayEnergyAlignment: { valence: 'beneficial', narrative: '今日整體氣場偏用神' },
+      }),
+    );
+    expect(ben!).toContain('今日整體氣場（用神對位）：今日整體氣場偏用神（傾向=beneficial）');
+
+    const harm = interpolateFortuneV1Fields(
+      buildCtxWith({
+        dayEnergyAlignment: { valence: 'harmful', narrative: '今日忌神氣重' },
+      }),
+    );
+    expect(harm!).toContain('今日忌神氣重（傾向=harmful）');
+  });
+
+  it('emits nested 合化 (hehua) + 空亡 (kongWang) lines when present', () => {
+    const block = interpolateFortuneV1Fields(
+      buildCtxWith({
+        dayEnergyAlignment: {
+          valence: 'neutral',
+          narrative: '今日整體氣場平和',
+          hehua: { type: 'he_ban', narrative: '今日戊癸合，火氣被牽' },
+          kongWang: { type: 'kongwang_useful_filled', narrative: '今日填實用神空亡，助力回歸' },
+        },
+      }),
+    );
+    expect(block!).toContain('今日天干五合：今日戊癸合，火氣被牽');
+    expect(block!).toContain('今日空亡：今日填實用神空亡，助力回歸');
+  });
+
+  // Null-return-contract shift (R1 MEDIUM): a neutral dayEnergyAlignment with NO
+  // transient dim signals must now return NON-null (the global 氣場 line grounds it).
+  it('returns NON-null for a neutral dayEnergyAlignment with no other findings', () => {
+    const block = interpolateFortuneV1Fields(
+      buildCtxWith({
+        dimensions: {
+          romance: { score: 50, label: 'neutral', signals: [] },
+        },
+        dayEnergyAlignment: { valence: 'neutral', narrative: '今日整體氣場平和，宜守常' },
+      }),
+    );
+    expect(block).not.toBeNull();
+    expect(block!).toContain('今日整體氣場（用神對位）：今日整體氣場平和，宜守常（傾向=neutral）');
+  });
+
+  // The bare-ctx path (no dayEnergyAlignment at all) still returns null — the
+  // legacy "no daily findings" edge survives for synthetic contexts.
+  it('still returns null when neither signals nor dayEnergyAlignment are present', () => {
+    expect(
+      interpolateFortuneV1Fields(
+        buildCtxWith({ dimensions: { romance: { score: 50, label: 'neutral', signals: [] } } }),
+      ),
+    ).toBeNull();
+  });
 });
 
 // ============================================================
@@ -696,19 +821,20 @@ describe('L3.5b — scope-aware FORTUNE chat (audit H#2)', () => {
       // M#2 stale-snapshot check MUST compare against the ENGINE-side
       // FORTUNE_PRE_ANALYSIS_VERSIONS.day (what the snapshot was actually
       // stamped with at persist time by fortune-snapshot.helpers.ts), NOT
-      // the chat-side PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE (legacy-
-      // locked at 'v1.1.1' for C#1 byte-identity preservation).
+      // the chat-side PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE (which
+      // started at 'v1.1.1' for C#1 byte-identity and was bumped to 'v1.1.2'
+      // in PR #55 — still fully decoupled from the engine value).
       //
       // Any future engineer reading
       // `chat-context.service.ts::getChatContextForFortune` M#2 block and
       // tempted to "simplify" by comparing against the chat-side constant
       // would silently defeat the Issue-1 snapshot-reuse optimization →
-      // every fresh DAY snapshot ('v1.2.0') would mismatch 'v1.1.1' →
-      // flagged stale → cold engine recompute every chat session.
+      // every fresh DAY snapshot ('v1.5.0') would mismatch the chat-side
+      // value → flagged stale → cold engine recompute every chat session.
       //
-      // Lock: assert engine has moved past the legacy chat-side value.
-      // If they ever align again (engine reverted, chat unlocked, etc.),
-      // this test fails and forces explicit re-evaluation.
+      // Lock: assert engine has moved past the ORIGINAL legacy chat-side
+      // baseline ('v1.1.1'). If they ever align again (engine reverted,
+      // chat unlocked, etc.), this test fails and forces re-evaluation.
       expect(FORTUNE_PRE_ANALYSIS_VERSIONS.day).toBeDefined();
       expect(FORTUNE_PRE_ANALYSIS_VERSIONS.day).not.toBe('v1.1.1');
     });

@@ -157,9 +157,14 @@ PILLAR_PALACE_LABELS: Dict[str, str] = {
     'hour': '子女宮',
 }
 
-# Ten god spouse star mapping by gender
+# Ten god spouse star mapping by gender.
+# NOTE: vocabulary MUST match derive_ten_god's output, which emits 偏官 (NOT 七殺)
+# for the yang-overcomes-yang 官殺. The former {'正官','七殺'} silently missed every
+# 偏官(七殺) 配偶星 for女命 (same class as the _dispatch_career fix). 偏官 IS a
+# female spouse star per doctrine (官殺=正官+偏官). Consumers: daily _dispatch_romance,
+# annual compute_marriage_star_analysis, monthly aspects.romance.
 SPOUSE_STAR_MALE = {'正財', '偏財'}
-SPOUSE_STAR_FEMALE = {'正官', '七殺'}
+SPOUSE_STAR_FEMALE = {'正官', '偏官'}
 
 # Favorable and unfavorable role sets
 FAVORABLE_ROLES = {'用神', '喜神'}

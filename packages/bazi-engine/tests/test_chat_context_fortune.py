@@ -127,6 +127,22 @@ class TestRogerAnchor:
         assert wd['element'] == '火'
         assert wd['direction'] == '南方'
 
+    def test_dailyFortune_day_energy_alignment_forwarded(self, roger_birth):
+        """PR #55 — the global 用神-alignment shift (dayEnergyAlignment) must reach
+        the chat slim so interpolateFortuneV1Fields can emit the 今日整體氣場 line.
+        The engine emits it on every real DAY output (even the neutral case)."""
+        ctx = build_chat_context_fortune(
+            birth_data=roger_birth,
+            anchor_date=ANCHOR_DATE_WUZI,
+            current_year=2026,
+            current_month=5,
+        )
+        assert 'dayEnergyAlignment' in ctx['dailyFortune']
+        dea = ctx['dailyFortune']['dayEnergyAlignment']
+        assert dea is not None
+        assert 'narrative' in dea and isinstance(dea['narrative'], str)
+        assert dea.get('valence') in ('beneficial', 'harmful', 'neutral')
+
     def test_dailyFortune_option_2_5_transparency_fields(self, roger_birth):
         """Option 2.5 transparency fields are load-bearing for AI
         anti-incoherence rule (prevents 「本月本來大吉」 misframing)."""
@@ -298,6 +314,12 @@ class TestSnapshotReuse:
             'rawDailyAuspiciousness': '大吉',
             'flowMonthAuspiciousness': '吉',
             'perDaySoftening': [],
+            # PR #55 — global 用神-alignment shift must survive the slim on the
+            # snapshot-reuse path too (NestJS passes engineOutputJson verbatim).
+            'dayEnergyAlignment': {
+                'type': 'day_energy_alignment', 'shift': 3, 'valence': 'beneficial',
+                'metaFraming': 'soft_trigger', 'narrative': '今日整體氣場偏用神，宜順勢',
+            },
         }
 
         with patch('app.daily_enhanced.compute_daily_fortune') as mock_compute:
@@ -318,6 +340,9 @@ class TestSnapshotReuse:
         assert ctx['dailyFortune']['auspiciousness'] == '大吉'
         assert ctx['dailyFortune']['energyScore'] == 99
         assert ctx['dailyFortune']['folkContent']['wealthDirection']['direction'] == '中央'
+        # PR #55 — dayEnergyAlignment survives the slim verbatim on the reuse path
+        assert ctx['dailyFortune']['dayEnergyAlignment']['valence'] == 'beneficial'
+        assert ctx['dailyFortune']['dayEnergyAlignment']['narrative'] == '今日整體氣場偏用神，宜順勢'
 
     def test_without_precomputed_daily_engine_computes(self, roger_birth):
         """When no snapshot passed, engine falls back to compute_daily_fortune.

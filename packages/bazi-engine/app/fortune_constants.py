@@ -166,6 +166,6 @@ def derive_dimension_label(score: int) -> str:
 # bump → all DailyFortuneSnapshot rows older than this version are
 # regenerated lazily on next fetch.
 
-FORTUNE_DAILY_PRE_ANALYSIS_VERSION = 'v1.4.0'  # 用神-alignment baseline Phase 2 (DR-3 空亡 role-flip + DR-4 大運/流年 headline coupling + DR-5 驛馬 nuance) — adds dayEnergyAlignment.kongWang + shifts dimension scores. Phase 1 (v1.3.0): Components A–D.
+FORTUNE_DAILY_PRE_ANALYSIS_VERSION = 'v1.5.0'  # PR#55 followup: 偏官 vocab fix (_dispatch_career _TG_GUANSHA + SPOUSE_STAR_FEMALE) — 偏官(七殺) days now emit career 官殺 + female romance 配偶星 signals (shifts those days' career/romance scores). v1.4.0: baseline Phase 2 (DR-3 空亡 + DR-4 headline coupling + DR-5 驛馬). v1.3.0: Components A–D.
 FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION = 'v1.1.0'  # Phase 2.x — engine wires compute_intra_month_breakdown into /monthly-fortune (camelCase 'intraMonthBreakdown' added to response). Lazy regen on next fetch invalidates cached MONTH snapshots so they get the new field.
 FORTUNE_YEARLY_PRE_ANALYSIS_VERSION = 'v1.1.0'  # Phase 3 — yearly_enhanced.py ships real output (4-dim stars + coreRiskOpportunity + luckMethods). Mirror FORTUNE_PRE_ANALYSIS_VERSIONS.year in prompts.ts.

@@ -540,6 +540,11 @@ def _slim_daily_for_chat(daily: Dict) -> Dict:
         'headlinerSignals': daily.get('headlinerSignals'),
         # Static 用神 wealth direction (Phase 12 Fix 2 mapping)
         'folkContent': daily.get('folkContent'),
+        # Global 用神-alignment shift (PR #55) — the day-level headline mechanism
+        # + nested kongWang (空亡) note. The NestJS injector emits these as
+        # deterministic 今日整體氣場 / 空亡 sentences so FORTUNE-day chat can cite
+        # the baseline instead of falling back to folk-doctrine guesswork.
+        'dayEnergyAlignment': daily.get('dayEnergyAlignment'),
     }
 
 

@@ -5096,7 +5096,7 @@ export const FORTUNE_V1_PROMPTS = {
  * string compare).
  */
 export const FORTUNE_PRE_ANALYSIS_VERSIONS = {
-  day: 'v1.4.0',  // 用神-alignment baseline Phase 2 (DR-3 空亡 + DR-4 headline coupling + DR-5 驛馬). Mirror of FORTUNE_DAILY_PRE_ANALYSIS_VERSION in fortune_constants.py:169. Phase 1 was v1.3.0 (Components A–D).
+  day: 'v1.5.0',  // PR#55 followup: 偏官 vocab fix (_dispatch_career _TG_GUANSHA + SPOUSE_STAR_FEMALE) — 偏官(七殺) days now emit career 官殺 + female romance 配偶星 signals. Mirror of FORTUNE_DAILY_PRE_ANALYSIS_VERSION in fortune_constants.py:169. v1.4.0: baseline Phase 2 (DR-3/DR-4/DR-5). v1.3.0: Components A–D.
   month: 'v1.1.0',  // Phase 2.x — engine wires compute_intra_month_breakdown into /monthly-fortune (camelCase 'intraMonthBreakdown' added to response shape). Mirror of FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION in fortune_constants.py:170.
   year: 'v1.1.0',  // Phase 3 — yearly_enhanced.py ships real output (4-dim stars + coreRiskOpportunity + luckMethods). Mirror of FORTUNE_YEARLY_PRE_ANALYSIS_VERSION in fortune_constants.py:171.
 } as const;
