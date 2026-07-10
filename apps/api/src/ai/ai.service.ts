@@ -7369,7 +7369,8 @@ export class AIService implements OnModuleInit {
     const PRE_ANALYSIS_VERSIONS: Record<string, string> = {
       [ReadingType.LIFETIME]:      'v2.9.0',  // bumped Phase 12g.2 + 12g.4 (romance archetype + 月令格 personality cascade)
       [ReadingType.CAREER]:        'v2.5.0',  // Fix 1a weighted dominance (Phase 12f)
-      [ReadingType.ANNUAL]:        'v2.4.0',  // Phase 12h.B Item 2 — 傷官見官 favorability propagation (annual_enhanced.py:759 4-arm dispatch)
+      [ReadingType.ANNUAL]:        'v2.5.0',  // PR#55 followup — SPOUSE_STAR_FEMALE 偏官 fix (annual_enhanced.py compute_marriage_star_analysis) adds the 偏官 配偶星 for female 偏官 flow-years. v2.4.0: Phase 12h.B Item 2 傷官見官 favorability propagation
+      // ⚠️ DEPLOY COST (PR#55 followup): the ANNUAL bump above busts ALL cached ANNUAL readings (paid tier; regen = Claude API spend). Per CLAUDE.md, confirm with product owner + deploy off-peak + monitor spend for 48h. The doctrine change (偏官 配偶星) only affects female 偏官 flow-years, but the version bump is coarse (invalidates all).
       [ReadingType.LOVE]:          'v1.11.0', // Phase 12h.B Item 8 — 比劫奪財 framing parity (3-state valence + gender + transient framing block); supersedes 12h.A v1.10.0
       [ReadingType.COMPATIBILITY]: 'v1.8.0',  // Phase 12i — 三刑/半刑/子卯刑 spouse-palace detection (score_spouse_palace additive pass); new findings types + narrativeHint pre-rendered; preanalysis whitelist extended; 六破 omitted per 任鐵樵《滴天髓闡微》
     };

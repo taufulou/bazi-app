@@ -70,20 +70,21 @@ describe('labels.ts', () => {
     });
   });
 
-  describe('dimTierFromScore (S2.F per-dim chip)', () => {
-    it('returns good for ≥60', () => {
-      expect(dimTierFromScore(60)).toBe('good');
+  describe('dimTierFromScore (S2.F per-dim chip) — aligned to 65/50 label bands', () => {
+    it('returns good for ≥65 (順遂/極佳)', () => {
+      expect(dimTierFromScore(65)).toBe('good');
       expect(dimTierFromScore(75)).toBe('good');
       expect(dimTierFromScore(100)).toBe('good');
     });
-    it('returns mid for 40-59', () => {
-      expect(dimTierFromScore(40)).toBe('mid');
+    it('returns mid for 50-64 (平穩) — incl. the 60-64 band the baseline now hits', () => {
       expect(dimTierFromScore(50)).toBe('mid');
-      expect(dimTierFromScore(59)).toBe('mid');
+      expect(dimTierFromScore(60)).toBe('mid');
+      expect(dimTierFromScore(64)).toBe('mid');
     });
-    it('returns low for <40', () => {
+    it('returns low for <50 (需謹慎/不利)', () => {
       expect(dimTierFromScore(0)).toBe('low');
-      expect(dimTierFromScore(39)).toBe('low');
+      expect(dimTierFromScore(35)).toBe('low');
+      expect(dimTierFromScore(49)).toBe('low');
     });
   });
 });

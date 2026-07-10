@@ -6,9 +6,10 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 // Audit M#2 staff-engineer fix — snapshot staleness check must compare
 // against the ENGINE-side version (what the snapshot was stamped with at
-// persist time), NOT the chat-side `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE`
-// which is intentionally locked at the legacy value for C#1 byte-identity.
-// These two constants are DECOUPLED post-C#1.
+// persist time), NOT the chat-side `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE`.
+// These two constants are DECOUPLED (started equal at the C#1 byte-identity
+// baseline; the chat-side one is bumped independently to invalidate chat-context
+// cache — see the FORTUNE constant's own comment block).
 import { FORTUNE_PRE_ANALYSIS_VERSIONS } from '../ai/prompts';
 
 // ============================================================
@@ -118,29 +119,32 @@ const PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH = {
   // the version string for LIFETIME/LOVE/CAREER/ANNUAL/COMPAT sessions.
   //
   // **IMPORTANT — DECOUPLED FROM ENGINE VERSION** (audit C#1 lock):
-  // The `FORTUNE: 'v1.1.1'` value here is NOT the current engine version
-  // (engine is at `FORTUNE_PRE_ANALYSIS_VERSIONS.day = 'v1.2.0'` per
-  // ../ai/prompts.ts). It's intentionally locked at the legacy value to
-  // preserve byte-identity with pre-L3.5b DAY chat sessions in DB. The
-  // engine output shape can evolve (folk content, etc.) without breaking
-  // chat sessions because:
+  // The `FORTUNE` value here is NOT the engine version (engine is at
+  // `FORTUNE_PRE_ANALYSIS_VERSIONS.day = 'v1.5.0'` per ../ai/prompts.ts). It's
+  // decoupled so chat-context invalidation is controlled independently of the
+  // engine. The engine output shape can evolve (folk content, etc.) without
+  // breaking chat sessions because:
   //   1. The chat slim drops/aggregates fields the chat doesn't need.
   //   2. Snapshot-reuse staleness gate compares against ENGINE-side
   //      `FORTUNE_PRE_ANALYSIS_VERSIONS` separately (see
   //      `getChatContextForFortune` snapshot-lookup block).
-  // If you ever need to invalidate chat-context cache for FORTUNE DAY,
-  // bump THIS constant — but be aware ALL existing DAY chat sessions will
-  // trip CONTEXT_VERSION_DRIFTED and users must restart. MONTH scope uses
-  // its own `FORTUNE_MONTH` constant — no legacy collision risk since no
-  // MONTH sessions existed pre-L3.5b.
+  // To invalidate chat-context cache for FORTUNE DAY, bump THIS constant — but
+  // be aware ALL existing DAY chat sessions will trip CONTEXT_VERSION_DRIFTED
+  // and users must restart. MONTH scope uses its own `FORTUNE_MONTH` constant.
   //
-  // FORTUNE_DAY (introduced Phase 2.x then dropped audit C#1): removed.
-  FORTUNE: 'v1.1.1',       // DAY scope — used by `fort=` (snapshot) + `pa-fort=` (cache key)
-  FORTUNE_MONTH: 'v1.0.0', // MONTH scope (Phase 2) — used by `fort-month=` + `pa-fort-month=`
+  // v1.1.1 → v1.1.2 (PR #55): the chat slim now forwards `dayEnergyAlignment`
+  // (a slim-SHAPE change) + the DAY injector emits new 今日整體氣場/驛馬/空亡
+  // lines. Bumping here invalidates FORTUNE-DAY chat-context cache; the
+  // deliberate consequence is that pre-existing DAY sessions drift (accepted —
+  // the byte-identity-with-pre-L3.5b rationale is superseded by shipping the
+  // baseline signals to chat). MONTH/YEAR/non-FORTUNE are byte-identical → no
+  // mass eviction.
+  FORTUNE: 'v1.1.2',       // DAY scope — used by `fort=` (snapshot) + `pa-fort=` (cache key)
+  FORTUNE_MONTH: 'v1.0.1', // MONTH scope (Phase 2) — used by `fort-month=` + `pa-fort-month=`. Bumped PR#55-followup: SPOUSE_STAR_FEMALE 偏官 fix changes MONTH dimensions.romance (in the monthly chat slim) for female 偏官 months.
   // YEAR scope (Phase 3.5c) — NEW key, no legacy collision (zero pre-existing
   // YEAR chat sessions). Value mirrors engine `FORTUNE_PRE_ANALYSIS_VERSIONS.year`
   // — no byte-identity lock needed. Used by `fort-year=` + `pa-fort-year=`.
-  FORTUNE_YEAR: 'v1.1.0',
+  FORTUNE_YEAR: 'v1.1.1', // Bumped PR#55-followup: SPOUSE_STAR_FEMALE 偏官 fix cascades into the YEAR 感情 aggregation (in the yearly chat slim) for female 偏官 flow-months. v1.1.0: Phase 3.5c initial.
 } as const;
 
 const CHAT_CONTEXT_TTL_SECONDS = 24 * 60 * 60; // 24h
@@ -582,8 +586,8 @@ export class ChatContextService {
     // Staff-engineer audit fix (post-M#2): MUST compare against the ENGINE-side
     // `FORTUNE_PRE_ANALYSIS_VERSIONS` (what the snapshot was actually stamped
     // with at persist time by `fortune-snapshot.helpers.ts`), NOT the chat-side
-    // `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE` (legacy-locked at 'v1.1.1'
-    // for C#1 byte-identity). These two constants serve different purposes
+    // `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE` (started 'v1.1.1' for C#1
+    // byte-identity, now 'v1.1.2' per PR #55). These two constants serve different purposes
     // and were decoupled post-C#1 — comparing against the wrong one would
     // flag EVERY fresh snapshot as stale → defeats Issue-1 reuse optimization
     // → ~200-300ms cold-recompute on every chat session (correctness OK,
@@ -1434,8 +1438,13 @@ export class ChatContextService {
  * interpolator pre-formats Chinese sentences for the AI to consume verbatim
  * — anti-hallucination via deterministic phrasing.
  *
- * Returns null when no transient findings are present (so the
- * chat-prompt-builder can omit the block cleanly).
+ * Returns null when there is no daily payload (no `dailyFortune` / `dayGanZhi` /
+ * `dimensions`) OR when every emitted line is empty (the final
+ * `lines.length === 0 && folkLines.length === 0` gate). NOTE (PR #55): a real DAY
+ * context now essentially always yields a non-null block, because the engine
+ * emits `dayEnergyAlignment` on every real DAY output (even the neutral case,
+ * shift 0). The prior "null when no transient findings" behavior only survives
+ * for synthetic contexts that omit `dayEnergyAlignment` entirely.
  *
  * This is INTENTIONALLY exported as a free function (not a class method) so
  * `chat-prompt-builder.ts` can call it after pulling the FORTUNE-typed
@@ -1546,6 +1555,59 @@ export function interpolateFortuneV1Fields(ctx: ChatContext): string | null {
             (sigNarrative ? `；${sigNarrative}` : ''),
         );
       }
+      // PR #55 — domain_affinity (per-dim 藏干 ten-god latent tilt, all 5 dims)
+      else if (sigType === 'domain_affinity') {
+        const tiltCN =
+          valence === 'beneficial'
+            ? '氣機偏順'
+            : valence === 'harmful'
+              ? '宜多加留意'
+              : '平和';
+        lines.push(
+          `• [${dimLabel}] 今日 ${dayGanZhi} 日 藏干十神傾向 — ${tiltCN}` +
+            (sigNarrative ? `；${sigNarrative}` : ''),
+        );
+      }
+      // PR #55 — 驛馬 nuance (逢沖=馬後加鞭 / 逢合=掣足) + pre-existing plain 驛馬
+      else if (
+        sigType === 'yima_chong_day' ||
+        sigType === 'yima_chong_intensified' ||
+        sigType === 'yima_he_blocked' ||
+        sigType === 'yima_aligned'
+      ) {
+        const yimaCN =
+          valence === 'beneficial'
+            ? '動能強、遠行順遂'
+            : valence === 'harmful'
+              ? '動盪／掣足，遠行宜審慎'
+              : '主變動';
+        lines.push(
+          `• [${dimLabel}] 今日 ${dayGanZhi} 日触發 驛馬流日 — ${yimaCN}` +
+            (sigNarrative ? `；${sigNarrative}` : ''),
+        );
+      }
+    }
+  }
+
+  // PR #55 — global 用神-alignment shift (dayEnergyAlignment) + nested 合化/空亡.
+  // NOTE: the engine emits this on ~EVERY real DAY output (even the neutral case,
+  // shift 0), so once this pushes into `lines` the injector effectively always
+  // returns non-null for a real DAY ctx (see docstring). Mirrors the reading-page
+  // {{dayEnergyAlignment}} render for chat/reading consistency.
+  const dea = daily.dayEnergyAlignment as Record<string, unknown> | undefined;
+  if (dea && typeof dea.narrative === 'string') {
+    const deaValence = (dea.valence as string | undefined) ?? 'neutral';
+    // Mirror the reading-page {{dayEnergyAlignment}} render EXACTLY
+    // (fortune-prompt-builder.ts:215-216 — `${narrative}（傾向=${valence}）`) so
+    // chat + reading ground on identical text (plan §2b consistency goal).
+    lines.push(`• 今日整體氣場（用神對位）：${dea.narrative}（傾向=${deaValence}）`);
+    const hehua = dea.hehua as Record<string, unknown> | undefined;
+    if (hehua && typeof hehua.narrative === 'string') {
+      lines.push(`• 今日天干五合：${hehua.narrative}`);
+    }
+    const kongWang = dea.kongWang as Record<string, unknown> | undefined;
+    if (kongWang && typeof kongWang.narrative === 'string') {
+      lines.push(`• 今日空亡：${kongWang.narrative}`);
     }
   }
 

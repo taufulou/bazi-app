@@ -64,6 +64,18 @@ export interface DailyEngineOutput {
     travel:  { score: number; signals: Array<Record<string, unknown>> };
     health:  { score: number; signals: Array<Record<string, unknown>> };
   };
+  /** Global 用神-alignment shift (Plan Phase 1, MC-8) — ONE signal for the whole
+   *  day; the 5 dimension scores already carry the effect. Absent when the
+   *  master flag is off. */
+  dayEnergyAlignment?: {
+    type: string;
+    shift: number;
+    valence: 'beneficial' | 'harmful' | 'neutral';
+    narrative: string;
+    metaFraming?: string;
+    hehua?: Record<string, unknown>;
+    kongWang?: Record<string, unknown>;  // DR-3 空亡 role-flip / 沖空則實 note
+  };
   folkContent?: {
     wealthDirection?: { element: string; direction: string; note?: string };
     luckyColor?: {
@@ -197,6 +209,18 @@ export function interpolateFortuneV1Fields(
     '{{financeSignals}}': renderDimSignals(daily.dimensions.finance.signals),
     '{{travelSignals}}':  renderDimSignals(daily.dimensions.travel.signals),
     '{{healthSignals}}':  renderDimSignals(daily.dimensions.health.signals),
+
+    // Global 用神-alignment (Plan Phase 1, MC-8) — one day-level tendency line.
+    // Appends the 合化 note (if any) so the 天干五合 event reaches Claude (F2).
+    '{{dayEnergyAlignment}}': daily.dayEnergyAlignment
+      ? `${daily.dayEnergyAlignment.narrative}（傾向=${daily.dayEnergyAlignment.valence}）` +
+        (daily.dayEnergyAlignment.hehua && typeof daily.dayEnergyAlignment.hehua['narrative'] === 'string'
+          ? `；${daily.dayEnergyAlignment.hehua['narrative']}`
+          : '') +
+        (daily.dayEnergyAlignment.kongWang && typeof daily.dayEnergyAlignment.kongWang['narrative'] === 'string'
+          ? `；${daily.dayEnergyAlignment.kongWang['narrative']}`
+          : '')
+      : '（今日整體氣場平和，無明顯用神對位傾向）',
 
     // Folk content (Phase 1.5.z = 6 total: wealthDirection + 4 new chart-level + auspiciousHours per-day)
     '{{wealthDirection}}': daily.folkContent?.wealthDirection
