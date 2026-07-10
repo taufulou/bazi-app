@@ -22,6 +22,7 @@ from app.yearly_enhanced import (
     dim_score_to_stars,
 )
 from app.monthly_enhanced import _reset_flow_year_cache_for_tests
+from app.fortune_constants import FORTUNE_YEARLY_PRE_ANALYSIS_VERSION
 
 
 ROGER = dict(
@@ -213,7 +214,7 @@ def test_roger_2026_anchor():
     assert r["auspiciousness"] == "大吉"
     assert r["energyScore"] == 88
     assert r["metaFraming"] == "soft_trigger"
-    assert r["preAnalysisVersion"] == "v1.2.0"
+    assert r["preAnalysisVersion"] == FORTUNE_YEARLY_PRE_ANALYSIS_VERSION
     # 4 dims, all present with stars
     assert set(r["dimensions"].keys()) == {"career", "finance", "romance", "health"}
     for dim in r["dimensions"].values():

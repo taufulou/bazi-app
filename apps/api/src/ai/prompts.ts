@@ -5096,9 +5096,9 @@ export const FORTUNE_V1_PROMPTS = {
  * string compare).
  */
 export const FORTUNE_PRE_ANALYSIS_VERSIONS = {
-  day: 'v1.5.0',  // PR#55 followup: 偏官 vocab fix (_dispatch_career _TG_GUANSHA + SPOUSE_STAR_FEMALE) — 偏官(七殺) days now emit career 官殺 + female romance 配偶星 signals. Mirror of FORTUNE_DAILY_PRE_ANALYSIS_VERSION in fortune_constants.py:169. v1.4.0: baseline Phase 2 (DR-3/DR-4/DR-5). v1.3.0: Components A–D.
-  month: 'v1.2.0',  // PR#55 followup: SPOUSE_STAR_FEMALE 偏官 fix changes MONTH dimensions.romance for female 偏官 months. Mirror of FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION in fortune_constants.py:170. v1.1.0: Phase 2.x intraMonthBreakdown.
-  year: 'v1.2.0',  // PR#55 followup: SPOUSE_STAR_FEMALE 偏官 fix cascades into the YEAR 感情 aggregation. Mirror of FORTUNE_YEARLY_PRE_ANALYSIS_VERSION in fortune_constants.py:171. v1.1.0: Phase 3 yearly_enhanced real output.
+  day: 'v1.5.1',  // PR#56: annual 官殺 vocab fix (OFFICIAL_GODS) adds 官殺當令 to aspects.career for 偏官 day-pillars — rides into the daily snapshot via the **monthly_result spread (vestigial). Mirror of FORTUNE_DAILY_PRE_ANALYSIS_VERSION in fortune_constants.py. v1.5.0: PR#55 followup 偏官 vocab fix (_dispatch_career _TG_GUANSHA + SPOUSE_STAR_FEMALE). v1.4.0: baseline Phase 2 (DR-3/DR-4/DR-5). v1.3.0: Components A–D.
+  month: 'v1.2.1',  // PR#56: annual 官殺 vocab fix (OFFICIAL_GODS) shifts MONTH dimensions.career (derived from aspects.career) for 偏官 months. Mirror of FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION in fortune_constants.py. v1.2.0: PR#55 followup SPOUSE_STAR_FEMALE 偏官 romance fix. v1.1.0: Phase 2.x intraMonthBreakdown.
+  year: 'v1.2.1',  // PR#56: annual 官殺 vocab fix cascades into the YEAR 事業 aggregation for 偏官 flow-months. Mirror of FORTUNE_YEARLY_PRE_ANALYSIS_VERSION in fortune_constants.py. v1.2.0: PR#55 followup SPOUSE_STAR_FEMALE 偏官 romance cascade (YEAR 感情). v1.1.0: Phase 3 yearly_enhanced real output.
 } as const;
 
 /**

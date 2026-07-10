@@ -140,11 +140,11 @@ const PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH = {
   // baseline signals to chat). MONTH/YEAR/non-FORTUNE are byte-identical → no
   // mass eviction.
   FORTUNE: 'v1.1.2',       // DAY scope — used by `fort=` (snapshot) + `pa-fort=` (cache key)
-  FORTUNE_MONTH: 'v1.0.1', // MONTH scope (Phase 2) — used by `fort-month=` + `pa-fort-month=`. Bumped PR#55-followup: SPOUSE_STAR_FEMALE 偏官 fix changes MONTH dimensions.romance (in the monthly chat slim) for female 偏官 months.
+  FORTUNE_MONTH: 'v1.0.2', // MONTH scope (Phase 2) — used by `fort-month=` + `pa-fort-month=`. Bumped PR#56: annual 官殺 vocab fix (OFFICIAL_GODS) shifts MONTH dimensions.career (the monthly chat slim forwards `dimensions`, derived from aspects.career) for 偏官 months. v1.0.1: PR#55-followup SPOUSE_STAR_FEMALE 偏官 romance fix.
   // YEAR scope (Phase 3.5c) — NEW key, no legacy collision (zero pre-existing
   // YEAR chat sessions). Value mirrors engine `FORTUNE_PRE_ANALYSIS_VERSIONS.year`
   // — no byte-identity lock needed. Used by `fort-year=` + `pa-fort-year=`.
-  FORTUNE_YEAR: 'v1.1.1', // Bumped PR#55-followup: SPOUSE_STAR_FEMALE 偏官 fix cascades into the YEAR 感情 aggregation (in the yearly chat slim) for female 偏官 flow-months. v1.1.0: Phase 3.5c initial.
+  FORTUNE_YEAR: 'v1.1.2', // Bumped PR#56: annual 官殺 vocab fix (OFFICIAL_GODS) cascades into the YEAR 事業 aggregation (the yearly chat slim forwards `dimensions`) for 偏官 flow-months. v1.1.1: PR#55-followup SPOUSE_STAR_FEMALE 偏官 romance cascade. v1.1.0: Phase 3.5c initial.
 } as const;
 
 const CHAT_CONTEXT_TTL_SECONDS = 24 * 60 * 60; // 24h
