@@ -139,7 +139,7 @@ _HE_DAY_BRANCH_BOOST = 10
 # Spouse-star transparent today (gender-dispatched). Phase 12g valence-
 # aware: 正官/正財 is preferred, 偏官/偏財 is 偏緣
 _SPOUSE_STAR_BOOST_PRIMARY = 12   # 正財/正官
-_SPOUSE_STAR_BOOST_SECONDARY = 8  # 偏財/七殺
+_SPOUSE_STAR_BOOST_SECONDARY = 8  # 偏財/偏官 (derive_ten_god emits 偏官, not 七殺)
 
 # 神煞 day triggers (mostly romance-positive). Soft triggers, not verdicts.
 _TAOHUA_TRIGGER_BOOST = 8

@@ -167,5 +167,5 @@ def derive_dimension_label(score: int) -> str:
 # regenerated lazily on next fetch.
 
 FORTUNE_DAILY_PRE_ANALYSIS_VERSION = 'v1.5.0'  # PR#55 followup: 偏官 vocab fix (_dispatch_career _TG_GUANSHA + SPOUSE_STAR_FEMALE) — 偏官(七殺) days now emit career 官殺 + female romance 配偶星 signals (shifts those days' career/romance scores). v1.4.0: baseline Phase 2 (DR-3 空亡 + DR-4 headline coupling + DR-5 驛馬). v1.3.0: Components A–D.
-FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION = 'v1.1.0'  # Phase 2.x — engine wires compute_intra_month_breakdown into /monthly-fortune (camelCase 'intraMonthBreakdown' added to response). Lazy regen on next fetch invalidates cached MONTH snapshots so they get the new field.
-FORTUNE_YEARLY_PRE_ANALYSIS_VERSION = 'v1.1.0'  # Phase 3 — yearly_enhanced.py ships real output (4-dim stars + coreRiskOpportunity + luckMethods). Mirror FORTUNE_PRE_ANALYSIS_VERSIONS.year in prompts.ts.
+FORTUNE_MONTHLY_PRE_ANALYSIS_VERSION = 'v1.2.0'  # PR#55 followup: SPOUSE_STAR_FEMALE 偏官 fix (annual_enhanced.py) changes aspects.romance -> MONTH dimensions.romance for female 偏官 months. v1.1.0: Phase 2.x intraMonthBreakdown.
+FORTUNE_YEARLY_PRE_ANALYSIS_VERSION = 'v1.2.0'  # PR#55 followup: SPOUSE_STAR_FEMALE 偏官 fix cascades into the 12-month romance aggregation (YEAR 感情 dim) for female 偏官 flow-months. v1.1.0: Phase 3 yearly_enhanced real output. Mirror FORTUNE_PRE_ANALYSIS_VERSIONS.year in prompts.ts.
