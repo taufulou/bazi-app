@@ -157,6 +157,13 @@ PILLAR_PALACE_LABELS: Dict[str, str] = {
     'hour': '子女宮',
 }
 
+# 官殺 (Officer + Seven-Killings) ten-god set.
+# NOTE: derive_ten_god ALWAYS emits '偏官' (never the display alias '七殺') for the
+# yang-overcomes-yang 官殺 — the canonical name is 偏官 (see ten_gods.py 偏官→七殺
+# display alias, which is dead code). A membership check against '七殺' silently
+# misses every 偏官 stem/pillar, so every 官殺 set here must use '偏官', not '七殺'.
+OFFICIAL_GODS = {'正官', '偏官'}
+
 # Ten god spouse star mapping by gender.
 # NOTE: vocabulary MUST match derive_ten_god's output, which emits 偏官 (NOT 七殺)
 # for the yang-overcomes-yang 官殺. The former {'正官','七殺'} silently missed every
@@ -760,7 +767,7 @@ def compute_annual_career_analysis(
     signals = []
 
     # 官印相生: 正官/偏官 + 正印/偏印 both present
-    official_gods = {'正官', '七殺'}
+    official_gods = OFFICIAL_GODS
     seal_gods = {'正印', '偏印'}
     chart_ten_gods = set()
     for pname in ('year', 'month', 'day', 'hour'):
@@ -1137,7 +1144,7 @@ def compute_indirect_effects(
         })
 
     # 官殺+喜用 → 間接催財 (事業穩定→收入增長)
-    if flow_ten_god in {'正官', '七殺'} and flow_role in FAVORABLE_ROLES:
+    if flow_ten_god in OFFICIAL_GODS and flow_role in FAVORABLE_ROLES:
         effects['finance'].append({
             'type': '官殺間接催財',
             'impact': 'positive',
@@ -2119,7 +2126,7 @@ def _compute_single_month(
         'monthPillarInteractions': month_branch_vs_month_pillar,
         'signals': [],
     }
-    if month_ten_god in {'正官', '七殺'}:
+    if month_ten_god in OFFICIAL_GODS:
         career_aspect['signals'].append('官殺當令，有升遷或考核壓力')
     elif month_ten_god in {'食神', '傷官'}:
         career_aspect['signals'].append('食傷星動，利創意表現但易口舌')
