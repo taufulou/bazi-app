@@ -1,33 +1,84 @@
 import { useAuth } from '@clerk/clerk-expo';
-import { Redirect, Stack } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
+import { House, Sparkles, ScrollText, Heart, User } from 'lucide-react-native';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import { colors } from '../../theme';
+import { useZh } from '../../lib/language';
 
+/**
+ * Authenticated area = the 5-tab shell (首頁 / 運勢 / 解讀 / 合盤 / 我的).
+ * Guards on the Clerk session before rendering the tabs.
+ */
 export default function AuthenticatedLayout() {
-  const { isSignedIn, isLoaded } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
+  const zh = useZh();
 
   if (!isLoaded) {
-    return null; // Or a loading spinner
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator color={colors.red} size="large" />
+      </View>
+    );
   }
-
   if (!isSignedIn) {
     return <Redirect href="/sign-in" />;
   }
 
   return (
-    <Stack
+    <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: '#1a1a2e' },
-        headerTintColor: '#e8d5b7',
-        headerTitleStyle: { fontWeight: 'bold' },
-        contentStyle: { backgroundColor: '#1a1a2e' },
+        headerStyle: { backgroundColor: colors.bgCard },
+        headerTitleStyle: { color: colors.textPrimary, fontWeight: '700' },
+        headerTintColor: colors.textAccent,
+        tabBarActiveTintColor: colors.red,
+        tabBarInactiveTintColor: colors.textMuted,
+        tabBarStyle: { backgroundColor: colors.bgCard, borderTopColor: colors.borderLight },
       }}
     >
-      <Stack.Screen
-        name="dashboard"
+      <Tabs.Screen
+        name="home"
         options={{
-          title: '八字命理',
-          headerLargeTitle: true,
+          title: zh('首頁'),
+          tabBarIcon: ({ color, size }) => <House color={color} size={size} />,
         }}
       />
-    </Stack>
+      <Tabs.Screen
+        name="fortune"
+        options={{
+          title: zh('運勢'),
+          tabBarIcon: ({ color, size }) => <Sparkles color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="readings"
+        options={{
+          title: zh('解讀'),
+          tabBarIcon: ({ color, size }) => <ScrollText color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="compat"
+        options={{
+          title: zh('合盤'),
+          tabBarIcon: ({ color, size }) => <Heart color={color} size={size} />,
+        }}
+      />
+      <Tabs.Screen
+        name="me"
+        options={{
+          title: zh('我的'),
+          tabBarIcon: ({ color, size }) => <User color={color} size={size} />,
+        }}
+      />
+    </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  loading: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.bgPrimary,
+  },
+});

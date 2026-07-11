@@ -1,0 +1,45 @@
+# M0 smoke test: the app launches and renders the landing screen, and basic
+# navigation works. Template for all later flows.
+#
+# Run with (dev-client build installed + Metro running on a booted sim/emulator):
+#   maestro test apps/mobile/e2e/flows/smoke-boot.yaml
+#
+# NOTE: no `clearState` — a dev-client build stores its Metro URL in app data,
+# and clearing it drops the app back to the dev-launcher. Standalone/release
+# builds can add `clearState: true`.
+#
+# Dev-client builds auto-show the expo dev-menu on launch (onboarding "Continue"
+# sheet OR the full Reload/Go-home menu) which covers the lower buttons. The
+# conditional blocks below dismiss whichever appears. Release builds have no dev
+# menu, so both blocks no-op.
+appId: com.tianming.app
+---
+# stopApp:false = warm launch (bring to foreground, don't cold-restart). Dev-build
+# cold launches re-download the full JS bundle from Metro (~16–40s, highly
+# variable), which makes cold-launch E2E timing-fragile. Warm launch exercises the
+# same UI + navigation reliably; cold-launch rigor comes with preview/release
+# builds (embedded bundle → instant start) in a later phase.
+- launchApp:
+    stopApp: false
+# Full dev menu (Reload / Go home / Tools) → tap the dimmed backdrop above it.
+- runFlow:
+    when:
+      visible: 'Reload'
+    commands:
+      - tapOn:
+          point: '50%, 22%'
+# One-time onboarding sheet → tap Continue.
+- tapOn:
+    text: 'Continue'
+    optional: true
+# Wait for the app to finish loading. Generous budget because a DEV-BUILD cold
+# launch re-fetches the full JS bundle (~16s for 5000+ modules) then inits Clerk
+# over the network. Release/preview builds embed the bundle and are far faster.
+- extendedWaitUntil:
+    visible: '天命'
+    timeout: 45000
+- assertVisible: '免費開始'
+- assertVisible: '已有帳號？登入'
+# Navigation works: tapping into sign-up shows the register screen.
+- tapOn: '免費開始'
+- assertVisible: '註冊'
