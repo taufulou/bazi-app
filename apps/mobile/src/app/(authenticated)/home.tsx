@@ -1,9 +1,14 @@
 import { useUser, useAuth } from '@clerk/clerk-expo';
+import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from 'react-native';
 import { colors, spacing, fontSize, radius, shadows, fonts } from '../../theme';
 import { useZh } from '../../lib/language';
 import { getUserProfile, type SubscriptionTier } from '../../lib/api';
+import { fetchBirthProfiles, type BirthProfile } from '../../lib/birth-profiles-api';
+import { calculateBazi } from '../../lib/bazi-api';
+import type { BaziChartData } from '../../lib/bazi-types';
+import BaziChart from '../../components/BaziChart';
 
 const TIER_LABEL: Record<SubscriptionTier, string> = {
   FREE: '免費會員',
@@ -12,32 +17,70 @@ const TIER_LABEL: Record<SubscriptionTier, string> = {
   MASTER: '大師會員',
 };
 
-/** 首頁 — greeting + live credit balance (proves the authed API round-trip). */
+/** 首頁 — greeting + credit balance + the primary profile's chart. */
 export default function HomeScreen() {
   const { user } = useUser();
   const { getToken } = useAuth();
+  const router = useRouter();
   const zh = useZh();
   const [credits, setCredits] = useState<number | null>(null);
   const [tier, setTier] = useState<SubscriptionTier | null>(null);
   const [status, setStatus] = useState<'loading' | 'ok' | 'error'>('loading');
+  const [chart, setChart] = useState<BaziChartData | null>(null);
+  const [primary, setPrimary] = useState<BirthProfile | null>(null);
+  const [chartLoading, setChartLoading] = useState(true);
+  // Chart failure is tracked separately from the account/credits status so a
+  // chart error never blanks the (already-loaded) credit card.
+  const [chartError, setChartError] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      let token: string | null = null;
+      let p: BirthProfile | null = null;
+      // Account + credits — drives the credit card `status`.
       try {
-        const token = await getToken();
+        token = await getToken();
         if (!token) {
-          if (!cancelled) setStatus('error');
+          if (!cancelled) {
+            setStatus('error');
+            setChartLoading(false);
+          }
           return;
         }
-        const profile = await getUserProfile(token);
-        if (!cancelled) {
-          setCredits(profile.credits);
-          setTier(profile.subscriptionTier);
-          setStatus('ok');
-        }
+        const [profile, profiles] = await Promise.all([getUserProfile(token), fetchBirthProfiles(token)]);
+        if (cancelled) return;
+        setCredits(profile.credits);
+        setTier(profile.subscriptionTier);
+        setStatus('ok');
+        p = profiles.find((x) => x.isPrimary) ?? profiles[0] ?? null;
+        setPrimary(p);
       } catch {
-        if (!cancelled) setStatus('error');
+        if (!cancelled) {
+          setStatus('error');
+          setChartLoading(false);
+        }
+        return;
+      }
+      // Primary-profile chart — independent; failure sets `chartError` only.
+      if (!p || !token) {
+        if (!cancelled) setChartLoading(false);
+        return;
+      }
+      try {
+        const result = await calculateBazi({
+          birth_date: p.birthDate.substring(0, 10),
+          birth_time: p.hourKnown ? p.birthTime : null,
+          hour_known: p.hourKnown,
+          birth_city: p.birthCity,
+          birth_timezone: p.birthTimezone,
+          gender: p.gender.toLowerCase(),
+        });
+        if (!cancelled) setChart(result);
+      } catch {
+        if (!cancelled) setChartError(true);
+      } finally {
+        if (!cancelled) setChartLoading(false);
       }
     })();
     return () => {
@@ -66,28 +109,39 @@ export default function HomeScreen() {
         )}
       </View>
 
-      <Text style={styles.hint}>{zh('選擇下方分頁開始您的命理之旅')}</Text>
+      {chartLoading ? (
+        <ActivityIndicator color={colors.red} />
+      ) : chart && primary ? (
+        <BaziChart
+          data={chart}
+          name={primary.name}
+          birthDate={primary.birthDate.substring(0, 10)}
+          gender={primary.gender.toLowerCase()}
+          isSubscriber={tier !== null && tier !== 'FREE'}
+        />
+      ) : chartError && primary ? (
+        // A profile exists but its chart failed to load — show a chart-specific
+        // error, NOT the "add a profile" CTA (which would be misleading).
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>{zh('命盤載入失敗')}</Text>
+          <Text style={styles.emptySub}>{zh('無法計算命盤，請稍後再試')}</Text>
+        </View>
+      ) : (
+        <Pressable style={styles.emptyCard} onPress={() => router.push('/profiles')} accessibilityRole="button">
+          <Text style={styles.emptyTitle}>{zh('尚未建立命盤')}</Text>
+          <Text style={styles.emptySub}>{zh('新增您的出生資料，即可查看八字命盤')}</Text>
+          <Text style={styles.emptyCta}>{zh('前往新增 →')}</Text>
+        </Pressable>
+      )}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
-  content: { padding: spacing.xl, gap: spacing.xl },
-  greeting: {
-    fontFamily: fonts.serif,
-    fontSize: fontSize.title,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  creditCard: {
-    backgroundColor: colors.bgCard,
-    borderRadius: radius.lg,
-    padding: spacing.xl,
-    alignItems: 'center',
-    gap: spacing.sm,
-    ...shadows.warm,
-  },
+  content: { padding: spacing.xl, gap: spacing.xl, paddingBottom: spacing.xxl * 2 },
+  greeting: { fontFamily: fonts.serif, fontSize: fontSize.title, fontWeight: '700', color: colors.textPrimary },
+  creditCard: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.xl, alignItems: 'center', gap: spacing.sm, ...shadows.warm },
   creditLabel: { fontSize: fontSize.sm, color: colors.textSecondary },
   creditValue: { fontSize: fontSize.hero, fontWeight: '800', color: colors.red },
   creditError: { fontSize: fontSize.base, color: colors.error },
@@ -101,5 +155,8 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     fontWeight: '600',
   },
-  hint: { fontSize: fontSize.sm, color: colors.textMuted, textAlign: 'center' },
+  emptyCard: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.xl, alignItems: 'center', gap: spacing.sm, ...shadows.warm },
+  emptyTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
+  emptySub: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center' },
+  emptyCta: { fontSize: fontSize.base, color: colors.red, fontWeight: '600', marginTop: spacing.sm },
 });

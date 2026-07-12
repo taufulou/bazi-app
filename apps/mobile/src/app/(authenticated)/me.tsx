@@ -1,6 +1,7 @@
 import { useUser, useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
+import { ChevronRight } from 'lucide-react-native';
 import { colors, spacing, fontSize, radius, shadows } from '../../theme';
 import { useZh, useLang, useChangeLanguage } from '../../lib/language';
 
@@ -37,6 +38,15 @@ export default function MeScreen() {
         </Text>
         <Text style={styles.email}>{user?.primaryEmailAddress?.emailAddress ?? ''}</Text>
       </View>
+
+      <TouchableOpacity
+        style={styles.row}
+        accessibilityRole="button"
+        onPress={() => router.push('/profiles')}
+      >
+        <Text style={styles.rowLabel}>{zh('我的命盤')}</Text>
+        <ChevronRight color={colors.textMuted} size={20} />
+      </TouchableOpacity>
 
       <TouchableOpacity
         style={styles.row}

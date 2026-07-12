@@ -4,6 +4,7 @@ import { House, Sparkles, ScrollText, Heart, User } from 'lucide-react-native';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { colors } from '../../theme';
 import { useZh } from '../../lib/language';
+import { E2E_BYPASS_AUTH } from '../../lib/e2e';
 
 /**
  * Authenticated area = the 5-tab shell (首頁 / 運勢 / 解讀 / 合盤 / 我的).
@@ -20,7 +21,7 @@ export default function AuthenticatedLayout() {
       </View>
     );
   }
-  if (!isSignedIn) {
+  if (!isSignedIn && !E2E_BYPASS_AUTH) {
     return <Redirect href="/sign-in" />;
   }
 

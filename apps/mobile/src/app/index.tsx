@@ -4,6 +4,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useZh } from '../lib/language';
 import { colors, radius, spacing, fontSize, fonts } from '../theme';
+import { E2E_BYPASS_AUTH } from '../lib/e2e';
 
 export default function HomeScreen() {
   // Always inside a ClerkProvider (the root layout shows a config screen when the
@@ -20,8 +21,8 @@ export default function HomeScreen() {
     );
   }
 
-  // If already signed in, go to the home tab
-  if (isSignedIn) {
+  // If already signed in (or the dev E2E bypass is on), go to the home tab.
+  if (isSignedIn || E2E_BYPASS_AUTH) {
     return <Redirect href="/(authenticated)/home" />;
   }
 

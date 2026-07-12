@@ -11,6 +11,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import { PostHogProvider } from 'posthog-react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { View, Text, StyleSheet } from 'react-native';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { tokenCache } from '../lib/clerk-token-cache';
@@ -50,6 +51,7 @@ function AppStack() {
       <Stack.Screen name="sign-in" options={{ title: '登入', presentation: 'modal' }} />
       <Stack.Screen name="sign-up" options={{ title: '註冊', presentation: 'modal' }} />
       <Stack.Screen name="(authenticated)" options={{ headerShown: false }} />
+      <Stack.Screen name="profiles" options={{ title: '我的命盤' }} />
     </Stack>
   );
 }
@@ -138,19 +140,21 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style="dark" />
-        <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
-          {/* Cream fill covers the gap between splash-hide and app paint. */}
-          <ClerkLoading>
-            <View style={styles.creamFill} />
-          </ClerkLoading>
-          <ClerkLoaded>
-            <AuthBridge />
-            <Providers>
-              <AppStack />
-            </Providers>
-          </ClerkLoaded>
-        </ClerkProvider>
+        <BottomSheetModalProvider>
+          <StatusBar style="dark" />
+          <ClerkProvider publishableKey={publishableKey} tokenCache={tokenCache}>
+            {/* Cream fill covers the gap between splash-hide and app paint. */}
+            <ClerkLoading>
+              <View style={styles.creamFill} />
+            </ClerkLoading>
+            <ClerkLoaded>
+              <AuthBridge />
+              <Providers>
+                <AppStack />
+              </Providers>
+            </ClerkLoaded>
+          </ClerkProvider>
+        </BottomSheetModalProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

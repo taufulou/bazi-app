@@ -5,6 +5,7 @@ import {
   ConflictException,
   Logger,
   InternalServerErrorException,
+  HttpException,
   type MessageEvent,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -1311,6 +1312,52 @@ export class BaziService {
     const result = await response.json();
     // The engine returns { status, data, calculationTimeMs }
     return result.data || result;
+  }
+
+  /**
+   * Public passthrough to the Python engine. Mobile (and any non-web client) must
+   * NOT reach the engine directly — the engine is unauthenticated and exposes far
+   * more than the free-preview surface. These forward the body verbatim to
+   * /calculate and /explain-element and return the engine's { status, data } envelope.
+   */
+  async passthroughCalculate(body: Record<string, unknown>): Promise<unknown> {
+    return this.enginePassthrough('/calculate', body);
+  }
+
+  async passthroughExplainElement(body: Record<string, unknown>): Promise<unknown> {
+    return this.enginePassthrough('/explain-element', body);
+  }
+
+  private async enginePassthrough(path: string, body: Record<string, unknown>): Promise<unknown> {
+    let response: Response;
+    try {
+      response = await fetch(`${this.baziEngineUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30000),
+      });
+    } catch {
+      throw new HttpException('無法連線到排盤引擎', 502);
+    }
+    if (!response.ok) {
+      let detail: string | undefined;
+      try {
+        const raw = (await response.json()) as { detail?: unknown };
+        // FastAPI/Pydantic 422 returns `detail` as an array of error objects;
+        // other errors return a string. Normalize to a single message.
+        if (typeof raw?.detail === 'string') {
+          detail = raw.detail;
+        } else if (Array.isArray(raw?.detail)) {
+          const first = raw.detail[0] as { msg?: string } | undefined;
+          detail = first?.msg;
+        }
+      } catch {
+        /* non-JSON engine error */
+      }
+      throw new HttpException(detail || `Bazi engine returned ${response.status}`, response.status);
+    }
+    return response.json();
   }
 
   private async callBaziCompatibility(

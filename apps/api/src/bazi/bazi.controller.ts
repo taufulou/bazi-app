@@ -28,6 +28,27 @@ export class BaziController {
     return this.baziService.getPlans();
   }
 
+  // Public passthrough to the Python engine — free-preview 排盤 + element encyclopedia
+  // for clients that can't reach the engine directly (mobile). Body is forwarded
+  // verbatim; typed as a plain object so the global ValidationPipe (whitelist +
+  // forbidNonWhitelisted) doesn't strip/reject the engine's fields.
+
+  @Public()
+  @Post('calculate')
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @ApiOperation({ summary: '排盤 — passthrough to the Bazi engine /calculate (public)' })
+  async calculate(@Body() body: Record<string, unknown>) {
+    return this.baziService.passthroughCalculate(body);
+  }
+
+  @Public()
+  @Post('explain-element')
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
+  @ApiOperation({ summary: 'Element encyclopedia — passthrough to engine /explain-element (public)' })
+  async explainElement(@Body() body: Record<string, unknown>) {
+    return this.baziService.passthroughExplainElement(body);
+  }
+
   // ============ Authenticated Endpoints ============
 
   @Post('readings')

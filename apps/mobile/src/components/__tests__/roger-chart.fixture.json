@@ -1,0 +1,1862 @@
+{
+  "fourPillars": {
+    "year": {
+      "stem": "丁",
+      "branch": "卯",
+      "stemElement": "火",
+      "branchElement": "木",
+      "stemYinYang": "陰",
+      "branchYinYang": "陰",
+      "hiddenStems": [
+        "乙"
+      ],
+      "naYin": "爐中火",
+      "tenGod": "正印",
+      "shenSha": [
+        "將星",
+        "桃花",
+        "太極貴人",
+        "月德合"
+      ],
+      "hiddenStemGods": [
+        {
+          "stem": "乙",
+          "element": "木",
+          "tenGod": "正官"
+        }
+      ],
+      "lifeStage": "沐浴",
+      "selfSitting": "病"
+    },
+    "month": {
+      "stem": "戊",
+      "branch": "申",
+      "stemElement": "土",
+      "branchElement": "金",
+      "stemYinYang": "陽",
+      "branchYinYang": "陽",
+      "hiddenStems": [
+        "庚",
+        "壬",
+        "戊"
+      ],
+      "naYin": "大驛土",
+      "tenGod": "比肩",
+      "shenSha": [
+        "文昌",
+        "驛馬",
+        "福星貴人",
+        "金輿",
+        "天德合",
+        "德秀貴人",
+        "天廚貴人",
+        "劫煞"
+      ],
+      "hiddenStemGods": [
+        {
+          "stem": "庚",
+          "element": "金",
+          "tenGod": "食神"
+        },
+        {
+          "stem": "壬",
+          "element": "水",
+          "tenGod": "偏財"
+        },
+        {
+          "stem": "戊",
+          "element": "土",
+          "tenGod": "比肩"
+        }
+      ],
+      "lifeStage": "病",
+      "selfSitting": "病"
+    },
+    "day": {
+      "stem": "戊",
+      "branch": "午",
+      "stemElement": "土",
+      "branchElement": "火",
+      "stemYinYang": "陽",
+      "branchYinYang": "陽",
+      "hiddenStems": [
+        "丁",
+        "己"
+      ],
+      "naYin": "天上火",
+      "tenGod": null,
+      "shenSha": [
+        "天喜",
+        "將星",
+        "羊刃",
+        "天德合",
+        "德秀貴人",
+        "天廚貴人",
+        "勾絞煞"
+      ],
+      "hiddenStemGods": [
+        {
+          "stem": "丁",
+          "element": "火",
+          "tenGod": "正印"
+        },
+        {
+          "stem": "己",
+          "element": "土",
+          "tenGod": "劫財"
+        }
+      ],
+      "lifeStage": "帝旺",
+      "selfSitting": "帝旺"
+    },
+    "hour": {
+      "stem": "庚",
+      "branch": "申",
+      "stemElement": "金",
+      "branchElement": "金",
+      "stemYinYang": "陽",
+      "branchYinYang": "陽",
+      "hiddenStems": [
+        "庚",
+        "壬",
+        "戊"
+      ],
+      "naYin": "石榴木",
+      "tenGod": "食神",
+      "shenSha": [
+        "文昌",
+        "驛馬",
+        "福星貴人",
+        "金輿",
+        "天廚貴人",
+        "劫煞"
+      ],
+      "hiddenStemGods": [
+        {
+          "stem": "庚",
+          "element": "金",
+          "tenGod": "食神"
+        },
+        {
+          "stem": "壬",
+          "element": "水",
+          "tenGod": "偏財"
+        },
+        {
+          "stem": "戊",
+          "element": "土",
+          "tenGod": "比肩"
+        }
+      ],
+      "lifeStage": "病",
+      "selfSitting": "臨官"
+    }
+  },
+  "hourKnown": true,
+  "fiveElementsBalance": {
+    "wood": 7,
+    "fire": 15.9,
+    "earth": 29.3,
+    "metal": 38.6,
+    "water": 9.1
+  },
+  "fiveElementsBalanceZh": {
+    "木": 7,
+    "火": 15.9,
+    "土": 29.3,
+    "金": 38.6,
+    "水": 9.1
+  },
+  "fiveElementsBalanceRaw": {
+    "木": 12.5,
+    "火": 21.2,
+    "土": 31.2,
+    "金": 27.5,
+    "水": 7.5
+  },
+  "elementCounts": {
+    "stems": {
+      "木": 0,
+      "火": 1,
+      "土": 2,
+      "金": 1,
+      "水": 0
+    },
+    "branches": {
+      "木": 1,
+      "火": 1,
+      "土": 0,
+      "金": 2,
+      "水": 0
+    },
+    "hidden": {
+      "木": 1,
+      "火": 1,
+      "土": 3,
+      "金": 2,
+      "水": 2
+    },
+    "total": {
+      "木": 2,
+      "火": 3,
+      "土": 5,
+      "金": 5,
+      "水": 2
+    }
+  },
+  "dayMaster": {
+    "element": "土",
+    "yinYang": "陽",
+    "strength": "weak",
+    "strengthScore": 39,
+    "seasonScore": 3,
+    "supportScore": 4.2,
+    "drainScore": 3.8,
+    "sameParty": 52,
+    "oppositeParty": 48,
+    "favorableGod": "土",
+    "usefulGod": "火",
+    "idleGod": "金",
+    "tabooGod": "木",
+    "enemyGod": "水",
+    "pattern": "食神格",
+    "strengthScoreV2": {
+      "score": 39,
+      "classification": "weak",
+      "factors": {
+        "deling": 25,
+        "dedi": 4.4,
+        "deshi": 9.6,
+        "sanheCredit": 0,
+        "sanheKind": "none",
+        "pattern2aBoost": 0,
+        "pattern2aSource": "none",
+        "pattern2bDelingCut": 0,
+        "pattern2bFlatPenalty": 0
+      },
+      "lifeStage": "病"
+    }
+  },
+  "dayMasterStem": "戊",
+  "dayMasterBranch": "午",
+  "gender": "male",
+  "tenGodDistribution": {
+    "正印": 2,
+    "正官": 1,
+    "比肩": 3,
+    "食神": 3,
+    "偏財": 2,
+    "劫財": 1
+  },
+  "luckPeriods": [
+    {
+      "startAge": 10,
+      "endAge": 19,
+      "startYear": 1997,
+      "endYear": 2006,
+      "stem": "丁",
+      "branch": "未",
+      "tenGod": "正印",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六合",
+          "pillar": "day",
+          "branches": [
+            "未",
+            "午"
+          ],
+          "element": "土",
+          "description": "未午合土（日柱（配偶宮）得合）"
+        }
+      ]
+    },
+    {
+      "startAge": 20,
+      "endAge": 29,
+      "startYear": 2007,
+      "endYear": 2016,
+      "stem": "丙",
+      "branch": "午",
+      "tenGod": "偏印",
+      "isCurrent": false,
+      "natalInteractions": []
+    },
+    {
+      "startAge": 30,
+      "endAge": 39,
+      "startYear": 2017,
+      "endYear": 2026,
+      "stem": "乙",
+      "branch": "巳",
+      "tenGod": "正官",
+      "isCurrent": true,
+      "natalInteractions": [
+        {
+          "type": "六合",
+          "pillar": "month",
+          "branches": [
+            "巳",
+            "申"
+          ],
+          "element": "水",
+          "description": "巳申合水（月柱（事業/兄弟宮）得合）"
+        },
+        {
+          "type": "六合",
+          "pillar": "hour",
+          "branches": [
+            "巳",
+            "申"
+          ],
+          "element": "水",
+          "description": "巳申合水（時柱（子女宮）得合）"
+        },
+        {
+          "type": "天干合",
+          "pillar": "hour",
+          "stems": [
+            "乙",
+            "庚"
+          ],
+          "element": "金",
+          "name": "仁義之合",
+          "dayMasterInvolved": false,
+          "description": "乙庚合（仁義之合→金）——時柱（子女宮）受合"
+        }
+      ]
+    },
+    {
+      "startAge": 40,
+      "endAge": 49,
+      "startYear": 2027,
+      "endYear": 2036,
+      "stem": "甲",
+      "branch": "辰",
+      "tenGod": "偏官",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六害",
+          "pillar": "year",
+          "branches": [
+            "辰",
+            "卯"
+          ],
+          "description": "辰卯害（年柱（祖上/父母宮）受害）"
+        },
+        {
+          "type": "天干沖",
+          "pillar": "hour",
+          "stems": [
+            "甲",
+            "庚"
+          ],
+          "tenGod": "偏官",
+          "description": "甲庚沖（時柱（子女宮）天干受沖）"
+        }
+      ]
+    },
+    {
+      "startAge": 50,
+      "endAge": 59,
+      "startYear": 2037,
+      "endYear": 2046,
+      "stem": "癸",
+      "branch": "卯",
+      "tenGod": "正財",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "天干沖",
+          "pillar": "year",
+          "stems": [
+            "癸",
+            "丁"
+          ],
+          "tenGod": "正財",
+          "description": "癸丁沖（年柱（祖上/父母宮）天干受沖）"
+        },
+        {
+          "type": "天干合",
+          "pillar": "month",
+          "stems": [
+            "癸",
+            "戊"
+          ],
+          "element": "火",
+          "name": "無情之合",
+          "dayMasterInvolved": false,
+          "description": "癸戊合（無情之合→火）——月柱（事業/兄弟宮）受合"
+        },
+        {
+          "type": "天干合",
+          "pillar": "day",
+          "stems": [
+            "癸",
+            "戊"
+          ],
+          "element": "火",
+          "name": "無情之合",
+          "dayMasterInvolved": true,
+          "description": "癸戊合（無情之合→火）——日主被合，精力受牽制"
+        }
+      ]
+    },
+    {
+      "startAge": 60,
+      "endAge": 69,
+      "startYear": 2047,
+      "endYear": 2056,
+      "stem": "壬",
+      "branch": "寅",
+      "tenGod": "偏財",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六沖",
+          "pillar": "month",
+          "branches": [
+            "寅",
+            "申"
+          ],
+          "severity": 85,
+          "description": "寅申沖（月柱（事業/兄弟宮）受沖）"
+        },
+        {
+          "type": "六沖",
+          "pillar": "hour",
+          "branches": [
+            "寅",
+            "申"
+          ],
+          "severity": 85,
+          "description": "寅申沖（時柱（子女宮）受沖）"
+        },
+        {
+          "type": "天干合",
+          "pillar": "year",
+          "stems": [
+            "壬",
+            "丁"
+          ],
+          "element": "木",
+          "name": "淫慝之合",
+          "dayMasterInvolved": false,
+          "description": "壬丁合（淫慝之合→木）——年柱（祖上/父母宮）受合"
+        }
+      ]
+    },
+    {
+      "startAge": 70,
+      "endAge": 79,
+      "startYear": 2057,
+      "endYear": 2066,
+      "stem": "辛",
+      "branch": "丑",
+      "tenGod": "傷官",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六害",
+          "pillar": "day",
+          "branches": [
+            "丑",
+            "午"
+          ],
+          "description": "丑午害（日柱（配偶宮）受害）"
+        }
+      ]
+    },
+    {
+      "startAge": 80,
+      "endAge": 89,
+      "startYear": 2067,
+      "endYear": 2076,
+      "stem": "庚",
+      "branch": "子",
+      "tenGod": "食神",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "三刑",
+          "pillar": "year",
+          "branches": [
+            "子",
+            "卯"
+          ],
+          "name": "無禮之刑",
+          "severity": 70,
+          "description": "子卯刑（無禮之刑，年柱（祖上/父母宮）受刑）"
+        },
+        {
+          "type": "六沖",
+          "pillar": "day",
+          "branches": [
+            "子",
+            "午"
+          ],
+          "severity": 90,
+          "description": "子午沖（日柱（配偶宮）受沖）"
+        }
+      ]
+    }
+  ],
+  "annualStars": [
+    {
+      "year": 2016,
+      "stem": "丙",
+      "branch": "申",
+      "tenGod": "偏印",
+      "isCurrent": false,
+      "natalInteractions": [],
+      "lpInteraction": []
+    },
+    {
+      "year": 2017,
+      "stem": "丁",
+      "branch": "酉",
+      "tenGod": "正印",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六沖",
+          "pillar": "year",
+          "branches": [
+            "酉",
+            "卯"
+          ],
+          "severity": 80,
+          "description": "酉卯沖（年柱（祖上/父母宮）受沖）"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2018,
+      "stem": "戊",
+      "branch": "戌",
+      "tenGod": "比肩",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六合",
+          "pillar": "year",
+          "branches": [
+            "戌",
+            "卯"
+          ],
+          "element": "火",
+          "description": "戌卯合火（年柱（祖上/父母宮）得合）"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2019,
+      "stem": "己",
+      "branch": "亥",
+      "tenGod": "劫財",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六害",
+          "pillar": "month",
+          "branches": [
+            "亥",
+            "申"
+          ],
+          "description": "亥申害（月柱（事業/兄弟宮）受害）"
+        },
+        {
+          "type": "六害",
+          "pillar": "hour",
+          "branches": [
+            "亥",
+            "申"
+          ],
+          "description": "亥申害（時柱（子女宮）受害）"
+        }
+      ],
+      "lpInteraction": [
+        {
+          "type": "大運流年地支沖",
+          "severity": "MEDIUM",
+          "branches": [
+            "巳",
+            "亥"
+          ],
+          "description": "大運巳沖流年亥——該年度十年運基調受衝擊"
+        }
+      ]
+    },
+    {
+      "year": 2020,
+      "stem": "庚",
+      "branch": "子",
+      "tenGod": "食神",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "三刑",
+          "pillar": "year",
+          "branches": [
+            "子",
+            "卯"
+          ],
+          "name": "無禮之刑",
+          "severity": 70,
+          "description": "子卯刑（無禮之刑，年柱（祖上/父母宮）受刑）"
+        },
+        {
+          "type": "六沖",
+          "pillar": "day",
+          "branches": [
+            "子",
+            "午"
+          ],
+          "severity": 90,
+          "description": "子午沖（日柱（配偶宮）受沖）"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2021,
+      "stem": "辛",
+      "branch": "丑",
+      "tenGod": "傷官",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六害",
+          "pillar": "day",
+          "branches": [
+            "丑",
+            "午"
+          ],
+          "description": "丑午害（日柱（配偶宮）受害）"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2022,
+      "stem": "壬",
+      "branch": "寅",
+      "tenGod": "偏財",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六沖",
+          "pillar": "month",
+          "branches": [
+            "寅",
+            "申"
+          ],
+          "severity": 85,
+          "description": "寅申沖（月柱（事業/兄弟宮）受沖）"
+        },
+        {
+          "type": "六沖",
+          "pillar": "hour",
+          "branches": [
+            "寅",
+            "申"
+          ],
+          "severity": 85,
+          "description": "寅申沖（時柱（子女宮）受沖）"
+        },
+        {
+          "type": "天干合",
+          "pillar": "year",
+          "stems": [
+            "壬",
+            "丁"
+          ],
+          "element": "木",
+          "name": "淫慝之合",
+          "dayMasterInvolved": false,
+          "description": "壬丁合（淫慝之合→木）——年柱（祖上/父母宮）受合"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2023,
+      "stem": "癸",
+      "branch": "卯",
+      "tenGod": "正財",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "天干沖",
+          "pillar": "year",
+          "stems": [
+            "癸",
+            "丁"
+          ],
+          "tenGod": "正財",
+          "description": "癸丁沖（年柱（祖上/父母宮）天干受沖）"
+        },
+        {
+          "type": "天干合",
+          "pillar": "month",
+          "stems": [
+            "癸",
+            "戊"
+          ],
+          "element": "火",
+          "name": "無情之合",
+          "dayMasterInvolved": false,
+          "description": "癸戊合（無情之合→火）——月柱（事業/兄弟宮）受合"
+        },
+        {
+          "type": "天干合",
+          "pillar": "day",
+          "stems": [
+            "癸",
+            "戊"
+          ],
+          "element": "火",
+          "name": "無情之合",
+          "dayMasterInvolved": true,
+          "description": "癸戊合（無情之合→火）——日主被合，精力受牽制"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2024,
+      "stem": "甲",
+      "branch": "辰",
+      "tenGod": "偏官",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六害",
+          "pillar": "year",
+          "branches": [
+            "辰",
+            "卯"
+          ],
+          "description": "辰卯害（年柱（祖上/父母宮）受害）"
+        },
+        {
+          "type": "天干沖",
+          "pillar": "hour",
+          "stems": [
+            "甲",
+            "庚"
+          ],
+          "tenGod": "偏官",
+          "description": "甲庚沖（時柱（子女宮）天干受沖）"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2025,
+      "stem": "乙",
+      "branch": "巳",
+      "tenGod": "正官",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六合",
+          "pillar": "month",
+          "branches": [
+            "巳",
+            "申"
+          ],
+          "element": "水",
+          "description": "巳申合水（月柱（事業/兄弟宮）得合）"
+        },
+        {
+          "type": "六合",
+          "pillar": "hour",
+          "branches": [
+            "巳",
+            "申"
+          ],
+          "element": "水",
+          "description": "巳申合水（時柱（子女宮）得合）"
+        },
+        {
+          "type": "天干合",
+          "pillar": "hour",
+          "stems": [
+            "乙",
+            "庚"
+          ],
+          "element": "金",
+          "name": "仁義之合",
+          "dayMasterInvolved": false,
+          "description": "乙庚合（仁義之合→金）——時柱（子女宮）受合"
+        }
+      ],
+      "lpInteraction": [
+        {
+          "type": "歲運並臨",
+          "severity": "CRITICAL",
+          "stem": "乙",
+          "branch": "巳",
+          "description": "歲運並臨（乙巳）——重大人生轉折點，吉凶加倍放大"
+        }
+      ]
+    },
+    {
+      "year": 2026,
+      "stem": "丙",
+      "branch": "午",
+      "tenGod": "偏印",
+      "isCurrent": true,
+      "natalInteractions": [],
+      "lpInteraction": []
+    },
+    {
+      "year": 2027,
+      "stem": "丁",
+      "branch": "未",
+      "tenGod": "正印",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六合",
+          "pillar": "day",
+          "branches": [
+            "未",
+            "午"
+          ],
+          "element": "土",
+          "description": "未午合土（日柱（配偶宮）得合）"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2028,
+      "stem": "戊",
+      "branch": "申",
+      "tenGod": "比肩",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "伏吟",
+          "severity": "HIGH",
+          "pillar": "month",
+          "stem": "戊",
+          "branch": "申",
+          "description": "伏吟月柱（事業/兄弟宮）（戊申重複）——停滯、重複、「卡住」的感覺"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2029,
+      "stem": "己",
+      "branch": "酉",
+      "tenGod": "劫財",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六沖",
+          "pillar": "year",
+          "branches": [
+            "酉",
+            "卯"
+          ],
+          "severity": 80,
+          "description": "酉卯沖（年柱（祖上/父母宮）受沖）"
+        }
+      ],
+      "lpInteraction": [
+        {
+          "type": "大運流年地支合",
+          "severity": "POSITIVE",
+          "branches": [
+            "辰",
+            "酉"
+          ],
+          "element": "金",
+          "description": "大運辰合流年酉（金）——該年和諧順利"
+        }
+      ]
+    },
+    {
+      "year": 2030,
+      "stem": "庚",
+      "branch": "戌",
+      "tenGod": "食神",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六合",
+          "pillar": "year",
+          "branches": [
+            "戌",
+            "卯"
+          ],
+          "element": "火",
+          "description": "戌卯合火（年柱（祖上/父母宮）得合）"
+        }
+      ],
+      "lpInteraction": [
+        {
+          "type": "天剋地沖",
+          "severity": "VERY_HIGH",
+          "stemA": "甲",
+          "branchA": "辰",
+          "stemB": "庚",
+          "branchB": "戌",
+          "context": "大運vs流年",
+          "description": "天剋地沖（甲辰 vs 庚戌）——天干相剋地支相沖，極端矛盾/障礙，大運vs流年"
+        }
+      ]
+    },
+    {
+      "year": 2031,
+      "stem": "辛",
+      "branch": "亥",
+      "tenGod": "傷官",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六害",
+          "pillar": "month",
+          "branches": [
+            "亥",
+            "申"
+          ],
+          "description": "亥申害（月柱（事業/兄弟宮）受害）"
+        },
+        {
+          "type": "六害",
+          "pillar": "hour",
+          "branches": [
+            "亥",
+            "申"
+          ],
+          "description": "亥申害（時柱（子女宮）受害）"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2032,
+      "stem": "壬",
+      "branch": "子",
+      "tenGod": "偏財",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "三刑",
+          "pillar": "year",
+          "branches": [
+            "子",
+            "卯"
+          ],
+          "name": "無禮之刑",
+          "severity": 70,
+          "description": "子卯刑（無禮之刑，年柱（祖上/父母宮）受刑）"
+        },
+        {
+          "type": "六沖",
+          "pillar": "day",
+          "branches": [
+            "子",
+            "午"
+          ],
+          "severity": 90,
+          "description": "子午沖（日柱（配偶宮）受沖）"
+        },
+        {
+          "type": "天干合",
+          "pillar": "year",
+          "stems": [
+            "壬",
+            "丁"
+          ],
+          "element": "木",
+          "name": "淫慝之合",
+          "dayMasterInvolved": false,
+          "description": "壬丁合（淫慝之合→木）——年柱（祖上/父母宮）受合"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2033,
+      "stem": "癸",
+      "branch": "丑",
+      "tenGod": "正財",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六害",
+          "pillar": "day",
+          "branches": [
+            "丑",
+            "午"
+          ],
+          "description": "丑午害（日柱（配偶宮）受害）"
+        },
+        {
+          "type": "天干沖",
+          "pillar": "year",
+          "stems": [
+            "癸",
+            "丁"
+          ],
+          "tenGod": "正財",
+          "description": "癸丁沖（年柱（祖上/父母宮）天干受沖）"
+        },
+        {
+          "type": "天干合",
+          "pillar": "month",
+          "stems": [
+            "癸",
+            "戊"
+          ],
+          "element": "火",
+          "name": "無情之合",
+          "dayMasterInvolved": false,
+          "description": "癸戊合（無情之合→火）——月柱（事業/兄弟宮）受合"
+        },
+        {
+          "type": "天干合",
+          "pillar": "day",
+          "stems": [
+            "癸",
+            "戊"
+          ],
+          "element": "火",
+          "name": "無情之合",
+          "dayMasterInvolved": true,
+          "description": "癸戊合（無情之合→火）——日主被合，精力受牽制"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2034,
+      "stem": "甲",
+      "branch": "寅",
+      "tenGod": "偏官",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六沖",
+          "pillar": "month",
+          "branches": [
+            "寅",
+            "申"
+          ],
+          "severity": 85,
+          "description": "寅申沖（月柱（事業/兄弟宮）受沖）"
+        },
+        {
+          "type": "六沖",
+          "pillar": "hour",
+          "branches": [
+            "寅",
+            "申"
+          ],
+          "severity": 85,
+          "description": "寅申沖（時柱（子女宮）受沖）"
+        },
+        {
+          "type": "天干沖",
+          "pillar": "hour",
+          "stems": [
+            "甲",
+            "庚"
+          ],
+          "tenGod": "偏官",
+          "description": "甲庚沖（時柱（子女宮）天干受沖）"
+        },
+        {
+          "type": "反吟",
+          "severity": "HIGH",
+          "pillar": "hour",
+          "stem": "甲",
+          "branch": "寅",
+          "description": "反吟時柱（子女宮）（甲寅 沖 庚申）——逆轉、突然變化、分手/損失"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2035,
+      "stem": "乙",
+      "branch": "卯",
+      "tenGod": "正官",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "天干合",
+          "pillar": "hour",
+          "stems": [
+            "乙",
+            "庚"
+          ],
+          "element": "金",
+          "name": "仁義之合",
+          "dayMasterInvolved": false,
+          "description": "乙庚合（仁義之合→金）——時柱（子女宮）受合"
+        }
+      ],
+      "lpInteraction": []
+    },
+    {
+      "year": 2036,
+      "stem": "丙",
+      "branch": "辰",
+      "tenGod": "偏印",
+      "isCurrent": false,
+      "natalInteractions": [
+        {
+          "type": "六害",
+          "pillar": "year",
+          "branches": [
+            "辰",
+            "卯"
+          ],
+          "description": "辰卯害（年柱（祖上/父母宮）受害）"
+        }
+      ],
+      "lpInteraction": []
+    }
+  ],
+  "monthlyStars": [
+    {
+      "month": 1,
+      "solarTermName": "立春",
+      "solarTermDate": "2026-02-04",
+      "solarTermEndDate": "2026-03-06",
+      "stem": "庚",
+      "branch": "寅",
+      "tenGod": "食神",
+      "seasonElement": "木旺"
+    },
+    {
+      "month": 2,
+      "solarTermName": "驚蟄",
+      "solarTermDate": "2026-03-06",
+      "solarTermEndDate": "2026-04-05",
+      "stem": "辛",
+      "branch": "卯",
+      "tenGod": "傷官",
+      "seasonElement": "木旺"
+    },
+    {
+      "month": 3,
+      "solarTermName": "清明",
+      "solarTermDate": "2026-04-05",
+      "solarTermEndDate": "2026-05-06",
+      "stem": "壬",
+      "branch": "辰",
+      "tenGod": "偏財",
+      "seasonElement": "土旺"
+    },
+    {
+      "month": 4,
+      "solarTermName": "立夏",
+      "solarTermDate": "2026-05-06",
+      "solarTermEndDate": "2026-06-06",
+      "stem": "癸",
+      "branch": "巳",
+      "tenGod": "正財",
+      "seasonElement": "火旺"
+    },
+    {
+      "month": 5,
+      "solarTermName": "芒種",
+      "solarTermDate": "2026-06-06",
+      "solarTermEndDate": "2026-07-07",
+      "stem": "甲",
+      "branch": "午",
+      "tenGod": "偏官",
+      "seasonElement": "火旺"
+    },
+    {
+      "month": 6,
+      "solarTermName": "小暑",
+      "solarTermDate": "2026-07-07",
+      "solarTermEndDate": "2026-08-07",
+      "stem": "乙",
+      "branch": "未",
+      "tenGod": "正官",
+      "seasonElement": "土旺"
+    },
+    {
+      "month": 7,
+      "solarTermName": "立秋",
+      "solarTermDate": "2026-08-07",
+      "solarTermEndDate": "2026-09-08",
+      "stem": "丙",
+      "branch": "申",
+      "tenGod": "偏印",
+      "seasonElement": "金旺"
+    },
+    {
+      "month": 8,
+      "solarTermName": "白露",
+      "solarTermDate": "2026-09-08",
+      "solarTermEndDate": "2026-10-08",
+      "stem": "丁",
+      "branch": "酉",
+      "tenGod": "正印",
+      "seasonElement": "金旺"
+    },
+    {
+      "month": 9,
+      "solarTermName": "寒露",
+      "solarTermDate": "2026-10-08",
+      "solarTermEndDate": "2026-11-07",
+      "stem": "戊",
+      "branch": "戌",
+      "tenGod": "比肩",
+      "seasonElement": "土旺"
+    },
+    {
+      "month": 10,
+      "solarTermName": "立冬",
+      "solarTermDate": "2026-11-07",
+      "solarTermEndDate": "2026-12-07",
+      "stem": "己",
+      "branch": "亥",
+      "tenGod": "劫財",
+      "seasonElement": "水旺"
+    },
+    {
+      "month": 11,
+      "solarTermName": "大雪",
+      "solarTermDate": "2026-12-07",
+      "solarTermEndDate": "2027-01-06",
+      "stem": "庚",
+      "branch": "子",
+      "tenGod": "食神",
+      "seasonElement": "水旺"
+    },
+    {
+      "month": 12,
+      "solarTermName": "小寒",
+      "solarTermDate": "2027-01-06",
+      "solarTermEndDate": "2027-02-04",
+      "stem": "辛",
+      "branch": "丑",
+      "tenGod": "傷官",
+      "seasonElement": "土旺"
+    }
+  ],
+  "trueSolarTime": {
+    "clockTime": "16:11",
+    "trueSolarTime": "14:54",
+    "longitudeOffset": -78.53,
+    "equationOfTime": 2.2,
+    "totalAdjustment": -76.32,
+    "birthCity": "吉打",
+    "birthLongitude": 100.3685,
+    "birthLatitude": 6.1248
+  },
+  "lunarDate": {
+    "year": 1987,
+    "month": 7,
+    "day": 14,
+    "isLeapMonth": false
+  },
+  "kongWang": [
+    "子",
+    "丑"
+  ],
+  "kongWangPerPillar": {
+    "year": [
+      "戌",
+      "亥"
+    ],
+    "month": [
+      "寅",
+      "卯"
+    ],
+    "day": [
+      "子",
+      "丑"
+    ],
+    "hour": [
+      "子",
+      "丑"
+    ]
+  },
+  "allShenSha": [
+    {
+      "name": "將星",
+      "pillar": "year",
+      "branch": "卯"
+    },
+    {
+      "name": "桃花",
+      "pillar": "year",
+      "branch": "卯"
+    },
+    {
+      "name": "太極貴人",
+      "pillar": "year",
+      "branch": "卯"
+    },
+    {
+      "name": "月德合",
+      "pillar": "year",
+      "branch": "卯"
+    },
+    {
+      "name": "文昌",
+      "pillar": "month",
+      "branch": "申"
+    },
+    {
+      "name": "驛馬",
+      "pillar": "month",
+      "branch": "申"
+    },
+    {
+      "name": "福星貴人",
+      "pillar": "month",
+      "branch": "申"
+    },
+    {
+      "name": "金輿",
+      "pillar": "month",
+      "branch": "申"
+    },
+    {
+      "name": "天德合",
+      "pillar": "month",
+      "branch": "申"
+    },
+    {
+      "name": "德秀貴人",
+      "pillar": "month",
+      "branch": "申"
+    },
+    {
+      "name": "天廚貴人",
+      "pillar": "month",
+      "branch": "申"
+    },
+    {
+      "name": "劫煞",
+      "pillar": "month",
+      "branch": "申"
+    },
+    {
+      "name": "天喜",
+      "pillar": "day",
+      "branch": "午"
+    },
+    {
+      "name": "將星",
+      "pillar": "day",
+      "branch": "午"
+    },
+    {
+      "name": "羊刃",
+      "pillar": "day",
+      "branch": "午"
+    },
+    {
+      "name": "天德合",
+      "pillar": "day",
+      "branch": "午"
+    },
+    {
+      "name": "德秀貴人",
+      "pillar": "day",
+      "branch": "午"
+    },
+    {
+      "name": "天廚貴人",
+      "pillar": "day",
+      "branch": "午"
+    },
+    {
+      "name": "勾絞煞",
+      "pillar": "day",
+      "branch": "午"
+    },
+    {
+      "name": "文昌",
+      "pillar": "hour",
+      "branch": "申"
+    },
+    {
+      "name": "驛馬",
+      "pillar": "hour",
+      "branch": "申"
+    },
+    {
+      "name": "福星貴人",
+      "pillar": "hour",
+      "branch": "申"
+    },
+    {
+      "name": "金輿",
+      "pillar": "hour",
+      "branch": "申"
+    },
+    {
+      "name": "天廚貴人",
+      "pillar": "hour",
+      "branch": "申"
+    },
+    {
+      "name": "劫煞",
+      "pillar": "hour",
+      "branch": "申"
+    }
+  ],
+  "ganZhi": {
+    "year": "丁卯",
+    "month": "戊申",
+    "day": "戊午",
+    "hour": "庚申"
+  },
+  "seasonalStates": {
+    "木": "死",
+    "火": "囚",
+    "土": "休",
+    "金": "旺",
+    "水": "相"
+  },
+  "kongWangDisplay": {
+    "day": [
+      "子",
+      "丑"
+    ],
+    "year": [
+      "戌",
+      "亥"
+    ]
+  },
+  "taiYuan": {
+    "stem": "己",
+    "branch": "亥",
+    "naYin": "平地木"
+  },
+  "mingGong": {
+    "stem": "癸",
+    "branch": "丑",
+    "naYin": "桑柘木"
+  },
+  "taiXi": {
+    "stem": "癸",
+    "branch": "未",
+    "naYin": "楊柳木"
+  },
+  "shenGong": {
+    "stem": "壬",
+    "branch": "子",
+    "naYin": "桑柘木"
+  },
+  "luckPeriodStartInfo": {
+    "startAge": 10,
+    "startDate": "1997-07-21",
+    "yearsMonths": "9年10月",
+    "daysToTerm": 29.62,
+    "direction": -1
+  },
+  "preAnalysis": {
+    "version": "1.0.0",
+    "summary": "陽土日主（戊），偏弱，食神格",
+    "keyFindings": [
+      {
+        "category": "strength",
+        "finding": "日主土（戊），weak（39.0分）",
+        "significance": "high",
+        "domains": [
+          "career",
+          "love",
+          "health",
+          "timing"
+        ]
+      }
+    ],
+    "strengthV2": {
+      "score": 39,
+      "classification": "weak",
+      "factors": {
+        "deling": 25,
+        "dedi": 4.4,
+        "deshi": 9.6,
+        "sanheCredit": 0,
+        "sanheKind": "none",
+        "pattern2aBoost": 0,
+        "pattern2aSource": "none",
+        "pattern2bDelingCut": 0,
+        "pattern2bFlatPenalty": 0
+      },
+      "lifeStage": "病"
+    },
+    "pillarRelationships": {
+      "stemCombinations": [],
+      "stemClashes": [],
+      "stemInteractions": [],
+      "branchRelationships": {
+        "harmonies": [],
+        "clashes": [],
+        "tripleHarmonies": [],
+        "threeMeetings": [],
+        "punishments": [],
+        "harms": [],
+        "breaks": [
+          {
+            "type": "six_break",
+            "name": "六破",
+            "branches": [
+              "卯",
+              "午"
+            ],
+            "pillarA": "year",
+            "pillarB": "day",
+            "severity": 60,
+            "effect": "negative",
+            "description": "卯午破"
+          }
+        ],
+        "interactions": [],
+        "positiveScore": 0,
+        "negativeScore": 60,
+        "netScore": -60,
+        "summary": "卯午破"
+      }
+    },
+    "tenGodPositionAnalysis": [
+      {
+        "tenGod": "正印",
+        "pillar": "year",
+        "pillarZh": "年柱",
+        "interpretation": "出生在書香/富裕家庭、學業能力優秀。",
+        "significance": "medium"
+      },
+      {
+        "tenGod": "比肩",
+        "pillar": "month",
+        "pillarZh": "月柱",
+        "interpretation": "社交能力強、朋友多但知己少、性格大膽、工作效率高但固執。",
+        "significance": "medium"
+      },
+      {
+        "tenGod": "正印",
+        "pillar": "day",
+        "pillarZh": "日支",
+        "interpretation": "配偶善良聰慧、誠實可靠。婚姻和諧美滿。",
+        "significance": "high"
+      },
+      {
+        "tenGod": "食神",
+        "pillar": "hour",
+        "pillarZh": "時柱",
+        "interpretation": "晚年儲蓄習慣好、經濟安全。子女孝順有成就。",
+        "significance": "medium"
+      }
+    ],
+    "touganAnalysis": [
+      {
+        "stem": "乙",
+        "tenGod": "正官",
+        "sourcePillar": "year",
+        "transparentPillar": null,
+        "qiType": "本氣",
+        "status": "latent",
+        "description": "正官（乙）藏於year支本氣，藏而不透，力量潛伏",
+        "significance": "low"
+      },
+      {
+        "stem": "庚",
+        "tenGod": "食神",
+        "sourcePillar": "month",
+        "transparentPillar": "hour",
+        "qiType": "本氣",
+        "status": "transparent",
+        "description": "食神（庚）在month支本氣透出於hour干，力量充分",
+        "significance": "high"
+      },
+      {
+        "stem": "戊",
+        "tenGod": "比肩",
+        "sourcePillar": "month",
+        "transparentPillar": "month",
+        "qiType": "餘氣",
+        "status": "transparent",
+        "description": "比肩（戊）在month支餘氣透出於month干，力量充分",
+        "significance": "medium"
+      },
+      {
+        "stem": "丁",
+        "tenGod": "正印",
+        "sourcePillar": "day",
+        "transparentPillar": "year",
+        "qiType": "本氣",
+        "status": "transparent",
+        "description": "正印（丁）在day支本氣透出於year干，力量充分",
+        "significance": "high"
+      },
+      {
+        "stem": "庚",
+        "tenGod": "食神",
+        "sourcePillar": "hour",
+        "transparentPillar": "hour",
+        "qiType": "本氣",
+        "status": "transparent",
+        "description": "食神（庚）在hour支本氣透出於hour干，力量充分",
+        "significance": "high"
+      },
+      {
+        "stem": "戊",
+        "tenGod": "比肩",
+        "sourcePillar": "hour",
+        "transparentPillar": "month",
+        "qiType": "餘氣",
+        "status": "transparent",
+        "description": "比肩（戊）在hour支餘氣透出於month干，力量充分",
+        "significance": "medium"
+      }
+    ],
+    "tombStorage": [],
+    "prominentGod": "食神",
+    "effectiveFavorableGods": {
+      "favorableGod": "土",
+      "usefulGod": "火",
+      "idleGod": "金",
+      "tabooGod": "木",
+      "enemyGod": "水"
+    },
+    "congGe": null,
+    "guanShaHunza": null,
+    "yongShenLocked": [],
+    "conflictResolution": [],
+    "timingInsights": {
+      "currentPeriod": {
+        "stem": "乙",
+        "branch": "巳",
+        "tenGod": "正官",
+        "startAge": 30,
+        "endAge": 39,
+        "startYear": 2017,
+        "endYear": 2026,
+        "interactions": [
+          {
+            "type": "六合",
+            "pillar": "month",
+            "branches": [
+              "巳",
+              "申"
+            ],
+            "element": "水",
+            "description": "巳申合水（月柱（事業/兄弟宮）得合）"
+          },
+          {
+            "type": "六合",
+            "pillar": "hour",
+            "branches": [
+              "巳",
+              "申"
+            ],
+            "element": "水",
+            "description": "巳申合水（時柱（子女宮）得合）"
+          },
+          {
+            "type": "天干合",
+            "pillar": "hour",
+            "stems": [
+              "乙",
+              "庚"
+            ],
+            "element": "金",
+            "name": "仁義之合",
+            "dayMasterInvolved": false,
+            "description": "乙庚合（仁義之合→金）——時柱（子女宮）受合"
+          }
+        ]
+      },
+      "currentYear": {
+        "year": 2026,
+        "stem": "丙",
+        "branch": "午",
+        "tenGod": "偏印"
+      },
+      "significantFindings": []
+    },
+    "specialDayPillars": [],
+    "careerInsights": {
+      "suitableIndustries": [
+        "科技",
+        "能源",
+        "娛樂",
+        "電子",
+        "餐飲",
+        "媒體",
+        "光學",
+        "美容"
+      ],
+      "usefulElement": "火",
+      "workStyle": "創意/技術型",
+      "prominentGod": "食神"
+    },
+    "loveInsights": {
+      "spouseStar": "正財",
+      "romanceStar": "偏財",
+      "spousePalaceGod": "正印",
+      "spouseStarPillars": [],
+      "challenges": []
+    },
+    "healthInsights": {
+      "weakOrgans": [
+        "肺",
+        "大腸",
+        "肝",
+        "膽"
+      ],
+      "excessElement": "金",
+      "deficientElement": "木",
+      "warnings": [
+        "金過旺：皮膚過敏、呼吸急促",
+        "木不足：視力差、筋骨無力"
+      ]
+    }
+  },
+  "lifeStagesSummary": {
+    "year": "沐浴",
+    "month": "病",
+    "day": "帝旺",
+    "hour": "病"
+  },
+  "kongWangSummary": [
+    "子",
+    "丑"
+  ],
+  "pillarElements": {
+    "year": {
+      "stem": "丁",
+      "stemElement": "火",
+      "branch": "卯",
+      "branchElement": "木"
+    },
+    "month": {
+      "stem": "戊",
+      "stemElement": "土",
+      "branch": "申",
+      "branchElement": "金"
+    },
+    "day": {
+      "stem": "戊",
+      "stemElement": "土",
+      "branch": "午",
+      "branchElement": "火"
+    },
+    "hour": {
+      "stem": "庚",
+      "stemElement": "金",
+      "branch": "申",
+      "branchElement": "金"
+    }
+  },
+  "timingInsights": {
+    "currentPeriod": {
+      "stem": "乙",
+      "branch": "巳",
+      "tenGod": "正官",
+      "startAge": 30,
+      "endAge": 39,
+      "startYear": 2017,
+      "endYear": 2026,
+      "interactions": [
+        {
+          "type": "六合",
+          "pillar": "month",
+          "branches": [
+            "巳",
+            "申"
+          ],
+          "element": "水",
+          "description": "巳申合水（月柱（事業/兄弟宮）得合）"
+        },
+        {
+          "type": "六合",
+          "pillar": "hour",
+          "branches": [
+            "巳",
+            "申"
+          ],
+          "element": "水",
+          "description": "巳申合水（時柱（子女宮）得合）"
+        },
+        {
+          "type": "天干合",
+          "pillar": "hour",
+          "stems": [
+            "乙",
+            "庚"
+          ],
+          "element": "金",
+          "name": "仁義之合",
+          "dayMasterInvolved": false,
+          "description": "乙庚合（仁義之合→金）——時柱（子女宮）受合"
+        }
+      ]
+    },
+    "currentYear": {
+      "year": 2026,
+      "stem": "丙",
+      "branch": "午",
+      "tenGod": "偏印"
+    },
+    "significantFindings": []
+  },
+  "specialDayPillars": [],
+  "taohuaDirections": {
+    "primary": {
+      "source": "年支",
+      "branch": "子",
+      "direction": "正北"
+    },
+    "secondary": {
+      "source": "日支",
+      "branch": "卯",
+      "direction": "正東"
+    }
+  },
+  "wenchangDirection": {
+    "branch": "申",
+    "direction": "西南"
+  },
+  "zodiacBenefactors": {
+    "provenance": "folk_tradition",
+    "liuhe": {
+      "branch": "戌",
+      "zodiac": "狗",
+      "kind": "liuhe"
+    },
+    "sanhe": [
+      {
+        "branch": "亥",
+        "zodiac": "豬",
+        "kind": "sanhe"
+      },
+      {
+        "branch": "未",
+        "zodiac": "羊",
+        "kind": "sanhe"
+      }
+    ]
+  },
+  "tiaohou": {
+    "primaryGod": "丙",
+    "secondaryGod": null,
+    "status": "absent",
+    "combinedBy": null,
+    "clashedBy": null,
+    "seasonalContext": "transitional",
+    "classicalPhraseKey": null
+  }
+}
