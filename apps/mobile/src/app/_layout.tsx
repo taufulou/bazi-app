@@ -52,6 +52,14 @@ function AppStack() {
       <Stack.Screen name="sign-up" options={{ title: '註冊', presentation: 'modal' }} />
       <Stack.Screen name="(authenticated)" options={{ headerShown: false }} />
       <Stack.Screen name="profiles" options={{ title: '我的命盤' }} />
+      <Stack.Screen
+        name="reading/paipan"
+        options={{ title: '八字排盤', headerBackButtonDisplayMode: 'minimal' }}
+      />
+      <Stack.Screen
+        name="reading/[type]"
+        options={{ title: '命理解讀', headerBackButtonDisplayMode: 'minimal' }}
+      />
     </Stack>
   );
 }

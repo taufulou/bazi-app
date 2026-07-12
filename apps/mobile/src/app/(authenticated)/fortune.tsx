@@ -18,6 +18,7 @@ import YearlyLuckMethodsCard from '../../components/fortune/YearlyLuckMethodsCar
 import YearlyNarrativeCard from '../../components/fortune/YearlyNarrativeCard';
 import YearlyCrossSellCard from '../../components/fortune/YearlyCrossSellCard';
 import PeriodNavigator, { type PeriodOption } from '../../components/fortune/PeriodNavigator';
+import ProfileSwitcher from '../../components/fortune/ProfileSwitcher';
 import ShareFortuneButton from '../../components/fortune/ShareFortuneButton';
 import ShareableFortuneCard from '../../components/fortune/ShareableFortuneCard';
 import ShareableMonthlyFortuneCard from '../../components/fortune/ShareableMonthlyFortuneCard';
@@ -25,6 +26,7 @@ import ShareableYearlyFortuneCard from '../../components/fortune/ShareableYearly
 import { formatFortuneDate } from '../../components/fortune/labels';
 import { useFortuneNarrativeStream } from '../../components/fortune/hooks/useFortuneNarrativeStream';
 import { getUserProfile } from '../../lib/api';
+import { fetchBirthProfiles, type BirthProfile } from '../../lib/birth-profiles-api';
 import {
   resolveBaziToday,
   resolveCurrentMonthIso,
@@ -144,6 +146,14 @@ export default function FortuneScreen() {
   // loading → treated as FREE (conservative).
   const [tier, setTier] = useState<UserTier | undefined>(undefined);
 
+  // Multi-profile switcher (mirrors web). `selectedProfileId` is the EXPLICIT
+  // user pick (undefined → the API defaults to the primary, so no wasteful
+  // double-fetch on load). `resolvedProfileId` comes from the active view's
+  // engine_ready — used ONLY to highlight the primary row before any pick.
+  const [profiles, setProfiles] = useState<BirthProfile[]>([]);
+  const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>(undefined);
+  const [resolvedProfileId, setResolvedProfileId] = useState<string | undefined>(undefined);
+
   // Deep-link from the home «今日運勢» card: `?day=<today>&n=<nonce>` → switch to
   // the day tab + reset the day view to today (the nonce re-fires on repeat taps).
   const params = useLocalSearchParams<{ day?: string; n?: string }>();
@@ -173,6 +183,28 @@ export default function FortuneScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn]);
 
+  // Birth profiles for the switcher. Silent on failure (switcher hides when
+  // profiles.length <= 1 anyway).
+  useEffect(() => {
+    if (!isSignedIn) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+        const list = await fetchBirthProfiles(token);
+        if (!cancelled) setProfiles(list);
+      } catch {
+        /* non-fatal — no switcher */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // getToken omitted (unstable Clerk ref → fetch loop).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn]);
+
   if (!isLoaded) {
     return (
       <View style={styles.center}>
@@ -183,9 +215,17 @@ export default function FortuneScreen() {
   if (!isSignedIn) return <Redirect href="/sign-in" />;
 
   const isFree = tier === undefined || tier === 'FREE';
+  const switcherActiveId = selectedProfileId ?? resolvedProfileId;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      {/* Profile switcher (hidden when <= 1 profile) */}
+      <ProfileSwitcher
+        profiles={profiles}
+        activeProfileId={switcherActiveId}
+        onSelect={setSelectedProfileId}
+      />
+
       {/* Scope pills */}
       <View style={styles.pills}>
         {TABS.map((t) => {
@@ -205,11 +245,25 @@ export default function FortuneScreen() {
       </View>
 
       {tab === 'day' ? (
-        <DailyFortuneView isFree={isFree} focusDate={focusDate} focusNonce={focusNonce} />
+        <DailyFortuneView
+          isFree={isFree}
+          profileId={selectedProfileId}
+          onResolvedProfile={setResolvedProfileId}
+          focusDate={focusDate}
+          focusNonce={focusNonce}
+        />
       ) : tab === 'month' ? (
-        <MonthlyFortuneView isFree={isFree} />
+        <MonthlyFortuneView
+          isFree={isFree}
+          profileId={selectedProfileId}
+          onResolvedProfile={setResolvedProfileId}
+        />
       ) : (
-        <YearlyFortuneView isFree={isFree} />
+        <YearlyFortuneView
+          isFree={isFree}
+          profileId={selectedProfileId}
+          onResolvedProfile={setResolvedProfileId}
+        />
       )}
     </ScrollView>
   );
@@ -221,10 +275,14 @@ export default function FortuneScreen() {
 
 function DailyFortuneView({
   isFree,
+  profileId,
+  onResolvedProfile,
   focusDate,
   focusNonce,
 }: {
   isFree: boolean;
+  profileId?: string;
+  onResolvedProfile?: (id: string) => void;
   focusDate?: string;
   focusNonce?: string;
 }) {
@@ -263,6 +321,7 @@ function DailyFortuneView({
           profileId: daily.profileId,
         };
         engineRef.current = engine;
+        onResolvedProfile?.(daily.profileId);
         setStreamed({});
         setState({ status: 'engine', engine });
       } else if (ev.type === 'section_complete') {
@@ -280,16 +339,32 @@ function DailyFortuneView({
         handleStreamError(ev.code, ev.message);
       }
     },
-    [handleStreamError],
+    [handleStreamError, onResolvedProfile],
   );
 
   useFortuneNarrativeStream({
     enabled,
     scope: 'day',
+    profileId,
     date,
     onEvent,
     onError: (err) => handleStreamError('STREAM_FAILED', err.message),
   });
+
+  // Reset the render state when the switcher picks a different profile (the hook
+  // re-opens the stream via its profileId dep; this clears the stale profile's
+  // rendered data so it doesn't linger until the new engine_ready). Keeps the
+  // current date — a date is profile-independent + the subscriber window is
+  // tier-based, so no OUT_OF_WINDOW risk.
+  const prevProfileRef = useRef(profileId);
+  useEffect(() => {
+    if (prevProfileRef.current === profileId) return;
+    prevProfileRef.current = profileId;
+    setStreamed({});
+    setStreamError(null);
+    engineRef.current = null;
+    setState({ status: 'loading' });
+  }, [profileId]);
 
   const resetTo = useCallback((next: string) => {
     setStreamed({});
@@ -419,7 +494,15 @@ type MonthState =
   | { status: 'success'; engine: MonthEngineData; narrative: MonthlyFortuneNarrative | null }
   | { status: 'error'; code: string; message: string };
 
-function MonthlyFortuneView({ isFree }: { isFree: boolean }) {
+function MonthlyFortuneView({
+  isFree,
+  profileId,
+  onResolvedProfile,
+}: {
+  isFree: boolean;
+  profileId?: string;
+  onResolvedProfile?: (id: string) => void;
+}) {
   const zh = useZh();
   const current = useMemo(() => resolveCurrentMonthIso(), []);
   const options = useMemo(() => buildMonthOptions(current), [current]);
@@ -451,6 +534,7 @@ function MonthlyFortuneView({ isFree }: { isFree: boolean }) {
           intraMonthBreakdown: monthly.intraMonthBreakdown,
         };
         engineRef.current = engine;
+        onResolvedProfile?.(monthly.profileId);
         setStreamed({});
         setState({ status: 'engine', engine });
       } else if (ev.type === 'section_complete') {
@@ -468,16 +552,27 @@ function MonthlyFortuneView({ isFree }: { isFree: boolean }) {
         handleStreamError(ev.code, ev.message);
       }
     },
-    [handleStreamError],
+    [handleStreamError, onResolvedProfile],
   );
 
   useFortuneNarrativeStream({
     enabled,
     scope: 'month',
+    profileId,
     month,
     onEvent,
     onError: (err) => handleStreamError('STREAM_FAILED', err.message),
   });
+
+  const prevProfileRef = useRef(profileId);
+  useEffect(() => {
+    if (prevProfileRef.current === profileId) return;
+    prevProfileRef.current = profileId;
+    setStreamed({});
+    setStreamError(null);
+    engineRef.current = null;
+    setState({ status: 'loading' });
+  }, [profileId]);
 
   const resetTo = useCallback((next: string) => {
     setStreamed({});
@@ -602,7 +697,15 @@ type YearState =
   | { status: 'success'; engine: YearEngineData; narrative: YearlyFortuneNarrative | null }
   | { status: 'error'; code: string; message: string };
 
-function YearlyFortuneView({ isFree }: { isFree: boolean }) {
+function YearlyFortuneView({
+  isFree,
+  profileId,
+  onResolvedProfile,
+}: {
+  isFree: boolean;
+  profileId?: string;
+  onResolvedProfile?: (id: string) => void;
+}) {
   const zh = useZh();
   const current = useMemo(() => resolveCurrentYearIso(), []);
   const options = useMemo(() => buildYearOptions(current), [current]);
@@ -633,6 +736,7 @@ function YearlyFortuneView({ isFree }: { isFree: boolean }) {
           profileId: yearly.profileId,
         };
         engineRef.current = engine;
+        onResolvedProfile?.(yearly.profileId);
         setStreamed({});
         setState({ status: 'engine', engine });
       } else if (ev.type === 'section_complete') {
@@ -650,16 +754,27 @@ function YearlyFortuneView({ isFree }: { isFree: boolean }) {
         handleStreamError(ev.code, ev.message);
       }
     },
-    [handleStreamError],
+    [handleStreamError, onResolvedProfile],
   );
 
   useFortuneNarrativeStream({
     enabled,
     scope: 'year',
+    profileId,
     year,
     onEvent,
     onError: (err) => handleStreamError('STREAM_FAILED', err.message),
   });
+
+  const prevProfileRef = useRef(profileId);
+  useEffect(() => {
+    if (prevProfileRef.current === profileId) return;
+    prevProfileRef.current = profileId;
+    setStreamed({});
+    setStreamError(null);
+    engineRef.current = null;
+    setState({ status: 'loading' });
+  }, [profileId]);
 
   const resetTo = useCallback((next: string) => {
     setStreamed({});

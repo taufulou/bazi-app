@@ -1,0 +1,19 @@
+# M3.4 — 八字終身運 purchase → stream → rich display.
+# ⚠️ Best on a RELEASE build: dev-build RN-Modal taps are flaky (see M1/M2 notes) —
+# the 稱呼 dropdown + UnlockConfirmModal confirm need point-taps; verified manually.
+appId: com.tianming.app
+---
+- launchApp: { stopApp: false }
+- tapOn: { point: '50%, 96%' }            # 解讀 tab
+- extendedWaitUntil: { visible: '付費詳批', timeout: 15000 }
+- tapOn: '八字終身運'
+- extendedWaitUntil: { visible: '稱呼', timeout: 12000 }
+- tapOn: { point: '88%, 30%' }            # 稱呼 saved-profile dropdown
+- tapOn: { point: '25%, 36%' }            # first saved profile
+- scrollUntilVisible: { element: '排盤並預覽', direction: DOWN, timeout: 12000 }
+- tapOn: '排盤並預覽'
+- scrollUntilVisible: { element: '解鎖完整報告', direction: DOWN, timeout: 18000 }
+- tapOn: { text: '解鎖完整報告.*' }
+- extendedWaitUntil: { visible: '將扣除', timeout: 8000 }
+- tapOn: { point: '50%, 55%' }            # modal confirm (spends credits)
+- extendedWaitUntil: { visible: '先天命格解讀', timeout: 90000 }  # rich display section

@@ -1,37 +1,26 @@
 import { useAuth } from '@clerk/clerk-expo';
-import { useCallback, useEffect, useState } from 'react';
-import { Text, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { ChevronLeft } from 'lucide-react-native';
-import { colors, spacing, fontSize, radius } from '../../theme';
+import { useEffect, useState } from 'react';
+import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { useRouter } from 'expo-router';
+import { ScrollText, ChevronRight } from 'lucide-react-native';
+import { READING_TYPE_META, type ReadingType } from '@repo/shared';
+import { colors, spacing, fontSize, radius, fonts, shadows } from '../../theme';
 import { useZh } from '../../lib/language';
-import BirthDataForm from '../../components/BirthDataForm';
-import BaziChart from '../../components/BaziChart';
-import { calculateBazi } from '../../lib/bazi-api';
-import type { BaziChartData } from '../../lib/bazi-types';
-import { ApiError, getUserProfile } from '../../lib/api';
-import {
-  fetchBirthProfiles,
-  createBirthProfile,
-  updateBirthProfile,
-  formValuesToPayload,
-  type BirthProfile,
-} from '../../lib/birth-profiles-api';
-import type { BirthDataFormValues, SaveProfileIntent } from '../../lib/birth-profile-types';
+import { getUserProfile } from '../../lib/api';
 
-/** 解讀 — free-preview 排盤 (chart only). Paid AI readings come in M3. */
-export default function ReadingsScreen() {
+/** The 4 paid Bazi readings shown on the 解讀 hub (in display order). */
+const PAID_READINGS: ReadingType[] = ['lifetime', 'love', 'career', 'annual'];
+
+/**
+ * 解讀 hub — grid of reading entries. A free 排盤 (chart-only) card + the 4 paid
+ * Bazi readings (終身/愛情/事業/流年). Tapping a paid card → the reading flow
+ * (`/reading/[type]`); the free card → `/reading/paipan`.
+ */
+export default function ReadingsHubScreen() {
   const { getToken, isSignedIn } = useAuth();
   const zh = useZh();
-  const [chart, setChart] = useState<BaziChartData | null>(null);
-  const [gender, setGender] = useState('male');
-  const [chartMeta, setChartMeta] = useState<{ name: string; birthDate: string } | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-  const [savedProfiles, setSavedProfiles] = useState<BirthProfile[]>([]);
-  const [isSubscriber, setIsSubscriber] = useState(false);
-  // Id of the profile created via this preview session — reused so re-submitting
-  // after 重新排盤 updates it instead of creating duplicates.
-  const [previewSavedId, setPreviewSavedId] = useState<string | null>(null);
+  const router = useRouter();
+  const [credits, setCredits] = useState<number | null>(null);
 
   useEffect(() => {
     if (!isSignedIn) return;
@@ -40,119 +29,156 @@ export default function ReadingsScreen() {
       try {
         const token = await getToken();
         if (!token || cancelled) return;
-        const [profiles, profile] = await Promise.all([
-          fetchBirthProfiles(token),
-          getUserProfile(token),
-        ]);
-        if (cancelled) return;
-        setSavedProfiles(profiles);
-        setIsSubscriber(profile.subscriptionTier !== 'FREE');
+        const profile = await getUserProfile(token);
+        if (!cancelled) setCredits(profile.credits);
       } catch {
-        /* non-fatal — the free preview still works */
+        /* non-fatal — hub renders without the credit chip */
       }
     })();
     return () => {
       cancelled = true;
     };
-    // getToken is a fresh ref each render (Clerk) — omit it so this effect doesn't
-    // re-run on every setState. Re-runs only when the sign-in state changes.
+    // getToken omitted (unstable Clerk ref → fetch loop).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSignedIn]);
 
-  const handleSubmit = useCallback(
-    async (data: BirthDataFormValues, _profileId: string | null, saveIntent?: SaveProfileIntent) => {
-      setLoading(true);
-      setError('');
-      // 1. Compute + render the chart FIRST — this is the free preview and must
-      //    not be blocked by an optional profile save.
-      try {
-        const result = await calculateBazi({
-          birth_date: data.birthDate,
-          birth_time: data.hourKnown ? data.birthTime : null,
-          hour_known: data.hourKnown,
-          birth_city: data.birthCity,
-          birth_timezone: data.birthTimezone,
-          gender: data.gender,
-        });
-        setGender(data.gender);
-        setChartMeta({ name: data.name, birthDate: data.birthDate });
-        setChart(result);
-      } catch (e) {
-        setError(e instanceof ApiError ? e.message : zh('排盤失敗，請稍後再試'));
-        setLoading(false);
-        return;
-      }
-      // 2. Optionally persist the profile (signed-in + opted-in) — NON-FATAL. A
-      //    save failure never hides the chart the user already sees.
-      if (isSignedIn && saveIntent?.wantsSave) {
-        try {
-          const token = await getToken();
-          if (token) {
-            const payload = formValuesToPayload(data, saveIntent.relationshipTag, saveIntent.lunarBirthDate);
-            // Reuse the id from a selected profile OR one we created earlier this
-            // session → re-排盤 updates instead of creating duplicates.
-            const targetId = saveIntent.existingProfileId ?? previewSavedId;
-            if (targetId) {
-              await updateBirthProfile(token, targetId, payload);
-            } else {
-              const created = await createBirthProfile(token, payload);
-              setPreviewSavedId(created.id);
-            }
-            setSavedProfiles(await fetchBirthProfiles(token));
-          }
-        } catch {
-          /* non-fatal — the chart is already shown; saving is best-effort */
-        }
-      }
-      setLoading(false);
-    },
-    [isSignedIn, getToken, zh, previewSavedId],
-  );
-
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {chart ? (
-        <>
-          <Pressable style={styles.backRow} onPress={() => setChart(null)} accessibilityRole="button">
-            <ChevronLeft color={colors.red} size={20} />
-            <Text style={styles.backText}>{zh('重新排盤')}</Text>
+      <View style={styles.header}>
+        <Text style={styles.title}>{zh('命理解讀')}</Text>
+        {credits !== null ? (
+          <View style={styles.creditChip}>
+            <Text style={styles.creditText}>
+              {zh('您有')} <Text style={styles.creditNum}>{credits}</Text> {zh('點')}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+
+      {/* Free 排盤 */}
+      <Pressable
+        style={styles.freeCard}
+        onPress={() => router.push('/reading/paipan')}
+        accessibilityRole="button"
+      >
+        <View style={styles.freeIcon}>
+          <ScrollText size={22} strokeWidth={2} color={colors.red} />
+        </View>
+        <View style={styles.freeBody}>
+          <Text style={styles.freeTitle}>{zh('免費八字排盤')}</Text>
+          <Text style={styles.freeSub}>{zh('輸入生辰，免費查看您的命盤')}</Text>
+        </View>
+        <ChevronRight size={20} color={colors.textMuted} />
+      </Pressable>
+
+      <Text style={styles.sectionLabel}>{zh('付費詳批')}</Text>
+
+      {PAID_READINGS.map((slug) => {
+        const meta = READING_TYPE_META[slug];
+        return (
+          <Pressable
+            key={slug}
+            style={styles.card}
+            onPress={() => router.push(`/reading/${slug}`)}
+            accessibilityRole="button"
+            accessibilityLabel={zh(meta.nameZhTw)}
+          >
+            <View style={[styles.cardIcon, { backgroundColor: `${meta.themeColor}22` }]}>
+              <Text style={styles.cardEmoji}>{meta.icon}</Text>
+            </View>
+            <View style={styles.cardBody}>
+              <Text style={styles.cardTitle}>{zh(meta.nameZhTw)}</Text>
+              <Text style={styles.cardDesc} numberOfLines={2}>
+                {zh(meta.description['zh-TW'])}
+              </Text>
+            </View>
+            <View style={styles.cardRight}>
+              <View style={styles.costPill}>
+                <Text style={styles.costText}>{meta.creditCost}</Text>
+                <Text style={styles.costUnit}>{zh('點')}</Text>
+              </View>
+              <ChevronRight size={18} color={colors.textMuted} />
+            </View>
           </Pressable>
-          <BaziChart
-            data={chart}
-            name={chartMeta?.name}
-            birthDate={chartMeta?.birthDate}
-            gender={gender}
-            isSubscriber={isSubscriber}
-          />
-        </>
-      ) : (
-        <BirthDataForm
-          onSubmit={handleSubmit}
-          isLoading={loading}
-          error={error}
-          title="八字排盤"
-          subtitle="輸入出生資料，免費查看您的命盤"
-          submitLabel="開始排盤"
-          savedProfiles={isSignedIn ? savedProfiles : undefined}
-          showSaveOption={isSignedIn}
-        />
-      )}
+        );
+      })}
+
+      <Text style={styles.disclaimer}>
+        {zh('本服務僅供參考與娛樂用途，不構成任何專業建議')}
+      </Text>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
-  content: { padding: spacing.xl, paddingBottom: spacing.xxl * 2 },
-  backRow: {
+  content: { padding: spacing.xl, paddingBottom: spacing.xxl * 2, gap: spacing.md },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
+  title: { fontFamily: fonts.serif, fontSize: fontSize.title, fontWeight: '800', color: colors.textAccent },
+  creditChip: {
+    backgroundColor: colors.bgCard,
+    borderRadius: 999,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+  },
+  creditText: { fontSize: fontSize.sm, color: colors.textSecondary },
+  creditNum: { fontWeight: '800', color: colors.red },
+  freeCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.xs,
-    alignSelf: 'flex-start',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.md,
-    marginBottom: spacing.md,
+    gap: spacing.md,
+    backgroundColor: colors.bgCard,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.borderMedium,
+    ...shadows.warm,
   },
-  backText: { color: colors.red, fontSize: fontSize.base, fontWeight: '600' },
+  freeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(226,61,40,0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  freeBody: { flex: 1, gap: 2 },
+  freeTitle: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
+  freeSub: { fontSize: fontSize.sm, color: colors.textSecondary },
+  sectionLabel: {
+    fontSize: fontSize.sm,
+    fontWeight: '700',
+    color: colors.textMuted,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  card: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.bgCard,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    ...shadows.warm,
+  },
+  cardIcon: { width: 48, height: 48, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  cardEmoji: { fontSize: 24 },
+  cardBody: { flex: 1, gap: 3 },
+  cardTitle: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
+  cardDesc: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 19 },
+  cardRight: { alignItems: 'center', gap: spacing.xs },
+  costPill: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 2,
+    backgroundColor: 'rgba(226,61,40,0.08)',
+    borderRadius: 999,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+  },
+  costText: { fontSize: fontSize.base, fontWeight: '800', color: colors.red },
+  costUnit: { fontSize: fontSize.xs, color: colors.red },
+  disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg, lineHeight: 17 },
 });
