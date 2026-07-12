@@ -3,9 +3,15 @@ import {
   genderFromApi,
   profileToFormValues,
   formValuesToPayload,
+  updateBirthProfile,
   type BirthProfile,
 } from '../birth-profiles-api';
 import type { BirthDataFormValues } from '../birth-profile-types';
+import { apiFetch } from '../api';
+
+// updateBirthProfile calls apiFetch — mock it so we can inspect the outgoing body.
+// (The pure-mapper tests below don't touch apiFetch, so the mock is inert for them.)
+jest.mock('../api', () => ({ apiFetch: jest.fn(() => Promise.resolve({})) }));
 
 const rogerProfile: BirthProfile = {
   id: 'p1',
@@ -130,5 +136,35 @@ describe('birth-profiles-api mappers', () => {
       isLeapMonth: false,
     };
     expect(formValuesToPayload(fv).relationshipTag).toBe('SELF');
+  });
+});
+
+describe('updateBirthProfile — immutable hourKnown', () => {
+  const mockFetch = apiFetch as jest.Mock;
+  beforeEach(() => mockFetch.mockClear());
+
+  // Regression: the server's UpdateBirthProfileDto omits hourKnown (immutable),
+  // and the global ValidationPipe (forbidNonWhitelisted) 400s any update that
+  // carries it — "property hourKnown should not exist". formValuesToPayload
+  // always sets hourKnown (needed for CREATE), so updateBirthProfile must strip it.
+  it('strips hourKnown from the PATCH body', async () => {
+    await updateBirthProfile('tok', 'id1', {
+      name: 'X',
+      relationshipTag: 'FAMILY',
+      hourKnown: false,
+      birthCity: '台北',
+    });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [path, opts] = mockFetch.mock.calls[0] as [string, { method: string; body: object }];
+    expect(path).toBe('/api/users/me/birth-profiles/id1');
+    expect(opts.method).toBe('PATCH');
+    expect(opts.body).not.toHaveProperty('hourKnown');
+    expect(opts.body).toMatchObject({ name: 'X', relationshipTag: 'FAMILY', birthCity: '台北' });
+  });
+
+  it('keeps every other field (only hourKnown is immutable)', async () => {
+    await updateBirthProfile('tok', 'id2', { birthTime: '08:30', isLunarDate: true });
+    const [, opts] = mockFetch.mock.calls[0] as [string, { body: object }];
+    expect(opts.body).toEqual({ birthTime: '08:30', isLunarDate: true });
   });
 });

@@ -112,10 +112,16 @@ export async function updateBirthProfile(
   id: string,
   payload: UpdateBirthProfilePayload,
 ): Promise<BirthProfile> {
+  // hourKnown is IMMUTABLE after creation: the server's UpdateBirthProfileDto
+  // deliberately omits it, so the global ValidationPipe (forbidNonWhitelisted)
+  // rejects any update carrying it with 400 "property hourKnown should not exist".
+  // formValuesToPayload always sets it (needed for CREATE), so strip it here —
+  // this one seam covers both the profile-edit and readings-save-update paths.
+  const { hourKnown: _immutable, ...updatable } = payload;
   return apiFetch<BirthProfile>(`/api/users/me/birth-profiles/${id}`, {
     method: 'PATCH',
     token,
-    body: payload,
+    body: updatable,
   });
 }
 
