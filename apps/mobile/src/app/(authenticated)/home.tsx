@@ -9,6 +9,7 @@ import { fetchBirthProfiles, type BirthProfile } from '../../lib/birth-profiles-
 import { calculateBazi } from '../../lib/bazi-api';
 import type { BaziChartData } from '../../lib/bazi-types';
 import BaziChart from '../../components/BaziChart';
+import HomeDailyFortuneCard from '../../components/HomeDailyFortuneCard';
 
 const TIER_LABEL: Record<SubscriptionTier, string> = {
   FREE: '免費會員',
@@ -111,6 +112,8 @@ export default function HomeScreen() {
           </>
         )}
       </View>
+
+      <HomeDailyFortuneCard />
 
       {chartLoading ? (
         <ActivityIndicator color={colors.red} />

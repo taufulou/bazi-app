@@ -30,6 +30,11 @@ let onUnauthorized: (() => void) | null = null;
 export function setUnauthorizedHandler(handler: (() => void) | null): void {
   onUnauthorized = handler;
 }
+/** Invoke the registered 401 handler (session-expiry sign-out + redirect).
+ *  Used by the SSE streaming seam, which handles its own responses. No-op until set. */
+export function notifyUnauthorized(): void {
+  onUnauthorized?.();
+}
 
 export interface ApiFetchOptions extends Omit<RequestInit, 'body' | 'headers'> {
   /** Clerk session token (from useAuth().getToken()). Omit for public routes. */

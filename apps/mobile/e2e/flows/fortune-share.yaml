@@ -1,0 +1,27 @@
+# fortune-share — the daily share card rasterizes to a PNG + opens the share sheet.
+#
+# ⚠️ Requires a SIGNED-IN PRO session (see fortune-daily.yaml header). The share
+#    button is gated on the day view's SUCCESS state (full AI narrative), so wait
+#    for the narrative to finish before scrolling to it. Dev-build caveats apply.
+appId: com.tianming.app
+---
+- launchApp:
+    stopApp: false
+- tapOn:
+    point: '30%, 96%' # 運勢 tab
+- extendedWaitUntil:
+    visible: '今日整體' # narrative streamed → success → share button present
+    timeout: 90000
+- scrollUntilVisible:
+    element:
+      text: '分享今日運勢'
+    direction: DOWN
+    timeout: 20000
+- tapOn: '分享今日運勢'
+# Preview modal with the ShareableFortuneCard + the share action.
+- extendedWaitUntil:
+    visible: '分享圖片'
+    timeout: 8000
+- assertVisible: 'baziapp.com' # QR footer domain — confirms the card rendered
+# (Tapping «分享圖片» opens the native iOS/Android share sheet with the PNG —
+#  the sheet itself isn't Maestro-assertable; verified manually. See M2.5 log.)
