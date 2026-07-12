@@ -86,7 +86,10 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [getToken]);
+    // getToken is a fresh reference every render (Clerk); listing it would re-run
+    // this fetch effect on every setState → infinite loop. Run once on mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>

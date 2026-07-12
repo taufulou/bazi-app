@@ -39,7 +39,10 @@ export default function ProfilesScreen() {
     } finally {
       setLoading(false);
     }
-  }, [getToken]);
+    // getToken is a fresh ref each render (Clerk); keep `load` stable so the effect
+    // below doesn't re-run (and re-fetch) on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (isSignedIn) load();

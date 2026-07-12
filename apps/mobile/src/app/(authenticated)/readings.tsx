@@ -54,7 +54,10 @@ export default function ReadingsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [isSignedIn, getToken]);
+    // getToken is a fresh ref each render (Clerk) — omit it so this effect doesn't
+    // re-run on every setState. Re-runs only when the sign-in state changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn]);
 
   const handleSubmit = useCallback(
     async (data: BirthDataFormValues, _profileId: string | null, saveIntent?: SaveProfileIntent) => {

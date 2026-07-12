@@ -96,7 +96,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isSignedIn, getToken, applyLang]);
+    // getToken is a fresh ref each render (Clerk) — omit it, else this always-mounted
+    // provider re-fetches /api/users/me on every render (fetch loop). applyLang is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn]);
 
   const changeLanguage = useCallback(
     async (next: Language) => {
