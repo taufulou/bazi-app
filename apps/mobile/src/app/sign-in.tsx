@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { useZh } from '../lib/language';
 import { colors, radius, spacing, fontSize, fonts } from '../theme';
+import { GoogleSignInButton } from '../components/GoogleSignInButton';
 
 export default function SignInScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
@@ -107,6 +108,14 @@ export default function SignInScreen() {
             )}
           </TouchableOpacity>
 
+          <View style={styles.dividerRow}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>{zh('或')}</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <GoogleSignInButton />
+
           <TouchableOpacity
             style={styles.linkButton}
             accessibilityRole="button"
@@ -183,6 +192,14 @@ const styles = StyleSheet.create({
     fontSize: fontSize.base,
     fontWeight: '700',
   },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginVertical: spacing.xl,
+  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: colors.borderLight },
+  dividerText: { color: colors.textMuted, fontSize: fontSize.sm },
   linkButton: {
     alignItems: 'center',
     marginTop: spacing.xl,
