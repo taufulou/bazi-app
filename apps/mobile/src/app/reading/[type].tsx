@@ -11,6 +11,10 @@ import BaziChart from '../../components/BaziChart';
 import UnlockConfirmModal from '../../components/reading/UnlockConfirmModal';
 import AIReadingDisplay from '../../components/reading/AIReadingDisplay';
 import { renderReadingExtras, ReadingHeader } from '../../components/reading/readingWidgets';
+import ChatFloatingButton from '../../components/chat/ChatFloatingButton';
+import ChatSheet from '../../components/chat/ChatSheet';
+import InlineAskCard from '../../components/chat/InlineAskCard';
+import type { ChatReadingType } from '../../lib/chat-api';
 import { calculateBazi } from '../../lib/bazi-api';
 import type { BaziChartData } from '../../lib/bazi-types';
 import { ApiError, getUserProfile } from '../../lib/api';
@@ -64,6 +68,12 @@ export default function ReadingFlowScreen() {
   // Unlock + streaming
   const [showUnlock, setShowUnlock] = useState(false);
   const [isUnlocking, setIsUnlocking] = useState(false);
+
+  // Chat (AI 命理師)
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatPending, setChatPending] = useState<string | undefined>(undefined);
+  const [chatSectionHint, setChatSectionHint] = useState<string | undefined>(undefined);
+  const chatReadingType = slug ? (slug.toUpperCase() as ChatReadingType) : undefined;
   const [sections, setSections] = useState<SectionMap>({});
   const [deterministic, setDeterministic] = useState<NestJSReadingResponse['deterministic']>(undefined);
   const [summary, setSummary] = useState<{ preview: string; full: string } | undefined>();
@@ -286,7 +296,8 @@ export default function ReadingFlowScreen() {
       : null;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <View style={styles.root}>
+      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Stack.Screen options={{ title: zh(meta.nameZhTw) }} />
 
       {step === 'form' ? (
@@ -348,17 +359,35 @@ export default function ReadingFlowScreen() {
                 <ReadingHeader readingType={slug} chartData={chart as Record<string, unknown> | null} />
               ) : null
             }
-            renderExtras={(sectionKey) =>
-              slug
-                ? renderReadingExtras({
-                    readingType: slug,
-                    sectionKey,
-                    deterministic: deterministic as never,
-                    chartData: chart as Record<string, unknown> | null,
-                    isSubscriber: true,
-                  })
-                : null
-            }
+            renderExtras={(sectionKey) => (
+              <>
+                {slug
+                  ? renderReadingExtras({
+                      readingType: slug,
+                      sectionKey,
+                      deterministic: deterministic as never,
+                      chartData: chart as Record<string, unknown> | null,
+                      isSubscriber: true,
+                    })
+                  : null}
+                {chatReadingType && readingId ? (
+                  <InlineAskCard
+                    readingType={chatReadingType}
+                    sectionKey={sectionKey}
+                    onAsk={(sk, q) => {
+                      setChatSectionHint(sk);
+                      setChatPending(q);
+                      setChatOpen(true);
+                    }}
+                    onOpenChat={(sk) => {
+                      setChatSectionHint(sk);
+                      setChatPending(undefined);
+                      setChatOpen(true);
+                    }}
+                  />
+                ) : null}
+              </>
+            )}
           />
         </View>
       ) : null}
@@ -377,11 +406,36 @@ export default function ReadingFlowScreen() {
           router.push('/(authenticated)/me');
         }}
       />
-    </ScrollView>
+      </ScrollView>
+
+      {step === 'reading' && readingId ? (
+        <ChatFloatingButton
+          onPress={() => {
+            setChatSectionHint(undefined);
+            setChatPending(undefined);
+            setChatOpen(true);
+          }}
+        />
+      ) : null}
+
+      {chatReadingType && readingId ? (
+        <ChatSheet
+          visible={chatOpen}
+          onClose={() => setChatOpen(false)}
+          readingType={chatReadingType}
+          readingId={readingId}
+          sectionContextHint={chatSectionHint}
+          pendingInitialMessage={chatPending}
+          populateOnly
+          onPendingInitialMessageConsumed={() => setChatPending(undefined)}
+        />
+      ) : null}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.bgPrimary },
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.xl, paddingBottom: spacing.xxl * 2 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.lg, backgroundColor: colors.bgPrimary },
