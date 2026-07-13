@@ -18,12 +18,26 @@ AI-powered Bazi (八字) + ZWDS (紫微斗數) fortune-telling SaaS platform. Tw
 ```
 apps/web/     — Next.js 16 (ClerkProvider, warm light theme, zh-TW)
 apps/api/     — NestJS 11 (28+ endpoints, Clerk JWT guard, Swagger)
-apps/mobile/  — Expo React Native
+apps/mobile/  — Expo React Native (SDK 57 — FULL native port UNDERWAY, see below)
 packages/shared/      — TypeScript types + constants
 packages/bazi-engine/  — Python FastAPI (calculator, pre-analysis, 451 tests)
 packages/ui/          — Shared React UI components
 docker/               — Dockerfiles + docker-compose
 ```
+
+## ⚠️ Mobile app (Expo) — FULL PORT UNDERWAY (branch `feat/mobile-m0`)
+A native React Native port of the consumer feature set is in progress on branch
+**`feat/mobile-m0`** (main checkout, NOT a worktree — `npm install` fails in
+worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roaming-squid.md`**.
+- **Shipped M0–M5** (Expo SDK 57 / React 19 / Fabric): foundation, birth
+  profiles + 排盤, 日/月/年運 fortune (SSE streaming), 4 paid readings
+  (終身/愛情/事業/流年), AI chat, 合盤 compatibility. iOS + Android dev-client builds.
+- **Next: M6** (RevenueCat IAP + backend entitlements) → M7 (store submission).
+- **Bazi-only, NO ZWDS** (v1 scope). 合盤: only 感情 enabled (事業/友誼 hidden).
+- ⏳ **Cross-stack TODO**: move the 合盤 3-credit charge from create (step 1) to
+  reveal (step 2) — backend + web + mobile. See the plan's «⏳ TODO … move 合盤 charge».
+- This SUPERSEDES the older «mobile is minimal / WEB ONLY» notes further down
+  (written during the chat feature) — mobile now has readings + chat + compat.
 
 ## Key Commands
 ```bash
@@ -1100,6 +1114,12 @@ LLM chat layer on top of all 5 Bazi reading types: LIFETIME / LOVE / CAREER / AN
 - Phase 3 doctrine eval corpus + Bazi-master review is deferred to Phase 3.1 (sample-question seed + token-budget CI gate ≤ 15k tokens for Laopo×Roger anchor are in place; full LLM-judge corpus pending).
 
 ### Platform support — WEB ONLY (mobile deferred)
+
+> ⚠️ **SUPERSEDED (2026-07)** — the mobile app is no longer chat-less. A full
+> native port (M0–M5) shipped mobile chat in M4 + readings + fortune + compat
+> on branch `feat/mobile-m0`. See the top-of-file «Mobile app (Expo)» section +
+> `/Users/roger/.claude/plans/vivid-roaming-squid.md`. The table below reflects
+> the chat feature's ORIGINAL web-only scope and is kept for history.
 
 | Surface | Chat support |
 |---|---|
