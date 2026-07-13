@@ -1,9 +1,9 @@
 /**
  * API client for creating, fetching + streaming paid AI readings via the NestJS
- * backend. RN port of apps/web/app/lib/readings-api.ts, trimmed to M3's four
- * Bazi reading types (LIFETIME / ANNUAL / CAREER / LOVE) — ZWDS and
- * COMPATIBILITY are out of scope here (compat lands in M5, ZWDS is a v1
- * non-goal).
+ * backend. RN port of apps/web/app/lib/readings-api.ts, trimmed to the five
+ * Bazi reading surfaces (LIFETIME / ANNUAL / CAREER / LOVE + COMPATIBILITY
+ * 合盤). ZWDS is a v1 non-goal. The COMPATIBILITY (M5) additions are grouped
+ * at the bottom of the file.
  *
  * The SSE stream uses `event: <type>\ndata: <json>` frames (type in the SSE
  * event line, NOT inside the JSON like the fortune streams), so it passes a
@@ -25,6 +25,13 @@ const READING_TYPE_MAP: Record<string, string> = {
   annual: 'ANNUAL',
   career: 'CAREER',
   love: 'LOVE',
+};
+
+/** Compat frontend slug → backend ComparisonType enum. */
+const COMPARISON_TYPE_MAP: Record<string, string> = {
+  romance: 'ROMANCE',
+  business: 'BUSINESS',
+  friendship: 'FRIENDSHIP',
 };
 
 // ============================================================
@@ -96,6 +103,25 @@ export const SECTION_TITLE_MAP: Record<string, string> = {
   career_annual: '事業運勢',
   love_annual: '感情運勢',
   health_annual: '健康運勢',
+  // Compatibility (合盤) V2 romance sections
+  compatibility_basis: '配對基礎分析',
+  chart_profile_a: '男方命局特點',
+  chart_profile_b: '女方命局特點',
+  love_personality_a: '男方戀愛性格',
+  love_personality_b: '女方戀愛性格',
+  spouse_enrichment_a: '旺妻/旺夫程度',
+  spouse_enrichment_b: '旺夫/旺妻程度',
+  marriage_wealth_a: '男方婚前婚後財富',
+  marriage_wealth_b: '女方婚前婚後財富',
+  post_marriage_sweetness: '婚後感情甜蜜度',
+  post_marriage_stability: '婚後生活穩定度',
+  marriage_crisis_a: '男方婚變情況預測',
+  marriage_crisis_b: '女方婚變情況預測',
+  combined_crisis_analysis: '兩人合婚危機分析',
+  marriage_advice: '經營婚姻建議',
+  annual_love_a: '男方感情運',
+  annual_love_b: '女方感情運',
+  compatibility_summary: '感情綜合總結',
 };
 
 /** Guide-style section title overrides (人生攻略 framing) */
@@ -615,6 +641,30 @@ export const V2_SECTION_ORDER = [
   'annual_health',
 ];
 
+/** Compatibility Romance V2 section display order (合盤). `compatibility_summary`
+ *  arrives on the stream as its own `summary` event → routed to AIReadingData.summary
+ *  (not sections), but kept here for saved-comparison rendering. */
+export const COMPAT_ROMANCE_V2_SECTION_ORDER = [
+  'compatibility_basis',
+  'chart_profile_a',
+  'chart_profile_b',
+  'love_personality_a',
+  'love_personality_b',
+  'spouse_enrichment_a',
+  'spouse_enrichment_b',
+  'marriage_wealth_a',
+  'marriage_wealth_b',
+  'post_marriage_sweetness',
+  'post_marriage_stability',
+  'marriage_crisis_a',
+  'marriage_crisis_b',
+  'combined_crisis_analysis',
+  'marriage_advice',
+  'annual_love_a',
+  'annual_love_b',
+  'compatibility_summary',
+];
+
 /** Display title for dynamic section keys (annual/monthly forecasts). */
 export function getDynamicSectionTitle(key: string): string | null {
   const annualMatch = key.match(/^annual_forecast_(\d{4})$/);
@@ -667,13 +717,20 @@ export function transformAIResponse(
     const isLoveV2 = sectionKeys.some(
       (k) => k === 'love_personality' || k === 'peach_blossom_analysis' || k === 'natal_marriage',
     );
-    const orderList = isCareerV2
-      ? CAREER_V2_SECTION_ORDER
-      : isAnnualV2
-        ? ANNUAL_V2_SECTION_ORDER
-        : isLoveV2
-          ? LOVE_V2_SECTION_ORDER
-          : V2_SECTION_ORDER;
+    // Compat 合盤 — checked BEFORE isLoveV2 so its annual_love_a/b keys don't
+    // trip the love-V2 annual-append branch (compat places them explicitly).
+    const isCompatV2 = sectionKeys.some(
+      (k) => k === 'compatibility_basis' || k === 'combined_crisis_analysis' || k === 'marriage_advice',
+    );
+    const orderList = isCompatV2
+      ? COMPAT_ROMANCE_V2_SECTION_ORDER
+      : isCareerV2
+        ? CAREER_V2_SECTION_ORDER
+        : isAnnualV2
+          ? ANNUAL_V2_SECTION_ORDER
+          : isLoveV2
+            ? LOVE_V2_SECTION_ORDER
+            : V2_SECTION_ORDER;
 
     const sectionEntries = Object.entries(ai.sections);
     const ordered: ReadingSectionData[] = [];
@@ -950,4 +1007,219 @@ export async function regenerateBaziReading(
   readingId: string,
 ): Promise<{ readingId: string; regenerationCount: number; regenerationsRemaining: number }> {
   return apiFetch(`/api/bazi/readings/${readingId}/regenerate`, { method: 'POST', token });
+}
+
+// ============================================================
+// Compatibility (合盤) — M5
+// ============================================================
+
+export type ComparisonType = 'ROMANCE' | 'BUSINESS' | 'FRIENDSHIP';
+
+export interface CompatibilityDimensionScore {
+  rawScore: number;
+  amplifiedScore: number;
+  weightedScore: number;
+  weight: number;
+  findings?: Array<Record<string, unknown>>;
+}
+
+export interface KnockoutCondition {
+  type: string;
+  severity: string;
+  description: string;
+  scoreImpact: number;
+  mitigated?: boolean;
+  originalImpact?: number;
+}
+
+/** One party's chart within a comparison (minimal typed surface; full chart is opaque).
+ *  `gender` may be 'male'/'female' (engine) or 'MALE'/'FEMALE' — normalize at use. */
+export interface CompatChart {
+  gender?: string;
+  [key: string]: unknown;
+}
+
+/** Deterministic romance (V2) pre-analysis block — drives the score reveal + paywall. */
+export interface RomancePreAnalysis {
+  lovePersonalityA?: { hourUnknown?: boolean; [k: string]: unknown };
+  lovePersonalityB?: { hourUnknown?: boolean; [k: string]: unknown };
+  postMarriageQuality?: {
+    sweetness?: { score?: number };
+    stability?: { score?: number };
+  };
+  combinedCrisis?: { destructiveLevel?: string; overallLevel?: string };
+  scoreBreakdown?: {
+    baseScore?: number;
+    sweetnessScore?: number;
+    stabilityScore?: number;
+    romanceAvg?: number;
+    formula?: string;
+  };
+  peachBlossomCountA?: number;
+  peachBlossomCountB?: number;
+  spouseStarCountA?: number;
+  spouseStarCountB?: number;
+  blendedScore?: number;
+  blendedLabel?: string;
+  [key: string]: unknown;
+}
+
+export interface CompatibilityCalculationData {
+  overallScore: number;
+  adjustedScore: number;
+  label: string;
+  specialLabel: string | null;
+  labelDescription: string;
+  dimensionScores: Record<string, CompatibilityDimensionScore>;
+  knockoutConditions: KnockoutCondition[];
+  specialFindings: Record<string, unknown>;
+  timingSync: {
+    goldenYears: Array<{ year: number; reason: string }>;
+    challengeYears: Array<{ year: number; reason: string }>;
+    luckCycleSyncScore: number;
+  };
+  comparisonType: string;
+  chartA: CompatChart;
+  chartB: CompatChart;
+  /** Present on ROMANCE (V2) comparisons — the flagship path. */
+  romancePreAnalysis?: RomancePreAnalysis;
+}
+
+export interface CompatibilityResponse {
+  id: string;
+  comparisonType: string;
+  calculationData: CompatibilityCalculationData;
+  aiInterpretation: {
+    schemaVersion?: 'v2';
+    sections: Record<string, { preview: string; full: string }>;
+    summary?: { preview: string; full: string };
+  } | null;
+  creditsUsed: number;
+  lastCalculatedYear?: number;
+  createdAt: string;
+  profileA?: { name: string; birthDate: string };
+  profileB?: { name: string; birthDate: string };
+  /** V2 romance comparisons set this to 2. */
+  aiVersion?: number;
+  /** Present when stream=true was requested and AI will be streamed via SSE. */
+  streamReady?: boolean;
+}
+
+/**
+ * Create a Bazi compatibility comparison (chart + optional AI + credits + DB).
+ * Frontend slug → backend enum mapping happens internally. NOTE: credits are
+ * deducted HERE even with `skipAI:true` — the romance flow pays at create time
+ * and the later unlock stream is already-paid (do NOT charge again).
+ */
+export async function createBaziCompatibility(
+  token: string,
+  params: {
+    profileAId: string;
+    profileBId: string;
+    comparisonType: string; // slug: 'romance' | 'business' | 'friendship'
+    skipAI?: boolean;
+  },
+): Promise<CompatibilityResponse> {
+  return apiFetch<CompatibilityResponse>('/api/bazi/comparisons', {
+    method: 'POST',
+    token,
+    body: {
+      profileAId: params.profileAId,
+      profileBId: params.profileBId,
+      comparisonType: COMPARISON_TYPE_MAP[params.comparisonType] || params.comparisonType,
+      ...(params.skipAI && { skipAI: true }),
+    },
+  });
+}
+
+/** Fetch a saved comparison by ID. */
+export async function getCompatibility(
+  token: string,
+  id: string,
+): Promise<CompatibilityResponse> {
+  return apiFetch<CompatibilityResponse>(`/api/bazi/comparisons/${id}`, { token });
+}
+
+/** Re-calculate a comparison with the current year's timing. Costs 1 credit. */
+export async function recalculateCompatibility(
+  token: string,
+  id: string,
+): Promise<CompatibilityResponse> {
+  return apiFetch<CompatibilityResponse>(`/api/bazi/comparisons/${id}/recalculate`, {
+    method: 'POST',
+    token,
+  });
+}
+
+/**
+ * Generate AI (non-streaming) for an existing comparison created with skipAI.
+ * No additional credits charged. Used for the V1 business/friendship path.
+ */
+export async function generateCompatibilityAI(
+  token: string,
+  id: string,
+): Promise<CompatibilityResponse> {
+  return apiFetch<CompatibilityResponse>(`/api/bazi/comparisons/${id}/generate-ai`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export interface StreamCompatibilityCallbacks {
+  onSectionComplete: (key: string, section: { preview: string; full: string; score?: number }) => void;
+  onCallComplete: (callNumber: number) => void;
+  onSummary: (summary: { preview: string; full: string }) => void;
+  onDone: (info: { totalSections: number; latencyMs: number }) => void;
+  onError: (error: { message: string; partial?: boolean }) => void;
+}
+
+/**
+ * Stream AI interpretation for a ROMANCE (V2) comparison via SSE. Same
+ * `event:`+`data:` frame grammar as streamBaziReading → reuses parseReadingFrame.
+ * The compat stream emits `done` (not `final`) and `summary` as its own event.
+ * Returns a `{ close }` handle to abort the stream.
+ */
+export function streamCompatibilityReading(
+  token: string,
+  comparisonId: string,
+  callbacks: StreamCompatibilityCallbacks,
+): { close: () => void } {
+  const teardown = openSseStream<ReadingStreamFrame>({
+    url: `${API_BASE}/api/bazi/comparisons/${comparisonId}/stream`,
+    token,
+    parseFrame: parseReadingFrame,
+    label: 'Compat stream',
+    onPreflightError: (status, body) => ({
+      event: 'error',
+      data: { message: body.message || `HTTP ${status}` },
+    }),
+    onEvent: ({ event, data }) => {
+      switch (event) {
+        case 'section_complete':
+          callbacks.onSectionComplete(
+            data.key as string,
+            data as unknown as { preview: string; full: string; score?: number },
+          );
+          break;
+        case 'call_complete':
+          callbacks.onCallComplete(data.call as number);
+          break;
+        case 'summary':
+          callbacks.onSummary(data as unknown as { preview: string; full: string });
+          break;
+        case 'done':
+          callbacks.onDone(data as unknown as { totalSections: number; latencyMs: number });
+          break;
+        case 'error':
+          callbacks.onError(data as unknown as { message: string; partial?: boolean });
+          break;
+      }
+    },
+    onError: (err) => callbacks.onError({ message: err.message || 'Stream failed' }),
+    onClose: () => {
+      /* terminal events (done/error) drive the UI; nothing to do on close */
+    },
+  });
+
+  return { close: teardown };
 }

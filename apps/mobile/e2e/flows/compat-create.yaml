@@ -1,0 +1,20 @@
+# M5.5 — 合盤 romance: dual form → create (skipAI, charges 3 點) → dual charts +
+# reveal CTA → reveal → V2 SSE stream → score reveal + AI sections.
+# ⚠️ Best on a RELEASE build: dev-build RN-Modal taps are flaky (see M1/M2 notes).
+# Person A defaults to the SELF profile; Person B uses the embedded BirthDataForm
+# saved-profile picker. Verified manually on-device (Roger × Laopo).
+appId: com.tianming.app
+---
+- launchApp: { stopApp: false }
+- tapOn: { point: '70%, 96%' }              # 合盤 tab
+- extendedWaitUntil: { visible: '八字合盤分析', timeout: 15000 }
+- assertVisible: '感情合盤'                    # ROMANCE selected by default
+# Person B — pick an existing saved profile via the embedded form's dropdown
+- tapOn: { point: '88%, 45%' }              # Person B 稱呼 saved-profile dropdown
+- tapOn: { point: '25%, 40%' }              # a saved profile (Laopo)
+- scrollUntilVisible: { element: '查看合盤分數', direction: DOWN, timeout: 12000 }
+- tapOn: { text: '查看合盤分數.*' }            # create(skipAI) — charges 3 點
+- extendedWaitUntil: { visible: '男方', timeout: 20000 }   # dual charts rendered
+- scrollUntilVisible: { element: '查看完整報告', direction: DOWN, timeout: 15000 }
+- tapOn: '查看完整報告'                        # reveal → V2 SSE stream (already paid)
+- extendedWaitUntil: { visible: '配對基礎分析', timeout: 90000 }  # first streamed section
