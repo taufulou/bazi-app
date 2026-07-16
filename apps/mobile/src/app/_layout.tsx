@@ -60,6 +60,10 @@ function AppStack() {
         name="reading/[type]"
         options={{ title: '命理解讀', headerBackButtonDisplayMode: 'minimal' }}
       />
+      <Stack.Screen
+        name="store"
+        options={{ title: '購買點數與方案', headerBackButtonDisplayMode: 'minimal' }}
+      />
     </Stack>
   );
 }

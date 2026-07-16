@@ -1,5 +1,14 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ReadingType } from '@prisma/client';
+import { createClerkClient } from '@clerk/backend';
+import Stripe from 'stripe';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateBirthProfileDto, UpdateBirthProfileDto } from './dto/create-birth-profile.dto';
@@ -8,7 +17,10 @@ import { CreateBirthProfileDto, UpdateBirthProfileDto } from './dto/create-birth
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   // ============ User Profile ============
 
@@ -32,6 +44,127 @@ export class UsersService {
     }
 
     return user;
+  }
+
+  /**
+   * Permanently delete (anonymize) the current user's account. Apple 5.1.1(v)
+   * requires an in-app account-deletion path.
+   *
+   * Order: guard active IAP subs (can't be cancelled server-side — the caller
+   * must confirm they cancelled in the store) → cancel Stripe subs → delete the
+   * RevenueCat subscriber → delete the Clerk user → anonymize the DB row
+   * (financial records preserved for compliance, mirroring the Clerk
+   * `user.deleted` webhook). Steps 2–4 are best-effort so a third-party hiccup
+   * never blocks the anonymize.
+   */
+  async deleteAccount(
+    clerkUserId: string,
+    opts?: { acknowledgedIapCancellation?: boolean },
+  ): Promise<{ deleted: true }> {
+    const user = await this.prisma.user.findUnique({
+      where: { clerkUserId },
+      include: { subscriptions: true },
+    });
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // 1. Apple/Google subs cannot be cancelled from our backend — the user must
+    // cancel in the store. Block until they acknowledge (the FE shows an
+    // interstitial with a manage-subscription deep link).
+    const activeIap = user.subscriptions.filter(
+      (s) =>
+        s.status === 'ACTIVE' && (s.platform === 'APPLE_IAP' || s.platform === 'GOOGLE_PLAY'),
+    );
+    if (activeIap.length > 0 && !opts?.acknowledgedIapCancellation) {
+      throw new ForbiddenException({
+        code: 'ACTIVE_IAP_SUBSCRIPTION',
+        message: '請先於 App Store／Google Play 取消訂閱後再刪除帳號。',
+        platforms: Array.from(new Set(activeIap.map((s) => s.platform))),
+      });
+    }
+
+    // 2. Cancel active Stripe subs (best-effort).
+    const activeStripe = user.subscriptions.filter(
+      (s) => s.status === 'ACTIVE' && s.platform === 'STRIPE' && s.stripeSubscriptionId,
+    );
+    if (activeStripe.length > 0) {
+      const stripe = this.getStripeClient();
+      if (stripe) {
+        for (const s of activeStripe) {
+          try {
+            await stripe.subscriptions.cancel(s.stripeSubscriptionId as string);
+          } catch (err) {
+            this.logger.error(
+              `deleteAccount: failed to cancel Stripe sub ${s.stripeSubscriptionId}: ${err}`,
+            );
+          }
+        }
+      }
+    }
+
+    // 3. Delete the RevenueCat subscriber (best-effort).
+    await this.deleteRevenueCatSubscriber(clerkUserId);
+
+    // 4. Delete the Clerk user (best-effort — anonymize proceeds regardless).
+    await this.deleteClerkUser(clerkUserId);
+
+    // 5. Anonymize the DB row (synchronous; preserves financial records).
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        name: '[deleted]',
+        avatarUrl: null,
+        clerkUserId: `deleted_${clerkUserId}_${Date.now()}`,
+        credits: 0,
+        subscriptionTier: 'FREE',
+      },
+    });
+
+    this.logger.warn(`Account deleted (anonymized): user ${user.id}`);
+    return { deleted: true };
+  }
+
+  private getStripeClient(): Stripe | null {
+    const key = this.config.get<string>('STRIPE_SECRET_KEY');
+    if (!key) {
+      this.logger.warn('deleteAccount: STRIPE_SECRET_KEY not set — skipping Stripe cancel');
+      return null;
+    }
+    return new Stripe(key);
+  }
+
+  private async deleteClerkUser(clerkUserId: string): Promise<void> {
+    const secretKey = this.config.get<string>('CLERK_SECRET_KEY');
+    if (!secretKey) {
+      this.logger.warn('deleteAccount: CLERK_SECRET_KEY not set — skipping Clerk user delete');
+      return;
+    }
+    try {
+      const clerk = createClerkClient({ secretKey });
+      await clerk.users.deleteUser(clerkUserId);
+    } catch (err) {
+      this.logger.error(`deleteAccount: failed to delete Clerk user ${clerkUserId}: ${err}`);
+    }
+  }
+
+  private async deleteRevenueCatSubscriber(appUserId: string): Promise<void> {
+    const apiKey = this.config.get<string>('RC_API_KEY');
+    if (!apiKey) {
+      this.logger.warn('deleteAccount: RC_API_KEY not set — skipping RevenueCat subscriber delete');
+      return;
+    }
+    try {
+      const res = await fetch(
+        `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(appUserId)}`,
+        { method: 'DELETE', headers: { Authorization: `Bearer ${apiKey}` } },
+      );
+      if (!res.ok && res.status !== 404) {
+        this.logger.error(`deleteAccount: RevenueCat delete returned ${res.status}`);
+      }
+    } catch (err) {
+      this.logger.error(`deleteAccount: failed to delete RevenueCat subscriber ${appUserId}: ${err}`);
+    }
   }
 
   async updateProfile(clerkUserId: string, dto: UpdateUserDto) {

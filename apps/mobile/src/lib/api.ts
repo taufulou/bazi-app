@@ -136,3 +136,17 @@ export async function updateLanguagePref(
     body: { languagePref: langKebabToEnum(pref), languageChosen: markChosen },
   });
 }
+
+/**
+ * DELETE /api/users/me — permanently anonymize the account (Apple 5.1.1(v)).
+ * The backend BLOCKS with an `ACTIVE_IAP_SUBSCRIPTION` code (surfaced as
+ * `ApiError.code`) when the user still holds an active App Store / Play
+ * subscription — pass `acknowledgeIap=true` after they confirm they cancelled
+ * it in the store.
+ */
+export async function deleteAccount(token: string, acknowledgeIap = false): Promise<void> {
+  await apiFetch(`/api/users/me${acknowledgeIap ? '?acknowledgeIap=true' : ''}`, {
+    method: 'DELETE',
+    token,
+  });
+}

@@ -12,7 +12,7 @@ import { Injectable, Logger, BadRequestException, NotFoundException } from '@nes
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
-import { ChatPaymentService } from '../chat/chat-payment.service';
+import { EntitlementsService } from './entitlements.service';
 import Stripe from 'stripe';
 
 // ============================================================
@@ -56,7 +56,10 @@ export class StripeService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
-    private readonly chatPaymentService: ChatPaymentService,
+    // M6: provider-neutral tier recompute + credit grants. Replaces the
+    // former direct ChatPaymentService dependency — chat-quota resnapshot now
+    // happens inside EntitlementsService.syncUserTier.
+    private readonly entitlements: EntitlementsService,
   ) {
     const secretKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (!secretKey) {
@@ -552,27 +555,11 @@ export class StripeService {
       });
     }
 
-    // Update user's subscription tier
-    const newTier = status === 'ACTIVE' ? planTier : 'FREE';
-    await this.prisma.user.update({
-      where: { id: internalUserId },
-      data: { subscriptionTier: newTier },
-    });
-
-    // Re-snapshot chat monthly quota for the current month so the new tier
-    // takes effect immediately (per next-the-big-feature-proud-manatee plan).
-    // Idempotent — only updates when stored tier differs from new.
-    try {
-      await this.chatPaymentService.resnapshotChatQuotaOnTierChange(
-        internalUserId,
-        newTier,
-      );
-    } catch (err) {
-      // Don't fail the webhook on chat-quota update failure
-      this.logger.error(
-        `Failed to re-snapshot chat quota for user ${internalUserId}: ${err}`,
-      );
-    }
+    // Recompute the user's effective tier from ALL active subscriptions across
+    // providers (M6) — never blind-downgrades a user who still holds an Apple/
+    // Google sub. The `status`/`planTier` above are already persisted on the
+    // Subscription row that syncUserTier reads; it also resnapshots chat quota.
+    await this.entitlements.syncUserTier(internalUserId);
 
     this.logger.log(`Subscription ${sub.id} updated: status=${status}, tier=${planTier}`);
   }
@@ -597,25 +584,12 @@ export class StripeService {
       });
     }
 
-    // Downgrade user to FREE
-    await this.prisma.user.update({
-      where: { id: internalUserId },
-      data: { subscriptionTier: 'FREE' },
-    });
+    // Recompute effective tier from remaining active subs (M6) — only drops to
+    // FREE when NO active subscription remains (cross-provider safe). Also
+    // resnapshots chat quota.
+    const { tier } = await this.entitlements.syncUserTier(internalUserId);
 
-    // Re-snapshot chat monthly quota — downgrade caps quota at 0 for FREE tier.
-    try {
-      await this.chatPaymentService.resnapshotChatQuotaOnTierChange(
-        internalUserId,
-        'FREE',
-      );
-    } catch (err) {
-      this.logger.error(
-        `Failed to re-snapshot chat quota for user ${internalUserId}: ${err}`,
-      );
-    }
-
-    this.logger.log(`Subscription ${sub.id} deleted — user ${internalUserId} downgraded to FREE`);
+    this.logger.log(`Subscription ${sub.id} deleted — user ${internalUserId} tier recomputed to ${tier}`);
   }
 
   /**
@@ -666,8 +640,13 @@ export class StripeService {
         ? new Date(lineItem.period.end * 1000)
         : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-      // Use subscription's planTier to determine credit amount
-      await this.grantMonthlyCredits(sub.userId, sub.planTier, periodStart, periodEnd);
+      // Grant this renewal's monthly credits — only if this sub is the
+      // GOVERNING active sub (cross-provider dedup, M6). Uses the invoice's
+      // period so the MonthlyCreditsLog idempotency key matches the new period.
+      await this.entitlements.grantMonthlyCreditsForSubscription(sub.userId, sub, {
+        periodStart,
+        periodEnd,
+      });
     }
   }
 
@@ -695,110 +674,18 @@ export class StripeService {
         data: { status: 'PAST_DUE' },
       });
 
-      // Update user tier to reflect payment issue
-      await this.prisma.user.update({
-        where: { id: existing.userId },
-        data: { subscriptionTier: 'FREE' },
-      });
+      // Recompute effective tier — PAST_DUE drops out of the active set, so a
+      // Stripe-only user falls to FREE while a user still covered by another
+      // active provider sub keeps that tier (M6, cross-provider safe). Also
+      // resnapshots chat quota (the pre-M6 path skipped this — now consistent
+      // with the updated/deleted handlers).
+      await this.entitlements.syncUserTier(existing.userId);
     }
   }
 
-  // ============================================================
-  // Monthly Credit Allowance
-  // ============================================================
-
-  /**
-   * Grant monthly credits to a subscriber based on their plan tier.
-   *
-   * Uses MonthlyCreditsLog unique constraint [userId, periodStart] for idempotency:
-   * - If credits were already granted for this period, the unique constraint
-   *   violation is caught and silently ignored (prevents double-grant on webhook replay).
-   * - All tiers with a positive `monthlyCredits` value (Basic/Pro/Master) receive a grant.
-   * - All operations are wrapped in $transaction for atomicity.
-   *
-   * @param userId Internal user ID
-   * @param planTier 'BASIC' | 'PRO' | 'MASTER'
-   * @param periodStart Start of the billing period (from Stripe, UTC)
-   * @param periodEnd End of the billing period (from Stripe, UTC)
-   */
-  async grantMonthlyCredits(
-    userId: string,
-    planTier: string,
-    periodStart: Date,
-    periodEnd: Date,
-  ): Promise<{ granted: boolean; creditsGranted: number }> {
-    // Look up plan by tier slug to get monthlyCredits value
-    const tierToSlug: Record<string, string> = {
-      BASIC: 'basic',
-      PRO: 'pro',
-      MASTER: 'master',
-    };
-    const planSlug = tierToSlug[planTier];
-
-    if (!planSlug) {
-      this.logger.warn(`Unknown plan tier "${planTier}" — skipping monthly credit grant`);
-      return { granted: false, creditsGranted: 0 };
-    }
-
-    const plan = await this.prisma.plan.findFirst({
-      where: { slug: planSlug, isActive: true },
-    });
-
-    if (!plan) {
-      this.logger.warn(`Plan "${planSlug}" not found — skipping monthly credit grant`);
-      return { granted: false, creditsGranted: 0 };
-    }
-
-    const monthlyCredits = plan.monthlyCredits;
-
-    if (monthlyCredits <= 0) {
-      this.logger.log(`Plan "${planSlug}" has ${monthlyCredits} monthly credits — skipping grant`);
-      return { granted: false, creditsGranted: 0 };
-    }
-
-    // Use $transaction for atomicity: create log + increment credits
-    // The unique constraint [userId, periodStart] prevents double-grant
-    try {
-      await this.prisma.$transaction(async (tx) => {
-        // Create MonthlyCreditsLog — will throw on duplicate [userId, periodStart]
-        await tx.monthlyCreditsLog.create({
-          data: {
-            userId,
-            creditAmount: monthlyCredits,
-            periodStart,
-            periodEnd,
-          },
-        });
-
-        // Increment user credits
-        await tx.user.update({
-          where: { id: userId },
-          data: { credits: { increment: monthlyCredits } },
-        });
-      });
-
-      this.logger.log(
-        `Granted ${monthlyCredits} monthly credits to user ${userId} ` +
-        `for period ${periodStart.toISOString()} — ${periodEnd.toISOString()}`,
-      );
-      return { granted: true, creditsGranted: monthlyCredits };
-    } catch (error: unknown) {
-      // Check for unique constraint violation (P2002) — means credits already granted for this period
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        (error as { code: string }).code === 'P2002'
-      ) {
-        this.logger.log(
-          `Monthly credits already granted for user ${userId}, period ${periodStart.toISOString()} — idempotent skip`,
-        );
-        return { granted: false, creditsGranted: 0 };
-      }
-      // Re-throw unexpected errors
-      throw error;
-    }
-  }
+  // NOTE (M6): grantMonthlyCredits moved verbatim to EntitlementsService.
+  // Renewals/creation now grant via entitlements.grantMonthlyCreditsForSubscription
+  // (cross-provider governing-sub gate). test/monthly-credits.spec.ts follows it.
 
   // ============================================================
   // Private Helpers
@@ -898,26 +785,10 @@ export class StripeService {
       },
     });
 
-    // Update user's subscription tier
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { subscriptionTier: planTier },
-    });
-
-    // Snapshot chat monthly quota for the new tier (per
-    // next-the-big-feature-proud-manatee plan). Lazy upsert in
-    // ChatPaymentService.tryConsumeFreeQuota also self-heals if this fails,
-    // but eager snapshot keeps audit trail (lastTierChangeAt) consistent.
-    try {
-      await this.chatPaymentService.resnapshotChatQuotaOnTierChange(
-        userId,
-        planTier,
-      );
-    } catch (err) {
-      this.logger.error(
-        `Failed to snapshot chat quota on subscription creation for user ${userId}: ${err}`,
-      );
-    }
+    // Recompute the user's effective tier from ALL active subs (M6) + resnapshot
+    // chat quota. For a Stripe-only user this yields `planTier`; if they already
+    // hold a higher Apple/Google sub, that higher tier is preserved.
+    await this.entitlements.syncUserTier(userId);
 
     // Record the transaction
     await this.prisma.transaction.create({
@@ -932,8 +803,11 @@ export class StripeService {
       },
     });
 
-    // Grant initial monthly credits for the subscription period
-    await this.grantMonthlyCredits(userId, planTier, periodStart, periodEnd);
+    // Grant initial monthly credits for the user's GOVERNING active sub (M6
+    // cross-provider dedup). Idempotent via MonthlyCreditsLog — a user who
+    // already holds an earlier/higher governing sub granted this period won't
+    // double-grant on this purchase.
+    await this.entitlements.grantMonthlyCreditsForGoverningSub(userId);
 
     this.logger.log(`Subscription created for user ${userId}: ${planSlug} (${planTier})`);
   }

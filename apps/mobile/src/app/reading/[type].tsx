@@ -403,7 +403,7 @@ export default function ReadingFlowScreen() {
         onCancel={() => setShowUnlock(false)}
         onBuyCredits={() => {
           setShowUnlock(false);
-          router.push('/(authenticated)/me');
+          router.push('/store');
         }}
       />
       </ScrollView>

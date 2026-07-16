@@ -39,6 +39,13 @@ export const env = {
   posthogKey: process.env.EXPO_PUBLIC_POSTHOG_KEY,
   /** Sentry DSN for crash reporting (init is skipped when absent). */
   sentryDsn: process.env.EXPO_PUBLIC_SENTRY_DSN,
+  /**
+   * RevenueCat public SDK keys (per platform). In-app purchases are disabled
+   * (store shows a friendly "coming soon" state) when the platform's key is
+   * absent — so the app runs fine before the RC dashboard is configured.
+   */
+  revenueCatIosKey: process.env.EXPO_PUBLIC_RC_IOS_KEY,
+  revenueCatAndroidKey: process.env.EXPO_PUBLIC_RC_ANDROID_KEY,
 } as const;
 
 export default env;

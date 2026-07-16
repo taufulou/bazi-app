@@ -3,6 +3,7 @@
  * Uses mocked Stripe SDK and PrismaService.
  */
 import { StripeService } from '../src/payments/stripe.service';
+import { EntitlementsService } from '../src/payments/entitlements.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 
 // ============================================================
@@ -74,6 +75,7 @@ const mockPrisma = {
   },
   subscription: {
     findFirst: jest.fn(),
+    findMany: jest.fn(),
     create: jest.fn(),
     update: jest.fn(),
   },
@@ -155,10 +157,17 @@ describe('StripeService', () => {
       // RedisService stub — pre-existing test gap (constructor takes redis;
       // tests didn't pass it before this fix)
       { get: jest.fn(), set: jest.fn() } as any,
-      // ChatPaymentService stub — added by Phase 1.1 for chat-quota
-      // re-snapshot on subscription tier change (see stripe.service.ts)
-      { resnapshotChatQuotaOnTierChange: jest.fn() } as any,
+      // M6: StripeService now consumes a provider-neutral EntitlementsService
+      // (tier recompute from active subs + credit grants + chat resnapshot).
+      // Construct a REAL one over the same mockPrisma so the handlers exercise
+      // the real tier-recompute/grant path against mocks.
+      new EntitlementsService(mockPrisma as any, {
+        resnapshotChatQuotaOnTierChange: jest.fn(),
+      } as any),
     );
+    // M6 default: no active subs unless a test overrides. Webhook handlers read
+    // active subs via syncUserTier / the governing-sub grant.
+    mockPrisma.subscription.findMany.mockResolvedValue([]);
   });
 
   // ============================================================
@@ -478,6 +487,11 @@ describe('StripeService', () => {
       mockPrisma.plan.findFirst.mockResolvedValue({ ...MOCK_PLAN, slug: 'pro', monthlyCredits: 15 });
       mockTxUser.update.mockResolvedValue({});
       mockTxMonthlyCreditsLog.create.mockResolvedValue({});
+      // M6: PRO sub active → syncUserTier writes PRO; user starts FREE.
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'PRO', currentPeriodStart: new Date(1700000000 * 1000), currentPeriodEnd: new Date(1702592000 * 1000), status: 'ACTIVE' },
+      ]);
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
 
       await service.handleCheckoutCompleted(session);
 
@@ -573,6 +587,11 @@ describe('StripeService', () => {
       mockPrisma.subscription.findFirst.mockResolvedValue({ id: 'sub-db-1' });
       mockPrisma.subscription.update.mockResolvedValue({});
       mockPrisma.user.update.mockResolvedValue({});
+      // M6: after the row is set ACTIVE MASTER, syncUserTier recomputes MASTER.
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-db-1', planTier: 'MASTER', currentPeriodStart: new Date(1700000000 * 1000), currentPeriodEnd: new Date(1702592000 * 1000), status: 'ACTIVE' },
+      ]);
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
 
       await service.handleSubscriptionUpdated(sub);
 
@@ -605,6 +624,8 @@ describe('StripeService', () => {
       mockPrisma.subscription.findFirst.mockResolvedValue({ id: 'sub-db-1' });
       mockPrisma.subscription.update.mockResolvedValue({});
       mockPrisma.user.update.mockResolvedValue({});
+      // M6: user currently PRO → syncUserTier recomputes FREE (no active subs).
+      mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, subscriptionTier: 'PRO' });
 
       await service.handleSubscriptionUpdated(sub);
 
@@ -638,6 +659,8 @@ describe('StripeService', () => {
       mockPrisma.subscription.findFirst.mockResolvedValue({ id: 'sub-db-1', userId: 'user-123' });
       mockPrisma.subscription.update.mockResolvedValue({});
       mockPrisma.user.update.mockResolvedValue({});
+      // M6: user currently PRO → recompute FREE after the sub is EXPIRED.
+      mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, subscriptionTier: 'PRO' });
 
       await service.handleSubscriptionDeleted(sub);
 
@@ -732,6 +755,8 @@ describe('StripeService', () => {
       });
       mockPrisma.subscription.update.mockResolvedValue({});
       mockPrisma.user.update.mockResolvedValue({});
+      // M6: user currently PRO → recompute FREE after the sub is PAST_DUE.
+      mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, subscriptionTier: 'PRO' });
 
       await service.handleInvoiceFailed(invoice);
 
