@@ -1,0 +1,32 @@
+# Keep the build context small + correct. Critically: never copy the host
+# node_modules (wrong architecture + huge) — the image runs `npm ci` itself.
+node_modules
+**/node_modules
+.git
+.gitignore
+
+# Secrets — provided via Railway env vars, never baked into the image
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example
+
+# Build artifacts / caches
+**/dist
+apps/web/.next
+apps/web/out
+apps/mobile/ios
+apps/mobile/android
+apps/mobile/.expo
+**/.turbo
+**/coverage
+
+# Python engine caches (its own Dockerfile builds it)
+**/__pycache__
+**/.pytest_cache
+**/.venv
+
+# Misc
+.claude
+**/*.log
+.DS_Store
