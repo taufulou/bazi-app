@@ -4,6 +4,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import * as Joi from 'joi';
 import { HealthController } from './health/health.controller';
+import { LegalController } from './legal/legal.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './auth/auth.module';
@@ -103,7 +104,7 @@ import { BannerModule } from './banner/banner.module';
     // Webhooks
     WebhooksModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, LegalController],
   providers: [
     // Apply rate limiting globally
     {
