@@ -121,23 +121,61 @@ export const shadows = {
 } as const;
 
 /**
- * Font families. `serif` is registered by expo-font in src/theme/fonts.ts
- * (Noto Serif TC) for headings + CJK; `sans` falls back to the system font.
+ * Font families. Registered by expo-font in src/theme/fonts.ts (Noto Serif TC)
+ * for headings + CJK; `sans` falls back to the system font.
+ *
+ * ⚠️ React Native does NOT synthesize weight for custom fonts — every loaded face
+ * is its OWN family. So the REGULAR family + `fontWeight: '700'` silently renders
+ * REGULAR — you must name the bold family (`serifBold`) instead. (This bug hid in
+ * 106 of 109 serif usages and made the whole app read thinner than the web.)
  */
 export const fonts = {
+  /** Regular (400) serif — for body-weight serif only. */
   serif: 'NotoSerifTC',
-  sans: undefined, // system default (-apple-system / Roboto)
+  /** Bold (700) serif — a SEPARATE family, not a weight of `serif`. */
+  serifBold: 'NotoSerifTC_Bold',
+  /** System font (iOS PingFang / Android Noto Sans CJK). Real `fontWeight` DOES work here. */
+  sans: undefined,
 } as const;
 
+/**
+ * Type scale, aligned to Apple's iOS HIG (the reference users' eyes are calibrated
+ * to; Material 3 is close enough that one scale serves Android too):
+ *
+ *   Caption 12 · Footnote 13 · Subhead 15 · Callout 16 · Body 17
+ *   Title3 20 · Title2 22 · Title1 28 · LargeTitle 34
+ *
+ * ⚠️ CJK rule: Chinese glyphs are much denser than Latin at the same point size,
+ * so CJK text sits at the TOP of these ranges, never the bottom (Apple's own
+ * Chinese apps run PingFang at 17pt body). Do NOT copy the web's px values here —
+ * web CSS px ≠ native pt; mirror the web's HIERARCHY, not its absolute numbers.
+ *
+ * `base` and `sm` were 16/14 — one step below Apple's Body/Subhead — while carrying
+ * the bulk of the app's text (115 + 176 usages). Raised to 17/15.
+ * `xs` stays 12: audited, and its ~100 usages are genuinely caption-class
+ * (disclaimers, badges, tags, units, micro-notes). Keep it that way.
+ */
 export const fontSize = {
-  xs: 12,
-  sm: 14,
-  base: 16,
+  xs: 12, // Caption — captions/badges/units ONLY, never prose
+  sm: 15, // Subhead — secondary prose
+  base: 17, // Body — primary prose
   lg: 18,
-  xl: 20,
+  xl: 20, // Title 3
   xxl: 24,
-  title: 28,
-  hero: 34,
+  title: 28, // Title 1
+  hero: 34, // Large Title
+} as const;
+
+/**
+ * Line-height multipliers. CJK needs looser leading than Latin (1.5–1.7 vs ~1.4)
+ * because the glyphs are dense and full-width. Use these instead of hardcoding:
+ *   lineHeight: fontSize.sm * lineHeightRatio.prose
+ */
+export const lineHeightRatio = {
+  /** Running prose / paragraphs. */
+  prose: 1.6,
+  /** Compact multi-line text (card descriptions, list subtitles). */
+  tight: 1.45,
 } as const;
 
 export const theme = {

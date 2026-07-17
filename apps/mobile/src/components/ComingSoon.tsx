@@ -22,6 +22,6 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.sm,
   },
-  title: { fontFamily: fonts.serif, fontSize: fontSize.xl, fontWeight: '700', color: colors.textPrimary },
+  title: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '700', color: colors.textPrimary },
   subtitle: { fontSize: fontSize.base, color: colors.textMuted },
 });

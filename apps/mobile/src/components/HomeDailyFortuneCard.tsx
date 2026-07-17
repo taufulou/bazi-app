@@ -158,7 +158,7 @@ export default function HomeDailyFortuneCard() {
 
 const styles = StyleSheet.create({
   section: { gap: spacing.sm },
-  heading: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  heading: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -177,14 +177,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scoreNumber: { fontFamily: fonts.serif, fontSize: fontSize.xl, fontWeight: '800' },
+  scoreNumber: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '800' },
   scoreUnit: { fontSize: 10, color: colors.textMuted },
   body: { flex: 1, gap: spacing.xs },
   headerRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm, flexWrap: 'wrap' },
-  label: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700' },
+  label: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700' },
   mood: { fontSize: fontSize.sm, color: colors.textSecondary },
   meta: { fontSize: fontSize.sm, color: colors.textMuted },
-  ziShiNote: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 16 },
+  ziShiNote: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18 },
   cta: { fontSize: fontSize.sm, color: colors.red, fontWeight: '600' },
   setupCard: {
     flexDirection: 'row',

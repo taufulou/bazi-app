@@ -264,7 +264,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.borderLight,
     gap: spacing.sm,
   },
-  headerTitle: { fontFamily: fonts.serif, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent },
+  headerTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent },
   headerSub: { fontSize: fontSize.base, color: colors.textSecondary, fontWeight: '400' },
   categoryBadge: {
     alignSelf: 'flex-start',
@@ -280,7 +280,7 @@ const styles = StyleSheet.create({
   content: { padding: spacing.xl, gap: spacing.md, paddingBottom: spacing.xxl * 2 },
   center: { alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.xxl, gap: spacing.sm },
   muted: { fontSize: fontSize.base, color: colors.textMuted },
-  bodyText: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 24 },
+  bodyText: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 26 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: { backgroundColor: colors.bgBannerWarm, borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
   chipText: { fontSize: fontSize.sm, color: colors.textAccent },

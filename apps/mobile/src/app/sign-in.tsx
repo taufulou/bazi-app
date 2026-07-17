@@ -146,7 +146,7 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   title: {
-    fontFamily: fonts.serif,
+    fontFamily: fonts.serifBold,
     fontSize: fontSize.title,
     fontWeight: '700',
     color: colors.textAccent,

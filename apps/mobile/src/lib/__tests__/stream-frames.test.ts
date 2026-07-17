@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any -- test doubles */
+ 
 // Chunk-boundary coverage for openSseStream's buffer-accumulation loop (the part
 // device-verified in the M2.1 spike but not otherwise unit-tested). Mocks
 // expo/fetch's reader to feed controlled chunk splits.

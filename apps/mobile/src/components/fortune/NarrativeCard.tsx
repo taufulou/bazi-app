@@ -323,8 +323,8 @@ const styles = StyleSheet.create({
   bold: { fontWeight: '700' },
   // Hero
   hero: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
-  heroTitle: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
-  heroBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 24 },
+  heroTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  heroBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 26 },
   skeletonHint: { fontSize: fontSize.sm, color: colors.textMuted, marginTop: spacing.xs },
   // chips
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
@@ -337,7 +337,7 @@ const styles = StyleSheet.create({
   dims: { gap: spacing.md },
   dimBlock: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
   dimHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  dimTitle: { fontFamily: fonts.serif, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary, flex: 1 },
+  dimTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary, flex: 1 },
   dimBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -357,14 +357,14 @@ const styles = StyleSheet.create({
     borderLeftColor: colors.textAccent,
     paddingLeft: spacing.sm,
   },
-  dimBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 23 },
+  dimBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 26 },
   // advice
   adviceGrid: { flexDirection: 'row', gap: spacing.md },
   adviceCol: { flex: 1, backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm },
   adviceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   adviceTitle: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
   adviceItem: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
-  adviceItemText: { fontSize: fontSize.sm, color: colors.textSecondary, flex: 1, lineHeight: 20 },
+  adviceItemText: { fontSize: fontSize.sm, color: colors.textSecondary, flex: 1, lineHeight: 22 },
   // disclaimer
   disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: spacing.xs },
   // skeleton
@@ -375,6 +375,6 @@ const styles = StyleSheet.create({
   fallbackLead: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
   signalsBlock: { backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.md, gap: 4 },
   signalsTitle: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
-  signalsItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 20 },
+  signalsItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
   signalsEmpty: { fontSize: fontSize.sm, color: colors.textMuted },
 });

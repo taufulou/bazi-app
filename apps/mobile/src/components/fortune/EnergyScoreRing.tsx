@@ -95,11 +95,11 @@ export default function EnergyScoreRing({ label, score, date, dayGanZhi, dayTenG
 const styles = StyleSheet.create({
   wrap: { alignItems: 'center', gap: spacing.sm },
   dateBand: { alignItems: 'center', gap: 2, marginBottom: spacing.xs },
-  dateLine: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
+  dateLine: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
   baziLine: { fontSize: fontSize.sm, color: colors.textSecondary },
   ringWrap: { width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' },
   scoreText: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
-  scoreNumber: { fontFamily: fonts.serif, fontSize: 44, fontWeight: '800', color: colors.textPrimary, lineHeight: 48 },
+  scoreNumber: { fontFamily: fonts.serifBold, fontSize: 44, fontWeight: '800', color: colors.textPrimary, lineHeight: 48 },
   scoreUnit: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
   labelBand: {
     paddingHorizontal: spacing.lg,
@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     marginTop: spacing.xs,
   },
-  labelText: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textOnGold },
+  labelText: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textOnGold },
   friendlyExplanation: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', paddingHorizontal: spacing.md },
   microDisclaimer: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
 });

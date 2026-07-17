@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.xl, paddingBottom: spacing.xxl * 2, gap: spacing.md },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
-  title: { fontFamily: fonts.serif, fontSize: fontSize.title, fontWeight: '800', color: colors.textAccent },
+  title: { fontFamily: fonts.serifBold, fontSize: fontSize.title, fontWeight: '800', color: colors.textAccent },
   creditChip: {
     backgroundColor: colors.bgCard,
     borderRadius: 999,
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   freeBody: { flex: 1, gap: 2 },
-  freeTitle: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
+  freeTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
   freeSub: { fontSize: fontSize.sm, color: colors.textSecondary },
   sectionLabel: {
     fontSize: fontSize.sm,
@@ -166,8 +166,8 @@ const styles = StyleSheet.create({
   cardIcon: { width: 48, height: 48, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   cardEmoji: { fontSize: 24 },
   cardBody: { flex: 1, gap: 3 },
-  cardTitle: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
-  cardDesc: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 19 },
+  cardTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
+  cardDesc: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
   cardRight: { alignItems: 'center', gap: spacing.xs },
   costPill: {
     flexDirection: 'row',
@@ -180,5 +180,5 @@ const styles = StyleSheet.create({
   },
   costText: { fontSize: fontSize.base, fontWeight: '800', color: colors.red },
   costUnit: { fontSize: fontSize.xs, color: colors.red },
-  disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg, lineHeight: 17 },
+  disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg, lineHeight: 18 },
 });

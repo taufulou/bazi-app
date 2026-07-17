@@ -37,6 +37,6 @@ const styles = StyleSheet.create({
   },
   icon: { fontSize: 26 },
   body: { flex: 1, gap: 2 },
-  title: { fontFamily: fonts.serif, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
+  title: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   sub: { fontSize: fontSize.xs, color: colors.textSecondary, lineHeight: 18 },
 });

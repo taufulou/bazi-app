@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
-  title: { flex: 1, fontFamily: fonts.serif, fontSize: fontSize.sm, fontWeight: '700', color: colors.textAccent, lineHeight: 20 },
+  title: { flex: 1, fontFamily: fonts.serifBold, fontSize: fontSize.sm, fontWeight: '700', color: colors.textAccent, lineHeight: 22 },
   titleCta: { color: colors.red, textDecorationLine: 'underline' },
   titleCtaPlain: { color: colors.textSecondary },
   questions: { gap: spacing.xs },
@@ -84,5 +84,5 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.sm,
   },
-  questionText: { flex: 1, fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 19 },
+  questionText: { flex: 1, fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 22 },
 });

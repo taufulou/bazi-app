@@ -74,7 +74,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  dimName: { fontFamily: fonts.serif, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
+  dimName: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   stars: { flexDirection: 'row', gap: 2 },
   star: { fontSize: fontSize.lg },
   keyword: { fontSize: fontSize.xs, color: colors.textSecondary, textAlign: 'center' },

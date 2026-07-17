@@ -223,9 +223,9 @@ const md = StyleSheet.create({
   bulletList: { gap: spacing.xs },
   bulletRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' },
   dot: { color: colors.gold, fontSize: 10, lineHeight: 24 },
-  bulletText: { flex: 1, fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 24 },
+  bulletText: { flex: 1, fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 26 },
   bulletCategoryWrap: { flex: 1 },
-  bulletCategory: { fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent, lineHeight: 24 },
+  bulletCategory: { fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent, lineHeight: 26 },
   bulletCategoryItems: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
 });
 
@@ -260,7 +260,7 @@ const card = StyleSheet.create({
   wrap: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, ...shadows.warm },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderLeftWidth: 3, paddingLeft: spacing.sm },
   icon: { fontSize: 20 },
-  title: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', flex: 1 },
+  title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', flex: 1 },
   body: { gap: spacing.sm },
 });
 
@@ -285,7 +285,7 @@ export function StarRating({ score, indicatorLabel, color }: { score: number; in
 const star = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   stars: { fontSize: fontSize.lg, letterSpacing: 1 },
-  score: { fontFamily: fonts.serif, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
+  score: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   indicator: { fontSize: fontSize.sm, color: colors.textSecondary },
 });
 
@@ -377,9 +377,9 @@ const verdict = StyleSheet.create({
   left: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flex: 1 },
   icon: { fontSize: fontSize.lg, fontWeight: '800' },
   label: { fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary, flex: 1 },
-  score: { fontFamily: fonts.serif, fontSize: fontSize.xl, fontWeight: '800' },
+  score: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '800' },
   scoreMax: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600' },
-  meta: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 20 },
+  meta: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
 });
 
 // ============================================================

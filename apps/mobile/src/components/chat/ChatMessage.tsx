@@ -119,8 +119,8 @@ const styles = StyleSheet.create({
   },
   bubbleFailed: { opacity: 0.6 },
 
-  userText: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 23 },
-  assistantText: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 24 },
+  userText: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 26 },
+  assistantText: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 26 },
 
   errorTag: {
     marginTop: spacing.xs,

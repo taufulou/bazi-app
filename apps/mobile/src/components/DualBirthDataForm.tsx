@@ -229,7 +229,7 @@ export default function DualBirthDataForm({
 
 const styles = StyleSheet.create({
   wrapper: { gap: spacing.lg },
-  title: { fontFamily: fonts.serif, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent, textAlign: 'center' },
+  title: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent, textAlign: 'center' },
   subtitle: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', marginTop: -spacing.sm },
   typeRow: { flexDirection: 'row', gap: spacing.sm },
   typeBtn: {
@@ -247,7 +247,7 @@ const styles = StyleSheet.create({
   typeLabel: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
   typeLabelActive: { color: colors.red },
   panel: { gap: spacing.sm },
-  panelLabel: { fontFamily: fonts.serif, fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
+  panelLabel: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
   summaryCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -270,5 +270,5 @@ const styles = StyleSheet.create({
   dividerIcon: { fontSize: 20 },
   creditInfo: { fontSize: fontSize.sm, color: colors.textMuted, textAlign: 'center' },
   emptyBox: { padding: spacing.xl, alignItems: 'center' },
-  emptyText: { fontSize: fontSize.base, color: colors.textSecondary, textAlign: 'center', lineHeight: 22 },
+  emptyText: { fontSize: fontSize.base, color: colors.textSecondary, textAlign: 'center', lineHeight: 26 },
 });

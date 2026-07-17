@@ -168,8 +168,11 @@ export const READING_TYPE_META: Record<ReadingType, {
     themeColor: '#2196F3',
     creditCost: 3,
     description: {
-      'zh-TW': '詳細批算你的事業運，幫你找到最佳職業方向、財富格局和發展時機',
-      'zh-CN': '详细批算你的事业运，帮你找到最佳职业方向、财富格局和发展时机',
+      // Trimmed 30→26 chars so it fits the home card's 2-line clamp in full
+      // (~13-14 CJK per line at 15pt). All three hooks kept: 最佳職業方向 /
+      // 財富格局 / 發展時機. NOTE: shared with web — keep any rewrite ≤27 chars.
+      'zh-TW': '批算你的事業運，找出最佳職業方向、財富格局與發展時機',
+      'zh-CN': '批算你的事业运，找出最佳职业方向、财富格局与发展时机',
     },
     image: '/features/career.webp',
   },
@@ -181,8 +184,10 @@ export const READING_TYPE_META: Record<ReadingType, {
     themeColor: '#E91E63',
     creditCost: 3,
     description: {
-      'zh-TW': '深度剖析先天桃花運、配偶星、婚姻宮，精準預測感情好壞年份與婚配建議',
-      'zh-CN': '深度剖析先天桃花运、配偶星、婚姻宫，精准预测感情好坏年份与婚配建议',
+      // Trimmed 33→25 chars to fit the home card's 2-line clamp in full
+      // (~13-14 CJK per line at 15pt). NOTE: shared with web — keep ≤27 chars.
+      'zh-TW': '深度剖析先天桃花運，精準預測感情好壞年份與婚配建議',
+      'zh-CN': '深度剖析先天桃花运，精准预测感情好坏年份与婚配建议',
     },
     image: '/features/love.webp',
   },

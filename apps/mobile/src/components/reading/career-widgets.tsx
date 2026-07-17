@@ -457,7 +457,7 @@ const s = StyleSheet.create({
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center' },
 
   subHeader: {
-    fontFamily: fonts.serif,
+    fontFamily: fonts.serifBold,
     fontSize: fontSize.sm,
     fontWeight: '700',
     color: colors.textAccent,
@@ -474,7 +474,7 @@ const s = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  badgeText: { fontFamily: fonts.serif, fontSize: fontSize.base, fontWeight: '800', color: colors.textOnRed },
+  badgeText: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '800', color: colors.textOnRed },
 
   // Ten god capability rows
   tgRow: { gap: spacing.xs },
@@ -501,7 +501,7 @@ const s = StyleSheet.create({
     padding: spacing.md,
   },
   forecastHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  ganZhi: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '800', color: colors.textPrimary },
+  ganZhi: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '800', color: colors.textPrimary },
   forecastMonth: { fontSize: fontSize.sm, color: colors.textSecondary },
   forecastTenGod: { fontSize: fontSize.sm, color: colors.textAccent, fontWeight: '600' },
   auspPill: {

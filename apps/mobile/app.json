@@ -50,7 +50,11 @@
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "b7c274f0-ce98-42ca-93c9-cb5af4faff3a"
       }
-    }
+    },
+    "owner": "tian-ming"
   }
 }

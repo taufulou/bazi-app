@@ -114,7 +114,7 @@ export default function YearlyRiskOpportunityGrid({ coreRiskOpportunity, aiEntri
 const styles = StyleSheet.create({
   section: { gap: spacing.sm },
   bold: { fontWeight: '700' },
-  title: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
   subtitle: { fontSize: fontSize.sm, color: colors.textSecondary },
   flatYear: { fontSize: fontSize.base, color: colors.textSecondary, marginTop: spacing.sm },
   columns: { gap: spacing.lg, marginTop: spacing.xs },
@@ -133,6 +133,6 @@ const styles = StyleSheet.create({
   entryDim: { fontSize: fontSize.xs, color: colors.textSecondary },
   entryLabel: { fontSize: fontSize.xs, color: colors.textAccent, fontWeight: '600' },
   entryKeyword: { fontSize: fontSize.sm, color: colors.textAccent, fontWeight: '600' },
-  entryNarrative: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 21 },
+  entryNarrative: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
   caveatTag: { fontSize: fontSize.xs, color: colors.textMuted, fontStyle: 'italic' },
 });

@@ -47,7 +47,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     ...shadows.warm,
   },
-  label: { fontFamily: fonts.serif, fontSize: fontSize.base, fontWeight: '700', color: colors.textOnRed },
+  label: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textOnRed },
   badge: {
     position: 'absolute',
     top: -8,

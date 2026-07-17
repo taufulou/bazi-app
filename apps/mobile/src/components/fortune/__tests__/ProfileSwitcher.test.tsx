@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories are hoisted */
+ 
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import ProfileSwitcher from '../ProfileSwitcher';
 import type { BirthProfile } from '../../../lib/birth-profiles-api';

@@ -213,7 +213,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   title: {
-    fontFamily: fonts.serif,
+    fontFamily: fonts.serifBold,
     fontSize: fontSize.xl,
     fontWeight: '700',
     color: colors.textAccent,
@@ -229,7 +229,7 @@ const styles = StyleSheet.create({
   bodyLine: {
     fontSize: fontSize.base,
     color: colors.textPrimary,
-    lineHeight: 23,
+    lineHeight: 26,
     textAlign: 'center',
   },
   bodyHint: {

@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     marginBottom: spacing.md,
   },
-  sheetTitle: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
+  sheetTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
   previewWrap: { alignItems: 'center', paddingHorizontal: spacing.lg, paddingBottom: spacing.lg },
   shareBtn: {
     backgroundColor: colors.red,

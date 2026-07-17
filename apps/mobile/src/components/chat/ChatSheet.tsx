@@ -347,7 +347,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.borderLight,
     backgroundColor: colors.bgCard,
   },
-  title: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   quotaChip: { backgroundColor: colors.bgSecondary, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   quotaText: { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
@@ -366,7 +366,7 @@ const styles = StyleSheet.create({
   errorText: { fontSize: fontSize.sm, color: colors.error },
   loadingBox: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyState: { alignItems: 'center', gap: spacing.md, padding: spacing.xl },
-  emptyTitle: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  emptyTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
   sampleBtn: {
     alignSelf: 'stretch',
     backgroundColor: colors.bgCard,
@@ -375,5 +375,5 @@ const styles = StyleSheet.create({
     borderColor: colors.borderLight,
     padding: spacing.md,
   },
-  sampleText: { fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 20 },
+  sampleText: { fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 22 },
 });

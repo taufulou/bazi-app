@@ -129,7 +129,7 @@ const styles = StyleSheet.create({
     borderColor: colors.borderMedium,
   },
   chipDisabled: { opacity: 0.6 },
-  chipLabel: { fontFamily: fonts.serif, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
+  chipLabel: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   hint: { fontSize: fontSize.xs, color: colors.textMuted },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
   sheet: {
@@ -141,7 +141,7 @@ const styles = StyleSheet.create({
     maxHeight: '70%',
   },
   sheetTitle: {
-    fontFamily: fonts.serif,
+    fontFamily: fonts.serifBold,
     fontSize: fontSize.lg,
     fontWeight: '700',
     color: colors.textAccent,

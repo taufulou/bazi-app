@@ -211,7 +211,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.xl, gap: spacing.md, paddingBottom: spacing.xxl * 2 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bgPrimary },
-  title: { fontFamily: fonts.serif, fontSize: fontSize.title, fontWeight: '700', color: colors.textPrimary },
+  title: { fontFamily: fonts.serifBold, fontSize: fontSize.title, fontWeight: '700', color: colors.textPrimary },
   empty: { fontSize: fontSize.base, color: colors.textMuted, textAlign: 'center', marginTop: spacing.xl },
   card: {
     flexDirection: 'row',

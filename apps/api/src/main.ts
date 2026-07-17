@@ -1,5 +1,7 @@
 import * as Sentry from '@sentry/nestjs';
 import { NestFactory } from '@nestjs/core';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 import { AppModule } from './app.module';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
@@ -18,7 +20,7 @@ if (process.env.SENTRY_DSN) {
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
 
-  const app = await NestFactory.create(AppModule, {
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     // Enable raw body for webhook signature verification (Svix/Clerk)
     rawBody: true,
   });
@@ -28,6 +30,16 @@ async function bootstrap() {
 
   // Security headers
   app.use(helmet());
+
+  // Serve the day-master mascot art (apps/web/public/mascots) so the mobile app
+  // loads it remotely via EXPO_PUBLIC_ASSETS_URL instead of bundling ~32MB into
+  // the binary. cwd is apps/api in dev AND /app/apps/api in the Docker image, so
+  // ../web/public/mascots resolves in both. Immutable: the art is content-stable.
+  app.useStaticAssets(join(process.cwd(), '..', 'web', 'public', 'mascots'), {
+    prefix: '/mascots',
+    maxAge: '30d',
+    immutable: true,
+  });
 
   // Global exception filter
   app.useGlobalFilters(new AllExceptionsFilter());

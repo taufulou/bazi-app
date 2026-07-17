@@ -40,6 +40,11 @@ export default function AuthenticatedLayout() {
         name="home"
         options={{
           title: zh('首頁'),
+          // No nav bar: the web dashboard has none, 首頁 carries its own logo +
+          // credit header, and the tab bar already says where you are. Reclaims
+          // ~55pt so the hero banner sits near the top like web. (home.tsx adds
+          // its own safe-area top inset since the header no longer supplies one.)
+          headerShown: false,
           tabBarIcon: ({ color, size }) => <House color={color} size={size} />,
         }}
       />

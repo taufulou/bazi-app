@@ -241,7 +241,7 @@ export function LuckPeriodChart({
 
 const chart = StyleSheet.create({
   wrap: { gap: spacing.sm },
-  title: { fontFamily: fonts.serif, fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
+  title: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
   svgWrap: { width: '100%' },
 });
 
@@ -311,7 +311,7 @@ const tl = StyleSheet.create({
   rowBest: { borderColor: colors.success },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   headerLeft: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm, flexShrink: 1 },
-  ganzhi: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
+  ganzhi: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
   tenGod: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
   badges: { flexDirection: 'row', gap: spacing.xs },
   meta: { fontSize: fontSize.sm, color: colors.textMuted },
@@ -397,7 +397,7 @@ const hdr = StyleSheet.create({
     paddingVertical: 2,
     overflow: 'hidden',
   },
-  ganzhi: { fontFamily: fonts.serif, fontSize: fontSize.xl, fontWeight: '800', color: colors.textPrimary },
+  ganzhi: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '800', color: colors.textPrimary },
   years: { fontSize: fontSize.sm, color: colors.textSecondary },
   ageMeta: { fontSize: fontSize.sm, color: colors.textMuted },
   phases: { gap: spacing.xs },
@@ -413,5 +413,5 @@ const hdr = StyleSheet.create({
     paddingTop: spacing.sm,
   },
   scoreLabel: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
-  scoreValue: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '800' },
+  scoreValue: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '800' },
 });

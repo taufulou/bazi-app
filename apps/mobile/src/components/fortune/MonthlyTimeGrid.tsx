@@ -102,12 +102,12 @@ export default function MonthlyTimeGrid({ partitionSpec, intraMonthBreakdown, mo
 
 const styles = StyleSheet.create({
   section: { gap: spacing.sm },
-  title: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
   subtitle: { fontSize: fontSize.sm, color: colors.textSecondary },
   grid: { gap: spacing.md, marginTop: spacing.xs },
   card: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
-  cardTitle: { fontFamily: fonts.serif, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
+  cardTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   pillarBadge: { backgroundColor: 'rgba(212,160,23,0.10)', borderColor: colors.borderMedium, borderWidth: 1, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   pillarBadgeText: { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
   cardRange: { fontSize: fontSize.sm, color: colors.textMuted },
@@ -121,6 +121,6 @@ const styles = StyleSheet.create({
   peakDate: { fontSize: fontSize.xs, fontWeight: '700', color: colors.textPrimary },
   peakLabel: { fontSize: fontSize.xs, color: colors.textSecondary },
   peakSignal: { fontSize: fontSize.xs, color: colors.textMuted },
-  placeholderHint: { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 20 },
+  placeholderHint: { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 22 },
   windowInfo: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: spacing.xs },
 });

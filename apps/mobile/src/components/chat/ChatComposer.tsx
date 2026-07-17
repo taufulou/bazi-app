@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     fontSize: fontSize.base,
     color: colors.textPrimary,
-    lineHeight: 22,
+    lineHeight: 26,
   },
   sendBtn: {
     width: 44,

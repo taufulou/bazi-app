@@ -117,6 +117,7 @@ export async function updateBirthProfile(
   // rejects any update carrying it with 400 "property hourKnown should not exist".
   // formValuesToPayload always sets it (needed for CREATE), so strip it here —
   // this one seam covers both the profile-edit and readings-save-update paths.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure-to-drop the immutable field
   const { hourKnown: _immutable, ...updatable } = payload;
   return apiFetch<BirthProfile>(`/api/users/me/birth-profiles/${id}`, {
     method: 'PATCH',

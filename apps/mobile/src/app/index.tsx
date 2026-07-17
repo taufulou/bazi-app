@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   title: {
-    fontFamily: fonts.serif,
+    fontFamily: fonts.serifBold,
     fontSize: fontSize.hero,
     fontWeight: '700',
     color: colors.red,

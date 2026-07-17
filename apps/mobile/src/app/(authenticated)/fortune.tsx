@@ -7,6 +7,9 @@ import { useZh } from '../../lib/language';
 import EnergyScoreRing from '../../components/fortune/EnergyScoreRing';
 import DimensionBars from '../../components/fortune/DimensionBars';
 import NarrativeCard from '../../components/fortune/NarrativeCard';
+import FolkContentCard from '../../components/fortune/FolkContentCard';
+import FortuneChat, { SampleQuestionStrip } from '../../components/fortune/FortuneChat';
+import SectionDivider from '../../components/fortune/SectionDivider';
 import MonthlyEnergyRing from '../../components/fortune/MonthlyEnergyRing';
 import MonthlyDimensionBars from '../../components/fortune/MonthlyDimensionBars';
 import MonthlyTimeGrid from '../../components/fortune/MonthlyTimeGrid';
@@ -153,6 +156,25 @@ export default function FortuneScreen() {
   const [profiles, setProfiles] = useState<BirthProfile[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | undefined>(undefined);
   const [resolvedProfileId, setResolvedProfileId] = useState<string | undefined>(undefined);
+  // Anchor date of each scope's picker, reported up so the FORTUNE chat session
+  // pins to the period actually on screen (day: the date · month: YYYY-MM-01 ·
+  // year: YYYY-01-01). Sessions are per anchor date.
+  const [dayAnchor, setDayAnchor] = useState<string | undefined>(undefined);
+  const [monthAnchor, setMonthAnchor] = useState<string | undefined>(undefined);
+  const [yearAnchor, setYearAnchor] = useState<string | undefined>(undefined);
+
+  // FORTUNE chat — one shared sheet across the tabs, opened by the floating button
+  // OR a sample-question pill (which prefills the composer). Closed on tab change:
+  // a session is bound to one scope+anchor, so it shouldn't survive a scope switch.
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatPending, setChatPending] = useState<string | undefined>(undefined);
+  const askFortune = useCallback((question?: string) => {
+    setChatPending(question);
+    setChatOpen(true);
+  }, []);
+  useEffect(() => {
+    setChatOpen(false);
+  }, [tab]);
 
   // Deep-link from the home «今日運勢» card: `?day=<today>&n=<nonce>` → switch to
   // the day tab + reset the day view to today (the nonce re-fires on repeat taps).
@@ -218,6 +240,9 @@ export default function FortuneScreen() {
   const switcherActiveId = selectedProfileId ?? resolvedProfileId;
 
   return (
+    // Wrapper so the floating chat button can sit ABOVE the scroll content
+    // (inside the ScrollView it would scroll away with the page).
+    <View style={styles.screen}>
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {/* Profile switcher (hidden when <= 1 profile) */}
       <ProfileSwitcher
@@ -249,6 +274,8 @@ export default function FortuneScreen() {
           isFree={isFree}
           profileId={selectedProfileId}
           onResolvedProfile={setResolvedProfileId}
+          onAnchorChange={setDayAnchor}
+          onAsk={askFortune}
           focusDate={focusDate}
           focusNonce={focusNonce}
         />
@@ -257,15 +284,31 @@ export default function FortuneScreen() {
           isFree={isFree}
           profileId={selectedProfileId}
           onResolvedProfile={setResolvedProfileId}
+          onAnchorChange={setMonthAnchor}
         />
       ) : (
         <YearlyFortuneView
           isFree={isFree}
           profileId={selectedProfileId}
           onResolvedProfile={setResolvedProfileId}
+          onAnchorChange={setYearAnchor}
         />
       )}
     </ScrollView>
+
+    {/* 問 AI 命理師 — web mounts chat on all three fortune tabs. One shared sheet,
+        pinned to the active tab's on-screen anchor (day → date · month → YYYY-MM-01
+        · year → YYYY-01-01), so the session always matches the period viewed. */}
+    <FortuneChat
+      profileId={switcherActiveId}
+      scope={tab === 'day' ? 'DAY' : tab === 'month' ? 'MONTH' : 'YEAR'}
+      anchorDate={tab === 'day' ? dayAnchor : tab === 'month' ? monthAnchor : yearAnchor}
+      open={chatOpen}
+      pending={chatPending}
+      onOpenChange={setChatOpen}
+      onPendingConsumed={() => setChatPending(undefined)}
+    />
+    </View>
   );
 }
 
@@ -277,12 +320,18 @@ function DailyFortuneView({
   isFree,
   profileId,
   onResolvedProfile,
+  onAnchorChange,
+  onAsk,
   focusDate,
   focusNonce,
 }: {
   isFree: boolean;
   profileId?: string;
   onResolvedProfile?: (id: string) => void;
+  /** Reports the viewed date up so the parent can anchor the FORTUNE chat session. */
+  onAnchorChange?: (anchorDate: string) => void;
+  /** Opens the shared chat sheet, optionally prefilled with a sample question. */
+  onAsk?: (question?: string) => void;
   focusDate?: string;
   focusNonce?: string;
 }) {
@@ -292,6 +341,11 @@ function DailyFortuneView({
   const [date, setDate] = useState(today);
   const dateRef = useRef(date);
   dateRef.current = date;
+  // Keep the parent's chat anchor in step with the picker. Safe to list the
+  // callback in deps: the parent passes a stable setState setter.
+  useEffect(() => {
+    onAnchorChange?.(date);
+  }, [date, onAnchorChange]);
   const [enabled, setEnabled] = useState(true);
   const [state, setState] = useState<DayState>({ status: 'loading' });
   const [streamed, setStreamed] = useState<Partial<DailyFortuneNarrative>>({});
@@ -451,7 +505,9 @@ function DailyFortuneView({
           dayTenGod={eo.dayTenGod}
           hideDateLine
         />
+        <SectionDivider />
         <DimensionBars dimensions={eo.dimensions} />
+        <SectionDivider />
         <NarrativeCard
           narrative={narrative}
           dimensions={eo.dimensions}
@@ -459,6 +515,21 @@ function DailyFortuneView({
           loading={state.status === 'engine'}
           streamedSections={streamed}
         />
+        {/* 想問什麼？ pill strip — web places it between the narrative and the folk
+            card. Tapping a pill opens the shared chat sheet with it prefilled. */}
+        {onAsk ? (
+          <>
+            <SectionDivider />
+            <SampleQuestionStrip onPick={onAsk} />
+          </>
+        ) : null}
+        <SectionDivider />
+        {/* 命局層級參考 — web renders this between the narrative and the share
+            button. It was missing on mobile entirely: the folk data was fetched
+            and drawn into the share IMAGE, but never shown on the screen, so
+            吉色/吉數/宜食/忌食/吉時 were unreachable without exporting a share card.
+            Engine-only (no AI), so it shows as soon as engine data lands. */}
+        <FolkContentCard folkContent={eo.folkContent} />
         {shareData ? (
           <ShareFortuneButton renderCard={(ref) => <ShareableFortuneCard ref={ref} data={shareData} />} />
         ) : null}
@@ -498,15 +569,22 @@ function MonthlyFortuneView({
   isFree,
   profileId,
   onResolvedProfile,
+  onAnchorChange,
 }: {
   isFree: boolean;
   profileId?: string;
   onResolvedProfile?: (id: string) => void;
+  /** Reports the anchor (YYYY-MM-01) up so the parent can pin the FORTUNE chat. */
+  onAnchorChange?: (anchorDate: string) => void;
 }) {
   const zh = useZh();
   const current = useMemo(() => resolveCurrentMonthIso(), []);
   const options = useMemo(() => buildMonthOptions(current), [current]);
   const [month, setMonth] = useState(current);
+  // Anchor is the 1st of the viewed month (matches web's `${targetMonth}-01`).
+  useEffect(() => {
+    onAnchorChange?.(`${month}-01`);
+  }, [month, onAnchorChange]);
   const [enabled, setEnabled] = useState(true);
   const [state, setState] = useState<MonthState>({ status: 'loading' });
   const [streamed, setStreamed] = useState<Partial<MonthlyFortuneNarrative>>({});
@@ -701,15 +779,22 @@ function YearlyFortuneView({
   isFree,
   profileId,
   onResolvedProfile,
+  onAnchorChange,
 }: {
   isFree: boolean;
   profileId?: string;
   onResolvedProfile?: (id: string) => void;
+  /** Reports the anchor (YYYY-01-01) up so the parent can pin the FORTUNE chat. */
+  onAnchorChange?: (anchorDate: string) => void;
 }) {
   const zh = useZh();
   const current = useMemo(() => resolveCurrentYearIso(), []);
   const options = useMemo(() => buildYearOptions(current), [current]);
   const [year, setYear] = useState(current);
+  // Anchor is Jan 1 of the viewed year (matches web's `${targetYear}-01-01`).
+  useEffect(() => {
+    onAnchorChange?.(`${year}-01-01`);
+  }, [year, onAnchorChange]);
   const [enabled, setEnabled] = useState(true);
   const [state, setState] = useState<YearState>({ status: 'loading' });
   const [streamed, setStreamed] = useState<Partial<YearlyFortuneNarrative>>({});
@@ -892,6 +977,8 @@ function YearlyFortuneView({
 }
 
 const styles = StyleSheet.create({
+  // Wraps the ScrollView so the floating chat button overlays it.
+  screen: { flex: 1 },
   container: { flex: 1, backgroundColor: colors.bgPrimary },
   content: { padding: spacing.xl, paddingBottom: spacing.xxl * 2, gap: spacing.lg },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bgPrimary },
@@ -906,7 +993,7 @@ const styles = StyleSheet.create({
   loadingBox: { alignItems: 'center', justifyContent: 'center', gap: spacing.md, paddingVertical: spacing.xxl * 2 },
   loadingText: { fontSize: fontSize.sm, color: colors.textSecondary },
   errorBox: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xxl, backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.xl },
-  errorTitle: { fontFamily: fonts.serif, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
+  errorTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
   errorMsg: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center' },
   retryBtn: { backgroundColor: colors.red, borderRadius: radius.md, paddingVertical: spacing.md, paddingHorizontal: spacing.xl, marginTop: spacing.sm },
   retryText: { color: colors.textOnRed, fontSize: fontSize.base, fontWeight: '700' },

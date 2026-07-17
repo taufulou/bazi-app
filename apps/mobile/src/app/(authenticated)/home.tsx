@@ -1,168 +1,160 @@
-import { useUser, useAuth } from '@clerk/clerk-expo';
+import { useUser } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Pressable } from 'react-native';
-import { colors, spacing, fontSize, radius, shadows, fonts } from '../../theme';
+import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { colors, spacing, fontSize, fonts } from '../../theme';
 import { useZh } from '../../lib/language';
-import { getUserProfile, type SubscriptionTier } from '../../lib/api';
-import { fetchBirthProfiles, type BirthProfile } from '../../lib/birth-profiles-api';
-import { calculateBazi } from '../../lib/bazi-api';
-import type { BaziChartData } from '../../lib/bazi-types';
-import BaziChart from '../../components/BaziChart';
+import CreditBadge from '../../components/home/CreditBadge';
+import WelcomeFortunePill from '../../components/home/WelcomeFortunePill';
+import HeroBanner from '../../components/home/HeroBanner';
+import { FeatureCards } from '../../components/home/FeatureCards';
+import AccountPanel from '../../components/home/AccountPanel';
 import HomeDailyFortuneCard from '../../components/HomeDailyFortuneCard';
+// 120px resize of apps/web/public/logo-1024.png (the 3MB original would be
+// decoded in full for a 34pt header slot).
+import LOGO from '../../../assets/logo-header.png';
+import HERO_BG from '../../../assets/backgrounds/dashboard-hero-bg.webp';
 
-const TIER_LABEL: Record<SubscriptionTier, string> = {
-  FREE: '免費會員',
-  BASIC: '基礎會員',
-  PRO: '專業會員',
-  MASTER: '大師會員',
-};
+/** Decorative backdrop height, mirroring web's clamp(240px, 30vh, 350px) at ≤768px. */
+const HERO_BG_HEIGHT = 300;
 
-/** 首頁 — greeting + credit balance + the primary profile's chart. */
+/**
+ * 首頁 — mirrors the web dashboard (apps/web/app/page.tsx) section-for-section:
+ *
+ *   header(logo + credit badge) → welcome(greeting + fortune pill + quick links)
+ *   → hero banner → 八字命理分析 feature list → 今日運勢 → account panel
+ *
+ * Deliberately does NOT show the 八字命格 chart: web's dashboard has no chart
+ * either (it lives inside a reading / 免費排盤). Web hides the username in the
+ * header at ≤768px and stacks the welcome row into a column, so this always does.
+ */
 export default function HomeScreen() {
   const { user } = useUser();
-  const { getToken } = useAuth();
-  const router = useRouter();
   const zh = useZh();
-  const [credits, setCredits] = useState<number | null>(null);
-  const [tier, setTier] = useState<SubscriptionTier | null>(null);
-  const [status, setStatus] = useState<'loading' | 'ok' | 'error'>('loading');
-  const [chart, setChart] = useState<BaziChartData | null>(null);
-  const [primary, setPrimary] = useState<BirthProfile | null>(null);
-  const [chartLoading, setChartLoading] = useState(true);
-  // Chart failure is tracked separately from the account/credits status so a
-  // chart error never blanks the (already-loaded) credit card.
-  const [chartError, setChartError] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      let token: string | null = null;
-      let p: BirthProfile | null = null;
-      // Account + credits — drives the credit card `status`.
-      try {
-        token = await getToken();
-        if (!token) {
-          if (!cancelled) {
-            setStatus('error');
-            setChartLoading(false);
-          }
-          return;
-        }
-        const [profile, profiles] = await Promise.all([getUserProfile(token), fetchBirthProfiles(token)]);
-        if (cancelled) return;
-        setCredits(profile.credits);
-        setTier(profile.subscriptionTier);
-        setStatus('ok');
-        p = profiles.find((x) => x.isPrimary) ?? profiles[0] ?? null;
-        setPrimary(p);
-      } catch {
-        if (!cancelled) {
-          setStatus('error');
-          setChartLoading(false);
-        }
-        return;
-      }
-      // Primary-profile chart — independent; failure sets `chartError` only.
-      if (!p || !token) {
-        if (!cancelled) setChartLoading(false);
-        return;
-      }
-      try {
-        const result = await calculateBazi({
-          birth_date: p.birthDate.substring(0, 10),
-          birth_time: p.hourKnown ? p.birthTime : null,
-          hour_known: p.hourKnown,
-          birth_city: p.birthCity,
-          birth_timezone: p.birthTimezone,
-          gender: p.gender.toLowerCase(),
-        });
-        if (!cancelled) setChart(result);
-      } catch {
-        if (!cancelled) setChartError(true);
-      } finally {
-        if (!cancelled) setChartLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // getToken is a fresh reference every render (Clerk); listing it would re-run
-    // this fetch effect on every setState → infinite loop. Run once on mount.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const router = useRouter();
+  // The tab nav bar is disabled for 首頁 (see (authenticated)/_layout.tsx), so
+  // nothing else supplies the top inset — without this the logo sits under the notch.
+  const insets = useSafeAreaInsets();
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.greeting}>
-        {zh('歡迎回來')}
-        {user?.firstName ? `，${user.firstName}` : ''}
-      </Text>
-
-      <View style={styles.creditCard}>
-        <Text style={styles.creditLabel}>{zh('我的點數')}</Text>
-        {status === 'loading' ? (
-          <ActivityIndicator color={colors.red} />
-        ) : status === 'error' ? (
-          <Text style={styles.creditError}>{zh('無法載入')}</Text>
-        ) : (
-          <>
-            <Text style={styles.creditValue}>{credits}</Text>
-            {tier ? <Text style={styles.tierBadge}>{zh(TIER_LABEL[tier])}</Text> : null}
-          </>
-        )}
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.sm }]}
+    >
+      {/* Decorative backdrop (web's .page::before/::after): the horse/clouds art
+          behind the header, faded into the cream page. Web uses mask-image, which
+          RN has no equivalent for — a transparent→bgPrimary LinearGradient over
+          the image reproduces it. Absolute + first child so later siblings paint on
+          top; negative insets let it bleed past the content padding to full-bleed. */}
+      <View
+        pointerEvents="none"
+        style={[
+          styles.heroBg,
+          { top: -(insets.top + spacing.sm), height: insets.top + HERO_BG_HEIGHT },
+        ]}
+      >
+        <Image source={HERO_BG} style={StyleSheet.absoluteFill} contentFit="cover" />
+        <LinearGradient
+          colors={['rgba(255,243,224,0.25)', 'rgba(255,243,224,0.55)', colors.bgPrimary]}
+          locations={[0, 0.45, 1]}
+          style={StyleSheet.absoluteFill}
+        />
       </View>
 
+      {/* Header — logo + credits. No username: web drops it on narrow screens. */}
+      <View style={styles.header}>
+        <Image source={LOGO} style={styles.logo} contentFit="contain" />
+        <CreditBadge showPricingLink />
+      </View>
+
+      {/* Welcome row — greeting + compact fortune glance + quick link, all on ONE
+          row (web's desktop layout: greeting+pill left, links right). Keeping it to
+          a single row is what lifts the hero banner near the top of the screen.
+          (Web shows the daily fortune twice at two fidelities on purpose: this pill,
+          and the full card further down.) */}
+      <View style={styles.welcomeRow}>
+        <Text style={styles.greeting} numberOfLines={1}>
+          {zh('歡迎回來')}
+          {user?.firstName ? `，${user.firstName}` : ''}
+        </Text>
+        <WelcomeFortunePill />
+        <View style={styles.spacer} />
+        {/* Icon-only (web spells out 出生資料) — the label doesn't fit beside the
+            greeting + pill on a phone. 📋 歷史記錄 lands with the history screen. */}
+        <Pressable
+          style={styles.quickLink}
+          onPress={() => router.push('/profiles')}
+          accessibilityRole="button"
+          accessibilityLabel={zh('出生資料')}
+          hitSlop={8}
+        >
+          <Text style={styles.quickLinkIcon}>👤</Text>
+        </Pressable>
+      </View>
+
+      <HeroBanner />
+
+      <FeatureCards />
+
+      {/* Heading lives inside the card so both vanish together if the fortune
+          service is down (web contract — never orphan the heading). */}
       <HomeDailyFortuneCard />
 
-      {chartLoading ? (
-        <ActivityIndicator color={colors.red} />
-      ) : chart && primary ? (
-        <BaziChart
-          data={chart}
-          name={primary.name}
-          birthDate={primary.birthDate.substring(0, 10)}
-          gender={primary.gender.toLowerCase()}
-          isSubscriber={tier !== null && tier !== 'FREE'}
-        />
-      ) : chartError && primary ? (
-        // A profile exists but its chart failed to load — show a chart-specific
-        // error, NOT the "add a profile" CTA (which would be misleading).
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>{zh('命盤載入失敗')}</Text>
-          <Text style={styles.emptySub}>{zh('無法計算命盤，請稍後再試')}</Text>
-        </View>
-      ) : (
-        <Pressable style={styles.emptyCard} onPress={() => router.push('/profiles')} accessibilityRole="button">
-          <Text style={styles.emptyTitle}>{zh('尚未建立命盤')}</Text>
-          <Text style={styles.emptySub}>{zh('新增您的出生資料，即可查看八字命盤')}</Text>
-          <Text style={styles.emptyCta}>{zh('前往新增 →')}</Text>
-        </Pressable>
-      )}
+      <AccountPanel />
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgPrimary },
-  content: { padding: spacing.xl, gap: spacing.xl, paddingBottom: spacing.xxl * 2 },
-  greeting: { fontFamily: fonts.serif, fontSize: fontSize.title, fontWeight: '700', color: colors.textPrimary },
-  creditCard: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.xl, alignItems: 'center', gap: spacing.sm, ...shadows.warm },
-  creditLabel: { fontSize: fontSize.sm, color: colors.textSecondary },
-  creditValue: { fontSize: fontSize.hero, fontWeight: '800', color: colors.red },
-  creditError: { fontSize: fontSize.base, color: colors.error },
-  tierBadge: {
-    fontSize: fontSize.xs,
-    color: colors.textOnGold,
-    backgroundColor: colors.goldLight,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
-    overflow: 'hidden',
-    fontWeight: '600',
+  // Tighter gap than the rest of the app (lg, not xl) — every pixel above the
+  // banner counts. paddingTop is injected from the safe-area inset.
+  content: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxl * 2,
+    gap: spacing.lg,
   },
-  emptyCard: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.xl, alignItems: 'center', gap: spacing.sm, ...shadows.warm },
-  emptyTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
-  emptySub: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center' },
-  emptyCta: { fontSize: fontSize.base, color: colors.red, fontWeight: '600', marginTop: spacing.sm },
+  // Negative horizontal insets cancel the content's paddingHorizontal so the art
+  // goes full-bleed (RN positions absolute children from the parent's padding edge).
+  heroBg: {
+    position: 'absolute',
+    left: -spacing.lg,
+    right: -spacing.lg,
+    overflow: 'hidden',
+  },
+  // Mirrors web .header: row, space-between, hairline bottom rule.
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.borderLight,
+  },
+  logo: { width: 34, height: 34, borderRadius: 8 },
+  welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  greeting: {
+    fontFamily: fonts.serifBold,
+    // Web's mobile size (1.2rem ≈ 19px) — the desktop 1.4rem/28 was eating the
+    // vertical budget and pushing the banner down.
+    fontSize: fontSize.xl,
+    color: colors.textPrimary,
+    flexShrink: 1,
+  },
+  spacer: { flex: 1 },
+  // Mirrors web .quickLink: frosted pill. Icon-only here, so hitSlop carries the
+  // touch target rather than a 44pt box that would eat the row.
+  quickLink: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 36,
+    height: 36,
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    borderRadius: 18,
+  },
+  quickLinkIcon: { fontSize: fontSize.base },
 });

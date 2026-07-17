@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   missingTitle: {
-    fontFamily: fonts.serif,
+    fontFamily: fonts.serifBold,
     fontSize: fontSize.xl,
     color: colors.textAccent,
     fontWeight: '700',
@@ -192,6 +192,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.base,
     color: colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 24,
+    lineHeight: 26,
   },
 });

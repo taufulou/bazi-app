@@ -574,7 +574,7 @@ export default function BirthDataForm({
 
 const styles = StyleSheet.create({
   wrapper: { gap: spacing.lg },
-  title: { fontFamily: fonts.serif, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent },
+  title: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent },
   subtitle: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: -spacing.sm },
   fieldGroup: { gap: spacing.sm },
   label: { fontSize: fontSize.sm, fontWeight: '600', color: colors.textSecondary },

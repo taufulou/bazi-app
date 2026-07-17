@@ -12,7 +12,7 @@
  * NOTE: react-native-purchases is a native module — the dev client must be
  * rebuilt after install before this screen runs on-device.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -86,7 +86,7 @@ export default function StoreScreen() {
       setState('error');
     }
     // getToken/userId handled explicitly; refreshProfile is stable.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [userId, refreshProfile]);
 
   useEffect(() => {
@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
   linkText: { fontSize: fontSize.sm, color: colors.textAccent, fontWeight: '600' },
   emptyCard: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.xl, gap: spacing.sm, alignItems: 'center', ...shadows.warm },
   emptyTitle: { fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
-  emptyBody: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', lineHeight: 20 },
+  emptyBody: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', lineHeight: 22 },
   compliance: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18 },
   legalRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: spacing.sm },
   legalLink: { fontSize: fontSize.xs, color: colors.textAccent },
