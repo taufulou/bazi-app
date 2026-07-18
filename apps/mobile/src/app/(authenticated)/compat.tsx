@@ -45,6 +45,20 @@ type Step = 'input' | 'result';
 
 /** Gender/year-aware compat section titles (port of the web getCompatV2DynamicTitle):
  *  旺妻/旺夫 resolves by each party's gender; 感情運 carries the year. */
+/**
+ * 男方/女方 from the ACTUAL gender — never from the A/B position. Party A is not
+ * always male (and the pair may be same-sex), so positional labels contradict the
+ * rest of the screen.
+ */
+function partyLabel(gender: string): string {
+  return gender === 'female' ? '女方' : '男方';
+}
+
+/** `profile.birthDate` is a full ISO timestamp; charts want just the date. */
+function isoDateOnly(iso?: string): string | undefined {
+  return iso ? iso.slice(0, 10) : undefined;
+}
+
 function compatDynamicTitle(
   key: string,
   genderA: string,
@@ -56,10 +70,12 @@ function compatDynamicTitle(
       return genderA === 'male' ? '男方旺妻程度' : '女方旺夫程度';
     case 'spouse_enrichment_b':
       return genderB === 'male' ? '男方旺妻程度' : '女方旺夫程度';
+    // Also gender-driven (these were positional too, so a female party A got
+    // 「男方2026感情運」 while the section above it said 女方).
     case 'annual_love_a':
-      return `男方${year}感情運`;
+      return `${partyLabel(genderA)}${year}感情運`;
     case 'annual_love_b':
-      return `女方${year}感情運`;
+      return `${partyLabel(genderB)}${year}感情運`;
     default:
       return null;
   }
@@ -79,6 +95,8 @@ export default function CompatScreen() {
 
   const [step, setStep] = useState<Step>('input');
   const [comparison, setComparison] = useState<CompatibilityResponse | null>(null);
+  /** Profile ids submitted to CREATE — used to resolve names the response omits. */
+  const [submittedIds, setSubmittedIds] = useState<{ a: string; b: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -136,6 +154,12 @@ export default function CompatScreen() {
         if (!token) throw new Error(zh('請先登入'));
         const comp = await createBaziCompatibility(token, { ...params, skipAI: true });
         setComparison(comp);
+        // The CREATE response omits the profileA/profileB relations (only the
+        // hydrate-from-history path includes them), so remember which profiles we
+        // submitted and resolve their names locally — otherwise the charts fall
+        // back to a hardcoded 「男方」/「女方」 as the *name*, which both loses the
+        // real name and contradicts the gender-derived section header above it.
+        setSubmittedIds({ a: params.profileAId, b: params.profileBId });
         setStep('result');
         setRevealed(false);
         setAiData(null);
@@ -325,10 +349,19 @@ export default function CompatScreen() {
             const rpa = calc.romancePreAnalysis;
             const chartA = calc.chartA as unknown as BaziChartData;
             const chartB = calc.chartB as unknown as BaziChartData;
-            const nameA = comparison.profileA?.name ?? '男方';
-            const nameB = comparison.profileB?.name ?? '女方';
             const genderA = String(calc.chartA?.gender ?? 'male').toLowerCase();
             const genderB = String(calc.chartB?.gender ?? 'female').toLowerCase();
+            // Prefer the relation (hydrate path), else the locally-submitted
+            // profile (create path — that response omits the relations), else the
+            // gender-derived label. Never a hardcoded 男方/女方: that both loses the
+            // real name and mislabels a female party A, contradicting the section
+            // header directly above it.
+            const localA = submittedIds ? profiles.find((p) => p.id === submittedIds.a) : undefined;
+            const localB = submittedIds ? profiles.find((p) => p.id === submittedIds.b) : undefined;
+            const nameA = comparison.profileA?.name ?? localA?.name ?? partyLabel(genderA);
+            const nameB = comparison.profileB?.name ?? localB?.name ?? partyLabel(genderB);
+            const birthA = comparison.profileA?.birthDate ?? localA?.birthDate;
+            const birthB = comparison.profileB?.birthDate ?? localB?.birthDate;
             const displayScore = rpa?.blendedScore ?? calc.adjustedScore ?? calc.overallScore ?? 0;
             const displayLabel = rpa?.blendedLabel ?? calc.label ?? '';
             const hourUnknownA = !!rpa?.lovePersonalityA?.hourUnknown;
@@ -344,11 +377,17 @@ export default function CompatScreen() {
                   <Text style={styles.backText}>{zh('重新合盤')}</Text>
                 </Pressable>
 
-                {/* Dual 排盤 (stacked; mobile can't do the web's side-by-side grid) */}
-                <Text style={styles.partyLabel}>{zh('男方')}</Text>
-                <BaziChart data={chartA} name={nameA} birthDate={comparison.profileA?.birthDate} gender={genderA} isSubscriber={isSub} />
-                <Text style={styles.partyLabel}>{zh('女方')}</Text>
-                <BaziChart data={chartB} name={nameB} birthDate={comparison.profileB?.birthDate} gender={genderB} isSubscriber={isSub} />
+                {/* Dual 排盤 (stacked; mobile can't do the web's side-by-side grid).
+                    Labels come from the ACTUAL gender, not the A/B position — a
+                    female party A was being labelled 男方, contradicting the
+                    per-party 時辰未知 notes and the AI narrative on the same screen,
+                    which both already dispatch on genderA/genderB. Dates are sliced
+                    to YYYY-MM-DD; the raw profile value is a full ISO timestamp and
+                    rendered verbatim as 「1987-01-25T00:00:00.000Z」. */}
+                <Text style={styles.partyLabel}>{zh(partyLabel(genderA))}</Text>
+                <BaziChart data={chartA} name={nameA} birthDate={isoDateOnly(birthA)} gender={genderA} isSubscriber={isSub} />
+                <Text style={styles.partyLabel}>{zh(partyLabel(genderB))}</Text>
+                <BaziChart data={chartB} name={nameB} birthDate={isoDateOnly(birthB)} gender={genderB} isSubscriber={isSub} />
 
                 {/* Pre-reveal gate */}
                 {!revealed ? (

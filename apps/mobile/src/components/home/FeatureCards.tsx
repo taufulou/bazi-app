@@ -52,6 +52,7 @@ export function FeatureCards() {
         return (
           <Pressable
             key={slug}
+            testID={`feature-card-${slug}`}
             style={styles.card}
             // Inlined (not a helper returning string) so expo-router's typed-route
             // literals survive. Web sends 合盤 to /reading/compatibility; on mobile

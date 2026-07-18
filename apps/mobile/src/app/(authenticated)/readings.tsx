@@ -57,9 +57,11 @@ export default function ReadingsHubScreen() {
 
       {/* Free 排盤 */}
       <Pressable
+        testID="reading-card-paipan"
         style={styles.freeCard}
         onPress={() => router.push('/reading/paipan')}
         accessibilityRole="button"
+        accessibilityLabel={zh('免費八字排盤')}
       >
         <View style={styles.freeIcon}>
           <ScrollText size={22} strokeWidth={2} color={colors.red} />
@@ -78,6 +80,7 @@ export default function ReadingsHubScreen() {
         return (
           <Pressable
             key={slug}
+            testID={`reading-card-${slug}`}
             style={styles.card}
             onPress={() => router.push(`/reading/${slug}`)}
             accessibilityRole="button"

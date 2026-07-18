@@ -24,7 +24,7 @@ const RING_SIZE = 150;
 const RING_CENTER = RING_SIZE / 2;
 
 function yearlyFriendlyExplanation(label: string): string {
-  return friendlyExplanationFromLabel(label).replace(/今日/g, '今年').replace(/今天/g, '今年');
+  return friendlyExplanationFromLabel(label, 'year');
 }
 
 export default function YearlyEnergyRing({ label, score, year, yearGanZhi, yearTenGod, hideDateLine }: Props) {

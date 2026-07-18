@@ -37,4 +37,16 @@ describe('resolveApiUrlFor (Android host rewrite)', () => {
       'http://api.localhost.dev:4000',
     );
   });
+
+  // Regression: assetsUrl (mascot art, served off the API host) was NOT passed
+  // through this rewrite, so every mascot 404'd on the Android emulator and the
+  // 角色卡 silently rendered the day-master glyph fallback instead.
+  it('is applied to the assets host too (mascots are served by the API host)', () => {
+    expect(resolveApiUrlFor('http://localhost:4000', 'android', true)).toBe('http://10.0.2.2:4000');
+    // Trailing slashes are stripped before the rewrite so `${assetsUrl}/mascots/...`
+    // never yields a double slash.
+    expect(resolveApiUrlFor('http://localhost:4000/'.replace(/\/+$/, ''), 'android', true)).toBe(
+      'http://10.0.2.2:4000',
+    );
+  });
 });

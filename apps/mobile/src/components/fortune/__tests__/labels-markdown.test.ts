@@ -25,6 +25,24 @@ describe('labels', () => {
     expect(friendlyExplanationFromLabel('???')).toBe('今日宜以平常心面對');
   });
 
+  // Regression: 月運/年運 shipped 「…是把握機會的好日子」 because the callers
+  // post-processed with `.replace(/今日/g, '本月')`, which never matched 好日子.
+  it('friendlyExplanationFromLabel is scope-aware (no day wording on month/year)', () => {
+    expect(friendlyExplanationFromLabel('大吉', 'month')).toBe('整體能量充沛，是把握機會的好月份');
+    expect(friendlyExplanationFromLabel('大吉', 'year')).toBe('整體能量充沛，是把握機會的好年份');
+    expect(friendlyExplanationFromLabel('大吉', 'month')).not.toContain('日子');
+    expect(friendlyExplanationFromLabel('大吉', 'year')).not.toContain('日子');
+
+    // The fallback carries the deictic, not the noun.
+    expect(friendlyExplanationFromLabel('???', 'month')).toBe('本月宜以平常心面對');
+    expect(friendlyExplanationFromLabel('???', 'year')).toBe('今年宜以平常心面對');
+
+    // Scope-neutral entries are identical across scopes.
+    expect(friendlyExplanationFromLabel('凶中有吉', 'year')).toBe(
+      friendlyExplanationFromLabel('凶中有吉'),
+    );
+  });
+
   it('ringTierFromLabel is 2-tier (positive for 大吉/吉)', () => {
     expect(ringTierFromLabel('大吉')).toBe('positive');
     expect(ringTierFromLabel('吉')).toBe('positive');

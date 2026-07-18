@@ -8,8 +8,15 @@
 
 // ---- Friendly explanation per 9-label verdict (warm advisor tone) ----
 
+/** Scope of the fortune view the copy is rendered in. */
+export type FortuneScope = 'day' | 'month' | 'year';
+
+/** {period} = the noun ("a good ___"); {now} = the deictic ("today"/"this month"). */
+const PERIOD_NOUN: Record<FortuneScope, string> = { day: '日子', month: '月份', year: '年份' };
+const NOW_WORD: Record<FortuneScope, string> = { day: '今日', month: '本月', year: '今年' };
+
 const FRIENDLY_EXPLANATIONS: Record<string, string> = {
-  大吉: '整體能量充沛，是把握機會的好日子',
+  大吉: '整體能量充沛，是把握機會的好{period}',
   吉: '整體偏向順利，宜以平常心開展事務',
   吉中有凶: '整體傾向順遂，但留意潛在波動',
   平: '整體平穩，無強烈動靜',
@@ -20,8 +27,17 @@ const FRIENDLY_EXPLANATIONS: Record<string, string> = {
   凶上加凶: '整體挑戰深重，建議內省休養',
 };
 
-export function friendlyExplanationFromLabel(label: string): string {
-  return FRIENDLY_EXPLANATIONS[label] ?? '今日宜以平常心面對';
+/**
+ * Scope-aware so 月運/年運 never say 「好日子」. Callers used to post-process with
+ * `.replace(/今日/g, '本月')`, which silently missed 「好日子」 (no 今日 in it) and
+ * shipped day-scoped copy on the month + year tabs. Placeholders make the set of
+ * period-dependent words explicit instead of leaving it to regex surgery.
+ */
+export function friendlyExplanationFromLabel(label: string, scope: FortuneScope = 'day'): string {
+  const template = FRIENDLY_EXPLANATIONS[label] ?? '{now}宜以平常心面對';
+  return template
+    .replace(/\{period\}/g, PERIOD_NOUN[scope])
+    .replace(/\{now\}/g, NOW_WORD[scope]);
 }
 
 // ---- Ring tier mapping — 2-tier (positive for 大吉/吉, default else) ----

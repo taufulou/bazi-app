@@ -46,7 +46,7 @@ const ShareableYearlyFortuneCard = forwardRef<View, Props>(function ShareableYea
   const clamped = Math.max(0, Math.min(100, energyScore));
   const offset = RING_CIRC * (1 - clamped / 100);
   const tierColor = ringTierFromLabel(auspiciousness) === 'positive' ? colors.success : colors.gold;
-  const friendly = friendlyExplanationFromLabel(auspiciousness).replace(/今日/g, '今年');
+  const friendly = friendlyExplanationFromLabel(auspiciousness, 'year');
   const topOpp = coreRiskOpportunity.opportunities[0];
   const topRisk = coreRiskOpportunity.risks[0];
   const methodTitles = (luckMethods.cards ?? []).slice(0, 3).map((c) => c.title);

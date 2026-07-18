@@ -41,7 +41,7 @@ const ShareableMonthlyFortuneCard = forwardRef<View, Props>(function ShareableMo
   const clamped = Math.max(0, Math.min(100, energyScore));
   const offset = RING_CIRC * (1 - clamped / 100);
   const tierColor = ringTierFromLabel(auspiciousness) === 'positive' ? colors.success : colors.gold;
-  const friendly = friendlyExplanationFromLabel(auspiciousness).replace(/今日/g, '本月');
+  const friendly = friendlyExplanationFromLabel(auspiciousness, 'month');
   const buckets = intraMonthBreakdown?.buckets ?? [];
 
   return (

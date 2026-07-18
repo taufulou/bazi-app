@@ -150,10 +150,12 @@ export default function ReadingHistoryScreen() {
                       <Text style={styles.dot}>·</Text>
                       <Text style={styles.metaText}>{fmtDate(r.createdAt)}</Text>
                       <Text style={styles.dot}>·</Text>
+                      {/* 「點」 not 「額度」 — the rest of the app (CreditBadge,
+                          解讀 hub, paywall, store) all say 點. */}
                       {isFree ? (
                         <Text style={styles.freeBadge}>{zh('免費')}</Text>
                       ) : (
-                        <Text style={styles.creditBadge}>-{r.creditsUsed} {zh('額度')}</Text>
+                        <Text style={styles.creditBadge}>-{r.creditsUsed} {zh('點')}</Text>
                       )}
                     </View>
                   </View>

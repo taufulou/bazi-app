@@ -411,19 +411,30 @@ export default function ReadingFlowScreen() {
 
   return (
     <View style={styles.root}>
-      {/* Shared reading-page hero backdrop (web .pageContainerLifetime::before):
-          a top hero image faded into the cream page. RN has no mask-image → a
-          transparent→bgPrimary LinearGradient overlay, same as the home banner. */}
-      <View style={styles.heroBackdrop} pointerEvents="none">
-        <Image source={READING_BG} style={StyleSheet.absoluteFill} contentFit="cover" />
-        <LinearGradient
-          colors={['transparent', colors.bgPrimary]}
-          locations={[0.5, 1]}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
         <Stack.Screen options={{ title: zh(meta.nameZhTw) }} />
+
+        {/* Shared reading-page hero backdrop (web .pageContainerLifetime::before):
+            a top hero image faded into the cream page. RN has no mask-image → a
+            LinearGradient overlay, same as the home banner.
+
+            It lives INSIDE the scroll content (absolute against the content
+            container, bled out past its padding) so it scrolls away with the
+            page. As a sibling of the ScrollView it was pinned to the viewport,
+            so scrolled form fields slid underneath the art and 出生日期/出生時間
+            labels turned unreadable orange-on-orange.
+
+            The gradient also starts with a translucent cream scrim rather than
+            fully transparent: at scroll 0 the ①② step indicator sits over the
+            art, and the bare image had far too little contrast behind it. */}
+        <View style={styles.heroBackdrop} pointerEvents="none">
+          <Image source={READING_BG} style={StyleSheet.absoluteFill} contentFit="cover" />
+          <LinearGradient
+            colors={['rgba(255,243,224,0.45)', 'rgba(255,243,224,0.82)', colors.bgPrimary]}
+            locations={[0, 0.55, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+        </View>
 
         {/* ①② step indicator — hidden when a reading was opened from history. */}
         {!loadedFromHistory ? (
@@ -475,8 +486,6 @@ export default function ReadingFlowScreen() {
 
         {step === 'reading' ? (
           <View style={styles.reading}>
-            <CacheToast visible={cacheToast} onDismiss={() => setCacheToast(false)} />
-
             {error ? <Text style={styles.streamError}>{zh(error)}</Text> : null}
 
             {finalInfo?.status === 'degraded' ? (
@@ -573,6 +582,15 @@ export default function ReadingFlowScreen() {
         />
       </ScrollView>
 
+      {/* Cache banner — pinned to the top of the VIEWPORT, not inline in the
+          scroll content. Unlock happens from the paywall CTA at the bottom of the
+          page and the scroll offset is preserved, so an inline banner spends its
+          entire 5s life above the fold: the user never learns they weren't
+          charged, which is the one thing it exists to say. */}
+      <View style={styles.toastWrap} pointerEvents="box-none">
+        <CacheToast visible={cacheToast} onDismiss={() => setCacheToast(false)} />
+      </View>
+
       {/* Floating progress pill (排盤中 during reveal / 解讀中 during stream). */}
       {showPill ? (
         <View style={styles.pillWrap} pointerEvents="none">
@@ -584,7 +602,12 @@ export default function ReadingFlowScreen() {
         </View>
       ) : null}
 
-      {step === 'reading' && readingId ? (
+      {/* Hidden while the progress pill is up: both are bottom-anchored (pill
+          bottom-centre, FAB bottom-right) and visibly collide mid-stream. Hiding
+          it is also the correct behaviour — the chat grounds itself in the
+          finished reading, so offering it before the sections land invites a
+          question we can't answer well yet. */}
+      {step === 'reading' && readingId && !showPill ? (
         <ChatFloatingButton
           onPress={() => {
             setChatSectionHint(undefined);
@@ -615,7 +638,15 @@ const styles = StyleSheet.create({
   // Transparent so the hero backdrop shows through at the top (cream below it).
   container: { flex: 1, backgroundColor: 'transparent' },
   content: { padding: spacing.xl, paddingBottom: spacing.xxl * 2 },
-  heroBackdrop: { position: 'absolute', top: 0, left: 0, right: 0, height: 260 },
+  // Absolute against the SCROLL CONTENT (see the JSX comment). Negative insets
+  // cancel `content`'s padding so the art still bleeds edge-to-edge.
+  heroBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: -spacing.xl,
+    right: -spacing.xl,
+    height: 260,
+  },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.lg, backgroundColor: colors.bgPrimary },
   errTitle: { fontSize: fontSize.lg, color: colors.textSecondary },
   backBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.xl, backgroundColor: colors.bgCard, borderRadius: radius.md },
@@ -643,4 +674,7 @@ const styles = StyleSheet.create({
   regenBtn: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
   regenText: { color: colors.red, fontSize: fontSize.sm, fontWeight: '600' },
   pillWrap: { position: 'absolute', bottom: spacing.xxl, left: 0, right: 0, alignItems: 'center', zIndex: 20 },
+  // Above the pill so the two never stack ambiguously; box-none so taps pass
+  // through to the page except on the banner's own ✕.
+  toastWrap: { position: 'absolute', top: spacing.md, left: spacing.lg, right: spacing.lg, zIndex: 30 },
 });

@@ -1,10 +1,12 @@
 import { useUser, useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, Linking } from 'react-native';
 import { ChevronRight } from 'lucide-react-native';
 import { colors, spacing, fontSize, radius, shadows } from '../../theme';
 import { useZh, useLang, useChangeLanguage } from '../../lib/language';
-import { deleteAccount, ApiError } from '../../lib/api';
+import { deleteAccount, getUserProfile, ApiError, type SubscriptionTier } from '../../lib/api';
+import { TIER_LABELS } from '../../components/home/CreditBadge';
 
 /** 我的 — account info + store + language toggle + sign-out + delete account. */
 export default function MeScreen() {
@@ -14,6 +16,39 @@ export default function MeScreen() {
   const zh = useZh();
   const lang = useLang();
   const changeLang = useChangeLanguage();
+
+  // Tier + balance on the account screen. 首頁 and 解讀 both show these, but 我的 —
+  // the one screen a user opens to check their account — showed neither.
+  const [tier, setTier] = useState<SubscriptionTier | null>(null);
+  const [credits, setCredits] = useState<number | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+
+  const loadProfile = useCallback(async () => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const profile = await getUserProfile(token);
+      if (!mounted.current) return;
+      setTier(profile.subscriptionTier);
+      setCredits(profile.credits);
+    } catch {
+      // Silent degrade — the account rows still work without the summary.
+    }
+    // getToken is a fresh reference every render (Clerk); listing it re-runs the
+    // effect after every setState → infinite fetch loop (the M1 bug class).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
 
   const handleSignOut = () => {
     Alert.alert(zh('登出'), zh('確定要登出嗎？'), [
@@ -85,11 +120,28 @@ export default function MeScreen() {
           {user?.firstName || zh('會員')}
         </Text>
         <Text style={styles.email}>{user?.primaryEmailAddress?.emailAddress ?? ''}</Text>
+
+        {tier || credits !== null ? (
+          <View style={styles.accountSummary}>
+            {tier ? (
+              <View style={styles.tierPill}>
+                <Text style={styles.tierPillText}>{zh(TIER_LABELS[tier] ?? TIER_LABELS.FREE)}</Text>
+              </View>
+            ) : null}
+            {credits !== null ? (
+              <Text style={styles.creditsText}>
+                💎 {zh('剩餘')} {credits} {zh('點')}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
       </View>
 
       <TouchableOpacity
+        testID="me-row-profiles"
         style={styles.row}
         accessibilityRole="button"
+        accessibilityLabel={zh('我的命盤')}
         onPress={() => router.push('/profiles')}
       >
         <Text style={styles.rowLabel}>{zh('我的命盤')}</Text>
@@ -97,8 +149,10 @@ export default function MeScreen() {
       </TouchableOpacity>
 
       <TouchableOpacity
+        testID="me-row-store"
         style={styles.row}
         accessibilityRole="button"
+        accessibilityLabel={zh('購買點數與方案')}
         onPress={() => router.push('/store')}
       >
         <Text style={styles.rowLabel}>{zh('購買點數與方案')}</Text>
@@ -147,6 +201,22 @@ const styles = StyleSheet.create({
   },
   name: { fontSize: fontSize.xl, fontWeight: '700', color: colors.textPrimary },
   email: { fontSize: fontSize.sm, color: colors.textSecondary },
+  accountSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  tierPill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    backgroundColor: colors.bgSecondary,
+  },
+  tierPillText: { fontSize: 11, fontWeight: '600', color: colors.textPrimary },
+  creditsText: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',

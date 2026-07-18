@@ -18,7 +18,8 @@ import { colors, fontSize, spacing, radius } from '../../theme';
 import { useZh } from '../../lib/language';
 import { getUserProfile, type SubscriptionTier } from '../../lib/api';
 
-const TIER_LABELS: Record<SubscriptionTier, string> = {
+/** Exported so 我的 renders the same tier wording as the header badge. */
+export const TIER_LABELS: Record<SubscriptionTier, string> = {
   FREE: '免費',
   BASIC: '基本',
   PRO: '專業',

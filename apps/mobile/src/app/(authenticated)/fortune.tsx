@@ -258,6 +258,11 @@ export default function FortuneScreen() {
           return (
             <Pressable
               key={t.key}
+              // testID survives Fabric view-flattening AND iOS accessibility
+              // containment, so it's the only selector automation can rely on
+              // (a Pressable's accessibilityLabel replaces its children in the
+              // iOS a11y tree, hiding the inner Text from element lookup).
+              testID={`fortune-scope-${t.key}`}
               style={[styles.pill, active && styles.pillActive]}
               onPress={() => setTab(t.key)}
               accessibilityRole="button"

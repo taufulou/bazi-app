@@ -69,9 +69,12 @@ export default function HomeScreen() {
         <CreditBadge showPricingLink />
       </View>
 
-      {/* Welcome row — greeting + compact fortune glance + quick link, all on ONE
-          row (web's desktop layout: greeting+pill left, links right). Keeping it to
-          a single row is what lifts the hero banner near the top of the screen.
+      {/* Welcome block — greeting + quick links on row 1, the compact fortune
+          glance on row 2. This was ONE row (greeting + pill + 2 icons) to keep the
+          hero banner high, but four items don't fit a phone width: the greeting is
+          the flexShrink element, so it lost and rendered 「歡迎回來，…」 — the user's
+          own name was the thing being truncated. Two rows costs ~36px of hero lift
+          and keeps every piece legible.
           (Web shows the daily fortune twice at two fidelities on purpose: this pill,
           and the full card further down.) */}
       <View style={styles.welcomeRow}>
@@ -79,11 +82,11 @@ export default function HomeScreen() {
           {zh('歡迎回來')}
           {user?.firstName ? `，${user.firstName}` : ''}
         </Text>
-        <WelcomeFortunePill />
         <View style={styles.spacer} />
         {/* Icon-only (web spells out the labels) — they don't fit beside the
-            greeting + pill on a phone. 👤 出生資料 · 📋 歷史分析記錄. */}
+            greeting on a phone. 👤 出生資料 · 📋 歷史分析記錄. */}
         <Pressable
+          testID="home-link-profiles"
           style={styles.quickLink}
           onPress={() => router.push('/profiles')}
           accessibilityRole="button"
@@ -93,6 +96,7 @@ export default function HomeScreen() {
           <Text style={styles.quickLinkIcon}>👤</Text>
         </Pressable>
         <Pressable
+          testID="home-link-history"
           style={styles.quickLink}
           onPress={() => router.push('/history')}
           accessibilityRole="button"
@@ -101,6 +105,9 @@ export default function HomeScreen() {
         >
           <Text style={styles.quickLinkIcon}>📋</Text>
         </Pressable>
+      </View>
+      <View style={styles.welcomePillRow}>
+        <WelcomeFortunePill />
       </View>
 
       <HeroBanner />
@@ -144,6 +151,8 @@ const styles = StyleSheet.create({
   },
   logo: { width: 34, height: 34, borderRadius: 8 },
   welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  // Row 2 of the welcome block — left-aligned so the pill hugs the greeting above.
+  welcomePillRow: { flexDirection: 'row', alignItems: 'center', marginTop: -spacing.xs },
   greeting: {
     fontFamily: fonts.serifBold,
     // Web's mobile size (1.2rem ≈ 19px) — the desktop 1.4rem/28 was eating the

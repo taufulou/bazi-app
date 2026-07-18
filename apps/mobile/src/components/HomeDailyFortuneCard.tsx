@@ -118,6 +118,7 @@ export default function HomeDailyFortuneCard() {
     <View style={styles.section}>
       {heading}
       <Pressable
+        testID="home-daily-fortune-card"
         style={styles.card}
         onPress={() =>
           // Deep-link to TODAY's fortune. `n` (nonce) makes the fortune tab reset

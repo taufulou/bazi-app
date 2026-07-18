@@ -50,13 +50,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    backgroundColor: 'rgba(76,175,80,0.08)',
+    // OPAQUE: this renders as a pinned overlay above the reading content, so the
+    // web's 8%-alpha tint let 神煞 chips bleed through and made the text unreadable.
+    backgroundColor: '#EDF7ED',
     borderWidth: 1,
-    borderColor: 'rgba(76,175,80,0.25)',
+    borderColor: 'rgba(76,175,80,0.35)',
     borderRadius: radius.md,
     paddingVertical: spacing.sm,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.md,
+    // Lifts it off the content it now floats over.
+    shadowColor: '#000',
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
   },
   icon: { fontSize: fontSize.base },
   text: { flex: 1, fontSize: fontSize.sm, color: '#2e7d32', lineHeight: 20 },

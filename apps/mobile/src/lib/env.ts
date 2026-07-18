@@ -12,6 +12,9 @@ import { Platform } from 'react-native';
 /**
  * Pure, testable core of the Android rewrite. Exported for unit tests so the
  * platform + dev flag can be passed explicitly instead of read from globals.
+ *
+ * Applies to EVERY host-loopback URL, not just the API — the mascot art is
+ * served off the same host (see `assetsUrl` below).
  */
 export function resolveApiUrlFor(raw: string, os: string, isDev: boolean): string {
   if (isDev && os === 'android') {
@@ -33,8 +36,19 @@ export const env = {
   apiUrl: resolveApiUrl(),
   /** Clerk publishable key (may be undefined in a bare dev build). */
   clerkPublishableKey: process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY,
-  /** Base URL for remotely-served assets (mascots etc.); empty until configured. */
-  assetsUrl: process.env.EXPO_PUBLIC_ASSETS_URL ?? '',
+  /**
+   * Base URL for remotely-served assets (mascots etc.); empty until configured.
+   *
+   * Needs the SAME Android-emulator loopback rewrite as apiUrl: the art is served
+   * by the API host (`/mascots`), so a raw `http://localhost:4000` resolved to the
+   * emulator VM itself and every mascot 404'd — MascotViewer silently fell back to
+   * the day-master glyph, so 角色卡 art never worked on Android.
+   */
+  assetsUrl: resolveApiUrlFor(
+    (process.env.EXPO_PUBLIC_ASSETS_URL ?? '').replace(/\/+$/, ''),
+    Platform.OS,
+    __DEV__,
+  ),
   /** PostHog analytics key (analytics is a no-op when absent). */
   posthogKey: process.env.EXPO_PUBLIC_POSTHOG_KEY,
   /** Sentry DSN for crash reporting (init is skipped when absent). */

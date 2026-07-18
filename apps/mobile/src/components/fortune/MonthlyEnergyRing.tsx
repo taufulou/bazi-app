@@ -30,7 +30,7 @@ function formatMonthIso(iso: string): string {
 }
 
 function monthlyFriendlyExplanation(label: string): string {
-  return friendlyExplanationFromLabel(label).replace(/今日/g, '本月').replace(/今天/g, '本月');
+  return friendlyExplanationFromLabel(label, 'month');
 }
 
 export default function MonthlyEnergyRing({ label, score, month, monthGanZhi, monthTenGod, hideDateLine }: Props) {
