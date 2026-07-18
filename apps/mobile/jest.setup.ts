@@ -18,3 +18,31 @@ jest.mock('lucide-react-native', () => {
     { get: (target, prop) => (prop === '__esModule' ? true : Icon) },
   );
 });
+
+// expo-router ships untranspiled ESM/TSX that jest-expo's transform doesn't
+// handle ("Cannot use import statement outside a module"). Stub the surface the
+// components touch (useRouter + nav primitives) so component tests that
+// transitively import a nav-using component render without crashing.
+jest.mock('expo-router', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  const noop = () => {};
+  const router = { push: noop, replace: noop, back: noop, navigate: noop, setParams: noop };
+  const Passthrough = ({ children }: { children?: unknown }) =>
+    React.createElement(View, null, children as never);
+  const Stack = (props: Record<string, unknown>) => React.createElement(View, props);
+  Stack.Screen = () => null;
+  return {
+    __esModule: true,
+    useRouter: () => router,
+    router,
+    useLocalSearchParams: () => ({}),
+    useSearchParams: () => ({}),
+    usePathname: () => '/',
+    Link: Passthrough,
+    Redirect: () => null,
+    Stack,
+    Tabs: Object.assign(Passthrough, { Screen: () => null }),
+    Slot: Passthrough,
+  };
+});

@@ -641,6 +641,26 @@ export const V2_SECTION_ORDER = [
   'annual_health',
 ];
 
+/**
+ * Expected streamed-section count per reading type — the denominator for the
+ * 解讀中 n/total progress pill. Mirrors web `ACTIVE_V2_TOTAL` (page.tsx:149):
+ * lifetime 15 · career 25 · annual 21 · love 26. Falls back to 1 (never /0).
+ */
+export function expectedSectionTotal(readingType: string): number {
+  switch (readingType) {
+    case 'career':
+      return CAREER_V2_EXPECTED_TOTAL; // 25
+    case 'love':
+      return LOVE_V2_EXPECTED_TOTAL; // 26
+    case 'annual':
+      return ANNUAL_V2_SECTION_ORDER.length; // 21
+    case 'lifetime':
+      return V2_SECTION_ORDER.length; // 15
+    default:
+      return 1;
+  }
+}
+
 /** Compatibility Romance V2 section display order (合盤). `compatibility_summary`
  *  arrives on the stream as its own `summary` event → routed to AIReadingData.summary
  *  (not sections), but kept here for saved-comparison rendering. */

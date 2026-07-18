@@ -16,6 +16,9 @@ interface Props {
   credits: number | null;
   isUnlocking: boolean;
   hourUnknown?: boolean;
+  /** Error from the unlock attempt (getToken / createReading failure) — the modal
+   * stays open on failure, so it must surface the message here. */
+  error?: string;
   onConfirm: () => void;
   onCancel: () => void;
   /** Navigate to the store when the user lacks credits (M6 wires the store). */
@@ -29,6 +32,7 @@ export default function UnlockConfirmModal({
   credits,
   isUnlocking,
   hourUnknown = false,
+  error,
   onConfirm,
   onCancel,
   onBuyCredits,
@@ -82,6 +86,8 @@ export default function UnlockConfirmModal({
               </View>
             ) : null}
           </ScrollView>
+
+          {error ? <Text style={styles.errorText}>{zh(error)}</Text> : null}
 
           {insufficient ? (
             <>
@@ -148,6 +154,7 @@ const styles = StyleSheet.create({
   warnItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22, marginLeft: spacing.lg },
   warnNote: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: 4 },
   insufficient: { fontSize: fontSize.sm, color: colors.warning, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
+  errorText: { fontSize: fontSize.sm, color: colors.error, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
   confirmBtn: {
     backgroundColor: colors.red,
     borderRadius: radius.md,

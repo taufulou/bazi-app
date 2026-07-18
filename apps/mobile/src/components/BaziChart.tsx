@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { colors, radius, spacing, fontSize, fonts, shadows } from '../theme';
@@ -36,6 +36,16 @@ const RING_RADIUS = 28;
 const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const ELEMENT_ORDER = ['木', '火', '土', '金', '水'] as const;
 
+// Contextual message shown between staged-reveal stages (mirrors web BaziChart
+// REVEAL_MESSAGES). Keyed by the number of already-revealed sections.
+const REVEAL_MESSAGES: Record<number, string> = {
+  1: '正在排列四柱…',
+  2: '正在分析五行能量…',
+  3: '正在解讀日主強弱…',
+  4: '正在推算大運走勢…',
+  5: '正在排列神煞…',
+};
+
 type PillarKey = 'year' | 'month' | 'day' | 'hour';
 
 interface BaziChartProps {
@@ -44,10 +54,26 @@ interface BaziChartProps {
   birthDate?: string;
   isSubscriber?: boolean;
   gender?: string;
+  /**
+   * Staged-reveal gate (0-6). When set, only the first `visibleSections` chart
+   * sub-sections render (0=header, 1=pillars, 2=五行, 3=日主, 4=大運, 5=神煞).
+   * Undefined = show everything immediately (no reveal). Mirrors web
+   * BaziChart `visibleSections`.
+   */
+  visibleSections?: number;
 }
 
-export default function BaziChart({ data, name, birthDate, isSubscriber = false, gender = 'male' }: BaziChartProps) {
+export default function BaziChart({
+  data,
+  name,
+  birthDate,
+  isSubscriber = false,
+  gender = 'male',
+  visibleSections,
+}: BaziChartProps) {
   const zh = useZh();
+  const revealing = visibleSections !== undefined;
+  const isVisible = (n: number) => visibleSections === undefined || visibleSections > n;
   const [selected, setSelected] = useState<ElementClickInfo | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [showHint, setShowHint] = useState(false);
@@ -116,6 +142,7 @@ export default function BaziChart({ data, name, birthDate, isSubscriber = false,
       {showHint ? <Text style={styles.hint}>💡 {zh('點擊任意欄位查看解讀')}</Text> : null}
 
       {/* Pillars grid */}
+      {isVisible(1) ? (
       <View style={styles.card}>
         {/* header row */}
         <View style={styles.row}>
@@ -269,9 +296,10 @@ export default function BaziChart({ data, name, birthDate, isSubscriber = false,
           ))}
         </GridRow>
       </View>
+      ) : null}
 
       {/* Extra palaces */}
-      {data.mingGong || data.shenGong || data.taiYuan || data.taiXi ? (
+      {isVisible(1) && (data.mingGong || data.shenGong || data.taiYuan || data.taiXi) ? (
         <View style={styles.palaceRow}>
           {([
             ['命宮', data.mingGong],
@@ -294,7 +322,7 @@ export default function BaziChart({ data, name, birthDate, isSubscriber = false,
       ) : null}
 
       {/* 旺相休囚死 */}
-      {data.seasonalStates ? (
+      {isVisible(1) && data.seasonalStates ? (
         <View style={styles.seasonalRow}>
           {Object.entries(data.seasonalStates).map(([element, state]) => (
             <Pressable
@@ -312,7 +340,7 @@ export default function BaziChart({ data, name, birthDate, isSubscriber = false,
       ) : null}
 
       {/* Five-elements rings */}
-      {data.fiveElementsBalanceZh ? (
+      {isVisible(2) && data.fiveElementsBalanceZh ? (
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>{zh('五行能量')}</Text>
           <View style={styles.ringRow}>
@@ -345,7 +373,7 @@ export default function BaziChart({ data, name, birthDate, isSubscriber = false,
       ) : null}
 
       {/* Day master card */}
-      {dm ? (
+      {isVisible(3) && dm ? (
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>{zh('日主分析')}</Text>
           <DmRow label="日主" value={`${data.dayMasterStem ?? ''}（${dm.element}${zh(dm.yinYang)}）`} color={getChartElementColor(dm.element)} />
@@ -378,7 +406,7 @@ export default function BaziChart({ data, name, birthDate, isSubscriber = false,
       ) : null}
 
       {/* Luck periods */}
-      {data.luckPeriods && data.luckPeriods.length ? (
+      {isVisible(4) && data.luckPeriods && data.luckPeriods.length ? (
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>{zh('大運')}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.luckRow}>
@@ -404,6 +432,7 @@ export default function BaziChart({ data, name, birthDate, isSubscriber = false,
       ) : null}
 
       {/* 神煞 & 空亡 */}
+      {isVisible(5) ? (
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>{zh('神煞 & 空亡')}</Text>
         <View style={styles.tagWrap}>
@@ -449,6 +478,15 @@ export default function BaziChart({ data, name, birthDate, isSubscriber = false,
           </View>
         ) : null}
       </View>
+      ) : null}
+
+      {/* Between-stage reveal placeholder (spinner + contextual message). */}
+      {revealing && (visibleSections ?? 6) < 6 ? (
+        <View style={styles.revealPlaceholder}>
+          <ActivityIndicator color={colors.red} />
+          <Text style={styles.revealText}>{zh(REVEAL_MESSAGES[visibleSections ?? 0] ?? '')}</Text>
+        </View>
+      ) : null}
 
       <ElementExplanation
         isOpen={sheetOpen}
@@ -517,6 +555,8 @@ const styles = StyleSheet.create({
   },
   hint: { textAlign: 'center', color: colors.textMuted, fontSize: fontSize.xs },
   card: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm, ...shadows.warm },
+  revealPlaceholder: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
+  revealText: { fontSize: fontSize.sm, color: colors.textMuted },
   row: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderLight },
   labelCell: { width: 52, justifyContent: 'center', paddingVertical: spacing.sm },
   labelText: { fontSize: fontSize.xs, color: colors.textMuted },

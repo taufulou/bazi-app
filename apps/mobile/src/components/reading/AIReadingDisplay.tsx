@@ -13,6 +13,8 @@ import { colors, fonts, fontSize, spacing, radius, shadows } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { AIReadingData } from '../../lib/readings-api';
 import { ReadingSectionCard, MarkdownText, PaywallOverlay, SectionSkeleton } from './primitives';
+import TechRefCard from './TechRefCard';
+import CrossSellGrid from './CrossSellGrid';
 
 /** Sections that always show full content (never paywalled). */
 const NO_PAYWALL = new Set(['annual_dayun_context']);
@@ -32,6 +34,10 @@ interface Props {
   renderExtras?: (sectionKey: string) => ReactNode;
   /** Callback for the paywall CTA (non-subscribers). */
   onUnlock?: () => void;
+  /** Chart data → per-section 專業命理依據 (TechRefCard). Omit to hide tech-ref. */
+  chartData?: Record<string, unknown> | null;
+  /** Frontend slug → bottom cross-sell grid (更多運程分析). Omit to hide. */
+  readingType?: string;
 }
 
 export default function AIReadingDisplay({
@@ -42,6 +48,8 @@ export default function AIReadingDisplay({
   header,
   renderExtras,
   onUnlock,
+  chartData,
+  readingType,
 }: Props) {
   const zh = useZh();
 
@@ -57,6 +65,7 @@ export default function AIReadingDisplay({
             <MarkdownText text={showFull ? s.full || s.preview : s.preview} convert={zh} />
             {!showFull && s.full ? <PaywallOverlay onUnlock={onUnlock} /> : null}
             {extras}
+            {chartData ? <TechRefCard sectionKey={s.key} chartData={chartData} /> : null}
           </ReadingSectionCard>
         );
       })}
@@ -77,6 +86,8 @@ export default function AIReadingDisplay({
       <Text style={styles.disclaimer}>
         {zh('本服務僅供參考與娛樂用途，不構成任何專業建議')}
       </Text>
+
+      {!isStreaming && readingType ? <CrossSellGrid readingType={readingType} /> : null}
     </View>
   );
 }
