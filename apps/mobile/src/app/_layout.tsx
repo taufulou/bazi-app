@@ -53,6 +53,10 @@ function AppStack() {
       <Stack.Screen name="(authenticated)" options={{ headerShown: false }} />
       <Stack.Screen name="profiles" options={{ title: '我的命盤' }} />
       <Stack.Screen
+        name="history"
+        options={{ title: '歷史分析記錄', headerBackButtonDisplayMode: 'minimal' }}
+      />
+      <Stack.Screen
         name="reading/paipan"
         options={{ title: '八字排盤', headerBackButtonDisplayMode: 'minimal' }}
       />

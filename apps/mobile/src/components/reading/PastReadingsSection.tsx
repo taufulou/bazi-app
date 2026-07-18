@@ -14,6 +14,7 @@ import { getReadingHistoryByType, type ReadingHistoryItem } from '../../lib/read
  */
 type Status = 'loading' | 'success' | 'error';
 const PAGE_SIZE = 50;
+const COMPARISON_TYPE_ICON: Record<string, string> = { ROMANCE: '💕', BUSINESS: '💼', FRIENDSHIP: '🤝' };
 
 function fmtDate(value: string | null | undefined): string {
   if (!value) return '';
@@ -113,8 +114,12 @@ export default function PastReadingsSection({
       {expanded && status === 'success' && readings.length > 0 ? (
         <View style={styles.list}>
           {readings.map((r) => {
+            const isComp = r.isComparison === true;
             const name = r.birthProfile?.name ?? zh('未命名');
             const birth = fmtDate(r.birthProfile?.birthDate);
+            const icon = isComp
+              ? COMPARISON_TYPE_ICON[r.comparisonType ?? 'ROMANCE'] ?? '🤝'
+              : meta?.icon ?? '🔮';
             return (
               <Pressable
                 key={r.id}
@@ -122,14 +127,22 @@ export default function PastReadingsSection({
                 onPress={() => onOpen(r.id)}
                 accessibilityRole="button"
               >
-                <Text style={styles.rowIcon}>{meta?.icon ?? '🔮'}</Text>
+                <Text style={styles.rowIcon}>{icon}</Text>
                 <View style={styles.rowBody}>
                   <Text style={styles.rowLine1} numberOfLines={1}>
-                    {name}
-                    {birth ? <Text style={styles.rowMeta}> · {birth}</Text> : null}
-                    {readingType === 'annual' && r.targetYear ? (
-                      <Text style={styles.yearBadge}>  {r.targetYear}{zh('年')}</Text>
-                    ) : null}
+                    {isComp ? (
+                      <>
+                        {name} <Text style={styles.vs}>×</Text> {r.profileB?.name ?? zh('未命名')}
+                      </>
+                    ) : (
+                      <>
+                        {name}
+                        {birth ? <Text style={styles.rowMeta}> · {birth}</Text> : null}
+                        {readingType === 'annual' && r.targetYear ? (
+                          <Text style={styles.yearBadge}>  {r.targetYear}{zh('年')}</Text>
+                        ) : null}
+                      </>
+                    )}
                   </Text>
                   <Text style={styles.rowLine2}>{zh('讀於')} {fmtDate(r.createdAt)}</Text>
                 </View>
@@ -180,6 +193,7 @@ const styles = StyleSheet.create({
   rowBody: { flex: 1, gap: 2 },
   rowLine1: { fontSize: fontSize.base, color: colors.textPrimary, fontWeight: '600' },
   rowMeta: { fontSize: fontSize.sm, color: colors.textMuted, fontWeight: '400' },
+  vs: { color: colors.red, fontWeight: '700' },
   yearBadge: { fontSize: fontSize.sm, color: colors.red, fontWeight: '700' },
   rowLine2: { fontSize: fontSize.xs, color: colors.textMuted },
   rowArrow: { fontSize: fontSize.base, color: colors.textMuted },

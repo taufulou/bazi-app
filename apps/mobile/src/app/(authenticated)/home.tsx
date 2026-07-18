@@ -81,8 +81,8 @@ export default function HomeScreen() {
         </Text>
         <WelcomeFortunePill />
         <View style={styles.spacer} />
-        {/* Icon-only (web spells out 出生資料) — the label doesn't fit beside the
-            greeting + pill on a phone. 📋 歷史記錄 lands with the history screen. */}
+        {/* Icon-only (web spells out the labels) — they don't fit beside the
+            greeting + pill on a phone. 👤 出生資料 · 📋 歷史分析記錄. */}
         <Pressable
           style={styles.quickLink}
           onPress={() => router.push('/profiles')}
@@ -91,6 +91,15 @@ export default function HomeScreen() {
           hitSlop={8}
         >
           <Text style={styles.quickLinkIcon}>👤</Text>
+        </Pressable>
+        <Pressable
+          style={styles.quickLink}
+          onPress={() => router.push('/history')}
+          accessibilityRole="button"
+          accessibilityLabel={zh('歷史分析記錄')}
+          hitSlop={8}
+        >
+          <Text style={styles.quickLinkIcon}>📋</Text>
         </Pressable>
       </View>
 

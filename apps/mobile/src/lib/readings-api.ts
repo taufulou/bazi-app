@@ -25,6 +25,9 @@ const READING_TYPE_MAP: Record<string, string> = {
   annual: 'ANNUAL',
   career: 'CAREER',
   love: 'LOVE',
+  // Needed by getReadingHistoryByType('compatibility') — the compat form's
+  // PastReadingsSection lists past 合盤 (backend ReadingType.COMPATIBILITY).
+  compatibility: 'COMPATIBILITY',
 };
 
 /** Compat frontend slug → backend ComparisonType enum. */

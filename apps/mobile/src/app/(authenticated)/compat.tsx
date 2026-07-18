@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft } from 'lucide-react-native';
 import { colors, fonts, fontSize, spacing, radius } from '../../theme';
 import { useZh } from '../../lib/language';
@@ -20,6 +21,7 @@ import {
   createBaziCompatibility,
   generateCompatibilityAI,
   streamCompatibilityReading,
+  getCompatibility,
   transformAIResponse,
   SECTION_TITLE_MAP,
   type CompatibilityResponse,
@@ -27,6 +29,7 @@ import {
 } from '../../lib/readings-api';
 import type { BaziChartData } from '../../lib/bazi-types';
 import DualBirthDataForm from '../../components/DualBirthDataForm';
+import PastReadingsSection from '../../components/reading/PastReadingsSection';
 import BaziChart from '../../components/BaziChart';
 import AIReadingDisplay from '../../components/reading/AIReadingDisplay';
 import CompatibilityScoreRevealV2 from '../../components/compat/CompatibilityScoreRevealV2';
@@ -65,6 +68,9 @@ function compatDynamicTitle(
 export default function CompatScreen() {
   const zh = useZh();
   const { getToken } = useAuth();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ id?: string }>();
+  const idParam = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : undefined;
 
   const [profiles, setProfiles] = useState<BirthProfile[]>([]);
   const [credits, setCredits] = useState(0);
@@ -231,6 +237,62 @@ export default function CompatScreen() {
     setError(null);
   }, []);
 
+  // Re-hydrate a saved comparison in place (from a history/past-readings tap or
+  // ?id= deep-link). A completed comparison already has aiInterpretation → show
+  // the full result; a create-only one shows the reveal CTA (re-stream is free —
+  // credits were charged at create).
+  const hydrateComparison = useCallback(
+    async (id: string) => {
+      // Abort any in-flight reveal stream + clear the reveal guard so the newly
+      // loaded comparison can be revealed, and a stale stream can't append its
+      // sections onto this one (line-audit fixes #2/#3).
+      streamRef.current?.close();
+      streamRef.current = null;
+      revealingRef.current = false;
+      setError(null);
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const comp = await getCompatibility(token, id);
+        setComparison(comp);
+        setStep('result');
+        setStreaming(false);
+        const ai = comp.aiInterpretation ? transformAIResponse(comp.aiInterpretation) : null;
+        if (ai) {
+          const calc = comp.calculationData;
+          const gA = String(calc.chartA?.gender ?? 'male').toLowerCase();
+          const gB = String(calc.chartB?.gender ?? 'female').toLowerCase();
+          const yr = new Date().getFullYear();
+          // transformAIResponse only carries the static SECTION_TITLE_MAP names;
+          // re-apply the gender/year-aware compat titles the live stream adds.
+          setAiData({
+            ...ai,
+            sections: ai.sections.map((s) => ({ ...s, title: compatDynamicTitle(s.key, gA, gB, yr) ?? s.title })),
+          });
+          setRevealed(true);
+        } else {
+          setAiData(null);
+          setRevealed(false);
+        }
+      } catch (e) {
+        setError(e instanceof ApiError ? e.message : zh('無法載入這則合盤，請稍後再試'));
+      }
+    },
+    // getToken omitted (unstable ref).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [zh],
+  );
+
+  // Deep-link ?id= → open that comparison, then CONSUME the param immediately so
+  // re-tapping the same history row (or retrying after a failed load) re-fires —
+  // a one-shot deep link with no lingering guard (line-audit fixes #4a/#4b).
+  useEffect(() => {
+    if (!idParam) return;
+    const id = idParam;
+    router.setParams({ id: '' });
+    void hydrateComparison(id);
+  }, [idParam, hydrateComparison, router]);
+
   if (loadingUser) {
     return (
       <View style={styles.centered}>
@@ -243,15 +305,18 @@ export default function CompatScreen() {
     <View style={styles.root}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       {step === 'input' ? (
-        <DualBirthDataForm
-          onSubmit={handleCreate}
-          isLoading={isSubmitting}
-          error={error}
-          savedProfiles={profiles}
-          userCredits={credits}
-          creditCost={COMPAT_CREDIT_COST}
-          getToken={getToken}
-        />
+        <>
+          <PastReadingsSection readingType="compatibility" onOpen={hydrateComparison} />
+          <DualBirthDataForm
+            onSubmit={handleCreate}
+            isLoading={isSubmitting}
+            error={error}
+            savedProfiles={profiles}
+            userCredits={credits}
+            creditCost={COMPAT_CREDIT_COST}
+            getToken={getToken}
+          />
+        </>
       ) : null}
 
       {step === 'result' && comparison
