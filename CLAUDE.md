@@ -29,15 +29,52 @@ docker/               — Dockerfiles + docker-compose
 A native React Native port of the consumer feature set is in progress on branch
 **`feat/mobile-m0`** (main checkout, NOT a worktree — `npm install` fails in
 worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roaming-squid.md`**.
-- **Shipped M0–M5** (Expo SDK 57 / React 19 / Fabric): foundation, birth
+- **Shipped M0–M6** (Expo SDK 57 / React 19 / Fabric): foundation, birth
   profiles + 排盤, 日/月/年運 fortune (SSE streaming), 4 paid readings
-  (終身/愛情/事業/流年), AI chat, 合盤 compatibility. iOS + Android dev-client builds.
-- **Next: M6** (RevenueCat IAP + backend entitlements) → M7 (store submission).
+  (終身/愛情/事業/流年), AI chat, 合盤 compatibility, **RevenueCat IAP + backend
+  entitlements**. iOS + Android dev-client builds.
+- **Prod hosting LIVE** (Railway, backend-only): API
+  `https://bazi-app-production-5e54.up.railway.app` + private Python engine +
+  Postgres + Redis. RC webhook re-pointed off ngrok. Health is `/health` (NOT
+  `/api/health` — no global prefix); everything else is `/api/...`.
+- **UI web-parity pass COMPLETE** (owner: mobile must look/flow like web).
+  UI-1/3/5/7 `fe2b490` · UI-4+UI-8 `260c86b` · UI-6 `95ca29f` · UI-9 `c72505d`.
+  Covers 首頁 parity, 運勢 folk card + FORTUNE chat, Apple-HIG text sizes, the
+  解讀 reading flow (step ①②, per-type paywall bullets, cache toast, progress
+  pill, staged chart reveal, 專業命理依據 tech-ref, cross-sell, past-readings +
+  `?id=` re-hydration), reading hero background + result-shows-chart-first,
+  歷史分析記錄 screen + compat `?id=`, and the reading-display polish (mascot
+  全身↔半身 swipe, star/badge BEFORE the prose for all 4 types, titled
+  deterministic cards). **NOT pushed.**
+- **Next**: owner's hands-on simulator eyeball (UI-2), then Android AND5-7
+  (Play IAP products + RC Google config + closed testing).
 - **Bazi-only, NO ZWDS** (v1 scope). 合盤: only 感情 enabled (事業/友誼 hidden).
 - ⏳ **Cross-stack TODO**: move the 合盤 3-credit charge from create (step 1) to
   reveal (step 2) — backend + web + mobile. See the plan's «⏳ TODO … move 合盤 charge».
 - This SUPERSEDES the older «mobile is minimal / WEB ONLY» notes further down
   (written during the chat feature) — mobile now has readings + chat + compat.
+
+### Mobile gotchas (do not relearn — full list in the plan file)
+1. **Native dep added → dev-client REBUILD on BOTH platforms** (`expo run:ios`
+   / `expo run:android`). Symptom if stale: `IllegalViewOperationException:
+   Can't find ViewManager` at launch. This bit us for 6 days — UI-3 added
+   `expo-linear-gradient` and only iOS was rebuilt, so Android crashed on boot
+   until 2026-07-18. JS-only changes need no rebuild (Fast Refresh).
+2. **RN does NOT synthesize font weight** for custom fonts — use
+   `fonts.serifBold` (a separate family), never `fonts.serif` + `fontWeight:700`
+   (silently renders Regular).
+3. **Maestro on the Fabric dev build is unreliable**: `tapOn: text` fails element
+   resolution and point-taps report COMPLETED without firing RN touch handlers.
+   Automated nav into screens is effectively blocked → verify by booting the
+   bundle + unit tests, and hand the visual eyeball to the owner (or use a
+   release build).
+4. **Deep `.webp/.ttf/.png` imports** need `apps/mobile/assets.d.ts` module
+   declarations (project runs eslint `--max-warnings 0`, and `require()` trips
+   `no-require-imports`).
+5. **React 19 + jest-expo defers setState flushes** — wrap state-changing
+   `fireEvent` in `await act(async () => …)` or the assertion sees stale UI.
+6. Local stack: API :4000 + engine :5001 + Metro :8081 against the DEV DB;
+   node@22 PATH prefix required; iOS sim `iPhone 17 Pro`, Android AVD `Pixel_8`.
 
 ## Key Commands
 ```bash
