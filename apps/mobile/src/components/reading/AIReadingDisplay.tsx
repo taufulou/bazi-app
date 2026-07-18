@@ -11,7 +11,7 @@ import { type ReactNode } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { colors, fonts, fontSize, spacing, radius, shadows } from '../../theme';
 import { useZh } from '../../lib/language';
-import type { AIReadingData } from '../../lib/readings-api';
+import type { AIReadingData, ReadingSectionData } from '../../lib/readings-api';
 import { ReadingSectionCard, MarkdownText, PaywallOverlay, SectionSkeleton } from './primitives';
 import TechRefCard from './TechRefCard';
 import CrossSellGrid from './CrossSellGrid';
@@ -30,6 +30,13 @@ interface Props {
   nextSectionLabel?: string;
   /** Standalone widget rendered before all sections (e.g. lifetime CharacterCard). */
   header?: ReactNode;
+  /**
+   * Star / verdict badge rendered at the TOP of a section, BEFORE the prose —
+   * web parity (apps/web AIReadingDisplay.tsx:1958-2013 puts the score star and
+   * the annual/love badges above the narrative). Receives the whole section so
+   * it can read `score`.
+   */
+  renderSectionHeader?: (section: ReadingSectionData) => ReactNode;
   /** Deterministic widget for a section, rendered inside its card after prose. */
   renderExtras?: (sectionKey: string) => ReactNode;
   /** Callback for the paywall CTA (non-subscribers). */
@@ -46,6 +53,7 @@ export default function AIReadingDisplay({
   isStreaming = false,
   nextSectionLabel,
   header,
+  renderSectionHeader,
   renderExtras,
   onUnlock,
   chartData,
@@ -62,10 +70,13 @@ export default function AIReadingDisplay({
         const extras = renderExtras?.(s.key);
         return (
           <ReadingSectionCard key={s.key} sectionKey={s.key} title={zh(s.title)}>
+            {/* Star / verdict ABOVE the narrative (web parity). */}
+            {renderSectionHeader?.(s)}
             <MarkdownText text={showFull ? s.full || s.preview : s.preview} convert={zh} />
             {!showFull && s.full ? <PaywallOverlay onUnlock={onUnlock} /> : null}
-            {extras}
+            {/* web order: prose → 專業命理依據 → InlineAsk → deterministic data */}
             {chartData ? <TechRefCard sectionKey={s.key} chartData={chartData} /> : null}
+            {extras}
           </ReadingSectionCard>
         );
       })}

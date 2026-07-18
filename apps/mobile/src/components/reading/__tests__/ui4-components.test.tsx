@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports -- jest.mock factories are hoisted */
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import StepIndicator from '../StepIndicator';
 import PaywallCTA from '../PaywallCTA';

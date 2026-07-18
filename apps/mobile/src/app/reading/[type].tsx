@@ -12,7 +12,11 @@ import BirthDataForm from '../../components/BirthDataForm';
 import BaziChart from '../../components/BaziChart';
 import UnlockConfirmModal from '../../components/reading/UnlockConfirmModal';
 import AIReadingDisplay from '../../components/reading/AIReadingDisplay';
-import { renderReadingExtras, ReadingHeader } from '../../components/reading/readingWidgets';
+import {
+  renderReadingExtras,
+  renderReadingSectionHeader,
+  ReadingHeader,
+} from '../../components/reading/readingWidgets';
 import StepIndicator from '../../components/reading/StepIndicator';
 import PaywallCTA from '../../components/reading/PaywallCTA';
 import CacheToast from '../../components/reading/CacheToast';
@@ -509,17 +513,18 @@ export default function ReadingFlowScreen() {
                   <ReadingHeader readingType={slug} chartData={chart as Record<string, unknown> | null} />
                 ) : null
               }
+              renderSectionHeader={(section) =>
+                slug
+                  ? renderReadingSectionHeader({
+                      readingType: slug,
+                      section,
+                      deterministic: deterministic as never,
+                    })
+                  : null
+              }
               renderExtras={(sectionKey) => (
                 <>
-                  {slug
-                    ? renderReadingExtras({
-                        readingType: slug,
-                        sectionKey,
-                        deterministic: deterministic as never,
-                        chartData: chart as Record<string, unknown> | null,
-                        isSubscriber: true,
-                      })
-                    : null}
+                  {/* web order: 專業命理依據 → InlineAsk → deterministic data */}
                   {chatReadingType && readingId ? (
                     <InlineAskCard
                       readingType={chatReadingType}
@@ -536,6 +541,15 @@ export default function ReadingFlowScreen() {
                       }}
                     />
                   ) : null}
+                  {slug
+                    ? renderReadingExtras({
+                        readingType: slug,
+                        sectionKey,
+                        deterministic: deterministic as never,
+                        chartData: chart as Record<string, unknown> | null,
+                        isSubscriber: true,
+                      })
+                    : null}
                 </>
               )}
             />

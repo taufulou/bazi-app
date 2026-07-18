@@ -461,7 +461,7 @@ export interface NestJSReadingResponse {
   regenerationExhausted?: boolean;
 }
 
-interface ReadingSectionData {
+export interface ReadingSectionData {
   key: string;
   title: string;
   preview: string;

@@ -13,12 +13,11 @@
  */
 import * as React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { Image } from 'expo-image';
 import { colors, fonts, fontSize, spacing, radius, shadows } from '../../theme';
 import { useZh } from '../../lib/language';
-import { env } from '../../lib/env';
 import type { LifetimeV2DeterministicData } from '../../lib/readings-api';
 import { ChipGroup } from './primitives';
+import MascotViewer from './MascotViewer';
 
 // ============================================================
 // Reference tables (deterministic, guide-style) — ported verbatim
@@ -90,50 +89,6 @@ const ZODIAC_PERSONALITY: Record<string, string> = {
   狗: '忠誠正直、有正義感、值得信賴，但容易杞人憂天',
   豬: '樂觀豁達、寬容大度、享受生活，但容易缺乏警覺',
 };
-
-// ============================================================
-// Mascot image (remote, expo-image) with emoji/stem fallback
-// ============================================================
-
-function mascotUri(stem: string | undefined, gender: 'male' | 'female'): string | null {
-  const pinyin = isValidStem(stem) ? STEM_TO_PINYIN[stem] : null;
-  const base = (env.assetsUrl || '').replace(/\/+$/, '');
-  if (!pinyin || !base) return null;
-  return `${base}/mascots/${pinyin}-${gender}-full.png`;
-}
-
-function MascotImage({
-  stem,
-  gender,
-  alt,
-}: {
-  stem?: string;
-  gender: 'male' | 'female';
-  alt: string;
-}) {
-  const [errored, setErrored] = React.useState(false);
-  const uri = mascotUri(stem, gender);
-
-  if (!uri || errored) {
-    // Never crash on a missing base URL / broken image — show the day-master
-    // stem glyph (or a card emoji) large as a graceful fallback.
-    return (
-      <View style={cc.mascotFallback}>
-        <Text style={cc.mascotFallbackGlyph}>{isValidStem(stem) ? stem : '🎴'}</Text>
-      </View>
-    );
-  }
-  return (
-    <Image
-      source={{ uri }}
-      style={cc.mascotImage}
-      contentFit="contain"
-      cachePolicy="disk"
-      accessibilityLabel={alt}
-      onError={() => setErrored(true)}
-    />
-  );
-}
 
 // ============================================================
 // CharacterCard — standalone top-level card (你的角色卡)
@@ -232,8 +187,8 @@ export function CharacterCard({
         ) : null}
       </View>
 
-      {/* Mascot hero */}
-      <MascotImage stem={dayMasterStem} gender={gender} alt={zh('角色卡')} />
+      {/* Mascot hero — swipeable 全身 ↔ 半身 (web parity, UI-9 Fix A) */}
+      <MascotViewer stem={dayMasterStem} gender={gender} />
 
       {/* Archetype */}
       {personality ? (
@@ -313,6 +268,35 @@ function LockedSummary({ text }: { text: string }) {
   return <Text style={det.blurred}>{text}</Text>;
 }
 
+/**
+ * Titled deterministic-data block (web's `DeterministicCard` header chrome).
+ * Web renders it as a SIBLING card; on mobile this content is nested inside a
+ * `ReadingSectionCard` that already has an icon+title+border+shadow, so this is
+ * a subtle bg-tinted sub-block (no shadow / heavy border) to avoid card-in-card.
+ */
+function DetCard({
+  icon,
+  title,
+  disclaimer,
+  children,
+}: {
+  icon: string;
+  title: string;
+  disclaimer?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={det.card}>
+      <View style={det.cardHeader}>
+        <Text style={det.cardIcon}>{icon}</Text>
+        <Text style={det.cardTitle}>{title}</Text>
+      </View>
+      {disclaimer ? <Text style={det.disclaimer}>{disclaimer}</Text> : null}
+      <View style={det.body}>{children}</View>
+    </View>
+  );
+}
+
 // ============================================================
 // finance_pattern → investments
 // ============================================================
@@ -328,10 +312,11 @@ function InvestmentsCard({
   if (!data.favorableInvestments || !data.unfavorableInvestments) return null;
 
   return (
-    <View style={det.body}>
-      <Text style={det.disclaimer}>
-        {zh('投資有風險，此測算結果內容僅供參考，絕不構成任何投資建議或承諾')}
-      </Text>
+    <DetCard
+      icon="📈"
+      title={zh('投資理財方向')}
+      disclaimer={zh('投資有風險，此測算結果內容僅供參考，絕不構成任何投資建議或承諾')}
+    >
       <DetRow label={zh('有利投資')}>
         {isSubscriber ? (
           <ChipGroup items={data.favorableInvestments.map((i) => zh(i))} tone="positive" />
@@ -346,7 +331,7 @@ function InvestmentsCard({
           <LockedSummary text={zh(`${data.unfavorableInvestments.length} 項需注意投資`)} />
         )}
       </DetRow>
-    </View>
+    </DetCard>
   );
 }
 
@@ -373,7 +358,7 @@ function CareerDataCard({
   const userZodiac = (yearBranch ? BRANCH_ZODIAC[yearBranch] : null) || null;
 
   return (
-    <View style={det.body}>
+    <DetCard icon="🧭" title={zh('有利發展的職業方向')}>
       {/* Career directions */}
       {data.careerDirections.length > 0 ? (
         <DetRow label={zh('職業方向')}>
@@ -457,7 +442,7 @@ function CareerDataCard({
           )}
         </DetRow>
       ) : null}
-    </View>
+    </DetCard>
   );
 }
 
@@ -482,7 +467,7 @@ function LoveDataCard({
   const userZodiac = (yearBranch ? BRANCH_ZODIAC[yearBranch] : null) || null;
 
   return (
-    <View style={det.body}>
+    <DetCard icon="💞" title={zh('感情時機與擇偶方向')}>
       {/* Romance years */}
       {data.romanceYears.length > 0 ? (
         <DetRow
@@ -554,7 +539,7 @@ function LoveDataCard({
           )}
         </DetRow>
       ) : null}
-    </View>
+    </DetCard>
   );
 }
 
@@ -581,10 +566,10 @@ function FamilyDataCard({
   };
 
   return (
-    <View style={det.body}>
+    <DetCard icon="🏠" title={zh('父母健康提點')}>
       <DetRow label={zh('父親健康注意年份')}>{renderYears(father, father.length)}</DetRow>
       <DetRow label={zh('母親健康注意年份')}>{renderYears(mother, mother.length)}</DetRow>
-    </View>
+    </DetCard>
   );
 }
 
@@ -603,22 +588,23 @@ function DayPillarDetailedCard({
   const dpd = data.dayPillarDetailed;
   if (!dpd) return null;
 
+  // Labels match web DeterministicCard day_pillar_detailed (AIReadingDisplay.tsx:2409-2413).
   const blocks: Array<{ icon: string; label: string; value: string; locked: boolean }> = [
     { icon: '🏔', label: '核心意象', value: dpd.coreImage, locked: false },
-    { icon: '🧭', label: '個性', value: dpd.personality, locked: !isSubscriber },
-    { icon: '💼', label: '事業', value: dpd.career, locked: !isSubscriber },
-    { icon: '💞', label: '人際', value: dpd.relationships, locked: !isSubscriber },
-    { icon: '💡', label: '建議', value: dpd.advice, locked: !isSubscriber },
+    { icon: '🧭', label: '性格解析', value: dpd.personality, locked: !isSubscriber },
+    { icon: '💼', label: '事業與財運', value: dpd.career, locked: !isSubscriber },
+    { icon: '💞', label: '感情特質', value: dpd.relationships, locked: !isSubscriber },
+    { icon: '💡', label: '一生提醒', value: dpd.advice, locked: !isSubscriber },
   ];
 
   return (
-    <View style={det.body}>
-      {dpd.title ? (
-        <View style={det.dpdHeader}>
-          <Text style={det.dpdTitle}>{zh(dpd.title)}</Text>
-          {dpd.subtitle ? <Text style={det.dpdSubtitle}>{zh(dpd.subtitle)}</Text> : null}
-        </View>
-      ) : null}
+    <DetCard icon="📜" title={zh(dpd.title || '日柱詳解')}>
+      {dpd.subtitle ? <Text style={det.dpdSubtitle}>{zh(dpd.subtitle)}</Text> : null}
+      <Text style={det.dpdIntro}>
+        {zh(
+          `八字中的日柱是你自己的代表——它揭示你最本質的性格、天賦和人生傾向。在六十種日柱組合中，你是${(dpd.title || '').replace('日柱', '')}，以下是專屬於你的深度解讀。`,
+        )}
+      </Text>
       {blocks.map((b) => (
         <View key={b.label} style={det.dpdBlock}>
           <Text style={det.dpdBlockLabel}>{zh(`${b.icon} ${b.label}`)}</Text>
@@ -629,7 +615,7 @@ function DayPillarDetailedCard({
           )}
         </View>
       ))}
-    </View>
+    </DetCard>
   );
 }
 
@@ -657,7 +643,9 @@ export function LifetimeDeterministicCard({
       return <CareerDataCard det={data} chartData={chartData} isSubscriber={isSubscriber} />;
     case 'love_pattern':
       return <LoveDataCard det={data} chartData={chartData} isSubscriber={isSubscriber} />;
-    case 'children_analysis':
+    // parents_analysis ONLY — web's V2_DETERMINISTIC_INSERTIONS maps family_data
+    // to 父母關係 alone. Dispatching it for children_analysis too rendered the
+    // 父母健康注意年份 card (parent data) under 子女關係 as well (UI-9 Fix D).
     case 'parents_analysis':
       return <FamilyDataCard det={data} isSubscriber={isSubscriber} />;
     case 'chart_identity':
@@ -690,19 +678,6 @@ const cc = StyleSheet.create({
     borderColor: colors.borderMedium,
   },
   zodiacBadgeText: { fontSize: fontSize.xs, fontWeight: '700', color: colors.textOnGold },
-  mascotImage: { width: '100%', height: 280, borderRadius: radius.md },
-  mascotFallback: {
-    width: '100%',
-    height: 200,
-    borderRadius: radius.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.bgSecondary,
-    borderWidth: 1,
-    borderColor: colors.borderLight,
-    borderStyle: 'dashed',
-  },
-  mascotFallbackGlyph: { fontFamily: fonts.serif, fontSize: 96, color: colors.textAccent },
   archetype: {
     alignItems: 'center',
     gap: spacing.xs,
@@ -730,6 +705,26 @@ const cc = StyleSheet.create({
 });
 
 const det = StyleSheet.create({
+  // Titled data block. Deliberately LIGHT chrome (no shadow) — this nests inside
+  // a ReadingSectionCard that already carries the heavy card styling.
+  card: {
+    backgroundColor: colors.bgSecondary,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  cardIcon: { fontSize: fontSize.lg },
+  cardTitle: {
+    flex: 1,
+    fontFamily: fonts.serifBold,
+    fontSize: fontSize.base,
+    fontWeight: '700',
+    color: colors.textAccent,
+  },
+  dpdIntro: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
   body: { gap: spacing.md },
   row: { gap: spacing.xs },
   label: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textSecondary },
