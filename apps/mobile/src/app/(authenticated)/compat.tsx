@@ -362,6 +362,12 @@ export default function CompatScreen() {
             const nameB = comparison.profileB?.name ?? localB?.name ?? partyLabel(genderB);
             const birthA = comparison.profileA?.birthDate ?? localA?.birthDate;
             const birthB = comparison.profileB?.birthDate ?? localB?.birthDate;
+            // A same-sex pair would render two identical headers (both 男方) —
+            // accurate, but ambiguous about which chart is which. Append the name
+            // only in that case; opposite-sex pairs keep the clean 男方/女方.
+            const sameGender = genderA === genderB;
+            const headerA = sameGender ? `${partyLabel(genderA)} · ${nameA}` : partyLabel(genderA);
+            const headerB = sameGender ? `${partyLabel(genderB)} · ${nameB}` : partyLabel(genderB);
             const displayScore = rpa?.blendedScore ?? calc.adjustedScore ?? calc.overallScore ?? 0;
             const displayLabel = rpa?.blendedLabel ?? calc.label ?? '';
             const hourUnknownA = !!rpa?.lovePersonalityA?.hourUnknown;
@@ -384,9 +390,9 @@ export default function CompatScreen() {
                     which both already dispatch on genderA/genderB. Dates are sliced
                     to YYYY-MM-DD; the raw profile value is a full ISO timestamp and
                     rendered verbatim as 「1987-01-25T00:00:00.000Z」. */}
-                <Text style={styles.partyLabel}>{zh(partyLabel(genderA))}</Text>
+                <Text style={styles.partyLabel}>{zh(headerA)}</Text>
                 <BaziChart data={chartA} name={nameA} birthDate={isoDateOnly(birthA)} gender={genderA} isSubscriber={isSub} />
-                <Text style={styles.partyLabel}>{zh(partyLabel(genderB))}</Text>
+                <Text style={styles.partyLabel}>{zh(headerB)}</Text>
                 <BaziChart data={chartB} name={nameB} birthDate={isoDateOnly(birthB)} gender={genderB} isSubscriber={isSub} />
 
                 {/* Pre-reveal gate */}

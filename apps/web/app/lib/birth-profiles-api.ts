@@ -127,10 +127,20 @@ export async function updateBirthProfile(
   id: string,
   payload: UpdateBirthProfilePayload,
 ): Promise<BirthProfile> {
+  // hourKnown is IMMUTABLE after creation: the server's UpdateBirthProfileDto
+  // deliberately omits it, so the global ValidationPipe (forbidNonWhitelisted)
+  // rejects any update carrying it with 400 "property hourKnown should not exist".
+  // formValuesToPayload always sets it (needed for CREATE) and BOTH callers pass
+  // that full payload — dashboard/profiles/page.tsx and reading/[type]/page.tsx —
+  // so every full-payload profile edit was failing. (Set-primary kept working
+  // because its payload is just { isPrimary: true }.) Stripping at this one seam
+  // covers both paths; mirrors the same fix in apps/mobile.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure-to-drop the immutable field
+  const { hourKnown: _immutable, ...updatable } = payload;
   return apiFetch<BirthProfile>(`/api/users/me/birth-profiles/${id}`, {
     method: 'PATCH',
     token,
-    body: JSON.stringify(payload),
+    body: JSON.stringify(updatable),
   });
 }
 

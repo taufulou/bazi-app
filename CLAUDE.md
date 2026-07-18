@@ -46,8 +46,17 @@ worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roami
   歷史分析記錄 screen + compat `?id=`, and the reading-display polish (mascot
   全身↔半身 swipe, star/badge BEFORE the prose for all 4 types, titled
   deterministic cards). **NOT pushed.**
-- **Next**: owner's hands-on simulator eyeball (UI-2), then Android AND5-7
-  (Play IAP products + RC Google config + closed testing).
+- **UI-2 agent-driven sweep DONE** `eea51f5` (2026-07-18): drove the Android
+  emulator screen-by-screen (13 surfaces) and fixed **13 defects**, incl. 3 that
+  only appear live — the reading hero backdrop rendering form labels
+  orange-on-orange when scrolled, `assetsUrl` missing the Android 10.0.2.2
+  loopback rewrite (**角色卡 mascot art had NEVER worked on Android** — the glyph
+  fallback hid it), and compat labelling a female party A as 男方. Also
+  gender-derived party labels, the cache toast (was rendering above the fold so
+  the user never saw «未扣除額度»), and testIDs on the primary targets.
+- **Next**: ⏸ **app-store work PAUSED by owner 2026-07-18** to tackle
+  scalability + security first — see «App Store progress» below for the resume
+  point. Branch is **47 commits ahead of main and NOT pushed** (owner's call).
 - **Bazi-only, NO ZWDS** (v1 scope). 合盤: only 感情 enabled (事業/友誼 hidden).
 - ⏳ **Cross-stack TODO**: move the 合盤 3-credit charge from create (step 1) to
   reveal (step 2) — backend + web + mobile. See the plan's «⏳ TODO … move 合盤 charge».
@@ -63,11 +72,28 @@ worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roami
 2. **RN does NOT synthesize font weight** for custom fonts — use
    `fonts.serifBold` (a separate family), never `fonts.serif` + `fontWeight:700`
    (silently renders Regular).
-3. **Maestro on the Fabric dev build is unreliable**: `tapOn: text` fails element
-   resolution and point-taps report COMPLETED without firing RN touch handlers.
-   Automated nav into screens is effectively blocked → verify by booting the
-   bundle + unit tests, and hand the visual eyeball to the owner (or use a
-   release build).
+3. **~~Maestro can't drive the Fabric dev build~~ — THAT WAS WRONG** (corrected
+   2026-07-18 by research + live testing). Maestro works on BOTH platforms; the
+   old symptoms had two mundane causes: on **Android** the flow needs
+   `--device emulator-5554` (with both sims booted, bare `maestro test` errors or
+   silently targets iOS), and on **iOS** the flow needs an explicit `launchApp`
+   (without it Maestro matches against the springboard — which is also why
+   "swipes backgrounded the app": it was already there).
+   **The app is fully agent-drivable.** Android needs no Maestro at all:
+   `adb shell uiautomator dump` exposes a real hierarchy (RN `testID` →
+   **bare** `resource-id`, no package prefix; `accessibilityLabel` →
+   `content-desc`; visible text → `text`, on a NON-clickable child, so walk up to
+   the clickable ancestor), and `adb shell input tap` fires real `onPress`.
+   Driver script used for the UI-2 sweep: `<scratchpad>/uireview/ui.py`
+   (dump / tap-by-label / screenshot / swipe). Swipes need ~700ms duration —
+   a fast short swipe is interpreted as a TAP and navigates instead of scrolling.
+   iOS: `xcrun simctl io <udid> screenshot` works; `simctl` has **no tap
+   primitive** (confirmed). `idb` is installed but its last release is Aug 2022 —
+   prefer Maestro-with-`launchApp`, or [AXe](https://github.com/cameroncooke/AXe)
+   if a second opinion is needed.
+   ⚠️ **iOS `testID`s do NOT reach the accessibility tree** (RN iOS a11y
+   flattening: a `Pressable`'s `accessibilityLabel` REPLACES its children), so on
+   iOS match by accessibility label. Android is unaffected.
 4. **Deep `.webp/.ttf/.png` imports** need `apps/mobile/assets.d.ts` module
    declarations (project runs eslint `--max-warnings 0`, and `require()` trips
    `no-require-imports`).
@@ -75,6 +101,70 @@ worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roami
    `fireEvent` in `await act(async () => …)` or the assertion sees stale UI.
 6. Local stack: API :4000 + engine :5001 + Metro :8081 against the DEV DB;
    node@22 PATH prefix required; iOS sim `iPhone 17 Pro`, Android AVD `Pixel_8`.
+
+### ⏸ App Store progress — PAUSED 2026-07-18 (resume point for a future session)
+
+Owner paused store submission to tackle **scalability + security** first. The app
+is feature-complete and UI-verified; nothing below is blocked on code quality —
+it is paperwork, store config, and one unproven integration hop.
+
+**Android — Play Console**
+| Step | State |
+|---|---|
+| AND1 CJK font subsetting (was a 200MB ship-blocker) | ✅ done |
+| AND2 EAS config + first signed AAB | ✅ done |
+| AND3 Privacy Policy + Terms URLs | ✅ done (`/privacy`, `/terms`, commit `2295edc`) |
+| AND4 Play app + Internal Testing upload | 🟡 **AAB uploaded + accepted**; app-content declarations still outstanding: data-safety form, content rating, privacy-policy URL, store listing |
+| AND5 Play IAP products + RC Google config | ⬜ not started |
+| AND6 Sandbox purchase → prod webhook → grant | ⬜ **the last unproven hop in the whole payment chain** |
+| AND7 Closed testing (12 testers × 14 days) | ⬜ calendar gate; Android GA will trail iOS regardless |
+
+- Play app: `com.tianming.app` (「天命：八字命理」). First AAB = build `d9501d33`,
+  versionCode 3, 110MB all-ABI (Play serves ~70MB per device).
+- EAS project `@tian-ming/tianming` (`b7c274f0-ce98-42ca-93c9-cb5af4faff3a`),
+  owner = **tian-ming ORG** (not personal). Auth = robot token `cli-build`
+  (Admin). ⚠️ The token was only ever kept in a session scratchpad — **re-create
+  it** at expo.dev → tian-ming org → Access tokens if `EXPO_TOKEN` is gone.
+- AAB build cmd (works from a dirty tree): `EAS_NO_VCS=1 eas build -p android
+  --profile production --non-interactive --no-wait` (from `apps/mobile`).
+- Build-log fetch: `eas build:view <id> --json` → `logFiles[0]` is **brotli** →
+  `curl … | brotli -dc`.
+- All EAS profiles carry `SENTRY_DISABLE_AUTO_UPLOAD=true` (the first build
+  ERRORED at the gradle Sentry source-map step without it).
+
+**iOS — Apple**
+- $99 paid, **awaiting account approval**. Nothing else can start until it clears.
+- Then: App Store Connect record, IAP products, sandbox testers, RC iOS config
+  (`appl_` key), TestFlight. Paid Apps agreement + banking + tax on day one —
+  slowest approval, and it gates IAP sandbox.
+
+**RevenueCat**
+- Backend is DONE and proven: webhook + provider-neutral entitlements +
+  cross-provider tier rules + consumable clawback + TRANSFER. Replayed a real
+  `NON_RENEWING_PURCHASE` through the Railway URL → credits granted, duplicate
+  delivery correctly skipped (idempotent).
+- Mobile store screen works against the **RC Test Store** (`test_` key): offering
+  renders, purchase sheet completes, post-purchase poll runs.
+- ⚠️ **Test Store does NOT fire server webhooks** (verified empirically) — so
+  RC-servers → our-webhook via a *platform* sandbox purchase is the one hop never
+  exercised end-to-end. That is AND6.
+- Swap `EXPO_PUBLIC_RC_ANDROID_KEY` / `..._IOS_KEY` off `test_` → `goog_`/`appl_`
+  when the store products exist.
+
+**⚠️ Before ANY production build (easy to miss)**
+- `EXPO_PUBLIC_ASSETS_URL` must point at the **Railway** URL, not `localhost:4000`
+  — mascots are served by the API host. Getting this wrong silently degrades to
+  the day-master glyph with no error (exactly the Android bug fixed in `eea51f5`).
+- `EXPO_PUBLIC_API_URL` → Railway.
+- Configure `expo-updates` (`runtimeVersion: {policy:"fingerprint"}`, channels)
+  BEFORE the first production build, or OTA is unavailable for that build.
+- Still to do at M7: Google OAuth + **Sign in with Apple** (mandatory once Google
+  ships), privacy labels (birth data = sensitive), final icon/splash/screenshots,
+  a dedicated **prod Clerk instance** (currently reusing DEV Clerk keys), and
+  release-build Maestro E2E.
+
+**Deliberate v1 non-goals**: push notifications, offline support, iPad
+(`supportsTablet:false`), ZWDS, mobile deep-links (share QR points at web).
 
 ## Key Commands
 ```bash

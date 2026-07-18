@@ -1,5 +1,6 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
+import { READING_TYPE_META, type ReadingType } from '@repo/shared';
 import { colors, spacing, fontSize, radius, fonts } from '../../theme';
 import { useZh } from '../../lib/language';
 
@@ -8,13 +9,17 @@ import { useZh } from '../../lib/language';
  * Rendered at the bottom of a completed reading. The current reading type is
  * filtered out. Only mobile-supported routes are listed (web's 先天健康/ZWDS
  * have no mobile screens → omitted per v1 scope).
+ *
+ * Display names come from READING_TYPE_META — the same source 首頁 FeatureCards
+ * and the 解讀 hub use. Local literals had already drifted: this grid said
+ * 「愛情姻緣」 while every other surface said 「八字愛情姻緣」.
  */
-const CROSS_SELL: { slug: string; icon: string; name: string; href: string }[] = [
-  { slug: 'lifetime', icon: '🌟', name: '八字終身運', href: '/reading/lifetime' },
-  { slug: 'annual', icon: '📅', name: '八字流年運勢', href: '/reading/annual' },
-  { slug: 'career', icon: '💼', name: '八字事業詳批', href: '/reading/career' },
-  { slug: 'love', icon: '💕', name: '愛情姻緣', href: '/reading/love' },
-  { slug: 'compatibility', icon: '🤝', name: '合盤比較', href: '/(authenticated)/compat' },
+const CROSS_SELL: { slug: ReadingType; icon: string; href: string }[] = [
+  { slug: 'lifetime', icon: '🌟', href: '/reading/lifetime' },
+  { slug: 'annual', icon: '📅', href: '/reading/annual' },
+  { slug: 'career', icon: '💼', href: '/reading/career' },
+  { slug: 'love', icon: '💕', href: '/reading/love' },
+  { slug: 'compatibility', icon: '🤝', href: '/(authenticated)/compat' },
 ];
 
 export default function CrossSellGrid({ readingType }: { readingType: string }) {
@@ -39,7 +44,7 @@ export default function CrossSellGrid({ readingType }: { readingType: string }) 
             accessibilityRole="button"
           >
             <Text style={styles.cardIcon}>{item.icon}</Text>
-            <Text style={styles.cardName}>{zh(item.name)}</Text>
+            <Text style={styles.cardName}>{zh(READING_TYPE_META[item.slug].nameZhTw)}</Text>
           </Pressable>
         ))}
       </View>
