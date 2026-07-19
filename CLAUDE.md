@@ -99,7 +99,25 @@ worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roami
    `no-require-imports`).
 5. **React 19 + jest-expo defers setState flushes** — wrap state-changing
    `fireEvent` in `await act(async () => …)` or the assertion sees stale UI.
-6. Local stack: API :4000 + engine :5001 + Metro :8081 against the DEV DB;
+6. **Driving the app for UI verification** (learned the hard way, PR #58):
+   - **Deep-link straight to a screen** instead of tapping through:
+     `xcrun simctl openurl <udid> "tianming://reading/lifetime?id=<readingId>"`.
+     ⚠️ On **Android** the custom scheme opens the Expo dev-client LAUNCHER, not the
+     app — use `adb shell monkey -p com.tianming.app …` + taps there. On **iOS** use
+     Maestro's `openLink` INSIDE a flow (after `launchApp` + a readiness
+     `extendedWaitUntil`, or it fires before the bundle is ready).
+   - **Maestro on iOS needs `--device <UDID>`** when both sims are booted, or it
+     silently drives the Android one. It also needs an explicit `launchApp`.
+   - **Verify colours by sampling pixels, not by eye**: `sips -c H W --cropOffset Y X`
+     → `sips -s format bmp` → parse the BMP header in python. Confirmed
+     `metalText`/`successText` were actually live rather than assuming.
+   - **The 稱呼 profile picker is a type-to-filter combobox.** Tapping the field opens
+     the keyboard, which then OCCLUDES the list — `uiautomator` still reports the
+     list items' logical bounds, so taps land on the keyboard instead. Open it via the
+     chevron, or fill the form manually via the 年/月/日 dropdowns.
+   - A **cached** reading never streams. To exercise a streaming path you need a birth
+     date with no existing reading of that type (check `bazi_readings` first).
+7. Local stack: API :4000 + engine :5001 + Metro :8081 against the DEV DB;
    node@22 PATH prefix required; iOS sim `iPhone 17 Pro`, Android AVD `Pixel_8`.
 
 ### ⏸ App Store progress — PAUSED 2026-07-18 (resume point for a future session)
@@ -257,6 +275,35 @@ do not add others without recording them here.
 - **God tags**: Color-coded pills — green (喜神), blue (用神), grey (閒神), red (忌神), purple (仇神)
 - **SVG ring charts**: Animated progress rings for Five Elements with subtle grey background track
 - **Staged reveal**: Sequential section loading animation with contextual Chinese loading messages
+
+### Mobile design system — `apps/mobile/src/theme/index.ts` (added 2026-07-19, PR #58)
+
+The mobile app has a **typographic system** the web does not. It exists because a
+measured audit found 589 `fontSize` declarations against only 87 `lineHeight` — so
+every call site re-decided leading, and CJK rendered at Latin default leading. Read
+the docblocks in `theme/index.ts` before changing any of this; they carry the
+measurements and the reasoning.
+
+| Export | What it is | The rule |
+|---|---|---|
+| `text.*` | Role presets — size + family + weight + leading + tracking TOGETHER (`body` `bodyTight` `label` `caption` `data` `dataSmall` `section` `title` `display` `ganzhi`) | Pick a ROLE, not five numbers. Prevents shipping unleaded CJK by omission. Adoption is partial — BaziChart is fully migrated, other surfaces were leaded by hand. |
+| `rhythm` | `section: 32` before a heading · `afterHeading: 10` after · `block: 16` · `tight: 8` | **Deliberately unequal (~3:1).** Space encodes grouping; near-uniform gaps leave a heading belonging to neither section. Do NOT "tidy" these to one value. |
+| `surfaces.card` | Platform-split card surface | Android `elevation` **cannot take a colour**, so warm `shadowColor` + elevation gave iOS a warm lift and Android a muddy grey one. Android gets a warm hairline instead. ⚠️ It sets its own `backgroundColor` — spreading it onto a coloured button turns the button white. |
+| `metalText` `warningText` `successText` `cautionText` `errorText` | AA-safe TEXT cuts of the vivid signal fills | `colors.gold/success/error/warning` are **fills, not type** (2.1–3.7:1). Anything READ uses the `*Text` cut. |
+| `ruleHair` (1.29:1) · `ruleHeader` · `ringTrack` (1.40:1) · `zebra` · `columnTint` | Table + track furniture | Replaces `borderLight`, which composites to 1.13:1 — i.e. renders nothing. |
+
+**Measure contrast against the ground the text ACTUALLY renders on**, not white.
+`metalText` was fine on white and still failed on `zebra` rows and the `columnTint`
+日柱 band — the exact cells it existed for. That mistake shipped once already.
+
+**Type floors (CJK):** 12pt is the floor for prose/captions; dense tabular cells
+(神煞 pills, 藏干 ten-god, 納音, 大運 years) run 11 with an explicit `lineHeight`.
+Never below 11.
+
+**⚠️ Pending domain review:** the 神煞 auspicious/inauspicious tint lists at the top
+of `BaziChart.tsx` are a **doctrinal** classification, not a design one. 桃花 and 驛馬
+are deliberately left neutral. Deleting both arrays makes every pill neutral and the
+layout still works.
 
 ### ZWDS Visual Distinction
 ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's red-gold theme:
