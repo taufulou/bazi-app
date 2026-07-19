@@ -447,6 +447,9 @@ describe('Monthly Credits', () => {
         userId: 'user-123',
         stripeSubscriptionId: 'sub_stripe_123',
         planTier: 'PRO',
+        // Explicit: handleInvoicePaid reactivates only when status === 'PAST_DUE'.
+        // Without this the fixture tested the ACTIVE path only by accident.
+        status: 'ACTIVE',
       });
       // M6: grantMonthlyCreditsForSubscription gates on the renewing sub being
       // the governing active sub.
@@ -488,6 +491,9 @@ describe('Monthly Credits', () => {
         userId: 'user-123',
         stripeSubscriptionId: 'sub_stripe_123',
         planTier: 'PRO',
+        // Explicit: handleInvoicePaid reactivates only when status === 'PAST_DUE'.
+        // Without this the fixture tested the ACTIVE path only by accident.
+        status: 'ACTIVE',
       });
       // M6: grantMonthlyCreditsForSubscription gates on the renewing sub being
       // the governing active sub.
@@ -529,6 +535,9 @@ describe('Monthly Credits', () => {
         userId: 'user-123',
         stripeSubscriptionId: 'sub_stripe_123',
         planTier: 'PRO',
+        // Explicit: handleInvoicePaid reactivates only when status === 'PAST_DUE'.
+        // Without this the fixture tested the ACTIVE path only by accident.
+        status: 'ACTIVE',
       });
       // M6: grantMonthlyCreditsForSubscription gates on the renewing sub being
       // the governing active sub.

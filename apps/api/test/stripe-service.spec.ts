@@ -902,9 +902,12 @@ describe('StripeService', () => {
       } as any;
 
       mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-db-1',
         userId: 'user-123',
         stripeSubscriptionId: 'sub_stripe_123',
         planTier: 'PRO',
+        // Explicit: handleInvoicePaid reactivates only when status === 'PAST_DUE'.
+        status: 'ACTIVE',
       });
       mockPrisma.transaction.create.mockResolvedValue({});
       // Mock for grantMonthlyCredits
@@ -931,6 +934,152 @@ describe('StripeService', () => {
       const invoice = { id: 'in_no_sub', parent: null } as any;
       await service.handleInvoicePaid(invoice);
       expect(mockPrisma.transaction.create).not.toHaveBeenCalled();
+    });
+
+    // ----------------------------------------------------------
+    // Dunning recovery + redelivery. invoice.payment_succeeded can beat
+    // customer.subscription.updated back to ACTIVE; if it does, the governing gate
+    // skips the grant and NOTHING retries (no MonthlyCreditsLog row is written).
+    // ----------------------------------------------------------
+
+    const makePaidInvoice = (id = 'in_dunning') =>
+      ({
+        id,
+        amount_paid: 999,
+        currency: 'usd',
+        lines: {
+          data: [
+            {
+              description: 'Pro Plan × 1',
+              period: { start: 1700000000, end: 1702592000 },
+            },
+          ],
+        },
+        parent: { subscription_details: { subscription: 'sub_stripe_123' } },
+      }) as any;
+
+    const primeGrantMocks = () => {
+      mockPrisma.transaction.create.mockResolvedValue({});
+      mockPrisma.plan.findFirst.mockResolvedValue({ ...MOCK_PLAN, slug: 'pro', monthlyCredits: 15 });
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
+      mockPrisma.user.update.mockResolvedValue({});
+    };
+
+    it('reactivates a PAST_DUE sub and grants the credits it would otherwise lose', async () => {
+      const row = {
+        id: 'sub-db-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
+        status: 'PAST_DUE',
+        currentPeriodStart: new Date(1700000000 * 1000),
+        currentPeriodEnd: new Date(1702592000 * 1000),
+      };
+      mockPrisma.subscription.findFirst.mockResolvedValue(row);
+      // STATEFUL: the governing-sub query only sees the row once it is ACTIVE.
+      // If the reactivation is removed, findMany returns [] → grant skipped → this
+      // test fails on the credit assertion, which is the actual regression.
+      let active = false;
+      mockPrisma.subscription.update.mockImplementation(async () => {
+        active = true;
+        return {};
+      });
+      mockPrisma.subscription.findMany.mockImplementation(async () =>
+        active ? [{ ...row, status: 'ACTIVE', createdAt: new Date() }] : [],
+      );
+      primeGrantMocks();
+
+      await service.handleInvoicePaid(makePaidInvoice());
+
+      expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'sub-db-1' }, data: { status: 'ACTIVE' } }),
+      );
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('does NOT resurrect a CANCELLED sub, and grants nothing', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-db-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
+        status: 'CANCELLED',
+        currentPeriodStart: new Date(1700000000 * 1000),
+        currentPeriodEnd: new Date(1702592000 * 1000),
+      });
+      mockPrisma.subscription.findMany.mockResolvedValue([]); // nothing active
+      primeGrantMocks();
+
+      await service.handleInvoicePaid(makePaidInvoice('in_cancelled'));
+
+      expect(mockPrisma.subscription.update).not.toHaveBeenCalled();
+      // Assert the OUTCOME, not the call: grantMonthlyCreditsForSubscription is
+      // still invoked unconditionally — it returns not-governing-subscription.
+      expect(mockTxMonthlyCreditsLog.create).not.toHaveBeenCalled();
+    });
+
+    it('does not write status again for an already-ACTIVE sub', async () => {
+      const row = {
+        id: 'sub-db-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
+        status: 'ACTIVE',
+        currentPeriodStart: new Date(1700000000 * 1000),
+        currentPeriodEnd: new Date(1702592000 * 1000),
+      };
+      mockPrisma.subscription.findFirst.mockResolvedValue(row);
+      mockPrisma.subscription.findMany.mockResolvedValue([{ ...row, createdAt: new Date() }]);
+      primeGrantMocks();
+
+      await service.handleInvoicePaid(makePaidInvoice('in_active'));
+
+      expect(mockPrisma.subscription.update).not.toHaveBeenCalled();
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('survives a redelivered invoice (P2002 on the Transaction) and still grants once', async () => {
+      const row = {
+        id: 'sub-db-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
+        status: 'ACTIVE',
+        currentPeriodStart: new Date(1700000000 * 1000),
+        currentPeriodEnd: new Date(1702592000 * 1000),
+      };
+      mockPrisma.subscription.findFirst.mockResolvedValue(row);
+      mockPrisma.subscription.findMany.mockResolvedValue([{ ...row, createdAt: new Date() }]);
+      primeGrantMocks();
+      // stripePaymentId is @unique — a redelivery collides here. Previously this
+      // escaped, the controller 500'd, Stripe retried, and the loop never broke.
+      mockPrisma.transaction.create.mockRejectedValue({ code: 'P2002' });
+
+      await expect(service.handleInvoicePaid(makePaidInvoice('in_redelivered'))).resolves.not.toThrow();
+
+      // Reached the grant despite the duplicate transaction.
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('rethrows a non-P2002 Transaction failure', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-db-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
+        status: 'ACTIVE',
+        currentPeriodStart: new Date(),
+        currentPeriodEnd: new Date(),
+      });
+      mockPrisma.subscription.findMany.mockResolvedValue([]);
+      primeGrantMocks();
+      mockPrisma.transaction.create.mockRejectedValue({ code: 'P1001' });
+
+      await expect(service.handleInvoicePaid(makePaidInvoice('in_db_down'))).rejects.toEqual({
+        code: 'P1001',
+      });
     });
   });
 

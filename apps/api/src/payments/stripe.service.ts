@@ -660,18 +660,52 @@ export class StripeService {
 
     if (!sub) return;
 
+    // Dunning recovery. handleInvoiceFailed sets PAST_DUE (and syncUserTier drops a
+    // Stripe-only user to FREE). On recovery Stripe emits invoice.payment_succeeded
+    // and customer.subscription.updated in NO guaranteed order — if the invoice
+    // lands first the row is still PAST_DUE, so the governing-subscription gate in
+    // grantMonthlyCreditsForSubscription (which queries status:'ACTIVE' only) skips
+    // the grant. Nothing retries: no MonthlyCreditsLog row is written, and
+    // customer.subscription.updated only calls syncUserTier, which never grants.
+    // The customer pays and receives nothing for that period.
+    //
+    // PAST_DUE ONLY. A broader `!== 'ACTIVE'` would also resurrect CANCELLED/EXPIRED
+    // subscriptions from a late or retried invoice, a $0 coupon invoice, or a
+    // post-cancel proration — and nothing would flip them back, because
+    // customer.subscription.deleted has already been consumed.
+    if (sub.status === 'PAST_DUE') {
+      await this.prisma.subscription.update({
+        where: { id: sub.id },
+        data: { status: 'ACTIVE' },
+      });
+      await this.entitlements.syncUserTier(sub.userId);
+      this.logger.log(`Subscription ${sub.id} reactivated from PAST_DUE by paid invoice ${invoice.id}`);
+    }
+
     // Record the transaction (use invoice.id as payment reference since payment_intent is no longer a direct property)
-    await this.prisma.transaction.create({
-      data: {
-        userId: sub.userId,
-        stripePaymentId: invoice.id,
-        amount: this.formatStripeAmount(invoice.amount_paid || 0, invoice.currency || 'usd'),
-        currency: (invoice.currency || 'usd').toUpperCase(),
-        type: 'SUBSCRIPTION',
-        description: `Subscription payment — ${invoice.lines?.data?.[0]?.description || 'renewal'}`,
-        platform: 'STRIPE',
-      },
-    });
+    //
+    // P2002-tolerant: stripePaymentId is @unique, so a REDELIVERED invoice collides
+    // here — and because this write precedes the credit grant, an escaping P2002
+    // made the controller 500, which made Stripe retry, which hit the same P2002.
+    // The Redis idempotency key is only set on success, so that loop never broke.
+    // A conflict just means we already recorded this invoice: continue to the grant,
+    // which has its own MonthlyCreditsLog dedup.
+    try {
+      await this.prisma.transaction.create({
+        data: {
+          userId: sub.userId,
+          stripePaymentId: invoice.id,
+          amount: this.formatStripeAmount(invoice.amount_paid || 0, invoice.currency || 'usd'),
+          currency: (invoice.currency || 'usd').toUpperCase(),
+          type: 'SUBSCRIPTION',
+          description: `Subscription payment — ${invoice.lines?.data?.[0]?.description || 'renewal'}`,
+          platform: 'STRIPE',
+        },
+      });
+    } catch (err) {
+      if (!isUniqueConstraintViolation(err)) throw err;
+      this.logger.log(`Invoice ${invoice.id} already recorded — continuing to credit grant`);
+    }
 
     // Grant monthly credits for the new billing period (renewal)
     // Extract period dates from invoice line items (Stripe clover API)
