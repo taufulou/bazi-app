@@ -65,7 +65,7 @@ const ShareableYearlyFortuneCard = forwardRef<View, Props>(function ShareableYea
 
       <View style={styles.ringWrap}>
         <Svg width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}>
-          <Circle cx={RING_CENTER} cy={RING_CENTER} r={RING_RADIUS} fill="none" stroke={colors.borderLight} strokeWidth={11} />
+          <Circle cx={RING_CENTER} cy={RING_CENTER} r={RING_RADIUS} fill="none" stroke={colors.ringTrack} strokeWidth={11} />
           <Circle
             cx={RING_CENTER}
             cy={RING_CENTER}
@@ -105,13 +105,13 @@ const ShareableYearlyFortuneCard = forwardRef<View, Props>(function ShareableYea
         <View style={styles.roRow}>
           {topOpp ? (
             <View style={styles.roSlot}>
-              <Text style={[styles.roLabel, { color: colors.success }]}>💡 機會</Text>
+              <Text style={[styles.roLabel, { color: colors.successText }]}>💡 機會</Text>
               <Text style={styles.roValue}>{`${topOpp.monthLabel} ${topOpp.dimZh}`}</Text>
             </View>
           ) : null}
           {topRisk ? (
             <View style={styles.roSlot}>
-              <Text style={[styles.roLabel, { color: colors.error }]}>🛡️ 風險</Text>
+              <Text style={[styles.roLabel, { color: colors.errorText }]}>🛡️ 風險</Text>
               <Text style={styles.roValue}>{`${topRisk.monthLabel} ${topRisk.dimZh}`}</Text>
             </View>
           ) : null}
@@ -153,7 +153,7 @@ const styles = StyleSheet.create({
   ringWrap: { width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' },
   scoreText: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   scoreNumber: { fontFamily: fonts.serifBold, fontSize: 40, fontWeight: '800', color: colors.textPrimary, lineHeight: 44 },
-  scoreUnit: { fontSize: 10, color: colors.textMuted },
+  scoreUnit: { fontSize: 12, color: colors.textMuted },
   labelBand: { paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, borderRadius: 999 },
   labelText: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textOnGold },
   friendly: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center' },
@@ -167,11 +167,11 @@ const styles = StyleSheet.create({
   roValue: { fontSize: fontSize.sm, color: colors.textPrimary, fontWeight: '700' },
   methods: { fontSize: fontSize.xs, color: colors.textSecondary, textAlign: 'center' },
   footer: { alignSelf: 'stretch', gap: spacing.md, marginTop: spacing.xs },
-  footerDivider: { height: 1, backgroundColor: colors.borderLight },
+  footerDivider: { height: 1, backgroundColor: colors.ruleHair },
   footerInner: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   qrBox: { backgroundColor: '#FFFFFF', padding: 6, borderRadius: radius.sm },
   footerText: { flex: 1, gap: 2 },
   footerDomain: { fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   footerTagline: { fontSize: fontSize.xs, color: colors.textSecondary },
-  footerDisclaimer: { fontSize: 10, color: colors.textMuted, lineHeight: 14 },
+  footerDisclaimer: { fontSize: 12, color: colors.textMuted, lineHeight: 17 },
 });

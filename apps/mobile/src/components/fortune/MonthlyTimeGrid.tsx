@@ -55,9 +55,9 @@ export default function MonthlyTimeGrid({ partitionSpec, intraMonthBreakdown, mo
               {breakdown ? (
                 <>
                   <View style={styles.dayCounts}>
-                    <Text style={[styles.countItem, { color: colors.success }]}>{zh(`吉 ${breakdown.auspicious_days}`)}</Text>
-                    <Text style={[styles.countItem, { color: colors.gold }]}>{zh(`平 ${breakdown.neutral_days}`)}</Text>
-                    <Text style={[styles.countItem, { color: colors.error }]}>{zh(`凶 ${breakdown.challenging_days}`)}</Text>
+                    <Text style={[styles.countItem, { color: colors.successText }]}>{zh(`吉 ${breakdown.auspicious_days}`)}</Text>
+                    <Text style={[styles.countItem, { color: colors.metalText }]}>{zh(`平 ${breakdown.neutral_days}`)}</Text>
+                    <Text style={[styles.countItem, { color: colors.errorText }]}>{zh(`凶 ${breakdown.challenging_days}`)}</Text>
                   </View>
 
                   {breakdown.dominant_shensha.length > 0 && (
@@ -110,17 +110,17 @@ const styles = StyleSheet.create({
   cardTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   pillarBadge: { backgroundColor: 'rgba(212,160,23,0.10)', borderColor: colors.borderMedium, borderWidth: 1, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   pillarBadgeText: { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
-  cardRange: { fontSize: fontSize.sm, color: colors.textMuted },
+  cardRange: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, color: colors.textMuted },
   dayCounts: { flexDirection: 'row', gap: spacing.md },
-  countItem: { fontSize: fontSize.sm, fontWeight: '700' },
+  countItem: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, fontWeight: '700' },
   shenshaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
   shenshaLabel: { fontSize: fontSize.xs, color: colors.textSecondary },
   shenshaTag: { backgroundColor: 'rgba(226,61,40,0.08)', borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   shenshaTagText: { fontSize: fontSize.xs, color: colors.textAccent },
   peakItem: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
-  peakDate: { fontSize: fontSize.xs, fontWeight: '700', color: colors.textPrimary },
+  peakDate: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.xs, fontWeight: '700', color: colors.textPrimary },
   peakLabel: { fontSize: fontSize.xs, color: colors.textSecondary },
   peakSignal: { fontSize: fontSize.xs, color: colors.textMuted },
-  placeholderHint: { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 22 },
+  placeholderHint: { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 24 },
   windowInfo: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: spacing.xs },
 });

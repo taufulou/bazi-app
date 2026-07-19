@@ -2,7 +2,8 @@ import { useAuth } from '@clerk/clerk-expo';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native';
-import { colors, spacing, fontSize, radius, fonts } from '../../theme';
+import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+import { colors, spacing, fontSize, radius, fonts, rhythm } from '../../theme';
 import { useZh } from '../../lib/language';
 import EnergyScoreRing from '../../components/fortune/EnergyScoreRing';
 import DimensionBars from '../../components/fortune/DimensionBars';
@@ -167,6 +168,21 @@ export default function FortuneScreen() {
   // OR a sample-question pill (which prefills the composer). Closed on tab change:
   // a session is bound to one scope+anchor, so it shouldn't survive a scope switch.
   const [chatOpen, setChatOpen] = useState(false);
+  /** Chat FAB auto-hide — see onFortuneScroll. */
+  const [fabHidden, setFabHidden] = useState(false);
+  const lastScrollY = useRef(0);
+
+  /**
+   * Park the chat FAB while reading DOWN, restore on scroll-up. The button is an
+   * opaque pill pinned bottom-right across all three fortune tabs.
+   */
+  const onFortuneScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const dy = y - lastScrollY.current;
+    if (Math.abs(dy) < 12) return;
+    lastScrollY.current = y;
+    setFabHidden(y > 80 && dy > 0);
+  }, []);
   const [chatPending, setChatPending] = useState<string | undefined>(undefined);
   const askFortune = useCallback((question?: string) => {
     setChatPending(question);
@@ -243,7 +259,12 @@ export default function FortuneScreen() {
     // Wrapper so the floating chat button can sit ABOVE the scroll content
     // (inside the ScrollView it would scroll away with the page).
     <View style={styles.screen}>
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      onScroll={onFortuneScroll}
+      scrollEventThrottle={16}
+    >
       {/* Profile switcher (hidden when <= 1 profile) */}
       <ProfileSwitcher
         profiles={profiles}
@@ -264,7 +285,12 @@ export default function FortuneScreen() {
               // iOS a11y tree, hiding the inner Text from element lookup).
               testID={`fortune-scope-${t.key}`}
               style={[styles.pill, active && styles.pillActive]}
-              onPress={() => setTab(t.key)}
+              onPress={() => {
+                // A fresh tab starts at the top, so the parked FAB would stay
+                // parked until the next scroll happened to self-correct it.
+                setFabHidden(false);
+                setTab(t.key);
+              }}
               accessibilityRole="button"
               accessibilityLabel={zh(t.zh)}
             >
@@ -312,6 +338,7 @@ export default function FortuneScreen() {
       pending={chatPending}
       onOpenChange={setChatOpen}
       onPendingConsumed={() => setChatPending(undefined)}
+      fabHidden={fabHidden}
     />
     </View>
   );
@@ -985,7 +1012,8 @@ const styles = StyleSheet.create({
   // Wraps the ScrollView so the floating chat button overlays it.
   screen: { flex: 1 },
   container: { flex: 1, backgroundColor: colors.bgPrimary },
-  content: { padding: spacing.xl, paddingBottom: spacing.xxl * 2, gap: spacing.lg },
+  // paddingBottom must clear the ~52pt FAB sitting at bottom:24 (was 64).
+  content: { padding: spacing.xl, paddingBottom: 104, gap: rhythm.section - 8 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bgPrimary },
   // pills
   pills: { flexDirection: 'row', gap: spacing.sm, backgroundColor: colors.bgCard, padding: 4, borderRadius: 999 },

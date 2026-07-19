@@ -12,7 +12,8 @@
  */
 import * as React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { colors, fontSize, spacing, radius } from '../../theme';
+import { Briefcase, Coins, Heart, HeartPulse } from 'lucide-react-native';
+import { colors, fontSize, spacing, radius, rhythm } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { AnnualV2DeterministicData, LoveV2DeterministicData } from '../../lib/readings-api';
 import {
@@ -187,18 +188,19 @@ function MonthlyAspects({
 }) {
   if (!aspects) return null;
   const items = [
-    { icon: '💼', label: '事業', value: aspects.career?.signals?.[0] || aspects.career?.tenGod || '—' },
-    { icon: '💰', label: '財運', value: aspects.finance?.signals?.[0] || '平' },
-    { icon: '💕', label: '感情', value: aspects.romance?.signals?.[0] || '平' },
-    { icon: '🏥', label: '健康', value: aspects.health?.signals?.[0] || '平' },
+    { Icon: Briefcase, label: '事業', value: aspects.career?.signals?.[0] || aspects.career?.tenGod || '—' },
+    { Icon: Coins, label: '財運', value: aspects.finance?.signals?.[0] || '平' },
+    { Icon: Heart, label: '感情', value: aspects.romance?.signals?.[0] || '平' },
+    { Icon: HeartPulse, label: '健康', value: aspects.health?.signals?.[0] || '平' },
   ];
   return (
     <View style={ws.aspectGrid}>
       {items.map((it) => (
         <View key={it.label} style={ws.aspectCell}>
-          <Text style={ws.aspectLabel}>
-            {it.icon} {zh(it.label)}
-          </Text>
+          <View style={ws.aspectLabelRow}>
+            <it.Icon size={14} strokeWidth={2} color={colors.textMuted} />
+            <Text style={ws.aspectLabel}>{zh(it.label)}</Text>
+          </View>
           <Text style={ws.aspectValue}>{zh(it.value)}</Text>
         </View>
       ))}
@@ -401,7 +403,7 @@ export function AnnualWidgets({
       ...(h.riskOrgans || []).map((r) => `${r.source || ''}${r.organs ? `(${r.organs})` : ''}`),
       ...(h.elementWarnings || []).map((w) => `${w.element || ''}${w.condition || ''}`),
     ].filter(Boolean);
-    if (h.yangrenDanger) riskChips.push('⚠ 羊刃高危');
+    if (h.yangrenDanger) riskChips.push('羊刃高危');
     return (
       <Wrap>
         <StarRating
@@ -579,7 +581,7 @@ export function LoveWidgets({
           {years.map((y, i) => (
             <Chip
               key={i}
-              label={zh(`${y.year}${y.type ? ` ${y.type}` : ''}${y.conflicted ? ' ⚠' : ''}`)}
+              label={zh(`${y.year}${y.type ? ` ${y.type}` : ''}${y.conflicted ? '（沖）' : ''}`)}
               tone={y.conflicted ? 'gold' : 'positive'}
             />
           ))}
@@ -688,9 +690,9 @@ export function LoveWidgets({
 // ============================================================
 
 const ws = StyleSheet.create({
-  wrap: { gap: spacing.sm },
+  wrap: { gap: rhythm.block },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
-  chipSection: { gap: spacing.xs },
+  chipSection: { gap: rhythm.tight },
   chipSectionLabel: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600' },
   aspectGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   aspectCell: {
@@ -701,6 +703,7 @@ const ws = StyleSheet.create({
     padding: spacing.sm,
     gap: 2,
   },
+  aspectLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   aspectLabel: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600' },
   aspectValue: { fontSize: fontSize.sm, color: colors.textPrimary, fontWeight: '600' },
 });

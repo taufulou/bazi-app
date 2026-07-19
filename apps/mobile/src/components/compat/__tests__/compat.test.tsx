@@ -61,8 +61,10 @@ describe('CompatibilityScoreRevealV2', () => {
     expect(screen.getByText('天生一對')).toBeTruthy();
     expect(screen.getByText('Roger')).toBeTruthy();
     expect(screen.getByText('Laopo')).toBeTruthy();
-    expect(screen.getByText('🌸 桃花 2朵')).toBeTruthy();
-    expect(screen.getByText('💍 姻緣星 3顆')).toBeTruthy();
+    // Emoji prefixes were removed from these badges — the app's own iconography is
+    // vector now (emoji inside AI prose is backend-owned and stays).
+    expect(screen.getByText('桃花 2朵')).toBeTruthy();
+    expect(screen.getByText('姻緣星 3顆')).toBeTruthy();
     expect(screen.getByText(/老師寄語/)).toBeTruthy();
   });
 

@@ -148,7 +148,7 @@ describe('LifetimeDeterministicCard', () => {
   it('CharacterCard renders trait layers from a minimal chart', async () => {
     await render(<CharacterCard chartData={CHART_FIXTURE} />);
     // day-master 戊 → 本質 trait block renders
-    expect(screen.getByText('🌟 本質')).toBeTruthy();
+    expect(screen.getByText('本質')).toBeTruthy();
   });
   it('CharacterCard does not crash on null chartData (renders nothing)', async () => {
     const { toJSON } = await render(<CharacterCard chartData={null} />);
@@ -191,7 +191,7 @@ describe('Luck period widgets', () => {
 describe('renderReadingExtras / ReadingHeader dispatch', () => {
   it('lifetime header is CharacterCard; career section → career widget', async () => {
     await render(<ReadingHeader readingType="lifetime" chartData={CHART_FIXTURE} />);
-    expect(screen.getByText('🌟 本質')).toBeTruthy();
+    expect(screen.getByText('本質')).toBeTruthy();
     await render(
       <>{renderReadingExtras({ readingType: 'career', sectionKey: 'company_type_fit', deterministic: careerDet, chartData: null, isSubscriber: true })}</>,
     );

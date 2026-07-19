@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
 import { READING_TYPE_META } from '@repo/shared';
+import { Briefcase, Handshake, Heart, ScrollText, type LucideIcon } from 'lucide-react-native';
 import { colors, spacing, fontSize, radius, fonts } from '../../theme';
 import { useZh } from '../../lib/language';
 import { getReadingHistoryByType, type ReadingHistoryItem } from '../../lib/readings-api';
@@ -14,7 +15,14 @@ import { getReadingHistoryByType, type ReadingHistoryItem } from '../../lib/read
  */
 type Status = 'loading' | 'success' | 'error';
 const PAGE_SIZE = 50;
-const COMPARISON_TYPE_ICON: Record<string, string> = { ROMANCE: '💕', BUSINESS: '💼', FRIENDSHIP: '🤝' };
+// Vectors, not emoji — see the note in primitives.tsx SECTION_THEMES. `meta.icon`
+// from @repo/shared is still an emoji string, so non-comparison rows fall back to
+// a neutral ScrollText rather than rendering it.
+const COMPARISON_TYPE_ICON: Record<string, LucideIcon> = {
+  ROMANCE: Heart,
+  BUSINESS: Briefcase,
+  FRIENDSHIP: Handshake,
+};
 
 function fmtDate(value: string | null | undefined): string {
   if (!value) return '';
@@ -117,9 +125,9 @@ export default function PastReadingsSection({
             const isComp = r.isComparison === true;
             const name = r.birthProfile?.name ?? zh('未命名');
             const birth = fmtDate(r.birthProfile?.birthDate);
-            const icon = isComp
-              ? COMPARISON_TYPE_ICON[r.comparisonType ?? 'ROMANCE'] ?? '🤝'
-              : meta?.icon ?? '🔮';
+            const RowIcon = isComp
+              ? (COMPARISON_TYPE_ICON[r.comparisonType ?? 'ROMANCE'] ?? Handshake)
+              : ScrollText;
             return (
               <Pressable
                 key={r.id}
@@ -127,7 +135,7 @@ export default function PastReadingsSection({
                 onPress={() => onOpen(r.id)}
                 accessibilityRole="button"
               >
-                <Text style={styles.rowIcon}>{icon}</Text>
+                <RowIcon size={22} strokeWidth={2} color={colors.textAccent} />
                 <View style={styles.rowBody}>
                   <Text style={styles.rowLine1} numberOfLines={1}>
                     {isComp ? (
@@ -185,17 +193,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgCard,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.ruleHair,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
   },
-  rowIcon: { fontSize: fontSize.xl },
   rowBody: { flex: 1, gap: 2 },
   rowLine1: { fontSize: fontSize.base, color: colors.textPrimary, fontWeight: '600' },
   rowMeta: { fontSize: fontSize.sm, color: colors.textMuted, fontWeight: '400' },
   vs: { color: colors.red, fontWeight: '700' },
   yearBadge: { fontSize: fontSize.sm, color: colors.red, fontWeight: '700' },
-  rowLine2: { fontSize: fontSize.xs, color: colors.textMuted },
+  rowLine2: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.xs, color: colors.textMuted },
   rowArrow: { fontSize: fontSize.base, color: colors.textMuted },
   loadMore: { alignItems: 'center', paddingVertical: spacing.md },
   loadMoreText: { fontSize: fontSize.sm, color: colors.red, fontWeight: '600' },

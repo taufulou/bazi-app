@@ -190,6 +190,6 @@ describe('Fix A — MascotViewer', () => {
 
   it('falls back to the day-master glyph for an invalid stem', async () => {
     await render(<MascotViewer stem="X" gender="female" />);
-    expect(screen.getByText('🎴')).toBeTruthy();
+    expect(screen.getByText('◆')).toBeTruthy();
   });
 });

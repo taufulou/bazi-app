@@ -71,7 +71,7 @@ export default function UnlockConfirmModal({
             {hourUnknown ? (
               <View style={styles.warn}>
                 <View style={styles.warnHead}>
-                  <TriangleAlert size={16} color={colors.warning} />
+                  <TriangleAlert size={16} color={colors.warningText} />
                   <Text style={styles.warnLead}>
                     {zh('因為沒有出生時辰，這份報告會以「年、月、日」來推算（大約七成）。下列與時辰有關的內容，這次不會包含：')}
                   </Text>
@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent },
   body: { gap: spacing.md, paddingBottom: spacing.md },
-  lead: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 26 },
+  lead: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
   leadName: { fontWeight: '700', color: colors.red },
   costRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs, flexWrap: 'wrap' },
   costLabel: { fontSize: fontSize.base, color: colors.textSecondary },
@@ -150,11 +150,11 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   warnHead: { flexDirection: 'row', gap: spacing.xs, alignItems: 'flex-start', marginBottom: 2 },
-  warnLead: { flex: 1, fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 22, fontWeight: '600' },
-  warnItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22, marginLeft: spacing.lg },
+  warnLead: { flex: 1, fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 24, fontWeight: '600' },
+  warnItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24, marginLeft: spacing.lg },
   warnNote: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: 4 },
-  insufficient: { fontSize: fontSize.sm, color: colors.warning, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
-  errorText: { fontSize: fontSize.sm, color: colors.error, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
+  insufficient: { fontSize: fontSize.sm, color: colors.warningText, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
+  errorText: { fontSize: fontSize.sm, color: colors.errorText, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
   confirmBtn: {
     backgroundColor: colors.red,
     borderRadius: radius.md,

@@ -10,10 +10,11 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
+import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ChevronLeft } from 'lucide-react-native';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { ChevronLeft, TriangleAlert } from 'lucide-react-native';
+import { colors, fonts, fontSize, spacing, radius, rhythm } from '../../theme';
 import { useZh } from '../../lib/language';
 import { getUserProfile, ApiError } from '../../lib/api';
 import { fetchBirthProfiles, type BirthProfile } from '../../lib/birth-profiles-api';
@@ -88,8 +89,24 @@ export default function CompatScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const idParam = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : undefined;
 
+  /** Chat FAB auto-hide — see onResultScroll. */
+  const [fabHidden, setFabHidden] = useState(false);
+  const lastScrollY = useRef(0);
   const [profiles, setProfiles] = useState<BirthProfile[]>([]);
   const [credits, setCredits] = useState(0);
+
+  /**
+   * Park the chat FAB while the user reads DOWN the revealed 合盤 analysis and
+   * restore it on any upward scroll — the button is an opaque pill pinned
+   * bottom-right and otherwise covers the paid content for the whole scroll.
+   */
+  const onResultScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const dy = y - lastScrollY.current;
+    if (Math.abs(dy) < 12) return;
+    lastScrollY.current = y;
+    setFabHidden(y > 80 && dy > 0);
+  }, []);
   const [tier, setTier] = useState<string>('FREE');
   const [loadingUser, setLoadingUser] = useState(true);
 
@@ -187,6 +204,16 @@ export default function CompatScreen() {
     revealingRef.current = true;
     setError(null);
     setRevealed(true);
+    // ⚠️ The FAB is gated on `revealed`, so it MOUNTS here — and reaching this
+    // button requires scrolling down past two full charts, which means
+    // `fabHidden` is already true. Without this reset the chat button animates
+    // straight out the moment it appears and stays gone until the user happens to
+    // scroll up, i.e. it is invisible for exactly the users who just paid.
+    //
+    // ⚠️ Reset ONLY fabHidden. Zeroing `lastScrollY` here (the view is parked at
+    // ~1200 after scrolling past two charts) makes the next delta ≈ +1200, which
+    // re-hides the button on the very next gesture, up or down.
+    setFabHidden(false);
     setStreaming(true);
     setAiData({ sections: [], isV2: true });
 
@@ -294,6 +321,7 @@ export default function CompatScreen() {
             sections: ai.sections.map((s) => ({ ...s, title: compatDynamicTitle(s.key, gA, gB, yr) ?? s.title })),
           });
           setRevealed(true);
+          setFabHidden(false);
         } else {
           setAiData(null);
           setRevealed(false);
@@ -327,7 +355,12 @@ export default function CompatScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        onScroll={onResultScroll}
+        scrollEventThrottle={16}
+      >
       {step === 'input' ? (
         <>
           <PastReadingsSection readingType="compatibility" onOpen={hydrateComparison} />
@@ -469,9 +502,10 @@ export default function CompatScreen() {
                     />
 
                     {hourUnknownA || hourUnknownB ? (
-                      <View style={styles.hourBanner}>
+                      <View style={[styles.hourBanner, styles.hourBannerRow]}>
+                        <TriangleAlert size={16} strokeWidth={2} color={colors.warningText} />
                         <Text style={styles.hourBannerText}>
-                          {zh('⚠️ 部分時辰相關分析受限')}
+                          {zh('部分時辰相關分析受限')}
                           {hourUnknownA ? zh(`（${genderA === 'female' ? '女方' : '男方'}時辰未知）`) : ''}
                           {hourUnknownB ? zh(`（${genderB === 'female' ? '女方' : '男方'}時辰未知）`) : ''}
                         </Text>
@@ -494,7 +528,7 @@ export default function CompatScreen() {
       {/* AI 命理師 chat — only after the reading is revealed (mirrors the web's
           !showPaywall gate). The chat stack is already comparisonId-aware. */}
       {step === 'result' && revealed && comparison?.id ? (
-        <ChatFloatingButton onPress={() => setChatOpen(true)} />
+        <ChatFloatingButton hidden={fabHidden} onPress={() => setChatOpen(true)} />
       ) : null}
       {comparison?.id ? (
         <ChatSheet
@@ -511,21 +545,30 @@ export default function CompatScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bgPrimary },
   container: { flex: 1, backgroundColor: colors.bgPrimary },
-  content: { padding: spacing.lg, gap: spacing.lg, paddingBottom: spacing.xxl },
+  // gap 16 spaced EVERY child alike, so 「男方」 sat as far from its own chart as
+  // the chart sat from 「女方」. paddingBottom must clear the ~52pt FAB at bottom:24.
+  content: { padding: spacing.lg, gap: rhythm.section - 8, paddingBottom: 104 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bgPrimary },
   backRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   backText: { fontSize: fontSize.base, color: colors.red, fontWeight: '600' },
-  partyLabel: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  partyLabel: {
+    fontFamily: fonts.serifBold,
+    fontSize: fontSize.lg,
+    lineHeight: 26,
+    fontWeight: '700',
+    color: colors.textAccent,
+    marginBottom: -(rhythm.section - 8) + rhythm.afterHeading,
+  },
   genericGate: {
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: rhythm.tight,
     backgroundColor: colors.bgCard,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.ruleHair,
     padding: spacing.xl,
   },
-  genericScore: { fontFamily: fonts.serifBold, fontSize: 48, fontWeight: '800', color: colors.red },
+  genericScore: { fontFamily: fonts.serifBold, fontSize: 48, lineHeight: 56, fontWeight: '800', color: colors.red, fontVariant: ['tabular-nums'] },
   genericScoreUnit: { fontSize: fontSize.base, color: colors.textMuted },
   genericLabel: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent },
   genericDesc: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', lineHeight: 22 },
@@ -533,6 +576,7 @@ const styles = StyleSheet.create({
   revealBtnDisabled: { opacity: 0.6 },
   revealBtnText: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textOnRed },
   hourBanner: { backgroundColor: colors.bgBannerWarm, borderRadius: radius.md, padding: spacing.md },
-  hourBannerText: { fontSize: fontSize.sm, color: colors.orange, fontWeight: '600' },
-  error: { fontSize: fontSize.sm, color: colors.error, textAlign: 'center' },
+  hourBannerRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' },
+  hourBannerText: { flex: 1, fontSize: fontSize.sm, lineHeight: 24, color: colors.warningText, fontWeight: '600' },
+  error: { fontSize: fontSize.sm, lineHeight: 24, color: colors.error, textAlign: 'center' },
 });

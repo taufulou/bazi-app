@@ -1,6 +1,6 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { Lock } from 'lucide-react-native';
-import { colors, spacing, fontSize, radius, fonts, shadows } from '../../theme';
+import { Briefcase, Calendar, Heart, Lock, Star, type LucideIcon } from 'lucide-react-native';
+import { colors, spacing, fontSize, radius, fonts, shadows, surfaces } from '../../theme';
 import { useZh } from '../../lib/language';
 
 /**
@@ -11,29 +11,29 @@ import { useZh } from '../../lib/language';
  * No "not signed in" branch — mobile is full-lockdown authed.
  */
 interface PaywallFeatures {
-  icon: string;
+  Icon: LucideIcon;
   title: string;
   bullets: string[];
 }
 
 const PAYWALL_FEATURES: Record<string, PaywallFeatures> = {
   lifetime: {
-    icon: '🌟',
+    Icon: Star,
     title: '八字終身運完整報告',
     bullets: ['性格特質', '日主分析', '五行平衡', '十神分布', '大運流年', '神煞解析', '六親關係', '人生指引', '財運分析'],
   },
   annual: {
-    icon: '📅',
+    Icon: Calendar,
     title: '八字流年運勢完整報告',
     bullets: ['流年總述', '太歲分析', '事業運勢', '財運分析', '人際關係', '愛情姻緣', '家庭關係', '健康狀況', '十二月運程'],
   },
   career: {
-    icon: '📊',
+    Icon: Briefcase,
     title: '八字事業詳批完整報告',
     bullets: ['事業格局分析', '職業能力分析', '行業方向建議', '創業適合度', '合夥適合度', '事業貴人分析', '未來五年運勢', '十二月運氣'],
   },
   love: {
-    icon: '💕',
+    Icon: Heart,
     title: '八字愛情姻緣完整報告',
     bullets: ['戀愛性格分析', '先天桃花運', '本命姻緣分析', '婚配建議', '對象性格與相貌', '桃花運好的年份', '桃花劫的年份', '感情易變年份'],
   },
@@ -61,7 +61,7 @@ export default function PaywallCTA({
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerIcon}>{feat.icon}</Text>
+        <feat.Icon size={24} strokeWidth={2} color={colors.textAccent} />
         <Text style={styles.headerTitle}>{zh(feat.title)}</Text>
       </View>
 
@@ -82,7 +82,7 @@ export default function PaywallCTA({
               <Text style={styles.unlockText}>{zh('解鎖完整報告')}</Text>
               {creditCost > 0 ? (
                 <View style={styles.costBadge}>
-                  <Text style={styles.costBadgeText}>💎 {creditCost} {zh('點')}</Text>
+                  <Text style={styles.costBadgeText}>{creditCost} {zh("點")}</Text>
                 </View>
               ) : (
                 <View style={styles.freeBadge}>
@@ -100,7 +100,7 @@ export default function PaywallCTA({
           <>
             <View style={[styles.unlockBtn, styles.unlockBtnDisabled]}>
               <Text style={styles.unlockText}>
-                {zh('額度不足')} 💎 {creditCost} {zh('點')}
+                {zh('額度不足')} · {creditCost} {zh('點')}
               </Text>
             </View>
             <Text style={styles.creditsInfo}>
@@ -118,16 +118,14 @@ export default function PaywallCTA({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.bgCard,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.ruleHair,
     padding: spacing.lg,
     marginTop: spacing.xl,
-    ...shadows.warm,
+    ...surfaces.card,
   },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
-  headerIcon: { fontSize: fontSize.xl },
   headerTitle: { flex: 1, fontSize: fontSize.lg, fontFamily: fonts.serifBold, fontWeight: '700', color: colors.textAccent },
   intro: { fontSize: fontSize.sm, color: colors.textSecondary, marginBottom: spacing.sm },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
@@ -135,7 +133,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgBannerWarm,
     borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.ruleHair,
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
   },

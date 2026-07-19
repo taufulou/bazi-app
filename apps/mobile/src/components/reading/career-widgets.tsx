@@ -13,7 +13,7 @@
  */
 import * as React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { colors, elementColors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, elementColors, fonts, fontSize, spacing, radius, rhythm } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { CareerV2DeterministicData } from '../../lib/readings-api';
 import {
@@ -451,9 +451,11 @@ function auspPillStyle(color: string) {
 
 const s = StyleSheet.create({
   flex: { flex: 1 },
-  stack: { gap: spacing.md },
+  // 12 between GROUPS vs 8 within one was 1.5:1 — near-uniform, so a sub-head sat
+  // almost equidistant between the block it ends and the block it starts.
+  stack: { gap: rhythm.section - 8 },
   scores: { gap: spacing.sm },
-  group: { gap: spacing.sm },
+  group: { gap: rhythm.afterHeading },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, alignItems: 'center' },
 
   subHeader: {
@@ -491,7 +493,7 @@ const s = StyleSheet.create({
     padding: spacing.md,
   },
   posLabel: { fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
-  posDesc: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
+  posDesc: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
 
   // Forecast badge
   forecast: {

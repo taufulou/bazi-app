@@ -1,14 +1,14 @@
 /**
  * CompatibilityScoreRevealV2 — the 合盤 romance score reveal. RN port of the web
  * CompatibilityScoreRevealV2: SVG count-up ring + mini breakdown bars +
- * 🌸桃花/💍姻緣星 badges + <55 reassurance + 老師寄語 card. Count-up via a rAF
+ * 桃花/姻緣星 badges + <55 reassurance + 老師寄語 card. Count-up via a rAF
  * loop (Hermes supports requestAnimationFrame); the web's staggered phase timers
  * are collapsed to a single post-count-up render for robustness.
  */
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, rhythm } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { RomancePreAnalysis } from '../../lib/readings-api';
 
@@ -30,12 +30,26 @@ const STROKE = 10;
 const RADIUS = (SIZE - STROKE) / 2;
 const CIRC = 2 * Math.PI * RADIUS;
 
+/** Bar/band FILL — vivid, never used as text. */
 function scoreColor(score: number): string {
   if (score >= 85) return colors.success;
   if (score >= 70) return '#4CAF50';
   if (score >= 55) return colors.gold;
   if (score >= 40) return colors.orange;
   return colors.error;
+}
+
+/**
+ * The same scale as `scoreColor` but for TEXT. The vivid cuts are 2.0–2.8:1 on
+ * white — below even the 3:1 large-text floor — and the headline 配對分數 is the
+ * single most-read number on this screen. These are darkened to clear AA while
+ * staying recognisably the same hue.
+ */
+function scoreTextColor(score: number): string {
+  if (score >= 70) return colors.successText;
+  if (score >= 55) return colors.metalText;
+  if (score >= 40) return colors.cautionText;
+  return colors.errorText;
 }
 
 export default function CompatibilityScoreRevealV2({
@@ -73,7 +87,8 @@ export default function CompatibilityScoreRevealV2({
     };
   }, [score]);
 
-  const color = scoreColor(score);
+  const color = scoreColor(score);          // ring / fills
+  const textColor = scoreTextColor(score);  // anything read as text
   const offset = CIRC * (1 - displayScore / 100);
 
   const sweetness = romancePA?.postMarriageQuality?.sweetness?.score ?? 50;
@@ -102,13 +117,18 @@ export default function CompatibilityScoreRevealV2({
         ? '存在一些需要注意的合婚風險，但只要雙方願意溝通，都可以化解。'
         : '合婚方面有些挑戰需要正視，了解風險才能更好地經營關係。';
 
-  const metricTone = (v: number) => (v >= 70 ? colors.success : v >= 40 ? colors.orange : colors.error);
+  // Text, not fill — same AA reasoning as scoreTextColor.
+  // Mirrors scoreTextColor's bands (including the ≥55 rung) so a 60 doesn't read
+  // as the 40–55 amber. `colors.error` is 3.30:1 and these render at 18pt/800 —
+  // below the large-text threshold, so AA needs 4.5:1.
+  const metricTone = (v: number) =>
+    v >= 70 ? colors.successText : v >= 55 ? colors.metalText : v >= 40 ? colors.cautionText : colors.errorText;
   const crisisTone =
     crisisLevel === '輕微' || crisisLevel === '良好'
-      ? colors.success
+      ? colors.successText
       : crisisLevel === '中等'
-        ? colors.orange
-        : colors.error;
+        ? colors.cautionText
+        : colors.errorText;
 
   return (
     <View style={styles.container}>
@@ -131,7 +151,7 @@ export default function CompatibilityScoreRevealV2({
         </Svg>
         <View style={styles.ringCenter}>
           <View style={styles.scoreRow}>
-            <Text style={[styles.scoreNumber, { color }]}>{displayScore}</Text>
+            <Text style={[styles.scoreNumber, { color: textColor }]}>{displayScore}</Text>
             <Text style={styles.scoreUnit}>{zh('分')}</Text>
           </View>
           <Text style={styles.scoreLabel}>{zh(label)}</Text>
@@ -155,7 +175,7 @@ export default function CompatibilityScoreRevealV2({
       {/* Reassurance (<55) */}
       {score < 55 ? (
         <View style={styles.reassurance}>
-          <Text style={styles.reassuranceTitle}>💡 {zh('分數不等於命運')}</Text>
+          <Text style={styles.reassuranceTitle}>{zh('分數不等於命運')}</Text>
           <Text style={styles.reassuranceText}>
             {zh(
               '配對分數反映的是兩人先天命盤的契合度，而非最終結果。許多高分配對因為不經營而失敗，低分配對反而因為彼此珍惜而幸福美滿。了解差異，才能更好地相處。',
@@ -166,14 +186,14 @@ export default function CompatibilityScoreRevealV2({
 
       {/* 老師寄語 */}
       <View style={styles.masterNote}>
-        <Text style={styles.masterNoteTitle}>📋 {zh('老師寄語')}</Text>
+        <Text style={styles.masterNoteTitle}>{zh('老師寄語')}</Text>
         <Text style={styles.masterNoteSummary}>{zh(opening)}</Text>
         <View style={styles.metricsRow}>
           <Metric zh={zh} label="甜蜜度" value={`${sweetness}`} suffix="分" color={metricTone(sweetness)} />
           <Metric zh={zh} label="穩定度" value={`${stability}`} suffix="分" color={metricTone(stability)} />
           <Metric zh={zh} label="危機等級" value={crisisLevel || '—'} color={crisisTone} />
         </View>
-        <Text style={styles.masterNoteEncouragement}>💬 {zh(qualityLine + crisisLine)}</Text>
+        <Text style={styles.masterNoteEncouragement}>{zh(qualityLine + crisisLine)}</Text>
         <Text style={styles.masterNoteFooter}>
           {zh('以下為詳細的逐項分析，幫助你們更深入了解彼此的感情特質和相處模式。')}
         </Text>
@@ -209,8 +229,8 @@ function PersonBadges({
   return (
     <View style={styles.personBadges}>
       <Text style={styles.personName}>{name}</Text>
-      <Text style={styles.badge}>{zh(`🌸 桃花 ${peach}朵`)}</Text>
-      <Text style={styles.badge}>{zh(`💍 姻緣星 ${spouse}顆`)}</Text>
+      <Text style={styles.badge}>{zh(`桃花 ${peach}朵`)}</Text>
+      <Text style={styles.badge}>{zh(`姻緣星 ${spouse}顆`)}</Text>
     </View>
   );
 }
@@ -240,19 +260,27 @@ function Metric({
 }
 
 const styles = StyleSheet.create({
-  container: { alignItems: 'center', gap: spacing.lg },
+  container: { alignItems: 'center', gap: rhythm.section - 8 },
   ringWrap: { width: SIZE, height: SIZE, alignItems: 'center', justifyContent: 'center' },
   ringCenter: { position: 'absolute', alignItems: 'center' },
   scoreRow: { flexDirection: 'row', alignItems: 'flex-end' },
-  scoreNumber: { fontFamily: fonts.serifBold, fontSize: 52, fontWeight: '800', lineHeight: 56 },
+  // ⚠️ tabular-nums is load-bearing here: this value COUNTS UP over ~1.6s, and with
+  // proportional figures every frame re-measures and the number visibly jitters.
+  scoreNumber: {
+    fontFamily: fonts.serifBold,
+    fontSize: 52,
+    fontWeight: '800',
+    lineHeight: 58,
+    fontVariant: ['tabular-nums'],
+  },
   scoreUnit: { fontSize: fontSize.sm, color: colors.textMuted, marginBottom: 8, marginLeft: 2 },
   scoreLabel: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent, marginTop: 2 },
   breakdown: { alignSelf: 'stretch', gap: spacing.sm },
   barRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   barLabel: { width: 68, fontSize: fontSize.sm, color: colors.textSecondary },
-  barTrack: { flex: 1, height: 10, borderRadius: 999, backgroundColor: colors.borderLight, overflow: 'hidden' },
+  barTrack: { flex: 1, height: 10, borderRadius: 999, backgroundColor: colors.ringTrack, overflow: 'hidden' },
   barFill: { height: 10, borderRadius: 999 },
-  barValue: { width: 28, textAlign: 'right', fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
+  barValue: { width: 30, textAlign: 'right', fontSize: fontSize.sm, lineHeight: 21, fontWeight: '700', color: colors.textPrimary, fontVariant: ['tabular-nums'] },
   badgesRow: { alignSelf: 'stretch', gap: spacing.sm },
   personBadges: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
   personName: { fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary, minWidth: 56 },
@@ -273,23 +301,23 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   reassuranceTitle: { fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
-  reassuranceText: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
+  reassuranceText: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   masterNote: {
     alignSelf: 'stretch',
     backgroundColor: colors.bgCard,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.ruleHair,
     padding: spacing.lg,
     gap: spacing.sm,
   },
   masterNoteTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
-  masterNoteSummary: { fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 22 },
+  masterNoteSummary: { fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 24 },
   metricsRow: { flexDirection: 'row', gap: spacing.sm },
   metricCard: { flex: 1, alignItems: 'center', backgroundColor: colors.bgSecondary, borderRadius: radius.md, paddingVertical: spacing.sm },
   metricLabel: { fontSize: fontSize.xs, color: colors.textMuted },
-  metricValue: { fontSize: fontSize.lg, fontWeight: '800' },
+  metricValue: { fontSize: fontSize.lg, lineHeight: 24, fontWeight: '800', fontVariant: ['tabular-nums'] },
   metricSuffix: { fontSize: fontSize.xs, color: colors.textMuted },
-  masterNoteEncouragement: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
+  masterNoteEncouragement: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   masterNoteFooter: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18 },
 });

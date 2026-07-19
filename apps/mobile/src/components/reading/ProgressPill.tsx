@@ -81,7 +81,7 @@ const styles = StyleSheet.create({
   },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.red },
   label: { fontSize: fontSize.sm, fontFamily: fonts.serifBold, fontWeight: '700', color: colors.textAccent },
-  bar: { width: BAR_WIDTH, height: 6, borderRadius: 3, backgroundColor: colors.borderLight, overflow: 'hidden' },
+  bar: { width: BAR_WIDTH, height: 6, borderRadius: 3, backgroundColor: colors.ruleHair, overflow: 'hidden' },
   barFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: colors.gold, borderRadius: 3 },
   shimmer: { position: 'absolute', top: 0, bottom: 0, width: 32, backgroundColor: 'rgba(255,255,255,0.55)' },
   count: { fontSize: fontSize.xs, color: colors.textMuted, fontVariant: ['tabular-nums'] },

@@ -69,7 +69,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgBannerWarm,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.ruleHair,
     marginTop: spacing.sm,
     overflow: 'hidden',
   },

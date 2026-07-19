@@ -13,7 +13,19 @@
  */
 import * as React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { colors, fonts, fontSize, spacing, radius, shadows } from '../../theme';
+import {
+  Briefcase,
+  Compass,
+  Heart,
+  HeartPulse,
+  IdCard,
+  Lightbulb,
+  Mountain,
+  ScrollText,
+  TrendingUp,
+  type LucideIcon,
+} from 'lucide-react-native';
+import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces  } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { LifetimeV2DeterministicData } from '../../lib/readings-api';
 import { ChipGroup } from './primitives';
@@ -179,7 +191,8 @@ export function CharacterCard({
     <View style={cc.card}>
       {/* Header */}
       <View style={cc.header}>
-        <Text style={cc.title}>{zh('🎴 你的角色卡')}</Text>
+        <IdCard size={20} strokeWidth={2} color={colors.textAccent} />
+        <Text style={cc.title}>{zh('你的角色卡')}</Text>
         {zodiac ? (
           <View style={cc.zodiacBadge}>
             <Text style={cc.zodiacBadgeText}>{zh(`${zodiac}年生`)}</Text>
@@ -200,13 +213,11 @@ export function CharacterCard({
 
       {/* Personality layers */}
       <View style={cc.layers}>
-        {personality ? (
-          <Layer label={zh('🌟 本質')} value={zh(personality.traits)} />
-        ) : null}
-        {externalTrait ? <Layer label={zh('🎭 外在印象')} value={zh(externalTrait)} /> : null}
-        {internalTrait ? <Layer label={zh('💎 內在性格')} value={zh(internalTrait)} /> : null}
-        {motivationTrait ? <Layer label={zh('🔥 核心驅動力')} value={zh(motivationTrait)} /> : null}
-        {zodiacTrait ? <Layer label={zh(`🐾 生肖特質（${zodiac}）`)} value={zh(zodiacTrait)} /> : null}
+        {personality ? <Layer label={zh('本質')} value={zh(personality.traits)} /> : null}
+        {externalTrait ? <Layer label={zh('外在印象')} value={zh(externalTrait)} /> : null}
+        {internalTrait ? <Layer label={zh('內在性格')} value={zh(internalTrait)} /> : null}
+        {motivationTrait ? <Layer label={zh('核心驅動力')} value={zh(motivationTrait)} /> : null}
+        {zodiacTrait ? <Layer label={zh(`生肖特質（${zodiac}）`)} value={zh(zodiacTrait)} /> : null}
       </View>
 
       {/* Stats */}
@@ -232,10 +243,19 @@ export function CharacterCard({
   );
 }
 
+/**
+ * Labels were prefixed with emoji (🌟 本質, 🎭 外在印象, …). Replaced with the ◆
+ * ornament the product already uses in its section banners — it belongs to the
+ * same visual language as the ink-wash art, and unlike emoji it renders
+ * identically on both platforms.
+ */
 function Layer({ label, value }: { label: string; value: string }) {
   return (
     <View style={cc.layer}>
-      <Text style={cc.layerLabel}>{label}</Text>
+      <View style={cc.layerLabelRow}>
+        <Text style={cc.layerMark}>◆</Text>
+        <Text style={cc.layerLabel}>{label}</Text>
+      </View>
       <Text style={cc.layerValue}>{value}</Text>
     </View>
   );
@@ -275,12 +295,13 @@ function LockedSummary({ text }: { text: string }) {
  * a subtle bg-tinted sub-block (no shadow / heavy border) to avoid card-in-card.
  */
 function DetCard({
-  icon,
+  Icon,
   title,
   disclaimer,
   children,
 }: {
-  icon: string;
+  /** Monochrome vector tinted with the card accent — see the note in primitives.tsx. */
+  Icon: LucideIcon;
   title: string;
   disclaimer?: string;
   children: React.ReactNode;
@@ -288,7 +309,7 @@ function DetCard({
   return (
     <View style={det.card}>
       <View style={det.cardHeader}>
-        <Text style={det.cardIcon}>{icon}</Text>
+        <Icon size={18} strokeWidth={2} color={colors.textAccent} />
         <Text style={det.cardTitle}>{title}</Text>
       </View>
       {disclaimer ? <Text style={det.disclaimer}>{disclaimer}</Text> : null}
@@ -313,7 +334,7 @@ function InvestmentsCard({
 
   return (
     <DetCard
-      icon="📈"
+      Icon={TrendingUp}
       title={zh('投資理財方向')}
       disclaimer={zh('投資有風險，此測算結果內容僅供參考，絕不構成任何投資建議或承諾')}
     >
@@ -358,7 +379,7 @@ function CareerDataCard({
   const userZodiac = (yearBranch ? BRANCH_ZODIAC[yearBranch] : null) || null;
 
   return (
-    <DetCard icon="🧭" title={zh('有利發展的職業方向')}>
+    <DetCard Icon={Compass} title={zh('有利發展的職業方向')}>
       {/* Career directions */}
       {data.careerDirections.length > 0 ? (
         <DetRow label={zh('職業方向')}>
@@ -467,7 +488,7 @@ function LoveDataCard({
   const userZodiac = (yearBranch ? BRANCH_ZODIAC[yearBranch] : null) || null;
 
   return (
-    <DetCard icon="💞" title={zh('感情時機與擇偶方向')}>
+    <DetCard Icon={Heart} title={zh('感情時機與擇偶方向')}>
       {/* Romance years */}
       {data.romanceYears.length > 0 ? (
         <DetRow
@@ -489,7 +510,7 @@ function LoveDataCard({
       {/* Warning years */}
       {data.romanceWarningYears && data.romanceWarningYears.length > 0 ? (
         <DetRow
-          label={zh('⚠️ 感情波動年')}
+          label={zh('感情波動年')}
           explain={
             isSubscriber
               ? zh('這些年份流年沖擊感情宮，感情較易出現波動或考驗。已有伴侶者須特別注意溝通與維繫，單身者感情宮被觸動，姻緣或有變化，但順逆須結合整體運勢判斷。')
@@ -566,7 +587,7 @@ function FamilyDataCard({
   };
 
   return (
-    <DetCard icon="🏠" title={zh('父母健康提點')}>
+    <DetCard Icon={HeartPulse} title={zh('父母健康提點')}>
       <DetRow label={zh('父親健康注意年份')}>{renderYears(father, father.length)}</DetRow>
       <DetRow label={zh('母親健康注意年份')}>{renderYears(mother, mother.length)}</DetRow>
     </DetCard>
@@ -589,25 +610,31 @@ function DayPillarDetailedCard({
   if (!dpd) return null;
 
   // Labels match web DeterministicCard day_pillar_detailed (AIReadingDisplay.tsx:2409-2413).
-  const blocks: Array<{ icon: string; label: string; value: string; locked: boolean }> = [
-    { icon: '🏔', label: '核心意象', value: dpd.coreImage, locked: false },
-    { icon: '🧭', label: '性格解析', value: dpd.personality, locked: !isSubscriber },
-    { icon: '💼', label: '事業與財運', value: dpd.career, locked: !isSubscriber },
-    { icon: '💞', label: '感情特質', value: dpd.relationships, locked: !isSubscriber },
-    { icon: '💡', label: '一生提醒', value: dpd.advice, locked: !isSubscriber },
+  const blocks: Array<{ Icon: LucideIcon; label: string; value: string; locked: boolean }> = [
+    { Icon: Mountain, label: '核心意象', value: dpd.coreImage, locked: false },
+    { Icon: Compass, label: '性格解析', value: dpd.personality, locked: !isSubscriber },
+    { Icon: Briefcase, label: '事業與財運', value: dpd.career, locked: !isSubscriber },
+    { Icon: Heart, label: '感情特質', value: dpd.relationships, locked: !isSubscriber },
+    { Icon: Lightbulb, label: '一生提醒', value: dpd.advice, locked: !isSubscriber },
   ];
 
   return (
-    <DetCard icon="📜" title={zh(dpd.title || '日柱詳解')}>
+    <DetCard Icon={ScrollText} title={zh(dpd.title || '日柱詳解')}>
       {dpd.subtitle ? <Text style={det.dpdSubtitle}>{zh(dpd.subtitle)}</Text> : null}
       <Text style={det.dpdIntro}>
         {zh(
           `八字中的日柱是你自己的代表——它揭示你最本質的性格、天賦和人生傾向。在六十種日柱組合中，你是${(dpd.title || '').replace('日柱', '')}，以下是專屬於你的深度解讀。`,
         )}
       </Text>
-      {blocks.map((b) => (
-        <View key={b.label} style={det.dpdBlock}>
-          <Text style={det.dpdBlockLabel}>{zh(`${b.icon} ${b.label}`)}</Text>
+      {blocks.map((b, i) => (
+        // Each block is a heading plus its prose. The gap BETWEEN blocks must be
+        // much larger than the gap inside one, or the headings read as floating
+        // between sections rather than introducing them — see `rhythm` in theme.
+        <View key={b.label} style={[det.dpdBlock, i > 0 && det.dpdBlockGap]}>
+          <View style={det.dpdBlockLabelRow}>
+            <b.Icon size={15} strokeWidth={2} color={colors.textAccent} />
+            <Text style={det.dpdBlockLabel}>{zh(b.label)}</Text>
+          </View>
           {b.locked ? (
             <Text style={det.blurred}>{zh('訂閱後解鎖完整解讀')}</Text>
           ) : (
@@ -661,11 +688,10 @@ export function LifetimeDeterministicCard({
 
 const cc = StyleSheet.create({
   card: {
-    backgroundColor: colors.bgCard,
     borderRadius: radius.lg,
     padding: spacing.lg,
     gap: spacing.md,
-    ...shadows.warm,
+    ...surfaces.card,
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent, flex: 1 },
@@ -687,20 +713,22 @@ const cc = StyleSheet.create({
   },
   archetypeLabel: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600', letterSpacing: 1 },
   archetypeValue: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent },
-  layers: { gap: spacing.md },
-  layer: { gap: 2 },
-  layerLabel: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textSecondary },
-  layerValue: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 26 },
+  layers: { gap: rhythm.section - 8 },
+  layer: { gap: rhythm.tight },
+  layerLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  layerMark: { fontSize: 10, lineHeight: 18, color: colors.gold },
+  layerLabel: { fontSize: 15, lineHeight: 20, fontWeight: '700', letterSpacing: 0.6, color: colors.textSecondary },
+  layerValue: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
   stats: {
     gap: spacing.sm,
     paddingTop: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: colors.borderLight,
+    borderTopColor: colors.ruleHair,
   },
   statItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.md },
   statLabel: { fontSize: fontSize.sm, color: colors.textMuted, fontWeight: '600' },
   statValue: { fontSize: fontSize.sm, color: colors.textPrimary, fontWeight: '600', flexShrink: 1, textAlign: 'right' },
-  shensha: { gap: spacing.xs, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.borderLight },
+  shensha: { gap: spacing.xs, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.ruleHair },
   shenshaLabel: { fontSize: fontSize.sm, color: colors.textMuted, fontWeight: '600' },
 });
 
@@ -711,12 +739,11 @@ const det = StyleSheet.create({
     backgroundColor: colors.bgSecondary,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.ruleHair,
     padding: spacing.md,
     gap: spacing.sm,
   },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  cardIcon: { fontSize: fontSize.lg },
   cardTitle: {
     flex: 1,
     fontFamily: fonts.serifBold,
@@ -724,11 +751,11 @@ const det = StyleSheet.create({
     fontWeight: '700',
     color: colors.textAccent,
   },
-  dpdIntro: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
+  dpdIntro: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   body: { gap: spacing.md },
   row: { gap: spacing.xs },
   label: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textSecondary },
-  explain: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
+  explain: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   blurred: { fontSize: fontSize.sm, color: colors.textMuted, fontStyle: 'italic' },
   note: { fontSize: fontSize.sm, color: colors.textMuted },
   disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18 },
@@ -738,7 +765,9 @@ const det = StyleSheet.create({
   dpdHeader: { gap: 2, paddingBottom: spacing.xs },
   dpdTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
   dpdSubtitle: { fontSize: fontSize.sm, color: colors.textMuted },
-  dpdBlock: { gap: spacing.xs },
-  dpdBlockLabel: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textSecondary },
-  dpdBlockText: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 26 },
+  dpdBlock: { gap: rhythm.tight },
+  dpdBlockGap: { marginTop: rhythm.section - spacing.md },
+  dpdBlockLabelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  dpdBlockLabel: { fontSize: 15, lineHeight: 20, fontWeight: '700', letterSpacing: 0.6, color: colors.textSecondary },
+  dpdBlockText: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
 });

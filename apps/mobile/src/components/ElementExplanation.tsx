@@ -53,6 +53,19 @@ const NATURE_BADGE: Record<string, string> = {
 };
 
 
+/**
+ * The engine emits collapsed role KEYS ('favorable' / 'unfavorable' / 'neutral' —
+ * see KONG_WANG_ROLE_MAP), and `zh()` is only a 繁→簡 converter, so these were
+ * reaching the badge untranslated: users saw a literal 「favorable」 on a paid
+ * surface. Anything already Chinese (喜神/用神/…) passes straight through.
+ */
+const GOD_ROLE_LABEL: Record<string, string> = {
+  favorable: '有利',
+  unfavorable: '不利',
+  neutral: '中性',
+};
+const godRoleLabel = (role: string) => GOD_ROLE_LABEL[role] ?? role;
+
 export function ElementExplanation({
   isOpen,
   onClose,
@@ -194,7 +207,7 @@ export function ElementExplanation({
               isSubscriber ? (
                 <View style={styles.paidBlock}>
                   {data!.personalized.godRole ? (
-                    <Text style={styles.godRoleBadge}>{zh(data!.personalized.godRole)}</Text>
+                    <Text style={styles.godRoleBadge}>{zh(godRoleLabel(data!.personalized.godRole))}</Text>
                   ) : null}
                   {data!.personalized.pillarMeaning ? (
                     <Text style={styles.bodyText}>{zh(data!.personalized.pillarMeaning)}</Text>
@@ -261,11 +274,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingBottom: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.borderLight,
+    borderBottomColor: colors.ruleHair,
     gap: spacing.sm,
   },
   headerTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent },
-  headerSub: { fontSize: fontSize.base, color: colors.textSecondary, fontWeight: '400' },
+  headerSub: { fontSize: fontSize.base, lineHeight: 24, color: colors.textSecondary, fontWeight: '400' },
   categoryBadge: {
     alignSelf: 'flex-start',
     marginTop: spacing.xs,
@@ -279,17 +292,17 @@ const styles = StyleSheet.create({
   },
   content: { padding: spacing.xl, gap: spacing.md, paddingBottom: spacing.xxl * 2 },
   center: { alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.xxl, gap: spacing.sm },
-  muted: { fontSize: fontSize.base, color: colors.textMuted },
-  bodyText: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 26 },
+  muted: { fontSize: fontSize.base, lineHeight: 28, color: colors.textMuted },
+  bodyText: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: { backgroundColor: colors.bgBannerWarm, borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
   chipText: { fontSize: fontSize.sm, color: colors.textAccent },
-  liuQin: { fontSize: fontSize.sm, color: colors.textSecondary },
+  liuQin: { fontSize: fontSize.sm, lineHeight: 24, color: colors.textSecondary },
   comboCard: { backgroundColor: colors.bgSecondary, borderRadius: radius.md, padding: spacing.lg, gap: spacing.sm },
   comboTitle: { fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   comboGrade: { color: colors.red },
   comboSeat: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
-  paidBlock: { gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderLight, paddingTop: spacing.md },
+  paidBlock: { gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.ruleHair, paddingTop: spacing.md },
   godRoleBadge: {
     alignSelf: 'flex-start',
     fontSize: fontSize.sm,
@@ -306,7 +319,7 @@ const styles = StyleSheet.create({
   interactionRow: { gap: spacing.xs },
   interactionName: { fontSize: fontSize.base, fontWeight: '600', color: colors.textPrimary },
   natureBadge: { fontSize: fontSize.xs, color: colors.textMuted },
-  paywall: { gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.borderLight, paddingTop: spacing.md },
+  paywall: { gap: spacing.md, borderTopWidth: 1, borderTopColor: colors.ruleHair, paddingTop: spacing.md },
   blurWrap: { position: 'relative', overflow: 'hidden', borderRadius: radius.sm },
   blurredText: { opacity: 0.9 },
   unlockBtn: { backgroundColor: colors.red, borderRadius: radius.md, paddingVertical: spacing.md, alignItems: 'center' },

@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { spacing, fontSize, radius } from '../../theme';
+import { Lightbulb } from 'lucide-react-native';
+import { colors, spacing, fontSize, radius } from '../../theme';
 import { useZh } from '../../lib/language';
 
 /**
@@ -29,7 +30,7 @@ export default function CacheToast({
 
   return (
     <View style={styles.banner}>
-      <Text style={styles.icon}>💡</Text>
+      <Lightbulb size={17} strokeWidth={2} color={colors.textAccent} />
       <Text style={styles.text}>
         {zh('偵測到相同命盤資料，已載入先前的分析結果（未扣除額度）')}
       </Text>
@@ -66,7 +67,6 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 4,
   },
-  icon: { fontSize: fontSize.base },
   text: { flex: 1, fontSize: fontSize.sm, color: '#2e7d32', lineHeight: 20 },
   close: { fontSize: fontSize.base, color: '#2e7d32', opacity: 0.7, paddingHorizontal: spacing.xs },
 });

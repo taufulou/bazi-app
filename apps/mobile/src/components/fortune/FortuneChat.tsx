@@ -29,6 +29,8 @@ export default function FortuneChat({
   open,
   pending,
   onOpenChange,
+  /** Forwarded to the FAB so the fortune screen can park it while scrolling down. */
+  fabHidden,
   onPendingConsumed,
 }: {
   profileId?: string;
@@ -39,12 +41,13 @@ export default function FortuneChat({
   pending?: string;
   onOpenChange: (open: boolean) => void;
   onPendingConsumed: () => void;
+  fabHidden?: boolean;
 }) {
   if (!profileId || !anchorDate) return null;
 
   return (
     <>
-      <ChatFloatingButton onPress={() => onOpenChange(true)} />
+      <ChatFloatingButton hidden={fabHidden} onPress={() => onOpenChange(true)} />
       <ChatSheet
         visible={open}
         onClose={() => onOpenChange(false)}

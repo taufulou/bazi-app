@@ -1681,18 +1681,18 @@ function buildAnnualMonthly(cd: Record<string, unknown>, monthIndex: number): Te
     const careerTenGod = aspects.career?.tenGod || aspects.career?.ten_god || '';
     if (careerTenGod || (aspects.career?.signals && aspects.career.signals.length > 0)) {
       items.push({
-        label: '💼 事業',
+        label: '事業',
         value: [careerTenGod, ...(aspects.career?.signals || [])].filter(Boolean).join('、'),
       });
     }
     if (aspects.finance?.signals && aspects.finance.signals.length > 0) {
-      items.push({ label: '💰 財運', value: aspects.finance.signals.join('、') });
+      items.push({ label: '財運', value: aspects.finance.signals.join('、') });
     }
     if (aspects.romance?.signals && aspects.romance.signals.length > 0) {
-      items.push({ label: '💕 感情', value: aspects.romance.signals.join('、') });
+      items.push({ label: '感情', value: aspects.romance.signals.join('、') });
     }
     if (aspects.health?.signals && aspects.health.signals.length > 0) {
-      items.push({ label: '🏥 健康', value: aspects.health.signals.join('、') });
+      items.push({ label: '健康', value: aspects.health.signals.join('、') });
     }
     if (items.length > 0) {
       groups.push(...filterNull([buildGroup('【四大面向信號】', items)]));
