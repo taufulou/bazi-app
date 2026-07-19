@@ -39,6 +39,23 @@ export class UsersController {
     return this.usersService.updateProfile(auth.userId, dto);
   }
 
+  @Delete('me')
+  @ApiOperation({ summary: 'Delete (anonymize) current user account (Apple 5.1.1(v))' })
+  @ApiQuery({
+    name: 'acknowledgeIap',
+    required: false,
+    description:
+      'Set "true" after the user confirms they cancelled any active App Store / Play subscription (those cannot be cancelled server-side).',
+  })
+  async deleteAccount(
+    @CurrentUser() auth: AuthPayload,
+    @Query('acknowledgeIap') acknowledgeIap?: string,
+  ) {
+    return this.usersService.deleteAccount(auth.userId, {
+      acknowledgedIapCancellation: acknowledgeIap === 'true',
+    });
+  }
+
   // ============ Birth Profiles ============
 
   @Get('me/birth-profiles')

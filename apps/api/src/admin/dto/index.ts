@@ -5,3 +5,4 @@ export { CreatePromoCodeDto } from './create-promo-code.dto';
 export { UpdatePromoCodeDto } from './update-promo-code.dto';
 export { UpdateGatewayDto } from './update-gateway.dto';
 export { AdjustCreditsDto } from './adjust-credits.dto';
+export { CreateCreditPackageDto, UpdateCreditPackageDto } from './credit-package.dto';

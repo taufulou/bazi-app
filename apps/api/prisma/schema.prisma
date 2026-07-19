@@ -289,6 +289,11 @@ model Plan {
   features         Json // Array of feature strings
   readingsPerMonth Int      @map("readings_per_month") // legacy display label; actual grant comes from monthlyCredits
   monthlyCredits   Int      @default(0) @map("monthly_credits") // Basic:5, Pro:15, Master:50
+  // Store product ids (RevenueCat / App Store / Play). Map a purchased IAP
+  // product back to this plan's tier + monthlyCredits. Nullable + unique:
+  // Stripe-only plans leave these NULL (Postgres allows many NULLs under @unique).
+  appleProductId   String?  @unique @map("apple_product_id")
+  googleProductId  String?  @unique @map("google_product_id")
   isActive         Boolean  @default(true) @map("is_active")
   sortOrder        Int      @default(0) @map("sort_order")
   createdAt        DateTime @default(now()) @map("created_at")
@@ -371,6 +376,10 @@ model CreditPackage {
   nameZhCn     String   @map("name_zh_cn")
   creditAmount Int      @map("credit_amount")
   priceUsd     Decimal  @map("price_usd") @db.Decimal(10, 2)
+  // Store product ids (RevenueCat / App Store / Play) → this consumable pack.
+  // Nullable + unique; Stripe-only packs leave these NULL.
+  appleProductId  String? @unique @map("apple_product_id")
+  googleProductId String? @unique @map("google_product_id")
   isActive     Boolean  @default(true) @map("is_active")
   sortOrder    Int      @default(0) @map("sort_order")
   createdAt    DateTime @default(now()) @map("created_at")

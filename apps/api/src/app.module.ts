@@ -4,6 +4,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import * as Joi from 'joi';
 import { HealthController } from './health/health.controller';
+import { LegalController } from './legal/legal.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { AuthModule } from './auth/auth.module';
@@ -37,6 +38,12 @@ import { BannerModule } from './banner/banner.module';
         GOOGLE_AI_API_KEY: Joi.string().allow('').optional().default(''),
         STRIPE_SECRET_KEY: Joi.string().allow('').optional().default(''),
         STRIPE_WEBHOOK_SECRET: Joi.string().allow('').optional().default(''),
+        // RevenueCat (mobile IAP) — optional so the app boots without it; the
+        // RC webhook fails-closed (401) and account-deletion skips the RC delete
+        // when unset. RC_WEBHOOK_SECRET = the "Authorization: Bearer" the RC
+        // dashboard sends; RC_API_KEY = a RC REST secret key (subscriber delete).
+        RC_WEBHOOK_SECRET: Joi.string().allow('').optional().default(''),
+        RC_API_KEY: Joi.string().allow('').optional().default(''),
         BAZI_ENGINE_URL: Joi.string().default('http://localhost:5001'),
         // Cloudflare R2 (banner image uploads) — optional so the app boots
         // without R2; the admin /upload endpoint fails loudly when unset.
@@ -97,7 +104,7 @@ import { BannerModule } from './banner/banner.module';
     // Webhooks
     WebhooksModule,
   ],
-  controllers: [HealthController],
+  controllers: [HealthController, LegalController],
   providers: [
     // Apply rate limiting globally
     {

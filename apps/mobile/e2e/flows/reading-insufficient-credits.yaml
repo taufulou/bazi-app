@@ -1,0 +1,9 @@
+# M3.4 — insufficient-credits guard. With a FREE/low-credit account, the
+# UnlockConfirmModal shows «點數不足，請先購買點數» + «前往購買點數» (no confirm path).
+appId: com.tianming.app
+---
+- launchApp: { stopApp: false }
+- tapOn: { point: '50%, 96%' }
+- extendedWaitUntil: { visible: '付費詳批', timeout: 15000 }
+- tapOn: '八字終身運'
+# (drive to the unlock modal; assert «點數不足» shows for a low-credit account)

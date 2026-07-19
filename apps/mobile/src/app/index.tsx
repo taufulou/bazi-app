@@ -1,29 +1,15 @@
 import { useAuth } from '@clerk/clerk-expo';
 import { useRouter, Redirect } from 'expo-router';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  SafeAreaView,
-} from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useZh } from '../lib/language';
+import { colors, radius, spacing, fontSize, fonts } from '../theme';
+import { E2E_BYPASS_AUTH } from '../lib/e2e';
 
 export default function HomeScreen() {
-  let isSignedIn = false;
-  let isLoaded = true;
-
-  // Try to use Clerk auth — will fail gracefully if Clerk isn't configured
-  try {
-    const auth = useAuth();
-    isSignedIn = auth.isSignedIn ?? false;
-    isLoaded = auth.isLoaded;
-  } catch {
-    // Clerk not available (missing publishable key)
-    isLoaded = true;
-    isSignedIn = false;
-  }
-
+  // Always inside a ClerkProvider (the root layout shows a config screen when the
+  // key is absent), so useAuth is safe to call directly.
+  const { isSignedIn, isLoaded } = useAuth();
   const router = useRouter();
   const zh = useZh();
 
@@ -35,9 +21,9 @@ export default function HomeScreen() {
     );
   }
 
-  // If already signed in, go to dashboard
-  if (isSignedIn) {
-    return <Redirect href="/(authenticated)/dashboard" />;
+  // If already signed in (or the dev E2E bypass is on), go to the home tab.
+  if (isSignedIn || E2E_BYPASS_AUTH) {
+    return <Redirect href="/(authenticated)/home" />;
   }
 
   return (
@@ -47,9 +33,7 @@ export default function HomeScreen() {
         <View style={styles.branding}>
           <Text style={styles.logo}>☯</Text>
           <Text style={styles.title}>天命</Text>
-          <Text style={styles.subtitle}>
-            {zh('預見你的一生')}
-          </Text>
+          <Text style={styles.subtitle}>{zh('預見你的一生')}</Text>
         </View>
 
         {/* Features */}
@@ -64,6 +48,7 @@ export default function HomeScreen() {
         <View style={styles.authButtons}>
           <TouchableOpacity
             style={styles.primaryButton}
+            accessibilityRole="button"
             onPress={() => router.push('/sign-up')}
           >
             <Text style={styles.primaryButtonText}>{zh('免費開始')}</Text>
@@ -71,6 +56,7 @@ export default function HomeScreen() {
 
           <TouchableOpacity
             style={styles.secondaryButton}
+            accessibilityRole="button"
             onPress={() => router.push('/sign-in')}
           >
             <Text style={styles.secondaryButtonText}>{zh('已有帳號？登入')}</Text>
@@ -99,16 +85,16 @@ function FeatureItem({ icon, text }: { icon: string; text: string }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.bgPrimary,
   },
   content: {
     flex: 1,
     justifyContent: 'center',
-    padding: 24,
+    padding: spacing.xl,
   },
   loadingText: {
-    color: '#a0a0a0',
-    fontSize: 16,
+    color: colors.textSecondary,
+    fontSize: fontSize.base,
     textAlign: 'center',
     marginTop: 100,
   },
@@ -118,70 +104,71 @@ const styles = StyleSheet.create({
   },
   logo: {
     fontSize: 64,
-    marginBottom: 16,
+    marginBottom: spacing.lg,
   },
   title: {
-    fontSize: 32,
+    fontFamily: fonts.serifBold,
+    fontSize: fontSize.hero,
     fontWeight: '700',
-    color: '#e8d5b7',
-    marginBottom: 8,
+    color: colors.red,
+    marginBottom: spacing.sm,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#a0a0a0',
+    fontSize: fontSize.base,
+    color: colors.textSecondary,
     textAlign: 'center',
   },
   features: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 16,
+    gap: spacing.lg,
     marginBottom: 48,
   },
   featureItem: {
     alignItems: 'center',
     width: 140,
-    paddingVertical: 12,
+    paddingVertical: spacing.md,
   },
   featureIcon: {
     fontSize: 28,
-    marginBottom: 6,
+    marginBottom: spacing.xs,
   },
   featureText: {
-    color: '#e0e0e0',
-    fontSize: 14,
+    color: colors.textPrimary,
+    fontSize: fontSize.sm,
     fontWeight: '500',
   },
   authButtons: {
-    gap: 12,
-    marginBottom: 24,
+    gap: spacing.md,
+    marginBottom: spacing.xl,
   },
   primaryButton: {
-    backgroundColor: '#e8d5b7',
-    borderRadius: 12,
-    padding: 16,
+    backgroundColor: colors.red,
+    borderRadius: radius.md,
+    padding: spacing.lg,
     alignItems: 'center',
   },
   primaryButtonText: {
-    color: '#1a1a2e',
-    fontSize: 18,
+    color: colors.textOnRed,
+    fontSize: fontSize.lg,
     fontWeight: '700',
   },
   secondaryButton: {
-    borderRadius: 12,
-    padding: 16,
+    borderRadius: radius.md,
+    padding: spacing.lg,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(232, 213, 183, 0.3)',
+    borderColor: colors.red,
   },
   secondaryButtonText: {
-    color: '#e8d5b7',
-    fontSize: 16,
+    color: colors.red,
+    fontSize: fontSize.base,
     fontWeight: '500',
   },
   disclaimer: {
-    color: '#666',
-    fontSize: 12,
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
     textAlign: 'center',
     lineHeight: 18,
   },

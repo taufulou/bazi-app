@@ -1,0 +1,9 @@
+# M3.4 — re-opening the SAME reading hits the server cache (no re-charge).
+# Repeat the purchase flow for a profile with an existing reading → the stream
+# replays instantly (fromCache) → CreditBadge unchanged.
+appId: com.tianming.app
+---
+- launchApp: { stopApp: false }
+- tapOn: { point: '50%, 96%' }
+- extendedWaitUntil: { visible: '付費詳批', timeout: 15000 }
+# (drive the same flow as reading-purchase-lifetime; assert credits unchanged after)

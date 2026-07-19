@@ -23,6 +23,8 @@ import {
   UpdatePromoCodeDto,
   UpdateGatewayDto,
   AdjustCreditsDto,
+  CreateCreditPackageDto,
+  UpdateCreditPackageDto,
 } from './dto';
 
 @ApiTags('Admin')
@@ -201,7 +203,7 @@ export class AdminController {
   @ApiOperation({ summary: 'Create a new credit package' })
   async createCreditPackage(
     @CurrentUser() auth: AuthPayload,
-    @Body() data: { slug: string; nameZhTw: string; nameZhCn: string; creditAmount: number; priceUsd: number; isActive?: boolean; sortOrder?: number },
+    @Body() data: CreateCreditPackageDto,
   ) {
     return this.adminService.createCreditPackage(data, auth.userId);
   }
@@ -211,7 +213,7 @@ export class AdminController {
   async updateCreditPackage(
     @CurrentUser() auth: AuthPayload,
     @Param('id') id: string,
-    @Body() data: { nameZhTw?: string; nameZhCn?: string; creditAmount?: number; priceUsd?: number; isActive?: boolean; sortOrder?: number },
+    @Body() data: UpdateCreditPackageDto,
   ) {
     return this.adminService.updateCreditPackage(id, data, auth.userId);
   }

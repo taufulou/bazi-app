@@ -18,7 +18,13 @@ COPY packages/bazi-engine/ .
 RUN adduser --disabled-password --gecos '' baziuser
 USER baziuser
 
-EXPOSE 5000
-ENV PORT=5000
+# Internal-only service (Railway private networking). Binds $PORT so the
+# platform can assign it; defaults to 8000. The API reaches it via
+# BAZI_ENGINE_URL=http://<engine-service>.railway.internal:$PORT — never public.
+# Bind :: (IPv6 wildcard) — Railway's *.railway.internal DNS resolves to IPv6
+# ONLY, so --host 0.0.0.0 (IPv4-only) is unreachable over private networking.
+# On Debian dual-stack (bindv6only=0) an IPv6 wildcard also accepts IPv4.
+ENV PORT=8000
+EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "5000"]
+CMD ["sh", "-c", "uvicorn app.main:app --host :: --port ${PORT:-8000}"]

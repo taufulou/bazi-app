@@ -6,15 +6,10 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "tianming",
-    "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#1a1a2e"
-    },
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#FFF3E0",
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.tianming.app",
       "infoPlist": {
         "CFBundleAllowMixedLocalizations": true
@@ -23,7 +18,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#1a1a2e"
+        "backgroundColor": "#FFF3E0"
       },
       "package": "com.tianming.app"
     },
@@ -34,7 +29,20 @@
     },
     "plugins": [
       "expo-router",
-      "expo-haptics"
+      "expo-web-browser",
+      "expo-image",
+      "expo-font",
+      "@react-native-community/datetimepicker",
+      "expo-sharing",
+      "@sentry/react-native",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FFF3E0",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
@@ -42,7 +50,11 @@
     "extra": {
       "router": {
         "origin": false
+      },
+      "eas": {
+        "projectId": "b7c274f0-ce98-42ca-93c9-cb5af4faff3a"
       }
-    }
+    },
+    "owner": "tian-ming"
   }
 }

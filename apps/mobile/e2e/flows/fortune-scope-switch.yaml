@@ -1,0 +1,23 @@
+# fortune-scope-switch — 日 → 月 → 日 scope pills each load their own view.
+#
+# ⚠️ Requires a SIGNED-IN PRO session (see fortune-daily.yaml header). Dev-build
+#    caveats apply. Each scope switch fires a fresh stream (~30s cold).
+appId: com.tianming.app
+---
+- launchApp:
+    stopApp: false
+- tapOn:
+    point: '30%, 96%' # 運勢 tab
+- extendedWaitUntil:
+    visible: '日運'
+    timeout: 15000
+# Switch to 月運 → MonthlyTimeGrid is a month-only marker.
+- tapOn: '月運'
+- extendedWaitUntil:
+    visible: '本月時段分析'
+    timeout: 90000
+# Back to 日運 → the day narrative hero returns.
+- tapOn: '日運'
+- extendedWaitUntil:
+    visible: '今日整體'
+    timeout: 90000

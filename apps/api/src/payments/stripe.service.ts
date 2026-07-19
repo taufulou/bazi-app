@@ -10,9 +10,12 @@
  */
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
-import { ChatPaymentService } from '../chat/chat-payment.service';
+import { EntitlementsService } from './entitlements.service';
+import { isUniqueConstraintViolation } from './prisma-errors';
+import * as Sentry from '@sentry/nestjs';
 import Stripe from 'stripe';
 
 // ============================================================
@@ -56,7 +59,10 @@ export class StripeService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
-    private readonly chatPaymentService: ChatPaymentService,
+    // M6: provider-neutral tier recompute + credit grants. Replaces the
+    // former direct ChatPaymentService dependency — chat-quota resnapshot now
+    // happens inside EntitlementsService.syncUserTier.
+    private readonly entitlements: EntitlementsService,
   ) {
     const secretKey = this.config.get<string>('STRIPE_SECRET_KEY');
     if (!secretKey) {
@@ -529,6 +535,36 @@ export class StripeService {
     const planTier = this.planSlugToTier(planSlug || 'basic');
     const status = this.mapStripeStatus(sub.status);
 
+    if (status === null) {
+      // Unrecognised status: preserve whatever is stored rather than guess in
+      // either direction. Loud because the residual risk is silent and
+      // indefinite — if the stored value is ACTIVE and this new status means
+      // "not entitled", the user keeps paid access until someone notices.
+      this.logger.error(
+        `Unknown Stripe subscription status "${sub.status}" for ${sub.id} — leaving stored status unchanged`,
+      );
+      Sentry.captureMessage('stripe.unknown_subscription_status', {
+        level: 'error',
+        extra: { subscriptionId: sub.id, status: sub.status },
+      });
+    }
+
+    if (sub.status === 'paused') {
+      // Reaching this means someone enabled trials — `paused` requires a trial
+      // to end without a payment method, and no trial is configured anywhere in
+      // this codebase today. The EXPIRED mapping is a safe interim, but the
+      // semantically correct answer is a PAUSED value on SubscriptionStatus plus
+      // subscription-UI handling, so surface it rather than let it pass quietly.
+      this.logger.error(
+        `Stripe status "paused" observed on ${sub.id} — this requires a trial, and none is ` +
+          `configured. Add a PAUSED SubscriptionStatus + UI handling before relying on EXPIRED.`,
+      );
+      Sentry.captureMessage('stripe.paused_status_observed', {
+        level: 'error',
+        extra: { subscriptionId: sub.id },
+      });
+    }
+
     // In the clover API version, current_period_start/end are on subscription items, not the subscription itself
     const firstItem = sub.items?.data?.[0];
     const periodStart = firstItem?.current_period_start;
@@ -543,36 +579,67 @@ export class StripeService {
       await this.prisma.subscription.update({
         where: { id: existing.id },
         data: {
-          status,
+          // Omitted entirely when the status is unrecognised, so the stored
+          // value survives. planTier and the period still update — only the
+          // entitlement-bearing field is withheld, because that is the one we
+          // have no trustworthy new information about.
+          ...(status !== null && { status }),
           planTier,
           ...(periodStart && { currentPeriodStart: new Date(periodStart * 1000) }),
           ...(periodEnd && { currentPeriodEnd: new Date(periodEnd * 1000) }),
           cancelledAt: sub.cancel_at ? new Date(sub.cancel_at * 1000) : null,
         },
       });
+    } else if (sub.status === 'active' || sub.status === 'trialing') {
+      // This event beat `checkout.session.completed` (Stripe does not guarantee
+      // ordering, and we don't subscribe to `customer.subscription.created`).
+      // Create the row from the event so syncUserTier below sees the subscription
+      // the user just paid for — otherwise it computes FREE from an empty set and
+      // silently un-subscribes them, resnapshotting chat quota to the FREE cap.
+      //
+      // Gate on the RAW Stripe status, NOT mapStripeStatus(): that maps unknown
+      // values — including `incomplete`, i.e. payment pending / SCA required /
+      // card declined — to 'ACTIVE' via `map[status] || 'ACTIVE'`. Gating on the
+      // mapped value would create an ACTIVE row and grant a paid tier to someone
+      // who has not paid.
+      try {
+        await this.prisma.subscription.create({
+          data: {
+            userId: internalUserId,
+            stripeSubscriptionId: sub.id,
+            planTier,
+            status: 'ACTIVE',
+            platform: 'STRIPE',
+            currentPeriodStart: periodStart ? new Date(periodStart * 1000) : new Date(),
+            currentPeriodEnd: periodEnd
+              ? new Date(periodEnd * 1000)
+              : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            cancelledAt: sub.cancel_at ? new Date(sub.cancel_at * 1000) : null,
+          },
+        });
+      } catch (err) {
+        // A concurrent checkout.session.completed won the race; its upsert owns
+        // the row. Fall through to syncUserTier either way.
+        if (!isUniqueConstraintViolation(err)) throw err;
+        this.logger.warn(
+          `Subscription ${sub.id} was created concurrently by checkout — continuing to tier sync`,
+        );
+      }
+    } else {
+      // No local row AND the event is not a paid state. There is nothing to
+      // reflect, and calling syncUserTier here would downgrade a user whose
+      // checkout is still in flight. Leave the tier untouched.
+      this.logger.warn(
+        `Subscription ${sub.id} updated (stripe status=${sub.status}) with no local row — skipping tier sync`,
+      );
+      return;
     }
 
-    // Update user's subscription tier
-    const newTier = status === 'ACTIVE' ? planTier : 'FREE';
-    await this.prisma.user.update({
-      where: { id: internalUserId },
-      data: { subscriptionTier: newTier },
-    });
-
-    // Re-snapshot chat monthly quota for the current month so the new tier
-    // takes effect immediately (per next-the-big-feature-proud-manatee plan).
-    // Idempotent — only updates when stored tier differs from new.
-    try {
-      await this.chatPaymentService.resnapshotChatQuotaOnTierChange(
-        internalUserId,
-        newTier,
-      );
-    } catch (err) {
-      // Don't fail the webhook on chat-quota update failure
-      this.logger.error(
-        `Failed to re-snapshot chat quota for user ${internalUserId}: ${err}`,
-      );
-    }
+    // Recompute the user's effective tier from ALL active subscriptions across
+    // providers (M6) — never blind-downgrades a user who still holds an Apple/
+    // Google sub. The `status`/`planTier` above are already persisted on the
+    // Subscription row that syncUserTier reads; it also resnapshots chat quota.
+    await this.entitlements.syncUserTier(internalUserId);
 
     this.logger.log(`Subscription ${sub.id} updated: status=${status}, tier=${planTier}`);
   }
@@ -597,25 +664,12 @@ export class StripeService {
       });
     }
 
-    // Downgrade user to FREE
-    await this.prisma.user.update({
-      where: { id: internalUserId },
-      data: { subscriptionTier: 'FREE' },
-    });
+    // Recompute effective tier from remaining active subs (M6) — only drops to
+    // FREE when NO active subscription remains (cross-provider safe). Also
+    // resnapshots chat quota.
+    const { tier } = await this.entitlements.syncUserTier(internalUserId);
 
-    // Re-snapshot chat monthly quota — downgrade caps quota at 0 for FREE tier.
-    try {
-      await this.chatPaymentService.resnapshotChatQuotaOnTierChange(
-        internalUserId,
-        'FREE',
-      );
-    } catch (err) {
-      this.logger.error(
-        `Failed to re-snapshot chat quota for user ${internalUserId}: ${err}`,
-      );
-    }
-
-    this.logger.log(`Subscription ${sub.id} deleted — user ${internalUserId} downgraded to FREE`);
+    this.logger.log(`Subscription ${sub.id} deleted — user ${internalUserId} tier recomputed to ${tier}`);
   }
 
   /**
@@ -642,18 +696,52 @@ export class StripeService {
 
     if (!sub) return;
 
+    // Dunning recovery. handleInvoiceFailed sets PAST_DUE (and syncUserTier drops a
+    // Stripe-only user to FREE). On recovery Stripe emits invoice.payment_succeeded
+    // and customer.subscription.updated in NO guaranteed order — if the invoice
+    // lands first the row is still PAST_DUE, so the governing-subscription gate in
+    // grantMonthlyCreditsForSubscription (which queries status:'ACTIVE' only) skips
+    // the grant. Nothing retries: no MonthlyCreditsLog row is written, and
+    // customer.subscription.updated only calls syncUserTier, which never grants.
+    // The customer pays and receives nothing for that period.
+    //
+    // PAST_DUE ONLY. A broader `!== 'ACTIVE'` would also resurrect CANCELLED/EXPIRED
+    // subscriptions from a late or retried invoice, a $0 coupon invoice, or a
+    // post-cancel proration — and nothing would flip them back, because
+    // customer.subscription.deleted has already been consumed.
+    if (sub.status === 'PAST_DUE') {
+      await this.prisma.subscription.update({
+        where: { id: sub.id },
+        data: { status: 'ACTIVE' },
+      });
+      await this.entitlements.syncUserTier(sub.userId);
+      this.logger.log(`Subscription ${sub.id} reactivated from PAST_DUE by paid invoice ${invoice.id}`);
+    }
+
     // Record the transaction (use invoice.id as payment reference since payment_intent is no longer a direct property)
-    await this.prisma.transaction.create({
-      data: {
-        userId: sub.userId,
-        stripePaymentId: invoice.id,
-        amount: this.formatStripeAmount(invoice.amount_paid || 0, invoice.currency || 'usd'),
-        currency: (invoice.currency || 'usd').toUpperCase(),
-        type: 'SUBSCRIPTION',
-        description: `Subscription payment — ${invoice.lines?.data?.[0]?.description || 'renewal'}`,
-        platform: 'STRIPE',
-      },
-    });
+    //
+    // P2002-tolerant: stripePaymentId is @unique, so a REDELIVERED invoice collides
+    // here — and because this write precedes the credit grant, an escaping P2002
+    // made the controller 500, which made Stripe retry, which hit the same P2002.
+    // The Redis idempotency key is only set on success, so that loop never broke.
+    // A conflict just means we already recorded this invoice: continue to the grant,
+    // which has its own MonthlyCreditsLog dedup.
+    try {
+      await this.prisma.transaction.create({
+        data: {
+          userId: sub.userId,
+          stripePaymentId: invoice.id,
+          amount: this.formatStripeAmount(invoice.amount_paid || 0, invoice.currency || 'usd'),
+          currency: (invoice.currency || 'usd').toUpperCase(),
+          type: 'SUBSCRIPTION',
+          description: `Subscription payment — ${invoice.lines?.data?.[0]?.description || 'renewal'}`,
+          platform: 'STRIPE',
+        },
+      });
+    } catch (err) {
+      if (!isUniqueConstraintViolation(err)) throw err;
+      this.logger.log(`Invoice ${invoice.id} already recorded — continuing to credit grant`);
+    }
 
     // Grant monthly credits for the new billing period (renewal)
     // Extract period dates from invoice line items (Stripe clover API)
@@ -666,8 +754,13 @@ export class StripeService {
         ? new Date(lineItem.period.end * 1000)
         : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-      // Use subscription's planTier to determine credit amount
-      await this.grantMonthlyCredits(sub.userId, sub.planTier, periodStart, periodEnd);
+      // Grant this renewal's monthly credits — only if this sub is the
+      // GOVERNING active sub (cross-provider dedup, M6). Uses the invoice's
+      // period so the MonthlyCreditsLog idempotency key matches the new period.
+      await this.entitlements.grantMonthlyCreditsForSubscription(sub.userId, sub, {
+        periodStart,
+        periodEnd,
+      });
     }
   }
 
@@ -695,110 +788,18 @@ export class StripeService {
         data: { status: 'PAST_DUE' },
       });
 
-      // Update user tier to reflect payment issue
-      await this.prisma.user.update({
-        where: { id: existing.userId },
-        data: { subscriptionTier: 'FREE' },
-      });
+      // Recompute effective tier — PAST_DUE drops out of the active set, so a
+      // Stripe-only user falls to FREE while a user still covered by another
+      // active provider sub keeps that tier (M6, cross-provider safe). Also
+      // resnapshots chat quota (the pre-M6 path skipped this — now consistent
+      // with the updated/deleted handlers).
+      await this.entitlements.syncUserTier(existing.userId);
     }
   }
 
-  // ============================================================
-  // Monthly Credit Allowance
-  // ============================================================
-
-  /**
-   * Grant monthly credits to a subscriber based on their plan tier.
-   *
-   * Uses MonthlyCreditsLog unique constraint [userId, periodStart] for idempotency:
-   * - If credits were already granted for this period, the unique constraint
-   *   violation is caught and silently ignored (prevents double-grant on webhook replay).
-   * - All tiers with a positive `monthlyCredits` value (Basic/Pro/Master) receive a grant.
-   * - All operations are wrapped in $transaction for atomicity.
-   *
-   * @param userId Internal user ID
-   * @param planTier 'BASIC' | 'PRO' | 'MASTER'
-   * @param periodStart Start of the billing period (from Stripe, UTC)
-   * @param periodEnd End of the billing period (from Stripe, UTC)
-   */
-  async grantMonthlyCredits(
-    userId: string,
-    planTier: string,
-    periodStart: Date,
-    periodEnd: Date,
-  ): Promise<{ granted: boolean; creditsGranted: number }> {
-    // Look up plan by tier slug to get monthlyCredits value
-    const tierToSlug: Record<string, string> = {
-      BASIC: 'basic',
-      PRO: 'pro',
-      MASTER: 'master',
-    };
-    const planSlug = tierToSlug[planTier];
-
-    if (!planSlug) {
-      this.logger.warn(`Unknown plan tier "${planTier}" — skipping monthly credit grant`);
-      return { granted: false, creditsGranted: 0 };
-    }
-
-    const plan = await this.prisma.plan.findFirst({
-      where: { slug: planSlug, isActive: true },
-    });
-
-    if (!plan) {
-      this.logger.warn(`Plan "${planSlug}" not found — skipping monthly credit grant`);
-      return { granted: false, creditsGranted: 0 };
-    }
-
-    const monthlyCredits = plan.monthlyCredits;
-
-    if (monthlyCredits <= 0) {
-      this.logger.log(`Plan "${planSlug}" has ${monthlyCredits} monthly credits — skipping grant`);
-      return { granted: false, creditsGranted: 0 };
-    }
-
-    // Use $transaction for atomicity: create log + increment credits
-    // The unique constraint [userId, periodStart] prevents double-grant
-    try {
-      await this.prisma.$transaction(async (tx) => {
-        // Create MonthlyCreditsLog — will throw on duplicate [userId, periodStart]
-        await tx.monthlyCreditsLog.create({
-          data: {
-            userId,
-            creditAmount: monthlyCredits,
-            periodStart,
-            periodEnd,
-          },
-        });
-
-        // Increment user credits
-        await tx.user.update({
-          where: { id: userId },
-          data: { credits: { increment: monthlyCredits } },
-        });
-      });
-
-      this.logger.log(
-        `Granted ${monthlyCredits} monthly credits to user ${userId} ` +
-        `for period ${periodStart.toISOString()} — ${periodEnd.toISOString()}`,
-      );
-      return { granted: true, creditsGranted: monthlyCredits };
-    } catch (error: unknown) {
-      // Check for unique constraint violation (P2002) — means credits already granted for this period
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        (error as { code: string }).code === 'P2002'
-      ) {
-        this.logger.log(
-          `Monthly credits already granted for user ${userId}, period ${periodStart.toISOString()} — idempotent skip`,
-        );
-        return { granted: false, creditsGranted: 0 };
-      }
-      // Re-throw unexpected errors
-      throw error;
-    }
-  }
+  // NOTE (M6): grantMonthlyCredits moved verbatim to EntitlementsService.
+  // Renewals/creation now grant via entitlements.grantMonthlyCreditsForSubscription
+  // (cross-provider governing-sub gate). test/monthly-credits.spec.ts follows it.
 
   // ============================================================
   // Private Helpers
@@ -885,55 +886,96 @@ export class StripeService {
       ? new Date(firstItem.current_period_end * 1000)
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // default: 30 days from now
 
-    // Create subscription record
-    await this.prisma.subscription.create({
-      data: {
-        userId,
-        stripeSubscriptionId: stripeSubId,
-        planTier,
-        status: 'ACTIVE',
-        platform: 'STRIPE',
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
-      },
-    });
-
-    // Update user's subscription tier
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { subscriptionTier: planTier },
-    });
-
-    // Snapshot chat monthly quota for the new tier (per
-    // next-the-big-feature-proud-manatee plan). Lazy upsert in
-    // ChatPaymentService.tryConsumeFreeQuota also self-heals if this fails,
-    // but eager snapshot keeps audit trail (lastTierChangeAt) consistent.
+    // UPSERT, not create: `customer.subscription.updated` can arrive before this
+    // handler (we don't subscribe to `customer.subscription.created`, so checkout
+    // is our only create path) and may have written a provisional row first — see
+    // handleSubscriptionUpdated. A bare create would throw P2002 here, and because
+    // the Transaction write and the initial credit grant both come AFTER this
+    // statement, the user would pay and receive ZERO credits, with Stripe retrying
+    // the same failure for ~3 days.
+    //
+    // Deliberately NOT setting `status` in the update branch: on the happy path the
+    // provisional row is already ACTIVE so it would be a no-op, but if this handler
+    // 500s for an unrelated reason its Redis idempotency key is never set and Stripe
+    // retries — and if the user cancelled in between, forcing ACTIVE would resurrect
+    // a CANCELLED/EXPIRED subscription. Checkout stays authoritative for tier+period.
     try {
-      await this.chatPaymentService.resnapshotChatQuotaOnTierChange(
-        userId,
-        planTier,
-      );
+      await this.prisma.subscription.upsert({
+        where: { stripeSubscriptionId: stripeSubId },
+        create: {
+          userId,
+          stripeSubscriptionId: stripeSubId,
+          planTier,
+          status: 'ACTIVE',
+          platform: 'STRIPE',
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+        },
+        update: {
+          planTier,
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+        },
+      });
     } catch (err) {
-      this.logger.error(
-        `Failed to snapshot chat quota on subscription creation for user ${userId}: ${err}`,
+      // Prisma compiles this upsert to a native INSERT ... ON CONFLICT DO UPDATE
+      // (single unique field in `where`, no nested writes), so it is atomic against
+      // a concurrent insert. That is an optimization with preconditions, though — if
+      // it ever falls back to find-then-write, a truly concurrent delivery yields
+      // P2002 from the upsert itself, on the one path that MUST reach the Transaction
+      // write and the credit grant below. Tolerate it: a conflict means the row exists.
+      if (!isUniqueConstraintViolation(err)) throw err;
+      this.logger.warn(
+        `Subscription ${stripeSubId} already existed on upsert (concurrent delivery) — continuing`,
       );
     }
 
-    // Record the transaction
-    await this.prisma.transaction.create({
-      data: {
-        userId,
-        stripePaymentId: session.payment_intent as string,
-        amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
-        currency: (session.currency || 'usd').toUpperCase(),
-        type: 'SUBSCRIPTION',
-        description: `New subscription: ${planSlug}`,
-        platform: 'STRIPE',
-      },
-    });
+    // Recompute the user's effective tier from ALL active subs (M6) + resnapshot
+    // chat quota. For a Stripe-only user this yields `planTier`; if they already
+    // hold a higher Apple/Google sub, that higher tier is preserved.
+    await this.entitlements.syncUserTier(userId);
 
-    // Grant initial monthly credits for the subscription period
-    await this.grantMonthlyCredits(userId, planTier, periodStart, periodEnd);
+    // Record the transaction.
+    //
+    // P2002-tolerant for the same reason as handleInvoicePaid: stripePaymentId is
+    // @unique, and this write sits BETWEEN syncUserTier and the initial credit
+    // grant. Making the subscription upsert above retry-safe was not enough on its
+    // own — if any later step threw a transient error, the Redis idempotency key
+    // was never set, Stripe retried, and this line then threw P2002 on every
+    // retry, so `grantMonthlyCreditsForGoverningSub` below was never reached
+    // again. The user ends up correctly tiered and ACTIVE (so the damage is
+    // invisible at a glance) but never receives their initial credits, and even
+    // manually resending the event replays the same collision.
+    //
+    // Continuing on conflict is safe HERE specifically because the grant that
+    // follows is itself idempotent via the MonthlyCreditsLog unique key, so it
+    // cannot double-grant. Do NOT copy this shape onto a raw credit increment
+    // (see handleOneTimePayment) — there, continuing past the conflict would
+    // hand out the credits twice.
+    try {
+      await this.prisma.transaction.create({
+        data: {
+          userId,
+          stripePaymentId: session.payment_intent as string,
+          amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
+          currency: (session.currency || 'usd').toUpperCase(),
+          type: 'SUBSCRIPTION',
+          description: `New subscription: ${planSlug}`,
+          platform: 'STRIPE',
+        },
+      });
+    } catch (err) {
+      if (!isUniqueConstraintViolation(err)) throw err;
+      this.logger.log(
+        `Checkout payment ${session.payment_intent} already recorded — continuing to credit grant`,
+      );
+    }
+
+    // Grant initial monthly credits for the user's GOVERNING active sub (M6
+    // cross-provider dedup). Idempotent via MonthlyCreditsLog — a user who
+    // already holds an earlier/higher governing sub granted this period won't
+    // double-grant on this purchase.
+    await this.entitlements.grantMonthlyCreditsForGoverningSub(userId);
 
     this.logger.log(`Subscription created for user ${userId}: ${planSlug} (${planTier})`);
   }
@@ -957,50 +999,131 @@ export class StripeService {
 
         const actualAmount = (pkg && pkg.isActive) ? pkg.creditAmount : creditAmount;
 
-        // Record the transaction
-        await this.prisma.transaction.create({
-          data: {
-            userId,
-            stripePaymentId: session.payment_intent as string,
-            amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
-            currency: (session.currency || 'usd').toUpperCase(),
-            type: 'CREDIT_PURCHASE',
-            description: `Credit package: ${metadata.packageSlug || 'unknown'} (${actualAmount} credits)`,
-            platform: 'STRIPE',
-          },
-        });
-
-        // Grant credits to user
-        await this.prisma.user.update({
-          where: { id: userId },
-          data: { credits: { increment: actualAmount } },
-        });
+        // ATOMIC: the Transaction row and the credit grant commit together or
+        // not at all. Previously these were two independent writes, so if the
+        // first committed and the second threw, the controller 500'd, the Redis
+        // idempotency key was never set, Stripe retried, and this line then threw
+        // P2002 on EVERY retry — the increment was never reached again and the
+        // customer was left having paid for nothing.
+        //
+        // Catch-and-continue (as used on the invoice/checkout paths) is NOT an
+        // option here: those are followed by a MonthlyCreditsLog-deduped grant,
+        // whereas this is a raw increment. Continuing past the conflict would
+        // turn "zero credits" into "double credits".
+        //
+        // With the two writes atomic, "row exists" now implies "credits granted",
+        // which is what makes skipping on conflict safe.
+        const idemKey = this.oneTimeIdempotencyKey(session);
+        try {
+          await this.prisma.$transaction(async (tx) => {
+            await tx.transaction.create({
+              data: {
+                userId,
+                stripePaymentId: idemKey,
+                amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
+                currency: (session.currency || 'usd').toUpperCase(),
+                type: 'CREDIT_PURCHASE',
+                description: `Credit package: ${metadata.packageSlug || 'unknown'} (${actualAmount} credits)`,
+                platform: 'STRIPE',
+              },
+            });
+            await this.entitlements.grantCredits(
+              userId,
+              actualAmount,
+              `stripe-credit-pack:${metadata.packageSlug || 'unknown'}:${idemKey}`,
+              tx,
+            );
+          });
+        } catch (err) {
+          // A timeout (P2028) or any other error rethrows here: the whole unit
+          // rolled back, so there is no partial state, and the retry is correct.
+          if (!isUniqueConstraintViolation(err)) throw err;
+          this.logger.log(`One-time payment ${idemKey} already processed — idempotent skip`);
+          return;
+        }
 
         this.logger.log(`Credit package purchased for user ${userId}: ${metadata.packageSlug} (+${actualAmount} credits)`);
+      } else {
+        // The customer WAS charged, but this session's metadata cannot produce a
+        // grant. Previously this fell out of the function and returned 200, which
+        // set the Redis idempotency key and stopped Stripe retrying — so the
+        // purchase vanished with no row, no log and no error. That is the same
+        // outcome as the race above and rather likelier, since it needs only a
+        // data-shape mistake.
+        //
+        // Throw instead. It is not that a retry will fix malformed metadata —
+        // it won't — but that acknowledging would POISON the recovery path:
+        // the idempotency key makes a manual "Resend event" from the Stripe
+        // dashboard a silent no-op for 48h. Failing keeps the event replayable
+        // while a human fixes the underlying data.
+        //
+        // The upstream guard against the likeliest cause (a package saved with
+        // creditAmount 0) is the @Min(1) validation on the admin routes, which
+        // deliberately shipped before this.
+        this.logger.error(
+          `Credit-package session ${session.id} has unusable metadata ` +
+            `(creditPackageId=${creditPackageId}, creditAmount=${metadata.creditAmount}) — ` +
+            `customer was charged; refusing to ack so the event stays replayable`,
+        );
+        Sentry.captureMessage('stripe.credit_package_metadata_unusable', {
+          level: 'error',
+          extra: { sessionId: session.id, userId, metadata },
+        });
+        throw new Error(`Unusable credit_package metadata on session ${session.id}`);
       }
     } else {
-      // Legacy: single reading purchase, increment by 1
+      // Legacy: single reading purchase, increment by 1.
+      // Same atomic treatment as the credit-package branch above. This branch
+      // needs no metadata guard: the amount is hardcoded and an undefined
+      // serviceSlug is already tolerated, so there is nothing here to malform.
       const serviceSlug = metadata?.serviceSlug;
+      const idemKey = this.oneTimeIdempotencyKey(session);
 
-      await this.prisma.transaction.create({
-        data: {
-          userId,
-          stripePaymentId: session.payment_intent as string,
-          amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
-          currency: (session.currency || 'usd').toUpperCase(),
-          type: 'ONE_TIME',
-          description: serviceSlug ? `One-time reading: ${serviceSlug}` : 'One-time purchase',
-          platform: 'STRIPE',
-        },
-      });
-
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { credits: { increment: 1 } },
-      });
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.transaction.create({
+            data: {
+              userId,
+              stripePaymentId: idemKey,
+              amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
+              currency: (session.currency || 'usd').toUpperCase(),
+              type: 'ONE_TIME',
+              description: serviceSlug ? `One-time reading: ${serviceSlug}` : 'One-time purchase',
+              platform: 'STRIPE',
+            },
+          });
+          await this.entitlements.grantCredits(
+            userId,
+            1,
+            `stripe-one-time:${serviceSlug || 'purchase'}:${idemKey}`,
+            tx,
+          );
+        });
+      } catch (err) {
+        if (!isUniqueConstraintViolation(err)) throw err;
+        this.logger.log(`One-time payment ${idemKey} already processed — idempotent skip`);
+        return;
+      }
 
       this.logger.log(`One-time payment recorded for user ${userId}: ${serviceSlug}`);
     }
+  }
+
+  /**
+   * Idempotency key for a one-time checkout, stored in the UNIQUE
+   * `Transaction.stripePaymentId`.
+   *
+   * Falls back to `session.id` because `payment_intent` can be absent, and a
+   * UNIQUE constraint on a NULLable column permits unlimited NULLs — which would
+   * silently disable the very guard this key exists to provide. `session.id` is
+   * stable across retries of the same event and cannot collide with a real
+   * payment_intent (disjoint `cs_` / `pi_` prefixes).
+   *
+   * The column is already polymorphic in practice: it also holds invoice ids and
+   * the RevenueCat `rc-purchase:` / `rc-refund:` keys.
+   */
+  private oneTimeIdempotencyKey(session: Stripe.Checkout.Session): string {
+    return (session.payment_intent as string | null) ?? session.id;
   }
 
   private async validateAndGetStripeCoupon(
@@ -1085,15 +1208,56 @@ export class StripeService {
     return map[slug] || 'FREE';
   }
 
-  private mapStripeStatus(status: string): 'ACTIVE' | 'CANCELLED' | 'EXPIRED' | 'PAST_DUE' {
-    const map: Record<string, 'ACTIVE' | 'CANCELLED' | 'EXPIRED' | 'PAST_DUE'> = {
+  /**
+   * Stripe subscription status -> our SubscriptionStatus.
+   *
+   * Returns null for anything unrecognised. It previously fell back to 'ACTIVE',
+   * i.e. "when unsure, assume they're paying" — the wrong direction for a money
+   * decision, and it silently swallowed three statuses Stripe documents but this
+   * table omitted (`trialing`, `incomplete`, `paused`). `trialing` was only ever
+   * correct by accident, via that fallback; the other two granted paid access.
+   *
+   * The caller must leave the stored status untouched on null (see the single
+   * call site in handleSubscriptionUpdated). Guessing the OPPOSITE direction is
+   * not an improvement — blindly downgrading on an unfamiliar-but-benign status
+   * is its own bug.
+   *
+   * ⚠️ This narrows the fail-open hole; it does not close it. If the stored value
+   * is ACTIVE and Stripe ships a new status meaning "not entitled", the user
+   * keeps paid access indefinitely — now loudly logged rather than silent. That
+   * residual is accepted and monitored (Sentry `error` at the call site), not
+   * solved.
+   */
+  private mapStripeStatus(status: string): SubscriptionStatus | null {
+    const map: Record<string, SubscriptionStatus> = {
       active: 'ACTIVE',
-      canceled: 'CANCELLED',
-      incomplete_expired: 'EXPIRED',
+      // Entitled during a trial. Previously reached ACTIVE only via the fallback,
+      // so this MUST be listed before the fallback is removed.
+      trialing: 'ACTIVE',
       past_due: 'PAST_DUE',
       unpaid: 'PAST_DUE',
+      // First payment not settled (declined / awaiting SCA): not entitled. Also
+      // routes into the existing dunning recovery — when the payment finally
+      // settles, invoice.payment_succeeded flips PAST_DUE -> ACTIVE and grants,
+      // which is exactly right for a late SCA confirmation. That grant path
+      // becomes newly reachable because of this line, and is safe only via the
+      // MonthlyCreditsLog @@unique([userId, periodStart]) key — pinned by the
+      // "does not double-grant" test.
+      incomplete: 'PAST_DUE',
+      canceled: 'CANCELLED',
+      incomplete_expired: 'EXPIRED',
+      // Per the vendored SDK (stripe/types/Subscriptions.d.ts): a subscription
+      // "can only enter a `paused` status when a trial ends without a payment
+      // method", and this is DIFFERENT from pausing collection, which "leaves
+      // the subscription's status unchanged". So `paused` = trial lapsed, no
+      // card: never paid, owes nothing. EXPIRED is the accurate label (and
+      // `incomplete_expired` is its sibling — both mean "never became paying").
+      // NOT PAST_DUE, which renders 「逾期」 and asserts a debt that doesn't
+      // exist. NOT CANCELLED, which reactivateSubscription selects to restore a
+      // row to ACTIVE — that would hand paid access to someone who never paid.
+      paused: 'EXPIRED',
     };
-    return map[status] || 'ACTIVE';
+    return map[status] ?? null;
   }
 
   // ============================================================

@@ -55,6 +55,12 @@ const COMPARISON_TYPES: Array<{
   { slug: "friendship", icon: "🤝", label: "友誼合盤" },
 ];
 
+// Only 感情合盤 (romance) is supported for now — 事業/友誼 are hidden until built.
+// Re-enable by widening this filter. When only one type is enabled, the
+// type-selector is hidden entirely (nothing to choose).
+const ENABLED_COMPARISON_TYPES = COMPARISON_TYPES.filter((ct) => ct.slug === "romance");
+const SHOW_TYPE_SELECTOR = ENABLED_COMPARISON_TYPES.length > 1;
+
 const RELATIONSHIP_TAGS = [
   { value: "FAMILY", label: "家人" },
   { value: "FRIEND", label: "朋友" },
@@ -263,26 +269,30 @@ export default function DualBirthDataForm({
     <form className={styles.formWrapper} onSubmit={handleSubmit}>
       {/* Header */}
       <h2 className={styles.formTitle}>八字合盤分析</h2>
-      <p className={styles.formSubtitle}>選擇比較類型，輸入雙方出生資料</p>
+      <p className={styles.formSubtitle}>
+        {SHOW_TYPE_SELECTOR ? "選擇比較類型，輸入雙方出生資料" : "輸入雙方出生資料，查看兩人感情合盤"}
+      </p>
 
-      {/* Comparison Type Selector */}
-      <div className={styles.typeSelector}>
-        {COMPARISON_TYPES.map((ct) => (
-          <button
-            key={ct.slug}
-            type="button"
-            className={
-              comparisonType === ct.slug
-                ? `${styles.typeBtn} ${styles.typeBtnActive} ${styles[`type_${ct.slug}`]}`
-                : styles.typeBtn
-            }
-            onClick={() => setComparisonType(ct.slug)}
-          >
-            <span className={styles.typeBtnIcon}>{ct.icon}</span>
-            <span className={styles.typeBtnLabel}>{ct.label}</span>
-          </button>
-        ))}
-      </div>
+      {/* Comparison Type Selector — hidden while only 感情合盤 is enabled */}
+      {SHOW_TYPE_SELECTOR && (
+        <div className={styles.typeSelector}>
+          {ENABLED_COMPARISON_TYPES.map((ct) => (
+            <button
+              key={ct.slug}
+              type="button"
+              className={
+                comparisonType === ct.slug
+                  ? `${styles.typeBtn} ${styles.typeBtnActive} ${styles[`type_${ct.slug}`]}`
+                  : styles.typeBtn
+              }
+              onClick={() => setComparisonType(ct.slug)}
+            >
+              <span className={styles.typeBtnIcon}>{ct.icon}</span>
+              <span className={styles.typeBtnLabel}>{ct.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Dual panels */}
       <div className={styles.dualPanels}>

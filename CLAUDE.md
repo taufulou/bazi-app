@@ -18,12 +18,153 @@ AI-powered Bazi (八字) + ZWDS (紫微斗數) fortune-telling SaaS platform. Tw
 ```
 apps/web/     — Next.js 16 (ClerkProvider, warm light theme, zh-TW)
 apps/api/     — NestJS 11 (28+ endpoints, Clerk JWT guard, Swagger)
-apps/mobile/  — Expo React Native
+apps/mobile/  — Expo React Native (SDK 57 — FULL native port UNDERWAY, see below)
 packages/shared/      — TypeScript types + constants
 packages/bazi-engine/  — Python FastAPI (calculator, pre-analysis, 451 tests)
 packages/ui/          — Shared React UI components
 docker/               — Dockerfiles + docker-compose
 ```
+
+## ⚠️ Mobile app (Expo) — FULL PORT UNDERWAY (branch `feat/mobile-m0`)
+A native React Native port of the consumer feature set is in progress on branch
+**`feat/mobile-m0`** (main checkout, NOT a worktree — `npm install` fails in
+worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roaming-squid.md`**.
+- **Shipped M0–M6** (Expo SDK 57 / React 19 / Fabric): foundation, birth
+  profiles + 排盤, 日/月/年運 fortune (SSE streaming), 4 paid readings
+  (終身/愛情/事業/流年), AI chat, 合盤 compatibility, **RevenueCat IAP + backend
+  entitlements**. iOS + Android dev-client builds.
+- **Prod hosting LIVE** (Railway, backend-only): API
+  `https://bazi-app-production-5e54.up.railway.app` + private Python engine +
+  Postgres + Redis. RC webhook re-pointed off ngrok. Health is `/health` (NOT
+  `/api/health` — no global prefix); everything else is `/api/...`.
+- **UI web-parity pass COMPLETE** (owner: mobile must look/flow like web).
+  UI-1/3/5/7 `fe2b490` · UI-4+UI-8 `260c86b` · UI-6 `95ca29f` · UI-9 `c72505d`.
+  Covers 首頁 parity, 運勢 folk card + FORTUNE chat, Apple-HIG text sizes, the
+  解讀 reading flow (step ①②, per-type paywall bullets, cache toast, progress
+  pill, staged chart reveal, 專業命理依據 tech-ref, cross-sell, past-readings +
+  `?id=` re-hydration), reading hero background + result-shows-chart-first,
+  歷史分析記錄 screen + compat `?id=`, and the reading-display polish (mascot
+  全身↔半身 swipe, star/badge BEFORE the prose for all 4 types, titled
+  deterministic cards). **NOT pushed.**
+- **UI-2 agent-driven sweep DONE** `eea51f5` (2026-07-18): drove the Android
+  emulator screen-by-screen (13 surfaces) and fixed **13 defects**, incl. 3 that
+  only appear live — the reading hero backdrop rendering form labels
+  orange-on-orange when scrolled, `assetsUrl` missing the Android 10.0.2.2
+  loopback rewrite (**角色卡 mascot art had NEVER worked on Android** — the glyph
+  fallback hid it), and compat labelling a female party A as 男方. Also
+  gender-derived party labels, the cache toast (was rendering above the fold so
+  the user never saw «未扣除額度»), and testIDs on the primary targets.
+- **Next**: ⏸ **app-store work PAUSED by owner 2026-07-18** to tackle
+  scalability + security first — see «App Store progress» below for the resume
+  point. Branch is **47 commits ahead of main and NOT pushed** (owner's call).
+- **Bazi-only, NO ZWDS** (v1 scope). 合盤: only 感情 enabled (事業/友誼 hidden).
+- ⏳ **Cross-stack TODO**: move the 合盤 3-credit charge from create (step 1) to
+  reveal (step 2) — backend + web + mobile. See the plan's «⏳ TODO … move 合盤 charge».
+- This SUPERSEDES the older «mobile is minimal / WEB ONLY» notes further down
+  (written during the chat feature) — mobile now has readings + chat + compat.
+
+### Mobile gotchas (do not relearn — full list in the plan file)
+1. **Native dep added → dev-client REBUILD on BOTH platforms** (`expo run:ios`
+   / `expo run:android`). Symptom if stale: `IllegalViewOperationException:
+   Can't find ViewManager` at launch. This bit us for 6 days — UI-3 added
+   `expo-linear-gradient` and only iOS was rebuilt, so Android crashed on boot
+   until 2026-07-18. JS-only changes need no rebuild (Fast Refresh).
+2. **RN does NOT synthesize font weight** for custom fonts — use
+   `fonts.serifBold` (a separate family), never `fonts.serif` + `fontWeight:700`
+   (silently renders Regular).
+3. **~~Maestro can't drive the Fabric dev build~~ — THAT WAS WRONG** (corrected
+   2026-07-18 by research + live testing). Maestro works on BOTH platforms; the
+   old symptoms had two mundane causes: on **Android** the flow needs
+   `--device emulator-5554` (with both sims booted, bare `maestro test` errors or
+   silently targets iOS), and on **iOS** the flow needs an explicit `launchApp`
+   (without it Maestro matches against the springboard — which is also why
+   "swipes backgrounded the app": it was already there).
+   **The app is fully agent-drivable.** Android needs no Maestro at all:
+   `adb shell uiautomator dump` exposes a real hierarchy (RN `testID` →
+   **bare** `resource-id`, no package prefix; `accessibilityLabel` →
+   `content-desc`; visible text → `text`, on a NON-clickable child, so walk up to
+   the clickable ancestor), and `adb shell input tap` fires real `onPress`.
+   Driver script used for the UI-2 sweep: `<scratchpad>/uireview/ui.py`
+   (dump / tap-by-label / screenshot / swipe). Swipes need ~700ms duration —
+   a fast short swipe is interpreted as a TAP and navigates instead of scrolling.
+   iOS: `xcrun simctl io <udid> screenshot` works; `simctl` has **no tap
+   primitive** (confirmed). `idb` is installed but its last release is Aug 2022 —
+   prefer Maestro-with-`launchApp`, or [AXe](https://github.com/cameroncooke/AXe)
+   if a second opinion is needed.
+   ⚠️ **iOS `testID`s do NOT reach the accessibility tree** (RN iOS a11y
+   flattening: a `Pressable`'s `accessibilityLabel` REPLACES its children), so on
+   iOS match by accessibility label. Android is unaffected.
+4. **Deep `.webp/.ttf/.png` imports** need `apps/mobile/assets.d.ts` module
+   declarations (project runs eslint `--max-warnings 0`, and `require()` trips
+   `no-require-imports`).
+5. **React 19 + jest-expo defers setState flushes** — wrap state-changing
+   `fireEvent` in `await act(async () => …)` or the assertion sees stale UI.
+6. Local stack: API :4000 + engine :5001 + Metro :8081 against the DEV DB;
+   node@22 PATH prefix required; iOS sim `iPhone 17 Pro`, Android AVD `Pixel_8`.
+
+### ⏸ App Store progress — PAUSED 2026-07-18 (resume point for a future session)
+
+Owner paused store submission to tackle **scalability + security** first. The app
+is feature-complete and UI-verified; nothing below is blocked on code quality —
+it is paperwork, store config, and one unproven integration hop.
+
+**Android — Play Console**
+| Step | State |
+|---|---|
+| AND1 CJK font subsetting (was a 200MB ship-blocker) | ✅ done |
+| AND2 EAS config + first signed AAB | ✅ done |
+| AND3 Privacy Policy + Terms URLs | ✅ done (`/privacy`, `/terms`, commit `2295edc`) |
+| AND4 Play app + Internal Testing upload | 🟡 **AAB uploaded + accepted**; app-content declarations still outstanding: data-safety form, content rating, privacy-policy URL, store listing |
+| AND5 Play IAP products + RC Google config | ⬜ not started |
+| AND6 Sandbox purchase → prod webhook → grant | ⬜ **the last unproven hop in the whole payment chain** |
+| AND7 Closed testing (12 testers × 14 days) | ⬜ calendar gate; Android GA will trail iOS regardless |
+
+- Play app: `com.tianming.app` (「天命：八字命理」). First AAB = build `d9501d33`,
+  versionCode 3, 110MB all-ABI (Play serves ~70MB per device).
+- EAS project `@tian-ming/tianming` (`b7c274f0-ce98-42ca-93c9-cb5af4faff3a`),
+  owner = **tian-ming ORG** (not personal). Auth = robot token `cli-build`
+  (Admin). ⚠️ The token was only ever kept in a session scratchpad — **re-create
+  it** at expo.dev → tian-ming org → Access tokens if `EXPO_TOKEN` is gone.
+- AAB build cmd (works from a dirty tree): `EAS_NO_VCS=1 eas build -p android
+  --profile production --non-interactive --no-wait` (from `apps/mobile`).
+- Build-log fetch: `eas build:view <id> --json` → `logFiles[0]` is **brotli** →
+  `curl … | brotli -dc`.
+- All EAS profiles carry `SENTRY_DISABLE_AUTO_UPLOAD=true` (the first build
+  ERRORED at the gradle Sentry source-map step without it).
+
+**iOS — Apple**
+- $99 paid, **awaiting account approval**. Nothing else can start until it clears.
+- Then: App Store Connect record, IAP products, sandbox testers, RC iOS config
+  (`appl_` key), TestFlight. Paid Apps agreement + banking + tax on day one —
+  slowest approval, and it gates IAP sandbox.
+
+**RevenueCat**
+- Backend is DONE and proven: webhook + provider-neutral entitlements +
+  cross-provider tier rules + consumable clawback + TRANSFER. Replayed a real
+  `NON_RENEWING_PURCHASE` through the Railway URL → credits granted, duplicate
+  delivery correctly skipped (idempotent).
+- Mobile store screen works against the **RC Test Store** (`test_` key): offering
+  renders, purchase sheet completes, post-purchase poll runs.
+- ⚠️ **Test Store does NOT fire server webhooks** (verified empirically) — so
+  RC-servers → our-webhook via a *platform* sandbox purchase is the one hop never
+  exercised end-to-end. That is AND6.
+- Swap `EXPO_PUBLIC_RC_ANDROID_KEY` / `..._IOS_KEY` off `test_` → `goog_`/`appl_`
+  when the store products exist.
+
+**⚠️ Before ANY production build (easy to miss)**
+- `EXPO_PUBLIC_ASSETS_URL` must point at the **Railway** URL, not `localhost:4000`
+  — mascots are served by the API host. Getting this wrong silently degrades to
+  the day-master glyph with no error (exactly the Android bug fixed in `eea51f5`).
+- `EXPO_PUBLIC_API_URL` → Railway.
+- Configure `expo-updates` (`runtimeVersion: {policy:"fingerprint"}`, channels)
+  BEFORE the first production build, or OTA is unavailable for that build.
+- Still to do at M7: Google OAuth + **Sign in with Apple** (mandatory once Google
+  ships), privacy labels (birth data = sensitive), final icon/splash/screenshots,
+  a dedicated **prod Clerk instance** (currently reusing DEV Clerk keys), and
+  release-build Maestro E2E.
+
+**Deliberate v1 non-goals**: push notifications, offline support, iPad
+(`supportsTablet:false`), ZWDS, mobile deep-links (share QR points at web).
 
 ## Key Commands
 ```bash
@@ -1100,6 +1241,12 @@ LLM chat layer on top of all 5 Bazi reading types: LIFETIME / LOVE / CAREER / AN
 - Phase 3 doctrine eval corpus + Bazi-master review is deferred to Phase 3.1 (sample-question seed + token-budget CI gate ≤ 15k tokens for Laopo×Roger anchor are in place; full LLM-judge corpus pending).
 
 ### Platform support — WEB ONLY (mobile deferred)
+
+> ⚠️ **SUPERSEDED (2026-07)** — the mobile app is no longer chat-less. A full
+> native port (M0–M5) shipped mobile chat in M4 + readings + fortune + compat
+> on branch `feat/mobile-m0`. See the top-of-file «Mobile app (Expo)» section +
+> `/Users/roger/.claude/plans/vivid-roaming-squid.md`. The table below reflects
+> the chat feature's ORIGINAL web-only scope and is kept for history.
 
 | Surface | Chat support |
 |---|---|

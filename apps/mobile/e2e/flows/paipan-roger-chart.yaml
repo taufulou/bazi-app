@@ -1,0 +1,93 @@
+# M1 E2E: free-preview 排盤 renders Roger's anchor chart + the element sheet opens.
+#
+# Roger 1987-09-06 16:11 Malaysia → 丁卯/戊申/戊午/庚申 (year/month/day/hour), 用神 火.
+# (吉打 isn't in the shared city list; any Malaysian city shares Asia/Kuala_Lumpur
+#  and True Solar Time is disabled → identical pillars. We use 吉隆坡, the default.)
+#
+# PREREQUISITE: run with the dev E2E auth bypass so Maestro can reach the authed
+# tabs (Clerk phone-required sign-up isn't automatable):
+#   1. set EXPO_PUBLIC_E2E_BYPASS=1 in apps/mobile/.env
+#   2. restart Metro (the var is inlined at bundle time)
+#   3. maestro --device <udid|emulator-5554> test apps/mobile/e2e/flows/paipan-roger-chart.yaml
+#
+# Tab-bar labels aren't text-matchable by Maestro (expo-router), so the 解讀 tab
+# (middle of 5) is tapped by point.
+appId: com.tianming.app
+---
+- launchApp:
+    stopApp: true
+- extendedWaitUntil:
+    visible: '首頁'
+    timeout: 90000
+- tapOn:
+    point: '50%, 94%'
+- extendedWaitUntil:
+    visible: '八字排盤'
+    timeout: 20000
+
+# (Name is optional — skipped here. Typing into it triggers the Android emulator's
+#  stylus/handwriting popup which covers the pickers. The subheader still renders
+#  from birthDate; the chart is identical without a name.)
+
+# Birth date 1987-09-06 (male + 國曆 are the defaults).
+- tapOn:
+    id: 'pick-year'
+- scrollUntilVisible:
+    element:
+      text: '^1987$'
+    direction: DOWN
+- tapOn:
+    text: '^1987$'
+- tapOn:
+    id: 'pick-month'
+- tapOn:
+    text: '^9$'
+- tapOn:
+    id: 'pick-day'
+- tapOn:
+    text: '^6$'
+
+# Time 16:11 → 4 下午 11.
+- tapOn: '時'
+- tapOn:
+    text: '^4$'
+- tapOn: '上午'
+- tapOn: '下午'
+- tapOn: '分'
+- scrollUntilVisible:
+    element:
+      text: '^11$'
+    direction: DOWN
+- tapOn:
+    text: '^11$'
+
+# Region 馬來西亞 (city auto-defaults to 吉隆坡 / Asia/Kuala_Lumpur).
+- tapOn: '台灣'
+- extendedWaitUntil:
+    visible: '馬來西亞'
+    timeout: 8000
+- tapOn: '馬來西亞'
+
+# Compute the chart (scroll the button into view first).
+- scrollUntilVisible:
+    element:
+      id: 'submit-birth-form'
+    direction: DOWN
+- tapOn:
+    id: 'submit-birth-form'
+
+# The chart rendered — tapping the 金旺 seasonal tag (which only exists once the
+# chart is on screen) auto-scrolls to it and opens the element encyclopedia sheet.
+# The sheet header 「旺 · 月柱」 + 旺相休囚死 badge is the combined regression check
+# for (a) the chart render, (b) the RN-Modal sheet presentation, (c) the H1 fix
+# (the tap sends the STATE 旺, so the sheet shows 旺's meaning, not the 金 element).
+- extendedWaitUntil:
+    visible:
+      id: 'seasonal-金'
+    timeout: 30000
+- tapOn:
+    id: 'seasonal-金'
+- extendedWaitUntil:
+    visible: '旺相休囚死'
+    timeout: 12000
+- assertVisible: '最強'

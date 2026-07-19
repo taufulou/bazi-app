@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { ReadingType } from '@prisma/client';
 import { UsersService } from '../src/users/users.service';
 import { PrismaService } from '../src/prisma/prisma.service';
@@ -27,6 +28,8 @@ describe('UsersService.getReadingHistory — ?type= filter', () => {
       providers: [
         UsersService,
         { provide: PrismaService, useValue: mockPrisma },
+        // M6: UsersService.deleteAccount needs ConfigService (Stripe/Clerk/RC keys).
+        { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
       ],
     }).compile();
 

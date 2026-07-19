@@ -1,0 +1,22 @@
+# fortune-daily — the 運勢 day view loads + streams to completion.
+#
+# ⚠️ Requires a SIGNED-IN session (fortune endpoints need a real Clerk token +
+#    a birth profile; NOT runnable under EXPO_PUBLIC_E2E_BYPASS which returns a
+#    null token). Run on a device/emulator logged into a PRO account.
+# ⚠️ Dev-build caveats (see M2.3 log in vivid-roaming-squid.md): the expo
+#    dev-menu gear overlaps the rightmost 年運 pill; cold-launch bundle reload +
+#    tab-state make timing fragile. Best run against a release/preview build.
+appId: com.tianming.app
+---
+- launchApp:
+    stopApp: false
+# 運勢 tab (2nd of 5 in the bottom bar — labels aren't Maestro-matchable, tap by point)
+- tapOn:
+    point: '30%, 96%'
+# Day view: engine_ready paints the ring/dims fast, then the AI narrative streams
+# (~30s cold). Assert the narrative hero once streaming completes.
+- extendedWaitUntil:
+    visible: '今日整體'
+    timeout: 90000
+- assertVisible: '能量'
+- assertVisible: '點擊選擇日期'

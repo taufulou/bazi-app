@@ -1,32 +1,62 @@
-FROM node:22-alpine AS base
-
-# Install dependencies only when needed
-FROM base AS deps
+# NestJS API — production image (Railway).
+# Single-stage on purpose: this monorepo hoists deps to the root node_modules,
+# so a multi-stage build that copies only apps/api/node_modules loses the
+# hoisted @prisma/client + others. Single-stage keeps node_modules in place →
+# module resolution just works. Optimize to multi-stage later if image size
+# matters. debian-slim (not alpine) avoids Prisma's musl/openssl landmines.
+FROM node:22-slim
 WORKDIR /app
+
+# Prisma needs openssl at generate + migrate time.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+# --- deps: copy ALL workspace manifests so `npm ci` can validate the lockfile,
+#     then scope the install to api + shared (+ root) so web/mobile deps and
+#     their native postinstalls are skipped. Cached unless a manifest changes.
 COPY package.json package-lock.json turbo.json ./
 COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
+COPY apps/mobile/package.json ./apps/mobile/
 COPY packages/shared/package.json ./packages/shared/
-RUN npm ci --workspace=api --workspace=@repo/shared
+COPY packages/ui/package.json ./packages/ui/
+COPY packages/eslint-config/package.json ./packages/eslint-config/
+COPY packages/typescript-config/package.json ./packages/typescript-config/
+RUN npm ci --workspace=api --workspace=@repo/shared --include-workspace-root
 
-# Build the API
-FROM base AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
-COPY --from=deps /app/packages/shared/node_modules ./packages/shared/node_modules 2>/dev/null || true
+# --- source + build (host node_modules excluded via .dockerignore).
 COPY . .
-RUN npx turbo run build --filter=api
+RUN cd apps/api && npx prisma generate && npx nest build
 
-# Production image
-FROM base AS runner
-WORKDIR /app
+# Fail the BUILD rather than the boot if hoisting ever moves these binaries.
+# The CMD below calls prisma by absolute path (see why there); `npx` searched up
+# the tree and tolerated layout changes, a hardcoded path does not. Docker is not
+# available on the dev machine, so without this check a wrong path would only
+# surface as a production boot failure — on the commit shipped last and alone.
+RUN test -x /app/node_modules/.bin/prisma
+
 ENV NODE_ENV=production
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nestjs
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/dist ./dist
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/node_modules ./node_modules
-COPY --from=builder --chown=nestjs:nodejs /app/apps/api/package.json ./package.json
-USER nestjs
-EXPOSE 4000
 ENV PORT=4000
-CMD ["node", "dist/main"]
+EXPOSE 4000
+WORKDIR /app/apps/api
+
+# Drop privileges. node:22-slim ships a non-root `node` user (uid 1000) with a
+# real writable /home/node, so there is no adduser / HOME / npm-cache juggling —
+# Prisma's ~/.cache/prisma and tsx's tmpdir cache both work. Mirrors the
+# `USER baziuser` in docker/Dockerfile.bazi, which this image had drifted from.
+#
+# No `chown -R /app`: the runtime only needs to READ, and root-run COPY/RUN with
+# the default umask 022 already leaves /app world-readable and traversable. A
+# recursive chown would duplicate the whole node_modules into another layer.
+USER node
+
+# Apply pending migrations on start (idempotent; single replica), then boot.
+# `--import tsx` mirrors the proven local run command and tolerates any residual
+# extensionless imports; the API has no @repo/shared runtime imports (inlined).
+#
+# Direct binary instead of `npx`: npx may try to write an npm cache, which is a
+# needless failure mode now that we run unprivileged. Guarded by the `test -x`
+# above. `prisma`/`tsx` are present because ENV NODE_ENV=production is set AFTER
+# `npm ci`, so devDependencies were installed.
+CMD ["sh", "-c", "/app/node_modules/.bin/prisma migrate deploy && node --import tsx dist/main.js"]

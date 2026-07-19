@@ -4,6 +4,7 @@
  */
 import { StripeService } from '../src/payments/stripe.service';
 import { PaymentsService } from '../src/payments/payments.service';
+import { EntitlementsService } from '../src/payments/entitlements.service';
 import { NotFoundException } from '@nestjs/common';
 
 // ============================================================
@@ -69,7 +70,9 @@ const mockPrisma = {
   },
   subscription: {
     findFirst: jest.fn(),
+    findMany: jest.fn(),
     create: jest.fn(),
+    upsert: jest.fn(),
     update: jest.fn(),
   },
   transaction: {
@@ -150,14 +153,22 @@ const MOCK_MASTER_PLAN = {
 describe('Monthly Credits', () => {
   let stripeService: StripeService;
   let paymentsService: PaymentsService;
+  let entitlementsService: EntitlementsService;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // M6: the pure grantMonthlyCredits logic moved to EntitlementsService; the
+    // Stripe handlers now delegate to it. Construct a REAL EntitlementsService
+    // over the same mockPrisma so handler tests still exercise the real grant
+    // path against mocks, and retarget the pure-grant tests onto it.
+    entitlementsService = new EntitlementsService(mockPrisma as any, {
+      resnapshotChatQuotaOnTierChange: jest.fn(),
+    } as any);
     stripeService = new StripeService(
       mockConfig as any,
       mockPrisma as any,
       { get: jest.fn(), set: jest.fn() } as any,
-      { resnapshotChatQuotaOnTierChange: jest.fn() } as any,
+      entitlementsService,
     );
     paymentsService = new PaymentsService(mockPrisma as any);
   });
@@ -172,7 +183,7 @@ describe('Monthly Credits', () => {
       mockTxUser.update.mockResolvedValue({});
       mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
-      const result = await stripeService.grantMonthlyCredits(
+      const result = await entitlementsService.grantMonthlyCredits(
         'user-123', 'BASIC', PERIOD_START, PERIOD_END,
       );
 
@@ -197,7 +208,7 @@ describe('Monthly Credits', () => {
       mockTxUser.update.mockResolvedValue({});
       mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
-      const result = await stripeService.grantMonthlyCredits(
+      const result = await entitlementsService.grantMonthlyCredits(
         'user-123', 'PRO', PERIOD_START, PERIOD_END,
       );
 
@@ -211,7 +222,7 @@ describe('Monthly Credits', () => {
       mockPrisma.plan.findFirst.mockResolvedValue(MOCK_MASTER_PLAN);
       mockPrisma.monthlyCreditsLog.findFirst.mockResolvedValue(null);
 
-      const result = await stripeService.grantMonthlyCredits(
+      const result = await entitlementsService.grantMonthlyCredits(
         'user-123', 'MASTER', PERIOD_START, PERIOD_END,
       );
 
@@ -223,7 +234,7 @@ describe('Monthly Credits', () => {
     });
 
     it('should skip grant for unknown tier', async () => {
-      const result = await stripeService.grantMonthlyCredits(
+      const result = await entitlementsService.grantMonthlyCredits(
         'user-123', 'UNKNOWN' as any, PERIOD_START, PERIOD_END,
       );
 
@@ -234,7 +245,7 @@ describe('Monthly Credits', () => {
     it('should skip grant when plan not found in DB', async () => {
       mockPrisma.plan.findFirst.mockResolvedValue(null);
 
-      const result = await stripeService.grantMonthlyCredits(
+      const result = await entitlementsService.grantMonthlyCredits(
         'user-123', 'BASIC', PERIOD_START, PERIOD_END,
       );
 
@@ -248,7 +259,7 @@ describe('Monthly Credits', () => {
         monthlyCredits: 0,
       });
 
-      const result = await stripeService.grantMonthlyCredits(
+      const result = await entitlementsService.grantMonthlyCredits(
         'user-123', 'BASIC', PERIOD_START, PERIOD_END,
       );
 
@@ -271,7 +282,7 @@ describe('Monthly Credits', () => {
 
       mockPrisma.$transaction.mockRejectedValueOnce(p2002Error);
 
-      const result = await stripeService.grantMonthlyCredits(
+      const result = await entitlementsService.grantMonthlyCredits(
         'user-123', 'PRO', PERIOD_START, PERIOD_END,
       );
 
@@ -285,7 +296,7 @@ describe('Monthly Credits', () => {
       mockPrisma.$transaction.mockRejectedValueOnce(unexpectedError);
 
       await expect(
-        stripeService.grantMonthlyCredits('user-123', 'PRO', PERIOD_START, PERIOD_END),
+        entitlementsService.grantMonthlyCredits('user-123', 'PRO', PERIOD_START, PERIOD_END),
       ).rejects.toThrow('Database connection lost');
     });
 
@@ -300,10 +311,10 @@ describe('Monthly Credits', () => {
       const periodEndB = new Date('2026-03-01T00:00:00.000Z');
 
       // First grant
-      await stripeService.grantMonthlyCredits('user-123', 'BASIC', periodA, periodEndA);
+      await entitlementsService.grantMonthlyCredits('user-123', 'BASIC', periodA, periodEndA);
 
       // Second grant for different period should also succeed
-      await stripeService.grantMonthlyCredits('user-123', 'BASIC', periodB, periodEndB);
+      await entitlementsService.grantMonthlyCredits('user-123', 'BASIC', periodB, periodEndB);
 
       // Both $transaction calls should have been made
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(2);
@@ -339,7 +350,11 @@ describe('Monthly Credits', () => {
           }],
         },
       });
-      mockPrisma.subscription.create.mockResolvedValue({});
+      mockPrisma.subscription.upsert.mockResolvedValue({});
+      // M6: syncUserTier + grantMonthlyCreditsForGoverningSub read active subs.
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'PRO', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
       mockPrisma.user.update.mockResolvedValue({});
       mockPrisma.transaction.create.mockResolvedValue({});
       mockPrisma.plan.findFirst.mockResolvedValue(MOCK_PRO_PLAN);
@@ -382,7 +397,10 @@ describe('Monthly Credits', () => {
           }],
         },
       });
-      mockPrisma.subscription.create.mockResolvedValue({});
+      mockPrisma.subscription.upsert.mockResolvedValue({});
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'MASTER', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
       mockPrisma.user.update.mockResolvedValue({});
       mockPrisma.transaction.create.mockResolvedValue({});
       mockPrisma.plan.findFirst.mockResolvedValue(MOCK_MASTER_PLAN);
@@ -425,10 +443,19 @@ describe('Monthly Credits', () => {
       } as any;
 
       mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-1',
         userId: 'user-123',
         stripeSubscriptionId: 'sub_stripe_123',
         planTier: 'PRO',
+        // Explicit: handleInvoicePaid reactivates only when status === 'PAST_DUE'.
+        // Without this the fixture tested the ACTIVE path only by accident.
+        status: 'ACTIVE',
       });
+      // M6: grantMonthlyCreditsForSubscription gates on the renewing sub being
+      // the governing active sub.
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'PRO', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
       mockPrisma.transaction.create.mockResolvedValue({});
       mockPrisma.plan.findFirst.mockResolvedValue(MOCK_PRO_PLAN);
       mockTxUser.update.mockResolvedValue({});
@@ -460,10 +487,19 @@ describe('Monthly Credits', () => {
       } as any;
 
       mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-1',
         userId: 'user-123',
         stripeSubscriptionId: 'sub_stripe_123',
         planTier: 'PRO',
+        // Explicit: handleInvoicePaid reactivates only when status === 'PAST_DUE'.
+        // Without this the fixture tested the ACTIVE path only by accident.
+        status: 'ACTIVE',
       });
+      // M6: grantMonthlyCreditsForSubscription gates on the renewing sub being
+      // the governing active sub.
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'PRO', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
       mockPrisma.transaction.create.mockResolvedValue({});
 
       await stripeService.handleInvoicePaid(invoice);
@@ -495,10 +531,19 @@ describe('Monthly Credits', () => {
       } as any;
 
       mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-1',
         userId: 'user-123',
         stripeSubscriptionId: 'sub_stripe_123',
         planTier: 'PRO',
+        // Explicit: handleInvoicePaid reactivates only when status === 'PAST_DUE'.
+        // Without this the fixture tested the ACTIVE path only by accident.
+        status: 'ACTIVE',
       });
+      // M6: grantMonthlyCreditsForSubscription gates on the renewing sub being
+      // the governing active sub.
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'PRO', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
       mockPrisma.transaction.create.mockResolvedValue({});
       mockPrisma.plan.findFirst.mockResolvedValue(MOCK_PRO_PLAN);
 
@@ -538,10 +583,14 @@ describe('Monthly Credits', () => {
       } as any;
 
       mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-basic',
         userId: 'user-123',
         stripeSubscriptionId: 'sub_stripe_basic',
         planTier: 'BASIC',
       });
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-basic', planTier: 'BASIC', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
       mockPrisma.transaction.create.mockResolvedValue({});
       mockPrisma.plan.findFirst.mockResolvedValue(MOCK_BASIC_PLAN);
       mockTxUser.update.mockResolvedValue({});
@@ -650,7 +699,7 @@ describe('Monthly Credits', () => {
       mockTxUser.update.mockResolvedValue({});
       mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
-      const result = await stripeService.grantMonthlyCredits(
+      const result = await entitlementsService.grantMonthlyCredits(
         'user-123', 'BASIC', PERIOD_START, PERIOD_END,
       );
 
@@ -662,7 +711,7 @@ describe('Monthly Credits', () => {
       mockTxUser.update.mockResolvedValue({});
       mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
-      const result = await stripeService.grantMonthlyCredits(
+      const result = await entitlementsService.grantMonthlyCredits(
         'user-123', 'PRO', PERIOD_START, PERIOD_END,
       );
 
@@ -675,7 +724,7 @@ describe('Monthly Credits', () => {
       mockTxUser.update.mockResolvedValue({});
       mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
-      const result = await stripeService.grantMonthlyCredits(
+      const result = await entitlementsService.grantMonthlyCredits(
         'user-123', 'MASTER', PERIOD_START, PERIOD_END,
       );
 
@@ -684,7 +733,7 @@ describe('Monthly Credits', () => {
     });
 
     it('FREE tier should skip (no slug mapping)', async () => {
-      const result = await stripeService.grantMonthlyCredits(
+      const result = await entitlementsService.grantMonthlyCredits(
         'user-123', 'FREE', PERIOD_START, PERIOD_END,
       );
 
@@ -703,7 +752,7 @@ describe('Monthly Credits', () => {
       mockTxUser.update.mockResolvedValue({});
       mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
-      await stripeService.grantMonthlyCredits(
+      await entitlementsService.grantMonthlyCredits(
         'user-123', 'PRO', PERIOD_START, PERIOD_END,
       );
 
@@ -736,7 +785,7 @@ describe('Monthly Credits', () => {
       mockPrisma.$transaction.mockRejectedValueOnce(dbError);
 
       await expect(
-        stripeService.grantMonthlyCredits('user-123', 'PRO', PERIOD_START, PERIOD_END),
+        entitlementsService.grantMonthlyCredits('user-123', 'PRO', PERIOD_START, PERIOD_END),
       ).rejects.toThrow('Connection timeout');
 
       // Since it's a transaction, neither operation should have completed
@@ -754,7 +803,7 @@ describe('Monthly Credits', () => {
       mockTxUser.update.mockResolvedValue({});
       mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
-      await stripeService.grantMonthlyCredits(
+      await entitlementsService.grantMonthlyCredits(
         'user-123', 'BASIC', PERIOD_START, PERIOD_END,
       );
 
@@ -768,7 +817,7 @@ describe('Monthly Credits', () => {
       mockTxUser.update.mockResolvedValue({});
       mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
-      await stripeService.grantMonthlyCredits(
+      await entitlementsService.grantMonthlyCredits(
         'user-123', 'PRO', PERIOD_START, PERIOD_END,
       );
 
@@ -783,7 +832,7 @@ describe('Monthly Credits', () => {
       mockTxUser.update.mockResolvedValue({});
       mockTxMonthlyCreditsLog.create.mockResolvedValue({});
 
-      await stripeService.grantMonthlyCredits(
+      await entitlementsService.grantMonthlyCredits(
         'user-123', 'MASTER', PERIOD_START, PERIOD_END,
       );
 

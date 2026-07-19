@@ -64,29 +64,24 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     setLang(next);
   }, []);
 
-  // Seed from the SecureStore cache (fast path for relaunch).
+  // Seed from cache (fast) THEN reconcile against the authoritative DB pref —
+  // sequentially in one effect so a slow cache seed can't land after (and clobber)
+  // the DB value. Merged to avoid the two-effect race.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // 1. Fast path: seed from the SecureStore cache.
       try {
         const cached = await SecureStore.getItemAsync(STORE_KEY);
-        if (!cancelled && (cached === 'zh-CN' || cached === 'zh-TW')) {
+        if (cancelled) return;
+        if (cached === 'zh-CN' || cached === 'zh-TW') {
           await applyLang(cached);
         }
       } catch {
         /* ignore */
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [applyLang]);
-
-  // Reconcile against the authoritative DB pref when signed in.
-  useEffect(() => {
-    if (!isSignedIn) return;
-    let cancelled = false;
-    (async () => {
+      // 2. Authoritative: DB pref when signed in (overwrites the seed).
+      if (cancelled || !isSignedIn) return;
       try {
         const token = await getToken();
         if (!token || cancelled) return;
@@ -101,7 +96,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [isSignedIn, getToken, applyLang]);
+    // getToken is a fresh ref each render (Clerk) — omit it, else this always-mounted
+    // provider re-fetches /api/users/me on every render (fetch loop). applyLang is stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn]);
 
   const changeLanguage = useCallback(
     async (next: Language) => {
@@ -119,7 +117,9 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
   const convert = useCallback(
     (s: string) => (lang === 'zh-CN' ? convertText(s) : s),
-    // `ready` is a dep so consumers re-render once the converter loads.
+    // `ready` is an intentional dep: consumers re-render once the async converter
+    // loads (it's not referenced in the body, so exhaustive-deps flags it).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [lang, ready],
   );
 

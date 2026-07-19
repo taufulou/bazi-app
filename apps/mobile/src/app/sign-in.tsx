@@ -14,6 +14,8 @@ import {
   ScrollView,
 } from 'react-native';
 import { useZh } from '../lib/language';
+import { colors, radius, spacing, fontSize, fonts } from '../theme';
+import { GoogleSignInButton } from '../components/GoogleSignInButton';
 
 export default function SignInScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
@@ -35,14 +37,18 @@ export default function SignInScreen() {
 
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
-        router.replace('/(authenticated)');
+        router.replace('/(authenticated)/home');
       } else {
-        // Handle additional steps (e.g., 2FA)
-        console.log('Sign-in requires additional steps:', result.status);
+        // Non-complete status (2FA / missing requirements) — don't dead-end silently.
+        Alert.alert(zh('需要額外驗證'), zh('此帳號需要額外的登入步驟，請稍後再試或改用網頁版。'));
       }
     } catch (err: unknown) {
-      const error = err as { errors?: Array<{ message: string }> };
-      Alert.alert(zh('登入失敗'), error.errors?.[0]?.message || zh('請檢查您的帳號和密碼'));
+      const error = err as { errors?: Array<{ message?: string; longMessage?: string }> };
+      const clerkErr = error.errors?.[0];
+      Alert.alert(
+        zh('登入失敗'),
+        clerkErr?.longMessage || clerkErr?.message || zh('請檢查您的帳號和密碼'),
+      );
     } finally {
       setLoading(false);
     }
@@ -51,7 +57,7 @@ export default function SignInScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -70,7 +76,7 @@ export default function SignInScreen() {
               value={emailAddress}
               onChangeText={setEmailAddress}
               placeholder={zh('輸入您的電子郵件')}
-              placeholderTextColor="#666"
+              placeholderTextColor={colors.textMuted}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
@@ -84,25 +90,35 @@ export default function SignInScreen() {
               value={password}
               onChangeText={setPassword}
               placeholder={zh('輸入您的密碼')}
-              placeholderTextColor="#666"
+              placeholderTextColor={colors.textMuted}
               secureTextEntry
             />
           </View>
 
           <TouchableOpacity
             style={[styles.button, loading && styles.buttonDisabled]}
+            accessibilityRole="button"
             onPress={onSignIn}
             disabled={loading}
           >
             {loading ? (
-              <ActivityIndicator color="#1a1a2e" />
+              <ActivityIndicator color={colors.textOnRed} />
             ) : (
               <Text style={styles.buttonText}>{zh('登入')}</Text>
             )}
           </TouchableOpacity>
 
+          <View style={styles.dividerRow}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>{zh('或')}</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <GoogleSignInButton />
+
           <TouchableOpacity
             style={styles.linkButton}
+            accessibilityRole="button"
             onPress={() => router.push('/sign-up')}
           >
             <Text style={styles.linkText}>
@@ -118,73 +134,82 @@ export default function SignInScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.bgPrimary,
   },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
-    padding: 24,
+    padding: spacing.xl,
   },
   header: {
     alignItems: 'center',
     marginBottom: 40,
   },
   title: {
-    fontSize: 28,
+    fontFamily: fonts.serifBold,
+    fontSize: fontSize.title,
     fontWeight: '700',
-    color: '#e8d5b7',
-    marginBottom: 8,
+    color: colors.textAccent,
+    marginBottom: spacing.sm,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#a0a0a0',
+    fontSize: fontSize.base,
+    color: colors.textSecondary,
   },
   form: {
     width: '100%',
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: spacing.xl,
   },
   label: {
-    color: '#a0a0a0',
-    fontSize: 14,
-    marginBottom: 8,
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    marginBottom: spacing.sm,
     fontWeight: '500',
   },
   input: {
-    backgroundColor: '#16213e',
-    borderRadius: 10,
-    padding: 16,
-    color: '#e0e0e0',
-    fontSize: 16,
+    backgroundColor: colors.bgCard,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    color: colors.textPrimary,
+    fontSize: fontSize.base,
     borderWidth: 1,
-    borderColor: 'rgba(232, 213, 183, 0.15)',
+    borderColor: colors.borderMedium,
   },
   button: {
-    backgroundColor: '#e8d5b7',
-    borderRadius: 10,
-    padding: 16,
+    backgroundColor: colors.red,
+    borderRadius: radius.md,
+    padding: spacing.lg,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: spacing.sm,
   },
   buttonDisabled: {
     opacity: 0.7,
   },
   buttonText: {
-    color: '#1a1a2e',
-    fontSize: 16,
+    color: colors.textOnRed,
+    fontSize: fontSize.base,
     fontWeight: '700',
   },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginVertical: spacing.xl,
+  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: colors.borderLight },
+  dividerText: { color: colors.textMuted, fontSize: fontSize.sm },
   linkButton: {
     alignItems: 'center',
-    marginTop: 24,
+    marginTop: spacing.xl,
   },
   linkText: {
-    color: '#a0a0a0',
-    fontSize: 14,
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
   },
   linkHighlight: {
-    color: '#e8d5b7',
+    color: colors.red,
     fontWeight: '600',
   },
 });
