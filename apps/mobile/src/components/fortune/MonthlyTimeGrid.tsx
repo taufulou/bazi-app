@@ -109,15 +109,16 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   cardTitle: { ...T.subsection, color: colors.textPrimary },
   pillarBadge: { backgroundColor: 'rgba(212,160,23,0.10)', borderColor: colors.borderMedium, borderWidth: 1, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
-  pillarBadgeText: { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
+  // 「流月天干 (乙) 主氣」 — states which pillar governs the half-month; content.
+  pillarBadgeText: { ...T.meta, color: colors.textSecondary, fontWeight: '600' },
   cardRange: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, color: colors.textMuted },
   dayCounts: { flexDirection: 'row', gap: spacing.md },
   countItem: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, fontWeight: '700' },
   shenshaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
   // The 神煞 names and peak dates are the substance of this card, not chrome — they
-  // sat at 12 alongside the disclaimers and badges. `label`/`meta` (13) lifts the
-  // content a rung and leaves 12 to the things that really are captions
-  // (pillarBadgeText, peakSignal, windowInfo).
+  // sat at 12 alongside the disclaimers. `label`/`meta` (13) lifts the content a
+  // rung and leaves 12 to what really is caption-class here: peakSignal (a
+  // secondary detail under an already-labelled peak) and windowInfo (a footnote).
   shenshaLabel: { ...T.label, color: colors.textSecondary },
   shenshaTag: { backgroundColor: 'rgba(226,61,40,0.08)', borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   shenshaTagText: { ...T.meta, color: colors.textAccent },

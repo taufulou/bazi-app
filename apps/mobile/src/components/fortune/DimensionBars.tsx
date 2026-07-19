@@ -75,5 +75,6 @@ const styles = StyleSheet.create({
   // The dimension names (感情/事業/財運/出行/健康) are what the bar chart is ABOUT —
   // they were a caption size, level with the disclaimers.
   dimName: { ...T.meta, color: colors.textSecondary },
-  dimLabel: { fontSize: 12, lineHeight: 16, fontWeight: '600' },
+  // Sibling of dimName (13) — the verdict word sat a rung behind its own label.
+  dimLabel: { ...T.meta, fontWeight: '600' },
 });

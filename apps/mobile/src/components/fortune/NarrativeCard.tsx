@@ -337,9 +337,12 @@ const styles = StyleSheet.create({
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   chip: { paddingHorizontal: spacing.sm, paddingVertical: 3, borderRadius: 999, borderWidth: 1 },
   chipGold: { backgroundColor: 'rgba(212,160,23,0.10)', borderColor: colors.borderMedium },
-  chipGoldText: { fontSize: fontSize.xs, color: colors.textPrimary, fontWeight: '600' },
+  // The headliner chips (甲午日 / 偏官 / 大吉 / 忌神透干 / 天喜觸動) are the densest
+  // summary on the page — they were rendering a rung BELOW the prose they
+  // introduce, which is backwards.
+  chipGoldText: { ...T.meta, color: colors.textPrimary, fontWeight: '600' },
   chipRedTone: { backgroundColor: 'rgba(226,61,40,0.08)', borderColor: 'rgba(226,61,40,0.3)' },
-  chipRedText: { fontSize: fontSize.xs, color: colors.textAccent, fontWeight: '600' },
+  chipRedText: { ...T.meta, color: colors.textAccent, fontWeight: '600' },
   // dims
   dims: { gap: rhythm.block },
   dimBlock: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
@@ -355,8 +358,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   dimBadgeDot: { width: 6, height: 6, borderRadius: 3 },
-  dimBadgeScore: { fontSize: fontSize.xs, fontWeight: '700', color: colors.textPrimary },
-  dimBadgeLabel: { fontSize: fontSize.xs, fontWeight: '600' },
+  dimBadgeScore: { ...T.meta, fontWeight: '700', color: colors.textPrimary },
+  dimBadgeLabel: { ...T.meta, fontWeight: '600' },
   takeaway: {
     fontSize: fontSize.sm,
     color: colors.textAccent,

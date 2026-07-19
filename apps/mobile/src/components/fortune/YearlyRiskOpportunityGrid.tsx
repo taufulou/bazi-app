@@ -147,5 +147,5 @@ const styles = StyleSheet.create({
   entryLabel: { ...T.meta, color: colors.textAccent, fontWeight: '600' },
   entryKeyword: { fontSize: fontSize.sm, color: colors.textAccent, fontWeight: '600' },
   entryNarrative: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
-  caveatTag: { fontSize: fontSize.xs, color: colors.textMuted, fontStyle: 'italic' },
+  caveatTag: { ...T.meta, color: colors.textMuted, fontStyle: 'italic' },
 });

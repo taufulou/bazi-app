@@ -79,6 +79,7 @@ const styles = StyleSheet.create({
   cardBody: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   cardMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   chip: { backgroundColor: 'rgba(212,160,23,0.10)', borderColor: colors.borderMedium, borderWidth: 1, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
-  chipText: { fontSize: fontSize.xs, color: colors.textPrimary, fontWeight: '600' },
+  // 用神:火 / 方位:南方 / 色:紅色 — the actionable part of the card.
+  chipText: { ...T.meta, color: colors.textPrimary, fontWeight: '600' },
   disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: spacing.xs },
 });

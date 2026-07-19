@@ -7,7 +7,7 @@
  */
 import { View, Text, StyleSheet } from 'react-native';
 import { ArrowUpRight, ScrollText } from 'lucide-react-native';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 
 export default function YearlyCrossSellCard() {
@@ -37,5 +37,5 @@ const styles = StyleSheet.create({
   },
   body: { flex: 1, gap: 2 },
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
-  sub: { fontSize: fontSize.xs, color: colors.textSecondary, lineHeight: 18 },
+  sub: { ...T.meta, color: colors.textSecondary },
 });

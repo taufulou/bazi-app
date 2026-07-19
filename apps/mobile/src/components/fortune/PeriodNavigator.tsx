@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { View, Text, Pressable, Modal, ScrollView, StyleSheet } from 'react-native';
 import { ChevronDown, Lock, Check } from 'lucide-react-native';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 
 export interface PeriodOption {
@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
   },
   chipDisabled: { opacity: 0.6 },
   chipLabel: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
-  hint: { fontSize: fontSize.xs, color: colors.textMuted },
+  hint: { ...T.meta, color: colors.textMuted },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: colors.bgSecondary,

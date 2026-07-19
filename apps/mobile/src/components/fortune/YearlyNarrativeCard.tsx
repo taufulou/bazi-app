@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
   dimKeyword: { ...T.meta, color: colors.textSecondary, flex: 1 },
   dimBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 999, borderWidth: 1 },
   dimBadgeDot: { width: 6, height: 6, borderRadius: 3 },
-  dimBadgeLabel: { fontSize: fontSize.xs, fontWeight: '600' },
+  dimBadgeLabel: { ...T.meta, fontWeight: '600' },
   dimBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
   dimEmpty: { fontSize: fontSize.sm, color: colors.textMuted },
   adviceCard: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
