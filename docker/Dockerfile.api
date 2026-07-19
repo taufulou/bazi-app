@@ -29,12 +29,34 @@ RUN npm ci --workspace=api --workspace=@repo/shared --include-workspace-root
 COPY . .
 RUN cd apps/api && npx prisma generate && npx nest build
 
+# Fail the BUILD rather than the boot if hoisting ever moves these binaries.
+# The CMD below calls prisma by absolute path (see why there); `npx` searched up
+# the tree and tolerated layout changes, a hardcoded path does not. Docker is not
+# available on the dev machine, so without this check a wrong path would only
+# surface as a production boot failure — on the commit shipped last and alone.
+RUN test -x /app/node_modules/.bin/prisma
+
 ENV NODE_ENV=production
 ENV PORT=4000
 EXPOSE 4000
 WORKDIR /app/apps/api
 
+# Drop privileges. node:22-slim ships a non-root `node` user (uid 1000) with a
+# real writable /home/node, so there is no adduser / HOME / npm-cache juggling —
+# Prisma's ~/.cache/prisma and tsx's tmpdir cache both work. Mirrors the
+# `USER baziuser` in docker/Dockerfile.bazi, which this image had drifted from.
+#
+# No `chown -R /app`: the runtime only needs to READ, and root-run COPY/RUN with
+# the default umask 022 already leaves /app world-readable and traversable. A
+# recursive chown would duplicate the whole node_modules into another layer.
+USER node
+
 # Apply pending migrations on start (idempotent; single replica), then boot.
 # `--import tsx` mirrors the proven local run command and tolerates any residual
 # extensionless imports; the API has no @repo/shared runtime imports (inlined).
-CMD ["sh", "-c", "npx prisma migrate deploy && node --import tsx dist/main.js"]
+#
+# Direct binary instead of `npx`: npx may try to write an npm cache, which is a
+# needless failure mode now that we run unprivileged. Guarded by the `test -x`
+# above. `prisma`/`tsx` are present because ENV NODE_ENV=production is set AFTER
+# `npm ci`, so devDependencies were installed.
+CMD ["sh", "-c", "/app/node_modules/.bin/prisma migrate deploy && node --import tsx dist/main.js"]
