@@ -157,7 +157,7 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: colors.borderLight,
+    borderBottomColor: colors.ruleHair,
   },
   optionSelected: { backgroundColor: 'rgba(226,61,40,0.06)', borderRadius: radius.md },
   optionText: { fontSize: fontSize.base, color: colors.textPrimary },

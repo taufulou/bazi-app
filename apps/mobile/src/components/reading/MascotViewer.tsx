@@ -84,7 +84,7 @@ export default function MascotViewer({
   if (views.length === 0) {
     return (
       <View style={styles.fallback}>
-        <Text style={styles.fallbackGlyph}>{isValidStem(stem) ? stem : '🎴'}</Text>
+        <Text style={styles.fallbackGlyph}>{isValidStem(stem) ? stem : '◆'}</Text>
       </View>
     );
   }
@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.bgSecondary,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.ruleHair,
     borderStyle: 'dashed',
   },
   fallbackGlyph: { fontFamily: fonts.serif, fontSize: 96, color: colors.textAccent },

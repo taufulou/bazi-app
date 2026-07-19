@@ -6,7 +6,7 @@
  * pages, wire the press to open the ANNUAL reading.
  */
 import { View, Text, StyleSheet } from 'react-native';
-import { ArrowUpRight } from 'lucide-react-native';
+import { ArrowUpRight, ScrollText } from 'lucide-react-native';
 import { colors, fonts, fontSize, spacing, radius } from '../../theme';
 import { useZh } from '../../lib/language';
 
@@ -14,7 +14,7 @@ export default function YearlyCrossSellCard() {
   const zh = useZh();
   return (
     <View style={styles.card}>
-      <Text style={styles.icon}>📜</Text>
+      <ScrollText size={22} strokeWidth={2} color={colors.textAccent} />
       <View style={styles.body}>
         <Text style={styles.title}>{zh('想要完整的流年深度解讀？')}</Text>
         <Text style={styles.sub}>{zh('《八字流年運勢》提供大運 + 流年完整矩陣、逐月吉凶與關鍵時機分析')}</Text>
@@ -35,7 +35,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderMedium,
   },
-  icon: { fontSize: 26 },
   body: { flex: 1, gap: 2 },
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   sub: { fontSize: fontSize.xs, color: colors.textSecondary, lineHeight: 18 },

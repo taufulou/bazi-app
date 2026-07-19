@@ -1,6 +1,7 @@
 import { useAuth } from '@clerk/clerk-expo';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -107,6 +108,26 @@ export default function ReadingFlowScreen() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatPending, setChatPending] = useState<string | undefined>(undefined);
   const [chatSectionHint, setChatSectionHint] = useState<string | undefined>(undefined);
+  /** Chat FAB auto-hide — see onReadingScroll. */
+  const [fabHidden, setFabHidden] = useState(false);
+  const lastScrollY = useRef(0);
+
+  /**
+   * Park the chat FAB while the user is reading DOWN the page, restore it on any
+   * upward scroll. The button is an opaque pill pinned bottom-right, so on a long
+   * reading it otherwise covers real content for the entire scroll.
+   * The 12px threshold keeps it from flickering on small jitters.
+   *
+   * ⚠️ Must stay ABOVE this component's early returns — it's a hook.
+   */
+  const onReadingScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    const dy = y - lastScrollY.current;
+    if (Math.abs(dy) < 12) return;
+    lastScrollY.current = y;
+    // Always show near the top, regardless of direction.
+    setFabHidden(y > 80 && dy > 0);
+  }, []);
   const chatReadingType = slug ? (slug.toUpperCase() as ChatReadingType) : undefined;
   const [sections, setSections] = useState<SectionMap>({});
   const [deterministic, setDeterministic] = useState<NestJSReadingResponse['deterministic']>(undefined);
@@ -411,7 +432,12 @@ export default function ReadingFlowScreen() {
 
   return (
     <View style={styles.root}>
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.content}
+        onScroll={onReadingScroll}
+        scrollEventThrottle={16}
+      >
         <Stack.Screen options={{ title: zh(meta.nameZhTw) }} />
 
         {/* Shared reading-page hero backdrop (web .pageContainerLifetime::before):
@@ -609,6 +635,7 @@ export default function ReadingFlowScreen() {
           question we can't answer well yet. */}
       {step === 'reading' && readingId && !showPill ? (
         <ChatFloatingButton
+          hidden={fabHidden}
           onPress={() => {
             setChatSectionHint(undefined);
             setChatPending(undefined);
@@ -637,7 +664,10 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bgPrimary },
   // Transparent so the hero backdrop shows through at the top (cream below it).
   container: { flex: 1, backgroundColor: 'transparent' },
-  content: { padding: spacing.xl, paddingBottom: spacing.xxl * 2 },
+  // paddingBottom clears the chat FAB, which sits at bottom:24 and stands ~52pt
+  // tall (so it occupies 24–76). The old value of 64 left the last card clipped
+  // even after the button parks itself on scroll-down.
+  content: { padding: spacing.xl, paddingBottom: 104 },
   // Absolute against the SCROLL CONTENT (see the JSX comment). Negative insets
   // cancel `content`'s padding so the art still bleeds edge-to-edge.
   heroBackdrop: {

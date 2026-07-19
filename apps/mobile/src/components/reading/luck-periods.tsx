@@ -23,7 +23,7 @@ import Svg, {
   Stop,
   Text as SvgText,
 } from 'react-native-svg';
-import { colors, elementColors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, elementColors, fonts, fontSize, spacing, radius, rhythm } from '../../theme';
 import { useZh } from '../../lib/language';
 import { ScoreBar, ChipGroup, Chip } from './primitives';
 import type { LuckPeriodDetailData, LifetimeV2DeterministicData } from '../../lib/readings-api';
@@ -155,7 +155,7 @@ export function LuckPeriodChart({
             strokeWidth={1}
             strokeDasharray="4 4"
           />
-          <SvgText x={PAD_LEFT - 6} y={gridY + 3} textAnchor="end" fontSize={9} fill={colors.textMuted}>
+          <SvgText x={PAD_LEFT - 6} y={gridY + 3} textAnchor="end" fontSize={10} fill={colors.textMuted}>
             50
           </SvgText>
 
@@ -200,9 +200,9 @@ export function LuckPeriodChart({
                     x={x}
                     y={Math.max(9, y - 9)}
                     textAnchor="middle"
-                    fontSize={8}
+                    fontSize={11}
                     fontWeight="700"
-                    fill={current ? colors.textAccent : colors.gold}
+                    fill={current ? colors.textAccent : colors.metalText}
                   >
                     {zh(markerLabel)}
                   </SvgText>
@@ -220,14 +220,14 @@ export function LuckPeriodChart({
                   x={x}
                   y={BASE_Y + 15}
                   textAnchor="middle"
-                  fontSize={10}
+                  fontSize={13}
                   fontWeight="600"
                   fill={colors.textPrimary}
                 >
                   {zh(`${p.stem}${p.branch}`)}
                 </SvgText>
                 {/* start year (abbreviated x-axis) */}
-                <SvgText x={x} y={BASE_Y + 29} textAnchor="middle" fontSize={8} fill={colors.textMuted}>
+                <SvgText x={x} y={BASE_Y + 29} textAnchor="middle" fontSize={10} fill={colors.textMuted}>
                   {p.startYear}
                 </SvgText>
               </React.Fragment>
@@ -240,7 +240,7 @@ export function LuckPeriodChart({
 }
 
 const chart = StyleSheet.create({
-  wrap: { gap: spacing.sm },
+  wrap: { gap: rhythm.afterHeading },
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
   svgWrap: { width: '100%' },
 });
@@ -298,13 +298,16 @@ export function LuckPeriodTimeline({
 }
 
 const tl = StyleSheet.create({
-  wrap: { gap: spacing.sm },
+  // was 8 — IDENTICAL to a row's internal gap below, so the space separating one
+  // 大運 card from the next matched the space inside a card and eight stacked
+  // periods read as one undifferentiated mass.
+  wrap: { gap: rhythm.block },
   row: {
-    gap: spacing.sm,
+    gap: rhythm.tight,
     padding: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.ruleHair,
     backgroundColor: colors.bgSecondary,
   },
   rowCurrent: { borderColor: colors.gold, backgroundColor: colors.bgBannerWarm },
@@ -314,7 +317,7 @@ const tl = StyleSheet.create({
   ganzhi: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
   tenGod: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
   badges: { flexDirection: 'row', gap: spacing.xs },
-  meta: { fontSize: fontSize.sm, color: colors.textMuted },
+  meta: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, color: colors.textMuted },
 });
 
 // ============================================================
@@ -356,13 +359,13 @@ export function LuckPeriodHeader({
 
       <View style={hdr.phases}>
         <View style={hdr.phaseRow}>
-          <Text style={hdr.phaseLabel}>{zh('🔹 第一階段')}</Text>
+          <Text style={hdr.phaseLabel}>{zh('◆ 第一階段')}</Text>
           <Text style={hdr.phaseDesc}>
             {zh(`${p.stem}${stemEl}${stemTgLabel}（${p.startYear}-${midYear - 1}）`)}
           </Text>
         </View>
         <View style={hdr.phaseRow}>
-          <Text style={hdr.phaseLabel}>{zh('🔹 第二階段')}</Text>
+          <Text style={hdr.phaseLabel}>{zh('◆ 第二階段')}</Text>
           <Text style={hdr.phaseDesc}>
             {zh(`${p.branch}${branchEl}${branchTgLabel}（${midYear}-${p.endYear}）`)}
           </Text>
@@ -383,7 +386,7 @@ const hdr = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.ruleHair,
     backgroundColor: colors.bgSecondary,
   },
   titleRow: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap', gap: spacing.sm },
@@ -398,18 +401,18 @@ const hdr = StyleSheet.create({
     overflow: 'hidden',
   },
   ganzhi: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '800', color: colors.textPrimary },
-  years: { fontSize: fontSize.sm, color: colors.textSecondary },
+  years: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, color: colors.textSecondary },
   ageMeta: { fontSize: fontSize.sm, color: colors.textMuted },
   phases: { gap: spacing.xs },
   phaseRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' },
   phaseLabel: { fontSize: fontSize.sm, fontWeight: '700', color: colors.zwds },
-  phaseDesc: { flex: 1, fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 22 },
+  phaseDesc: { flex: 1, fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 24 },
   scoreRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
     gap: spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: colors.borderLight,
+    borderTopColor: colors.ruleHair,
     paddingTop: spacing.sm,
   },
   scoreLabel: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },

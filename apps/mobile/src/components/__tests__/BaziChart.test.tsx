@@ -52,8 +52,14 @@ describe('BaziChart — Roger anchor (丁卯/戊申/戊午/庚申)', () => {
   it('renders the day-master analysis (戊 土 偏弱)', async () => {
     await render(<BaziChart data={roger} gender="male" />);
     expect(screen.getByText('日主分析')).toBeTruthy();
-    expect(screen.getByText('戊（土陽）')).toBeTruthy();
-    expect(screen.getByText('偏弱（39分）')).toBeTruthy();
+    // Stat columns: label over value over sub-value. These used to be single
+    // combined strings («戊（土陽）», «偏弱（39分）») in right-aligned rows — the
+    // full-width 「）」 made them optically misalign against 格局, so the value and
+    // its qualifier are now separate lines in a centred column.
+    expect(screen.getByText('土陽')).toBeTruthy();
+    expect(screen.getByText('偏弱')).toBeTruthy();
+    expect(screen.getByText('39 分')).toBeTruthy();
+    expect(screen.getByText('食神格')).toBeTruthy();
   });
 
   // Regression for the H1 audit bug: the 旺相休囚死 tap must send the STATE

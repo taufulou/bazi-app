@@ -48,7 +48,7 @@ export default function MonthlyEnergyRing({ label, score, month, monthGanZhi, mo
 
       <View style={styles.ringWrap}>
         <Svg width={RING_SIZE} height={RING_SIZE} viewBox={`0 0 ${RING_SIZE} ${RING_SIZE}`}>
-          <Circle cx={RING_CENTER} cy={RING_CENTER} r={RING_RADIUS} fill="none" stroke={colors.borderLight} strokeWidth={9} />
+          <Circle cx={RING_CENTER} cy={RING_CENTER} r={RING_RADIUS} fill="none" stroke={colors.ringTrack} strokeWidth={9} />
           <Circle
             cx={RING_CENTER}
             cy={RING_CENTER}
@@ -85,7 +85,7 @@ const styles = StyleSheet.create({
   baziLine: { fontSize: fontSize.sm, color: colors.textSecondary },
   ringWrap: { width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' },
   scoreText: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
-  scoreNumber: { fontFamily: fonts.serifBold, fontSize: 44, fontWeight: '800', color: colors.textPrimary, lineHeight: 48 },
+  scoreNumber: { fontVariant: ['tabular-nums'] as const, fontFamily: fonts.serifBold, fontSize: 44, fontWeight: '800', color: colors.textPrimary, lineHeight: 48 },
   scoreUnit: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
   labelBand: { paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, borderRadius: 999, marginTop: spacing.xs },
   labelText: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textOnGold },

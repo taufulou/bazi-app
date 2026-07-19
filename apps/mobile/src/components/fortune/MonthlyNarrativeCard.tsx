@@ -8,7 +8,7 @@
  */
 import { View, Text, StyleSheet } from 'react-native';
 import type { MonthlyFortuneNarrative } from '../../lib/fortune-api';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces } from '../../theme';
 import { useZh } from '../../lib/language';
 import { MONTHLY_DIM_META } from './monthlyDimensions';
 import { dimTierFromScore, type DimTier } from './labels';
@@ -25,6 +25,13 @@ function dimTierColor(t: DimTier): string {
   if (t === 'good') return colors.success;
   if (t === 'mid') return colors.gold;
   return colors.error;
+}
+
+/** Text cut of the tier scale — the vivid fills above are ~2.1–3.3:1 and fail as type. */
+function dimTierColorText(t: DimTier): string {
+  if (t === 'good') return colors.successText;
+  if (t === 'mid') return colors.cautionText;
+  return colors.errorText;
 }
 
 const DISCLAIMER =
@@ -113,7 +120,7 @@ export default function MonthlyNarrativeCard({ narrative, dimensions, loading = 
                   <View style={[styles.dimBadge, { borderColor: color }]}>
                     <View style={[styles.dimBadgeDot, { backgroundColor: color }]} />
                     <Text style={styles.dimBadgeScore}>{score}</Text>
-                    <Text style={[styles.dimBadgeLabel, { color }]}>{zh(dim.label)}</Text>
+                    <Text style={[styles.dimBadgeLabel, { color: dimTierColorText(dimTierFromScore(score)) }]}>{zh(dim.label)}</Text>
                   </View>
                 )}
               </View>
@@ -193,14 +200,14 @@ function MonthlySkeleton() {
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: spacing.lg },
+  wrap: { gap: rhythm.section - 8 },
   bold: { fontWeight: '700' },
-  hero: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
+  hero: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
   heroTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
-  heroBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 26 },
+  heroBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
   skeletonHint: { fontSize: fontSize.sm, color: colors.textMuted, marginTop: spacing.xs },
-  dims: { gap: spacing.md },
-  dimBlock: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
+  dims: { gap: rhythm.block },
+  dimBlock: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
   dimHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   dimTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary, flex: 1 },
   dimBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 999, borderWidth: 1 },
@@ -208,20 +215,20 @@ const styles = StyleSheet.create({
   dimBadgeScore: { fontSize: fontSize.xs, fontWeight: '700', color: colors.textPrimary },
   dimBadgeLabel: { fontSize: fontSize.xs, fontWeight: '600' },
   takeaway: { fontSize: fontSize.sm, color: colors.textAccent, borderLeftWidth: 3, borderLeftColor: colors.textAccent, paddingLeft: spacing.sm },
-  dimBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 26 },
+  dimBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
   dimEmpty: { fontSize: fontSize.sm, color: colors.textMuted },
-  breakdown: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
+  breakdown: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
   breakdownTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
   breakdownItem: { gap: 2 },
   breakdownLabel: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
-  breakdownBody: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
+  breakdownBody: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   adviceGrid: { flexDirection: 'row', gap: spacing.md },
-  adviceCol: { flex: 1, backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.md, gap: spacing.xs },
+  adviceCol: { flex: 1, ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg, gap: rhythm.afterHeading },
   adviceTitle: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
-  adviceItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
+  adviceItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: spacing.xs },
   skeletonProse: { gap: 6, marginTop: spacing.xs },
-  skeletonLine: { height: 12, borderRadius: 4, backgroundColor: colors.borderLight },
+  skeletonLine: { height: 12, borderRadius: 4, backgroundColor: colors.ruleHair },
   fallback: { gap: spacing.md },
-  fallbackLead: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
+  fallbackLead: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
 });

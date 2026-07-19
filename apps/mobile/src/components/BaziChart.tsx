@@ -1,8 +1,9 @@
-import { useMemo, useState, useEffect } from 'react';
-import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { useMemo, useState, useEffect, useRef } from 'react';
+import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator, useWindowDimensions } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
+import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { colors, radius, spacing, fontSize, fonts, shadows } from '../theme';
+import { colors, radius, spacing, fonts, surfaces, text as T } from '../theme';
 import { useZh } from '../lib/language';
 import { ElementExplanation, type ElementClickInfo } from './ElementExplanation';
 import { extractGodRoles, extractFourPillars } from '../lib/element-explanation-api';
@@ -18,6 +19,48 @@ const CHART_ELEMENT_COLORS: Record<string, string> = {
 };
 const getChartElementColor = (el: string) => CHART_ELEMENT_COLORS[el] || '#8D6E63';
 
+/**
+ * Element colour for SMALL text (≤14pt). 金 #B8860B is only 3.25:1 on white —
+ * fine for the 28pt 干支 (large-text AA needs 3:1) but failing everywhere it's
+ * used at 12–13pt, i.e. 藏干. Swap in the darker cut there only, so the display
+ * characters keep their brightness.
+ */
+const getChartElementTextColor = (el: string) =>
+  el === '金' ? colors.metalText : getChartElementColor(el);
+
+/**
+ * 神煞 tone, for the in-table pills.
+ *
+ * ⚠️ DOCTRINAL — worth a Bazi-master pass before shipping to users. The lists are
+ * deliberately conservative: only unambiguous cases are tinted, and anything not
+ * matched falls through to neutral rather than being guessed at. 桃花 and 驛馬 are
+ * left NEUTRAL on purpose — both are read as favourable or unfavourable depending
+ * on context, so colouring them either way would assert more than the chart knows.
+ */
+const SHENSHA_AUSPICIOUS = [
+  '天德', '月德', '天德合', '月德合', '文昌', '將星', '天喜', '紅鸞',
+  '金輿', '太極貴人', '福星貴人', '德秀貴人', '天廚貴人', '天乙貴人', '國印',
+];
+const SHENSHA_INAUSPICIOUS = [
+  '劫煞', '羊刃', '勾絞煞', '亡神', '孤辰', '寡宿', '元辰', '血刃',
+  '白虎', '喪門', '弔客', '披麻', '災煞', '大耗',
+];
+type ShenShaTone = 'auspicious' | 'inauspicious' | 'neutral';
+const shenShaTone = (name: string): ShenShaTone => {
+  if (SHENSHA_AUSPICIOUS.some((s) => name.includes(s))) return 'auspicious';
+  if (SHENSHA_INAUSPICIOUS.some((s) => name.includes(s))) return 'inauspicious';
+  // Generic 貴人 catch-all, after the specific names above.
+  if (name.includes('貴人')) return 'auspicious';
+  return 'neutral';
+};
+
+/** How many 神煞 to show per cell before collapsing behind a “＋N” control. */
+const SHENSHA_COLLAPSE_AT = 3;
+
+/** 大運 card stride — fixed so the current-period autoscroll can be computed. */
+const LUCK_CARD_W = 104;
+const LUCK_GAP = spacing.sm;
+
 const BRANCH_ZODIAC: Record<string, string> = {
   子: '鼠', 丑: '牛', 寅: '虎', 卯: '兔', 辰: '龍', 巳: '蛇',
   午: '馬', 未: '羊', 申: '猴', 酉: '雞', 戌: '狗', 亥: '豬',
@@ -32,8 +75,41 @@ const getStemElement = (s: string) => STEM_ELEMENT[s] || '土';
 const PILLAR_LABELS: Record<string, string> = { year: '年柱', month: '月柱', day: '日柱', hour: '時柱' };
 const HINT_KEY = 'bazi_element_hint_shown';
 
-const RING_RADIUS = 28;
-const CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+/**
+ * Ring geometry — DERIVED FROM WINDOW WIDTH, not a fixed constant.
+ *
+ * ⚠️ WIDTH BUDGET. Five rings plus four gaps must fit the width available INSIDE
+ * this card, which is:
+ *     screenWidth − 48 (page padding, spacing.xl × 2) − 40 (card padding, lg2 × 2)
+ *
+ * An earlier pass hardcoded 68 against a mis-remembered budget: 5 × 68 = 340 blew
+ * past the 323dp available on a 411dp screen, flexbox shrank the wrappers, and
+ * because the `<Svg>` and its label do NOT shrink with them the arcs clipped and
+ * the percentages burst out through the stroke — which is what read as
+ * "unbalanced". Hardcoding 56 fixed the 411dp case but still overflowed by 8dp on
+ * a 360dp phone (a very common Android width), and `flexShrink: 0` below means it
+ * would overflow VISIBLY rather than squeeze.
+ *
+ * So compute it: cap at RING_BOX_MAX where there's room, shrink to fit where
+ * there isn't. `useRingGeometry` returns everything the SVG needs.
+ */
+const RING_BOX_MAX = 56;
+const RING_GAP_MIN = 8;
+/** Page padding (spacing.xl × 2) + card padding (spacing.lg2 × 2). */
+const RING_ROW_CHROME = 48 + 40;
+
+function useRingGeometry(windowWidth: number) {
+  return useMemo(() => {
+    const usable = windowWidth - RING_ROW_CHROME;
+    const box = Math.max(
+      40, // hard floor — below this the element glyph stops being legible
+      Math.min(RING_BOX_MAX, Math.floor((usable - RING_GAP_MIN * 4) / 5)),
+    );
+    const stroke = box >= 52 ? 6 : 5;
+    const radius = box / 2 - stroke / 2 - 1;
+    return { box, stroke, radius, circumference: 2 * Math.PI * radius };
+  }, [windowWidth]);
+}
 const ELEMENT_ORDER = ['木', '火', '土', '金', '水'] as const;
 
 // Contextual message shown between staged-reveal stages (mirrors web BaziChart
@@ -77,6 +153,13 @@ export default function BaziChart({
   const [selected, setSelected] = useState<ElementClickInfo | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [showHint, setShowHint] = useState(false);
+  /** Per-pillar 神煞 expansion — cells collapse past SHENSHA_COLLAPSE_AT. */
+  const [shenShaOpen, setShenShaOpen] = useState<Record<string, boolean>>({});
+  const luckScrollRef = useRef<ScrollView>(null);
+  /** 大運 autoscroll must run once, not on every layout pass. */
+  const didAutoScrollRef = useRef(false);
+  const { width: windowWidth } = useWindowDimensions();
+  const ring = useRingGeometry(windowWidth);
 
   useEffect(() => {
     AsyncStorage.getItem(HINT_KEY).then((v) => {
@@ -117,20 +200,27 @@ export default function BaziChart({
 
   const dm = data.dayMaster;
 
+  /**
+   * Identity line for the masthead: 「1987-09-06 · 男 · 兔年生」.
+   * Composed rather than concatenated at the call site so the separators stay
+   * consistent when any part is missing (a chart with no birthDate still reads
+   * cleanly), and so 時辰未知 lands as its own segment instead of a parenthetical
+   * bolted onto the date.
+   */
+  const metaLine = [
+    birthDate,
+    // Drop out of the line entirely rather than assert a sex we weren't given.
+    gender === 'female' ? zh('女') : gender === 'male' ? zh('男') : null,
+    fp.year?.branch && BRANCH_ZODIAC[fp.year.branch]
+      ? `${zh(BRANCH_ZODIAC[fp.year.branch])}${zh('年生')}`
+      : null,
+    hourUnknown ? zh('時辰未知') : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <View style={styles.wrapper}>
-      {/* Header */}
-      <View style={styles.headerBanner}>
-        <Text style={styles.headerText}>◆ {zh('八字命格')} ◆</Text>
-      </View>
-      {name || birthDate ? (
-        <Text style={styles.subHeader}>
-          {name ? zh(name) : ''}
-          {name && birthDate ? ' · ' : ''}
-          {birthDate ?? ''}
-          {hourUnknown ? `  (${zh('時辰未知')})` : ''}
-        </Text>
-      ) : null}
       {/* 時辰未知: beginner-friendly basis line (load-bearing UX — CLAUDE.md). */}
       {hourUnknown ? (
         <Text style={styles.basisLine}>
@@ -141,14 +231,41 @@ export default function BaziChart({
       ) : null}
       {showHint ? <Text style={styles.hint}>💡 {zh('點擊任意欄位查看解讀')}</Text> : null}
 
-      {/* Pillars grid */}
+      {/*
+        Chart card — the masthead and the pillars table are ONE object.
+
+        They used to be three disconnected pieces describing one chart: a floating
+        gradient banner, a line of muted grey text on the page background, then a
+        separate white card. The identity line read as an afterthought precisely
+        because it belonged to nothing — so it now sits ON the gradient in white,
+        which is both the premium treatment and the honest structural relationship.
+
+        ⚠️ The gradient has to be clipped to the card radius, but `overflow:hidden`
+        sets clipsToBounds/masksToBounds on iOS, which ALSO clips the view's own
+        shadow. So the shadow and the clip cannot live on the same node: the outer
+        View carries the elevation, the inner one does the clipping.
+      */}
       {isVisible(1) ? (
-      <View style={styles.card}>
+      <View style={styles.chartCard}>
+      <View style={styles.chartClip}>
+        <LinearGradient
+          colors={[colors.heroStart, colors.heroEnd]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.chartHeader}
+        >
+          <Text style={styles.headerEyebrow}>◆ {zh('八字命格')} ◆</Text>
+          {name ? <Text style={styles.headerName}>{zh(name)}</Text> : null}
+          {metaLine ? <Text style={styles.headerMeta}>{metaLine}</Text> : null}
+        </LinearGradient>
         {/* header row */}
-        <View style={styles.row}>
+        <View style={styles.headRow}>
           <View style={styles.labelCell} />
           {pillars.map((col) => (
-            <View key={col.key} style={styles.pillarHead}>
+            <View
+              key={col.key}
+              style={[styles.pillarHead, col.key === 'day' && styles.pillarHeadDay]}
+            >
               <Text style={styles.pillarHeadText}>{zh(col.label)}</Text>
             </View>
           ))}
@@ -158,7 +275,7 @@ export default function BaziChart({
         <GridRow label="十神">
           {pillars.map((col) =>
             col.key === 'day' ? (
-              <Cell key={col.key}>
+              <Cell key={col.key} highlight>
                 <Text style={styles.dayYuan}>{zh('日元')}</Text>
               </Cell>
             ) : (
@@ -175,7 +292,7 @@ export default function BaziChart({
         </GridRow>
 
         {/* 天干地支 */}
-        <GridRow label="天干地支">
+        <GridRow label="天干地支" zebra>
           {pillars.map((col) => {
             if (col.key === 'hour' && hourUnknown) {
               return (
@@ -186,7 +303,7 @@ export default function BaziChart({
               );
             }
             return (
-              <Cell key={col.key}>
+              <Cell key={col.key} highlight={col.key === 'day'}>
                 <Pressable
                   onPress={() =>
                     openSheet({ elementType: 'stem', value: col.p.stem, pillar: col.key, pillarLabel: col.label })
@@ -211,12 +328,18 @@ export default function BaziChart({
           })}
         </GridRow>
 
-        {/* 藏干 */}
+        {/*
+          藏干 — deliberate two-line form. Previously rendered as
+          `庚金（食神）` on one line at 12pt, which wrapped INSIDE the parenthesis
+          (`庚金（食` / `神）`) in a cell ~90dp wide. Splitting stem+element from
+          the ten-god removes the break, halves the visual noise, and makes the
+          row height predictable.
+        */}
         <GridRow label="藏干">
           {pillars.map((col) => {
             const hsg = col.p.hiddenStemGods;
             return (
-              <Cell key={col.key}>
+              <Cell key={col.key} highlight={col.key === 'day'}>
                 {hsg && hsg.length ? (
                   hsg.map((h, i) => (
                     <Pressable
@@ -225,16 +348,30 @@ export default function BaziChart({
                         openSheet({ elementType: 'hidden_stem', value: h.stem, pillar: col.key, pillarLabel: col.label })
                       }
                       accessibilityRole="button"
+                      style={[styles.hiddenStemGroup, i > 0 && styles.hiddenStemGroupGap]}
                     >
-                      <Text style={[styles.hiddenStem, { color: getChartElementColor(h.element), opacity: i === 0 ? 1 : 0.7 }]}>
+                      <Text
+                        style={[
+                          styles.hiddenStem,
+                          { color: getChartElementTextColor(h.element) },
+                          // 本氣 (first) carries full weight; 中氣/餘氣 recede via
+                          // size+colour rather than the old opacity dimming, which
+                          // pushed them below readable contrast.
+                          i > 0 && styles.hiddenStemMinor,
+                        ]}
+                      >
                         {h.stem}
-                        {h.element}（{zh(h.tenGod)}）
+                        {h.element}
                       </Text>
+                      <Text style={styles.hiddenStemGod}>{zh(h.tenGod)}</Text>
                     </Pressable>
                   ))
                 ) : (col.p.hiddenStems || []).length ? (
                   col.p.hiddenStems.map((s, i) => (
-                    <Text key={i} style={[styles.hiddenStem, { color: getChartElementColor(STEM_ELEMENT[s] || '') }]}>
+                    <Text
+                      key={i}
+                      style={[styles.hiddenStem, { color: getChartElementTextColor(STEM_ELEMENT[s] || '') }]}
+                    >
                       {s}
                       {STEM_ELEMENT[s] || ''}
                     </Text>
@@ -249,10 +386,11 @@ export default function BaziChart({
 
         {/* 十二運 (only if present) */}
         {fp.year.lifeStage ? (
-          <GridRow label="十二運">
+          <GridRow label="十二運" zebra>
             {pillars.map((col) => (
               <ClickCell
                 key={col.key}
+                highlight={col.key === 'day'}
                 onPress={() =>
                   openSheet({ elementType: 'life_stage', value: col.p.lifeStage || '', pillar: col.key, pillarLabel: col.label })
                 }
@@ -268,6 +406,7 @@ export default function BaziChart({
           {pillars.map((col) => (
             <ClickCell
               key={col.key}
+              highlight={col.key === 'day'}
               onPress={() => openSheet({ elementType: 'nayin', value: col.p.naYin, pillar: col.key, pillarLabel: col.label })}
             >
               <Text style={styles.cellSmall}>{zh(col.p.naYin)}</Text>
@@ -275,26 +414,67 @@ export default function BaziChart({
           ))}
         </GridRow>
 
-        {/* 神煞 */}
-        <GridRow label="神煞">
-          {pillars.map((col) => (
-            <Cell key={col.key}>
-              {(col.p.shenSha || []).length ? (
-                col.p.shenSha.map((s, i) => (
-                  <Pressable
-                    key={i}
-                    onPress={() => openSheet({ elementType: 'shensha', value: s, pillar: col.key, pillarLabel: col.label })}
-                    accessibilityRole="button"
-                  >
-                    <Text style={styles.shenShaTag}>{zh(s)}</Text>
-                  </Pressable>
-                ))
-              ) : (
-                <Text style={styles.cellText}>—</Text>
-              )}
-            </Cell>
-          ))}
+        {/*
+          神煞 — pills, matching the treatment the SAME data already gets in the
+          「神煞 & 空亡」 card lower down. Previously this was six-plus items of bare
+          crimson text per column, which read as a wall rather than a set, and gave
+          auspicious and inauspicious markers identical emphasis. Cells collapse
+          past SHENSHA_COLLAPSE_AT so one busy pillar can't dominate the table.
+        */}
+        <GridRow label="神煞" zebra>
+          {pillars.map((col) => {
+            const list = col.p.shenSha || [];
+            const open = shenShaOpen[col.key];
+            const shown = open ? list : list.slice(0, SHENSHA_COLLAPSE_AT);
+            const hidden = list.length - shown.length;
+            return (
+              <Cell key={col.key} highlight={col.key === 'day'}>
+                {list.length ? (
+                  <>
+                    {shown.map((s, i) => {
+                      const tone = shenShaTone(s);
+                      return (
+                        <Pressable
+                          key={i}
+                          onPress={() => openSheet({ elementType: 'shensha', value: s, pillar: col.key, pillarLabel: col.label })}
+                          accessibilityRole="button"
+                          hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
+                          style={[styles.shenShaPill, styles[`pill_${tone}`]]}
+                        >
+                          <Text style={[styles.shenShaPillText, styles[`pillText_${tone}`]]}>{zh(s)}</Text>
+                        </Pressable>
+                      );
+                    })}
+                    {hidden > 0 ? (
+                      <Pressable
+                        onPress={() => setShenShaOpen((p) => ({ ...p, [col.key]: true }))}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${zh('顯示其餘')} ${hidden} ${zh('個神煞')}`}
+                        hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+                        style={styles.shenShaMore}
+                      >
+                        <Text style={styles.shenShaMoreText}>＋{hidden}</Text>
+                      </Pressable>
+                    ) : null}
+                    {open && list.length > SHENSHA_COLLAPSE_AT ? (
+                      <Pressable
+                        onPress={() => setShenShaOpen((p) => ({ ...p, [col.key]: false }))}
+                        accessibilityRole="button"
+                        hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+                        style={styles.shenShaMore}
+                      >
+                        <Text style={styles.shenShaMoreText}>{zh('收合')}</Text>
+                      </Pressable>
+                    ) : null}
+                  </>
+                ) : (
+                  <Text style={styles.cellText}>—</Text>
+                )}
+              </Cell>
+            );
+          })}
         </GridRow>
+      </View>
       </View>
       ) : null}
 
@@ -346,24 +526,46 @@ export default function BaziChart({
           <View style={styles.ringRow}>
             {ELEMENT_ORDER.map((el) => {
               const pct = data.fiveElementsBalanceZh?.[el] ?? 0;
+              const c = ring.box / 2;
               return (
+                // The element glyph sits inside the ring; the percentage sits
+                // BELOW it. Both were briefly inside — but a 5-character string
+                // like «38.6%» needs ~31dp and the inner circle is only 44dp
+                // across, so at this ring size the number crowded the stroke and
+                // then overflowed it outright once the boxes were squeezed.
+                // One glyph inside, the number as a caption beneath: nothing can
+                // overflow, and tight spacing keeps them reading as one unit.
                 <View key={el} style={styles.ringItem}>
-                  <Svg width={70} height={70} viewBox="0 0 70 70">
-                    <Circle cx={35} cy={35} r={RING_RADIUS} stroke="rgba(0,0,0,0.06)" strokeWidth={4} fill="none" />
-                    <Circle
-                      cx={35}
-                      cy={35}
-                      r={RING_RADIUS}
-                      stroke={getChartElementColor(el)}
-                      strokeWidth={4}
-                      fill="none"
-                      strokeDasharray={CIRCUMFERENCE}
-                      strokeDashoffset={CIRCUMFERENCE * (1 - pct / 100)}
-                      strokeLinecap="round"
-                      transform="rotate(-90 35 35)"
-                    />
-                  </Svg>
-                  <Text style={[styles.ringChar, { color: getChartElementColor(el) }]}>{el}</Text>
+                  <View style={[styles.ringWrap, { width: ring.box, height: ring.box }]}>
+                    <Svg
+                      width={ring.box}
+                      height={ring.box}
+                      viewBox={`0 0 ${ring.box} ${ring.box}`}
+                      style={StyleSheet.absoluteFill}
+                    >
+                      <Circle
+                        cx={c}
+                        cy={c}
+                        r={ring.radius}
+                        stroke={colors.ringTrack}
+                        strokeWidth={ring.stroke}
+                        fill="none"
+                      />
+                      <Circle
+                        cx={c}
+                        cy={c}
+                        r={ring.radius}
+                        stroke={getChartElementColor(el)}
+                        strokeWidth={ring.stroke}
+                        fill="none"
+                        strokeDasharray={ring.circumference}
+                        strokeDashoffset={ring.circumference * (1 - pct / 100)}
+                        strokeLinecap="round"
+                        transform={`rotate(-90 ${c} ${c})`}
+                      />
+                    </Svg>
+                    <Text style={[styles.ringChar, { color: getChartElementColor(el) }]}>{el}</Text>
+                  </View>
                   <Text style={styles.ringPct}>{pct.toFixed(1)}%</Text>
                 </View>
               );
@@ -376,16 +578,52 @@ export default function BaziChart({
       {isVisible(3) && dm ? (
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>{zh('日主分析')}</Text>
-          <DmRow label="日主" value={`${data.dayMasterStem ?? ''}（${dm.element}${zh(dm.yinYang)}）`} color={getChartElementColor(dm.element)} />
-          <DmRow label="旺衰" value={`${zh(STRENGTH_LABELS[dm.strength] || dm.strength)}（${dm.strengthScore}${zh('分')}）`} />
-          <DmRow label="格局" value={zh(dm.pattern || '—')} />
-          {/* strength bar */}
+          {/*
+            Three stat columns, label directly above its value.
+
+            This was three full-width rows with the label hard left and the value
+            hard right — so far apart that the eye couldn't pair them, and the
+            right-alignment was optically WRONG as well as loose: 「戊（土陽）」 and
+            「偏弱（39分）」 end in a full-width 「）」, whose glyph fills only the left
+            half of its em box, while 「食神格」 ends in a solid glyph. Their layout
+            boxes aligned perfectly at x=964 while their ink edges differed by half
+            an em, which is exactly why 格局 looked like it didn't line up.
+
+            Stacking label over value fixes both at once: the pairing is immediate,
+            and centred columns make trailing-punctuation width irrelevant.
+          */}
+          <View style={styles.dmStats}>
+            <DmStat
+              label="日主"
+              value={data.dayMasterStem ?? '—'}
+              sub={`${dm.element}${zh(dm.yinYang)}`}
+              color={getChartElementColor(dm.element)}
+            />
+            <View style={styles.dmDivider} />
+            <DmStat
+              label="旺衰"
+              value={zh(STRENGTH_LABELS[dm.strength] || dm.strength)}
+              sub={`${dm.strengthScore} ${zh('分')}`}
+            />
+            <View style={styles.dmDivider} />
+            <DmStat label="格局" value={zh(dm.pattern || '—')} />
+          </View>
+          {/*
+            strength bar — was white 10pt on saturated Material green/orange,
+            measuring 2.10:1 and 2.03:1 against a 4.5:1 requirement. Now dark ink
+            on light tints of the same hues: >9:1, on-palette against cream, and
+            the label sits at 13pt instead of 10.
+          */}
           <View style={styles.strengthBar}>
             <View style={[styles.strengthSame, { flex: Math.max(dm.sameParty, 1) }]}>
-              <Text style={styles.strengthBarText}>{zh('同黨')} {Math.round(dm.sameParty)}%</Text>
+              <Text style={styles.strengthBarText} numberOfLines={1}>
+                {zh('同黨')} {Math.round(dm.sameParty)}%
+              </Text>
             </View>
             <View style={[styles.strengthOpp, { flex: Math.max(dm.oppositeParty, 1) }]}>
-              <Text style={styles.strengthBarText}>{zh('異黨')} {Math.round(dm.oppositeParty)}%</Text>
+              <Text style={styles.strengthBarText} numberOfLines={1}>
+                {zh('異黨')} {Math.round(dm.oppositeParty)}%
+              </Text>
             </View>
           </View>
           <View style={styles.godsRow}>
@@ -409,25 +647,63 @@ export default function BaziChart({
       {isVisible(4) && data.luckPeriods && data.luckPeriods.length ? (
         <View style={styles.card}>
           <Text style={styles.sectionTitle}>{zh('大運')}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.luckRow}>
-            {data.luckPeriods.map((lp, i) => (
-              <View key={i} style={[styles.luckCard, lp.isCurrent && styles.luckCardCurrent]}>
-                <Text style={styles.luckAge}>
-                  {lp.startAge}–{lp.endAge}
-                  {zh('歲')}
-                </Text>
-                <Text style={styles.luckYear}>
-                  {lp.startYear}–{lp.endYear}
-                </Text>
-                <Text style={[styles.luckGz, { color: getChartElementColor(getStemElement(lp.stem)) }]}>
-                  {lp.stem}
-                  {lp.branch}
-                </Text>
-                <Text style={styles.luckTenGod}>{zh(lp.tenGod)}</Text>
-                {lp.isCurrent ? <Text style={styles.luckCurrent}>← {zh('目前')}</Text> : null}
-              </View>
-            ))}
-          </ScrollView>
+          {/*
+            The strip used to hard-clip the 4th card at the container edge with no
+            fade and no indicator, so it read as a layout defect rather than an
+            invitation — and with eight periods most users never scrolled. Now the
+            current period is scrolled into view on mount and a trailing fade marks
+            the overflow.
+          */}
+          <View style={styles.luckViewport}>
+            <ScrollView
+              ref={luckScrollRef}
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.luckRow}
+              // onContentSizeChange, NOT onLayout: onLayout reports the frame
+              // before contentSize is known, so scrollTo can clamp to 0 (seen on
+              // Android). The ref makes it fire once — otherwise any later layout
+              // pass yanks a user who had scrolled manually back to the present.
+              onContentSizeChange={() => {
+                if (didAutoScrollRef.current) return;
+                const idx = data.luckPeriods?.findIndex((lp) => lp.isCurrent) ?? -1;
+                if (idx > 0) {
+                  didAutoScrollRef.current = true;
+                  // Land the current card one slot in from the left so the
+                  // preceding period stays visible as context.
+                  luckScrollRef.current?.scrollTo({
+                    x: Math.max(0, (idx - 1) * (LUCK_CARD_W + LUCK_GAP)),
+                    animated: false,
+                  });
+                }
+              }}
+            >
+              {data.luckPeriods.map((lp, i) => (
+                <View key={i} style={[styles.luckCard, lp.isCurrent && styles.luckCardCurrent]}>
+                  <Text style={styles.luckAge}>
+                    {lp.startAge}–{lp.endAge}
+                    {zh('歲')}
+                  </Text>
+                  <Text style={styles.luckYear}>
+                    {lp.startYear}–{lp.endYear}
+                  </Text>
+                  <Text style={[styles.luckGz, { color: getChartElementColor(getStemElement(lp.stem)) }]}>
+                    {lp.stem}
+                    {lp.branch}
+                  </Text>
+                  <Text style={styles.luckTenGod}>{zh(lp.tenGod)}</Text>
+                  {lp.isCurrent ? <Text style={styles.luckCurrent}>← {zh('目前')}</Text> : null}
+                </View>
+              ))}
+            </ScrollView>
+            <LinearGradient
+              colors={['rgba(255,255,255,0)', colors.bgCard]}
+              start={{ x: 0, y: 0.5 }}
+              end={{ x: 1, y: 0.5 }}
+              style={styles.luckFade}
+              pointerEvents="none"
+            />
+          </View>
         </View>
       ) : null}
 
@@ -502,10 +778,23 @@ export default function BaziChart({
 }
 
 // ── Small layout helpers ──
-function GridRow({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * `zebra` alternates a faint row tint. Together with the stronger rules this is
+ * what makes the four pillars read as columns — previously the 1.14:1 hairline
+ * was the ONLY structure and the grid read as floating text.
+ */
+function GridRow({
+  label,
+  children,
+  zebra,
+}: {
+  label: string;
+  children: React.ReactNode;
+  zebra?: boolean;
+}) {
   const zh = useZh();
   return (
-    <View style={styles.row}>
+    <View style={[styles.row, zebra && styles.rowZebra]}>
       <View style={styles.labelCell}>
         <Text style={styles.labelText}>{zh(label)}</Text>
       </View>
@@ -513,101 +802,241 @@ function GridRow({ label, children }: { label: string; children: React.ReactNode
     </View>
   );
 }
-function Cell({ children }: { children: React.ReactNode }) {
-  return <View style={styles.cell}>{children}</View>;
+/** `highlight` paints the 日柱 emphasis band — the day master is the chart's anchor. */
+function Cell({ children, highlight }: { children: React.ReactNode; highlight?: boolean }) {
+  return <View style={[styles.cell, highlight && styles.cellDay]}>{children}</View>;
 }
-function ClickCell({ children, onPress }: { children: React.ReactNode; onPress: () => void }) {
+function ClickCell({
+  children,
+  onPress,
+  highlight,
+}: {
+  children: React.ReactNode;
+  onPress: () => void;
+  highlight?: boolean;
+}) {
   return (
-    <Pressable style={styles.cell} onPress={onPress} accessibilityRole="button">
+    <Pressable
+      style={[styles.cell, highlight && styles.cellDay]}
+      onPress={onPress}
+      accessibilityRole="button"
+    >
       {children}
     </Pressable>
   );
 }
-function DmRow({ label, value, color }: { label: string; value: string; color?: string }) {
+/**
+ * One 日主分析 column: label on top, value beneath, optional sub-value.
+ *
+ * `sub` always occupies a line — an empty one when absent — so the three columns'
+ * value baselines stay level regardless of which stats the chart provides.
+ */
+function DmStat({
+  label,
+  value,
+  sub,
+  color,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  color?: string;
+}) {
   const zh = useZh();
   return (
-    <View style={styles.dmRow}>
+    <View style={styles.dmStat}>
       <Text style={styles.dmLabel}>{zh(label)}</Text>
-      <Text style={[styles.dmValue, color ? { color } : null]}>{value}</Text>
+      <Text style={[styles.dmValue, color ? { color } : null]} numberOfLines={1}>
+        {value}
+      </Text>
+      <Text style={styles.dmSub} numberOfLines={1}>
+        {sub ?? ' '}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrapper: { gap: spacing.lg },
-  headerBanner: {
-    backgroundColor: colors.red,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    alignItems: 'center',
+  // ── merged chart card (masthead + table) ──
+  // Elevation lives here; clipping lives on chartClip. Putting `overflow:'hidden'`
+  // on this node would clip its own iOS shadow — see the JSX comment.
+  chartCard: {
+    ...surfaces.card,
+    borderRadius: radius.lg,
   },
-  headerText: { fontFamily: fonts.serifBold, color: colors.textOnRed, fontSize: fontSize.lg, fontWeight: '700' },
-  subHeader: { textAlign: 'center', color: colors.textSecondary, fontSize: fontSize.sm, marginTop: -spacing.sm },
+  chartClip: {
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+  },
+  chartHeader: {
+    paddingTop: spacing.lg2,
+    paddingBottom: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  headerEyebrow: {
+    ...T.caption,
+    color: colors.textOnRed,
+    opacity: 0.85,
+    // Generous tracking so the ◆ ornaments read as set rather than typed.
+    letterSpacing: 2.4,
+    fontWeight: '600',
+  },
+  headerName: {
+    ...T.title,
+    color: colors.textOnRed,
+    textAlign: 'center',
+  },
+  headerMeta: {
+    ...T.caption,
+    color: colors.textOnRed,
+    opacity: 0.9,
+    letterSpacing: 0.5,
+    textAlign: 'center',
+  },
   // 時辰未知 basis paragraph — left-aligned per CLAUDE.md 時辰未知 UX spec.
   basisLine: {
+    ...T.bodyTight,
     textAlign: 'left',
     color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    lineHeight: fontSize.sm * 1.6,
     backgroundColor: colors.bgSecondary,
     borderRadius: radius.md,
     padding: spacing.md,
   },
-  hint: { textAlign: 'center', color: colors.textMuted, fontSize: fontSize.xs },
-  card: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.md, gap: spacing.sm, ...shadows.warm },
+  hint: { ...T.caption, textAlign: 'center', color: colors.textMuted },
+  card: {
+    ...surfaces.card,
+    borderRadius: radius.lg,
+    padding: spacing.lg2,
+    gap: spacing.md,
+  },
   revealPlaceholder: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xl },
-  revealText: { fontSize: fontSize.sm, color: colors.textMuted },
-  row: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.borderLight },
-  labelCell: { width: 52, justifyContent: 'center', paddingVertical: spacing.sm },
-  labelText: { fontSize: fontSize.xs, color: colors.textMuted },
-  pillarHead: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm, backgroundColor: colors.bgBannerWarm },
-  pillarHeadText: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textAccent },
+  revealText: { ...T.bodyTight, color: colors.textMuted },
+
+  // ── table furniture ──
+  // Rules were `borderLight` (gold @15% → 1.14:1 on white, i.e. invisible).
+  // ruleHair sits at ~1.41:1: quiet, but it actually reads as a rule.
+  row: { flexDirection: 'row', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.ruleHair },
+  rowZebra: { backgroundColor: colors.zebra },
+  // The header tint lives on the ROW, not on each pillar cell — otherwise the
+  // empty label cell stays white and punches a notch out of the top-left corner
+  // now that the table runs edge-to-edge inside the card.
+  headRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1.5,
+    borderBottomColor: colors.ruleHeader,
+    backgroundColor: colors.bgBannerWarm,
+  },
+  // Row backgrounds go edge-to-edge (per the canonical table treatment) but the
+  // label TEXT still needs breathing room from the card edge.
+  labelCell: { width: 68, justifyContent: 'center', paddingVertical: spacing.sm, paddingLeft: spacing.md },
+  labelText: { ...T.caption, color: colors.textMuted },
+  pillarHead: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm },
+  pillarHeadDay: { backgroundColor: '#FDEFE4' },
+  pillarHeadText: { ...T.label, color: colors.textAccent },
   cell: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm, gap: 2 },
-  cellText: { fontSize: fontSize.sm, color: colors.textPrimary },
-  cellSmall: { fontSize: fontSize.xs, color: colors.textPrimary, textAlign: 'center' },
-  dayYuan: { fontSize: fontSize.sm, color: colors.textMuted, fontWeight: '600' },
-  ganZhi: { fontFamily: fonts.serifBold, fontSize: fontSize.xxl, fontWeight: '700' },
-  unknownStem: { fontSize: fontSize.sm, color: colors.textMuted },
-  zodiac: { fontSize: fontSize.xs, color: colors.textMuted },
-  hiddenStem: { fontSize: fontSize.xs, textAlign: 'center' },
-  shenShaTag: { fontSize: fontSize.xs, color: colors.textAccent },
+  cellDay: { backgroundColor: colors.columnTint },
+  cellText: { ...T.bodyTight, color: colors.textPrimary },
+  cellSmall: { ...T.caption, color: colors.textPrimary, textAlign: 'center' },
+  dayYuan: { ...T.label, color: colors.textMuted },
+  ganZhi: T.ganzhi,
+  unknownStem: { ...T.bodyTight, color: colors.textMuted },
+  zodiac: { ...T.caption, color: colors.textMuted },
+
+  // ── 藏干 (two-line, see the row comment) ──
+  hiddenStemGroup: { alignItems: 'center' },
+  hiddenStemGroupGap: { marginTop: spacing.xs },
+  hiddenStem: { fontSize: 13, lineHeight: 17, fontWeight: '600', textAlign: 'center' },
+  hiddenStemMinor: { fontSize: 12, lineHeight: 16, fontWeight: '400' },
+  hiddenStemGod: { fontSize: 11, lineHeight: 15, color: colors.textMuted, textAlign: 'center' },
+
+  // ── 神煞 pills ──
+  shenShaPill: {
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  shenShaPillText: { fontSize: 11, lineHeight: 16, textAlign: 'center' },
+  pill_auspicious: { backgroundColor: '#FBF3E2', borderColor: 'rgba(154,111,8,0.30)' },
+  pill_inauspicious: { backgroundColor: '#FBEDEA', borderColor: 'rgba(166,58,37,0.28)' },
+  pill_neutral: { backgroundColor: '#F5F2EC', borderColor: 'rgba(122,100,73,0.22)' },
+  pillText_auspicious: { color: '#8A6208' },
+  pillText_inauspicious: { color: '#A63A25' },
+  pillText_neutral: { color: colors.textMuted },
+  shenShaMore: { paddingHorizontal: spacing.xs, paddingVertical: 2 },
+  shenShaMoreText: { fontSize: 11, lineHeight: 16, color: colors.textAccent, fontWeight: '600' },
+
   palaceRow: { flexDirection: 'row', gap: spacing.sm },
-  palaceCard: { flex: 1, backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', borderWidth: 1, borderColor: colors.borderLight },
-  palaceLabel: { fontSize: fontSize.xs, color: colors.textMuted },
-  palaceGz: { fontFamily: fonts.serif, fontSize: fontSize.lg, color: colors.textPrimary },
-  palaceNayin: { fontSize: 10, color: colors.textMuted },
+  palaceCard: { flex: 1, backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', borderWidth: 1, borderColor: colors.ruleHair },
+  palaceLabel: { ...T.caption, color: colors.textMuted },
+  palaceGz: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 26, fontWeight: '700', color: colors.textPrimary },
+  // was fontSize: 10 — below the 12pt CJK floor; 桑柘木 merged into a smudge.
+  palaceNayin: { fontSize: 11, lineHeight: 15, color: colors.textMuted },
   seasonalRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'center' },
-  seasonalTag: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: colors.bgCard, borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.borderLight },
-  seasonalElement: { fontSize: fontSize.sm, fontWeight: '700' },
-  seasonalState: { fontSize: fontSize.xs, color: colors.textSecondary },
-  sectionTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
-  ringRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  ringItem: { alignItems: 'center' },
-  ringChar: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', marginTop: -46, marginBottom: 26 },
-  ringPct: { fontSize: fontSize.xs, color: colors.textSecondary },
-  dmRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.xs },
-  dmLabel: { fontSize: fontSize.sm, color: colors.textMuted },
-  dmValue: { fontSize: fontSize.base, color: colors.textPrimary, fontWeight: '600' },
-  strengthBar: { flexDirection: 'row', height: 26, borderRadius: radius.sm, overflow: 'hidden', marginVertical: spacing.sm },
-  strengthSame: { backgroundColor: colors.scoreGood, alignItems: 'center', justifyContent: 'center' },
-  strengthOpp: { backgroundColor: colors.orange, alignItems: 'center', justifyContent: 'center' },
-  strengthBarText: { fontSize: 10, color: '#fff', fontWeight: '600' },
+  seasonalTag: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.bgCard, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.ruleHair },
+  seasonalElement: { fontSize: 15, lineHeight: 20, fontWeight: '700' },
+  seasonalState: { ...T.caption, color: colors.textSecondary },
+  sectionTitle: { ...T.section, color: colors.textAccent },
+
+  // ── 五行 rings ──
+  ringRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  // flexShrink:0 is load-bearing — without it a width overrun silently squeezes the
+  // wrapper while the fixed-size <Svg> inside does not follow, which is how the arcs
+  // clipped and the labels overflowed the stroke. If they ever overflow the row
+  // again the RIGHT fix is to lower RING_BOX_MAX, not to let flexbox deform them.
+  ringItem: { alignItems: 'center', flexShrink: 0, gap: 3 },
+  // width/height are injected per-render from useRingGeometry.
+  ringWrap: { alignItems: 'center', justifyContent: 'center' },
+  ringChar: { fontFamily: fonts.serifBold, fontSize: 19, lineHeight: 24, fontWeight: '700' },
+  ringPct: { ...T.dataSmall, color: colors.textSecondary },
+
+  // ── 日主分析 stat columns ──
+  dmStats: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    backgroundColor: colors.bgSecondary,
+    borderRadius: radius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.ruleHair,
+    paddingVertical: spacing.md,
+    marginTop: spacing.xs,
+  },
+  dmStat: { flex: 1, alignItems: 'center', gap: 2, paddingHorizontal: spacing.xs },
+  dmDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.ruleHair, marginVertical: spacing.xs },
+  dmLabel: { ...T.caption, color: colors.textMuted },
+  dmValue: { fontFamily: fonts.serifBold, fontSize: 22, lineHeight: 29, fontWeight: '700', color: colors.textPrimary },
+  dmSub: { ...T.caption, color: colors.textSecondary },
+
+  strengthBar: { flexDirection: 'row', height: 30, borderRadius: radius.sm, overflow: 'hidden', marginVertical: spacing.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.ruleHair },
+  strengthSame: { backgroundColor: 'rgba(139,195,74,0.30)', alignItems: 'center', justifyContent: 'center' },
+  strengthOpp: { backgroundColor: 'rgba(245,166,35,0.32)', alignItems: 'center', justifyContent: 'center' },
+  strengthBarText: { ...T.label, color: colors.textPrimary },
+
   godsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs },
-  godTag: { alignItems: 'center' },
-  godLabel: { fontSize: fontSize.xs, color: colors.textMuted },
-  godVal: { fontSize: fontSize.base, fontWeight: '700' },
-  luckRow: { gap: spacing.sm, paddingVertical: spacing.xs },
-  luckCard: { minWidth: 96, backgroundColor: colors.bgSecondary, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', gap: 2, borderWidth: 1, borderColor: colors.borderLight },
-  luckCardCurrent: { borderColor: colors.red, backgroundColor: colors.bgBannerWarm },
-  luckAge: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
-  luckYear: { fontSize: 10, color: colors.textMuted },
-  luckGz: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700' },
-  luckTenGod: { fontSize: fontSize.xs, color: colors.textSecondary },
-  luckCurrent: { fontSize: fontSize.xs, color: colors.red, fontWeight: '600' },
+  godTag: { alignItems: 'center', gap: 2 },
+  godLabel: { ...T.caption, color: colors.textMuted },
+  godVal: { fontFamily: fonts.serifBold, fontSize: 19, lineHeight: 24, fontWeight: '700' },
+
+  // ── 大運 ──
+  luckViewport: { position: 'relative' },
+  luckRow: { gap: LUCK_GAP, paddingVertical: spacing.xs, paddingRight: spacing.xl },
+  luckCard: { width: LUCK_CARD_W, backgroundColor: colors.bgSecondary, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', gap: 2, borderWidth: 1, borderColor: colors.ruleHair },
+  luckCardCurrent: { borderColor: colors.red, borderWidth: 1.5, backgroundColor: colors.bgBannerWarm },
+  luckAge: { ...T.data, color: colors.textPrimary },
+  // was fontSize: 10
+  luckYear: { fontSize: 11, lineHeight: 15, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+  luckGz: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 26, fontWeight: '700' },
+  luckTenGod: { ...T.caption, color: colors.textSecondary },
+  luckCurrent: { ...T.caption, color: colors.red, fontWeight: '600' },
+  luckFade: { position: 'absolute', right: 0, top: 0, bottom: 0, width: spacing.xl },
+
   tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  shaBigTag: { backgroundColor: colors.bgBannerWarm, borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: spacing.xs },
-  shaBigText: { fontSize: fontSize.sm, color: colors.textAccent },
+  shaBigTag: { backgroundColor: colors.bgBannerWarm, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.ruleHair },
+  shaBigText: { ...T.bodyTight, color: colors.textAccent },
   kongWangRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm },
-  kongWangLabel: { fontSize: fontSize.sm, color: colors.textMuted },
-  kongWangTag: { fontSize: fontSize.base, color: colors.textAccent, fontWeight: '700' },
+  kongWangLabel: { ...T.bodyTight, color: colors.textMuted },
+  kongWangTag: { ...T.body, color: colors.textAccent, fontWeight: '700' },
 });

@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet } from 'react-native';
+import { Ban, Clock, Compass, Hash, Leaf, Palette, type LucideIcon } from 'lucide-react-native';
 import { colors, spacing, fontSize, radius, fonts, shadows } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { DailyFortuneResponse } from '../../lib/fortune-api';
@@ -7,7 +8,7 @@ type FolkContent = DailyFortuneResponse['engineOutput']['folkContent'];
 
 /** One slot in the folk grid: icon → label → value → note. */
 function FolkCard({
-  icon,
+  Icon,
   label,
   badge,
   value,
@@ -15,7 +16,7 @@ function FolkCard({
   wide,
   children,
 }: {
-  icon: string;
+  Icon: LucideIcon;
   label: string;
   badge?: string;
   value?: string;
@@ -25,7 +26,7 @@ function FolkCard({
 }) {
   return (
     <View style={[styles.card, wide && styles.cardWide]}>
-      <Text style={styles.icon}>{icon}</Text>
+      <Icon size={16} strokeWidth={2} color={colors.textAccent} />
       <View style={styles.labelRow}>
         <Text style={styles.label}>{label}</Text>
         {badge ? <Text style={styles.badge}>{badge}</Text> : null}
@@ -67,7 +68,7 @@ export default function FolkContentCard({ folkContent }: { folkContent: FolkCont
       <View style={styles.grid}>
         {/* 1. 財運位 (Phase 1) */}
         <FolkCard
-          icon="🧭"
+          Icon={Compass}
           label={zh('財運位')}
           value={zh(wealthDirection.direction)}
           note={zh('您命格適合常用的方位')}
@@ -76,7 +77,7 @@ export default function FolkContentCard({ folkContent }: { folkContent: FolkCont
         {/* 2. 吉色 (classical) */}
         {luckyColor ? (
           <FolkCard
-            icon="🌈"
+            Icon={Palette}
             label={zh('吉色')}
             value={`${zh(luckyColor.primary)}／${zh(luckyColor.secondary)}`}
             note={zh(`用神（${luckyColor.element}）配色`)}
@@ -86,7 +87,7 @@ export default function FolkContentCard({ folkContent }: { folkContent: FolkCont
         {/* 3. 吉數 — folk_tradition tier, hence the visible 民俗 badge */}
         {luckyNumber ? (
           <FolkCard
-            icon="🔢"
+            Icon={Hash}
             label={zh('吉數')}
             badge={zh('民俗')}
             value={luckyNumber.numbers.join('、')}
@@ -97,7 +98,7 @@ export default function FolkContentCard({ folkContent }: { folkContent: FolkCont
         {/* 4. 今日宜食 (classical) */}
         {luckyFoodFavor ? (
           <FolkCard
-            icon="🍃"
+            Icon={Leaf}
             label={zh('今日宜食')}
             value={zh(luckyFoodFavor.category)}
             note={zh(`例：${luckyFoodFavor.examples.join('、')}`)}
@@ -107,7 +108,7 @@ export default function FolkContentCard({ folkContent }: { folkContent: FolkCont
         {/* 5. 今日忌食 (classical) — the 五行 reason is required, never drop it */}
         {luckyFoodAvoid ? (
           <FolkCard
-            icon="🚫"
+            Icon={Ban}
             label={zh('今日忌食')}
             value={zh(luckyFoodAvoid.category)}
             note={zh(luckyFoodAvoid.reason)}
@@ -116,7 +117,7 @@ export default function FolkContentCard({ folkContent }: { folkContent: FolkCont
 
         {/* 6. 今日吉時 — keys on day_branch only (協紀辨方書 卷十 青龍訣) */}
         {auspiciousHours.length > 0 ? (
-          <FolkCard icon="🕘" label={zh('今日吉時')} note={zh('協紀辨方書 卷十 黃道時辰')} wide>
+          <FolkCard Icon={Clock} label={zh('今日吉時')} note={zh('協紀辨方書 卷十 黃道時辰')} wide>
             <View style={styles.hourChips}>
               {auspiciousHours.map((h) => (
                 <Text key={h.branch} style={styles.hourChip}>
@@ -155,11 +156,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.md,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.ruleHair,
     ...shadows.warm,
   },
   cardWide: { flexBasis: '100%' },
-  icon: { fontSize: fontSize.lg },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   label: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
   // 民俗 badge — discloses the weaker (folk_tradition) provenance tier.
@@ -186,7 +186,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     backgroundColor: colors.bgBannerWarm,
     borderWidth: 1,
-    borderColor: colors.borderLight,
+    borderColor: colors.ruleHair,
     borderRadius: radius.sm,
     paddingHorizontal: spacing.sm,
     paddingVertical: 3,

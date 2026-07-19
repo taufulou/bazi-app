@@ -21,6 +21,13 @@ function tierColor(t: DimTier): string {
   return colors.error;
 }
 
+/** Text cut of the tier scale — the vivid fills above are ~2.1–3.3:1 and fail as type. */
+function tierColorText(t: DimTier): string {
+  if (t === 'good') return colors.successText;
+  if (t === 'mid') return colors.cautionText;
+  return colors.errorText;
+}
+
 export default function DimensionBars({ dimensions }: Props) {
   const zh = useZh();
   return (
@@ -30,6 +37,7 @@ export default function DimensionBars({ dimensions }: Props) {
         const score = Math.max(0, Math.min(100, dim?.score ?? 50));
         const t = dimTierFromScore(score);
         const color = tierColor(t);
+        const textColor = tierColorText(t);
         const { Icon } = m;
         return (
           <View
@@ -43,7 +51,7 @@ export default function DimensionBars({ dimensions }: Props) {
             </View>
             <Text style={styles.score}>{score}</Text>
             <Text style={styles.dimName}>{zh(m.zh)}</Text>
-            {dim?.label ? <Text style={[styles.dimLabel, { color }]}>{zh(dim.label)}</Text> : null}
+            {dim?.label ? <Text style={[styles.dimLabel, { color: textColor }]}>{zh(dim.label)}</Text> : null}
           </View>
         );
       })}
@@ -57,13 +65,13 @@ const styles = StyleSheet.create({
   barTrack: {
     width: 10,
     height: TRACK_HEIGHT,
-    backgroundColor: colors.borderLight,
+    backgroundColor: colors.ringTrack,
     borderRadius: radius.sm,
     justifyContent: 'flex-end',
     overflow: 'hidden',
   },
   barFill: { width: '100%', borderRadius: radius.sm },
-  score: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
+  score: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
   dimName: { fontSize: fontSize.xs, color: colors.textSecondary },
-  dimLabel: { fontSize: 10, fontWeight: '600' },
+  dimLabel: { fontSize: 12, lineHeight: 16, fontWeight: '600' },
 });

@@ -9,6 +9,7 @@ import type {
   YearlyRiskOpportunityEntry,
   YearlyFortuneNarrative,
 } from '../../lib/fortune-api';
+import { Lightbulb, Shield } from 'lucide-react-native';
 import { colors, fonts, fontSize, spacing, radius } from '../../theme';
 import { useZh } from '../../lib/language';
 import { parseBoldSegments } from './markdown';
@@ -81,11 +82,14 @@ export default function YearlyRiskOpportunityGrid({ coreRiskOpportunity, aiEntri
       <Text style={styles.subtitle}>{zh('本年度最值得把握與留意的關鍵月份')}</Text>
 
       {flatYear ? (
-        <Text style={styles.flatYear}>{zh('🌿 今年運勢平穩，無顯著起伏。')}</Text>
+        <Text style={styles.flatYear}>{zh('今年運勢平穩，無顯著起伏。')}</Text>
       ) : (
         <View style={styles.columns}>
           <View style={styles.column}>
-            <Text style={styles.columnTitle}>{zh('💡 機會點')}</Text>
+            <View style={styles.columnTitleRow}>
+              <Lightbulb size={15} strokeWidth={2} color={colors.textAccent} />
+              <Text style={styles.columnTitle}>{zh('機會點')}</Text>
+            </View>
             {opportunities.length > 0 ? (
               pairAi(opportunities, aiEntries, 'opportunity').map(({ engine, ai }, i) => (
                 <EntryCard key={`${engine.month}-${i}`} engine={engine} ai={ai} accent={colors.success} />
@@ -96,7 +100,10 @@ export default function YearlyRiskOpportunityGrid({ coreRiskOpportunity, aiEntri
           </View>
 
           <View style={styles.column}>
-            <Text style={styles.columnTitle}>{zh('🛡️ 風險點')}</Text>
+            <View style={styles.columnTitleRow}>
+              <Shield size={15} strokeWidth={2} color={colors.textAccent} />
+              <Text style={styles.columnTitle}>{zh('風險點')}</Text>
+            </View>
             {risks.length > 0 ? (
               pairAi(risks, aiEntries, 'risk').map(({ engine, ai }, i) => (
                 <EntryCard key={`${engine.month}-${i}`} engine={engine} ai={ai} accent={colors.error} />
@@ -119,6 +126,7 @@ const styles = StyleSheet.create({
   flatYear: { fontSize: fontSize.base, color: colors.textSecondary, marginTop: spacing.sm },
   columns: { gap: spacing.lg, marginTop: spacing.xs },
   column: { gap: spacing.sm },
+  columnTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   columnTitle: { fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   columnEmpty: { fontSize: fontSize.sm, color: colors.textMuted },
   entry: {
@@ -129,10 +137,10 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   entryHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  entryMonth: { fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
+  entryMonth: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   entryDim: { fontSize: fontSize.xs, color: colors.textSecondary },
   entryLabel: { fontSize: fontSize.xs, color: colors.textAccent, fontWeight: '600' },
   entryKeyword: { fontSize: fontSize.sm, color: colors.textAccent, fontWeight: '600' },
-  entryNarrative: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 22 },
+  entryNarrative: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   caveatTag: { fontSize: fontSize.xs, color: colors.textMuted, fontStyle: 'italic' },
 });
