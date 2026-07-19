@@ -149,7 +149,9 @@ export class RevenueCatService {
     // AMAZON / RC_BILLING events; recording those as APPLE_IAP would wrongly
     // trip the account-deletion "cancel in App Store" interstitial.
     if (!this.isIapStore(event.store)) {
-      this.logger.log(`RC ${event.type}: non-IAP store "${event.store}" — skipping`);
+      // warn, not log: reaching here means RC is configured with a store this
+      // service does not own, which is a misconfiguration worth seeing in logs.
+      this.logger.warn(`RC ${event.type}: non-IAP store "${event.store}" — skipping`);
       return;
     }
 
@@ -225,6 +227,17 @@ export class RevenueCatService {
     const userId = await this.resolveUserId(event);
     if (!userId) return;
 
+    // BEFORE any DB write — placement matters here more than anywhere else. The
+    // idempotency Transaction below carries platformFromStore(event.store), which
+    // defaults unknown stores to APPLE_IAP. Guarding after it would leave an
+    // orphan APPLE_IAP-labelled row (wrongly tripping the account-deletion
+    // "cancel in App Store" interstitial) AND permanently poison the
+    // rc-purchase:<tx> idempotency key, so a later legitimate retry is skipped.
+    if (!this.isIapStore(event.store)) {
+      this.logger.warn(`RC ${event.type}: non-IAP store "${event.store}" — skipping`);
+      return;
+    }
+
     const pkg = await this.resolveCreditPackage(event.product_id);
     if (!pkg) {
       this.logger.warn(`RC: no active CreditPackage maps product "${event.product_id}" — skipping`);
@@ -273,6 +286,12 @@ export class RevenueCatService {
   private async handleCancellation(event: RevenueCatEvent): Promise<void> {
     const userId = await this.resolveUserId(event);
     if (!userId) return;
+
+    // Before any DB write (see handleConsumablePurchase for the rationale).
+    if (!this.isIapStore(event.store)) {
+      this.logger.warn(`RC ${event.type}: non-IAP store "${event.store}" — skipping`);
+      return;
+    }
 
     const pkg = await this.resolveCreditPackage(event.product_id);
     if (pkg) {
@@ -337,6 +356,12 @@ export class RevenueCatService {
   private async handleExpiration(event: RevenueCatEvent): Promise<void> {
     const userId = await this.resolveUserId(event);
     if (!userId) return;
+
+    // Before any DB write (see handleConsumablePurchase for the rationale).
+    if (!this.isIapStore(event.store)) {
+      this.logger.warn(`RC ${event.type}: non-IAP store "${event.store}" — skipping`);
+      return;
+    }
 
     const platform = this.platformFromStore(event.store);
     const txKey = event.original_transaction_id ?? event.transaction_id ?? null;

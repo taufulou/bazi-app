@@ -249,4 +249,82 @@ describe('RevenueCatService', () => {
     expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
     expect(mockEntitlements.syncUserTier).not.toHaveBeenCalled();
   });
+
+  // ------------------------------------------------------------
+  // The same guard on the OTHER store-dependent handlers. Previously only
+  // handleActiveSubscription had it, so if RC were ever configured with a non-IAP
+  // store (Stripe / RC Billing — which the guard's own comment anticipates) a
+  // NON_RENEWING_PURCHASE would grant credits via RC *and* again via the native
+  // Stripe webhook. The idempotency keys differ (rc-purchase:<rc-tx> vs Stripe's
+  // payment id), so neither dedup catches it. Rows would also be mislabelled
+  // APPLE_IAP by platformFromStore's default, wrongly tripping the
+  // account-deletion "cancel in App Store" interstitial.
+  // ------------------------------------------------------------
+
+  it('NON_RENEWING_PURCHASE from a non-IAP store grants nothing and writes no Transaction', async () => {
+    mockPrisma.creditPackage.findFirst.mockResolvedValue({
+      slug: 'value-12', creditAmount: 12, priceUsd: 4.99, isActive: true,
+    });
+
+    await svc.handleEvent(
+      makeEvent({ type: 'NON_RENEWING_PURCHASE', product_id: 'com.tianming.credits.12', store: 'STRIPE' }),
+    );
+
+    expect(mockEntitlements.grantCredits).not.toHaveBeenCalled();
+    // The guard must run BEFORE the idempotency Transaction — otherwise an orphan
+    // APPLE_IAP row is left behind and the rc-purchase key is permanently poisoned.
+    expect(mockPrisma.transaction.create).not.toHaveBeenCalled();
+  });
+
+  it('EXPIRATION from a non-IAP store touches no subscription row', async () => {
+    mockPrisma.subscription.findFirst.mockResolvedValue({ id: 'sub-db-1', userId: 'user-1' });
+
+    await svc.handleEvent(makeEvent({ type: 'EXPIRATION', store: 'STRIPE' }));
+
+    expect(mockPrisma.subscription.update).not.toHaveBeenCalled();
+    expect(mockEntitlements.syncUserTier).not.toHaveBeenCalled();
+  });
+
+  it('CANCELLATION from a PROMOTIONAL store claws nothing back', async () => {
+    mockPrisma.creditPackage.findFirst.mockResolvedValue({
+      slug: 'value-12', creditAmount: 12, priceUsd: 4.99, isActive: true,
+    });
+
+    await svc.handleEvent(
+      makeEvent({ type: 'CANCELLATION', product_id: 'com.tianming.credits.12', store: 'PROMOTIONAL' }),
+    );
+
+    expect(mockEntitlements.clawbackCredits).not.toHaveBeenCalled();
+    expect(mockPrisma.transaction.create).not.toHaveBeenCalled();
+  });
+
+  it('TRANSFER is deliberately NOT gated on store — still moves the sub when store is absent', async () => {
+    // handleTransfer reads `store` only through platformFromStore, whose APPLE_IAP
+    // default means it is designed to tolerate an absent store. Hoisting the guard
+    // to handleEvent would silently drop transfers, stranding a subscription on the
+    // wrong user with a stale tier — which is why the guard lives in the four
+    // store-dependent handlers instead.
+    mockPrisma.user.findUnique.mockImplementation(({ where }: any) =>
+      Promise.resolve(
+        where.clerkUserId === 'clerk_to'
+          ? { id: 'user-to' }
+          : where.clerkUserId === 'clerk_from'
+            ? { id: 'user-from' }
+            : null,
+      ),
+    );
+    mockPrisma.subscription.findFirst.mockResolvedValue({ id: 'sub-db-1', userId: 'user-from' });
+
+    await svc.handleEvent(
+      makeEvent({
+        type: 'TRANSFER',
+        store: undefined,
+        transferred_from: ['clerk_from'],
+        transferred_to: ['clerk_to'],
+      }),
+    );
+
+    expect(mockPrisma.subscription.update).toHaveBeenCalled();
+    expect(mockEntitlements.syncUserTier).toHaveBeenCalled();
+  });
 });
