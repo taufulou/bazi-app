@@ -642,6 +642,76 @@ describe('StripeService', () => {
       expect(mockPrisma.transaction.create).toHaveBeenCalledTimes(1);
       expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledTimes(1);
     });
+
+    // Making the subscription upsert retry-safe was not sufficient on its own:
+    // Transaction.stripePaymentId is @unique and is written BETWEEN syncUserTier
+    // and the initial credit grant. If a retry re-ran this handler after that row
+    // already existed, an escaping P2002 made the controller 500 — so the Redis
+    // idempotency key was never set, Stripe retried, and the grant below was never
+    // reached again. The user stays ACTIVE and correctly tiered (invisible at a
+    // glance) but never receives their initial credits.
+    it('survives a redelivered checkout (P2002 on the Transaction) and still grants', async () => {
+      const session = {
+        id: 'cs_redelivered',
+        mode: 'subscription',
+        subscription: 'sub_stripe_789',
+        payment_intent: 'pi_redelivered',
+        amount_total: 999,
+        currency: 'usd',
+        metadata: { clerkUserId: 'clerk_user_abc', internalUserId: 'user-123', planSlug: 'pro' },
+      } as any;
+
+      mockStripeSubscriptions.retrieve.mockResolvedValue({
+        items: { data: [{ current_period_start: 1700000000, current_period_end: 1702592000 }] },
+      });
+      mockPrisma.subscription.upsert.mockResolvedValue({});
+      // The row from the first (partially-successful) delivery.
+      mockPrisma.transaction.create.mockRejectedValue({ code: 'P2002' });
+      mockPrisma.plan.findFirst.mockResolvedValue({ ...MOCK_PLAN, slug: 'pro', monthlyCredits: 15 });
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
+      mockPrisma.user.update.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        {
+          id: 'sub-1',
+          planTier: 'PRO',
+          status: 'ACTIVE',
+          createdAt: new Date(),
+          currentPeriodStart: new Date(1700000000 * 1000),
+          currentPeriodEnd: new Date(1702592000 * 1000),
+        },
+      ]);
+
+      await expect(service.handleCheckoutCompleted(session)).resolves.not.toThrow();
+
+      // The regression: execution must REACH the grant, not die on the conflict.
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledTimes(1);
+    });
+
+    it('rethrows a non-P2002 Transaction failure on checkout', async () => {
+      const session = {
+        id: 'cs_dberr',
+        mode: 'subscription',
+        subscription: 'sub_stripe_790',
+        payment_intent: 'pi_dberr',
+        amount_total: 999,
+        currency: 'usd',
+        metadata: { clerkUserId: 'clerk_user_abc', internalUserId: 'user-123', planSlug: 'pro' },
+      } as any;
+
+      mockStripeSubscriptions.retrieve.mockResolvedValue({
+        items: { data: [{ current_period_start: 1700000000, current_period_end: 1702592000 }] },
+      });
+      mockPrisma.subscription.upsert.mockResolvedValue({});
+      mockPrisma.transaction.create.mockRejectedValue({ code: 'P1001' });
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
+      mockPrisma.subscription.findMany.mockResolvedValue([]);
+      mockPrisma.user.update.mockResolvedValue({});
+
+      await expect(service.handleCheckoutCompleted(session)).rejects.toEqual({ code: 'P1001' });
+      expect(mockTxMonthlyCreditsLog.create).not.toHaveBeenCalled();
+    });
   });
 
   // ============================================================
@@ -805,6 +875,12 @@ describe('StripeService', () => {
       await service.handleSubscriptionUpdated(makeUpdatedEvent('incomplete'));
 
       expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
+      // Assert on findMany, NOT on user.update. findMany is the first statement in
+      // syncUserTier, so it proves the early-return was taken. `user.update` alone
+      // is unfalsifiable here: user.findUnique is unmocked → resolves undefined →
+      // syncUserTier's `changed = !!user && ...` is false whether or not it ran, so
+      // the pre-fix unconditional-syncUserTier bug would still pass this test.
+      expect(mockPrisma.subscription.findMany).not.toHaveBeenCalled();
       expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
 
@@ -814,6 +890,8 @@ describe('StripeService', () => {
       await service.handleSubscriptionUpdated(makeUpdatedEvent('canceled'));
 
       expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
+      // See the `incomplete` case above for why this asserts on findMany.
+      expect(mockPrisma.subscription.findMany).not.toHaveBeenCalled();
       expect(mockPrisma.user.update).not.toHaveBeenCalled();
     });
 

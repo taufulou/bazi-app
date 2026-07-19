@@ -899,18 +899,41 @@ export class StripeService {
     // hold a higher Apple/Google sub, that higher tier is preserved.
     await this.entitlements.syncUserTier(userId);
 
-    // Record the transaction
-    await this.prisma.transaction.create({
-      data: {
-        userId,
-        stripePaymentId: session.payment_intent as string,
-        amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
-        currency: (session.currency || 'usd').toUpperCase(),
-        type: 'SUBSCRIPTION',
-        description: `New subscription: ${planSlug}`,
-        platform: 'STRIPE',
-      },
-    });
+    // Record the transaction.
+    //
+    // P2002-tolerant for the same reason as handleInvoicePaid: stripePaymentId is
+    // @unique, and this write sits BETWEEN syncUserTier and the initial credit
+    // grant. Making the subscription upsert above retry-safe was not enough on its
+    // own — if any later step threw a transient error, the Redis idempotency key
+    // was never set, Stripe retried, and this line then threw P2002 on every
+    // retry, so `grantMonthlyCreditsForGoverningSub` below was never reached
+    // again. The user ends up correctly tiered and ACTIVE (so the damage is
+    // invisible at a glance) but never receives their initial credits, and even
+    // manually resending the event replays the same collision.
+    //
+    // Continuing on conflict is safe HERE specifically because the grant that
+    // follows is itself idempotent via the MonthlyCreditsLog unique key, so it
+    // cannot double-grant. Do NOT copy this shape onto a raw credit increment
+    // (see handleOneTimePayment) — there, continuing past the conflict would
+    // hand out the credits twice.
+    try {
+      await this.prisma.transaction.create({
+        data: {
+          userId,
+          stripePaymentId: session.payment_intent as string,
+          amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
+          currency: (session.currency || 'usd').toUpperCase(),
+          type: 'SUBSCRIPTION',
+          description: `New subscription: ${planSlug}`,
+          platform: 'STRIPE',
+        },
+      });
+    } catch (err) {
+      if (!isUniqueConstraintViolation(err)) throw err;
+      this.logger.log(
+        `Checkout payment ${session.payment_intent} already recorded — continuing to credit grant`,
+      );
+    }
 
     // Grant initial monthly credits for the user's GOVERNING active sub (M6
     // cross-provider dedup). Idempotent via MonthlyCreditsLog — a user who
