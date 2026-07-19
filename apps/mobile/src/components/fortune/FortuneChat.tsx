@@ -1,4 +1,4 @@
-import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
+import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { MessageCircle } from 'lucide-react-native';
 import ChatFloatingButton from '../chat/ChatFloatingButton';
 import ChatSheet from '../chat/ChatSheet';
@@ -30,7 +30,6 @@ export default function FortuneChat({
   pending,
   onOpenChange,
   /** Forwarded to the FAB so the fortune screen can park it while scrolling down. */
-  fabHidden,
   onPendingConsumed,
 }: {
   profileId?: string;
@@ -41,13 +40,12 @@ export default function FortuneChat({
   pending?: string;
   onOpenChange: (open: boolean) => void;
   onPendingConsumed: () => void;
-  fabHidden?: boolean;
 }) {
   if (!profileId || !anchorDate) return null;
 
   return (
     <>
-      <ChatFloatingButton hidden={fabHidden} onPress={() => onOpenChange(true)} />
+      <ChatFloatingButton onPress={() => onOpenChange(true)} />
       <ChatSheet
         visible={open}
         onClose={() => onOpenChange(false)}
@@ -77,7 +75,9 @@ export function SampleQuestionStrip({ onPick }: { onPick: (question: string) => 
   const { questions, loading } = useSampleQuestions('FORTUNE', null);
 
   if (loading || questions.length === 0) return null;
-  const visible = questions.slice(0, 6);
+  // Four, not six: these wrap onto ~2 rows at 360dp, and the block is a nudge to
+  // start a conversation rather than a menu to read through.
+  const visible = questions.slice(0, 4);
 
   return (
     <View style={styles.stripCard}>
@@ -85,7 +85,7 @@ export function SampleQuestionStrip({ onPick }: { onPick: (question: string) => 
         <MessageCircle size={16} color={colors.textAccent} />
         <Text style={styles.stripTitle}>{zh('想問 AI 命理師什麼？')}</Text>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pills}>
+      <View style={styles.pills}>
         {visible.map((q) => (
           <Pressable
             key={q.id}
@@ -98,7 +98,7 @@ export function SampleQuestionStrip({ onPick }: { onPick: (question: string) => 
             </Text>
           </Pressable>
         ))}
-      </ScrollView>
+      </View>
     </View>
   );
 }
@@ -112,7 +112,10 @@ const styles = StyleSheet.create({
     color: colors.textAccent,
     fontWeight: '700',
   },
-  pills: { gap: spacing.sm, paddingRight: spacing.md },
+  // A WRAPPING row, not a horizontal ScrollView. The carousel put every question
+  // past the second one off-screen with no affordance that it was scrollable, so
+  // readers simply never saw four of the six. Wrapping shows them all at once.
+  pills: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   pill: {
     backgroundColor: colors.bgCard,
     borderRadius: radius.xl,
@@ -120,7 +123,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
     borderWidth: 1,
     borderColor: colors.borderMedium,
-    maxWidth: 260,
+    // No maxWidth: in a wrapping row a cap just forces a mid-question ellipsis.
+    // flexShrink lets a long pill give way instead of pushing past the edge.
+    flexShrink: 1,
   },
   // numberOfLines + ellipsize on the <Text>: the pill is maxWidth-capped, and
   // without them a question longer than the cap was HARD-CUT mid-glyph with no

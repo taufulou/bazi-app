@@ -1,7 +1,6 @@
 import { useAuth } from '@clerk/clerk-expo';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
-import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
@@ -108,46 +107,19 @@ export default function ReadingFlowScreen() {
   const [chatOpen, setChatOpen] = useState(false);
   const [chatPending, setChatPending] = useState<string | undefined>(undefined);
   const [chatSectionHint, setChatSectionHint] = useState<string | undefined>(undefined);
-  /** Chat FAB auto-hide — see onReadingScroll. */
-  const [fabHidden, setFabHidden] = useState(false);
-  const lastScrollY = useRef(0);
-
   /**
-   * Park the chat FAB while the user is reading DOWN the page, restore it on any
-   * upward scroll. The button is an opaque pill pinned bottom-right, so on a long
-   * reading it otherwise covers real content for the entire scroll.
-   * The 12px threshold keeps it from flickering on small jitters.
-   *
-   * ⚠️ Must stay ABOVE this component's early returns — it's a hook.
+   * The chat FAB used to auto-hide on scroll-down. Removed: it took the button away
+   * at exactly the moment a reader wants it, and `content.paddingBottom` (104)
+   * already stops it covering the last card. Removing it also retires the
+   * mount-reset effect this screen needed, because the FAB is gated behind a state
+   * change and would otherwise animate straight out the moment it appeared.
    */
-  const onReadingScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = e.nativeEvent.contentOffset.y;
-    const dy = y - lastScrollY.current;
-    if (Math.abs(dy) < 12) return;
-    lastScrollY.current = y;
-    // Always show near the top, regardless of direction.
-    setFabHidden(y > 80 && dy > 0);
-  }, []);
   const chatReadingType = slug ? (slug.toUpperCase() as ChatReadingType) : undefined;
   const [sections, setSections] = useState<SectionMap>({});
   const [deterministic, setDeterministic] = useState<NestJSReadingResponse['deterministic']>(undefined);
   const [summary, setSummary] = useState<{ preview: string; full: string } | undefined>();
   const [isStreaming, setIsStreaming] = useState(false);
 
-  /**
-   * The FAB is gated on `!showPill`, so it MOUNTS only once streaming ends — and
-   * following a streaming reading means scrolling DOWN, so `fabHidden` is reliably
-   * true by then and the button would animate straight out on mount. Reset as the
-   * stream completes.
-   *
-   * ⚠️ Deliberately does NOT touch `lastScrollY`. Zeroing it while the ScrollView
-   * sits at a real offset makes the next delta ≈ +offset, which re-hides the button
-   * on the user's very next gesture in EITHER direction. Leaving it alone means the
-   * next delta is measured against the true last position, which is what we want.
-   */
-  useEffect(() => {
-    if (!isStreaming) setFabHidden(false);
-  }, [isStreaming]);
 
   const [finalInfo, setFinalInfo] = useState<FinalEventPayload | null>(null);
   const [readingId, setReadingId] = useState<string | null>(null);
@@ -451,8 +423,6 @@ export default function ReadingFlowScreen() {
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
-        onScroll={onReadingScroll}
-        scrollEventThrottle={16}
       >
         <Stack.Screen options={{ title: zh(meta.nameZhTw) }} />
 
@@ -651,7 +621,6 @@ export default function ReadingFlowScreen() {
           question we can't answer well yet. */}
       {step === 'reading' && readingId && !showPill ? (
         <ChatFloatingButton
-          hidden={fabHidden}
           onPress={() => {
             setChatSectionHint(undefined);
             setChatPending(undefined);
