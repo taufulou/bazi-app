@@ -14,6 +14,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { EntitlementsService } from './entitlements.service';
 import { isUniqueConstraintViolation } from './prisma-errors';
+import * as Sentry from '@sentry/nestjs';
 import Stripe from 'stripe';
 
 // ============================================================
@@ -963,50 +964,131 @@ export class StripeService {
 
         const actualAmount = (pkg && pkg.isActive) ? pkg.creditAmount : creditAmount;
 
-        // Record the transaction
-        await this.prisma.transaction.create({
-          data: {
-            userId,
-            stripePaymentId: session.payment_intent as string,
-            amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
-            currency: (session.currency || 'usd').toUpperCase(),
-            type: 'CREDIT_PURCHASE',
-            description: `Credit package: ${metadata.packageSlug || 'unknown'} (${actualAmount} credits)`,
-            platform: 'STRIPE',
-          },
-        });
-
-        // Grant credits to user
-        await this.prisma.user.update({
-          where: { id: userId },
-          data: { credits: { increment: actualAmount } },
-        });
+        // ATOMIC: the Transaction row and the credit grant commit together or
+        // not at all. Previously these were two independent writes, so if the
+        // first committed and the second threw, the controller 500'd, the Redis
+        // idempotency key was never set, Stripe retried, and this line then threw
+        // P2002 on EVERY retry — the increment was never reached again and the
+        // customer was left having paid for nothing.
+        //
+        // Catch-and-continue (as used on the invoice/checkout paths) is NOT an
+        // option here: those are followed by a MonthlyCreditsLog-deduped grant,
+        // whereas this is a raw increment. Continuing past the conflict would
+        // turn "zero credits" into "double credits".
+        //
+        // With the two writes atomic, "row exists" now implies "credits granted",
+        // which is what makes skipping on conflict safe.
+        const idemKey = this.oneTimeIdempotencyKey(session);
+        try {
+          await this.prisma.$transaction(async (tx) => {
+            await tx.transaction.create({
+              data: {
+                userId,
+                stripePaymentId: idemKey,
+                amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
+                currency: (session.currency || 'usd').toUpperCase(),
+                type: 'CREDIT_PURCHASE',
+                description: `Credit package: ${metadata.packageSlug || 'unknown'} (${actualAmount} credits)`,
+                platform: 'STRIPE',
+              },
+            });
+            await this.entitlements.grantCredits(
+              userId,
+              actualAmount,
+              `stripe-credit-pack:${metadata.packageSlug || 'unknown'}:${idemKey}`,
+              tx,
+            );
+          });
+        } catch (err) {
+          // A timeout (P2028) or any other error rethrows here: the whole unit
+          // rolled back, so there is no partial state, and the retry is correct.
+          if (!isUniqueConstraintViolation(err)) throw err;
+          this.logger.log(`One-time payment ${idemKey} already processed — idempotent skip`);
+          return;
+        }
 
         this.logger.log(`Credit package purchased for user ${userId}: ${metadata.packageSlug} (+${actualAmount} credits)`);
+      } else {
+        // The customer WAS charged, but this session's metadata cannot produce a
+        // grant. Previously this fell out of the function and returned 200, which
+        // set the Redis idempotency key and stopped Stripe retrying — so the
+        // purchase vanished with no row, no log and no error. That is the same
+        // outcome as the race above and rather likelier, since it needs only a
+        // data-shape mistake.
+        //
+        // Throw instead. It is not that a retry will fix malformed metadata —
+        // it won't — but that acknowledging would POISON the recovery path:
+        // the idempotency key makes a manual "Resend event" from the Stripe
+        // dashboard a silent no-op for 48h. Failing keeps the event replayable
+        // while a human fixes the underlying data.
+        //
+        // The upstream guard against the likeliest cause (a package saved with
+        // creditAmount 0) is the @Min(1) validation on the admin routes, which
+        // deliberately shipped before this.
+        this.logger.error(
+          `Credit-package session ${session.id} has unusable metadata ` +
+            `(creditPackageId=${creditPackageId}, creditAmount=${metadata.creditAmount}) — ` +
+            `customer was charged; refusing to ack so the event stays replayable`,
+        );
+        Sentry.captureMessage('stripe.credit_package_metadata_unusable', {
+          level: 'error',
+          extra: { sessionId: session.id, userId, metadata },
+        });
+        throw new Error(`Unusable credit_package metadata on session ${session.id}`);
       }
     } else {
-      // Legacy: single reading purchase, increment by 1
+      // Legacy: single reading purchase, increment by 1.
+      // Same atomic treatment as the credit-package branch above. This branch
+      // needs no metadata guard: the amount is hardcoded and an undefined
+      // serviceSlug is already tolerated, so there is nothing here to malform.
       const serviceSlug = metadata?.serviceSlug;
+      const idemKey = this.oneTimeIdempotencyKey(session);
 
-      await this.prisma.transaction.create({
-        data: {
-          userId,
-          stripePaymentId: session.payment_intent as string,
-          amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
-          currency: (session.currency || 'usd').toUpperCase(),
-          type: 'ONE_TIME',
-          description: serviceSlug ? `One-time reading: ${serviceSlug}` : 'One-time purchase',
-          platform: 'STRIPE',
-        },
-      });
-
-      await this.prisma.user.update({
-        where: { id: userId },
-        data: { credits: { increment: 1 } },
-      });
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.transaction.create({
+            data: {
+              userId,
+              stripePaymentId: idemKey,
+              amount: this.formatStripeAmount(session.amount_total || 0, session.currency || 'usd'),
+              currency: (session.currency || 'usd').toUpperCase(),
+              type: 'ONE_TIME',
+              description: serviceSlug ? `One-time reading: ${serviceSlug}` : 'One-time purchase',
+              platform: 'STRIPE',
+            },
+          });
+          await this.entitlements.grantCredits(
+            userId,
+            1,
+            `stripe-one-time:${serviceSlug || 'purchase'}:${idemKey}`,
+            tx,
+          );
+        });
+      } catch (err) {
+        if (!isUniqueConstraintViolation(err)) throw err;
+        this.logger.log(`One-time payment ${idemKey} already processed — idempotent skip`);
+        return;
+      }
 
       this.logger.log(`One-time payment recorded for user ${userId}: ${serviceSlug}`);
     }
+  }
+
+  /**
+   * Idempotency key for a one-time checkout, stored in the UNIQUE
+   * `Transaction.stripePaymentId`.
+   *
+   * Falls back to `session.id` because `payment_intent` can be absent, and a
+   * UNIQUE constraint on a NULLable column permits unlimited NULLs — which would
+   * silently disable the very guard this key exists to provide. `session.id` is
+   * stable across retries of the same event and cannot collide with a real
+   * payment_intent (disjoint `cs_` / `pi_` prefixes).
+   *
+   * The column is already polymorphic in practice: it also holds invoice ids and
+   * the RevenueCat `rc-purchase:` / `rc-refund:` keys.
+   */
+  private oneTimeIdempotencyKey(session: Stripe.Checkout.Session): string {
+    return (session.payment_intent as string | null) ?? session.id;
   }
 
   private async validateAndGetStripeCoupon(

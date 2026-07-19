@@ -59,8 +59,20 @@ const mockMonthlyCreditsLog = {
   findFirst: jest.fn(),
 };
 
+// Mock Sentry so the unusable-metadata alert is observable + inert.
+const mockCaptureMessage = jest.fn();
+jest.mock('@sentry/nestjs', () => ({ captureMessage: (...args: unknown[]) => mockCaptureMessage(...args) }));
+
 const mockTxUser = { update: jest.fn() };
 const mockTxMonthlyCreditsLog = { create: jest.fn() };
+// Distinct from the top-level mockPrisma.transaction / .user clients on purpose.
+// The $transaction mock below merely invokes its callback with no rollback
+// semantics, so it is behaviourally identical to two sequential non-transactional
+// writes — meaning "did this land inside the transaction?" can only be asserted by
+// checking WHICH client received the write. Without that, a later refactor that
+// dropped the transaction entirely would keep every test green.
+const mockTxTransaction = { create: jest.fn() };
+const mockTxCreditLedger = { create: jest.fn() };
 
 const mockPrisma = {
   user: {
@@ -97,6 +109,8 @@ const mockPrisma = {
     return fn({
       user: mockTxUser,
       monthlyCreditsLog: mockTxMonthlyCreditsLog,
+      transaction: mockTxTransaction,
+      creditLedger: mockTxCreditLedger,
     });
   }),
 };
@@ -546,7 +560,12 @@ describe('StripeService', () => {
 
       await service.handleCheckoutCompleted(session);
 
-      expect(mockPrisma.transaction.create).toHaveBeenCalledWith(
+      // Both writes now go through the tx client: they were split into two
+      // independent top-level statements, which is what allowed a retry to
+      // commit the Transaction row and never reach the increment. The amount
+      // formatting assertion (199 cents -> 1.99) is the part this test uniquely
+      // covers and is preserved.
+      expect(mockTxTransaction.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
             userId: 'user-123',
@@ -557,7 +576,7 @@ describe('StripeService', () => {
       );
 
       // Should add credits
-      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+      expect(mockTxUser.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { credits: { increment: 1 } },
         }),
@@ -711,6 +730,183 @@ describe('StripeService', () => {
 
       await expect(service.handleCheckoutCompleted(session)).rejects.toEqual({ code: 'P1001' });
       expect(mockTxMonthlyCreditsLog.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ============================================================
+  // Webhook — One-time payment (mode: 'payment')
+  //
+  // This handler had ZERO coverage. It previously wrote the Transaction row and
+  // the credit increment as two independent statements, so a failure between
+  // them left the row committed; Stripe then retried into an uncaught P2002 on
+  // every attempt and the increment was never reached — paid, nothing received.
+  // It also returned normally (=> HTTP 200) when the metadata could not produce a
+  // grant, which set the Redis idempotency key and stopped Stripe retrying at all.
+  //
+  // The mocked $transaction merely invokes its callback, so it is behaviourally
+  // identical to two sequential writes. Every test therefore asserts WHICH client
+  // received each write; otherwise a refactor that dropped the transaction would
+  // keep them all green.
+  // ============================================================
+
+  describe('handleOneTimePayment (via handleCheckoutCompleted)', () => {
+    const PKG = { id: 'pkg-1', slug: 'value-12', creditAmount: 12, isActive: true };
+
+    const packageSession = (overrides: Record<string, unknown> = {}) =>
+      ({
+        id: 'cs_pack',
+        mode: 'payment',
+        payment_intent: 'pi_pack',
+        amount_total: 199,
+        currency: 'usd',
+        metadata: {
+          clerkUserId: 'clerk_user_abc',
+          internalUserId: 'user-123',
+          type: 'credit_package',
+          creditPackageId: 'pkg-1',
+          creditAmount: '12',
+          packageSlug: 'value-12',
+        },
+        ...overrides,
+      }) as any;
+
+    const legacySession = (overrides: Record<string, unknown> = {}) =>
+      ({
+        id: 'cs_legacy',
+        mode: 'payment',
+        payment_intent: 'pi_legacy',
+        amount_total: 199,
+        currency: 'usd',
+        metadata: {
+          clerkUserId: 'clerk_user_abc',
+          internalUserId: 'user-123',
+          serviceSlug: 'lifetime',
+        },
+        ...overrides,
+      }) as any;
+
+    beforeEach(() => {
+      mockPrisma.creditPackage.findUnique.mockResolvedValue(PKG);
+    });
+
+    // ---- credit-package branch ----
+
+    it('grants a credit pack atomically — one transaction, no top-level writes', async () => {
+      await service.handleCheckoutCompleted(packageSession());
+
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      // Positive: the branch was actually entered (guards against a fixture that
+      // silently skips the whole block and makes the negatives below vacuous).
+      expect(mockTxTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ type: 'CREDIT_PURCHASE', stripePaymentId: 'pi_pack' }),
+        }),
+      );
+      expect(mockTxUser.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { credits: { increment: 12 } },
+      });
+      // Ledger row — this path previously granted credits with no audit trail.
+      expect(mockTxCreditLedger.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ userId: 'user-123', amount: 12 }) }),
+      );
+      // The write must NOT have gone through the non-transactional clients.
+      expect(mockPrisma.transaction.create).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('survives a redelivered pack purchase (P2002) without granting twice', async () => {
+      mockPrisma.$transaction.mockRejectedValueOnce({ code: 'P2002' });
+
+      await expect(service.handleCheckoutCompleted(packageSession())).resolves.not.toThrow();
+
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(mockTxUser.update).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('rethrows a non-P2002 failure (e.g. P2028 timeout) leaving no partial state', async () => {
+      mockPrisma.$transaction.mockRejectedValueOnce({ code: 'P2028' });
+
+      await expect(service.handleCheckoutCompleted(packageSession())).rejects.toEqual({ code: 'P2028' });
+
+      // Rolled back: nothing on either client.
+      expect(mockTxUser.update).not.toHaveBeenCalled();
+      expect(mockTxCreditLedger.create).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+      expect(mockPrisma.transaction.create).not.toHaveBeenCalled();
+    });
+
+    it('falls back to session.id when payment_intent is absent', async () => {
+      // @unique on a NULLable column permits unlimited NULLs, which would
+      // silently disable the idempotency guard entirely.
+      await service.handleCheckoutCompleted(packageSession({ payment_intent: null }));
+
+      expect(mockTxTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ stripePaymentId: 'cs_pack' }) }),
+      );
+    });
+
+    it('THROWS on unusable metadata instead of silently acking the charge', async () => {
+      // Previously this returned normally -> 200 -> Redis idempotency key set ->
+      // Stripe never retries -> the customer's payment vanishes with no row and
+      // no error. Throwing keeps the event replayable.
+      await expect(
+        service.handleCheckoutCompleted(
+          packageSession({
+            metadata: {
+              clerkUserId: 'clerk_user_abc',
+              internalUserId: 'user-123',
+              type: 'credit_package',
+              creditPackageId: 'pkg-1',
+              creditAmount: '0', // the case @Min(1) now blocks upstream
+              packageSlug: 'value-12',
+            },
+          }),
+        ),
+      ).rejects.toThrow(/Unusable credit_package metadata/);
+
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'stripe.credit_package_metadata_unusable',
+        expect.objectContaining({ level: 'error' }),
+      );
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      expect(mockTxUser.update).not.toHaveBeenCalled();
+    });
+
+    // ---- legacy single-reading branch ----
+
+    it('grants the legacy one-time credit atomically', async () => {
+      await service.handleCheckoutCompleted(legacySession());
+
+      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(mockTxTransaction.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ type: 'ONE_TIME', stripePaymentId: 'pi_legacy' }),
+        }),
+      );
+      expect(mockTxUser.update).toHaveBeenCalledWith({
+        where: { id: 'user-123' },
+        data: { credits: { increment: 1 } },
+      });
+      expect(mockPrisma.transaction.create).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('survives a redelivered legacy purchase (P2002) without granting twice', async () => {
+      mockPrisma.$transaction.mockRejectedValueOnce({ code: 'P2002' });
+
+      await expect(service.handleCheckoutCompleted(legacySession())).resolves.not.toThrow();
+
+      expect(mockTxUser.update).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('rethrows a non-P2002 legacy failure', async () => {
+      mockPrisma.$transaction.mockRejectedValueOnce({ code: 'P1001' });
+
+      await expect(service.handleCheckoutCompleted(legacySession())).rejects.toEqual({ code: 'P1001' });
+      expect(mockTxUser.update).not.toHaveBeenCalled();
     });
   });
 
