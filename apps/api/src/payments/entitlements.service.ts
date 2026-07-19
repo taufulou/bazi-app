@@ -268,16 +268,38 @@ export class EntitlementsService {
    * (positive `CreditLedger` row) so a later refund has a matching negative.
    * Idempotency is the CALLER's responsibility (the RC webhook's Redis dedup) —
    * this is a raw increment.
+   *
+   * Pass `tx` to enlist in a transaction the CALLER already opened, so the
+   * increment commits or rolls back together with the caller's own writes.
+   * `handleOneTimePayment` needs this: it pairs the grant with a UNIQUE
+   * Transaction row, and that pairing is only an idempotency guarantee if the
+   * two are atomic — otherwise "row exists" would not imply "credits granted",
+   * and skipping on conflict could strand a paid-for grant. Mirrors the
+   * optional-`tx` shape of `credits.service.ts::deductCredits`.
+   *
+   * Prisma has no nested interactive transactions, so when `tx` is supplied we
+   * must NOT open another one — writes would land outside the caller's
+   * transaction and survive its rollback.
    */
-  async grantCredits(userId: string, amount: number, reason: string): Promise<void> {
+  async grantCredits(
+    userId: string,
+    amount: number,
+    reason: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<void> {
     if (amount <= 0) return;
-    await this.prisma.$transaction(async (tx) => {
-      await tx.user.update({
+    const run = async (client: Prisma.TransactionClient) => {
+      await client.user.update({
         where: { id: userId },
         data: { credits: { increment: amount } },
       });
-      await tx.creditLedger.create({ data: { userId, amount: +amount, reason } });
-    });
+      await client.creditLedger.create({ data: { userId, amount: +amount, reason } });
+    };
+    if (tx) {
+      await run(tx);
+    } else {
+      await this.prisma.$transaction(run);
+    }
     this.logger.log(`Granted ${amount} credits to user ${userId}: ${reason}`);
   }
 

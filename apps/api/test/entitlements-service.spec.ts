@@ -229,6 +229,34 @@ describe('EntitlementsService', () => {
       expect(mockPrisma.$transaction).not.toHaveBeenCalled();
     });
 
+    // Prisma has no nested interactive transactions: if a caller already opened one
+    // and we opened another, the writes would land OUTSIDE the caller's transaction
+    // and survive its rollback. handleOneTimePayment depends on this — it pairs the
+    // grant with a UNIQUE Transaction row, and that pairing is only an idempotency
+    // guarantee while the two are atomic.
+    it('grantCredits enlists in a caller-supplied tx and does NOT open its own', async () => {
+      const callerTxUser = { update: jest.fn() };
+      const callerTxLedger = { create: jest.fn() };
+
+      await svc.grantCredits('user-1', 12, 'stripe-credit-pack:value-12', {
+        user: callerTxUser,
+        creditLedger: callerTxLedger,
+      } as never);
+
+      // Writes land on the CALLER's client...
+      expect(callerTxUser.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { credits: { increment: 12 } },
+      });
+      expect(callerTxLedger.create).toHaveBeenCalledWith({
+        data: { userId: 'user-1', amount: 12, reason: 'stripe-credit-pack:value-12' },
+      });
+      // ...and no second transaction is opened, nor any write on our own tx client.
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+      expect(mockTxUser.update).not.toHaveBeenCalled();
+      expect(mockTxCreditLedger.create).not.toHaveBeenCalled();
+    });
+
     it('clawbackCredits floors at the current balance (atomic GREATEST)', async () => {
       // The atomic UPDATE returns the amount actually removed (min(amount, balance)).
       mockTxQueryRaw.mockResolvedValue([{ clawed_back: 3 }]);
