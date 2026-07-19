@@ -911,6 +911,159 @@ describe('StripeService', () => {
   });
 
   // ============================================================
+  // Status mapping — the fail-open default
+  //
+  // mapStripeStatus used `map[status] || 'ACTIVE'`: unknown => "assume paying".
+  // Stripe documents 8 statuses; the table listed 5. The 3 missing ones
+  // (trialing, incomplete, paused) all resolved to ACTIVE — trialing correct
+  // only by accident, the other two granting unpaid access.
+  // ============================================================
+
+  describe('subscription status mapping', () => {
+    const existingRow = { id: 'sub-db-1', userId: 'user-123' };
+
+    const updatedEvent = (status: string) =>
+      ({
+        id: 'sub_status',
+        status,
+        cancel_at: null,
+        items: { data: [{ current_period_start: 1700000000, current_period_end: 1702592000 }] },
+        metadata: { internalUserId: 'user-123', planSlug: 'pro' },
+      }) as any;
+
+    const statusWrittenBy = async (stripeStatus: string): Promise<string | undefined> => {
+      mockPrisma.subscription.findFirst.mockResolvedValue(existingRow);
+      mockPrisma.subscription.update.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
+      mockPrisma.user.update.mockResolvedValue({});
+
+      await service.handleSubscriptionUpdated(updatedEvent(stripeStatus));
+
+      const arg = mockPrisma.subscription.update.mock.calls[0][0] as { data: { status?: string } };
+      return arg.data.status;
+    };
+
+    it.each([
+      ['active', 'ACTIVE'],
+      ['trialing', 'ACTIVE'],
+      ['past_due', 'PAST_DUE'],
+      ['unpaid', 'PAST_DUE'],
+      ['incomplete', 'PAST_DUE'],
+      ['canceled', 'CANCELLED'],
+      ['incomplete_expired', 'EXPIRED'],
+      ['paused', 'EXPIRED'],
+    ])('maps Stripe "%s" to %s', async (stripeStatus, expected) => {
+      expect(await statusWrittenBy(stripeStatus)).toBe(expected);
+    });
+
+    it('keeps trial users entitled — the ordering constraint on removing the fallback', async () => {
+      // `trialing` reached ACTIVE only via the old `|| 'ACTIVE'` fallback, so
+      // removing that without listing it here would drop every trial user to FREE
+      // mid-trial.
+      expect(await statusWrittenBy('trialing')).toBe('ACTIVE');
+    });
+
+    it('drops entitlement for incomplete (payment not settled) instead of granting it', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue(existingRow);
+      mockPrisma.subscription.update.mockResolvedValue({});
+      mockPrisma.subscription.findMany.mockResolvedValue([]); // no ACTIVE rows after the flip
+      mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, subscriptionTier: 'PRO' });
+      mockPrisma.user.update.mockResolvedValue({});
+
+      await service.handleSubscriptionUpdated(updatedEvent('incomplete'));
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { subscriptionTier: 'FREE' } }),
+      );
+    });
+
+    it('flags "paused" loudly — it can only occur if someone enabled trials', async () => {
+      await statusWrittenBy('paused');
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'stripe.paused_status_observed',
+        expect.objectContaining({ level: 'error' }),
+      );
+    });
+
+    it('preserves the stored status on an unknown value, and alerts', async () => {
+      const written = await statusWrittenBy('some_future_status');
+
+      // The key is omitted entirely — not guessed in either direction.
+      expect(written).toBeUndefined();
+      const arg = mockPrisma.subscription.update.mock.calls[0][0] as { data: Record<string, unknown> };
+      expect(arg.data).not.toHaveProperty('status');
+      // ...but planTier/period still update.
+      expect(arg.data).toHaveProperty('planTier', 'PRO');
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'stripe.unknown_subscription_status',
+        expect.objectContaining({ level: 'error' }),
+      );
+    });
+
+    it('DOCUMENTS THE RESIDUAL: an unknown status over a stored ACTIVE row keeps paid access', async () => {
+      // This is not a solved problem. Preserving the stored value is strictly
+      // better than guessing, but if Stripe ships a status meaning "not entitled"
+      // and the row is ACTIVE, the user stays entitled until a human acts on the
+      // Sentry alert. Asserted so nobody mistakes the fix for a closed hole.
+      mockPrisma.subscription.findFirst.mockResolvedValue(existingRow);
+      mockPrisma.subscription.update.mockResolvedValue({});
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-db-1', planTier: 'PRO', status: 'ACTIVE', createdAt: new Date(), currentPeriodStart: new Date(), currentPeriodEnd: new Date() },
+      ]);
+      mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, subscriptionTier: 'PRO' });
+      mockPrisma.user.update.mockResolvedValue({});
+
+      await service.handleSubscriptionUpdated(updatedEvent('some_future_status'));
+
+      // Tier unchanged: still PRO, no downgrade written.
+      expect(mockPrisma.user.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { subscriptionTier: 'FREE' } }),
+      );
+    });
+
+    it('does NOT double-grant when an incomplete->PAST_DUE sub later pays a proration invoice', async () => {
+      // incomplete -> PAST_DUE makes the dunning recovery branch reachable for the
+      // FIRST time (it was previously written ACTIVE, so the PAST_DUE guard never
+      // matched). A mid-cycle plan change is exactly when an existing sub goes
+      // incomplete, and its proration invoice would then hit that branch. Safe
+      // only because of MonthlyCreditsLog @@unique([userId, periodStart]) — pin it.
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-db-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_status',
+        planTier: 'PRO',
+        status: 'PAST_DUE',
+        currentPeriodStart: new Date(1700000000 * 1000),
+        currentPeriodEnd: new Date(1702592000 * 1000),
+      });
+      mockPrisma.subscription.update.mockResolvedValue({});
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-db-1', planTier: 'PRO', status: 'ACTIVE', createdAt: new Date(), currentPeriodStart: new Date(1700000000 * 1000), currentPeriodEnd: new Date(1702592000 * 1000) },
+      ]);
+      mockPrisma.plan.findFirst.mockResolvedValue({ ...MOCK_PLAN, slug: 'pro', monthlyCredits: 15 });
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
+      mockPrisma.user.update.mockResolvedValue({});
+      mockPrisma.transaction.create.mockResolvedValue({});
+      // The period was already granted — the unique key rejects the second write.
+      mockTxMonthlyCreditsLog.create.mockRejectedValueOnce({ code: 'P2002' });
+
+      const invoice = {
+        id: 'in_proration',
+        amount_paid: 999,
+        currency: 'usd',
+        lines: { data: [{ period: { start: 1700000000, end: 1702592000 }, description: 'Proration' }] },
+        // The subscription reference lives here, not at the top level.
+        parent: { subscription_details: { subscription: 'sub_status' } },
+      } as any;
+
+      await expect(service.handleInvoicePaid(invoice)).resolves.not.toThrow();
+
+      // Exactly one attempt, and it was rejected by the unique key — no double-grant.
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ============================================================
   // Webhook — Subscription Updated
   // ============================================================
 

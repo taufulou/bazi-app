@@ -10,6 +10,7 @@
  */
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { EntitlementsService } from './entitlements.service';
@@ -534,6 +535,36 @@ export class StripeService {
     const planTier = this.planSlugToTier(planSlug || 'basic');
     const status = this.mapStripeStatus(sub.status);
 
+    if (status === null) {
+      // Unrecognised status: preserve whatever is stored rather than guess in
+      // either direction. Loud because the residual risk is silent and
+      // indefinite — if the stored value is ACTIVE and this new status means
+      // "not entitled", the user keeps paid access until someone notices.
+      this.logger.error(
+        `Unknown Stripe subscription status "${sub.status}" for ${sub.id} — leaving stored status unchanged`,
+      );
+      Sentry.captureMessage('stripe.unknown_subscription_status', {
+        level: 'error',
+        extra: { subscriptionId: sub.id, status: sub.status },
+      });
+    }
+
+    if (sub.status === 'paused') {
+      // Reaching this means someone enabled trials — `paused` requires a trial
+      // to end without a payment method, and no trial is configured anywhere in
+      // this codebase today. The EXPIRED mapping is a safe interim, but the
+      // semantically correct answer is a PAUSED value on SubscriptionStatus plus
+      // subscription-UI handling, so surface it rather than let it pass quietly.
+      this.logger.error(
+        `Stripe status "paused" observed on ${sub.id} — this requires a trial, and none is ` +
+          `configured. Add a PAUSED SubscriptionStatus + UI handling before relying on EXPIRED.`,
+      );
+      Sentry.captureMessage('stripe.paused_status_observed', {
+        level: 'error',
+        extra: { subscriptionId: sub.id },
+      });
+    }
+
     // In the clover API version, current_period_start/end are on subscription items, not the subscription itself
     const firstItem = sub.items?.data?.[0];
     const periodStart = firstItem?.current_period_start;
@@ -548,7 +579,11 @@ export class StripeService {
       await this.prisma.subscription.update({
         where: { id: existing.id },
         data: {
-          status,
+          // Omitted entirely when the status is unrecognised, so the stored
+          // value survives. planTier and the period still update — only the
+          // entitlement-bearing field is withheld, because that is the one we
+          // have no trustworthy new information about.
+          ...(status !== null && { status }),
           planTier,
           ...(periodStart && { currentPeriodStart: new Date(periodStart * 1000) }),
           ...(periodEnd && { currentPeriodEnd: new Date(periodEnd * 1000) }),
@@ -1173,15 +1208,56 @@ export class StripeService {
     return map[slug] || 'FREE';
   }
 
-  private mapStripeStatus(status: string): 'ACTIVE' | 'CANCELLED' | 'EXPIRED' | 'PAST_DUE' {
-    const map: Record<string, 'ACTIVE' | 'CANCELLED' | 'EXPIRED' | 'PAST_DUE'> = {
+  /**
+   * Stripe subscription status -> our SubscriptionStatus.
+   *
+   * Returns null for anything unrecognised. It previously fell back to 'ACTIVE',
+   * i.e. "when unsure, assume they're paying" — the wrong direction for a money
+   * decision, and it silently swallowed three statuses Stripe documents but this
+   * table omitted (`trialing`, `incomplete`, `paused`). `trialing` was only ever
+   * correct by accident, via that fallback; the other two granted paid access.
+   *
+   * The caller must leave the stored status untouched on null (see the single
+   * call site in handleSubscriptionUpdated). Guessing the OPPOSITE direction is
+   * not an improvement — blindly downgrading on an unfamiliar-but-benign status
+   * is its own bug.
+   *
+   * ⚠️ This narrows the fail-open hole; it does not close it. If the stored value
+   * is ACTIVE and Stripe ships a new status meaning "not entitled", the user
+   * keeps paid access indefinitely — now loudly logged rather than silent. That
+   * residual is accepted and monitored (Sentry `error` at the call site), not
+   * solved.
+   */
+  private mapStripeStatus(status: string): SubscriptionStatus | null {
+    const map: Record<string, SubscriptionStatus> = {
       active: 'ACTIVE',
-      canceled: 'CANCELLED',
-      incomplete_expired: 'EXPIRED',
+      // Entitled during a trial. Previously reached ACTIVE only via the fallback,
+      // so this MUST be listed before the fallback is removed.
+      trialing: 'ACTIVE',
       past_due: 'PAST_DUE',
       unpaid: 'PAST_DUE',
+      // First payment not settled (declined / awaiting SCA): not entitled. Also
+      // routes into the existing dunning recovery — when the payment finally
+      // settles, invoice.payment_succeeded flips PAST_DUE -> ACTIVE and grants,
+      // which is exactly right for a late SCA confirmation. That grant path
+      // becomes newly reachable because of this line, and is safe only via the
+      // MonthlyCreditsLog @@unique([userId, periodStart]) key — pinned by the
+      // "does not double-grant" test.
+      incomplete: 'PAST_DUE',
+      canceled: 'CANCELLED',
+      incomplete_expired: 'EXPIRED',
+      // Per the vendored SDK (stripe/types/Subscriptions.d.ts): a subscription
+      // "can only enter a `paused` status when a trial ends without a payment
+      // method", and this is DIFFERENT from pausing collection, which "leaves
+      // the subscription's status unchanged". So `paused` = trial lapsed, no
+      // card: never paid, owes nothing. EXPIRED is the accurate label (and
+      // `incomplete_expired` is its sibling — both mean "never became paying").
+      // NOT PAST_DUE, which renders 「逾期」 and asserts a debt that doesn't
+      // exist. NOT CANCELLED, which reactivateSubscription selects to restore a
+      // row to ACTIVE — that would hand paid access to someone who never paid.
+      paused: 'EXPIRED',
     };
-    return map[status] || 'ACTIVE';
+    return map[status] ?? null;
   }
 
   // ============================================================
