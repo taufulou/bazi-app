@@ -285,7 +285,12 @@ export default function FortuneScreen() {
               // iOS a11y tree, hiding the inner Text from element lookup).
               testID={`fortune-scope-${t.key}`}
               style={[styles.pill, active && styles.pillActive]}
-              onPress={() => setTab(t.key)}
+              onPress={() => {
+                // A fresh tab starts at the top, so the parked FAB would stay
+                // parked until the next scroll happened to self-correct it.
+                setFabHidden(false);
+                setTab(t.key);
+              }}
               accessibilityRole="button"
               accessibilityLabel={zh(t.zh)}
             >

@@ -154,7 +154,7 @@ const styles = StyleSheet.create({
   warnItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24, marginLeft: spacing.lg },
   warnNote: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: 4 },
   insufficient: { fontSize: fontSize.sm, color: colors.warningText, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
-  errorText: { fontSize: fontSize.sm, color: colors.error, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
+  errorText: { fontSize: fontSize.sm, color: colors.errorText, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
   confirmBtn: {
     backgroundColor: colors.red,
     borderRadius: radius.md,

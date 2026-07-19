@@ -55,9 +55,9 @@ export default function MonthlyTimeGrid({ partitionSpec, intraMonthBreakdown, mo
               {breakdown ? (
                 <>
                   <View style={styles.dayCounts}>
-                    <Text style={[styles.countItem, { color: colors.success }]}>{zh(`吉 ${breakdown.auspicious_days}`)}</Text>
-                    <Text style={[styles.countItem, { color: colors.gold }]}>{zh(`平 ${breakdown.neutral_days}`)}</Text>
-                    <Text style={[styles.countItem, { color: colors.error }]}>{zh(`凶 ${breakdown.challenging_days}`)}</Text>
+                    <Text style={[styles.countItem, { color: colors.successText }]}>{zh(`吉 ${breakdown.auspicious_days}`)}</Text>
+                    <Text style={[styles.countItem, { color: colors.metalText }]}>{zh(`平 ${breakdown.neutral_days}`)}</Text>
+                    <Text style={[styles.countItem, { color: colors.errorText }]}>{zh(`凶 ${breakdown.challenging_days}`)}</Text>
                   </View>
 
                   {breakdown.dominant_shensha.length > 0 && (

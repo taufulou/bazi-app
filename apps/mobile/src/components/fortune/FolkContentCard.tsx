@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { Ban, Clock, Compass, Hash, Leaf, Palette, type LucideIcon } from 'lucide-react-native';
-import { colors, spacing, fontSize, radius, fonts, shadows } from '../../theme';
+import { colors, spacing, fontSize, radius, fonts, surfaces  } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { DailyFortuneResponse } from '../../lib/fortune-api';
 
@@ -152,12 +152,11 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexBasis: '46%',
     gap: 3,
-    backgroundColor: colors.bgCard,
     borderRadius: radius.md,
     padding: spacing.md,
     borderWidth: 1,
     borderColor: colors.ruleHair,
-    ...shadows.warm,
+    ...surfaces.card,
   },
   cardWide: { flexBasis: '100%' },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },

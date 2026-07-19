@@ -133,6 +133,22 @@ export default function ReadingFlowScreen() {
   const [deterministic, setDeterministic] = useState<NestJSReadingResponse['deterministic']>(undefined);
   const [summary, setSummary] = useState<{ preview: string; full: string } | undefined>();
   const [isStreaming, setIsStreaming] = useState(false);
+
+  /**
+   * The FAB is gated on `!showPill`, so it MOUNTS only once streaming ends — and
+   * following a streaming reading means scrolling DOWN, so `fabHidden` is reliably
+   * true by then and the button would animate straight out on mount. Reset as the
+   * stream completes.
+   *
+   * ⚠️ Deliberately does NOT touch `lastScrollY`. Zeroing it while the ScrollView
+   * sits at a real offset makes the next delta ≈ +offset, which re-hides the button
+   * on the user's very next gesture in EITHER direction. Leaving it alone means the
+   * next delta is measured against the true last position, which is what we want.
+   */
+  useEffect(() => {
+    if (!isStreaming) setFabHidden(false);
+  }, [isStreaming]);
+
   const [finalInfo, setFinalInfo] = useState<FinalEventPayload | null>(null);
   const [readingId, setReadingId] = useState<string | null>(null);
   const streamRef = useRef<{ close: () => void } | null>(null);

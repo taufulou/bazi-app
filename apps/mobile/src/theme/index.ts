@@ -40,17 +40,21 @@ export const colors = {
    * Was #8B7355 — measured 4.49:1 on white and 4.09:1 on cream, i.e. short of
    * WCAG AA while carrying nearly every label in the Bazi chart (row labels,
    * zodiac names, palace captions, 大運 years). Darkened to clear AA on BOTH
-   * grounds: 5.42:1 on white, 4.94:1 on cream.
+   * grounds: 5.61:1 on white, 5.11:1 on cream.
    */
   textMuted: '#7A6449',
 
   /**
    * 金 as TEXT. `elementColors.金` (#B8860B) is only 3.25:1 — fine for the 28pt
    * 干支 (large-text AA needs 3:1) but it fails at the 12–13pt used by 藏干.
-   * This darker cut is 4.61:1. Use elementColors.金 for display sizes and
-   * decoration, this for anything small.
+   *
+   * ⚠️ Measure against the ground it ACTUALLY renders on, not white. 藏干 sits on
+   * `zebra` rows and on the `columnTint` 日柱 band, so an earlier #9A6F08 (4.51:1
+   * on white) was only 4.37:1 and 4.23:1 there — i.e. still short of AA on the
+   * exact cells this token exists for. This cut clears it on all three:
+   * 5.11 white · 4.94 zebra · 4.79 columnTint.
    */
-  metalText: '#9A6F08',
+  metalText: '#8F6707',
 
   /**
    * Amber for WARNING TEXT. `colors.warning` (#ffc107) is a signal fill, not a text
@@ -64,7 +68,7 @@ export const colors = {
   borderMedium: 'rgba(212, 160, 23, 0.3)',
 
   /**
-   * Table furniture. `borderLight` composites to #F8F0DC on white — 1.14:1,
+   * Table furniture. `borderLight` composites to #F9F1DC on white — 1.13:1,
    * effectively invisible, which is why the chart grid read as floating text.
    * These sit just high enough to register as rules without shouting.
    */
@@ -74,8 +78,8 @@ export const colors = {
   columnTint: 'rgba(226, 61, 40, 0.045)', // 日柱 emphasis band
   /**
    * Warm track behind a coloured arc or bar fill (was a cold 6% black).
-   * 0.26 alpha → 1.40:1. It was briefly 0.12, which is 1.17:1 — barely above the
-   * 1.14:1 borderLight it replaced, so the swap was very nearly a no-op. A track
+   * 0.26 alpha → 1.40:1. It was briefly 0.12, which is 1.16:1 — barely above the
+   * 1.13:1 borderLight it replaced, so the swap was very nearly a no-op. A track
    * is a solid area rather than a hairline, so it can and should carry more
    * weight than `ruleHair`.
    */
@@ -99,14 +103,15 @@ export const colors = {
   /**
    * Functional TEXT — the same semantics at readable contrast.
    *
-   * The vivid cuts above are signal fills and fail as type: on white, success is
-   * 2.57:1 and error 3.30:1, i.e. below even the 3:1 large-text floor, and
-   * `gold` is ~2.1:1. Wherever a verdict word, score or tier label is being READ
+   * The vivid cuts above are signal fills and fail as type. On white: success
+   * 2.78:1, error 3.68:1, gold 2.38:1 — all below the 4.5:1 AA needs at the sizes
+   * these render at (12–18pt), and success and gold are below even the 3:1
+   * large-text floor. Wherever a verdict word, score or tier label is being READ
    * rather than filled, use these.
    */
-  successText: '#2A6B33', // 5.7:1
-  cautionText: '#96591D', // 5.6:1 — the amber/mid tier
-  errorText: '#A63A25', // 5.7:1
+  successText: '#2A6B33', // 6.46:1 on white
+  cautionText: '#96591D', // 5.61:1 on white — the amber/mid tier
+  errorText: '#A63A25', // 5.89:1 on white
 
   // Subscription tier badges
   tierFreeText: '#757575',
@@ -321,8 +326,10 @@ export const surfaces = {
  *
  * A token that describes ONE property lets every call site re-decide leading, and
  * 85% of them decided wrong by omission. So these presets carry size + family +
- * weight + leading + tracking TOGETHER: pick a role, not five numbers, and it
- * becomes impossible to ship unleaded CJK by forgetting.
+ * weight + leading + tracking TOGETHER: pick a role, not five numbers, so that
+ * WHERE ADOPTED it becomes impossible to ship unleaded CJK by forgetting.
+ * (Adoption is partial — BaziChart is fully migrated; other surfaces still
+ * declare raw sizes and were leaded by hand in the same pass.)
  *
  * Usage:  <Text style={[text.section, { color: colors.textAccent }]}>
  *
@@ -364,7 +371,11 @@ export const text = asTextStyles({
   bodyTight: { fontSize: 15, lineHeight: 23 },
   /** Field labels, table row labels. 13 · 1.4 · +0.04em */
   label: { fontSize: 13, lineHeight: 18, letterSpacing: 0.52, fontWeight: '600' },
-  /** Captions, units, micro-notes. 12 · 1.45 · +0.02em — the floor. */
+  /**
+   * Captions, units, micro-notes. 12 · 1.45 · +0.02em — the floor for PROSE.
+   * Dense tabular cells (神煞 pills, 藏干 ten-god, 納音, 大運 years) run 11 with an
+   * explicit lineHeight; 11 is the hard minimum for CJK, never below.
+   */
   caption: { fontSize: 12, lineHeight: 17, letterSpacing: 0.24 },
   /** Any column of digits. Tabular so values stop shifting between renders. */
   data: {

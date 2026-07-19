@@ -1,6 +1,6 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Briefcase, Calendar, Heart, Lock, Star, type LucideIcon } from 'lucide-react-native';
-import { colors, spacing, fontSize, radius, fonts, shadows } from '../../theme';
+import { colors, spacing, fontSize, radius, fonts, shadows, surfaces } from '../../theme';
 import { useZh } from '../../lib/language';
 
 /**
@@ -118,13 +118,12 @@ export default function PaywallCTA({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: colors.bgCard,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.ruleHair,
     padding: spacing.lg,
     marginTop: spacing.xl,
-    ...shadows.warm,
+    ...surfaces.card,
   },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
   headerTitle: { flex: 1, fontSize: fontSize.lg, fontFamily: fonts.serifBold, fontWeight: '700', color: colors.textAccent },

@@ -234,6 +234,16 @@ Darker, richer colors optimized for light backgrounds (defined in `BaziChart.tsx
 
 These colors are used consistently across the Bazi table, Five Elements rings, Day Master analysis, and Luck Periods sections.
 
+**⚠️ Mobile display-vs-text split (added with the mobile design-system pass):** the
+table above is the **display** palette — correct at 18pt+ where WCAG's 3:1
+large-text floor applies. 金 `#B8860B` is only **3.25:1**, so at the 12–13pt used
+by 藏干 it fails the 4.5:1 AA needs, and measured on the grounds it actually
+renders on (`zebra` rows, the `columnTint` 日柱 band) it is worse still. Mobile
+therefore carries a second, darker 金 for SMALL TEXT ONLY — `colors.metalText`
+`#8F6707` (5.11 white · 4.94 zebra · 4.79 columnTint). Display sizes keep
+`#B8860B`. This is the one deliberate exception to "one colour per element";
+do not add others without recording them here.
+
 ### Typography
 - **Headings / CJK characters**: `Noto Serif TC` (serif) — conveys traditional authority
 - **Body text**: System font stack (`-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`)

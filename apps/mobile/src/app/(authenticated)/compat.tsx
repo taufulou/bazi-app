@@ -209,8 +209,11 @@ export default function CompatScreen() {
     // `fabHidden` is already true. Without this reset the chat button animates
     // straight out the moment it appears and stays gone until the user happens to
     // scroll up, i.e. it is invisible for exactly the users who just paid.
+    //
+    // ⚠️ Reset ONLY fabHidden. Zeroing `lastScrollY` here (the view is parked at
+    // ~1200 after scrolling past two charts) makes the next delta ≈ +1200, which
+    // re-hides the button on the very next gesture, up or down.
     setFabHidden(false);
-    lastScrollY.current = 0;
     setStreaming(true);
     setAiData({ sections: [], isV2: true });
 
@@ -319,7 +322,6 @@ export default function CompatScreen() {
           });
           setRevealed(true);
           setFabHidden(false);
-          lastScrollY.current = 0;
         } else {
           setAiData(null);
           setRevealed(false);

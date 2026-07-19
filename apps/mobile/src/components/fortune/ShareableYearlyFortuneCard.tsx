@@ -105,13 +105,13 @@ const ShareableYearlyFortuneCard = forwardRef<View, Props>(function ShareableYea
         <View style={styles.roRow}>
           {topOpp ? (
             <View style={styles.roSlot}>
-              <Text style={[styles.roLabel, { color: colors.success }]}>💡 機會</Text>
+              <Text style={[styles.roLabel, { color: colors.successText }]}>💡 機會</Text>
               <Text style={styles.roValue}>{`${topOpp.monthLabel} ${topOpp.dimZh}`}</Text>
             </View>
           ) : null}
           {topRisk ? (
             <View style={styles.roSlot}>
-              <Text style={[styles.roLabel, { color: colors.error }]}>🛡️ 風險</Text>
+              <Text style={[styles.roLabel, { color: colors.errorText }]}>🛡️ 風險</Text>
               <Text style={styles.roValue}>{`${topRisk.monthLabel} ${topRisk.dimZh}`}</Text>
             </View>
           ) : null}

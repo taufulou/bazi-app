@@ -25,7 +25,7 @@ import {
   TrendingUp,
   type LucideIcon,
 } from 'lucide-react-native';
-import { colors, fonts, fontSize, spacing, radius, rhythm, shadows } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces  } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { LifetimeV2DeterministicData } from '../../lib/readings-api';
 import { ChipGroup } from './primitives';
@@ -688,11 +688,10 @@ export function LifetimeDeterministicCard({
 
 const cc = StyleSheet.create({
   card: {
-    backgroundColor: colors.bgCard,
     borderRadius: radius.lg,
     padding: spacing.lg,
     gap: spacing.md,
-    ...shadows.warm,
+    ...surfaces.card,
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent, flex: 1 },

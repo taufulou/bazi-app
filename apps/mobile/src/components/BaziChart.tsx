@@ -973,7 +973,7 @@ const styles = StyleSheet.create({
   palaceCard: { flex: 1, backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', borderWidth: 1, borderColor: colors.ruleHair },
   palaceLabel: { ...T.caption, color: colors.textMuted },
   palaceGz: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 26, fontWeight: '700', color: colors.textPrimary },
-  // was fontSize: 10 — below the 12pt CJK floor; 桑柘木 merged into a smudge.
+  // was fontSize: 10 — CJK strokes merged; 11 is the hard minimum for dense cells.
   palaceNayin: { fontSize: 11, lineHeight: 15, color: colors.textMuted },
   seasonalRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'center' },
   seasonalTag: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.bgCard, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.ruleHair },

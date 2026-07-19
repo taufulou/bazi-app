@@ -33,7 +33,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react-native';
-import { colors, fonts, fontSize, spacing, radius, rhythm, shadows } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces  } from '../../theme';
 
 // ============================================================
 // Section theme → accent color + icon
@@ -348,11 +348,10 @@ const card = StyleSheet.create({
   // section title. Generous margins are most of what makes a text surface feel
   // considered rather than packed.
   wrap: {
-    backgroundColor: colors.bgCard,
     borderRadius: radius.lg,
     padding: spacing.lg2,
     gap: spacing.lg2,
-    ...shadows.warm,
+    ...surfaces.card,
   },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, borderLeftWidth: 3, paddingLeft: spacing.md },
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', flex: 1 },
@@ -482,7 +481,7 @@ const bar = StyleSheet.create({
   value: { fontSize: fontSize.base, lineHeight: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
   level: { fontSize: fontSize.xs, lineHeight: 17, color: colors.textMuted, fontWeight: '600' },
   // borderLight is ~1.14:1 — the UNFILLED remainder was invisible, so the bar read
-  // as a floating stub with no 0–100 reference. ringTrack is the warm 1.3:1 token.
+  // as a floating stub with no 0–100 reference. ringTrack is the warm 1.40:1 token.
   track: { height: 8, backgroundColor: colors.ringTrack, borderRadius: radius.pill, overflow: 'hidden' },
   fill: { height: 8, borderRadius: radius.pill },
 });
@@ -511,7 +510,7 @@ export function VerdictBanner({
   // 3.30:1, so both fail AA at the 20pt weight-800 this renders at.
   const toneColor = tone === 'positive' ? colors.success : tone === 'negative' ? colors.error : colors.gold;
   const toneText =
-    tone === 'positive' ? '#2A6B33' : tone === 'negative' ? '#A63A25' : colors.metalText;
+    tone === 'positive' ? colors.successText : tone === 'negative' ? colors.errorText : colors.metalText;
   const icon = tone === 'positive' ? '✓' : tone === 'negative' ? '✗' : '◆';
   return (
     <View style={[verdict.wrap, { borderColor: toneColor, backgroundColor: `${toneColor}14` }]}>
@@ -591,12 +590,14 @@ export type ChipTone = 'neutral' | 'positive' | 'negative' | 'gold';
  * never as text on light bg". But this one `Chip` renders ~9 call sites across
  * career, annual/love and luck-period widgets, so the fix belongs here rather than
  * at each of them: keep gold for the border and fill (where it's decorative and
- * reads beautifully) and drop the LABEL to `metalText` (#9A6F08, 4.6:1).
+ * reads beautifully) and drop the LABEL to `metalText` (4.8:1+ on every ground it renders on).
  */
 const CHIP_TONES: Record<ChipTone, { text: string; edge: string }> = {
   neutral: { text: colors.textSecondary, edge: colors.textSecondary },
-  positive: { text: colors.success, edge: colors.success },
-  negative: { text: colors.error, edge: colors.error },
+  // Every tone splits, not just gold: on their own fills the vivid cuts measure
+  // success 2.60:1 and error 3.34:1 at 15pt — the same failure diagnosed above.
+  positive: { text: colors.successText, edge: colors.success },
+  negative: { text: colors.errorText, edge: colors.error },
   gold: { text: colors.metalText, edge: colors.gold },
 };
 
