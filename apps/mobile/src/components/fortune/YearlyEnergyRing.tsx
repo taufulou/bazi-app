@@ -57,8 +57,8 @@ export default function YearlyEnergyRing({ label, score, year, yearGanZhi, yearT
           />
         </Svg>
         <View style={styles.scoreText} accessibilityLabel={zh(`今年能量指數 ${clamped} 分`)}>
-          <Text style={styles.scoreNumber}>{clamped}</Text>
-          <Text style={styles.scoreUnit}>{zh('能量')}</Text>
+          <Text style={styles.scoreNumber} numberOfLines={1}>{clamped}</Text>
+          <Text style={styles.scoreUnit} numberOfLines={1}>{zh('能量')}</Text>
         </View>
       </View>
 
@@ -80,7 +80,13 @@ const styles = StyleSheet.create({
   // it was a bare `fontSize` with RN's Latin-derived default leading.
   baziLine: { ...T.bodyTight, color: colors.textSecondary },
   ringWrap: { width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' },
-  scoreText: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
+  // absoluteFillObject + centring, NOT a bare `position:'absolute'`. Without
+  // explicit bounds the overlay's width is Yoga's shrink-wrap of an absolute node,
+  // which can collapse — and because the <Text> children set no numberOfLines, a
+  // collapse shows up as 「88」 wrapping to a single glyph per line inside the ring
+  // rather than as an obvious error. Filling the (fixed 150pt) ring makes the
+  // centring deterministic; numberOfLines={1} makes any future squeeze visible.
+  scoreText: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   scoreNumber: { fontVariant: ['tabular-nums'] as const, fontFamily: fonts.serifBold, fontSize: 44, fontWeight: '800', color: colors.textPrimary, lineHeight: 48 },
   scoreUnit: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
   labelBand: { paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, borderRadius: 999, marginTop: spacing.xs },

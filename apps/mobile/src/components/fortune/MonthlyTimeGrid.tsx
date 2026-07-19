@@ -73,8 +73,10 @@ export default function MonthlyTimeGrid({ partitionSpec, intraMonthBreakdown, mo
 
                   {breakdown.peak_signals.slice(0, 3).map((peak, peakIdx) => (
                     <View key={peak.date ?? `${bucket.label}-peak-${peakIdx}`} style={styles.peakItem}>
-                      {peak.date ? <Text style={styles.peakDate}>{peak.date}</Text> : null}
-                      <Text style={styles.peakLabel}>{zh(peak.label)}</Text>
+                      <View style={styles.peakHead}>
+                        {peak.date ? <Text style={styles.peakDate}>{peak.date}</Text> : null}
+                        <Text style={styles.peakLabel}>{zh(peak.label)}</Text>
+                      </View>
                       {peak.signals[0] ? <Text style={styles.peakSignal}>{zh(peak.signals[0])}</Text> : null}
                     </View>
                   ))}
@@ -122,10 +124,18 @@ const styles = StyleSheet.create({
   shenshaLabel: { ...T.label, color: colors.textSecondary },
   shenshaTag: { backgroundColor: 'rgba(226,61,40,0.08)', borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   shenshaTagText: { ...T.meta, color: colors.textAccent },
-  peakItem: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
+  // Every peak gets the SAME two-part shape: date + verdict on one line, the
+  // signal sentence beneath. Previously all three were inline siblings in a
+  // flexWrap row, so a short signal stayed on line 1 while a long one wrapped
+  // flush-left under the date — the list came out ragged, with each entry a
+  // different shape depending on how long its sentence happened to be.
+  peakItem: { gap: 2, marginTop: 2 },
+  peakHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
   peakDate: { ...T.meta, fontVariant: ['tabular-nums'] as const, fontWeight: '700', color: colors.textPrimary },
   peakLabel: { ...T.meta, color: colors.textSecondary },
-  peakSignal: { fontSize: fontSize.xs, color: colors.textMuted },
+  // A full sentence the reader parses, not a caption — and now that it owns its
+  // own line it has the room for 13.
+  peakSignal: { ...T.meta, color: colors.textMuted },
   placeholderHint: { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 24 },
   windowInfo: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: spacing.xs },
 });

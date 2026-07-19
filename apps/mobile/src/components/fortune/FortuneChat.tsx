@@ -3,7 +3,7 @@ import { MessageCircle } from 'lucide-react-native';
 import ChatFloatingButton from '../chat/ChatFloatingButton';
 import ChatSheet from '../chat/ChatSheet';
 import { useSampleQuestions } from '../chat/hooks/useSampleQuestions';
-import { colors, spacing, fontSize, radius, fonts } from '../../theme';
+import { colors, spacing, fontSize, radius, fonts, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 
 export type FortuneScope = 'DAY' | 'MONTH' | 'YEAR';
@@ -93,7 +93,9 @@ export function SampleQuestionStrip({ onPick }: { onPick: (question: string) => 
             onPress={() => onPick(q.questionText)}
             accessibilityRole="button"
           >
-            <Text style={styles.pillText}>{zh(q.questionText)}</Text>
+            <Text style={styles.pillText} numberOfLines={2} ellipsizeMode="tail">
+              {zh(q.questionText)}
+            </Text>
           </Pressable>
         ))}
       </ScrollView>
@@ -120,5 +122,9 @@ const styles = StyleSheet.create({
     borderColor: colors.borderMedium,
     maxWidth: 260,
   },
-  pillText: { fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 20 },
+  // numberOfLines + ellipsize on the <Text>: the pill is maxWidth-capped, and
+  // without them a question longer than the cap was HARD-CUT mid-glyph with no
+  // affordance that anything was missing. Two lines keeps most questions whole;
+  // anything past that ends in an ellipsis rather than a silent truncation.
+  pillText: { ...T.bodyTight, color: colors.textPrimary },
 });
