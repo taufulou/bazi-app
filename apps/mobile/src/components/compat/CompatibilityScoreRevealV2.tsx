@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { colors, fonts, fontSize, spacing, radius, rhythm } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, rhythm, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { RomancePreAnalysis } from '../../lib/readings-api';
 
@@ -300,7 +300,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: 4,
   },
-  reassuranceTitle: { fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
+  reassuranceTitle: { ...T.subsection, color: colors.textAccent },
   reassuranceText: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   masterNote: {
     alignSelf: 'stretch',
@@ -311,11 +311,11 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.sm,
   },
-  masterNoteTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
+  masterNoteTitle: { ...T.subsection, color: colors.textAccent },
   masterNoteSummary: { fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 24 },
   metricsRow: { flexDirection: 'row', gap: spacing.sm },
   metricCard: { flex: 1, alignItems: 'center', backgroundColor: colors.bgSecondary, borderRadius: radius.md, paddingVertical: spacing.sm },
-  metricLabel: { fontSize: fontSize.xs, color: colors.textMuted },
+  metricLabel: { ...T.label, color: colors.textMuted },
   metricValue: { fontSize: fontSize.lg, lineHeight: 24, fontWeight: '800', fontVariant: ['tabular-nums'] },
   metricSuffix: { fontSize: fontSize.xs, color: colors.textMuted },
   masterNoteEncouragement: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },

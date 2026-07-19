@@ -7,7 +7,7 @@
  */
 import { View, Text, StyleSheet } from 'react-native';
 import type { PartitionSpec, IntraMonthBreakdown } from '../../lib/fortune-api';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 
 interface Props {
@@ -102,24 +102,28 @@ export default function MonthlyTimeGrid({ partitionSpec, intraMonthBreakdown, mo
 
 const styles = StyleSheet.create({
   section: { gap: spacing.sm },
-  title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  title: { ...T.section, color: colors.textAccent },
   subtitle: { fontSize: fontSize.sm, color: colors.textSecondary },
   grid: { gap: spacing.md, marginTop: spacing.xs },
   card: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
-  cardTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
+  cardTitle: { ...T.subsection, color: colors.textPrimary },
   pillarBadge: { backgroundColor: 'rgba(212,160,23,0.10)', borderColor: colors.borderMedium, borderWidth: 1, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   pillarBadgeText: { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
   cardRange: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, color: colors.textMuted },
   dayCounts: { flexDirection: 'row', gap: spacing.md },
   countItem: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, fontWeight: '700' },
   shenshaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
-  shenshaLabel: { fontSize: fontSize.xs, color: colors.textSecondary },
+  // The 神煞 names and peak dates are the substance of this card, not chrome — they
+  // sat at 12 alongside the disclaimers and badges. `label`/`meta` (13) lifts the
+  // content a rung and leaves 12 to the things that really are captions
+  // (pillarBadgeText, peakSignal, windowInfo).
+  shenshaLabel: { ...T.label, color: colors.textSecondary },
   shenshaTag: { backgroundColor: 'rgba(226,61,40,0.08)', borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
-  shenshaTagText: { fontSize: fontSize.xs, color: colors.textAccent },
+  shenshaTagText: { ...T.meta, color: colors.textAccent },
   peakItem: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
-  peakDate: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.xs, fontWeight: '700', color: colors.textPrimary },
-  peakLabel: { fontSize: fontSize.xs, color: colors.textSecondary },
+  peakDate: { ...T.meta, fontVariant: ['tabular-nums'] as const, fontWeight: '700', color: colors.textPrimary },
+  peakLabel: { ...T.meta, color: colors.textSecondary },
   peakSignal: { fontSize: fontSize.xs, color: colors.textMuted },
   placeholderHint: { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 24 },
   windowInfo: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: spacing.xs },

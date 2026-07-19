@@ -931,8 +931,21 @@ const styles = StyleSheet.create({
   },
   // Row backgrounds go edge-to-edge (per the canonical table treatment) but the
   // label TEXT still needs breathing room from the card edge.
-  labelCell: { width: 68, justifyContent: 'center', paddingVertical: spacing.sm, paddingLeft: spacing.md },
-  labelText: { ...T.caption, color: colors.textMuted },
+  // The longest label is FOUR glyphs (天干地支) — at 13 that needs ~52pt, and the
+  // original 68 − 12 padding left only 56pt (~1.03× headroom), so the first Dynamic
+  // Type step would wrap it to 「天干地」/「支」 and change the row height.
+  //
+  // The width is bought from this cell's own padding, NOT from the column width:
+  // widening the cell to 72 was tried and it pushed the four-character 神煞 names
+  // (福星貴人, 國印貴人, 太極貴人) into wrapping, because the pillars are `flex: 1`
+  // and absorb whatever the label takes. 8pt of inset is still ample given the
+  // card's own 20pt padding sits outside it.
+  labelCell: { width: 68, justifyContent: 'center', paddingVertical: spacing.sm, paddingLeft: spacing.sm },
+  // The row labels (十神/天干地支/藏干/十二運/納音/神煞) are LABELS, not captions — they
+  // name every row the reader scans by, so `T.label` (13, a little weight) separates
+  // them from the 12pt data they introduce. Tracking is zeroed: T.label's +0.52
+  // buys nothing on a left-aligned CJK label and costs 2pt of a tight cell.
+  labelText: { ...T.label, letterSpacing: 0, color: colors.textMuted },
   pillarHead: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm },
   pillarHeadDay: { backgroundColor: '#FDEFE4' },
   pillarHeadText: { ...T.label, color: colors.textAccent },
@@ -948,18 +961,24 @@ const styles = StyleSheet.create({
   // ── 藏干 (two-line, see the row comment) ──
   hiddenStemGroup: { alignItems: 'center' },
   hiddenStemGroupGap: { marginTop: spacing.xs },
-  hiddenStem: { fontSize: 13, lineHeight: 17, fontWeight: '600', textAlign: 'center' },
-  hiddenStemMinor: { fontSize: 12, lineHeight: 16, fontWeight: '400' },
-  hiddenStemGod: { fontSize: 11, lineHeight: 15, color: colors.textMuted, textAlign: 'center' },
+  // 本氣 leads at 14; 中氣/餘氣 step down to 13 so the primary hidden stem reads
+  // first. The ten-god gloss below is `dense` (12) — one rung quieter again.
+  hiddenStem: { fontSize: 14, lineHeight: 19, fontWeight: '600', textAlign: 'center' },
+  hiddenStemMinor: { fontSize: 13, lineHeight: 17, fontWeight: '400' },
+  hiddenStemGod: { ...T.dense, color: colors.textMuted, textAlign: 'center' },
 
   // ── 神煞 pills ──
   shenShaPill: {
     borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm,
+    // 6, not spacing.sm (8): the pill text stepped 11 → 12 and a 4-character
+    // 神煞 (天乙貴人) already sat close to the cell width, so the inset gives back
+    // most of what the size bump costs. Any tighter and the pill stops reading
+    // as a pill.
+    paddingHorizontal: 6,
     paddingVertical: 2,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  shenShaPillText: { fontSize: 11, lineHeight: 16, textAlign: 'center' },
+  shenShaPillText: { ...T.dense, textAlign: 'center' },
   pill_auspicious: { backgroundColor: '#FBF3E2', borderColor: 'rgba(154,111,8,0.30)' },
   pill_inauspicious: { backgroundColor: '#FBEDEA', borderColor: 'rgba(166,58,37,0.28)' },
   pill_neutral: { backgroundColor: '#F5F2EC', borderColor: 'rgba(122,100,73,0.22)' },
@@ -967,14 +986,13 @@ const styles = StyleSheet.create({
   pillText_inauspicious: { color: '#A63A25' },
   pillText_neutral: { color: colors.textMuted },
   shenShaMore: { paddingHorizontal: spacing.xs, paddingVertical: 2 },
-  shenShaMoreText: { fontSize: 11, lineHeight: 16, color: colors.textAccent, fontWeight: '600' },
+  shenShaMoreText: { ...T.dense, color: colors.textAccent, fontWeight: '600' },
 
   palaceRow: { flexDirection: 'row', gap: spacing.sm },
   palaceCard: { flex: 1, backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', borderWidth: 1, borderColor: colors.ruleHair },
   palaceLabel: { ...T.caption, color: colors.textMuted },
   palaceGz: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 26, fontWeight: '700', color: colors.textPrimary },
-  // was fontSize: 10 — CJK strokes merged; 11 is the hard minimum for dense cells.
-  palaceNayin: { fontSize: 11, lineHeight: 15, color: colors.textMuted },
+  palaceNayin: { ...T.dense, color: colors.textMuted },
   seasonalRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'center' },
   seasonalTag: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.bgCard, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.ruleHair },
   seasonalElement: { fontSize: 15, lineHeight: 20, fontWeight: '700' },
@@ -1026,8 +1044,7 @@ const styles = StyleSheet.create({
   luckCard: { width: LUCK_CARD_W, backgroundColor: colors.bgSecondary, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', gap: 2, borderWidth: 1, borderColor: colors.ruleHair },
   luckCardCurrent: { borderColor: colors.red, borderWidth: 1.5, backgroundColor: colors.bgBannerWarm },
   luckAge: { ...T.data, color: colors.textPrimary },
-  // was fontSize: 10
-  luckYear: { fontSize: 11, lineHeight: 15, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+  luckYear: { ...T.dense, color: colors.textMuted, fontVariant: ['tabular-nums'] },
   luckGz: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 26, fontWeight: '700' },
   luckTenGod: { ...T.caption, color: colors.textSecondary },
   luckCurrent: { ...T.caption, color: colors.red, fontWeight: '600' },

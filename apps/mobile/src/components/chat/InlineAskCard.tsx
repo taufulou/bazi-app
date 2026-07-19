@@ -7,7 +7,7 @@
  */
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { MessageCircle, ChevronRight } from 'lucide-react-native';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { useSampleQuestions } from './hooks/useSampleQuestions';
 import type { ChatReadingType } from '../../lib/chat-api';
@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
-  title: { flex: 1, fontFamily: fonts.serifBold, fontSize: fontSize.sm, fontWeight: '700', color: colors.textAccent, lineHeight: 22 },
+  title: { ...T.subsection, flex: 1, color: colors.textAccent },
   titleCta: { color: colors.red, textDecorationLine: 'underline' },
   titleCtaPlain: { color: colors.textSecondary },
   questions: { gap: spacing.xs },

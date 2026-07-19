@@ -5,7 +5,7 @@
  */
 import { View, Text, StyleSheet } from 'react-native';
 import type { YearlyFortuneNarrative } from '../../lib/fortune-api';
-import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { YEARLY_DIM_META } from './yearlyDimensions';
 import { dimTierFromScore, type DimTier } from './labels';
@@ -179,22 +179,27 @@ const styles = StyleSheet.create({
   wrap: { gap: rhythm.section - 8 },
   bold: { fontWeight: '700' },
   hero: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
-  heroTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  // 19, not 18 — at 18 it was 1.06× the 17pt dim titles below it, which is under the
+  // ~1.15× where a size difference actually registers, so the card heading and the
+  // per-dimension headings read as one flat level.
+  heroTitle: { ...T.section, color: colors.textAccent },
   heroHeadline: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   heroBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
   skeletonHint: { fontSize: fontSize.sm, color: colors.textMuted, marginTop: spacing.xs },
   dims: { gap: rhythm.block },
   dimBlock: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
   dimHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
-  dimTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
-  dimKeyword: { fontSize: fontSize.xs, color: colors.textSecondary, flex: 1 },
+  dimTitle: { ...T.subsection, color: colors.textPrimary },
+  // Same field as YearlyDimensionStars.keyword, which is T.meta — both render on
+  // the 年運 tab, so they must not disagree.
+  dimKeyword: { ...T.meta, color: colors.textSecondary, flex: 1 },
   dimBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 999, borderWidth: 1 },
   dimBadgeDot: { width: 6, height: 6, borderRadius: 3 },
   dimBadgeLabel: { fontSize: fontSize.xs, fontWeight: '600' },
   dimBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
   dimEmpty: { fontSize: fontSize.sm, color: colors.textMuted },
   adviceCard: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
-  adviceTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
+  adviceTitle: { ...T.subsection, color: colors.textAccent },
   adviceBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
   disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: spacing.xs },
   skeletonProse: { gap: 6, marginTop: spacing.xs },

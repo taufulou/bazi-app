@@ -14,7 +14,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
-import { colors, fontSize, spacing, radius } from '../../theme';
+import { colors, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { getUserProfile, type SubscriptionTier } from '../../lib/api';
 
@@ -188,7 +188,9 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   skeleton: {
     width: 80,
-    height: 24,
+    // Matches the loaded badge (3 + 19 leading + 3 + 2 border ≈ 27) so the app-bar
+    // row doesn't jump when the balance resolves.
+    height: 27,
     borderRadius: 12,
     backgroundColor: colors.borderLight,
   },
@@ -198,7 +200,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
   },
-  tierText: { fontSize: 11, fontWeight: '600' },
+  // 免費/基本/專業/大師 — CJK, so 11 was below the floor `text.dense` sets. The
+  // numeral beside it reads fine at 11; a Chinese word does not.
+  tierText: { ...T.dense, fontWeight: '600' },
   creditBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -211,7 +215,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(212, 160, 23, 0.06)',
   },
   creditIcon: { fontSize: 11 },
-  creditCount: { fontSize: fontSize.xs, fontWeight: '700', color: colors.textPrimary },
+  // The credit balance is a headline number in the app bar, not a caption.
+  creditCount: { ...T.meta, fontWeight: '700', color: colors.textPrimary },
   pricingLink: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs + 2,

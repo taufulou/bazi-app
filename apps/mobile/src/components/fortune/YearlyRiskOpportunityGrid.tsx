@@ -10,7 +10,7 @@ import type {
   YearlyFortuneNarrative,
 } from '../../lib/fortune-api';
 import { Lightbulb, Shield } from 'lucide-react-native';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { parseBoldSegments } from './markdown';
 
@@ -121,13 +121,16 @@ export default function YearlyRiskOpportunityGrid({ coreRiskOpportunity, aiEntri
 const styles = StyleSheet.create({
   section: { gap: spacing.sm },
   bold: { fontWeight: '700' },
-  title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  // T.section (19), matching MonthlyTimeGrid — at 18 it sat 1.06x above the
+  // columnTitles below, which are now the same serif bold family, so neither size
+  // nor family separated the two levels.
+  title: { ...T.section, color: colors.textAccent },
   subtitle: { fontSize: fontSize.sm, color: colors.textSecondary },
   flatYear: { fontSize: fontSize.base, color: colors.textSecondary, marginTop: spacing.sm },
   columns: { gap: spacing.lg, marginTop: spacing.xs },
   column: { gap: spacing.sm },
   columnTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  columnTitle: { fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
+  columnTitle: { ...T.subsection, color: colors.textPrimary },
   columnEmpty: { fontSize: fontSize.sm, color: colors.textMuted },
   entry: {
     backgroundColor: colors.bgCard,
@@ -138,8 +141,10 @@ const styles = StyleSheet.create({
   },
   entryHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   entryMonth: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
-  entryDim: { fontSize: fontSize.xs, color: colors.textSecondary },
-  entryLabel: { fontSize: fontSize.xs, color: colors.textAccent, fontWeight: '600' },
+  // meta, not label — every other dimension name in the app (DimensionBars,
+  // MonthlyDimensionBars, YearlyDimensionStars) uses meta.
+  entryDim: { ...T.meta, color: colors.textSecondary },
+  entryLabel: { ...T.meta, color: colors.textAccent, fontWeight: '600' },
   entryKeyword: { fontSize: fontSize.sm, color: colors.textAccent, fontWeight: '600' },
   entryNarrative: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   caveatTag: { fontSize: fontSize.xs, color: colors.textMuted, fontStyle: 'italic' },

@@ -13,7 +13,7 @@ import * as React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { CircleCheck, CircleSlash } from 'lucide-react-native';
 import type { DailyFortuneNarrative, FortuneDimension, HeadlinerAnchor } from '../../lib/fortune-api';
-import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { DIM_META, type DimKey } from './dimensions';
 import { dimTierFromScore, type DimTier } from './labels';
@@ -344,7 +344,7 @@ const styles = StyleSheet.create({
   dims: { gap: rhythm.block },
   dimBlock: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
   dimHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  dimTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary, flex: 1 },
+  dimTitle: { ...T.subsection, color: colors.textPrimary, flex: 1 },
   dimBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -369,7 +369,9 @@ const styles = StyleSheet.create({
   adviceGrid: { flexDirection: 'row', gap: spacing.md },
   adviceCol: { flex: 1, ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg, gap: rhythm.afterHeading },
   adviceTitleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  adviceTitle: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
+  // Was fontSize.sm — the exact size of `adviceItemText` directly beneath it, so the
+  // heading and its own list rendered identically. `subsection` is 17 serif bold.
+  adviceTitle: { ...T.subsection, color: colors.textPrimary },
   adviceItem: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
   adviceItemText: { fontSize: fontSize.sm, color: colors.textSecondary, flex: 1, lineHeight: 24 },
   // disclaimer
@@ -381,7 +383,7 @@ const styles = StyleSheet.create({
   fallback: { gap: spacing.md },
   fallbackLead: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   signalsBlock: { backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.md, gap: 4 },
-  signalsTitle: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
+  signalsTitle: { ...T.subsection, color: colors.textPrimary },
   signalsItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   signalsEmpty: { fontSize: fontSize.sm, color: colors.textMuted },
 });
