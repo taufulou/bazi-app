@@ -155,6 +155,6 @@ const styles = StyleSheet.create({
   sendBtnDisabled: { opacity: 0.4 },
   meta: { flexDirection: 'row', justifyContent: 'flex-end' },
   charCounter: { fontSize: fontSize.xs, color: colors.textMuted },
-  overLimit: { color: colors.error, fontWeight: '700' },
+  overLimit: { color: colors.errorText, fontWeight: '700' },
   disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center' },
 });

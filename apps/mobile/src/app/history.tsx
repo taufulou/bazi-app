@@ -3,7 +3,7 @@ import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from
 import { useAuth } from '@clerk/clerk-expo';
 import { Redirect, Stack, useRouter } from 'expo-router';
 import { READING_TYPE_META } from '@repo/shared';
-import { colors, spacing, fontSize, radius, fonts, shadows } from '../theme';
+import { colors, spacing, fontSize, radius, fonts, shadows, text as T } from '../theme';
 import { useZh } from '../lib/language';
 import { getReadingHistory, type ReadingHistoryItem } from '../lib/readings-api';
 
@@ -179,7 +179,7 @@ const styles = StyleSheet.create({
   empty: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xxl * 2 },
   emptyIcon: { fontSize: 48 },
   emptyTitle: { fontSize: fontSize.lg, fontFamily: fonts.serifBold, fontWeight: '700', color: colors.textPrimary },
-  emptyText: { fontSize: fontSize.sm, color: colors.textMuted, textAlign: 'center', maxWidth: 260 },
+  emptyText: { ...T.bodyTight, color: colors.textMuted, textAlign: 'center', maxWidth: 260 },
   startBtn: {
     marginTop: spacing.md,
     backgroundColor: colors.red,
@@ -205,11 +205,13 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1, gap: 4 },
   cardTitle: { fontSize: fontSize.base, fontFamily: fonts.serifBold, fontWeight: '700', color: colors.textPrimary },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexWrap: 'wrap' },
-  metaText: { fontSize: fontSize.sm, color: colors.textSecondary },
+  metaText: { ...T.bodyTight, color: colors.textSecondary },
   vs: { color: colors.red, fontWeight: '700' },
   year: { color: colors.red, fontWeight: '700' },
-  dot: { fontSize: fontSize.sm, color: colors.textMuted },
-  freeBadge: { fontSize: fontSize.xs, color: colors.success, fontWeight: '700' },
-  creditBadge: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600' },
+  dot: { ...T.bodyTight, color: colors.textMuted },
+  freeBadge: { ...T.caption, color: colors.successText, fontWeight: '700' },
+  // Same slot as freeBadge (two arms of one ternary) — both must carry the same
+  // metrics or 「免費」 and 「-3 點」 sit at different heights row to row.
+  creditBadge: { ...T.caption, color: colors.textMuted, fontWeight: '600' },
   arrow: { fontSize: fontSize.base, color: colors.textMuted },
 });

@@ -578,5 +578,5 @@ const styles = StyleSheet.create({
   hourBanner: { backgroundColor: colors.bgBannerWarm, borderRadius: radius.md, padding: spacing.md },
   hourBannerRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' },
   hourBannerText: { flex: 1, fontSize: fontSize.sm, lineHeight: 24, color: colors.warningText, fontWeight: '600' },
-  error: { fontSize: fontSize.sm, lineHeight: 24, color: colors.error, textAlign: 'center' },
+  error: { fontSize: fontSize.sm, lineHeight: 24, color: colors.errorText, textAlign: 'center' },
 });

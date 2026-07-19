@@ -21,7 +21,7 @@ import {
   StyleSheet,
 } from 'react-native';
 import { CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT } from '@repo/shared';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 
 // ============================================================
@@ -220,8 +220,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   warning: {
-    fontSize: fontSize.sm,
-    color: colors.warning,
+    // warningText, not the `warning` FILL — #ffc107 is 1.63:1 here, i.e. the
+    // warning line in a chat dialog was effectively unreadable. This cut is 4.92:1.
+    ...T.bodyTight,
+    color: colors.warningText,
     fontWeight: '600',
     textAlign: 'center',
   },

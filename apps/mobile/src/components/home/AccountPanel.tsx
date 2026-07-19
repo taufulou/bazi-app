@@ -17,7 +17,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
-import { colors, fonts, fontSize, spacing, radius, shadows } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, shadows, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { getUserProfile, type SubscriptionTier } from '../../lib/api';
 
@@ -196,8 +196,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.sm,
   },
-  warningText: { fontSize: fontSize.sm, color: WARNING_TEXT },
-  warningBuyLink: { fontSize: fontSize.sm, fontWeight: '600', color: WARNING_TEXT },
+  warningText: { ...T.bodyTight, color: WARNING_TEXT },
+  warningBuyLink: { ...T.bodyTight, fontWeight: '600', color: WARNING_TEXT },
 
   // ---- CTAs ----
   ctaRow: {
@@ -238,7 +238,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: INFO_BORDER,
   },
-  buyCreditsBtnText: { fontSize: fontSize.base, fontWeight: '600', color: colors.info },
+  // tierBasicText (4.6:1), not the `info` FILL (3.12:1) — this is an outline
+  // button, so the label sits on the card, not on a coloured ground.
+  buyCreditsBtnText: { fontSize: fontSize.base, fontWeight: '600', color: colors.tierBasicText },
   // flexBasis 100% -> wraps onto its own line under the primary CTA (web parity).
   buyCreditsSecondary: {
     flexBasis: '100%',
@@ -246,7 +248,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buyCreditsSecondaryText: { fontSize: fontSize.sm, color: colors.textSecondary },
+  buyCreditsSecondaryText: { ...T.bodyTight, color: colors.textSecondary },
 
   // ---- Static CTA fallback ----
   staticTitle: {

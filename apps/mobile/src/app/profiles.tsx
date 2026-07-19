@@ -3,7 +3,7 @@ import { Redirect } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native';
 import { Plus, Star, Pencil, Trash2, ChevronLeft } from 'lucide-react-native';
-import { colors, spacing, fontSize, radius, shadows, fonts } from '../theme';
+import { colors, spacing, fontSize, radius, shadows, fonts, text as T } from '../theme';
 import { useZh } from '../lib/language';
 import BirthDataForm from '../components/BirthDataForm';
 import {
@@ -225,8 +225,9 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   cardName: { fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
   primaryBadge: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  primaryText: { fontSize: fontSize.xs, color: colors.gold, fontWeight: '600' },
-  cardMeta: { fontSize: fontSize.sm, color: colors.textSecondary },
+  // Same decorative-gold-as-text issue as store.tsx::tierBadge.
+  primaryText: { ...T.caption, color: colors.metalText, fontWeight: '600' },
+  cardMeta: { ...T.bodyTight, color: colors.textSecondary },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   addBtn: {
     flexDirection: 'row',

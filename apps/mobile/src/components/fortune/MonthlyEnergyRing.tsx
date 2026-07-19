@@ -4,7 +4,7 @@
  */
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { colors, fonts, fontSize, spacing } from '../../theme';
+import { colors, fonts, fontSize, spacing, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { friendlyExplanationFromLabel, ringTierFromLabel } from './labels';
 
@@ -82,13 +82,18 @@ const styles = StyleSheet.create({
   wrap: { alignItems: 'center', gap: spacing.sm },
   dateBand: { alignItems: 'center', gap: 2, marginBottom: spacing.xs },
   dateLine: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
-  baziLine: { fontSize: fontSize.sm, color: colors.textSecondary },
+  // 甲午日·偏官 — the chart identity the whole screen is about. Same size, but
+  // it was a bare `fontSize` with RN's Latin-derived default leading.
+  baziLine: { ...T.bodyTight, color: colors.textSecondary },
   ringWrap: { width: RING_SIZE, height: RING_SIZE, alignItems: 'center', justifyContent: 'center' },
   scoreText: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   scoreNumber: { fontVariant: ['tabular-nums'] as const, fontFamily: fonts.serifBold, fontSize: 44, fontWeight: '800', color: colors.textPrimary, lineHeight: 48 },
   scoreUnit: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
   labelBand: { paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, borderRadius: 999, marginTop: spacing.xs },
   labelText: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textOnGold },
-  friendlyExplanation: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', paddingHorizontal: spacing.md },
+  // The one sentence that tells the user what their day/month/year is like —
+  // it sat at secondary-prose size under a 44pt number. Body (17) gives the
+  // plain-language verdict the weight it earns; it wraps, so no width risk.
+  friendlyExplanation: { ...T.body, color: colors.textSecondary, textAlign: 'center', paddingHorizontal: spacing.md },
   microDisclaimer: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
 });

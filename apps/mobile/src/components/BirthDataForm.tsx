@@ -10,7 +10,7 @@ import {
   type TimezoneEntry,
   type CityRegion,
 } from '@repo/shared';
-import { colors, radius, spacing, fontSize, fonts } from '../theme';
+import { colors, radius, spacing, fontSize, fonts, text as T } from '../theme';
 import { useZh } from '../lib/language';
 import { SelectField, type SelectOption } from './SelectField';
 import type { BirthProfile } from '../lib/birth-profiles-api';
@@ -575,9 +575,12 @@ export default function BirthDataForm({
 const styles = StyleSheet.create({
   wrapper: { gap: spacing.lg },
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent },
-  subtitle: { fontSize: fontSize.sm, color: colors.textSecondary, marginTop: -spacing.sm },
+  subtitle: { ...T.bodyTight, color: colors.textSecondary, marginTop: -spacing.sm },
   fieldGroup: { gap: spacing.sm },
-  label: { fontSize: fontSize.sm, fontWeight: '600', color: colors.textSecondary },
+  // Kept at 15 (not dropped to T.label's 13): a form label above a 17pt input is
+  // already a clear step down, and shrinking it works against the readability
+  // complaint this pass exists to answer. Leaded, which it wasn't.
+  label: { ...T.bodyTight, fontWeight: '600', color: colors.textSecondary },
   nameRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'center' },
   input: {
     flex: 1,
@@ -648,9 +651,10 @@ const styles = StyleSheet.create({
   checkBoxOn: { backgroundColor: colors.red, borderColor: colors.red },
   checkLabel: { fontSize: fontSize.base, color: colors.textPrimary },
   leapRow: { gap: spacing.xs, marginTop: spacing.xs },
-  hint: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18 },
+  // Guidance a first-time user actually reads (時辰未知 etc.) — not a disclaimer.
+  hint: { ...T.meta, color: colors.textMuted },
   tagRow: { gap: spacing.sm, marginTop: spacing.sm },
-  error: { fontSize: fontSize.sm, color: colors.error },
+  error: { ...T.bodyTight, color: colors.errorText },
   submitBtn: {
     backgroundColor: colors.red,
     borderRadius: radius.md,

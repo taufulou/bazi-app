@@ -7,7 +7,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Redirect, Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft, RefreshCw } from 'lucide-react-native';
 import { READING_TYPE_META, type ReadingType } from '@repo/shared';
-import { colors, spacing, fontSize, radius } from '../../theme';
+import { colors, spacing, fontSize, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import BirthDataForm from '../../components/BirthDataForm';
 import BaziChart from '../../components/BaziChart';
@@ -707,7 +707,7 @@ const styles = StyleSheet.create({
   },
   backText: { color: colors.red, fontSize: fontSize.base, fontWeight: '600' },
   reading: { gap: spacing.md },
-  streamError: { color: colors.error, fontSize: fontSize.sm, textAlign: 'center', paddingVertical: spacing.sm },
+  streamError: { ...T.bodyTight, color: colors.errorText, textAlign: 'center', paddingVertical: spacing.sm },
   degraded: {
     backgroundColor: 'rgba(245,166,35,0.10)',
     borderRadius: radius.md,
