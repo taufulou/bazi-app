@@ -77,6 +77,7 @@ const mockPrisma = {
     findFirst: jest.fn(),
     findMany: jest.fn(),
     create: jest.fn(),
+    upsert: jest.fn(),
     update: jest.fn(),
   },
   transaction: {
@@ -480,7 +481,7 @@ describe('StripeService', () => {
           }],
         },
       });
-      mockPrisma.subscription.create.mockResolvedValue({});
+      mockPrisma.subscription.upsert.mockResolvedValue({});
       mockPrisma.user.update.mockResolvedValue({});
       mockPrisma.transaction.create.mockResolvedValue({});
       // Mock plan lookup for grantMonthlyCredits
@@ -495,9 +496,12 @@ describe('StripeService', () => {
 
       await service.handleCheckoutCompleted(session);
 
-      expect(mockPrisma.subscription.create).toHaveBeenCalledWith(
+      // UPSERT, not create — `customer.subscription.updated` may have written a
+      // provisional row first, and a bare create would P2002 before the credit grant.
+      expect(mockPrisma.subscription.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({
+          where: { stripeSubscriptionId: 'sub_stripe_456' },
+          create: expect.objectContaining({
             userId: 'user-123',
             stripeSubscriptionId: 'sub_stripe_456',
             planTier: 'PRO',
@@ -506,6 +510,13 @@ describe('StripeService', () => {
           }),
         }),
       );
+
+      // The update branch must NOT force status back to ACTIVE (resurrection vector
+      // on Stripe's 3-day retry if the user cancelled in between).
+      const upsertArg = mockPrisma.subscription.upsert.mock.calls[0][0] as {
+        update: Record<string, unknown>;
+      };
+      expect(upsertArg.update).not.toHaveProperty('status');
 
       expect(mockPrisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -558,7 +569,78 @@ describe('StripeService', () => {
 
       await service.handleCheckoutCompleted(session);
 
+      expect(mockPrisma.subscription.upsert).not.toHaveBeenCalled();
       expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
+    });
+
+    // ----------------------------------------------------------
+    // Ordering integration — the regression this pair of fixes exists for.
+    // `customer.subscription.updated` arrives FIRST and creates the row; the
+    // later `checkout.session.completed` must still reach the Transaction write
+    // and the credit grant. With a bare create it threw P2002 at the row write,
+    // so the user paid and received ZERO credits (and Stripe retried for days).
+    // ----------------------------------------------------------
+    it('updated-then-checkout still records the transaction and grants credits', async () => {
+      const updatedEvent = {
+        id: 'sub_stripe_456',
+        status: 'active',
+        cancel_at: null,
+        items: { data: [{ current_period_start: 1700000000, current_period_end: 1702592000 }] },
+        metadata: { internalUserId: 'user-123', planSlug: 'pro' },
+      } as any;
+
+      const session = {
+        id: 'cs_race',
+        mode: 'subscription',
+        subscription: 'sub_stripe_456',
+        payment_intent: 'pi_race',
+        amount_total: 999,
+        currency: 'usd',
+        metadata: {
+          clerkUserId: 'clerk_user_abc',
+          internalUserId: 'user-123',
+          planSlug: 'pro',
+        },
+      } as any;
+
+      const activeRow = {
+        id: 'sub-db-race',
+        planTier: 'PRO',
+        status: 'ACTIVE',
+        createdAt: new Date(),
+        currentPeriodStart: new Date(1700000000 * 1000),
+        currentPeriodEnd: new Date(1702592000 * 1000),
+      };
+
+      // --- event 1: subscription.updated wins the race (no row yet) ---
+      mockPrisma.subscription.findFirst.mockResolvedValue(null);
+      mockPrisma.subscription.create.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
+      mockPrisma.subscription.findMany.mockResolvedValue([activeRow]);
+      mockPrisma.user.update.mockResolvedValue({});
+
+      await service.handleSubscriptionUpdated(updatedEvent);
+      expect(mockPrisma.subscription.create).toHaveBeenCalledTimes(1);
+
+      // --- event 2: checkout.session.completed arrives for the SAME sub ---
+      mockStripeSubscriptions.retrieve.mockResolvedValue({
+        items: { data: [{ current_period_start: 1700000000, current_period_end: 1702592000 }] },
+      });
+      // The row now exists → upsert takes its update branch (no P2002 escape).
+      mockPrisma.subscription.upsert.mockResolvedValue({});
+      mockPrisma.transaction.create.mockResolvedValue({});
+      mockPrisma.plan.findFirst.mockResolvedValue({ ...MOCK_PLAN, slug: 'pro', monthlyCredits: 15 });
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
+
+      await expect(service.handleCheckoutCompleted(session)).resolves.not.toThrow();
+
+      // Exactly ONE row created across both events (event 2 upserted, not created).
+      expect(mockPrisma.subscription.create).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.subscription.upsert).toHaveBeenCalledTimes(1);
+      // And the two statements AFTER the row write were reached:
+      expect(mockPrisma.transaction.create).toHaveBeenCalledTimes(1);
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -642,6 +724,124 @@ describe('StripeService', () => {
       await service.handleSubscriptionUpdated(sub);
 
       expect(mockPrisma.subscription.findFirst).not.toHaveBeenCalled();
+    });
+
+    // ----------------------------------------------------------
+    // Ordering race: `customer.subscription.updated` can arrive BEFORE
+    // `checkout.session.completed`. Previously syncUserTier ran unconditionally
+    // with no row → computed FREE → un-subscribed a user who had just paid.
+    // ----------------------------------------------------------
+
+    const makeUpdatedEvent = (status: string) =>
+      ({
+        id: 'sub_stripe_race',
+        status,
+        cancel_at: null,
+        items: { data: [{ current_period_start: 1700000000, current_period_end: 1702592000 }] },
+        metadata: { internalUserId: 'user-123', planSlug: 'pro' },
+      }) as any;
+
+    it('creates the row and keeps the paid tier when it beats checkout (raw active)', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue(null); // no row yet
+      mockPrisma.user.update.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER); // currently FREE
+
+      // STATEFUL: findMany reflects what is actually persisted. Before the create
+      // there are no active rows, so syncUserTier would compute FREE — which is
+      // exactly the bug. If the create branch is ever removed, this test fails on
+      // the tier assertion rather than passing on a permissive mock.
+      const persisted: unknown[] = [];
+      mockPrisma.subscription.create.mockImplementation(async () => {
+        persisted.push({
+          id: 'sub-new',
+          planTier: 'PRO',
+          status: 'ACTIVE',
+          createdAt: new Date(),
+          currentPeriodStart: new Date(),
+          currentPeriodEnd: new Date(),
+        });
+        return {};
+      });
+      mockPrisma.subscription.findMany.mockImplementation(async () => persisted);
+
+      await service.handleSubscriptionUpdated(makeUpdatedEvent('active'));
+
+      expect(mockPrisma.subscription.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userId: 'user-123',
+            stripeSubscriptionId: 'sub_stripe_race',
+            planTier: 'PRO',
+            status: 'ACTIVE',
+            platform: 'STRIPE',
+          }),
+        }),
+      );
+      // The regression: must NOT be written FREE.
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { subscriptionTier: 'PRO' } }),
+      );
+    });
+
+    it('creates the row for raw trialing too', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue(null);
+      mockPrisma.subscription.create.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-new', planTier: 'PRO', status: 'ACTIVE', createdAt: new Date(), currentPeriodStart: new Date(), currentPeriodEnd: new Date() },
+      ]);
+
+      await service.handleSubscriptionUpdated(makeUpdatedEvent('trialing'));
+
+      expect(mockPrisma.subscription.create).toHaveBeenCalled();
+    });
+
+    it('does NOT create a row or touch the tier for raw incomplete (payment pending)', async () => {
+      // `incomplete` means the first payment has not succeeded (SCA / declined).
+      // mapStripeStatus() would launder it to 'ACTIVE' via its `|| 'ACTIVE'`
+      // fallback, so this asserts we gate on the RAW status instead.
+      mockPrisma.subscription.findFirst.mockResolvedValue(null);
+
+      await service.handleSubscriptionUpdated(makeUpdatedEvent('incomplete'));
+
+      expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('does NOT touch the tier for raw canceled with no local row', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue(null);
+
+      await service.handleSubscriptionUpdated(makeUpdatedEvent('canceled'));
+
+      expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('swallows P2002 when checkout wins the race concurrently, and still syncs tier', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue(null);
+      mockPrisma.subscription.create.mockRejectedValue({ code: 'P2002' });
+      mockPrisma.user.update.mockResolvedValue({});
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-from-checkout', planTier: 'PRO', status: 'ACTIVE', createdAt: new Date(), currentPeriodStart: new Date(), currentPeriodEnd: new Date() },
+      ]);
+
+      await expect(
+        service.handleSubscriptionUpdated(makeUpdatedEvent('active')),
+      ).resolves.not.toThrow();
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { subscriptionTier: 'PRO' } }),
+      );
+    });
+
+    it('rethrows a non-P2002 create failure', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue(null);
+      mockPrisma.subscription.create.mockRejectedValue({ code: 'P1001' });
+
+      await expect(service.handleSubscriptionUpdated(makeUpdatedEvent('active'))).rejects.toEqual({
+        code: 'P1001',
+      });
     });
   });
 

@@ -13,6 +13,7 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { EntitlementsService } from './entitlements.service';
+import { isUniqueConstraintViolation } from './prisma-errors';
 import Stripe from 'stripe';
 
 // ============================================================
@@ -553,6 +554,49 @@ export class StripeService {
           cancelledAt: sub.cancel_at ? new Date(sub.cancel_at * 1000) : null,
         },
       });
+    } else if (sub.status === 'active' || sub.status === 'trialing') {
+      // This event beat `checkout.session.completed` (Stripe does not guarantee
+      // ordering, and we don't subscribe to `customer.subscription.created`).
+      // Create the row from the event so syncUserTier below sees the subscription
+      // the user just paid for — otherwise it computes FREE from an empty set and
+      // silently un-subscribes them, resnapshotting chat quota to the FREE cap.
+      //
+      // Gate on the RAW Stripe status, NOT mapStripeStatus(): that maps unknown
+      // values — including `incomplete`, i.e. payment pending / SCA required /
+      // card declined — to 'ACTIVE' via `map[status] || 'ACTIVE'`. Gating on the
+      // mapped value would create an ACTIVE row and grant a paid tier to someone
+      // who has not paid.
+      try {
+        await this.prisma.subscription.create({
+          data: {
+            userId: internalUserId,
+            stripeSubscriptionId: sub.id,
+            planTier,
+            status: 'ACTIVE',
+            platform: 'STRIPE',
+            currentPeriodStart: periodStart ? new Date(periodStart * 1000) : new Date(),
+            currentPeriodEnd: periodEnd
+              ? new Date(periodEnd * 1000)
+              : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+            cancelledAt: sub.cancel_at ? new Date(sub.cancel_at * 1000) : null,
+          },
+        });
+      } catch (err) {
+        // A concurrent checkout.session.completed won the race; its upsert owns
+        // the row. Fall through to syncUserTier either way.
+        if (!isUniqueConstraintViolation(err)) throw err;
+        this.logger.warn(
+          `Subscription ${sub.id} was created concurrently by checkout — continuing to tier sync`,
+        );
+      }
+    } else {
+      // No local row AND the event is not a paid state. There is nothing to
+      // reflect, and calling syncUserTier here would downgrade a user whose
+      // checkout is still in flight. Leave the tier untouched.
+      this.logger.warn(
+        `Subscription ${sub.id} updated (stripe status=${sub.status}) with no local row — skipping tier sync`,
+      );
+      return;
     }
 
     // Recompute the user's effective tier from ALL active subscriptions across
@@ -772,18 +816,49 @@ export class StripeService {
       ? new Date(firstItem.current_period_end * 1000)
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // default: 30 days from now
 
-    // Create subscription record
-    await this.prisma.subscription.create({
-      data: {
-        userId,
-        stripeSubscriptionId: stripeSubId,
-        planTier,
-        status: 'ACTIVE',
-        platform: 'STRIPE',
-        currentPeriodStart: periodStart,
-        currentPeriodEnd: periodEnd,
-      },
-    });
+    // UPSERT, not create: `customer.subscription.updated` can arrive before this
+    // handler (we don't subscribe to `customer.subscription.created`, so checkout
+    // is our only create path) and may have written a provisional row first — see
+    // handleSubscriptionUpdated. A bare create would throw P2002 here, and because
+    // the Transaction write and the initial credit grant both come AFTER this
+    // statement, the user would pay and receive ZERO credits, with Stripe retrying
+    // the same failure for ~3 days.
+    //
+    // Deliberately NOT setting `status` in the update branch: on the happy path the
+    // provisional row is already ACTIVE so it would be a no-op, but if this handler
+    // 500s for an unrelated reason its Redis idempotency key is never set and Stripe
+    // retries — and if the user cancelled in between, forcing ACTIVE would resurrect
+    // a CANCELLED/EXPIRED subscription. Checkout stays authoritative for tier+period.
+    try {
+      await this.prisma.subscription.upsert({
+        where: { stripeSubscriptionId: stripeSubId },
+        create: {
+          userId,
+          stripeSubscriptionId: stripeSubId,
+          planTier,
+          status: 'ACTIVE',
+          platform: 'STRIPE',
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+        },
+        update: {
+          planTier,
+          currentPeriodStart: periodStart,
+          currentPeriodEnd: periodEnd,
+        },
+      });
+    } catch (err) {
+      // Prisma compiles this upsert to a native INSERT ... ON CONFLICT DO UPDATE
+      // (single unique field in `where`, no nested writes), so it is atomic against
+      // a concurrent insert. That is an optimization with preconditions, though — if
+      // it ever falls back to find-then-write, a truly concurrent delivery yields
+      // P2002 from the upsert itself, on the one path that MUST reach the Transaction
+      // write and the credit grant below. Tolerate it: a conflict means the row exists.
+      if (!isUniqueConstraintViolation(err)) throw err;
+      this.logger.warn(
+        `Subscription ${stripeSubId} already existed on upsert (concurrent delivery) — continuing`,
+      );
+    }
 
     // Recompute the user's effective tier from ALL active subs (M6) + resnapshot
     // chat quota. For a Stripe-only user this yields `planTier`; if they already

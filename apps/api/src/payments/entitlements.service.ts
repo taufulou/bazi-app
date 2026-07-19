@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Prisma, Subscription, SubscriptionTier } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatPaymentService } from '../chat/chat-payment.service';
+import { isUniqueConstraintViolation } from './prisma-errors';
 
 /**
  * Provider-neutral entitlements — the SINGLE place that decides a user's
@@ -321,15 +322,12 @@ export class EntitlementsService {
   // Helpers
   // ============================================================
 
+  /**
+   * Delegates to the shared helper so P2002 detection has ONE implementation
+   * across the payment services (this + RevenueCat + Stripe). Kept as a private
+   * method so existing call sites read unchanged.
+   */
   private isUniqueConstraintError(error: unknown): boolean {
-    if (error instanceof Prisma.PrismaClientKnownRequestError) {
-      return error.code === 'P2002';
-    }
-    return (
-      !!error &&
-      typeof error === 'object' &&
-      'code' in error &&
-      (error as { code: unknown }).code === 'P2002'
-    );
+    return isUniqueConstraintViolation(error);
   }
 }

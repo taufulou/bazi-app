@@ -72,6 +72,7 @@ const mockPrisma = {
     findFirst: jest.fn(),
     findMany: jest.fn(),
     create: jest.fn(),
+    upsert: jest.fn(),
     update: jest.fn(),
   },
   transaction: {
@@ -349,7 +350,7 @@ describe('Monthly Credits', () => {
           }],
         },
       });
-      mockPrisma.subscription.create.mockResolvedValue({});
+      mockPrisma.subscription.upsert.mockResolvedValue({});
       // M6: syncUserTier + grantMonthlyCreditsForGoverningSub read active subs.
       mockPrisma.subscription.findMany.mockResolvedValue([
         { id: 'sub-1', planTier: 'PRO', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
@@ -396,7 +397,7 @@ describe('Monthly Credits', () => {
           }],
         },
       });
-      mockPrisma.subscription.create.mockResolvedValue({});
+      mockPrisma.subscription.upsert.mockResolvedValue({});
       mockPrisma.subscription.findMany.mockResolvedValue([
         { id: 'sub-1', planTier: 'MASTER', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
       ]);

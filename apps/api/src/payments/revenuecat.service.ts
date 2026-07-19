@@ -4,6 +4,7 @@ import * as Sentry from '@sentry/nestjs';
 import { PaymentPlatform, SubscriptionTier } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { EntitlementsService } from './entitlements.service';
+import { isUniqueConstraintViolation } from './prisma-errors';
 
 /**
  * RevenueCat (mobile IAP) webhook service — the Apple/Google counterpart to
@@ -480,12 +481,13 @@ export class RevenueCatService {
     return store === 'APP_STORE' || store === 'MAC_APP_STORE' || store === 'PLAY_STORE';
   }
 
+  /**
+   * Delegates to the shared helper so P2002 detection has ONE implementation
+   * across the payment services. Note this now also matches a real
+   * `PrismaClientKnownRequestError` instance, which the local duck-typed-only
+   * version already did in practice (that class exposes a `code` property).
+   */
   private isUniqueConstraintError(error: unknown): boolean {
-    return (
-      !!error &&
-      typeof error === 'object' &&
-      'code' in error &&
-      (error as { code: unknown }).code === 'P2002'
-    );
+    return isUniqueConstraintViolation(error);
   }
 }
