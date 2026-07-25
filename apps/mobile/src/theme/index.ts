@@ -398,6 +398,16 @@ export const text = asTextStyles({
   body: { fontSize: 17, lineHeight: 28 },
   /** Compact prose: card descriptions, list subtitles. 15 · 1.5 */
   bodyTight: { fontSize: 15, lineHeight: 23 },
+  /**
+   * Width-constrained table content that still has to be READ. 14 · 1.35.
+   *
+   * The rung between `meta` (13) and `bodyTight` (15), added for the Bazi chart's
+   * 神煞 row: a four-character name (福星貴人) has ~61pt of column at 360dp, so 15
+   * leaves a single point of margin and 14 leaves five. Reach for this when a cell
+   * is genuinely width-bound — NOT as a general "slightly smaller body", which is
+   * what `bodyTight` is for.
+   */
+  cell: { fontSize: 14, lineHeight: 19 },
   /** Field labels, table row labels. 13 · 1.4 · +0.04em */
   label: { fontSize: 13, lineHeight: 18, letterSpacing: 0.52, fontWeight: '600' },
   /**

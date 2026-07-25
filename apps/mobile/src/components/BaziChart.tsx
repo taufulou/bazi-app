@@ -439,9 +439,9 @@ export default function BaziChart({
                           onPress={() => openSheet({ elementType: 'shensha', value: s, pillar: col.key, pillarLabel: col.label })}
                           accessibilityRole="button"
                           hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
-                          style={[styles.shenShaPill, styles[`pill_${tone}`]]}
+                          style={styles.shenShaItem}
                         >
-                          <Text style={[styles.shenShaPillText, styles[`pillText_${tone}`]]}>{zh(s)}</Text>
+                          <Text style={[styles.shenShaText, styles[`pillText_${tone}`]]}>{zh(s)}</Text>
                         </Pressable>
                       );
                     })}
@@ -951,52 +951,58 @@ const styles = StyleSheet.create({
   pillarHeadText: { ...T.label, color: colors.textAccent },
   cell: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm, gap: 2 },
   cellDay: { backgroundColor: colors.columnTint },
-  cellText: { ...T.bodyTight, color: colors.textPrimary },
-  cellSmall: { ...T.caption, color: colors.textPrimary, textAlign: 'center' },
+  // 15 -> 17. Two chars need 34pt of a 61pt column: there was never a width
+  // reason for these to sit below body size.
+  cellText: { ...T.body, color: colors.textPrimary },
+  // 納音 (長流水) — 12 -> 15. Three chars need 45pt of 61pt.
+  cellSmall: { ...T.bodyTight, color: colors.textPrimary, textAlign: 'center' },
   dayYuan: { ...T.label, color: colors.textMuted },
   ganZhi: T.ganzhi,
   unknownStem: { ...T.bodyTight, color: colors.textMuted },
-  zodiac: { ...T.caption, color: colors.textMuted },
+  zodiac: { ...T.meta, color: colors.textMuted },
 
   // ── 藏干 (two-line, see the row comment) ──
   hiddenStemGroup: { alignItems: 'center' },
   hiddenStemGroupGap: { marginTop: spacing.xs },
   // 本氣 leads at 14; 中氣/餘氣 step down to 13 so the primary hidden stem reads
   // first. The ten-god gloss below is `dense` (12) — one rung quieter again.
-  hiddenStem: { fontSize: 14, lineHeight: 19, fontWeight: '600', textAlign: 'center' },
-  hiddenStemMinor: { fontSize: 13, lineHeight: 17, fontWeight: '400' },
-  hiddenStemGod: { ...T.dense, color: colors.textMuted, textAlign: 'center' },
+  hiddenStem: { fontSize: 16, lineHeight: 21, fontWeight: '600', textAlign: 'center' },
+  hiddenStemMinor: { ...T.bodyTight, fontWeight: '400' },
+  hiddenStemGod: { ...T.meta, color: colors.textMuted, textAlign: 'center' },
 
-  // ── 神煞 pills ──
-  shenShaPill: {
-    borderRadius: radius.pill,
-    // 6, not spacing.sm (8): the pill text stepped 11 → 12 and a 4-character
-    // 神煞 (天乙貴人) already sat close to the cell width, so the inset gives back
-    // most of what the size bump costs. Any tighter and the pill stops reading
-    // as a pill.
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  shenShaPillText: { ...T.dense, textAlign: 'center' },
-  pill_auspicious: { backgroundColor: '#FBF3E2', borderColor: 'rgba(154,111,8,0.30)' },
-  pill_inauspicious: { backgroundColor: '#FBEDEA', borderColor: 'rgba(166,58,37,0.28)' },
-  pill_neutral: { backgroundColor: '#F5F2EC', borderColor: 'rgba(122,100,73,0.22)' },
+  // ── 神煞 ──
+  // Was a bordered pill. The pill cost 14pt of horizontal chrome (2x6 padding +
+  // 2 hairlines) out of a column that is only ~61pt wide at 360dp — so a
+  // four-character name (福星貴人, 國印貴人, 太極貴人 — the 貴人 family is common)
+  // could not exceed 12pt without wrapping. Since 12pt dense CJK is what the
+  // owner kept reporting as unreadable, the chrome had to go rather than the
+  // legibility: 4 chars at 14 = 56pt, which fits with margin.
+  //
+  // The auspicious/inauspicious signal is preserved by colouring the TEXT. All
+  // three tones clear AA on every ground the row can composite against —
+  // white / zebra / the 日柱 columnTint — at 4.99:1 or better.
+  // ZERO horizontal padding — the items stack vertically, so side inset buys
+  // nothing visually but costs width in the tightest column in the chart. At 360dp
+  // a 4-char name is 56pt of a 61pt column; with 2pt inset each side that margin
+  // fell to 1pt, which is inside the error bar on CJK advance width. Tap target is
+  // preserved by the existing hitSlop, not by padding.
+  shenShaItem: { paddingVertical: 1 },
+  shenShaText: { ...T.cell, textAlign: 'center', fontWeight: '500' },
   pillText_auspicious: { color: '#8A6208' },
   pillText_inauspicious: { color: '#A63A25' },
   pillText_neutral: { color: colors.textMuted },
   shenShaMore: { paddingHorizontal: spacing.xs, paddingVertical: 2 },
-  shenShaMoreText: { ...T.dense, color: colors.textAccent, fontWeight: '600' },
+  shenShaMoreText: { ...T.meta, color: colors.textAccent, fontWeight: '600' },
 
   palaceRow: { flexDirection: 'row', gap: spacing.sm },
   palaceCard: { flex: 1, backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', borderWidth: 1, borderColor: colors.ruleHair },
-  palaceLabel: { ...T.caption, color: colors.textMuted },
+  palaceLabel: { ...T.meta, color: colors.textMuted },
   palaceGz: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 26, fontWeight: '700', color: colors.textPrimary },
-  palaceNayin: { ...T.dense, color: colors.textMuted },
+  palaceNayin: { ...T.meta, color: colors.textMuted },
   seasonalRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'center' },
   seasonalTag: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.bgCard, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.ruleHair },
   seasonalElement: { fontSize: 15, lineHeight: 20, fontWeight: '700' },
-  seasonalState: { ...T.caption, color: colors.textSecondary },
+  seasonalState: { ...T.meta, color: colors.textSecondary },
   sectionTitle: { ...T.section, color: colors.textAccent },
 
   // ── 五行 rings ──
@@ -1044,7 +1050,7 @@ const styles = StyleSheet.create({
   luckCard: { width: LUCK_CARD_W, backgroundColor: colors.bgSecondary, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', gap: 2, borderWidth: 1, borderColor: colors.ruleHair },
   luckCardCurrent: { borderColor: colors.red, borderWidth: 1.5, backgroundColor: colors.bgBannerWarm },
   luckAge: { ...T.data, color: colors.textPrimary },
-  luckYear: { ...T.dense, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+  luckYear: { ...T.meta, color: colors.textMuted, fontVariant: ['tabular-nums'] },
   luckGz: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 26, fontWeight: '700' },
   luckTenGod: { ...T.caption, color: colors.textSecondary },
   luckCurrent: { ...T.caption, color: colors.red, fontWeight: '600' },

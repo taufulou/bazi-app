@@ -80,7 +80,7 @@ const BLOCKS = FILES.flatMap(styleBlocks);
 /** Role name -> the size it resolves to. Mirrors `text` in theme/index.ts. */
 const ROLE_SIZE: Record<string, number> = {
   display: 34, title: 24, section: 19, subsection: 17, body: 17,
-  bodyTight: 15, label: 13, meta: 13, caption: 12, dense: 12,
+  bodyTight: 15, cell: 14, label: 13, meta: 13, caption: 12, dense: 12,
   data: 15, dataSmall: 12, ganzhi: 28,
 };
 const TOKEN_SIZE: Record<string, number> = {
@@ -181,7 +181,7 @@ describe('Guard D — raw fontSize budget ratchets down', () => {
    * adding a style outside the role system — migrate it instead of raising the
    * budget. Lower it whenever a pass drops it, so the ratchet keeps its teeth.
    */
-  const BUDGET = 364;
+  const BUDGET = 363;
 
   it('does not add raw fontSize declarations', () => {
     const count = FILES.reduce(
