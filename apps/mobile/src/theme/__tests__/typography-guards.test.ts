@@ -181,7 +181,7 @@ describe('Guard D — raw fontSize budget ratchets down', () => {
    * adding a style outside the role system — migrate it instead of raising the
    * budget. Lower it whenever a pass drops it, so the ratchet keeps its teeth.
    */
-  const BUDGET = 367;
+  const BUDGET = 364;
 
   it('does not add raw fontSize declarations', () => {
     const count = FILES.reduce(
