@@ -209,9 +209,9 @@ const styles = StyleSheet.create({
   vs: { color: colors.red, fontWeight: '700' },
   year: { color: colors.red, fontWeight: '700' },
   dot: { ...T.bodyTight, color: colors.textMuted },
-  freeBadge: { ...T.caption, color: colors.successText, fontWeight: '700' },
+  freeBadge: { ...T.meta, color: colors.successText, fontWeight: '700' },
   // Same slot as freeBadge (two arms of one ternary) — both must carry the same
   // metrics or 「免費」 and 「-3 點」 sit at different heights row to row.
-  creditBadge: { ...T.caption, color: colors.textMuted, fontWeight: '600' },
+  creditBadge: { ...T.meta, color: colors.textMuted, fontWeight: '600' },
   arrow: { fontSize: fontSize.base, color: colors.textMuted },
 });

@@ -226,7 +226,7 @@ const styles = StyleSheet.create({
   cardName: { fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
   primaryBadge: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   // Same decorative-gold-as-text issue as store.tsx::tierBadge.
-  primaryText: { ...T.caption, color: colors.metalText, fontWeight: '600' },
+  primaryText: { ...T.meta, color: colors.metalText, fontWeight: '600' },
   cardMeta: { ...T.bodyTight, color: colors.textSecondary },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
   addBtn: {

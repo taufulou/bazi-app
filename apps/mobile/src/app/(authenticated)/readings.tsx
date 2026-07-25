@@ -182,6 +182,6 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   costText: { fontSize: fontSize.base, fontWeight: '800', color: colors.red },
-  costUnit: { fontSize: fontSize.xs, color: colors.red },
+  costUnit: { ...T.meta, color: colors.red },
   disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg, lineHeight: 18 },
 });

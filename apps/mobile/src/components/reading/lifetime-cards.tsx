@@ -703,7 +703,7 @@ const cc = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderMedium,
   },
-  zodiacBadgeText: { fontSize: fontSize.xs, fontWeight: '700', color: colors.textOnGold },
+  zodiacBadgeText: { ...T.meta, fontWeight: '700', color: colors.textOnGold },
   archetype: {
     alignItems: 'center',
     gap: spacing.xs,

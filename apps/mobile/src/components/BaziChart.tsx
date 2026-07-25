@@ -877,7 +877,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   headerEyebrow: {
-    ...T.caption,
+    ...T.meta,
     color: colors.textOnRed,
     opacity: 0.85,
     // Generous tracking so the ◆ ornaments read as set rather than typed.
@@ -890,7 +890,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerMeta: {
-    ...T.caption,
+    ...T.meta,
     color: colors.textOnRed,
     opacity: 0.9,
     letterSpacing: 0.5,
@@ -905,7 +905,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.md,
   },
-  hint: { ...T.caption, textAlign: 'center', color: colors.textMuted },
+  hint: { ...T.meta, textAlign: 'center', color: colors.textMuted },
   card: {
     ...surfaces.card,
     borderRadius: radius.lg,
@@ -1015,7 +1015,9 @@ const styles = StyleSheet.create({
   // width/height are injected per-render from useRingGeometry.
   ringWrap: { alignItems: 'center', justifyContent: 'center' },
   ringChar: { fontFamily: fonts.serifBold, fontSize: 19, lineHeight: 24, fontWeight: '700' },
-  ringPct: { ...T.dataSmall, color: colors.textSecondary },
+  // 12 -> 14. The percentage is what the ring section is FOR. Ring box is 48pt at
+  // 360dp and '22.6%' needs ~38pt at 14, so there was never a width reason for 12.
+  ringPct: { ...T.cell, fontVariant: ['tabular-nums'] as const, fontWeight: '600', color: colors.textSecondary },
 
   // ── 日主分析 stat columns ──
   dmStats: {
@@ -1030,9 +1032,10 @@ const styles = StyleSheet.create({
   },
   dmStat: { flex: 1, alignItems: 'center', gap: 2, paddingHorizontal: spacing.xs },
   dmDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.ruleHair, marginVertical: spacing.xs },
-  dmLabel: { ...T.caption, color: colors.textMuted },
+  // 日主 / 旺衰 / 格局 — column headers, so T.label, matching the table's labelText.
+  dmLabel: { ...T.label, color: colors.textMuted },
   dmValue: { fontFamily: fonts.serifBold, fontSize: 22, lineHeight: 29, fontWeight: '700', color: colors.textPrimary },
-  dmSub: { ...T.caption, color: colors.textSecondary },
+  dmSub: { ...T.meta, color: colors.textSecondary },
 
   strengthBar: { flexDirection: 'row', height: 30, borderRadius: radius.sm, overflow: 'hidden', marginVertical: spacing.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.ruleHair },
   strengthSame: { backgroundColor: 'rgba(139,195,74,0.30)', alignItems: 'center', justifyContent: 'center' },
@@ -1041,7 +1044,7 @@ const styles = StyleSheet.create({
 
   godsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs },
   godTag: { alignItems: 'center', gap: 2 },
-  godLabel: { ...T.caption, color: colors.textMuted },
+  godLabel: { ...T.label, color: colors.textMuted },
   godVal: { fontFamily: fonts.serifBold, fontSize: 19, lineHeight: 24, fontWeight: '700' },
 
   // ── 大運 ──
@@ -1052,8 +1055,10 @@ const styles = StyleSheet.create({
   luckAge: { ...T.data, color: colors.textPrimary },
   luckYear: { ...T.meta, color: colors.textMuted, fontVariant: ['tabular-nums'] },
   luckGz: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 26, fontWeight: '700' },
-  luckTenGod: { ...T.caption, color: colors.textSecondary },
-  luckCurrent: { ...T.caption, color: colors.red, fontWeight: '600' },
+  // 食神 / 正財 — the ten god of the period, i.e. content. 2 chars = 28pt of an
+  // 88pt card interior.
+  luckTenGod: { ...T.cell, color: colors.textSecondary },
+  luckCurrent: { ...T.meta, color: colors.red, fontWeight: '600' },
   luckFade: { position: 'absolute', right: 0, top: 0, bottom: 0, width: spacing.xl },
 
   tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

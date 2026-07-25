@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
   categoryBadge: {
     alignSelf: 'flex-start',
     marginTop: spacing.xs,
-    fontSize: fontSize.xs,
+    ...T.meta,
     color: colors.textOnGold,
     backgroundColor: colors.goldLight,
     paddingHorizontal: spacing.sm,

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { View, Text, Animated, StyleSheet, Easing } from 'react-native';
-import { colors, spacing, fontSize, fonts } from '../../theme';
+import { colors, spacing, fontSize, fonts, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 
 const BAR_WIDTH = 84;
@@ -84,5 +84,5 @@ const styles = StyleSheet.create({
   bar: { width: BAR_WIDTH, height: 6, borderRadius: 3, backgroundColor: colors.ruleHair, overflow: 'hidden' },
   barFill: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: colors.gold, borderRadius: 3 },
   shimmer: { position: 'absolute', top: 0, bottom: 0, width: 32, backgroundColor: 'rgba(255,255,255,0.55)' },
-  count: { fontSize: fontSize.xs, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+  count: { ...T.meta, color: colors.textMuted, fontVariant: ['tabular-nums'] },
 });

@@ -539,7 +539,7 @@ const verdict = StyleSheet.create({
   icon: { fontSize: fontSize.lg, fontWeight: '800' },
   label: { fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary, flex: 1 },
   score: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '800' },
-  scoreMax: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600' },
+  scoreMax: { ...T.meta, color: colors.textMuted, fontWeight: '600' },
   meta: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
 });
 

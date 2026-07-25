@@ -26,7 +26,7 @@ import {
   type NativeSyntheticEvent,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { colors, fonts, fontSize, radius, spacing } from '../../theme';
+import { colors, fonts, radius, spacing, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { env } from '../../lib/env';
 
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
   dots: { flexDirection: 'row', justifyContent: 'center', gap: spacing.sm },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.borderMedium },
   dotActive: { width: 20, borderRadius: 4, backgroundColor: colors.red },
-  hint: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center' },
+  hint: { ...T.meta, color: colors.textMuted, textAlign: 'center' },
   fallback: {
     width: '100%',
     height: 200,

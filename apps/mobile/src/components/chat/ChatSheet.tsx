@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   quotaChip: { backgroundColor: colors.bgSecondary, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
-  quotaText: { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
+  quotaText: { ...T.meta, color: colors.textSecondary, fontWeight: '600' },
   lockedBanner: {
     flexDirection: 'row',
     alignItems: 'center',

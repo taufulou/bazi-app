@@ -127,7 +127,7 @@ const styles = StyleSheet.create({
   },
   hourWarnLead: { fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 24, marginBottom: 2 },
   hourWarnItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
-  hourWarnNote: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: 4 },
+  hourWarnNote: { ...T.meta, color: colors.textMuted, marginTop: 4 },
   featureBox: { gap: spacing.sm },
   featureIntro: { ...T.subsection, color: colors.textSecondary },
   featureGrid: { gap: 4 },
@@ -140,5 +140,5 @@ const styles = StyleSheet.create({
   },
   revealBtnDisabled: { opacity: 0.6 },
   revealBtnText: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textOnRed },
-  paidNote: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center' },
+  paidNote: { ...T.meta, color: colors.textMuted, textAlign: 'center' },
 });

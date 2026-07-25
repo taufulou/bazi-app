@@ -195,7 +195,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   scoreNumber: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '800' },
-  scoreUnit: { ...T.caption, color: colors.textMuted },
+  scoreUnit: { ...T.meta, color: colors.textMuted },
   body: { flex: 1, gap: spacing.xs },
   headerRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm, flexWrap: 'wrap' },
   // Leaded to match `mood` beside it — headerRow is alignItems:'baseline', and
@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
   label: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, lineHeight: 24, fontWeight: '700' },
   mood: { ...T.bodyTight, color: colors.textSecondary },
   meta: { ...T.meta, color: colors.textMuted },
-  ziShiNote: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18 },
+  ziShiNote: { ...T.meta, color: colors.textMuted },
   cta: { ...T.bodyTight, color: colors.red, fontWeight: '600' },
   setupCard: {
     flexDirection: 'row',

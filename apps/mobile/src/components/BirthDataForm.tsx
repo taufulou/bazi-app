@@ -621,7 +621,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.borderLight,
   },
   profileName: { fontSize: fontSize.base, color: colors.textPrimary },
-  profileTag: { fontSize: fontSize.xs, color: colors.textMuted },
+  profileTag: { ...T.meta, color: colors.textMuted },
   toggleRow: { flexDirection: 'row', gap: spacing.sm },
   toggleBtn: {
     flex: 1,

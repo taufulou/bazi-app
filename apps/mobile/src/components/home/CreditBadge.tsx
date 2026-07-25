@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
   },
   // 免費/基本/專業/大師 — CJK, so 11 was below the floor `text.dense` sets. The
   // numeral beside it reads fine at 11; a Chinese word does not.
-  tierText: { ...T.dense, fontWeight: '600' },
+  tierText: { ...T.meta, fontWeight: '600' },
   creditBadge: {
     flexDirection: 'row',
     alignItems: 'center',

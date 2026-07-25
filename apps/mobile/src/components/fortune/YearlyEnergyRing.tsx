@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
   // centring deterministic; numberOfLines={1} makes any future squeeze visible.
   scoreText: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   scoreNumber: { fontVariant: ['tabular-nums'] as const, fontFamily: fonts.serifBold, fontSize: 44, fontWeight: '800', color: colors.textPrimary, lineHeight: 48 },
-  scoreUnit: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: 2 },
+  scoreUnit: { ...T.meta, color: colors.textMuted, marginTop: 2 },
   labelBand: { paddingHorizontal: spacing.lg, paddingVertical: spacing.xs, borderRadius: 999, marginTop: spacing.xs },
   labelText: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textOnGold },
   // The one sentence that tells the user what their day/month/year is like —

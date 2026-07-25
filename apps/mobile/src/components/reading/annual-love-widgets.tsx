@@ -13,7 +13,7 @@
 import * as React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Briefcase, Coins, Heart, HeartPulse } from 'lucide-react-native';
-import { colors, fontSize, spacing, radius, rhythm } from '../../theme';
+import { colors, fontSize, spacing, radius, rhythm, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { AnnualV2DeterministicData, LoveV2DeterministicData } from '../../lib/readings-api';
 import {
@@ -693,7 +693,7 @@ const ws = StyleSheet.create({
   wrap: { gap: rhythm.block },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   chipSection: { gap: rhythm.tight },
-  chipSectionLabel: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600' },
+  chipSectionLabel: { ...T.label, color: colors.textMuted },
   aspectGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   aspectCell: {
     flexBasis: '47%',
@@ -704,6 +704,6 @@ const ws = StyleSheet.create({
     gap: 2,
   },
   aspectLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  aspectLabel: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600' },
+  aspectLabel: { ...T.label, color: colors.textMuted },
   aspectValue: { fontSize: fontSize.sm, color: colors.textPrimary, fontWeight: '600' },
 });

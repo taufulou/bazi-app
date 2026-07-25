@@ -267,7 +267,7 @@ const styles = StyleSheet.create({
   },
   // cautionText, not orange: #F5A623 is 2.03:1 on this warm badge — invisible on
   // the one control that warns the reading will be degraded. This cut is 5.33:1.
-  hourBadgeText: { ...T.caption, color: colors.cautionText, fontWeight: '700' },
+  hourBadgeText: { ...T.meta, color: colors.cautionText, fontWeight: '700' },
   divider: { alignItems: 'center' },
   dividerIcon: { fontSize: 20 },
   creditInfo: { fontSize: fontSize.sm, color: colors.textMuted, textAlign: 'center' },

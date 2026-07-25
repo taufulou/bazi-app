@@ -137,5 +137,5 @@ const styles = StyleSheet.create({
   // own line it has the room for 13.
   peakSignal: { ...T.meta, color: colors.textMuted },
   placeholderHint: { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 24 },
-  windowInfo: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: spacing.xs },
+  windowInfo: { ...T.meta, color: colors.textMuted, marginTop: spacing.xs },
 });
