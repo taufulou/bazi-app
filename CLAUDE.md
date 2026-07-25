@@ -296,9 +296,29 @@ measurements and the reasoning.
 `metalText` was fine on white and still failed on `zebra` rows and the `columnTint`
 日柱 band — the exact cells it existed for. That mistake shipped once already.
 
-**Type floors (CJK):** 12pt is the floor for prose/captions; dense tabular cells
-(神煞 pills, 藏干 ten-god, 納音, 大運 years) run 11 with an explicit `lineHeight`.
-Never below 11.
+**Type floors (CJK):** 12pt is the floor for ANYTHING A USER READS, including the
+dense tabular cells (神煞 pills, 藏干 ten-god, 納音, 大運 years) — those ran 11 and
+were the text the owner singled out as unreadable. 11 survives only for non-CJK
+ornaments (emoji, latin numeral badges), where stroke density isn't a factor.
+
+**⚠️ The rules above are ENFORCED — don't re-audit them by hand.**
+`src/theme/__tests__/typography-guards.test.ts` is a static sweep over every
+non-test, non-Shareable `.tsx`:
+
+| Guard | Rule |
+|---|---|
+| A | Nothing below the 12pt floor outside a named ornament allowlist |
+| B | No vivid fill token (`colors.error/success/gold/…`) as a text colour |
+| C | No `fonts.serif` + bold weight (RN doesn't synthesize — renders Regular) |
+| D | Raw `fontSize:` count may only ratchet DOWN |
+
+Every exception is an allowlist entry with a stated reason, so exceptions have to
+be *decided on* rather than merely exist. Guard D is two-sided on purpose: it fails
+if the count rises (drift off the role system) AND if it falls without re-pinning
+`BUDGET`, so the ratchet can't go slack. **Re-pin it whenever a pass lowers it.**
+These exist because a 40-file typography pass repeatedly "finished" while leaving a
+tier label at 11pt CJK on one screen whose twin was fixed on another — recalling
+which files were done does not scale.
 
 **⚠️ Pending domain review:** the 神煞 auspicious/inauspicious tint lists at the top
 of `BaziChart.tsx` are a **doctrinal** classification, not a design one. 桃花 and 驛馬

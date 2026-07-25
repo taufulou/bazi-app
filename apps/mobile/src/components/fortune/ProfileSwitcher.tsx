@@ -171,7 +171,10 @@ const styles = StyleSheet.create({
   optionNameSelected: { fontWeight: '700', color: colors.red },
   optionMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   relTag: {
-    fontSize: fontSize.xs,
+    // T.meta (13), matching `birthChip` beside it in the SAME row and `chipRel`,
+    // which renders this identical REL_LABEL value on the collapsed chip. The pill
+    // background is a container, not a reason to drop a rung below its row-mate.
+    ...T.meta,
     color: colors.textSecondary,
     backgroundColor: colors.bgCard,
     borderRadius: radius.sm,

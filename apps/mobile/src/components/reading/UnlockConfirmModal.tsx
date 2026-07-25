@@ -6,7 +6,7 @@
  */
 import { View, Text, Pressable, Modal, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
 import { X, TriangleAlert } from 'lucide-react-native';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 
 interface Props {
@@ -135,12 +135,12 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.md },
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent },
   body: { gap: spacing.md, paddingBottom: spacing.md },
-  lead: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
+  lead: { ...T.body, color: colors.textPrimary },
   leadName: { fontWeight: '700', color: colors.red },
   costRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.xs, flexWrap: 'wrap' },
-  costLabel: { fontSize: fontSize.base, color: colors.textSecondary },
+  costLabel: { ...T.body, color: colors.textSecondary },
   costValue: { fontFamily: fonts.serifBold, fontSize: fontSize.xxl, fontWeight: '800', color: colors.red },
-  balance: { fontSize: fontSize.sm, color: colors.textMuted, marginLeft: spacing.xs },
+  balance: { ...T.bodyTight, color: colors.textMuted, marginLeft: spacing.xs },
   warn: {
     backgroundColor: 'rgba(245,166,35,0.10)',
     borderRadius: radius.md,
@@ -150,11 +150,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   warnHead: { flexDirection: 'row', gap: spacing.xs, alignItems: 'flex-start', marginBottom: 2 },
-  warnLead: { flex: 1, fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 24, fontWeight: '600' },
-  warnItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24, marginLeft: spacing.lg },
-  warnNote: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: 4 },
-  insufficient: { fontSize: fontSize.sm, color: colors.warningText, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
-  errorText: { fontSize: fontSize.sm, color: colors.errorText, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
+  warnLead: { ...T.bodyTight, flex: 1, color: colors.textPrimary, fontWeight: '600' },
+  warnItem: { ...T.bodyTight, color: colors.textSecondary, marginLeft: spacing.lg },
+  // Explains the 時辰未知 limitation right where credits get spent — content the
+  // reader needs, not a disclaimer to skim past.
+  warnNote: { ...T.meta, color: colors.textMuted, marginTop: 4 },
+  insufficient: { ...T.bodyTight, color: colors.warningText, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
+  errorText: { ...T.bodyTight, color: colors.errorText, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
   confirmBtn: {
     backgroundColor: colors.red,
     borderRadius: radius.md,

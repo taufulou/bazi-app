@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert, Platform, Linking } from 'react-native';
 import { ChevronRight } from 'lucide-react-native';
-import { colors, spacing, fontSize, radius, shadows } from '../../theme';
+import { colors, spacing, fontSize, radius, shadows, text as T } from '../../theme';
 import { useZh, useLang, useChangeLanguage } from '../../lib/language';
 import { deleteAccount, getUserProfile, ApiError, type SubscriptionTier } from '../../lib/api';
 import { TIER_LABELS } from '../../components/home/CreditBadge';
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
     ...shadows.warm,
   },
   name: { fontSize: fontSize.xl, fontWeight: '700', color: colors.textPrimary },
-  email: { fontSize: fontSize.sm, color: colors.textSecondary },
+  email: { ...T.bodyTight, color: colors.textSecondary },
   accountSummary: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -215,8 +215,11 @@ const styles = StyleSheet.create({
     borderColor: colors.borderLight,
     backgroundColor: colors.bgSecondary,
   },
-  tierPillText: { fontSize: 11, fontWeight: '600', color: colors.textPrimary },
-  creditsText: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
+  // 免費/基本/專業/大師 — the SAME TIER_LABELS constant CreditBadge renders, which
+  // takes T.dense. At 11 this was both under the CJK floor and a different size
+  // from its own twin on the home screen.
+  tierPillText: { ...T.dense, fontWeight: '600', color: colors.textPrimary },
+  creditsText: { ...T.bodyTight, color: colors.textSecondary, fontWeight: '600' },
   row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -233,5 +236,5 @@ const styles = StyleSheet.create({
   signOutRow: { justifyContent: 'center', borderColor: colors.red },
   signOutText: { fontSize: fontSize.base, fontWeight: '600', color: colors.red },
   deleteRow: { alignItems: 'center', paddingVertical: spacing.md, marginTop: spacing.sm },
-  deleteText: { fontSize: fontSize.sm, color: colors.textMuted, textDecorationLine: 'underline' },
+  deleteText: { ...T.bodyTight, color: colors.textMuted, textDecorationLine: 'underline' },
 });

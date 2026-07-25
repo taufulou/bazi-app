@@ -14,7 +14,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { useZh } from '../lib/language';
-import { colors, radius, spacing, fontSize, fonts } from '../theme';
+import { colors, radius, spacing, fontSize, fonts, text as T } from '../theme';
 import { GoogleSignInButton } from '../components/GoogleSignInButton';
 
 export default function SignInScreen() {
@@ -152,22 +152,16 @@ const styles = StyleSheet.create({
     color: colors.textAccent,
     marginBottom: spacing.sm,
   },
-  subtitle: {
-    fontSize: fontSize.base,
-    color: colors.textSecondary,
-  },
+  // The one line that wraps on a narrow screen — it was the only unleaded piece
+  // of running prose on the first screen a new user sees.
+  subtitle: { ...T.body, color: colors.textSecondary },
   form: {
     width: '100%',
   },
   inputGroup: {
     marginBottom: spacing.xl,
   },
-  label: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    marginBottom: spacing.sm,
-    fontWeight: '500',
-  },
+  label: { ...T.bodyTight, color: colors.textSecondary, marginBottom: spacing.sm, fontWeight: '500' },
   input: {
     backgroundColor: colors.bgCard,
     borderRadius: radius.md,
@@ -199,15 +193,12 @@ const styles = StyleSheet.create({
     marginVertical: spacing.xl,
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: colors.borderLight },
-  dividerText: { color: colors.textMuted, fontSize: fontSize.sm },
+  dividerText: { ...T.bodyTight, color: colors.textMuted },
   linkButton: {
     alignItems: 'center',
     marginTop: spacing.xl,
   },
-  linkText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-  },
+  linkText: { ...T.bodyTight, color: colors.textSecondary },
   linkHighlight: {
     color: colors.red,
     fontWeight: '600',
