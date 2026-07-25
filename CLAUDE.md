@@ -87,6 +87,19 @@ worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roami
    Driver script used for the UI-2 sweep: `<scratchpad>/uireview/ui.py`
    (dump / tap-by-label / screenshot / swipe). Swipes need ~700ms duration —
    a fast short swipe is interpreted as a TAP and navigates instead of scrolling.
+   ⚠️ **`adb shell wm density` / `settings put system font_scale` on a RUNNING app
+   produce a bogus `@clerk/clerk-react: You've added multiple <ClerkProvider>`
+   render error.** Not a code bug — there is exactly ONE ClerkProvider in source
+   (`app/_layout.tsx`) and no duplicate Clerk copies. `android:configChanges` omits
+   `density|fontScale`, so those config changes DESTROY AND RECREATE MainActivity
+   while the RN JS context survives, mounting a second React tree over the first.
+   Verified 2026-07-19: clean launch → clean; foreground `wm density` → error;
+   **backgrounded density change then resume (what a real user does via Settings →
+   Display) → CLEAN.** So it is an artifact of the testing method, not user-facing.
+   **Always set density BEFORE launching the app**, and force-stop + relaunch after
+   changing it. Adding `density|fontScale` to configChanges would fix it but needs
+   a prebuild + a dev-client rebuild on BOTH platforms (see #1) for a path users
+   don't hit.
    iOS: `xcrun simctl io <udid> screenshot` works; `simctl` has **no tap
    primitive** (confirmed). `idb` is installed but its last release is Aug 2022 —
    prefer Maestro-with-`launchApp`, or [AXe](https://github.com/cameroncooke/AXe)
