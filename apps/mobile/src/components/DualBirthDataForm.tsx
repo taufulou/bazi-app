@@ -9,7 +9,7 @@
  */
 import { useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { colors, fonts, fontSize, spacing, radius } from '../theme';
+import { colors, fonts, fontSize, spacing, radius, text as T } from '../theme';
 import { useZh } from '../lib/language';
 import type { BirthProfile } from '../lib/birth-profiles-api';
 import { createBirthProfile, formValuesToPayload } from '../lib/birth-profiles-api';
@@ -265,7 +265,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
   },
-  hourBadgeText: { fontSize: fontSize.xs, color: colors.orange, fontWeight: '700' },
+  // cautionText, not orange: #F5A623 is 2.03:1 on this warm badge — invisible on
+  // the one control that warns the reading will be degraded. This cut is 5.33:1.
+  hourBadgeText: { ...T.meta, color: colors.cautionText, fontWeight: '700' },
   divider: { alignItems: 'center' },
   dividerIcon: { fontSize: 20 },
   creditInfo: { fontSize: fontSize.sm, color: colors.textMuted, textAlign: 'center' },

@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
 import { READING_TYPE_META } from '@repo/shared';
 import { Briefcase, Handshake, Heart, ScrollText, type LucideIcon } from 'lucide-react-native';
-import { colors, spacing, fontSize, radius, fonts } from '../../theme';
+import { colors, spacing, fontSize, radius, fonts, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { getReadingHistoryByType, type ReadingHistoryItem } from '../../lib/readings-api';
 
@@ -202,7 +202,7 @@ const styles = StyleSheet.create({
   rowMeta: { fontSize: fontSize.sm, color: colors.textMuted, fontWeight: '400' },
   vs: { color: colors.red, fontWeight: '700' },
   yearBadge: { fontSize: fontSize.sm, color: colors.red, fontWeight: '700' },
-  rowLine2: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.xs, color: colors.textMuted },
+  rowLine2: { ...T.meta, fontVariant: ['tabular-nums'] as const, color: colors.textMuted },
   rowArrow: { fontSize: fontSize.base, color: colors.textMuted },
   loadMore: { alignItems: 'center', paddingVertical: spacing.md },
   loadMoreText: { fontSize: fontSize.sm, color: colors.red, fontWeight: '600' },

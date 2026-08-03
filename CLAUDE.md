@@ -87,19 +87,65 @@ worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roami
    Driver script used for the UI-2 sweep: `<scratchpad>/uireview/ui.py`
    (dump / tap-by-label / screenshot / swipe). Swipes need ~700ms duration —
    a fast short swipe is interpreted as a TAP and navigates instead of scrolling.
-   iOS: `xcrun simctl io <udid> screenshot` works; `simctl` has **no tap
-   primitive** (confirmed). `idb` is installed but its last release is Aug 2022 —
-   prefer Maestro-with-`launchApp`, or [AXe](https://github.com/cameroncooke/AXe)
-   if a second opinion is needed.
+   ⚠️ **`adb shell wm density` / `settings put system font_scale` on a RUNNING app
+   produce a bogus `@clerk/clerk-react: You've added multiple <ClerkProvider>`
+   render error.** Not a code bug — there is exactly ONE ClerkProvider in source
+   (`app/_layout.tsx`) and no duplicate Clerk copies. `android:configChanges` omits
+   `density|fontScale`, so those config changes DESTROY AND RECREATE MainActivity
+   while the RN JS context survives, mounting a second React tree over the first.
+   Verified 2026-07-19: clean launch → clean; foreground `wm density` → error;
+   **backgrounded density change then resume (what a real user does via Settings →
+   Display) → CLEAN.** So it is an artifact of the testing method, not user-facing.
+   **Always set density BEFORE launching the app**, and force-stop + relaunch after
+   changing it. Adding `density|fontScale` to configChanges would fix it but needs
+   a prebuild + a dev-client rebuild on BOTH platforms (see #1) for a path users
+   don't hit.
+   **iOS — use `mcp__Claude_Code_iOS_Simulator__control`, NOT Maestro.** (Corrected
+   2026-07-19; the previous advice here predated this integration and sent a whole
+   session down the Maestro path for no reason.) It has native `tap` / `swipe` /
+   `screenshot` / `text` / `button` / `open_url` / `launch` taking device POINTS
+   (origin top-left — `attach` reports the coordinate space, e.g. 402x874 on an
+   iPhone 17 Pro), and `attach` opens a LIVE PANEL the owner can watch. Call
+   `attach` FIRST, before building — it is cheap and errors harmlessly if nothing
+   is booted. Verified: a chart-cell tap fired the RN `onPress` and opened the
+   ElementExplanation sheet FIRST TRY at exact coordinates. Screenshots come back
+   full-resolution, no `sips` scaling needed.
+   ⚠️ If it errors with *"Xcode is installed but not selected"* the fix is
+   `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` — needs the
+   owner's password, so ASK; and note the check can be stale (it fired here while
+   `xcode-select -p` already reported the correct path).
+   **Keep Maestro for ONE thing**: `extendedWaitUntil`, i.e. declaratively blocking
+   on async content (waiting out a 45s AI stream). The MCP has no wait primitive —
+   you'd poll screenshots.
    ⚠️ **iOS `testID`s do NOT reach the accessibility tree** (RN iOS a11y
-   flattening: a `Pressable`'s `accessibilityLabel` REPLACES its children), so on
-   iOS match by accessibility label. Android is unaffected.
+   flattening: a `Pressable`'s `accessibilityLabel` REPLACES its children). This is
+   why Maestro text matching fails on iOS — `月運`, `註冊`, `我的`, `八字命格` all
+   missed in one session, each forcing a percentage-coordinate guess. Android is
+   unaffected (`uiautomator dump` + `input tap` are reliable; keep using adb there).
 4. **Deep `.webp/.ttf/.png` imports** need `apps/mobile/assets.d.ts` module
    declarations (project runs eslint `--max-warnings 0`, and `require()` trips
    `no-require-imports`).
 5. **React 19 + jest-expo defers setState flushes** — wrap state-changing
    `fireEvent` in `await act(async () => …)` or the assertion sees stale UI.
-6. Local stack: API :4000 + engine :5001 + Metro :8081 against the DEV DB;
+6. **Driving the app for UI verification** (learned the hard way, PR #58):
+   - **Deep-link straight to a screen** instead of tapping through:
+     `xcrun simctl openurl <udid> "tianming://reading/lifetime?id=<readingId>"`.
+     ⚠️ On **Android** the custom scheme opens the Expo dev-client LAUNCHER, not the
+     app — use `adb shell monkey -p com.tianming.app …` + taps there. On **iOS** use
+     Maestro's `openLink` INSIDE a flow (after `launchApp` + a readiness
+     `extendedWaitUntil`, or it fires before the bundle is ready).
+   - **Maestro on iOS needs `--device <UDID>`** when both sims are booted, or it
+     silently drives the Android one. It also needs an explicit `launchApp`.
+   - **Verify colours by sampling pixels, not by eye**: `sips -c H W --cropOffset Y X`
+     → `sips -s format bmp` → parse the BMP header in python. Confirmed
+     `metalText`/`successText` were actually live rather than assuming.
+   - **The 稱呼 profile picker is a type-to-filter combobox.** Tapping the field opens
+     the keyboard, which then OCCLUDES the list — `uiautomator` still reports the
+     list items' logical bounds, so taps land on the keyboard instead. Open it via the
+     chevron, or fill the form manually via the 年/月/日 dropdowns.
+   - A **cached** reading never streams. To exercise a streaming path you need a birth
+     date with no existing reading of that type (check `bazi_readings` first).
+7. Local stack: API :4000 + engine :5001 + Metro :8081 against the DEV DB;
    node@22 PATH prefix required; iOS sim `iPhone 17 Pro`, Android AVD `Pixel_8`.
 
 ### ⏸ App Store progress — PAUSED 2026-07-18 (resume point for a future session)
@@ -257,6 +303,57 @@ do not add others without recording them here.
 - **God tags**: Color-coded pills — green (喜神), blue (用神), grey (閒神), red (忌神), purple (仇神)
 - **SVG ring charts**: Animated progress rings for Five Elements with subtle grey background track
 - **Staged reveal**: Sequential section loading animation with contextual Chinese loading messages
+
+### Mobile design system — `apps/mobile/src/theme/index.ts` (added 2026-07-19, PR #58)
+
+The mobile app has a **typographic system** the web does not. It exists because a
+measured audit found 589 `fontSize` declarations against only 87 `lineHeight` — so
+every call site re-decided leading, and CJK rendered at Latin default leading. Read
+the docblocks in `theme/index.ts` before changing any of this; they carry the
+measurements and the reasoning.
+
+| Export | What it is | The rule |
+|---|---|---|
+| `text.*` | Role presets — size + family + weight + leading + tracking TOGETHER (`body` `bodyTight` `label` `caption` `data` `dataSmall` `section` `title` `display` `ganzhi`) | Pick a ROLE, not five numbers. Prevents shipping unleaded CJK by omission. Adoption is partial — BaziChart is fully migrated, other surfaces were leaded by hand. |
+| `rhythm` | `section: 32` before a heading · `afterHeading: 10` after · `block: 16` · `tight: 8` | **Deliberately unequal (~3:1).** Space encodes grouping; near-uniform gaps leave a heading belonging to neither section. Do NOT "tidy" these to one value. |
+| `surfaces.card` | Platform-split card surface | Android `elevation` **cannot take a colour**, so warm `shadowColor` + elevation gave iOS a warm lift and Android a muddy grey one. Android gets a warm hairline instead. ⚠️ It sets its own `backgroundColor` — spreading it onto a coloured button turns the button white. |
+| `metalText` `warningText` `successText` `cautionText` `errorText` | AA-safe TEXT cuts of the vivid signal fills | `colors.gold/success/error/warning` are **fills, not type** (2.1–3.7:1). Anything READ uses the `*Text` cut. |
+| `ruleHair` (1.29:1) · `ruleHeader` · `ringTrack` (1.40:1) · `zebra` · `columnTint` | Table + track furniture | Replaces `borderLight`, which composites to 1.13:1 — i.e. renders nothing. |
+
+**Measure contrast against the ground the text ACTUALLY renders on**, not white.
+`metalText` was fine on white and still failed on `zebra` rows and the `columnTint`
+日柱 band — the exact cells it existed for. That mistake shipped once already.
+
+**Type floors (CJK):** 12pt is the floor for ANYTHING A USER READS, including the
+dense tabular cells (神煞 pills, 藏干 ten-god, 納音, 大運 years) — those ran 11 and
+were the text the owner singled out as unreadable. 11 survives only for non-CJK
+ornaments (emoji, latin numeral badges), where stroke density isn't a factor.
+
+**⚠️ The rules above are ENFORCED — don't re-audit them by hand.**
+`src/theme/__tests__/typography-guards.test.ts` is a static sweep over every
+non-test, non-Shareable `.tsx`:
+
+| Guard | Rule |
+|---|---|
+| A | Nothing below the 12pt floor outside a named ornament allowlist |
+| B | No vivid fill token (`colors.error/success/gold/…`) as a text colour |
+| C | No `fonts.serif` + bold weight (RN doesn't synthesize — renders Regular) |
+| D | Raw `fontSize:` count may only ratchet DOWN |
+
+Every exception is an allowlist entry with a stated reason, so exceptions have to
+be *decided on* rather than merely exist. Guard D is two-sided on purpose: it fails
+if the count rises (drift off the role system) AND if it falls without re-pinning
+`BUDGET`, so the ratchet can't go slack. **Re-pin it whenever a pass lowers it.**
+These exist because a 40-file typography pass repeatedly "finished" while leaving a
+tier label at 11pt CJK on one screen whose twin was fixed on another — recalling
+which files were done does not scale.
+
+**⚠️ Pending domain review:** the 神煞 auspicious/inauspicious lists at the top of
+`BaziChart.tsx` are a **doctrinal** classification, not a design one. 桃花 and 驛馬 are
+deliberately left neutral. They now drive the 神煞 TEXT COLOUR directly — the bordered
+pill was dropped so a four-character 貴人 name could reach 14pt in a 61pt column — so
+a wrong call there is more visible than it was as a pill tint. Deleting both arrays
+makes every entry neutral and the layout still works.
 
 ### ZWDS Visual Distinction
 ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's red-gold theme:

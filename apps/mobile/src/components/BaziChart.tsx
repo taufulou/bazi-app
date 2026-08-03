@@ -439,9 +439,9 @@ export default function BaziChart({
                           onPress={() => openSheet({ elementType: 'shensha', value: s, pillar: col.key, pillarLabel: col.label })}
                           accessibilityRole="button"
                           hitSlop={{ top: 10, bottom: 10, left: 4, right: 4 }}
-                          style={[styles.shenShaPill, styles[`pill_${tone}`]]}
+                          style={styles.shenShaItem}
                         >
-                          <Text style={[styles.shenShaPillText, styles[`pillText_${tone}`]]}>{zh(s)}</Text>
+                          <Text style={[styles.shenShaText, styles[`pillText_${tone}`]]}>{zh(s)}</Text>
                         </Pressable>
                       );
                     })}
@@ -877,7 +877,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   headerEyebrow: {
-    ...T.caption,
+    ...T.meta,
     color: colors.textOnRed,
     opacity: 0.85,
     // Generous tracking so the ◆ ornaments read as set rather than typed.
@@ -890,7 +890,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   headerMeta: {
-    ...T.caption,
+    ...T.meta,
     color: colors.textOnRed,
     opacity: 0.9,
     letterSpacing: 0.5,
@@ -905,7 +905,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.md,
   },
-  hint: { ...T.caption, textAlign: 'center', color: colors.textMuted },
+  hint: { ...T.meta, textAlign: 'center', color: colors.textMuted },
   card: {
     ...surfaces.card,
     borderRadius: radius.lg,
@@ -931,54 +931,80 @@ const styles = StyleSheet.create({
   },
   // Row backgrounds go edge-to-edge (per the canonical table treatment) but the
   // label TEXT still needs breathing room from the card edge.
-  labelCell: { width: 68, justifyContent: 'center', paddingVertical: spacing.sm, paddingLeft: spacing.md },
-  labelText: { ...T.caption, color: colors.textMuted },
+  // The longest label is FOUR glyphs (天干地支) — at 13 that needs ~52pt, and the
+  // original 68 − 12 padding left only 56pt (~1.03× headroom), so the first Dynamic
+  // Type step would wrap it to 「天干地」/「支」 and change the row height.
+  //
+  // The width is bought from this cell's own padding, NOT from the column width:
+  // widening the cell to 72 was tried and it pushed the four-character 神煞 names
+  // (福星貴人, 國印貴人, 太極貴人) into wrapping, because the pillars are `flex: 1`
+  // and absorb whatever the label takes. 8pt of inset is still ample given the
+  // card's own 20pt padding sits outside it.
+  labelCell: { width: 68, justifyContent: 'center', paddingVertical: spacing.sm, paddingLeft: spacing.sm },
+  // The row labels (十神/天干地支/藏干/十二運/納音/神煞) are LABELS, not captions — they
+  // name every row the reader scans by, so `T.label` (13, a little weight) separates
+  // them from the 12pt data they introduce. Tracking is zeroed: T.label's +0.52
+  // buys nothing on a left-aligned CJK label and costs 2pt of a tight cell.
+  labelText: { ...T.label, letterSpacing: 0, color: colors.textMuted },
   pillarHead: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm },
   pillarHeadDay: { backgroundColor: '#FDEFE4' },
   pillarHeadText: { ...T.label, color: colors.textAccent },
   cell: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm, gap: 2 },
   cellDay: { backgroundColor: colors.columnTint },
-  cellText: { ...T.bodyTight, color: colors.textPrimary },
-  cellSmall: { ...T.caption, color: colors.textPrimary, textAlign: 'center' },
+  // 15 -> 17. Two chars need 34pt of a 61pt column: there was never a width
+  // reason for these to sit below body size.
+  cellText: { ...T.body, color: colors.textPrimary },
+  // 納音 (長流水) — 12 -> 15. Three chars need 45pt of 61pt.
+  cellSmall: { ...T.bodyTight, color: colors.textPrimary, textAlign: 'center' },
   dayYuan: { ...T.label, color: colors.textMuted },
   ganZhi: T.ganzhi,
   unknownStem: { ...T.bodyTight, color: colors.textMuted },
-  zodiac: { ...T.caption, color: colors.textMuted },
+  zodiac: { ...T.meta, color: colors.textMuted },
 
   // ── 藏干 (two-line, see the row comment) ──
   hiddenStemGroup: { alignItems: 'center' },
   hiddenStemGroupGap: { marginTop: spacing.xs },
-  hiddenStem: { fontSize: 13, lineHeight: 17, fontWeight: '600', textAlign: 'center' },
-  hiddenStemMinor: { fontSize: 12, lineHeight: 16, fontWeight: '400' },
-  hiddenStemGod: { fontSize: 11, lineHeight: 15, color: colors.textMuted, textAlign: 'center' },
+  // 16 / 15 / 13. 本氣 leads so the primary hidden stem reads first; 中氣/餘氣 step
+  // down one rung (`bodyTight`), and the ten-god gloss below them is quieter again
+  // (`meta`). Two chars need 32pt of a 61pt column at 360dp, so none of this is
+  // width-bound — these sat at 14/13/12 purely because nobody had measured.
+  hiddenStem: { fontSize: 16, lineHeight: 21, fontWeight: '600', textAlign: 'center' },
+  hiddenStemMinor: { ...T.bodyTight, fontWeight: '400' },
+  hiddenStemGod: { ...T.meta, color: colors.textMuted, textAlign: 'center' },
 
-  // ── 神煞 pills ──
-  shenShaPill: {
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderWidth: StyleSheet.hairlineWidth,
-  },
-  shenShaPillText: { fontSize: 11, lineHeight: 16, textAlign: 'center' },
-  pill_auspicious: { backgroundColor: '#FBF3E2', borderColor: 'rgba(154,111,8,0.30)' },
-  pill_inauspicious: { backgroundColor: '#FBEDEA', borderColor: 'rgba(166,58,37,0.28)' },
-  pill_neutral: { backgroundColor: '#F5F2EC', borderColor: 'rgba(122,100,73,0.22)' },
+  // ── 神煞 ──
+  // Was a bordered pill. The pill cost 14pt of horizontal chrome (2x6 padding +
+  // 2 hairlines) out of a column that is only ~61pt wide at 360dp — so a
+  // four-character name (福星貴人, 國印貴人, 太極貴人 — the 貴人 family is common)
+  // could not exceed 12pt without wrapping. Since 12pt dense CJK is what the
+  // owner kept reporting as unreadable, the chrome had to go rather than the
+  // legibility: 4 chars at 14 = 56pt, which fits with margin.
+  //
+  // The auspicious/inauspicious signal is preserved by colouring the TEXT. All
+  // three tones clear AA on every ground the row can composite against —
+  // white / zebra / the 日柱 columnTint — at 4.99:1 or better.
+  // ZERO horizontal padding — the items stack vertically, so side inset buys
+  // nothing visually but costs width in the tightest column in the chart. At 360dp
+  // a 4-char name is 56pt of a 61pt column; with 2pt inset each side that margin
+  // fell to 1pt, which is inside the error bar on CJK advance width. Tap target is
+  // preserved by the existing hitSlop, not by padding.
+  shenShaItem: { paddingVertical: 1 },
+  shenShaText: { ...T.cell, textAlign: 'center', fontWeight: '500' },
   pillText_auspicious: { color: '#8A6208' },
   pillText_inauspicious: { color: '#A63A25' },
   pillText_neutral: { color: colors.textMuted },
   shenShaMore: { paddingHorizontal: spacing.xs, paddingVertical: 2 },
-  shenShaMoreText: { fontSize: 11, lineHeight: 16, color: colors.textAccent, fontWeight: '600' },
+  shenShaMoreText: { ...T.meta, color: colors.textAccent, fontWeight: '600' },
 
   palaceRow: { flexDirection: 'row', gap: spacing.sm },
   palaceCard: { flex: 1, backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', borderWidth: 1, borderColor: colors.ruleHair },
-  palaceLabel: { ...T.caption, color: colors.textMuted },
+  palaceLabel: { ...T.meta, color: colors.textMuted },
   palaceGz: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 26, fontWeight: '700', color: colors.textPrimary },
-  // was fontSize: 10 — CJK strokes merged; 11 is the hard minimum for dense cells.
-  palaceNayin: { fontSize: 11, lineHeight: 15, color: colors.textMuted },
+  palaceNayin: { ...T.meta, color: colors.textMuted },
   seasonalRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, justifyContent: 'center' },
   seasonalTag: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, backgroundColor: colors.bgCard, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.xs, borderWidth: 1, borderColor: colors.ruleHair },
   seasonalElement: { fontSize: 15, lineHeight: 20, fontWeight: '700' },
-  seasonalState: { ...T.caption, color: colors.textSecondary },
+  seasonalState: { ...T.meta, color: colors.textSecondary },
   sectionTitle: { ...T.section, color: colors.textAccent },
 
   // ── 五行 rings ──
@@ -991,7 +1017,9 @@ const styles = StyleSheet.create({
   // width/height are injected per-render from useRingGeometry.
   ringWrap: { alignItems: 'center', justifyContent: 'center' },
   ringChar: { fontFamily: fonts.serifBold, fontSize: 19, lineHeight: 24, fontWeight: '700' },
-  ringPct: { ...T.dataSmall, color: colors.textSecondary },
+  // 12 -> 14. The percentage is what the ring section is FOR. Ring box is 48pt at
+  // 360dp and '22.6%' needs ~38pt at 14, so there was never a width reason for 12.
+  ringPct: { ...T.cell, fontVariant: ['tabular-nums'] as const, fontWeight: '600', color: colors.textSecondary },
 
   // ── 日主分析 stat columns ──
   dmStats: {
@@ -1006,9 +1034,10 @@ const styles = StyleSheet.create({
   },
   dmStat: { flex: 1, alignItems: 'center', gap: 2, paddingHorizontal: spacing.xs },
   dmDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.ruleHair, marginVertical: spacing.xs },
-  dmLabel: { ...T.caption, color: colors.textMuted },
+  // 日主 / 旺衰 / 格局 — column headers, so T.label, matching the table's labelText.
+  dmLabel: { ...T.label, color: colors.textMuted },
   dmValue: { fontFamily: fonts.serifBold, fontSize: 22, lineHeight: 29, fontWeight: '700', color: colors.textPrimary },
-  dmSub: { ...T.caption, color: colors.textSecondary },
+  dmSub: { ...T.meta, color: colors.textSecondary },
 
   strengthBar: { flexDirection: 'row', height: 30, borderRadius: radius.sm, overflow: 'hidden', marginVertical: spacing.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.ruleHair },
   strengthSame: { backgroundColor: 'rgba(139,195,74,0.30)', alignItems: 'center', justifyContent: 'center' },
@@ -1017,7 +1046,7 @@ const styles = StyleSheet.create({
 
   godsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs },
   godTag: { alignItems: 'center', gap: 2 },
-  godLabel: { ...T.caption, color: colors.textMuted },
+  godLabel: { ...T.label, color: colors.textMuted },
   godVal: { fontFamily: fonts.serifBold, fontSize: 19, lineHeight: 24, fontWeight: '700' },
 
   // ── 大運 ──
@@ -1026,11 +1055,12 @@ const styles = StyleSheet.create({
   luckCard: { width: LUCK_CARD_W, backgroundColor: colors.bgSecondary, borderRadius: radius.md, padding: spacing.sm, alignItems: 'center', gap: 2, borderWidth: 1, borderColor: colors.ruleHair },
   luckCardCurrent: { borderColor: colors.red, borderWidth: 1.5, backgroundColor: colors.bgBannerWarm },
   luckAge: { ...T.data, color: colors.textPrimary },
-  // was fontSize: 10
-  luckYear: { fontSize: 11, lineHeight: 15, color: colors.textMuted, fontVariant: ['tabular-nums'] },
+  luckYear: { ...T.meta, color: colors.textMuted, fontVariant: ['tabular-nums'] },
   luckGz: { fontFamily: fonts.serifBold, fontSize: 20, lineHeight: 26, fontWeight: '700' },
-  luckTenGod: { ...T.caption, color: colors.textSecondary },
-  luckCurrent: { ...T.caption, color: colors.red, fontWeight: '600' },
+  // 食神 / 正財 — the ten god of the period, i.e. content. 2 chars = 28pt of an
+  // 88pt card interior.
+  luckTenGod: { ...T.cell, color: colors.textSecondary },
+  luckCurrent: { ...T.meta, color: colors.red, fontWeight: '600' },
   luckFade: { position: 'absolute', right: 0, top: 0, bottom: 0, width: spacing.xl },
 
   tagWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },

@@ -17,7 +17,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
-import { colors, fonts, fontSize, spacing } from '../../theme';
+import { colors, fonts, fontSize, spacing, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import {
   fetchDailyFortune,
@@ -127,7 +127,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.55)',
   },
   dot: { width: 7, height: 7, borderRadius: 999 },
-  energyWord: { fontSize: 11, color: colors.textMuted },
+  // 「能量」 — CJK, so 11 was under the floor `text.dense` sets.
+  energyWord: { ...T.meta, color: colors.textMuted },
   score: {
     fontFamily: fonts.serifBold,
     fontSize: 15,
@@ -135,9 +136,12 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   sep: { fontSize: fontSize.xs, color: colors.textMuted },
-  statusWord: { fontSize: fontSize.xs, color: colors.textSecondary },
+  statusWord: { ...T.meta, color: colors.textSecondary },
   label: {
-    fontFamily: fonts.serif,
+    // serifBold, NOT serif + fontWeight — RN doesn't synthesize weight for custom
+    // fonts, so naming the Regular family here silently rendered 大吉 at Regular.
+    // Last instance of this trap in the app.
+    fontFamily: fonts.serifBold,
     fontSize: 15,
     fontWeight: '600',
     color: colors.textAccent,

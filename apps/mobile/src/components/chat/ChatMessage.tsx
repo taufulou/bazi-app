@@ -14,7 +14,7 @@
 import * as React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import type { ChatMessage as ChatMessageType } from '../../lib/chat-types';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { parseBoldSegments } from '../fortune/markdown';
 
@@ -132,9 +132,8 @@ const styles = StyleSheet.create({
   systemRow: { alignItems: 'center', marginVertical: spacing.xs, paddingHorizontal: spacing.lg },
   systemNote: {
     fontFamily: fonts.sans,
-    fontSize: fontSize.xs,
+    ...T.meta,
     color: colors.textMuted,
     textAlign: 'center',
-    lineHeight: 18,
   },
 });

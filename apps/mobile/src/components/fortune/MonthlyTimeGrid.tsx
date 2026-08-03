@@ -7,7 +7,7 @@
  */
 import { View, Text, StyleSheet } from 'react-native';
 import type { PartitionSpec, IntraMonthBreakdown } from '../../lib/fortune-api';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 
 interface Props {
@@ -73,8 +73,10 @@ export default function MonthlyTimeGrid({ partitionSpec, intraMonthBreakdown, mo
 
                   {breakdown.peak_signals.slice(0, 3).map((peak, peakIdx) => (
                     <View key={peak.date ?? `${bucket.label}-peak-${peakIdx}`} style={styles.peakItem}>
-                      {peak.date ? <Text style={styles.peakDate}>{peak.date}</Text> : null}
-                      <Text style={styles.peakLabel}>{zh(peak.label)}</Text>
+                      <View style={styles.peakHead}>
+                        {peak.date ? <Text style={styles.peakDate}>{peak.date}</Text> : null}
+                        <Text style={styles.peakLabel}>{zh(peak.label)}</Text>
+                      </View>
                       {peak.signals[0] ? <Text style={styles.peakSignal}>{zh(peak.signals[0])}</Text> : null}
                     </View>
                   ))}
@@ -102,25 +104,38 @@ export default function MonthlyTimeGrid({ partitionSpec, intraMonthBreakdown, mo
 
 const styles = StyleSheet.create({
   section: { gap: spacing.sm },
-  title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  title: { ...T.section, color: colors.textAccent },
   subtitle: { fontSize: fontSize.sm, color: colors.textSecondary },
   grid: { gap: spacing.md, marginTop: spacing.xs },
   card: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
-  cardTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
+  cardTitle: { ...T.subsection, color: colors.textPrimary },
   pillarBadge: { backgroundColor: 'rgba(212,160,23,0.10)', borderColor: colors.borderMedium, borderWidth: 1, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
-  pillarBadgeText: { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
+  // 「流月天干 (乙) 主氣」 — states which pillar governs the half-month; content.
+  pillarBadgeText: { ...T.meta, color: colors.textSecondary, fontWeight: '600' },
   cardRange: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, color: colors.textMuted },
   dayCounts: { flexDirection: 'row', gap: spacing.md },
   countItem: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, fontWeight: '700' },
   shenshaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
-  shenshaLabel: { fontSize: fontSize.xs, color: colors.textSecondary },
+  // The 神煞 names and peak dates are the substance of this card, not chrome — they
+  // sat at 12 alongside the disclaimers. `label`/`meta` (13) lifts the content a
+  // rung and leaves 12 to what really is caption-class here: peakSignal (a
+  // secondary detail under an already-labelled peak) and windowInfo (a footnote).
+  shenshaLabel: { ...T.label, color: colors.textSecondary },
   shenshaTag: { backgroundColor: 'rgba(226,61,40,0.08)', borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
-  shenshaTagText: { fontSize: fontSize.xs, color: colors.textAccent },
-  peakItem: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: spacing.xs },
-  peakDate: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.xs, fontWeight: '700', color: colors.textPrimary },
-  peakLabel: { fontSize: fontSize.xs, color: colors.textSecondary },
-  peakSignal: { fontSize: fontSize.xs, color: colors.textMuted },
+  shenshaTagText: { ...T.meta, color: colors.textAccent },
+  // Every peak gets the SAME two-part shape: date + verdict on one line, the
+  // signal sentence beneath. Previously all three were inline siblings in a
+  // flexWrap row, so a short signal stayed on line 1 while a long one wrapped
+  // flush-left under the date — the list came out ragged, with each entry a
+  // different shape depending on how long its sentence happened to be.
+  peakItem: { gap: 2, marginTop: 2 },
+  peakHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  peakDate: { ...T.meta, fontVariant: ['tabular-nums'] as const, fontWeight: '700', color: colors.textPrimary },
+  peakLabel: { ...T.meta, color: colors.textSecondary },
+  // A full sentence the reader parses, not a caption — and now that it owns its
+  // own line it has the room for 13.
+  peakSignal: { ...T.meta, color: colors.textMuted },
   placeholderHint: { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 24 },
-  windowInfo: { fontSize: fontSize.xs, color: colors.textMuted, marginTop: spacing.xs },
+  windowInfo: { ...T.meta, color: colors.textMuted, marginTop: spacing.xs },
 });

@@ -25,7 +25,7 @@ import {
   TrendingUp,
   type LucideIcon,
 } from 'lucide-react-native';
-import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces  } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { LifetimeV2DeterministicData } from '../../lib/readings-api';
 import { ChipGroup } from './primitives';
@@ -703,7 +703,7 @@ const cc = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderMedium,
   },
-  zodiacBadgeText: { fontSize: fontSize.xs, fontWeight: '700', color: colors.textOnGold },
+  zodiacBadgeText: { ...T.meta, fontWeight: '700', color: colors.textOnGold },
   archetype: {
     alignItems: 'center',
     gap: spacing.xs,
@@ -711,7 +711,9 @@ const cc = StyleSheet.create({
     backgroundColor: colors.bgBannerWarm,
     borderRadius: radius.md,
   },
-  archetypeLabel: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600', letterSpacing: 1 },
+  // letterSpacing stays 1 (wider than T.label's 0.52) — this is a spaced eyebrow
+  // over the archetype value, and the extra tracking is the whole effect.
+  archetypeLabel: { ...T.label, color: colors.textMuted, letterSpacing: 1 },
   archetypeValue: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent },
   layers: { gap: rhythm.section - 8 },
   layer: { gap: rhythm.tight },

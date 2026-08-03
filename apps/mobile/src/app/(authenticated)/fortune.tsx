@@ -2,7 +2,6 @@ import { useAuth } from '@clerk/clerk-expo';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native';
-import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { colors, spacing, fontSize, radius, fonts, rhythm } from '../../theme';
 import { useZh } from '../../lib/language';
 import EnergyScoreRing from '../../components/fortune/EnergyScoreRing';
@@ -168,21 +167,15 @@ export default function FortuneScreen() {
   // OR a sample-question pill (which prefills the composer). Closed on tab change:
   // a session is bound to one scope+anchor, so it shouldn't survive a scope switch.
   const [chatOpen, setChatOpen] = useState(false);
-  /** Chat FAB auto-hide — see onFortuneScroll. */
-  const [fabHidden, setFabHidden] = useState(false);
-  const lastScrollY = useRef(0);
-
   /**
-   * Park the chat FAB while reading DOWN, restore on scroll-up. The button is an
-   * opaque pill pinned bottom-right across all three fortune tabs.
+   * The chat FAB used to auto-hide on scroll-down and return on scroll-up. Removed:
+   * it took the button away at exactly the moment a reader wants it — mid-page,
+   * looking at the section they want to ask about — and the occlusion it was
+   * guarding against is already handled by `content.paddingBottom` (104), which
+   * lets the last card scroll clear of the button. It also forced a mount-reset
+   * effect on every screen that gates the FAB behind a state change, because the
+   * button would animate straight out the moment it appeared.
    */
-  const onFortuneScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = e.nativeEvent.contentOffset.y;
-    const dy = y - lastScrollY.current;
-    if (Math.abs(dy) < 12) return;
-    lastScrollY.current = y;
-    setFabHidden(y > 80 && dy > 0);
-  }, []);
   const [chatPending, setChatPending] = useState<string | undefined>(undefined);
   const askFortune = useCallback((question?: string) => {
     setChatPending(question);
@@ -262,8 +255,6 @@ export default function FortuneScreen() {
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
-      onScroll={onFortuneScroll}
-      scrollEventThrottle={16}
     >
       {/* Profile switcher (hidden when <= 1 profile) */}
       <ProfileSwitcher
@@ -288,7 +279,6 @@ export default function FortuneScreen() {
               onPress={() => {
                 // A fresh tab starts at the top, so the parked FAB would stay
                 // parked until the next scroll happened to self-correct it.
-                setFabHidden(false);
                 setTab(t.key);
               }}
               accessibilityRole="button"
@@ -338,7 +328,6 @@ export default function FortuneScreen() {
       pending={chatPending}
       onOpenChange={setChatOpen}
       onPendingConsumed={() => setChatPending(undefined)}
-      fabHidden={fabHidden}
     />
     </View>
   );

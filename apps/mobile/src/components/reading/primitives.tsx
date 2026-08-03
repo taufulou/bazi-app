@@ -33,7 +33,7 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react-native';
-import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces  } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces, text as T } from '../../theme';
 
 // ============================================================
 // Section theme → accent color + icon
@@ -479,7 +479,8 @@ const bar = StyleSheet.create({
   label: { fontSize: fontSize.sm, lineHeight: 21, color: colors.textSecondary, fontWeight: '600' },
   // tabular so a column of these (5 elements, 10 ten-gods) stops shifting per render
   value: { fontSize: fontSize.base, lineHeight: 22, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  level: { fontSize: fontSize.xs, lineHeight: 17, color: colors.textMuted, fontWeight: '600' },
+  // The verdict word (偏強/中和/偏弱) beside the bar — a reading, not a caption.
+  level: { ...T.meta, color: colors.textMuted, fontWeight: '600' },
   // borderLight is ~1.14:1 — the UNFILLED remainder was invisible, so the bar read
   // as a floating stub with no 0–100 reference. ringTrack is the warm 1.40:1 token.
   track: { height: 8, backgroundColor: colors.ringTrack, borderRadius: radius.pill, overflow: 'hidden' },
@@ -538,7 +539,7 @@ const verdict = StyleSheet.create({
   icon: { fontSize: fontSize.lg, fontWeight: '800' },
   label: { fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary, flex: 1 },
   score: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '800' },
-  scoreMax: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: '600' },
+  scoreMax: { ...T.meta, color: colors.textMuted, fontWeight: '600' },
   meta: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
 });
 

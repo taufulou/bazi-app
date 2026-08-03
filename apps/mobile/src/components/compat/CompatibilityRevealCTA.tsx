@@ -9,7 +9,7 @@
  * (unknown birth hour) warnings.
  */
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 
 interface Props {
@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
   },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, justifyContent: 'center' },
   headerIcon: { fontSize: 24 },
-  headerTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  headerTitle: { ...T.section, color: colors.textAccent },
   hourWarn: {
     backgroundColor: colors.bgBannerWarm,
     borderRadius: radius.md,
@@ -127,11 +127,11 @@ const styles = StyleSheet.create({
   },
   hourWarnLead: { fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 24, marginBottom: 2 },
   hourWarnItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
-  hourWarnNote: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: 4 },
+  hourWarnNote: { ...T.meta, color: colors.textMuted, marginTop: 4 },
   featureBox: { gap: spacing.sm },
-  featureIntro: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textSecondary },
+  featureIntro: { ...T.subsection, color: colors.textSecondary },
   featureGrid: { gap: 4 },
-  featureItem: { fontSize: fontSize.sm, color: colors.textPrimary },
+  featureItem: { ...T.bodyTight, color: colors.textPrimary },
   revealBtn: {
     backgroundColor: colors.red,
     borderRadius: radius.md,
@@ -140,5 +140,5 @@ const styles = StyleSheet.create({
   },
   revealBtnDisabled: { opacity: 0.6 },
   revealBtnText: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textOnRed },
-  paidNote: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center' },
+  paidNote: { ...T.meta, color: colors.textMuted, textAlign: 'center' },
 });

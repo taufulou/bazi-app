@@ -4,7 +4,7 @@
  */
 import { View, Text, StyleSheet } from 'react-native';
 import type { FortuneDimension } from '../../lib/fortune-api';
-import { colors, fontSize, spacing, radius } from '../../theme';
+import { colors, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { DIM_META, type DimKey } from './dimensions';
 import { dimTierFromScore, type DimTier } from './labels';
@@ -72,6 +72,9 @@ const styles = StyleSheet.create({
   },
   barFill: { width: '100%', borderRadius: radius.sm },
   score: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
-  dimName: { fontSize: fontSize.xs, color: colors.textSecondary },
-  dimLabel: { fontSize: 12, lineHeight: 16, fontWeight: '600' },
+  // The dimension names (感情/事業/財運/出行/健康) are what the bar chart is ABOUT —
+  // they were a caption size, level with the disclaimers.
+  dimName: { ...T.meta, color: colors.textSecondary },
+  // Sibling of dimName (13) — the verdict word sat a rung behind its own label.
+  dimLabel: { ...T.meta, fontWeight: '600' },
 });

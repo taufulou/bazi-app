@@ -23,7 +23,7 @@ import Svg, {
   Stop,
   Text as SvgText,
 } from 'react-native-svg';
-import { colors, elementColors, fonts, fontSize, spacing, radius, rhythm } from '../../theme';
+import { colors, elementColors, fonts, fontSize, spacing, radius, rhythm, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { ScoreBar, ChipGroup, Chip } from './primitives';
 import type { LuckPeriodDetailData, LifetimeV2DeterministicData } from '../../lib/readings-api';
@@ -155,7 +155,7 @@ export function LuckPeriodChart({
             strokeWidth={1}
             strokeDasharray="4 4"
           />
-          <SvgText x={PAD_LEFT - 6} y={gridY + 3} textAnchor="end" fontSize={10} fill={colors.textMuted}>
+          <SvgText x={PAD_LEFT - 6} y={gridY + 3} textAnchor="end" fontSize={11} fill={colors.textMuted}>
             50
           </SvgText>
 
@@ -227,7 +227,7 @@ export function LuckPeriodChart({
                   {zh(`${p.stem}${p.branch}`)}
                 </SvgText>
                 {/* start year (abbreviated x-axis) */}
-                <SvgText x={x} y={BASE_Y + 29} textAnchor="middle" fontSize={10} fill={colors.textMuted}>
+                <SvgText x={x} y={BASE_Y + 29} textAnchor="middle" fontSize={11} fill={colors.textMuted}>
                   {p.startYear}
                 </SvgText>
               </React.Fragment>
@@ -241,7 +241,7 @@ export function LuckPeriodChart({
 
 const chart = StyleSheet.create({
   wrap: { gap: rhythm.afterHeading },
-  title: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
+  title: { ...T.subsection, color: colors.textAccent },
   svgWrap: { width: '100%' },
 });
 
@@ -314,10 +314,10 @@ const tl = StyleSheet.create({
   rowBest: { borderColor: colors.success },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
   headerLeft: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm, flexShrink: 1 },
-  ganzhi: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
-  tenGod: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
+  ganzhi: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, lineHeight: 24, fontWeight: '700', color: colors.textPrimary },
+  tenGod: { ...T.bodyTight, color: colors.textSecondary, fontWeight: '600' },
   badges: { flexDirection: 'row', gap: spacing.xs },
-  meta: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, color: colors.textMuted },
+  meta: { ...T.bodyTight, fontVariant: ['tabular-nums'] as const, color: colors.textMuted },
 });
 
 // ============================================================
@@ -400,9 +400,9 @@ const hdr = StyleSheet.create({
     paddingVertical: 2,
     overflow: 'hidden',
   },
-  ganzhi: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '800', color: colors.textPrimary },
-  years: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, color: colors.textSecondary },
-  ageMeta: { fontSize: fontSize.sm, color: colors.textMuted },
+  ganzhi: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, lineHeight: 26, fontWeight: '800', color: colors.textPrimary },
+  years: { ...T.bodyTight, fontVariant: ['tabular-nums'] as const, color: colors.textSecondary },
+  ageMeta: { ...T.bodyTight, color: colors.textMuted },
   phases: { gap: spacing.xs },
   phaseRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' },
   phaseLabel: { fontSize: fontSize.sm, fontWeight: '700', color: colors.zwds },
@@ -415,6 +415,6 @@ const hdr = StyleSheet.create({
     borderTopColor: colors.ruleHair,
     paddingTop: spacing.sm,
   },
-  scoreLabel: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
-  scoreValue: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '800' },
+  scoreLabel: { ...T.bodyTight, color: colors.textSecondary, fontWeight: '600' },
+  scoreValue: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, lineHeight: 24, fontWeight: '800' },
 });

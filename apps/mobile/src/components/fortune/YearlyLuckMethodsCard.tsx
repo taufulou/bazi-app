@@ -5,7 +5,7 @@
  */
 import { View, Text, StyleSheet } from 'react-native';
 import type { YearlyLuckMethods } from '../../lib/fortune-api';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 
 interface Props {
@@ -68,17 +68,18 @@ export default function YearlyLuckMethodsCard({ luckMethods }: Props) {
 
 const styles = StyleSheet.create({
   section: { gap: spacing.sm },
-  title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
+  title: { ...T.section, color: colors.textAccent },
   subtitle: { fontSize: fontSize.sm, color: colors.textSecondary },
   grid: { gap: spacing.md, marginTop: spacing.xs },
   card: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.sm },
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  cardTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary, flex: 1 },
+  cardTitle: { ...T.subsection, color: colors.textPrimary, flex: 1 },
   folkBadge: { backgroundColor: 'rgba(139,111,71,0.12)', borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   folkBadgeText: { fontSize: 12, lineHeight: 16, fontStyle: 'italic', fontWeight: '600', color: colors.textMuted },
   cardBody: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   cardMeta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs },
   chip: { backgroundColor: 'rgba(212,160,23,0.10)', borderColor: colors.borderMedium, borderWidth: 1, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
-  chipText: { fontSize: fontSize.xs, color: colors.textPrimary, fontWeight: '600' },
+  // 用神:火 / 方位:南方 / 色:紅色 — the actionable part of the card.
+  chipText: { ...T.meta, color: colors.textPrimary, fontWeight: '600' },
   disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: spacing.xs },
 });

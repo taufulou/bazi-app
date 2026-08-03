@@ -4,7 +4,7 @@
  */
 import { View, Text, StyleSheet } from 'react-native';
 import type { YearlyFortuneDimension } from '../../lib/fortune-api';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { YEARLY_DIM_META, type YearlyDimKey } from './yearlyDimensions';
 import { dimTierFromScore, type DimTier } from './labels';
@@ -77,6 +77,6 @@ const styles = StyleSheet.create({
   dimName: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   stars: { flexDirection: 'row', gap: 2 },
   star: { fontSize: fontSize.lg },
-  keyword: { fontSize: fontSize.xs, color: colors.textSecondary, textAlign: 'center' },
+  keyword: { ...T.meta, color: colors.textSecondary, textAlign: 'center' },
   dimLabel: { fontSize: fontSize.sm, fontWeight: '700' },
 });

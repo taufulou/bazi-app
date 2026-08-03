@@ -4,7 +4,7 @@ import { View, Text, Pressable, ScrollView, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { ScrollText, ChevronRight } from 'lucide-react-native';
 import { READING_TYPE_META, type ReadingType } from '@repo/shared';
-import { colors, spacing, fontSize, radius, fonts, shadows } from '../../theme';
+import { colors, spacing, fontSize, radius, fonts, shadows, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { getUserProfile } from '../../lib/api';
 
@@ -126,7 +126,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.borderLight,
   },
-  creditText: { fontSize: fontSize.sm, color: colors.textSecondary },
+  creditText: { ...T.bodyTight, color: colors.textSecondary },
   creditNum: { fontWeight: '800', color: colors.red },
   freeCard: {
     flexDirection: 'row',
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
   },
   freeBody: { flex: 1, gap: 2 },
   freeTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
-  freeSub: { fontSize: fontSize.sm, color: colors.textSecondary },
+  freeSub: { ...T.bodyTight, color: colors.textSecondary },
   sectionLabel: {
     fontSize: fontSize.sm,
     fontWeight: '700',
@@ -182,6 +182,6 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   costText: { fontSize: fontSize.base, fontWeight: '800', color: colors.red },
-  costUnit: { fontSize: fontSize.xs, color: colors.red },
+  costUnit: { ...T.meta, color: colors.red },
   disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center', marginTop: spacing.lg, lineHeight: 18 },
 });

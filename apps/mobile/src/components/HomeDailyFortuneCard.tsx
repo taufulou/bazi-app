@@ -14,7 +14,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@clerk/clerk-expo';
 import { useRouter } from 'expo-router';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { colors, fonts, fontSize, spacing, radius, shadows } from '../theme';
+import { colors, fonts, fontSize, spacing, radius, shadows, text as T } from '../theme';
 import { useZh } from '../lib/language';
 import {
   fetchDailyFortune,
@@ -32,10 +32,24 @@ type State =
   | { kind: 'no_profile' }
   | { kind: 'error' };
 
+/** Ring stroke — a FILL, so the vivid cuts are correct here. */
 function tierColor(t: 'positive' | 'neutral' | 'negative'): string {
   if (t === 'positive') return colors.success;
   if (t === 'neutral') return colors.gold;
   return colors.red;
+}
+
+/**
+ * The same tones as TEXT. Splitting these mirrors `VerdictCard` in
+ * reading/primitives.tsx, for the same reason: on the white card the fills
+ * measure success 2.78:1 and gold 2.38:1, so two of the three tiers failed even
+ * the 3:1 large-text floor — on the score and the 大吉/吉 label, i.e. the two
+ * things this widget exists to be read at a glance. The ring keeps `tierColor`.
+ */
+function tierTextColor(t: 'positive' | 'neutral' | 'negative'): string {
+  if (t === 'positive') return colors.successText;
+  if (t === 'neutral') return colors.metalText;
+  return colors.errorText;
 }
 
 function formatDateZH(iso: string): string {
@@ -109,7 +123,9 @@ export default function HomeDailyFortuneCard() {
   }
 
   const { engineOutput } = state.data;
-  const tColor = tierColor(tierOf(engineOutput.auspiciousness));
+  const tier = tierOf(engineOutput.auspiciousness);
+  const tColor = tierColor(tier); // ring stroke (fill)
+  const tText = tierTextColor(tier); // score + verdict label (read)
   const moodKeyword = moodKeywordFromLabel(engineOutput.auspiciousness);
   const civilDate = civilTodayTaipei();
   const isZiShiRollover = state.data.date !== civilDate;
@@ -132,13 +148,13 @@ export default function HomeDailyFortuneCard() {
         accessibilityLabel={zh(`今日運勢 ${engineOutput.auspiciousness}，查看`)}
       >
         <View style={[styles.scoreRing, { borderColor: tColor }]}>
-          <Text style={[styles.scoreNumber, { color: tColor }]}>{engineOutput.energyScore}</Text>
+          <Text style={[styles.scoreNumber, { color: tText }]}>{engineOutput.energyScore}</Text>
           <Text style={styles.scoreUnit}>{zh('能量')}</Text>
         </View>
 
         <View style={styles.body}>
           <View style={styles.headerRow}>
-            <Text style={[styles.label, { color: tColor }]}>{zh(engineOutput.auspiciousness)}</Text>
+            <Text style={[styles.label, { color: tText }]}>{zh(engineOutput.auspiciousness)}</Text>
             <Text style={styles.mood}>{zh(moodKeyword)}</Text>
           </View>
           <Text style={styles.meta}>
@@ -179,14 +195,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   scoreNumber: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '800' },
-  scoreUnit: { fontSize: 10, color: colors.textMuted },
+  scoreUnit: { ...T.meta, color: colors.textMuted },
   body: { flex: 1, gap: spacing.xs },
   headerRow: { flexDirection: 'row', alignItems: 'baseline', gap: spacing.sm, flexWrap: 'wrap' },
-  label: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700' },
-  mood: { fontSize: fontSize.sm, color: colors.textSecondary },
-  meta: { fontSize: fontSize.sm, color: colors.textMuted },
-  ziShiNote: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18 },
-  cta: { fontSize: fontSize.sm, color: colors.red, fontWeight: '600' },
+  // Leaded to match `mood` beside it — headerRow is alignItems:'baseline', and
+  // leading one child but not the other shifts their baselines apart.
+  label: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, lineHeight: 24, fontWeight: '700' },
+  mood: { ...T.bodyTight, color: colors.textSecondary },
+  meta: { ...T.meta, color: colors.textMuted },
+  ziShiNote: { ...T.meta, color: colors.textMuted },
+  cta: { ...T.bodyTight, color: colors.red, fontWeight: '600' },
   setupCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -199,6 +217,7 @@ const styles = StyleSheet.create({
   setupIcon: { fontSize: 28 },
   setupBody: { flex: 1, gap: 2 },
   setupTitle: { fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
-  setupSub: { fontSize: fontSize.xs, color: colors.textSecondary },
+  // Prose telling a new user what to do next — not a caption.
+  setupSub: { ...T.meta, color: colors.textSecondary },
   setupArrow: { fontSize: fontSize.lg, color: colors.red },
 });

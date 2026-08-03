@@ -3,7 +3,7 @@
  */
 import { View, Text, StyleSheet } from 'react-native';
 import type { MonthlyFortuneDimension } from '../../lib/fortune-api';
-import { colors, fontSize, spacing, radius } from '../../theme';
+import { colors, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { MONTHLY_DIM_META, type MonthlyDimKey } from './monthlyDimensions';
 import { dimTierFromScore, type DimTier } from './labels';
@@ -70,6 +70,6 @@ const styles = StyleSheet.create({
   },
   barFill: { width: '100%', borderRadius: radius.sm },
   score: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
-  dimName: { fontSize: fontSize.xs, color: colors.textSecondary },
-  dimLabel: { fontSize: 12, lineHeight: 16, fontWeight: '600' },
+  dimName: { ...T.meta, color: colors.textSecondary },
+  dimLabel: { ...T.meta, fontWeight: '600' },
 });

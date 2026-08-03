@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
-import { colors, spacing, fontSize, radius, fonts } from '../../theme';
+import { colors, spacing, fontSize, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { SECTION_TECH_BUILDERS } from './techRefBuilders';
 
@@ -81,11 +81,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   arrow: { fontSize: fontSize.sm, color: colors.textMuted, width: 14 },
-  label: { fontSize: fontSize.sm, fontFamily: fonts.serifBold, fontWeight: '700', color: colors.textMuted },
+  // Every line of this card was 15 — the disclosure header, the category headings
+  // and the key/value rows all identical, so opening it gave the reader no way in.
+  // Now 17 / 15-bold / 15, and the rows are leaded (they were bare `fontSize`).
+  // Deliberately NOT shrunk to 13: this is a reference table the user opens on
+  // purpose, and the complaint being answered here is smallness, not just flatness.
+  label: { ...T.subsection, color: colors.textMuted },
   content: { paddingHorizontal: spacing.md, paddingBottom: spacing.md, gap: spacing.md },
   group: { gap: spacing.xs },
-  category: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textAccent },
+  category: { ...T.bodyTight, fontWeight: '700', color: colors.textAccent },
   rowItem: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
-  key: { flex: 1, fontSize: fontSize.sm, color: colors.textSecondary },
-  value: { flex: 1.4, fontSize: fontSize.sm, color: colors.textPrimary, textAlign: 'right' },
+  key: { ...T.bodyTight, flex: 1, color: colors.textSecondary },
+  value: { ...T.bodyTight, flex: 1.4, color: colors.textPrimary, textAlign: 'right' },
 });

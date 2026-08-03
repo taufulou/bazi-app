@@ -223,8 +223,19 @@ export const fonts = {
  *
  * `base` and `sm` were 16/14 — one step below Apple's Body/Subhead — while carrying
  * the bulk of the app's text (115 + 176 usages). Raised to 17/15.
- * `xs` stays 12: audited, and its ~100 usages are genuinely caption-class
- * (disclaimers, badges, tags, units, micro-notes). Keep it that way.
+ * `xs` stays 12, but a re-audit found the earlier "all ~100 usages are caption-class"
+ * claim too generous: roughly a third were CONTENT the reader scans (dimension names,
+ * 神煞 tags, peak dates, the credit balance, birth dates under a profile name), not
+ * chrome. Those moved to `text.meta`/`text.label` (13). What legitimately stays at 12:
+ * disclaimers, legal lines, unit suffixes, pill badges and micro-notes.
+ *
+ * ⚠️ These are SIZES ONLY and therefore the wrong thing to reach for. A size token
+ * can't express that a sub-heading and a row's metadata are different KINDS of text,
+ * so both landed on `sm` and rendered identically — a measured 191 call sites sat on
+ * `sm` and 98 on `xs`, i.e. 289 of ~493 sized sites on just two rungs, carrying
+ * headings, prose, labels and units indiscriminately. That flattening is why the app
+ * read as though nothing was more important than anything else. Prefer `text.*`
+ * below, which encodes ROLE; these rungs remain for one-off and non-prose cases.
  */
 export const fontSize = {
   xs: 12, // Caption — captions/badges/units ONLY, never prose
@@ -365,18 +376,69 @@ export const text = asTextStyles({
     letterSpacing: 0.19,
     fontWeight: '700',
   },
+  /**
+   * Sub-headings INSIDE a section — 注意事項 / 強項 / 本月建議 / 建議做法.
+   * 17 · 1.35 serif bold.
+   *
+   * This rung was missing, so sub-headings fell to `sm` (15) — the same size as the
+   * body copy beneath them and as the row metadata beside them. A heading that
+   * matches its own content in size stops functioning as a heading: the reader gets
+   * no entry point and the section reads as one undifferentiated block. Serif bold
+   * at body size (rather than a larger size) keeps the page calm — the WEIGHT and
+   * FAMILY carry the distinction, and `rhythm.section`/`afterHeading` do the rest.
+   */
+  subsection: {
+    fontFamily: fonts.serifBold,
+    fontSize: 17,
+    lineHeight: 23,
+    letterSpacing: 0.17,
+    fontWeight: '700',
+  },
   /** Primary running prose. 17 · 1.65 — CJK needs the loose leading. */
   body: { fontSize: 17, lineHeight: 28 },
   /** Compact prose: card descriptions, list subtitles. 15 · 1.5 */
   bodyTight: { fontSize: 15, lineHeight: 23 },
+  /**
+   * Width-constrained table content that still has to be READ. 14 · 1.35.
+   *
+   * The rung between `meta` (13) and `bodyTight` (15), added for the Bazi chart's
+   * 神煞 row: a four-character name (福星貴人) has ~61pt of column at 360dp, so 15
+   * leaves a single point of margin and 14 leaves five. Reach for this when a cell
+   * is genuinely width-bound — NOT as a general "slightly smaller body", which is
+   * what `bodyTight` is for.
+   */
+  cell: { fontSize: 14, lineHeight: 19 },
   /** Field labels, table row labels. 13 · 1.4 · +0.04em */
   label: { fontSize: 13, lineHeight: 18, letterSpacing: 0.52, fontWeight: '600' },
   /**
-   * Captions, units, micro-notes. 12 · 1.45 · +0.02em — the floor for PROSE.
-   * Dense tabular cells (神煞 pills, 藏干 ten-god, 納音, 大運 years) run 11 with an
-   * explicit lineHeight; 11 is the hard minimum for CJK, never below.
+   * Row metadata and short secondary content — 13 · 1.5, no added weight.
+   *
+   * The rung between `caption` and `bodyTight`. Without it, anything smaller than
+   * secondary prose fell to `caption` (12) regardless of whether it was a
+   * disclaimer or actual content the user reads — dimension names, 神煞 tags, peak
+   * dates, the birth date under a profile name.
+   *
+   * Same SIZE as `label`; the difference is that `label` is opinionated (weight +
+   * tracking, for something naming a field) while `meta` is the neutral default, so
+   * a label and the value beside it stay distinguishable. Adding `fontWeight` at a
+   * call site is fine and expected — a peak date or a credit balance wants emphasis
+   * without the tracking `label` would also bring.
    */
+  meta: { fontSize: 13, lineHeight: 19 },
+  /** Captions, units, micro-notes, disclaimers. 12 · 1.45 · +0.02em. */
   caption: { fontSize: 12, lineHeight: 17, letterSpacing: 0.24 },
+  /**
+   * The densest tabular cells — 神煞 pills, 藏干十神, 納音, 大運 years. 12 · 1.35.
+   *
+   * These ran at 11, which is the ABSOLUTE minimum for CJK rather than a comfortable
+   * one, and five separate rungs of the Bazi chart sat there at once — which is
+   * precisely the text the owner singled out as too small to read. 12 is the floor
+   * for anything a user is expected to actually read; 11 survives only for
+   * non-CJK ornaments (badge counts, icon glyphs) where stroke density isn't a
+   * factor. Leading is tighter than `caption` because these are single-line cells
+   * in a width-constrained table, not running prose.
+   */
+  dense: { fontSize: 12, lineHeight: 16 },
   /** Any column of digits. Tabular so values stop shifting between renders. */
   data: {
     fontSize: 15,

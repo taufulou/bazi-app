@@ -17,7 +17,7 @@ import { useState } from 'react';
 import { View, Text, Pressable, Modal, ScrollView, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Users, ChevronDown, Check } from 'lucide-react-native';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { BirthProfile } from '../../lib/birth-profiles-api';
 
@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
   },
   chipDisabled: { opacity: 0.6 },
   chipName: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary, flexShrink: 1 },
-  chipRel: { fontSize: fontSize.xs, color: colors.textMuted },
+  chipRel: { ...T.meta, color: colors.textMuted },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: colors.bgSecondary,
@@ -171,7 +171,10 @@ const styles = StyleSheet.create({
   optionNameSelected: { fontWeight: '700', color: colors.red },
   optionMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   relTag: {
-    fontSize: fontSize.xs,
+    // T.meta (13), matching `birthChip` beside it in the SAME row and `chipRel`,
+    // which renders this identical REL_LABEL value on the collapsed chip. The pill
+    // background is a container, not a reason to drop a rung below its row-mate.
+    ...T.meta,
     color: colors.textSecondary,
     backgroundColor: colors.bgCard,
     borderRadius: radius.sm,
@@ -179,7 +182,7 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     overflow: 'hidden',
   },
-  birthChip: { fontSize: fontSize.xs, color: colors.textMuted },
+  birthChip: { ...T.meta, color: colors.textMuted },
   footerLink: { marginTop: spacing.md, marginHorizontal: spacing.lg, paddingVertical: spacing.md, alignItems: 'center' },
   footerText: { fontSize: fontSize.base, fontWeight: '600', color: colors.red },
 });

@@ -8,7 +8,7 @@
  */
 import { View, Text, StyleSheet } from 'react-native';
 import type { MonthlyFortuneNarrative } from '../../lib/fortune-api';
-import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, rhythm, surfaces, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { MONTHLY_DIM_META } from './monthlyDimensions';
 import { dimTierFromScore, type DimTier } from './labels';
@@ -209,22 +209,25 @@ const styles = StyleSheet.create({
   dims: { gap: rhythm.block },
   dimBlock: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
   dimHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  dimTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary, flex: 1 },
+  dimTitle: { ...T.subsection, color: colors.textPrimary, flex: 1 },
   dimBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 999, borderWidth: 1 },
   dimBadgeDot: { width: 6, height: 6, borderRadius: 3 },
-  dimBadgeScore: { fontSize: fontSize.xs, fontWeight: '700', color: colors.textPrimary },
-  dimBadgeLabel: { fontSize: fontSize.xs, fontWeight: '600' },
+  dimBadgeScore: { ...T.meta, fontWeight: '700', color: colors.textPrimary },
+  dimBadgeLabel: { ...T.meta, fontWeight: '600' },
   takeaway: { fontSize: fontSize.sm, color: colors.textAccent, borderLeftWidth: 3, borderLeftColor: colors.textAccent, paddingLeft: spacing.sm },
   dimBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
   dimEmpty: { fontSize: fontSize.sm, color: colors.textMuted },
   breakdown: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
-  breakdownTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
+  // 19 / 17 / 15 — the card heading, each 上半月·下半月 label, then its prose. These
+  // were 17 / 15 / 15, i.e. only two real levels for three levels of structure, so
+  // a partition label was indistinguishable from the sentence it introduced.
+  breakdownTitle: { ...T.section, color: colors.textAccent },
   breakdownItem: { gap: 2 },
-  breakdownLabel: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
+  breakdownLabel: { ...T.subsection, color: colors.textPrimary },
   breakdownBody: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   adviceGrid: { flexDirection: 'row', gap: spacing.md },
   adviceCol: { flex: 1, ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg, gap: rhythm.afterHeading },
-  adviceTitle: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
+  adviceTitle: { ...T.subsection, color: colors.textPrimary },
   adviceItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
   disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: spacing.xs },
   skeletonProse: { gap: 6, marginTop: spacing.xs },

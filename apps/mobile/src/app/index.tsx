@@ -3,7 +3,7 @@ import { useRouter, Redirect } from 'expo-router';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useZh } from '../lib/language';
-import { colors, radius, spacing, fontSize, fonts } from '../theme';
+import { colors, radius, spacing, fontSize, fonts, text as T } from '../theme';
 import { E2E_BYPASS_AUTH } from '../lib/e2e';
 
 export default function HomeScreen() {
@@ -92,12 +92,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: spacing.xl,
   },
-  loadingText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.base,
-    textAlign: 'center',
-    marginTop: 100,
-  },
+  loadingText: { ...T.body, color: colors.textSecondary, textAlign: 'center', marginTop: 100 },
   branding: {
     alignItems: 'center',
     marginBottom: 48,
@@ -113,11 +108,9 @@ const styles = StyleSheet.create({
     color: colors.red,
     marginBottom: spacing.sm,
   },
-  subtitle: {
-    fontSize: fontSize.base,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
+  // 「預見你的一生」 — the tagline under the wordmark on the first screen anyone
+  // sees. Unleaded, like the rest of this file: it predates the role system.
+  subtitle: { ...T.body, color: colors.textSecondary, textAlign: 'center' },
   features: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -134,11 +127,7 @@ const styles = StyleSheet.create({
     fontSize: 28,
     marginBottom: spacing.xs,
   },
-  featureText: {
-    color: colors.textPrimary,
-    fontSize: fontSize.sm,
-    fontWeight: '500',
-  },
+  featureText: { ...T.bodyTight, color: colors.textPrimary, fontWeight: '500' },
   authButtons: {
     gap: spacing.md,
     marginBottom: spacing.xl,

@@ -25,7 +25,7 @@ import {
 } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
 import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
-import { colors, spacing, fontSize, radius, shadows } from '../theme';
+import { colors, spacing, fontSize, radius, shadows, text as T } from '../theme';
 import { useZh } from '../lib/language';
 import { getUserProfile, type SubscriptionTier } from '../lib/api';
 import {
@@ -319,7 +319,9 @@ const styles = StyleSheet.create({
   balanceCard: { backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.xl, alignItems: 'center', gap: spacing.xs, ...shadows.warm },
   balanceLabel: { fontSize: fontSize.sm, color: colors.textSecondary },
   balanceValue: { fontSize: 40, fontWeight: '800', color: colors.red },
-  tierBadge: { fontSize: fontSize.sm, color: colors.gold, fontWeight: '700' },
+  // metalText, not gold: colors.gold is 2.38:1 on the white balance card — the
+  // theme marks it decorative-only. metalText is the AA-safe cut at 5.11:1.
+  tierBadge: { ...T.bodyTight, color: colors.metalText, fontWeight: '700' },
   section: { gap: spacing.sm },
   sectionTitle: { fontSize: fontSize.base, fontWeight: '700', color: colors.textAccent },
   pkgRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.lg, borderWidth: 1, borderColor: colors.borderLight },

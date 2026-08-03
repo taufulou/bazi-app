@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet } from 'react-native';
 import { Ban, Clock, Compass, Hash, Leaf, Palette, type LucideIcon } from 'lucide-react-native';
-import { colors, spacing, fontSize, radius, fonts, surfaces  } from '../../theme';
+import { colors, spacing, fontSize, radius, fonts, surfaces, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { DailyFortuneResponse } from '../../lib/fortune-api';
 
@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
   },
   cardWide: { flexBasis: '100%' },
   labelRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  label: { fontSize: fontSize.sm, color: colors.textSecondary, fontWeight: '600' },
+  label: { ...T.bodyTight, color: colors.textSecondary, fontWeight: '600' },
   // 民俗 badge — discloses the weaker (folk_tradition) provenance tier.
   badge: {
     fontSize: fontSize.xs,
@@ -178,7 +178,8 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xl,
     color: colors.textPrimary,
   },
-  note: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18 },
+  // Explains WHY the folk value applies (河圖五行數…) — read, not skipped.
+  note: { ...T.meta, color: colors.textMuted },
   hourChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginVertical: spacing.xs },
   hourChip: {
     fontSize: fontSize.sm,

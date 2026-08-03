@@ -10,7 +10,6 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator } from 'react-native';
-import type { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ChevronLeft, TriangleAlert } from 'lucide-react-native';
@@ -89,24 +88,16 @@ export default function CompatScreen() {
   const params = useLocalSearchParams<{ id?: string }>();
   const idParam = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : undefined;
 
-  /** Chat FAB auto-hide — see onResultScroll. */
-  const [fabHidden, setFabHidden] = useState(false);
-  const lastScrollY = useRef(0);
+  /**
+   * The chat FAB used to auto-hide on scroll-down. Removed: it took the button away
+   * at exactly the moment a reader wants it, and `content.paddingBottom` (104)
+   * already stops it covering the last card. Removing it also retires the
+   * mount-reset effect this screen needed, because the FAB is gated behind a state
+   * change and would otherwise animate straight out the moment it appeared.
+   */
   const [profiles, setProfiles] = useState<BirthProfile[]>([]);
   const [credits, setCredits] = useState(0);
 
-  /**
-   * Park the chat FAB while the user reads DOWN the revealed 合盤 analysis and
-   * restore it on any upward scroll — the button is an opaque pill pinned
-   * bottom-right and otherwise covers the paid content for the whole scroll.
-   */
-  const onResultScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = e.nativeEvent.contentOffset.y;
-    const dy = y - lastScrollY.current;
-    if (Math.abs(dy) < 12) return;
-    lastScrollY.current = y;
-    setFabHidden(y > 80 && dy > 0);
-  }, []);
   const [tier, setTier] = useState<string>('FREE');
   const [loadingUser, setLoadingUser] = useState(true);
 
@@ -204,16 +195,6 @@ export default function CompatScreen() {
     revealingRef.current = true;
     setError(null);
     setRevealed(true);
-    // ⚠️ The FAB is gated on `revealed`, so it MOUNTS here — and reaching this
-    // button requires scrolling down past two full charts, which means
-    // `fabHidden` is already true. Without this reset the chat button animates
-    // straight out the moment it appears and stays gone until the user happens to
-    // scroll up, i.e. it is invisible for exactly the users who just paid.
-    //
-    // ⚠️ Reset ONLY fabHidden. Zeroing `lastScrollY` here (the view is parked at
-    // ~1200 after scrolling past two charts) makes the next delta ≈ +1200, which
-    // re-hides the button on the very next gesture, up or down.
-    setFabHidden(false);
     setStreaming(true);
     setAiData({ sections: [], isV2: true });
 
@@ -321,7 +302,6 @@ export default function CompatScreen() {
             sections: ai.sections.map((s) => ({ ...s, title: compatDynamicTitle(s.key, gA, gB, yr) ?? s.title })),
           });
           setRevealed(true);
-          setFabHidden(false);
         } else {
           setAiData(null);
           setRevealed(false);
@@ -358,8 +338,6 @@ export default function CompatScreen() {
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.content}
-        onScroll={onResultScroll}
-        scrollEventThrottle={16}
       >
       {step === 'input' ? (
         <>
@@ -528,7 +506,7 @@ export default function CompatScreen() {
       {/* AI 命理師 chat — only after the reading is revealed (mirrors the web's
           !showPaywall gate). The chat stack is already comparisonId-aware. */}
       {step === 'result' && revealed && comparison?.id ? (
-        <ChatFloatingButton hidden={fabHidden} onPress={() => setChatOpen(true)} />
+        <ChatFloatingButton onPress={() => setChatOpen(true)} />
       ) : null}
       {comparison?.id ? (
         <ChatSheet
@@ -578,5 +556,5 @@ const styles = StyleSheet.create({
   hourBanner: { backgroundColor: colors.bgBannerWarm, borderRadius: radius.md, padding: spacing.md },
   hourBannerRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-start' },
   hourBannerText: { flex: 1, fontSize: fontSize.sm, lineHeight: 24, color: colors.warningText, fontWeight: '600' },
-  error: { fontSize: fontSize.sm, lineHeight: 24, color: colors.error, textAlign: 'center' },
+  error: { fontSize: fontSize.sm, lineHeight: 24, color: colors.errorText, textAlign: 'center' },
 });

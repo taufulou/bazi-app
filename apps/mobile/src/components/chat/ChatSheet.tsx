@@ -26,7 +26,7 @@ import {
   CHAT_SESSION_HARD_CAP_MESSAGES,
   CHAT_CONSECUTIVE_REFUSE_WARNING_THRESHOLD,
 } from '@repo/shared';
-import { colors, fonts, fontSize, spacing, radius } from '../../theme';
+import { colors, fonts, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { ChatDialogKey } from '../../lib/chat-types';
 import type { ChatReadingType, FortuneSubject } from '../../lib/chat-api';
@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },
   headerRight: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   quotaChip: { backgroundColor: colors.bgSecondary, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
-  quotaText: { fontSize: fontSize.xs, color: colors.textSecondary, fontWeight: '600' },
+  quotaText: { ...T.meta, color: colors.textSecondary, fontWeight: '600' },
   lockedBanner: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -363,7 +363,7 @@ const styles = StyleSheet.create({
   lockedText: { flex: 1, fontSize: fontSize.sm, color: colors.textSecondary },
   lockedCta: { fontSize: fontSize.sm, fontWeight: '700', color: colors.red },
   errorBanner: { backgroundColor: 'rgba(226,61,40,0.08)', paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
-  errorText: { fontSize: fontSize.sm, color: colors.error },
+  errorText: { ...T.bodyTight, color: colors.errorText },
   loadingBox: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyState: { alignItems: 'center', gap: spacing.md, padding: spacing.xl },
   emptyTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textAccent },

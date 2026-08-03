@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ActivityIndicator, Modal, ScrollView } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { X } from 'lucide-react-native';
-import { colors, radius, spacing, fontSize, fonts } from '../theme';
+import { colors, radius, spacing, fontSize, fonts, text as T } from '../theme';
 import { useZh } from '../lib/language';
 import {
   fetchElementExplanation,
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
   categoryBadge: {
     alignSelf: 'flex-start',
     marginTop: spacing.xs,
-    fontSize: fontSize.xs,
+    ...T.meta,
     color: colors.textOnGold,
     backgroundColor: colors.goldLight,
     paddingHorizontal: spacing.sm,
@@ -314,7 +314,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm,
     overflow: 'hidden',
   },
-  sectionLabel: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textAccent, marginTop: spacing.sm },
+  sectionLabel: { ...T.subsection, color: colors.textAccent, marginTop: spacing.sm },
   interactions: { gap: spacing.md },
   interactionRow: { gap: spacing.xs },
   interactionName: { fontSize: fontSize.base, fontWeight: '600', color: colors.textPrimary },

@@ -1,6 +1,6 @@
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Briefcase, Calendar, Heart, Lock, Star, type LucideIcon } from 'lucide-react-native';
-import { colors, spacing, fontSize, radius, fonts, shadows, surfaces } from '../../theme';
+import { colors, spacing, fontSize, radius, shadows, surfaces, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 
 /**
@@ -126,8 +126,8 @@ const styles = StyleSheet.create({
     ...surfaces.card,
   },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.md },
-  headerTitle: { flex: 1, fontSize: fontSize.lg, fontFamily: fonts.serifBold, fontWeight: '700', color: colors.textAccent },
-  intro: { fontSize: fontSize.sm, color: colors.textSecondary, marginBottom: spacing.sm },
+  headerTitle: { ...T.section, flex: 1, color: colors.textAccent },
+  intro: { ...T.bodyTight, color: colors.textSecondary, marginBottom: spacing.sm },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   chip: {
     backgroundColor: colors.bgBannerWarm,
@@ -137,7 +137,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
   },
-  chipText: { fontSize: fontSize.sm, color: colors.textPrimary },
+  chipText: { ...T.bodyTight, color: colors.textPrimary },
   actionArea: { marginTop: spacing.lg, alignItems: 'center', gap: spacing.sm },
   unlockBtn: {
     flexDirection: 'row',
@@ -157,6 +157,6 @@ const styles = StyleSheet.create({
   costBadgeText: { color: colors.textOnRed, fontSize: fontSize.sm, fontWeight: '700' },
   freeBadge: { backgroundColor: 'rgba(255,255,255,0.22)', borderRadius: radius.sm, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   freeBadgeText: { color: colors.textOnRed, fontSize: fontSize.sm, fontWeight: '700' },
-  creditsInfo: { fontSize: fontSize.sm, color: colors.textSecondary },
+  creditsInfo: { ...T.bodyTight, color: colors.textSecondary },
   buyLink: { fontSize: fontSize.base, color: colors.red, fontWeight: '600' },
 });

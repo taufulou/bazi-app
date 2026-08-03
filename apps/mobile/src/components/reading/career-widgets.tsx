@@ -13,7 +13,7 @@
  */
 import * as React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { colors, elementColors, fonts, fontSize, spacing, radius, rhythm } from '../../theme';
+import { colors, elementColors, fonts, fontSize, spacing, radius, rhythm, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import type { CareerV2DeterministicData } from '../../lib/readings-api';
 import {
@@ -483,7 +483,9 @@ const s = StyleSheet.create({
 
   // Labeled chip groups (career allies)
   labeledGroup: { gap: spacing.xs },
-  groupLabel: { fontSize: fontSize.sm, fontWeight: '700', color: colors.textSecondary },
+  // A heading over its own group, not a row label — it was the same size as the
+  // content beneath it.
+  groupLabel: { ...T.subsection, color: colors.textSecondary },
 
   // Suitable positions
   posCard: {
