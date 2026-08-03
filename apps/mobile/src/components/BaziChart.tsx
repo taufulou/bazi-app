@@ -964,8 +964,10 @@ const styles = StyleSheet.create({
   // ── 藏干 (two-line, see the row comment) ──
   hiddenStemGroup: { alignItems: 'center' },
   hiddenStemGroupGap: { marginTop: spacing.xs },
-  // 本氣 leads at 14; 中氣/餘氣 step down to 13 so the primary hidden stem reads
-  // first. The ten-god gloss below is `dense` (12) — one rung quieter again.
+  // 16 / 15 / 13. 本氣 leads so the primary hidden stem reads first; 中氣/餘氣 step
+  // down one rung (`bodyTight`), and the ten-god gloss below them is quieter again
+  // (`meta`). Two chars need 32pt of a 61pt column at 360dp, so none of this is
+  // width-bound — these sat at 14/13/12 purely because nobody had measured.
   hiddenStem: { fontSize: 16, lineHeight: 21, fontWeight: '600', textAlign: 'center' },
   hiddenStemMinor: { ...T.bodyTight, fontWeight: '400' },
   hiddenStemGod: { ...T.meta, color: colors.textMuted, textAlign: 'center' },

@@ -200,8 +200,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderWidth: 1,
   },
-  // 免費/基本/專業/大師 — CJK, so 11 was below the floor `text.dense` sets. The
-  // numeral beside it reads fine at 11; a Chinese word does not.
+  // 免費/基本/專業/大師 — CJK at 11 was below the readable floor. Now `meta` (13),
+  // matching its twin on 我的 (`me.tsx::tierPillText`). The 💎 beside it stays at
+  // 11: it's an emoji, so stroke density isn't a factor.
   tierText: { ...T.meta, fontWeight: '600' },
   creditBadge: {
     flexDirection: 'row',

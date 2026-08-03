@@ -348,10 +348,12 @@ These exist because a 40-file typography pass repeatedly "finished" while leavin
 tier label at 11pt CJK on one screen whose twin was fixed on another — recalling
 which files were done does not scale.
 
-**⚠️ Pending domain review:** the 神煞 auspicious/inauspicious tint lists at the top
-of `BaziChart.tsx` are a **doctrinal** classification, not a design one. 桃花 and 驛馬
-are deliberately left neutral. Deleting both arrays makes every pill neutral and the
-layout still works.
+**⚠️ Pending domain review:** the 神煞 auspicious/inauspicious lists at the top of
+`BaziChart.tsx` are a **doctrinal** classification, not a design one. 桃花 and 驛馬 are
+deliberately left neutral. They now drive the 神煞 TEXT COLOUR directly — the bordered
+pill was dropped so a four-character 貴人 name could reach 14pt in a 61pt column — so
+a wrong call there is more visible than it was as a pill tint. Deleting both arrays
+makes every entry neutral and the layout still works.
 
 ### ZWDS Visual Distinction
 ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's red-gold theme:

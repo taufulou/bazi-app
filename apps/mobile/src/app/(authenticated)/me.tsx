@@ -216,8 +216,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bgSecondary,
   },
   // 免費/基本/專業/大師 — the SAME TIER_LABELS constant CreditBadge renders, which
-  // takes T.dense. At 11 this was both under the CJK floor and a different size
-  // from its own twin on the home screen.
+  // takes `meta` (13). At 11 this was both under the readable CJK floor and a
+  // different size from its own twin in the home-screen header.
   tierPillText: { ...T.meta, fontWeight: '600', color: colors.textPrimary },
   creditsText: { ...T.bodyTight, color: colors.textSecondary, fontWeight: '600' },
   row: {

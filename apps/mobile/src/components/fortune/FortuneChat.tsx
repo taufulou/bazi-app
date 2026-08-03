@@ -127,9 +127,9 @@ const styles = StyleSheet.create({
     // flexShrink lets a long pill give way instead of pushing past the edge.
     flexShrink: 1,
   },
-  // numberOfLines + ellipsize on the <Text>: the pill is maxWidth-capped, and
-  // without them a question longer than the cap was HARD-CUT mid-glyph with no
-  // affordance that anything was missing. Two lines keeps most questions whole;
-  // anything past that ends in an ellipsis rather than a silent truncation.
+  // numberOfLines + ellipsize on the <Text>: `flexShrink` above lets a long pill
+  // give way rather than push past the edge, and without a line cap the text
+  // inside it would just keep wrapping. Two lines keeps virtually every question
+  // whole; anything past that ends in an ellipsis rather than a silent cut.
   pillText: { ...T.bodyTight, color: colors.textPrimary },
 });
