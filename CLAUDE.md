@@ -100,13 +100,28 @@ worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roami
    changing it. Adding `density|fontScale` to configChanges would fix it but needs
    a prebuild + a dev-client rebuild on BOTH platforms (see #1) for a path users
    don't hit.
-   iOS: `xcrun simctl io <udid> screenshot` works; `simctl` has **no tap
-   primitive** (confirmed). `idb` is installed but its last release is Aug 2022 —
-   prefer Maestro-with-`launchApp`, or [AXe](https://github.com/cameroncooke/AXe)
-   if a second opinion is needed.
+   **iOS — use `mcp__Claude_Code_iOS_Simulator__control`, NOT Maestro.** (Corrected
+   2026-07-19; the previous advice here predated this integration and sent a whole
+   session down the Maestro path for no reason.) It has native `tap` / `swipe` /
+   `screenshot` / `text` / `button` / `open_url` / `launch` taking device POINTS
+   (origin top-left — `attach` reports the coordinate space, e.g. 402x874 on an
+   iPhone 17 Pro), and `attach` opens a LIVE PANEL the owner can watch. Call
+   `attach` FIRST, before building — it is cheap and errors harmlessly if nothing
+   is booted. Verified: a chart-cell tap fired the RN `onPress` and opened the
+   ElementExplanation sheet FIRST TRY at exact coordinates. Screenshots come back
+   full-resolution, no `sips` scaling needed.
+   ⚠️ If it errors with *"Xcode is installed but not selected"* the fix is
+   `sudo xcode-select -s /Applications/Xcode.app/Contents/Developer` — needs the
+   owner's password, so ASK; and note the check can be stale (it fired here while
+   `xcode-select -p` already reported the correct path).
+   **Keep Maestro for ONE thing**: `extendedWaitUntil`, i.e. declaratively blocking
+   on async content (waiting out a 45s AI stream). The MCP has no wait primitive —
+   you'd poll screenshots.
    ⚠️ **iOS `testID`s do NOT reach the accessibility tree** (RN iOS a11y
-   flattening: a `Pressable`'s `accessibilityLabel` REPLACES its children), so on
-   iOS match by accessibility label. Android is unaffected.
+   flattening: a `Pressable`'s `accessibilityLabel` REPLACES its children). This is
+   why Maestro text matching fails on iOS — `月運`, `註冊`, `我的`, `八字命格` all
+   missed in one session, each forcing a percentage-coordinate guess. Android is
+   unaffected (`uiautomator dump` + `input tap` are reliable; keep using adb there).
 4. **Deep `.webp/.ttf/.png` imports** need `apps/mobile/assets.d.ts` module
    declarations (project runs eslint `--max-warnings 0`, and `require()` trips
    `no-require-imports`).
