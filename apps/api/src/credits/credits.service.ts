@@ -131,7 +131,8 @@ export class CreditsService {
           // (and resets refundedAt) if they pay again.
           paidAt: null,
           // ⚠️ And drop the artefact, mirroring the reading path
-          // (ai.service.ts:1355-1358). `Prisma.DbNull` not `undefined`: undefined
+          // (`ai.service.ts`, where the reading refund nulls its interpretation).
+          // `Prisma.DbNull` not `undefined`: undefined
           // means "don't update", and `WHERE ai_interpretation IS NULL` depends
           // on a real SQL NULL. Without this a refunded row is still readable
           // through any path that keys on the interpretation's presence.

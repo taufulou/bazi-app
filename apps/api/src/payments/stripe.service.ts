@@ -569,7 +569,8 @@ export class StripeService {
       // ⚠️ ALERT ONLY — this deliberately does NOT revoke entitlement.
       //
       // Pausing collection "leaves the subscription's status unchanged"
-      // (node_modules/stripe/types/Subscriptions.d.ts:211), so `mapStripeStatus`
+      // (per `pause_collection` in the Stripe SDK's `Subscriptions` types), so
+      // `mapStripeStatus`
       // cannot see it: the row stays ACTIVE, `syncUserTier` (which selects
       // status: 'ACTIVE') keeps the paid tier, and Stripe collects nothing.
       // Open-ended unpaid access that nothing self-corrects.

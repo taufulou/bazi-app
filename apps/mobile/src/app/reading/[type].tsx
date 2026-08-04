@@ -53,7 +53,8 @@ import READING_BG from '../../../assets/backgrounds/reading-lifetime-bg.webp';
 
 const VALID: ReadingType[] = ['lifetime', 'love', 'career', 'annual'];
 
-/** Staged chart-reveal step delays (ms), mirroring web page.tsx:347. */
+/** Staged chart-reveal step delays (ms), mirroring web
+ *  `reading/[type]/page.tsx::CHART_REVEAL_DELAYS`. */
 const CHART_REVEAL_DELAYS = [0, 1000, 1500, 1500, 2000, 1200];
 
 function asParam(v: string | string[] | undefined): string | undefined {

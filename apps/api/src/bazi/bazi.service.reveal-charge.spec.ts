@@ -206,7 +206,8 @@ describe('BaziService — 合盤 charge at reveal', () => {
     it('REFUNDS despite HEARTBEATS — they are not output', async () => {
       // ⚠️ The regression that made the first fix dead on arrival. The compat
       // stream emits {type:'heartbeat'} every 15s starting BEFORE the first
-      // provider attempt (ai.service.ts:4545), and every REAL failure is slower
+      // provider attempt (its `heartbeatInterval` in `ai.service.ts`), and every
+      // REAL failure is slower
       // than 15s (300s timeout, sequential provider fallback). A classifier that
       // counts "anything not error/done/summary" as output therefore treats
       // every real failure as partial and never refunds.

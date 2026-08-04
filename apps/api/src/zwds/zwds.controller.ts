@@ -13,7 +13,7 @@ import { CurrentUser, AuthPayload } from '../auth/current-user.decorator';
  *   - ZWDS comparison rows ever created: 0
  *   - frontend call sites for every route except `readings`: none
  *   - `createZwdsReading` was wired but reachable only by typing a
- *     `/reading/zwds-*` URL — `ZWDS_CROSS_SELL` (AIReadingDisplay.tsx:1655)
+ *     `/reading/zwds-*` URL — `ZWDS_CROSS_SELL` (in `AIReadingDisplay.tsx`)
  *     renders only when you are already inside a ZWDS reading.
  *
  * Removed: `POST chart-preview`, `POST readings`, `POST horoscope`,
@@ -21,7 +21,7 @@ import { CurrentUser, AuthPayload } from '../auth/current-user.decorator';
  *
  * Three of those charged credits through a raw
  * `tx.user.updateMany({ credits: { decrement } })` that writes NO `CreditLedger`
- * row (`zwds.service.ts:404`, `:659`, `:818`) — the exact pattern `CreditsService`
+ * row (three sites in `zwds.service.ts`) — the exact pattern `CreditsService`
  * exists to replace. That spend was unauditable.
  *
  * ⚠️ `GET readings/:id` MUST STAY. The dev DB holds 2 `ZWDS_LIFETIME` rows worth

@@ -134,7 +134,7 @@ def build_chat_context(
         'branchInteractions': _extract_branch_interactions_per_year(
             chart_data, annual_forecast_15,
         ),
-        # Scrubbed too — `build_pattern_narrative` (lifetime_enhanced.py:424)
+        # Scrubbed too — `lifetime_enhanced.build_pattern_narrative`
         # formats the RAW dominant percentage for 從格 charts. Missing this was
         # worse than a number mismatch: on a 從勢格 chart the chat named 金 as
         # dominant at 35.0% while the ring's largest slice was 水 (35.2%).
