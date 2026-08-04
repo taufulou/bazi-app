@@ -78,8 +78,14 @@ describe('BaziService.createReading — dedupe', () => {
     readingType: 'LIFETIME', targetYear: null,
     aiInterpretation: { sections: {} }, isDegraded: false, refundedAt: null,
     regenerationCount: 0, calculationData: {}, creditsUsed: 1,
+    // Age matters now: a row with no AI is only treated as abandoned once it is
+    // older than FIRST_GENERATION_INFLIGHT_MS. Default to "just created".
+    createdAt: new Date(),
     ...over,
   });
+
+  /** Older than FIRST_GENERATION_INFLIGHT_MS (360s) — i.e. genuinely abandoned. */
+  const longAgo = () => new Date(Date.now() - 600_000);
 
   it('returns the existing reading and creates NO second row', async () => {
     const svc = build(completeRow());
@@ -105,7 +111,10 @@ describe('BaziService.createReading — dedupe', () => {
   it.each([
     ['degraded', { isDegraded: true }],
     ['refunded', { refundedAt: new Date() }],
-    ['never finished (no AI, no regen)', { aiInterpretation: null, regenerationCount: 0 }],
+    [
+      'long-abandoned (no AI, no regen, past the in-flight window)',
+      { aiInterpretation: null, regenerationCount: 0, createdAt: longAgo() },
+    ],
   ])('does NOT reuse a %s row — it creates a fresh one', async (_label, over) => {
     const svc = build(completeRow(over));
 
@@ -113,6 +122,40 @@ describe('BaziService.createReading — dedupe', () => {
 
     // a broken row is what regenerate/retry exists to replace, not something to serve
     expect(createReading).toHaveBeenCalled();
+  });
+
+  it('treats a FIRST-generation row that is still streaming as IN FLIGHT — no second row, no second charge', async () => {
+    // The regression this closes: `createReading` returns `streamReady` the
+    // moment the row exists, then the SSE spends 45s-5min filling in the AI. For
+    // that whole window the row is {AI: null, regenerationCount: 0} — which used
+    // to match no reuse branch, so a retried POST / double-submit / reload
+    // INSERTed a second row and charged the user a second time. The per-user
+    // `reading:create:` lock does not cover it; it is released as soon as
+    // createReading returns.
+    const svc = build(
+      completeRow({ aiInterpretation: null, regenerationCount: 0, createdAt: new Date() }),
+    );
+
+    const res = await svc.createReading('clerk-1', streamDto);
+
+    expect(createReading).not.toHaveBeenCalled();
+    expect(deductCredits).not.toHaveBeenCalled();
+    expect((res as { id: string }).id).toBe('existing-1');
+    expect((res as { creditsUsed: number }).creditsUsed).toBe(0);
+    expect((res as { streamReady: boolean }).streamReady).toBe(true);
+  });
+
+  it('does NOT promise a stream for an in-flight row when the caller did not ask for one', async () => {
+    // Mirrors the fresh path — `streamReady` tracks dto.stream, so a
+    // non-streaming client is not told to open an SSE it will never read.
+    const svc = build(
+      completeRow({ aiInterpretation: null, regenerationCount: 0, createdAt: new Date() }),
+    );
+
+    const res = await svc.createReading('clerk-1', dto);
+
+    expect(deductCredits).not.toHaveBeenCalled();
+    expect((res as { streamReady: boolean }).streamReady).toBe(false);
   });
 
   it('treats a mid-regeneration row as IN FLIGHT and does not charge again', async () => {

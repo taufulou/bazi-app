@@ -385,7 +385,10 @@ export default function CompatibilityPage() {
       // Note: CompatibilityCalculationData interface doesn't declare romancePreAnalysis, so cast needed
       const isV2Romance = (saved.calculationData as any)?.romancePreAnalysis;
       if (isV2Romance && !saved.aiInterpretation) {
-        // Restore paywall state — credits already deducted, user just needs to unlock
+        // Show the paywall — this comparison is UNPAID and nothing has been
+        // charged yet. Creating a comparison is free; the 3 credits come off at
+        // the reveal (`_chargeForReveal`), so "no AI yet" is the normal resting
+        // state of an unpaid row rather than evidence of a half-finished payment.
         setStep("result");
         setShowPaywall(true);
       } else {

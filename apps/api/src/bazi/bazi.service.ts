@@ -26,6 +26,23 @@ import { deepCamelCase } from '../common/deep-camel-case';
  */
 const COMPATIBILITY_FALLBACK_CREDIT_COST = 3;
 
+/**
+ * How long a reading row with no interpretation is presumed to still be
+ * GENERATING rather than abandoned.
+ *
+ * A row on its first generation ({aiInterpretation: null, regenerationCount: 0})
+ * is byte-identical to one whose generation died, so age is the only signal that
+ * separates them. Set above `AI_STREAM_TIMEOUT_MS` (300s, `ai.service.ts`) plus
+ * headroom for the retry/provider-fallback chain, because anything still inside
+ * that window could legitimately still be writing.
+ *
+ * Too LOW and a concurrent create during a slow generation charges the user a
+ * second time; too HIGH and a genuinely dead row can't be replaced by a fresh
+ * create until it ages out (the user can still use Regenerate, which has its own
+ * path). The money error is the worse one, so this errs high.
+ */
+const FIRST_GENERATION_INFLIGHT_MS = 360_000;
+
 @Injectable()
 export class BaziService {
   private readonly logger = new Logger(BaziService.name);
@@ -184,6 +201,35 @@ export class BaziService {
         reusable.regenerationCount > 0 &&
         reusable.refundedAt === null;
 
+      // The FIRST generation needs the same carve-out, and is the common case:
+      // `createReading` returns `streamReady` as soon as the row exists, then the
+      // SSE fills `aiInterpretation` over the next 45s-5min. Throughout that
+      // window the row reads {AI: null, regenerationCount: 0} — matching neither
+      // branch above — so a retried POST, a double-submit, or a reload used to
+      // fall through, INSERT a second row and CHARGE AGAIN. The per-user
+      // `reading:create:` lock does not help: it is released when this method
+      // returns, long before the stream finishes.
+      //
+      // Age is the only thing separating "still generating" from "abandoned",
+      // hence the window. `isDegraded` is excluded because a degraded row is
+      // finished, not in flight — Regenerate is its path.
+      //
+      // ⚠️ Pairs with the per-reading lock in `_setupStream`: this stops the
+      // duplicate row and the second charge, and that stops the duplicate
+      // GENERATION. The second caller gets the same row back for free and, if a
+      // generation really is still running, a 409 from the stream rather than a
+      // silent second bill.
+      const isFirstGenerationInFlight =
+        reusable.aiInterpretation === null &&
+        reusable.regenerationCount === 0 &&
+        reusable.refundedAt === null &&
+        !reusable.isDegraded &&
+        // `?? 0` rather than a bare deref: if a future narrowing `select` ever
+        // drops createdAt, fall back to the pre-fix behaviour (treat as not in
+        // flight) instead of throwing inside the create path.
+        Date.now() - (reusable.createdAt?.getTime() ?? 0) <
+          FIRST_GENERATION_INFLIGHT_MS;
+
       if (isComplete) {
         // ⚠️ `fromCache: true` is a live client contract — web
         // `reading/[type]/page.tsx:728` and mobile `reading/[type].tsx:321`
@@ -198,10 +244,10 @@ export class BaziService {
         return { ...reusable, creditsUsed: 0, fromCache: true };
       }
 
-      if (isRegenerating) {
+      if (isRegenerating || isFirstGenerationInFlight) {
         // The row has no interpretation YET, so returning it as a cache hit
         // would render an empty reading. Hand back `streamReady` instead so the
-        // client opens the SSE stream and receives the regenerating content —
+        // client opens the SSE stream and receives the in-flight content —
         // and still no charge, because this reading was already paid for.
         return {
           ...reusable,
@@ -215,8 +261,10 @@ export class BaziService {
           ),
         };
       }
-      // Otherwise fall through: a degraded / refunded / never-finished row is
+      // Otherwise fall through: a degraded / refunded / long-abandoned row is
       // what `regenerateBaziReading` exists to replace, not something to serve.
+      // "Long-abandoned" is the key word — a row younger than
+      // FIRST_GENERATION_INFLIGHT_MS is caught by the branch above instead.
     }
 
     // Check cache for existing interpretation
@@ -585,6 +633,33 @@ export class BaziService {
       throw new ConflictException('Maximum concurrent streams reached');
     }
 
+    // 3b. PER-READING single-flight. The cap above is per-USER, so it happily
+    // allows two streams for the SAME readingId — and `createReading`'s reusable
+    // -row branches now hand back `streamReady` for a reading whose generation is
+    // still running, so a reload or double-submit lands here twice for one row.
+    // Without this lock that runs the full provider-fallback generation twice:
+    // double Anthropic spend, and two writers racing the same row where the last
+    // one wins, so a good result can be clobbered by a degraded retry.
+    //
+    // This is the same invariant `regenerateReading` protects with its atomic
+    // `updateMany` on `regenerationCount` — that guard covers the /regenerate
+    // entry point, and this covers the stream entry point.
+    //
+    // TTL exceeds AI_STREAM_TIMEOUT_MS (300s) so the lock cannot expire under a
+    // still-running generation; the explicit releases below are the normal path.
+    const readingLockKey = `stream:reading:${readingId}`;
+    const readingLockAcquired = await this.redis.acquireLock(readingLockKey, 330);
+    if (!readingLockAcquired) {
+      await this.redis.getClient().decr(activeKey);
+      throw new ConflictException(
+        'This reading is already being generated. Please wait for it to finish.',
+      );
+    }
+    const releaseStreamSlot = () => {
+      this.redis.getClient().decr(activeKey).catch(() => {});
+      this.redis.releaseLock(readingLockKey).catch(() => {});
+    };
+
     try {
       // 4. Rebuild enriched data from stored calculationData.
       // targetYear is only meaningful for ANNUAL readings; omit for others so
@@ -625,7 +700,7 @@ export class BaziService {
       aiObservable.subscribe({
         next: (event) => subscriber.next(event),
         error: (err) => {
-          this.redis.getClient().decr(activeKey).catch(() => {});
+          releaseStreamSlot();
           const message = err instanceof Error ? err.message : 'Stream error';
           subscriber.next({
             data: JSON.stringify({ message }),
@@ -634,13 +709,14 @@ export class BaziService {
           subscriber.complete();
         },
         complete: () => {
-          this.redis.getClient().decr(activeKey).catch(() => {});
+          releaseStreamSlot();
           subscriber.complete();
         },
       });
     } catch (err) {
-      // Decrement on setup error
-      await this.redis.getClient().decr(activeKey);
+      // Release both the per-user slot and the per-reading lock on setup error,
+      // otherwise a failure here would wedge the reading for the whole 330s TTL.
+      releaseStreamSlot();
       throw err;
     }
   }

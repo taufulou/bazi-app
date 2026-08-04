@@ -37,13 +37,19 @@ import { FORTUNE_PRE_ANALYSIS_VERSIONS } from '../ai/prompts';
  * HEALTH / COMPATIBILITY / ZWDS_* will be added when those reading types
  * are added to the chat whitelist (Phase 2.5 / Phase 3).
  */
+// ⚠️ EVERY entry bumped together below. That is normally wrong — this map is
+// per-readingType precisely so a LOVE-only change leaves LIFETIME sessions
+// alone — but the 五行比重引用規則 added to `CHAT_V1_SHARED_RULES` lives in the
+// SHARED block that `buildChatV1SystemPromptForType` splices into all of them,
+// so every type's system prompt genuinely changed. A shared-block edit is the
+// one case where the whole map moves.
 export const CHAT_PROMPT_VERSIONS: Partial<Record<ReadingType, string>> = {
-  LIFETIME: 'v1.2.2', // Phase 2 post-test bump — added anti-self-cross-sell + anti-hallucinated-tier rule
-  LOVE: 'v1.0.1',     // Phase 2 post-test bump — anti-self-cross-sell + «不可虛構完整版» rule
-  CAREER: 'v1.0.1',   // Phase 2 post-test bump — same rule (preventive)
-  ANNUAL: 'v1.0.3',   // Phase 2 post-test bump — A-4 few-shot regex-friendly fix (moved «屬於命局架構層面而非流年動態» AFTER «範圍——» so isTopicBoundaryRefuse regex still matches)
-  COMPATIBILITY: 'v1.1.0', // Phase 3.1 — Bazi-master review fixes: K-3 doctrinal correction (no marriagePalace.personality), 配偶星 gender hint, 六合/半合 scope, softer cross-sell wording
-  FORTUNE: 'v1.1.0',  // Phase 1.5.z — folk content (吉色/吉數/吉食含忌食/吉時) now reaches chat scope via interpolateFortuneV1Fields folk block (2026-05-22). UNCHANGED for Phase 2 month support — that's handled by CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE below.
+  LIFETIME: 'v1.2.3', // 五行比重引用規則 (shared block) — cite balanceSeasonal, never derive from elementCounts
+  LOVE: 'v1.0.2',     // 五行比重引用規則 (shared block)
+  CAREER: 'v1.0.2',   // 五行比重引用規則 (shared block)
+  ANNUAL: 'v1.0.4',   // 五行比重引用規則 (shared block)
+  COMPATIBILITY: 'v1.1.1', // 五行比重引用規則 (shared block)
+  FORTUNE: 'v1.1.1',  // 五行比重引用規則 (shared block). Kept equal to CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE.DAY — see the semantic-preservation note there.
 };
 
 /** Safe lookup with fallback to LIFETIME for unmapped reading types. */
@@ -75,9 +81,11 @@ export const CHAT_PROMPT_VERSIONS_BY_FORTUNE_SCOPE: Record<
   'DAY' | 'MONTH' | 'YEAR',
   string
 > = {
-  DAY: 'v1.1.0',   // = existing CHAT_PROMPT_VERSIONS.FORTUNE value (semantic preservation)
-  MONTH: 'v1.0.0', // NEW for Phase 2 月運 — first version
-  YEAR: 'v1.1.0',  // Tier B2 — bumped (Y-3 pushback few-shot added to system prompt)
+  // All three bumped for the same reason as the parent map: the 五行比重引用規則
+  // went into `CHAT_V1_SHARED_RULES`, which every FORTUNE scope also splices in.
+  DAY: 'v1.1.1',   // = CHAT_PROMPT_VERSIONS.FORTUNE value (semantic preservation — keep these two equal)
+  MONTH: 'v1.0.1', // 五行比重引用規則 (shared block)
+  YEAR: 'v1.1.1',  // 五行比重引用規則 (shared block)
 };
 
 /** Sibling helper to `getChatPromptVersion` for FORTUNE chat sessions.
@@ -106,7 +114,20 @@ export function getChatPromptVersionForFortune(
 // ai.service.ts:7177» was misleading — it implied strict mirror, which
 // breaks the moment a chat-only slim change ships.
 const PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH = {
-  LIFETIME: 'v2.9.0',
+  // v2.9.0 → v2.9.1: chat-slim-only change, so a semver PATCH per the contract
+  // above — the engine's own PRE_ANALYSIS_VERSIONS.LIFETIME stays v2.9.0 and no
+  // reading re-narration is forced. `chat_context.py` now drops `balanceRaw` and
+  // scrubs unweighted 五行 percentages out of narrativeAnchors /
+  // call2NarrativeAnchors / patternNarrative, so the cached slim shape changed.
+  //
+  // ⚠️ This one entry is what actually invalidates the fix. `pa-life` is
+  // appended UNCONDITIONALLY in `computeVersionString`, so bumping it moves the
+  // version string for EVERY reading type — which is what we want, because the
+  // scrub lives in `build_chat_context`, the shared base that COMPAT
+  // (`_slim_party_for_compat`) and FORTUNE (`**base_ctx`) both inherit. Without
+  // it, any chart with a chat session in the last 24h keeps being served the raw
+  // percentages this change exists to remove.
+  LIFETIME: 'v2.9.1',
   CAREER: 'v2.5.0',
   ANNUAL: 'v2.4.0',
   LOVE: 'v1.11.0',
