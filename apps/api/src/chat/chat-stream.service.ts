@@ -406,6 +406,21 @@ export class ChatStreamService {
       // Phase Fortune — third subject path: FORTUNE sessions use
       // profileId + anchorDate (no readingId / comparisonId).
       if (session.comparisonId) {
+        // ⚠️ Re-check payment here too. This method resolves the comparison
+        // subject INDEPENDENTLY of `ChatService.sendMessage` (its docblock says
+        // it replaces that flow), and it is the surface the web client actually
+        // uses — so gating only `sendMessage` would leave the real path open.
+        // A refund clears `paidAt`, so an open session must stop working.
+        const paid = await this.prisma.baziComparison.findUnique({
+          where: { id: session.comparisonId },
+          select: { paidAt: true },
+        });
+        if (!paid || paid.paidAt === null) {
+          throw new BadRequestException({
+            code: 'COMPARISON_NOT_UNLOCKED',
+            message: '請先解鎖完整合盤報告，才能開始對話。',
+          });
+        }
         chatContext = await this.contextService.getChatContextForComparison(
           session.comparisonId,
           session.readingType,

@@ -212,8 +212,31 @@ export default function CompatScreen() {
       const gA = String(calc.chartA?.gender ?? 'male').toLowerCase();
       const gB = String(calc.chartB?.gender ?? 'female').toLowerCase();
       const yr = new Date().getFullYear();
+
+      // ⚠️ Refetch as soon as the FIRST section lands, not only at `onDone`.
+      // The charge happens server-side before generation, so by the time any
+      // section arrives `paidAt` is set and the GET returns the UNSTRIPPED
+      // payload. Waiting for `onDone` leaves the score header on 0 分 for the
+      // ENTIRE stream — measured here at ~3 minutes — i.e. for the whole moment
+      // right after the user spent 3 點, which is the worst possible time to
+      // show a zero. Mirrors the web fix in `reading/compatibility/page.tsx`.
+      let refetchedAfterUnlock = false;
+      const refetchPaidPayload = () => {
+        if (refetchedAfterUnlock) return;
+        refetchedAfterUnlock = true;
+        void (async () => {
+          try {
+            const t2 = await getToken();
+            if (t2) setComparison(await getCompatibility(t2, comparison.id));
+          } catch {
+            // Non-fatal — `onDone` refetches again, and reopening recovers it.
+          }
+        })();
+      };
+
       streamRef.current = streamCompatibilityReading(token, comparison.id, {
-        onSectionComplete: (key, section) =>
+        onSectionComplete: (key, section) => {
+          refetchPaidPayload();
           setAiData((prev) => ({
             ...prev!,
             sections: [
@@ -226,15 +249,48 @@ export default function CompatScreen() {
                 score: section.score,
               },
             ],
-          })),
+          }));
+        },
         onCallComplete: () => {},
         onSummary: (s) => setAiData((prev) => ({ ...prev!, summary: { text: s.full || s.preview } })),
-        onDone: () => setStreaming(false),
+        onDone: () => {
+          setStreaming(false);
+          // The unlock spent credits — refresh the badge so it isn't stale.
+          void refreshCredits();
+          // ⚠️ And REFETCH the comparison. `comparison` still holds the UNPAID
+          // payload, which is stripped of the scoring analysis (score, label,
+          // breakdown, 桃花 counts) — so without this the header, and the share
+          // card, render 0 分 right after the user paid. `paidAt` is set by now,
+          // so the GET returns it unstripped.
+          void (async () => {
+            try {
+              const t = await getToken();
+              if (t) setComparison(await getCompatibility(t, comparison.id));
+            } catch {
+              // Non-fatal: the sections already rendered, and reopening the
+              // comparison recovers the header.
+            }
+          })();
+        },
         onError: (err) => {
           setStreaming(false);
+          // Bundle A: the reveal is where credits are charged, so a failure can
+          // mean "not enough credits" OR "charged then the AI failed" (which the
+          // backend refunds). Either way the balance may have moved.
+          void refreshCredits();
+          const code = (err as { code?: string }).code;
+          if (code === 'INSUFFICIENT_CREDITS') {
+            // Drop back to the paywall rather than stranding the user on an
+            // empty screen — `revealed` was set optimistically before the stream.
+            setRevealed(false);
+            setAiData(null);
+            setError(zh('點數不足，無法解鎖完整報告。'));
+            return;
+          }
           setAiData((prev) => {
             if (!prev?.sections.length && !err.partial) {
-              setError(zh('AI 分析生成中，請稍後再試。您的點數不會重複扣除。'));
+              setRevealed(false);
+              setError(zh('AI 分析生成中，請稍後再試。若已扣點將自動退回。'));
             } else if (prev?.sections.length) {
               setError(zh('部分分析已完成，稍後可重新載入剩餘內容。'));
             }
@@ -243,19 +299,36 @@ export default function CompatScreen() {
         },
       });
     } else {
-      // Business / friendship — non-streaming generate-ai (already paid at create).
+      // Business / friendship — non-streaming generate-ai. This is ALSO a reveal
+      // path now: Bundle A charges here, not at create.
       try {
         const withAI = await generateCompatibilityAI(token, comparison.id);
+        // ⚠️ Adopt the returned row, don't just take its AI. `generateComparisonAI`
+        // re-reads the comparison AFTER the charge, so `withAI` is the full
+        // unstripped payload — whereas `comparison` still holds the UNPAID one,
+        // stripped of score/label/breakdown. Dropping it renders 0 分 in the
+        // post-reveal gate. Web already does this (page.tsx:465-468); this was
+        // the only side that discarded it. Unreachable today (BUSINESS/FRIENDSHIP
+        // are hidden in v1) but armed the day they are re-enabled.
+        setComparison(withAI);
         setAiData(transformAIResponse(withAI.aiInterpretation) ?? { sections: [], isV2: false });
       } catch (e) {
-        setError(e instanceof Error ? e.message : zh('分析生成失敗，請稍後再試'));
+        const code = (e as { code?: string })?.code;
+        if (code === 'INSUFFICIENT_CREDITS') {
+          setRevealed(false);
+          setAiData(null);
+          setError(zh('點數不足，無法解鎖完整報告。'));
+        } else {
+          setError(e instanceof Error ? e.message : zh('分析生成失敗，請稍後再試'));
+        }
       } finally {
         setStreaming(false);
+        void refreshCredits();
       }
     }
     // getToken omitted (unstable ref).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [comparison, isRomance, zh]);
+  }, [comparison, isRomance, refreshCredits, zh]);
 
   const handleNew = useCallback(() => {
     streamRef.current?.close();
@@ -416,6 +489,8 @@ export default function CompatScreen() {
                       hourUnknownB={hourUnknownB}
                       genderA={genderA}
                       genderB={genderB}
+                      creditCost={COMPAT_CREDIT_COST}
+                      userCredits={credits}
                     />
                   ) : (
                     <View style={styles.genericGate}>

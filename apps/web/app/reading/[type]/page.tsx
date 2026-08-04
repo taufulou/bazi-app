@@ -370,6 +370,26 @@ export default function ReadingPage() {
     };
   }, []);
 
+  // Auto-dismiss the cache toast — but only once the chart has finished
+  // revealing.
+  //
+  // ⚠️ The countdown deliberately does NOT start when the response lands. The
+  // staged reveal above runs ~7.2s of timers (CHART_REVEAL_DELAYS) and holds the
+  // viewport on the animating chart the whole time, so a toast that started its
+  // own 5s timer on arrival was reliably GONE before the page settled — measured
+  // on a warm dedupe hit: toast up at 2.9s, down at 8.9s, page not settled until
+  // 13.9s. The user was never looking at it while it existed.
+  //
+  // Keying the countdown on `!isRevealing` gives it a full 5s once the page is
+  // still. Layouts without a staged reveal (`startChartReveal` only runs when
+  // `isFullPageLayout`) keep `isRevealing === false`, so they behave exactly as
+  // before.
+  useEffect(() => {
+    if (!cacheToast || isRevealing) return;
+    const timer = setTimeout(() => setCacheToast(false), 5000);
+    return () => clearTimeout(timer);
+  }, [cacheToast, isRevealing]);
+
   // Scroll paywall CTA into view after chart reveal finishes
   useEffect(() => {
     if (showPaywall && !isRevealing && paywallRef.current) {
@@ -724,10 +744,10 @@ export default function ReadingPage() {
         }
       }
 
-      // Show cache hit notification (no credits deducted)
+      // Show cache hit notification (no credits deducted).
+      // ⚠️ Do NOT start the dismiss countdown here — see the effect below.
       if (response.fromCache) {
         setCacheToast(true);
-        setTimeout(() => setCacheToast(false), 5000);
       }
 
       if (typeof response.creditsUsed === "number" && response.creditsUsed > 0) {

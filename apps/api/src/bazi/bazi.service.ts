@@ -18,6 +18,14 @@ import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto'
 import { Prisma, ReadingType } from '@prisma/client';
 import { deepCamelCase } from '../common/deep-camel-case';
 
+/**
+ * Used only when the COMPATIBILITY service row is missing or has been
+ * deactivated between a comparison being created and revealed. Blocking the
+ * reveal outright would strand a user mid-funnel on a comparison they already
+ * hold, so charge the known price instead.
+ */
+const COMPATIBILITY_FALLBACK_CREDIT_COST = 3;
+
 @Injectable()
 export class BaziService {
   private readonly logger = new Logger(BaziService.name);
@@ -131,6 +139,85 @@ export class BaziService {
       dto.readingType,
       dto.targetYear,
     );
+
+    // ── Bundle B — return the user's EXISTING reading instead of inserting a
+    // duplicate row.
+    //
+    // Re-running a paid reading with identical birth data already charged 0
+    // credits (the `fromCache` path below), but still INSERTed a fresh
+    // `bazi_readings` row. That is what inflates 歷史分析記錄 — one chart shown
+    // as dozens of identical entries, and a meaningless counter.
+    //
+    // ⚠️ Scoped to (userId, birthProfileId, readingType, targetYear) — NOT to
+    // the AI cache. The AI cache is GLOBAL (keyed on birth data + type + year),
+    // so keying dedupe on it would hand back a DIFFERENT USER's row.
+    const reusable = await this.prisma.baziReading.findFirst({
+      where: {
+        userId: user.id,
+        birthProfileId: profile.id,
+        readingType: dto.readingType,
+        targetYear: dto.targetYear ?? null,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (reusable) {
+      const isComplete =
+        reusable.aiInterpretation !== null &&
+        !reusable.isDegraded &&
+        reusable.refundedAt === null;
+
+      // A row mid-regeneration is IN FLIGHT, not absent: `regenerateReading`
+      // deliberately nulls `aiInterpretation` so the SSE endpoint refills it.
+      // Without this carve-out a concurrent create during that window would
+      // fall through and CHARGE AGAIN.
+      // ⚠️ `refundedAt === null` is required here too, not just on `isComplete`.
+      // Reachable chain: create+charge → stream degrades → user regenerates
+      // (`regenerationCount: 1`, AI nulled, `refundedAt` untouched) → the regen
+      // fails → `refundReadingCredit` sets `refundedAt` and returns the credits.
+      // The row is then {AI: null, regenerationCount: 1, refundedAt: set}. Without
+      // this clause that reads as "in flight", so the create returns
+      // `streamReady` free — and `/readings/:id/stream` has NO payment gate, so
+      // the user gets their credits back AND the full paid report.
+      const isRegenerating =
+        reusable.aiInterpretation === null &&
+        reusable.regenerationCount > 0 &&
+        reusable.refundedAt === null;
+
+      if (isComplete) {
+        // ⚠️ `fromCache: true` is a live client contract — web
+        // `reading/[type]/page.tsx:728` and mobile `reading/[type].tsx:321`
+        // drive the 「已載入…未扣點」 CacheToast off it. Returning a reused row
+        // without it would charge nothing and tell the user nothing, which is
+        // the exact confusion that toast exists to prevent.
+        // ⚠️ `creditsUsed: 0` — the envelope field means "credits charged by
+        // THIS call", which is what every consumer assumes. Spreading the row's
+        // original non-zero charge made the web client decrement the displayed
+        // balance (`reading/[type]/page.tsx:733`) while the CacheToast said
+        // 「未扣點」 — the exact contradiction that toast exists to prevent.
+        return { ...reusable, creditsUsed: 0, fromCache: true };
+      }
+
+      if (isRegenerating) {
+        // The row has no interpretation YET, so returning it as a cache hit
+        // would render an empty reading. Hand back `streamReady` instead so the
+        // client opens the SSE stream and receives the regenerating content —
+        // and still no charge, because this reading was already paid for.
+        return {
+          ...reusable,
+          creditsUsed: 0, // charged by THIS call — see the note above
+          fromCache: false,
+          // Mirror the fresh path: only promise a stream when one was asked for.
+          streamReady: dto.stream === true,
+          deterministic: this._buildDeterministicPayload(
+            (reusable.calculationData ?? {}) as Record<string, unknown>,
+            dto.readingType,
+          ),
+        };
+      }
+      // Otherwise fall through: a degraded / refunded / never-finished row is
+      // what `regenerateBaziReading` exists to replace, not something to serve.
+    }
 
     // Check cache for existing interpretation
     const cachedInterpretation = await this.aiService.getCachedInterpretation(
@@ -268,38 +355,49 @@ export class BaziService {
     // For streaming requests, include streamReady flag and deterministic data
     if (isStreamingRequest) {
       // Extract deterministic data from the appropriate enhanced insights key
-      const INSIGHTS_KEY_MAP: Record<string, string> = {
-        CAREER: 'careerEnhancedInsights',
-        ANNUAL: 'annualEnhancedInsights',
-        LIFETIME: 'lifetimeEnhancedInsights',
-        LOVE: 'loveEnhancedInsights',
-      };
-      const insightsKey = INSIGHTS_KEY_MAP[dto.readingType] || 'lifetimeEnhancedInsights';
-      const enhancedInsights = calculationData[insightsKey] as Record<string, unknown> | undefined;
-
-      // For ANNUAL V2: pass the full enhancedInsights (not just the compact 'deterministic' sub-key)
-      // so the frontend has access to taiSui, career, finance, health, monthly aspects etc.
-      // For other types: keep using the compact 'deterministic' sub-key.
-      let deterministic: Record<string, unknown>;
-      if (dto.readingType === 'ANNUAL' && enhancedInsights) {
-        deterministic = deepCamelCase(enhancedInsights) as Record<string, unknown>;
-      } else {
-        const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
-        // NOTE: Love deterministic data receives shallow camelCase here (top-level keys only).
-        // Nested objects (annualForecasts items, goodYears, etc.) retain snake_case.
-        // Frontend normalizeLoveDeterministic() applies deepCamelCase to handle this.
-        // Do NOT remove the frontend deepCamelCase — it is required for nested fields.
-        deterministic = {};
-        for (const [key, value] of Object.entries(rawDeterministic)) {
-          const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-          deterministic[camelKey] = value;
-        }
-      }
+      const deterministic = this._buildDeterministicPayload(calculationData, dto.readingType);
 
       return { ...reading, fromCache, streamReady: true, deterministic };
     }
 
     return { ...reading, fromCache };
+  }
+
+  /**
+   * Shape the deterministic (non-AI) payload the streaming clients render while
+   * the AI is still arriving. Shared by the fresh-stream path and Bundle B's
+   * in-flight-regeneration reuse, so both hand the frontend the same structure.
+   */
+  private _buildDeterministicPayload(
+    calculationData: Record<string, unknown>,
+    readingType: string,
+  ): Record<string, unknown> {
+    const INSIGHTS_KEY_MAP: Record<string, string> = {
+      CAREER: 'careerEnhancedInsights',
+      ANNUAL: 'annualEnhancedInsights',
+      LIFETIME: 'lifetimeEnhancedInsights',
+      LOVE: 'loveEnhancedInsights',
+    };
+    const insightsKey = INSIGHTS_KEY_MAP[readingType] || 'lifetimeEnhancedInsights';
+    const enhancedInsights = calculationData[insightsKey] as Record<string, unknown> | undefined;
+
+    // For ANNUAL V2: pass the full enhancedInsights (not just the compact 'deterministic' sub-key)
+    // so the frontend has access to taiSui, career, finance, health, monthly aspects etc.
+    // For other types: keep using the compact 'deterministic' sub-key.
+    if (readingType === 'ANNUAL' && enhancedInsights) {
+      return deepCamelCase(enhancedInsights) as Record<string, unknown>;
+    }
+    const rawDeterministic = (enhancedInsights?.['deterministic'] || {}) as Record<string, unknown>;
+    // NOTE: Love deterministic data receives shallow camelCase here (top-level keys only).
+    // Nested objects (annualForecasts items, goodYears, etc.) retain snake_case.
+    // Frontend normalizeLoveDeterministic() applies deepCamelCase to handle this.
+    // Do NOT remove the frontend deepCamelCase — it is required for nested fields.
+    const deterministic: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(rawDeterministic)) {
+      const camelKey = key.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
+      deterministic[camelKey] = value;
+    }
+    return deterministic;
   }
 
   /**
@@ -627,8 +725,14 @@ export class BaziService {
 
     this.logger.log(`[Stream] Comparison found, hasAI=${!!comparison.aiInterpretation}, type=${comparison.comparisonType}`);
 
-    // 3. If AI already populated (cache hit or reconnect), emit static sections
-    if (comparison.aiInterpretation) {
+    // 3. If AI is populated AND the comparison is unlocked, emit static sections.
+    //
+    // ⚠️ `paidAt` is part of the condition on purpose. Keying on
+    // `aiInterpretation` alone means an unpaid row carrying an interpretation
+    // (refunded, or a pre-Bundle-A cache-hit row) hands the full report over for
+    // free — this endpoint emits every section with no preview stripping.
+    // An unpaid row with a stale interpretation falls through to the charge.
+    if (comparison.aiInterpretation && comparison.paidAt !== null) {
       this.emitStaticSections(
         comparison.aiInterpretation as Record<string, unknown>,
         subscriber,
@@ -644,14 +748,95 @@ export class BaziService {
       throw new ConflictException('Maximum concurrent streams reached');
     }
 
+    // 5. CHARGE — after the concurrency guard, before any AI work.
+    //
+    // ⚠️ Placed after the guard deliberately: charging above it would debit a
+    // user who is merely rate-limited. Charge-then-generate (not the reverse)
+    // because a concurrent spend between generation and charge would let us
+    // deliver the report for nothing; the CAS makes a retry free.
     try {
-      // 5. Delegate to ai.service streaming method
+      await this._chargeForReveal(user.id, comparison);
+    } catch (err) {
+      await this.redis.getClient().decr(activeKey);
+      // Headers are already sent on an SSE response, so a thrown
+      // BadRequestException would reach the client as a message string, not a
+      // 4xx. Emit a machine-readable code the frontend can dispatch on.
+      const isCredits =
+        err instanceof BadRequestException &&
+        (err.getResponse() as { code?: string })?.code === 'INSUFFICIENT_CREDITS';
+      subscriber.next({
+        data: JSON.stringify(
+          isCredits
+            ? { code: 'INSUFFICIENT_CREDITS', message: '點數不足，無法解鎖完整報告。' }
+            : { message: err instanceof Error ? err.message : 'Reveal failed' },
+        ),
+        type: 'error',
+      } as MessageEvent);
+      subscriber.complete();
+      return;
+    }
+
+    try {
+      // 6. Delegate to ai.service streaming method
       const aiObservable = this.aiService.streamCompatibilityRomanceV2(calculationData, comparisonId);
 
+      // ⚠️ The refund CANNOT hang off the observable's `error` channel.
+      // `streamCompatibilityRomanceV2` never calls `subscriber.error()` — there
+      // is not one such call in ai.service.ts. Every failure, including
+      // "All providers failed", is caught and emitted as a `next()` event of
+      // type 'error', followed by `complete()` in a `finally`. A refund wired to
+      // `error:` is therefore dead code, and the user is debited with no report.
+      //
+      // So: watch the EVENT STREAM. A healthy run ends with a 'done' event; if
+      // we reach `complete` having seen an error event and produced no sections,
+      // the user got nothing and must be refunded.
+      let sawErrorEvent = false;
+      let sawAnySection = false;
+      let sawDone = false;
+
+      const settleRefundIfEmpty = () => {
+        // Partial output is deliberately NOT refunded: the client keeps those
+        // sections and tells the user 「部分分析已完成」, and a retry is free
+        // anyway because the CAS sees `paidAt` already set.
+        if (!sawErrorEvent || sawAnySection || sawDone) return;
+        this.creditsService
+          .refundComparisonCredit(comparisonId, 'reveal-stream-failed')
+          .then((r) => {
+            if (r.refunded) {
+              this.logger.warn(
+                `Refunded ${r.amount} credits for failed comparison reveal ${comparisonId}`,
+              );
+            }
+          })
+          .catch((refundErr) =>
+            this.logger.error(`Reveal refund failed for ${comparisonId}: ${refundErr}`),
+          );
+      };
+
       aiObservable.subscribe({
-        next: (event) => subscriber.next(event),
+        next: (event) => {
+          const type = (event as { type?: string }).type;
+          // ⚠️ ALLOWLIST real output — do NOT invert this into a denylist.
+          // `streamCompatibilityRomanceV2` emits `{type:'heartbeat'}` every 15s
+          // starting BEFORE the first provider attempt (ai.service.ts:4545), so
+          // "anything that isn't error/done/summary counts as output" marks
+          // every real failure as partial — and real failures are always slower
+          // than 15s (300s timeout, sequential provider fallback). The refund
+          // then never fires, which is the exact defect this block exists to fix.
+          if (type === 'error') sawErrorEvent = true;
+          else if (type === 'done') sawDone = true;
+          // `summary` is real content too. It is followed by `done` today, so
+          // `sawDone` would suppress the refund anyway — but relying on that
+          // adjacency is fragile, and counting it costs nothing.
+          else if (type === 'section_complete' || type === 'summary') sawAnySection = true;
+          subscriber.next(event);
+        },
         error: (err) => {
+          // Defensive only — see the note above; nothing in ai.service.ts
+          // currently reaches this channel.
           this.redis.getClient().decr(activeKey).catch(() => {});
+          sawErrorEvent = true;
+          settleRefundIfEmpty();
           const message = err instanceof Error ? err.message : 'Stream error';
           subscriber.next({
             data: JSON.stringify({ message }),
@@ -661,6 +846,10 @@ export class BaziService {
         },
         complete: () => {
           this.redis.getClient().decr(activeKey).catch(() => {});
+          // This is the path a real provider failure takes — the stream emits an
+          // 'error' EVENT and then completes normally, so the refund decision
+          // belongs here, not in `error:`.
+          settleRefundIfEmpty();
           subscriber.complete();
         },
       });
@@ -668,6 +857,97 @@ export class BaziService {
       // Decrement on setup error
       await this.redis.getClient().decr(activeKey);
       throw err;
+    }
+  }
+
+  // ============ Comparison reveal charge (shared by both reveal paths) ============
+
+  /**
+   * Charge for unlocking a comparison, AT MOST ONCE, atomically.
+   *
+   * ⚠️ The claim is a compare-and-set on `paidAt`, not a read-then-write. Two
+   * concurrent reveals would otherwise both see `paidAt: null` and both charge.
+   *
+   * ⚠️ `paidAt` is the predicate, NOT `creditsUsed === 0`. A refunded comparison
+   * keeps its `creditsUsed` (`refundComparisonCredit` guards on
+   * `creditsUsed > 0`), so a creditsUsed-based gate would treat a fully refunded
+   * user as already paid and hand over the report.
+   *
+   * The CAS also resets `refundedAt`/`failedReason`: `refundComparisonCredit`
+   * guards on `refundedAt: null`, so without the reset a second failure after a
+   * re-pay could never be refunded. Each paid cycle is refundable exactly once.
+   *
+   * @returns true if this call performed the charge, false if already unlocked
+   */
+  private async _chargeForReveal(
+    userId: string,
+    comparison: { id: string; comparisonType: string; paidAt: Date | null },
+  ): Promise<boolean> {
+    if (comparison.paidAt !== null) return false;
+
+    // `service` is not in scope on the reveal paths (only createComparison looks
+    // it up). Fall back rather than hard-failing a user mid-funnel if the row is
+    // missing or deactivated after they created the comparison.
+    const service = await this.prisma.service.findFirst({
+      where: { type: ReadingType.COMPATIBILITY, isActive: true },
+    });
+    const cost = service?.creditCost ?? COMPATIBILITY_FALLBACK_CREDIT_COST;
+
+    // Fail fast so the caller gets a clean insufficient-credits error instead of
+    // a transaction rollback surfacing as something vaguer.
+    const fresh = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { credits: true },
+    });
+    if ((fresh?.credits ?? 0) < cost) {
+      throw new BadRequestException({
+        code: 'INSUFFICIENT_CREDITS',
+        message: `Insufficient credits. Unlocking this comparison requires ${cost} credits.`,
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const claim = await tx.baziComparison.updateMany({
+        where: { id: comparison.id, userId, paidAt: null },
+        data: {
+          paidAt: new Date(),
+          creditsUsed: cost,
+          refundedAt: null,
+          failedReason: null,
+        },
+      });
+      if (claim.count === 0) return false; // another request won the race
+
+      await this.creditsService.deductCredits(
+        userId,
+        cost,
+        `comparison-reveal:${comparison.comparisonType}`,
+        { comparisonId: comparison.id, tx },
+      );
+      return true;
+    });
+  }
+
+  /**
+   * A Bazi reveal/mutate endpoint must refuse a row it cannot interpret.
+   *
+   * ⚠️ LOAD-BEARING, not defence in depth. `BaziComparison` is SHARED with ZWDS
+   * compatibility (`zwds.service.ts` writes the same table). A ZWDS row created
+   * before its endpoints were disabled has `paidAt` set but no
+   * `romancePreAnalysis`; without this guard `generateComparisonAI` would charge
+   * Bazi credits and regenerate a BAZI romance interpretation over the user's
+   * paid ZWDS report. The same applies to legacy Bazi V1 rows (11 on dev), which
+   * predate `romancePreAnalysis`.
+   */
+  private _assertRomanceV2(comparison: {
+    comparisonType: string;
+    calculationData: unknown;
+  }): void {
+    const calc = (comparison.calculationData ?? {}) as Record<string, unknown>;
+    if (comparison.comparisonType !== 'ROMANCE' || !calc['romancePreAnalysis']) {
+      throw new BadRequestException(
+        'This comparison is not a Romance V2 analysis and cannot be generated here.',
+      );
     }
   }
 
@@ -705,37 +985,95 @@ export class BaziService {
       throw new BadRequestException('Compatibility comparison is not currently available');
     }
 
-    const hasEnoughCredits = user.credits >= service.creditCost;
+    // ⚠️ NO credit gate here any more. Creating a comparison is FREE — it shows
+    // the two 排盤 charts and nothing else. The 3-credit charge moved to the
+    // reveal (`_setupComparisonStream` / `generateComparisonAI`), which is where
+    // the score and the AI report are actually handed over. Gating creation on
+    // credits would block a user from browsing charts they are not paying for.
 
-    if (!hasEnoughCredits) {
-      throw new BadRequestException(
-        `Insufficient credits. This comparison requires ${service.creditCost} credits.`,
-      );
+    // Ordered dedupe key — `<A>|<B>|<type>` in SUBMITTED order, deliberately not
+    // sorted. A paid report cannot be re-oriented (the AI writes 男方/女方 into
+    // stored prose), so a deliberate A/B swap is a genuinely different report,
+    // not a duplicate. The reversed pair is surfaced to the caller instead —
+    // see `reversedPairExists` below.
+    const pairKey = `${dto.profileAId}|${dto.profileBId}|${dto.comparisonType}`;
+
+    // Same-order resubmit → hand back the existing row rather than creating a
+    // second one. This is the read-side fast path; the unique index on
+    // (userId, pairKey) is the actual arbiter (see the P2002 catch below),
+    // because this check races under a 30s advisory lock that wraps a slow
+    // engine call.
+    const existing = await this.prisma.baziComparison.findFirst({
+      where: { userId: user.id, pairKey },
+      include: { profileA: true, profileB: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (existing) {
+      // ⚠️ Refresh a STALE UNPAID row before returning it. Before Bundle A every
+      // create re-ran the engine, so the free 排盤 charts were always current.
+      // Now the fast path returns an existing row — and since A5 gates
+      // `recalculateComparison` on `paidAt`, an unpaid comparison would
+      // otherwise be stuck on year-N 大運/流年 with NO route to refresh, and the
+      // eventual paid reveal would be generated from stale calculationData.
+      //
+      // Only while unpaid: never mutate the basis of a report the user bought —
+      // that is what `recalculateComparison` is for.
+      const currentYear = new Date().getFullYear();
+      if (existing.paidAt === null && (existing.lastCalculatedYear ?? 0) < currentYear) {
+        try {
+          const fresh = (await this.callBaziCompatibility(
+            profileA,
+            profileB,
+            dto,
+          )) as Record<string, unknown>;
+          // ⚠️ Re-assert `paidAt: null` at WRITE time, not just at read time.
+          // The snapshot above predates a multi-second engine call, and a
+          // concurrent reveal in another tab can set `paidAt` and generate the
+          // AI from the OLD calculationData inside that window. A plain
+          // update-by-id would then swap the charts underneath a finished paid
+          // report, leaving prose describing data that is no longer stored.
+          const claim = await this.prisma.baziComparison.updateMany({
+            where: { id: existing.id, paidAt: null },
+            data: {
+              calculationData: fresh as Prisma.InputJsonValue,
+              lastCalculatedYear: currentYear,
+            },
+          });
+          const after = await this.prisma.baziComparison.findFirst({
+            where: { id: existing.id, userId: user.id },
+            include: { profileA: true, profileB: true },
+          });
+          if (claim.count === 0) {
+            this.logger.log(
+              `Skipped stale refresh for ${existing.id} — it was paid for mid-refresh`,
+            );
+          }
+          return this.flattenComparisonResponse(after ?? existing);
+        } catch (err: unknown) {
+          // A refresh failure must not block access to a comparison the user
+          // already has — fall through and serve the stale-but-valid row.
+          const message = err instanceof Error ? err.message : 'Unknown error';
+          this.logger.warn(
+            `Stale-comparison refresh failed for ${existing.id}, serving as-is: ${message}`,
+          );
+        }
+      }
+      return this.flattenComparisonResponse(existing);
     }
 
-    // Generate comparison hash for cache lookup (order-independent: A+B == B+A)
-    const comparisonHash = this.aiService.generateComparisonHash(
-      {
-        birthDate: profileA.birthDate.toISOString().split('T')[0],
-        birthTime: profileA.birthTime ?? 'HOUR_UNKNOWN',
-        birthCity: profileA.birthCity,
-        gender: profileA.gender.toLowerCase(),
-      },
-      {
-        birthDate: profileB.birthDate.toISOString().split('T')[0],
-        birthTime: profileB.birthTime ?? 'HOUR_UNKNOWN',
-        birthCity: profileB.birthCity,
-        gender: profileB.gender.toLowerCase(),
-      },
-      dto.comparisonType,
-    );
+    // Reversed pair — do NOT auto-dedupe (orientation matters) and do NOT
+    // silently create a second row. Signal it so the client can offer
+    // 「您已有這對組合的合盤」 and let the user choose.
+    const reversedPairKey = `${dto.profileBId}|${dto.profileAId}|${dto.comparisonType}`;
+    const reversed = await this.prisma.baziComparison.findFirst({
+      where: { userId: user.id, pairKey: reversedPairKey },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    // Check cache for existing AI interpretation
-    const cachedInterpretation = await this.aiService.getCachedInterpretation(
-      comparisonHash,
-      ReadingType.COMPATIBILITY,
-    );
-    const fromCache = !!cachedInterpretation;
+    // (The comparison-hash + AI-cache lookup that used to sit here went with the
+    // AI-at-create block below — creation no longer produces an interpretation,
+    // so there was nothing to look up. The cache is read at the reveal instead.)
 
     // Acquire distributed lock to prevent concurrent exploit
     const lockKey = `comparison:create:${user.id}`;
@@ -755,100 +1093,95 @@ export class BaziService {
         throw new InternalServerErrorException('Bazi compatibility calculation failed.');
       }
 
-      // Generate AI interpretation for compatibility (skip when skipAI=true for progressive loading)
-      let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
-      let aiProvider: string | undefined = undefined;
-      let aiModel: string | undefined = undefined;
-      let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
+      // ⚠️ NO AI at create — creation is charts-only, unconditionally.
+      //
+      // The legacy `!dto.skipAI` branch that generated (or attached a cached)
+      // interpretation here has been DELETED. Every client already sends
+      // `skipAI: true` (web reading/compatibility/page.tsx:432,445; mobile
+      // compat.tsx:163), so it had no caller — and once creation became free it
+      // became a hole: it would have returned a full paid report for 0 credits,
+      // since `createComparison` returns `flattenComparisonResponse` with no
+      // preview stripping.
+      //
+      // A0's `deliveredFromCache` guard retires with it; its whole job was
+      // keeping the create honest while the charge lived here. The AI cache is
+      // now read at the reveal instead, which is where the report is delivered.
+      //
+      // `skipAI` remains an accepted no-op on the DTO so installed clients do
+      // not 400 on an unknown property under `forbidNonWhitelisted`.
+      const aiInterpretation = undefined;
+      const aiProvider = undefined;
+      const aiModel = undefined;
+      const tokenUsage = undefined;
 
-      if (fromCache) {
-        this.logger.log(`Cache hit for comparison ${comparisonHash}`);
-        aiInterpretation = cachedInterpretation as unknown as Prisma.InputJsonValue;
-        aiProvider = 'CLAUDE';
-        aiModel = 'cached';
-      } else if (!dto.skipAI) {
-        try {
-          // Enrich with comparison type and gender for prompt interpolation
-          // Note: chartA/chartB already contain 'gender' from the Python engine
-          const enrichedData: Record<string, unknown> = {
-            ...calculationData,
-            comparisonType: dto.comparisonType.toLowerCase(),
-            genderA: profileA.gender.toLowerCase(),
-            genderB: profileB.gender.toLowerCase(),
-            birthDateA: profileA.birthDate.toISOString().split('T')[0],
-            birthDateB: profileB.birthDate.toISOString().split('T')[0],
-          };
-
-          // Route: Romance V2 (3-call) vs V1 (single-call)
-          const isRomanceV2 = dto.comparisonType === 'ROMANCE' &&
-            !!(calculationData as Record<string, unknown>)['romancePreAnalysis'];
-
-          let aiResult;
-          if (isRomanceV2) {
-            this.logger.log('Using Compatibility Romance V2 (3-call architecture)');
-            aiResult = await this.aiService.generateCompatibilityRomanceV2(
-              enrichedData,
-              user.id,
-            );
-          } else {
-            aiResult = await this.aiService.generateInterpretation(
-              enrichedData,
-              ReadingType.COMPATIBILITY,
-              user.id,
-            );
-          }
-
-          aiInterpretation = aiResult.interpretation as unknown as Prisma.InputJsonValue;
-          aiProvider = aiResult.provider;
-          aiModel = aiResult.model;
-          tokenUsage = aiResult.tokenUsage as unknown as Prisma.InputJsonValue;
-
-          // Cache the result asynchronously
-          this.aiService.cacheInterpretation(
-            comparisonHash,
-            ReadingType.COMPATIBILITY,
-            calculationData,
-            aiResult.interpretation,
-          ).catch((err) => this.logger.error(`Comparison cache write failed: ${err}`));
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : 'Unknown error';
-          this.logger.error(`AI compatibility interpretation failed: ${message}`);
-        }
-      }
-
-      // Cache hit: no credit deduction (user already paid for this interpretation)
-      // Regular: deduct service.creditCost credits
-      const creditsUsed = fromCache ? 0 : service.creditCost;
-
-      // Atomic transaction to prevent double-spend
-      const comparison = await this.prisma.$transaction(async (tx) => {
-        const c = await tx.baziComparison.create({
+      // ⚠️ Creation is FREE. `creditsUsed: 0` / `paidAt: null` are the unpaid
+      // state; the reveal CAS is the ONLY writer of `paidAt`. A0's
+      // `deliveredFromCache` retires here along with the create-time charge —
+      // its whole job was keeping the create honest while the charge lived here.
+      let comparison;
+      try {
+        comparison = await this.prisma.baziComparison.create({
           data: {
             userId: user.id,
             profileAId: profileA.id,
             profileBId: profileB.id,
             comparisonType: dto.comparisonType,
+            pairKey,
             calculationData: calculationData as Prisma.InputJsonValue,
             aiInterpretation,
             aiProvider: aiProvider as any,
             aiModel,
             tokenUsage,
-            creditsUsed,
+            creditsUsed: 0,
+            paidAt: null,
             lastCalculatedYear: new Date().getFullYear(),
           },
+          include: { profileA: true, profileB: true },
         });
-        if (!fromCache) {
-          await this.creditsService.deductCredits(
-            user.id,
-            service.creditCost,
-            `comparison-create:${dto.comparisonType}`,
-            { comparisonId: c.id, tx },
-          );
+      } catch (err: unknown) {
+        // The unique index on (userId, pairKey) is the real arbiter — the
+        // read-side check above races, because the 30s advisory lock can expire
+        // during a slow engine call before the row is written.
+        if (
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002'
+        ) {
+          const raced = await this.prisma.baziComparison.findFirst({
+            where: { userId: user.id, pairKey },
+            include: { profileA: true, profileB: true },
+            orderBy: { createdAt: 'desc' },
+          });
+          if (raced) {
+            // The engine call above already produced fresh charts, and they are
+            // thrown away here. Refresh a STALE row so a returning user isn't
+            // shown last year's 排盤 — but only while it is unpaid. Never mutate
+            // the basis of a report the user has paid for; that is what
+            // `recalculateComparison` is for.
+            const currentYear = new Date().getFullYear();
+            if (raced.paidAt === null && (raced.lastCalculatedYear ?? 0) < currentYear) {
+              const refreshed = await this.prisma.baziComparison.update({
+                where: { id: raced.id },
+                data: {
+                  calculationData: calculationData as Prisma.InputJsonValue,
+                  lastCalculatedYear: currentYear,
+                },
+                include: { profileA: true, profileB: true },
+              });
+              return this.flattenComparisonResponse(refreshed);
+            }
+            return this.flattenComparisonResponse(raced);
+          }
         }
-        return c;
-      });
+        throw err;
+      }
 
-      return this.flattenComparisonResponse(comparison);
+      return {
+        ...this.flattenComparisonResponse(comparison),
+        // Lets the client offer 「您已有這對組合的合盤」 rather than the user
+        // discovering a near-duplicate later. Only set when the REVERSED pair
+        // exists — the same-order case returned early above.
+        ...(reversed ? { reversedPairExists: true, reversedComparisonId: reversed.id } : {}),
+      };
     } finally {
       await this.redis.releaseLock(lockKey);
     }
@@ -875,9 +1208,16 @@ export class BaziService {
       throw new NotFoundException('Comparison not found');
     }
 
-    // Server-side paywall: non-subscribers only get preview sections
+    // Server-side paywall: non-subscribers only get preview sections.
+    //
+    // ⚠️ This check used to read `creditsUsed > 0 || comparison.userId === user.id`,
+    // which could never be false — the `findFirst` above already filters on
+    // `userId`, so the preview-stripping branch was unreachable dead code. It
+    // was masked because a comparison always had `creditsUsed: 3` by the time it
+    // had an interpretation. Now that creation is free, "unpaid" is a real,
+    // reachable state and this is a live paywall.
     const isSubscriber = user.subscriptionTier !== 'FREE';
-    const isOwnerReading = comparison.creditsUsed > 0 || comparison.userId === user.id;
+    const isOwnerReading = comparison.paidAt !== null;
 
     if (isSubscriber || isOwnerReading) {
       return this.flattenComparisonResponse(comparison);
@@ -926,6 +1266,7 @@ export class BaziService {
           id: true,
           comparisonType: true,
           creditsUsed: true,
+          paidAt: true, // A7 — 未解鎖 badge; free creates now have creditsUsed 0
           createdAt: true,
           profileA: {
             select: { name: true, birthDate: true },
@@ -964,6 +1305,22 @@ export class BaziService {
       include: { profileA: true, profileB: true },
     });
     if (!comparison) throw new NotFoundException('Comparison not found');
+
+    // ⚠️ Refuse rows this endpoint cannot interpret. LOAD-BEARING: ZWDS never
+    // sets `lastCalculatedYear`, so the year guard below (`=== currentYear`)
+    // never fires for a ZWDS row — `null === 2026` is false. Combined with
+    // `paidAt` (which ZWDS rows would carry, being paid at create), the
+    // gate below would ADMIT exactly the rows that must be blocked, and this
+    // method would overwrite a paid ZWDS report with Bazi romance content.
+    this._assertRomanceV2(comparison);
+
+    // Only an unlocked comparison can be refreshed. Otherwise a free create
+    // could be turned into a full report for the 1-credit recalculate price:
+    // recalculate writes `aiInterpretation`, and the reveal paths return early
+    // on an already-generated row.
+    if (comparison.paidAt === null) {
+      throw new BadRequestException('請先解鎖此合盤分析，才能更新年份');
+    }
 
     const currentYear = new Date().getFullYear();
 
@@ -1038,6 +1395,16 @@ export class BaziService {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(`AI re-interpretation failed: ${message}`);
+      // ⚠️ Do NOT charge for a refresh that produced nothing. The AI runs BEFORE
+      // the transaction, so the deduction below is simply skipped — no refund
+      // needed, and none wanted: `refundComparisonCredit` is not parameterised
+      // by amount (it refunds `creditsUsed`, which after a reveal holds 3, not
+      // the 1 charged here), and it clears `paidAt` + nulls the interpretation,
+      // which would revoke a purchased unlock and destroy the still-valid prior
+      // report over a failed cheap refresh.
+      throw new InternalServerErrorException(
+        '合盤分析更新失敗，未扣除點數，請稍後再試。',
+      );
     }
 
     // Atomic update: deduct credit + update comparison
@@ -1070,9 +1437,12 @@ export class BaziService {
 
   /**
    * Generate AI interpretation for a comparison that was created with skipAI=true.
-   * Idempotent: returns cached AI if already generated.
+   * Idempotent: returns the existing AI if already generated.
    * Uses distributed lock to prevent concurrent AI generation for the same comparison.
-   * No credits are charged (already deducted during createComparison).
+   *
+   * ⚠️ THIS IS A REVEAL PATH — it charges. Creating a comparison is free; the
+   * 3 credits are taken here (and in `_setupComparisonStream`), once, via
+   * `_chargeForReveal`'s compare-and-set on `paidAt`.
    */
   async generateComparisonAI(clerkUserId: string, comparisonId: string) {
     const user = await this.prisma.user.findUnique({
@@ -1086,9 +1456,63 @@ export class BaziService {
     });
     if (!comparison) throw new NotFoundException('Comparison not found');
 
-    // If AI already exists, return immediately (idempotent)
-    if (comparison.aiInterpretation) {
+    // Refuse rows this endpoint cannot interpret BEFORE charging or generating —
+    // see `_assertRomanceV2`. Without it a ZWDS or legacy-V1 row would be
+    // charged for and then overwritten with Bazi romance content.
+    this._assertRomanceV2(comparison);
+
+    // Idempotent return — but only for a row that is BOTH generated and unlocked.
+    // `aiInterpretation` alone would hand a refunded or never-paid row over free;
+    // this endpoint returns `flattenComparisonResponse` with no preview stripping.
+    if (comparison.aiInterpretation && comparison.paidAt !== null) {
       return this.flattenComparisonResponse(comparison);
+    }
+
+    // Charge before generating. Already-unlocked rows are a no-op (CAS returns
+    // false), so a retry after a failed generation is free.
+    await this._chargeForReveal(user.id, comparison);
+
+    // ⚠️ Read the AI cache HERE — after the charge, before generation.
+    //
+    // A0 made this load-bearing. The cache used to be harvested at create (which
+    // was the leak A0 closed); now nothing consults it on the way to a reveal, so
+    // without this every unlock regenerates from scratch even on a warm cache.
+    // The user still pays — a global cache hit means SOMEONE ELSE paid to
+    // generate it, which is not this user's entitlement — we just skip the spend.
+    const revealCacheHash = this.aiService.generateComparisonHash(
+      {
+        birthDate: comparison.profileA.birthDate.toISOString().split('T')[0],
+        birthTime: comparison.profileA.birthTime ?? 'HOUR_UNKNOWN',
+        birthCity: comparison.profileA.birthCity,
+        gender: comparison.profileA.gender.toLowerCase(),
+      },
+      {
+        birthDate: comparison.profileB.birthDate.toISOString().split('T')[0],
+        birthTime: comparison.profileB.birthTime ?? 'HOUR_UNKNOWN',
+        birthCity: comparison.profileB.birthCity,
+        gender: comparison.profileB.gender.toLowerCase(),
+      },
+      comparison.comparisonType,
+    );
+    const revealCached = await this.aiService.getCachedInterpretation(
+      revealCacheHash,
+      ReadingType.COMPATIBILITY,
+    );
+    if (revealCached) {
+      this.logger.log(`Reveal cache hit for comparison ${comparisonId}`);
+      await this.prisma.baziComparison.updateMany({
+        where: { id: comparisonId, userId: user.id },
+        data: {
+          aiInterpretation: revealCached as unknown as Prisma.InputJsonValue,
+          aiProvider: 'CLAUDE',
+          aiModel: 'cached',
+        },
+      });
+      const hydrated = await this.prisma.baziComparison.findFirst({
+        where: { id: comparisonId, userId: user.id },
+        include: { profileA: true, profileB: true },
+      });
+      return this.flattenComparisonResponse(hydrated ?? comparison);
     }
 
     // Acquire distributed lock to prevent concurrent AI generation
@@ -1201,6 +1625,20 @@ export class BaziService {
         this.logger.error(
           `AI compatibility generation failed for comparison ${comparisonId}: ${message}`,
         );
+        // The user was charged just above and is getting nothing. Refund rather
+        // than leaving a silent debit — `refundComparisonCredit` is idempotent
+        // and also clears `paidAt`, so a later retry re-charges cleanly.
+        const refund = await this.creditsService
+          .refundComparisonCredit(comparisonId, 'reveal-generate-failed')
+          .catch((refundErr) => {
+            this.logger.error(`Reveal refund failed for ${comparisonId}: ${refundErr}`);
+            return { refunded: false, amount: 0 };
+          });
+        if (refund.refunded) {
+          this.logger.warn(
+            `Refunded ${refund.amount} credits for failed comparison reveal ${comparisonId}`,
+          );
+        }
         // Return comparison as-is (no AI)
         return this.flattenComparisonResponse(comparison);
       }
@@ -1238,7 +1676,68 @@ export class BaziService {
    * 1. Enhanced (8-dimension): { chartA, chartB, compatibilityEnhanced: { adjustedScore, dimensionScores, ... } }
    * 2. Legacy (simple):        { chartA, chartB, compatibility: { overallScore, ... } }
    */
-  private flattenComparisonResponse<T extends { calculationData: unknown }>(comparison: T): T {
+  /**
+   * ⚠️ Strips the SCORING analysis from an unlocked-but-unpaid comparison.
+   *
+   * The free create returns the two 排盤 charts — that is the whole point of
+   * making creation free. But `flattenComparisonResponse` spreads
+   * `compatibilityEnhanced` up to the top level, which carries `adjustedScore`,
+   * `label`, `dimensionScores`, knockouts and 配偶宮 findings. That IS the paid
+   * analysis: it is the same data the A6 chat gate exists to protect, on the
+   * grounds that "a user can create for 0 and have the chat narrate the paid
+   * analysis". Gating the chat while handing the raw numbers over directly
+   * would be incoherent — before Bundle A the create charge covered this.
+   *
+   * Charts stay, scores go, until `paidAt` is set.
+   */
+  private stripUnpaidComparisonAnalysis<
+    T extends { calculationData: unknown; paidAt?: Date | null },
+  >(comparison: T): T {
+    if (comparison.paidAt) return comparison;
+    const calcData = comparison.calculationData as Record<string, unknown> | null;
+    if (!calcData) return comparison;
+    // ⚠️ `romancePreAnalysis` must SURVIVE, reduced. Both clients use its mere
+    // PRESENCE to route to the Romance-V2 paywall — mobile
+    // `compat.tsx:189` (`isRomance`) and web `page.tsx:367` (`isV2Romance`, the
+    // history/reload path). Dropping it made mobile render the generic gate
+    // instead of the 3-point unlock CTA, and stranded web users who reopened an
+    // unpaid comparison on an empty view with no way to unlock. It also carries
+    // the 時辰未知 flags the CTA shows BEFORE payment.
+    //
+    // So: allowlist, don't denylist. Only the two hourUnknown flags survive —
+    // `blendedScore`, `blendedLabel`, `scoreBreakdown`, `postMarriageQuality`,
+    // `peachBlossomCount*` and everything else stay behind the paywall.
+    const rpa = calcData['romancePreAnalysis'] as Record<string, unknown> | undefined;
+    const strippedRpa = rpa
+      ? {
+          lovePersonalityA: {
+            hourUnknown: (rpa['lovePersonalityA'] as Record<string, unknown> | undefined)?.[
+              'hourUnknown'
+            ],
+          },
+          lovePersonalityB: {
+            hourUnknown: (rpa['lovePersonalityB'] as Record<string, unknown> | undefined)?.[
+              'hourUnknown'
+            ],
+          },
+        }
+      : undefined;
+
+    return {
+      ...comparison,
+      calculationData: {
+        chartA: calcData['chartA'],
+        chartB: calcData['chartB'],
+        comparisonType: calcData['comparisonType'],
+        ...(strippedRpa ? { romancePreAnalysis: strippedRpa } : {}),
+      },
+    };
+  }
+
+  private flattenComparisonResponse<T extends { calculationData: unknown; paidAt?: Date | null }>(
+    original: T,
+  ): T {
+    const comparison = this.stripUnpaidComparisonAnalysis(original);
     const calcData = comparison.calculationData as Record<string, unknown> | null;
     if (!calcData) return comparison;
 

@@ -716,3 +716,25 @@
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+
+/* Reversed-pair notice — the same two people already exist in the opposite
+   order. Dedupe is order-sensitive on purpose (a paid report's 男方/女方 prose
+   cannot be re-oriented), so this offers the existing comparison rather than
+   letting the user pay twice for near-identical analysis. */
+.reversedPairNotice {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--color-orange);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.reversedPairNotice a {
+  color: var(--text-accent);
+  font-weight: 600;
+  text-decoration: underline;
+}

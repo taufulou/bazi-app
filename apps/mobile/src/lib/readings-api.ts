@@ -480,6 +480,12 @@ export interface ReadingHistoryItem {
   id: string;
   readingType: string;
   creditsUsed: number;
+  /**
+   * Comparisons only. Set when the report was UNLOCKED (the 3-point charge moved
+   * from create to reveal), so `creditsUsed === 0` alone no longer means "free"
+   * — it usually means "not unlocked yet". Drives the 未解鎖 badge.
+   */
+  paidAt?: string | null;
   createdAt: string;
   birthProfile: {
     name: string;

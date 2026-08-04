@@ -459,3 +459,169 @@ class TestDoctrineFilters:
         from app.chat_context import _build_bijie_duocai_injector
         assert _build_bijie_duocai_injector([], 'male') is None
         assert _build_bijie_duocai_injector([], 'female') is None
+
+
+class TestFiveElementsWeightedOnly:
+    """Bundle C — the chat must cite the SAME 五行比重 the reading page shows.
+
+    The bug: `_extract_five_elements` surfaced both the seasonally-weighted
+    balance and the raw one. The AI picked the raw values and labelled them
+    「五行現況（原始比重）」 (Roger: 金27.5%), while the reading page + BaziChart
+    rings render the weighted balance (金38.6%). Two different real metrics on
+    two surfaces reads as the chat being broken.
+    """
+
+    def test_chat_context_does_not_surface_raw_balance(self):
+        from app.chat_context import _extract_five_elements
+
+        out = _extract_five_elements({
+            'fiveElementsBalanceZh': {'金': 38.6, '土': 29.3},
+            'fiveElementsBalanceRaw': {'金': 27.5, '土': 31.2},
+            'elementCounts': {'金': 3},
+            'seasonalStates': {'金': '旺'},
+        })
+
+        assert 'balanceRaw' not in out, (
+            "balanceRaw must not reach the chat context — the AI cites it as "
+            "「原始比重」 and contradicts the reading page's rings"
+        )
+        assert out['balanceSeasonal'] == {'金': 38.6, '土': 29.3}
+        # elementCounts is retained on purpose (other rules depend on it); the
+        # CHAT prompt forbids deriving percentages from it.
+        assert out['elementCounts'] == {'金': 3}
+
+    def test_raw_balance_values_absent_from_serialized_context(self):
+        """Belt-and-braces: the raw NUMBERS must not appear anywhere in the
+        payload under a different key. Guards against a future re-add via a
+        renamed field rather than the exact 'balanceRaw' key."""
+        import json
+        from app.chat_context import _extract_five_elements
+
+        out = _extract_five_elements({
+            'fiveElementsBalanceZh': {'金': 38.6},
+            'fiveElementsBalanceRaw': {'金': 27.5},
+            'elementCounts': {},
+            'seasonalStates': {},
+        })
+        assert '27.5' not in json.dumps(out, ensure_ascii=False)
+
+    def test_chart_level_raw_field_is_untouched(self):
+        """Only the CHAT context stops surfacing it. `fiveElementsBalanceRaw`
+        on the chart has 6 other consumers (calculator.py, yearly_enhanced.py,
+        packages/shared types, tests/test_unknown_hour.py) and must survive."""
+        import inspect
+        from app import chat_context
+
+        src = inspect.getsource(chat_context._extract_five_elements)
+        assert 'fiveElementsBalanceRaw' not in src.split('"""')[-1], (
+            "the chat extractor must not read fiveElementsBalanceRaw "
+            "(mentions in the docstring are fine)"
+        )
+
+
+class TestAnchorPercentagesScrubbed:
+    """Bundle C — narrative anchors must not carry UNWEIGHTED 五行 percentages.
+
+    Removing the `balanceRaw` key was not sufficient: `lifetime_enhanced.py`
+    formats `fiveElementsBalanceRaw` straight into anchor prose (e.g.
+    「土五行過旺（31.2%）」). Because CHAT_V1_SHARED_RULES also orders the AI to
+    quote anchors verbatim, leaving those in made two rules unsatisfiable.
+    """
+
+    def test_parenthetical_percentage_is_removed_cleanly(self):
+        from app.chat_context import _strip_unweighted_percentages
+        out = _strip_unweighted_percentages(
+            '土五行過旺（31.2%），可能出現消化不良、肥胖、痰濕'
+        )
+        assert out == '土五行過旺，可能出現消化不良、肥胖、痰濕'
+        assert '%' not in out
+
+    def test_inline_wealth_percentage_becomes_grammatical_prose(self):
+        from app.chat_context import _strip_unweighted_percentages
+        out = _strip_unweighted_percentages(
+            '財多身弱格局——財星水佔命局26%，日主極弱擔不住，見財難守'
+        )
+        # the NUMBER goes, the CLAIM stays, and the sentence stays readable —
+        # a naive delete would leave 「財星水佔命局，」
+        assert '26%' not in out
+        assert '佔命局比重偏重' in out
+        assert out.endswith('見財難守')
+        assert '，，' not in out
+
+    def test_other_inline_forms_stay_grammatical(self):
+        from app.chat_context import _strip_unweighted_percentages
+        assert '%' not in _strip_unweighted_percentages('財星金僅佔3%，需靠大運補充財星')
+        assert '%' not in _strip_unweighted_percentages('身旺財旺格局——財星土佔27%且日主偏強')
+        assert '%' not in _strip_unweighted_percentages('dominant元素木佔78.5%')
+
+    def test_non_percentage_text_untouched(self):
+        from app.chat_context import _strip_unweighted_percentages
+        s = '日主戊土生於申月，食神格'
+        assert _strip_unweighted_percentages(s) == s
+        assert _strip_unweighted_percentages('') == ''
+        assert _strip_unweighted_percentages(None) is None
+
+    def test_scrub_walks_nested_anchor_structures(self):
+        from app.chat_context import _scrub_anchor_percentages
+        out = _scrub_anchor_percentages({
+            'health': ['土五行過旺（31.2%），可能出現消化不良'],
+            'nested': {'deep': ['水五行不足（7.5%），可能出現耳鳴']},
+            'untouched': [42, None],
+        })
+        assert out['health'][0] == '土五行過旺，可能出現消化不良'
+        assert out['nested']['deep'][0] == '水五行不足，可能出現耳鳴'
+        assert out['untouched'] == [42, None]
+
+    # ⚠️ Parametrised over chart CLASSES on purpose. Pinning only Roger (a
+    # non-從格 chart) is what let `patternNarrative` leak undetected: the 從格
+    # branch at lifetime_enhanced.py:424 is the ONLY producer of that string,
+    # so the one uncovered path was also the only chart class exercising it.
+    @pytest.mark.parametrize('label,birth_date,birth_time,city,tz,gender', [
+        ('roger-neutral', '1987-09-06', '16:11', '吉打', 'Asia/Kuala_Lumpur', 'male'),
+        ('cong-cai', '1981-09-16', '02:00', '台北', 'Asia/Taipei', 'male'),
+        ('cong-shi', '1980-12-30', '02:00', '台北', 'Asia/Taipei', 'male'),
+    ])
+    def test_built_context_has_no_percentage_literals_at_all(
+        self, label, birth_date, birth_time, city, tz, gender,
+    ):
+        """Payload-level lock — the extractor-level tests above would all pass
+        if a raw value were re-introduced somewhere else in the context (a
+        different key, a different builder). This asserts on the SERIALIZED
+        context, which is what the AI actually sees."""
+        import json
+        import re
+        from app.calculator import calculate_bazi_with_all_pipelines
+        from app.chat_context import build_chat_context
+
+        chart = calculate_bazi_with_all_pipelines(
+            birth_date=birth_date, birth_time=birth_time, birth_city=city,
+            birth_timezone=tz, gender=gender,
+        )
+        ctx = build_chat_context(chart, 2026, 8)
+        blob = json.dumps(ctx, ensure_ascii=False)
+
+        leaks = re.findall(r'[^"，。；]{0,30}\d+\.?\d*%', blob)
+        assert not leaks, f'[{label}] unweighted percentages reached the chat context: {leaks}'
+
+        # and the weighted values are still available for the AI to cite
+        assert ctx['fiveElements']['balanceSeasonal']
+
+    def test_cong_ge_pattern_narrative_keeps_its_doctrine(self):
+        """Deleting the 從格 magnitude clause must not cost the doctrine — the
+        followed element is still stated by the sibling field."""
+        from app.calculator import calculate_bazi_with_all_pipelines
+        from app.chat_context import build_chat_context
+
+        chart = calculate_bazi_with_all_pipelines(
+            birth_date='1980-12-30', birth_time='02:00', birth_city='台北',
+            birth_timezone='Asia/Taipei', gender='male',
+        )
+        pn = build_chat_context(chart, 2026, 8)['patternNarrative']
+
+        assert '%' not in pn['patternLogic']
+        assert 'dominant元素' not in pn['patternLogic']
+        assert pn['patternLogic'].endswith('。'), (
+            'the clause is terminal, so removal must leave a clean sentence'
+        )
+        # doctrine preserved elsewhere
+        assert '順從金' in pn['patternStrengthRelation']

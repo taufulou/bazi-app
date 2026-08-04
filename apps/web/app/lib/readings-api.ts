@@ -529,6 +529,12 @@ export interface ReadingHistoryItem {
   id: string;
   readingType: string;
   creditsUsed: number;
+  /**
+   * Comparisons only. Set when the report was UNLOCKED (the 3-credit charge
+   * moved from create to reveal), so `creditsUsed === 0` alone no longer means
+   * "free" — it usually means "not unlocked yet". Drives the 未解鎖 badge.
+   */
+  paidAt?: string | null;
   createdAt: string;
   birthProfile: {
     name: string;
@@ -604,6 +610,16 @@ export interface CompatibilityResponse {
     summary?: { preview: string; full: string };
   } | null;
   creditsUsed: number;
+  /** Set once the report is unlocked (the 3-credit charge is at reveal, not create). */
+  paidAt?: string | null;
+  /**
+   * The REVERSED pair (B,A) already exists for this user. Dedupe is deliberately
+   * order-sensitive — a paid report's prose cannot be re-oriented — so the swap
+   * creates a genuinely different comparison. Surfaced so the UI can offer the
+   * existing one instead of the user paying twice for near-identical analysis.
+   */
+  reversedPairExists?: boolean;
+  reversedComparisonId?: string;
   lastCalculatedYear?: number;
   createdAt: string;
   profileA?: { name: string; birthDate: string };
@@ -1114,7 +1130,7 @@ export function streamBaziReading(
     onSummary: (summary: { preview: string; full: string }) => void;
     /** @deprecated — use onFinal. Kept for back-compat with code still listening to `done`. */
     onDone?: (info: { totalSections: number; latencyMs: number }) => void;
-    onError: (error: { message: string; partial?: boolean }) => void;
+    onError: (error: { message: string; partial?: boolean; code?: string }) => void;
     /** Called when AI completes (success/degraded/failed). Replaces onDone. */
     onFinal?: (info: FinalEventPayload) => void;
     /** Called while retrying — for UX status ("AI busy, retrying 2/3..."). */
@@ -1313,7 +1329,7 @@ export function streamCompatibilityReading(
     onCallComplete: (callNumber: number) => void;
     onSummary: (summary: { preview: string; full: string }) => void;
     onDone: (info: { totalSections: number; latencyMs: number }) => void;
-    onError: (error: { message: string; partial?: boolean }) => void;
+    onError: (error: { message: string; partial?: boolean; code?: string }) => void;
   },
 ): { close: () => void } {
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
@@ -1381,7 +1397,12 @@ export function streamCompatibilityReading(
                 callbacks.onDone(data);
                 break;
               case 'error':
-                callbacks.onError({ message: data.message || 'Stream error', partial: data.partial });
+                // ⚠️ `code` must survive the transport. The compat reveal emits
+                // `{ code: 'INSUFFICIENT_CREDITS' }` and the page dispatches the
+                // top-up CTA on it; dropping it here sent short-on-credits users
+                // to the generic "retry, you'll be refunded" branch — advice that
+                // cannot work for a charge that never happened.
+                callbacks.onError({ message: data.message || 'Stream error', partial: data.partial, code: data.code });
                 break;
             }
           } catch {

@@ -140,6 +140,30 @@ model BaziComparison {
   lastCalculatedYear Int?           @map("last_calculated_year")
   createdAt          DateTime       @default(now()) @map("created_at")
 
+  /// The single source of truth for "this comparison is unlocked".
+  ///
+  /// ⚠️ Do NOT infer paid-ness from `creditsUsed` instead. A REFUNDED comparison
+  /// keeps `creditsUsed` at its original value — `refundComparisonCredit` sets
+  /// `refundedAt` and guards on `creditsUsed > 0` — so `creditsUsed === 0` does
+  /// not mean unpaid, and a `creditsUsed`-based gate hands the full report to a
+  /// user who has been refunded.
+  ///
+  /// Written ONLY by the reveal CAS, cleared ONLY by `refundComparisonCredit`.
+  /// Read by: getComparison paywall, both reveal early-return guards, the reveal
+  /// CAS predicate, recalculate's gate, chat session create, chat sendMessage,
+  /// chat streaming, and the 未解鎖 history badge.
+  paidAt DateTime? @map("paid_at")
+
+  /// Canonical dedupe key: `<profileAId>|<profileBId>|<comparisonType>` in
+  /// SUBMITTED order. Ordered, not sorted — a paid report's prose cannot be
+  /// re-oriented (the AI writes 男方/女方 into stored text), so a deliberate A/B
+  /// swap is a genuinely different report rather than a duplicate.
+  ///
+  /// NULL on every pre-migration row, on purpose: Postgres treats NULLs as
+  /// distinct in a unique index, so backfilling would have aborted the migration
+  /// on the duplicate pairs that already exist (4 groups on dev).
+  pairKey String? @map("pair_key")
+
   // AI failure / refund tracking (added by ai-retry-and-credit-refund plan)
   failedReason          String?   @map("failed_reason")
   isDegraded            Boolean   @default(false) @map("is_degraded")
@@ -154,6 +178,7 @@ model BaziComparison {
   creditLedgerEntries CreditLedger[]
   chatSessions        ChatSession[] // Phase 3 — COMPATIBILITY chat sessions referencing this comparison
 
+  @@unique([userId, pairKey])
   @@index([userId])
   @@map("bazi_comparisons")
 }

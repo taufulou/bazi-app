@@ -175,16 +175,31 @@ export class ChatService {
       }
       resolvedReadingType = reading.readingType;
     } else if (hasComparison) {
-      // Phase 3 — COMPATIBILITY path. Validate BaziComparison ownership.
+      // Phase 3 — COMPATIBILITY path. Validate BaziComparison ownership + payment.
       const comparison = await this.prisma.baziComparison.findUnique({
         where: { id: comparisonId! },
-        select: { id: true, userId: true, comparisonType: true },
+        select: { id: true, userId: true, comparisonType: true, paidAt: true },
       });
       if (!comparison) {
         throw new NotFoundException(`Comparison ${comparisonId} not found`);
       }
       if (comparison.userId !== user.id) {
         throw new ForbiddenException('Comparison not owned by this user');
+      }
+      // ⚠️ Ownership is NOT enough — the comparison must be PAID FOR.
+      //
+      // The compat chat context is built from `calculationData` via the engine,
+      // not from `aiInterpretation`, so it carries the dimension scores, 配偶宮
+      // findings, knockouts and the label/score pivot hint. Before Bundle A that
+      // was safe only because creating a comparison cost 3 credits. Now creation
+      // is free, so without this gate a user could create for 0 and have the
+      // chat narrate the paid analysis. The web UI happens to gate the chat
+      // mount on `!showPaywall`, but this API is directly reachable.
+      if (comparison.paidAt === null) {
+        throw new BadRequestException({
+          code: 'COMPARISON_NOT_UNLOCKED',
+          message: '請先解鎖完整合盤報告，才能開始對話。',
+        });
       }
       // H6 (Phase 3 follow-up) — Phase 3 ships ROMANCE only. Engine
       // supports BUSINESS/FRIENDSHIP/PARENT_CHILD but UX doesn't expose
@@ -289,6 +304,32 @@ export class ChatService {
       sessionsThisHour,
       contextVersion: session.contextVersion,
     };
+  }
+
+  /**
+   * A comparison chat may only run on an UNLOCKED comparison.
+   *
+   * ⚠️ Shared by all three entry points — session create, `sendMessage`, and
+   * `ChatStreamService._streamWithLock` (which resolves the subject
+   * independently and is the surface the web client actually uses). Gating only
+   * one of them leaves the others open.
+   *
+   * The compat chat context is built from `calculationData`, so it carries the
+   * paid analysis (dimension scores, 配偶宮 findings, knockouts, score pivot)
+   * even when `aiInterpretation` is absent. Since Bundle A made creation free,
+   * ownership alone no longer implies entitlement.
+   */
+  async assertComparisonUnlocked(comparisonId: string): Promise<void> {
+    const row = await this.prisma.baziComparison.findUnique({
+      where: { id: comparisonId },
+      select: { paidAt: true },
+    });
+    if (!row || row.paidAt === null) {
+      throw new BadRequestException({
+        code: 'COMPARISON_NOT_UNLOCKED',
+        message: '請先解鎖完整合盤報告，才能開始對話。',
+      });
+    }
   }
 
   async listSessionsForReading(
@@ -725,6 +766,10 @@ export class ChatService {
       // Phase Fortune — branch on FORTUNE sessions (profileId + anchorDate).
       let chatContext;
       if (session.comparisonId) {
+        // Re-check payment on every message, not just at session create.
+        // Sessions are long-lived, and a refund clears `paidAt` — without this
+        // a refunded user keeps an open session over paid content indefinitely.
+        await this.assertComparisonUnlocked(session.comparisonId);
         chatContext = await this.contextService.getChatContextForComparison(
           session.comparisonId,
           session.readingType,

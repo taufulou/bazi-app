@@ -83,7 +83,10 @@ describe('AI Failure Graceful Degradation', () => {
       user: { findUnique: jest.fn() },
       birthProfile: { findFirst: jest.fn() },
       service: { findFirst: jest.fn() },
-      baziReading: { create: jest.fn() },
+      // findFirst added for the Bundle B dedupe lookup (createReading now
+      // checks for a reusable prior reading before creating). Defaults to null
+      // = "no prior reading", which is what every test here assumes.
+      baziReading: { create: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
       $transaction: jest.fn(),
     };
 

@@ -565,6 +565,40 @@ export class StripeService {
       });
     }
 
+    if (sub.pause_collection != null) {
+      // ⚠️ ALERT ONLY — this deliberately does NOT revoke entitlement.
+      //
+      // Pausing collection "leaves the subscription's status unchanged"
+      // (node_modules/stripe/types/Subscriptions.d.ts:211), so `mapStripeStatus`
+      // cannot see it: the row stays ACTIVE, `syncUserTier` (which selects
+      // status: 'ACTIVE') keeps the paid tier, and Stripe collects nothing.
+      // Open-ended unpaid access that nothing self-corrects.
+      //
+      // ⚠️ Do NOT confuse with `sub.status === 'paused'` handled just above —
+      // that is a trial ending without a payment method. Different field,
+      // different meaning.
+      //
+      // Why alert-only: the customer portal has no pause control (owner checked
+      // the Dashboard config 2026-08-03), so a customer cannot trigger this.
+      // Reaching here means someone paused by hand in the Dashboard, called the
+      // API, or enabled pause in the LIVE portal config — all worth knowing
+      // about, none worth silently cutting off a paying customer over. Revoking
+      // entitlement is plan §D1 and needs a PAUSED status value plus UI.
+      this.logger.error(
+        `Stripe pause_collection set on ${sub.id} (status="${sub.status}") — subscriber ` +
+          `KEEPS paid access while collection is paused. Entitlement NOT revoked; see plan §D1.`,
+      );
+      Sentry.captureMessage('stripe.pause_collection_observed', {
+        level: 'error',
+        extra: {
+          subscriptionId: sub.id,
+          status: sub.status,
+          behavior: sub.pause_collection.behavior,
+          resumesAt: sub.pause_collection.resumes_at,
+        },
+      });
+    }
+
     // In the clover API version, current_period_start/end are on subscription items, not the subscription itself
     const firstItem = sub.items?.data?.[0];
     const periodStart = firstItem?.current_period_start;

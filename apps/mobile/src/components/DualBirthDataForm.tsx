@@ -86,7 +86,6 @@ export default function DualBirthDataForm({
   // Person B's form excludes whoever is chosen as A (avoid comparing a chart with itself).
   const bSavedProfiles = savedProfiles.filter((p) => p.id !== selectedProfileAId);
 
-  const insufficientCredits = userCredits < creditCost;
 
   // Person B's BirthDataForm submit drives the whole comparison.
   const handleBSubmit = async (
@@ -99,10 +98,11 @@ export default function DualBirthDataForm({
       setSubmitError(zh('請選擇您的命盤'));
       return;
     }
-    if (insufficientCredits) {
-      setSubmitError(zh(`點數不足。此分析需要 ${creditCost} 點，您目前有 ${userCredits} 點。`));
-      return;
-    }
+    // ⚠️ No credit gate here. Creating a comparison is free — it produces the
+    // two 排盤 charts and nothing else. The 3 credits are charged at the UNLOCK
+    // step (CompatibilityRevealCTA), which carries the real gate and the
+    // insufficient-credits state. Blocking here would stop a user from even
+    // viewing charts they are not paying for.
     setIsSubmitting(true);
     try {
       const token = await getToken();

@@ -47,10 +47,29 @@ type ViewStep = "input" | "reveal" | "result";
 // Helpers
 // ============================================================
 
-/** Detect if a comparison response is V2 romance */
+/**
+ * Detect if a comparison response is V2 romance.
+ *
+ * ⚠️ `romancePreAnalysis` is the load-bearing marker — it is present from
+ * CREATE, before any AI exists. The other two signals both require a generated
+ * interpretation, so on their own they answer "has this been generated?", not
+ * "is this V2".
+ *
+ * That mattered little while creating a comparison charged 3 credits and an
+ * unpaid row barely existed. Now that creation is free, an unpaid V2 comparison
+ * is a normal persistent state — and without this marker, reloading one (or
+ * opening it from history) reported NOT-V2, skipped the dual-chart + paywall
+ * branch, and rendered the generic tabbed view as 「0 分 / 暫無解讀資料」 with no
+ * way to unlock. The fresh-create path hid it, because `isCurrentRomance` reads
+ * a ref that only a submission in the same page session sets.
+ *
+ * This is the same marker the hydrate path (`:367`) and mobile
+ * (`compat.tsx:189`) already key on — the three now agree.
+ */
 function isV2Romance(data: CompatibilityResponse | null): boolean {
   if (!data) return false;
   return (
+    !!(data.calculationData as { romancePreAnalysis?: unknown } | null)?.romancePreAnalysis ||
     data.aiVersion === 2 ||
     data.aiInterpretation?.schemaVersion === 'v2'
   );
@@ -207,6 +226,8 @@ export default function CompatibilityPage() {
 
   // V2 paywall state
   const [showPaywall, setShowPaywall] = useState(false);
+  /** Set when the reversed (B,A) pair already exists — see the create handler. */
+  const [reversedPairId, setReversedPairId] = useState<string | null>(null);
   const [isUnlocking, setIsUnlocking] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
 
@@ -437,6 +458,15 @@ export default function CompatibilityPage() {
         // Silently update URL so page reload can restore state via loadSavedComparison
         window.history.replaceState(null, '', `?id=${result.id}`);
 
+        // If the same two people already exist in the OPPOSITE order, tell the
+        // user rather than letting them pay a second 3 credits for what is
+        // nearly the same analysis. Dedupe is order-sensitive on purpose (a paid
+        // report's 男方/女方 prose cannot be re-oriented), so this is a prompt,
+        // not an automatic redirect — the choice is theirs.
+        setReversedPairId(
+          result.reversedPairExists ? (result.reversedComparisonId ?? null) : null,
+        );
+
         // V2: skip reveal, go straight to dual charts + paywall
         setStep("result");
         setShowPaywall(true);
@@ -503,7 +533,9 @@ export default function CompatibilityPage() {
       const token = await getToken();
       if (!token) throw new Error("請先登入");
 
-      // Reuse the comparison already created in handleSubmit (credits already deducted there)
+      // Reuse the comparison created in handleSubmit. ⚠️ Creating it was FREE —
+      // Bundle A moved the 3-credit charge HERE, to the unlock. So this call can
+      // fail with INSUFFICIENT_CREDITS, and on success the balance changes.
       const comparisonId = currentComparisonIdRef.current;
       if (!comparisonId) throw new Error("找不到合盤資料");
 
@@ -518,8 +550,29 @@ export default function CompatibilityPage() {
       }, 3000);
 
       // Call SSE stream endpoint — AI generates on server, sections arrive progressively
+      // ⚠️ Refetch as soon as the FIRST section lands, not only at `onDone`.
+      // The charge happens server-side before generation, so by the time any
+      // section arrives `paidAt` is set and the GET returns the UNSTRIPPED
+      // payload. Waiting for `onDone` leaves the score header rendering 0 分 for
+      // the entire ~45s stream — i.e. for the whole moment right after the user
+      // paid, which is the worst possible time to show a zero.
+      let refetchedAfterUnlock = false;
+      const refetchPaidPayload = () => {
+        if (refetchedAfterUnlock) return;
+        refetchedAfterUnlock = true;
+        void (async () => {
+          try {
+            const t2 = await getToken();
+            if (t2) setCompatData(await getCompatibility(t2, comparisonId));
+          } catch {
+            // Non-fatal — `onDone` retries, and a reload recovers the header.
+          }
+        })();
+      };
+
       const stream = streamCompatibilityReading(token, comparisonId, {
         onSectionComplete: (key, section) => {
+          refetchPaidPayload();
           setAiData((prev) => ({
             ...prev!,
             sections: [
@@ -546,10 +599,40 @@ export default function CompatibilityPage() {
         onDone: () => {
           clearInterval(msgInterval);
           setIsStreaming(false);
+          // The unlock spent credits — refresh the header badge.
+          refreshUserProfile();
+          // ⚠️ And REFETCH the comparison. `compatData` still holds the UNPAID
+          // payload, which is stripped of the scoring analysis (score, label,
+          // breakdown, 桃花 counts) — so without this the header renders 0 分
+          // with an empty label directly above the AI prose the user just paid
+          // for. `paidAt` is set by now, so the GET returns it unstripped.
+          void (async () => {
+            try {
+              const t = await getToken();
+              if (t) setCompatData(await getCompatibility(t, comparisonId));
+            } catch {
+              // Non-fatal: the sections already rendered, and a page reload
+              // recovers the header.
+            }
+          })();
         },
         onError: (err) => {
           clearInterval(msgInterval);
           setIsStreaming(false);
+          // The charge happens on this path now, so the balance may have moved
+          // either way: spent on unlock, or refunded after a failed generation.
+          refreshUserProfile();
+
+          const code = (err as { code?: string }).code;
+          if (code === "INSUFFICIENT_CREDITS") {
+            // Restore the paywall rather than leaving an empty result view —
+            // `setShowPaywall(false)` above was optimistic.
+            setShowPaywall(true);
+            setAiData(null);
+            setError("點數不足，無法解鎖完整報告。請先購買點數。");
+            return;
+          }
+
           // Keep any partial sections that already arrived — don't wipe them
           setAiData((prev) => {
             const hasPartial = prev && prev.sections && prev.sections.length > 0;
@@ -557,7 +640,8 @@ export default function CompatibilityPage() {
               // Partial success — keep sections, show note
               setError("部分分析已完成。重新整理頁面可嘗試載入剩餘內容。");
             } else if (!err.partial) {
-              setError("AI 分析生成中，請稍後重新整理此頁面。您的額度不會重複扣除。");
+              setShowPaywall(true);
+              setError("AI 分析生成中，請稍後再試。若已扣除額度將自動退回。");
             }
             return prev;
           });
@@ -796,20 +880,41 @@ export default function CompatibilityPage() {
 
           {/* Free section: Dual BaziCharts side-by-side */}
           <div className={styles.freeChartsSection}>
-            {/* Labels removed — chartPanelLabel inside each panel already shows 男方/女方 */}
+            {/* Labels removed — chartPanelLabel inside each panel already shows 男方/女方.
+                ⚠️ Derive each label from that party's OWN gender, never from its
+                slot. A/B is submission order, not sex: the pairKey is ordered, so
+                「順序相反」 is a first-class flow (the reversed-pair notice above
+                actively invites it) and a straight couple entered B-first got BOTH
+                panels labelled backwards. Same derivation the rest of this page
+                already uses for 時辰未知 and the dynamic section titles. */}
             <div className={styles.dualChartsGrid}>
               <div className={styles.chartPanel}>
-                <div className={styles.chartPanelLabel}>男方</div>
+                <div className={styles.chartPanelLabel}>
+                  {((chartDataA?.gender as string) || 'male') === 'female' ? '女方' : '男方'}
+                </div>
                 <BaziChart data={chartDataA} name={nameA} birthDate={profileABirthDate} hideSections={[2, 4, 5]} isSubscriber={userTier !== "FREE"} gender={(chartDataA?.gender as string) || 'male'} />
               </div>
               <div className={styles.chartPanel}>
-                <div className={styles.chartPanelLabel}>女方</div>
+                <div className={styles.chartPanelLabel}>
+                  {((chartDataB?.gender as string) || 'female') === 'female' ? '女方' : '男方'}
+                </div>
                 <BaziChart data={chartDataB} name={nameB} birthDate={profileBBirthDate} hideSections={[2, 4, 5]} isSubscriber={userTier !== "FREE"} gender={(chartDataB?.gender as string) || 'female'} />
               </div>
             </div>
           </div>
 
           {/* Paywall CTA — shown before unlock */}
+          {showPaywall && reversedPairId && (
+            <div className={styles.paywallSection}>
+              <div className={styles.reversedPairNotice} role="status">
+                您已有這對組合的合盤（雙方順序相反）。
+                {" "}
+                <a href={`?id=${reversedPairId}`}>查看既有的合盤</a>
+                ，或在下方解鎖這一份新的分析。
+              </div>
+            </div>
+          )}
+
           {showPaywall && (
             <div className={styles.paywallSection}>
               <CompatibilityRomancePaywallCTA

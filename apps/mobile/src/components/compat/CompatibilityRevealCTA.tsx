@@ -1,12 +1,13 @@
 /**
- * CompatibilityRevealCTA — the 合盤 romance "reveal full report" gate. RN port
- * of the web CompatibilityRomancePaywallCTA, but with HONEST framing: credits
- * are deducted at comparison-create (backend charges `service.creditCost` even
- * with skipAI — see bazi.service.ts createComparison), so the AI stream is
- * ALREADY PAID. The web's paywall shows a misleading "💎 N 點" badge on unlock
- * (a second charge that never happens); we drop it and frame this as revealing
- * the already-purchased report. Keeps the feature list + per-party 時辰未知
- * (unknown birth hour) warnings.
+ * CompatibilityRevealCTA — the 合盤 romance "unlock full report" paywall.
+ *
+ * ⚠️ The M5 "already paid, no cost badge" framing was REVERTED on 2026-08-03
+ * (plan §A7). It was honest only while the backend charged at comparison-create;
+ * Bundle A moved the 3-credit charge to the REVEAL, so this button now really
+ * does spend credits and must say so. Creating the comparison is free (it shows
+ * the two 排盤 charts); this is where the user pays.
+ *
+ * Keeps the feature list + per-party 時辰未知 (unknown birth hour) warnings.
  */
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { colors, fonts, fontSize, spacing, radius, text as T } from '../../theme';
@@ -20,6 +21,10 @@ interface Props {
   /** actual genders drive 男方/女方 so the label agrees with the AI narrative. */
   genderA?: string;
   genderB?: string;
+  /** Credit price of unlocking. Charged HERE now, not at create. */
+  creditCost?: number;
+  /** Current balance — drives the insufficient-credits state. */
+  userCredits?: number;
 }
 
 const FEATURES = [
@@ -41,8 +46,14 @@ export default function CompatibilityRevealCTA({
   hourUnknownB = false,
   genderA = 'male',
   genderB = 'female',
+  creditCost = 3,
+  userCredits,
 }: Props) {
   const zh = useZh();
+  // Only gate when we actually know the balance — an unknown balance must not
+  // block the button, since the backend is the real authority and returns
+  // INSUFFICIENT_CREDITS if it is short.
+  const insufficientCredits = userCredits !== undefined && userCredits < creditCost;
 
   const labelFor = (g?: string) => (g === 'female' ? '女方' : '男方');
   const who =
@@ -93,16 +104,25 @@ export default function CompatibilityRevealCTA({
       </View>
 
       <Pressable
-        style={[styles.revealBtn, isRevealing && styles.revealBtnDisabled]}
+        style={[
+          styles.revealBtn,
+          (isRevealing || insufficientCredits) && styles.revealBtnDisabled,
+        ]}
         onPress={onReveal}
-        disabled={isRevealing}
+        disabled={isRevealing || insufficientCredits}
         accessibilityRole="button"
       >
         <Text style={styles.revealBtnText}>
-          {isRevealing ? zh('載入中…') : zh('查看完整報告')}
+          {isRevealing
+            ? zh('載入中…')
+            : zh(`解鎖完整報告 · ${creditCost} 點`)}
         </Text>
       </Pressable>
-      <Text style={styles.paidNote}>{zh('（此報告已包含在您的合盤點數中）')}</Text>
+      <Text style={styles.paidNote}>
+        {insufficientCredits
+          ? zh(`點數不足（需要 ${creditCost} 點，目前 ${userCredits} 點）`)
+          : zh(`解鎖後將扣除 ${creditCost} 點，建立合盤本身免費`)}
+      </Text>
     </View>
   );
 }

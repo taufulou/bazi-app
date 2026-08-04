@@ -119,7 +119,13 @@ export default function ReadingHistoryPage() {
                   // Both Bazi (3) and ZWDS (3) compatibility cost 3.
                   // Backend normalizes all comparisons to readingType: 'COMPATIBILITY'.
                   const compCost = READING_TYPE_META.compatibility.creditCost;
-                  const isCompFree = reading.creditsUsed === 0 || compCost === 0;
+                  // ⚠️ Three states, not two. Creating a comparison is now FREE
+                  // and charges at unlock, so `creditsUsed === 0` no longer means
+                  // "this cost nothing" — it usually means "not unlocked yet",
+                  // which would otherwise read as 免費 and then silently become a
+                  // 3-credit charge. `paidAt` is the paid predicate.
+                  const isCompUnpaid = !reading.paidAt;
+                  const isCompFree = !isCompUnpaid && (reading.creditsUsed === 0 || compCost === 0);
                   return (
                     <Link
                       key={reading.id}
@@ -138,7 +144,12 @@ export default function ReadingHistoryPage() {
                             <span className={styles.cardDate}>
                               {formatDate(reading.createdAt)}
                             </span>
-                            {isCompFree ? (
+                            {isCompUnpaid ? (
+                              <>
+                                <span className={styles.metaDot}>·</span>
+                                <span className={styles.freeBadge}>未解鎖</span>
+                              </>
+                            ) : isCompFree ? (
                               <>
                                 <span className={styles.metaDot}>·</span>
                                 <span className={styles.freeBadge}>免費</span>
