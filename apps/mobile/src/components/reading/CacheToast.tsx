@@ -6,7 +6,8 @@ import { useZh } from '../../lib/language';
 
 /**
  * Green "loaded from cache — no credits charged" banner, mirroring web
- * page.tsx:2007-2013. Shown when a reading resolves from cache (fromCache).
+ * `reading/[type]/page.tsx`. Shown when a reading resolves from cache
+ * (fromCache).
  * Auto-dismisses 5s after `paused` clears (matches web), or via the ✕ button.
  *
  * ⚠️ `paused` is load-bearing, not a nicety. The staged chart reveal runs ~7.2s

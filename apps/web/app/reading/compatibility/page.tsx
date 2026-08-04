@@ -64,7 +64,7 @@ type ViewStep = "input" | "reveal" | "result";
  * a ref that only a submission in the same page session sets.
  *
  * This is the same marker the hydrate path (`:367`) and mobile
- * (`compat.tsx:189`) already key on — the three now agree.
+ * (`compat.tsx::isRomance`) already key on — the three now agree.
  */
 function isV2Romance(data: CompatibilityResponse | null): boolean {
   if (!data) return false;

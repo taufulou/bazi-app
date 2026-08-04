@@ -307,7 +307,8 @@ export default function CompatScreen() {
         // re-reads the comparison AFTER the charge, so `withAI` is the full
         // unstripped payload — whereas `comparison` still holds the UNPAID one,
         // stripped of score/label/breakdown. Dropping it renders 0 分 in the
-        // post-reveal gate. Web already does this (page.tsx:465-468); this was
+        // post-reveal gate. Web already does this (the same refetch in
+        // `reading/compatibility/page.tsx`); this was
         // the only side that discarded it. Unreachable today (BUSINESS/FRIENDSHIP
         // are hidden in v1) but armed the day they are re-enabled.
         setComparison(withAI);

@@ -574,8 +574,9 @@ class TestAnchorPercentagesScrubbed:
 
     # ⚠️ Parametrised over chart CLASSES on purpose. Pinning only Roger (a
     # non-從格 chart) is what let `patternNarrative` leak undetected: the 從格
-    # branch at lifetime_enhanced.py:424 is the ONLY producer of that string,
-    # so the one uncovered path was also the only chart class exercising it.
+    # branch inside `lifetime_enhanced.build_pattern_narrative` is the ONLY
+    # producer of that string, so the one uncovered path was also the only
+    # chart class exercising it.
     @pytest.mark.parametrize('label,birth_date,birth_time,city,tz,gender', [
         ('roger-neutral', '1987-09-06', '16:11', '吉打', 'Asia/Kuala_Lumpur', 'male'),
         ('cong-cai', '1981-09-16', '02:00', '台北', 'Asia/Taipei', 'male'),

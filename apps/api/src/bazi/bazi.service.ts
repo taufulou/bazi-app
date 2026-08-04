@@ -232,14 +232,16 @@ export class BaziService {
 
       if (isComplete) {
         // ⚠️ `fromCache: true` is a live client contract — web
-        // `reading/[type]/page.tsx:728` and mobile `reading/[type].tsx:321`
-        // drive the 「已載入…未扣點」 CacheToast off it. Returning a reused row
-        // without it would charge nothing and tell the user nothing, which is
-        // the exact confusion that toast exists to prevent.
+        // `reading/[type]/page.tsx` (`callNestJS`, its `response.fromCache`
+        // branch) and mobile `reading/[type].tsx` (`setCacheToast`) drive the
+        // 「已載入…未扣點」 CacheToast off it. Returning a reused row without it
+        // would charge nothing and tell the user nothing, which is the exact
+        // confusion that toast exists to prevent.
         // ⚠️ `creditsUsed: 0` — the envelope field means "credits charged by
         // THIS call", which is what every consumer assumes. Spreading the row's
         // original non-zero charge made the web client decrement the displayed
-        // balance (`reading/[type]/page.tsx:733`) while the CacheToast said
+        // balance (same function, its `creditsUsed > 0` guard) while the
+        // CacheToast said
         // 「未扣點」 — the exact contradiction that toast exists to prevent.
         return { ...reusable, creditsUsed: 0, fromCache: true };
       }
@@ -894,7 +896,8 @@ export class BaziService {
           const type = (event as { type?: string }).type;
           // ⚠️ ALLOWLIST real output — do NOT invert this into a denylist.
           // `streamCompatibilityRomanceV2` emits `{type:'heartbeat'}` every 15s
-          // starting BEFORE the first provider attempt (ai.service.ts:4545), so
+          // starting BEFORE the first provider attempt (its `heartbeatInterval`
+          // in `ai.service.ts`), so
           // "anything that isn't error/done/summary counts as output" marks
           // every real failure as partial — and real failures are always slower
           // than 15s (300s timeout, sequential provider fallback). The refund
@@ -1173,8 +1176,9 @@ export class BaziService {
       //
       // The legacy `!dto.skipAI` branch that generated (or attached a cached)
       // interpretation here has been DELETED. Every client already sends
-      // `skipAI: true` (web reading/compatibility/page.tsx:432,445; mobile
-      // compat.tsx:163), so it had no caller — and once creation became free it
+      // `skipAI: true` (web `reading/compatibility/page.tsx` and mobile
+      // `compat.tsx`, both at their `createBaziCompatibility` calls), so it had
+      // no caller — and once creation became free it
       // became a hole: it would have returned a full paid report for 0 credits,
       // since `createComparison` returns `flattenComparisonResponse` with no
       // preview stripping.
@@ -1774,7 +1778,8 @@ export class BaziService {
     if (!calcData) return comparison;
     // ⚠️ `romancePreAnalysis` must SURVIVE, reduced. Both clients use its mere
     // PRESENCE to route to the Romance-V2 paywall — mobile
-    // `compat.tsx:189` (`isRomance`) and web `page.tsx:367` (`isV2Romance`, the
+    // mobile `compat.tsx` (`isRomance`) and web
+    // `reading/compatibility/page.tsx` (`isV2Romance`, the
     // history/reload path). Dropping it made mobile render the generic gate
     // instead of the 3-point unlock CTA, and stranded web users who reopened an
     // unpaid comparison on an empty view with no way to unlock. It also carries

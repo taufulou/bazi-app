@@ -91,9 +91,10 @@ describe('BaziService.createComparison — free, and never delivers a report', (
   }
 
   /**
-   * `skipAI` is OMITTED from the wire when falsy (`readings-api.ts:1257`), so
-   * the non-skip case must be exercised key-absent — that is the shape a real
-   * client sends.
+   * `skipAI` is OMITTED from the wire when falsy — see the
+   * `...(params.skipAI && { skipAI: true })` spread in
+   * `readings-api.ts::createBaziCompatibility`. So the non-skip case must be
+   * exercised key-absent — that is the shape a real client sends.
    */
   const dto = (skipAI?: boolean) =>
     ({
@@ -193,7 +194,8 @@ describe('BaziService.createComparison — free, and never delivers a report', (
 
     it('KEEPS the free 排盤 charts and the Romance-V2 routing marker', () => {
       // ⚠️ Both clients route on `romancePreAnalysis` PRESENCE — mobile
-      // compat.tsx:189 (`isRomance`) and web page.tsx:367 (reload/history). Drop
+      // `compat.tsx` (`isRomance`) and web `reading/compatibility/page.tsx`
+      // (`isV2Romance`, both the live and reload/history paths). Drop
       // it and mobile renders the generic gate instead of the 3-point unlock
       // CTA, and web strands the user on an empty view with no way to unlock.
       const svc = buildService();

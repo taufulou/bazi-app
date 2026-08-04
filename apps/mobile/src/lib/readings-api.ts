@@ -652,7 +652,8 @@ export const V2_SECTION_ORDER = [
 
 /**
  * Expected streamed-section count per reading type — the denominator for the
- * 解讀中 n/total progress pill. Mirrors web `ACTIVE_V2_TOTAL` (page.tsx:149):
+ * 解讀中 n/total progress pill. Mirrors web `ACTIVE_V2_TOTAL`
+ * (`reading/[type]/page.tsx`):
  * lifetime 15 · career 25 · annual 21 · love 26. Falls back to 1 (never /0).
  */
 export function expectedSectionTotal(readingType: string): number {

@@ -98,9 +98,10 @@ describe('BaziService.createReading — dedupe', () => {
   });
 
   it('preserves the fromCache envelope contract', async () => {
-    // web reading/[type]/page.tsx:728 and mobile reading/[type].tsx:321 drive
-    // the 「已載入…未扣點」 CacheToast off this flag. Reusing a row without it
-    // would charge nothing and say nothing.
+    // web `reading/[type]/page.tsx` (`callNestJS`) and mobile
+    // `reading/[type].tsx` (`setCacheToast`) drive the 「已載入…未扣點」 CacheToast
+    // off this flag. Reusing a row without it would charge nothing and say
+    // nothing.
     const svc = build(completeRow());
 
     const res = await svc.createReading('clerk-1', dto);
@@ -171,9 +172,10 @@ describe('BaziService.createReading — dedupe', () => {
     expect((res as { streamReady: boolean }).streamReady).toBe(true);
     expect((res as { fromCache: boolean }).fromCache).toBe(false);
     expect((res as { id: string }).id).toBe('existing-1');
-    // ⚠️ pinned on THIS branch too — it feeds web's other balance-decrement site
-    // (reading/[type]/page.tsx:705), so dropping it reintroduces the phantom
-    // credit drop on the regeneration path specifically.
+    // ⚠️ pinned on THIS branch too — it feeds web's other balance-decrement
+    // site (the streaming branch of `callNestJS` in `reading/[type]/page.tsx`),
+    // so dropping it reintroduces the phantom credit drop on the regeneration
+    // path specifically.
     expect((res as { creditsUsed: number }).creditsUsed).toBe(0);
   });
 
