@@ -600,7 +600,11 @@ export default function ReadingFlowScreen() {
           entire 5s life above the fold: the user never learns they weren't
           charged, which is the one thing it exists to say. */}
       <View style={styles.toastWrap} pointerEvents="box-none">
-        <CacheToast visible={cacheToast} onDismiss={() => setCacheToast(false)} />
+        <CacheToast
+          visible={cacheToast}
+          paused={isRevealing}
+          onDismiss={() => setCacheToast(false)}
+        />
       </View>
 
       {/* Floating progress pill (排盤中 during reveal / 解讀中 during stream). */}

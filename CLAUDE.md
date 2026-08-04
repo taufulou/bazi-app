@@ -145,7 +145,33 @@ worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roami
      chevron, or fill the form manually via the 年/月/日 dropdowns.
    - A **cached** reading never streams. To exercise a streaming path you need a birth
      date with no existing reading of that type (check `bazi_readings` first).
-7. Local stack: API :4000 + engine :5001 + Metro :8081 against the DEV DB;
+7. ⚠️ **MOBILE CANNOT BE RUN FROM A GIT WORKTREE — verified 2026-08-04, do not
+   retry these three.** The iOS simulator integration itself works fine from a
+   worktree (attach / screenshot / tap / launch all succeed against the real
+   Xcode simulator); what fails is getting Metro to serve worktree code:
+   - `npm install --ignore-scripts --no-workspaces` → **404 `@repo/eslint-config`**.
+     apps/mobile depends on workspace-local packages that aren't on the registry,
+     so it cannot be installed standalone. (`--ignore-scripts` was the theory that
+     the old «Clerk postinstall» note was the blocker. It is NOT.)
+   - A *workspace* `npm install` → would write **THROUGH the worktree's symlinked
+     `node_modules` into the MAIN checkout**. Never run it. Snapshot main's
+     `node_modules` count + `package-lock.json` md5 before any install experiment;
+     that check is what proved main stayed intact (1008 pkgs, same md5).
+   - Symlinked `node_modules` (the documented workaround) → Metro fails with
+     «Unable to resolve module expo-router/entry». Adding
+     `config.resolver.unstable_enableSymlinks = true` **does not fix it**: the
+     symlink resolves to `/Bazi_Plotting/node_modules/...`, which is OUTSIDE
+     `config.watchFolders` (set to the worktree root at `metro.config.js:18`), and
+     Metro refuses to serve files outside its watch roots.
+
+   **What to do instead**: copy the changed mobile files into the MAIN checkout,
+   run Metro + the simulator there, then revert. (Widening `watchFolders` to
+   include main would also work but edits a shipped config purely for testing.)
+   **Symptom that you are testing the WRONG code**: Metro may already be running
+   on :8081 from the main checkout — the app then loads and looks healthy while
+   serving main's bundle, not yours. Check `lsof -ti:8081` and the «Starting
+   project at …» line in the Metro log before trusting any mobile screenshot.
+8. Local stack: API :4000 + engine :5001 + Metro :8081 against the DEV DB;
    node@22 PATH prefix required; iOS sim `iPhone 17 Pro`, Android AVD `Pixel_8`.
 
 ### ⏸ App Store progress — PAUSED 2026-07-18 (resume point for a future session)

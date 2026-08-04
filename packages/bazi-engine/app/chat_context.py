@@ -28,6 +28,7 @@ Public API:
     build_chat_context_fortune(birth_data, anchor_date, current_year, current_month, precomputed_daily=None) -> dict
 """
 
+import re
 from typing import Any, Dict, List, Optional
 
 
@@ -133,9 +134,17 @@ def build_chat_context(
         'branchInteractions': _extract_branch_interactions_per_year(
             chart_data, annual_forecast_15,
         ),
-        'patternNarrative': lifetime.get('patternNarrative'),
-        'narrativeAnchors': lifetime.get('narrativeAnchors'),
-        'call2NarrativeAnchors': lifetime.get('call2NarrativeAnchors'),
+        # Scrubbed too — `build_pattern_narrative` (lifetime_enhanced.py:424)
+        # formats the RAW dominant percentage for 從格 charts. Missing this was
+        # worse than a number mismatch: on a 從勢格 chart the chat named 金 as
+        # dominant at 35.0% while the ring's largest slice was 水 (35.2%).
+        'patternNarrative': _scrub_anchor_percentages(lifetime.get('patternNarrative')),
+        # Scrubbed of UNWEIGHTED 五行 percentages — see
+        # `_strip_unweighted_percentages`. Done at this single entry point so
+        # COMPAT (`_slim_party_for_compat` reads the built ctx) and FORTUNE
+        # (spreads `**base_ctx`) inherit it automatically.
+        'narrativeAnchors': _scrub_anchor_percentages(lifetime.get('narrativeAnchors')),
+        'call2NarrativeAnchors': _scrub_anchor_percentages(lifetime.get('call2NarrativeAnchors')),
         'touganAnalysis': pre_analysis.get('touganAnalysis', []),
         'tenGodPositionAnalysis': pre_analysis.get('tenGodPositionAnalysis', []),
         'luckPeriods': luck_periods,
@@ -900,10 +909,107 @@ def _extract_favorability(pre_analysis: Dict) -> Dict:
     }
 
 
+# Half-width parens accepted too: no builder emits them today, but a
+# half-width «(31.2%)» would slip past both this and the 佔-anchored patterns.
+_UNWEIGHTED_PCT_PARENTHETICAL = re.compile(r'[（(]\s*\d+(?:\.\d+)?\s*%\s*[）)]')
+
+# The inline forms cannot simply have the number deleted — that leaves broken
+# Chinese («財星水佔命局，»). Each is replaced by the qualitative statement the
+# branch that produced it ALREADY asserts, so no meaning is invented:
+#   財多身弱 / 身旺財旺  fire at wealth_pct >= 22 → 「比重偏重」
+#   身旺財弱            fires at wealth_pct <= 5  → 「比重偏輕」 (drops the 「僅」
+#                       emphasis — understates, which is the safe direction)
+#
+# ⚠️ Each pattern is ANCHORED to the subject it describes. A bare
+# `佔\d+%` → 「佔比偏重」 would invert a future anchor like 「食神佔3%」 into a
+# factual falsehood, and no test would catch it (the payload test only asserts
+# the `%` is gone). Keep them anchored.
+#
+# ⚠️ The 從格 clause is DELETED, not reworded. It reads
+# «…順勢而行。dominant元素金佔35.0%» and is terminal, so removal leaves a clean
+# sentence. A magnitude phrase was rejected: `dominantPct` is computed from the
+# RAW balance, and on a real 從勢格 chart (1980-12-30 02:00) the raw-max 金 is
+# NOT the ring's largest slice (水 35.2% > 金 34.6%) — so even 「佔比最重」 would
+# contradict what the user sees. The doctrine is not lost: the sibling
+# `patternStrengthRelation` field already states 「從勢格，順從金」.
+_UNWEIGHTED_PCT_INLINE = (
+    (re.compile(r'(財星[木火土金水])佔命局\d+(?:\.\d+)?%'), r'\1佔命局比重偏重'),
+    (re.compile(r'(財星[木火土金水])?僅佔\d+(?:\.\d+)?%'), r'\1佔比偏輕'),
+    (re.compile(r'dominant元素[木火土金水]佔\d+(?:\.\d+)?%'), ''),
+    (re.compile(r'(財星[木火土金水])佔\d+(?:\.\d+)?%'), r'\1佔比偏重'),
+)
+
+
+def _strip_unweighted_percentages(text: str) -> str:
+    """Remove UNWEIGHTED 五行 percentages from a narrative-anchor sentence.
+
+    ⚠️ Load-bearing for the chat/reading consistency fix. The anchor builders in
+    `lifetime_enhanced.py` format `fiveElementsBalanceRaw` straight into Chinese
+    prose — e.g. 「土五行過旺（31.2%）」 — while the reading page and BaziChart
+    rings render the seasonally-weighted `fiveElementsBalanceZh` (土29.3%). Since
+    `CHAT_V1_SHARED_RULES` also orders the AI to quote anchors verbatim, leaving
+    these in makes two rules unsatisfiable: quote the anchor and contradict the
+    ring, or fix the number and violate the ⚠️ anchor guard.
+
+    We drop the NUMBER and keep the CLAIM. The claim is the engine's doctrinal
+    output (its thresholds are tuned on raw values and are not being changed
+    here); only the figure the user cannot reconcile with anything on screen is
+    removed. The AI still has `fiveElements.balanceSeasonal` to cite when a
+    percentage is actually wanted.
+
+    ⚠️ Substituting the weighted value instead was measured and REJECTED: across
+    5 charts, 3 of 16 claims would contradict their own number (Laopo would read
+    「火五行過旺（23.1%）」 — below the 25 threshold that fired 過旺; A3 would read
+    「火五行不足（15.1%）」 — above the 15 threshold). That trades one
+    inconsistency for a worse, self-evident one.
+
+    Chat-scoped on purpose: the reading page has the same raw-vs-ring split and
+    is tracked separately (plan follow-up F5). Fixing it at the anchor builder
+    would change WHICH anchors fire and is a doctrine change, not a bug fix.
+    """
+    if not text or '%' not in text:
+        return text
+    out = _UNWEIGHTED_PCT_PARENTHETICAL.sub('', text)
+    for pattern, replacement in _UNWEIGHTED_PCT_INLINE:
+        out = pattern.sub(replacement, out)
+    return out
+
+
+def _scrub_anchor_percentages(node):
+    """Apply `_strip_unweighted_percentages` to every string in an anchor tree.
+
+    `narrativeAnchors` is a dict of str lists, but walk generically so a future
+    shape change cannot silently reopen the leak.
+    """
+    if isinstance(node, str):
+        return _strip_unweighted_percentages(node)
+    if isinstance(node, list):
+        return [_scrub_anchor_percentages(v) for v in node]
+    if isinstance(node, dict):
+        return {k: _scrub_anchor_percentages(v) for k, v in node.items()}
+    return node
+
+
 def _extract_five_elements(chart_data: Dict) -> Dict:
+    """Five-element context for chat.
+
+    ⚠️ Do NOT re-add a raw/unweighted balance here. `balanceRaw`
+    (`fiveElementsBalanceRaw`) used to be surfaced alongside the weighted
+    balance, and the AI cited it as 「五行現況（原始比重）」 — e.g. 金27.5% for
+    Roger — while the reading page and the BaziChart rings render the
+    seasonally-weighted `fiveElementsBalanceZh` (金38.6%). Two different real
+    metrics on two surfaces reads as the chat being wrong.
+
+    The chart-level `fiveElementsBalanceRaw` field itself stays — it has other
+    consumers (calculator.py, yearly_enhanced.py, packages/shared types, and a
+    pinned assertion in tests/test_unknown_hour.py). Only the chat context
+    stops surfacing it.
+
+    `elementCounts` is retained because other rules depend on it; the CHAT
+    prompt forbids deriving percentages from it (prompts.ts CHAT_V1_SHARED_RULES).
+    """
     return {
         'balanceSeasonal': chart_data.get('fiveElementsBalanceZh', {}),
-        'balanceRaw': chart_data.get('fiveElementsBalanceRaw', {}),
         'elementCounts': chart_data.get('elementCounts', {}),
         'seasonalStates': chart_data.get('seasonalStates', {}),
     }

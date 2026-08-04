@@ -3525,6 +3525,13 @@ export const CHAT_V1_SHARED_RULES = `\
 - AI 必須以錨點事實句為論述基礎，不可忽略、不可篡改、不可與錨點矛盾。
 - 錨點中帶有 ⚠️ 標記的是「強制約束」，AI 絕對不可違反。
 
+⚠️ 五行比重引用規則（與解讀頁面的五行環圖必須一致）：
+- 引用五行百分比時，只能使用 fiveElements.balanceSeasonal（已含季節加權）的數字，並逐字引用，不可修改。合盤請用 chartA.fiveElements.balanceSeasonal / chartB.fiveElements.balanceSeasonal。
+- 絕對不可以用 elementCounts（原始個數）自行換算百分比。個數僅供判斷「有無」，不可用來換算比重。
+- 判斷「最旺／最弱／哪個五行偏多」時，一律以 balanceSeasonal 的數值排序為準，不可改用 elementCounts 的個數排序（兩者可能不同，例如個數相同但加權後有高低之分）。
+- 不可以同時給出兩套五行百分比。若使用者問到加權與未加權的差別，可以用文字說明「本系統採季節加權」的概念，但實際數字一律只給 balanceSeasonal 的值。
+- 解讀頁面的五行環圖即 balanceSeasonal，兩者必須完全一致。
+
 驗證規則：當你在文中提到任何天干地支時，必須確認它與【命盤資料】完全一致。`;
 
 /**

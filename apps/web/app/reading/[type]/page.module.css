@@ -159,16 +159,32 @@
 }
 
 /* ==== Cache Toast ==== */
+/* PINNED to the viewport, not inline in the page flow — mirrors mobile
+   `[type].tsx::toastWrap`, which fixed this same bug first.
+   Unlock happens from the paywall CTA far down the page and the banner renders
+   BELOW a very tall 命盤, so inline it spent its whole life off-screen: measured
+   here, zero frames where the banner was simultaneously mounted and inside the
+   viewport. The user never learned they weren't charged — the one thing it
+   exists to say. */
 .cacheToast {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  right: 1rem;
+  z-index: 30;
   display: flex;
   align-items: center;
   gap: 0.6rem;
   max-width: 900px;
-  margin: 0 auto 1rem;
+  margin: 0 auto;
   padding: 0.75rem 1rem;
-  background: rgba(76, 175, 80, 0.08);
-  border: 1px solid rgba(76, 175, 80, 0.25);
+  /* OPAQUE, not the old 8% tint: floating over the chart, a translucent fill let
+     十神/藏干 cells bleed through and made the text unreadable. Mobile hit this
+     too — see the same note on `CacheToast.tsx::banner`. */
+  background: #edf7ed;
+  border: 1px solid rgba(76, 175, 80, 0.35);
   border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   color: #2e7d32;
   font-size: 0.85rem;
   line-height: 1.4;
@@ -675,11 +691,16 @@
   );
 }
 
+/* Lift page chrome above the `::before` hero-image overlay (z-index: 0).
+   ⚠️ `.cacheToast` is deliberately NOT in this list. It is `position: fixed;
+   z-index: 30`, which already paints above the overlay — and because this
+   selector is more specific (two classes), including it silently reset the
+   banner to `position: relative` on exactly the full-page layout where the
+   pinning matters, putting it back below the fold. */
 .pageContainerLifetime .header,
 .pageContainerLifetime .stepIndicator,
 .pageContainerLifetime .contentArea,
 .pageContainerLifetime .tabBar,
-.pageContainerLifetime .cacheToast,
 .pageContainerLifetime .floatingPill,
 .pageContainerLifetime .loadingSkeleton {
   position: relative;

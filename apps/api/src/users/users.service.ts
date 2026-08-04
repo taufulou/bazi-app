@@ -347,6 +347,7 @@ export class UsersService {
             id: true,
             comparisonType: true,
             creditsUsed: true,
+            paidAt: true, // A7 — 未解鎖 badge; free creates now have creditsUsed 0
             createdAt: true,
             profileA: { select: { name: true, birthDate: true } },
             profileB: { select: { name: true, birthDate: true } },
@@ -363,6 +364,9 @@ export class UsersService {
         id: c.id,
         readingType: 'COMPATIBILITY',
         creditsUsed: c.creditsUsed,
+        // ⚠️ Same trap as the merged branch below — this re-maps explicitly, so
+        // selecting `paidAt` is not enough. Without it the 未解鎖 badge is dead.
+        paidAt: c.paidAt,
         createdAt: c.createdAt,
         birthProfile: c.profileA,
         profileB: c.profileB,
@@ -398,6 +402,7 @@ export class UsersService {
           id: true,
           comparisonType: true,
           creditsUsed: true,
+            paidAt: true, // A7 — 未解鎖 badge; free creates now have creditsUsed 0
           createdAt: true,
           profileA: { select: { name: true, birthDate: true } },
           profileB: { select: { name: true, birthDate: true } },
@@ -412,6 +417,11 @@ export class UsersService {
       id: c.id,
       readingType: 'COMPATIBILITY',
       creditsUsed: c.creditsUsed,
+      // ⚠️ Must be carried through. This branch RE-MAPS explicitly, so adding
+      // `paidAt` to the `select` above is not enough — without this line the
+      // clients see `paidAt: undefined` and render 「免費」 for an unpaid
+      // comparison that will later cost 3 credits.
+      paidAt: c.paidAt,
       createdAt: c.createdAt,
       birthProfile: c.profileA,
       profileB: c.profileB,

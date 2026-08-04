@@ -122,7 +122,12 @@ export default function ReadingHistoryScreen() {
               const icon = isComp ? ct?.icon ?? '🤝' : meta?.icon ?? '🔮';
               const title = isComp ? ct?.label ?? zh('合盤比較') : meta?.nameZhTw ?? r.readingType;
               const nameA = r.birthProfile?.name ?? zh('未命名');
-              const isFree = r.creditsUsed === 0;
+              // ⚠️ Comparisons are created FREE and charged at unlock, so
+              // `creditsUsed === 0` on a comparison means "not unlocked yet",
+              // not "free". Showing 免費 there would silently become a 3-point
+              // charge later. `paidAt` is the paid predicate.
+              const isCompUnpaid = isComp && !r.paidAt;
+              const isFree = !isCompUnpaid && r.creditsUsed === 0;
 
               return (
                 <Pressable
@@ -152,7 +157,9 @@ export default function ReadingHistoryScreen() {
                       <Text style={styles.dot}>·</Text>
                       {/* 「點」 not 「額度」 — the rest of the app (CreditBadge,
                           解讀 hub, paywall, store) all say 點. */}
-                      {isFree ? (
+                      {isCompUnpaid ? (
+                        <Text style={styles.freeBadge}>{zh('未解鎖')}</Text>
+                      ) : isFree ? (
                         <Text style={styles.freeBadge}>{zh('免費')}</Text>
                       ) : (
                         <Text style={styles.creditBadge}>-{r.creditsUsed} {zh('點')}</Text>

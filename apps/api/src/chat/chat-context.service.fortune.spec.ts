@@ -61,7 +61,7 @@ describe('ChatContextService — Phase Fortune', () => {
     it('LIFETIME version string is byte-identical pre- and post-FORTUNE entry (no mass eviction)', () => {
       const lifetimeVersion = service.computeVersionString('LIFETIME');
       // The version string format is:
-      // lifetime=v1.2.2|pa-life=v2.9.0|pa-love=v1.11.0|pa-car=v2.5.0|pa-ann=v2.4.0|pa-compat=v1.8.2
+      // lifetime=v1.2.3|pa-life=v2.9.1|pa-love=v1.11.0|pa-car=v2.5.0|pa-ann=v2.4.0|pa-compat=v1.8.2
       // — should NOT have pa-fort even though PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE is set.
       const parts = lifetimeVersion.split('|');
       const hasForkVersion = parts.some((p) => p.startsWith('pa-fort'));
@@ -629,18 +629,25 @@ describe('CHAT_PROMPT_VERSIONS.FORTUNE — per-readingType isolation (L3.5)', ()
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { CHAT_PROMPT_VERSIONS } = require('./chat-context.service');
 
-  it('FORTUNE bumped to v1.1.0 for Phase 1.5.z', () => {
-    expect(CHAT_PROMPT_VERSIONS.FORTUNE).toBe('v1.1.0');
+  it('FORTUNE carries its own version', () => {
+    expect(CHAT_PROMPT_VERSIONS.FORTUNE).toBe('v1.1.1');
   });
 
-  it('non-FORTUNE reading types unaffected by FORTUNE bump (per-readingType isolation)', () => {
-    // Phase Fortune Issue 11 + NEW-A regression lock — bumping FORTUNE must
-    // NOT cascade into other reading types' version strings.
-    expect(CHAT_PROMPT_VERSIONS.LIFETIME).toBe('v1.2.2');
-    expect(CHAT_PROMPT_VERSIONS.LOVE).toBe('v1.0.1');
-    expect(CHAT_PROMPT_VERSIONS.CAREER).toBe('v1.0.1');
-    expect(CHAT_PROMPT_VERSIONS.ANNUAL).toBe('v1.0.3');
-    expect(CHAT_PROMPT_VERSIONS.COMPATIBILITY).toBe('v1.1.0');
+  it('non-FORTUNE reading types unaffected by a FORTUNE-only bump (per-readingType isolation)', () => {
+    // Phase Fortune Issue 11 + NEW-A regression lock — a FORTUNE-only change
+    // must NOT cascade into other reading types' version strings.
+    //
+    // ⚠️ These literals all moved together once (v1.2.2→v1.2.3 etc.) when the
+    // 五行比重引用規則 was added to `CHAT_V1_SHARED_RULES`. That is NOT a
+    // cascade bug: a shared-block edit changes every type's system prompt, so
+    // every type must bump. See the comment on `CHAT_PROMPT_VERSIONS` itself.
+    // Any bump that is NOT a shared-block edit should still move exactly one
+    // line here — that is what this test is for.
+    expect(CHAT_PROMPT_VERSIONS.LIFETIME).toBe('v1.2.3');
+    expect(CHAT_PROMPT_VERSIONS.LOVE).toBe('v1.0.2');
+    expect(CHAT_PROMPT_VERSIONS.CAREER).toBe('v1.0.2');
+    expect(CHAT_PROMPT_VERSIONS.ANNUAL).toBe('v1.0.4');
+    expect(CHAT_PROMPT_VERSIONS.COMPATIBILITY).toBe('v1.1.1');
   });
 });
 

@@ -122,7 +122,21 @@ export class CreditsService {
 
       const guard = await tx.baziComparison.updateMany({
         where: { id: comparisonId, refundedAt: null, creditsUsed: { gt: 0 } },
-        data: { refundedAt: new Date(), failedReason: reason },
+        data: {
+          refundedAt: new Date(),
+          failedReason: reason,
+          // ⚠️ Clear the unlock. `paidAt` is what every reveal/paywall/chat gate
+          // reads, so leaving it set would keep a refunded user's access — they
+          // have their credits back AND the report. The reveal CAS re-sets it
+          // (and resets refundedAt) if they pay again.
+          paidAt: null,
+          // ⚠️ And drop the artefact, mirroring the reading path
+          // (ai.service.ts:1355-1358). `Prisma.DbNull` not `undefined`: undefined
+          // means "don't update", and `WHERE ai_interpretation IS NULL` depends
+          // on a real SQL NULL. Without this a refunded row is still readable
+          // through any path that keys on the interpretation's presence.
+          aiInterpretation: Prisma.DbNull,
+        },
       });
       if (guard.count === 0) {
         return { refunded: false, amount: 0 };

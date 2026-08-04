@@ -169,7 +169,12 @@ export default function DualBirthDataForm({
   const personBValid = isPersonValid(personBFields, selectedProfileBId);
   const isDuplicate = selectedProfileAId && selectedProfileBId && selectedProfileAId === selectedProfileBId;
   const insufficientCredits = userCredits < creditCost;
-  const canSubmit = personAValid && personBValid && !isDuplicate && !insufficientCredits && !isLoading && !isSubmitting;
+  // ⚠️ `insufficientCredits` is NOT part of `canSubmit`. Creating a comparison
+  // is free — it produces the two 排盤 charts and nothing else. The 3 credits are
+  // charged at the UNLOCK step, so gating submission here would stop a user from
+  // even looking at charts they are not paying for. The banner below still warns
+  // them, and the unlock button carries the real gate.
+  const canSubmit = personAValid && personBValid && !isDuplicate && !isLoading && !isSubmitting;
 
   // Submit handler with two-step sequencing
   const handleSubmit = async (e: React.FormEvent) => {

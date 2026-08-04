@@ -1021,6 +1021,85 @@ describe('StripeService', () => {
       );
     });
 
+    // ================================================================
+    // D-tripwire — pause_collection detection (alert-only)
+    // ================================================================
+
+    describe('pause_collection tripwire', () => {
+      const pausedEvent = () =>
+        ({
+          id: 'sub_paused_collection',
+          status: 'active', // ⚠️ Stripe leaves status UNCHANGED when collection is paused
+          cancel_at: null,
+          pause_collection: { behavior: 'void', resumes_at: null },
+          items: { data: [{ current_period_start: 1700000000, current_period_end: 1702592000 }] },
+          metadata: { internalUserId: 'user-123', planSlug: 'pro' },
+        }) as any;
+
+      const primeActivePro = () => {
+        mockPrisma.subscription.findFirst.mockResolvedValue(existingRow);
+        mockPrisma.subscription.update.mockResolvedValue({});
+        mockPrisma.subscription.findMany.mockResolvedValue([
+          { id: 'sub-db-1', planTier: 'PRO', status: 'ACTIVE', createdAt: new Date(), currentPeriodStart: new Date(), currentPeriodEnd: new Date() },
+        ]);
+        mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, subscriptionTier: 'PRO' });
+        mockPrisma.user.update.mockResolvedValue({});
+      };
+
+      it('fires a Sentry alert when pause_collection is set', async () => {
+        primeActivePro();
+        await service.handleSubscriptionUpdated(pausedEvent());
+
+        expect(mockCaptureMessage).toHaveBeenCalledWith(
+          'stripe.pause_collection_observed',
+          expect.objectContaining({ level: 'error' }),
+        );
+      });
+
+      it('is ALERT-ONLY — entitlement is deliberately NOT revoked', async () => {
+        // The second assertion is the point of the whole test. Revoking access
+        // here is plan §D1 and needs a PAUSED status value + subscription UI;
+        // shipping detection without enforcement is the deliberate split, so
+        // pin it rather than let a future edit quietly turn it into a cutoff.
+        primeActivePro();
+        await service.handleSubscriptionUpdated(pausedEvent());
+
+        expect(mockPrisma.user.update).not.toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ subscriptionTier: 'FREE' }) }),
+        );
+        // and the stored status is untouched by the tripwire
+        expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
+          expect.objectContaining({ data: expect.objectContaining({ status: 'ACTIVE' }) }),
+        );
+      });
+
+      it('does NOT fire on a normal active subscription', async () => {
+        primeActivePro();
+        await service.handleSubscriptionUpdated(updatedEvent('active'));
+
+        expect(mockCaptureMessage).not.toHaveBeenCalledWith(
+          'stripe.pause_collection_observed',
+          expect.anything(),
+        );
+      });
+
+      it('does NOT confuse pause_collection with status === "paused"', async () => {
+        // Different field, different meaning: `status: 'paused'` is a trial that
+        // ended without a payment method and is already mapped to EXPIRED.
+        primeActivePro();
+        await service.handleSubscriptionUpdated(updatedEvent('paused'));
+
+        expect(mockCaptureMessage).toHaveBeenCalledWith(
+          'stripe.paused_status_observed',
+          expect.anything(),
+        );
+        expect(mockCaptureMessage).not.toHaveBeenCalledWith(
+          'stripe.pause_collection_observed',
+          expect.anything(),
+        );
+      });
+    });
+
     it('does NOT double-grant when an incomplete->PAST_DUE sub later pays a proration invoice', async () => {
       // incomplete -> PAST_DUE makes the dunning recovery branch reachable for the
       // FIRST time (it was previously written ACTIVE, so the PAST_DUE guard never

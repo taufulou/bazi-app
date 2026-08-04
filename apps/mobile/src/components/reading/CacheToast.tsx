@@ -7,24 +7,33 @@ import { useZh } from '../../lib/language';
 /**
  * Green "loaded from cache — no credits charged" banner, mirroring web
  * page.tsx:2007-2013. Shown when a reading resolves from cache (fromCache).
- * Auto-dismisses after 5s (matches web setTimeout), or via the ✕ button.
+ * Auto-dismisses 5s after `paused` clears (matches web), or via the ✕ button.
+ *
+ * ⚠️ `paused` is load-bearing, not a nicety. The staged chart reveal runs ~7.2s
+ * of timers (CHART_REVEAL_DELAYS) while the viewport tracks the animating chart.
+ * A countdown that started the moment the response landed expired BEFORE the
+ * page settled — measured on web, the twin of this component: banner up at 2.9s,
+ * down at 8.9s, page still animating until 13.9s. The user never saw it. Hold
+ * the countdown until the reveal finishes and it gets a real 5s on a still page.
  */
 export default function CacheToast({
   visible,
   onDismiss,
+  paused = false,
 }: {
   visible: boolean;
   onDismiss: () => void;
+  paused?: boolean;
 }) {
   const zh = useZh();
 
   useEffect(() => {
-    if (!visible) return;
+    if (!visible || paused) return;
     const t = setTimeout(onDismiss, 5000);
     return () => clearTimeout(t);
     // onDismiss is a stable setter from the parent.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible]);
+  }, [visible, paused]);
 
   if (!visible) return null;
 
