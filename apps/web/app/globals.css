@@ -1,4 +1,33 @@
 :root {
+  /**
+   * TYPE SCALE — carve-out escape hatch ONLY. See app/styles/type.module.css.
+   *
+   * The role CLASSES in type.module.css are the norm; compose those. These vars
+   * exist because `composes` is ILLEGAL in exactly two places (verified against
+   * lightningcss 1.32.0):
+   *   1. inside `@media` / any at-rule  — 79 declarations in scope
+   *   2. on non-simple selectors        — 17 declarations (`.a .b`, `div.a`, `.a:hover`)
+   * Without these, those ~96 sites would hand-copy the numbers and re-create the
+   * per-call-site drift the role system exists to eliminate.
+   *
+   * ⚠️ Using these anywhere a role class WOULD work is a defect — the guard
+   *    enforces that they appear only in the two carve-outs. Always emit the
+   *    SIZE and LEADING pair together; that pairing is the whole point.
+   *
+   * Values mirror type.module.css exactly. Change one, change both, re-pin guards.
+   */
+  --t-display-size: 2.125rem;   --t-display-leading: 1.25;
+  --t-title-size: 1.5rem;       --t-title-leading: 1.3;
+  --t-section-size: 1.1875rem;  --t-section-leading: 1.4;
+  --t-subsection-size: 1.0625rem; --t-subsection-leading: 1.35;
+  --t-body-size: 1.0625rem;     --t-body-leading: 1.65;
+  --t-control-size: 1.0625rem;  --t-control-leading: 1.4;
+  --t-bodyTight-size: 0.9375rem; --t-bodyTight-leading: 1.5;
+  --t-cell-size: 0.875rem;      --t-cell-leading: 1.35;
+  --t-label-size: 0.8125rem;    --t-label-leading: 1.4;
+  --t-meta-size: 0.8125rem;     --t-meta-leading: 1.45;
+  --t-caption-size: 0.75rem;    --t-caption-leading: 1.45;
+
   /* Primary */
   --color-red: #E23D28;
   --color-red-dark: #C4311F;

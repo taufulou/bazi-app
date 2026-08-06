@@ -2,8 +2,8 @@
    card on failure. Mirrors page.module.css .sectionLabel. Bottom spacing of the
    whole section is owned by page.module.css .fortuneSection. */
 .sectionHeading {
+  composes: section from "../styles/type.module.css";
   color: var(--text-accent);
-  font-size: 1.15rem;
   font-weight: 700;
   margin-bottom: 1rem;
   padding-left: 1rem;
@@ -60,15 +60,17 @@
 }
 
 .scoreNumber {
-  font-family: var(--font-noto-serif-tc), serif;
+  /* Bespoke: a numeral inside a hard 54px ring. The `display` role (34/1.25)
+     overflows it both ways; the tight leading is load-bearing, not incidental. */
   font-size: 21px;
+  line-height: 1;
+  font-family: var(--font-noto-serif-tc), serif;
   font-weight: 700;
   color: var(--text-primary);
-  line-height: 1;
 }
 
 .scoreUnit {
-  font-size: 9px;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-muted);
   letter-spacing: 1.5px;
   margin-top: 2px;
@@ -87,8 +89,10 @@
 }
 
 .label {
+  /* Bespoke display size — the role scale would SHRINK this. */
+  font-size: 1.0625rem;
+  line-height: 1.4;
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 17px;
   font-weight: 600;
   color: var(--text-accent);
 }
@@ -99,30 +103,29 @@
 }
 
 .mood {
-  font-size: 13px;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-secondary);
 }
 
 .meta {
+  composes: meta from "../styles/type.module.css";
   margin-top: 3px;
-  font-size: 12px;
   color: var(--text-muted);
 }
 
 /* Beginner note shown only during the 23:00–midnight 子時 window, when the
    Bazi day is one civil day ahead */
 .ziShiNote {
+  composes: caption from "../styles/type.module.css";
   margin-top: 4px;
-  font-size: 11px;
-  line-height: 1.5;
   color: var(--text-secondary);
 }
 
 .cta {
+  composes: caption from "../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
   color: var(--text-accent);
   white-space: nowrap;
   flex-shrink: 0;
@@ -130,7 +133,8 @@
 
 .ctaArrow {
   font-size: 15px;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 /* Loading skeleton */
 .skeleton {
@@ -172,26 +176,28 @@
 
 .setupIcon {
   font-size: 32px;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .setupBody {
   flex: 1;
 }
 
 .setupTitle {
+  composes: subsection from "../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 15px;
   font-weight: 600;
   color: var(--text-accent);
 }
 
 .setupSub {
+  composes: caption from "../styles/type.module.css";
   margin-top: 4px;
-  font-size: 12px;
   color: var(--text-secondary);
 }
 
 .setupArrow {
   font-size: 18px;
   color: var(--text-accent);
-}
+
+  line-height: 1; /* graphic, not type */}

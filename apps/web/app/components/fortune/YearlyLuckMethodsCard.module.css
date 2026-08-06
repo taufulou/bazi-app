@@ -14,8 +14,8 @@
 }
 
 .title {
+  composes: subsection from "../../styles/type.module.css";
   font-family: var(--font-heading);
-  font-size: 17px;
   font-weight: 600;
   color: var(--text-accent);
   margin: 0;
@@ -24,8 +24,8 @@
 }
 
 .subtitle {
+  composes: bodyTight from "../../styles/type.module.css";
   margin: 6px 0 0 12px;
-  font-size: 12.5px;
   color: var(--text-muted);
 }
 
@@ -64,8 +64,8 @@
 }
 
 .cardTitle {
+  composes: subsection from "../../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -73,9 +73,9 @@
 /* 民俗 disclosure badge — mirrors daily page.module.css .folkBadge.
    Contrast: #8b6f47 on gold-tint bg ≈ 4.8:1 (passes WCAG AA small text). */
 .folkBadge {
+  composes: caption from "../../styles/type.module.css";
   display: inline-block;
   padding: 1px 6px;
-  font-size: 12px;
   font-style: italic;
   font-weight: 600;
   color: #8b6f47;
@@ -87,8 +87,7 @@
 }
 
 .cardBody {
-  font-size: 13.5px;
-  line-height: 1.7;
+  composes: body from "../../styles/type.module.css";
   color: var(--text-primary);
   margin: 0;
 }
@@ -100,7 +99,7 @@
 }
 
 .cardMetaChip {
-  font-size: 11.5px;
+  composes: caption from "../../styles/type.module.css";
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(226, 61, 40, 0.07);
@@ -113,12 +112,11 @@
 /* ============================================================ */
 
 .disclaimer {
+  composes: caption from "../../styles/type.module.css";
   margin: 14px 4px 0;
   padding: 10px 14px;
   background: rgba(212, 160, 23, 0.05);
   border-left: 3px solid var(--color-gold, #D4A017);
   border-radius: 4px;
-  font-size: 12px;
-  line-height: 1.6;
   color: var(--text-secondary);
 }

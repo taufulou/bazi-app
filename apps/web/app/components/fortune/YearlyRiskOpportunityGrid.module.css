@@ -14,8 +14,8 @@
 }
 
 .title {
+  composes: subsection from "../../styles/type.module.css";
   font-family: var(--font-heading);
-  font-size: 17px;
   font-weight: 600;
   color: var(--text-accent);
   margin: 0;
@@ -24,8 +24,8 @@
 }
 
 .subtitle {
+  composes: bodyTight from "../../styles/type.module.css";
   margin: 6px 0 0 12px;
-  font-size: 12.5px;
   color: var(--text-muted);
 }
 
@@ -34,11 +34,11 @@
 /* ============================================================ */
 
 .flatYear {
+  composes: bodyTight from "../../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 18px 16px;
-  font-size: 14px;
   color: var(--text-secondary);
   background: rgba(46, 125, 50, 0.05);
   border-radius: var(--radius-md, 12px);
@@ -48,7 +48,8 @@
 
 .flatYearIcon {
   font-size: 18px;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 /* ============================================================ */
 /* Two columns                                                  */
@@ -85,11 +86,11 @@
 }
 
 .columnTitle {
+  composes: subsection from "../../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 6px;
   font-family: var(--font-heading);
-  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
@@ -97,10 +98,11 @@
 
 .columnIcon {
   font-size: 16px;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .columnEmpty {
-  font-size: 13px;
+  composes: meta from "../../styles/type.module.css";
   color: var(--text-muted);
   font-style: italic;
   margin: 0;
@@ -145,14 +147,14 @@
 }
 
 .entryMonth {
+  composes: bodyTight from "../../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .entryDim {
-  font-size: 12px;
+  composes: caption from "../../styles/type.module.css";
   padding: 1px 8px;
   border-radius: 999px;
   background: rgba(212, 160, 23, 0.1);
@@ -160,22 +162,21 @@
 }
 
 .entryLabel {
+  composes: meta from "../../styles/type.module.css";
   margin-left: auto;
-  font-size: 12px;
   color: var(--text-muted);
 }
 
 .entryKeyword {
+  composes: meta from "../../styles/type.module.css";
   margin: 0;
-  font-size: 13px;
   font-weight: 600;
   color: var(--text-accent);
 }
 
 .entryNarrative {
+  composes: body from "../../styles/type.module.css";
   margin: 0;
-  font-size: 13px;
-  line-height: 1.65;
   color: var(--text-primary);
 }
 
@@ -185,8 +186,8 @@
 }
 
 .caveatTag {
+  composes: caption from "../../styles/type.module.css";
   align-self: flex-start;
-  font-size: 11.5px;
   padding: 2px 8px;
   border-radius: 6px;
   background: rgba(245, 166, 35, 0.12);

@@ -103,7 +103,7 @@ export default function LuckPeriodChart({
                 y={getY(v) + 4}
                 textAnchor="end"
                 fill="#8B7355"
-                fontSize="11"
+                fontSize="12"
               >
                 {v}
               </text>
@@ -120,7 +120,7 @@ export default function LuckPeriodChart({
               y={getY(v) + 4}
               textAnchor="end"
               fill="#8B7355"
-              fontSize="11"
+              fontSize="12"
             >
               ??
             </text>
@@ -198,7 +198,7 @@ export default function LuckPeriodChart({
                   x={getX(i)}
                   y={currentLabelY}
                   textAnchor="middle"
-                  fontSize="11"
+                  fontSize="13"
                   fontWeight="700"
                   className={styles.currentLabel}
                 >
@@ -213,7 +213,7 @@ export default function LuckPeriodChart({
                   y={scoreLabelY}
                   textAnchor="middle"
                   fill={getScoreColor(p.score)}
-                  fontSize="11"
+                  fontSize="12"
                   fontWeight="600"
                 >
                   {p.score}

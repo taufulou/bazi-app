@@ -94,8 +94,8 @@
 }
 
 .headerTitle {
+  composes: subsection from "../../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1.05rem;
   font-weight: 700;
   color: var(--text-accent, #C41E3A);
   /* Phase 4 [H3] fix — allow shrink + ellipsis before button row wraps. */
@@ -123,7 +123,9 @@
   border: 1px solid rgba(212, 160, 23, 0.25);
   color: var(--text-secondary, #6B5940);
   font-family: inherit;
-  font-size: 0.78rem;
+  /* Carve-out B: comma group. `meta` sizing. */
+  font-size: 0.8125rem;
+  line-height: 1.45;
   padding: 4px 10px;
   border-radius: 999px;
   cursor: pointer;
@@ -166,7 +168,8 @@
   padding: 4px 10px;
   border-radius: 8px;
   transition: background 0.15s;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .closeBtn:hover:not(:disabled) {
   background: rgba(0, 0, 0, 0.05);
@@ -198,7 +201,7 @@
 }
 
 .messageCounter {
-  font-size: 0.72rem;
+  composes: caption from "../../styles/type.module.css";
   color: var(--text-muted, #8B7355);
 }
 
@@ -221,12 +224,11 @@
 }
 
 .tierRefundCopy {
+  composes: meta from "../../styles/type.module.css";
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  font-size: 0.78rem;
-  line-height: 1.5;
   color: var(--text-primary, #3C2415);
 }
 
@@ -236,11 +238,12 @@
 }
 
 .tierRefundDismiss {
+  /* ✕ glyph — graphic, matching .closeBtn in this file. */
+  font-size: 1rem;
+  line-height: 1;
   background: none;
   border: none;
   color: var(--text-muted, #8B7355);
-  font-size: 0.9rem;
-  line-height: 1;
   padding: 0.15rem 0.3rem;
   cursor: pointer;
   align-self: flex-start;
@@ -253,11 +256,11 @@
 }
 
 .errorBanner {
+  composes: bodyTight from "../../styles/type.module.css";
   flex-shrink: 0;
   background: rgba(226, 61, 40, 0.08);
   color: var(--color-red, #E23D28);
   padding: 0.6rem 1rem;
-  font-size: 0.85rem;
   border-bottom: 1px solid rgba(226, 61, 40, 0.18);
   display: flex;
   align-items: center;
@@ -266,17 +269,18 @@
 }
 
 .errorDismiss {
+  composes: meta from "../../styles/type.module.css";
   flex-shrink: 0;
   background: var(--bg-card, #fff);
   border: 1px solid rgba(226, 61, 40, 0.3);
   color: var(--color-red, #E23D28);
   padding: 0.25rem 0.7rem;
   border-radius: 999px;
-  font-size: 0.78rem;
   cursor: pointer;
 }
 
 .lockBanner {
+  composes: bodyTight from "../../styles/type.module.css";
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -285,13 +289,13 @@
   border-bottom: 1px solid rgba(212, 160, 23, 0.25);
   color: var(--text-primary, #3C2415);
   padding: 0.65rem 1rem;
-  font-size: 0.85rem;
 }
 
 .lockIcon {
   font-size: 1rem;
   flex-shrink: 0;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .lockText {
   flex: 1;
@@ -299,13 +303,13 @@
 }
 
 .lockNewSessionBtn {
+  composes: meta from "../../styles/type.module.css";
   flex-shrink: 0;
   background: linear-gradient(135deg, var(--color-red, #E23D28), var(--color-orange, #F5A623));
   color: #fff;
   border: none;
   border-radius: 999px;
   padding: 0.4rem 0.9rem;
-  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
   font-family: inherit;
@@ -329,17 +333,16 @@
 }
 
 .emptyHeadline {
+  composes: body from "../../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1rem;
   color: var(--text-accent, #C41E3A);
   margin: 0 0 0.5rem;
   font-weight: 600;
 }
 
 .emptyHint {
-  font-size: 0.85rem;
+  composes: meta from "../../styles/type.module.css";
   color: var(--text-muted, #8B7355);
-  line-height: 1.55;
   margin: 0 0 0.8rem;
 }
 
@@ -351,12 +354,12 @@
 }
 
 .emptyQuestionBtn {
+  composes: bodyTight from "../../styles/type.module.css";
   background: var(--bg-card, #fff);
   border: 1px solid rgba(212, 160, 23, 0.25);
   border-radius: 999px;
   padding: 0.55rem 1.1rem;
   font-family: inherit;
-  font-size: 0.88rem;
   color: var(--text-primary, #3C2415);
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s, transform 0.1s;

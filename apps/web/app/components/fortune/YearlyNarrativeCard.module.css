@@ -21,8 +21,8 @@
 }
 
 .heroTitle {
+  composes: section from "../../styles/type.module.css";
   font-family: var(--font-heading);
-  font-size: 17px;
   font-weight: 600;
   color: var(--text-accent);
   margin: 0 0 12px 0;
@@ -31,10 +31,9 @@
 }
 
 .heroHeadline {
+  composes: section from "../../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 18px;
   font-weight: 700;
-  line-height: 1.6;
   color: var(--text-accent);
   margin: 0 0 12px 0;
 }
@@ -44,8 +43,7 @@
 }
 
 .heroBody {
-  font-size: 15px;
-  line-height: 1.75;
+  composes: body from "../../styles/type.module.css";
   color: var(--text-primary);
   margin: 0;
 }
@@ -108,14 +106,14 @@
 }
 
 .dimTitle {
+  composes: subsection from "../../styles/type.module.css";
   font-family: var(--font-heading);
-  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .dimKeyword {
-  font-size: 12px;
+  composes: caption from "../../styles/type.module.css";
   font-weight: 500;
   color: var(--text-secondary);
   padding: 2px 8px;
@@ -124,6 +122,7 @@
 }
 
 .dimBadge {
+  composes: caption from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -131,7 +130,6 @@
   padding: 3px 8px;
   border-radius: 12px;
   background: rgba(212, 160, 23, 0.10);
-  font-size: 12px;
 }
 
 .dimBadge[data-tier='good'] {
@@ -157,12 +155,11 @@
 }
 
 .dimBadgeLabel {
-  font-size: 11px;
+  composes: meta from "../../styles/type.module.css";
 }
 
 .dimBody {
-  font-size: 14px;
-  line-height: 1.72;
+  composes: body from "../../styles/type.module.css";
   color: var(--text-primary);
   margin: 0;
 }
@@ -173,7 +170,7 @@
 }
 
 .dimEmpty {
-  font-size: 13px;
+  composes: meta from "../../styles/type.module.css";
   color: var(--text-muted);
   font-style: italic;
   margin: 0;
@@ -193,16 +190,15 @@
 }
 
 .adviceTitle {
+  composes: subsection from "../../styles/type.module.css";
   font-family: var(--font-heading);
-  font-size: 16px;
   font-weight: 600;
   color: var(--text-accent);
   margin: 0 0 10px 0;
 }
 
 .adviceBody {
-  font-size: 14.5px;
-  line-height: 1.75;
+  composes: body from "../../styles/type.module.css";
   color: var(--text-primary);
   margin: 0;
 }
@@ -217,8 +213,7 @@
 /* ============================================================ */
 
 .disclaimer {
-  font-size: 11.5px;
-  line-height: 1.6;
+  composes: caption from "../../styles/type.module.css";
   color: var(--text-muted);
   margin: 8px 4px 0;
   font-style: italic;
@@ -260,8 +255,8 @@
 }
 
 .skeletonHint {
+  composes: caption from "../../styles/type.module.css";
   margin-top: 10px;
-  font-size: 12px;
   color: var(--text-muted);
   font-style: italic;
 }
@@ -279,7 +274,7 @@
 }
 
 .fallbackLead {
-  font-size: 14px;
+  composes: bodyTight from "../../styles/type.module.css";
   color: var(--text-accent);
   margin: 0;
 }

@@ -18,11 +18,13 @@
 
 .headerIcon {
   font-size: 1.5rem;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .headerTitle {
+  composes: title from "../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1.25rem;
   color: var(--text-accent);
   margin: 0;
 }
@@ -32,7 +34,7 @@
 }
 
 .featureIntro {
-  font-size: 0.85rem;
+  composes: body from "../styles/type.module.css";
   color: var(--text-secondary);
   margin-bottom: 0.75rem;
 }
@@ -45,8 +47,8 @@
 }
 
 .featureItem {
+  composes: bodyTight from "../styles/type.module.css";
   display: inline-block;
-  font-size: 0.8rem;
   color: var(--text-secondary);
   background: rgba(212, 160, 23, 0.08);
   border: 1px solid rgba(212, 160, 23, 0.15);
@@ -62,12 +64,12 @@
 }
 
 .unlockBtn {
+  composes: control from "../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
   padding: 0.85rem 2rem;
-  font-size: 1.05rem;
   font-weight: 600;
   color: #fff;
   background: linear-gradient(135deg, var(--color-red) 0%, var(--color-orange) 100%);
@@ -99,20 +101,20 @@
 }
 
 .costBadge {
+  composes: meta from "../styles/type.module.css";
   display: inline-block;
   background: rgba(255, 255, 255, 0.2);
   border-radius: 12px;
   padding: 0.15rem 0.5rem;
-  font-size: 0.85rem;
   font-weight: 500;
 }
 
 .freeBadge {
+  composes: meta from "../styles/type.module.css";
   display: inline-block;
   background: rgba(76, 175, 80, 0.9);
   border-radius: 12px;
   padding: 0.15rem 0.5rem;
-  font-size: 0.85rem;
   font-weight: 500;
 }
 
@@ -131,7 +133,7 @@
 }
 
 .creditsInfo {
-  font-size: 0.85rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
   margin: 0;
 }
@@ -143,7 +145,7 @@
 }
 
 .creditsLink {
-  font-size: 0.85rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-accent);
   font-weight: 500;
   transition: opacity 0.15s;
@@ -154,11 +156,11 @@
 }
 
 .loginBtn {
+  composes: control from "../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0.85rem 2rem;
-  font-size: 1.05rem;
   font-weight: 600;
   color: #fff;
   background: linear-gradient(135deg, var(--color-red) 0%, var(--color-orange) 100%);
@@ -177,7 +179,7 @@
 }
 
 .loginHint {
-  font-size: 0.8rem;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-muted);
   margin: 0;
 }
@@ -199,7 +201,8 @@
   }
 
   .featureItem {
-    font-size: 0.75rem;
+    font-size: var(--t-bodyTight-size);
+    line-height: var(--t-bodyTight-leading);
     padding: 0.25rem 0.6rem;
   }
 }

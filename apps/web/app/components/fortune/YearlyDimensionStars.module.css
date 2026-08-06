@@ -59,8 +59,8 @@
 }
 
 .dimName {
+  composes: bodyTight from "../../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -90,12 +90,11 @@
 /* ============================================================ */
 
 .keyword {
+  composes: caption from "../../styles/type.module.css";
   margin: 0;
-  font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
   text-align: center;
-  line-height: 1.4;
 }
 
 /* ============================================================ */
@@ -103,7 +102,7 @@
 /* ============================================================ */
 
 .dimLabel {
-  font-size: 11px;
+  composes: meta from "../../styles/type.module.css";
   padding: 2px 8px;
   border-radius: 999px;
   background: rgba(212, 160, 23, 0.1);

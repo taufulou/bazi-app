@@ -24,6 +24,7 @@
 .diamond {
   color: var(--color-gold);
   font-size: 10px;
+  line-height: 1; /* ◆ ornament, not type */
   letter-spacing: 0;
   opacity: 0.7;
 }

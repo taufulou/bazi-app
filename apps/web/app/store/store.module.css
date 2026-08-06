@@ -17,12 +17,12 @@
 }
 
 .backLink {
+  composes: bodyTight from "../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   color: var(--text-secondary);
   text-decoration: none;
-  font-size: 0.85rem;
   font-weight: 500;
   margin-bottom: 1rem;
   cursor: pointer;
@@ -48,7 +48,10 @@
 }
 
 .pageTitle {
+  /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 2.2rem;
+  line-height: 1.58; /* restored — the role scale would shrink this display size */
+  line-height: 1.25;
   font-weight: 800;
   letter-spacing: 0.05em;
   margin: 0 0 0.75rem;
@@ -57,10 +60,9 @@
 }
 
 .pageSubtitle {
-  font-size: 1.05rem;
+  composes: subsection from "../styles/type.module.css";
   color: var(--text-secondary);
   margin: 0;
-  line-height: 1.6;
 }
 
 /* ==== Credit Balance ==== */
@@ -79,18 +81,22 @@
 }
 
 .balanceLabel {
-  font-size: 0.95rem;
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-secondary);
 }
 
 .balanceValue {
+  /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 1.8rem;
+  line-height: 1.25; /* restored — the role scale would shrink this display size */
+  line-height: 1.2;
   font-weight: 800;
   color: var(--text-accent);
 }
 
 .balanceUnit {
   font-size: 0.9rem;
+  line-height: 1.4; /* restored — the role scale would shrink this display size */
   color: var(--text-secondary);
   margin-left: 0.25rem;
 }
@@ -140,13 +146,13 @@
 }
 
 .bestValueBadge {
+  composes: caption from "../styles/type.module.css";
   position: absolute;
   top: -12px;
   left: 50%;
   transform: translateX(-50%);
   background: var(--color-red);
   color: var(--text-on-red);
-  font-size: 0.75rem;
   font-weight: 700;
   padding: 0.25rem 1rem;
   border-radius: 20px;
@@ -156,22 +162,24 @@
 
 /* Credit Amount */
 .creditAmount {
+  /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 3rem;
+  line-height: 1.4; /* restored — the role scale would shrink this display size */
+  line-height: 1.1;
   font-weight: 800;
   color: var(--text-accent);
-  line-height: 1;
   margin-bottom: 0.25rem;
 }
 
 .creditLabel {
-  font-size: 0.9rem;
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-secondary);
   margin-bottom: 1rem;
 }
 
 /* Package Name */
 .packageName {
-  font-size: 1rem;
+  composes: bodyTight from "../styles/type.module.css";
   font-weight: 600;
   color: var(--text-primary);
   margin: 0 0 0.5rem;
@@ -180,14 +188,17 @@
 
 /* Price */
 .priceTag {
+  /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 1.8rem;
+  line-height: 1.25; /* restored — the role scale would shrink this display size */
+  line-height: 1.2;
   font-weight: 700;
   color: var(--text-primary);
   margin-bottom: 0.25rem;
 }
 
 .perCreditPrice {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-secondary);
   margin-bottom: 1.5rem;
 }
@@ -199,12 +210,12 @@
 
 /* Buy Button */
 .buyButton {
+  composes: control from "../styles/type.module.css";
   display: block;
   width: 100%;
   padding: 0.85rem 1.5rem;
   border: none;
   border-radius: var(--radius-md);
-  font-size: 0.95rem;
   font-weight: 700;
   cursor: pointer;
   text-align: center;
@@ -251,8 +262,8 @@
 }
 
 .loadingText {
+  composes: body from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.9rem;
 }
 
 .spinner {
@@ -280,6 +291,7 @@
 }
 
 .errorBanner {
+  composes: bodyTight from "../styles/type.module.css";
   display: flex;
   align-items: center;
   justify-content: center;
@@ -291,7 +303,6 @@
   border: 1px solid rgba(244, 67, 54, 0.2);
   border-radius: 10px;
   color: #c62828;
-  font-size: 0.9rem;
 }
 
 .errorClose {
@@ -312,6 +323,7 @@
 
 /* ==== Toast ==== */
 .toast {
+  composes: bodyTight from "../styles/type.module.css";
   position: fixed;
   top: 1.5rem;
   left: 50%;
@@ -322,7 +334,6 @@
   gap: 1rem;
   padding: 0.85rem 1.5rem;
   border-radius: var(--radius-md);
-  font-size: 0.9rem;
   font-weight: 600;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
   animation: slideDown 0.3s ease;
@@ -370,12 +381,13 @@
 }
 
 .signInText {
+  composes: body from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.95rem;
   margin: 0 0 1rem;
 }
 
 .signInLink {
+  composes: bodyTight from "../styles/type.module.css";
   display: inline-block;
   padding: 0.75rem 2rem;
   background: var(--color-red);
@@ -383,7 +395,6 @@
   border-radius: 10px;
   text-decoration: none;
   font-weight: 700;
-  font-size: 0.95rem;
   transition: all 0.3s ease;
 }
 
@@ -400,8 +411,8 @@
 }
 
 .subscriptionLink {
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.9rem;
   text-decoration: none;
   transition: color 0.2s;
 }
@@ -412,12 +423,11 @@
 }
 
 .bottomNote {
+  composes: meta from "../styles/type.module.css";
   max-width: 700px;
   margin: 2rem auto 0;
   text-align: center;
-  font-size: 0.85rem;
   color: var(--text-secondary);
-  line-height: 1.7;
 }
 
 .bottomNoteLink {
@@ -446,7 +456,9 @@
   }
 
   .pageTitle {
-    font-size: 1.75rem;
+  font-size: 1.75rem;
+  line-height: 1.25; /* restored — the role scale would shrink this display size */
+    line-height: var(--t-title-leading);
   }
 
   .packagesGrid {
@@ -456,11 +468,15 @@
   }
 
   .creditAmount {
-    font-size: 2.5rem;
+  font-size: 2.5rem;
+  line-height: 1.5; /* restored — the role scale would shrink this display size */
+    line-height: var(--t-display-leading);
   }
 
   .priceTag {
-    font-size: 1.5rem;
+  font-size: 1.5rem;
+  line-height: 1.25; /* restored — the role scale would shrink this display size */
+    line-height: var(--t-section-leading);
   }
 
   .balanceCard {
@@ -468,6 +484,8 @@
   }
 
   .balanceValue {
-    font-size: 1.5rem;
+  font-size: 1.5rem;
+  line-height: 1.25; /* restored — the role scale would shrink this display size */
+    line-height: var(--t-section-leading);
   }
 }

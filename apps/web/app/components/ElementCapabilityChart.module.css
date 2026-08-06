@@ -14,25 +14,23 @@
 }
 
 .title {
+  composes: subsection from "../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1rem;
   color: var(--text-accent);
   margin: 0;
 }
 
 .subtitle {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
   margin: 4px 0 0 0;
-  line-height: 1.4;
 }
 
 /* 時辰未知 caveat — 3-pillar weighted estimate */
 .hourUnknownNote {
-  font-size: 0.75rem;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-secondary);
   margin: 6px 0 0 0;
-  line-height: 1.4;
   font-style: italic;
 }
 
@@ -55,6 +53,7 @@
 }
 
 .elementBadge {
+  composes: bodyTight from "../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -62,20 +61,19 @@
   height: 28px;
   border-radius: 6px;
   color: #fff;
-  font-size: 0.85rem;
   font-weight: 700;
   flex-shrink: 0;
 }
 
 .percentage {
-  font-size: 0.9rem;
+  composes: bodyTight from "../styles/type.module.css";
   font-weight: 600;
   color: var(--text-primary);
   min-width: 48px;
 }
 
 .level {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
   padding: 0.1rem 0.4rem;
   background: rgba(212, 160, 23, 0.08);
@@ -104,7 +102,7 @@
 }
 
 .talentTag {
-  font-size: 0.75rem;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-secondary);
   background: rgba(212, 160, 23, 0.06);
   border: 1px solid rgba(212, 160, 23, 0.12);
@@ -118,13 +116,15 @@
   }
 
   .elementBadge {
+    font-size: var(--t-bodyTight-size);
+    line-height: var(--t-bodyTight-leading);
     width: 24px;
     height: 24px;
-    font-size: 0.75rem;
   }
 
   .percentage {
-    font-size: 0.8rem;
+    font-size: var(--t-bodyTight-size);
+    line-height: var(--t-bodyTight-leading);
     min-width: 40px;
   }
 }

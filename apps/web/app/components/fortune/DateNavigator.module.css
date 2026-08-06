@@ -28,7 +28,7 @@
 
 /* «點擊選擇…» discoverability hint below the date chip. */
 .hint {
-  font-size: 0.7rem;
+  composes: caption from "../../styles/type.module.css";
   color: var(--text-muted);
   font-family: var(--font-noto-serif-tc), serif;
   letter-spacing: 0.02em;
@@ -102,6 +102,7 @@
 }
 
 .dateLabel {
+  composes: bodyTight from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -111,7 +112,6 @@
   border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -141,13 +141,13 @@
 }
 
 .offsetBadge {
+  composes: caption from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   padding: 0.1rem 0.5rem;
   margin-left: 0.25rem;
   background: rgba(var(--color-red-rgb), 0.1);
   color: var(--color-red);
-  font-size: 0.7rem;
   font-weight: 700;
   border-radius: 999px;
   font-family: var(--font-noto-serif-tc), serif;
@@ -182,15 +182,18 @@
 
   .dateLabel {
     padding: 0.35rem 0.6rem;
-    font-size: 0.85rem;
+    font-size: var(--t-bodyTight-size);
+    line-height: var(--t-bodyTight-leading);
   }
 
   .dateText {
-    font-size: 0.85rem;
+    font-size: var(--t-bodyTight-size);
+    line-height: var(--t-bodyTight-leading);
   }
 
   .offsetBadge {
-    font-size: 0.65rem;
+    font-size: var(--t-caption-size);
+    line-height: var(--t-caption-leading);
     padding: 0.1rem 0.4rem;
   }
 }

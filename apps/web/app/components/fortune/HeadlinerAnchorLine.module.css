@@ -55,7 +55,12 @@
     padding: 8px;
   }
   .pill {
-    font-size: 11.5px;
+    /* Was 11.5px — below the 12px hard floor. Safe to raise: the shared
+       ShareableFortuneCard renders at 1200px and never matches this query.
+       The BASE rules stay FROZEN — that canvas is out of scope and has no
+       visual gate, so it must not change silently. */
+    font-size: var(--t-caption-size);
+    line-height: var(--t-caption-leading);
     padding: 2px 8px;
   }
   .separator {

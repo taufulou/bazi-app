@@ -42,8 +42,7 @@
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-warm);
-  font-size: 12px;
-  line-height: 1.6;
+  composes: caption from "../../styles/type.module.css";
   color: var(--text-secondary);
   text-align: left;
   z-index: 10;

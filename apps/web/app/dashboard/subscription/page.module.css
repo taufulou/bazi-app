@@ -21,12 +21,12 @@
 }
 
 .backLink {
+  composes: cell from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   color: var(--text-secondary);
   text-decoration: none;
-  font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   background: rgba(255, 255, 255, 0.7);
@@ -51,8 +51,8 @@
 }
 
 .headerTitle {
+  composes: section from "../../styles/type.module.css";
   color: var(--text-accent);
-  font-size: 1.2rem;
   font-weight: 700;
   font-family: var(--font-noto-serif-tc), serif;
 }
@@ -86,12 +86,13 @@
 }
 
 .loadingText {
+  composes: body from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.9rem;
 }
 
 /* ---- Error Banner ---- */
 .errorBanner {
+  composes: bodyTight from "../../styles/type.module.css";
   display: flex;
   align-items: center;
   justify-content: center;
@@ -101,7 +102,6 @@
   border: 1px solid rgba(244, 67, 54, 0.2);
   border-radius: 10px;
   color: #c62828;
-  font-size: 0.9rem;
   margin-bottom: 1.5rem;
 }
 
@@ -139,7 +139,7 @@
 
 /* ---- Tier Badges ---- */
 .tierBadge {
-  font-size: 0.85rem;
+  composes: meta from "../../styles/type.module.css";
   font-weight: 700;
   padding: 0.3rem 0.9rem;
   border-radius: 20px;
@@ -171,7 +171,7 @@
 }
 
 .cancelledBadge {
-  font-size: 0.75rem;
+  composes: caption from "../../styles/type.module.css";
   padding: 0.2rem 0.65rem;
   border-radius: 12px;
   background: rgba(255, 152, 0, 0.1);
@@ -199,13 +199,13 @@
 }
 
 .detailLabel {
+  composes: cell from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.9rem;
 }
 
 .detailValue {
+  composes: cell from "../../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.9rem;
   font-weight: 600;
 }
 
@@ -232,17 +232,17 @@
 }
 
 .creditBuyHint {
-  font-size: 0.75rem;
+  composes: caption from "../../styles/type.module.css";
   color: var(--color-info);
 }
 
 /* ---- Buy Credits Link ---- */
 .buyCreditsLink {
+  composes: bodyTight from "../../styles/type.module.css";
   display: block;
   width: 100%;
   padding: 0.85rem 1.5rem;
   border-radius: var(--radius-md);
-  font-size: 0.95rem;
   font-weight: 600;
   text-align: center;
   text-decoration: none;
@@ -391,16 +391,15 @@
 }
 
 .confirmTitle {
+  composes: subsection from "../../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 1.1rem;
   font-weight: 700;
   margin: 0 0 0.75rem;
 }
 
 .confirmText {
+  composes: body from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.9rem;
-  line-height: 1.6;
   margin: 0 0 1.5rem;
 }
 
@@ -456,8 +455,8 @@
 }
 
 .invoiceSectionTitle {
+  composes: section from "../../styles/type.module.css";
   color: var(--text-accent);
-  font-size: 1.15rem;
   font-weight: 700;
   margin: 0 0 1rem;
   padding-left: 1rem;
@@ -485,15 +484,15 @@
 }
 
 .invoiceError {
+  composes: bodyTight from "../../styles/type.module.css";
   color: #c62828;
-  font-size: 0.9rem;
   text-align: center;
   padding: 1rem 0;
 }
 
 .invoiceEmpty {
+  composes: bodyTight from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.9rem;
   text-align: center;
   padding: 2rem 0;
 }
@@ -532,20 +531,20 @@
 }
 
 .invoiceDate {
+  composes: cell from "../../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.9rem;
   font-weight: 600;
 }
 
 .invoiceNumber {
+  composes: meta from "../../styles/type.module.css";
   color: var(--text-muted);
-  font-size: 0.78rem;
   font-family: monospace;
 }
 
 .invoiceDesc {
+  composes: body from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.82rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -561,13 +560,13 @@
 }
 
 .invoiceAmount {
+  composes: bodyTight from "../../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.95rem;
   font-weight: 700;
 }
 
 .invoiceStatus {
-  font-size: 0.72rem;
+  composes: meta from "../../styles/type.module.css";
   font-weight: 600;
   padding: 0.15rem 0.55rem;
   border-radius: 10px;
@@ -613,8 +612,8 @@
 }
 
 .invoiceLink {
+  composes: cell from "../../styles/type.module.css";
   color: var(--text-accent);
-  font-size: 0.82rem;
   text-decoration: none;
   opacity: 0.8;
   transition: opacity 0.2s;

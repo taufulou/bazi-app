@@ -28,20 +28,21 @@
 .icon {
   font-size: 2.5rem;
   margin-bottom: 0.75rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .title {
-  color: var(--text-accent);
   font-size: 1.3rem;
+  line-height: 1.4; /* restored — the role scale would shrink this display size */
+  color: var(--text-accent);
   font-weight: 700;
   margin-bottom: 0.75rem;
   font-family: var(--font-noto-serif-tc), serif;
 }
 
 .body {
+  composes: body from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.95rem;
-  line-height: 1.6;
   margin-bottom: 1.5rem;
 }
 
@@ -56,12 +57,12 @@
 }
 
 .primaryBtn {
+  composes: control from "../styles/type.module.css";
   display: block;
   padding: 0.75rem 2rem;
   background: var(--color-red);
   color: var(--text-on-red);
   font-weight: 700;
-  font-size: 1rem;
   border-radius: var(--radius-sm);
   text-decoration: none;
   text-align: center;
@@ -80,13 +81,13 @@
 }
 
 .buyCreditsBtn {
+  composes: control from "../styles/type.module.css";
   display: block;
   padding: 0.75rem 2rem;
   background: rgba(33, 150, 243, 0.06);
   border: 1px solid rgba(33, 150, 243, 0.25);
   color: var(--color-info);
   font-weight: 600;
-  font-size: 0.95rem;
   border-radius: var(--radius-sm);
   text-decoration: none;
   text-align: center;
@@ -104,13 +105,13 @@
 }
 
 .adRewardBtn {
+  composes: bodyTight from "../styles/type.module.css";
   display: block;
   width: 100%;
   padding: 0.6rem 1rem;
   background: rgba(var(--color-gold-rgb), 0.04);
   border: 1px solid var(--border-light);
   color: var(--text-muted);
-  font-size: 0.8rem;
   border-radius: var(--radius-sm);
   cursor: not-allowed;
   opacity: 0.5;
@@ -118,13 +119,13 @@
 }
 
 .secondaryBtn {
+  composes: bodyTight from "../styles/type.module.css";
   display: block;
   padding: 0.75rem 2rem;
   background: transparent;
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
   font-weight: 600;
-  font-size: 0.9rem;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s;
@@ -157,10 +158,12 @@
   }
 
   .title {
-    font-size: 1.15rem;
+    font-size: var(--t-section-size);
+    line-height: var(--t-section-leading);
   }
 
   .body {
-    font-size: 0.9rem;
+    font-size: var(--t-body-size);
+    line-height: var(--t-body-leading);
   }
 }

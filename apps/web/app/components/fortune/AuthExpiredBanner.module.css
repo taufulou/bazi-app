@@ -3,6 +3,7 @@
  * header (z-index: 50) correctly overlaps it on scroll. */
 
 .banner {
+  composes: bodyTight from "../../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -10,7 +11,6 @@
   background: rgba(245, 166, 35, 0.10);
   border-bottom: 1px solid rgba(245, 166, 35, 0.3);
   color: var(--text-primary);
-  font-size: 0.85rem;
 }
 
 .icon {
@@ -68,7 +68,8 @@
 
 @media (max-width: 600px) {
   .banner {
-    font-size: 0.8rem;
+    font-size: var(--t-bodyTight-size);
+    line-height: var(--t-bodyTight-leading);
     padding: 0.5rem 0.75rem;
   }
 }

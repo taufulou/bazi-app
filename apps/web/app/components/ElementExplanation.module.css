@@ -79,14 +79,14 @@
 }
 
 .headerTitle {
+  composes: section from "../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1.2rem;
   font-weight: 700;
   color: var(--text-accent, #C41E3A);
 }
 
 .headerPillar {
-  font-size: 0.85rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-secondary, #6B5940);
   margin-left: 0.5rem;
   font-weight: 400;
@@ -101,6 +101,8 @@
   padding: 4px 8px;
   border-radius: 8px;
   transition: background 0.15s;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .closeBtn:hover {
@@ -109,10 +111,10 @@
 
 /* ── Category Badge ── */
 .categoryBadge {
+  composes: caption from "../styles/type.module.css";
   display: inline-block;
   margin: 0 1.2rem 0.6rem;
   padding: 2px 10px;
-  font-size: 0.7rem;
   font-weight: 500;
   color: var(--text-accent, #C41E3A);
   background: rgba(196, 30, 58, 0.08);
@@ -126,8 +128,7 @@
 }
 
 .meaningText {
-  font-size: 0.9rem;
-  line-height: 1.75;
+  composes: body from "../styles/type.module.css";
   color: var(--text-primary, #3C2415);
   margin-bottom: 0.8rem;
 }
@@ -141,9 +142,9 @@
 }
 
 .keyword {
+  composes: caption from "../styles/type.module.css";
   display: inline-block;
   padding: 2px 8px;
-  font-size: 0.72rem;
   background: rgba(212, 175, 55, 0.08);
   border: 1px solid rgba(212, 160, 23, 0.15);
   border-radius: 10px;
@@ -153,7 +154,7 @@
 
 /* ── Six Relations ── */
 .liuQinRow {
-  font-size: 0.82rem;
+  composes: label from "../styles/type.module.css";
   color: var(--text-secondary, #6B5940);
   margin-bottom: 0.6rem;
   padding: 0.4rem 0.6rem;
@@ -175,7 +176,7 @@
 
 /* ── Personalized Section ── */
 .personalizedHeader {
-  font-size: 0.85rem;
+  composes: label from "../styles/type.module.css";
   font-weight: 600;
   color: var(--text-accent, #C41E3A);
   margin-bottom: 0.6rem;
@@ -189,7 +190,7 @@
 }
 
 .sectionLabel {
-  font-size: 0.78rem;
+  composes: label from "../styles/type.module.css";
   font-weight: 600;
   color: var(--text-secondary, #6B5940);
   margin-bottom: 0.3rem;
@@ -199,14 +200,14 @@
 }
 
 .sectionLabel::before {
+  font-size: 0.8125rem;
+  line-height: 1.4;
   content: '▸';
   color: var(--text-accent, #C41E3A);
-  font-size: 0.7rem;
 }
 
 .sectionText {
-  font-size: 0.9rem;
-  line-height: 1.7;
+  composes: body from "../styles/type.module.css";
   color: var(--text-primary, #3C2415);
   padding-left: 0.8rem;
   margin-bottom: 0.5rem;
@@ -214,9 +215,9 @@
 
 /* ── God Role Badge ── */
 .godRoleBadge {
+  composes: caption from "../styles/type.module.css";
   display: inline-block;
   padding: 1px 8px;
-  font-size: 0.7rem;
   font-weight: 600;
   border-radius: 10px;
   margin-left: 0.3rem;
@@ -278,8 +279,7 @@
 }
 
 .teaserBlur {
-  font-size: 0.85rem;
-  line-height: 1.7;
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-primary, #3C2415);
   filter: blur(4px);
   user-select: none;
@@ -296,11 +296,11 @@
 }
 
 .teaserBtn {
+  composes: bodyTight from "../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   padding: 0.6rem 1.4rem;
-  font-size: 0.85rem;
   font-weight: 600;
   color: #FFFFFF;
   background: linear-gradient(135deg, var(--color-red, #E23D28), var(--color-orange, #F5A623));
@@ -316,30 +316,32 @@
 }
 
 .teaserCount {
-  font-size: 0.72rem;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-muted, #8B7355);
 }
 
 /* ── Coming Soon Fallback ── */
 .comingSoon {
+  composes: bodyTight from "../styles/type.module.css";
   text-align: center;
   padding: 2rem 1rem;
   color: var(--text-muted, #8B7355);
-  font-size: 0.9rem;
 }
 
 .comingSoonIcon {
   font-size: 2rem;
   margin-bottom: 0.5rem;
   opacity: 0.5;
+
+  line-height: 1; /* graphic, not type */
 }
 
 /* ── Loading ── */
 .loading {
+  composes: meta from "../styles/type.module.css";
   text-align: center;
   padding: 2rem 1rem;
   color: var(--text-muted, #8B7355);
-  font-size: 0.85rem;
 }
 
 /* ── Cross-Pillar Interaction Cards ── */
@@ -385,18 +387,20 @@
 
 .interactionIcon {
   font-size: 0.9rem;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .interactionName {
+  composes: bodyTight from "../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
   font-weight: 600;
-  font-size: 0.9rem;
   color: var(--text-primary, #3C2415);
   flex: 1;
 }
 
 .interactionBadge {
-  font-size: 0.7rem;
+  composes: caption from "../styles/type.module.css";
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
   font-weight: 600;
@@ -421,8 +425,7 @@
 }
 
 .interactionDesc {
-  font-size: 0.9rem;
-  line-height: 1.55;
+  composes: body from "../styles/type.module.css";
   color: var(--text-secondary, #6B5940);
   margin: 0;
 }
@@ -442,11 +445,12 @@
   font-size: 1rem;
   flex-shrink: 0;
   margin-top: 0.1rem;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .pillarContextText {
-  font-size: 0.85rem;
-  line-height: 1.6;
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-secondary, #6B5940);
   margin: 0;
 }
@@ -474,14 +478,14 @@
 }
 
 .comboTitle {
+  composes: subsection from "../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
   font-weight: 700;
-  font-size: 1rem;
   color: var(--text-primary, #3C2415);
 }
 
 .gradeBadge {
-  font-size: 0.7rem;
+  composes: caption from "../styles/type.module.css";
   padding: 0.15rem 0.5rem;
   border-radius: 4px;
   font-weight: 600;
@@ -503,7 +507,7 @@
 }
 
 .specialLabel {
-  font-size: 0.65rem;
+  composes: caption from "../styles/type.module.css";
   padding: 0.1rem 0.4rem;
   border-radius: 3px;
   font-weight: 500;
@@ -528,7 +532,7 @@
 }
 
 .comboMeta {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted, #8B7355);
   margin-bottom: 0.5rem;
 }
@@ -543,8 +547,7 @@
 }
 
 .comboTeaserText {
-  font-size: 0.85rem;
-  line-height: 1.5;
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-secondary, #6B5940);
   margin: 0.3rem 0 0.6rem;
 }

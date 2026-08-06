@@ -33,19 +33,21 @@
 }
 
 .monthName {
-  font-family: var(--font-noto-serif-tc), serif;
+  /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 1.05rem;
+  line-height: 1.35;
+  font-family: var(--font-noto-serif-tc), serif;
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .solarTerm {
-  font-size: 0.85rem;
+  composes: cell from "../styles/type.module.css";
   color: var(--text-muted);
 }
 
 .badge {
-  font-size: 0.82rem;
+  composes: meta from "../styles/type.module.css";
   font-weight: 600;
   padding: 0.2rem 0.55rem;
   border-radius: 12px;
@@ -61,18 +63,18 @@
 }
 
 .ganZhi {
-  font-size: 0.92rem;
+  composes: bodyTight from "../styles/type.module.css";
   font-weight: 600;
   color: var(--text-secondary);
 }
 
 .metaTenGod {
-  font-size: 0.85rem;
+  composes: cell from "../styles/type.module.css";
   color: var(--text-muted);
 }
 
 .dateRange {
-  font-size: 0.78rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
 }
 
@@ -83,9 +85,8 @@
 }
 
 .narrative {
-  font-size: 0.95rem;
+  composes: body from "../styles/type.module.css";
   color: var(--text-primary);
-  line-height: 1.8;
 }
 
 /* Gold bullet list styles moved to narrative-utils.module.css */
@@ -98,7 +99,7 @@
 }
 
 .branchBadge {
-  font-size: 0.75rem;
+  composes: caption from "../styles/type.module.css";
   padding: 0.2rem 0.6rem;
   border-radius: 12px;
   font-weight: 500;
@@ -152,12 +153,14 @@
 .starFull {
   color: #ffd700;
   font-size: 0.9rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .starEmpty {
   color: #d0c4b0;
   font-size: 0.9rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .starHalf {
   position: relative;
@@ -165,7 +168,8 @@
   font-size: 0.9rem;
   width: 0.9rem;
   height: 0.9rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .starHalfEmpty {
   position: absolute;

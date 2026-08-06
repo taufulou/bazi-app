@@ -19,7 +19,9 @@
   border: 1px solid rgba(212, 160, 23, 0.2);
   border-radius: 8px;
   color: #3C2415;
-  font-size: 1rem;
+  /* Carve-out B: `control` sizing (the date <input>). */
+  font-size: 1.0625rem;
+  line-height: 1.4;
   outline: none;
   transition: border-color 0.2s;
   box-sizing: border-box;
@@ -41,7 +43,8 @@
 /* ── Main popup ── */
 .react-datepicker {
   font-family: inherit;
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
   background-color: #FFFFFF;
   color: #3C2415;
   border: 1px solid rgba(212, 160, 23, 0.25);
@@ -74,6 +77,8 @@ h2.react-datepicker__current-month {
 }
 
 /* ── Year/Month dropdown selects ── */
+/* Carve-out B: `control` sizing (17px). These are <select> elements — under 16px
+   Mobile Safari zooms the viewport on focus and does not zoom back. */
 .react-datepicker__month-select,
 .react-datepicker__year-select {
   background: #FFFFFF;
@@ -81,7 +86,10 @@ h2.react-datepicker__current-month {
   border: 1px solid rgba(212, 160, 23, 0.25);
   border-radius: 4px;
   padding: 0.2rem 0.4rem;
-  font-size: 0.85rem;
+  /* Carve-out B: `control` sizing. These are <select> elements — under 16px
+     Mobile Safari zooms the viewport on focus and never zooms back. */
+  font-size: 1.0625rem;
+  line-height: 1.4;
   cursor: pointer;
 }
 

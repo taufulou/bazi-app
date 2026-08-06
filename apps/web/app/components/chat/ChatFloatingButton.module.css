@@ -1,4 +1,5 @@
 .button {
+  composes: bodyTight from "../../styles/type.module.css";
   position: fixed;
   right: 1rem;
   bottom: calc(1rem + env(safe-area-inset-bottom, 0));
@@ -16,7 +17,6 @@
   border-radius: 999px;
   box-shadow: 0 6px 20px rgba(226, 61, 40, 0.35);
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 0.88rem;
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
@@ -38,11 +38,12 @@
 }
 
 .label {
-  font-size: 0.88rem;
+  composes: bodyTight from "../../styles/type.module.css";
   /* letter-spacing dropped — every 0.01em saves ~1.5px at this scale */
 }
 
 .badge {
+  composes: caption from "../../styles/type.module.css";
   position: absolute;
   top: -6px;
   right: -6px;
@@ -50,7 +51,6 @@
   padding: 2px 6px;
   background: var(--bg-card, #fff);
   color: var(--text-accent, #C41E3A);
-  font-size: 0.7rem;
   font-weight: 700;
   border-radius: 999px;
   border: 1px solid rgba(226, 61, 40, 0.25);
@@ -67,10 +67,12 @@
   }
 
   .label {
-    font-size: 0.82rem;
+    font-size: var(--t-bodyTight-size);
+    line-height: var(--t-bodyTight-leading);
   }
 
   .icon {
     font-size: 1rem;
-  }
+  
+  line-height: 1; /* graphic, not type */}
 }

@@ -26,12 +26,12 @@
 }
 
 .tocItem {
+  composes: meta from "../styles/type.module.css";
   padding: 0.5rem 0.75rem;
   background: none;
   border: none;
   border-left: 2px solid transparent;
   color: #a0a0a0;
-  font-size: 0.85rem;
   text-align: left;
   cursor: pointer;
   transition: all 0.2s;
@@ -81,19 +81,19 @@
 }
 
 .typeBadge {
+  composes: caption from "../styles/type.module.css";
   display: inline-block;
   padding: 0.25rem 0.75rem;
   border: 1px solid;
   border-radius: 16px;
-  font-size: 0.8rem;
   font-weight: 500;
 }
 
 .namesPair {
+  composes: section from "../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 1.1rem;
 }
 
 .nameA {
@@ -117,24 +117,27 @@
 }
 
 .scoreNum {
+  /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 4rem;
+  line-height: 1.27; /* restored — the role scale would shrink this display size */
+  line-height: 1.05;
   font-weight: 800;
-  line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 
 .scoreLabel {
+  composes: section from "../styles/type.module.css";
   color: #a0a0a0;
-  font-size: 1.2rem;
   font-weight: 500;
 }
 
 .resultLabel {
-  font-size: 1.5rem;
+  composes: title from "../styles/type.module.css";
   font-weight: 700;
 }
 
 .specialBadge {
+  composes: bodyTight from "../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
@@ -143,20 +146,18 @@
   border: 1px solid rgba(212, 175, 55, 0.25);
   border-radius: 16px;
   color: #d4af37;
-  font-size: 0.95rem;
   font-weight: 600;
 }
 
 .labelDesc {
+  composes: body from "../styles/type.module.css";
   color: #a0a0a0;
-  font-size: 0.95rem;
-  line-height: 1.6;
   max-width: 400px;
 }
 
 .yearTag {
+  composes: meta from "../styles/type.module.css";
   color: #a0a0a0;
-  font-size: 0.85rem;
   font-weight: 400;
 }
 
@@ -192,6 +193,8 @@
   font-size: 1.2rem;
   flex-shrink: 0;
   margin-top: 0.1rem;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .updateBannerText {
@@ -202,7 +205,9 @@
 
 .updateBannerText strong {
   color: #ffb74d;
-  font-size: 0.9rem;
+  /* Carve-out B. `bodyTight` sizing. */
+  font-size: 0.9375rem;
+  line-height: 1.5;
   font-weight: 600;
 }
 
@@ -213,13 +218,13 @@
 }
 
 .updateBannerBtn {
+  composes: label from "../styles/type.module.css";
   flex-shrink: 0;
   padding: 0.5rem 1rem;
   background: linear-gradient(135deg, rgba(255, 152, 0, 0.15) 0%, rgba(255, 183, 77, 0.08) 100%);
   border: 1px solid rgba(255, 152, 0, 0.3);
   border-radius: 8px;
   color: #ffb74d;
-  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -243,17 +248,19 @@
 }
 
 .sectionTitle {
+  composes: section from "../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 0.5rem;
   color: #e8d5b7;
-  font-size: 1.15rem;
   font-weight: 600;
   margin-bottom: 1rem;
 }
 
 .sectionIcon {
   font-size: 1.1rem;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .knockoutList {
@@ -286,19 +293,19 @@
 }
 
 .knockoutSeverity {
-  font-size: 0.9rem;
+  composes: bodyTight from "../styles/type.module.css";
 }
 
 .knockoutType {
+  composes: bodyTight from "../styles/type.module.css";
   color: #e0e0e0;
   font-weight: 600;
-  font-size: 0.95rem;
   flex: 1;
 }
 
 .knockoutImpact {
+  composes: caption from "../styles/type.module.css";
   color: #f44336;
-  font-size: 0.8rem;
   font-weight: 600;
   padding: 0.15rem 0.5rem;
   background: rgba(244, 67, 54, 0.1);
@@ -306,14 +313,13 @@
 }
 
 .knockoutDesc {
+  composes: body from "../styles/type.module.css";
   color: #a0a0a0;
-  font-size: 0.9rem;
-  line-height: 1.5;
 }
 
 .knockoutMitigated {
+  composes: meta from "../styles/type.module.css";
   color: #4caf50;
-  font-size: 0.85rem;
   margin-top: 0.5rem;
   font-style: italic;
 }
@@ -353,8 +359,8 @@
 }
 
 .dimLabel {
+  composes: label from "../styles/type.module.css";
   min-width: 80px;
-  font-size: 0.85rem;
   text-align: left;
   flex-shrink: 0;
 }
@@ -374,8 +380,8 @@
 }
 
 .dimScore {
+  composes: meta from "../styles/type.module.css";
   min-width: 28px;
-  font-size: 0.85rem;
   font-weight: 600;
   text-align: right;
   font-variant-numeric: tabular-nums;
@@ -385,6 +391,8 @@
   color: #555;
   font-size: 0.75rem;
   transition: transform 0.2s;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .dimChevronOpen {
@@ -397,9 +405,9 @@
 }
 
 .findingItem {
+  composes: meta from "../styles/type.module.css";
   padding: 0.35rem 0;
   color: #a0a0a0;
-  font-size: 0.85rem;
 }
 
 .findingText {
@@ -426,8 +434,8 @@
 }
 
 .timingCardTitle {
+  composes: bodyTight from "../styles/type.module.css";
   color: #e8d5b7;
-  font-size: 0.95rem;
   font-weight: 600;
   margin-bottom: 0.75rem;
   display: flex;
@@ -445,10 +453,10 @@
 }
 
 .timingItem {
+  composes: meta from "../styles/type.module.css";
   display: flex;
   align-items: flex-start;
   gap: 0.5rem;
-  font-size: 0.85rem;
 }
 
 .timingYear {
@@ -464,22 +472,22 @@
 }
 
 .timingEmpty {
+  composes: meta from "../styles/type.module.css";
   color: #555;
-  font-size: 0.85rem;
   font-style: italic;
 }
 
 .luckSyncScore {
+  composes: bodyTight from "../styles/type.module.css";
   color: #a0a0a0;
-  font-size: 0.9rem;
   text-align: center;
   padding: 0.5rem;
 }
 
 .luckSyncValue {
+  composes: subsection from "../styles/type.module.css";
   color: #e8d5b7;
   font-weight: 600;
-  font-size: 1rem;
 }
 
 /* ==== Actions Section ==== */
@@ -497,12 +505,12 @@
 }
 
 .shareBtn {
+  composes: bodyTight from "../styles/type.module.css";
   padding: 0.75rem 1.5rem;
   background: linear-gradient(135deg, #e8d5b7 0%, #d4af37 100%);
   border: none;
   border-radius: 8px;
   color: #1a1a2e;
-  font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -514,12 +522,12 @@
 }
 
 .newBtn {
+  composes: bodyTight from "../styles/type.module.css";
   padding: 0.75rem 1.5rem;
   background: transparent;
   border: 1px solid rgba(232, 213, 183, 0.3);
   border-radius: 8px;
   color: #e8d5b7;
-  font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
@@ -531,8 +539,8 @@
 }
 
 .disclaimer {
+  composes: caption from "../styles/type.module.css";
   color: #555;
-  font-size: 0.75rem;
   margin-top: 0.5rem;
 }
 
@@ -570,13 +578,14 @@
   }
 
   .tocItem {
+    font-size: var(--t-meta-size);
+    line-height: var(--t-meta-leading);
     border-left: none;
     border-bottom: 2px solid transparent;
     border-radius: 6px;
     white-space: nowrap;
     scroll-snap-align: start;
     padding: 0.4rem 0.75rem;
-    font-size: 0.8rem;
   }
 
   .tocItemActive {
@@ -643,15 +652,19 @@
   }
 
   .scoreNum {
-    font-size: 3rem;
+  font-size: 3rem;
+  line-height: 1.4; /* restored — the role scale would shrink this display size */
+    line-height: var(--t-display-leading);
   }
 
   .resultLabel {
-    font-size: 1.25rem;
+    font-size: var(--t-title-size);
+    line-height: var(--t-title-leading);
   }
 
   .sectionTitle {
-    font-size: 1rem;
+    font-size: var(--t-section-size);
+    line-height: var(--t-section-leading);
   }
 
   .dimensionHeader {
@@ -660,7 +673,8 @@
   }
 
   .dimLabel {
-    font-size: 0.8rem;
+    font-size: var(--t-label-size);
+    line-height: var(--t-label-leading);
     min-width: 65px;
   }
 

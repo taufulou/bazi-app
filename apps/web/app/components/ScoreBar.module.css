@@ -10,19 +10,19 @@
 }
 
 .label {
-  font-size: 0.9rem;
+  composes: bodyTight from "../styles/type.module.css";
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .score {
-  font-size: 0.95rem;
+  composes: bodyTight from "../styles/type.module.css";
   font-weight: 700;
   color: var(--text-accent);
 }
 
 .tier {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   font-weight: 500;
   color: var(--text-secondary);
   margin-left: 0.25rem;
@@ -52,6 +52,6 @@
 }
 
 .levelLabel {
-  font-size: 0.7rem;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-muted);
 }

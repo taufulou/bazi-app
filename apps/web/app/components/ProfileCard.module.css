@@ -47,12 +47,13 @@
 .primaryStar {
   color: #B8860B;
   font-size: 0.9rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .name {
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-primary);
   font-weight: 600;
-  font-size: 1rem;
 }
 
 .actions {
@@ -61,10 +62,10 @@
 }
 
 .actionBtn {
+  composes: bodyTight from "../styles/type.module.css";
   background: none;
   border: none;
   color: var(--text-secondary);
-  font-size: 0.85rem;
   cursor: pointer;
   padding: 0.2rem 0.35rem;
   border-radius: 4px;
@@ -88,13 +89,13 @@
 }
 
 .date {
+  composes: meta from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.85rem;
 }
 
 .meta {
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
-  font-size: 0.8rem;
   margin-bottom: 0.5rem;
 }
 
@@ -107,7 +108,7 @@
 }
 
 .badge {
-  font-size: 0.7rem;
+  composes: caption from "../styles/type.module.css";
   padding: 0.15rem 0.5rem;
   border-radius: 10px;
   border: 1px solid var(--border-medium);
@@ -151,8 +152,8 @@
 }
 
 .confirmText {
+  composes: body from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.9rem;
 }
 
 .confirmBtns {
@@ -161,13 +162,13 @@
 }
 
 .confirmYes {
+  composes: meta from "../styles/type.module.css";
   background: rgba(244, 67, 54, 0.08);
   border: 1px solid #c62828;
   color: #c62828;
   padding: 0.35rem 1rem;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 0.8rem;
   transition: all 0.15s;
 }
 
@@ -176,13 +177,13 @@
 }
 
 .confirmNo {
+  composes: meta from "../styles/type.module.css";
   background: rgba(var(--color-gold-rgb), 0.06);
   border: 1px solid var(--border-medium);
   color: var(--text-secondary);
   padding: 0.35rem 1rem;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 0.8rem;
   transition: all 0.15s;
 }
 
@@ -198,6 +199,7 @@
   }
 
   .name {
-    font-size: 0.9rem;
+    font-size: var(--t-bodyTight-size);
+    line-height: var(--t-bodyTight-leading);
   }
 }

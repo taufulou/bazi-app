@@ -13,16 +13,16 @@
 }
 
 .formTitle {
+  composes: title from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 1.5rem;
   font-weight: 700;
   margin-bottom: 0.5rem;
   text-align: center;
 }
 
 .formSubtitle {
+  composes: body from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.9rem;
   text-align: center;
   margin-bottom: 1.5rem;
 }
@@ -102,7 +102,7 @@
 }
 
 .typeBtnLabel {
-  font-size: 0.85rem;
+  composes: bodyTight from "../styles/type.module.css";
   font-weight: 500;
 }
 
@@ -132,6 +132,8 @@
 .dividerIcon {
   font-size: 1.5rem;
   opacity: 0.6;
+
+  line-height: 1; /* graphic, not type */
 }
 
 /* ==== Profile Dropdown ==== */
@@ -141,13 +143,13 @@
 }
 
 .profileDropdown {
+  composes: control from "../styles/type.module.css";
   width: 100%;
   padding: 0.6rem 0.75rem;
   background: var(--bg-primary);
   border: 1px solid var(--border-light);
   border-radius: 8px;
   color: var(--text-primary);
-  font-size: 0.9rem;
   outline: none;
   transition: border-color 0.2s;
   cursor: pointer;
@@ -173,11 +175,11 @@
 }
 
 .saveLabel {
+  composes: bodyTight from "../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 0.5rem;
   color: var(--text-primary);
-  font-size: 0.9rem;
   cursor: pointer;
 }
 
@@ -194,6 +196,7 @@
 }
 
 .tagBtn {
+  composes: bodyTight from "../styles/type.module.css";
   flex: 1;
   padding: 0.45rem;
   background: var(--bg-primary);
@@ -203,7 +206,6 @@
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
-  font-size: 0.85rem;
 }
 
 .tagBtn:hover {
@@ -224,8 +226,8 @@
 /* ==== Error & Warning ==== */
 
 .errorMsg {
+  composes: meta from "../styles/type.module.css";
   color: #c62828;
-  font-size: 0.85rem;
   text-align: center;
   margin-bottom: 0.75rem;
   padding: 0.5rem;
@@ -234,8 +236,8 @@
 }
 
 .creditWarning {
+  composes: meta from "../styles/type.module.css";
   color: #e65100;
-  font-size: 0.85rem;
   text-align: center;
   margin-bottom: 0.75rem;
   padding: 0.5rem;
@@ -250,12 +252,13 @@
 }
 
 .creditInfo {
+  composes: caption from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.8rem;
   margin-bottom: 0.75rem;
 }
 
 .submitBtn {
+  composes: control from "../styles/type.module.css";
   width: 100%;
   max-width: 320px;
   padding: 0.9rem 2rem;
@@ -263,7 +266,6 @@
   border: none;
   border-radius: 12px;
   color: #FFFFFF;
-  font-size: 1.1rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s;
@@ -308,10 +310,13 @@
 
   .typeBtnIcon {
     font-size: 1.25rem;
-  }
+  
+  line-height: 1; /* graphic, not type */
+}
 
   .typeBtnLabel {
-    font-size: 0.8rem;
+    font-size: var(--t-bodyTight-size);
+    line-height: var(--t-bodyTight-leading);
   }
 }
 
@@ -322,7 +327,8 @@
   }
 
   .formTitle {
-    font-size: 1.25rem;
+    font-size: var(--t-title-size);
+    line-height: var(--t-title-leading);
   }
 
   .panel {
@@ -331,7 +337,8 @@
   }
 
   .submitBtn {
-    font-size: 1rem;
+    font-size: var(--t-subsection-size);
+    line-height: var(--t-subsection-leading);
     padding: 0.8rem 1.5rem;
   }
 }

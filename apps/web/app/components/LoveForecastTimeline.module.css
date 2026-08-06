@@ -17,28 +17,29 @@
 
 .lpIcon {
   font-size: 0.9rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .lpLabel {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
   font-weight: 500;
 }
 
 .lpPillar {
+  composes: bodyTight from "../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1rem;
   font-weight: 700;
   color: var(--color-love);
 }
 
 .lpTenGod {
-  font-size: 0.85rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-secondary);
 }
 
 .lpYears {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
   margin-left: auto;
 }
@@ -74,25 +75,25 @@
 }
 
 .year {
+  composes: section from "../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1.1rem;
   font-weight: 700;
   color: var(--text-primary);
 }
 
 .ganZhi {
-  font-size: 0.85rem;
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-secondary);
 }
 
 .tenGod {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
 }
 
 .badge {
+  composes: meta from "../styles/type.module.css";
   display: inline-block;
-  font-size: 0.82rem;
   font-weight: 600;
   padding: 0.2rem 0.65rem;
   border-radius: 16px;
@@ -109,7 +110,7 @@
 }
 
 .indicator {
-  font-size: 0.72rem;
+  composes: caption from "../styles/type.module.css";
   padding: 0.15rem 0.45rem;
   border-radius: 10px;
   border: 1px solid;
@@ -155,13 +156,13 @@
 }
 
 .interactionsLabel {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
   font-weight: 500;
 }
 
 .interactionTag {
-  font-size: 0.72rem;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-secondary);
   background: var(--color-love-light);
   border: 1px solid rgba(var(--color-love-rgb), 0.12);
@@ -170,9 +171,8 @@
 }
 
 .narrative {
-  font-size: 0.95rem;
+  composes: body from "../styles/type.module.css";
   color: var(--text-primary);
-  line-height: 1.8;
 }
 
 /* Gold bullet list styles moved to narrative-utils.module.css */
@@ -218,11 +218,13 @@
   }
 
   .year {
-    font-size: 1rem;
+    font-size: var(--t-section-size);
+    line-height: var(--t-section-leading);
   }
 
   .badge {
-    font-size: 0.72rem;
+    font-size: var(--t-meta-size);
+    line-height: var(--t-meta-leading);
     padding: 0.15rem 0.5rem;
   }
 }
@@ -245,12 +247,14 @@
 .starFull {
   color: var(--color-gold-light, #ffd700);
   font-size: 0.95rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .starEmpty {
   color: var(--text-muted, #d0c4b0);
   font-size: 0.95rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .starHalf {
   position: relative;
@@ -258,7 +262,8 @@
   font-size: 0.95rem;
   width: 0.95rem;
   height: 0.95rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .starHalfEmpty {
   position: absolute;

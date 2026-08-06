@@ -9,6 +9,7 @@
 }
 
 .button {
+  composes: bodyTight from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -18,7 +19,6 @@
   border: none;
   border-radius: 999px;
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 4px 12px rgba(var(--color-red-rgb), 0.18);
@@ -57,6 +57,7 @@
 }
 
 .errorRow {
+  composes: meta from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.75rem;
@@ -65,16 +66,15 @@
   border: 1px solid rgba(var(--color-red-rgb), 0.25);
   border-radius: var(--radius-sm);
   color: var(--color-red);
-  font-size: 0.85rem;
 }
 
 .retryBtn {
+  composes: meta from "../../styles/type.module.css";
   padding: 0.25rem 0.6rem;
   background: var(--color-red);
   color: var(--text-on-red);
   border: none;
   border-radius: var(--radius-sm);
-  font-size: 0.8rem;
   font-weight: 600;
   cursor: pointer;
 }

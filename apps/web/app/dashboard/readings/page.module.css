@@ -25,11 +25,11 @@
 }
 
 .backLink {
+  composes: bodyTight from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   color: var(--text-secondary);
-  font-size: 0.85rem;
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
@@ -55,17 +55,20 @@
 }
 
 .headerTitle {
+  font-size: 1.3rem;
+  line-height: 1.4; /* restored — the role scale would shrink this display size */
   color: var(--text-primary);
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1.3rem;
   font-weight: 700;
   margin: 0;
 }
 
 /* ---- Section Label ---- */
 .sectionLabel {
-  color: var(--text-accent);
+  /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 1.05rem;
+  line-height: 1.4;
+  color: var(--text-accent);
   font-weight: 700;
   padding-left: 0.75rem;
   border-left: 3px solid var(--color-red);
@@ -130,7 +133,8 @@
 .cardIcon {
   font-size: 1.4rem;
   flex-shrink: 0;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .cardBody {
   flex: 1;
@@ -138,25 +142,25 @@
 }
 
 .cardTitle {
+  composes: subsection from "../../styles/type.module.css";
   color: var(--text-primary);
   font-weight: 600;
-  font-size: 0.95rem;
   margin-bottom: 0.2rem;
 }
 
 .cardMeta {
+  composes: meta from "../../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 0.3rem;
   flex-wrap: wrap;
-  font-size: 0.8rem;
   color: var(--text-secondary);
 }
 
 .vsLabel {
+  composes: meta from "../../styles/type.module.css";
   color: var(--color-orange);
   font-weight: 700;
-  font-size: 0.8rem;
 }
 
 .metaDot {
@@ -168,15 +172,15 @@
 }
 
 .creditsBadge {
+  composes: caption from "../../styles/type.module.css";
   color: var(--color-orange);
   font-weight: 500;
-  font-size: 0.75rem;
 }
 
 .freeBadge {
+  composes: caption from "../../styles/type.module.css";
   color: var(--color-success);
   font-weight: 500;
-  font-size: 0.75rem;
 }
 
 .cardArrow {
@@ -184,7 +188,8 @@
   font-size: 1rem;
   flex-shrink: 0;
   transition: transform 0.2s, color 0.2s;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .card:hover .cardArrow {
   transform: translateX(3px);
@@ -212,8 +217,8 @@
 }
 
 .loadingText {
+  composes: body from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.9rem;
 }
 
 /* ---- Error ---- */
@@ -223,8 +228,8 @@
 }
 
 .errorText {
+  composes: body from "../../styles/type.module.css";
   color: var(--color-error);
-  font-size: 1rem;
 }
 
 /* ---- Empty State ---- */
@@ -240,30 +245,31 @@
 .emptyIcon {
   font-size: 2.5rem;
   margin-bottom: 0.75rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .emptyTitle {
+  composes: subsection from "../../styles/type.module.css";
   color: var(--text-accent);
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1.1rem;
   font-weight: 700;
   margin-bottom: 0.5rem;
 }
 
 .emptyText {
+  composes: body from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.85rem;
   margin-bottom: 1.25rem;
 }
 
 .startLink {
+  composes: bodyTight from "../../styles/type.module.css";
   display: inline-block;
   background: var(--color-red);
   color: var(--text-on-red);
   padding: 0.6rem 1.5rem;
   border-radius: 20px;
   font-weight: 600;
-  font-size: 0.9rem;
   text-decoration: none;
   transition: all 0.2s;
 }
@@ -280,7 +286,8 @@
   }
 
   .headerTitle {
-    font-size: 1.1rem;
+    font-size: var(--t-section-size);
+    line-height: var(--t-section-leading);
   }
 
   .grid {

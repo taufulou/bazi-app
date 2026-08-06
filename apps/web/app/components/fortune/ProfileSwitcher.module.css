@@ -100,9 +100,9 @@
 }
 
 .rowName {
+  composes: bodyTight from "../../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
   font-weight: 600;
-  font-size: 0.95rem;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -117,19 +117,19 @@
 }
 
 .relTag {
+  composes: caption from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   padding: 0.1rem 0.45rem;
   background: rgba(var(--color-gold-rgb), 0.12);
   color: var(--text-secondary);
-  font-size: 0.7rem;
   font-weight: 600;
   border-radius: 999px;
   white-space: nowrap;
 }
 
 .birthChip {
-  font-size: 0.75rem;
+  composes: caption from "../../styles/type.module.css";
   color: var(--text-muted);
   font-variant-numeric: tabular-nums;
 }
@@ -146,12 +146,12 @@
 }
 
 .footerLink {
+  composes: bodyTight from "../../styles/type.module.css";
   display: block;
   padding: 0.65rem 0.85rem;
   text-align: center;
   text-decoration: none;
   color: var(--text-accent);
-  font-size: 0.85rem;
   font-weight: 600;
   font-family: var(--font-noto-serif-tc), serif;
   transition: background 0.12s ease;

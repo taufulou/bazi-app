@@ -14,25 +14,23 @@
 }
 
 .title {
+  composes: subsection from "../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1rem;
   color: var(--text-accent);
   margin: 0;
 }
 
 .subtitle {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
   margin: 4px 0 0 0;
-  line-height: 1.4;
 }
 
 /* 時辰未知 caveat — 3-pillar weighted estimate */
 .hourUnknownNote {
-  font-size: 0.75rem;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-secondary);
   margin: 6px 0 0 0;
-  line-height: 1.4;
   font-style: italic;
 }
 
@@ -55,14 +53,14 @@
 }
 
 .tenGodName {
-  font-size: 0.9rem;
+  composes: bodyTight from "../styles/type.module.css";
   font-weight: 700;
   color: var(--text-primary);
   min-width: 36px;
 }
 
 .groupLabel {
-  font-size: 0.7rem;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-muted);
   padding: 0.05rem 0.3rem;
   background: rgba(0, 0, 0, 0.04);
@@ -70,7 +68,7 @@
 }
 
 .percentage {
-  font-size: 0.85rem;
+  composes: bodyTight from "../styles/type.module.css";
   font-weight: 600;
   color: var(--text-primary);
   margin-left: auto;
@@ -79,7 +77,7 @@
 }
 
 .level {
-  font-size: 0.75rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
   padding: 0.1rem 0.35rem;
   background: rgba(212, 160, 23, 0.08);
@@ -111,7 +109,7 @@
 }
 
 .capTag {
-  font-size: 0.72rem;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-secondary);
   background: rgba(212, 160, 23, 0.06);
   border: 1px solid rgba(212, 160, 23, 0.12);
@@ -125,7 +123,8 @@
   }
 
   .tenGodName {
-    font-size: 0.8rem;
+    font-size: var(--t-bodyTight-size);
+    line-height: var(--t-bodyTight-leading);
     min-width: 30px;
   }
 
@@ -134,6 +133,7 @@
   }
 
   .percentage {
-    font-size: 0.8rem;
+    font-size: var(--t-bodyTight-size);
+    line-height: var(--t-bodyTight-leading);
   }
 }

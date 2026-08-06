@@ -91,20 +91,21 @@
 
 .sectionIcon {
   font-size: 1.5rem;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .sectionTitle {
+  composes: title from "../styles/type.module.css";
   color: var(--text-accent);
-  font-size: 1.25rem;
   font-weight: 700;
   font-family: var(--font-noto-serif-tc), serif;
 }
 
 /* ==== Content ==== */
 .sectionContent {
+  composes: body from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.95rem;
-  line-height: 1.8;
 }
 
 .sectionContent p {
@@ -113,7 +114,9 @@
 
 .sectionContent h4 {
   color: var(--text-accent);
-  font-size: 1rem;
+  /* Carve-out B (descendant selector). `subsection` sizing. */
+  font-size: 1.0625rem;
+  line-height: 1.35;
   font-weight: 600;
   margin-top: 1rem;
   margin-bottom: 0.5rem;
@@ -131,7 +134,7 @@
 
 /* ==== Formatted Content Elements ==== */
 .contentSubHeader {
-  font-size: 0.95rem;
+  composes: subsection from "../styles/type.module.css";
   font-weight: 600;
   margin-top: 1.8rem;
   margin-bottom: 0.6rem;
@@ -207,6 +210,7 @@ li.goldBulletItemCategory {
 }
 
 .paywallBlur {
+  composes: body from "../styles/type.module.css";
   filter: blur(5px);
   -webkit-filter: blur(5px);
   user-select: none;
@@ -214,8 +218,6 @@ li.goldBulletItemCategory {
   max-height: 80px;
   overflow: hidden;
   color: var(--text-primary);
-  font-size: 0.95rem;
-  line-height: 1.8;
 }
 
 .paywallOverlay {
@@ -242,30 +244,32 @@ li.goldBulletItemCategory {
 .paywallIcon {
   font-size: 2rem;
   margin-bottom: 0.5rem;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .paywallMessage {
+  composes: subsection from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 1rem;
   font-weight: 600;
   margin-bottom: 0.3rem;
   text-align: center;
 }
 
 .paywallSubtext {
+  composes: caption from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.8rem;
   margin-bottom: 1rem;
   text-align: center;
 }
 
 .paywallBtn {
+  composes: control from "../styles/type.module.css";
   background: var(--color-red);
   color: #FFFFFF;
   border: none;
   padding: 0.75rem 2rem;
   border-radius: var(--radius-md);
-  font-size: 1rem;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.2s;
@@ -279,9 +283,8 @@ li.goldBulletItemCategory {
 
 /* ==== Preview text (visible to free users) ==== */
 .previewContent {
+  composes: body from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.95rem;
-  line-height: 1.8;
 }
 
 /* ==== Streaming animation ==== */
@@ -337,11 +340,11 @@ li.goldBulletItemCategory {
 
 /* ==== Streaming indicator + section skeletons ==== */
 .streamingIndicator {
+  composes: bodyTight from "../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 0.5rem;
   color: var(--color-red);
-  font-size: 0.875rem;
   padding: 0.75rem 0;
   margin-top: 0.5rem;
 }
@@ -396,12 +399,13 @@ li.goldBulletItemCategory {
   font-size: 1rem;
   flex-shrink: 0;
   margin-top: 2px;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .disclaimerText {
+  composes: caption from "../styles/type.module.css";
   color: var(--text-muted);
-  font-size: 0.8rem;
-  line-height: 1.5;
 }
 
 /* ==== Summary Card ==== */
@@ -416,17 +420,16 @@ li.goldBulletItemCategory {
 }
 
 .summaryTitle {
+  composes: title from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 1.3rem;
   font-weight: 700;
   margin-bottom: 0.75rem;
   font-family: var(--font-noto-serif-tc), serif;
 }
 
 .summaryText {
+  composes: body from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.95rem;
-  line-height: 1.8;
 }
 
 /* ==== Cross-sell grid ==== */
@@ -458,11 +461,13 @@ li.goldBulletItemCategory {
 .crossSellIcon {
   font-size: 1.5rem;
   margin-bottom: 0.5rem;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .crossSellName {
+  composes: meta from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.85rem;
   font-weight: 600;
 }
 
@@ -506,17 +511,16 @@ li.goldBulletItemCategory {
 }
 
 .detCardSubtitle {
+  composes: meta from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.85rem;
   font-weight: 400;
   margin-left: auto;
   font-family: var(--font-noto-serif-tc), serif;
 }
 
 .dpdIntro {
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.88rem;
-  line-height: 1.7;
   margin: 0 0 0.5rem 0;
   padding-bottom: 0.75rem;
   border-bottom: 1px solid var(--border-light);
@@ -546,19 +550,20 @@ li.goldBulletItemCategory {
 
 .dpdSectionIcon {
   font-size: 1rem;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .dpdSectionLabel {
+  composes: label from "../styles/type.module.css";
   color: var(--text-accent, #C41E3A);
-  font-size: 0.85rem;
   font-weight: 600;
   font-family: var(--font-noto-serif-tc), serif;
 }
 
 .dpdSectionText {
+  composes: body from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.9rem;
-  line-height: 1.7;
   margin: 0;
 }
 
@@ -580,21 +585,21 @@ li.goldBulletItemCategory {
 }
 
 .lphOrdinal {
+  composes: meta from "../styles/type.module.css";
   color: #64b5f6;
-  font-size: 0.85rem;
   font-weight: 500;
 }
 
 .lphGanzhi {
+  composes: section from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 1.2rem;
   font-weight: 700;
   font-family: var(--font-noto-serif-tc), serif;
 }
 
 .lphYears {
+  composes: meta from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.85rem;
 }
 
 .lphPhases {
@@ -611,15 +616,15 @@ li.goldBulletItemCategory {
 }
 
 .lphPhaseLabel {
+  composes: label from "../styles/type.module.css";
   color: #64b5f6;
-  font-size: 0.8rem;
   font-weight: 500;
   white-space: nowrap;
 }
 
 .lphPhaseDesc {
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.85rem;
 }
 
 .lphScore {
@@ -631,12 +636,12 @@ li.goldBulletItemCategory {
 }
 
 .lphScoreLabel {
+  composes: label from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.8rem;
 }
 
 .lphScoreValue {
-  font-size: 1.1rem;
+  composes: subsection from "../styles/type.module.css";
   font-weight: 700;
 }
 
@@ -651,16 +656,18 @@ li.goldBulletItemCategory {
 
 .detCardIcon {
   font-size: 1.2rem;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .detCardTitle {
+  composes: subsection from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 1rem;
   font-weight: 600;
 }
 
 .detCardDisclaimer {
-  font-size: 0.75rem;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-secondary);
   margin-left: 0.5rem;
   font-weight: 400;
@@ -686,31 +693,30 @@ li.goldBulletItemCategory {
 }
 
 .detExplain {
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.8rem;
-  line-height: 1.5;
   margin: 0.15rem 0 0 0;
   padding: 0;
 }
 
 .detLabel {
+  composes: label from "../styles/type.module.css";
   color: var(--text-accent, #8B6914);
-  font-size: 0.85rem;
   font-weight: 600;
   text-transform: none;
   letter-spacing: 0.04em;
 }
 
 .detBlurred {
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-muted);
-  font-size: 0.85rem;
   filter: blur(3px);
   user-select: none;
 }
 
 .detNote {
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
-  font-size: 0.85rem;
   font-style: italic;
 }
 
@@ -722,63 +728,63 @@ li.goldBulletItemCategory {
 }
 
 .chipPositive {
+  composes: caption from "../styles/type.module.css";
   display: inline-block;
   background: rgba(76, 175, 80, 0.1);
   color: #2e7d32;
   border: 1px solid rgba(76, 175, 80, 0.2);
   border-radius: 20px;
   padding: 0.25rem 0.65rem;
-  font-size: 0.8rem;
   font-weight: 500;
 }
 
 .chipNegative {
+  composes: caption from "../styles/type.module.css";
   display: inline-block;
   background: rgba(244, 67, 54, 0.08);
   color: #c62828;
   border: 1px solid rgba(244, 67, 54, 0.15);
   border-radius: 20px;
   padding: 0.25rem 0.65rem;
-  font-size: 0.8rem;
   font-weight: 500;
 }
 
 .chipNeutral {
+  composes: caption from "../styles/type.module.css";
   display: inline-block;
   background: rgba(212, 160, 23, 0.06);
   color: var(--text-muted);
   border: 1px solid var(--border-light);
   border-radius: 20px;
   padding: 0.2rem 0.55rem;
-  font-size: 0.75rem;
 }
 
 .chipMore {
+  composes: caption from "../styles/type.module.css";
   display: inline-block;
   color: var(--text-muted);
-  font-size: 0.75rem;
   padding: 0.2rem 0.4rem;
 }
 
 .yearChip {
+  composes: meta from "../styles/type.module.css";
   display: inline-block;
   background: rgba(233, 30, 99, 0.08);
   color: #ad1457;
   border: 1px solid rgba(233, 30, 99, 0.15);
   border-radius: 8px;
   padding: 0.25rem 0.6rem;
-  font-size: 0.85rem;
   font-weight: 600;
 }
 
 .yearChipWarn {
+  composes: meta from "../styles/type.module.css";
   display: inline-block;
   background: rgba(255, 152, 0, 0.08);
   color: #e65100;
   border: 1px solid rgba(255, 152, 0, 0.15);
   border-radius: 8px;
   padding: 0.25rem 0.6rem;
-  font-size: 0.85rem;
   font-weight: 600;
 }
 
@@ -800,15 +806,15 @@ li.goldBulletItemCategory {
 }
 
 .careerDirAnchor {
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.88rem;
   font-weight: 700;
   font-family: var(--font-noto-serif-tc), serif;
 }
 
 .careerDirCategory {
+  composes: meta from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.78rem;
   margin-bottom: 0.1rem;
 }
 
@@ -862,44 +868,44 @@ li.goldBulletItemCategory {
 }
 
 .timelineGanzhi {
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.9rem;
   font-weight: 600;
   min-width: 2.5rem;
 }
 
 .timelineAge {
+  composes: caption from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.78rem;
 }
 
 .timelineYear {
+  composes: caption from "../styles/type.module.css";
   color: var(--text-muted);
-  font-size: 0.75rem;
 }
 
 .timelineScore {
-  font-size: 0.85rem;
+  composes: meta from "../styles/type.module.css";
   font-weight: 700;
 }
 
 .timelineCurrentBadge {
+  composes: caption from "../styles/type.module.css";
   background: rgba(100, 181, 246, 0.15);
   color: #64b5f6;
   border: 1px solid rgba(100, 181, 246, 0.3);
   border-radius: 10px;
   padding: 0.1rem 0.5rem;
-  font-size: 0.7rem;
   font-weight: 600;
 }
 
 .timelineBestBadge {
+  composes: caption from "../styles/type.module.css";
   background: rgba(76, 175, 80, 0.15);
   color: #2e7d32;
   border: 1px solid rgba(76, 175, 80, 0.3);
   border-radius: 10px;
   padding: 0.1rem 0.5rem;
-  font-size: 0.7rem;
   font-weight: 600;
 }
 
@@ -911,13 +917,13 @@ li.goldBulletItemCategory {
 }
 
 .interactionChip {
+  composes: caption from "../styles/type.module.css";
   display: inline-block;
   background: rgba(212, 160, 23, 0.05);
   color: var(--text-muted);
   border: 1px solid var(--border-light);
   border-radius: 6px;
   padding: 0.1rem 0.4rem;
-  font-size: 0.7rem;
 }
 
 /* ==== Responsive ==== */
@@ -927,8 +933,9 @@ li.goldBulletItemCategory {
   }
 
   .paywallBtn {
+    font-size: var(--t-subsection-size);
+    line-height: var(--t-subsection-leading);
     padding: 0.65rem 1.5rem;
-    font-size: 0.9rem;
   }
 
   .crossSellGrid {
@@ -948,7 +955,8 @@ li.goldBulletItemCategory {
   }
 
   .lphGanzhi {
-    font-size: 1.1rem;
+    font-size: var(--t-section-size);
+    line-height: var(--t-section-leading);
   }
 
   .lphPhase {
@@ -992,13 +1000,13 @@ li.goldBulletItemCategory {
 }
 
 .techRefToggle {
+  composes: label from "../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 6px;
   background: none;
   border: none;
   color: var(--text-secondary);
-  font-size: 0.8rem;
   cursor: pointer;
   padding: 4px 0;
   transition: color 0.2s;
@@ -1015,6 +1023,8 @@ li.goldBulletItemCategory {
   width: 12px;
   text-align: center;
   flex-shrink: 0;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .techRefLabel {
@@ -1034,18 +1044,16 @@ li.goldBulletItemCategory {
 }
 
 .techRefRow {
+  composes: meta from "../styles/type.module.css";
   display: contents;
-  font-size: 0.78rem;
-  line-height: 1.6;
 }
 
 .techRefKey {
+  composes: meta from "../styles/type.module.css";
   color: var(--text-secondary);
   white-space: nowrap;
   text-align: left;
   padding: 0.15rem 0;
-  font-size: 0.78rem;
-  line-height: 1.6;
 }
 
 .techRefKey::after {
@@ -1053,12 +1061,11 @@ li.goldBulletItemCategory {
 }
 
 .techRefValue {
+  composes: meta from "../styles/type.module.css";
   color: var(--text-primary);
   word-break: break-word;
   font-weight: 500;
   padding: 0.15rem 0;
-  font-size: 0.78rem;
-  line-height: 1.6;
 }
 
 .techRefGroup {
@@ -1079,8 +1086,8 @@ li.goldBulletItemCategory {
 }
 
 .techRefCategory {
+  composes: caption from "../styles/type.module.css";
   grid-column: 1 / -1;
-  font-size: 0.72rem;
   color: var(--text-muted);
   font-weight: 600;
   margin-bottom: 0.15rem;
@@ -1140,15 +1147,15 @@ li.goldBulletItemCategory {
 }
 
 .starScore {
+  composes: meta from "../styles/type.module.css";
   margin-left: 0.5rem;
-  font-size: 0.85rem;
   color: var(--text-secondary);
   font-weight: 500;
 }
 
 .starIndicator {
+  composes: meta from "../styles/type.module.css";
   margin-left: 0.25rem;
-  font-size: 0.85rem;
   color: var(--text-secondary);
   font-weight: 600;
 }
@@ -1195,6 +1202,8 @@ li.goldBulletItemCategory {
   font-size: 0.85rem;
   font-weight: 700;
   flex-shrink: 0;
+
+  line-height: 1; /* graphic, not type */
 }
 .verdictBannerPositive .verdictBannerIcon {
   background: #2E7D32;
@@ -1210,7 +1219,7 @@ li.goldBulletItemCategory {
 }
 
 .verdictBannerLabel {
-  font-size: 1rem;
+  composes: subsection from "../styles/type.module.css";
   font-weight: 700;
   letter-spacing: 0.03em;
 }
@@ -1223,7 +1232,7 @@ li.goldBulletItemCategory {
 }
 
 .verdictBannerScore {
-  font-size: 1.15rem;
+  composes: section from "../styles/type.module.css";
   font-weight: 700;
   font-family: var(--font-noto-serif-tc, serif);
 }
@@ -1231,15 +1240,18 @@ li.goldBulletItemCategory {
 .verdictBannerNegative .verdictBannerScore { color: #C62828; }
 .verdictBannerNeutral .verdictBannerScore { color: #B8860B; }
 .verdictBannerScore small {
-  font-size: 0.7rem;
+  /* Carve-out B (descendant selector — composes is illegal here). Caption sizing:
+     this is the unit beside the numeral, so it must stay SMALLER than its parent. */
+  font-size: 0.75rem;
+  line-height: 1.45;
   font-weight: 400;
   opacity: 0.6;
 }
 
 .verdictBannerMeta {
+  composes: cell from "../styles/type.module.css";
   width: 100%;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 0.9rem;
   letter-spacing: 0.02em;
   color: var(--text-secondary, #6B5940);
   margin-top: 0.15rem;
@@ -1249,10 +1261,10 @@ li.goldBulletItemCategory {
 /* ==== Career Info Strip (compact data row for pattern/positions/industry sections) ==== */
 /* ==== Compatibility V2 Section Badge (inline pill between title and content) ==== */
 .compatSectionBadge {
+  composes: caption from "../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.78rem;
   color: var(--text-secondary, #6B5940);
   background: rgba(212, 160, 23, 0.08);
   border: 1px solid rgba(212, 160, 23, 0.15);
@@ -1270,7 +1282,7 @@ li.goldBulletItemCategory {
 }
 
 .infoStripTag {
-  font-size: 0.8rem;
+  composes: caption from "../styles/type.module.css";
   font-weight: 600;
   padding: 0.2rem 0.6rem;
   border-radius: 4px;
@@ -1289,14 +1301,14 @@ li.goldBulletItemCategory {
 }
 
 .infoStripValue {
-  font-size: 0.88rem;
+  composes: cell from "../styles/type.module.css";
   font-weight: 600;
   color: var(--color-gold, #D4A017);
   font-family: var(--font-noto-serif-tc, serif);
 }
 
 .infoStripDetail {
-  font-size: 0.82rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted, #8B7355);
 }
 
@@ -1319,10 +1331,10 @@ li.goldBulletItemCategory {
 }
 
 .characterCardTitle {
+  composes: section from "../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-size: 1.2rem;
   font-weight: 700;
   color: var(--text-primary);
   font-family: var(--font-noto-serif-tc), serif;
@@ -1330,14 +1342,16 @@ li.goldBulletItemCategory {
 
 .characterCardIcon {
   font-size: 1.5rem;
+
+  line-height: 1; /* graphic, not type */
 }
 
 .zodiacBadge {
+  composes: meta from "../styles/type.module.css";
   padding: 0.25rem 0.75rem;
   border-radius: 20px;
   background: rgba(var(--color-red-rgb), 0.08);
   color: var(--color-red);
-  font-size: 0.85rem;
   font-weight: 500;
   border: 1px solid rgba(var(--color-red-rgb), 0.15);
 }
@@ -1360,14 +1374,14 @@ li.goldBulletItemCategory {
 }
 
 .archetypeLabel {
+  composes: label from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.85rem;
   white-space: nowrap;
 }
 
 .archetypeValue {
+  composes: subsection from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 1.1rem;
   font-weight: 700;
   letter-spacing: 0.05em;
 }
@@ -1390,17 +1404,16 @@ li.goldBulletItemCategory {
 }
 
 .layerLabel {
+  composes: label from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.85rem;
   white-space: nowrap;
   flex-shrink: 0;
   min-width: 100px;
 }
 
 .layerValue {
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.9rem;
-  line-height: 1.5;
 }
 
 .characterZodiac {
@@ -1426,16 +1439,16 @@ li.goldBulletItemCategory {
 }
 
 .statLabel {
+  composes: caption from "../styles/type.module.css";
   display: block;
   color: var(--text-secondary);
-  font-size: 0.75rem;
   margin-bottom: 0.25rem;
 }
 
 .statValue {
+  composes: meta from "../styles/type.module.css";
   display: block;
   color: var(--text-primary);
-  font-size: 0.85rem;
   font-weight: 500;
 }
 
@@ -1444,9 +1457,9 @@ li.goldBulletItemCategory {
 }
 
 .shenshaLabel {
+  composes: label from "../styles/type.module.css";
   display: block;
   color: var(--text-secondary);
-  font-size: 0.8rem;
   margin-bottom: 0.5rem;
 }
 
@@ -1457,11 +1470,11 @@ li.goldBulletItemCategory {
 }
 
 .shenshaTag {
+  composes: caption from "../styles/type.module.css";
   padding: 0.2rem 0.6rem;
   border-radius: 12px;
   background: rgba(var(--color-red-rgb), 0.06);
   color: var(--color-red);
-  font-size: 0.8rem;
   border: 1px solid rgba(var(--color-red-rgb), 0.12);
 }
 
@@ -1505,6 +1518,7 @@ li.goldBulletItemCategory {
    ============================================================ */
 
 .shareButtonPlaceholder {
+  composes: bodyTight from "../styles/type.module.css";
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1515,13 +1529,12 @@ li.goldBulletItemCategory {
   border: 1px dashed rgba(212,160,23,0.3);
   border-radius: 12px;
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 0.95rem;
   color: var(--text-secondary);
   cursor: default;
 }
 
 .comingSoon {
-  font-size: 0.75rem;
+  composes: caption from "../styles/type.module.css";
   padding: 0.15rem 0.5rem;
   background: rgba(212,160,23,0.1);
   border-radius: 10px;
@@ -1545,8 +1558,8 @@ li.goldBulletItemCategory {
 }
 
 .sectionGroupLabel {
+  composes: section from "../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1rem;
   font-weight: 700;
   color: var(--text-accent);
   white-space: nowrap;
@@ -1574,13 +1587,13 @@ li.goldBulletItemCategory {
 }
 
 .monthlyAspectLabel {
-  font-size: 0.72rem;
+  composes: caption from "../styles/type.module.css";
   font-weight: 600;
   color: var(--text-muted);
 }
 
 .monthlyAspectValue {
-  font-size: 0.82rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-primary);
   font-weight: 500;
   margin-top: 1px;
@@ -1598,11 +1611,11 @@ li.goldBulletItemCategory {
 }
 
 .loveSignalChip {
+  composes: caption from "../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   padding: 0.2rem 0.6rem;
   border-radius: 12px;
-  font-size: 0.75rem;
   font-weight: 600;
 }
 
@@ -1634,15 +1647,17 @@ li.goldBulletItemCategory {
 }
 
 .dimChartHeader {
-  font-size: 0.9rem;
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-secondary, #6B5940);
   margin-bottom: 0.8rem;
   text-align: center;
 }
 
 .dimChartHeader strong {
-  font-family: var(--font-noto-serif-tc), serif;
   font-size: 1.1rem;
+  line-height: 1.4; /* Carve-out B (descendant selector). */
+  line-height: 1.5;
+  font-family: var(--font-noto-serif-tc), serif;
   color: var(--text-accent, #C41E3A);
 }
 
@@ -1656,7 +1671,7 @@ li.goldBulletItemCategory {
 .dimChartRow:last-child { margin-bottom: 0; }
 
 .dimChartLabel {
-  font-size: 0.78rem;
+  composes: meta from "../styles/type.module.css";
   font-weight: 600;
   color: var(--text-secondary, #6B5940);
   min-width: 58px;
@@ -1679,7 +1694,7 @@ li.goldBulletItemCategory {
 }
 
 .dimChartScore {
-  font-size: 0.78rem;
+  composes: meta from "../styles/type.module.css";
   font-weight: 700;
   color: var(--text-primary, #3C2415);
   min-width: 22px;
@@ -1688,7 +1703,7 @@ li.goldBulletItemCategory {
 }
 
 .dimChartAssessment {
-  font-size: 0.68rem;
+  composes: caption from "../styles/type.module.css";
   font-weight: 600;
   padding: 0.15rem 0.4rem;
   border-radius: 6px;
@@ -1713,6 +1728,10 @@ li.goldBulletItemCategory {
 }
 
 @media (max-width: 600px) {
-  .dimChartLabel { min-width: 50px; font-size: 0.72rem; }
-  .dimChartAssessment { font-size: 0.62rem; min-width: 34px; }
+  .dimChartLabel {
+    font-size: var(--t-meta-size);
+    line-height: var(--t-meta-leading); min-width: 50px; }
+  .dimChartAssessment {
+    font-size: var(--t-caption-size);
+    line-height: var(--t-caption-leading); min-width: 34px; }
 }

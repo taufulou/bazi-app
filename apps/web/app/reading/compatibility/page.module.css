@@ -61,11 +61,11 @@
 }
 
 .backLink {
+  composes: bodyTight from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   color: var(--bg-card);
-  font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   text-decoration: none;
@@ -91,8 +91,9 @@
 }
 
 .headerTitle {
-  color: var(--bg-card);
   font-size: 1.3rem;
+  line-height: 1.4; /* restored — the role scale would shrink this display size */
+  color: var(--bg-card);
   font-weight: 700;
   font-family: var(--font-noto-serif-tc), serif;
   display: flex;
@@ -105,7 +106,8 @@
 
 .headerIcon {
   font-size: 1.5rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 /* ==== Loading ==== */
 .loadingSkeleton {
@@ -153,8 +155,8 @@
 }
 
 .loadingText {
+  composes: body from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.95rem;
   margin-top: 1rem;
 }
 
@@ -194,7 +196,8 @@
   font-size: 2.5rem;
   z-index: 1;
   animation: pulse 2s ease-in-out infinite;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .analyzingRing {
   position: absolute;
@@ -206,15 +209,17 @@
 }
 
 .analyzingTitle {
-  color: var(--text-primary);
+  /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 1.3rem;
+  line-height: 1.3;
+  color: var(--text-primary);
   font-weight: 700;
   margin-bottom: 0.5rem;
 }
 
 .analyzingSubtitle {
+  composes: subsection from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.9rem;
   margin-bottom: 2rem;
 }
 
@@ -227,11 +232,11 @@
 }
 
 .analyzingStep {
+  composes: bodyTight from "../../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 0.75rem;
   color: var(--text-muted, #999);
-  font-size: 0.9rem;
   transition: color 0.3s;
 }
 
@@ -283,8 +288,8 @@
 }
 
 .compatTitle {
+  composes: title from "../../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1.5rem;
   background: linear-gradient(135deg, var(--color-red), var(--color-orange));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -293,8 +298,8 @@
 }
 
 .compatSubtitle {
+  composes: subsection from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.95rem;
 }
 
 .dualChartsGrid {
@@ -313,10 +318,10 @@
 }
 
 .chartPanelLabel {
+  composes: meta from "../../styles/type.module.css";
   text-align: center;
   padding: 10px 0 4px;
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 0.85rem;
   font-weight: 600;
   color: var(--text-accent, #C41E3A);
   letter-spacing: 0.1em;
@@ -369,20 +374,20 @@
 
 .educationalIcon {
   font-size: 1.3rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .educationalTitle {
+  composes: subsection from "../../styles/type.module.css";
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1.1rem;
   color: var(--text-accent);
   margin: 0;
   font-weight: 700;
 }
 
 .educationalContent {
-  font-size: 0.9rem;
+  composes: body from "../../styles/type.module.css";
   color: var(--text-secondary);
-  line-height: 1.7;
 }
 
 .educationalContent p {
@@ -417,8 +422,8 @@
 }
 
 .streamingText {
+  composes: body from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.9rem;
 }
 
 /* ==== V2: New Comparison Button ==== */
@@ -431,6 +436,7 @@
 }
 
 .newComparisonBtn {
+  composes: bodyTight from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -439,7 +445,6 @@
   border: 1px solid var(--border-light);
   border-radius: 12px;
   color: var(--text-secondary);
-  font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
@@ -453,10 +458,10 @@
 
 /* ==== V2: Disclaimer ==== */
 .disclaimer {
+  composes: caption from "../../styles/type.module.css";
   max-width: 900px;
   margin: 2rem auto 0;
   text-align: center;
-  font-size: 0.8rem;
   color: var(--text-muted);
   padding: 1rem 0;
   position: relative;
@@ -465,10 +470,10 @@
 
 /* ==== V2: Section Badge (sub-header pill) ==== */
 .sectionBadge {
+  composes: caption from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 0.78rem;
   color: var(--text-secondary, #6B5940);
   background: rgba(212, 160, 23, 0.08);
   border: 1px solid rgba(212, 160, 23, 0.15);
@@ -479,11 +484,11 @@
 
 /* ==== V2: Unknown Birth Time Banner ==== */
 .hourUnknownBanner {
+  composes: body from "../../styles/type.module.css";
   background: rgba(245, 166, 35, 0.1);
   border: 1px solid rgba(245, 166, 35, 0.3);
   border-radius: 8px;
   padding: 10px 16px;
-  font-size: 0.85rem;
   color: var(--text-secondary, #6B5940);
   margin-bottom: 16px;
 }
@@ -535,11 +540,14 @@
   }
 
   .headerTitle {
-    font-size: 1.1rem;
+    font-size: var(--t-section-size);
+    line-height: var(--t-section-leading);
   }
 
   .compatTitle {
-    font-size: 1.25rem;
+    /* mobile step-down — must be SMALLER than the base `title` (24). */
+    font-size: var(--t-section-size);
+    line-height: var(--t-section-leading);
   }
 
   .freeChartsSection {
@@ -558,7 +566,9 @@
   }
 
   .compatTitle {
-    font-size: 1.1rem;
+    /* mobile step-down — must be SMALLER than the base `title` (24). */
+    font-size: var(--t-section-size);
+    line-height: var(--t-section-leading);
   }
 
   .freeChartsSection {
@@ -570,7 +580,8 @@
   }
 
   .chartPanelLabel {
-    font-size: 0.8rem;
+    font-size: var(--t-meta-size);
+    line-height: var(--t-meta-leading);
     padding: 8px 0 2px;
   }
 }
@@ -653,8 +664,8 @@
 }
 
 .pillLabel {
+  composes: meta from "../../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.8rem;
   font-weight: 600;
   letter-spacing: 0.02em;
   white-space: nowrap;
@@ -662,8 +673,8 @@
 }
 
 .pillSubtext {
+  composes: meta from "../../styles/type.module.css";
   color: var(--text-muted);
-  font-size: 0.65rem;
   font-weight: 400;
   white-space: nowrap;
   font-family: var(--font-noto-serif-tc), serif;
@@ -710,8 +721,8 @@
 }
 
 .pillCount {
+  composes: caption from "../../styles/type.module.css";
   color: var(--text-muted);
-  font-size: 0.72rem;
   font-weight: 500;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -722,6 +733,7 @@
    cannot be re-oriented), so this offers the existing comparison rather than
    letting the user pay twice for near-identical analysis. */
 .reversedPairNotice {
+  composes: bodyTight from "../../styles/type.module.css";
   background: var(--bg-secondary);
   border: 1px solid var(--border-light);
   border-left: 3px solid var(--color-orange);
@@ -729,8 +741,6 @@
   padding: 12px 16px;
   margin-bottom: 16px;
   color: var(--text-secondary);
-  font-size: 14px;
-  line-height: 1.7;
 }
 
 .reversedPairNotice a {

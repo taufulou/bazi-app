@@ -48,8 +48,8 @@
 }
 
 .swipeHint {
+  composes: caption from "../styles/type.module.css";
   text-align: center;
-  font-size: 0.75rem;
   color: var(--text-muted);
   padding-bottom: 8px;
   opacity: 1;

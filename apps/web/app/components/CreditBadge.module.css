@@ -38,10 +38,10 @@
 }
 
 .tierBadge {
+  composes: caption from "../styles/type.module.css";
   display: inline-block;
   padding: 0.15rem 0.5rem;
   border-radius: 10px;
-  font-size: 0.7rem;
   font-weight: 600;
   border: 1px solid;
 }
@@ -82,19 +82,20 @@
 
 .creditIcon {
   font-size: 0.75rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .creditCount {
+  composes: meta from "../styles/type.module.css";
   color: var(--text-primary);
-  font-size: 0.8rem;
   font-weight: 700;
 }
 
 .pricingLink {
+  composes: bodyTight from "../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   color: var(--text-accent);
-  font-size: 0.9rem;
   text-decoration: none;
   padding: 0.4rem 0.8rem;
   background: rgba(255, 255, 255, 0.3);
@@ -111,15 +112,18 @@
 
 @media (max-width: 768px) {
   .tierBadge {
-    font-size: 0.65rem;
+    font-size: var(--t-caption-size);
+    line-height: var(--t-caption-leading);
     padding: 0.1rem 0.4rem;
   }
 
   .creditCount {
-    font-size: 0.7rem;
+    font-size: var(--t-meta-size);
+    line-height: var(--t-meta-leading);
   }
 
   .creditIcon {
     font-size: 0.65rem;
-  }
+  
+  line-height: 1; /* graphic, not type */}
 }
