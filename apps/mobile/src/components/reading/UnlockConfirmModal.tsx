@@ -153,8 +153,10 @@ const styles = StyleSheet.create({
   warnLead: { ...T.bodyTight, flex: 1, color: colors.textPrimary, fontWeight: '600' },
   warnItem: { ...T.bodyTight, color: colors.textSecondary, marginLeft: spacing.lg },
   // Explains the 時辰未知 limitation right where credits get spent — content the
-  // reader needs, not a disclaimer to skim past.
-  warnNote: { ...T.meta, color: colors.textMuted, marginTop: 4 },
+  // reader needs, not a disclaimer to skim past. `meta` (13) is the METADATA role,
+  // which contradicted that comment and left this note SMALLER than the `warnItem`
+  // bullets (15) it summarises. The web build renders the same copy at bodyTight.
+  warnNote: { ...T.bodyTight, color: colors.textMuted, marginTop: 4 },
   insufficient: { ...T.bodyTight, color: colors.warningText, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
   errorText: { ...T.bodyTight, color: colors.errorText, textAlign: 'center', marginBottom: spacing.sm, fontWeight: '600' },
   confirmBtn: {
