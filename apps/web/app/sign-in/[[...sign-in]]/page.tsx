@@ -33,13 +33,13 @@ export default function SignInPage() {
         >
           預見你的一生
         </p>
-        <SignIn
-          appearance={{
-            elements: {
-              rootBox: "mx-auto",
-            },
-          }}
-        />
+        {/* No `appearance` here on purpose. It previously passed
+            `elements: { rootBox: "mx-auto" }` — a TAILWIND class, in a project
+            that has no Tailwind, so it did nothing; and a component-level
+            `elements` risks shadowing the provider's. Typography and colour
+            now come from `clerkAppearance` on the ClerkProvider in layout.tsx,
+            in ONE place. */}
+        <SignIn />
       </div>
     </div>
   );

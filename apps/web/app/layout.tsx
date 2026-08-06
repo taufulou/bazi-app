@@ -4,6 +4,7 @@ import { zhTW } from "@clerk/localizations";
 import localFont from "next/font/local";
 import { Noto_Serif_TC, Noto_Serif_SC } from "next/font/google";
 import { PostHogProvider } from "./providers";
+import { clerkAppearance } from "./lib/clerk-appearance";
 import SignedOutRedirect from "./components/SignedOutRedirect";
 import LanguageProvider from "./components/LanguageProvider";
 import LanguageFirstRunModal from "./components/LanguageFirstRunModal";
@@ -77,18 +78,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <ClerkProvider
-      localization={zhTW}
-      appearance={{
-        variables: {
-          colorPrimary: "#E23D28",
-          colorBackground: "#FFFBF5",
-          colorText: "#3C2415",
-          colorInputBackground: "#FFFFFF",
-          colorInputText: "#3C2415",
-        },
-      }}
-    >
+    <ClerkProvider localization={zhTW} appearance={clerkAppearance}>
       <html lang="zh-TW">
         <body className={`${geistSans.variable} ${geistMono.variable} ${notoSerifTC.variable} ${notoSerifSC.variable}`}>
           <PostHogProvider>

@@ -157,6 +157,38 @@ any text below 14 is not.
 
 ---
 
+## 5b. Size is not the only thing that makes text unreadable
+
+A colour that is legible as a 24px glyph can be illegible as 14px body. WCAG asks
+**4.5:1 for small text** but only **3:1 at 18.66px bold / 24px regular** — so a
+palette tuned on headlines will fail the moment the same colour is used at reading
+size.
+
+**Rule: a vivid fill is not automatically a text colour. Measure against the ground
+the text actually renders on, at the size it actually renders.**
+
+The five-element palette in `BaziChart.tsx` is a **display** palette. Measured on the
+white card:
+
+| | display palette | at 14px | small-text cut |
+|---|---|---|---|
+| 金 | `#B8860B` | **3.25:1 — fails** | `#8F6707` → 5.11:1 |
+| 土 | `#8D6E63` | **4.42:1 — fails** | `#7A5B50` → 6.04:1 |
+
+`CHART_ELEMENT_COLORS_SMALL` in `BaziChart.tsx` carries those cuts, and mirrors
+`colors.metalText` in `apps/mobile/src/theme/index.ts`, which exists for exactly the
+same reason. **Keep the two platforms in sync**, and record any new exception here —
+this is a deliberate departure from "one colour per element" and should stay a short,
+justified list.
+
+**Corollary: never encode hierarchy with `opacity` on text.** The 藏干 cell faded its
+2nd and 3rd hidden stems to `opacity: 0.7`, which took 庚金 to **2.21:1** — under even
+the large-text floor, and unfixable by any increase in size. Rank was already carried
+by order. If you need a weaker tier, use a *darker-but-lower-chroma* colour that still
+measures, or weight, or spacing — not transparency.
+
+---
+
 ## 6. Documented exceptions
 
 Every exception is an allowlist entry with a stated reason, so exceptions must be

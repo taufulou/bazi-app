@@ -124,6 +124,36 @@ function getChartElementColor(element: string): string {
   return CHART_ELEMENT_COLORS[element] || "#8D6E63";
 }
 
+/**
+ * Darker cuts of the element palette, for SMALL text only.
+ *
+ * `CHART_ELEMENT_COLORS` is a DISPLAY palette: correct at the 24px bold 天干/地支
+ * glyphs, where WCAG's 3:1 large-text floor applies. It is NOT safe for the 14px
+ * 藏干 cells — measured on the real page against the white card:
+ *
+ *   金 #B8860B  3.25:1   土 #8D6E63  4.42:1     (at full opacity)
+ *
+ * Both are under the 4.5:1 that small text needs, and the cell additionally faded
+ * the 2nd and 3rd hidden stems to `opacity: 0.7`, which took them to **2.21:1
+ * (庚金), 2.68:1 (戊土), 2.92:1 (甲木)** — failing even the large-text floor. That
+ * fade is why 藏干 was the hardest thing on the page to read, and no increase in
+ * SIZE could have fixed it.
+ *
+ * This mirrors the split already documented for the mobile app, where
+ * `colors.metalText` #8F6707 exists for exactly this reason — see the
+ * "Mobile display-vs-text split" note in CLAUDE.md. Keep the two in sync.
+ *
+ * Display sizes keep the original palette; do not "unify" these.
+ */
+const CHART_ELEMENT_COLORS_SMALL: Record<string, string> = {
+  金: "#8F6707", // 3.25:1 -> 5.11:1
+  土: "#7A5B50", // 4.42:1 -> 6.04:1
+};
+
+function getChartElementTextColor(element: string): string {
+  return CHART_ELEMENT_COLORS_SMALL[element] || getChartElementColor(element);
+}
+
 /** Earthly Branch → Chinese Zodiac Animal */
 const BRANCH_ZODIAC: Record<string, string> = {
   "子": "鼠", "丑": "牛", "寅": "虎", "卯": "兔",
@@ -332,13 +362,20 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
                             className={`${styles.hiddenStem} ${styles.clickableInline}`}
                             onClick={() => handleElementClick("hidden_stem", hsg.stem, p.key)}
                           >
+                            {/* No opacity fade. It was `i === 0 ? 1 : 0.7`, which
+                                pushed 庚金 to 2.21:1 against the white card — below
+                                even the 3:1 large-text floor. 本氣/中氣/餘氣 rank is
+                                already carried by ORDER; it does not need to be
+                                paid for in contrast. */}
                             <span style={{
-                              color: getChartElementColor(hsg.element || STEM_ELEMENT[hsg.stem] || "土"),
-                              opacity: i === 0 ? 1 : 0.7,
+                              color: getChartElementTextColor(hsg.element || STEM_ELEMENT[hsg.stem] || "土"),
                             }}>
                               {hsg.stem}{hsg.element || STEM_ELEMENT[hsg.stem]}
                             </span>
-                            <span className={styles.hiddenStemGod}>（{hsg.tenGod}）</span>
+                            {/* No full-width（）— they are a whole character wide
+                                each in CJK and were tripling this cell's required
+                                width. See .hiddenStemGod in BaziChart.module.css. */}
+                            <span className={styles.hiddenStemGod}>{hsg.tenGod}</span>
                           </span>
                         ))
                       : (p.data.hiddenStems || []).map((hs, i) => (
@@ -346,8 +383,8 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
                             key={i}
                             className={`${styles.hiddenStem} ${styles.clickableInline}`}
                             style={{
-                              color: getChartElementColor(getHiddenStemElement(hs)),
-                              opacity: i === 0 ? 1 : 0.7,
+                              // Same contrast reasoning as the branch above.
+                              color: getChartElementTextColor(getHiddenStemElement(hs)),
                             }}
                             onClick={() => handleElementClick("hidden_stem", hs, p.key)}
                           >

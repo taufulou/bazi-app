@@ -344,9 +344,15 @@
   list-style: disc;
 }
 
+/* Carve-out B (descendant selector). `bodyTight` sizing.
+   These bullets are the DETERMINISTIC ENGINE SIGNALS shown while the AI narrative
+   is still streaming, or when it is absent — full CJK sentences, e.g.
+   「今日不利重大簽約與承諾，宜延後處理」. They are content, not annotation, and were
+   sitting at a hand-typed 13px/1.7 that matches no role. A live sweep only caught
+   them because that run happened to render the pre-narrative state. */
 .signalsItems li {
-  font-size: 13px;
-  line-height: 1.7;
+  font-size: var(--t-bodyTight-size);
+  line-height: var(--t-bodyTight-leading);
   color: var(--text-primary);
 }
 

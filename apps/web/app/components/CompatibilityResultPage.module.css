@@ -211,10 +211,14 @@
   font-weight: 600;
 }
 
+/* Carve-out B (descendant selector). `meta` sizing.
+   Was 0.82rem = 13.1px — an off-scale number that matches no role. The PARENT
+   was migrated to bodyTight and this child was skipped, which is the descendant-
+   selector blind spot in migrate.py's base-name matching. */
 .updateBannerText span {
   color: #a0a0a0;
-  font-size: 0.82rem;
-  line-height: 1.5;
+  font-size: var(--t-meta-size);
+  line-height: var(--t-meta-leading);
 }
 
 .updateBannerBtn {

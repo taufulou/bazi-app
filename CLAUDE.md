@@ -316,6 +316,15 @@ therefore carries a second, darker 金 for SMALL TEXT ONLY — `colors.metalText
 `#B8860B`. This is the one deliberate exception to "one colour per element";
 do not add others without recording them here.
 
+**Web has the same split as of the typography pass.** `CHART_ELEMENT_COLORS_SMALL`
+in `apps/web/app/components/BaziChart.tsx` carries 金 `#8F6707` (3.25 → 5.11) and
+土 `#7A5B50` (4.42 → 6.04) for the 14px 藏干 cells; display sizes keep the original
+palette. Web additionally **removed an `opacity: 0.7` fade** on the 2nd/3rd hidden
+stems, which had put 庚金 at **2.21:1** — below even the 3:1 large-text floor, and
+unfixable by any increase in SIZE. Never encode tier with opacity on text; 本氣/中氣/
+餘氣 rank is already carried by order. See `docs/typography-standard.md` §5b and keep
+the two platforms in sync.
+
 ### Typography
 - **Headings / CJK characters**: `Noto Serif TC` (serif) — conveys traditional authority
 - **Body text**: System font stack (`-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif`)

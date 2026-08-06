@@ -218,7 +218,7 @@ const fmt = (d: Decl) =>
 // ────────────────────────────────────────────────────── Guard A
 
 describe('Guard A — content floor (14px) and hard floor (12px)', () => {
-  const BUDGET_SUB_14 = 61; // Phase 1b complete
+  const BUDGET_SUB_14 = 22; // Phase 3 (BaziChart) + descendant-selector leftovers
 
   /**
    * ⚠️ A site that COMPOSES A ROLE is compliant even when it lands below 14 —
@@ -283,7 +283,7 @@ describe('Guard B — size must travel with leading', () => {
    * unleaded and simply invisible. Re-pinned deliberately, with the reason, so a
    * future reader does not read a rising budget as tolerated decay.
    */
-  const BUDGET_UNLEADED = 119; // Phase 1b complete
+  const BUDGET_UNLEADED = 75; // Phase 3 (BaziChart) complete
 
   const unleaded = ALL.filter((d) => !d.hasLineHeight && !d.composesRole);
 

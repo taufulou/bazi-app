@@ -271,11 +271,14 @@
   gap: 6px;
 }
 
+/* Carve-out B (descendant selector). `bodyTight` sizing.
+   Was 13.5px — an off-scale hand-typed number, below the 14px content floor, on
+   CJK advice prose. */
 .adviceList li {
   position: relative;
   padding-left: 16px;
-  font-size: 13.5px;
-  line-height: 1.7;
+  font-size: var(--t-bodyTight-size);
+  line-height: var(--t-bodyTight-leading);
   color: var(--text-primary);
 }
 
