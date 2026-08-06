@@ -66,8 +66,6 @@
 .score {
   composes: section from "../../styles/type.module.css";
   line-height: 1; /* tight leading is load-bearing: numeral in a fixed-height box */
-  font-family: var(--font-noto-serif-tc), serif;
-  font-weight: 700;
   color: var(--text-primary);
 }
 

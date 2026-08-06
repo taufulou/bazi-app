@@ -122,8 +122,6 @@
     line-height: var(--t-meta-leading);
   }
 
-  .creditIcon {
-    font-size: 0.65rem;
-  
-  line-height: 1; /* graphic, not type */}
+  /* No .creditIcon override here. It shrank the 💎 to 0.65rem = 10.4px, under
+     the 12px hard floor, to buy ~2px in a badge that was not overflowing. */
 }

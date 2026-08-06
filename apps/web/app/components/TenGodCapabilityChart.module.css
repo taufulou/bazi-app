@@ -15,7 +15,6 @@
 
 .title {
   composes: subsection from "../styles/type.module.css";
-  font-family: var(--font-noto-serif-tc), serif;
   color: var(--text-accent);
   margin: 0;
 }

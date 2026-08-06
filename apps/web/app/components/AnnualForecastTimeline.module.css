@@ -71,8 +71,6 @@
 
 .year {
   composes: section from "../styles/type.module.css";
-  font-family: var(--font-noto-serif-tc), serif;
-  font-weight: 700;
   color: var(--text-primary);
 }
 

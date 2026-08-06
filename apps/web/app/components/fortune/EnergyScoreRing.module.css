@@ -24,7 +24,6 @@
 
 .dateLine {
   composes: subsection from "../../styles/type.module.css";
-  font-family: var(--font-noto-serif-tc), serif;
   font-weight: 500;
   color: var(--text-primary);
   letter-spacing: 0.5px;

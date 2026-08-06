@@ -52,8 +52,6 @@
 
 .sectionTitle {
   composes: section from "../../styles/type.module.css";
-  font-family: var(--font-noto-serif-tc), serif;
-  font-weight: 700;
   color: var(--text-primary, #3c2415);
   margin: 0 0 0.4rem;
   padding-left: 0.6rem;

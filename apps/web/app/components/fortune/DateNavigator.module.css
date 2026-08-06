@@ -197,3 +197,31 @@
     padding: 0.1rem 0.4rem;
   }
 }
+
+/**
+ * react-datepicker popup — shared by DateNavigator / MonthNavigator / YearNavigator.
+ *
+ * These are the app's ONLY live date pickers, and they load react-datepicker's own
+ * stylesheet, whose base is `0.8rem` = 12.8px. That put the day numerals AND the CJK
+ * day names (日 一 二 …) under the 14px content floor.
+ *
+ * It was invisible to both halves of the audit: the static pass only reads our own
+ * CSS (this lives in node_modules), and the live sweep only sees rendered DOM (the
+ * popup does not exist until the chip is tapped). It was found by opening the picker
+ * and measuring it.
+ *
+ * `:global` and NOT nested under a local class: the popup can be rendered through a
+ * portal, in which case a descendant selector would not reach it.
+ */
+:global(.react-datepicker) {
+  font-size: var(--t-cell-size);
+  line-height: var(--t-cell-leading);
+}
+
+/* The month/year <select>s inside the picker header are focusable form controls —
+   under 16px Mobile Safari zooms the viewport on focus and does not zoom back. */
+:global(.react-datepicker__month-select),
+:global(.react-datepicker__year-select) {
+  font-size: var(--t-control-size);
+  line-height: var(--t-control-leading);
+}

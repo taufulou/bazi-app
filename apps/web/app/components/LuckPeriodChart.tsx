@@ -300,7 +300,9 @@ export default function LuckPeriodChart({
                   命局互動
                 </div>
                 {tooltip.period.interactions.slice(0, 3).map((inter, idx) => (
-                  <div key={idx} style={{ fontSize: "0.72rem", color: "#6B5940" }}>
+                  // 0.72rem = 11.5px was CJK the user READS (「寅午半合火局」), not an ornament.
+                  // `meta` sizing; the tooltip has min-width but no max, so it grows.
+                  <div key={idx} style={{ fontSize: "0.8125rem", lineHeight: 1.45, color: "#6B5940" }}>
                     {inter}
                   </div>
                 ))}

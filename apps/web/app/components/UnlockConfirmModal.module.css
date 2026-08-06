@@ -34,9 +34,7 @@
 .title {
   composes: section from "../styles/type.module.css";
   color: var(--text-accent);
-  font-weight: 700;
   margin-bottom: 1rem;
-  font-family: var(--font-noto-serif-tc), serif;
 }
 
 /* 時辰未知 limitation (shown only when the chart has no birth hour) */

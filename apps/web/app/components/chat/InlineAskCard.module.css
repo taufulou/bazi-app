@@ -23,7 +23,6 @@
 
 .title {
   composes: subsection from "../../styles/type.module.css";
-  font-family: var(--font-noto-serif-tc), serif;
   font-weight: 600;
   letter-spacing: 0.02em;
   display: inline-flex;

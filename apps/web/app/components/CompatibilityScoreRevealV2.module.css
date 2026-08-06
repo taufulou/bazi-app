@@ -279,8 +279,6 @@
 
 .metricValue {
   composes: subsection from "../styles/type.module.css";
-  font-family: var(--font-noto-serif-tc), serif;
-  font-weight: 700;
   color: var(--text-primary, #3C2415);
 }
 

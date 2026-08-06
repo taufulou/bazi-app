@@ -133,7 +133,6 @@
 
 .resultLabel {
   composes: title from "../styles/type.module.css";
-  font-weight: 700;
 }
 
 .specialBadge {
@@ -229,7 +228,6 @@
   border: 1px solid rgba(255, 152, 0, 0.3);
   border-radius: 8px;
   color: #ffb74d;
-  font-weight: 600;
   cursor: pointer;
   transition: all 0.2s ease;
   white-space: nowrap;

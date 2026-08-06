@@ -21,7 +21,6 @@
 
 .heroTitle {
   composes: section from "../../styles/type.module.css";
-  font-family: var(--font-heading);
   font-weight: 600;
   color: var(--text-accent);
   margin: 0 0 12px 0;
@@ -94,7 +93,6 @@
 
 .dimTitle {
   composes: subsection from "../../styles/type.module.css";
-  font-family: var(--font-heading);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -193,7 +191,6 @@
 
 .breakdownTitle {
   composes: subsection from "../../styles/type.module.css";
-  font-family: var(--font-heading);
   font-weight: 600;
   color: var(--text-accent);
   margin: 0;
@@ -256,7 +253,6 @@
 
 .adviceTitle {
   composes: subsection from "../../styles/type.module.css";
-  font-family: var(--font-heading);
   font-weight: 600;
   color: var(--text-accent);
   margin: 0 0 10px 0;

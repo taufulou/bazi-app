@@ -1,6 +1,14 @@
 /* Warm theme overrides for react-datepicker — matches app design system */
 /* This is a regular CSS file (not CSS Module) because react-datepicker uses global class names */
 
+/* ⚠️ CURRENTLY ORPHANED. The only importer is `DatePickerInput.tsx`, which nothing
+   renders. The LIVE pickers are fortune's DateNavigator / MonthNavigator /
+   YearNavigator, and they import react-datepicker's own stylesheet instead — so
+   they get none of this warm theming, and until Phase 2 they rendered at the
+   library default 0.8rem = 12.8px (CJK day names included). The size floor is
+   fixed at the call site in DateNavigator.module.css; adopting the REST of this
+   theme there is a design decision, not a typography one, so it is left open. */
+
 /* ── Wrapper: make it full width ── */
 .react-datepicker-wrapper {
   display: block;
@@ -43,8 +51,12 @@
 /* ── Main popup ── */
 .react-datepicker {
   font-family: inherit;
-  font-size: 0.8125rem;
-  line-height: 1.45;
+  /* Base for the whole popup — the day numerals AND the 日一二三四五六 day names
+     inherit it, so this is CONTENT, not chrome. Was 0.8125rem = 13px, under the
+     content floor. `cell` (14). The day cells are sized in rem independently of
+     font-size, so a 2-digit day still fits. */
+  font-size: var(--t-cell-size);
+  line-height: var(--t-cell-leading);
   background-color: #FFFFFF;
   color: #3C2415;
   border: 1px solid rgba(212, 160, 23, 0.25);
@@ -73,7 +85,9 @@
 h2.react-datepicker__current-month {
   color: #C41E3A;
   font-weight: 600;
-  font-size: 0.95rem;
+  /* `bodyTight` sizing (was 0.95rem = 15.2px, off-scale). */
+  font-size: var(--t-bodyTight-size);
+  line-height: var(--t-bodyTight-leading);
 }
 
 /* ── Year/Month dropdown selects ── */

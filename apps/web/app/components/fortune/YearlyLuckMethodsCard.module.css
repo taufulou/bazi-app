@@ -15,7 +15,6 @@
 
 .title {
   composes: subsection from "../../styles/type.module.css";
-  font-family: var(--font-heading);
   font-weight: 600;
   color: var(--text-accent);
   margin: 0;
@@ -65,7 +64,6 @@
 
 .cardTitle {
   composes: subsection from "../../styles/type.module.css";
-  font-family: var(--font-noto-serif-tc), serif;
   font-weight: 600;
   color: var(--text-primary);
 }

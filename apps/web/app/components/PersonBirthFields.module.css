@@ -205,8 +205,9 @@
 
   .input,
   .select {
-    font-size: var(--t-control-size);
-    line-height: var(--t-control-leading);
+    /* Padding only. The font-size/line-height here restated `control` verbatim —
+       an override of the base rule with the base value. A rule that changes
+       nothing reads like a deliberate mobile step-down and is not one. */
     padding: 0.55rem 0.65rem;
   }
 }

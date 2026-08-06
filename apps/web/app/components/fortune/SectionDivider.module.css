@@ -23,7 +23,9 @@
 
 .diamond {
   color: var(--color-gold);
-  font-size: 10px;
+  /* 12 = the ornament floor. Was 10px, which the standard forbids outright;
+     a divider diamond gains nothing from the extra 2px of smallness. */
+  font-size: 0.75rem;
   line-height: 1; /* ◆ ornament, not type */
   letter-spacing: 0;
   opacity: 0.7;

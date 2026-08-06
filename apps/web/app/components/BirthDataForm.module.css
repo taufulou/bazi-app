@@ -12,10 +12,8 @@
 .formTitle {
   composes: title from "../styles/type.module.css";
   color: var(--text-primary);
-  font-weight: 700;
   margin-bottom: 0.5rem;
   text-align: center;
-  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .formSubtitle {

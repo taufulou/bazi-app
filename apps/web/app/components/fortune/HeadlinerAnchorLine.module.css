@@ -55,12 +55,12 @@
     padding: 8px;
   }
   .pill {
-    /* Was 11.5px — below the 12px hard floor. Safe to raise: the shared
-       ShareableFortuneCard renders at 1200px and never matches this query.
-       The BASE rules stay FROZEN — that canvas is out of scope and has no
-       visual gate, so it must not change silently. */
-    font-size: var(--t-caption-size);
-    line-height: var(--t-caption-leading);
+    /* Padding only. This block used to shrink the pill to 11.5px — under the 12px
+       hard floor — and Phase 1b raised it to `caption`, which is 12px: exactly the
+       BASE value. So the size declaration became a no-op, and its 1.45 leading was
+       quietly overriding the base 1.55 for no stated reason. Both dropped; the base
+       stays FROZEN because ShareableFortuneCard shares it and renders at 1200px,
+       where this query never matches. */
     padding: 2px 8px;
   }
   .separator {

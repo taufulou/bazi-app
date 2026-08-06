@@ -117,8 +117,6 @@
 .welcomeTitle {
   composes: title from "styles/type.module.css";
   color: var(--text-primary);
-  font-family: var(--font-noto-serif-tc), serif;
-  font-weight: 700;
   margin: 0;
   text-shadow: 0 1px 8px rgba(var(--bg-primary-rgb), 0.9); /* Warm cream glow for text over background image */
 }

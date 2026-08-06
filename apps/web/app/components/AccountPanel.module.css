@@ -204,7 +204,6 @@
   composes: title from "../styles/type.module.css";
   color: var(--text-accent);
   margin-bottom: 0.75rem;
-  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .staticText {

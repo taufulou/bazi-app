@@ -98,8 +98,6 @@
 .sectionTitle {
   composes: title from "../styles/type.module.css";
   color: var(--text-accent);
-  font-weight: 700;
-  font-family: var(--font-noto-serif-tc), serif;
 }
 
 /* ==== Content ==== */
@@ -422,9 +420,7 @@ li.goldBulletItemCategory {
 .summaryTitle {
   composes: title from "../styles/type.module.css";
   color: var(--text-primary);
-  font-weight: 700;
   margin-bottom: 0.75rem;
-  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .summaryText {
@@ -557,7 +553,6 @@ li.goldBulletItemCategory {
 .dpdSectionLabel {
   composes: label from "../styles/type.module.css";
   color: var(--text-accent, #C41E3A);
-  font-weight: 600;
   font-family: var(--font-noto-serif-tc), serif;
 }
 
@@ -593,8 +588,6 @@ li.goldBulletItemCategory {
 .lphGanzhi {
   composes: section from "../styles/type.module.css";
   color: var(--text-primary);
-  font-weight: 700;
-  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .lphYears {
@@ -642,7 +635,6 @@ li.goldBulletItemCategory {
 
 .lphScoreValue {
   composes: subsection from "../styles/type.module.css";
-  font-weight: 700;
 }
 
 .detCardHeader {
@@ -702,7 +694,6 @@ li.goldBulletItemCategory {
 .detLabel {
   composes: label from "../styles/type.module.css";
   color: var(--text-accent, #8B6914);
-  font-weight: 600;
   text-transform: none;
   letter-spacing: 0.04em;
 }
@@ -1019,7 +1010,8 @@ li.goldBulletItemCategory {
 }
 
 .techRefArrow {
-  font-size: 0.7rem;
+  /* 12 = the ornament floor; the box is 12px wide so it still fits. */
+  font-size: 0.75rem;
   width: 12px;
   text-align: center;
   flex-shrink: 0;
@@ -1220,7 +1212,6 @@ li.goldBulletItemCategory {
 
 .verdictBannerLabel {
   composes: subsection from "../styles/type.module.css";
-  font-weight: 700;
   letter-spacing: 0.03em;
 }
 .verdictBannerPositive .verdictBannerLabel { color: #2E7D32; }
@@ -1233,7 +1224,6 @@ li.goldBulletItemCategory {
 
 .verdictBannerScore {
   composes: section from "../styles/type.module.css";
-  font-weight: 700;
   font-family: var(--font-noto-serif-tc, serif);
 }
 .verdictBannerPositive .verdictBannerScore { color: #2E7D32; }
@@ -1335,9 +1325,7 @@ li.goldBulletItemCategory {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  font-weight: 700;
   color: var(--text-primary);
-  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .characterCardIcon {
@@ -1382,7 +1370,6 @@ li.goldBulletItemCategory {
 .archetypeValue {
   composes: subsection from "../styles/type.module.css";
   color: var(--text-primary);
-  font-weight: 700;
   letter-spacing: 0.05em;
 }
 
@@ -1559,8 +1546,6 @@ li.goldBulletItemCategory {
 
 .sectionGroupLabel {
   composes: section from "../styles/type.module.css";
-  font-family: var(--font-noto-serif-tc), serif;
-  font-weight: 700;
   color: var(--text-accent);
   white-space: nowrap;
   letter-spacing: 0.15em;

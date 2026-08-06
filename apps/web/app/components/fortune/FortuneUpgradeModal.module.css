@@ -33,18 +33,16 @@
 }
 
 .title {
+  composes: section from "../../styles/type.module.css";
   color: var(--text-accent);
-  font-size: 1.25rem;
-  font-weight: 700;
   margin-bottom: 0.75rem;
-  font-family: var(--font-noto-serif-tc), serif;
-  line-height: 1.4;
+  /* `section` already carries weight 700 and the serif family — re-declaring them
+     here would be equal-specificity duplication (Guard B). */
 }
 
 .body {
+  composes: bodyTight from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.95rem;
-  line-height: 1.7;
   margin-bottom: 1.5rem;
 }
 
@@ -55,12 +53,12 @@
 }
 
 .primaryBtn {
+  composes: control from "../../styles/type.module.css";
   display: block;
   padding: 0.75rem 2rem;
   background: var(--color-red);
   color: var(--text-on-red);
   font-weight: 700;
-  font-size: 1rem;
   border-radius: var(--radius-sm);
   text-decoration: none;
   text-align: center;
@@ -79,13 +77,13 @@
 }
 
 .secondaryBtn {
+  composes: control from "../../styles/type.module.css";
   display: block;
   padding: 0.75rem 2rem;
   background: transparent;
   border: 1px solid var(--border-medium);
   color: var(--text-primary);
   font-weight: 600;
-  font-size: 0.9rem;
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s;
@@ -117,11 +115,16 @@
     padding: 1.5rem;
   }
 
+  /* A real step-down: `section` (19) -> `subsection` (17). Reducing a DISPLAY size
+     on a narrow screen is allowed; what is not allowed is pushing text under the
+     floor. Do NOT "simplify" this to --t-section-*: that would silently delete a
+     deliberate step-down and leave a rule that overrides its base with its base. */
   .title {
-    font-size: 1.1rem;
+    font-size: var(--t-subsection-size);
+    line-height: var(--t-subsection-leading);
   }
 
-  .body {
-    font-size: 0.9rem;
-  }
+  /* No .body override. It was 0.9rem = 14.4px, i.e. it shaved 0.8px off a CJK
+     paragraph and landed it on the content floor. `bodyTight` (15) is already the
+     compact role; there is nothing left to give on a phone. */
 }

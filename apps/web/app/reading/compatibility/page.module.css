@@ -289,7 +289,6 @@
 
 .compatTitle {
   composes: title from "../../styles/type.module.css";
-  font-family: var(--font-noto-serif-tc), serif;
   background: linear-gradient(135deg, var(--color-red), var(--color-orange));
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -379,10 +378,8 @@
 
 .educationalTitle {
   composes: subsection from "../../styles/type.module.css";
-  font-family: var(--font-noto-serif-tc), serif;
   color: var(--text-accent);
   margin: 0;
-  font-weight: 700;
 }
 
 .educationalContent {

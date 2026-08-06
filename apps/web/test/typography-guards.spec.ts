@@ -218,7 +218,7 @@ const fmt = (d: Decl) =>
 // ────────────────────────────────────────────────────── Guard A
 
 describe('Guard A — content floor (14px) and hard floor (12px)', () => {
-  const BUDGET_SUB_14 = 22; // Phase 3 (BaziChart) + descendant-selector leftovers
+  const BUDGET_SUB_14 = 20; // Phase 2
 
   /**
    * ⚠️ A site that COMPOSES A ROLE is compliant even when it lands below 14 —
@@ -250,7 +250,7 @@ describe('Guard A — content floor (14px) and hard floor (12px)', () => {
    * introducing a new unresolvable size did NOT fail. A budget with headroom is
    * a budget a violation can hide inside; pin at the real number.
    */
-  const BUDGET_UNRESOLVABLE = 1;
+  const BUDGET_UNRESOLVABLE = 0; // Phase 2 — the last `em`-relative size is gone
 
   it(`has no more than ${BUDGET_UNRESOLVABLE} sizes the guard cannot resolve`, () => {
     const opaque = ALL.filter((d) => d.px === null);
@@ -283,7 +283,7 @@ describe('Guard B — size must travel with leading', () => {
    * unleaded and simply invisible. Re-pinned deliberately, with the reason, so a
    * future reader does not read a rising budget as tolerated decay.
    */
-  const BUDGET_UNLEADED = 75; // Phase 3 (BaziChart) complete
+  const BUDGET_UNLEADED = 60; // Phase 2
 
   const unleaded = ALL.filter((d) => !d.hasLineHeight && !d.composesRole);
 
@@ -336,7 +336,10 @@ describe('Guard B — size must travel with leading', () => {
     return out;
   })();
 
-  const BUDGET_WEIGHT_FAMILY_OVERRIDES = 153;
+  const BUDGET_WEIGHT_FAMILY_OVERRIDES = 43; // Phase 2: 153 -> 43. The 113 removed were byte-identical to their role.
+  // The 43 that remain declare a DIFFERENT value (mostly weight 600 against a
+  // heading role that binds 700) — a design decision, not duplication, so they
+  // are left for the owner rather than silently restyled.
 
   it(`has no more than ${BUDGET_WEIGHT_FAMILY_OVERRIDES} blocks re-declaring a role's weight/family`, () => {
     const bad: string[] = [];
@@ -416,7 +419,7 @@ describe('Guard D — at-rules must not push below the floor', () => {
    * @media AND @supports/@container/@layer/@scope — @container is the modern
    * responsive-shrink mechanism and was invisible to the first version.
    */
-  const BUDGET_AT_RULE_SUB_14 = 18;
+  const BUDGET_AT_RULE_SUB_14 = 14; // Phase 2
 
   it(`has no more than ${BUDGET_AT_RULE_SUB_14} at-rule declarations below 14px`, () => {
     const bad = CSS.filter((d) => d.inAtRule && d.px !== null && d.px < 14);

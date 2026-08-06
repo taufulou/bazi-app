@@ -95,8 +95,6 @@
 
 .headerTitle {
   composes: subsection from "../../styles/type.module.css";
-  font-family: var(--font-noto-serif-tc), serif;
-  font-weight: 700;
   color: var(--text-accent, #C41E3A);
   /* Phase 4 [H3] fix — allow shrink + ellipsis before button row wraps. */
   min-width: 0;

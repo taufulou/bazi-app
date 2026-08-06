@@ -126,7 +126,6 @@
   composes: subsection from "../../styles/type.module.css";
   color: var(--text-accent);
   font-weight: 600;
-  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .cancelBtn {
@@ -196,8 +195,6 @@
 .emptyTitle {
   composes: subsection from "../../styles/type.module.css";
   color: var(--text-accent);
-  font-family: var(--font-noto-serif-tc), serif;
-  font-weight: 700;
   margin-bottom: 0.5rem;
 }
 
