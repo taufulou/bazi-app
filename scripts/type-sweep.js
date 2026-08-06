@@ -100,7 +100,16 @@ const PROBE = `(() => {
     // Fingerprint of what was ACTUALLY measured. Without this, a route that
     // rendered the wrong DOM reports a plausible-looking count and nobody knows.
     textLen: document.body.innerText.length,
-    head: document.body.innerText.slice(0, 60).replace(/\s+/g, ' ') };
+    head: document.body.innerText.slice(0, 60).replace(/\s+/g, ' '),
+    // ── Which FACE was measured. Added after a Phase 5 audit found the report
+    //    could prove the zh-CN run rendered Simplified TEXT but not that it
+    //    rendered it in Noto Serif SC — and the face is what changes metrics, so
+    //    it is the whole reason Simplified is the worse case. Without this a run
+    //    can measure SC text in the TC face and look indistinguishable from a
+    //    real SC run. Same failure class as a sweep that exits 0 against a dead
+    //    port: a plausible number for the wrong thing.
+    lang: document.documentElement.getAttribute('data-lang') || document.documentElement.lang || null,
+    serifVar: getComputedStyle(document.body).getPropertyValue('--font-noto-serif-tc').trim().slice(0, 40) || null };
   const CJK = /[\\u3400-\\u4DBF\\u4E00-\\u9FFF]/;
   const label = (el) => {
     const id = el.id ? '#' + el.id : '';
