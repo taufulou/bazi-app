@@ -11,10 +11,23 @@
  *
  * RATCHET DIRECTION — read before "fixing" a failure
  * --------------------------------------------------
- * During the migration (Phases 1-4) these are ONE-SIDED: they fail when a count
- * INCREASES and tolerate a decrease. Pinning them two-sided mid-migration would
- * fail every intermediate commit for "count fell without re-pinning". Flip to
- * two-sided at Phase 6.
+ * TWO-SIDED as of Phase 6. Every budget fails when its count RISES *and* when it
+ * FALLS without being re-pinned. A one-sided ratchet quietly goes slack: work that
+ * improves a number banks the improvement invisibly, and the budget then permits a
+ * regression back up to the old figure without anyone noticing. Mobile's Guard D
+ * has been two-sided from the start, and during Phase 4 it is what caught a
+ * raw-declaration count dropping 344 -> 342 and forced the re-pin.
+ *
+ * They were ONE-SIDED during Phases 1-4 on purpose: pinned two-sided mid-migration,
+ * every intermediate commit would have failed for "count fell without re-pinning".
+ *
+ * So a FELL failure is not a bug report — it is the guard telling you to record the
+ * win. Re-pin the constant to the number in the message.
+ *
+ * Safe to make two-sided because every count here is a STATIC parse of files on
+ * disk, so it is deterministic. Do not add a budget over a value that varies at
+ * runtime — that would make the suite flaky in the falling direction as well as
+ * the rising one.
  *
  * EVERY exception is an allowlist entry WITH A REASON — an exception you have to
  * type out is one someone decided on, rather than one that merely exists.
@@ -217,8 +230,42 @@ const fmt = (d: Decl) =>
 
 // ────────────────────────────────────────────────────── Guard A
 
+/**
+ * Two-sided budget check (Phase 6). Mirrors Guard D in
+ * apps/mobile/src/theme/__tests__/typography-guards.test.ts.
+ *
+ * `detail` is only rendered on the RISING failure — on a fall there are no
+ * offenders to list, just a number to record.
+ */
+function ratchet(
+  what: string,
+  count: number,
+  budget: number,
+  hint: string,
+  detail: () => string,
+): void {
+  if (count > budget) {
+    throw new Error(`${what} ROSE ${budget} -> ${count}.\n${hint}\n${detail()}`);
+  }
+  if (count < budget) {
+    throw new Error(
+      `${what} FELL ${budget} -> ${count}. Good — re-pin the budget to ${count} ` +
+        `so the ratchet keeps its teeth.`,
+    );
+  }
+  expect(count).toBe(budget);
+}
+
 describe('Guard A — content floor (14px) and hard floor (12px)', () => {
-  const BUDGET_SUB_14 = 20; // Phase 2
+  /**
+   * LOCKED at Phase 6. Composition, so nobody mistakes it for 20 outstanding bugs:
+   * 11 CSS declarations (8 at 12px = the ornament floor, 2 at 13, 1 at 13.6) plus 9
+   * non-CSS sites — the SVG `fontSize` attrs in LuckPeriodChart / CompatibilityRadar
+   * and the inline styles in error.tsx / not-found.tsx. These are units, badges and
+   * chart tick labels sitting AT the ornament floor, not prose below it. The
+   * hard-floor metric (nothing under 12) is the one that reads zero.
+   */
+  const BUDGET_SUB_14 = 20;
 
   /**
    * ⚠️ A site that COMPOSES A ROLE is compliant even when it lands below 14 —
@@ -231,14 +278,9 @@ describe('Guard A — content floor (14px) and hard floor (12px)', () => {
   it(`has no more than ${BUDGET_SUB_14} UNROLED sites below the 14px content floor`, () => {
     const bad = resolvable.filter(
       (d) => d.px! < 14 && !d.composesRole && !/^var\(\s*--t-/.test(d.raw));
-    if (bad.length > BUDGET_SUB_14) {
-      throw new Error(
-        `Sub-14px sites rose to ${bad.length} (budget ${BUDGET_SUB_14}).\n` +
-          `New offenders must compose a role from app/styles/type.module.css.\n` +
-          bad.slice(0, 25).map(fmt).join('\n'),
-      );
-    }
-    expect(bad.length).toBeLessThanOrEqual(BUDGET_SUB_14);
+    ratchet('Sub-14px sites', bad.length, BUDGET_SUB_14,
+      'New offenders must compose a role from app/styles/type.module.css.',
+      () => bad.slice(0, 25).map(fmt).join('\n'));
   });
 
   /** A non-literal size is not "clean" — it is UNMEASURABLE, and silently
@@ -254,14 +296,9 @@ describe('Guard A — content floor (14px) and hard floor (12px)', () => {
 
   it(`has no more than ${BUDGET_UNRESOLVABLE} sizes the guard cannot resolve`, () => {
     const opaque = ALL.filter((d) => d.px === null);
-    if (opaque.length > BUDGET_UNRESOLVABLE) {
-      throw new Error(
-        `Unresolvable sizes rose to ${opaque.length} (budget ${BUDGET_UNRESOLVABLE}).\n` +
-          `Use a literal, a role class, or var(--t-<role>-size) so it stays measurable.\n` +
-          opaque.map(fmt).join('\n'),
-      );
-    }
-    expect(opaque.length).toBeLessThanOrEqual(BUDGET_UNRESOLVABLE);
+    ratchet('Unresolvable sizes', opaque.length, BUDGET_UNRESOLVABLE,
+      'Use a literal, a role class, or var(--t-<role>-size) so it stays measurable.',
+      () => opaque.map(fmt).join('\n'));
   });
 });
 
@@ -283,19 +320,21 @@ describe('Guard B — size must travel with leading', () => {
    * unleaded and simply invisible. Re-pinned deliberately, with the reason, so a
    * future reader does not read a rising budget as tolerated decay.
    */
-  const BUDGET_UNLEADED = 60; // Phase 2
+  /**
+   * LOCKED at Phase 6. 35 of these are CSS and every one is at a size >= 14 — they
+   * are unleaded, not sub-floor. 21 of the 35 are in pricing/page.module.css alone,
+   * which is the single best remaining target if anyone wants to move this number.
+   * The balance are SVG attrs and inline styles, which cannot carry a line-height
+   * at all, so this budget can never legitimately reach zero.
+   */
+  const BUDGET_UNLEADED = 60;
 
   const unleaded = ALL.filter((d) => !d.hasLineHeight && !d.composesRole);
 
   it(`has no more than ${BUDGET_UNLEADED} sites setting a size without leading`, () => {
-    if (unleaded.length > BUDGET_UNLEADED) {
-      throw new Error(
-        `Unleaded sites rose to ${unleaded.length} (budget ${BUDGET_UNLEADED}).\n` +
-          `Compose a role, or declare line-height alongside.\n` +
-          unleaded.slice(0, 25).map(fmt).join('\n'),
-      );
-    }
-    expect(unleaded.length).toBeLessThanOrEqual(BUDGET_UNLEADED);
+    ratchet('Unleaded sites', unleaded.length, BUDGET_UNLEADED,
+      'Compose a role, or declare line-height alongside.',
+      () => unleaded.slice(0, 25).map(fmt).join('\n'));
   });
 
   /**
@@ -357,15 +396,10 @@ describe('Guard B — size must travel with leading', () => {
         if (role.family && /font-family\s*:/.test(body)) bad.push(`${r} .${m[1]} family`);
       }
     }
-    if (bad.length > BUDGET_WEIGHT_FAMILY_OVERRIDES) {
-      throw new Error(
-        `Role weight/family overrides rose to ${bad.length} ` +
-          `(budget ${BUDGET_WEIGHT_FAMILY_OVERRIDES}). Equal specificity means the winner ` +
-          `depends on chunk order — pick a role that does not set the property instead.\n` +
-          bad.slice(0, 20).join('\n'),
-      );
-    }
-    expect(bad.length).toBeLessThanOrEqual(BUDGET_WEIGHT_FAMILY_OVERRIDES);
+    ratchet('Role weight/family overrides', bad.length, BUDGET_WEIGHT_FAMILY_OVERRIDES,
+      'Equal specificity means the winner depends on chunk order — pick a role that ' +
+        'does not set the property instead.',
+      () => bad.slice(0, 20).join('\n'));
   });
 });
 
@@ -380,6 +414,8 @@ describe('Guard C — focusable controls never below 16px (iOS zoom)', () => {
    * proof is the live DOM check in scripts/type-sweep.js.
    */
   const CONTROL_SELECTOR = /^\.(input|select|textarea|[\w-]*(Input|Select|Textarea|Field))$/;
+  /** LOCKED at Phase 6 at ZERO, and it is the one budget that must stay there:
+   *  every entry is a control that makes Mobile Safari zoom and not zoom back. */
   const BUDGET_CONTROL_CLASSES = 0;
 
   it(`has no more than ${BUDGET_CONTROL_CLASSES} control-like classes under 16px`, () => {
@@ -387,14 +423,9 @@ describe('Guard C — focusable controls never below 16px (iOS zoom)', () => {
       (d) => d.px !== null && d.px < 16 &&
         d.selector.split(',').some((s) => CONTROL_SELECTOR.test(s.trim())),
     );
-    if (offenders.length > BUDGET_CONTROL_CLASSES) {
-      throw new Error(
-        `Control-like classes under 16px rose to ${offenders.length} ` +
-          `(budget ${BUDGET_CONTROL_CLASSES}). These make iOS Safari zoom on focus — ` +
-          `compose the \`control\` role.\n` + offenders.map(fmt).join('\n'),
-      );
-    }
-    expect(offenders.length).toBeLessThanOrEqual(BUDGET_CONTROL_CLASSES);
+    ratchet('Control-like classes under 16px', offenders.length, BUDGET_CONTROL_CLASSES,
+      'These make iOS Safari zoom on focus — compose the `control` role.',
+      () => offenders.map(fmt).join('\n'));
   });
 
   it('has no literal input/select/textarea element selector under 16px', () => {
@@ -419,17 +450,22 @@ describe('Guard D — at-rules must not push below the floor', () => {
    * @media AND @supports/@container/@layer/@scope — @container is the modern
    * responsive-shrink mechanism and was invisible to the first version.
    */
-  const BUDGET_AT_RULE_SUB_14 = 14; // Phase 2
+  /**
+   * LOCKED at Phase 6. ⚠️ This is NOT 14 violations. Verified at Phase 6: all 14 are
+   * ROLE-valued — 5 `var(--t-caption-size)` (12), 8 `var(--t-meta-size)` (13), 1
+   * `var(--t-label-size)` (13) — and ZERO are raw numbers. They are counted only
+   * because the guard resolves the custom property so that carve-outs stay visible
+   * (see toPx). The thing this guard actually exists to catch — a media query
+   * shrinking type below the floor with a literal — reads zero, down from 36.
+   * Do not "fix" these; changing them would move correct roles off the scale.
+   */
+  const BUDGET_AT_RULE_SUB_14 = 14;
 
   it(`has no more than ${BUDGET_AT_RULE_SUB_14} at-rule declarations below 14px`, () => {
     const bad = CSS.filter((d) => d.inAtRule && d.px !== null && d.px < 14);
-    if (bad.length > BUDGET_AT_RULE_SUB_14) {
-      throw new Error(
-        `At-rule sub-14 rose to ${bad.length} (budget ${BUDGET_AT_RULE_SUB_14}).\n` +
-          bad.slice(0, 20).map(fmt).join('\n'),
-      );
-    }
-    expect(bad.length).toBeLessThanOrEqual(BUDGET_AT_RULE_SUB_14);
+    ratchet('At-rule sub-14', bad.length, BUDGET_AT_RULE_SUB_14,
+      'Small-viewport relief comes from LAYOUT, never from shrinking type.',
+      () => bad.slice(0, 20).map(fmt).join('\n'));
   });
 });
 
