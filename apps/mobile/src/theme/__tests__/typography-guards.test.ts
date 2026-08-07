@@ -181,8 +181,8 @@ describe('Guard D — raw fontSize budget ratchets down', () => {
    * adding a style outside the role system — migrate it instead of raising the
    * budget. Lower it whenever a pass drops it, so the ratchet keeps its teeth.
    */
-  const BUDGET = 341; // web-typography mobile sweep: 2 raw sizes -> roles, +1 tabBarLabelStyle,
-  // and comments no longer count toward the total (see stripComments below).
+  const BUDGET = 340; // welcome-screen emoji -> Lucide removed the last emoji fontSize;
+  // comments no longer count toward the total (see stripComments below).
 
   it('does not add raw fontSize declarations', () => {
     /**
