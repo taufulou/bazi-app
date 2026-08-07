@@ -47,8 +47,19 @@ const TOKEN_FILE = path.join(APP, 'styles/type.module.css');
 
 // ─────────────────────────────────────────────────────────── scope
 
-/** Fixed-canvas capture surfaces: a 1200x1600 coordinate space, not screen text. */
-const CAPTURE = /Shareable\w+\.module\.css$|[/\\]api[/\\]og[/\\]/;
+/**
+ * Fixed-canvas capture surfaces: a 1200x1600 coordinate space, not screen text.
+ *
+ * ⚠️ The `api/og` arm needs the `(^|[/\\])` alternation, NOT a bare `[/\\]`.
+ * `rel()` returns a path with NO leading slash, so `api/og/…/route.tsx` sits at the
+ * root of the relative path and a leading-slash-only pattern never matched it. That
+ * silently counted 5 declarations from the OG image route — an explicitly
+ * out-of-scope fixed canvas — inside the UNLEADED budget, and would have let an
+ * edit to that route trip a guard meant to ignore it. `EXCLUDE` below already had
+ * the alternation and the comment explaining why; this one did not. Found by the
+ * Phase 6 line audit.
+ */
+const CAPTURE = /Shareable\w+\.module\.css$|(^|[/\\])api[/\\]og[/\\]/;
 /** Owner-excluded: admin is internal tooling; ZwdsChart is out of scope. */
 const EXCLUDE = /(^|[/\\])admin[/\\]|Zwds/i; // NB: rel() has no leading slash
 /**
@@ -259,11 +270,16 @@ function ratchet(
 describe('Guard A — content floor (14px) and hard floor (12px)', () => {
   /**
    * LOCKED at Phase 6. Composition, so nobody mistakes it for 20 outstanding bugs:
-   * 11 CSS declarations (8 at 12px = the ornament floor, 2 at 13, 1 at 13.6) plus 9
-   * non-CSS sites — the SVG `fontSize` attrs in LuckPeriodChart / CompatibilityRadar
-   * and the inline styles in error.tsx / not-found.tsx. These are units, badges and
-   * chart tick labels sitting AT the ornament floor, not prose below it. The
-   * hard-floor metric (nothing under 12) is the one that reads zero.
+   * 11 CSS declarations (8 at 12px = the ornament floor, 2 at 13, 1 at 13.6), 8 SVG
+   * `fontSize` attrs (LuckPeriodChart x6, CompatibilityRadarChart x2 — chart tick
+   * labels at 12-13), and 1 inline style (LuckPeriodChart:305, the tooltip line
+   * raised 11.5 -> 13 in Phase 2). Units, badges and tick labels sitting AT the
+   * ornament floor — not prose below it. The hard-floor metric (nothing under 12)
+   * is the one that reads zero.
+   *
+   * NB error.tsx / not-found.tsx are NOT in this set: they sit at exactly 14, which
+   * is the floor and therefore passes. An earlier version of this note named them,
+   * which would have sent a reader hunting for a violation that is not there.
    */
   const BUDGET_SUB_14 = 20;
 
@@ -321,13 +337,20 @@ describe('Guard B — size must travel with leading', () => {
    * future reader does not read a rising budget as tolerated decay.
    */
   /**
-   * LOCKED at Phase 6. 35 of these are CSS and every one is at a size >= 14 — they
-   * are unleaded, not sub-floor. 21 of the 35 are in pricing/page.module.css alone,
-   * which is the single best remaining target if anyone wants to move this number.
-   * The balance are SVG attrs and inline styles, which cannot carry a line-height
-   * at all, so this budget can never legitimately reach zero.
+   * LOCKED at Phase 6 at 55 (was 60 — see the CAPTURE note at the top of this file;
+   * 5 of those were the out-of-scope OG image route leaking in).
+   *
+   * 35 CSS, 11 inline-style, 9 svg-attr. Every CSS entry is at a size >= 14, so
+   * these are unleaded, NOT sub-floor. 21 of the 35 sit in pricing/page.module.css
+   * alone — the single best target if anyone wants to move this number.
+   *
+   * Only the 9 SVG attrs are genuinely stuck: `fontSize=` is an attribute and has
+   * no leading counterpart. The 11 inline styles CAN take one — Phase 2 added
+   * `lineHeight` beside a `fontSize` in LuckPeriodChart's tooltip — so they are
+   * fixable, and an earlier version of this note wrongly wrote them off as
+   * impossible alongside the SVG attrs.
    */
-  const BUDGET_UNLEADED = 60;
+  const BUDGET_UNLEADED = 55;
 
   const unleaded = ALL.filter((d) => !d.hasLineHeight && !d.composesRole);
 
