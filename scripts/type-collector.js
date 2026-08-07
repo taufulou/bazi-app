@@ -32,6 +32,33 @@ const PORT = Number(arg('--port', '8099'));
 const CJK_FLOOR = 12;
 const ORNAMENT_FLOOR = 11;
 
+/**
+ * Does this string actually WRAP? Leading only matters on text that takes more than
+ * one line; a single-line chip or picker option renders identically leaded or not.
+ *
+ * CJK advance is 1em, so a run of N CJK characters at S points is about N*S wide.
+ * USABLE is the widest a text block gets on a 402pt screen after screen padding,
+ * card padding and any chip padding — deliberately generous, so this UNDER-reports
+ * rather than crying wolf. A ">= 12 characters" rule claimed 175 offenders; nearly
+ * all were chips that comfortably fit one line.
+ *
+ * ⚠️ KNOWN BLIND SPOT: it assumes a FULL-WIDTH container. Text in a narrow one — a
+ * centred label inside an energy ring, a half-width card, a column in a grid — wraps
+ * far below USABLE_PT and will not be flagged. EnergyScoreRing.microDisclaimer was
+ * exactly that case: 18 CJK chars at 12pt is only ~216pt, so this estimate would
+ * have missed it, and it was caught by reading the component instead.
+ *
+ * So "0 wrapping unleaded" is weaker evidence than "0 below floor", which is a
+ * direct measurement. Closing this properly needs the rendered width — an onLayout
+ * on each Text, or the host node's measured frame — not a character count.
+ */
+const USABLE_PT = 330;
+const wraps = (s) => {
+  const cjk = (s.text.match(/[㐀-䶿一-鿿]/g) || []).length;
+  const other = s.text.length - cjk;
+  return cjk * s.fontSize + other * s.fontSize * 0.55 > USABLE_PT;
+};
+
 fs.mkdirSync(OUT, { recursive: true });
 const safe = (s) => s.replace(/[^\w.-]+/g, '_').slice(0, 80) || 'root';
 
@@ -81,7 +108,7 @@ function summary() {
        * Flagging every unleaded label would drown the signal — it reported 1025
        * before this cut, nearly all single-line titles.
        */
-      if (s.cjk && s.lineHeight == null && s.text.length >= 12) {
+      if (s.cjk && s.lineHeight == null && wraps(s)) {
         unleaded.push({ ...s, screen: r.screen, platform: r.platform });
       }
     }
@@ -102,7 +129,7 @@ function summary() {
           `${String(o.owner || '?').padEnd(24)} ${o.screen.padEnd(22)} "${o.text.slice(0, 24)}"`
       )
     );
-  console.log(`\nLONG CJK (>=12 chars) WITHOUT LEADING — likely to wrap: ${unleaded.length}`);
+  console.log(`\nWRAPPING CJK WITHOUT LEADING (est. >${USABLE_PT}pt wide): ${unleaded.length}`);
   const byOwner = {};
   unleaded.forEach((u) => {
     const k = `${u.owner || '?'} (${u.fontSize ?? '-'}pt)`;
