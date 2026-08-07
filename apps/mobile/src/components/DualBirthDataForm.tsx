@@ -230,7 +230,8 @@ export default function DualBirthDataForm({
 const styles = StyleSheet.create({
   wrapper: { gap: spacing.lg },
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.xl, fontWeight: '700', color: colors.textAccent, textAlign: 'center' },
-  subtitle: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center', marginTop: -spacing.sm },
+  // `bodyTight` — a centred subtitle that wraps on a phone, so it needs its leading.
+  subtitle: { ...T.bodyTight, color: colors.textSecondary, textAlign: 'center', marginTop: -spacing.sm },
   typeRow: { flexDirection: 'row', gap: spacing.sm },
   typeBtn: {
     flex: 1,

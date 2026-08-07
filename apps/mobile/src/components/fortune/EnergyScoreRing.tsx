@@ -120,5 +120,9 @@ const styles = StyleSheet.create({
   // it sat at secondary-prose size under a 44pt number. Body (17) gives the
   // plain-language verdict the weight it earns; it wraps, so no width risk.
   friendlyExplanation: { ...T.body, color: colors.textSecondary, textAlign: 'center', paddingHorizontal: spacing.md },
-  microDisclaimer: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
+  // `caption` rather than a bare fontSize: this line is 18 CJK characters, centred
+  // and narrow, so it WRAPS — and unleaded CJK at the font's default leading is the
+  // exact defect the role system exists to prevent. Found by measuring the rendered
+  // tree; the web build's equivalent .microDisclaimer already carries leading.
+  microDisclaimer: { ...T.caption, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
 });

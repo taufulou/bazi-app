@@ -181,11 +181,23 @@ describe('Guard D — raw fontSize budget ratchets down', () => {
    * adding a style outside the role system — migrate it instead of raising the
    * budget. Lower it whenever a pass drops it, so the ratchet keeps its teeth.
    */
-  const BUDGET = 342; // web-typography Phase 4: hourWarnLead/hourWarnItem took T.bodyTight
+  const BUDGET = 341; // web-typography mobile sweep: 2 raw sizes -> roles, +1 tabBarLabelStyle,
+  // and comments no longer count toward the total (see stripComments below).
 
   it('does not add raw fontSize declarations', () => {
+    /**
+     * Comments are stripped FIRST. This grep counts the literal token, so a comment
+     * that merely mentions `fontSize:` — e.g. one explaining why a style stopped
+     * using it — counts as a declaration. That is not hypothetical: converting
+     * EnergyScoreRing.microDisclaimer to a role removed a declaration and the
+     * comment explaining the removal added one straight back, so the total did not
+     * move and a real improvement was invisible. A two-sided ratchet cannot do its
+     * job if prose can pay its budget.
+     */
+    const stripComments = (src: string) =>
+      src.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
     const count = FILES.reduce(
-      (n, f) => n + (fs.readFileSync(f, 'utf8').match(/fontSize:/g)?.length ?? 0),
+      (n, f) => n + (stripComments(fs.readFileSync(f, 'utf8')).match(/fontSize:/g)?.length ?? 0),
       0,
     );
     if (count > BUDGET) {
