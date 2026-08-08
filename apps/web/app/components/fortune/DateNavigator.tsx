@@ -19,7 +19,7 @@ import * as React from 'react';
 import DatePicker from 'react-datepicker';
 import { parse, format, isValid } from 'date-fns';
 import { ChevronDown, Lock, Calendar } from 'lucide-react';
-// Shared locale registration (same module DatePickerInput uses).
+// Shared zh-TW locale registration for react-datepicker.
 import '../../lib/date-locale';
 import 'react-datepicker/dist/react-datepicker.css';
 import {

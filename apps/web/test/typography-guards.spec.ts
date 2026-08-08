@@ -461,12 +461,13 @@ describe('Guard C — focusable controls never below 16px (iOS zoom)', () => {
       (d) => d.px !== null && d.px < 16 &&
         /(^|[\s>+~,])(input|select|textarea)\b/.test(d.selector),
     );
-    const ALLOW = new Set([
-      // Third-party react-datepicker chrome: non-module global stylesheet and a
-      // descendant selector, so it cannot compose (Carve-out B). Phase 1 target.
-      'components/DateTimePickerTheme.css',
-    ]);
-    expect(bad.filter((d) => !ALLOW.has(d.file)).map(fmt)).toEqual([]);
+    // No allowlist, and none is needed. The single entry that used to live here
+    // was components/DateTimePickerTheme.css, deleted along with its only
+    // importer DatePickerInput.tsx — nothing rendered either, so that warm picker
+    // theme had never actually shipped. The LIVE pickers are fortune's
+    // Date/Month/YearNavigator, and their react-datepicker chrome is sized in
+    // DateNavigator.module.css (the :global block there), not here.
+    expect(bad.map(fmt)).toEqual([]);
   });
 });
 

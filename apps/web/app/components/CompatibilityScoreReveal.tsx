@@ -1,5 +1,20 @@
 "use client";
 
+/**
+ * ⚠️ LOOKS DEAD. IS NOT — DO NOT DELETE.
+ *
+ * This is the V1 score reveal. It is imported and rendered by
+ * reading/compatibility/page.tsx, but only on the `!isCurrentRomance` branch —
+ * i.e. 事業 / 友誼 compatibility, which v1 ships with hidden (see CLAUDE.md:
+ * "合盤: only 感情 enabled"). So every path that reaches it is currently switched
+ * off at the product level, and a "who renders this?" search comes back looking
+ * like an orphan. The romance path uses CompatibilityScoreRevealV2 instead.
+ *
+ * Kept deliberately: 事業/友誼 are deferred, not cancelled, and deleting this means
+ * rebuilding it when they ship. The same is true of CompatibilityResultPage.tsx,
+ * which sits behind the identical gate.
+ */
+
 import { useState, useEffect, useRef, useCallback } from "react";
 import styles from "./CompatibilityScoreReveal.module.css";
 
