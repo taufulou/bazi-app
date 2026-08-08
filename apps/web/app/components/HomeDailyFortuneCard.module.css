@@ -183,7 +183,6 @@
 
 .setupTitle {
   composes: subsection from "../styles/type.module.css";
-  font-weight: 600;
   color: var(--text-accent);
 }
 

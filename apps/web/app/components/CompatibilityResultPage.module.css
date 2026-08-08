@@ -128,7 +128,6 @@
 .scoreLabel {
   composes: section from "../styles/type.module.css";
   color: #a0a0a0;
-  font-weight: 500;
 }
 
 .resultLabel {
@@ -255,7 +254,6 @@
   align-items: center;
   gap: 0.5rem;
   color: #e8d5b7;
-  font-weight: 600;
   margin-bottom: 1rem;
 }
 
@@ -489,7 +487,6 @@
 .luckSyncValue {
   composes: subsection from "../styles/type.module.css";
   color: #e8d5b7;
-  font-weight: 600;
 }
 
 /* ==== Actions Section ==== */

@@ -11,7 +11,6 @@
   composes: subsection from "../../styles/type.module.css";
   margin: 0 0 12px 0;
   color: var(--text-accent);
-  font-weight: 600;
   border-left: 3px solid var(--color-red);
   padding-left: 10px;
 }
@@ -50,7 +49,6 @@
 .folkValue {
   composes: section from "../../styles/type.module.css";
   margin: 4px 0;
-  font-weight: 600;
   color: var(--text-accent);
 }
 
@@ -243,7 +241,6 @@
 
 .previewTitle {
   composes: title from "../../styles/type.module.css";
-  font-weight: 600;
   color: var(--text-accent);
   margin: 0 0 12px 0;
 }
@@ -288,7 +285,6 @@
 
 .errorTitle {
   composes: title from "../../styles/type.module.css";
-  font-weight: 600;
   color: var(--text-accent);
   margin: 0 0 12px 0;
 }

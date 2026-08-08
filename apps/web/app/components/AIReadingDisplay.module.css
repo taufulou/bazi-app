@@ -133,7 +133,6 @@
 /* ==== Formatted Content Elements ==== */
 .contentSubHeader {
   composes: subsection from "../styles/type.module.css";
-  font-weight: 600;
   margin-top: 1.8rem;
   margin-bottom: 0.6rem;
   padding: 0.45rem 0.75rem;
@@ -249,7 +248,6 @@ li.goldBulletItemCategory {
 .paywallMessage {
   composes: subsection from "../styles/type.module.css";
   color: var(--text-primary);
-  font-weight: 600;
   margin-bottom: 0.3rem;
   text-align: center;
 }
@@ -611,7 +609,6 @@ li.goldBulletItemCategory {
 .lphPhaseLabel {
   composes: label from "../styles/type.module.css";
   color: #64b5f6;
-  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -655,7 +652,6 @@ li.goldBulletItemCategory {
 .detCardTitle {
   composes: subsection from "../styles/type.module.css";
   color: var(--text-primary);
-  font-weight: 600;
 }
 
 .detCardDisclaimer {
@@ -1222,9 +1218,12 @@ li.goldBulletItemCategory {
   margin-left: auto;
 }
 
+/* No local font-family: `section` already binds var(--font-heading), and
+   globals.css defines that AS var(--font-noto-serif-tc) — so the override was
+   restating the role in different words while competing with it at equal
+   specificity. */
 .verdictBannerScore {
   composes: section from "../styles/type.module.css";
-  font-family: var(--font-noto-serif-tc, serif);
 }
 .verdictBannerPositive .verdictBannerScore { color: #2E7D32; }
 .verdictBannerNegative .verdictBannerScore { color: #C62828; }

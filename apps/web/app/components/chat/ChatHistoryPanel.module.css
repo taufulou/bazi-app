@@ -31,7 +31,6 @@
 
 .title {
   composes: subsection from "../../styles/type.module.css";
-  font-weight: 600;
   color: var(--text-accent, #C41E3A);
 }
 

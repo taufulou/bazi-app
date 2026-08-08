@@ -13,7 +13,6 @@
 .panelLabel {
   composes: subsection from "../styles/type.module.css";
   color: var(--color-red, #c41e3a);
-  font-weight: 600;
   margin-bottom: 1rem;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--border-light);
@@ -29,7 +28,6 @@
   display: block;
   color: var(--text-secondary);
   margin-bottom: 0.4rem;
-  font-weight: 500;
 }
 
 /* Input + Select base styles */

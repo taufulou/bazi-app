@@ -96,12 +96,21 @@
    HERE rather than left to the call site: the comment previously claimed the
    binding while the rule set only size and leading, which made `subsection`
    visually identical to `control` and let a migrator drop the heading's weight
-   by trusting the docblock. */
+   by trusting the docblock.
+
+   ⚠️ 600, NOT 700 — and it is the one role whose weight was set by counting.
+   `composes` puts both class names on the element, so a role's weight and a local
+   `font-weight` are two rules at EQUAL specificity and the emitted order decides.
+   Measured in the browser: the local rule wins. The effect was that `subsection`
+   rendered 600 on 30 elements and 700 on 25 — one role, two weights. 30 call sites
+   having independently asked for 600 IS the design's answer, and 700 serif at 17px
+   is heavy for dense Chinese, so the role now binds what most of the app already
+   showed. Setting it back to 700 makes ~26 sub-headings a step bolder. */
 .subsection {
   font-size: 1.0625rem;
   line-height: 1.35;
   font-family: var(--font-heading);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* Primary running prose. 17 · 1.65 — CJK needs the loose leading. */

@@ -144,7 +144,6 @@
 .cardTitle {
   composes: subsection from "../../styles/type.module.css";
   color: var(--text-primary);
-  font-weight: 600;
   margin-bottom: 0.2rem;
 }
 

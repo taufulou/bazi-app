@@ -20,7 +20,6 @@
 
 .title {
   composes: subsection from "../../styles/type.module.css";
-  font-weight: 600;
   color: var(--text-accent);
   margin: 0;
   padding-left: 12px;
@@ -80,7 +79,6 @@
 
 .cardTitle {
   composes: subsection from "../../styles/type.module.css";
-  font-weight: 600;
   color: var(--text-primary);
   margin: 0;
 }

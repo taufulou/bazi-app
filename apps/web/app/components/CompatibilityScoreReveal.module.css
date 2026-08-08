@@ -155,7 +155,6 @@
   border: 1px solid rgba(212, 175, 55, 0.3);
   border-radius: 20px;
   color: #d4af37;
-  font-weight: 600;
   animation: specialReveal 0.8s ease-out;
   margin-top: 0.5rem;
 }

@@ -398,10 +398,15 @@ describe('Guard B — size must travel with leading', () => {
     return out;
   })();
 
-  const BUDGET_WEIGHT_FAMILY_OVERRIDES = 43; // Phase 2: 153 -> 43. The 113 removed were byte-identical to their role.
-  // The 43 that remain declare a DIFFERENT value (mostly weight 600 against a
-  // heading role that binds 700) — a design decision, not duplication, so they
-  // are left for the owner rather than silently restyled.
+  // 153 -> 43 (Phase 2, byte-identical duplicates) -> 0 (owner decision).
+  // ZERO IS THE POINT, not a milestone: at zero, exactly one rule sets a given
+  // element's weight, so what renders is what the source says. Above zero the
+  // winner is whichever rule the bundler emits last, which no test can see and no
+  // reviewer can read. That is how `subsection` came to render 600 on 30 elements
+  // and 700 on 25 — with the role, not the call sites, being the thing that was
+  // wrong. Resolve a new one by choosing a role that does not bind the property
+  // (`meta` for `label`, `control` for `subsection`), not by re-adding an override.
+  const BUDGET_WEIGHT_FAMILY_OVERRIDES = 0;
 
   it(`has no more than ${BUDGET_WEIGHT_FAMILY_OVERRIDES} blocks re-declaring a role's weight/family`, () => {
     const bad: string[] = [];

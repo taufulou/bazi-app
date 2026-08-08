@@ -7,8 +7,16 @@
 }
 
 /* ---- Header (toggle line). When expanded, merges with the list below into one panel. ---- */
+/* `control`, not `subsection`, even though this reads as a sub-heading: it is a
+   <button>, and a button does NOT inherit font-family from the page, so the
+   `font-family: inherit` below is a required reset. Against `subsection` — which
+   binds the serif — that reset was a second rule at equal specificity fighting the
+   role, and the reset happened to win. `control` is the same 17px and binds no
+   family and no weight, so the reset is now uncontested and the weight is stated
+   once, here. */
 .header {
-  composes: subsection from "../styles/type.module.css";
+  composes: control from "../styles/type.module.css";
+  font-weight: 600;
   display: flex;
   align-items: center;
   gap: 0.55rem;
