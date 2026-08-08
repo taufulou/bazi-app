@@ -103,9 +103,22 @@
    `font-weight` are two rules at EQUAL specificity and the emitted order decides.
    Measured in the browser: the local rule wins. The effect was that `subsection`
    rendered 600 on 30 elements and 700 on 25 — one role, two weights. 30 call sites
-   having independently asked for 600 IS the design's answer, and 700 serif at 17px
-   is heavy for dense Chinese, so the role now binds what most of the app already
-   showed. Setting it back to 700 makes ~26 sub-headings a step bolder. */
+   having independently asked for 600 IS the design's answer, so the role now binds
+   what most of the app already showed.
+
+   ⚠️ ON THE HEADING FACE, 600 AND 700 LOOK IDENTICAL. app/layout.tsx loads
+   Noto Serif TC at 400 and 700 ONLY, so CSS font matching resolves 500 and below
+   to REGULAR and 600 and above to BOLD — measured, not assumed (Latin probe:
+   w400 == w500 == 168.86px, w600 == w700 == 174.81px; CJK cannot show this because
+   its advance is a fixed 1em at every weight).
+
+   Two consequences worth knowing before touching any weight here:
+     · Choosing between 600 and 700 on a serif role is a no-op. The real fork is
+       "<=500 or >=600", i.e. Regular or Bold, with nothing in between.
+     · So a role's weight cannot express a THIRD tier. Where a serif element needs
+       to be quieter than a heading, compose `control` (same 17px, binds neither
+       family nor weight) and state the family and weight there — which is what
+       EnergyScoreRing .dateLine does. */
 .subsection {
   font-size: 1.0625rem;
   line-height: 1.35;
