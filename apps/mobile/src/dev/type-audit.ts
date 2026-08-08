@@ -28,6 +28,25 @@
  *
  * ⚠️ DEV ONLY. Guarded on `__DEV__` at both the import site and inside every export.
  * It must never run in a production bundle: it walks the entire tree on demand.
+ *
+ * COVERAGE, and what it still cannot see
+ * -------------------------------------
+ * All 16 iOS routes have been walked — the 13 signed-in ones plus /, /sign-in and
+ * /sign-up (which need a signed-OUT app, so the owner signed out and back in).
+ * 3,521 text nodes, 0 below floor. Reports archived at
+ * ~/.claude/plans/typography-migration/mobile-walk-ios/ to diff against.
+ *
+ * Two things this walks PAST, both found on the auth screens and neither a defect
+ * today — recorded so a later session does not assume they were covered:
+ *
+ *   1. TextInput PLACEHOLDERS. 「輸入您的電子郵件」 is a `placeholder` prop, not a
+ *      <Text> child, so it never enters the walk. It inherits the input's own
+ *      fontSize (17 on every form here — verified by reading source, NOT measured).
+ *   2. NAVIGATION HEADER TITLES. React Navigation renders them. That is the same
+ *      place the 10pt tab-bar label came from — the one real floor defect this tool
+ *      found — so it is the more valuable of the two to close.
+ *
+ * Android is unwalked: the app is not installed on the booted emulator.
  */
 import { StyleSheet, Platform } from 'react-native';
 
