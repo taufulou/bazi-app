@@ -141,9 +141,14 @@ function TypeAuditProbe() {
     if (!__DEV__) return;
     const a = setTimeout(() => void reportCurrentScreen(pathname), 1500);
     const b = setTimeout(() => void reportCurrentScreen(pathname), 6000);
+    // A pathname-only probe never sees content that arrives by STATE change on the
+    // same route — and on the reading screens that is the whole chart, because
+    // form -> result does not navigate. Re-sampling catches the settled screen.
+    const c = setInterval(() => void reportCurrentScreen(pathname), 15000);
     return () => {
       clearTimeout(a);
       clearTimeout(b);
+      clearInterval(c);
     };
   }, [pathname]);
   return null;

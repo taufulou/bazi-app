@@ -28,6 +28,17 @@ const PORT = Number(arg('--port', '8099'));
  * Floors, from CLAUDE.md's "Type floors (CJK)" note.
  * 12 is the floor for ANYTHING A USER READS, including dense tabular cells.
  * 11 survives only for non-CJK ornaments, where stroke density is not a factor.
+ *
+ * ⚠️ THIS DISAGREES WITH THE STATIC GUARD ON PURPOSE, so expect non-zero output.
+ * `theme/__tests__/typography-guards.test.ts` floors everything at 12 but carries a
+ * NAMED ALLOWLIST; this file has no allowlist, because it sees rendered glyphs and
+ * not the style names an allowlist is keyed on. So the two 10pt ◆ ornaments
+ * (`primitives.tsx dot`, `lifetime-cards.tsx layerMark` — both gold, non-CJK, both
+ * already decided on in that allowlist) surface here as offenders.
+ *
+ * Triage rule: a flagged node is only a DEFECT if it is CJK, or if it is an ornament
+ * with no entry in that allowlist. Do not "fix" it here by lowering the floor — that
+ * would also hide the next real one.
  */
 const CJK_FLOOR = 12;
 const ORNAMENT_FLOOR = 11;

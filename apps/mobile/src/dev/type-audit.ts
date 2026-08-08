@@ -29,24 +29,37 @@
  * ⚠️ DEV ONLY. Guarded on `__DEV__` at both the import site and inside every export.
  * It must never run in a production bundle: it walks the entire tree on demand.
  *
- * COVERAGE, and what it still cannot see
- * -------------------------------------
- * All 16 iOS routes have been walked — the 13 signed-in ones plus /, /sign-in and
- * /sign-up (which need a signed-OUT app, so the owner signed out and back in).
- * 3,521 text nodes, 0 below floor. Reports archived at
- * ~/.claude/plans/typography-migration/mobile-walk-ios/ to diff against.
+ * COVERAGE
+ * --------
+ * BOTH platforms walked, all 16 routes each — the 13 signed-in ones plus /,
+ * /sign-in and /sign-up. iOS 3,521 nodes; Android 2,883. 0 below floor on either.
+ * Reports archived at ~/.claude/plans/typography-migration/mobile-walk-{ios,android}/
+ * to diff against.
  *
- * Two things this walks PAST, both found on the auth screens and neither a defect
- * today — recorded so a later session does not assume they were covered:
+ * ⚠️ THE TWO PLATFORMS REPORT DIFFERENTLY, and it changes how you walk them:
+ * iOS keeps every tab MOUNTED, so one report is the union of all tabs (iOS /home
+ * contains 登出 and 購買點數與方案, and reads ~8,300 fibers). Android LAZY-MOUNTS —
+ * /home is 870 fibers and holds only /home. Android is therefore per-screen
+ * precise, but nothing comes for free: every screen must actually be visited.
+ *
+ * ⚠️ THE COLLECTOR KEEPS ONLY THE LATEST REPORT PER SCREEN. Re-visiting a screen in
+ * a LESS loaded state overwrites a better measurement — re-opening /reading/lifetime
+ * on its empty form silently replaced a 614-node chart report with a 94-node one and
+ * dropped the run total by ~560 nodes. Re-walk to a settled state before trusting a
+ * summary, and check per-screen counts, not just the total.
+ *
+ * What this walks PAST — recorded so a later session does not assume coverage:
  *
  *   1. TextInput PLACEHOLDERS. 「輸入您的電子郵件」 is a `placeholder` prop, not a
  *      <Text> child, so it never enters the walk. It inherits the input's own
  *      fontSize (17 on every form here — verified by reading source, NOT measured).
- *   2. NAVIGATION HEADER TITLES. React Navigation renders them. That is the same
- *      place the 10pt tab-bar label came from — the one real floor defect this tool
- *      found — so it is the more valuable of the two to close.
- *
- * Android is unwalked: the app is not installed on the booted emulator.
+ *      On ANDROID they are at least VISIBLE to `uiautomator dump` (exposed as an
+ *      EditText's `text`), which is a way in if this ever needs closing.
+ *   2. NAVIGATION HEADER TITLES were listed here as invisible. THEY ARE NOT — they
+ *      arrive as an `Animated(Text)` owner, and the Android walk read them at 20pt
+ *      against iOS's 17pt. That is React Navigation matching each platform's native
+ *      convention (iOS nav bar 17, Android app bar 20), not a defect; both clear the
+ *      12pt CJK floor. The tab-bar LABEL is a separate `Label` owner at 12pt.
  */
 import { StyleSheet, Platform } from 'react-native';
 
