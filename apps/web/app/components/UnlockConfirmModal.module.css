@@ -64,8 +64,10 @@
   /* `bodyTight`, NOT `caption`. This renders a two-sentence CJK paragraph
      (「用神、五行比重會標示…可另外建立一張新命盤查看完整分析。」), and 12px is the
      ORNAMENT floor — units, badge counts, non-CJK digits. The standard is explicit
-     that prose never goes there. Identical rule and identical copy in
-     CompatibilityRomancePaywallCTA.module.css; the two are meant to match. */
+     that prose never goes there. The same RULE (not the same sentence — the
+     合盤 one is framed around 日支夫妻宮) lives in
+     CompatibilityRomancePaywallCTA.module.css; the two styles are meant to match,
+     the copy is deliberately context-specific. */
   composes: bodyTight from "../styles/type.module.css";
   color: var(--text-muted);
   margin: 0;

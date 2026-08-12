@@ -635,6 +635,12 @@ describe('Guard F — token file and custom properties cannot drift', () => {
     const TYPE_PROPS = /^(font-size|line-height|font-weight|font-family|letter-spacing)$/;
     const bad: string[] = [];
     for (const file of walk(APP, /\.css$/)) {
+      // Same scope as every other guard here: skip capture surfaces, admin/ZWDS,
+      // and the token file itself. Without this the guard would fail on files this
+      // whole effort deliberately does not apply to, which is how a guard earns a
+      // reputation for crying wolf and stops being read.
+      const r = rel(file);
+      if (!inScope(r)) continue;
       const text = blankComments(fs.readFileSync(file, 'utf8'));
       for (const m of text.matchAll(/\{([^{}]*)\}/g)) {
         const counts: Record<string, number> = {};
@@ -645,7 +651,7 @@ describe('Guard F — token file and custom properties cannot drift', () => {
         for (const [key, n] of Object.entries(counts)) {
           if (n > 1) {
             const line = text.slice(0, m.index ?? 0).split('\n').length;
-            bad.push(`${rel(file)}:~${line} — "${key}" declared ${n}x (only the LAST applies)`);
+            bad.push(`${r}:~${line} — "${key}" declared ${n}x (only the LAST applies)`);
           }
         }
       }

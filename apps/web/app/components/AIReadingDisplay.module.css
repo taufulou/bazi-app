@@ -1638,6 +1638,7 @@ li.goldBulletItemCategory {
 }
 
 .dimChartHeader strong {
+  /* Carve-out B (descendant selector) — cannot compose a role. */
   font-size: 1.1rem;
   line-height: 1.5;
   font-family: var(--font-noto-serif-tc), serif;

@@ -90,7 +90,7 @@
 }
 
 .userName {
-  composes: bodyTight from "styles/type.module.css";
+  composes: bodyTight from "./styles/type.module.css";
   color: var(--text-secondary);
 }
 
@@ -115,7 +115,7 @@
 }
 
 .welcomeTitle {
-  composes: title from "styles/type.module.css";
+  composes: title from "./styles/type.module.css";
   color: var(--text-primary);
   margin: 0;
   text-shadow: 0 1px 8px rgba(var(--bg-primary-rgb), 0.9); /* Warm cream glow for text over background image */
@@ -128,7 +128,7 @@
 }
 
 .quickLink {
-  composes: bodyTight from "styles/type.module.css";
+  composes: bodyTight from "./styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -236,13 +236,13 @@
 }
 
 .cardTitle {
-  composes: subsection from "styles/type.module.css";
+  composes: subsection from "./styles/type.module.css";
   color: var(--text-primary);
   margin-bottom: 0.2rem;
 }
 
 .cardDescription {
-  composes: meta from "styles/type.module.css";
+  composes: meta from "./styles/type.module.css";
   color: var(--text-secondary);
   display: -webkit-box;
   -webkit-line-clamp: 2;

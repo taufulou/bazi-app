@@ -180,6 +180,7 @@
 }
 
 .reassuranceContent strong {
+  /* Carve-out B (descendant selector) — cannot compose a role. */
   font-size: 0.9rem;
   line-height: 1.45;
   display: block;
