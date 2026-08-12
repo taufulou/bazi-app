@@ -77,6 +77,6 @@ const styles = StyleSheet.create({
   dimName: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
   stars: { flexDirection: 'row', gap: 2 },
   star: { fontSize: fontSize.lg },
-  keyword: { ...T.meta, color: colors.textSecondary, textAlign: 'center' },
+  keyword: { ...T.bodyTight, color: colors.textSecondary, textAlign: 'center' },
   dimLabel: { fontSize: fontSize.sm, fontWeight: '700' },
 });

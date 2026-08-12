@@ -2,7 +2,7 @@ import { useAuth } from '@clerk/clerk-expo';
 import { Redirect, useLocalSearchParams } from 'expo-router';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, ScrollView, StyleSheet, ActivityIndicator, Alert } from 'react-native';
-import { colors, spacing, fontSize, radius, fonts, rhythm } from '../../theme';
+import { colors, spacing, fontSize, radius, fonts, rhythm, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import EnergyScoreRing from '../../components/fortune/EnergyScoreRing';
 import DimensionBars from '../../components/fortune/DimensionBars';
@@ -1013,10 +1013,10 @@ const styles = StyleSheet.create({
   // day
   dayWrap: { gap: spacing.xl },
   loadingBox: { alignItems: 'center', justifyContent: 'center', gap: spacing.md, paddingVertical: spacing.xxl * 2 },
-  loadingText: { fontSize: fontSize.sm, color: colors.textSecondary },
+  loadingText: { ...T.body, color: colors.textSecondary},
   errorBox: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xxl, backgroundColor: colors.bgCard, borderRadius: radius.lg, padding: spacing.xl },
   errorTitle: { fontFamily: fonts.serifBold, fontSize: fontSize.lg, fontWeight: '700', color: colors.textPrimary },
-  errorMsg: { fontSize: fontSize.sm, color: colors.textSecondary, textAlign: 'center' },
+  errorMsg: { ...T.body, color: colors.textSecondary, textAlign: 'center' },
   retryBtn: { backgroundColor: colors.red, borderRadius: radius.md, paddingVertical: spacing.md, paddingHorizontal: spacing.xl, marginTop: spacing.sm },
   retryText: { color: colors.textOnRed, fontSize: fontSize.base, fontWeight: '700' },
   // stream-error banner (post-engine narration failure)
@@ -1031,6 +1031,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     padding: spacing.md,
   },
-  bannerText: { flex: 1, fontSize: fontSize.sm, color: colors.textSecondary },
+  bannerText: { flex: 1, ...T.body, color: colors.textSecondary },
   bannerRetry: { fontSize: fontSize.sm, fontWeight: '700', color: colors.red },
 });

@@ -181,8 +181,9 @@ describe('Guard D — raw fontSize budget ratchets down', () => {
    * adding a style outside the role system — migrate it instead of raising the
    * budget. Lower it whenever a pass drops it, so the ratchet keeps its teeth.
    */
-  const BUDGET = 340; // welcome-screen emoji -> Lucide removed the last emoji fontSize;
-  // comments no longer count toward the total (see stripComments below).
+  const BUDGET = 325; // 340 -> 325: the fortune-surface type uplift moved 15 raw
+  // `fontSize.sm` prose declarations onto the `body` / `bodyTight` roles.
+  // Comments no longer count toward the total (see stripComments below).
 
   it('does not add raw fontSize declarations', () => {
     /**

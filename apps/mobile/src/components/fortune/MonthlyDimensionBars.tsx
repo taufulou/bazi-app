@@ -70,6 +70,6 @@ const styles = StyleSheet.create({
   },
   barFill: { width: '100%', borderRadius: radius.sm },
   score: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
-  dimName: { ...T.meta, color: colors.textSecondary },
-  dimLabel: { ...T.meta, fontWeight: '600' },
+  dimName: { ...T.bodyTight, color: colors.textSecondary },
+  dimLabel: { ...T.bodyTight, fontWeight: '600' },
 });

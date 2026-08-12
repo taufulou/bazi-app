@@ -190,12 +190,12 @@ const styles = StyleSheet.create({
   dimBlock: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
   dimHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
   dimTitle: { ...T.subsection, color: colors.textPrimary },
-  // Same field as YearlyDimensionStars.keyword, which is T.meta — both render on
+  // Same field as YearlyDimensionStars.keyword, which is T.bodyTight — both render on
   // the 年運 tab, so they must not disagree.
-  dimKeyword: { ...T.meta, color: colors.textSecondary, flex: 1 },
+  dimKeyword: { ...T.bodyTight, color: colors.textSecondary, flex: 1 },
   dimBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: spacing.sm, paddingVertical: 2, borderRadius: 999, borderWidth: 1 },
   dimBadgeDot: { width: 6, height: 6, borderRadius: 3 },
-  dimBadgeLabel: { ...T.meta, fontWeight: '600' },
+  dimBadgeLabel: { ...T.bodyTight, fontWeight: '600' },
   dimBody: { fontSize: fontSize.base, color: colors.textPrimary, lineHeight: 28 },
   dimEmpty: { fontSize: fontSize.sm, color: colors.textMuted },
   adviceCard: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
@@ -205,5 +205,5 @@ const styles = StyleSheet.create({
   skeletonProse: { gap: 6, marginTop: spacing.xs },
   skeletonLine: { height: 12, borderRadius: 4, backgroundColor: colors.ruleHair },
   fallback: { gap: spacing.md },
-  fallbackLead: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
+  fallbackLead: { ...T.body, color: colors.textSecondary },
 });

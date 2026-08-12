@@ -8,7 +8,7 @@ import BirthDataForm, {
   type BirthDataFormValues,
   type SaveProfileIntent,
 } from "../../components/BirthDataForm";
-import BaziChart from "../../components/BaziChart";
+import BaziChart, { CHART_REVEAL_SECTIONS } from "../../components/BaziChart";
 import SignedOutInterstitial from "../../components/SignedOutInterstitial";
 import ZwdsChart from "../../components/ZwdsChart";
 import AIReadingDisplay, { V2_ALL_SECTION_KEYS, ANNUAL_V2_ALL_SECTION_KEYS } from "../../components/AIReadingDisplay";
@@ -353,7 +353,7 @@ export default function ReadingPage() {
     userScrolledRef.current = false;
     let idx = 1;
     function revealNext() {
-      if (idx >= 6) { setIsRevealing(false); return; }
+      if (idx >= CHART_REVEAL_SECTIONS) { setIsRevealing(false); return; }
       revealTimerRef.current = setTimeout(() => {
         idx++;
         setRevealedSections(idx);

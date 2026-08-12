@@ -191,6 +191,34 @@ const PILLAR_LABELS: Record<string, string> = {
   year: "年柱", month: "月柱", day: "日柱", hour: "時柱",
 };
 
+/**
+ * The standalone 神煞 & 空亡 section (index 5), turned OFF at the owner's request.
+ *
+ * It was always a second rendering of data the pillars table already shows: the
+ * 神煞 row carries the same names per pillar, so the section repeated them in a
+ * flat list and added 空亡. Hidden rather than deleted — flip to `true` to bring
+ * it back. Note 空亡 does NOT disappear entirely: the engine can return it as one
+ * of a pillar's 神煞 names, and that renders in the 神煞 ROW of the pillars table,
+ * which is untouched. What is gone is this section's flat list and its 「空亡：」 line.
+ *
+ * Kept here rather than pushed to call sites so both the reading page and compat
+ * agree; compat already passed `hideSections={[2, 4, 5]}`, so this only changes
+ * what the reading page shows. Mobile mirrors this in its own BaziChart.
+ */
+const SHOW_SHENSHA_SECTION = false;
+
+/**
+ * How many sections the staged reveal should walk — DERIVED from the flag above,
+ * not hardcoded, so the two can never drift.
+ *
+ * They did drift the moment 神煞 was hidden: the driver still stepped to 6, so the
+ * reveal sat on 「正在排列神煞...」 for CHART_REVEAL_DELAYS[5] = 1200ms and then ended
+ * with nothing new on screen — a spinner promising content that no longer exists.
+ * Exported because the driver lives in reading/[type]/page.tsx; importing it means
+ * turning the flag back on restores that step automatically.
+ */
+export const CHART_REVEAL_SECTIONS = SHOW_SHENSHA_SECTION ? 6 : 5;
+
 export default function BaziChart({ data, name, birthDate, birthTime, visibleSections, hideSections, isSubscriber, gender, onElementClick }: BaziChartProps) {
   const { fourPillars: fp, dayMaster: dm, lunarDate } = data;
   // 時辰未知: the engine blanks the hour pillar (empty stem) for unknown-時辰 charts.
@@ -362,20 +390,31 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
                             className={`${styles.hiddenStem} ${styles.clickableInline}`}
                             onClick={() => handleElementClick("hidden_stem", hsg.stem, p.key)}
                           >
+                            {/* TEN GOD FIRST, and it is the prominent line. The
+                                十神 is the interpretation — what the hidden stem
+                                MEANS — while 庚金 is the raw datum you can already
+                                read off the branch. The emphasis used to be the
+                                other way round.
+                                No full-width（）— they are a whole character wide
+                                each in CJK and were tripling this cell's required
+                                width. See .hiddenStemGod in BaziChart.module.css. */}
+                            <span className={styles.hiddenStemGod}>{hsg.tenGod}</span>
                             {/* No opacity fade. It was `i === 0 ? 1 : 0.7`, which
                                 pushed 庚金 to 2.21:1 against the white card — below
                                 even the 3:1 large-text floor. 本氣/中氣/餘氣 rank is
                                 already carried by ORDER; it does not need to be
-                                paid for in contrast. */}
-                            <span style={{
-                              color: getChartElementTextColor(hsg.element || STEM_ELEMENT[hsg.stem] || "土"),
-                            }}>
+                                paid for in contrast. The element colour stays here
+                                even though this is now the smaller line — that is
+                                what `getChartElementTextColor` exists for, as it
+                                returns the AA-safe cut for small text. */}
+                            <span
+                              className={styles.hiddenStemElement}
+                              style={{
+                                color: getChartElementTextColor(hsg.element || STEM_ELEMENT[hsg.stem] || "土"),
+                              }}
+                            >
                               {hsg.stem}{hsg.element || STEM_ELEMENT[hsg.stem]}
                             </span>
-                            {/* No full-width（）— they are a whole character wide
-                                each in CJK and were tripling this cell's required
-                                width. See .hiddenStemGod in BaziChart.module.css. */}
-                            <span className={styles.hiddenStemGod}>{hsg.tenGod}</span>
                           </span>
                         ))
                       : (p.data.hiddenStems || []).map((hs, i) => (
@@ -647,8 +686,8 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
         </div>
       )}
 
-      {/* Section 5: Shen Sha & Kong Wang */}
-      {isVisible(5) && revealWrap(
+      {/* Section 5: Shen Sha & Kong Wang — hidden, see SHOW_SHENSHA_SECTION */}
+      {SHOW_SHENSHA_SECTION && isVisible(5) && revealWrap(
         <div className={styles.section}>
           <h3 className={styles.sectionTitle}>神煞</h3>
           {data.allShenSha.length > 0 ? (
@@ -697,7 +736,7 @@ export default function BaziChart({ data, name, birthDate, birthTime, visibleSec
       )}
 
       {/* Loading placeholder for next section during staged reveal */}
-      {isRevealing && visibleSections! < 6 && !hideSections && (
+      {isRevealing && visibleSections! < CHART_REVEAL_SECTIONS && !hideSections && (
         <div className={styles.revealPlaceholder} data-reveal-placeholder>
           <span className={styles.revealSpinner} />
           <span className={styles.revealMessage}>{REVEAL_MESSAGES[visibleSections!]}</span>

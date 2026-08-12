@@ -176,10 +176,11 @@
   overflow-wrap: break-word;
 }
 
-/* Each 藏干 is now TWO stacked lines (stem, then its ten god), so the gap BETWEEN
-   stems has to be clearly larger than the gap inside one — otherwise a branch
-   holding three hidden stems reads as six evenly-spaced lines with no grouping.
-   Same principle as `rhythm` in the mobile theme: space encodes grouping. */
+/* Each 藏干 is TWO stacked lines — the ten god, then its stem+element beneath —
+   so the gap BETWEEN stems has to be clearly larger than the gap inside one,
+   otherwise a branch holding three hidden stems reads as six evenly-spaced lines
+   with no grouping. Same principle as `rhythm` in the mobile theme: space encodes
+   grouping. */
 .hiddenStem {
   composes: cell from "../styles/type.module.css";
   display: block;
@@ -203,11 +204,30 @@
  * on a 320px phone, without a scroll container. The parentheses are dropped in
  * BaziChart.tsx — do not put them back.
  */
+/**
+ * The TEN GOD is the prominent line of the pair, and the 干+五行 below it is the
+ * quiet one — the reverse of how this started. Rationale: 食神 / 正印 is the
+ * interpretation, while 庚金 restates a stem you can already read off the branch
+ * row above.
+ *
+ * Prominence is bought with WEIGHT and COLOUR, not size: this stays on `cell`
+ * (14px), because 14 is exactly what makes the cell fit on a 320px phone without
+ * a scroll container (see the note above). Going up a step here would undo that.
+ */
 .hiddenStemGod {
+  composes: cell from "../styles/type.module.css";
+  display: block;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* The quiet line. Keeps its element colour — set inline from
+   getChartElementTextColor, which returns the darker small-text cut (金 #8F6707,
+   土 #7A5B50) precisely so this stays AA-legible at 13px. */
+.hiddenStemElement {
   font-size: var(--t-meta-size);
   line-height: var(--t-meta-leading);
   display: block;
-  color: var(--text-secondary);
   font-weight: 400;
 }
 

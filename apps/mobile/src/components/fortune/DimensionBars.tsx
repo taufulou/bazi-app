@@ -74,7 +74,7 @@ const styles = StyleSheet.create({
   score: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, fontWeight: '700', color: colors.textPrimary },
   // The dimension names (感情/事業/財運/出行/健康) are what the bar chart is ABOUT —
   // they were a caption size, level with the disclaimers.
-  dimName: { ...T.meta, color: colors.textSecondary },
-  // Sibling of dimName (13) — the verdict word sat a rung behind its own label.
-  dimLabel: { ...T.meta, fontWeight: '600' },
+  dimName: { ...T.bodyTight, color: colors.textSecondary },
+  // Sibling of dimName (15) — the verdict word sat a rung behind its own label.
+  dimLabel: { ...T.bodyTight, fontWeight: '600' },
 });
