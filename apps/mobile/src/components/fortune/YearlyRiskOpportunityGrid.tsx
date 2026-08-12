@@ -141,11 +141,12 @@ const styles = StyleSheet.create({
   },
   entryHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   entryMonth: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
-  // meta, not label — every other dimension name in the app (DimensionBars,
-  // MonthlyDimensionBars, YearlyDimensionStars) uses meta.
-  entryDim: { ...T.meta, color: colors.textSecondary },
-  entryLabel: { ...T.meta, color: colors.textAccent, fontWeight: '600' },
+  // `bodyTight`, matching every other dimension name on the fortune surface
+  // (DimensionBars, MonthlyDimensionBars, YearlyDimensionStars) — they were all
+  // raised off `meta` together, so this stays consistent with its siblings.
+  entryDim: { ...T.bodyTight, color: colors.textSecondary },
+  entryLabel: { ...T.bodyTight, color: colors.textAccent, fontWeight: '600' },
   entryKeyword: { fontSize: fontSize.sm, color: colors.textAccent, fontWeight: '600' },
-  entryNarrative: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
+  entryNarrative: { ...T.body, color: colors.textSecondary },
   caveatTag: { ...T.meta, color: colors.textMuted, fontStyle: 'italic' },
 });

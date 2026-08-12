@@ -30,11 +30,9 @@ li.goldBulletItemCategory {
 }
 
 .contentSubHeader {
-  font-size: 0.95rem;
-  font-weight: 700;
+  composes: subsection from "../styles/type.module.css";
   color: var(--text-accent, #C41E3A);
   margin: 1rem 0 0.4rem 0;
-  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .contentParagraph {
@@ -56,8 +54,12 @@ li.goldBulletItemCategory {
   font-weight: 400;
 }
 
+/* Was `font-size: 0.90em` — the ONE site Guard A could not resolve, because em
+   depends on an ancestor and compounds when nested. It renders inside migrated
+   `body` prose (17), so 0.90em was ~15.3px; `bodyTight` states that absolutely
+   and becomes measurable. */
 .bulletCategoryItems {
+  composes: bodyTight from "../styles/type.module.css";
   display: inline;
   color: var(--text-secondary, #6B5940);
-  font-size: 0.90em;
 }

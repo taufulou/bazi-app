@@ -57,6 +57,32 @@ const shenShaTone = (name: string): ShenShaTone => {
 /** How many 神煞 to show per cell before collapsing behind a “＋N” control. */
 const SHENSHA_COLLAPSE_AT = 3;
 
+/**
+ * The standalone 「神煞 & 空亡」 card (section 5), turned OFF at the owner's request.
+ *
+ * It was always a second rendering of what the pillars table already shows — the
+ * 神煞 row lists the same names per pillar — plus 空亡. Hidden rather than deleted;
+ * flip to `true` to bring it back. Note 空亡 does NOT disappear entirely: the engine
+ * can return it as one of a pillar's 神煞 names, which renders in the 神煞 ROW of the
+ * pillars table and is untouched. What goes is this card's flat list and 「空亡：」.
+ *
+ * Mirrors SHOW_SHENSHA_SECTION in apps/web/app/components/BaziChart.tsx — keep
+ * the two in step.
+ */
+const SHOW_SHENSHA_SECTION = false;
+
+/**
+ * How many sections the staged reveal should walk — DERIVED from the flag above,
+ * not hardcoded, so the two can never drift.
+ *
+ * They did drift the moment 神煞 was hidden: the driver still stepped to 6, so the
+ * reveal sat on 「正在排列神煞…」 for CHART_REVEAL_DELAYS[5] = 1200ms and then ended
+ * with nothing new on screen — a spinner promising content that no longer exists.
+ * Exported because the driver lives in app/reading/[type].tsx; importing it means
+ * turning the flag back on restores that step automatically.
+ */
+export const CHART_REVEAL_SECTIONS = SHOW_SHENSHA_SECTION ? 6 : 5;
+
 /** 大運 card stride — fixed so the current-period autoscroll can be computed. */
 const LUCK_CARD_W = 104;
 const LUCK_GAP = spacing.sm;
@@ -350,20 +376,19 @@ export default function BaziChart({
                       accessibilityRole="button"
                       style={[styles.hiddenStemGroup, i > 0 && styles.hiddenStemGroupGap]}
                     >
-                      <Text
-                        style={[
-                          styles.hiddenStem,
-                          { color: getChartElementTextColor(h.element) },
-                          // 本氣 (first) carries full weight; 中氣/餘氣 recede via
-                          // size+colour rather than the old opacity dimming, which
-                          // pushed them below readable contrast.
-                          i > 0 && styles.hiddenStemMinor,
-                        ]}
-                      >
+                      {/* TEN GOD FIRST, and it is the prominent line: 食神 / 正印
+                          is the interpretation, while 庚金 restates a stem already
+                          readable from the branch row.
+                          UNIFORM across 本氣/中氣/餘氣 — every ten god gets the 本氣
+                          treatment. Rank is carried by ORDER alone, which is enough
+                          and costs no legibility; the earlier attempts to encode it
+                          in the type (first an opacity fade, then a size step) only
+                          ever made the lower rows harder to read. */}
+                      <Text style={styles.hiddenStemGod}>{zh(h.tenGod)}</Text>
+                      <Text style={[styles.hiddenStem, { color: getChartElementTextColor(h.element) }]}>
                         {h.stem}
                         {h.element}
                       </Text>
-                      <Text style={styles.hiddenStemGod}>{zh(h.tenGod)}</Text>
                     </Pressable>
                   ))
                 ) : (col.p.hiddenStems || []).length ? (
@@ -612,7 +637,7 @@ export default function BaziChart({
             strength bar — was white 10pt on saturated Material green/orange,
             measuring 2.10:1 and 2.03:1 against a 4.5:1 requirement. Now dark ink
             on light tints of the same hues: >9:1, on-palette against cream, and
-            the label sits at 13pt instead of 10.
+            the label sits at 15pt instead of 10.
           */}
           <View style={styles.strengthBar}>
             <View style={[styles.strengthSame, { flex: Math.max(dm.sameParty, 1) }]}>
@@ -707,8 +732,8 @@ export default function BaziChart({
         </View>
       ) : null}
 
-      {/* 神煞 & 空亡 */}
-      {isVisible(5) ? (
+      {/* 神煞 & 空亡 — hidden, see SHOW_SHENSHA_SECTION */}
+      {SHOW_SHENSHA_SECTION && isVisible(5) ? (
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>{zh('神煞 & 空亡')}</Text>
         <View style={styles.tagWrap}>
@@ -757,7 +782,7 @@ export default function BaziChart({
       ) : null}
 
       {/* Between-stage reveal placeholder (spinner + contextual message). */}
-      {revealing && (visibleSections ?? 6) < 6 ? (
+      {revealing && (visibleSections ?? CHART_REVEAL_SECTIONS) < CHART_REVEAL_SECTIONS ? (
         <View style={styles.revealPlaceholder}>
           <ActivityIndicator color={colors.red} />
           <Text style={styles.revealText}>{zh(REVEAL_MESSAGES[visibleSections ?? 0] ?? '')}</Text>
@@ -941,10 +966,12 @@ const styles = StyleSheet.create({
   // and absorb whatever the label takes. 8pt of inset is still ample given the
   // card's own 20pt padding sits outside it.
   labelCell: { width: 68, justifyContent: 'center', paddingVertical: spacing.sm, paddingLeft: spacing.sm },
-  // The row labels (十神/天干地支/藏干/十二運/納音/神煞) are LABELS, not captions — they
-  // name every row the reader scans by, so `T.label` (13, a little weight) separates
-  // them from the 12pt data they introduce. Tracking is zeroed: T.label's +0.52
-  // buys nothing on a left-aligned CJK label and costs 2pt of a tight cell.
+  // The row labels (十神/天干地支/藏干/十二運/納音/神煞) stay on `T.label` (13 + weight)
+  // while the data they introduce now runs 14–17. That inversion is deliberate: the
+  // labels are a fixed spine the eye scans down once, whereas the cells are what is
+  // actually read, and the 68pt label column has no room to grow. Weight, not size,
+  // is what separates them. Tracking is zeroed: T.label's +0.52 buys nothing on a
+  // left-aligned CJK label and costs 2pt of a tight cell.
   labelText: { ...T.label, letterSpacing: 0, color: colors.textMuted },
   pillarHead: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm },
   pillarHeadDay: { backgroundColor: '#FDEFE4' },
@@ -959,18 +986,23 @@ const styles = StyleSheet.create({
   dayYuan: { ...T.label, color: colors.textMuted },
   ganZhi: T.ganzhi,
   unknownStem: { ...T.bodyTight, color: colors.textMuted },
-  zodiac: { ...T.meta, color: colors.textMuted },
+  zodiac: { ...T.bodyTight, color: colors.textMuted },
 
   // ── 藏干 (two-line, see the row comment) ──
   hiddenStemGroup: { alignItems: 'center' },
   hiddenStemGroupGap: { marginTop: spacing.xs },
-  // 16 / 15 / 13. 本氣 leads so the primary hidden stem reads first; 中氣/餘氣 step
-  // down one rung (`bodyTight`), and the ten-god gloss below them is quieter again
-  // (`meta`). Two chars need 32pt of a 61pt column at 360dp, so none of this is
-  // width-bound — these sat at 14/13/12 purely because nobody had measured.
-  hiddenStem: { fontSize: 16, lineHeight: 21, fontWeight: '600', textAlign: 'center' },
-  hiddenStemMinor: { ...T.bodyTight, fontWeight: '400' },
-  hiddenStemGod: { ...T.meta, color: colors.textMuted, textAlign: 'center' },
+  // 16 over 15, and the SAME 16 for every rank. The ten god leads the pair and the
+  // 干+五行 sits under it; rank (本氣/中氣/餘氣) is carried by ORDER alone. Two earlier
+  // passes tried to encode rank in the type — first an opacity fade, then a size
+  // step — and both only made the lower rows harder to read.
+  // Two chars need 32pt of a 61pt column at 360dp, so none of this is width-bound;
+  // these sat at 14/13/12 purely because nobody had measured.
+  // The pair is deliberately inverted vs. how it started: the TEN GOD is the
+  // prominent line and the 干+五行 is the quiet one. The element colour stays on
+  // the quiet line — `getChartElementTextColor` returns the darker small-text cut
+  // (金 #8F6707) precisely so it survives at this size.
+  hiddenStemGod: { fontSize: 16, lineHeight: 21, fontWeight: '600', textAlign: 'center', color: colors.textPrimary },
+  hiddenStem: { ...T.bodyTight, textAlign: 'center' },
 
   // ── 神煞 ──
   // Was a bordered pill. The pill cost 14pt of horizontal chrome (2x6 padding +
@@ -1034,19 +1066,20 @@ const styles = StyleSheet.create({
   },
   dmStat: { flex: 1, alignItems: 'center', gap: 2, paddingHorizontal: spacing.xs },
   dmDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.ruleHair, marginVertical: spacing.xs },
-  // 日主 / 旺衰 / 格局 — column headers, so T.label, matching the table's labelText.
-  dmLabel: { ...T.label, color: colors.textMuted },
+  // 日主 / 旺衰 / 格局 — column headers. `bodyTight` + 600: raised off `label` (13)
+  // because 13 read as too small here, but the 600 keeps them reading as labels.
+  dmLabel: { ...T.bodyTight, fontWeight: '600', color: colors.textMuted },
   dmValue: { fontFamily: fonts.serifBold, fontSize: 22, lineHeight: 29, fontWeight: '700', color: colors.textPrimary },
-  dmSub: { ...T.meta, color: colors.textSecondary },
+  dmSub: { ...T.bodyTight, color: colors.textSecondary },
 
   strengthBar: { flexDirection: 'row', height: 30, borderRadius: radius.sm, overflow: 'hidden', marginVertical: spacing.sm, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.ruleHair },
   strengthSame: { backgroundColor: 'rgba(139,195,74,0.30)', alignItems: 'center', justifyContent: 'center' },
   strengthOpp: { backgroundColor: 'rgba(245,166,35,0.32)', alignItems: 'center', justifyContent: 'center' },
-  strengthBarText: { ...T.label, color: colors.textPrimary },
+  strengthBarText: { ...T.bodyTight, fontWeight: '600', color: colors.textPrimary },
 
   godsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.xs },
   godTag: { alignItems: 'center', gap: 2 },
-  godLabel: { ...T.label, color: colors.textMuted },
+  godLabel: { ...T.bodyTight, fontWeight: '600', color: colors.textMuted },
   godVal: { fontFamily: fonts.serifBold, fontSize: 19, lineHeight: 24, fontWeight: '700' },
 
   // ── 大運 ──

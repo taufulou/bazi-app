@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
   },
   chipDisabled: { opacity: 0.6 },
   chipName: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary, flexShrink: 1 },
-  chipRel: { ...T.meta, color: colors.textMuted },
+  chipRel: { ...T.bodyTight, color: colors.textMuted },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: colors.bgSecondary,
@@ -171,10 +171,10 @@ const styles = StyleSheet.create({
   optionNameSelected: { fontWeight: '700', color: colors.red },
   optionMeta: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   relTag: {
-    // T.meta (13), matching `birthChip` beside it in the SAME row and `chipRel`,
+    // T.bodyTight (15), matching `birthChip` beside it in the SAME row and `chipRel`,
     // which renders this identical REL_LABEL value on the collapsed chip. The pill
     // background is a container, not a reason to drop a rung below its row-mate.
-    ...T.meta,
+    ...T.bodyTight,
     color: colors.textSecondary,
     backgroundColor: colors.bgCard,
     borderRadius: radius.sm,
@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     overflow: 'hidden',
   },
-  birthChip: { ...T.meta, color: colors.textMuted },
+  birthChip: { ...T.bodyTight, color: colors.textMuted },
   footerLink: { marginTop: spacing.md, marginHorizontal: spacing.lg, paddingVertical: spacing.md, alignItems: 'center' },
   footerText: { fontSize: fontSize.base, fontWeight: '600', color: colors.red },
 });

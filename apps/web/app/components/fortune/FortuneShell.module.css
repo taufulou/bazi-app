@@ -58,13 +58,13 @@
 }
 
 .tab {
+  composes: bodyTight from "../../styles/type.module.css";
   position: relative;
   flex: 1;
   padding: 6px 14px;
   border: 0;
   border-radius: 999px;
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 14px;
   font-weight: 500;
   background: transparent;
   color: var(--text-secondary);
@@ -84,12 +84,12 @@
 }
 
 .tabBadge {
+  composes: caption from "../../styles/type.module.css";
   /* Audit #6: explicit color + dark-on-gold pair for WCAG AA (~9px text
      on `--color-gold-light` needs a high-contrast text color). */
   position: absolute;
   top: -8px;
   right: -4px;
-  font-size: 9px;
   padding: 1px 5px;
   background: var(--color-gold-light);
   color: var(--text-on-gold); /* #3C2415 on #F5C842 ≈ 7.6:1 contrast */
@@ -124,10 +124,10 @@
 }
 
 .profileChip {
+  composes: bodyTight from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
   color: var(--text-primary);
 }
 
@@ -150,8 +150,8 @@
 /* Birth date chip — replaces the previous «我的» tag (2026-05-17 UX iteration).
    Carries useful per-chart context instead of a redundant marker. */
 .birthDateTag {
+  composes: caption from "../../styles/type.module.css";
   padding: 2px 10px;
-  font-size: 11px;
   background: var(--color-gold-light);
   color: var(--text-on-gold);
   border-radius: 999px;
@@ -182,12 +182,11 @@
 
 /* 時辰未知 basis line — aligns with the .main content column below it. */
 .hourUnknownNote {
+  composes: bodyTight from "../../styles/type.module.css"; /* running CJK prose, not an ornament */
   max-width: 720px;
   width: 100%;
   margin: 0 auto;
   padding: 10px 16px 0;
   text-align: left;
-  font-size: 0.8rem;
-  line-height: 1.6;
   color: var(--text-secondary);
 }

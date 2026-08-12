@@ -145,9 +145,14 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: 3,
   },
-  hourWarnLead: { fontSize: fontSize.sm, color: colors.textPrimary, lineHeight: 24, marginBottom: 2 },
-  hourWarnItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
-  hourWarnNote: { ...T.meta, color: colors.textMuted, marginTop: 4 },
+  // All three lines of the 時辰未知 block take the SAME role. They were split
+  // between a hand-written `fontSize.sm` + `lineHeight: 24` and the role's 15/23,
+  // so the block was a pixel out of step with itself for no stated reason.
+  hourWarnLead: { ...T.bodyTight, color: colors.textPrimary, marginBottom: 2 },
+  hourWarnItem: { ...T.bodyTight, color: colors.textSecondary },
+  // Closes the same 時辰未知 explanation as the two lines above, and was the only
+  // line in the block left at 13 — smaller than the bullets it summarises.
+  hourWarnNote: { ...T.bodyTight, color: colors.textMuted, marginTop: 4 },
   featureBox: { gap: spacing.sm },
   featureIntro: { ...T.subsection, color: colors.textSecondary },
   featureGrid: { gap: 4 },

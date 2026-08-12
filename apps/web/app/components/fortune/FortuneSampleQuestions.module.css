@@ -26,15 +26,12 @@
 }
 
 .title {
-  font-family: var(--font-noto-serif-tc), serif;
-  font-size: 0.9rem;
-  font-weight: 600;
+  composes: subsection from "../../styles/type.module.css";
   letter-spacing: 0.02em;
   display: inline-flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.3rem;
-  line-height: 1.5;
 }
 
 .titleCTA {
@@ -84,6 +81,7 @@
 }
 
 .pill {
+  composes: bodyTight from "../../styles/type.module.css";
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -93,7 +91,6 @@
   border: 1px solid rgba(226, 61, 40, 0.25);
   border-radius: 999px;
   color: var(--text-primary, #3C2415);
-  font-size: 0.85rem;
   font-family: inherit;
   cursor: pointer;
   white-space: nowrap;
@@ -131,11 +128,13 @@
   }
 
   .title {
-    font-size: 0.85rem;
+    font-size: var(--t-subsection-size);
+    line-height: var(--t-subsection-leading);
   }
 
   .pill {
+    font-size: var(--t-bodyTight-size);
+    line-height: var(--t-bodyTight-leading);
     padding: 0.45rem 0.7rem;
-    font-size: 0.8rem;
   }
 }

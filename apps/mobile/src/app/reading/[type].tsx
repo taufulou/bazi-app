@@ -9,7 +9,7 @@ import { READING_TYPE_META, type ReadingType } from '@repo/shared';
 import { colors, spacing, fontSize, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import BirthDataForm from '../../components/BirthDataForm';
-import BaziChart from '../../components/BaziChart';
+import BaziChart, { CHART_REVEAL_SECTIONS } from '../../components/BaziChart';
 import UnlockConfirmModal from '../../components/reading/UnlockConfirmModal';
 import AIReadingDisplay from '../../components/reading/AIReadingDisplay';
 import {
@@ -180,7 +180,7 @@ export default function ReadingFlowScreen() {
     setRevealedSections(1); // header shows immediately
     let idx = 1;
     const revealNext = () => {
-      if (idx >= 6) {
+      if (idx >= CHART_REVEAL_SECTIONS) {
         setIsRevealing(false);
         return;
       }

@@ -51,8 +51,8 @@
 }
 
 .loaderText {
+  composes: bodyTight from "../styles/type.module.css";
   color: #a0a0a0;
-  font-size: 0.95rem;
   position: absolute;
   bottom: 0;
   white-space: nowrap;
@@ -115,11 +115,15 @@
   color: #a0a0a0;
   font-size: 1rem;
   font-weight: 500;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 /* ==== Label ==== */
 .labelText {
+  /* Bespoke fluid display size — deliberately NOT a role: the scale tops out at
+     34 in coarse steps, so mapping this would shrink the verdict headline. */
   font-size: clamp(1.5rem, 4vw, 2rem);
+  line-height: 1.2;
   font-weight: 700;
   color: #e8d5b7;
   text-align: center;
@@ -134,14 +138,15 @@
 }
 
 .labelDesc {
+  composes: bodyTight from "../styles/type.module.css";
   color: #a0a0a0;
-  font-size: 0.95rem;
   text-align: center;
   animation: fadeIn 0.8s ease-out;
 }
 
 /* ==== Special Label ==== */
 .specialLabel {
+  composes: subsection from "../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -150,8 +155,6 @@
   border: 1px solid rgba(212, 175, 55, 0.3);
   border-radius: 20px;
   color: #d4af37;
-  font-size: 1.1rem;
-  font-weight: 600;
   animation: specialReveal 0.8s ease-out;
   margin-top: 0.5rem;
 }
@@ -159,7 +162,8 @@
 .specialIcon {
   font-size: 1rem;
   animation: sparkle 1.5s ease-in-out infinite;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 @keyframes fadeIn {
   from { opacity: 0; }

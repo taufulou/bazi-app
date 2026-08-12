@@ -28,18 +28,17 @@
   color: var(--color-gold, #d4a017);
   font-size: 1rem;
   margin-bottom: 0.5rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .title {
-  font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1.4rem;
-  font-weight: 700;
+  composes: title from "../styles/type.module.css";
   color: var(--text-accent, #c41e3a);
   margin: 0 0 0.4rem;
 }
 
 .subtitle {
-  font-size: 0.9rem;
+  composes: subsection from "../styles/type.module.css";
   color: var(--text-secondary, #6b5940);
   margin: 0 0 1.5rem;
 }
@@ -76,21 +75,23 @@
 }
 
 .optionMain {
-  font-family: var(--font-noto-serif-tc), serif;
+  /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 1.25rem;
+  line-height: 1.3;
+  font-family: var(--font-noto-serif-tc), serif;
   font-weight: 700;
   color: var(--text-primary, #3c2415);
 }
 
 .optionSub {
-  font-size: 0.75rem;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-muted, #8b7355);
   letter-spacing: 0.04em;
 }
 
 .note {
+  composes: caption from "../styles/type.module.css";
   margin: 1.4rem 0 0;
-  font-size: 0.75rem;
   color: var(--text-muted, #8b7355);
 }
 

@@ -1,6 +1,7 @@
 import { useAuth } from '@clerk/clerk-expo';
 import { useRouter, Redirect } from 'expo-router';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { ScrollText, CalendarDays, Heart, Users, type LucideIcon } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useZh } from '../lib/language';
 import { colors, radius, spacing, fontSize, fonts, text as T } from '../theme';
@@ -31,17 +32,31 @@ export default function HomeScreen() {
       <View style={styles.content}>
         {/* Logo / Branding */}
         <View style={styles.branding}>
-          <Text style={styles.logo}>☯</Text>
+          {/* U+FE0E is VARIATION SELECTOR-15 — "render the PRECEDING character as
+              text, not emoji". Without it iOS picks the colour-emoji glyph for
+              U+262F, which is a purple squircle: it ignores `color` entirely and
+              fought a warm cream/red palette on the first screen a user sees. With
+              it, ☯ is an ordinary glyph and takes the brand red like everything
+              else. There is no yin-yang in Lucide, so this is the fix rather than
+              another icon swap. */}
+          <Text style={styles.logo}>{'\u262F\uFE0E'}</Text>
           <Text style={styles.title}>天命</Text>
           <Text style={styles.subtitle}>{zh('預見你的一生')}</Text>
         </View>
 
         {/* Features */}
         <View style={styles.features}>
-          <FeatureItem icon="🌟" text="終身運勢分析" />
-          <FeatureItem icon="📅" text="流年運勢預測" />
-          <FeatureItem icon="💕" text="愛情姻緣分析" />
-          <FeatureItem icon="🤝" text="合盤比較" />
+          {/* Lucide, not emoji. The rest of the app is vector-iconned (the tab bar
+              uses House / Sparkles / ScrollText / Heart / User), so 🌟📅💕🤝 here made
+              the FIRST screen a new user sees the least premium one — and emoji
+              render as a different typeface at a different optical weight on every
+              OS version. ScrollText and Heart are reused from the tab bar's
+              vocabulary deliberately; Users (two people) keeps 合盤 distinct from
+              the single Heart of 愛情. */}
+          <FeatureItem Icon={ScrollText} text="終身運勢分析" />
+          <FeatureItem Icon={CalendarDays} text="流年運勢預測" />
+          <FeatureItem Icon={Heart} text="愛情姻緣分析" />
+          <FeatureItem Icon={Users} text="合盤比較" />
         </View>
 
         {/* Auth Buttons */}
@@ -72,11 +87,14 @@ export default function HomeScreen() {
   );
 }
 
-function FeatureItem({ icon, text }: { icon: string; text: string }) {
+function FeatureItem({ Icon, text }: { Icon: LucideIcon; text: string }) {
   const zh = useZh();
   return (
     <View style={styles.featureItem}>
-      <Text style={styles.featureIcon}>{icon}</Text>
+      {/* `size` matches the 28 the emoji occupied so the row's rhythm is unchanged;
+          strokeWidth 1.75 keeps a 28px glyph from reading heavier than the tab
+          icons, which are smaller. */}
+      <Icon size={28} strokeWidth={1.75} color={colors.red} style={styles.featureIcon} />
       <Text style={styles.featureText}>{zh(text)}</Text>
     </View>
   );
@@ -99,6 +117,8 @@ const styles = StyleSheet.create({
   },
   logo: {
     fontSize: 64,
+    lineHeight: 76,
+    color: colors.red,
     marginBottom: spacing.lg,
   },
   title: {
@@ -124,7 +144,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
   },
   featureIcon: {
-    fontSize: 28,
     marginBottom: spacing.xs,
   },
   featureText: { ...T.bodyTight, color: colors.textPrimary, fontWeight: '500' },

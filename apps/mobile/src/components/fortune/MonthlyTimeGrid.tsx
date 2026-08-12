@@ -112,18 +112,18 @@ const styles = StyleSheet.create({
   cardTitle: { ...T.subsection, color: colors.textPrimary },
   pillarBadge: { backgroundColor: 'rgba(212,160,23,0.10)', borderColor: colors.borderMedium, borderWidth: 1, borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
   // 「流月天干 (乙) 主氣」 — states which pillar governs the half-month; content.
-  pillarBadgeText: { ...T.meta, color: colors.textSecondary, fontWeight: '600' },
+  pillarBadgeText: { ...T.bodyTight, color: colors.textSecondary, fontWeight: '600' },
   cardRange: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, color: colors.textMuted },
   dayCounts: { flexDirection: 'row', gap: spacing.md },
   countItem: { fontVariant: ['tabular-nums'] as const, fontSize: fontSize.sm, fontWeight: '700' },
   shenshaRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 4 },
   // The 神煞 names and peak dates are the substance of this card, not chrome — they
-  // sat at 12 alongside the disclaimers. `label`/`meta` (13) lifts the content a
-  // rung and leaves 12 to what really is caption-class here: peakSignal (a
-  // secondary detail under an already-labelled peak) and windowInfo (a footnote).
-  shenshaLabel: { ...T.label, color: colors.textSecondary },
+  // sat at 12 alongside the disclaimers, then 13. Now `bodyTight` (15): a later pass
+  // found the whole fortune surface was typeset a rung below iOS's 17pt body, and
+  // these are read, not glanced at. 12 is left to the genuine captions only.
+  shenshaLabel: { ...T.bodyTight, color: colors.textSecondary },
   shenshaTag: { backgroundColor: 'rgba(226,61,40,0.08)', borderRadius: 999, paddingHorizontal: spacing.sm, paddingVertical: 2 },
-  shenshaTagText: { ...T.meta, color: colors.textAccent },
+  shenshaTagText: { ...T.bodyTight, color: colors.textAccent },
   // Every peak gets the SAME two-part shape: date + verdict on one line, the
   // signal sentence beneath. Previously all three were inline siblings in a
   // flexWrap row, so a short signal stayed on line 1 while a long one wrapped
@@ -131,11 +131,11 @@ const styles = StyleSheet.create({
   // different shape depending on how long its sentence happened to be.
   peakItem: { gap: 2, marginTop: 2 },
   peakHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  peakDate: { ...T.meta, fontVariant: ['tabular-nums'] as const, fontWeight: '700', color: colors.textPrimary },
-  peakLabel: { ...T.meta, color: colors.textSecondary },
-  // A full sentence the reader parses, not a caption — and now that it owns its
-  // own line it has the room for 13.
-  peakSignal: { ...T.meta, color: colors.textMuted },
-  placeholderHint: { fontSize: fontSize.sm, color: colors.textMuted, lineHeight: 24 },
-  windowInfo: { ...T.meta, color: colors.textMuted, marginTop: spacing.xs },
+  peakDate: { ...T.bodyTight, fontVariant: ['tabular-nums'] as const, fontWeight: '700', color: colors.textPrimary },
+  peakLabel: { ...T.bodyTight, color: colors.textSecondary },
+  // A full sentence the reader parses, not a caption — so `body` (17), the same as
+  // prose everywhere else. Owning its own line is what makes that fit.
+  peakSignal: { ...T.body, color: colors.textMuted },
+  placeholderHint: { ...T.body, color: colors.textMuted },
+  windowInfo: { ...T.bodyTight, color: colors.textMuted, marginTop: spacing.xs },
 });

@@ -25,7 +25,8 @@
 .icon {
   font-size: 28px;
   flex-shrink: 0;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .body {
   display: flex;
@@ -35,15 +36,12 @@
 }
 
 .title {
-  font-family: var(--font-noto-serif-tc), serif;
-  font-size: 15px;
-  font-weight: 600;
+  composes: subsection from "../../styles/type.module.css";
   color: var(--text-accent);
 }
 
 .sub {
-  font-size: 12.5px;
-  line-height: 1.55;
+  composes: bodyTight from "../../styles/type.module.css"; /* running CJK prose, not an ornament */
   color: var(--text-secondary);
 }
 

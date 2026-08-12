@@ -217,7 +217,7 @@ export default function CompatibilityRadarChart({
               dominantBaseline="middle"
               className={styles.axisLabel}
               fill="#a0a0a0"
-              fontSize="11"
+              fontSize="13"
             >
               {axis.label}
             </text>
@@ -236,7 +236,7 @@ export default function CompatibilityRadarChart({
               textAnchor="middle"
               dominantBaseline="middle"
               fill={colors.stroke}
-              fontSize="10"
+              fontSize="12"
               fontWeight="600"
               className={styles.scoreText}
             >

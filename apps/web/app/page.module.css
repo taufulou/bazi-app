@@ -90,8 +90,8 @@
 }
 
 .userName {
+  composes: bodyTight from "./styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.9rem;
 }
 
 /* ---- Welcome Row (greeting + quick link pills) ---- */
@@ -115,10 +115,8 @@
 }
 
 .welcomeTitle {
+  composes: title from "./styles/type.module.css";
   color: var(--text-primary);
-  font-size: 1.4rem;
-  font-family: var(--font-noto-serif-tc), serif;
-  font-weight: 700;
   margin: 0;
   text-shadow: 0 1px 8px rgba(var(--bg-primary-rgb), 0.9); /* Warm cream glow for text over background image */
 }
@@ -130,6 +128,7 @@
 }
 
 .quickLink {
+  composes: bodyTight from "./styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
@@ -140,7 +139,6 @@
   border-radius: 20px;
   text-decoration: none;
   color: var(--text-secondary);
-  font-size: 0.85rem;
   font-weight: 500;
   transition: all 0.2s;
 }
@@ -155,12 +153,15 @@
 
 .quickLinkIcon {
   font-size: 0.9rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 /* ---- Section Label ---- */
 .sectionLabel {
-  color: var(--text-accent);
+  /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 1.15rem;
+  line-height: 1.4;
+  color: var(--text-accent);
   font-weight: 700;
   margin-bottom: 1rem;
   padding-left: 1rem;
@@ -217,7 +218,8 @@
 .cardIcon {
   font-size: 1.6rem;
   flex-shrink: 0;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .cardImage {
   flex-shrink: 0;
@@ -234,16 +236,14 @@
 }
 
 .cardTitle {
+  composes: subsection from "./styles/type.module.css";
   color: var(--text-primary);
-  font-size: 1rem;
-  font-weight: 600;
   margin-bottom: 0.2rem;
 }
 
 .cardDescription {
+  composes: meta from "./styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.8rem;
-  line-height: 1.4;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -255,7 +255,8 @@
   font-size: 1rem;
   flex-shrink: 0;
   transition: transform 0.2s, color 0.2s;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .card:hover .cardArrow {
   transform: translateX(3px);
@@ -321,7 +322,8 @@
   }
 
   .welcomeTitle {
-    font-size: 1.2rem;
+    font-size: var(--t-title-size);
+    line-height: var(--t-title-leading);
   }
 
   .grid {

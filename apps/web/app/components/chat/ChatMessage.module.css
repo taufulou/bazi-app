@@ -13,11 +13,10 @@
 }
 
 .bubble {
+  composes: body from "../../styles/type.module.css";
   max-width: 78%;
   padding: 0.65rem 0.95rem;
   border-radius: 14px;
-  font-size: 0.95rem;
-  line-height: 1.55;
   word-break: break-word;
   white-space: pre-wrap;
 }
@@ -67,7 +66,7 @@
 }
 
 .errorTag {
+  composes: caption from "../../styles/type.module.css";
   margin-top: 0.4rem;
-  font-size: 0.75rem;
   color: var(--text-accent, #C41E3A);
 }

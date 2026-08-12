@@ -34,6 +34,20 @@ export default function AuthenticatedLayout() {
         tabBarActiveTintColor: colors.red,
         tabBarInactiveTintColor: colors.textMuted,
         tabBarStyle: { backgroundColor: colors.bgCard, borderTopColor: colors.borderLight },
+        /**
+         * React Navigation's default tab label is 10pt. That is a LATIN default —
+         * fine for "Home", below the 12pt CJK floor for 首頁/運勢/解讀/合盤/我的, and
+         * it sits on the primary navigation of every single screen.
+         *
+         * The static guards could not see it: the size lives in a third-party
+         * default, not in this app's StyleSheet. It was found by measuring the
+         * rendered tree (src/dev/type-audit.ts) — the same way the web build found
+         * react-datepicker rendering its calendar at 12.8px.
+         *
+         * lineHeight is deliberately tight (not caption's 17): the tab bar has a
+         * fixed height and a loose leading pushes the label off its icon.
+         */
+        tabBarLabelStyle: { fontSize: 12, lineHeight: 15 },
       }}
     >
       <Tabs.Screen

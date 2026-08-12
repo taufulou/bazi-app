@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
   // centring deterministic; numberOfLines={1} makes any future squeeze visible.
   scoreText: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   scoreNumber: { fontVariant: ['tabular-nums'] as const, fontFamily: fonts.serifBold, fontSize: 44, fontWeight: '800', color: colors.textPrimary, lineHeight: 48 },
-  scoreUnit: { ...T.meta, color: colors.textMuted, marginTop: 2 },
+  scoreUnit: { ...T.bodyTight, color: colors.textMuted, marginTop: 2 },
   labelBand: {
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.xs,
@@ -120,5 +120,9 @@ const styles = StyleSheet.create({
   // it sat at secondary-prose size under a 44pt number. Body (17) gives the
   // plain-language verdict the weight it earns; it wraps, so no width risk.
   friendlyExplanation: { ...T.body, color: colors.textSecondary, textAlign: 'center', paddingHorizontal: spacing.md },
-  microDisclaimer: { fontSize: fontSize.xs, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
+  // `caption` rather than a bare fontSize: this line is 18 CJK characters, centred
+  // and narrow, so it WRAPS — and unleaded CJK at the font's default leading is the
+  // exact defect the role system exists to prevent. Found by measuring the rendered
+  // tree; the web build's equivalent .microDisclaimer already carries leading.
+  microDisclaimer: { ...T.caption, color: colors.textMuted, textAlign: 'center', marginTop: 2 },
 });

@@ -371,35 +371,93 @@ describe('BaziChart', () => {
     });
   });
 
-  describe('Shen Sha & Kong Wang', () => {
-    it('should display shen sha tags', () => {
-      render(<BaziChart data={SAMPLE_CHART_DATA} />);
-      expect(
-        screen.getByText('文昌（month·巳）'),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText('華蓋（day·辰）'),
-      ).toBeInTheDocument();
+  /**
+   * The standalone 神煞 & 空亡 section is OFF — see SHOW_SHENSHA_SECTION in
+   * BaziChart.tsx. It duplicated the 神煞 row of the pillars table.
+   *
+   * These assert its ABSENCE rather than being deleted, so that turning the flag
+   * back on FAILS here and whoever does it is told to restore the original
+   * render assertions (they are in git history, on the commit that hid this).
+   * A deleted test would have let the section come back untested instead.
+   */
+  /**
+   * The 藏干 cell has TWO render paths and SAMPLE_CHART_DATA only exercises one:
+   * with no `hiddenStemGods`, every other test in this file falls through to the
+   * legacy bare-stem branch. So the ten-god-prominent layout — the thing that was
+   * actually changed — had no coverage at all until these.
+   */
+  describe('藏干 hidden-stem cell — ten god is prominent and uniform', () => {
+    const withGods = {
+      ...SAMPLE_CHART_DATA,
+      fourPillars: {
+        ...SAMPLE_CHART_DATA.fourPillars,
+        month: {
+          ...SAMPLE_CHART_DATA.fourPillars.month,
+          // Three stems, so 本氣/中氣/餘氣 are all present and any per-rank styling
+          // would show up as a difference between them.
+          hiddenStemGods: [
+            { stem: '丙', element: '火', tenGod: '正官' },
+            { stem: '庚', element: '金', tenGod: '劫財' },
+            { stem: '戊', element: '土', tenGod: '正印' },
+          ],
+        },
+      },
+    };
+
+    it('renders the ten god BEFORE its stem+element', () => {
+      const { container } = render(<BaziChart data={withGods} />);
+      const god = container.querySelector('[class*="hiddenStemGod"]');
+      const element = container.querySelector('[class*="hiddenStemElement"]');
+      expect(god).toBeTruthy();
+      expect(element).toBeTruthy();
+      expect(god!.textContent).toBe('正官');
+      expect(element!.textContent).toBe('丙火');
+      // DOCUMENT_POSITION_FOLLOWING === the god comes first in the DOM.
+      expect(god!.compareDocumentPosition(element!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
-    it('should display kong wang', () => {
+    it('styles every ten god identically regardless of 本氣/中氣/餘氣 rank', () => {
+      const { container } = render(<BaziChart data={withGods} />);
+      const gods = Array.from(container.querySelectorAll('[class*="hiddenStemGod"]'));
+      expect(gods.map((g) => g.textContent)).toEqual(['正官', '劫財', '正印']);
+      // Rank is carried by ORDER alone. Two earlier attempts encoded it in the
+      // type instead — an opacity fade (which put 庚金 at 2.21:1) and then a size
+      // step — and both only made the lower rows harder to read. A single shared
+      // class, and no inline style on any of them, is what keeps that out.
+      const classes = new Set(gods.map((g) => g.getAttribute('class')));
+      expect(classes.size).toBe(1);
+      expect(gods.every((g) => !g.getAttribute('style'))).toBe(true);
+    });
+  });
+
+  describe('Shen Sha & Kong Wang — standalone section is hidden', () => {
+    it('does not render the 神煞 tags of the standalone section', () => {
       render(<BaziChart data={SAMPLE_CHART_DATA} />);
-      expect(screen.getByText(/空亡/)).toBeInTheDocument();
-      // Kong wang branches are rendered with separator
-      // 寅 and 卯 are in spans within the kong wang text
-      expect(screen.getByText(/寅/)).toBeInTheDocument();
-      expect(screen.getByText('卯')).toBeInTheDocument();
+      // The pillars table still shows bare 神煞 names; only THIS section renders
+      // them with the 「name（pillar·branch）」 form, so it is the precise probe.
+      //
+      // ⚠️ The pillar is TRANSLATED — `PILLAR_LABELS[sha.pillar] || sha.pillar`
+      // turns the fixture's `month`/`day` into 月柱/日柱. Asserting on the raw
+      // English key (as this did before) can never match, so the assertion holds
+      // whatever the component does — it was passing vacuously.
+      expect(screen.queryByText('文昌（月柱·巳）')).not.toBeInTheDocument();
+      expect(screen.queryByText('華蓋（日柱·辰）')).not.toBeInTheDocument();
     });
 
-    it('should handle empty shen sha', () => {
-      const dataNoShenSha = {
-        ...SAMPLE_CHART_DATA,
-        allShenSha: [],
-      };
+    it('does not render the 空亡 line of the standalone section', () => {
+      render(<BaziChart data={SAMPLE_CHART_DATA} />);
+      // Probe the section's own 「空亡：」 label (note the full-width colon), NOT a
+      // bare /空亡/. The engine can return 空亡 as one of a pillar's 神煞 names, in
+      // which case it renders in the 神煞 ROW of the pillars table and is expected
+      // to survive — that row was not part of what was hidden. A bare match would
+      // pass or fail on fixture data rather than on this behaviour.
+      expect(screen.queryByText(/空亡：/)).not.toBeInTheDocument();
+    });
+
+    it('does not render the empty-state copy', () => {
+      const dataNoShenSha = { ...SAMPLE_CHART_DATA, allShenSha: [] };
       render(<BaziChart data={dataNoShenSha} />);
-      expect(
-        screen.getByText('此命盤無特殊神煞'),
-      ).toBeInTheDocument();
+      expect(screen.queryByText('此命盤無特殊神煞')).not.toBeInTheDocument();
     });
   });
 });

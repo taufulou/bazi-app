@@ -86,8 +86,9 @@
 }
 
 .slideTitle {
-  color: #FFFFFF;
   font-size: 1.6rem;
+  line-height: 1.25; /* restored — the role scale would shrink this display size */
+  color: #FFFFFF;
   font-weight: 700;
   font-family: var(--font-noto-serif-tc), serif;
   margin-bottom: 0.5rem;
@@ -95,13 +96,13 @@
 }
 
 .slideSubtitle {
+  composes: subsection from "../styles/type.module.css";
   color: rgba(255, 255, 255, 0.9);
-  font-size: 0.95rem;
-  line-height: 1.5;
   margin-bottom: 1rem;
 }
 
 .slideCta {
+  composes: bodyTight from "../styles/type.module.css";
   display: inline-block;
   padding: 0.6rem 1.5rem;
   background: rgba(255, 255, 255, 0.2);
@@ -110,7 +111,6 @@
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: var(--radius-sm);
   color: #FFFFFF;
-  font-size: 0.9rem;
   font-weight: 600;
   text-decoration: none;
   transition: all 0.2s;
@@ -180,17 +180,20 @@
   }
 
   .slideTitle {
-    font-size: 1.3rem;
+    font-size: var(--t-title-size);
+    line-height: var(--t-title-leading);
   }
 
   .slideSubtitle {
-    font-size: 0.85rem;
+    font-size: var(--t-subsection-size);
+    line-height: var(--t-subsection-leading);
   }
 
   .ornament {
     font-size: 5rem;
     right: 1rem;
-  }
+  
+  line-height: 1; /* graphic, not type */}
 
   .banner {
     min-height: 150px;

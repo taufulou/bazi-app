@@ -340,9 +340,9 @@ const styles = StyleSheet.create({
   // The headliner chips (甲午日 / 偏官 / 大吉 / 忌神透干 / 天喜觸動) are the densest
   // summary on the page — they were rendering a rung BELOW the prose they
   // introduce, which is backwards.
-  chipGoldText: { ...T.meta, color: colors.textPrimary, fontWeight: '600' },
+  chipGoldText: { ...T.bodyTight, color: colors.textPrimary, fontWeight: '600' },
   chipRedTone: { backgroundColor: 'rgba(226,61,40,0.08)', borderColor: 'rgba(226,61,40,0.3)' },
-  chipRedText: { ...T.meta, color: colors.textAccent, fontWeight: '600' },
+  chipRedText: { ...T.bodyTight, color: colors.textAccent, fontWeight: '600' },
   // dims
   dims: { gap: rhythm.block },
   dimBlock: { ...surfaces.card, borderRadius: radius.lg, padding: spacing.lg2, gap: rhythm.afterHeading },
@@ -358,10 +358,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   dimBadgeDot: { width: 6, height: 6, borderRadius: 3 },
-  dimBadgeScore: { ...T.meta, fontWeight: '700', color: colors.textPrimary },
-  dimBadgeLabel: { ...T.meta, fontWeight: '600' },
+  dimBadgeScore: { ...T.bodyTight, fontWeight: '700', color: colors.textPrimary },
+  dimBadgeLabel: { ...T.bodyTight, fontWeight: '600' },
   takeaway: {
-    fontSize: fontSize.sm,
+    ...T.body,
     color: colors.textAccent,
     borderLeftWidth: 3,
     borderLeftColor: colors.textAccent,
@@ -376,7 +376,7 @@ const styles = StyleSheet.create({
   // heading and its own list rendered identically. `subsection` is 17 serif bold.
   adviceTitle: { ...T.subsection, color: colors.textPrimary },
   adviceItem: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.xs },
-  adviceItemText: { fontSize: fontSize.sm, color: colors.textSecondary, flex: 1, lineHeight: 24 },
+  adviceItemText: { ...T.body, color: colors.textSecondary, flex: 1 },
   // disclaimer
   disclaimer: { fontSize: fontSize.xs, color: colors.textMuted, lineHeight: 18, marginTop: spacing.xs },
   // skeleton
@@ -384,9 +384,9 @@ const styles = StyleSheet.create({
   skeletonLine: { height: 12, borderRadius: 4, backgroundColor: colors.ruleHair },
   // fallback
   fallback: { gap: spacing.md },
-  fallbackLead: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
+  fallbackLead: { ...T.body, color: colors.textSecondary },
   signalsBlock: { backgroundColor: colors.bgCard, borderRadius: radius.md, padding: spacing.md, gap: 4 },
   signalsTitle: { ...T.subsection, color: colors.textPrimary },
-  signalsItem: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 24 },
+  signalsItem: { ...T.body, color: colors.textSecondary },
   signalsEmpty: { fontSize: fontSize.sm, color: colors.textMuted },
 });

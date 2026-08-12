@@ -5,7 +5,7 @@ import {
   ClerkLoading,
   useAuth,
 } from '@clerk/clerk-expo';
-import { Stack, router } from 'expo-router';
+import { Stack, router, usePathname } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { PostHogProvider } from 'posthog-react-native';
@@ -20,6 +20,7 @@ import { useAppFonts } from '../theme/fonts';
 import { colors, fonts, fontSize, spacing } from '../theme';
 import { env } from '../lib/env';
 import { setUnauthorizedHandler } from '../lib/api';
+import { reportCurrentScreen } from '../dev/type-audit';
 
 // Keep the native splash up until fonts AND (below) Clerk are ready.
 SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -122,6 +123,37 @@ function MissingKeyScreen() {
   );
 }
 
+/**
+ * DEV-ONLY. Measures the typography of each screen as it is walked and ships the
+ * result to scripts/type-collector.js. Renders nothing.
+ *
+ * Fires TWICE per screen — once at 1.5s and again at 6s — because most screens here
+ * stream their content in. A single early sample would measure the skeleton and
+ * report a clean screen that the user never actually sees. The collector keeps the
+ * latest report per screen, so the settled state is the one that counts.
+ *
+ * `__DEV__` gates it, and `reportCurrentScreen` is itself a no-op outside dev, so a
+ * production bundle neither walks the tree nor opens a socket.
+ */
+function TypeAuditProbe() {
+  const pathname = usePathname();
+  useEffect(() => {
+    if (!__DEV__) return;
+    const a = setTimeout(() => void reportCurrentScreen(pathname), 1500);
+    const b = setTimeout(() => void reportCurrentScreen(pathname), 6000);
+    // A pathname-only probe never sees content that arrives by STATE change on the
+    // same route — and on the reading screens that is the whole chart, because
+    // form -> result does not navigate. Re-sampling catches the settled screen.
+    const c = setInterval(() => void reportCurrentScreen(pathname), 15000);
+    return () => {
+      clearTimeout(a);
+      clearTimeout(b);
+      clearInterval(c);
+    };
+  }, [pathname]);
+  return null;
+}
+
 export default function RootLayout() {
   const [fontsLoaded, fontError] = useAppFonts();
   const fontsReady = fontsLoaded || !!fontError;
@@ -166,6 +198,7 @@ export default function RootLayout() {
             <ClerkLoaded>
               <AuthBridge />
               <Providers>
+                {__DEV__ ? <TypeAuditProbe /> : null}
                 <AppStack />
               </Providers>
             </ClerkLoaded>

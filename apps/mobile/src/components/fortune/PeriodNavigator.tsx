@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
   },
   chipDisabled: { opacity: 0.6 },
   chipLabel: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
-  hint: { ...T.meta, color: colors.textMuted },
+  hint: { ...T.bodyTight, color: colors.textMuted },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)', justifyContent: 'flex-end' },
   sheet: {
     backgroundColor: colors.bgSecondary,

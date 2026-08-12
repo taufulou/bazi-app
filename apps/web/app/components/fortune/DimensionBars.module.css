@@ -64,20 +64,18 @@
 }
 
 .score {
-  font-family: var(--font-noto-serif-tc), serif;
-  font-size: 18px;
-  font-weight: 700;
+  composes: section from "../../styles/type.module.css";
+  line-height: 1; /* tight leading is load-bearing: numeral in a fixed-height box */
   color: var(--text-primary);
-  line-height: 1;
 }
 
 .dimName {
-  font-size: 13px;
+  composes: meta from "../../styles/type.module.css";
   color: var(--text-secondary);
   font-weight: 500;
 }
 
 .dimLabel {
-  font-size: 11px;
+  composes: caption from "../../styles/type.module.css";
   color: var(--text-muted);
 }

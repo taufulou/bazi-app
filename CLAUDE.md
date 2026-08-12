@@ -117,6 +117,9 @@ worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roami
    **Keep Maestro for ONE thing**: `extendedWaitUntil`, i.e. declaratively blocking
    on async content (waiting out a 45s AI stream). The MCP has no wait primitive —
    you'd poll screenshots.
+   ⚠️ **The MCP is SIMULATOR-ONLY** — it cannot tap, screenshot, or stream the
+   owner's real iPhone. For that, see «📱 Running on the OWNER'S PHYSICAL iPhone»
+   below: you build and install, the owner taps and captures.
    ⚠️ **iOS `testID`s do NOT reach the accessibility tree** (RN iOS a11y
    flattening: a `Pressable`'s `accessibilityLabel` REPLACES its children). This is
    why Maestro text matching fails on iOS — `月運`, `註冊`, `我的`, `八字命格` all
@@ -174,6 +177,77 @@ worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roami
 8. Local stack: API :4000 + engine :5001 + Metro :8081 against the DEV DB;
    node@22 PATH prefix required; iOS sim `iPhone 17 Pro`, Android AVD `Pixel_8`.
 
+### 📱 Running on the OWNER'S PHYSICAL iPhone (first done 2026-08-09 — WORKS)
+
+For when the owner wants to eyeball the real app on real hardware and send
+screenshots back. **You cannot drive the phone** — `mcp__Claude_Code_iOS_Simulator__control`
+is simulator-ONLY, so the owner taps and captures; you build, install, and read.
+Expo Go is also out (the app ships `expo-dev-client` + `react-native-purchases`).
+
+**Recorded constants** (re-verify, don't assume):
+
+| | |
+|---|---|
+| Device | Roger's iPhone 15 Pro Max, iOS 26.5.2 |
+| **UDID** | `00008130-000A6CC60EE0001C` — from `xcrun xctrace list devices`. ⚠️ NOT the `devicectl list devices` "identifier" (`BD1FBA15-…`), which Expo rejects with «No device UDID or name matching» |
+| Team | `5W93NMYV2B` (personal team, "Roger Lim") — auto-selected, don't hand-set |
+| Certificate | `Apple Development: taufulou@gmail.com (E67KE468X7)`, valid to 2027-08-09 |
+| Provisioning | 7-DAY expiry (personal team). **The app dies after ~a week — re-run the build to renew.** |
+| Mac LAN IP | was `192.168.1.161`; re-read with `ipconfig getifaddr en0` — DHCP moves it |
+
+**Procedure** (mobile can't run from a worktree — gotcha #7 — so this is all in MAIN):
+
+```bash
+# 1. main must be tracked-clean; copy the branch's mobile files in
+git -C $MAIN status --porcelain --untracked-files=no   # must be empty
+git -C $WT diff --name-only <base>..HEAD -- apps/mobile/ | grep -v __tests__ \
+  | while IFS= read -r f; do cp "$WT/$f" "$MAIN/$f"; done
+
+# 2. point the app at the Mac's LAN IP. A phone's `localhost` is the PHONE.
+sed -i '' 's|http://localhost:4000|http://<LAN-IP>:4000|g' $MAIN/apps/mobile/.env
+
+# 3. EXPO_PUBLIC_* are inlined at TRANSFORM time and Metro caches them, so a
+#    long-running Metro serves the OLD value. Restart with --clear or the phone
+#    silently calls localhost and every request fails with no obvious cause.
+kill $(lsof -ti:8081); cd $MAIN/apps/mobile && npx expo start --port 8081 --clear &
+
+# 4. build + install (SENTRY flag is REQUIRED — see gate D)
+SENTRY_DISABLE_AUTO_UPLOAD=true npx expo run:ios --device 00008130-000A6CC60EE0001C
+
+# 5. the dev launcher will NOT find Metro by itself over a real LAN. Hand it the
+#    URL instead of making the owner type it:
+xcrun devicectl device process launch --device <UDID> --terminate-existing \
+  --payload-url "tianming://expo-development-client/?url=http%3A%2F%2F<LAN-IP>%3A8081" \
+  com.tianming.app
+
+# 6. confirm it actually connected — look for this in the Metro log:
+#    «iOS Bundled …ms node_modules/expo-router/entry.js (5468 modules)»
+
+# 7. ⚠️ ALWAYS revert main afterwards
+git -C $MAIN checkout -- <the copied files>; rm -rf $MAIN/apps/mobile/src/dev
+cp /tmp/mobile-env-backup $MAIN/apps/mobile/.env
+```
+
+**The gates, in the order they fire.** All were hit on the first run; A/C/G are
+owner-only (they authenticate or touch the device), the rest are yours.
+
+| # | Symptom | Fix |
+|---|---|---|
+| **A** | `CommandError: No code signing certificates are available` | OWNER: Xcode → Settings → Accounts → add Apple ID → **Manage Certificates… → + → Apple Development**. Adding the Apple ID alone does NOT mint a cert — `security find-identity -v -p codesigning` stays at 0. |
+| **B** | Cert exists but `find-identity` says **0 valid**; `find-identity` (no `-v`) shows it with `CSSMERR_TP_NOT_TRUSTED` | The **WWDR G3 intermediate is missing** — the chain, not the cert, is broken. Xcode ships only G6 and 2030; the leaf is issued by `OU=G3`. Ask permission, then `curl -o /tmp/AppleWWDRCAG3.cer https://www.apple.com/certificateauthority/AppleWWDRCAG3.cer` (~1.1 KB) → verify `openssl x509 -inform DER -noout -subject` says `OU=G3` → `security import … -k ~/Library/Keychains/login.keychain-db`. |
+| **C** | `error: Developer Mode disabled` in the destination list | OWNER, on the phone: **Settings → Privacy & Security → Developer Mode** → on → reboot → confirm. The menu only appears AFTER a dev tool has targeted the device. |
+| **D** | Build reaches ~99% then `exited with error code 65`, log says `An organization ID or slug is required (provide with --org)` | Sentry source-map upload has no org. `export SENTRY_DISABLE_AUTO_UPLOAD=true`. Same root cause as the documented EAS/gradle failure — local device builds just never had the flag. |
+| **E** | A keychain dialog storm: «codesign wants to access key … enter the login keychain password», repeated dozens of times | Click **"Always Allow" ONCE**. ⚠️ **It looks like nothing happens** — dialogs already queued keep appearing — but it DID register; codesign goes silent afterwards. Verify with a throwaway sign (`codesign -f -s "<identity>" /tmp/copy.framework`) rather than believing the UI. **Do NOT tell the owner to type the password**: the login keychain is already unlocked (`security show-keychain-info` succeeds), and their keychain password has diverged from the account password, so it will be rejected and is irrelevant. |
+| **F** | `Build Succeeded` but install fails `✖ VerifyingApplication 40% / ApplicationVerificationFailed` | Denying gate E leaves frameworks `code object is not signed at all`. **A rebuild does NOT fix it** — xcodebuild considers them up to date and re-signs only the app binary. Sign the offenders individually, then re-sign the bundle LAST (inner-to-outer), preserving entitlements: `codesign -d --entitlements :- "$APP" > /tmp/ent.plist` … `codesign -f -s "$ID" --entitlements /tmp/ent.plist "$APP"`. Then `xcrun devicectl device install app`. Check with `codesign -v` PER framework — `--deep --strict` on the bundle passed while six frameworks were unsigned. |
+| **G** | Installs, but launch fails «invalid code signature, inadequate entitlements or its profile has not been explicitly trusted» | OWNER, on the phone: **Settings → General → VPN & Device Management → Developer App → Trust**. |
+| **H** | App opens to the Expo dev-client launcher, «Searching for development servers…» forever | Expected — the build logs `Skipping dev server`, so no URL is embedded, and Bonjour discovery doesn't cross a real LAN. Use the `--payload-url` deep link in step 5 (scheme is `tianming`, from `app.json`). |
+
+**Other traps:** `timeout` does not exist on macOS (use `nohup … &` + poll, or
+`gtimeout`); a fresh install has **no Clerk session**, so the owner must sign in
+themselves; and the `.env` LAN switch means the phone reads the **local dev DB**
+(Roger's 85 readings) rather than Railway's thinner seed — which is what you want
+for any content-density review.
+
 ### ⏸ App Store progress — PAUSED 2026-07-18 (resume point for a future session)
 
 Owner paused store submission to tackle **scalability + security** first. The app
@@ -206,6 +280,12 @@ it is paperwork, store config, and one unproven integration hop.
 
 **iOS — Apple**
 - $99 paid, **awaiting account approval**. Nothing else can start until it clears.
+  Still true as of 2026-08-09, and now with evidence rather than assumption: the
+  first physical-device build resolved to a **personal team** (`5W93NMYV2B`,
+  "Roger Lim") issuing a **7-day** provisioning profile. A paid membership would
+  give a 1-year profile and unlock TestFlight — so if a future device build shows
+  a 1-year expiry, the account has come through and the App Store track can
+  resume from AND4 / the iOS list above.
 - Then: App Store Connect record, IAP products, sandbox testers, RC iOS config
   (`appl_` key), TestFlight. Paid Apps agreement + banking + tax on day one —
   slowest approval, and it gates IAP sandbox.
@@ -315,6 +395,15 @@ therefore carries a second, darker 金 for SMALL TEXT ONLY — `colors.metalText
 `#8F6707` (5.11 white · 4.94 zebra · 4.79 columnTint). Display sizes keep
 `#B8860B`. This is the one deliberate exception to "one colour per element";
 do not add others without recording them here.
+
+**Web has the same split as of the typography pass.** `CHART_ELEMENT_COLORS_SMALL`
+in `apps/web/app/components/BaziChart.tsx` carries 金 `#8F6707` (3.25 → 5.11) and
+土 `#7A5B50` (4.42 → 6.04) for the 14px 藏干 cells; display sizes keep the original
+palette. Web additionally **removed an `opacity: 0.7` fade** on the 2nd/3rd hidden
+stems, which had put 庚金 at **2.21:1** — below even the 3:1 large-text floor, and
+unfixable by any increase in SIZE. Never encode tier with opacity on text; 本氣/中氣/
+餘氣 rank is already carried by order. See `docs/typography-standard.md` §5b and keep
+the two platforms in sync.
 
 ### Typography
 - **Headings / CJK characters**: `Noto Serif TC` (serif) — conveys traditional authority

@@ -37,5 +37,5 @@ const styles = StyleSheet.create({
   },
   body: { flex: 1, gap: 2 },
   title: { fontFamily: fonts.serifBold, fontSize: fontSize.base, fontWeight: '700', color: colors.textPrimary },
-  sub: { ...T.meta, color: colors.textSecondary },
+  sub: { ...T.bodyTight, color: colors.textSecondary },
 });

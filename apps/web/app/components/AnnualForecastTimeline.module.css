@@ -16,7 +16,7 @@
 }
 
 .lpLabel {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
   font-weight: 500;
 }
@@ -29,12 +29,12 @@
 }
 
 .lpTenGod {
-  font-size: 0.85rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-secondary);
 }
 
 .lpYears {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
   margin-left: auto;
 }
@@ -70,25 +70,23 @@
 }
 
 .year {
-  font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1.1rem;
-  font-weight: 700;
+  composes: section from "../styles/type.module.css";
   color: var(--text-primary);
 }
 
 .ganZhi {
-  font-size: 0.85rem;
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-secondary);
 }
 
 .tenGod {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
 }
 
 .badge {
+  composes: meta from "../styles/type.module.css";
   display: inline-block;
-  font-size: 0.82rem;
   font-weight: 600;
   padding: 0.2rem 0.65rem;
   border-radius: 16px;
@@ -105,7 +103,7 @@
 }
 
 .indicator {
-  font-size: 0.72rem;
+  composes: caption from "../styles/type.module.css";
   padding: 0.15rem 0.45rem;
   border-radius: 10px;
   border: 1px solid;
@@ -124,7 +122,7 @@
 }
 
 .indicatorNeutral {
-  font-size: 0.72rem;
+  composes: caption from "../styles/type.module.css";
   padding: 0.15rem 0.45rem;
   border-radius: 10px;
   color: var(--text-secondary);
@@ -148,13 +146,13 @@
 }
 
 .interactionsLabel {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: var(--text-muted);
   font-weight: 500;
 }
 
 .interactionTag {
-  font-size: 0.72rem;
+  composes: caption from "../styles/type.module.css";
   color: var(--text-secondary);
   background: rgba(212, 160, 23, 0.08);
   border: 1px solid rgba(212, 160, 23, 0.15);
@@ -185,11 +183,13 @@
   }
 
   .year {
-    font-size: 1rem;
+    font-size: var(--t-section-size);
+    line-height: var(--t-section-leading);
   }
 
   .badge {
-    font-size: 0.72rem;
+    font-size: var(--t-meta-size);
+    line-height: var(--t-meta-leading);
     padding: 0.15rem 0.5rem;
   }
 }

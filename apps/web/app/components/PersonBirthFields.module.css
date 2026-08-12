@@ -11,9 +11,8 @@
 }
 
 .panelLabel {
+  composes: subsection from "../styles/type.module.css";
   color: var(--color-red, #c41e3a);
-  font-size: 1.1rem;
-  font-weight: 600;
   margin-bottom: 1rem;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--border-light);
@@ -25,23 +24,23 @@
 }
 
 .label {
+  composes: label from "../styles/type.module.css";
   display: block;
   color: var(--text-secondary);
-  font-size: 0.85rem;
   margin-bottom: 0.4rem;
-  font-weight: 500;
 }
 
 /* Input + Select base styles */
 .input,
 .select {
+  font-size: 1.0625rem;
+  line-height: 1.4;
   width: 100%;
   padding: 0.65rem 0.75rem;
   background: var(--bg-primary);
   border: 1px solid var(--border-light);
   border-radius: 8px;
   color: var(--text-primary);
-  font-size: 0.95rem;
   outline: none;
   transition: border-color 0.2s;
 }
@@ -73,6 +72,7 @@
 }
 
 .genderOption {
+  composes: control from "../styles/type.module.css";
   flex: 1;
   padding: 0.6rem;
   background: var(--bg-primary);
@@ -82,7 +82,6 @@
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
-  font-size: 0.95rem;
 }
 
 .genderOption:hover {
@@ -107,6 +106,7 @@
 }
 
 .calType {
+  composes: bodyTight from "../styles/type.module.css";
   flex: 1;
   padding: 0.5rem;
   background: var(--bg-primary);
@@ -116,7 +116,6 @@
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
-  font-size: 0.85rem;
 }
 
 .calType:hover {
@@ -135,11 +134,11 @@
 }
 
 .leapMonthLabel {
+  composes: label from "../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 0.4rem;
   color: var(--text-secondary);
-  font-size: 0.85rem;
   margin-top: 0.5rem;
   cursor: pointer;
 }
@@ -164,11 +163,11 @@
 
 /* Quick mode toggle */
 .quickModeLabel {
+  composes: bodyTight from "../styles/type.module.css";
   display: flex;
   align-items: center;
   gap: 0.4rem;
   color: var(--text-secondary);
-  font-size: 0.85rem;
   cursor: pointer;
 }
 
@@ -204,7 +203,9 @@
 
   .input,
   .select {
+    /* Padding only. The font-size/line-height here restated `control` verbatim —
+       an override of the base rule with the base value. A rule that changes
+       nothing reads like a deliberate mobile step-down and is not one. */
     padding: 0.55rem 0.65rem;
-    font-size: 0.9rem;
   }
 }

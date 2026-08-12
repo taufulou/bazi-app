@@ -17,11 +17,11 @@
 }
 
 .backButton {
+  composes: bodyTight from "../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   color: var(--text-secondary);
-  font-size: 0.85rem;
   font-weight: 500;
   cursor: pointer;
   background: rgba(255, 255, 255, 0.7);
@@ -47,7 +47,9 @@
 }
 
 .pageTitle {
+  /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 2.5rem;
+  line-height: 1.25;
   font-weight: 800;
   letter-spacing: 0.05em;
   margin: 0 0 0.75rem;
@@ -56,10 +58,9 @@
 }
 
 .pageSubtitle {
-  font-size: 1.1rem;
+  composes: body from "../styles/type.module.css";
   color: var(--text-secondary);
   margin: 0;
-  line-height: 1.6;
 }
 
 /* ==== Billing Toggle ==== */
@@ -117,7 +118,7 @@
 }
 
 .savingsBadge {
-  font-size: 0.8rem;
+  composes: caption from "../styles/type.module.css";
   color: #2e7d32;
   font-weight: 600;
   background: rgba(76, 175, 80, 0.1);
@@ -182,13 +183,13 @@
 }
 
 .currentBadge {
+  composes: caption from "../styles/type.module.css";
   position: absolute;
   top: -12px;
   left: 50%;
   transform: translateX(-50%);
   background: rgba(76, 175, 80, 0.9);
   color: #fff;
-  font-size: 0.8rem;
   font-weight: 700;
   padding: 0.3rem 1.2rem;
   border-radius: 20px;
@@ -197,13 +198,13 @@
 }
 
 .recommendedBadge {
+  composes: caption from "../styles/type.module.css";
   position: absolute;
   top: -12px;
   left: 50%;
   transform: translateX(-50%);
   background: var(--color-red);
   color: var(--text-on-red);
-  font-size: 0.8rem;
   font-weight: 700;
   padding: 0.3rem 1.2rem;
   border-radius: 20px;
@@ -220,10 +221,9 @@
 }
 
 .planDescription {
-  font-size: 0.85rem;
+  composes: body from "../styles/type.module.css";
   color: var(--text-secondary);
   margin: 0 0 1.5rem;
-  line-height: 1.5;
 }
 
 /* Price Display */
@@ -245,9 +245,9 @@
 
 .priceAmount {
   font-size: 2.8rem;
+  line-height: 1.44; /* restored — the role scale would shrink this display size */
   font-weight: 800;
   color: var(--text-primary);
-  line-height: 1;
 }
 
 .pricePeriod {
@@ -257,21 +257,21 @@
 }
 
 .priceAnnualNote {
-  font-size: 0.8rem;
+  composes: meta from "../styles/type.module.css";
   color: #2e7d32;
   margin-top: 0.35rem;
 }
 
 .priceOriginal {
+  composes: meta from "../styles/type.module.css";
   text-decoration: line-through;
   color: var(--text-muted);
-  font-size: 0.85rem;
   margin-left: 0.25rem;
 }
 
 /* Readings Count */
 .readingsCount {
-  font-size: 0.85rem;
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-secondary);
   background: rgba(var(--color-gold-rgb), 0.08);
   border: 1px solid var(--border-light);
@@ -302,6 +302,7 @@
 }
 
 .featureCheck {
+  composes: caption from "../styles/type.module.css";
   flex-shrink: 0;
   width: 18px;
   height: 18px;
@@ -311,7 +312,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
   margin-top: 1px;
 }
 
@@ -434,9 +434,8 @@
 }
 
 .upgradeDialogNote {
+  composes: meta from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.85rem;
-  line-height: 1.5;
   margin: 0 0 1.5rem;
 }
 
@@ -447,11 +446,12 @@
 
 .upgradeDialogCancel,
 .upgradeDialogConfirm {
+  font-size: 0.9375rem;
+  line-height: 1.5;
   flex: 1;
   padding: 0.8rem 1rem;
   border: none;
   border-radius: 10px;
-  font-size: 0.95rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -619,12 +619,11 @@
 
 /* ==== FAQ / Bottom Note ==== */
 .bottomNote {
+  composes: meta from "../styles/type.module.css";
   max-width: 700px;
   margin: 3rem auto 0;
   text-align: center;
-  font-size: 0.85rem;
   color: var(--text-secondary);
-  line-height: 1.7;
 }
 
 .bottomNoteLink {
@@ -782,10 +781,9 @@
 }
 
 .creditStoreDesc {
+  composes: body from "../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.85rem;
   margin: 0;
-  line-height: 1.5;
 }
 
 .creditStoreBtn {
@@ -839,7 +837,8 @@
   }
 
   .pageTitle {
-    font-size: 2rem;
+  font-size: 2rem;
+    line-height: var(--t-title-leading);
   }
 
   .comparisonWrapper {
@@ -855,15 +854,18 @@
   }
 
   .pageTitle {
-    font-size: 1.75rem;
+  font-size: 1.75rem;
+    line-height: var(--t-title-leading);
   }
 
   .pageSubtitle {
-    font-size: 0.95rem;
+    font-size: var(--t-body-size);
+    line-height: var(--t-body-leading);
   }
 
   .priceAmount {
-    font-size: 2.2rem;
+  font-size: 2.2rem;
+    line-height: var(--t-display-leading);
   }
 
   .planCard {
@@ -878,7 +880,9 @@
   .comparisonTable thead th,
   .comparisonTable tbody td {
     padding: 0.65rem 0.5rem;
-    font-size: 0.8rem;
+    /* Carve-out A: composes is illegal in an at-rule. `meta` sizing. */
+    font-size: var(--t-meta-size);
+    line-height: var(--t-meta-leading);
   }
 
   .creditStoreInner {

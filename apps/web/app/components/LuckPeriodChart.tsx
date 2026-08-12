@@ -103,7 +103,7 @@ export default function LuckPeriodChart({
                 y={getY(v) + 4}
                 textAnchor="end"
                 fill="#8B7355"
-                fontSize="11"
+                fontSize="12"
               >
                 {v}
               </text>
@@ -120,7 +120,7 @@ export default function LuckPeriodChart({
               y={getY(v) + 4}
               textAnchor="end"
               fill="#8B7355"
-              fontSize="11"
+              fontSize="12"
             >
               ??
             </text>
@@ -198,7 +198,7 @@ export default function LuckPeriodChart({
                   x={getX(i)}
                   y={currentLabelY}
                   textAnchor="middle"
-                  fontSize="11"
+                  fontSize="13"
                   fontWeight="700"
                   className={styles.currentLabel}
                 >
@@ -213,7 +213,7 @@ export default function LuckPeriodChart({
                   y={scoreLabelY}
                   textAnchor="middle"
                   fill={getScoreColor(p.score)}
-                  fontSize="11"
+                  fontSize="12"
                   fontWeight="600"
                 >
                   {p.score}
@@ -300,7 +300,9 @@ export default function LuckPeriodChart({
                   命局互動
                 </div>
                 {tooltip.period.interactions.slice(0, 3).map((inter, idx) => (
-                  <div key={idx} style={{ fontSize: "0.72rem", color: "#6B5940" }}>
+                  // 0.72rem = 11.5px was CJK the user READS (「寅午半合火局」), not an ornament.
+                  // `meta` sizing; the tooltip has min-width but no max, so it grows.
+                  <div key={idx} style={{ fontSize: "0.8125rem", lineHeight: 1.45, color: "#6B5940" }}>
                     {inter}
                   </div>
                 ))}

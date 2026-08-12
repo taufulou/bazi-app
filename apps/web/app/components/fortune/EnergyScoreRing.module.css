@@ -22,16 +22,27 @@
   margin-bottom: 4px;
 }
 
+/* Not `subsection`: this is a date label, not a sub-heading, and it was written
+   at weight 500 on purpose — the 干支 line under it carries the emphasis. It
+   composed `subsection` (which binds 700) and overrode the weight back down,
+   which only worked because the local rule happened to win.
+   `control` is the same 17px and binds neither family nor weight, so the serif
+   and the 500 are stated once, here, and nothing competes with them.
+
+   ⚠️ 500 is load-bearing, not decorative: Noto Serif TC ships only 400 and 700
+   (see app/layout.tsx), so 500 resolves to the REGULAR face and anything >=600
+   resolves to BOLD. There is no middle. Nudging this to 600 does not make it
+   slightly heavier — it makes it fully bold. */
 .dateLine {
-  font-family: var(--font-noto-serif-tc), serif;
-  font-size: 16px;
+  composes: control from "../../styles/type.module.css";
+  font-family: var(--font-heading);
   font-weight: 500;
   color: var(--text-primary);
   letter-spacing: 0.5px;
 }
 
 .baziLine {
-  font-size: 13px;
+  composes: meta from "../../styles/type.module.css";
   color: var(--text-muted);
   letter-spacing: 1px;
 }
@@ -85,8 +96,8 @@
 }
 
 .scoreUnit {
+  composes: caption from "../../styles/type.module.css";
   margin-top: 4px;
-  font-size: 12px;
   color: var(--text-muted);
   letter-spacing: 2px;
 }
@@ -118,7 +129,7 @@
 }
 
 .labelText {
-  font-size: 18px;
+  composes: section from "../../styles/type.module.css";
   letter-spacing: 1.5px;
 }
 
@@ -127,9 +138,9 @@
 /* ============================================================ */
 
 .friendlyExplanation {
+  composes: bodyTight from "../../styles/type.module.css";
   margin: 2px 0 0;
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 13px;
   color: var(--text-secondary);
   text-align: center;
 }
@@ -139,8 +150,8 @@
 /* ============================================================ */
 
 .microDisclaimer {
+  composes: caption from "../../styles/type.module.css";
   margin: 0;
-  font-size: 11px;
   color: var(--text-muted);
   text-align: center;
   display: inline-flex;

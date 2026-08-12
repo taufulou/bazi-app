@@ -25,11 +25,11 @@
 }
 
 .backLink {
+  composes: bodyTight from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
   color: var(--text-secondary);
-  font-size: 0.85rem;
   font-weight: 500;
   text-decoration: none;
   cursor: pointer;
@@ -55,17 +55,20 @@
 }
 
 .headerTitle {
+  font-size: 1.3rem;
+  line-height: 1.4; /* restored — the role scale would shrink this display size */
   color: var(--text-primary);
   font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1.3rem;
   font-weight: 700;
   margin: 0;
 }
 
 /* ---- Section Label with red border accent ---- */
 .sectionLabel {
-  color: var(--text-accent);
+  /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 1.05rem;
+  line-height: 1.4;
+  color: var(--text-accent);
   font-weight: 700;
   padding-left: 0.75rem;
   border-left: 3px solid var(--color-red);
@@ -82,6 +85,7 @@
 }
 
 .createBtn {
+  composes: bodyTight from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -90,7 +94,6 @@
   border: none;
   border-radius: 20px;
   color: #FFFFFF;
-  font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -120,19 +123,17 @@
 }
 
 .formTitle {
+  composes: subsection from "../../styles/type.module.css";
   color: var(--text-accent);
-  font-size: 1.05rem;
-  font-weight: 600;
-  font-family: var(--font-noto-serif-tc), serif;
 }
 
 .cancelBtn {
+  composes: meta from "../../styles/type.module.css";
   background: none;
   border: 1px solid var(--border-medium);
   color: var(--text-secondary);
   padding: 0.35rem 0.85rem;
   border-radius: 16px;
-  font-size: 0.8rem;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -170,8 +171,8 @@
 }
 
 .loadingText {
+  composes: body from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.9rem;
 }
 
 /* ---- Empty State ---- */
@@ -187,23 +188,23 @@
 .emptyIcon {
   font-size: 2.5rem;
   margin-bottom: 0.75rem;
-}
+
+  line-height: 1; /* graphic, not type */}
 
 .emptyTitle {
+  composes: subsection from "../../styles/type.module.css";
   color: var(--text-accent);
-  font-family: var(--font-noto-serif-tc), serif;
-  font-size: 1.1rem;
-  font-weight: 700;
   margin-bottom: 0.5rem;
 }
 
 .emptyText {
+  composes: body from "../../styles/type.module.css";
   color: var(--text-secondary);
-  font-size: 0.85rem;
   margin-bottom: 1.25rem;
 }
 
 .emptyBtn {
+  composes: bodyTight from "../../styles/type.module.css";
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
@@ -212,7 +213,6 @@
   border: none;
   border-radius: 20px;
   color: #FFFFFF;
-  font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s;
@@ -225,9 +225,9 @@
 
 /* ---- Notifications ---- */
 .notification {
+  composes: bodyTight from "../../styles/type.module.css";
   padding: 0.65rem 1rem;
   border-radius: var(--radius-sm);
-  font-size: 0.85rem;
   text-align: center;
   margin-bottom: 1rem;
 }
@@ -253,7 +253,8 @@
   }
 
   .headerTitle {
-    font-size: 1.1rem;
+    font-size: var(--t-section-size);
+    line-height: var(--t-section-leading);
   }
 
   .profileGrid {

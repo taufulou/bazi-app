@@ -179,7 +179,7 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   // Explains WHY the folk value applies (河圖五行數…) — read, not skipped.
-  note: { ...T.meta, color: colors.textMuted },
+  note: { ...T.bodyTight, color: colors.textMuted },
   hourChips: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginVertical: spacing.xs },
   hourChip: {
     fontSize: fontSize.sm,
