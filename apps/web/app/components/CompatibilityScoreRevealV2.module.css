@@ -181,7 +181,6 @@
 
 .reassuranceContent strong {
   font-size: 0.9rem;
-  line-height: 1.4; /* Carve-out B (descendant selector). */
   line-height: 1.45;
   display: block;
   color: var(--color-success);

@@ -1639,7 +1639,6 @@ li.goldBulletItemCategory {
 
 .dimChartHeader strong {
   font-size: 1.1rem;
-  line-height: 1.4; /* Carve-out B (descendant selector). */
   line-height: 1.5;
   font-family: var(--font-noto-serif-tc), serif;
   color: var(--text-accent, #C41E3A);

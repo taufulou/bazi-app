@@ -61,7 +61,12 @@
 }
 
 .hourUnknownWarnNote {
-  composes: caption from "../styles/type.module.css";
+  /* `bodyTight`, NOT `caption`. This renders a two-sentence CJK paragraph
+     (「用神、五行比重會標示…可另外建立一張新命盤查看完整分析。」), and 12px is the
+     ORNAMENT floor — units, badge counts, non-CJK digits. The standard is explicit
+     that prose never goes there. Identical rule and identical copy in
+     CompatibilityRomancePaywallCTA.module.css; the two are meant to match. */
+  composes: bodyTight from "../styles/type.module.css";
   color: var(--text-muted);
   margin: 0;
 }

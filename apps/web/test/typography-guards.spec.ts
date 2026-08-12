@@ -611,4 +611,45 @@ describe('Guard F — token file and custom properties cannot drift', () => {
     }
     expect(bad).toEqual([]);
   });
+
+  /**
+   * No rule may declare the same TYPE property twice.
+   *
+   * CSS is last-declaration-wins, so a duplicate makes the earlier one dead — and
+   * the earlier one is the one people write comments on. The migration produced 16
+   * rules shaped like:
+   *
+   *     line-height: 1.58; \/* restored — the role scale would shrink this *\/
+   *     line-height: 1.25;
+   *
+   * where the comment documents a value that never renders. That is the exact
+   * failure this whole standard exists to prevent — declared intent diverging from
+   * rendered result — and every other guard here missed it, because they compare a
+   * role against a LOCAL rule and this is one rule disagreeing with itself.
+   *
+   * Type properties only. `border: none` followed by a real border is a normal
+   * reset-then-set idiom and predates this work; widening the check to every
+   * property would fail on that and teach people to ignore this guard.
+   */
+  it('never declares the same type property twice in one rule', () => {
+    const TYPE_PROPS = /^(font-size|line-height|font-weight|font-family|letter-spacing)$/;
+    const bad: string[] = [];
+    for (const file of walk(APP, /\.css$/)) {
+      const text = blankComments(fs.readFileSync(file, 'utf8'));
+      for (const m of text.matchAll(/\{([^{}]*)\}/g)) {
+        const counts: Record<string, number> = {};
+        for (const decl of (m[1] ?? '').split(';')) {
+          const key = (decl.split(':')[0] ?? '').trim();
+          if (TYPE_PROPS.test(key)) counts[key] = (counts[key] ?? 0) + 1;
+        }
+        for (const [key, n] of Object.entries(counts)) {
+          if (n > 1) {
+            const line = text.slice(0, m.index ?? 0).split('\n').length;
+            bad.push(`${rel(file)}:~${line} — "${key}" declared ${n}x (only the LAST applies)`);
+          }
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
 });

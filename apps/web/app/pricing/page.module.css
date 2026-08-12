@@ -49,7 +49,6 @@
 .pageTitle {
   /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 2.5rem;
-  line-height: 1.5; /* restored — the role scale would shrink this display size */
   line-height: 1.25;
   font-weight: 800;
   letter-spacing: 0.05em;
@@ -839,7 +838,6 @@
 
   .pageTitle {
   font-size: 2rem;
-  line-height: 1.25; /* restored — the role scale would shrink this display size */
     line-height: var(--t-title-leading);
   }
 
@@ -857,7 +855,6 @@
 
   .pageTitle {
   font-size: 1.75rem;
-  line-height: 1.25; /* restored — the role scale would shrink this display size */
     line-height: var(--t-title-leading);
   }
 
@@ -868,7 +865,6 @@
 
   .priceAmount {
   font-size: 2.2rem;
-  line-height: 1.58; /* restored — the role scale would shrink this display size */
     line-height: var(--t-display-leading);
   }
 

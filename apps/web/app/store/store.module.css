@@ -50,7 +50,6 @@
 .pageTitle {
   /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 2.2rem;
-  line-height: 1.58; /* restored — the role scale would shrink this display size */
   line-height: 1.25;
   font-weight: 800;
   letter-spacing: 0.05em;
@@ -88,7 +87,6 @@
 .balanceValue {
   /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 1.8rem;
-  line-height: 1.25; /* restored — the role scale would shrink this display size */
   line-height: 1.2;
   font-weight: 800;
   color: var(--text-accent);
@@ -164,7 +162,6 @@
 .creditAmount {
   /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 3rem;
-  line-height: 1.4; /* restored — the role scale would shrink this display size */
   line-height: 1.1;
   font-weight: 800;
   color: var(--text-accent);
@@ -190,7 +187,6 @@
 .priceTag {
   /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 1.8rem;
-  line-height: 1.25; /* restored — the role scale would shrink this display size */
   line-height: 1.2;
   font-weight: 700;
   color: var(--text-primary);
@@ -457,7 +453,6 @@
 
   .pageTitle {
   font-size: 1.75rem;
-  line-height: 1.25; /* restored — the role scale would shrink this display size */
     line-height: var(--t-title-leading);
   }
 
@@ -469,13 +464,11 @@
 
   .creditAmount {
   font-size: 2.5rem;
-  line-height: 1.5; /* restored — the role scale would shrink this display size */
     line-height: var(--t-display-leading);
   }
 
   .priceTag {
   font-size: 1.5rem;
-  line-height: 1.25; /* restored — the role scale would shrink this display size */
     line-height: var(--t-section-leading);
   }
 
@@ -485,7 +478,6 @@
 
   .balanceValue {
   font-size: 1.5rem;
-  line-height: 1.25; /* restored — the role scale would shrink this display size */
     line-height: var(--t-section-leading);
   }
 }

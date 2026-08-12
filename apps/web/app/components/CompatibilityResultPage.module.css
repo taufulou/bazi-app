@@ -119,7 +119,6 @@
 .scoreNum {
   /* Bespoke display size — the role scale would SHRINK this. */
   font-size: 4rem;
-  line-height: 1.27; /* restored — the role scale would shrink this display size */
   line-height: 1.05;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
@@ -652,7 +651,6 @@
 
   .scoreNum {
   font-size: 3rem;
-  line-height: 1.4; /* restored — the role scale would shrink this display size */
     line-height: var(--t-display-leading);
   }
 
