@@ -111,8 +111,6 @@ export default function CompatibilityRadarChart({
   comparisonType,
   size = 300,
 }: CompatibilityRadarChartProps) {
-  // Guard: if dimensionScores is undefined/null, render nothing
-  if (!dimensionScores) return null;
   const cx = size / 2;
   const cy = size / 2;
   const maxRadius = size * 0.38; // Leave room for labels
@@ -123,6 +121,7 @@ export default function CompatibilityRadarChart({
 
   // Build axes data from dimension scores
   const axes: RadarAxis[] = useMemo(() => {
+    if (!dimensionScores) return [];
     return AXIS_CONFIG.map((cfg) => {
       const scores = cfg.keys
         .map((k) => dimensionScores[k]?.amplifiedScore ?? 50)
@@ -137,6 +136,12 @@ export default function CompatibilityRadarChart({
       };
     });
   }, [dimensionScores]);
+
+  // Guard: if dimensionScores is undefined/null, render nothing.
+  // Below the hook, not above it — an early return before useMemo changes this
+  // component's hook count between renders, which is a React crash rather than a
+  // lint nit. The memo returns [] in that case so it stays safe to evaluate.
+  if (!dimensionScores) return null;
 
   const scoreValues = axes.map((a) => a.score);
   const dataPath = buildPolygonPath(scoreValues, cx, cy, maxRadius);

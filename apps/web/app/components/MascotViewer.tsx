@@ -25,7 +25,10 @@ export default function MascotViewer({
   const [activeView, setActiveView] = useState<MascotView>("full");
   const [hasInteracted, setHasInteracted] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const scrollTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  // React 19's useRef requires an explicit initial value — the zero-argument
+  // overload was removed, so `useRef<T>()` is now "Expected 1 arguments, but
+  // got 0" rather than an implicit undefined.
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const activeViewRef = useRef<MascotView>("full");
   const onViewChangeRef = useRef(onViewChange);
 
@@ -64,7 +67,6 @@ export default function MascotViewer({
       el.removeEventListener("scroll", handleScroll);
       if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- scroll listener subscribes once; callback read via onViewChangeRef
   }, []);
 
   // If invalid stem (paths are null), render nothing

@@ -97,5 +97,10 @@ jobs:
       - name: Build Web
         run: cd apps/web && npx next build
         env:
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_test_placeholder'
+          # Structurally valid, NOT a real key: Clerk decodes the publishable key
+          # at prerender (base64 of "<frontend-api-host>$"), so the previous
+          # 'pk_test_placeholder' parsed to null and threw "publishableKey passed
+          # to Clerk is invalid" while prerendering /_not-found. Decodes to
+          # example.clerk.accounts.dev — a domain that authenticates nothing.
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_test_ZXhhbXBsZS5jbGVyay5hY2NvdW50cy5kZXYk'
           NEXT_PUBLIC_SITE_URL: 'https://bazi-platform.com'

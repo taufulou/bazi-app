@@ -153,7 +153,6 @@ export default function LanguageProvider({ children }: { children: React.ReactNo
     };
     // `lang` intentionally excluded — we reconcile against the cookie, not state,
     // and don't want this to re-run on every local lang change (avoids loops).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoaded, isSignedIn, getToken]);
 
   // Clear the cookie on sign-out so a shared browser doesn't leak the prior user's

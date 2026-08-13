@@ -243,10 +243,10 @@ describe('BirthDataForm', () => {
       const yearSelect = screen.getByLabelText('年') as HTMLSelectElement;
       const options = Array.from(yearSelect.querySelectorAll('option'));
       // First option is placeholder "年", then years descending
-      expect(options[0].textContent).toBe('年');
+      expect(options[0]?.textContent).toBe('年');
       const currentYear = new Date().getFullYear();
-      expect(options[1].value).toBe(String(currentYear));
-      expect(options[options.length - 1].value).toBe('1920');
+      expect(options[1]?.value).toBe(String(currentYear));
+      expect(options[options.length - 1]?.value).toBe('1920');
     });
 
     it('should render 12 month options', () => {
@@ -380,8 +380,8 @@ describe('BirthDataForm', () => {
       expect(periodSelect.querySelectorAll('option').length).toBe(2);
       // Verify AM/PM labels
       const periodOptions = Array.from(periodSelect.querySelectorAll('option'));
-      expect(periodOptions[0].textContent).toBe('上午');
-      expect(periodOptions[1].textContent).toBe('下午');
+      expect(periodOptions[0]?.textContent).toBe('上午');
+      expect(periodOptions[1]?.textContent).toBe('下午');
     });
   });
 

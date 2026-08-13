@@ -237,6 +237,10 @@ export function createSectionDetector(
         // like chunk1='```js', chunk2='on\n{...'); trailing ``` after JSON close
         // is handled by `rootClosed` swallowing further input.
         const cleaned = preBuffer
+          // The "irregular whitespace" flagged here is U+FEFF, and stripping a
+          // leading BOM is the entire point of this line — removing it breaks
+          // streaming JSON parsing.
+          // eslint-disable-next-line no-irregular-whitespace
           .replace(/^﻿/, '')
           .replace(/^\s*```(?:json)?\s*/i, '');
         const firstBrace = cleaned.indexOf('{');

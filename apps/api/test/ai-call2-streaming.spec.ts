@@ -128,6 +128,8 @@ describe('Phase — streaming Call 2 in _executeStreamV2Common', () => {
           `"monthly_02":{"preview":"p2","full":"f2"},` +
           `"monthly_03":{"preview":"p3","full":"f3"}`; // NOTE: no closing brace, but sections complete
         // Will NOT yield (pre-chunk error) to trigger retry
+        // Throwing BEFORE the first yield is exactly the failure simulated here.
+        // eslint-disable-next-line require-yield
         return (async function* () {
           // Zero chunks, throw retryable error before yielding
           throw Object.assign(new Error('rate_limit_error'), { status: 429 });
@@ -290,6 +292,8 @@ describe('Phase — streaming Call 2 in _executeStreamV2Common', () => {
       callCount++;
       if (callCount === 1) {
         // Throw retryable error BEFORE any chunk yielded
+        // Throwing BEFORE the first yield is exactly the failure simulated here.
+        // eslint-disable-next-line require-yield
         return (async function* () {
           throw Object.assign(new Error('rate_limit_error'), { status: 429 });
         })();

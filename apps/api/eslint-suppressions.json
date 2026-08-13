@@ -1,0 +1,323 @@
+{
+  "prisma/seed.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/ai/ai.service.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 18
+    },
+    "@typescript-eslint/no-require-imports": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 6
+    }
+  },
+  "src/bazi/bazi.service.reveal-charge.spec.ts": {
+    "@typescript-eslint/no-require-imports": {
+      "count": 1
+    }
+  },
+  "src/bazi/bazi.service.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "src/chat/chat-prompt-builder.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/chat/chat-stream.service.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 5
+    }
+  },
+  "src/chat/chat.controller.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/chat/chat.service.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/chat/dto/index.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "src/fortune/fortune-snapshot.helpers.contract.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 18
+    }
+  },
+  "src/fortune/fortune-snapshot.helpers.monthly.contract.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 15
+    }
+  },
+  "src/fortune/fortune-snapshot.helpers.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 3
+    }
+  },
+  "src/fortune/fortune-snapshot.helpers.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "src/fortune/fortune-stream.service.monthly.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 19
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/fortune/fortune-stream.service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 58
+    },
+    "@typescript-eslint/no-require-imports": {
+      "count": 1
+    }
+  },
+  "src/fortune/fortune-stream.service.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 6
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    }
+  },
+  "src/fortune/fortune-validators.service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "src/fortune/fortune.service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 22
+    }
+  },
+  "src/payments/payments.controller.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/payments/stripe.service.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/webhooks/clerk-webhook.controller.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "src/zwds/zwds.service.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 15
+    }
+  },
+  "test/admin-guard.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 4
+    }
+  },
+  "test/admin-monetization.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 7
+    }
+  },
+  "test/admin-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 10
+    }
+  },
+  "test/ads-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 5
+    },
+    "@typescript-eslint/no-require-imports": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/ai-call2-streaming.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 32
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 4
+    }
+  },
+  "test/ai-failure-refund.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 14
+    },
+    "@typescript-eslint/no-require-imports": {
+      "count": 1
+    }
+  },
+  "test/ai-prompts.spec.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/ai-retry-helpers.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 25
+    }
+  },
+  "test/ai-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 29
+    }
+  },
+  "test/all-exceptions-filter.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    }
+  },
+  "test/bazi-regenerate.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 5
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/chat-payment-integration.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "test/chat-payment-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 10
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/chat-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 9
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/chat-stream-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 38
+    }
+  },
+  "test/chat-validators-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 14
+    }
+  },
+  "test/credit-package-dto.spec.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/credits-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 8
+    }
+  },
+  "test/entitlements-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "test/health-detailed.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 3
+    }
+  },
+  "test/monthly-credits.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 13
+    }
+  },
+  "test/payments-controller.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 27
+    }
+  },
+  "test/revenuecat-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "test/revenuecat-webhook.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 13
+    }
+  },
+  "test/schema-validation.spec.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/section-unlock-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 4
+    },
+    "@typescript-eslint/no-require-imports": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/streaming.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 12
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/stripe-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 33
+    }
+  },
+  "test/stripe-webhook.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 5
+    }
+  },
+  "test/users-delete-account.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/zwds-phase8b-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 17
+    }
+  },
+  "test/zwds-service.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 16
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 4
+    }
+  }
+}

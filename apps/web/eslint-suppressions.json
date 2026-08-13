@@ -1,0 +1,160 @@
+{
+  "app/admin/banners/page.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "app/components/AIReadingDisplay.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 29
+    }
+  },
+  "app/components/BirthDataForm.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    }
+  },
+  "app/components/CompatibilityResultPage.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "app/components/CompatibilityScoreReveal.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "app/components/CompatibilityScoreRevealV2.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "app/components/ElementExplanation.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 3
+    }
+  },
+  "app/components/PersonBirthFields.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    },
+    "react-hooks/exhaustive-deps": {
+      "count": 2
+    }
+  },
+  "app/components/ZwdsChart.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "app/components/chat/hooks/useChatSession.ts": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "react-hooks/exhaustive-deps": {
+      "count": 5
+    }
+  },
+  "app/dashboard/profiles/page.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "app/reading/[type]/page.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    },
+    "react-hooks/exhaustive-deps": {
+      "count": 2
+    }
+  },
+  "app/reading/compatibility/page.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 7
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    },
+    "react-hooks/exhaustive-deps": {
+      "count": 3
+    }
+  },
+  "app/reading/fortune/page.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "test/credit-badge.spec.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "test/home-daily-fortune-card.spec.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  },
+  "test/insufficient-credits-modal.spec.tsx": {
+    "react/display-name": {
+      "count": 1
+    }
+  },
+  "test/monthly-narrative-card-ask-cards.spec.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "test/narrative-card-streamed-sections.spec.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "test/past-readings-section.spec.tsx": {
+    "@typescript-eslint/no-unused-vars": {
+      "count": 1
+    }
+  },
+  "test/payments-api.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    },
+    "@typescript-eslint/no-unused-vars": {
+      "count": 2
+    }
+  },
+  "test/pricing-page.spec.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    },
+    "react/display-name": {
+      "count": 1
+    }
+  },
+  "test/reading-history.spec.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 1
+    },
+    "react/display-name": {
+      "count": 1
+    }
+  },
+  "test/subscription-management.spec.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 9
+    },
+    "react/display-name": {
+      "count": 1
+    }
+  },
+  "test/use-fortune-narrative-stream.spec.tsx": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 2
+    }
+  }
+}

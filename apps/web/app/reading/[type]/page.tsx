@@ -123,18 +123,36 @@ const restoreAttempted: Record<string, boolean> = {};
 // Component
 // ============================================================
 
+/**
+ * Route validation ONLY. Everything else lives in <ValidReadingPage> below.
+ *
+ * The two were one component, with `return <InvalidTypePage />` sitting above
+ * ~68 hook calls. That is a real crash, not a lint technicality: `[type]` keeps
+ * this component MOUNTED across route changes, so navigating
+ * /reading/lifetime -> /reading/bogus took the early return on a re-render and
+ * React threw "rendered fewer hooks than expected". Splitting it means the
+ * hook-bearing component only ever mounts for a valid type, and a valid->invalid
+ * navigation unmounts it rather than shortening its hook list.
+ *
+ * No `key` on ValidReadingPage on purpose — valid->valid navigation must keep
+ * its state, exactly as it did when this was a single component.
+ */
 export default function ReadingPage() {
   const params = useParams();
-  const router = useRouter();
-  const searchParams = useSearchParams();
   const readingType = params.type as string;
 
-  // Validate reading type
   if (!VALID_TYPES.includes(readingType as ReadingTypeSlug)) {
     return <InvalidTypePage />;
   }
 
-  const meta = READING_TYPE_META[readingType as ReadingTypeSlug];
+  return <ValidReadingPage readingType={readingType as ReadingTypeSlug} />;
+}
+
+function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  const meta = READING_TYPE_META[readingType];
   const isZwds = isZwdsType(readingType);
   const isLifetime = readingType === "lifetime";
   const isCareer = readingType === "career";

@@ -1,6 +1,8 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
+  "globalEnv": ["NODE_ENV", "SENTRY_DSN", "SENTRY_AUTH_TOKEN", "BAZI_ENGINE_URL"],
+  "globalPassThroughEnv": ["PORT", "CORS_ORIGINS", "TEST_INTEGRATION", "MAX_TOTAL_AI_TIME_MS"],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

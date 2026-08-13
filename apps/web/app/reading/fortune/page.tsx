@@ -1320,7 +1320,6 @@ function MonthlyFortuneView({
             [ev.key]: ev.value as never,
           }));
         } else if (typeof console !== 'undefined') {
-          // eslint-disable-next-line no-console
           console.warn(
             `[MonthlyFortuneView] dropped section_complete with unknown key: ${ev.key}`,
           );
@@ -1710,7 +1709,6 @@ function YearlyFortuneView({
             [ev.key]: ev.value as never,
           }));
         } else if (typeof console !== 'undefined') {
-          // eslint-disable-next-line no-console
           console.warn(
             `[YearlyFortuneView] dropped section_complete with unknown key: ${ev.key}`,
           );
