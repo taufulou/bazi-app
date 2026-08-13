@@ -45,13 +45,30 @@ const FIRST_GENERATION_INFLIGHT_MS = 360_000;
 
 
 /**
- * Removes the subscriber-only layers from an `/explain-element` response.
+ * Removes the subscriber-only content from an `/explain-element` response.
  *
- * ALLOWLIST-shaped in spirit: it drops the two known paid containers rather
- * than trying to enumerate every free key, because a future engine field is far
- * more likely to be free (Layer A is the generic tier) than paid — and if a new
- * PAID field is ever added, the two-sided test below fails loudly rather than
- * leaking silently.
+ * The paid boundary is defined by the CLIENTS — `ElementExplanation.tsx` on web
+ * (`:294-405`) and `apps/mobile/src/components/ElementExplanation.tsx`
+ * (`:207-...`) both render these inside an `isSubscriber ?` branch:
+ *
+ *   • `personalized`  — Layer B `pillarMeaning`, C `godRoleMeaning`/`godRole`,
+ *                       D `genderMeaning`
+ *   • `pillarContext.paid`   (`.free` is the teaser and stays)
+ *   • `interactions`         — cross-pillar 六合/六沖 detail, subscriber-only
+ *                              on BOTH clients
+ *   • `dayPillarCombo`       — `grade` + `teaser` are the free tier behind a
+ *                              「解鎖日柱組合完整解讀」 CTA; `summary`,
+ *                              `gradeReason`, `specialLabels` and
+ *                              `lifeStageSeat` are paid. The engine ships all
+ *                              60 combos, so leaving `summary` in lets an
+ *                              anonymous caller enumerate the entire paid set.
+ *
+ * ⚠️ `personalized` is EMPTIED, not deleted. Mobile dereferences
+ * `data.personalized.pillarMeaning` with no guard (`:206`, `:240`), and its own
+ * error stub always supplies `personalized: {}` — so "always present" is an
+ * invariant of this payload. Deleting the key crashed every non-subscriber
+ * mobile caller with a TypeError. Emptying keeps the invariant and leaks
+ * nothing.
  *
  * Pure + total: a non-object response passes through untouched.
  */
@@ -61,15 +78,28 @@ export function stripPaidExplanationLayers(result: unknown): unknown {
   const src = result as Record<string, unknown>;
   const out: Record<string, unknown> = { ...src };
 
-  // Layers B/C/D all live here.
-  delete out.personalized;
+  // Layers B/C/D. Emptied rather than removed — see the note above.
+  if ('personalized' in out) out.personalized = {};
 
-  // `pillarContext` is split: `.free` is the teaser, `.paid` is the full text.
+  // Split field: `.free` is the teaser, `.paid` is the full text.
   const ctx = src.pillarContext;
   if (ctx && typeof ctx === 'object' && !Array.isArray(ctx)) {
     const rest = { ...(ctx as Record<string, unknown>) };
     delete rest.paid;
     out.pillarContext = rest;
+  }
+
+  // Cross-pillar interactions — wholly subscriber-only.
+  delete out.interactions;
+
+  // Day-pillar combo — keep the free teaser, drop the paid analysis.
+  const combo = src.dayPillarCombo;
+  if (combo && typeof combo === 'object' && !Array.isArray(combo)) {
+    const c = combo as Record<string, unknown>;
+    out.dayPillarCombo = {
+      ...(c.grade !== undefined && { grade: c.grade }),
+      ...(c.teaser !== undefined && { teaser: c.teaser }),
+    };
   }
 
   return out;
@@ -1408,10 +1438,23 @@ export class BaziService {
     // was masked because a comparison always had `creditsUsed: 3` by the time it
     // had an interpretation. Now that creation is free, "unpaid" is a real,
     // reachable state and this is a live paywall.
-    const isSubscriber = user.subscriptionTier !== 'FREE';
-    const isOwnerReading = comparison.paidAt !== null;
+    // ⚠️ No `isSubscriber ||` — same fix as `getReading` (F-4), applied to the
+    // sibling the first pass missed. F-4's stated "tell" was that the chat and
+    // fortune gates carry no subscriber exemption while `getReading` did; this
+    // function, one screen away, still did.
+    //
+    // The refund case here is already covered more strongly than on the reading
+    // path — `refundComparisonCredit` clears `paidAt` AND nulls
+    // `aiInterpretation` in one atomic `updateMany`. The live gap is the OTHER
+    // state, which `:922-924` names explicitly: "an unpaid row with a stale
+    // interpretation falls through to the charge." On the SSE path that costs
+    // 3 credits; here a subscriber was handed it free.
+    //
+    // A subscription is a bounded credit allowance (`Plan.monthlyCredits`
+    // 5/15/50), not all-access — comparisons are charged with no tier branch.
+    const isPaid = comparison.paidAt !== null;
 
-    if (isSubscriber || isOwnerReading) {
+    if (isPaid) {
       return this.flattenComparisonResponse(comparison);
     }
 

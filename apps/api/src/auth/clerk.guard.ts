@@ -39,12 +39,16 @@ export class ClerkAuthGuard implements CanActivate {
       // This used to `return true` immediately, so `request.auth` was never
       // populated even when the caller sent a perfectly good token. Two
       // consequences, both real:
-      //   • M1's rate-limit tracker keys on userId when authenticated and IP
-      //     otherwise — on public routes it could only ever see the IP, so
-      //     every signed-in user shared one bucket there.
       //   • A public route could not tell a subscriber from an anonymous
-      //     caller, which is why `explain-element` hands its paid Layer C/D to
-      //     anyone (O3).
+      //     caller, which is why `explain-element` handed its paid layers to
+      //     anyone (O3). That is the reason this exists.
+      //
+      // ⚠️ An earlier version of this comment also claimed it fixed M1's
+      // rate-limit keying. It does NOT: there is no custom tracker in this
+      // codebase (`grep getTracker|extends ThrottlerGuard|generateKey` → 0),
+      // `app.module.ts` registers the stock IP-scoped `ThrottlerGuard`, and M1
+      // is still future work. Populating `request.auth` is a PREREQUISITE for
+      // that work, not the work itself.
       //
       // Best-effort by design: a missing, malformed or expired token leaves
       // `request.auth` undefined and the request proceeds as anonymous. It

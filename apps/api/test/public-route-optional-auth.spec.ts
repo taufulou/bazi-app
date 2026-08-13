@@ -11,9 +11,10 @@
  *     says so) and the paywall lived entirely in `ElementExplanation.tsx`
  *     behind an `isSubscriber` prop. A client-side paywall is not a paywall:
  *     `curl` returned the paid tiers in full.
- *   • **M1** — the rate-limit tracker keys on userId when authenticated and IP
- *     otherwise. On public routes it could only ever see the IP, so every
- *     signed-in user shared a single bucket there.
+ *
+ * (An earlier version of this docblock also credited it with fixing M1's
+ * rate-limit keying. That was wrong — no custom throttler tracker exists yet;
+ * M1 is future work, and this is a prerequisite for it, not a delivery of it.)
  *
  * The route stays `@Public()`. Auth is now verify-if-present: a valid token
  * identifies the caller, and anything else proceeds anonymously.
@@ -21,11 +22,13 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { BaziService, stripPaidExplanationLayers } from '../src/bazi/bazi.service';
 
-// A realistic engine response: Layer A free, `personalized` = Layers B/C/D,
-// `pillarContext` split free/paid.
+// The REAL engine shape. The first version of this fixture invented
+// `layerA`/`title` and a `{type, detail}` interaction — the engine actually
+// emits `generic` (`explanations.py:281`) and richer interactions, and it omits
+// `dayPillarCombo` entirely, which is why the audit found that boundary
+// untested in both directions.
 const ENGINE_RESPONSE = {
-  title: '正財',
-  layerA: '正財代表穩定的財富來源…', // free tier
+  generic: { name: '正財', meaning: '正財代表穩定的財富來源…' }, // Layer A — free
   pillarContext: {
     free: '日柱代表自身與配偶。',
     paid: '日柱正財，配偶多為務實持家之人…',
@@ -36,16 +39,40 @@ const ENGINE_RESPONSE = {
     godRole: '用神',
     genderMeaning: '（Layer D）男命正財為妻…',
   },
-  interactions: [{ type: '六合', detail: '…' }],
+  // Subscriber-only on BOTH clients (web `:362` and mobile `:221`, each inside
+  // an `isSubscriber ?` branch).
+  interactions: [
+    {
+      type: '六合',
+      name: '子丑合土',
+      icon: '🤝',
+      description: '（PAID）日支與月支相合，主…',
+      pillarsInvolved: ['day', 'month'],
+      nature: 'positive',
+    },
+  ],
+  // Split: grade+teaser free behind an unlock CTA; the rest paid.
+  dayPillarCombo: {
+    grade: '上等',
+    teaser: '（FREE ~50 chars）此日柱組合主…',
+    summary: '（PAID ~200 chars）詳細解讀：此日柱…',
+    gradeReason: '（PAID）因為…',
+    lifeStageSeat: '帝旺',
+    specialLabels: ['六秀日'],
+  },
 };
 
 describe('O3 — stripPaidExplanationLayers', () => {
   it('removes every paid layer for an anonymous caller', () => {
     const out = stripPaidExplanationLayers(ENGINE_RESPONSE) as Record<string, unknown>;
 
-    // Layers B/C/D all live under `personalized`.
-    expect(out.personalized).toBeUndefined();
+    // ⚠️ EMPTIED, not deleted. Mobile dereferences `data.personalized.x` with
+    // no guard, and its error stub always supplies `personalized: {}` — so
+    // "always present" is an invariant of this payload. Deleting the key
+    // crashed every non-subscriber mobile caller.
+    expect(out.personalized).toEqual({});
     expect((out.pillarContext as Record<string, unknown>).paid).toBeUndefined();
+    expect(out.interactions).toBeUndefined();
 
     // Belt and braces — assert the actual paid STRINGS are gone from the
     // serialized payload, not merely that the keys were deleted. A future
@@ -55,17 +82,24 @@ describe('O3 — stripPaidExplanationLayers', () => {
     expect(serialized).not.toContain('Layer C');
     expect(serialized).not.toContain('Layer D');
     expect(serialized).not.toContain('配偶多為務實持家');
+    expect(serialized).not.toContain('PAID');
   });
 
   it('keeps the free tier intact — this must not become a blank response', () => {
     const out = stripPaidExplanationLayers(ENGINE_RESPONSE) as Record<string, unknown>;
 
-    expect(out.title).toBe('正財');
-    expect(out.layerA).toBe(ENGINE_RESPONSE.layerA);
+    expect(out.generic).toEqual(ENGINE_RESPONSE.generic);
     expect((out.pillarContext as Record<string, unknown>).free).toBe(
       ENGINE_RESPONSE.pillarContext.free,
     );
-    expect(out.interactions).toEqual(ENGINE_RESPONSE.interactions);
+    // ⚠️ This used to assert `interactions` was KEPT, under this same
+    // "free tier intact" heading. It is subscriber-only on both clients, so the
+    // suite would have failed the correct fix and told the next engineer they
+    // had broken the free tier. Now asserts the free HALF of the split field.
+    expect(out.dayPillarCombo).toEqual({
+      grade: ENGINE_RESPONSE.dayPillarCombo.grade,
+      teaser: ENGINE_RESPONSE.dayPillarCombo.teaser,
+    });
   });
 
   it('does not mutate the engine response it was given', () => {
@@ -80,9 +114,9 @@ describe('O3 — stripPaidExplanationLayers', () => {
     }
   });
 
-  it('tolerates a response with no pillarContext', () => {
-    const out = stripPaidExplanationLayers({ layerA: 'x' }) as Record<string, unknown>;
-    expect(out).toEqual({ layerA: 'x' });
+  it('tolerates a response with no pillarContext / dayPillarCombo', () => {
+    const out = stripPaidExplanationLayers({ generic: 'x' }) as Record<string, unknown>;
+    expect(out).toEqual({ generic: 'x' });
   });
 });
 
@@ -127,8 +161,8 @@ describe('O3 — passthroughExplainElement gates on the caller tier', () => {
     const { service, prisma } = makeService('PRO');
     const out = (await service.passthroughExplainElement({}, undefined)) as Record<string, unknown>;
 
-    expect(out.personalized).toBeUndefined();
-    expect(out.layerA).toBe(ENGINE_RESPONSE.layerA);
+    expect(out.personalized).toEqual({});
+    expect(out.generic).toEqual(ENGINE_RESPONSE.generic);
     // Never even looked a user up — there was no id to look up.
     expect(prisma.user.findUnique).not.toHaveBeenCalled();
   });
@@ -136,7 +170,7 @@ describe('O3 — passthroughExplainElement gates on the caller tier', () => {
   it('FREE-tier caller gets the free tier only', async () => {
     const { service } = makeService('FREE');
     const out = (await service.passthroughExplainElement({}, 'clerk_free')) as Record<string, unknown>;
-    expect(out.personalized).toBeUndefined();
+    expect(out.personalized).toEqual({});
   });
 
   it('SUBSCRIBER gets every layer', async () => {
@@ -150,12 +184,12 @@ describe('O3 — passthroughExplainElement gates on the caller tier', () => {
   it('fails CLOSED — an unknown user, or a DB error, serves the free tier', async () => {
     const { service: unknownUser } = makeService(null);
     const a = (await unknownUser.passthroughExplainElement({}, 'clerk_ghost')) as Record<string, unknown>;
-    expect(a.personalized).toBeUndefined();
+    expect(a.personalized).toEqual({});
 
     const { service: broken, prisma } = makeService('PRO');
     prisma.user.findUnique.mockRejectedValue(new Error('db down'));
     const b = (await broken.passthroughExplainElement({}, 'clerk_pro')) as Record<string, unknown>;
-    expect(b.personalized).toBeUndefined();
+    expect(b.personalized).toEqual({});
   });
 });
 

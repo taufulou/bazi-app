@@ -248,3 +248,63 @@ describe('F2 — regeneration must not destroy the record of a real charge', () 
 // on it: `streamReading` forwards only `err.message` into the SSE error event,
 // so the code never reaches a client. Deleted rather than "fixed", because the
 // contract it claimed to guard does not exist.
+
+// ============================================================
+// F-4 sibling — getComparison (B1/B2 audit finding 6)
+// ============================================================
+
+describe('F-4 sibling — getComparison has no subscriber exemption either', () => {
+  /**
+   * ⚠️ F-4's stated "tell" was that the chat and fortune gates carry no
+   * subscriber exemption while `getReading` did. The audit pointed out that
+   * `getComparison`, one screen away, still did — and that removing
+   * `isSubscriber ||` there passed all 1534 tests, so it was neither a pinned
+   * product decision nor covered.
+   *
+   * The refund case was already handled more strongly than on the reading path
+   * (`refundComparisonCredit` clears `paidAt` AND nulls `aiInterpretation`
+   * atomically). The live gap is the state `bazi.service.ts:922-924` names:
+   * "an unpaid row with a stale interpretation falls through to the charge" —
+   * 3 credits on the SSE path, free to a subscriber here.
+   */
+  const CMP_ID = 'cmp-1';
+
+  function makeCmpService(paidAt: Date | null, tier = 'PRO') {
+    const comparison = {
+      id: CMP_ID,
+      userId: USER_ID,
+      paidAt,
+      aiInterpretation: { sections: SECTIONS },
+    };
+    const mockPrisma = {
+      user: { findUnique: jest.fn().mockResolvedValue({ id: USER_ID, subscriptionTier: tier }) },
+      baziComparison: { findFirst: jest.fn().mockResolvedValue(comparison) },
+    };
+    const service = new BaziService(
+      mockPrisma as never, {} as never,
+      { get: jest.fn().mockReturnValue('http://localhost:5001') } as never,
+      {} as never, {} as never,
+    );
+    return { service };
+  }
+
+  const cmpFull = (r: unknown): string =>
+    (r as { aiInterpretation: { sections: Record<string, { full: string }> } })
+      .aiInterpretation.sections.personality.full;
+
+  it('STRIPS an unpaid comparison for a SUBSCRIBER', async () => {
+    const { service } = makeCmpService(null, 'PRO');
+    expect(cmpFull(await service.getComparison(CLERK, CMP_ID))).toBe('peek');
+  });
+
+  it('still serves a PAID comparison to a subscriber', async () => {
+    const { service } = makeCmpService(new Date(), 'PRO');
+    expect(cmpFull(await service.getComparison(CLERK, CMP_ID))).toBe('THE PAID CONTENT');
+  });
+
+  it('still serves a PAID comparison to a FREE user', async () => {
+    // Negative control in the other direction — paying is what entitles, not tier.
+    const { service } = makeCmpService(new Date(), 'FREE');
+    expect(cmpFull(await service.getComparison(CLERK, CMP_ID))).toBe('THE PAID CONTENT');
+  });
+});

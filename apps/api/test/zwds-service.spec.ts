@@ -960,6 +960,42 @@ describe('ZwdsService', () => {
       await expect(service.getReading('clerk_user_1', 'nonexistent')).rejects.toThrow(NotFoundException);
     });
 
+    it('STRIPS a refunded reading for a SUBSCRIBER too (F-4)', async () => {
+      // ⚠️ This test exists because the B1/B2 audit found the zwds half of F-4
+      // had ZERO coverage: restoring `if (isSubscriber || isEntitled)` here
+      // passed the entire 1534-test suite. The five existing getReading tests
+      // all mock `refundedAt: null`, so none of them can see the gate.
+      //
+      // That is the F-1 lesson re-committed in the very commit whose thesis is
+      // that untested wiring is how gates rot — the bazi twin was fixed AND
+      // tested, this one was fixed and left bare. The route is live and
+      // authenticated (`GET /api/zwds/readings/:id`) even though no client
+      // calls it today.
+      const subscriber = { ...mockUser, subscriptionTier: 'PRO' };
+      const reading = {
+        id: 'reading-1',
+        userId: 'user-1',
+        creditsUsed: 2,
+        refundedAt: new Date('2026-08-01'),
+        aiInterpretation: {
+          sections: {
+            personality: { preview: 'short preview', full: 'long detailed analysis' },
+          },
+        },
+        birthProfile: mockProfile,
+      };
+
+      (prisma.user.findUnique as jest.Mock).mockResolvedValue(subscriber);
+      (prisma.baziReading.findFirst as jest.Mock).mockResolvedValue(reading);
+
+      const result = (await service.getReading('clerk_user_1', 'reading-1')) as {
+        aiInterpretation: { sections: Record<string, { full: string }> };
+      };
+      // Subscribers pay credits like everyone else, so a refunded subscriber is
+      // no more entitled to THIS reading than a free user.
+      expect(result.aiInterpretation.sections.personality.full).toBe('short preview');
+    });
+
     it('should return full reading for subscriber (PRO tier)', async () => {
       const subscriber = { ...mockUser, subscriptionTier: 'PRO' };
       const reading = {
