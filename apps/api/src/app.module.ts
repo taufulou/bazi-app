@@ -58,6 +58,12 @@ import { BannerModule } from './banner/banner.module';
         // any authenticated caller. Do NOT set to '1' until AdMob SSV is wired
         // (see the docblocks in ads.service.ts and section-unlock.service.ts).
         ADS_REWARDS_ENABLED: Joi.string().valid('0', '1').optional().default('0'),
+        // Per-section unlock (F3). Default '0' (OFF) — unlock rows are read by
+        // nothing on the content-delivery path, so the feature charged credits
+        // for an inert row. Do NOT set to '1' until SectionUnlock is joined in
+        // getReading + emitStaticSections and the dead owner-check at
+        // bazi.service.ts:554 is fixed (F2). See section-unlock.service.ts.
+        SECTION_UNLOCK_ENABLED: Joi.string().valid('0', '1').optional().default('0'),
         PORT: Joi.number().default(4000),
         NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
       }),

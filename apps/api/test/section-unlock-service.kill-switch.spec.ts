@@ -20,7 +20,26 @@ const CLERK_USER = 'user_clerk_abc';
 const USER_ID = 'db-uuid-1';
 const READING_ID = 'reading-1';
 
-function makeService(adsRewardsEnabled: string | undefined) {
+/**
+ * Marker meaning "the env var is not set at all" (config.get → undefined).
+ *
+ * A default parameter CANNOT express this: JS defaults fire on an explicitly
+ * passed `undefined`, so `makeService('1', undefined)` would collapse into the
+ * default and test the opposite of what it claims. An explicit marker keeps the
+ * three states — omitted / set / unset — genuinely distinct. (The first attempt
+ * here used a default value and was caught by the F3 test failing.)
+ */
+const UNSET = 'UNSET_ENV_VAR';
+
+function makeService(
+  adsRewardsEnabled: string | undefined,
+  // Omitted ⇒ '1', so the ad_reward tests exercise the AD gate specifically
+  // rather than being short-circuited by the feature switch. Pass UNSET to
+  // simulate a missing env var.
+  sectionUnlockEnabledArg: string = '1',
+) {
+  const sectionUnlockEnabled =
+    sectionUnlockEnabledArg === UNSET ? undefined : sectionUnlockEnabledArg;
   const prisma = {
     user: { findUnique: jest.fn().mockResolvedValue({ id: USER_ID }) },
     baziReading: {
@@ -46,9 +65,11 @@ function makeService(adsRewardsEnabled: string | undefined) {
   };
   const credits = { deductCredits: jest.fn().mockResolvedValue(undefined) };
   const config = {
-    get: jest.fn((key: string) =>
-      key === 'ADS_REWARDS_ENABLED' ? adsRewardsEnabled : undefined,
-    ),
+    get: jest.fn((key: string) => {
+      if (key === 'ADS_REWARDS_ENABLED') return adsRewardsEnabled;
+      if (key === 'SECTION_UNLOCK_ENABLED') return sectionUnlockEnabled;
+      return undefined;
+    }),
   };
   const service = new SectionUnlockService(
     prisma as unknown as PrismaService,
@@ -125,6 +146,58 @@ describe('SectionUnlockService — ad_reward kill switch (A8)', () => {
       await expect(
         service.unlockSection(CLERK_USER, READING_ID, 'bazi', 'career', 'ad_reward'),
       ).rejects.toBeInstanceOf(ForbiddenException);
+    });
+  });
+
+  // ============================================================
+  // F3 — the whole feature is disabled (owner decision 2026-08-13)
+  // ============================================================
+  describe('SECTION_UNLOCK_ENABLED (F3 feature switch)', () => {
+    it.each([
+      ['unset (production default)', UNSET],
+      ["explicitly '0'", '0'],
+    ])('rejects the CREDIT method when the feature flag is %s', async (_label, flag) => {
+      // Ads ON, feature OFF — proves the feature switch is what refuses, not the ad gate.
+      const { service } = makeService('1', flag);
+
+      await expect(
+        service.unlockSection(CLERK_USER, READING_ID, 'bazi', 'career', 'credit'),
+      ).rejects.toMatchObject({ response: { code: 'SECTION_UNLOCK_DISABLED' } });
+    });
+
+    it('charges NOTHING when disabled — the whole point of F3', async () => {
+      const { service, prisma, credits } = makeService('1', '0');
+
+      await expect(
+        service.unlockSection(CLERK_USER, READING_ID, 'bazi', 'career', 'credit'),
+      ).rejects.toThrow();
+
+      expect(credits.deductCredits).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(prisma.sectionUnlock.create).not.toHaveBeenCalled();
+    });
+
+    it('outranks ADS_REWARDS_ENABLED — feature off blocks ad_reward too', async () => {
+      const { service } = makeService('1', '0');
+
+      await expect(
+        service.unlockSection(CLERK_USER, READING_ID, 'bazi', 'career', 'ad_reward'),
+      ).rejects.toMatchObject({ response: { code: 'SECTION_UNLOCK_DISABLED' } });
+    });
+
+    it('fires before ALL validation — no oracle for section keys or reading types', async () => {
+      const { service, prisma } = makeService('1', '0');
+
+      // Both would normally throw their own distinct BadRequestException.
+      await expect(
+        service.unlockSection(CLERK_USER, READING_ID, 'NOT_A_TYPE', 'career', 'credit'),
+      ).rejects.toMatchObject({ response: { code: 'SECTION_UNLOCK_DISABLED' } });
+      await expect(
+        service.unlockSection(CLERK_USER, READING_ID, 'bazi', 'NOT_A_SECTION', 'credit'),
+      ).rejects.toMatchObject({ response: { code: 'SECTION_UNLOCK_DISABLED' } });
+
+      // And it never even looks the reading up.
+      expect(prisma.baziReading.findUnique).not.toHaveBeenCalled();
     });
   });
 

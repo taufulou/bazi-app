@@ -73,6 +73,33 @@ export class SectionUnlockService {
   }
 
   /**
+   * Feature switch for per-section unlocking as a whole (F3, owner decision
+   * 2026-08-13: "disable it").
+   *
+   * WHY: unlock rows grant nothing. `SectionUnlock` is read only by
+   * `getUnlockedSections` (metadata), `getReadingWithSectionAccess` (dead — no
+   * caller anywhere in src/), and admin stats. Neither `getReading` nor the
+   * reading SSE stream joins the table, so an unlock changes nothing a user can
+   * observe — while the `credit` method debits real credits for it. Selling an
+   * inert row is worse than not selling it, so the endpoint refuses until the
+   * feature is actually wired into content delivery.
+   *
+   * Safe to disable: zero client callers (verified across apps/web + apps/mobile
+   * — only the admin monetization page reads aggregate stats, via a different
+   * admin endpoint) and **zero rows in section_unlocks at the time of the
+   * change**, so nobody has ever paid for one and there is no refund liability.
+   *
+   * To re-enable, the delivery path must consult the table first: join
+   * `SectionUnlock` in `getReading` and in `emitStaticSections`, and fix the
+   * dead owner-check at `bazi.service.ts:554` so unpaid states actually receive
+   * previews (F2). Then set SECTION_UNLOCK_ENABLED=1. The flag alone sells the
+   * inert row again.
+   */
+  private sectionUnlockEnabled(): boolean {
+    return this.config.get<string>('SECTION_UNLOCK_ENABLED') === '1';
+  }
+
+  /**
    * Get all unlocked sections for a reading.
    */
   async getUnlockedSections(
@@ -113,6 +140,21 @@ export class SectionUnlockService {
     sectionKey: string,
     method: 'credit' | 'ad_reward',
   ): Promise<{ success: boolean; sectionKey: string; creditsUsed: number }> {
+    // ---- Feature switch (F3) — checked FIRST, before any validation ----
+    // Ahead of everything else so a disabled deployment charges nobody and
+    // leaks no oracle (not even which section keys or reading types are valid).
+    // Outranks ADS_REWARDS_ENABLED: with the feature off, BOTH methods refuse.
+    if (!this.sectionUnlockEnabled()) {
+      this.logger.warn(
+        `Section unlock REJECTED (SECTION_UNLOCK_ENABLED is off): ` +
+        `user=${clerkUserId}, reading=${readingId}, section=${sectionKey}, method=${method}`,
+      );
+      throw new BadRequestException({
+        code: 'SECTION_UNLOCK_DISABLED',
+        message: '單章節解鎖功能目前未開放。',
+      });
+    }
+
     // ---- Validate reading type ----
     if (!VALID_READING_TYPES.includes(readingType as ReadingType)) {
       throw new BadRequestException(

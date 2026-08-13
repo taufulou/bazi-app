@@ -149,8 +149,13 @@ describe('SectionUnlockService', () => {
     // test/section-unlock-service.kill-switch.spec.ts.
     // `as unknown as` rather than `as any` — see the ratchet note in
     // test/ads-service.spec.ts; this file's no-explicit-any budget is 4.
+    // Both switches forced ON: this suite tests unlock BEHAVIOUR. Production
+    // defaults are OFF for both (ad_reward verifies nothing — A8; the whole
+    // feature grants nothing — F3). The switches themselves are covered by
+    // test/section-unlock-service.kill-switch.spec.ts.
     const mockConfig = {
-      get: (key: string) => (key === 'ADS_REWARDS_ENABLED' ? '1' : undefined),
+      get: (key: string) =>
+        key === 'ADS_REWARDS_ENABLED' || key === 'SECTION_UNLOCK_ENABLED' ? '1' : undefined,
     } as unknown as ConfigService;
     service = new SectionUnlockService(
       mockPrisma as any,
