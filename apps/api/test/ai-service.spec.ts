@@ -686,10 +686,13 @@ describe('AIService', () => {
   // ============================================================
 
   describe('provider initialization', () => {
-    it('should have no providers when no API keys set', () => {
+    // ⚠️ `async` + `await` are both load-bearing. This was a synchronous `it()` with
+    // a floating `.rejects` — the body completed immediately, the assertion's result
+    // was discarded, and the test passed no matter what the promise did. It had never
+    // asserted anything.
+    it('should have no providers when no API keys set', async () => {
       service.onModuleInit();
-      // generateInterpretation should throw
-      expect(
+      await expect(
         service.generateInterpretation(SAMPLE_CALCULATION, ReadingType.LIFETIME),
       ).rejects.toThrow('No AI providers configured');
     });
