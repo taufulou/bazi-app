@@ -9,6 +9,7 @@
  *   ownership mismatch, no AI interpretation, section not in data, insufficient credits
  */
 import { SectionUnlockService } from '../src/payments/section-unlock.service';
+import type { ConfigService } from '@nestjs/config';
 import {
   NotFoundException,
   BadRequestException,
@@ -141,7 +142,21 @@ describe('SectionUnlockService', () => {
         await tx.creditLedger?.create?.({ data: { userId: _userId, amount: -amount } });
       }),
     };
-    service = new SectionUnlockService(mockPrisma as any, mockCreditsService as any);
+    // A8: the `ad_reward` branch is gated behind ADS_REWARDS_ENABLED, which
+    // defaults to OFF in production (it grants a paid section for 0 credits with
+    // no verification). This suite tests unlock BEHAVIOUR, so it forces the flag
+    // on; the switch and its production default are covered by
+    // test/section-unlock-service.kill-switch.spec.ts.
+    // `as unknown as` rather than `as any` — see the ratchet note in
+    // test/ads-service.spec.ts; this file's no-explicit-any budget is 4.
+    const mockConfig = {
+      get: (key: string) => (key === 'ADS_REWARDS_ENABLED' ? '1' : undefined),
+    } as unknown as ConfigService;
+    service = new SectionUnlockService(
+      mockPrisma as any,
+      mockCreditsService as any,
+      mockConfig,
+    );
 
     // Default mocks
     mockTxUser.updateMany.mockResolvedValue({ count: 1 });

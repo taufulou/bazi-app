@@ -26,6 +26,7 @@ import {
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreditsService } from '../credits/credits.service';
 
@@ -60,7 +61,16 @@ export class SectionUnlockService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly creditsService: CreditsService,
+    private readonly config: ConfigService,
   ) {}
+
+  /**
+   * Kill switch shared with AdsService — see the `ad_reward` branch in `unlockSection`.
+   * Read per-call so the flag is flip-and-restart, not a code change.
+   */
+  private adRewardsEnabled(): boolean {
+    return this.config.get<string>('ADS_REWARDS_ENABLED') === '1';
+  }
 
   /**
    * Get all unlocked sections for a reading.
@@ -213,9 +223,34 @@ export class SectionUnlockService {
 
       creditsUsed = cost;
     } else if (method === 'ad_reward') {
-      // For ad_reward: verify that a recent valid ad claim exists for this section
-      // V1 (web): ad rewards are mock-only, just create the unlock
-      // V2 (mobile): will verify via AdMob SSV callback
+      // ⚠️ FREE-UNLOCK VECTOR — disabled by default (`ADS_REWARDS_ENABLED`, default '0').
+      //
+      // This branch grants a paid section for `creditsUsed: 0` and verifies
+      // NOTHING: no AdRewardLog lookup, no AdMob SSV, no proof an ad was ever
+      // shown. Any authenticated user could unlock every paid section of every
+      // reading they own with one POST. No client calls it today (verified: zero
+      // `ad_reward` references in apps/web + apps/mobile), so the gate is
+      // behaviour-preserving for real traffic.
+      //
+      // The DTO deliberately still ACCEPTS `method: 'ad_reward'` (see
+      // UnlockSectionDto) — a static `@IsIn` decorator cannot be env-toggled, so
+      // rejecting there would make the flag a lie and re-enabling a code change.
+      // Enforcement belongs here, where the flag can actually govern it.
+      //
+      // To re-enable, BOTH must land: (1) AdMob SSV wired into AdsService.claimReward
+      // so an AdRewardLog row proves a real view, and (2) this branch consuming an
+      // unconsumed log row scoped to (userId, readingId, sectionKey) — the schema
+      // already carries those fields. Then set ADS_REWARDS_ENABLED=1.
+      if (!this.adRewardsEnabled()) {
+        this.logger.warn(
+          `Ad-reward unlock REJECTED (ADS_REWARDS_ENABLED is off): ` +
+          `user=${user.id}, reading=${readingId}, section=${sectionKey}`,
+        );
+        throw new BadRequestException({
+          code: 'ADS_REWARDS_DISABLED',
+          message: '廣告解鎖功能目前未開放，請使用點數解鎖。',
+        });
+      }
 
       await this.prisma.sectionUnlock.create({
         data: {

@@ -12,6 +12,7 @@
  */
 import { AdsService } from '../src/ads/ads.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import type { ConfigService } from '@nestjs/config';
 
 // ============================================================
 // Mocks
@@ -68,7 +69,17 @@ describe('AdsService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AdsService(mockPrisma as any, mockRedis as any);
+    // A8: rewards are gated behind ADS_REWARDS_ENABLED, which defaults to OFF in
+    // production because V1 does no ad-completion verification. This suite tests
+    // the reward FEATURE, so it forces the flag on. The switch itself (and the
+    // production default) is covered by test/ads-service.kill-switch.spec.ts.
+    // `as unknown as` rather than `as any`: this file has a bulk-suppression
+    // budget of 5 for no-explicit-any, and exceeding it un-suppresses the whole
+    // file. The lint ratchet only tightens.
+    const mockConfig = {
+      get: (key: string) => (key === 'ADS_REWARDS_ENABLED' ? '1' : undefined),
+    } as unknown as ConfigService;
+    service = new AdsService(mockPrisma as any, mockRedis as any, mockConfig);
 
     // Default mocks
     mockTxUser.update.mockResolvedValue({});

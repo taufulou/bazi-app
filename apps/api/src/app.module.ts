@@ -53,6 +53,11 @@ import { BannerModule } from './banner/banner.module';
         R2_BUCKET: Joi.string().allow('').optional().default(''),
         R2_PUBLIC_BASE_URL: Joi.string().allow('').optional().default(''),
         CORS_ORIGINS: Joi.string().optional().default('http://localhost:3000'),
+        // Rewarded-ad kill switch. Default '0' (OFF) — V1 does NO ad-completion
+        // verification, so claiming would mint credits / free section unlocks to
+        // any authenticated caller. Do NOT set to '1' until AdMob SSV is wired
+        // (see the docblocks in ads.service.ts and section-unlock.service.ts).
+        ADS_REWARDS_ENABLED: Joi.string().valid('0', '1').optional().default('0'),
         PORT: Joi.number().default(4000),
         NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
       }),
