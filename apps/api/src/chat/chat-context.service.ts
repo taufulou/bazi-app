@@ -1,9 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
-import { ReadingType } from '@prisma/client';
+import { ReadingType, SubscriptionTier } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { assertFortuneWindow, nowIsoInTz } from '../fortune/fortune-window';
 // Audit M#2 staff-engineer fix — snapshot staleness check must compare
 // against the ENGINE-side version (what the snapshot was stamped with at
 // persist time), NOT the chat-side `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE`.
@@ -539,12 +540,64 @@ export class ChatContextService {
    * `pa-fort` only appended for FORTUNE; existing other-type cached
    * contexts remain valid).
    */
+  // ============================================================
+  // F5 — fortune subscription window (shared with the HTTP routes)
+  // ============================================================
+
+  /**
+   * Throws unless `tier` may view `anchorDateIso` at `scope`.
+   *
+   * Delegates to `assertFortuneWindow` in `fortune-window.ts` — the SAME rule
+   * `GET /api/fortune/{daily,monthly,yearly}` enforces. Do not re-implement the
+   * comparison here; F5 was caused by exactly that kind of second copy (the
+   * rule lived on the HTTP path only, so chat served subscriber-only 年運 to
+   * free users for 1 credit, and to subscribers for nothing).
+   *
+   * `now` is resolved in `FORTUNE_DEFAULT_TZ`, matching the HTTP gate — a UTC
+   * clock would shift the boundary by up to 8 hours for Taipei users.
+   */
+  assertFortuneWindowForTier(
+    tier: SubscriptionTier,
+    scope: 'DAY' | 'MONTH' | 'YEAR',
+    anchorDateIso: string,
+  ): void {
+    const tz = this.config.get<string>('FORTUNE_DEFAULT_TZ') || 'Asia/Taipei';
+    assertFortuneWindow(scope, tier, anchorDateIso, nowIsoInTz(tz));
+  }
+
+  /** `assertFortuneWindowForTier` for callers that hold a userId, not a tier. */
+  async assertFortuneWindowForUser(
+    userId: string,
+    scope: 'DAY' | 'MONTH' | 'YEAR',
+    anchorDateIso: string,
+  ): Promise<void> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { subscriptionTier: true },
+    });
+    if (!user) throw new NotFoundException(`User not found: ${userId}`);
+    this.assertFortuneWindowForTier(user.subscriptionTier, scope, anchorDateIso);
+  }
+
+  /**
+   * ⚠️ `userId` is REQUIRED and the defaults on `readingType` / `fortuneScope`
+   * were removed on purpose (F5). Chat is a second door onto the same engine
+   * output the fortune HTTP routes serve, and it used to open that door with no
+   * subscription-window check at all. Making the caller name the user forces
+   * every call site — present and future — through the gate below, and a missing
+   * argument is a compile error rather than a silently ungated read.
+   */
   async getChatContextForFortune(
     profileId: string,
     anchorDate: string,
-    readingType: ReadingType = 'FORTUNE',
-    fortuneScope: 'DAY' | 'MONTH' | 'YEAR' = 'DAY',
+    readingType: ReadingType,
+    fortuneScope: 'DAY' | 'MONTH' | 'YEAR',
+    userId: string,
   ): Promise<ChatContext> {
+    // FIRST — before the profile lookup, before any cache read, before the
+    // engine call. An out-of-window request must cost nothing.
+    await this.assertFortuneWindowForUser(userId, fortuneScope, anchorDate);
+
     const profile = await this.prisma.birthProfile.findUnique({
       where: { id: profileId },
     });

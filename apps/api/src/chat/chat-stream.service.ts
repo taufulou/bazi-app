@@ -438,11 +438,16 @@ export class ChatStreamService {
         // Phase 2.x L3.5b — pass fortuneScope so engine dispatches DAY vs MONTH
         // chat-context. Default 'DAY' for sessions with null scope (pre-L3.5b
         // back-compat).
+        // F5 — see the twin call in `chat.service.ts`. This is the surface the
+        // web client actually uses, so gating only the non-streaming path would
+        // leave the real door open (the same reasoning as the comparison
+        // `paidAt` re-check above).
         chatContext = await this.contextService.getChatContextForFortune(
           session.profileId,
           session.fortuneAnchorDate.toISOString().slice(0, 10),
           session.readingType,
           (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? 'DAY',
+          userId,
         );
       } else {
         // CHECK constraint should prevent this. Defensive guard.

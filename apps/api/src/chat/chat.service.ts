@@ -242,6 +242,23 @@ export class ChatService {
           message: `FORTUNE chat supports DAY, MONTH, and YEAR scope (got: ${fortune!.fortuneScope}).`,
         });
       }
+
+      // ⚠️ F5 — the subscription window, same rule the fortune HTTP routes
+      // enforce. Without it, ownership + scope were the ONLY checks: a FREE
+      // user could anchor a session at 2030 and read a 年運 that
+      // `GET /api/fortune/yearly?year=2030` refuses with 403, and a subscriber
+      // could read any year at all out of their free-message quota.
+      //
+      // Enforced here as well as inside `getChatContextForFortune` — this is
+      // the fail-fast copy, so an out-of-window request never creates a session
+      // row. The context-builder copy is the load-bearing one: it re-checks on
+      // every message, catching a tier that changes mid-session.
+      this.contextService.assertFortuneWindowForTier(
+        user.subscriptionTier,
+        fortune!.fortuneScope as 'DAY' | 'MONTH' | 'YEAR',
+        fortune!.fortuneAnchorDate,
+      );
+
       resolvedReadingType = 'FORTUNE';
       resolvedProfileId = profile.id;
     }
@@ -608,6 +625,23 @@ export class ChatService {
         );
       }
 
+      // F5 — same reasoning as the drift check above, for the same reason:
+      // don't sell 10 messages that every send will refuse. A FORTUNE session
+      // can fall out of window between create and extend (a period rolls over,
+      // or the tier is downgraded), and the per-message gate in
+      // `getChatContextForFortune` would then reject each one.
+      if (
+        session.readingType === 'FORTUNE' &&
+        session.fortuneScope &&
+        session.fortuneAnchorDate
+      ) {
+        this.contextService.assertFortuneWindowForTier(
+          user.subscriptionTier,
+          session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR',
+          session.fortuneAnchorDate.toISOString().slice(0, 10),
+        );
+      }
+
       return await this.paymentService.extendSession(sessionId, user.id);
     } finally {
       await this.redis.releaseLock(lockKey).catch((err) => {
@@ -788,11 +822,18 @@ export class ChatService {
         // chat-context (different signals + intra-month breakdown for MONTH).
         // Default 'DAY' when scope is null (back-compat with sessions created
         // pre-L3.5b that may have null scope — should be rare).
+        // F5 — `userId` is what re-checks the subscription window on EVERY
+        // message, not just at session create. A subscriber can open a +4yr
+        // session and then downgrade; the anchor is pinned on the row, so
+        // without this the session keeps serving content the tier no longer
+        // entitles them to. Mirrors the comparison path's mid-session `paidAt`
+        // re-check a few branches up.
         chatContext = await this.contextService.getChatContextForFortune(
           session.profileId,
           session.fortuneAnchorDate.toISOString().slice(0, 10),
           session.readingType,
           (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? 'DAY',
+          session.userId,
         );
       } else {
         throw new Error(
