@@ -125,14 +125,11 @@ describe('BaziService.regenerateReading', () => {
         aiInterpretation: Prisma.DbNull,
         aiProvider: null,
         aiModel: null,
-        // F2: handing the row back for a retry also clears the refund, so the
-        // regenerated result passes the `refundedAt` entitlement gate in
-        // getReading/_setupStream. `creditsUsed: 0` MUST accompany it —
-        // refundReadingCredit guards on `refundedAt IS NULL AND creditsUsed > 0`,
-        // so clearing the timestamp alone would re-arm the refund and mint a
-        // credit on the next failure.
-        refundedAt: null,
-        creditsUsed: 0,
+        // Deliberately absent: `refundedAt` and `creditsUsed`. `isDegraded: true`
+        // in the WHERE already implies the row was never refunded (one exclusive
+        // status per attempt — see the note in `regenerateReading`), so clearing
+        // the timestamp is a no-op and zeroing the charge would erase a real
+        // payment and block the refund if the retry also failed.
       },
     });
 

@@ -66,8 +66,16 @@ export async function resolveSignupCredits(
   try {
     const priorDeleted = await prisma.user.findFirst({
       // `deleteAccount` writes `deleted_${clerkUserId}_${Date.now()}`, so the
-      // trailing underscore anchors the match to this exact id and prevents a
-      // longer id that merely starts with this one from matching.
+      // trailing separator narrows the match to this id rather than any longer
+      // id that merely starts with it.
+      //
+      // ⚠️ It NARROWS, it does not anchor. Prisma compiles `startsWith` to
+      // `LIKE 'pattern%'` without escaping LIKE metacharacters, and `_` is
+      // LIKE's single-character wildcard — so `deleted_user_ab_%` would also
+      // match `deleted_user_abc1_…`. Inert in practice: Clerk ids are
+      // fixed-length, so one is never a strict prefix of another, and the
+      // failure direction is WITHHOLDING 3 credits from a stranger, never
+      // minting them. Escape the pattern if ids ever become variable-length.
       where: { clerkUserId: { startsWith: `${DELETED_USER_PREFIX}${clerkUserId}_` } },
       select: { id: true },
     });

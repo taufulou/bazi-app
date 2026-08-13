@@ -191,10 +191,7 @@ export class CreditsService {
     }
 
     const run = async (client: Prisma.TransactionClient) => {
-      const before = await client.user.findUniqueOrThrow({
-        where: { id: userId },
-        select: { credits: true },
-      });
+      let after: number;
 
       if (amount < 0) {
         const needed = -amount;
@@ -203,25 +200,43 @@ export class CreditsService {
           data: { credits: { decrement: needed } },
         });
         if (guard.count === 0) {
+          // Only read to build the message — we're on the way to throwing.
+          const current = await client.user.findUniqueOrThrow({
+            where: { id: userId },
+            select: { credits: true },
+          });
           throw new BadRequestException(
-            `Cannot adjust: user has ${before.credits} credits, adjustment of ${amount} would go negative`,
+            `Cannot adjust: user has ${current.credits} credits, adjustment of ${amount} would go negative`,
           );
         }
+        // `updateMany` returns a count, not the row.
+        const row = await client.user.findUniqueOrThrow({
+          where: { id: userId },
+          select: { credits: true },
+        });
+        after = row.credits;
       } else {
-        await client.user.update({
+        const row = await client.user.update({
           where: { id: userId },
           data: { credits: { increment: amount } },
+          select: { credits: true },
         });
+        after = row.credits;
       }
 
       await client.creditLedger.create({ data: { userId, amount, reason } });
 
-      const after = await client.user.findUniqueOrThrow({
-        where: { id: userId },
-        select: { credits: true },
-      });
-      this.logger.log(`Adjusted ${amount} credits for user ${userId} (${before.credits} → ${after.credits}): ${reason}`);
-      return { before: before.credits, after: after.credits };
+      // ⚠️ `before` is DERIVED from the post-write value, never read separately.
+      // Prisma interactive transactions run at the database default isolation
+      // (READ COMMITTED on Postgres), so each statement takes a fresh snapshot:
+      // a spend committing between a separate "before" read and the write would
+      // produce an incoherent pair — e.g. before=10, after=8, for amount=+1 —
+      // written verbatim into AdminAuditLog. Deriving it guarantees
+      // `after - before === amount` always reads as the adjustment that happened.
+      const before = after - amount;
+
+      this.logger.log(`Adjusted ${amount} credits for user ${userId} (${before} → ${after}): ${reason}`);
+      return { before, after };
     };
 
     // Prisma has no nested interactive transactions — when the caller supplies

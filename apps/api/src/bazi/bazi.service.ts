@@ -486,20 +486,21 @@ export class BaziService {
         aiInterpretation: Prisma.DbNull,
         aiProvider: null,
         aiModel: null,
-        // F2 — clearing the refund is what lets the regenerated reading through
-        // the `refundedAt === null` gate in getReading/_setupStream. Without it,
-        // invoking the free retry would permanently lock the user out of the
-        // result they just asked us to re-make.
+        // ⚠️ Deliberately does NOT touch `refundedAt` or `creditsUsed`.
         //
-        // ⚠️ `creditsUsed: 0` is NOT optional here. `refundReadingCredit` guards
-        // on `refundedAt IS NULL AND creditsUsed > 0`; clearing only the
-        // timestamp RE-ARMS it, so a second failure would refund the same charge
-        // again and mint a credit on every retry. Zeroing the charge alongside
-        // makes the guard fail on amount instead, and is the honest value: the
-        // credits were returned, so this reading has now cost the user nothing.
-        // It also keeps the row consistent with F4's 0-credit free readings.
-        refundedAt: null,
-        creditsUsed: 0,
+        // `isDegraded: true` in the WHERE above already means this row was NOT
+        // refunded: `ai.service.ts` computes one exclusive status per attempt
+        // and sets `isDegraded` only on 'degraded', while the refund fires only
+        // on 'failed'. So a refunded reading can never match here — the user
+        // was charged, got partial content, and kept the charge.
+        //
+        // An earlier version of this block cleared `refundedAt` and zeroed
+        // `creditsUsed` to close a double-refund it believed regeneration
+        // opened. The clear was a no-op (the column is already null on every
+        // row that matches), and the zeroing was actively harmful: it erased
+        // the record of a real charge, so if the regenerated stream also failed,
+        // `refundReadingCredit`'s `creditsUsed > 0` guard blocked the refund and
+        // the user silently ate the credits they had paid.
       },
     });
 
@@ -663,18 +664,22 @@ export class BaziService {
     //     Anthropic spend, for a reading the user was already refunded for;
     //   • that generation bypasses the regeneration counter entirely, since the
     //     3-per-reading cap is enforced in `regenerateReading`, not here.
-    // The legitimate retry path stays open: `regenerateReading` clears
-    // `refundedAt` (and zeroes `creditsUsed`) as it hands the row back, so a
-    // user-invoked regeneration passes this gate while a bare re-stream of a
-    // refunded row does not.
+    // The legitimate path forward is a NEW reading, not regeneration.
+    // `regenerateReading` matches only `isDegraded: true`, and a refunded row is
+    // never degraded (one exclusive status per attempt), so it would answer
+    // 「此分析狀態正常，無需重新生成」 — and the web UI doesn't render the
+    // regenerate control for a non-degraded reading anyway. The user has their
+    // credits back, so `POST /readings` creates and charges a fresh row: all
+    // three reuse branches require `refundedAt === null`, so the refunded row is
+    // correctly skipped rather than handed back.
     if (reading.refundedAt) {
       this.logger.warn(
         `[Stream] REFUSED refunded reading=${readingId} user=${user.id} ` +
-        `(refundedAt=${reading.refundedAt.toISOString()}) — use /regenerate`,
+        `(refundedAt=${reading.refundedAt.toISOString()}) — user should create a new reading`,
       );
       throw new BadRequestException({
         code: 'READING_REFUNDED',
-        message: '此分析已退款。請使用「重新生成」再試一次。',
+        message: '此分析已退款，點數已退回。請重新建立一次分析。',
       });
     }
 

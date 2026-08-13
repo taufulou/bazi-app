@@ -14,6 +14,7 @@
  */
 import { BadRequestException } from '@nestjs/common';
 import { UsersService } from '../src/users/users.service';
+import { ClerkWebhookController } from '../src/webhooks/clerk-webhook.controller';
 import {
   resolveSignupCredits,
   SIGNUP_BONUS_CREDITS,
@@ -125,10 +126,14 @@ describe('F1 — signup bonus is once per identity, not once per insert', () => 
     await expect(resolveSignupCredits(finder, CLERK)).resolves.toBe(0);
   });
 
-  it('anchors the prefix match with a trailing underscore', async () => {
+  it('narrows the prefix match with a trailing separator', async () => {
     // deleteAccount writes `deleted_${clerkUserId}_${Date.now()}`. Without the
-    // trailing underscore, clerkUserId "user_ab" would match a deleted row for
+    // trailing separator, clerkUserId "user_ab" would match a deleted row for
     // "user_abc" and wrongly deny a different user their bonus.
+    //
+    // Asserts the QUERY SHAPE only. It cannot prove exclusion: Prisma compiles
+    // startsWith to LIKE without escaping, and `_` is a LIKE wildcard, so the
+    // separator narrows rather than anchors. See the note in signup-bonus.ts.
     const finder = makeFinder(null);
     await resolveSignupCredits(finder, 'user_ab');
     expect(finder.user.findFirst).toHaveBeenCalledWith(
@@ -141,6 +146,71 @@ describe('F1 — signup bonus is once per identity, not once per insert', () => 
   it('FAILS OPEN if the lookup throws — a db hiccup must not deny a real signup', async () => {
     const finder = makeFinder(null, true);
     await expect(resolveSignupCredits(finder, CLERK)).resolves.toBe(SIGNUP_BONUS_CREDITS);
+  });
+
+  it('BOTH Clerk-webhook insert sites use the resolved amount, not a hardcoded 3', async () => {
+    // These two were completely uncovered: reverting both to `credits: 3`
+    // passed the entire suite. The F1 write-up stresses there are THREE insert
+    // sites precisely because the obvious one is not the whole loop — a test
+    // that only pins `ensureUser` leaves 2 of 3 re-openable.
+    for (const handler of ['handleUserCreated', 'handleUserUpdated'] as const) {
+      const prisma = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue({ id: 'prior-deleted-row' }),
+          create: jest.fn().mockResolvedValue({}),
+          upsert: jest.fn().mockResolvedValue({}),
+        },
+      };
+      const controller = new ClerkWebhookController(
+        prisma as never,
+        { del: jest.fn() } as never,
+        { get: jest.fn() } as never,
+      );
+
+      await (
+        controller as unknown as Record<string, (d: unknown) => Promise<void>>
+      )[handler]({ id: CLERK, first_name: 'A', last_name: 'B', image_url: null });
+
+      // handleUserCreated → create({data}); handleUserUpdated → upsert({create}).
+      const written = prisma.user.create.mock.calls.length
+        ? prisma.user.create.mock.calls[0][0].data
+        : prisma.user.upsert.mock.calls[0][0].create;
+
+      expect(written.credits).toBe(0);
+      expect(prisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { clerkUserId: { startsWith: `deleted_${CLERK}_` } },
+        }),
+      );
+    }
+  });
+
+  it('both webhook sites still grant the full bonus to a genuinely new identity', async () => {
+    // The other direction: the fix must not deny a real signup.
+    for (const handler of ['handleUserCreated', 'handleUserUpdated'] as const) {
+      const prisma = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue(null), // no prior deletion
+          create: jest.fn().mockResolvedValue({}),
+          upsert: jest.fn().mockResolvedValue({}),
+        },
+      };
+      const controller = new ClerkWebhookController(
+        prisma as never,
+        { del: jest.fn() } as never,
+        { get: jest.fn() } as never,
+      );
+
+      await (
+        controller as unknown as Record<string, (d: unknown) => Promise<void>>
+      )[handler]({ id: CLERK, first_name: 'A', last_name: 'B', image_url: null });
+
+      const written = prisma.user.create.mock.calls.length
+        ? prisma.user.create.mock.calls[0][0].data
+        : prisma.user.upsert.mock.calls[0][0].create;
+
+      expect(written.credits).toBe(SIGNUP_BONUS_CREDITS);
+    }
   });
 
   it('ensureUser auto-create uses the resolved amount, not a hardcoded 3', async () => {

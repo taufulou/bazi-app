@@ -26,32 +26,38 @@ interface UserRow {
 }
 
 /**
- * @param onPreRead fires after the service's initial `findUnique` resolves —
- *        used to simulate a concurrent spend landing in the read/write gap.
+ * @param onGapSpend fires once, immediately BEFORE `adjustCredits`' own write
+ *        statement evaluates — modelling a spend that commits in the window a
+ *        lost update exploits. It has to hook the WRITE, not the admin-level
+ *        `findUnique`: `adjustCredits` doesn't reuse that read, so injecting
+ *        there leaves relative and absolute implementations landing on the same
+ *        number and the test passes either way.
  */
-function setup(startingCredits: number, onPreRead?: (row: UserRow) => void) {
+function setup(startingCredits: number, onGapSpend?: (row: UserRow) => void) {
   const row: UserRow = { id: USER, credits: startingCredits };
   const ledger: Array<Record<string, unknown>> = [];
   const auditLogs: Array<Record<string, unknown>> = [];
-  let preReadDone = false;
+  let gapFired = false;
+  const fireGapOnce = () => {
+    if (gapFired) return;
+    gapFired = true;
+    onGapSpend?.(row);
+  };
 
   const userTable = {
-    findUnique: jest.fn(async () => {
-      const snapshot = { ...row };
-      if (!preReadDone) {
-        preReadDone = true;
-        onPreRead?.(row);
-      }
-      return snapshot;
-    }),
+    findUnique: jest.fn(async () => ({ ...row })),
     findUniqueOrThrow: jest.fn(async () => ({ ...row })),
-    update: jest.fn(async ({ data }: { data: { credits?: { increment?: number } } }) => {
-      if (data.credits?.increment === undefined) {
-        throw new Error('fake prisma: expected a relative increment');
-      }
-      row.credits += data.credits.increment;
-      return { ...row };
-    }),
+    // Accepts BOTH the relative and the absolute shape on purpose. A fake that
+    // threw on the absolute form would make the mutation die in the mock, so
+    // the arithmetic assertion — not the mock — has to be what bites.
+    update: jest.fn(
+      async ({ data }: { data: { credits: number | { increment: number } } }) => {
+        fireGapOnce();
+        const c = data.credits;
+        row.credits = typeof c === 'number' ? c : row.credits + c.increment;
+        return { ...row };
+      },
+    ),
     updateMany: jest.fn(
       async ({
         where,
@@ -60,6 +66,7 @@ function setup(startingCredits: number, onPreRead?: (row: UserRow) => void) {
         where: { credits?: { gte: number } };
         data: { credits: { decrement: number } };
       }) => {
+        fireGapOnce();
         if (where.credits?.gte !== undefined && row.credits < where.credits.gte) {
           return { count: 0 };
         }
@@ -146,12 +153,14 @@ describe('A7 — admin credit adjustments are ledgered', () => {
     // absolute value computed from a stale read, so a user who spent 3 credits
     // mid-request got them back for free.
     const { service, row, ledger } = setup(10, (live) => {
-      live.credits -= 3; // concurrent reading purchase
+      live.credits -= 3; // concurrent reading purchase, inside the gap
     });
 
     await service.adjustUserCredits(USER, adjust(1) as never, ADMIN);
 
-    // 10 - 3 (spend) + 1 (grant) = 8. An absolute write would produce 11.
+    // Relative: 10 − 3 (spend) + 1 (grant) = 8.
+    // Absolute: writes stale 10 + 1 = 11, silently refunding the 3 spent.
+    // The two differ, so this assertion — not the mock — is the discriminator.
     expect(row.credits).toBe(8);
     expect(ledger[0]).toMatchObject({ amount: 1 });
   });

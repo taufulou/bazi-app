@@ -394,13 +394,13 @@ describe('AdminService', () => {
       const updatedUser = { ...MOCK_USER, credits: 10 };
       mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
 
+      // `adjustCredits` takes NO separate "before" read — it derives `before`
+      // from the value `update` returns, so the pair can't be incoherent under
+      // READ COMMITTED. The only findUniqueOrThrow left is admin.service's
+      // final read of the row it returns.
       const txUser = {
-        findUniqueOrThrow: jest
-          .fn()
-          .mockResolvedValueOnce({ credits: 5 }) // before
-          .mockResolvedValueOnce({ credits: 10 }) // after
-          .mockResolvedValueOnce(updatedUser), // returned row
-        update: jest.fn().mockResolvedValue(updatedUser),
+        findUniqueOrThrow: jest.fn().mockResolvedValue(updatedUser),
+        update: jest.fn().mockResolvedValue({ credits: 10 }),
       };
       const txCreditLedger = { create: jest.fn().mockResolvedValue({}) };
       const txAuditLog = { create: jest.fn().mockResolvedValue({ id: 'audit-1' }) };
@@ -420,10 +420,12 @@ describe('AdminService', () => {
       expect(typeof mockPrisma.$transaction.mock.calls[0][0]).toBe('function');
 
       // Relative, not absolute — an absolute write erases concurrent spends.
-      expect(txUser.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: { credits: { increment: 5 } },
-      });
+      expect(txUser.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'user-1' },
+          data: { credits: { increment: 5 } },
+        }),
+      );
       expect(txCreditLedger.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ userId: 'user-1', amount: 5 }),
       });

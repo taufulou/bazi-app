@@ -98,16 +98,30 @@ describe('A3 — RevenueCat auth is constant-time and fails closed', () => {
     }
   });
 
-  it('uses a comparison whose cost does not depend on the matching prefix length', () => {
-    // Not a timing measurement (too flaky for CI) — a behavioural proxy: a
-    // header differing only in the LAST byte and one differing in the FIRST
-    // must both simply return false, with no early-exit difference observable
-    // in the result. Timing itself is asserted by construction (timingSafeEqual).
+  it('actually calls timingSafeEqual — the constant-time property has no behavioural proxy', () => {
+    // ⚠️ This asserts the MECHANISM, deliberately. The previous version of this
+    // test fed in one header differing in the first byte and one differing in
+    // the last, and asserted both returned false — which `===` satisfies
+    // perfectly. Swapping `timingSafeEqual` for `===` was mutation-tested and
+    // failed NOTHING across all 41 RevenueCat tests.
+    //
+    // Timing is a non-functional property: no assertion on a return value can
+    // observe it, and a real timing measurement is too flaky for CI. Only the
+    // mechanism can be pinned.
+    //
+    // `jest.spyOn(crypto, 'timingSafeEqual')` is not available here — the
+    // node:crypto exports are non-configurable and it throws "Cannot redefine
+    // property". So inspect the runtime function body: TS compiles the named
+    // import to `(0, node_crypto_1.timingSafeEqual)(...)`, so the identifier is
+    // present iff the primitive is actually invoked. Replace it with `===` and
+    // this fails.
+    const body = RevenueCatService.prototype.verifyAuthHeader.toString();
+    expect(body).toContain('timingSafeEqual');
+
+    // Guard the surrounding contract behaviourally, since the mechanism check
+    // above can't see argument values.
     const svc = makeRcService(SECRET);
-    const differsFirst = `Bearer X${SECRET.slice(1)}`;
-    const differsLast = `Bearer ${SECRET.slice(0, -1)}X`;
-    expect(svc.verifyAuthHeader(differsFirst)).toBe(false);
-    expect(svc.verifyAuthHeader(differsLast)).toBe(false);
-    expect(differsFirst.length).toBe(differsLast.length);
+    expect(svc.verifyAuthHeader(`Bearer ${SECRET}`)).toBe(true);
+    expect(svc.verifyAuthHeader(`Bearer ${SECRET.slice(0, -1)}X`)).toBe(false);
   });
 });

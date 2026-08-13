@@ -17,7 +17,6 @@
  * generation (real Anthropic spend) for a reading already refunded, bypassing
  * the 3-per-reading cap that `regenerateReading` enforces.
  */
-import { BadRequestException } from '@nestjs/common';
 import { BaziService } from '../src/bazi/bazi.service';
 import { CreditsService } from '../src/credits/credits.service';
 
@@ -134,19 +133,82 @@ describe('F2 — stream refuses to regenerate a refunded reading', () => {
   });
 });
 
-describe('F2 — the double-refund invariant (why creditsUsed is zeroed)', () => {
-  it('refundReadingCredit REFUSES a reading whose credits were already zeroed', async () => {
-    // regenerateReading clears refundedAt so the retry is viewable. That alone
-    // would re-arm `refundedAt IS NULL AND creditsUsed > 0` and mint a credit on
-    // the next failure. Zeroing creditsUsed is what keeps the guard closed.
+describe('F2 — regeneration must not destroy the record of a real charge', () => {
+  /**
+   * The reachability argument these tests encode: `ai.service.ts` computes ONE
+   * exclusive status per attempt and sets `isDegraded` only on 'degraded',
+   * while the refund fires only on 'failed'. `regenerateReading`'s WHERE
+   * requires `isDegraded: true`, so it can only ever match a row that was
+   * charged and NOT refunded.
+   *
+   * An earlier revision cleared `refundedAt` and zeroed `creditsUsed` here to
+   * close a double-refund that regeneration was believed to open. It closed
+   * nothing (the column is already null on every matching row) and it broke the
+   * case that IS reachable — see the second test.
+   */
+  it('leaves refundedAt and creditsUsed untouched', async () => {
+    const { service, mockPrisma } = makeService({});
+    mockPrisma.baziReading.updateMany.mockResolvedValue({ count: 1 });
+    mockPrisma.baziReading.findUnique.mockResolvedValue({
+      id: READING_ID, regenerationCount: 1, regenerationExhausted: false,
+    });
+
+    await service.regenerateReading(CLERK, READING_ID);
+
+    const call = mockPrisma.baziReading.updateMany.mock.calls[0][0];
+    // The reachability argument above depends on this guard staying in the WHERE.
+    expect(call.where).toMatchObject({ isDegraded: true });
+    expect(call.data).not.toHaveProperty('creditsUsed');
+    expect(call.data).not.toHaveProperty('refundedAt');
+  });
+
+  it('a degraded reading that fails again STILL refunds the original charge', async () => {
+    // The user paid 3 credits, got partial content, took the free retry, and the
+    // retry failed too. They must get the 3 credits back. Zeroing `creditsUsed`
+    // during regeneration tripped `refundReadingCredit`'s own `creditsUsed > 0`
+    // guard and silently swallowed the refund.
+    const reading = {
+      id: READING_ID,
+      userId: 'user-1',
+      creditsUsed: 3,     // survived regeneration
+      refundedAt: null,   // never refunded — 'degraded', not 'failed'
+    };
+    const userUpdate = jest.fn();
+    const ledgerCreate = jest.fn();
+    const mockPrisma = {
+      $transaction: jest.fn(async (cb: (tx: unknown) => unknown) =>
+        cb({
+          baziReading: {
+            findUnique: jest.fn().mockResolvedValue({ ...reading }),
+            updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          },
+          user: { update: userUpdate },
+          creditLedger: { create: ledgerCreate },
+        }),
+      ),
+    };
+    const credits = new CreditsService(mockPrisma as never);
+
+    const result = await credits.refundReadingCredit(READING_ID, 'regen-also-failed');
+
+    expect(result).toEqual({ refunded: true, amount: 3 });
+    expect(userUpdate).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: { credits: { increment: 3 } },
+    });
+    expect(ledgerCreate).toHaveBeenCalled();
+  });
+
+  it('a reading already refunded once is not refunded twice', async () => {
+    // The invariant the removed zeroing was reaching for. It is already held by
+    // `refundedAt`, which regeneration no longer clears.
     const mockPrisma = {
       $transaction: jest.fn(async (cb: (tx: unknown) => unknown) =>
         cb({
           baziReading: {
             findUnique: jest.fn().mockResolvedValue({
-              id: READING_ID,
-              creditsUsed: 0,      // ← zeroed by regenerateReading
-              refundedAt: null,    // ← cleared by regenerateReading
+              id: READING_ID, userId: 'user-1', creditsUsed: 3,
+              refundedAt: new Date('2026-08-01'),
             }),
             updateMany: jest.fn(),
           },
@@ -157,30 +219,17 @@ describe('F2 — the double-refund invariant (why creditsUsed is zeroed)', () =>
     };
     const credits = new CreditsService(mockPrisma as never);
 
-    const result = await credits.refundReadingCredit(READING_ID, 'second-failure');
-
-    expect(result).toEqual({ refunded: false, amount: 0 });
+    await expect(
+      credits.refundReadingCredit(READING_ID, 'second-failure'),
+    ).resolves.toEqual({ refunded: false, amount: 0 });
   });
+
 });
 
-describe('F2 — regenerateReading reopens access safely', () => {
-  it('clears refundedAt AND zeroes creditsUsed in the same atomic update', async () => {
-    const { service, mockPrisma } = makeService({});
-    mockPrisma.baziReading.updateMany.mockResolvedValue({ count: 1 });
-    mockPrisma.baziReading.findUnique.mockResolvedValue({
-      id: READING_ID, regenerationCount: 1, regenerationExhausted: false,
-    });
-
-    await service.regenerateReading(CLERK, READING_ID);
-
-    const data = mockPrisma.baziReading.updateMany.mock.calls[0][0].data;
-    expect(data.refundedAt).toBeNull();
-    expect(data.creditsUsed).toBe(0);
-  });
-
-  it('rejects BadRequestException shape is used for the refused stream', () => {
-    // Guards the error contract the frontend branches on.
-    const err = new BadRequestException({ code: 'READING_REFUNDED', message: 'x' });
-    expect((err.getResponse() as { code: string }).code).toBe('READING_REFUNDED');
-  });
-});
+// Removed: a test that constructed a `BadRequestException({ code: 'READING_REFUNDED' })`
+// inline and asserted its own `code`. It exercised NestJS, not this codebase —
+// it would have passed with `bazi.service.ts` deleted — while describing itself
+// as locking "the error contract the frontend branches on". No frontend branches
+// on it: `streamReading` forwards only `err.message` into the SSE error event,
+// so the code never reaches a client. Deleted rather than "fixed", because the
+// contract it claimed to guard does not exist.

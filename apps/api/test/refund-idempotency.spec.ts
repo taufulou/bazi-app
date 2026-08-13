@@ -12,6 +12,7 @@
  * refunded_at IS NULL` matched nothing — not because a mock said so. Deleting
  * a guard from the `where` clause makes the paired test fail.
  */
+import { Prisma } from '@prisma/client';
 import { CreditsService } from '../src/credits/credits.service';
 import { ChatPaymentService } from '../src/chat/chat-payment.service';
 import { EntitlementsService } from '../src/payments/entitlements.service';
@@ -44,6 +45,11 @@ function matches(row: Row, where: Record<string, unknown>): boolean {
 /** Emulates Prisma's `data` for the shapes these guards actually use. */
 function applyData(row: Row, data: Record<string, unknown>): void {
   for (const [key, val] of Object.entries(data)) {
+    // ⚠️ Prisma treats `undefined` as "don't update this column" — it is NOT
+    // "set to null". Modelling that faithfully is what lets the DbNull
+    // assertion below catch the realistic one-word bug (`Prisma.DbNull` →
+    // `undefined`), which silently leaves a refunded comparison's report intact.
+    if (val === undefined) continue;
     if (val !== null && typeof val === 'object' && 'increment' in (val as object)) {
       row[key] = (row[key] as number) + (val as { increment: number }).increment;
     } else if (val !== null && typeof val === 'object' && 'decrement' in (val as object)) {
@@ -220,8 +226,15 @@ describe('A6 path 2 — refundComparisonCredit is idempotent', () => {
     await service.refundComparisonCredit('cmp-1', 'reveal-failed');
 
     expect(comparisons.rows['cmp-1'].paidAt).toBeNull();
-    expect(comparisons.rows['cmp-1'].aiInterpretation).not.toEqual({ some: 'report' });
     expect(comparisons.rows['cmp-1'].refundedAt).toBeInstanceOf(Date);
+
+    // Assert the EXACT sentinel, not merely "changed". `Prisma.DbNull` writes a
+    // SQL NULL; `Prisma.JsonNull` writes the JSONB literal `'null'` and
+    // `undefined` writes nothing at all. Only DbNull makes
+    // `WHERE ai_interpretation IS NULL` true, and a `.not.toEqual(...)` here
+    // would pass for all three — including the one that leaves the paid report
+    // fully readable.
+    expect(comparisons.rows['cmp-1'].aiInterpretation).toEqual(Prisma.DbNull);
   });
 });
 
@@ -312,10 +325,25 @@ describe('A6 path 3 — refundLastMessage is idempotent', () => {
 // Path 4 — RevenueCat consumable clawback
 // ============================================================
 
-describe('A6 path 4 — clawbackCredits floors at zero and is ledgered', () => {
+/**
+ * ⚠️ SCOPE LIMIT, read before trusting these.
+ *
+ * `clawbackCredits` does its arithmetic in raw SQL — `GREATEST(credits - n, 0)`
+ * with `LEAST` capturing the amount actually removed, in one row-locked UPDATE.
+ * A mocked `$queryRaw` cannot execute SQL, so these tests CANNOT verify the
+ * non-negative clamp. Deleting both `GREATEST` and `LEAST` from the query was
+ * mutation-tested and failed nothing here.
+ *
+ * What they do lock: the service reports the value the DATABASE returned rather
+ * than echoing the requested amount, skips the ledger row when nothing was
+ * removed, and short-circuits non-positive input. That is the service-layer
+ * contract; the clamp itself needs an integration test against real Postgres
+ * (tracked in the audit doc under A6).
+ */
+describe('A6 path 4 — clawbackCredits reports the DB result and ledgers it', () => {
   function setup(preUpdateBalance: number, amount: number) {
-    // clawbackCredits does its arithmetic in SQL (GREATEST/LEAST in one
-    // row-locked UPDATE), so the fake stands in for the query result.
+    // The fake computes what Postgres would return — it stands in for the query
+    // RESULT, and is not evidence that the query is correct.
     const creditLedger = makeLedger();
     const clawed = Math.min(amount, preUpdateBalance);
     const client = {
@@ -337,8 +365,10 @@ describe('A6 path 4 — clawbackCredits floors at zero and is ledgered', () => {
     ]);
   });
 
-  it('floors at the remaining balance rather than going negative', async () => {
-    // Pack already spent: claw back only what is left, never below zero.
+  it('reports the DB-clamped amount, not the amount requested', async () => {
+    // Pack already spent: Postgres clamps to what remains. This asserts the
+    // service surfaces that 1 rather than the requested 5 — NOT that the SQL
+    // clamps correctly (see the scope limit above).
     const { service, creditLedger } = setup(1, 5);
     await expect(service.clawbackCredits(USER, 5, 'iap-refund')).resolves.toEqual({
       clawedBack: 1,

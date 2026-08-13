@@ -56,6 +56,7 @@ jest.mock('stripe', () => {
 
 const mockTxUser = { update: jest.fn() };
 const mockTxMonthlyCreditsLog = { create: jest.fn() };
+const mockTxCreditLedger = { create: jest.fn() };
 
 const mockPrisma = {
   user: {
@@ -95,6 +96,7 @@ const mockPrisma = {
     return fn({
       user: mockTxUser,
       monthlyCreditsLog: mockTxMonthlyCreditsLog,
+      creditLedger: mockTxCreditLedger,
     });
   }),
 };
@@ -200,6 +202,12 @@ describe('Monthly Credits', () => {
       expect(mockTxUser.update).toHaveBeenCalledWith({
         where: { id: 'user-123' },
         data: { credits: { increment: 5 } },
+      });
+      // The largest recurring credit inflow has to reach CreditLedger too, in
+      // the SAME transaction. MonthlyCreditsLog answers "was this period
+      // granted"; only CreditLedger reconciles against user.credits.
+      expect(mockTxCreditLedger.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'user-123', amount: 5 }),
       });
     });
 
