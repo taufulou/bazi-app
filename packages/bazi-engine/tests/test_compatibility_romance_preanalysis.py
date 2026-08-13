@@ -537,10 +537,14 @@ class TestMasterOrchestrator:
             'luckPeriodSummaryA', 'luckPeriodSummaryB',
             'currentLuckPeriodA', 'currentLuckPeriodB',
         }
-        assert expected_keys == set(result.keys()), (
-            f"Missing keys: {expected_keys - set(result.keys())}, "
-            f"Extra keys: {set(result.keys()) - expected_keys}"
-        )
+        # SUPERSET, not equality. What this guards is a REGRESSION — a key the
+        # orchestrator used to emit going missing. Exact equality also fires every
+        # time the engine legitimately GROWS a field, which is what happened: this
+        # assertion was red from 2026-03-23 while the engine was healthy, because
+        # spouseStarCountA/B, peachBlossomCountA/B and blendedLabel were added. A
+        # test that fails on correct changes is one people learn to ignore.
+        missing = expected_keys - set(result.keys())
+        assert not missing, f"Master orchestrator dropped keys: {missing}"
 
     def test_identical_charts_early_return(self, roger_chart, enhanced_data_stub):
         """Passing same chart for both should return 'identical' flag."""
