@@ -18,8 +18,15 @@ import styles from "./page.module.css";
 // Tier display metadata
 // ============================================================
 
+// Named separately so the fallback below is a direct reference rather than a
+// second lookup. Under `noUncheckedIndexedAccess`, every read from a
+// `Record<string, T>` is `T | undefined` — including `TIER_META.FREE` — so
+// `TIER_META[tier] || TIER_META.FREE` was still possibly-undefined and the two
+// uses at :200-201 were unguarded.
+const FREE_TIER_META = { name: "免費方案", badge: "free" };
+
 const TIER_META: Record<string, { name: string; badge: string }> = {
-  FREE: { name: "免費方案", badge: "free" },
+  FREE: FREE_TIER_META,
   BASIC: { name: "Basic 方案", badge: "basic" },
   PRO: { name: "Pro 方案", badge: "pro" },
   MASTER: { name: "Master 方案", badge: "master" },
@@ -151,7 +158,7 @@ export default function SubscriptionPage() {
 
   // ---- Derived state ----
   const tier = subscription?.subscriptionTier || "FREE";
-  const tierInfo = TIER_META[tier] || TIER_META.FREE;
+  const tierInfo = TIER_META[tier] ?? FREE_TIER_META;
   const isPaid = tier !== "FREE";
   const activeSub = subscription?.activeSubscription;
   const isCancelled = activeSub?.status === "CANCELLED";

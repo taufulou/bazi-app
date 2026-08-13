@@ -158,15 +158,24 @@ export default function ElementExplanation({
   const touchStartY = useRef(0);
   const touchDeltaY = useRef(0);
 
+  // `TouchList` is index-signature access, so under `noUncheckedIndexedAccess`
+  // `touches[0]` is `Touch | undefined`. A touch event with an empty list
+  // shouldn't reach us, but reading `.clientY` off it unguarded is what the
+  // compiler was flagging — and if it ever did happen it would throw here
+  // rather than degrade.
   const handleDragTouchStart = useCallback((e: React.TouchEvent) => {
-    touchStartY.current = e.touches[0].clientY;
+    const touch = e.touches[0];
+    if (!touch) return;
+    touchStartY.current = touch.clientY;
     touchDeltaY.current = 0;
   }, []);
 
   const handleDragTouchMove = useCallback((e: React.TouchEvent) => {
     if (touchStartY.current === 0) return;
+    const touch = e.touches[0];
+    if (!touch) return;
     e.preventDefault(); // Prevent page scroll while dragging handle
-    const delta = e.touches[0].clientY - touchStartY.current;
+    const delta = touch.clientY - touchStartY.current;
     touchDeltaY.current = delta;
     // Visual feedback: translate sheet as user drags up OR down
     if (sheetRef.current) {
