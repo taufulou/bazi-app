@@ -12,10 +12,18 @@ import Stripe from 'stripe';
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateBirthProfileDto, UpdateBirthProfileDto } from './dto/create-birth-profile.dto';
+import { resolveSignupCredits } from '../common/signup-bonus';
 
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
+
+  /** A4 — see `createBirthProfile`. Env-tunable without a redeploy of logic. */
+  private maxBirthProfilesPerUser(): number {
+    const raw = this.config.get<string>('BIRTH_PROFILE_MAX_PER_USER');
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
+  }
 
   constructor(
     private prisma: PrismaService,
@@ -194,6 +202,30 @@ export class UsersService {
 
   async createBirthProfile(clerkUserId: string, dto: CreateBirthProfileDto) {
     const user = await this.ensureUser(clerkUserId);
+
+    // A4: cap profiles per user.
+    //
+    // Profiles are the multiplier on free AI generation: the fortune free tier
+    // is scoped per profile per day, so an uncapped account can mint one free
+    // narration per profile per day — hundreds of profiles is hundreds of daily
+    // Anthropic calls from a single free account, which is denial-of-wallet
+    // rather than ordinary use. 10 is far above any genuine use (self plus
+    // family and a few friends) and is env-tunable if that proves wrong.
+    //
+    // Not race-proof by design: two concurrent creates can both observe count
+    // 9 and produce 11. A DB-level constraint cannot express "count per user",
+    // and the exposure of overshooting by a handful is negligible against the
+    // vector this closes, whereas a transaction here would serialize an
+    // ordinary user action. The per-user daily quotas (S4) are the tight bound.
+    const profileCount = await this.prisma.birthProfile.count({
+      where: { userId: user.id },
+    });
+    if (profileCount >= this.maxBirthProfilesPerUser()) {
+      throw new BadRequestException({
+        code: 'BIRTH_PROFILE_LIMIT_REACHED',
+        message: `最多只能建立 ${this.maxBirthProfilesPerUser()} 個命盤檔案。請先刪除不需要的檔案。`,
+      });
+    }
 
     // If this is set as primary, unset other primaries
     if (dto.isPrimary) {
@@ -453,10 +485,14 @@ export class UsersService {
     });
 
     if (!user) {
-      // Auto-create user record if not found (e.g., webhook not configured)
+      // Auto-create user record if not found (e.g., webhook not configured).
+      // F1: the bonus is resolved rather than hardcoded — `deleteAccount`
+      // renames the row instead of deleting it, freeing the clerkUserId, so a
+      // returning identity would otherwise re-mint 3 credits on every cycle.
       this.logger.warn(`User ${clerkUserId} not in DB — auto-creating`);
+      const credits = await resolveSignupCredits(this.prisma, clerkUserId);
       user = await this.prisma.user.create({
-        data: { clerkUserId, credits: 3 },
+        data: { clerkUserId, credits },
       });
     }
 

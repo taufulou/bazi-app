@@ -64,6 +64,11 @@ import { BannerModule } from './banner/banner.module';
         // getReading + emitStaticSections and the dead owner-check at
         // bazi.service.ts:554 is fixed (F2). See section-unlock.service.ts.
         SECTION_UNLOCK_ENABLED: Joi.string().valid('0', '1').optional().default('0'),
+        // A4 — max birth profiles per user. Profiles multiply free AI
+        // generation (the fortune free tier is per-profile-per-day), so an
+        // uncapped account is a denial-of-wallet vector. 10 is well above
+        // genuine use; raise only with the AI spend controls (S1/S2) in place.
+        BIRTH_PROFILE_MAX_PER_USER: Joi.number().integer().min(1).optional().default(10),
         PORT: Joi.number().default(4000),
         NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
       }),

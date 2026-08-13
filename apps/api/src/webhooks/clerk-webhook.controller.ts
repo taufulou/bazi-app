@@ -14,6 +14,7 @@ import { Webhook } from 'svix';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { Public } from '../auth/public.decorator';
+import { resolveSignupCredits } from '../common/signup-bonus';
 
 interface ClerkEmailAddress {
   email_address: string;
@@ -117,6 +118,10 @@ export class ClerkWebhookController {
 
   private async handleUserCreated(data: ClerkUserEventData) {
     const name = [data.first_name, data.last_name].filter(Boolean).join(' ') || null;
+    // F1: 0 when this identity previously had a deleted account — deleteAccount
+    // frees the clerkUserId by renaming, so a re-created identity must not
+    // re-mint the bonus.
+    const credits = await resolveSignupCredits(this.prisma, data.id);
 
     await this.prisma.user.create({
       data: {
@@ -124,7 +129,7 @@ export class ClerkWebhookController {
         name,
         avatarUrl: data.image_url,
         subscriptionTier: 'FREE',
-        credits: 3,
+        credits,
         languagePref: 'ZH_TW',
       },
     });
@@ -134,6 +139,11 @@ export class ClerkWebhookController {
 
   private async handleUserUpdated(data: ClerkUserEventData) {
     const name = [data.first_name, data.last_name].filter(Boolean).join(' ') || null;
+    // F1: the upsert's create branch is a third insert site and re-mints the
+    // bonus just like the other two. Resolved even though this path usually
+    // updates rather than creates — the create branch is exactly the one that
+    // fires for a re-created identity whose user.created webhook was missed.
+    const credits = await resolveSignupCredits(this.prisma, data.id);
 
     await this.prisma.user.upsert({
       where: { clerkUserId: data.id },
@@ -146,7 +156,7 @@ export class ClerkWebhookController {
         name,
         avatarUrl: data.image_url,
         subscriptionTier: 'FREE',
-        credits: 3,
+        credits,
         languagePref: 'ZH_TW',
       },
     });
