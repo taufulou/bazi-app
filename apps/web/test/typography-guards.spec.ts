@@ -91,29 +91,51 @@ const blankComments = (s: string) =>
 
 const ROOT_PX = 16;
 
+/**
+ * A capture group off a regex that has just matched.
+ *
+ * `noUncheckedIndexedAccess` types every `m[n]` as `string | undefined`, which
+ * is right in general and wrong for these patterns: each group here is
+ * unconditional, so it is present whenever the match is. Pass several indices
+ * for an alternation (`g(m, 1, 2)`) — first defined wins.
+ *
+ * It throws rather than returning '' on a miss. A silent empty string would let
+ * a guard keep passing while measuring nothing, which is the exact failure mode
+ * these guards exist to prevent.
+ */
+function g(m: RegExpMatchArray | RegExpExecArray, ...groups: number[]): string {
+  for (const i of groups) {
+    const v = m[i];
+    if (v !== undefined) return v;
+  }
+  throw new Error(
+    `typography-guards: capture group(s) ${groups.join('/')} missing in match ${JSON.stringify(m[0])} — the pattern and its use have drifted apart`,
+  );
+}
+
 /** Role -> px, parsed from the token file so `var(--t-x-size)` stays measurable. */
 const ROLE_PX: Record<string, number> = {};
 {
   const t = blankComments(fs.readFileSync(TOKEN_FILE, 'utf8'));
   for (const m of t.matchAll(/\.([A-Za-z_][\w-]*)\s*\{([^}]*)\}/g)) {
-    const size = /font-size:\s*([\d.]+)rem/.exec(m[2]);
-    if (size) ROLE_PX[m[1]] = parseFloat(size[1]) * ROOT_PX;
+    const size = /font-size:\s*([\d.]+)rem/.exec(g(m, 2));
+    if (size) ROLE_PX[g(m, 1)] = parseFloat(g(size, 1)) * ROOT_PX;
   }
 }
 
 function toPx(raw: string): number | null {
   const v = raw.trim().replace(/\s*!\s*important\s*$/i, '');
   let m = /^([\d.]+)rem$/.exec(v);
-  if (m) return parseFloat(m[1]) * ROOT_PX;
+  if (m) return parseFloat(g(m, 1)) * ROOT_PX;
   m = /^([\d.]+)px$/.exec(v);
-  if (m) return parseFloat(m[1]);
+  if (m) return parseFloat(g(m, 1));
   m = /^clamp\(\s*([\d.]+)(rem|px)/.exec(v);
-  if (m) return parseFloat(m[1]) * (m[2] === 'rem' ? ROOT_PX : 1);
+  if (m) return parseFloat(g(m, 1)) * (m[2] === 'rem' ? ROOT_PX : 1);
   // Carve-out form. Resolving it keeps the ~96 planned var conversions VISIBLE
   // to Guards A and D — otherwise the migration would shrink Guard A's count by
   // making declarations unreadable rather than by fixing them.
   m = /^var\(\s*--t-([\w-]+)-size\s*\)$/.exec(v);
-  if (m) return ROLE_PX[m[1]] ?? null;
+  if (m) return ROLE_PX[g(m, 1)] ?? null;
   return null; // em / calc / unknown var
 }
 
@@ -159,7 +181,7 @@ function cssDecls(): Decl[] {
 
     for (const m of text.matchAll(SIZE_DECL)) {
       const isShorthand = m[2] !== undefined;
-      const rawVal = (m[1] ?? m[2]).trim();
+      const rawVal = g(m, 1, 2).trim();
       if (isShorthand && /^inherit$/i.test(rawVal)) continue; // button resets
 
       const head = text.slice(0, m.index!);
@@ -188,11 +210,11 @@ function cssDecls(): Decl[] {
         line: head.split('\n').length,
         selector: selectorFull, // FULL — truncate only for display
         raw: isShorthand ? `font: ${rawVal}` : rawVal,
-        px: isShorthand ? (shorthandSize ? toPx(shorthandSize[2]) : null) : toPx(rawVal),
+        px: isShorthand ? (shorthandSize ? toPx(g(shorthandSize, 2)) : null) : toPx(rawVal),
         inAtRule: atRules.some(([a, b]) => a <= m.index! && m.index! <= b),
         hasLineHeight: /line-height\s*:/.test(block) || Boolean(shorthandSize?.[3]),
         simpleSelector: sels.length > 0 && sels.every((s) => SIMPLE.test(s)),
-        composesRole: composes ? composes[1] : null,
+        composesRole: composes ? g(composes, 1) : null,
         kind: 'css',
       });
     }
@@ -224,8 +246,8 @@ function tsxDecls(): Decl[] {
           inAtRule: false, hasLineHeight: /lineHeight/.test(ln),
           simpleSelector: true, composesRole: null, kind,
         });
-      for (const m of ln.matchAll(ATTR)) push(m[1] ?? m[2], 'svg-attr', 'svg fontSize=');
-      for (const m of ln.matchAll(INLINE)) push(m[1] ?? m[2] ?? m[3], 'inline-style', 'inline fontSize');
+      for (const m of ln.matchAll(ATTR)) push(g(m, 1, 2), 'svg-attr', 'svg fontSize=');
+      for (const m of ln.matchAll(INLINE)) push(g(m, 1, 2, 3), 'inline-style', 'inline fontSize');
     });
   }
   return out;
@@ -390,9 +412,9 @@ describe('Guard B — size must travel with leading', () => {
     const t = blankComments(fs.readFileSync(TOKEN_FILE, 'utf8'));
     const out: Record<string, { weight: boolean; family: boolean }> = {};
     for (const m of t.matchAll(/\.([A-Za-z_][\w-]*)\s*\{([^}]*)\}/g)) {
-      out[m[1]] = {
-        weight: /font-weight\s*:/.test(m[2]),
-        family: /font-family\s*:/.test(m[2]),
+      out[g(m, 1)] = {
+        weight: /font-weight\s*:/.test(g(m, 2)),
+        family: /font-family\s*:/.test(g(m, 2)),
       };
     }
     return out;
@@ -415,13 +437,13 @@ describe('Guard B — size must travel with leading', () => {
       if (!inScope(r)) continue;
       const text = blankComments(fs.readFileSync(file, 'utf8'));
       for (const m of text.matchAll(/\.([\w-]+)[^{}]*\{([^{}]*)\}/g)) {
-        const body = m[2];
+        const body = g(m, 2);
         const c = /composes:\s*(\w+)\s+from\s+["'][^"']*type\.module\.css["']/.exec(body);
         if (!c) continue;
-        const role = ROLE_SETS[c[1]];
+        const role = ROLE_SETS[g(c, 1)];
         if (!role) continue;
-        if (role.weight && /font-weight\s*:/.test(body)) bad.push(`${r} .${m[1]} weight`);
-        if (role.family && /font-family\s*:/.test(body)) bad.push(`${r} .${m[1]} family`);
+        if (role.weight && /font-weight\s*:/.test(body)) bad.push(`${r} .${g(m, 1)} weight`);
+        if (role.family && /font-family\s*:/.test(body)) bad.push(`${r} .${g(m, 1)} family`);
       }
     }
     ratchet('Role weight/family overrides', bad.length, BUDGET_WEIGHT_FAMILY_OVERRIDES,
@@ -522,8 +544,8 @@ describe('Guard E — composed role names must exist', () => {
     for (const file of walk(APP, /\.css$/)) {
       const text = blankComments(fs.readFileSync(file, 'utf8'));
       for (const m of text.matchAll(/composes:\s*([^;]+?)\s+from\s+["']([^"']+)["']/g)) {
-        if (!/type\.module\.css$/.test(m[2])) continue;
-        for (const name of m[1].trim().split(/\s+/)) {
+        if (!/type\.module\.css$/.test(g(m, 2))) continue;
+        for (const name of g(m, 1).trim().split(/\s+/)) {
           if (!tokenNames.has(name)) {
             bad.push(`${rel(file)}:${text.slice(0, m.index!).split('\n').length} composes '${name}' — NOT a role`);
           }
@@ -544,7 +566,7 @@ describe('Guard E — composed role names must exist', () => {
     for (const file of walk(APP, /\.css$/)) {
       const text = blankComments(fs.readFileSync(file, 'utf8'));
       for (const m of text.matchAll(/composes:\s*([^;]+?)\s+from\s+global/g)) {
-        bad.push(`${rel(file)} composes '${m[1].trim()}' from global — use the file-path form`);
+        bad.push(`${rel(file)} composes '${g(m, 1).trim()}' from global — use the file-path form`);
       }
     }
     expect(bad).toEqual([]);
@@ -559,15 +581,15 @@ describe('Guard F — token file and custom properties cannot drift', () => {
 
   const roles: Record<string, { size?: string; lead?: string }> = {};
   for (const m of tokenCss.matchAll(/\.([A-Za-z_][\w-]*)\s*\{([^}]*)\}/g)) {
-    const size = /font-size:\s*([\d.]+rem)/.exec(m[2]);
-    const lead = /line-height:\s*([\d.]+)/.exec(m[2]);
-    if (size) roles[m[1]] = { size: size[1], lead: lead?.[1] };
+    const size = /font-size:\s*([\d.]+rem)/.exec(g(m, 2));
+    const lead = /line-height:\s*([\d.]+)/.exec(g(m, 2));
+    if (size) roles[g(m, 1)] = { size: g(size, 1), lead: lead?.[1] };
   }
   const vars: Record<string, { size?: string; lead?: string }> = {};
   for (const m of globals.matchAll(/--t-([\w-]+)-size:\s*([\d.]+rem)/g))
-    (vars[m[1]] ??= {}).size = m[2];
+    (vars[g(m, 1)] ??= {}).size = g(m, 2);
   for (const m of globals.matchAll(/--t-([\w-]+)-leading:\s*([\d.]+)/g))
-    (vars[m[1]] ??= {}).lead = m[2];
+    (vars[g(m, 1)] ??= {}).lead = g(m, 2);
 
   it('every role has a matching custom-property pair, and vice versa', () => {
     expect(Object.keys(vars).sort()).toEqual(Object.keys(roles).sort());
@@ -606,7 +628,7 @@ describe('Guard F — token file and custom properties cannot drift', () => {
     for (const file of walk(APP, /\.css$/)) {
       const text = blankComments(fs.readFileSync(file, 'utf8'));
       for (const m of text.matchAll(/(^|\})\s*(html|:root|body)[^{}]*\{([^}]*)\}/g)) {
-        if (/font-size\s*:/.test(m[3])) bad.push(`${rel(file)} — ${m[2]} sets font-size`);
+        if (/font-size\s*:/.test(g(m, 3))) bad.push(`${rel(file)} — ${g(m, 2)} sets font-size`);
       }
     }
     expect(bad).toEqual([]);

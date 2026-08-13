@@ -21,7 +21,17 @@ jest.mock('../app/components/fortune/HeadlinerAnchorLine', () => ({
   default: () => <div data-testid="headliner-mock" />,
 }));
 
-function makeFullFolkContent() {
+/**
+ * The engine's real folk-content shape. Anchoring the helpers to it — rather
+ * than to whatever `makeFullFolkContent()` happens to return — is what lets a
+ * test pass `null`, which is what the engine actually emits when 用神 is
+ * unresolved. `Partial<ReturnType<typeof makeFullFolkContent>>` inferred each
+ * field from a fully-populated literal, so the override type was `X | undefined`
+ * and every `null` in this file was a type error.
+ */
+type FolkContent = DailyFortuneResponse['engineOutput']['folkContent'];
+
+function makeFullFolkContent(): FolkContent {
   return {
     wealthDirection: {
       element: '火',
@@ -54,18 +64,18 @@ function makeFullFolkContent() {
     },
     luckyFoodAvoid: null,
     auspiciousHours: [
-      { branch: '寅', hourRange: '03:00-05:00', classicalName: '青龍', provenance: 'classical' as const },
-      { branch: '辰', hourRange: '07:00-09:00', classicalName: '金匱', provenance: 'classical' as const },
-      { branch: '巳', hourRange: '09:00-11:00', classicalName: '天德', provenance: 'classical' as const },
-      { branch: '申', hourRange: '15:00-17:00', classicalName: '玉堂', provenance: 'classical' as const },
-      { branch: '酉', hourRange: '17:00-19:00', classicalName: '司命', provenance: 'classical' as const },
-      { branch: '亥', hourRange: '21:00-23:00', classicalName: '明堂', provenance: 'classical' as const },
+      { branch: '寅', hour_range: '03:00-05:00', classical_name: '青龍', provenance: 'classical' as const },
+      { branch: '辰', hour_range: '07:00-09:00', classical_name: '金匱', provenance: 'classical' as const },
+      { branch: '巳', hour_range: '09:00-11:00', classical_name: '天德', provenance: 'classical' as const },
+      { branch: '申', hour_range: '15:00-17:00', classical_name: '玉堂', provenance: 'classical' as const },
+      { branch: '酉', hour_range: '17:00-19:00', classical_name: '司命', provenance: 'classical' as const },
+      { branch: '亥', hour_range: '21:00-23:00', classical_name: '明堂', provenance: 'classical' as const },
     ],
   };
 }
 
 function makeData(
-  folkOverrides?: Partial<ReturnType<typeof makeFullFolkContent>>,
+  folkOverrides?: Partial<FolkContent>,
 ): DailyFortuneResponse {
   return {
     date: '2026-05-25',
