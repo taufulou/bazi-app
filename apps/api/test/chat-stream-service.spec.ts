@@ -444,7 +444,6 @@ describe('ChatStreamService', () => {
           res.simulateClientDisconnect();
           // SDK responds to abort signal by throwing
           throw new Error('aborted by AbortController.signal');
-           
           yield {};
         })();
         return iter;
