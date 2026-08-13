@@ -3810,6 +3810,11 @@ export const CHAT_V1_TOPIC_REFUSE_OPENING_REGEX =
  *  - requires the「——」 (or「－－」 ASCII equivalent) hard switch dash
  */
 export const CHAT_V1_TOPIC_REFUSE_HYBRID_MARKER_REGEX =
+  // `\-` is redundant only because `-` happens to sit last in the class. This
+  // regex gates chat refund eligibility (see the F-2 hybrid-refuse notes above);
+  // the explicit escape states "literal hyphen", so a later edit that reorders
+  // the class cannot silently turn it into a range.
+  // eslint-disable-next-line no-useless-escape
   /超出本《[^》]+》解讀的範圍[—\-]{1,2}/;
 
 /**

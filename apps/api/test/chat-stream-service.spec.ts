@@ -444,7 +444,7 @@ describe('ChatStreamService', () => {
           res.simulateClientDisconnect();
           // SDK responds to abort signal by throwing
           throw new Error('aborted by AbortController.signal');
-          // eslint-disable-next-line no-unreachable
+           
           yield {};
         })();
         return iter;
@@ -473,6 +473,8 @@ describe('ChatStreamService', () => {
       mockPrisma.chatSession.findUnique.mockResolvedValue(makeFreshSession());
       mockPrisma.chatMessage.create.mockResolvedValueOnce({ id: 'msg-user' });
       mockAnthropicStream.mockReturnValue(
+        // Throwing BEFORE the first yield is exactly the failure simulated here.
+        // eslint-disable-next-line require-yield
         (async function* () {
           throw new Error('Anthropic 503 Service Unavailable');
         })(),

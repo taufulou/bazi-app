@@ -361,7 +361,6 @@ export function streamDailyFortune(opts: StreamOpts): () => void {
     let buffer = '';
 
     try {
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -455,7 +454,6 @@ export function streamMonthlyFortune(opts: MonthlyStreamOpts): () => void {
     let buffer = '';
 
     try {
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -1168,7 +1166,6 @@ export function streamYearlyFortune(opts: YearlyStreamOpts): () => void {
     let buffer = '';
 
     try {
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;

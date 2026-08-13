@@ -67,7 +67,6 @@ export default function MascotViewer({
       el.removeEventListener("scroll", handleScroll);
       if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- scroll listener subscribes once; callback read via onViewChangeRef
   }, []);
 
   // If invalid stem (paths are null), render nothing

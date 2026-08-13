@@ -211,7 +211,6 @@ export default function HeroBanner() {
                 >
                   <picture className={styles.picture}>
                     <source media="(max-width: 768px)" srcSet={mobileSrc} />
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={desktopSrc}
                       alt={slide.altText ?? ""}

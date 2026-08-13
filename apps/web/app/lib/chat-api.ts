@@ -368,7 +368,6 @@ export function streamChatMessage(args: {
       // SSE frames are delimited by `\n\n` per the spec. We accumulate text
       // across reads and flush whenever a frame boundary appears.
       // Each frame contains zero or more `data: ...\n` lines.
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;

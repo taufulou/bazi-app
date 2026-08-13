@@ -1008,7 +1008,7 @@ export class AIService implements OnModuleInit {
 
     // Accumulators OUTSIDE providers loop (preserved across retries + fallbacks)
     const call1Sections: Record<string, InterpretationSection> = {};
-    let call2FixedSections: Record<string, InterpretationSection> = {};
+    const call2FixedSections: Record<string, InterpretationSection> = {};
     const emittedKeys = new Set<string>();
     let call1Summary: InterpretationSection = { preview: '', full: '' };
     let activeProviderConfig = this.providers[0]!;
@@ -4665,7 +4665,7 @@ export class AIService implements OnModuleInit {
 
           // === Call 2: Stream cross-chart sections ===
           this.logger.log(`[CompatV2Stream] Call 2 START — elapsed=${Date.now()-startTime}ms`);
-          let call2Sections: Record<string, InterpretationSection> = {};
+          const call2Sections: Record<string, InterpretationSection> = {};
           const call2Controller = new AbortController();
           activeTimeout = setTimeout(() => {
             this.logger.warn(`[CompatV2Stream] Call 2 TIMEOUT after ${timeoutMs}ms`);
@@ -4761,7 +4761,7 @@ export class AIService implements OnModuleInit {
 
           // === Call 3: Stream annual + summary sections ===
           this.logger.log(`[CompatV2Stream] Call 3 START — elapsed=${Date.now()-startTime}ms`);
-          let call3Sections: Record<string, InterpretationSection> = {};
+          const call3Sections: Record<string, InterpretationSection> = {};
           let call3Summary: InterpretationSection = { preview: '', full: '' };
           const call3Controller = new AbortController();
           activeTimeout = setTimeout(() => {
@@ -7005,7 +7005,7 @@ export class AIService implements OnModuleInit {
     readingType: ReadingType,
   ): AIInterpretationResult {
     // Strip markdown code fences if present (```json ... ```)
-    let cleaned = rawContent
+    const cleaned = rawContent
       .replace(/^```(?:json)?\s*\n?/gm, '')
       .replace(/\n?```\s*$/gm, '')
       .trim();
