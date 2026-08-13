@@ -2,6 +2,21 @@
  * Tests for AI Service - response parsing, caching, prompt building.
  * These tests don't require actual API keys — they test the deterministic logic.
  */
+
+/**
+ * ⚠️ The three provider SDKs are stubbed so this spec CANNOT reach the network.
+ *
+ * The header above claimed these tests "don't require actual API keys" while the
+ * suite was in fact issuing a live outbound request to api.anthropic.com on every
+ * run — a leaked mock implementation registered a real Claude provider, and a
+ * floating assertion discarded the 401 so nobody saw it. `onModuleInit` loads
+ * these via dynamic `await import(...)` (ai.service.ts:252,258,264), so mocking
+ * the modules is what makes the claim true rather than aspirational.
+ */
+jest.mock('@anthropic-ai/sdk');
+jest.mock('openai');
+jest.mock('@google/generative-ai');
+
 import {
   AIService,
   LOVE_V2_ANNUAL_FORECAST_CAP,
@@ -90,6 +105,18 @@ describe('AIService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // ⚠️ `clearAllMocks()` clears CALLS, not IMPLEMENTATIONS. Without the line
+    // below, the `mockImplementation` in `generateInterpretation readingType
+    // passthrough` (returning a fake ANTHROPIC_API_KEY) leaks into every later
+    // test — which registered a real Claude provider and made the suite issue a
+    // LIVE outbound request to api.anthropic.com on every run.
+    //
+    // Restoring the module-scope default here, rather than `jest.resetAllMocks()`
+    // or `resetMocks: true`: 22 of 66 specs in this app carry 131 module-scope
+    // mock defaults (worst: fortune-snapshot.helpers.contract.spec.ts ×25),
+    // including this file's own mockPrisma at :17-33. A global reset would wipe
+    // all of them.
+    mockConfigService.get.mockReturnValue(undefined); // no API keys by default
     service = new AIService(
       mockConfigService as any,
       mockPrisma as any,
