@@ -44,9 +44,21 @@ export class BaziController {
   @Public()
   @Post('explain-element')
   @Throttle({ default: { limit: 60, ttl: 60000 } })
-  @ApiOperation({ summary: 'Element encyclopedia — passthrough to engine /explain-element (public)' })
-  async explainElement(@Body() body: Record<string, unknown>) {
-    return this.baziService.passthroughExplainElement(body);
+  @ApiOperation({
+    summary: 'Element encyclopedia — passthrough to engine /explain-element (public, paid layers gated)',
+  })
+  async explainElement(
+    @CurrentUser() auth: AuthPayload | undefined,
+    @Body() body: Record<string, unknown>,
+  ) {
+    // ⚠️ B1/O3 — `auth` is OPTIONAL here. The route stays `@Public()`, but
+    // `ClerkAuthGuard` now verifies a Bearer token when one is supplied, so a
+    // signed-in caller is identified and an anonymous one is simply undefined.
+    //
+    // The paywall used to be CLIENT-SIDE ONLY: the engine returns every layer
+    // and `ElementExplanation.tsx` hid the paid ones behind `isSubscriber`.
+    // Anyone could curl this endpoint and read the paid tiers in full.
+    return this.baziService.passthroughExplainElement(body, auth?.userId);
   }
 
   // ============ Authenticated Endpoints ============

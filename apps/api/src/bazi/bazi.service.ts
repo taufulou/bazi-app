@@ -43,6 +43,38 @@ const COMPATIBILITY_FALLBACK_CREDIT_COST = 3;
  */
 const FIRST_GENERATION_INFLIGHT_MS = 360_000;
 
+
+/**
+ * Removes the subscriber-only layers from an `/explain-element` response.
+ *
+ * ALLOWLIST-shaped in spirit: it drops the two known paid containers rather
+ * than trying to enumerate every free key, because a future engine field is far
+ * more likely to be free (Layer A is the generic tier) than paid — and if a new
+ * PAID field is ever added, the two-sided test below fails loudly rather than
+ * leaking silently.
+ *
+ * Pure + total: a non-object response passes through untouched.
+ */
+export function stripPaidExplanationLayers(result: unknown): unknown {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return result;
+
+  const src = result as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...src };
+
+  // Layers B/C/D all live here.
+  delete out.personalized;
+
+  // `pillarContext` is split: `.free` is the teaser, `.paid` is the full text.
+  const ctx = src.pillarContext;
+  if (ctx && typeof ctx === 'object' && !Array.isArray(ctx)) {
+    const rest = { ...(ctx as Record<string, unknown>) };
+    delete rest.paid;
+    out.pillarContext = rest;
+  }
+
+  return out;
+}
+
 @Injectable()
 export class BaziService {
   private readonly logger = new Logger(BaziService.name);
@@ -1969,8 +2001,47 @@ export class BaziService {
     return this.enginePassthrough('/calculate', body);
   }
 
-  async passthroughExplainElement(body: Record<string, unknown>): Promise<unknown> {
-    return this.enginePassthrough('/explain-element', body);
+  /**
+   * B1/O3 — element encyclopedia, with the paid tiers gated SERVER-SIDE.
+   *
+   * The engine deliberately returns every layer (its docblock says so), and the
+   * paywall lived entirely in `ElementExplanation.tsx` behind an `isSubscriber`
+   * prop. A client-side paywall is not a paywall: `curl` got the paid content.
+   *
+   * Boundary mirrors the component exactly — FREE keeps Layer A and
+   * `pillarContext.free`; PAID is the whole `personalized` block (Layer B
+   * `pillarMeaning`, Layer C `godRoleMeaning`/`godRole`, Layer D
+   * `genderMeaning`) plus `pillarContext.paid`.
+   *
+   * @param clerkUserId optional — the route is public, so anonymous callers
+   *                    are normal and simply get the free tier.
+   */
+  async passthroughExplainElement(
+    body: Record<string, unknown>,
+    clerkUserId?: string,
+  ): Promise<unknown> {
+    const result = await this.enginePassthrough('/explain-element', body);
+    if (await this.isSubscriberByClerkId(clerkUserId)) return result;
+    return stripPaidExplanationLayers(result);
+  }
+
+  /**
+   * Fails CLOSED (returns false) for an absent id, an unknown user, or a DB
+   * error — the downside is a subscriber briefly seeing the free tier, versus
+   * handing paid content to everyone if the lookup hiccups.
+   */
+  private async isSubscriberByClerkId(clerkUserId?: string): Promise<boolean> {
+    if (!clerkUserId) return false;
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { clerkUserId },
+        select: { subscriptionTier: true },
+      });
+      return !!user && user.subscriptionTier !== 'FREE';
+    } catch (err) {
+      this.logger.warn(`explain-element tier lookup failed, serving free tier: ${err}`);
+      return false;
+    }
   }
 
   private async enginePassthrough(path: string, body: Record<string, unknown>): Promise<unknown> {
