@@ -27,6 +27,7 @@ function makeService(adsRewardsEnabled: string | undefined) {
       cb({
         user: { update: jest.fn().mockResolvedValue({}) },
         adRewardLog: { create: jest.fn().mockResolvedValue({}) },
+        creditLedger: { create: jest.fn().mockResolvedValue({}) },
       }),
     ),
   };

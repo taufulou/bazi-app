@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { CreditsService } from '../credits/credits.service';
 import { CreatePromoCodeDto } from './dto/create-promo-code.dto';
 import { UpdatePromoCodeDto } from './dto/update-promo-code.dto';
 import { UpdateGatewayDto } from './dto/update-gateway.dto';
@@ -54,6 +55,7 @@ export class AdminService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
+    private creditsService: CreditsService,
   ) {}
 
   // ============ Services Management ============
@@ -268,36 +270,60 @@ export class AdminService {
     return user;
   }
 
+  /**
+   * Admin credit grant/deduction. Goes through `CreditsService.adjustCredits`
+   * so it lands in `CreditLedger` like every other credit movement — before
+   * this, admin adjustments were the one path that moved credits without a
+   * ledger row, so `sum(ledger) == user.credits` broke the moment support
+   * touched an account.
+   *
+   * The credit change, its ledger row and the audit log share one transaction:
+   * an audit entry claiming a grant that rolled back is worse than no entry.
+   *
+   * ⚠️ Do NOT "simplify" this back to `credits: user.credits + amount`. That
+   * absolute write loses any spend that lands between the read and the write —
+   * a +1 grant would hand back credits the user spent a moment earlier.
+   */
   async adjustUserCredits(userId: string, data: AdjustCreditsDto, adminUserId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new NotFoundException('User not found');
 
-    const newCredits = user.credits + data.amount;
-    if (newCredits < 0) {
+    // Friendly, specific message for the common case. Real enforcement is the
+    // atomic guard inside adjustCredits — this check alone is racy.
+    const projected = user.credits + data.amount;
+    if (projected < 0) {
       throw new BadRequestException(
-        `Cannot adjust: user has ${user.credits} credits, adjustment of ${data.amount} would result in ${newCredits}`,
+        `Cannot adjust: user has ${user.credits} credits, adjustment of ${data.amount} would result in ${projected}`,
       );
     }
 
-    // Atomic transaction: update credits + create audit log
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.user.update({
-        where: { id: userId },
-        data: { credits: newCredits },
-      }),
-      this.prisma.adminAuditLog.create({
+    return this.prisma.$transaction(async (tx) => {
+      // The admin id lives in the reason because CreditLedger has no actor
+      // column; this keeps "who granted this" answerable from the ledger alone.
+      const { before, after } = await this.creditsService.adjustCredits(
+        userId,
+        data.amount,
+        `admin_adjust:${adminUserId}:${data.reason}`,
+        { tx },
+      );
+
+      await tx.adminAuditLog.create({
         data: {
           adminUserId,
           action: 'adjust_credits',
           entityType: 'user',
           entityId: userId,
-          oldValue: { credits: user.credits } as Prisma.InputJsonValue,
-          newValue: { credits: newCredits, amount: data.amount, reason: data.reason } as Prisma.InputJsonValue,
+          oldValue: { credits: before } as Prisma.InputJsonValue,
+          newValue: {
+            credits: after,
+            amount: data.amount,
+            reason: data.reason,
+          } as Prisma.InputJsonValue,
         },
-      }),
-    ]);
+      });
 
-    return updated;
+      return tx.user.findUniqueOrThrow({ where: { id: userId } });
+    });
   }
 
   // ============ Analytics ============

@@ -210,6 +210,18 @@ export class AdsService {
             creditsGranted: CREDITS_PER_AD_VIEW,
           },
         });
+
+        // Ledger the grant too. `AdRewardLog` records that an ad was watched;
+        // `CreditLedger` is what has to reconcile against `user.credits`, and
+        // this was the one grant path missing from it. Kept inside the same
+        // transaction so the three writes cannot diverge.
+        await tx.creditLedger.create({
+          data: {
+            userId: user.id,
+            amount: +CREDITS_PER_AD_VIEW,
+            reason: `ad_reward:${adPlacementId || 'unknown-placement'}`,
+          },
+        });
       });
 
       creditsGranted = CREDITS_PER_AD_VIEW;

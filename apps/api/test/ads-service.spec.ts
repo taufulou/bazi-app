@@ -20,6 +20,7 @@ import type { ConfigService } from '@nestjs/config';
 
 const mockTxUser = { update: jest.fn() };
 const mockTxAdRewardLog = { create: jest.fn() };
+const mockTxCreditLedger = { create: jest.fn() };
 
 const mockPrisma = {
   user: {
@@ -33,6 +34,7 @@ const mockPrisma = {
     return callback({
       user: mockTxUser,
       adRewardLog: mockTxAdRewardLog,
+      creditLedger: mockTxCreditLedger,
     });
   }),
 };
@@ -201,6 +203,12 @@ describe('AdsService', () => {
       expect(mockTxUser.update).toHaveBeenCalledWith({
         where: { id: 'user-uuid-1' },
         data: { credits: { increment: 1 } },
+      });
+      // A6/A7: the grant must land in CreditLedger too, in the SAME
+      // transaction. AdRewardLog records that an ad was watched; CreditLedger
+      // is what has to reconcile against user.credits.
+      expect(mockTxCreditLedger.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'user-uuid-1', amount: 1 }),
       });
       expect(mockTxAdRewardLog.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
