@@ -84,6 +84,10 @@ describe('ChatStreamService', () => {
   beforeEach(() => {
     mockPrisma = {
       user: { findUnique: jest.fn() },
+      // F6 — the stream re-checks reading entitlement before building context.
+      // Default to a non-refunded row so existing tests exercise their own
+      // subject; the F6 describe below overrides it.
+      baziReading: { findUnique: jest.fn().mockResolvedValue({ refundedAt: null }) },
       chatSession: {
         findUnique: jest.fn(),
         findUniqueOrThrow: jest.fn(),
@@ -209,6 +213,44 @@ describe('ChatStreamService', () => {
   // ============================================================
   // Lock + ownership + version drift
   // ============================================================
+
+  // ============================================================
+  // F6 — refunded-reading gate on the STREAM door
+  // ============================================================
+
+  describe('F6 — refuses a refunded reading', () => {
+    // ⚠️ This describe exists because a mutation found the gap: deleting the
+    // stream's entitlement gate passed all 16 tests here. The stream is the
+    // surface the web client actually uses, so it was the most important door
+    // and the untested one. Mutation testing only covers code you thought to
+    // mutate — the question that found this was "which callers have NO test
+    // pointing at them?"
+    it('emits READING_REFUNDED and never calls Anthropic', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ id: 'u1', clerkUserId: 'c1' });
+      mockPrisma.chatSession.findUnique.mockResolvedValue(makeFreshSession());
+      mockPrisma.chatMessage.create.mockResolvedValue({ id: 'm1' });
+      mockPrisma.baziReading.findUnique.mockResolvedValue({ refundedAt: new Date() });
+
+      // `events` is already typed on MockResponse — no `any` needed, and the
+      // eslint suppression budget for this file is a ratchet (adding one `any`
+      // un-suppresses every pre-existing violation in the file).
+      const res = new MockResponse();
+      await service.streamMessage('c1', 's1', 'hello', undefined, res as never);
+
+      const err = res.events.find((e) => e.type === 'error');
+      expect(err).toBeDefined();
+      // Reported as itself, not as an AI failure (the F5 F-2 branch).
+      expect(err?.code).toBe('READING_REFUNDED');
+      expect(mockAnthropicStream).not.toHaveBeenCalled();
+      // The upfront deduction comes back — no Anthropic call was made.
+      expect(mockPaymentService.refundLastMessage).toHaveBeenCalled();
+    });
+
+    // Negative control is structural, not duplicated here: all 16 pre-existing
+    // tests in this file now run THROUGH this gate with `refundedAt: null`
+    // (the default on the shared mock), so a gate that always fired would break
+    // every one of them. Verified by mutation.
+  });
 
   describe('pre-flight checks', () => {
     it('emits CONCURRENT_STREAM when Redis lock cannot be acquired', async () => {

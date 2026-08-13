@@ -25,7 +25,9 @@ describe('ChatService', () => {
   beforeEach(() => {
     mockPrisma = {
       user: { findUnique: jest.fn() },
-      baziReading: { findUnique: jest.fn() },
+      // F6 — sendMessage re-checks reading entitlement before building context,
+      // so this needs a non-refunded default or every sendMessage test 400s.
+      baziReading: { findUnique: jest.fn().mockResolvedValue({ refundedAt: null }) },
       chatSession: {
         findUnique: jest.fn(),
         findUniqueOrThrow: jest.fn(),

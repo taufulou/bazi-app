@@ -426,6 +426,21 @@ export class ChatStreamService {
           session.readingType,
         );
       } else if (session.readingId) {
+        // ⚠️ F6 — re-check entitlement here too. This method resolves the
+        // subject INDEPENDENTLY of `ChatService.sendMessage` and is the surface
+        // the web client actually uses, so gating only `sendMessage` would
+        // leave the real path open — the same note the comparison branch above
+        // carries. A refund sets `refundedAt`, so an open session must stop.
+        const reading = await this.prisma.baziReading.findUnique({
+          where: { id: session.readingId },
+          select: { refundedAt: true },
+        });
+        if (!reading || reading.refundedAt) {
+          throw new BadRequestException({
+            code: 'READING_REFUNDED',
+            message: '此分析已退款，點數已退回。請重新建立一次分析後再開始對話。',
+          });
+        }
         chatContext = await this.contextService.getChatContextForReading(
           session.readingId,
           session.readingType,

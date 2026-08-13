@@ -164,14 +164,33 @@ export class ChatService {
     let resolvedProfileId: string | null = null;
 
     if (hasReading) {
-      // Validate reading ownership
+      // Validate reading ownership AND entitlement
       const reading = await this.prisma.baziReading.findUnique({
         where: { id: readingId },
-        select: { id: true, userId: true, readingType: true },
+        select: { id: true, userId: true, readingType: true, refundedAt: true },
       });
       if (!reading) throw new NotFoundException(`Reading ${readingId} not found`);
       if (reading.userId !== user.id) {
         throw new ForbiddenException('Reading not owned by this user');
+      }
+      // ⚠️ F6 — ownership is NOT enough, exactly as the comparison branch below
+      // says for `paidAt`. That reasoning was never carried across to readings.
+      //
+      // Chat rebuilds the analysis from the birth profile via the engine — it
+      // does not read `aiInterpretation` — so a refunded reading, whose
+      // interpretation the refund nulled, still yields a full narration. F2
+      // closed `getReading` and `_setupStream`; this is the third door onto the
+      // same content, and for LIFETIME the refuse template is `null`, so the
+      // session answers anything.
+      //
+      // Truthiness, not `=== null`: Prisma returns null but a partial select or
+      // a mock yields undefined, and `undefined === null` is false — the exact
+      // slip that briefly paywalled paying customers during F2.
+      if (reading.refundedAt) {
+        throw new BadRequestException({
+          code: 'READING_REFUNDED',
+          message: '此分析已退款，點數已退回。請重新建立一次分析後再開始對話。',
+        });
       }
       resolvedReadingType = reading.readingType;
     } else if (hasComparison) {
@@ -345,6 +364,30 @@ export class ChatService {
       throw new BadRequestException({
         code: 'COMPARISON_NOT_UNLOCKED',
         message: '請先解鎖完整合盤報告，才能開始對話。',
+      });
+    }
+  }
+
+  /**
+   * F6 — the reading twin of `assertComparisonUnlocked`.
+   *
+   * Called on EVERY message, not just at session create: sessions are
+   * long-lived and a refund can land mid-conversation, at which point the user
+   * has their credits back and an open session over the content they returned.
+   * Same reasoning, same shape as the comparison helper above.
+   *
+   * Truthiness, not `=== null` — Prisma returns null but a partial select or a
+   * mock gives undefined, and `undefined === null` is false.
+   */
+  async assertReadingNotRefunded(readingId: string): Promise<void> {
+    const row = await this.prisma.baziReading.findUnique({
+      where: { id: readingId },
+      select: { refundedAt: true },
+    });
+    if (!row || row.refundedAt) {
+      throw new BadRequestException({
+        code: 'READING_REFUNDED',
+        message: '此分析已退款，點數已退回。請重新建立一次分析後再開始對話。',
       });
     }
   }
@@ -625,6 +668,12 @@ export class ChatService {
         );
       }
 
+      // F6 — same reasoning: don't sell 10 messages every send will refuse.
+      // A reading can be refunded between session create and extend.
+      if (session.readingId) {
+        await this.assertReadingNotRefunded(session.readingId);
+      }
+
       // F5 — same reasoning as the drift check above, for the same reason:
       // don't sell 10 messages that every send will refuse. A FORTUNE session
       // can fall out of window between create and extend (a period rolls over,
@@ -809,6 +858,10 @@ export class ChatService {
           session.readingType,
         );
       } else if (session.readingId) {
+        // F6 — mirrors the comparison re-check above. A refund clears the
+        // entitlement mid-session; without this the user keeps an open session
+        // over content they were refunded for.
+        await this.assertReadingNotRefunded(session.readingId);
         chatContext = await this.contextService.getChatContextForReading(
           session.readingId,
           session.readingType,
