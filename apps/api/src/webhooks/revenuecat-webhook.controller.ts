@@ -11,12 +11,16 @@
  */
 import { Controller, Post, Req, Res, Headers, Logger, Body } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiExcludeEndpoint } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { Public } from '../auth/public.decorator';
 import { RevenueCatService, RevenueCatWebhookBody } from '../payments/revenuecat.service';
 import { RedisService } from '../redis/redis.service';
 
 @ApiTags('Webhooks')
+// A3: see StripeWebhookController — a shared-secret-authenticated webhook must
+// not be rate limited, or RevenueCat's retries drop entitlement events.
+@SkipThrottle()
 @Controller('api/webhooks')
 export class RevenueCatWebhookController {
   private readonly logger = new Logger(RevenueCatWebhookController.name);

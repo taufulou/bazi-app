@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as Sentry from '@sentry/nestjs';
@@ -79,6 +80,14 @@ export class RevenueCatService {
   /**
    * Verify the RC webhook `Authorization` header against `RC_WEBHOOK_SECRET`.
    * Fails CLOSED — if the secret is unset, no request is trusted.
+   *
+   * A3: uses a constant-time comparison. `===` on strings short-circuits at the
+   * first differing byte, so response timing leaks a prefix-match oracle that
+   * lets an attacker recover the secret byte-by-byte. Unlike Stripe/Clerk (HMAC
+   * over the body, where the signature differs per request) this is a STATIC
+   * bearer token replayed on every call — exactly the shape that oracle attacks.
+   * `timingSafeEqual` requires equal-length buffers and throws otherwise, so the
+   * length check is compared separately and deliberately leaks only length.
    */
   verifyAuthHeader(authHeader: string | undefined): boolean {
     const secret = this.config.get<string>('RC_WEBHOOK_SECRET');
@@ -86,7 +95,13 @@ export class RevenueCatService {
       this.logger.error('RC_WEBHOOK_SECRET not set — rejecting all RevenueCat webhooks');
       return false;
     }
-    return authHeader === `Bearer ${secret}`;
+    if (!authHeader) return false;
+
+    const expected = Buffer.from(`Bearer ${secret}`, 'utf8');
+    const received = Buffer.from(authHeader, 'utf8');
+    if (expected.length !== received.length) return false;
+
+    return timingSafeEqual(expected, received);
   }
 
   // ============================================================
