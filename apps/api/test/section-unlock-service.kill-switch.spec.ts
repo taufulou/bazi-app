@@ -10,6 +10,7 @@
  * ACCEPTING `ad_reward` (a static `@IsIn` cannot be env-toggled), so enforcement
  * must live in the service where the flag can actually govern it.
  */
+import { ForbiddenException } from '@nestjs/common';
 import type { ConfigService } from '@nestjs/config';
 import { SectionUnlockService } from '../src/payments/section-unlock.service';
 import type { PrismaService } from '../src/prisma/prisma.service';
@@ -111,14 +112,19 @@ describe('SectionUnlockService — ad_reward kill switch (A8)', () => {
         id: READING_ID,
         userId: 'SOMEONE-ELSE',
         readingType: 'LIFETIME',
-        aiInterpretation: { career: { content: 'x' } },
+        // MUST carry the `sections` wrapper (like the default mock) — without it
+        // the flow diverts into the section-existence check at service:164 and
+        // this test passes no matter what the ownership code does.
+        aiInterpretation: { sections: { career: { content: 'x' } } },
       });
 
-      // Ownership (ForbiddenException) must win over the kill switch, so a
-      // probe can't use the flag's error to confirm a reading id exists.
+      // Assert the POSITIVE class. The earlier `.rejects.not.toMatchObject(...)`
+      // was satisfied by ANY rejection: an audit deleted the entire ownership
+      // block and this test still passed. Ownership must win over the kill
+      // switch so the flag's error can't confirm a reading id exists.
       await expect(
         service.unlockSection(CLERK_USER, READING_ID, 'bazi', 'career', 'ad_reward'),
-      ).rejects.not.toMatchObject({ response: { code: 'ADS_REWARDS_DISABLED' } });
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 
