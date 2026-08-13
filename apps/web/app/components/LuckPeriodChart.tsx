@@ -44,7 +44,6 @@ export default function LuckPeriodChart({
   });
 
   const n = periods.length;
-  if (n === 0) return null;
 
   // Map index to SVG coordinates
   const getX = (i: number) => PAD_LEFT + (i / Math.max(n - 1, 1)) * CHART_W;
@@ -75,6 +74,11 @@ export default function LuckPeriodChart({
   const handleMouseLeave = useCallback(() => {
     setTooltip((prev) => ({ ...prev, visible: false }));
   }, []);
+
+  // Below the two useCallbacks, not above them — an early return before a hook
+  // changes this component's hook count between renders. Everything computed
+  // above is safe at n === 0 (getX divides by Math.max(n - 1, 1); points is '').
+  if (n === 0) return null;
 
   return (
     <div className={styles.chartContainer}>
