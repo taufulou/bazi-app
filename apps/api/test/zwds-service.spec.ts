@@ -966,6 +966,7 @@ describe('ZwdsService', () => {
         id: 'reading-1',
         userId: 'user-1',
         creditsUsed: 2,
+        refundedAt: null, // F2: Prisma always returns this column; omitting it made the mock unrealistic
         aiInterpretation: {
           sections: {
             personality: { preview: 'short preview', full: 'long detailed analysis' },
@@ -988,6 +989,7 @@ describe('ZwdsService', () => {
         id: 'reading-1',
         userId: 'user-1',
         creditsUsed: 2,
+        refundedAt: null, // F2: Prisma always returns this column; omitting it made the mock unrealistic
         aiInterpretation: {
           sections: {
             personality: { preview: 'preview', full: 'full text' },
@@ -1009,6 +1011,7 @@ describe('ZwdsService', () => {
         id: 'reading-1',
         userId: 'user-1',
         creditsUsed: 2,
+        refundedAt: null, // F2: Prisma always returns this column; omitting it made the mock unrealistic
         aiInterpretation: {
           sections: {
             personality: { preview: 'preview', full: 'detailed' },
@@ -1029,6 +1032,7 @@ describe('ZwdsService', () => {
         id: 'reading-1',
         userId: 'user-1',
         creditsUsed: 0, // free trial
+        refundedAt: null, // F2: Prisma always returns this column; omitting it made the mock unrealistic
         aiInterpretation: {
           sections: {
             personality: { preview: 'preview', full: 'full free trial' },
@@ -1050,6 +1054,7 @@ describe('ZwdsService', () => {
         id: 'reading-1',
         userId: 'user-1',
         creditsUsed: 2,
+        refundedAt: null, // F2: Prisma always returns this column; omitting it made the mock unrealistic
         aiInterpretation: null,
         birthProfile: mockProfile,
       };

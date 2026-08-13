@@ -450,11 +450,17 @@ export class ZwdsService {
       throw new NotFoundException('Reading not found');
     }
 
-    // Server-side paywall: non-subscribers only get preview
+    // Server-side paywall: non-subscribers only get preview.
+    // F2 — same dead-code bug as bazi.service.getReading (the `userId === user.id`
+    // disjunct is guaranteed by the WHERE clause above, so stripping was
+    // unreachable). Entitlement is the absence of a refund, NOT `creditsUsed > 0`
+    // — a 0-credit cache hit is deliberately free (F4). See the long note in
+    // bazi.service.ts::getReading for the full reasoning.
     const isSubscriber = user.subscriptionTier !== 'FREE';
-    const isOwnerReading = reading.creditsUsed > 0 || reading.userId === user.id;
+    // Truthiness, not `=== null` — see bazi.service.ts::getReading.
+    const isEntitled = !reading.refundedAt;
 
-    if (isSubscriber || isOwnerReading) {
+    if (isSubscriber || isEntitled) {
       return reading;
     }
 

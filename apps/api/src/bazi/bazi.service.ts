@@ -486,6 +486,20 @@ export class BaziService {
         aiInterpretation: Prisma.DbNull,
         aiProvider: null,
         aiModel: null,
+        // F2 — clearing the refund is what lets the regenerated reading through
+        // the `refundedAt === null` gate in getReading/_setupStream. Without it,
+        // invoking the free retry would permanently lock the user out of the
+        // result they just asked us to re-make.
+        //
+        // ⚠️ `creditsUsed: 0` is NOT optional here. `refundReadingCredit` guards
+        // on `refundedAt IS NULL AND creditsUsed > 0`; clearing only the
+        // timestamp RE-ARMS it, so a second failure would refund the same charge
+        // again and mint a credit on every retry. Zeroing the charge alongside
+        // makes the guard fail on amount instead, and is the honest value: the
+        // credits were returned, so this reading has now cost the user nothing.
+        // It also keeps the row consistent with F4's 0-credit free readings.
+        refundedAt: null,
+        creditsUsed: 0,
       },
     });
 
@@ -549,12 +563,34 @@ export class BaziService {
       throw new NotFoundException('Reading not found');
     }
 
-    // Server-side paywall: non-subscribers only get preview sections
+    // Server-side paywall: non-subscribers only get preview sections.
+    //
+    // F2 — the previous predicate was `creditsUsed > 0 || reading.userId === user.id`.
+    // The WHERE clause above already scopes to `userId: user.id`, so the second
+    // disjunct was ALWAYS true: the preview-stripping below was unreachable dead
+    // code and every caller got full content. (The identical bug was found and
+    // fixed on the comparison path — see the `paidAt` note near :1293 — and never
+    // applied here or in zwds.service.)
+    //
+    // Deleting just the tautology is WRONG: the residue `creditsUsed > 0` would
+    // paywall 0-credit cache-hit readings, which are deliberately free (F4 —
+    // "same birth data won't charge twice"). Entitlement is therefore the
+    // absence of a refund, not the presence of a charge.
+    //
+    // Refund semantics: `refundedAt` is set only when generation FAILED outright
+    // and the credits were returned. The refund also nulls `aiInterpretation`,
+    // so a refunded row usually has nothing to strip — but the null-out is a
+    // separate `.catch()`-ed update (ai.service.ts ~:1356) that can fail on its
+    // own, leaving a refunded row holding content. This gate is what covers that.
     const isSubscriber = user.subscriptionTier !== 'FREE';
-    const isOwnerReading = reading.creditsUsed > 0 || reading.userId === user.id;
+    // Truthiness, not `=== null`: Prisma returns `null` for an unset
+    // `DateTime?`, but a partial `select` (or a test mock) yields `undefined`,
+    // and `undefined === null` is false — which would silently paywall every
+    // PAYING customer. A Date is always truthy, so `!refundedAt` is exact for
+    // both real shapes and cannot misfire that way.
+    const isEntitled = !reading.refundedAt;
 
-    // If user paid for this reading (credits or free trial) OR is a subscriber, return full
-    if (isSubscriber || isOwnerReading) {
+    if (isSubscriber || isEntitled) {
       return reading;
     }
 
@@ -617,6 +653,30 @@ export class BaziService {
     if (!reading) throw new NotFoundException('Reading not found');
 
     this.logger.log(`[Stream] Reading found, hasAI=${!!reading.aiInterpretation}, hasCalc=${!!reading.calculationData}`);
+
+    // 1b. F2 PAYMENT GATE. This route previously had none — the defect the note
+    // at ~:198 describes from the create side ("`/readings/:id/stream` has NO
+    // payment gate, so the user gets their credits back AND the full paid
+    // report"). Two distinct costs, not just content:
+    //   • a refunded row has `aiInterpretation` nulled, so falling through does
+    //     not replay stored text — it runs a FULL provider generation, i.e. real
+    //     Anthropic spend, for a reading the user was already refunded for;
+    //   • that generation bypasses the regeneration counter entirely, since the
+    //     3-per-reading cap is enforced in `regenerateReading`, not here.
+    // The legitimate retry path stays open: `regenerateReading` clears
+    // `refundedAt` (and zeroes `creditsUsed`) as it hands the row back, so a
+    // user-invoked regeneration passes this gate while a bare re-stream of a
+    // refunded row does not.
+    if (reading.refundedAt) {
+      this.logger.warn(
+        `[Stream] REFUSED refunded reading=${readingId} user=${user.id} ` +
+        `(refundedAt=${reading.refundedAt.toISOString()}) — use /regenerate`,
+      );
+      throw new BadRequestException({
+        code: 'READING_REFUNDED',
+        message: '此分析已退款。請使用「重新生成」再試一次。',
+      });
+    }
 
     // 2. If AI already populated (cache hit or re-fetch), emit static sections
     if (reading.aiInterpretation) {
