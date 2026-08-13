@@ -174,11 +174,46 @@ describe('F5 doors 2+3 — getChatContextForFortune gates before doing anything'
   });
 
   it('fails closed when the user row is missing', async () => {
-    const { service } = makeContextService(null);
+    // ⚠️ Assert the SPECIFIC exception, not just its class. The profile mock
+    // also resolves null, so a bare `toBeInstanceOf(NotFoundException)` passes
+    // even with the gate deleted — it would be catching the profile lookup's
+    // "not found" a hundred lines later. The audit caught this one.
+    const { service, prisma } = makeContextService(null);
 
-    await expect(
-      service.getChatContextForFortune(PROFILE_ID, EXPLOIT_ANCHOR, 'FORTUNE', 'YEAR', USER_ID),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    const err = await service
+      .getChatContextForFortune(PROFILE_ID, EXPLOIT_ANCHOR, 'FORTUNE', 'YEAR', USER_ID)
+      .catch((e) => e);
+
+    expect(err).toBeInstanceOf(NotFoundException);
+    expect((err as NotFoundException).message).toMatch(/User not found/);
+    expect(prisma.birthProfile.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('resolves "now" in the platform timezone, not UTC', async () => {
+    // A security control, not cosmetics: it decides WHICH single calendar day a
+    // FREE user may read. At 17:00Z it is already tomorrow in Taipei, so a UTC
+    // clock would refuse today and admit yesterday — content the HTTP route
+    // refuses. Swapping the tz argument passed every one of these tests before.
+    jest.useFakeTimers().setSystemTime(new Date('2026-08-13T17:00:00Z'));
+    try {
+      const { service, prisma } = makeContextService(SubscriptionTier.FREE);
+
+      // Taipei says 2026-08-14. Under UTC this would be refused.
+      const ok = await service
+        .getChatContextForFortune(PROFILE_ID, '2026-08-14', 'FORTUNE', 'DAY', USER_ID)
+        .catch((e) => e);
+      expect(ok).toBeInstanceOf(NotFoundException); // reached the profile lookup
+      expect(prisma.birthProfile.findUnique).toHaveBeenCalled();
+
+      // And the UTC date is correctly OUT of a FREE user's window.
+      const refused = await service
+        .getChatContextForFortune(PROFILE_ID, '2026-08-13', 'FORTUNE', 'DAY', USER_ID)
+        .catch((e) => e);
+      expect(refused).toBeInstanceOf(ForbiddenException);
+      expect(codeOf(refused)).toBe('SUBSCRIBER_ONLY');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('lets an in-window request through to the profile lookup', async () => {

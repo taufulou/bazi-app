@@ -1045,6 +1045,30 @@ export class ChatService {
         },
       };
     } catch (err) {
+      // ⚠️ An entitlement refusal is NOT an AI failure. The F5 window gate lives
+      // inside `getChatContextForFortune`, which is called from this try block,
+      // so without this branch a FREE user whose session crossed a period
+      // boundary saw «AI 暫時無法回答» — the frontend cannot dispatch its
+      // paywall UI (it keys on `code`), the message row is stamped AI_FAILED,
+      // and every refusal inflates the AI-failure rate that the Sentry alert
+      // and the A6/A7 telemetry watch.
+      //
+      // Still refund: no Anthropic call was made, so the deduction must come
+      // back either way — but report the real reason.
+      if (err instanceof HttpException) {
+        await this.paymentService
+          .refundLastMessage(
+            userMessage.id,
+            sessionId,
+            user.id,
+            `entitlement-refused: ${err.message}`,
+          )
+          .catch((refundErr) =>
+            this.logger.warn(`Refund after entitlement refusal failed: ${refundErr}`),
+          );
+        throw err;
+      }
+
       // Anthropic call failed — refund the deducted message
       this.logger.error(`Anthropic call failed for message ${userMessage.id}: ${err}`);
 

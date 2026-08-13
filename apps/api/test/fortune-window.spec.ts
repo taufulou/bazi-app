@@ -140,6 +140,21 @@ describe('F5 — fails closed on a malformed anchor', () => {
     },
   );
 
+  it('refuses a well-SHAPED but impossible date — the second layer', () => {
+    // These pass ANCHOR_SHAPE (they are digits and dashes in the right places)
+    // and still produce NaN from Date parsing. The `Number.isFinite(diff)`
+    // backstop is what catches them, and it is NOT dead code: with only the
+    // shape check, every one of these reads as "in window".
+    for (const impossible of ['2026-13-45', '2026-00-00', '2026-08-32', '2026-99-99']) {
+      expect(() => assertFortuneWindow('DAY', PRO, impossible, NOW)).toThrow(
+        ForbiddenException,
+      );
+      expect(() => assertFortuneWindow('DAY', FREE, impossible, NOW)).toThrow(
+        ForbiddenException,
+      );
+    }
+  });
+
   it('refuses a PARTIALLY valid anchor — the subtler hole', () => {
     // "2026-13-99x" has a valid leading YYYY. At YEAR scope only that prefix is
     // read, so arithmetic alone would resolve it to the current year and admit

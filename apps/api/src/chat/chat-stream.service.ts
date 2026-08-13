@@ -456,6 +456,26 @@ export class ChatStreamService {
         );
       }
     } catch (err) {
+      // ⚠️ An entitlement refusal is NOT an AI failure — see the twin branch in
+      // `chat.service.ts`. The F5 window gate throws from inside
+      // `getChatContextForFortune`, which this try block owns, so routing it
+      // through `_refundOnError` would report «AI 暫時無法回答» and stamp the
+      // row AI_FAILED. The frontend keys its paywall UI on `code`, and the
+      // AI-failure rate is an alerting signal.
+      if (err instanceof HttpException) {
+        const body = err.getResponse() as { code?: string; message?: string };
+        const refundResult = await this.paymentService
+          .refundLastMessage(userMessageId, sessionId, userId, `entitlement-refused: ${err.message}`)
+          .catch(() => ({ refunded: false, method: null }));
+        this._emitError(
+          response,
+          body?.code ?? 'FORBIDDEN',
+          body?.message ?? err.message,
+          refundResult.refunded,
+          refundResult.method,
+        );
+        return;
+      }
       await this._refundOnError(response, sessionId, userId, userMessageId,
         `chat-context-fetch-failed: ${err}`);
       return;

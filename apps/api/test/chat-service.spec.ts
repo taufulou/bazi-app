@@ -346,6 +346,61 @@ describe('ChatService', () => {
         expect.stringContaining('Anthropic 503'),
       );
     });
+
+    it('reports an ENTITLEMENT refusal as itself, not as an AI failure', async () => {
+      // F5 audit F-2. The fortune window gate lives inside
+      // `getChatContextForFortune`, which is called from the same try block as
+      // the Anthropic call — so a refusal used to surface as
+      // «AI 暫時無法回答» / AI_CALL_FAILED with the row stamped AI_FAILED.
+      // The frontend keys its paywall UI on `code`, and the AI-failure rate is
+      // an alerting signal, so mislabelling this is both a UX and an
+      // observability defect. The credit must still come back.
+      mockPrisma.chatSession.findUnique.mockResolvedValue({
+        id: 's1',
+        userId: 'user-1',
+        startedAt: new Date(),
+        endedAt: null,
+        contextVersion: 'v1.0.0',
+        preAnalysisVersion: 'life=v2.9.0|love=v1.11.0|car=v2.5.0|ann=v2.4.0',
+        messageCount: 0,
+        firstMessageAt: null,
+        readingId: 'reading-1',
+        creditExtensions: 0,
+        paidMessagesUsed: 0,
+      });
+      mockPaymentService.deductForMessage.mockResolvedValue({ method: 'FREE_QUOTA' });
+      mockPrisma.chatMessage.create.mockResolvedValue({ id: 'm1' });
+      mockPrisma.chatMessage.findMany.mockResolvedValue([]);
+      mockContextService.getChatContextForReading.mockRejectedValue(
+        new ForbiddenException({
+          code: 'SUBSCRIBER_ONLY',
+          message: '此功能限訂閱用戶 — 免費用戶僅可查看當年運勢',
+        }),
+      );
+      mockPaymentService.refundLastMessage.mockResolvedValue({
+        refunded: true,
+        method: 'FREE_QUOTA',
+      });
+
+      await expect(
+        service.sendMessage('clerk-1', 's1', 'hello'),
+      ).rejects.toMatchObject({
+        status: 403,
+        response: expect.objectContaining({ code: 'SUBSCRIBER_ONLY' }),
+      });
+
+      // Refunded — no Anthropic call was made.
+      expect(mockPaymentService.refundLastMessage).toHaveBeenCalledWith(
+        'm1',
+        's1',
+        'user-1',
+        expect.stringContaining('entitlement-refused'),
+      );
+      // And NOT mislabelled as an AI failure.
+      expect(mockPrisma.chatMessage.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { errorCode: 'AI_FAILED' } }),
+      );
+    });
   });
 
   // ============================================================
