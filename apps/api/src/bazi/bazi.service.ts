@@ -615,7 +615,6 @@ export class BaziService {
     // so a refunded row usually has nothing to strip — but the null-out is a
     // separate `.catch()`-ed update (ai.service.ts ~:1356) that can fail on its
     // own, leaving a refunded row holding content. This gate is what covers that.
-    const isSubscriber = user.subscriptionTier !== 'FREE';
     // Truthiness, not `=== null`: Prisma returns `null` for an unset
     // `DateTime?`, but a partial `select` (or a test mock) yields `undefined`,
     // and `undefined === null` is false — which would silently paywall every
@@ -623,7 +622,23 @@ export class BaziService {
     // both real shapes and cannot misfire that way.
     const isEntitled = !reading.refundedAt;
 
-    if (isSubscriber || isEntitled) {
+    // ⚠️ There is deliberately NO `isSubscriber ||` here (F-4, 1B audit).
+    //
+    // It used to read `if (isSubscriber || isEntitled)`, which handed a
+    // refunded subscriber the full report — removing exactly the coverage the
+    // comment above says this gate provides. Two different concepts had been
+    // fused into one boolean: the preview PAYWALL (tier-based) and the refund
+    // ENTITLEMENT check, and the OR let the weaker one win.
+    //
+    // Subscribers are not exempt from paying: `createReading` computes
+    // `creditsUsed = fromCache ? 0 : service.creditCost` with no tier branch
+    // and deducts unconditionally. So a subscriber who was refunded got their
+    // credits back and is no more entitled to THIS reading than a free user.
+    // Stale logic from an earlier all-access subscription model.
+    //
+    // The asymmetry was the tell: the chat gate (F6) and the fortune window
+    // (F5) both correctly have no subscriber exemption. This was the odd one out.
+    if (isEntitled) {
       return reading;
     }
 

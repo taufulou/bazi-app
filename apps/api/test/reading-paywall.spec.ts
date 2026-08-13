@@ -83,8 +83,23 @@ describe('F2 — getReading entitlement', () => {
     expect(r.aiInterpretation.sections.career.full).toBe('peek2');
   });
 
-  it('serves full content to a SUBSCRIBER even when refunded', async () => {
+  it('STRIPS a refunded reading for a SUBSCRIBER too (F-4)', async () => {
+    // Flipped from the original expectation. The gate used to read
+    // `isSubscriber || isEntitled`, which handed a refunded subscriber the full
+    // report — removing exactly the coverage the gate exists to provide.
+    //
+    // Subscribers are not exempt from paying: `createReading` computes
+    // `creditsUsed = fromCache ? 0 : service.creditCost` with no tier branch.
+    // A refunded subscriber has their credits back and is no more entitled to
+    // this reading than a free user. The chat gate (F6) and the fortune window
+    // (F5) both already had no subscriber exemption; this was the odd one out.
     const { service } = makeService({ refundedAt: new Date() }, 'PRO');
+    expect(fullOf(await service.getReading(CLERK, READING_ID))).toBe('peek');
+  });
+
+  it('still serves full content to a SUBSCRIBER who was NOT refunded', async () => {
+    // Negative control — the fix must not paywall ordinary subscribers.
+    const { service } = makeService({ refundedAt: null }, 'PRO');
     expect(fullOf(await service.getReading(CLERK, READING_ID))).toBe('THE PAID CONTENT');
   });
 

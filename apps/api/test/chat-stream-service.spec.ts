@@ -246,10 +246,24 @@ describe('ChatStreamService', () => {
       expect(mockPaymentService.refundLastMessage).toHaveBeenCalled();
     });
 
-    // Negative control is structural, not duplicated here: all 16 pre-existing
-    // tests in this file now run THROUGH this gate with `refundedAt: null`
-    // (the default on the shared mock), so a gate that always fired would break
-    // every one of them. Verified by mutation.
+    // Negative control is structural rather than duplicated here: the
+    // pre-existing tests in this file run THROUGH this gate with
+    // `refundedAt: null` (the `beforeEach` default), so an always-fire gate
+    // breaks them. Measured: inverting the gate fails **8 of 16** — the other
+    // 8 short-circuit earlier (NOT_FOUND, FORBIDDEN, SESSION_EXPIRED,
+    // SESSION_ENDED, version drift, CONCURRENT_STREAM, payment failure,
+    // refuse-list pre-flight).
+    //
+    // ⚠️ An earlier version of this comment claimed all 16 and said "verified
+    // by mutation" — the mutation was run, the COUNT was not, and the audit
+    // caught the overstatement. The control is half the size it advertised.
+    //
+    // ⚠️ It can also rot silently: it rests entirely on the `beforeEach`
+    // default. A future test that overrides `baziReading.findUnique` with a row
+    // shaped for another purpose (`{id, userId}`, say) yields
+    // `refundedAt === undefined`, which the deliberate truthiness check reads
+    // as not-refunded — that test then stops exercising the gate with no
+    // signal. The explicit refusal test above is what actually holds the line.
   });
 
   describe('pre-flight checks', () => {

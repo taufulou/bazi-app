@@ -170,6 +170,97 @@ describe('F6 doors 2+3 — the per-message re-check', () => {
   });
 });
 
+describe('F6 door 2 — sendMessage (the door the audit found untested)', () => {
+  /**
+   * ⚠️ This describe exists because the F6 line audit deleted
+   * `assertReadingNotRefunded(session.readingId)` from `sendMessage` and the
+   * ENTIRE 1530-test suite passed.
+   *
+   * The original F6 spec tested the HELPER directly, not this CALLER — and
+   * `chat-service.spec.ts`'s `beforeEach` defaults `baziReading.findUnique` to
+   * a non-refunded row, so its six `sendMessage` tests traverse the gate
+   * without ever exercising it. `POST /sessions/:id/messages-sync` is a live
+   * authenticated route, so dropping that line would have restored the F6
+   * exploit on a real endpoint with a green suite.
+   *
+   * The lesson is narrower than "ask which callers have no test": I DID ask
+   * that, answered it for the stream door, and never re-asked for the sibling
+   * caller twenty lines away in the same file. Ask it per CALLER, not per file.
+   */
+  function makeSendService(refundedAt: Date | null) {
+    const deductForMessage = jest.fn().mockResolvedValue({ method: 'FREE_QUOTA' });
+    const getChatContextForReading = jest.fn().mockResolvedValue({ chart: {} });
+    const mockPrisma: Record<string, unknown> = {
+      user: { findUnique: jest.fn().mockResolvedValue({ id: USER_ID, subscriptionTier: 'FREE' }) },
+      baziReading: { findUnique: jest.fn().mockResolvedValue({ refundedAt }) },
+      chatSession: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'sess-1',
+          userId: USER_ID,
+          readingId: READING_ID,
+          readingType: 'LIFETIME',
+          startedAt: new Date(),
+          endedAt: null,
+          contextVersion: 'v1.0.0',
+          preAnalysisVersion: 'pa-v1',
+          messageCount: 0,
+          firstMessageAt: null,
+          creditExtensions: 0,
+          paidMessagesUsed: 0,
+        }),
+        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      chatMessage: {
+        create: jest.fn().mockResolvedValue({ id: 'm1' }),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
+      },
+      $transaction: jest.fn(async (cb: (tx: unknown) => unknown) => cb(mockPrisma)),
+    };
+    const service = new ChatService(
+      mockPrisma as never,
+      { get: jest.fn(() => undefined) } as never,
+      {
+        deductForMessage,
+        // Must resolve: the entitlement-refusal branch does `.catch()` on it.
+        refundLastMessage: jest.fn().mockResolvedValue({ refunded: true, method: 'FREE_QUOTA' }),
+        getMonthlyUsage: jest.fn().mockResolvedValue({
+          chatsUsed: 0, monthlyQuota: 5, resetsAt: new Date(), subscriptionTier: 'FREE',
+        }),
+      } as never,
+      {
+        getChatContextForReading,
+        getCurrentSnapshotVersions: jest.fn().mockReturnValue({
+          contextVersion: 'v1.0.0',
+          preAnalysisVersion: 'pa-v1',
+        }),
+      } as never,
+      { refuseListPreFlight: jest.fn().mockReturnValue({ refused: false }) } as never,
+      { acquireLock: jest.fn().mockResolvedValue(true), releaseLock: jest.fn() } as never,
+    );
+    return { service, getChatContextForReading, deductForMessage };
+  }
+
+  it('refuses a refunded reading BEFORE building any context', async () => {
+    const { service, getChatContextForReading } = makeSendService(new Date());
+
+    const err = await service.sendMessage(CLERK, 'sess-1', 'hello').catch((e) => e);
+
+    expect(codeOf(err)).toBe('READING_REFUNDED');
+    // The gate must precede the engine call, or the refusal costs us a
+    // chat-context build (and, further down, an Anthropic call).
+    expect(getChatContextForReading).not.toHaveBeenCalled();
+  });
+
+  it('lets a non-refunded reading through to context building', async () => {
+    // Negative control: proves the gate is not simply refusing everything.
+    const { service, getChatContextForReading } = makeSendService(null);
+    await service.sendMessage(CLERK, 'sess-1', 'hello').catch(() => undefined);
+    expect(getChatContextForReading).toHaveBeenCalled();
+  });
+});
+
 describe('F6 door 4 — extendSession', () => {
   it('will not sell 10 messages every send would refuse', async () => {
     const { service, extendSession, mockPrisma } = makeService({ refundedAt: new Date() });

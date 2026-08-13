@@ -817,17 +817,30 @@ export class ChatContextService {
     // Year-agnostic targets (lifetime/love/career) + year-scoped ANNUAL, in
     // parallel. Both birthProfileId-indexed (~1ms each).
     const [yearAgnostic, annualThisYear] = await Promise.all([
+      // ⚠️ F-5 — `refundedAt: null` is part of OWNERSHIP here, not a nicety.
+      // Without it a user who was refunded for their LIFETIME reading is told
+      // «您已解鎖《八字終身運》…» instead of being offered it: we suppress the
+      // upsell for a reading they were paid back for. Same "refunded ≠
+      // entitled" principle the F2/F5/F6 gates enforce, applied to the
+      // cross-sell surface.
       this.prisma.baziReading.findMany({
         where: {
           userId,
           birthProfileId,
           readingType: { in: ['LIFETIME', 'LOVE', 'CAREER'] },
+          refundedAt: null,
         },
         select: { readingType: true },
         distinct: ['readingType'],
       }),
       this.prisma.baziReading.findFirst({
-        where: { userId, birthProfileId, readingType: 'ANNUAL', targetYear: anchorYear },
+        where: {
+          userId,
+          birthProfileId,
+          readingType: 'ANNUAL',
+          targetYear: anchorYear,
+          refundedAt: null,
+        },
         select: { id: true },
       }),
     ]);

@@ -456,11 +456,15 @@ export class ZwdsService {
     // unreachable). Entitlement is the absence of a refund, NOT `creditsUsed > 0`
     // — a 0-credit cache hit is deliberately free (F4). See the long note in
     // bazi.service.ts::getReading for the full reasoning.
-    const isSubscriber = user.subscriptionTier !== 'FREE';
     // Truthiness, not `=== null` — see bazi.service.ts::getReading.
     const isEntitled = !reading.refundedAt;
 
-    if (isSubscriber || isEntitled) {
+    // No `isSubscriber ||` — F-4, same reasoning as the bazi twin. Kept in sync
+    // deliberately: this path has no live exposure today (ZWDS uses the
+    // non-streaming `generateInterpretation` and never sets `refundedAt`, so
+    // the gate is dead defence), but the two functions are read as a pair and
+    // a divergence here is how the bazi one drifted in the first place.
+    if (isEntitled) {
       return reading;
     }
 
