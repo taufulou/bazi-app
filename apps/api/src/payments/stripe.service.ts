@@ -968,6 +968,49 @@ export class StripeService {
       this.logger.log(`Invoice ${invoice.id} already recorded — continuing to credit grant`);
     }
 
+    // A PLAN-CHANGE PRORATION IS NOT A BILLING PERIOD — do not grant for it.
+    //
+    // The grant below keys `MonthlyCreditsLog` on `lines.data[0].period.start`,
+    // and that unique constraint is a full DateTime. A proration invoice's line
+    // period starts at the MOMENT OF THE CHANGE, so it collides with nothing and
+    // pays out a whole month of credits, unprorated — every plan change. Upgrade,
+    // downgrade, upgrade nets ~zero in prorations and mints credits without limit.
+    //
+    // `upgradeSubscription` avoids raising such an invoice by using
+    // `create_prorations`, and carries a comment saying so. That comment protects
+    // nothing here: **the Stripe Dashboard can produce the same invoice with no
+    // code change at all** — Billing → Customer portal → Subscriptions → "Charge
+    // timing" offers "Invoice prorations immediately" (as of 2026-08 the sandbox
+    // config is set to end-of-period, which is why this has never fired). One
+    // dropdown, and every portal plan switch mints a month of credits. So the
+    // invariant belongs in code, not in a comment on a line someone else won't read.
+    //
+    // DENY-list, not allow-list, and deliberately so: `billing_reason` is absent
+    // from older payloads and from several of our own fixtures, and an allow-list
+    // would then silently stop granting to paying customers — a quiet, severe
+    // failure in the direction that costs us trust. Denying the one reason we know
+    // to be wrong fails OPEN (users keep their credits) while closing the hazard.
+    // Anything unrecognised is granted AND alerted, so we learn rather than guess.
+    const billingReason = invoice.billing_reason;
+    if (billingReason === 'subscription_update') {
+      this.logger.log(
+        `Invoice ${invoice.id} is a plan-change proration (billing_reason=subscription_update) — ` +
+          `recording the payment but granting no monthly credits`,
+      );
+      return;
+    }
+    if (
+      billingReason != null &&
+      billingReason !== 'subscription_cycle' &&
+      billingReason !== 'subscription_create' &&
+      billingReason !== 'subscription'
+    ) {
+      Sentry.captureMessage('stripe.unexpected_invoice_billing_reason', {
+        level: 'warning',
+        extra: { invoiceId: invoice.id, billingReason },
+      });
+    }
+
     // Grant monthly credits for the new billing period (renewal)
     // Extract period dates from invoice line items (Stripe clover API)
     const lineItem = invoice.lines?.data?.[0];

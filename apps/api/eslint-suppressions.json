@@ -247,7 +247,7 @@
   },
   "test/monthly-credits.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 15
+      "count": 18
     }
   },
   "test/payments-controller.spec.ts": {
