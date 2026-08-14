@@ -53,6 +53,16 @@ import { BannerModule } from './banner/banner.module';
         R2_BUCKET: Joi.string().allow('').optional().default(''),
         R2_PUBLIC_BASE_URL: Joi.string().allow('').optional().default(''),
         CORS_ORIGINS: Joi.string().optional().default('http://localhost:3000'),
+        // B5 — comma-separated `azp` allowlist for Clerk JWTs (the frontend
+        // origins allowed to mint tokens this API accepts). Kept SEPARATE from
+        // CORS_ORIGINS on purpose: CORS is a browser-enforced hint about who may
+        // read a response, azp is a server-enforced claim about who the token was
+        // issued to. They also diverge in practice — a token-minting origin that
+        // never makes a browser fetch needs azp but not CORS, and vice versa.
+        // Empty = the claim is NOT checked (the guard warns at boot). Must be set
+        // to the web origin before launch; native clients send no azp and are
+        // unaffected either way.
+        CLERK_AUTHORIZED_PARTIES: Joi.string().allow('').optional().default(''),
         // Rewarded-ad kill switch. Default '0' (OFF) — V1 does NO ad-completion
         // verification, so claiming would mint credits / free section unlocks to
         // any authenticated caller. Do NOT set to '1' until AdMob SSV is wired

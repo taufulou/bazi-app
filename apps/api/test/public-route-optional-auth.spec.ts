@@ -221,7 +221,14 @@ function makeCtx(isPublic: boolean, authHeader?: string) {
     getClass: () => undefined,
   };
   const reflector = { getAllAndOverride: jest.fn().mockReturnValue(isPublic) };
-  const config = { get: jest.fn().mockReturnValue('sk_test_fake') };
+  // Key-AWARE. This used to return 'sk_test_fake' for every key, which stopped
+  // being harmless the moment the guard read a second one: B5's
+  // CLERK_AUTHORIZED_PARTIES would have been handed the secret key as an azp
+  // allowlist. A blanket config stub is a fixture that answers questions it was
+  // never asked.
+  const config = {
+    get: jest.fn((key: string) => (key === 'CLERK_SECRET_KEY' ? 'sk_test_fake' : undefined)),
+  };
   const guard = new ClerkAuthGuard(reflector as never, config as never);
   return { guard, ctx, request };
 }
