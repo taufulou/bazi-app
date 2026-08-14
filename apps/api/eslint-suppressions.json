@@ -294,22 +294,19 @@
       "count": 34
     }
   },
-  "test/subscription-upgrade.spec.ts": {
+  "test/stripe-webhook.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 5
     }
   },
-  "test/stripe-webhook.spec.ts": {
+  "test/subscription-upgrade.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 5
     }
   },
   "test/users-delete-account.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
+      "count": 3
     }
   },
   "test/zwds-phase8b-service.spec.ts": {

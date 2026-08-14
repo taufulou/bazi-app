@@ -45,7 +45,7 @@ function makeUsersService(profileCount: number, cap?: string) {
       key === 'BIRTH_PROFILE_MAX_PER_USER' ? cap : undefined,
     ),
   };
-  const service = new UsersService(prisma as never, config as never);
+  const service = new UsersService(prisma as never, config as never, AI_STUB as never);
   return { service, prisma };
 }
 
@@ -57,6 +57,10 @@ const DTO = {
   birthTimezone: 'Asia/Taipei',
   gender: 'MALE',
 } as never;
+
+// C1 — UsersService injects AIService only to reuse its cache-key hash on
+// account deletion. Irrelevant to these tests; stubbed so the arity matches.
+const AI_STUB = { generateBirthDataHash: jest.fn(() => 'hash') };
 
 describe('A4a — birth-profile cap', () => {
   it('allows creation below the default cap of 10', async () => {
@@ -224,7 +228,7 @@ describe('F1 — signup bonus is once per identity, not once per insert', () => 
       },
       birthProfile: { count: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
     };
-    const service = new UsersService(prisma as never, { get: jest.fn() } as never);
+    const service = new UsersService(prisma as never, { get: jest.fn() } as never, AI_STUB as never);
 
     // createBirthProfile goes through ensureUser; the cap check runs after and
     // is irrelevant here (count is a jest.fn() returning undefined).

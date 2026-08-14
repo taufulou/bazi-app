@@ -10,6 +10,7 @@ import { ReadingType } from '@prisma/client';
 import { createClerkClient } from '@clerk/backend';
 import Stripe from 'stripe';
 import { PrismaService } from '../prisma/prisma.service';
+import { AIService } from '../ai/ai.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateBirthProfileDto, UpdateBirthProfileDto } from './dto/create-birth-profile.dto';
 import { resolveSignupCredits } from '../common/signup-bonus';
@@ -28,6 +29,7 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly aiService: AIService,
   ) {}
 
   // ============ User Profile ============
@@ -117,7 +119,22 @@ export class UsersService {
     // 4. Delete the Clerk user (best-effort — anonymize proceeds regardless).
     await this.deleteClerkUser(clerkUserId);
 
-    // 5. Anonymize the DB row (synchronous; preserves financial records).
+    // 5. C1 — ERASE the personal data, then anonymize what must be retained.
+    //
+    // This step did not exist. The method anonymized the `User` row and stopped,
+    // on the reasoning that deleting the row would take the financial records
+    // with it (every money table is `onDelete: Cascade` from User). The instinct
+    // was right and the execution inverted it: because NO row was ever deleted,
+    // NONE of the declared cascades fired, and "delete my account" left behind
+    // every birth profile (date, time, city, coordinates, gender — the actual
+    // sensitive data), every reading, every comparison, every chat message the
+    // user typed, and every fortune snapshot. Only the display name and the
+    // Clerk link were cleared.
+    //
+    // So: delete the PII-bearing tables explicitly, keep the financial ones, and
+    // anonymize the row that ties them together.
+    await this.erasePersonalData(user.id);
+
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
@@ -126,11 +143,107 @@ export class UsersService {
         clerkUserId: `deleted_${clerkUserId}_${Date.now()}`,
         credits: 0,
         subscriptionTier: 'FREE',
+        // Device fingerprint is an identifier in its own right (it exists to
+        // link anonymous sessions to a person) and has no financial purpose.
+        deviceFingerprint: null,
       },
     });
 
-    this.logger.warn(`Account deleted (anonymized): user ${user.id}`);
+    this.logger.warn(`Account deleted (PII erased, financial records retained): user ${user.id}`);
     return { deleted: true };
+  }
+
+  /**
+   * Delete every table that holds personal data for this user, keeping the
+   * financial/accounting record intact.
+   *
+   * RETAINED, deliberately: `Transaction`, `Subscription`, `CreditLedger`,
+   * `MonthlyCreditsLog`, `AdRewardLog`, `SectionUnlock`. These are money and
+   * entitlement history — amounts, tiers, timestamps, provider ids. They carry
+   * no birth data and no free text, and they are what a chargeback, a tax
+   * question or a double-grant investigation needs. `AIUsageLog.userId` is
+   * `SetNull`, so it detaches on its own if the row is ever removed.
+   *
+   * ORDER IS LOAD-BEARING. `DailyFortuneSnapshot.birthProfileId` is `SetNull`,
+   * not `Cascade` — deleting profiles first would ORPHAN the snapshots rather
+   * than remove them, leaving the narrative text and a `chartHash` (a hash of
+   * the birth pillars) with nothing left to attribute them to and no way to find
+   * them again. Snapshots must go first, while the link still exists.
+   */
+  private async erasePersonalData(userId: string): Promise<void> {
+    const profiles = await this.prisma.birthProfile.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        birthDate: true,
+        birthTime: true,
+        birthCity: true,
+        gender: true,
+      },
+    });
+    const profileIds = profiles.map((p) => p.id);
+
+    // Content-addressed cache rows for this person's readings. Keyed by a hash
+    // of the birth data (not by user), so they survive every cascade — and they
+    // hold the full interpretation JSON. Bounded precisely by the user's OWN
+    // readings, because the key includes readingType and targetYear and cannot
+    // be enumerated blind.
+    const readings = await this.prisma.baziReading.findMany({
+      where: { userId },
+      select: { readingType: true, targetYear: true, birthProfileId: true },
+    });
+    const byId = new Map(profiles.map((p) => [p.id, p]));
+    const cacheHashes = [
+      ...new Set(
+        readings
+          .map((r) => {
+            const p = byId.get(r.birthProfileId);
+            if (!p) return null;
+            return this.aiService.generateBirthDataHash(
+              p.birthDate.toISOString().split('T')[0],
+              p.birthTime ?? 'HOUR_UNKNOWN',
+              p.birthCity,
+              p.gender.toLowerCase(),
+              r.readingType,
+              r.targetYear ?? undefined,
+            );
+          })
+          .filter((h): h is string => h !== null),
+      ),
+    ];
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Fortune snapshots — BEFORE the profiles (SetNull would orphan them).
+      if (profileIds.length > 0) {
+        await tx.dailyFortuneSnapshot.deleteMany({
+          where: { birthProfileId: { in: profileIds } },
+        });
+      }
+
+      // 2. Chat. Sessions cascade to their messages, which are free text the
+      //    user typed — the most obviously personal content we hold.
+      await tx.chatSession.deleteMany({ where: { userId } });
+      await tx.chatMonthlyUsage.deleteMany({ where: { userId } });
+
+      // 3. Readings and comparisons (interpretation text about this person).
+      await tx.baziComparison.deleteMany({ where: { userId } });
+      await tx.baziReading.deleteMany({ where: { userId } });
+
+      // 4. The birth data itself.
+      await tx.birthProfile.deleteMany({ where: { userId } });
+
+      // 5. The cache copies of their readings.
+      if (cacheHashes.length > 0) {
+        await tx.readingCache.deleteMany({
+          where: { birthDataHash: { in: cacheHashes } },
+        });
+      }
+    });
+
+    this.logger.log(
+      `erasePersonalData user=${userId}: ${profileIds.length} profiles, ` +
+        `${readings.length} readings, ${cacheHashes.length} cache entries`,
+    );
   }
 
   private getStripeClient(): Stripe | null {

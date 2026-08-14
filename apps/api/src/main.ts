@@ -7,6 +7,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
+import { scrubSentryEvent } from './common/sentry-scrub';
 
 // Initialize Sentry before anything else
 if (process.env.SENTRY_DSN) {
@@ -14,6 +15,20 @@ if (process.env.SENTRY_DSN) {
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV || 'development',
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.2 : 1.0,
+    // C2 — this used to be the whole config. Every request to this API carries
+    // birth data (date, time, city, coordinates, gender) in its body, so an
+    // error report that attaches the request is an error report that ships the
+    // most sensitive thing we hold to a third party.
+    //
+    // Two layers on purpose. `sendDefaultPii: false` is the SDK's own switch and
+    // states the intent; `beforeSend` enforces it regardless of what any given
+    // SDK version decides to attach by default — that behaviour has changed
+    // across major versions, and "I read node_modules once" is not a control
+    // that survives an upgrade.
+    sendDefaultPii: false,
+    beforeSend: scrubSentryEvent,
+    // Transactions carry request context too.
+    beforeSendTransaction: scrubSentryEvent,
   });
 }
 
