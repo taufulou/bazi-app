@@ -23,6 +23,7 @@ const mockStripeService = {
   createPortalSession: jest.fn(),
   cancelSubscription: jest.fn(),
   reactivateSubscription: jest.fn(),
+  upgradeSubscription: jest.fn(),
 };
 
 const mockSectionUnlockService = {
@@ -279,6 +280,59 @@ describe('PaymentsController', () => {
 
       expect(result).toEqual(reactivateResult);
       expect(mockStripeService.reactivateSubscription).toHaveBeenCalledWith('clerk_user_abc');
+    });
+  });
+
+  describe('POST /api/payments/upgrade', () => {
+    // This route had no test at all while it was the one endpoint that could
+    // move a user's paid tier by request (F9). A route that changes entitlement
+    // must at minimum pin WHOSE entitlement it changes.
+    it('changes the plan for the AUTHENTICATED user, not a body-supplied one', async () => {
+      const upgradeResult = { success: true, newTier: 'PRO', effectiveTier: 'PRO' };
+      mockStripeService.upgradeSubscription.mockResolvedValue(upgradeResult);
+
+      const result = await controller.upgradeSubscription(AUTH_PAYLOAD as any, {
+        planSlug: 'pro',
+        billingCycle: 'monthly',
+      } as any);
+
+      expect(result).toEqual(upgradeResult);
+      expect(mockStripeService.upgradeSubscription).toHaveBeenCalledWith(
+        'clerk_user_abc',
+        'pro',
+        'monthly',
+      );
+    });
+
+    it('passes the requested billing cycle through unchanged', async () => {
+      mockStripeService.upgradeSubscription.mockResolvedValue({
+        success: true,
+        newTier: 'MASTER',
+        effectiveTier: 'MASTER',
+      });
+
+      await controller.upgradeSubscription(AUTH_PAYLOAD as any, {
+        planSlug: 'master',
+        billingCycle: 'annual',
+      } as any);
+
+      expect(mockStripeService.upgradeSubscription).toHaveBeenCalledWith(
+        'clerk_user_abc',
+        'master',
+        'annual',
+      );
+    });
+
+    it('surfaces the 402 rather than swallowing it into a success', async () => {
+      const err = Object.assign(new Error('payment required'), { status: 402 });
+      mockStripeService.upgradeSubscription.mockRejectedValue(err);
+
+      await expect(
+        controller.upgradeSubscription(AUTH_PAYLOAD as any, {
+          planSlug: 'pro',
+          billingCycle: 'monthly',
+        } as any),
+      ).rejects.toBe(err);
     });
   });
 

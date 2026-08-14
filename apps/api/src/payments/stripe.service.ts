@@ -8,7 +8,14 @@
  * - Create customer portal sessions
  * - Validate promo codes
  */
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -360,12 +367,18 @@ export class StripeService {
   /**
    * Upgrade (or downgrade) a user's subscription to a different plan.
    * Uses Stripe subscription item replacement with proration.
+   *
+   * Returns both tiers because they can legitimately differ: `newTier` is what
+   * this Stripe subscription now is, `effectiveTier` is what the USER has once
+   * every provider's active subscription is considered. A Stripe BASIC -> PRO
+   * upgrade by someone holding Apple MASTER returns `newTier: 'PRO'` with
+   * `effectiveTier: 'MASTER'`. Clients must render `effectiveTier`.
    */
   async upgradeSubscription(
     clerkUserId: string,
     planSlug: string,
     billingCycle: 'monthly' | 'annual',
-  ): Promise<{ success: boolean; newTier: string }> {
+  ): Promise<{ success: boolean; newTier: string; effectiveTier: string }> {
     this.logger.log(`[upgrade] Starting upgrade for user=${clerkUserId} plan=${planSlug} cycle=${billingCycle}`);
 
     const user = await this.findUserOrThrow(clerkUserId);
@@ -412,6 +425,8 @@ export class StripeService {
     const newTier = this.planSlugToTier(planSlug);
     this.logger.log(`[upgrade] Updating Stripe subscription to tier=${newTier}...`);
 
+    let updatedSub: Stripe.Subscription;
+
     try {
       // Ensure the current product is active, or create a new one for this plan
       const currentProduct = currentItem.price.product as string;
@@ -439,7 +454,7 @@ export class StripeService {
         this.logger.log(`[upgrade] Created new product ${productId} (previous not found)`);
       }
 
-      await this.stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+      updatedSub = await this.stripe.subscriptions.update(subscription.stripeSubscriptionId, {
         items: [
           {
             id: currentItem.id,
@@ -451,6 +466,7 @@ export class StripeService {
             },
           },
         ],
+        // ⚠️ DO NOT "fix" this to `always_invoice` — see the F9 note below.
         proration_behavior: 'create_prorations',
         cancel_at_period_end: false, // Ensure reactivated if was pending cancel
         metadata: {
@@ -464,26 +480,88 @@ export class StripeService {
       throw new BadRequestException(`Stripe upgrade failed: ${errMsg}`);
     }
 
+    // F9 — the local write follows STRIPE's state, not the caller's request.
+    //
+    // This block used to write `planTier`/`status: 'ACTIVE'` from the requested
+    // `planSlug` and then blind-write `User.subscriptionTier = newTier`, on the
+    // sole evidence that the Stripe API call did not throw. Two defects:
+    //
+    //  1. The local `Subscription` row is selected on our OWN `status` column,
+    //     which can be stale (a failed invoice that we haven't processed yet, a
+    //     dropped webhook). If Stripe actually has the subscription `past_due` /
+    //     `unpaid` / `incomplete`, the old code still upgraded the local tier —
+    //     handing a delinquent account a HIGHER paid tier. Gate on Stripe's
+    //     returned status instead. `mapStripeStatus` already encodes exactly the
+    //     "is this entitled?" question (active + trialing -> ACTIVE), so reuse it
+    //     rather than inventing a second status vocabulary.
+    //
+    //  2. `User.subscriptionTier` is a CROSS-PROVIDER maximum, not this
+    //     subscription's tier. Writing `newTier` directly downgrades a user who
+    //     also holds a higher-tier Apple/Google sub — e.g. Stripe BASIC + Apple
+    //     MASTER, upgrade Stripe to PRO, and the write clobbers MASTER with PRO.
+    //     `syncUserTier` recomputes from every ACTIVE row across providers, never
+    //     blind-downgrades, and resnapshots the chat quota (which the raw write
+    //     also skipped, so a tier change didn't move the chat cap until some
+    //     later webhook happened to run).
+    //
+    // ⚠️ ANTI-REMEDY — `proration_behavior: 'always_invoice'`. Collection is
+    // deferred here: `create_prorations` books proration line items onto the NEXT
+    // invoice rather than charging now, so an upgrade grants the new tier up to
+    // one billing cycle before it is paid for (bounded by `handleInvoiceFailed` ->
+    // PAST_DUE -> syncUserTier). The obvious tightening — invoice immediately with
+    // `always_invoice` — is WORSE, and must not be applied without also reworking
+    // the credit grant: it mints a proration invoice whose `lines.data[0].period.start`
+    // is the moment of the change, `handleInvoicePaid` keys the monthly grant on
+    // exactly that value, and `MonthlyCreditsLog.@@unique([userId, periodStart])`
+    // is a full DateTime — so every upgrade would collide with nothing and grant a
+    // WHOLE MONTH of credits. Upgrade/downgrade/upgrade nets ~zero in prorations
+    // and mints unlimited credits. Deferred collection is the lesser exposure.
+    const stripeStatus = this.mapStripeStatus(updatedSub.status);
+    if (stripeStatus !== 'ACTIVE') {
+      // Stripe applied the plan change but the subscription is not in a paying
+      // state. Do NOT reflect the tier locally: the webhook (`customer.subscription
+      // .updated`) carries the `planSlug` metadata we just wrote, so once the
+      // invoice settles it will land the correct tier on its own.
+      this.logger.error(
+        `[upgrade] Stripe returned status "${updatedSub.status}" for ` +
+          `${subscription.stripeSubscriptionId} — withholding the local ${newTier} grant`,
+      );
+      Sentry.captureMessage('stripe.upgrade_not_entitled', {
+        level: 'error',
+        extra: {
+          subscriptionId: subscription.stripeSubscriptionId,
+          stripeStatus: updatedSub.status,
+          requestedTier: newTier,
+        },
+      });
+      throw new HttpException(
+        {
+          code: 'UPGRADE_PAYMENT_REQUIRED',
+          message: '方案已變更，但付款尚未完成。請更新付款方式後再試一次。',
+        },
+        HttpStatus.PAYMENT_REQUIRED,
+      );
+    }
+
     this.logger.log(`[upgrade] Stripe updated successfully, updating DB...`);
 
-    // Immediately update DB (webhook will also fire, but this gives instant UI feedback)
     await this.prisma.subscription.update({
       where: { id: subscription.id },
       data: {
         planTier: newTier,
-        status: 'ACTIVE',
-        cancelledAt: null,
+        status: stripeStatus,
+        cancelledAt: updatedSub.cancel_at ? new Date(updatedSub.cancel_at * 1000) : null,
       },
     });
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { subscriptionTier: newTier },
-    });
+    const { tier: effectiveTier } = await this.entitlements.syncUserTier(user.id);
 
-    this.logger.log(`Subscription ${subscription.stripeSubscriptionId} upgraded to ${newTier} for user ${clerkUserId}`);
+    this.logger.log(
+      `Subscription ${subscription.stripeSubscriptionId} upgraded to ${newTier} for user ` +
+        `${clerkUserId} (effective tier ${effectiveTier})`,
+    );
 
-    return { success: true, newTier };
+    return { success: true, newTier, effectiveTier };
   }
 
   // ============================================================

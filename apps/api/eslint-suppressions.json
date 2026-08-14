@@ -252,7 +252,7 @@
   },
   "test/payments-controller.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 27
+      "count": 33
     }
   },
   "test/revenuecat-service.spec.ts": {
@@ -292,6 +292,11 @@
   "test/stripe-service.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 33
+    }
+  },
+  "test/subscription-upgrade.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 5
     }
   },
   "test/stripe-webhook.spec.ts": {

@@ -292,8 +292,8 @@ export async function cancelSubscription(token: string): Promise<{ success: bool
 export async function upgradeSubscription(
   token: string,
   params: { planSlug: string; billingCycle: 'monthly' | 'annual' },
-): Promise<{ success: boolean; newTier: string }> {
-  return apiFetch<{ success: boolean; newTier: string }>('/api/payments/upgrade', {
+): Promise<{ success: boolean; newTier: string; effectiveTier?: string }> {
+  return apiFetch<{ success: boolean; newTier: string; effectiveTier?: string }>('/api/payments/upgrade', {
     method: 'POST',
     token,
     body: JSON.stringify(params),
