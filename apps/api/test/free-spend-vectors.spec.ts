@@ -60,6 +60,7 @@ const DTO = {
 
 // C1 — UsersService injects AIService only to reuse its cache-key hash on
 // account deletion. Irrelevant to these tests; stubbed so the arity matches.
+const USERS_STUB = { erasePersonalData: jest.fn() };
 const AI_STUB = { generateBirthDataHash: jest.fn(() => 'hash') };
 
 describe('A4a — birth-profile cap', () => {
@@ -169,6 +170,9 @@ describe('F1 — signup bonus is once per identity, not once per insert', () => 
         prisma as never,
         { del: jest.fn() } as never,
         { get: jest.fn() } as never,
+        // C1 — the user.deleted handler now erases PII via UsersService.
+        // Irrelevant to signup-bonus vectors; stubbed for arity.
+        USERS_STUB as never,
       );
 
       await (
@@ -203,6 +207,9 @@ describe('F1 — signup bonus is once per identity, not once per insert', () => 
         prisma as never,
         { del: jest.fn() } as never,
         { get: jest.fn() } as never,
+        // C1 — the user.deleted handler now erases PII via UsersService.
+        // Irrelevant to signup-bonus vectors; stubbed for arity.
+        USERS_STUB as never,
       );
 
       await (

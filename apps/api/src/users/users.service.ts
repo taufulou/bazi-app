@@ -94,7 +94,21 @@ export class UsersService {
       });
     }
 
-    // 2. Cancel active Stripe subs (best-effort).
+    // 2. ERASE FIRST. This used to run last, after the Clerk user had already
+    //    been deleted — and unlike the third-party calls it is not best-effort.
+    //    If it threw (Prisma's default interactive-transaction timeout is 5s and
+    //    a heavy account can exceed it), the exception propagated and the
+    //    anonymize never ran, leaving: Stripe cancelled, Clerk identity gone,
+    //    every birth profile and chat message intact, and the row not even
+    //    anonymized — with no way back in, since `DELETE /users/me` is the only
+    //    deletion endpoint and it authenticates with the Clerk session that no
+    //    longer exists.
+    //
+    //    Erasing before the irreversible external deletes means a failure here
+    //    is a clean, retryable no-op: the user still has their account.
+    await this.erasePersonalData(user.id);
+
+    // 3. Cancel active Stripe subs (best-effort).
     const activeStripe = user.subscriptions.filter(
       (s) => s.status === 'ACTIVE' && s.platform === 'STRIPE' && s.stripeSubscriptionId,
     );
@@ -113,13 +127,15 @@ export class UsersService {
       }
     }
 
-    // 3. Delete the RevenueCat subscriber (best-effort).
+    // 4. Delete the RevenueCat subscriber (best-effort).
     await this.deleteRevenueCatSubscriber(clerkUserId);
 
-    // 4. Delete the Clerk user (best-effort — anonymize proceeds regardless).
+    // 5. Delete the Clerk user (best-effort — anonymize proceeds regardless).
+    //    NOTE this fires the `user.deleted` webhook, which now also erases.
+    //    Both are idempotent.
     await this.deleteClerkUser(clerkUserId);
 
-    // 5. C1 — ERASE the personal data, then anonymize what must be retained.
+    // 6. C1 — anonymize what must be retained (the erase happened at step 2).
     //
     // This step did not exist. The method anonymized the `User` row and stopped,
     // on the reasoning that deleting the row would take the financial records
@@ -133,8 +149,6 @@ export class UsersService {
     //
     // So: delete the PII-bearing tables explicitly, keep the financial ones, and
     // anonymize the row that ties them together.
-    await this.erasePersonalData(user.id);
-
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
@@ -170,7 +184,7 @@ export class UsersService {
    * the birth pillars) with nothing left to attribute them to and no way to find
    * them again. Snapshots must go first, while the link still exists.
    */
-  private async erasePersonalData(userId: string): Promise<void> {
+  async erasePersonalData(userId: string): Promise<void> {
     const profiles = await this.prisma.birthProfile.findMany({
       where: { userId },
       select: {
@@ -238,6 +252,11 @@ export class UsersService {
           where: { birthDataHash: { in: cacheHashes } },
         });
       }
+    }, {
+      // Default is 5s. This is up to seven statements across six tables with
+      // cascades underneath; a long-lived account can exceed it, and a timeout
+      // here used to strand the user permanently (see step 2).
+      timeout: 30_000,
     });
 
     this.logger.log(
@@ -419,9 +438,19 @@ export class UsersService {
       throw new NotFoundException('Birth profile not found');
     }
 
-    await this.prisma.birthProfile.delete({
-      where: { id: profileId },
-    });
+    // C1 — the same SetNull trap `erasePersonalData` was written to avoid, on
+    // the path users actually take. `DailyFortuneSnapshot.birthProfileId` is
+    // `SetNull`, so a bare profile delete ORPHANS every snapshot for it:
+    // narrative text plus a `chartHash`, with nothing left to attribute them to.
+    //
+    // Worse than untidy — an orphan is permanently unreachable. Account deletion
+    // scopes on `birthProfileId: { in: profileIds }`, so anything orphaned here
+    // can never be cleaned up later, and "delete my account" quietly stops being
+    // complete for anyone who ever removed a profile first.
+    await this.prisma.$transaction([
+      this.prisma.dailyFortuneSnapshot.deleteMany({ where: { birthProfileId: profileId } }),
+      this.prisma.birthProfile.delete({ where: { id: profileId } }),
+    ]);
 
     return { deleted: true };
   }

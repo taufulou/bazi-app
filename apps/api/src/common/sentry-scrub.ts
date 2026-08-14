@@ -64,9 +64,36 @@ const PII_KEYS = new Set(
     'api_key',
     'secret',
     'password',
-    // Free text the user wrote.
+    // Free text the user wrote. `content` is ChatMessage.content and
+    // SendMessageDto.content — what the user typed and the full AI reply. The
+    // first version of this list covered `questionText` (ZWDS Q&A only) and
+    // missed the chat field entirely, while C1's own commit message called chat
+    // messages "the most obviously personal content we hold".
     'questiontext',
     'question_text',
+    'content',
+    // Identity-adjacent. The docblock's own argument is "add the city and
+    // gender already in the same payload and it identifies" — and `gender` was
+    // not on the list.
+    'gender',
+    'name',
+    // The fortune DTOs carry the birth datetime under these exact names on
+    // every daily/monthly/yearly response.
+    'profilebirthdate',
+    'profilebirthtime',
+    // A rendered lunar birth date is a birth date. `lunarBirthDate` was
+    // covered; the engine emits `lunarDate` on every chartContext.
+    'lunardate',
+    'lunar_birth_date',
+    // Individually these are 1-of-60, but they arrive as a set of four.
+    'yearganzhi',
+    'monthganzhi',
+    'dayganzhi',
+    'hourganzhi',
+    // ZWDS shapes: solarDate + timeRange together are the birth datetime.
+    'solardate',
+    'timerange',
+    'targetday',
   ].map((k) => k.toLowerCase()),
 );
 
@@ -95,9 +122,30 @@ const PII_SUBTREE_KEYS = new Set(
     'interpretationjson',
     'interpretation_json',
     'engineoutputjson',
+    'engine_output_json',
     'ainarrativejson',
+    'ai_narrative_json',
     'birthprofile',
     'birth_profile',
+    // ⚠️ `ganZhi` is a SECOND copy of all four pillars, emitted alongside
+    // `fourPillars` by the engine (`calculator.py`). Dropping `fourPillars`
+    // while this sibling sailed through defeated the whole point of the rule
+    // this file is built on — the audit reproduced it and got all four back
+    // verbatim. Containers, not leaf keys, is exactly why.
+    'ganzhi',
+    'chart',
+    'chartcontext',
+    'chart_context',
+    'charta',
+    'chartb',
+    'natalchart',
+    'luckperiods',
+    'annualstars',
+    'truesolartime',
+    // The un-suffixed siblings of the two JSON columns above — and these are
+    // the names that actually appear on the wire response.
+    'engineoutput',
+    'narrative',
   ].map((k) => k.toLowerCase()),
 );
 
@@ -141,6 +189,9 @@ export interface ScrubbableEvent {
   extra?: Record<string, unknown>;
   contexts?: Record<string, unknown>;
   breadcrumbs?: Array<Record<string, unknown>>;
+  spans?: unknown[];
+  message?: unknown;
+  exception?: unknown;
   [k: string]: unknown;
 }
 
@@ -184,5 +235,57 @@ export function scrubSentryEvent<T>(event: T): T {
     scrubbed.breadcrumbs = scrubValue(scrubbed.breadcrumbs) as Array<Record<string, unknown>>;
   }
 
+  // Transaction events carry their payload in spans, not in `request`. Without
+  // this, `request.query_string` was redacted on the error path while the same
+  // query survived as span data on the transaction path — and tracing is on.
+  if (Array.isArray(scrubbed.spans)) {
+    scrubbed.spans = scrubValue(scrubbed.spans) as unknown[];
+  }
+
+  // ⚠️ The ERROR TEXT ITSELF. Key-based redaction cannot see this, and Sentry's
+  // own normalization doesn't cover `exception` either — so it shipped verbatim
+  // and is the most visible field in the UI, being the grouping key.
+  //
+  // This is not hypothetical: `PrismaClientValidationError` embeds the failing
+  // argument object in its message, and a failed `birthProfile.create` puts the
+  // birth date, time and city straight into it.
+  if (scrubbed.message) scrubbed.message = redactFreeText(String(scrubbed.message));
+  const values = (scrubbed.exception as { values?: Array<Record<string, unknown>> })?.values;
+  if (Array.isArray(values)) {
+    scrubbed.exception = {
+      ...(scrubbed.exception as Record<string, unknown>),
+      values: values.map((v) => ({
+        ...v,
+        ...(typeof v.value === 'string' ? { value: redactFreeText(v.value) } : {}),
+      })),
+    };
+  }
+
   return scrubbed as T;
+}
+
+/**
+ * Redact PII *shapes* inside a free-text string.
+ *
+ * Necessarily pattern-based rather than key-based, so it is deliberately
+ * conservative: it targets the shapes this product actually leaks into error
+ * messages, and accepts that a determined leak in prose could slip through.
+ * Better a partial control on the field that was previously untouched than none.
+ */
+export function redactFreeText(text: string): string {
+  return (
+    text
+      // ISO dates — birth dates arrive as YYYY-MM-DD.
+      .replace(/\b\d{4}-\d{2}-\d{2}\b/g, REDACTED)
+      // HH:MM times.
+      .replace(/\b([01]?\d|2[0-3]):[0-5]\d\b/g, REDACTED)
+      // Any 干支 pair: one of the 10 stems followed by one of the 12 branches.
+      // Four of these identify a birth datetime; even one is worth removing
+      // from a string we cannot otherwise reason about.
+      .replace(/[甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥]/g, REDACTED)
+      // Bearer tokens / JWTs.
+      .replace(/\bey[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, REDACTED)
+      // Email addresses.
+      .replace(/\b[^\s@]+@[^\s@]+\.[^\s@]+\b/g, REDACTED)
+  );
 }

@@ -110,7 +110,10 @@ describe('C2 — Sentry event scrubbing', () => {
     const out = scrubSentryEvent(realisticEvent());
 
     expect(out.extra?.chartData).toBe(REDACTED);
-    expect((out.contexts?.chart as Record<string, unknown>)?.fourPillars).toBe(REDACTED);
+    // `chart` is itself a dropped container now (the audit found `chart` and
+    // `chartContext` wrapping pillar data), so the whole node goes rather than
+    // its `fourPillars` child.
+    expect(out.contexts?.chart).toBe(REDACTED);
   });
 
   it('scrubs nested birth fields wherever they appear', () => {
@@ -169,6 +172,92 @@ describe('C2 — Sentry event scrubbing', () => {
     for (let i = 0; i < 50; i++) deep = { nested: deep };
 
     expect(() => scrubSentryEvent({ extra: deep })).not.toThrow();
+  });
+
+  it('redacts within the traversal depth', () => {
+    // The version of this test that only asserted `not.toThrow()` PASSED WHILE
+    // LEAKING — everything below MAX_DEPTH shipped verbatim and the test read
+    // like depth coverage. Assert the value, not the absence of a crash.
+    let deep: Record<string, unknown> = { birthDate: '1987-09-06' };
+    for (let i = 0; i < 6; i++) deep = { nested: deep };
+
+    expect(serialise(scrubSentryEvent({ extra: deep }))).not.toContain('1987-09-06');
+  });
+
+  // ============================================================
+  // The 干支 second copy, and the free-text surfaces
+  // ============================================================
+
+  it('drops `ganZhi` — the engine emits the pillars TWICE', () => {
+    // `calculator.py` returns `ganZhi: {year, month, day, hour}` alongside
+    // `fourPillars`. Dropping one container while its sibling sailed through
+    // defeated the entire rule this file exists for.
+    const out = scrubSentryEvent({
+      extra: { bazi: { ganZhi: { year: '丁卯', month: '戊申', day: '戊午', hour: '庚申' } } },
+    });
+
+    expect(serialise(out)).not.toContain('丁卯');
+    expect(serialise(out)).not.toContain('庚申');
+  });
+
+  it.each([
+    ['yearGanZhi', { yearGanZhi: '丁卯' }, '丁卯'],
+    ['chat content', { content: '我先生會外遇嗎' }, '我先生會外遇嗎'],
+    ['gender', { gender: 'MALE' }, 'MALE'],
+    ['profileBirthDate', { profileBirthDate: '1987-09-06' }, '1987-09-06'],
+    ['lunarDate', { lunarDate: '農曆1987-7-14' }, '農曆1987-7-14'],
+    ['engineOutput', { engineOutput: { dayGanZhi: '戊子' } }, '戊子'],
+    ['chartContext', { chartContext: { lunarDate: '農曆1987-7-14' } }, '農曆1987-7-14'],
+    ['chartA/chartB', { chartA: { pillars: ['丁卯'] } }, '丁卯'],
+  ])('redacts %s', (_label, extra, secret) => {
+    expect(serialise(scrubSentryEvent({ extra }))).not.toContain(secret);
+  });
+
+  it('scrubs the EXCEPTION message — Prisma embeds the failing arguments', () => {
+    // The most visible field in the Sentry UI (it's the grouping key), and
+    // previously untouched. A failed birthProfile.create puts the birth date,
+    // time and city straight into it.
+    const out = scrubSentryEvent({
+      exception: {
+        values: [
+          {
+            type: 'PrismaClientValidationError',
+            value:
+              'Invalid `prisma.birthProfile.create()`: birthCity: 吉打, birthDate: 1987-09-06, birthTime: 16:11',
+          },
+        ],
+      },
+    });
+
+    const s = serialise(out);
+    expect(s).not.toContain('1987-09-06');
+    expect(s).not.toContain('16:11');
+    // The error TYPE must survive — otherwise the event is useless.
+    expect(s).toContain('PrismaClientValidationError');
+  });
+
+  it('scrubs 干支 and tokens out of a free-text message', () => {
+    const out = scrubSentryEvent({
+      message: 'Engine failed for 丁卯/戊申 token=eyJhbGciOiJIUzI1NiJ9.abc.def user=a@b.com',
+    });
+
+    const s = serialise(out);
+    expect(s).not.toContain('丁卯');
+    expect(s).not.toContain('戊申');
+    expect(s).not.toContain('a@b.com');
+    expect(s).toContain('Engine failed');
+  });
+
+  it('scrubs span data — transactions carry the payload there, not in `request`', () => {
+    // query_string was redacted on the error path while the same query
+    // survived as span data on the transaction path. Tracing is enabled.
+    const out = scrubSentryEvent({
+      spans: [{ op: 'http.client', data: { 'url.query': 'date=1987-09-06', birthCity: '吉打' } }],
+    });
+
+    const s = serialise(out);
+    expect(s).not.toContain('吉打');
+    expect(s).toContain('http.client');
   });
 
   it('handles a cyclic-free array of objects', () => {

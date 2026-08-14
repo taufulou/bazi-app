@@ -30,7 +30,7 @@ The published claim is now accurate. Anyone changing `deleteAccount` is changing
 | `BaziComparison` | two people's charts + relationship reading | **HIGH** | **Deleted** | Also concerns a *second* person, who never consented directly |
 | `ChatSession` / `ChatMessage` | free text the user typed | **HIGH** | **Deleted** (cascade from session) | Most obviously personal content we hold; users ask about health, marriage, money |
 | `DailyFortuneSnapshot` | narrative + `chartHash` | **HIGH** | **Deleted, before profiles** | FK is `SetNull`, so profile-first would *orphan* rather than remove — see below |
-| `ReadingCache` | full interpretation JSON | **HIGH** | **Deleted** (bounded by the user's own readings) | Content-addressed, so it survives every cascade; TTL'd via `expiresAt` |
+| `ReadingCache` | full interpretation JSON | **HIGH** | **Partially deleted** — see below | Content-addressed, so it survives every cascade |
 | `Transaction` | amount, currency, provider payment id | Low | **Retained** | Tax / chargeback / accounting |
 | `Subscription` | tier, status, period, provider ids | Low | **Retained** | Entitlement history; disputes |
 | `CreditLedger` | signed credit movements + reason | Low | **Retained** | The only table that reconciles against a balance |
@@ -54,7 +54,7 @@ It is keyed by a hash of the birth data with no `userId` column, so no cascade c
 | Data | Retention |
 |---|---|
 | Birth profiles, readings, comparisons, chat, snapshots | Until the user deletes the item or the account |
-| `ReadingCache` | `expiresAt` (per-row TTL), or immediately on account deletion |
+| `ReadingCache` | ⚠️ **Indefinite.** `expiresAt` is a read-time filter only — see below |
 | Financial + entitlement records | Retained after deletion, attached to an anonymized user row |
 | Sentry events | Sentry project retention; **scrubbed of personal data before send** (see below) |
 | PostHog events | PostHog project retention |
@@ -71,6 +71,21 @@ Correlate with a request id or `chartHash` and look the chart up inside the trus
 **Sentry (NestJS)** — `sendDefaultPii: false` plus a `beforeSend` scrubber (`apps/api/src/common/sentry-scrub.ts`) that drops the request body wholesale, redacts auth headers and cookies, keeps only `user.id`, and removes whole 干支/chart subtrees rather than individual keys. Two layers because whether a given SDK version attaches request bodies by default has changed across majors — reading `node_modules` once is not a control that survives an upgrade. Pinned by `test/sentry-scrub.spec.ts`, which asserts a realistic event carries none of a list of known secrets.
 
 ---
+
+## ⚠️ Corrections from the C1/C2 line audit
+
+An earlier version of this document asserted controls that do not exist. Recorded rather than quietly edited, because a register that overstates is worse than no register.
+
+**`ReadingCache` is NOT TTL'd.** `expiresAt` is set on write and then used *only* as a read-time filter. `grep -rn "@Cron"` over `apps/api/src` returns **zero matches** — nothing prunes it, so expired rows accumulate permanently. The same discovery invalidates a second claim elsewhere: CLAUDE.md references a `chat-cleanup.cron` that does not exist, so `ChatSession.hardDeleteAt`'s 12-month PDPA hard-delete is also unenforced. Both need a real job before either can be described as a retention control.
+
+**The account-deletion cache purge is incomplete**, in two specific ways:
+
+- **COMPATIBILITY readings are missed entirely.** They cache under `generateComparisonHash` — a *different* function with a different input shape, which also folds in the current year — while the purge enumerates only `BaziReading` and calls `generateBirthDataHash`. So every 合盤 cache row survives, and those hold **both parties'** charts.
+- **ZWDS rows with a month, day, or question are missed.** `zwds.service.ts` keys with all nine hash arguments; the purge passes six. Reproduced: `ZWDS_QA` writes `b1a2ed54…` and the purge computes `1a3d8132…`. That row caches the answer to the user's own free-text question.
+
+Plain Bazi readings *are* purged correctly — the arguments match the write path exactly.
+
+**Redis holds birth-derived copies for up to 24h** after deletion and had no row in this register at all: `reading_cache:*`, `fortune:daily|monthly|yearly:{chartHash}:*`, and the merged `chat-context:*`. Time-bounded, so lower severity than the above, but 「永久刪除」 is stated without qualification.
 
 ## Open items
 

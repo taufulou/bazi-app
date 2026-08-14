@@ -13,6 +13,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { Webhook } from 'svix';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { UsersService } from '../users/users.service';
 import { Public } from '../auth/public.decorator';
 import { resolveSignupCredits } from '../common/signup-bonus';
 
@@ -44,6 +45,8 @@ export class ClerkWebhookController {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly configService: ConfigService,
+    // C1 — the `user.deleted` handler must erase PII, not just anonymize.
+    private readonly usersService: UsersService,
   ) {}
 
   @Public()
@@ -169,8 +172,25 @@ export class ClerkWebhookController {
 
   private async handleUserDeleted(data: ClerkUserEventData) {
     try {
-      // Soft-delete: anonymize user data but preserve financial records
-      // (subscriptions, transactions) for compliance and accounting
+      // C1 — this path used to anonymize and stop, which is the exact defect
+      // fixed in `UsersService.deleteAccount`: because no PII row was deleted,
+      // none of the `onDelete: Cascade` relations ever fired, and every birth
+      // profile, reading, comparison, chat message and fortune snapshot
+      // survived. It is reachable two ways — a user deleting their identity in
+      // Clerk's account portal, and an operator deleting them in the Dashboard
+      // — and, since `deleteAccount` itself deletes the Clerk user, this
+      // handler ALSO runs on every in-app deletion.
+      const user = await this.prisma.user.findUnique({
+        where: { clerkUserId: data.id },
+        select: { id: true },
+      });
+      if (user) {
+        await this.usersService.erasePersonalData(user.id);
+      }
+
+      // Anonymize what is retained: the financial record and the row it hangs
+      // off. Idempotent — when `deleteAccount` triggered this webhook it has
+      // already written the same values, and the `where` then matches nothing.
       await this.prisma.user.update({
         where: { clerkUserId: data.id },
         data: {
@@ -179,6 +199,7 @@ export class ClerkWebhookController {
           clerkUserId: `deleted_${data.id}_${Date.now()}`, // Free up the original clerkUserId
           credits: 0,
           subscriptionTier: 'FREE',
+          deviceFingerprint: null,
         },
       });
 
