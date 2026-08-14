@@ -14,7 +14,6 @@ import { IS_PUBLIC_KEY } from './public.decorator';
 export class ClerkAuthGuard implements CanActivate {
   private readonly logger = new Logger(ClerkAuthGuard.name);
   private readonly secretKey: string;
-  private readonly publishableKey: string;
   /** B5 — `azp` allowlist. Empty = the claim is not checked. */
   private readonly authorizedParties: string[];
 
@@ -23,9 +22,17 @@ export class ClerkAuthGuard implements CanActivate {
     private configService: ConfigService,
   ) {
     this.secretKey = this.configService.get<string>('CLERK_SECRET_KEY') || '';
-    this.publishableKey = this.configService.get<string>('CLERK_PUBLISHABLE_KEY') || '';
+    // (A `publishableKey` field used to be assigned here and read nowhere.
+    // Removed — a dead config read in an auth guard invites the assumption that
+    // something validates it.)
     this.authorizedParties = parseAuthorizedParties(
       this.configService.get<string>('CLERK_AUTHORIZED_PARTIES'),
+      (original, normalised) =>
+        this.logger.warn(
+          `CLERK_AUTHORIZED_PARTIES entry "${original}" was normalised to ` +
+            `"${normalised}" — Clerk matches the azp claim EXACTLY, so the ` +
+            `original would have matched nothing. Fix the env var.`,
+        ),
     );
 
     if (this.authorizedParties.length === 0) {
@@ -127,9 +134,23 @@ export class ClerkAuthGuard implements CanActivate {
       // hole open on the surface B1 built to read identity.
       const verified = await verifyToken(token, this.verifyOptions());
       request.auth = { userId: verified.sub, sessionId: verified.sid };
-    } catch {
-      // Anonymous. Deliberately not logged at warn — an expired token on a
-      // public route is ordinary, and logging it would be noise per request.
+    } catch (err: unknown) {
+      // Anonymous. An expired token on a public route is ORDINARY and must stay
+      // silent — logging it would be noise on every request.
+      //
+      // But one reason is not ordinary. A misconfigured allowlist doesn't 401
+      // here; it quietly drops every SUBSCRIBER to the free tier (this is the
+      // path that decides whether `explain-element` returns paid layers), and
+      // the web proxy swallows its own errors too — so the symptom would be
+      // "customers say the paid content vanished" with nothing in any log.
+      // Clerk tags this distinctly, so surface exactly it and nothing else.
+      if (isAuthorizedPartiesFailure(err)) {
+        this.logger.warn(
+          'A token was rejected for its azp claim on a PUBLIC route — the caller ' +
+            'was silently downgraded to anonymous. If this repeats, ' +
+            'CLERK_AUTHORIZED_PARTIES is probably wrong or incomplete.',
+        );
+      }
     }
   }
 
@@ -162,13 +183,55 @@ export class ClerkAuthGuard implements CanActivate {
 }
 
 /**
+ * Was this verification failure specifically an `azp` allowlist rejection?
+ *
+ * `@clerk/backend` tags it `token-invalid-authorized-parties` on the error's
+ * `reason` (`TokenVerificationErrorReason`). Matching the tag rather than the
+ * message text, which embeds the allowlist and will change wording.
+ */
+function isAuthorizedPartiesFailure(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { reason?: unknown }).reason === 'token-invalid-authorized-parties'
+  );
+}
+
+/**
  * Parse `CLERK_AUTHORIZED_PARTIES` — a comma-separated origin list.
  *
- * Exported for tests. Trims, drops empties, and de-duplicates so a stray comma
- * or trailing space in a Railway env var can't produce an `''` entry — which
- * would be a live allowlist member matching nothing, quietly, forever.
+ * NORMALISES, because the matcher does not. Clerk compares with
+ * `authorizedParties.includes(azp)` — exact and case-sensitive — against an
+ * origin it emits as lowercase scheme + host (+ port when non-default) with no
+ * trailing slash. So an operator who types `https://App.Example.com/` produces
+ * an entry that matches nothing, and since a non-empty allowlist IS enforced,
+ * the result is **every web session 401ing**, immediately, with no clue why.
+ *
+ * An earlier version guarded only the harmless case (a stray `''` from a
+ * trailing comma, which is inert as long as some real entry matches) and left
+ * the harmful one to a sentence in a doc. Prose is not a control. Scheme and
+ * host are case-insensitive per the URL spec and an origin never carries a
+ * trailing slash, so lowercasing and stripping `/` is safe, not lossy.
+ *
+ * `onNormalise` reports entries we had to rewrite, so a malformed env var is
+ * announced at boot instead of silently tolerated.
+ *
+ * Exported for tests.
  */
-export function parseAuthorizedParties(raw: string | undefined): string[] {
+export function parseAuthorizedParties(
+  raw: string | undefined,
+  onNormalise?: (original: string, normalised: string) => void,
+): string[] {
   if (!raw) return [];
-  return [...new Set(raw.split(',').map((s) => s.trim()).filter(Boolean))];
+  const out = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const normalised = entry.replace(/\/+$/, '').toLowerCase();
+      if (normalised !== entry) onNormalise?.(entry, normalised);
+      return normalised;
+    })
+    .filter(Boolean); // a bare "/" normalises to '' — drop it
+  return [...new Set(out)];
 }
