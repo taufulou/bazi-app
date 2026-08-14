@@ -2,6 +2,7 @@
  * Tests for PaymentsController — REST endpoint routing and DTO validation.
  */
 import { PaymentsController } from '../src/payments/payments.controller';
+import { HttpException, HttpStatus } from '@nestjs/common';
 
 // ============================================================
 // Mock Services
@@ -323,8 +324,15 @@ describe('PaymentsController', () => {
       );
     });
 
-    it('surfaces the 402 rather than swallowing it into a success', async () => {
-      const err = Object.assign(new Error('payment required'), { status: 402 });
+    it('propagates the service error unchanged, preserving status and code', async () => {
+      // Named for what it checks. It caught two real regression shapes under
+      // mutation — a catch that returned `{success: false}`, and one that
+      // rethrew a generic Error — but the earlier `.rejects.toBe(err)` pinned
+      // only object identity and never read the 402 it claimed to be about.
+      const err = new HttpException(
+        { code: 'UPGRADE_PAYMENT_REQUIRED', message: '付款尚未完成' },
+        HttpStatus.PAYMENT_REQUIRED,
+      );
       mockStripeService.upgradeSubscription.mockRejectedValue(err);
 
       await expect(
@@ -332,7 +340,10 @@ describe('PaymentsController', () => {
           planSlug: 'pro',
           billingCycle: 'monthly',
         } as any),
-      ).rejects.toBe(err);
+      ).rejects.toMatchObject({
+        status: HttpStatus.PAYMENT_REQUIRED,
+        response: { code: 'UPGRADE_PAYMENT_REQUIRED' },
+      });
     });
   });
 

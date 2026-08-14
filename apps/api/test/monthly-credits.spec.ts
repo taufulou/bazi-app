@@ -481,6 +481,118 @@ describe('Monthly Credits', () => {
       });
     });
 
+    // ============================================================
+    // ANTI-REMEDY EVIDENCE (F9)
+    //
+    // `upgradeSubscription` deliberately keeps `proration_behavior:
+    // 'create_prorations'` and carries a comment forbidding `always_invoice`,
+    // on the grounds that an immediate proration invoice would mint a full
+    // month of credits per upgrade. That was an ASSERTION about our own code;
+    // these two tests make it evidence.
+    //
+    // What is NOT proven here — and cannot be, from this repo — is the
+    // Stripe-side premise that a proration line's `period.start` is the moment
+    // of the change rather than the cycle start. These tests take invoices of
+    // that shape as GIVEN and pin what we then do with them.
+    // ============================================================
+
+    it('anti-remedy evidence: a proration-shaped invoice grants a FULL month, unprorated', async () => {
+      // A mid-cycle upgrade on 2026-01-15, i.e. period.start is the change
+      // moment — NOT the 2026-01-01 cycle start the renewal was keyed on.
+      const midCycle = new Date('2026-01-15T10:30:00.000Z');
+      const invoice = {
+        id: 'in_proration_upgrade',
+        amount_paid: 500, // a few dollars of proration
+        currency: 'usd',
+        lines: {
+          data: [{
+            description: 'Remaining time on Pro after 15 Jan 2026',
+            period: {
+              start: Math.floor(midCycle.getTime() / 1000),
+              end: Math.floor(PERIOD_END.getTime() / 1000),
+            },
+          }],
+        },
+        parent: { subscription_details: { subscription: 'sub_stripe_123' } },
+      } as any;
+
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
+        status: 'ACTIVE',
+      });
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'PRO', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
+      mockPrisma.transaction.create.mockResolvedValue({});
+      mockPrisma.plan.findFirst.mockResolvedValue(MOCK_PRO_PLAN);
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
+
+      await stripeService.handleInvoicePaid(invoice);
+
+      // A $5 proration buys a WHOLE month of credits — no proration of the
+      // grant, and no `billing_reason` filter to notice this isn't a renewal.
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-123',
+          creditAmount: 15,
+          // Keyed to the CHANGE MOMENT, which is what defeats the idempotency
+          // key — @@unique([userId, periodStart]) is a full DateTime.
+          periodStart: midCycle,
+        }),
+      });
+    });
+
+    it('anti-remedy evidence: two proration invoices in ONE cycle grant twice', async () => {
+      // The loop the comment warns about: upgrade, downgrade, upgrade. Each
+      // change stamps a distinct timestamp, so nothing dedups them.
+      const sub = {
+        id: 'sub-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
+        status: 'ACTIVE',
+      };
+      mockPrisma.subscription.findFirst.mockResolvedValue(sub);
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'PRO', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
+      mockPrisma.transaction.create.mockResolvedValue({});
+      mockPrisma.plan.findFirst.mockResolvedValue(MOCK_PRO_PLAN);
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
+
+      const prorationInvoice = (id: string, at: string) => ({
+        id,
+        amount_paid: 500,
+        currency: 'usd',
+        lines: {
+          data: [{
+            description: 'proration',
+            period: {
+              start: Math.floor(new Date(at).getTime() / 1000),
+              end: Math.floor(PERIOD_END.getTime() / 1000),
+            },
+          }],
+        },
+        parent: { subscription_details: { subscription: 'sub_stripe_123' } },
+      }) as any;
+
+      await stripeService.handleInvoicePaid(prorationInvoice('in_p1', '2026-01-15T10:00:00.000Z'));
+      await stripeService.handleInvoicePaid(prorationInvoice('in_p2', '2026-01-15T10:05:00.000Z'));
+
+      // 30 credits inside one billing period, for ~$10 of prorations that a
+      // matching downgrade would largely refund.
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledTimes(2);
+      const stamps = mockTxMonthlyCreditsLog.create.mock.calls.map(
+        ([arg]: [{ data: { periodStart: Date } }]) => arg.data.periodStart.toISOString(),
+      );
+      expect(new Set(stamps).size).toBe(2); // distinct keys ⇒ no dedup
+    });
+
     it('should skip monthly credits when no line items in invoice', async () => {
       const invoice = {
         id: 'in_no_lines',

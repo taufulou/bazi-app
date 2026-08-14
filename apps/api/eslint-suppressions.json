@@ -247,7 +247,7 @@
   },
   "test/monthly-credits.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 13
+      "count": 15
     }
   },
   "test/payments-controller.spec.ts": {
@@ -291,7 +291,7 @@
   },
   "test/stripe-service.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 33
+      "count": 34
     }
   },
   "test/subscription-upgrade.spec.ts": {

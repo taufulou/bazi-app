@@ -6,6 +6,12 @@ import { redirectToSignInOnExpiry } from './auth-redirect';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
+/** An `Error` carrying the API's machine-readable discriminator alongside its prose. */
+export interface ApiError extends Error {
+  code?: string;
+  status?: number;
+}
+
 /**
  * Fetch wrapper that adds auth token and handles errors.
  */
@@ -38,9 +44,17 @@ export async function apiFetch<T>(
       redirectToSignInOnExpiry();
     }
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(
+    const err = new Error(
       errorBody.message || `API error: ${response.status} ${response.statusText}`,
-    );
+    ) as ApiError;
+    // Carry the discriminator, not just the prose. The API returns machine-readable
+    // codes (`UPGRADE_PAYMENT_REQUIRED`, `NEEDS_EXTENSION`, …) and `AllExceptionsFilter`
+    // puts them on the wire, but this wrapper used to drop everything except
+    // `message` — so callers could render the error and never branch on it.
+    // Additive: nothing reads these today, and `err.message` is unchanged.
+    if (typeof errorBody.code === 'string') err.code = errorBody.code;
+    err.status = response.status;
+    throw err;
   }
 
   return response.json();
