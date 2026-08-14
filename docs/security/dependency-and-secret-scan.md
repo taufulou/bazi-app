@@ -11,15 +11,15 @@ Run 2026-08-14. Scope: full git history (399 commits, all branches) + `npm audit
 | Match | Where | Verdict |
 |---|---|---|
 | `whsec_…` | `apps/api/test/webhook-hardening.spec.ts:26` | `rc_whsec_0123456789abcdef0123456789abcdef` — a sequential test fixture |
-| `postgres://…:…@` | `.env.example:7` | `bazi_user:bazi_dev_password@localhost` — the documented local-dev placeholder |
+| `postgres://…:…@` | `.env.example:7` | ⚠️ **NOT a placeholder — see the correction below.** Byte-identical to the real `apps/api/.env`, and it authenticates against the running local Postgres |
 
 Also verified:
 
 - **No `.env`, `.pem`, `.key`, `.p12`, `.keystore` or credential file was ever added**, on any branch, at any point in history (`--diff-filter=A` over `--all`).
 - **No JWTs** in any added line.
-- `.gitignore` covers env files at the root and in all three apps.
+- `.gitignore` now covers **every** `.env*` variant at the root and in all three apps. It previously listed literal filenames (`.env`, `.env.local`) at the root, `apps/api` and `apps/mobile` — so **`.env.production` and `.env.staging` were NOT ignored**, which is the variant most likely to hold live credentials. Only `apps/web` had the glob. Fixed; verified with `git check-ignore`.
 
-Nothing to rotate.
+**One thing to rotate** — see the correction below. Everything else is clean.
 
 ### ⚠️ What this scan is NOT
 
@@ -37,7 +37,7 @@ brew install gitleaks && gitleaks detect --source . --log-opts="--all" --redact
 
 ## D2 — dependencies
 
-**`npm audit`: 0 critical, 32 high, 19 moderate.** The plan's gate is "zero unaddressed criticals" — **met**. The highs need triage rather than a blanket fix, because most cannot reach production.
+**`npm audit`: 0 critical, 72 high, 18 moderate** (re-verified 2026-08-14; an earlier run in this same session reported 32 high — the advisory DB is fetched live, so any count here is a dated snapshot, not a property of the lockfile). The plan's gate is "zero unaddressed criticals" — **met**. The highs need triage rather than a blanket fix, because most cannot reach production.
 
 ### ⚠️ `npm audit fix` MUST NOT be run from a worktree
 
@@ -47,24 +47,28 @@ brew install gitleaks && gitleaks detect --source . --log-opts="--all" --redact
 
 | Package | Issue | Reaches prod? | Action |
 |---|---|---|---|
-| `next` | HTTP request smuggling **in rewrites** | Web server — but **no rewrites are configured** (`next.config.js` has none), so the specific vector is unconfigured. Still the prod server. | **Upgrade to 16.3.1.** Carries `sharp` + `postcss` with it. |
+| `next` | **12 HIGH advisories**, incl. App-Router segment-prefetch **middleware bypass** (GHSA-26hh, GHSA-267c) and dynamic-route param injection (GHSA-492v) | **Yes, and it lands on the auth control.** `middleware.ts` `auth.protect()` IS the signed-out lockdown, this app is App-Router-only, and dynamic segments are present | **URGENT — upgrade to 16.3.1.** Carries `sharp` + `postcss` with it |
 | `sharp` | 4 libvips CVEs | Yes — Next image optimization | Rides the `next` upgrade |
 | `postcss` | XSS via unescaped `</style>` in stringify | Build-time CSS processing, not a runtime path | Rides the `next` upgrade |
 | `@nestjs/swagger` | (advisory) | **No** — `SwaggerModule.setup` is inside `if (NODE_ENV !== 'production')` (`main.ts:79`). The module is imported but never mounted in prod. | Upgrade at convenience |
-| `fast-uri` | Host confusion via literal backslash authority delimiter | Yes — pulled by `ajv`, used in validation | Upgrade |
+| `fast-uri` | Host confusion via literal backslash authority delimiter | **No** — chain is `@nestjs/cli → @angular-devkit → ajv`, a build tool. NestJS's runtime `ValidationPipe` uses class-validator | Dev-only |
 | `nanoid` | Non-secure generator loops on negative size | Transitive; no call site passes a negative size | Upgrade |
-| `js-yaml` | Quadratic CPU on `!!omap` | Dev/coverage (`@istanbuljs`) | Dev-only |
-| `brace-expansion` | DoS via unbounded expansion | All nodes are `@expo/*` — mobile build tooling | Dev-only |
+| `js-yaml` | Quadratic CPU on `!!omap` | **Prod dep** via `@nestjs/swagger` (loads at module scope regardless of the Swagger guard), plus dev/coverage. Usage is dump-only, which is what actually saves it — not the guard | Upgrade |
+| `brace-expansion` | DoS via unbounded expansion | Build tooling — 5 of 10 nodes are `@expo/*`, the rest `@nestjs/cli`, Sentry bundler, typescript-eslint, glob | Dev-only |
 | `image-size` | ICNS parser infinite loop | Expo tooling | Dev-only |
-| `@clerk/clerk-expo` | **Authorization bypass** combining organization / billing / reverification checks | Mobile, **not shipped yet**. This app uses no Clerk organizations, billing or reverification, so the specific combination is not exercised. | **Must be fixed before mobile ships** — it is an auth bypass in the auth library, and "we don't use that feature" is a weaker guarantee than an upgrade |
+| `@clerk/clerk-expo` | **Authorization bypass** combining organization / billing / reverification checks | Mobile, **not shipped yet**. This app uses no Clerk organizations, billing or reverification, so the specific combination is not exercised | **Must be fixed before mobile ships.** ⚠️ The advisory range is ≤2.19.35 and the manifest pin `^2.19.31` is **also in range** — bumping to the pin does not fix it |
 
-The remaining ~20 highs are all `react-native` / `expo` / `metro` / `@solana-mobile` transitives — mobile build tooling, not shipped code.
+The remaining ~64 highs trace to `metro → image-size` and propagate outward by severity. The flagged list therefore *includes shipped runtime libraries* (`react-native`, `react-native-purchases`, async-storage, Sentry) that carry no advisory of their own — the conclusion (build tooling) holds, but the package names are misleading. `@solana-mobile` arrives via Clerk Web3, not React Native.
 
 **Recommended, in the main checkout:**
 
 ```bash
 npm audit fix
 ```
+
+⚠️ **This will NOT clear the ~64-package cluster**: `image-size`'s fix is `expo@53`, a semver-major that plain `audit fix` skips by design. Expect the count to barely move.
+
+⚠️ **The installed tree is not the manifest tree.** `react-native` 0.76.9 is installed against a `0.86.0` pin; `expo` 52.0.49 against `^57.0.4`. Every number above describes a tree `npm ci` would not reproduce — re-audit after a clean install.
 
 Then re-run the full suite. `next` 16.3.1 is a patch bump within 16.x, but it moves `sharp` and `postcss` too, so the web build wants a real check. `npm audit fix --force` is **not** recommended — it would take the Expo/RN tree through major bumps that the mobile app is not ready for.
 
@@ -80,9 +84,20 @@ Note the engine pins with `>=` rather than `==` (`requirements.txt`), so the dep
 
 ---
 
+## Corrections from the line audit
+
+This report's *conclusion* survived independent re-verification; its bookkeeping did not. Recorded rather than silently edited.
+
+- **`.env.example:7` was not a placeholder.** It was byte-identical to the real `apps/api/.env` and authenticated against the running local Postgres — a real credential, published in a committed file. Localhost-only, so low severity, but that database holds real birth-profile PII per this project's own data register, and "nothing to rotate" was therefore wrong. Now an obvious `CHANGE_ME`. **Owner action: rotate the local Postgres password**, since the old one is in git history permanently.
+- **The high count was wrong** — 32 reported, 72 actual. Two runs of the same command an hour apart disagreed, because `npm audit` fetches advisories live. A count is only meaningful with a date attached.
+- **The `next` row inverted the risk.** It argued away one *moderate* (rewrites smuggling) while `next@16.1.5` carries 12 HIGH advisories, three of which are App-Router **middleware bypasses** — landing squarely on the `auth.protect()` call that enforces the signed-out lockdown shipped earlier in Phase 1. Re-rated urgent.
+- **The scan printed 2 matches but found 4.** `.github/workflows/ci.yml` (a Postgres URL) and `stripe.service.ts:78` (`sk_test_placeholder`) also matched the declared patterns and went unmentioned. Both benign — no conclusion changes — but the report should say what the scan actually returned.
+- Several reachability calls were wrong in detail: `fast-uri` is a build tool (not runtime validation), `js-yaml` IS a prod dep via `@nestjs/swagger` (what saves it is dump-only usage, not the `NODE_ENV` guard), and `brace-expansion` is only half `@expo/*`.
+- **Four structural gaps in the scan method**, all independently re-scanned and all empty: dangling objects (28 commits), a reflog-only commit invisible to both `log --all` and `fsck`, merge commits (`-p` emits nothing for them — needs `--cc`), and 57 binary blobs a line regex cannot see.
+
 ## Status against the plan's acceptance
 
 | Item | Acceptance | Result |
 |---|---|---|
-| D1 gitleaks full history; rotate hits | Report | **Partial** — pattern scan clean, nothing to rotate; entropy scan still owed (gitleaks not installed) |
+| D1 gitleaks full history; rotate hits | Report | **Partial** — no third-party credential in history; ONE local credential found and placeholder'd (rotation is the owner's, below); entropy scan still owed (gitleaks not installed) |
 | D2 npm audit + pip-audit; fix criticals/highs | Zero unaddressed criticals | **npm: met** (0 critical; highs triaged, fixes deferred to the main checkout because a worktree install corrupts main). **pip-audit: NOT RUN** |
