@@ -1,4 +1,5 @@
 import {
+  HttpException,
   Injectable,
   Logger,
   OnModuleInit,
@@ -9,8 +10,8 @@ import { Observable, Subscriber } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CreditsService } from '../credits/credits.service';
-import { AiSpendService } from './ai-spend.service';
-import { AiGovernorService } from './ai-governor.service';
+import { AiSpendService, AI_SPEND_CAP_CODE } from './ai-spend.service';
+import { AiGovernorService, AI_BUSY_CODE } from './ai-governor.service';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
 import {
   READING_PROMPTS,
@@ -790,20 +791,32 @@ export class AIService implements OnModuleInit {
     // the right trade for a control whose failure mode is silent overspend.
     await this.aiSpend.assertUnderCap(`provider:${config.provider}`);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    // S1 — hold a `reading` slot for the duration of the upstream call. This is
+    // what bounds S2's blind window: the spend counter only moves when a call
+    // FINISHES, so without a concurrency limit the overshoot between check and
+    // record is unbounded. With it, worst case is pool x cost.
+    return this.aiGovernor.run('reading', `provider:${config.provider}`, async () => {
+      // ⚠️ The timeout is armed AFTER the slot is held, not before. Arming it
+      // first charged up to 15s of queueing against the provider's own budget —
+      // a silent 25% cut at the 60s default, and with any timeout <= the queue
+      // wait the signal was already aborted before the call began. That surfaces
+      // as an AbortError, which is NOT retryable, so saturation was reported as
+      // a timed-out/degraded reading instead of an honest AI_BUSY.
+      //
+      // Re-check the cap too: the verdict taken before queueing can be up to 15s
+      // stale, and the queue only fills when 25 calls are in flight — i.e. the
+      // ones whose `record()` is about to trip it. "Cap trips while you wait" is
+      // the expected case at saturation, not a corner.
+      await this.aiSpend.assertUnderCap(`provider:${config.provider}`);
 
-    try {
-      // S1 — hold a `reading` slot for the duration of the upstream call. This
-      // is what bounds S2's blind window: the spend counter only moves when a
-      // call FINISHES, so without a concurrency limit the overshoot between
-      // check and record is unbounded. With it, worst case is pool x cost.
-      return await this.aiGovernor.run('reading', `provider:${config.provider}`, () =>
-        this.callProvider(config, systemPrompt, userPrompt, controller.signal),
-      );
-    } finally {
-      clearTimeout(timeoutId);
-    }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await this.callProvider(config, systemPrompt, userPrompt, controller.signal);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    });
   }
 
   // ============================================================
@@ -816,6 +829,25 @@ export class AIService implements OnModuleInit {
    */
   isRetryableError(err: unknown): boolean {
     if (!(err instanceof Error)) return false;
+
+    // ⚠️ OUR OWN refusals are never retryable, and they LOOK retryable.
+    // NestJS `HttpException` exposes `status` as an own numeric property, so the
+    // S1 `AI_BUSY` and S2 `AI_SPEND_CAP` 503s both fell into the `>= 500` arm
+    // below. That inverted both controls:
+    //   - AI_BUSY: a caller refused after 15s of queueing was immediately
+    //     retried into the same saturated pool, then failed over to GPT and
+    //     Gemini and queued again — up to 6 x 15s of queue occupancy for ONE
+    //     request, applying retry pressure exactly when the pool is full.
+    //   - AI_SPEND_CAP: ~6 retries per request, each logging an error and
+    //     firing `ai.spend.cap_tripped`, so a budget incident multiplies paging
+    //     volume sixfold while spending nothing.
+    // Retrying is for the PROVIDER being unavailable. When we are the one
+    // saying no, the answer will not change within a request.
+    if (err instanceof HttpException) {
+      const body = err.getResponse() as { code?: string } | string;
+      const code = typeof body === 'object' ? body?.code : undefined;
+      if (code === AI_BUSY_CODE || code === AI_SPEND_CAP_CODE) return false;
+    }
 
     // Prefer SDK's typed status
     const statusFromError = (err as any).status as number | undefined;
@@ -5673,7 +5705,25 @@ export class AIService implements OnModuleInit {
     const usage = usageOut ?? { inputTokens: 0, outputTokens: 0 };
     // S1 — the slot is held until the LAST token, not until first byte:
     // releasing early would let N slots admit far more than N upstream calls.
-    const releaseSlot = await this.aiGovernor.acquire('reading', `stream:${config.provider}`);
+    // Delegated to `runGenerator` rather than hand-rolling acquire/finally: the
+    // hand-rolled version meant the governor's own release-on-abandon tests
+    // covered a method production never called. Same behaviour, one owner.
+    yield* this.aiGovernor.runGenerator('reading', `stream:${config.provider}`, () =>
+      this._streamProviderInner(config, systemPrompt, userPrompt, signal, usage),
+    );
+  }
+
+  /**
+   * The provider dispatch itself, split out so the slot (S1) wraps it in one
+   * place while the spend record (S2) stays attached to the usage it measures.
+   */
+  private async *_streamProviderInner(
+    config: ProviderConfig,
+    systemPrompt: string,
+    userPrompt: string,
+    signal: AbortSignal | undefined,
+    usage: { inputTokens: number; outputTokens: number },
+  ): AsyncGenerator<string> {
     try {
       switch (config.provider) {
         case AIProvider.CLAUDE:
@@ -5695,7 +5745,6 @@ export class AIService implements OnModuleInit {
       // completion would systematically under-count exactly the disconnect case
       // mobile produces most. Whatever the adapter managed to populate is
       // recorded; a genuine {0,0} costs nothing and is skipped by `record`.
-      releaseSlot();
       void this.aiSpend.record({
         provider: config.provider,
         model: config.model,

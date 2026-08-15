@@ -90,8 +90,13 @@ describe('S2 chokepoint — callProviderWithTimeout (every non-streaming call)',
     expect(callProvider).not.toHaveBeenCalled();
   });
 
-  it('consults the breaker on the happy path too', async () => {
-    // Guards against the check being moved somewhere only the failing path hits.
+  it('consults the breaker on the happy path, BEFORE and AFTER the queue', async () => {
+    // Twice, deliberately. The pre-queue check avoids occupying a slot with a
+    // call we already know we will refuse. The post-queue check exists because
+    // the first verdict can be up to 15s stale by the time a slot frees — and
+    // the queue only fills when the pool is saturated, i.e. exactly when the
+    // in-flight calls are about to trip the cap. Dropping either one re-opens a
+    // window S1 was introduced to shrink.
     const spend = makeSpendStub();
     const service = makeService(spend) as unknown as Chokepoints;
     (service as unknown as { callProvider: unknown }).callProvider = jest
@@ -100,7 +105,7 @@ describe('S2 chokepoint — callProviderWithTimeout (every non-streaming call)',
 
     await service.callProviderWithTimeout(CLAUDE_CONFIG, 'sys', 'user', 1000);
 
-    expect(spend.assertUnderCap).toHaveBeenCalledTimes(1);
+    expect(spend.assertUnderCap).toHaveBeenCalledTimes(2);
   });
 });
 

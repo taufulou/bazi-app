@@ -95,6 +95,56 @@ describe('S1 — admission', () => {
   });
 });
 
+describe('S1 — the limit is never exceeded', () => {
+  it('a barging caller cannot push inFlight above the limit', async () => {
+    // ⚠️ The defect this pins. `release()` decrements and THEN resolves a
+    // waiter, and that resolution is a microtask — so a caller whose
+    // continuation was already queued can take the freed slot SYNCHRONOUSLY,
+    // and the woken waiter (with `if` instead of `while`) then increments
+    // anyway. Demonstrated at limit=1 reaching inFlight=2, and every
+    // simultaneous release can over-admit again, degrading the ceiling toward
+    // 2x — which makes the control's own arithmetic ("25 x $0.30 < $8") wrong.
+    const g = make({ AI_MAX_CONCURRENT_READING: '1' });
+    const holder = await g.acquire('reading');
+
+    const waiter = g.acquire('reading'); // queued behind the holder
+    await Promise.resolve();
+    expect(g.snapshot().reading.queued).toBe(1);
+
+    // Release and barge in the same tick — the barger's acquire runs before
+    // the woken waiter's continuation.
+    holder();
+    const barger = await g.acquire('reading');
+
+    expect(g.snapshot().reading.inFlight).toBeLessThanOrEqual(1);
+
+    barger();
+    (await waiter)();
+    expect(g.snapshot().reading.inFlight).toBe(0);
+  });
+
+  it('never exceeds the limit across a burst', async () => {
+    const limit = 3;
+    const g = make({ AI_MAX_CONCURRENT_READING: String(limit) });
+    const seen: number[] = [];
+    const gate = deferred();
+
+    const jobs = Array.from({ length: 12 }, () =>
+      g.run('reading', 'burst', async () => {
+        seen.push(g.snapshot().reading.inFlight);
+        await gate.promise;
+      }),
+    );
+    await Promise.resolve();
+    gate.resolve();
+    await Promise.all(jobs);
+
+    // Sampled at every admission — the assertion the pool exists to make.
+    expect(Math.max(...seen)).toBeLessThanOrEqual(limit);
+    expect(g.snapshot().reading.inFlight).toBe(0);
+  });
+});
+
 describe('S1 — refusal', () => {
   jest.setTimeout(10_000);
 

@@ -1,6 +1,11 @@
 import { HttpException, ServiceUnavailableException } from '@nestjs/common';
 import { AI_SPEND_CAP_CODE } from '../src/ai/ai-spend.service';
 import { isSpendCapError } from '../src/fortune/fortune-snapshot.helpers';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+const readSource = (rel: string) => readFileSync(join(__dirname, '..', rel), 'utf8');
+const countOf = (src: string, re: RegExp) => (src.match(re) || []).length;
 
 /**
  * S2 follow-up — how a spend cap DEGRADES, as opposed to whether it fires.
@@ -44,6 +49,50 @@ describe('isSpendCapError — the predicate both fixes hang off', () => {
     expect(isSpendCapError(new Error('socket hang up'))).toBe(false);
     expect(isSpendCapError(undefined)).toBe(false);
     expect(isSpendCapError({ code: AI_SPEND_CAP_CODE })).toBe(false); // not an HttpException
+  });
+});
+
+describe('the guards, against the REAL services', () => {
+  // ⚠️ The first version of this file re-implemented both branches locally and
+  // asserted against its own copy — so all SEVEN production guards (3 fortune
+  // sync, 3 fortune stream, 1 chat stream) could be deleted with the suite
+  // green. The audit demonstrated every one. These read the shipped source:
+  // the guards live inside deep private catch blocks that cannot be driven
+  // without booting the whole generation stack, and a COUNT is what a partial
+  // deletion — the realistic mistake — actually changes.
+
+  it('all three fortune sync paths guard the cap', () => {
+    const src = readSource('src/fortune/fortune.service.ts');
+    expect(countOf(src, /isSpendCapError\(err\)/g)).toBe(3); // day, month, year
+  });
+
+  it('all three fortune stream paths guard the cap', () => {
+    const src = readSource('src/fortune/fortune-stream.service.ts');
+    expect(countOf(src, /isSpendCapError\(err\)/g)).toBe(3);
+  });
+
+  it('the fortune sync guard RETHROWS rather than persisting a failure', () => {
+    // Persisting is what armed the 24h breaker and blanked the day.
+    const src = readSource('src/fortune/fortune.service.ts');
+    expect(src).toMatch(/if \(isSpendCapError\(err\)\) throw err;/);
+  });
+
+  it('the fortune stream guard returns BEFORE _persistAIFailure', () => {
+    const src = readSource('src/fortune/fortune-stream.service.ts');
+    const guard = src.indexOf('isSpendCapError(err)');
+    const persist = src.indexOf('_persistAIFailure', guard);
+    expect(guard).toBeGreaterThan(-1);
+    expect(persist).toBeGreaterThan(guard);
+  });
+
+  it('chat-stream branches on HttpException before reaching _refundOnError', () => {
+    // `_refundOnError` hard-codes AI_CALL_FAILED; reaching it with a typed
+    // refusal is the bug, so the branch has to come first.
+    const src = readSource('src/chat/chat-stream.service.ts');
+    const guard = src.lastIndexOf('if (err instanceof HttpException)');
+    const refund = src.indexOf('_refundOnError(response, sessionId, userId, userMessageId, reason)');
+    expect(guard).toBeGreaterThan(-1);
+    expect(refund).toBeGreaterThan(guard);
   });
 });
 

@@ -126,7 +126,15 @@ export class AiGovernorService {
       return () => undefined;
     }
 
-    if (state.inFlight >= limit) {
+    // ⚠️ `while`, not `if`. Release decrements and THEN resolves a waiter, and
+    // that resolution is a microtask — so any caller whose continuation was
+    // already queued can barge in, take the freed slot synchronously, and the
+    // woken waiter then increments anyway. Demonstrated at limit=1 reaching
+    // inFlight=2, and each simultaneous release can over-admit again, so the
+    // ceiling degrades toward 2x. Re-checking on wake also makes a runtime
+    // limit REDUCTION shed load instead of pinning inFlight at the old
+    // high-water mark for as long as the queue is non-empty.
+    while (state.inFlight >= this.limitFor(pool)) {
       await this.waitForSlot(pool, state, limit, context);
     }
 

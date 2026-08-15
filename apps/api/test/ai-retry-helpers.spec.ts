@@ -5,6 +5,7 @@
  * - summarizeError: user-safe messages
  * - callProviderWithRetry: retry loop semantics, time budget, fallback
  */
+import { ServiceUnavailableException } from '@nestjs/common';
 import { AIService } from '../src/ai/ai.service';
 
 const mockConfigService = { get: jest.fn().mockReturnValue(undefined) };
@@ -83,6 +84,35 @@ describe('AIService retry helpers', () => {
 
     it('does NOT retry on plain Errors with no status', () => {
       expect(svc.isRetryableError(new Error('some generic error'))).toBe(false);
+    });
+
+    // ⚠️ OUR OWN refusals must never be retried, and they look retryable:
+    // NestJS `HttpException` exposes `status` as an own numeric 503, which lands
+    // in the `>= 500` arm. Unfixed, an AI_BUSY refusal was retried straight back
+    // into the saturated pool (up to 6 x 15s of queue occupancy for one
+    // request), and a spend cap fired ~6 error-level Sentry alerts per request
+    // during a budget incident while spending nothing.
+    it('does NOT retry our own AI_BUSY refusal', () => {
+      const err = new ServiceUnavailableException({ code: 'AI_BUSY', message: 'busy' });
+      expect((err as unknown as { status: number }).status).toBe(503); // the trap
+      expect(svc.isRetryableError(err)).toBe(false);
+    });
+
+    it('does NOT retry our own AI_SPEND_CAP refusal', () => {
+      const err = new ServiceUnavailableException({ code: 'AI_SPEND_CAP', message: 'capped' });
+      expect(svc.isRetryableError(err)).toBe(false);
+    });
+
+    it('STILL retries a genuine upstream 503', () => {
+      // The exemption must be narrow: a provider 503 is exactly what retry is
+      // for, and widening this to "all HttpException" would disable failover.
+      const err = Object.assign(new Error('upstream unavailable'), { status: 503 });
+      expect(svc.isRetryableError(err)).toBe(true);
+    });
+
+    it('STILL retries other HttpExceptions', () => {
+      const err = new ServiceUnavailableException({ code: 'SOMETHING_ELSE' });
+      expect(svc.isRetryableError(err)).toBe(true);
     });
 
     it('does NOT retry on non-Error values', () => {
