@@ -9,7 +9,7 @@ services:
     environment:
       POSTGRES_DB: bazi_platform
       POSTGRES_USER: bazi_user
-      POSTGRES_PASSWORD: bazi_dev_password
+      POSTGRES_PASSWORD: r5ulJmP48VjsHYSiRNubHAdu6C5H
     ports:
       - "5432:5432"
     volumes:
