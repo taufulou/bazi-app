@@ -38,6 +38,7 @@ import {
 } from '@prisma/client';
 import { assertFortuneWindow, FORTUNE_WINDOWS } from './fortune-window';
 import { PrismaService } from '../prisma/prisma.service';
+import { engineFetch } from '../common/engine-client';
 import { RedisService } from '../redis/redis.service';
 import {
   FORTUNE_PRE_ANALYSIS_VERSIONS,
@@ -347,8 +348,9 @@ export class FortuneSnapshotHelpers {
 
     let response: Response;
     try {
-      response = await fetch(`${this.baziEngineUrl}/daily-fortune`, {
+      response = await engineFetch(`${this.baziEngineUrl}/daily-fortune`, {
         method: 'POST',
+        caller: 'fortune.daily',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           birth_date: birthDateIso,
@@ -839,8 +841,9 @@ export class FortuneSnapshotHelpers {
 
     let response: Response;
     try {
-      response = await fetch(`${this.baziEngineUrl}/monthly-fortune`, {
+      response = await engineFetch(`${this.baziEngineUrl}/monthly-fortune`, {
         method: 'POST',
+        caller: 'fortune.monthly',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           birth_date: birthDateIso,
@@ -1152,8 +1155,9 @@ export class FortuneSnapshotHelpers {
 
     let response: Response;
     try {
-      response = await fetch(`${this.baziEngineUrl}/yearly-fortune`, {
+      response = await engineFetch(`${this.baziEngineUrl}/yearly-fortune`, {
         method: 'POST',
+        caller: 'fortune.yearly',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           birth_date: birthDateIso,

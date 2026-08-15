@@ -45,6 +45,12 @@ import { BannerModule } from './banner/banner.module';
         RC_WEBHOOK_SECRET: Joi.string().allow('').optional().default(''),
         RC_API_KEY: Joi.string().allow('').optional().default(''),
         BAZI_ENGINE_URL: Joi.string().default('http://localhost:5001'),
+        // B3-a — the shared secret this API presents to the Python engine.
+        // Optional on purpose: the engine ships in OBSERVE mode and rejects
+        // nobody, so requiring it here would break every local dev boot to
+        // enforce a control that is not yet enforcing. `engine-client.ts` warns
+        // once when it is unset. It becomes load-bearing at the B3-b flip.
+        ENGINE_KEY: Joi.string().allow('').optional().default(''),
         // Cloudflare R2 (banner image uploads) — optional so the app boots
         // without R2; the admin /upload endpoint fails loudly when unset.
         R2_ACCOUNT_ID: Joi.string().allow('').optional().default(''),

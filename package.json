@@ -10,6 +10,7 @@
     "dev:all": "bash scripts/dev-all.sh",
     "dev:status": "bash scripts/dev-status.sh",
     "lint": "turbo run lint",
+    "guard:engine-callers": "node scripts/check-engine-callers.mjs",
     "check-types": "turbo run check-types",
     "test": "turbo run test",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",

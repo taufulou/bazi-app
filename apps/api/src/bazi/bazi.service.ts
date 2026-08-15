@@ -17,6 +17,7 @@ import { CreditsService } from '../credits/credits.service';
 import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto';
 import { Prisma, ReadingType } from '@prisma/client';
 import { deepCamelCase } from '../common/deep-camel-case';
+import { engineFetch } from '../common/engine-client';
 
 /**
  * Used only when the COMPATIBILITY service row is missing or has been
@@ -2022,8 +2023,9 @@ export class BaziService {
     profile: { birthDate: Date; birthTime: string | null; hourKnown: boolean; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
     dto: CreateReadingDto,
   ): Promise<Prisma.InputJsonValue> {
-    const response = await fetch(`${this.baziEngineUrl}/calculate`, {
+    const response = await engineFetch(`${this.baziEngineUrl}/calculate`, {
       method: 'POST',
+      caller: 'bazi.reading',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         birth_date: profile.birthDate.toISOString().split('T')[0],
@@ -2105,8 +2107,9 @@ export class BaziService {
   private async enginePassthrough(path: string, body: Record<string, unknown>): Promise<unknown> {
     let response: Response;
     try {
-      response = await fetch(`${this.baziEngineUrl}${path}`, {
+      response = await engineFetch(`${this.baziEngineUrl}${path}`, {
         method: 'POST',
+        caller: 'bazi.passthrough',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(30000),
@@ -2139,8 +2142,9 @@ export class BaziService {
     profileB: { birthDate: Date; birthTime: string | null; hourKnown: boolean; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
     dto: CreateComparisonDto,
   ): Promise<Prisma.InputJsonValue> {
-    const response = await fetch(`${this.baziEngineUrl}/compatibility`, {
+    const response = await engineFetch(`${this.baziEngineUrl}/compatibility`, {
       method: 'POST',
+      caller: 'bazi.compatibility',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         profile_a: {

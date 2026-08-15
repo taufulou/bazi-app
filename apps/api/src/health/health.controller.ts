@@ -6,6 +6,7 @@ import { Public } from '../auth/public.decorator';
 import { AdminGuard } from '../auth/admin.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { engineFetch } from '../common/engine-client';
 
 @ApiTags('Health')
 @SkipThrottle()
@@ -70,7 +71,14 @@ export class HealthController {
     const baziUrl = this.config.get<string>('BAZI_ENGINE_URL') || 'http://localhost:5001';
     const baziStart = Date.now();
     try {
-      const res = await fetch(`${baziUrl}/health`, {
+      // Goes through the shared helper even though `/health` is exempt from the
+      // engine's key check in BOTH modes. Two reasons: the CI guard has one rule
+      // ("no raw fetch at the engine") and exceptions to it are how call sites
+      // get missed, and M7 moves this hop onto Railway's continuous probe — at
+      // which point an unkeyed caller here would hold B3-b's gate open forever
+      // if `/health` ever stopped being exempt.
+      const res = await engineFetch(`${baziUrl}/health`, {
+        caller: 'health.probe',
         signal: AbortSignal.timeout(5000),
       });
       checks.baziEngine = {

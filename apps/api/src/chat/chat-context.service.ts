@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
 import { ReadingType, SubscriptionTier } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { engineFetch } from '../common/engine-client';
 import { RedisService } from '../redis/redis.service';
 import { assertFortuneWindow, nowIsoInTz } from '../fortune/fortune-window';
 // Audit M#2 staff-engineer fix — snapshot staleness check must compare
@@ -1332,8 +1333,9 @@ export class ChatContextService {
     targetYear: number;
     targetMonth: number;
   }): Promise<ChatContext> {
-    const response = await fetch(`${this.baziEngineUrl}/build-chat-context`, {
+    const response = await engineFetch(`${this.baziEngineUrl}/build-chat-context`, {
       method: 'POST',
+      caller: 'chat.context',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         birth_date: args.birthDate,
@@ -1408,8 +1410,9 @@ export class ChatContextService {
       target_year: args.targetYear,
       target_month: args.targetMonth,
     });
-    const response = await fetch(`${this.baziEngineUrl}/build-chat-context-compat`, {
+    const response = await engineFetch(`${this.baziEngineUrl}/build-chat-context-compat`, {
       method: 'POST',
+      caller: 'chat.context-compat',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         profile_a: buildPayload(args.profileA),
@@ -1470,10 +1473,11 @@ export class ChatContextService {
     /** 'DAY' (default, back-compat), 'MONTH' (Phase 2.x), or 'YEAR' (Phase 3.5c). */
     fortuneScope?: 'DAY' | 'MONTH' | 'YEAR';
   }): Promise<ChatContext> {
-    const response = await fetch(
+    const response = await engineFetch(
       `${this.baziEngineUrl}/build-chat-context-fortune`,
       {
         method: 'POST',
+        caller: 'chat.context-fortune',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           birth_date: args.birthDate,

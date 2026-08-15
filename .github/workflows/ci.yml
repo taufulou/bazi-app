@@ -20,6 +20,11 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+      # B3-a. Runs BEFORE `npm ci` on purpose: it has no dependencies, and a
+      # raw unkeyed call at the engine should fail the job in seconds rather
+      # than after a full install.
+      - name: Guard — every Bazi-engine call goes through the keyed helper
+        run: node scripts/check-engine-callers.mjs
       - run: npm ci
       - name: Generate Prisma client
         run: cd apps/api && npx prisma generate

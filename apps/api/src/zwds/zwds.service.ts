@@ -21,6 +21,7 @@ import {
 } from './dto/create-zwds-reading.dto';
 import { ZwdsChartData, ZwdsPalace, ZwdsStar } from './zwds.types';
 import { Prisma, ReadingType } from '@prisma/client';
+import { engineFetch } from '../common/engine-client';
 
 @Injectable()
 export class ZwdsService {
@@ -748,8 +749,9 @@ export class ZwdsService {
     try {
       const [baziResponse, zwdsResult] = await Promise.all([
         // Call Bazi engine
-        fetch(`${this.baziEngineUrl}/calculate`, {
+        engineFetch(`${this.baziEngineUrl}/calculate`, {
           method: 'POST',
+          caller: 'zwds.calculate',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             birth_date: profile.birthDate.toISOString().split('T')[0],
