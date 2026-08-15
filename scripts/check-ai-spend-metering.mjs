@@ -46,6 +46,32 @@ const PROVIDER_CALL =
 const RECORDS_SPEND = /aiSpend\s*\.\s*record\s*\(|this\.logUsage\s*\(/;
 const CHECKS_BREAKER = /assertUnderCap\s*\(/;
 
+/** Global twins, for counting rather than testing. */
+const PROVIDER_CALL_G = new RegExp(PROVIDER_CALL.source, 'g');
+const RECORDS_SPEND_G = new RegExp(RECORDS_SPEND.source, 'g');
+const CHECKS_BREAKER_G = new RegExp(CHECKS_BREAKER.source, 'g');
+
+const countMatches = (src, re) => {
+  re.lastIndex = 0;
+  return (src.match(re) || []).length;
+};
+
+/**
+ * Files where per-call counting does not apply, with the reason.
+ *
+ * `ai.service.ts` is the only entry: it routes ALL SIX of its provider adapters
+ * through two choke points — `callProviderWithTimeout` and `streamProvider` —
+ * which is strictly stronger than one check per call site, and is what closed
+ * the hole where five of six reading paths were uncapped. Counting would demand
+ * six of each and push it back toward per-site wiring.
+ */
+const COUNT_EXEMPT = new Map([
+  [
+    'apps/api/src/ai/ai.service.ts',
+    'meters and caps at two shared choke points (callProviderWithTimeout, streamProvider) rather than per adapter',
+  ],
+]);
+
 /**
  * Files allowed to call a provider without consulting the breaker themselves,
  * with the reason. Recording is NEVER exempt — an unmetered call is invisible
@@ -88,6 +114,31 @@ for (const file of walk(join(ROOT, SCAN_ROOT))) {
   if (!PROVIDER_CALL.test(source)) continue;
 
   const line = source.split('\n').findIndex((l) => PROVIDER_CALL.test(l)) + 1;
+
+  // ⚠️ COUNT, don't just test-for-presence. Both Phase-2A auditors showed the
+  // same bypass: delete 2 of 3 `assertUnderCap` calls from a file with three
+  // provider calls and the file-level rule still passed. Partial removal is the
+  // realistic mistake — a new branch added next to an existing metered one.
+  const providerCalls = countMatches(source, PROVIDER_CALL_G);
+  const records = countMatches(source, RECORDS_SPEND_G);
+  const caps = countMatches(source, CHECKS_BREAKER_G);
+
+  if (!COUNT_EXEMPT.has(rel)) {
+    if (records < providerCalls) {
+      violations.push({
+        file: rel,
+        line,
+        message: `has ${providerCalls} provider call(s) but only ${records} record() call(s) — at least one path spends without being counted.`,
+      });
+    }
+    if (!BREAKER_EXEMPT.has(rel) && caps < providerCalls) {
+      violations.push({
+        file: rel,
+        line,
+        message: `has ${providerCalls} provider call(s) but only ${caps} assertUnderCap() call(s) — at least one path spends without consulting the breaker.`,
+      });
+    }
+  }
 
   if (!RECORDS_SPEND.test(source)) {
     violations.push({

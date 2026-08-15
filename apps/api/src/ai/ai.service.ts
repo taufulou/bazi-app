@@ -774,6 +774,20 @@ export class AIService implements OnModuleInit {
     userPrompt: string,
     timeoutMs: number,
   ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
+    // S2 — the CHOKE POINT for every non-streaming provider call.
+    //
+    // ⚠️ The check was originally only at the top of `generateInterpretation`,
+    // which turned out to guard almost nothing: `bazi.service.ts` dispatches
+    // LIFETIME/CAREER/ANNUAL/LOVE to the V2 generators and COMPATIBILITY to its
+    // own method, none of which pass through it — they call THIS method
+    // directly, twice in parallel. So every paid reading type reached a model
+    // uncapped while the audit table said the breaker was wired.
+    //
+    // Putting it here makes coverage structural rather than a list someone has
+    // to keep complete. It costs one Redis read per provider attempt, which is
+    // the right trade for a control whose failure mode is silent overspend.
+    await this.aiSpend.assertUnderCap(`provider:${config.provider}`);
+
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -5577,18 +5591,46 @@ export class AIService implements OnModuleInit {
     // (most reliable). OpenAI's `stream_options.include_usage` + Gemini's
     // `usageMetadata` only arrive on normal completion. Callers must tolerate
     // {0, 0} as a legitimate "aborted before final chunk" signal.
-    switch (config.provider) {
-      case AIProvider.CLAUDE:
-        yield* this.streamClaude(config, systemPrompt, userPrompt, signal, usageOut);
-        break;
-      case AIProvider.GPT:
-        yield* this.streamGPT(config, systemPrompt, userPrompt, signal, usageOut);
-        break;
-      case AIProvider.GEMINI:
-        yield* this.streamGemini(config, systemPrompt, userPrompt, signal, usageOut);
-        break;
-      default:
-        throw new Error(`Unknown provider: ${config.provider}`);
+
+    // S2 — the CHOKE POINT for every streaming provider call.
+    //
+    // ⚠️ Streaming was the production path for readings and compat, and it was
+    // BOTH uncapped and UNCOUNTED: `usageOut` is optional and 5 of 6 call sites
+    // omitted it, so the tokens were discarded at the source. A breaker cannot
+    // trip on spend it never sees, so the largest single generation in the app
+    // was invisible to the ceiling AND to everything else the ceiling protects.
+    await this.aiSpend.assertUnderCap(`stream:${config.provider}`);
+
+    // Own the ref when the caller didn't supply one, so metering no longer
+    // depends on every call site remembering to ask for it.
+    const usage = usageOut ?? { inputTokens: 0, outputTokens: 0 };
+    try {
+      switch (config.provider) {
+        case AIProvider.CLAUDE:
+          yield* this.streamClaude(config, systemPrompt, userPrompt, signal, usage);
+          break;
+        case AIProvider.GPT:
+          yield* this.streamGPT(config, systemPrompt, userPrompt, signal, usage);
+          break;
+        case AIProvider.GEMINI:
+          yield* this.streamGemini(config, systemPrompt, userPrompt, signal, usage);
+          break;
+        default:
+          throw new Error(`Unknown provider: ${config.provider}`);
+      }
+    } finally {
+      // `finally` on a generator also runs when the consumer abandons it
+      // (client disconnect, watchdog abort, `break`). That matters: Anthropic
+      // bills the tokens generated before an abort, so recording only on clean
+      // completion would systematically under-count exactly the disconnect case
+      // mobile produces most. Whatever the adapter managed to populate is
+      // recorded; a genuine {0,0} costs nothing and is skipped by `record`.
+      void this.aiSpend.record({
+        provider: config.provider,
+        model: config.model,
+        usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
+        context: `stream:${config.provider}`,
+      });
     }
   }
 

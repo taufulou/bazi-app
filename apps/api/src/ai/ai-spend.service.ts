@@ -81,14 +81,19 @@ interface ModelPrice {
  * cap. Over-counting an unrecognised model trips the breaker early, which is
  * visible and recoverable; under-counting is neither.
  */
+// ⚠️ `cacheWrite` is the ONE-HOUR rate (2x base input), not the 5-minute one
+// (1.25x). Chat sends its system block with `ttl: '1h'` on every turn
+// (`chat.service.ts` / `chat-stream.service.ts`), so the 5-minute rate
+// under-reported every session's first turn by 37.5% — the single
+// under-counting direction this table is built to avoid.
 const PRICE_TABLE: Record<string, ModelPrice> = {
   // Anthropic — https://docs.anthropic.com/en/docs/about-claude/pricing
-  'claude-opus-4': { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
-  'claude-opus': { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
-  'claude-sonnet-4-5': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  'claude-sonnet': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
-  'claude-3-5-haiku': { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 },
-  'claude-haiku': { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 },
+  'claude-opus-4': { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 30 },
+  'claude-opus': { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 30 },
+  'claude-sonnet-4-5': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 6 },
+  'claude-sonnet': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 6 },
+  'claude-3-5-haiku': { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1.6 },
+  'claude-haiku': { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 2 },
   // OpenAI fallback
   'gpt-4o-mini': { input: 0.15, output: 0.6, cacheRead: 0.075, cacheWrite: 0.15 },
   'gpt-4o': { input: 2.5, output: 10, cacheRead: 1.25, cacheWrite: 2.5 },
@@ -99,7 +104,7 @@ const PRICE_TABLE: Record<string, ModelPrice> = {
 };
 
 /** Unknown model ⇒ charge the most expensive rate we know. See PRICE_TABLE. */
-const FALLBACK_PRICE: ModelPrice = { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 };
+const FALLBACK_PRICE: ModelPrice = { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 30 };
 
 const DEFAULT_DAILY_LIMIT_USD = 50;
 const DEFAULT_MONTHLY_LIMIT_USD = 400;
