@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CreditsService } from '../credits/credits.service';
 import { AiSpendService } from './ai-spend.service';
+import { AiGovernorService } from './ai-governor.service';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
 import {
   READING_PROMPTS,
@@ -187,6 +188,7 @@ export class AIService implements OnModuleInit {
     private redis: RedisService,
     private creditsService: CreditsService,
     private readonly aiSpend: AiSpendService,
+    private readonly aiGovernor: AiGovernorService,
   ) {}
 
   async onModuleInit() {
@@ -792,7 +794,13 @@ export class AIService implements OnModuleInit {
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      return await this.callProvider(config, systemPrompt, userPrompt, controller.signal);
+      // S1 — hold a `reading` slot for the duration of the upstream call. This
+      // is what bounds S2's blind window: the spend counter only moves when a
+      // call FINISHES, so without a concurrency limit the overshoot between
+      // check and record is unbounded. With it, worst case is pool x cost.
+      return await this.aiGovernor.run('reading', `provider:${config.provider}`, () =>
+        this.callProvider(config, systemPrompt, userPrompt, controller.signal),
+      );
     } finally {
       clearTimeout(timeoutId);
     }
@@ -830,16 +838,75 @@ export class AIService implements OnModuleInit {
   }
 
   /**
-   * Compute backoff delay for an attempt. Honors Retry-After if present.
-   * Uses AWS-pattern full positive jitter to avoid retry storm.
+   * S3 — the `Retry-After` HEADER, not the message text.
+   *
+   * ⚠️ The previous implementation regexed `err.message` for `retry-after: N`.
+   * No provider SDK puts that in the message: the Anthropic and OpenAI SDKs
+   * surface it on `err.headers['retry-after']`, and Gemini on
+   * `err.errorDetails`. So the branch never fired, every 429 fell through to
+   * blind exponential jitter, and we ignored the one number the provider gave us
+   * about when capacity actually returns. Under a sustained rate limit that is
+   * the difference between backing off correctly and hammering a closed door.
+   *
+   * The value is a LOWER BOUND, not a replacement: `max(retryAfter, jitter)`.
+   * Taking the header alone would sync every retrying worker onto the same
+   * instant — the thundering herd the jitter exists to prevent — so the jitter
+   * is still added on top.
    */
   computeBackoff(attempt: number, err: Error): number {
-    const retryAfterMatch = err.message.match(/retry[- ]after[:\s]+(\d+)/i);
-    if (retryAfterMatch) {
-      return Math.min(parseInt(retryAfterMatch[1], 10) * 1000, AI_RETRY_AFTER_CAP_MS);
+    // Full positive jitter: random(0, 2^attempt * 1000). AWS pattern.
+    const jitter = Math.floor(Math.random() * Math.pow(2, attempt) * 1000);
+    const retryAfterMs = this.retryAfterMsFromError(err);
+    if (retryAfterMs === null) return jitter;
+    // Cap first, THEN add jitter — an uncapped 600s Retry-After (which
+    // Anthropic can send on a daily limit) must not become a 10-minute sleep
+    // holding a request open.
+    return Math.min(retryAfterMs, AI_RETRY_AFTER_CAP_MS) + jitter;
+  }
+
+  /**
+   * Extract `Retry-After` from wherever the SDK in play puts it.
+   *
+   * Returns milliseconds, or null when absent/unparseable. Handles both forms
+   * the HTTP spec allows: delta-seconds (`120`) and an HTTP-date
+   * (`Wed, 21 Oct 2026 07:28:00 GMT`).
+   */
+  retryAfterMsFromError(err: unknown): number | null {
+    const e = err as {
+      headers?: Record<string, unknown> | { get?: (k: string) => string | null };
+      responseHeaders?: Record<string, unknown>;
+      response?: { headers?: { get?: (k: string) => string | null } };
+    };
+
+    const fromHeaders = (h: unknown): string | null => {
+      if (!h) return null;
+      // A `Headers` instance (fetch) — case-insensitive lookup via .get()
+      const getter = (h as { get?: (k: string) => string | null }).get;
+      if (typeof getter === 'function') {
+        return getter.call(h, 'retry-after') ?? null;
+      }
+      // A plain object — header names are case-insensitive, so scan.
+      for (const [k, v] of Object.entries(h as Record<string, unknown>)) {
+        if (k.toLowerCase() === 'retry-after') return v == null ? null : String(v);
+      }
+      return null;
+    };
+
+    const raw =
+      fromHeaders(e?.headers) ??
+      fromHeaders(e?.responseHeaders) ??
+      fromHeaders(e?.response?.headers);
+    if (raw === null || raw === '') return null;
+
+    const seconds = Number(raw);
+    if (Number.isFinite(seconds)) {
+      // Negative or zero means "retry now"; treat as absent so jitter applies.
+      return seconds > 0 ? seconds * 1000 : null;
     }
-    // Full positive jitter: random(0, 2^attempt * 1000)
-    return Math.floor(Math.random() * Math.pow(2, attempt) * 1000);
+    const asDate = Date.parse(String(raw));
+    if (Number.isNaN(asDate)) return null;
+    const delta = asDate - Date.now();
+    return delta > 0 ? delta : null;
   }
 
   /**
@@ -5604,6 +5671,9 @@ export class AIService implements OnModuleInit {
     // Own the ref when the caller didn't supply one, so metering no longer
     // depends on every call site remembering to ask for it.
     const usage = usageOut ?? { inputTokens: 0, outputTokens: 0 };
+    // S1 — the slot is held until the LAST token, not until first byte:
+    // releasing early would let N slots admit far more than N upstream calls.
+    const releaseSlot = await this.aiGovernor.acquire('reading', `stream:${config.provider}`);
     try {
       switch (config.provider) {
         case AIProvider.CLAUDE:
@@ -5625,6 +5695,7 @@ export class AIService implements OnModuleInit {
       // completion would systematically under-count exactly the disconnect case
       // mobile produces most. Whatever the adapter managed to populate is
       // recorded; a genuine {0,0} costs nothing and is skipped by `record`.
+      releaseSlot();
       void this.aiSpend.record({
         provider: config.provider,
         model: config.model,

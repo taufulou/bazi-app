@@ -684,6 +684,32 @@ export class ChatStreamService {
         return;
       }
 
+      // A typed refusal is NOT an AI failure — same reasoning as the
+      // entitlement branch ~180 lines above, which this block was missing.
+      // `_refundOnError` hard-codes `AI_CALL_FAILED` + «AI 暫時無法回答», stamps
+      // the row AI_FAILED, and feeds the AI-failure alerting signal. For an
+      // S2 spend cap that is wrong three times over: the AI never failed, the
+      // copy invites an immediate retry (and `AI_CALL_FAILED` is not in
+      // `LOCK_ERROR_CODES`, so the composer stays enabled at 30/min — the
+      // breaker would save Anthropic tokens while RAISING our own load), and it
+      // pollutes the metric that says how often generation is broken.
+      if (err instanceof HttpException) {
+        const body = err.getResponse() as { code?: string; message?: string };
+        const code = body?.code ?? 'FORBIDDEN';
+        const refundResult = await this.paymentService
+          .refundLastMessage(userMessageId, sessionId, userId, `refused: ${code}`)
+          .catch(() => ({ refunded: false, method: null }));
+        this.logger.warn(`Chat stream refused for ${sessionId}: ${code}`);
+        this._emitError(
+          response,
+          code,
+          body?.message ?? err.message,
+          refundResult.refunded,
+          refundResult.method,
+        );
+        return;
+      }
+
       const reason = watchdogTriggered
         ? 'watchdog-timeout-no-delta-60s'
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;

@@ -94,6 +94,13 @@ import { BannerModule } from './banner/banner.module';
         AI_SPEND_BREAKER_ENABLED: Joi.string().valid('0', '1').optional().default('1'),
         AI_DAILY_SPEND_LIMIT_USD: Joi.number().positive().optional().default(50),
         AI_MONTHLY_SPEND_LIMIT_USD: Joi.number().positive().optional().default(400),
+        // S1 — concurrency governor. Two pools so a burst of chat cannot starve
+        // reading generation, and vice versa. Sizes are budget-derived, not
+        // rate-limit-derived. `0` disables a pool (the rollback) — spend is
+        // still capped by S2, but the blind window between check and record
+        // becomes unbounded again.
+        AI_MAX_CONCURRENT_READING: Joi.number().integer().min(0).optional().default(25),
+        AI_MAX_CONCURRENT_INTERACTIVE: Joi.number().integer().min(0).optional().default(40),
         PORT: Joi.number().default(4000),
         NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
       }),

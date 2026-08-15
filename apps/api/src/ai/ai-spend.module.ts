@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { AiSpendService } from './ai-spend.service';
+import { AiGovernorService } from './ai-governor.service';
 
 /**
  * S2 — global, like `RedisModule` and `PrismaModule`, and for the same reason.
@@ -16,7 +17,7 @@ import { AiSpendService } from './ai-spend.service';
  */
 @Global()
 @Module({
-  providers: [AiSpendService],
-  exports: [AiSpendService],
+  providers: [AiSpendService, AiGovernorService],
+  exports: [AiSpendService, AiGovernorService],
 })
 export class AiSpendModule {}

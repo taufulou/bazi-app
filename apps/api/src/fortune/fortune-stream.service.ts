@@ -38,6 +38,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { AiSpendService } from '../ai/ai-spend.service';
+import { isSpendCapError } from './fortune-snapshot.helpers';
 import * as Sentry from '@sentry/nestjs';
 import {
   FORTUNE_PROMPT_VERSIONS,
@@ -592,6 +593,23 @@ export class FortuneStreamService {
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Fortune stream Anthropic failure: ${reason}`);
       detector.close();
+      // S2 — a spend cap must NOT arm this chart's 24h AI circuit breaker: the
+      // cause is a global budget event, not a broken chart, and the backoff
+      // outlives the cap (which clears at Taipei midnight) so a DAY scope would
+      // stay blank past its own anchor date. Emit the real code so the client
+      // can say what happened instead of «ai-stream-failed: …».
+      if (isSpendCapError(err)) {
+        const capBody = (err as HttpException).getResponse() as {
+          code?: string;
+          message?: string;
+        };
+        this._emitError(
+          response,
+          capBody?.code ?? 'AI_SPEND_CAP',
+          capBody?.message ?? '系統目前的 AI 用量已達上限，請稍後再試。',
+        );
+        return;
+      }
       {
         const failRow = await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
         if (this._serveLkg(response, failRow, 'day')) return;
@@ -1263,6 +1281,23 @@ export class FortuneStreamService {
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Monthly fortune stream Anthropic failure: ${reason}`);
       detector.close();
+      // S2 — a spend cap must NOT arm this chart's 24h AI circuit breaker: the
+      // cause is a global budget event, not a broken chart, and the backoff
+      // outlives the cap (which clears at Taipei midnight) so a DAY scope would
+      // stay blank past its own anchor date. Emit the real code so the client
+      // can say what happened instead of «ai-stream-failed: …».
+      if (isSpendCapError(err)) {
+        const capBody = (err as HttpException).getResponse() as {
+          code?: string;
+          message?: string;
+        };
+        this._emitError(
+          response,
+          capBody?.code ?? 'AI_SPEND_CAP',
+          capBody?.message ?? '系統目前的 AI 用量已達上限，請稍後再試。',
+        );
+        return;
+      }
       {
         const failRow = await this._persistMonthlyAIFailure({
           chartHash,
@@ -1856,6 +1891,23 @@ export class FortuneStreamService {
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Yearly fortune stream Anthropic failure: ${reason}`);
       detector.close();
+      // S2 — a spend cap must NOT arm this chart's 24h AI circuit breaker: the
+      // cause is a global budget event, not a broken chart, and the backoff
+      // outlives the cap (which clears at Taipei midnight) so a DAY scope would
+      // stay blank past its own anchor date. Emit the real code so the client
+      // can say what happened instead of «ai-stream-failed: …».
+      if (isSpendCapError(err)) {
+        const capBody = (err as HttpException).getResponse() as {
+          code?: string;
+          message?: string;
+        };
+        this._emitError(
+          response,
+          capBody?.code ?? 'AI_SPEND_CAP',
+          capBody?.message ?? '系統目前的 AI 用量已達上限，請稍後再試。',
+        );
+        return;
+      }
       {
         const failRow = await this._persistYearlyAIFailure({
           chartHash,

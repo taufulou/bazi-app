@@ -36,9 +36,26 @@ function makeSpendStub(overrides: { rejectCap?: boolean } = {}) {
   };
 }
 
+/** Pass-through governor — S1's own behaviour is covered by its own spec. */
+function makeGovernorStub() {
+  return {
+    run: (_pool: unknown, _ctx: unknown, fn: () => unknown) => fn(),
+    acquire: async () => () => undefined,
+    runGenerator: (_pool: unknown, _ctx: unknown, gen: () => unknown) => gen(),
+    snapshot: () => ({}),
+  };
+}
+
 function makeService(spend: ReturnType<typeof makeSpendStub>) {
   const config = { get: jest.fn().mockReturnValue(undefined) };
-  return new AIService(config as never, {} as never, {} as never, {} as never, spend as never);
+  return new AIService(
+    config as never,
+    {} as never,
+    {} as never,
+    {} as never,
+    spend as never,
+    makeGovernorStub() as never,
+  );
 }
 
 /** Reaches the private choke points without booting the whole generation stack. */

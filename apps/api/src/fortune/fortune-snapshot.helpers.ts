@@ -23,11 +23,13 @@
  * same input across both code paths.
  */
 import {
+  HttpException,
   Injectable,
   Logger,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AI_SPEND_CAP_CODE } from '../ai/ai-spend.service';
 import { createHash } from 'crypto';
 import * as Sentry from '@sentry/nestjs';
 import {
@@ -148,6 +150,26 @@ export const ENERGY_LABEL_DIVERGENCE_THRESHOLD = 10;
 // ============================================================
 // FortuneSnapshotHelpers
 // ============================================================
+
+/**
+ * S2 — a spend cap is NOT an AI failure.
+ *
+ * The fortune paths degrade gracefully on any AI error: engine output is still
+ * served, `promptVersion` goes null, and `persistSnapshot` arms the circuit
+ * breaker. That is right for a broken prompt or a provider outage — and wrong
+ * for a global budget event, which says nothing about this chart.
+ *
+ * With `MAX_AI_FAILURES = 3` and a 24h backoff, three page loads during a cap
+ * window arm the breaker for that chart+date. The cap clears at Taipei midnight;
+ * the backoff does not. For `scope=DAY` the anchor date has passed before AI is
+ * retried, so a two-hour budget event permanently blanks that user's daily
+ * fortune. `@Throttle(10/min)` allows ten times the three needed.
+ */
+export function isSpendCapError(err: unknown): boolean {
+  if (!(err instanceof HttpException)) return false;
+  const body = err.getResponse() as { code?: string } | string;
+  return typeof body === 'object' && body?.code === AI_SPEND_CAP_CODE;
+}
 
 @Injectable()
 export class FortuneSnapshotHelpers {

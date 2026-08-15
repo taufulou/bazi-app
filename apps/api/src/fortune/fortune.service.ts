@@ -26,6 +26,7 @@
  */
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AiSpendService } from '../ai/ai-spend.service';
+import { isSpendCapError } from './fortune-snapshot.helpers';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   FORTUNE_PROMPT_VERSIONS,
@@ -191,6 +192,13 @@ export class FortuneService {
       validationResult = aiResult.validation;
       promptVersion = aiResult.promptVersion;
     } catch (err) {
+      // S2 — a spend cap is NOT an AI failure for THIS chart. Falling through
+      // would persist a null-narrative snapshot and arm the 24h circuit breaker,
+      // so a two-hour global budget event would blank this user's fortune for
+      // the rest of the day (the anchor date passes before the backoff expires).
+      // Rethrow so the client gets the real 503 + code and nothing is written;
+      // the engine output is cheap to recompute next time.
+      if (isSpendCapError(err)) throw err;
       // AI failure should not block the engine output — degrade gracefully
       this.logger.error(`Daily fortune AI failure: ${(err as Error).message}`);
       narrative = null;
@@ -419,6 +427,13 @@ export class FortuneService {
       narrative = aiResult.narrative;
       promptVersion = aiResult.promptVersion;
     } catch (err) {
+      // S2 — a spend cap is NOT an AI failure for THIS chart. Falling through
+      // would persist a null-narrative snapshot and arm the 24h circuit breaker,
+      // so a two-hour global budget event would blank this user's fortune for
+      // the rest of the day (the anchor date passes before the backoff expires).
+      // Rethrow so the client gets the real 503 + code and nothing is written;
+      // the engine output is cheap to recompute next time.
+      if (isSpendCapError(err)) throw err;
       this.logger.error(
         `Monthly fortune AI failure (month=${targetMonth} profile=${profile.id}): ${(err as Error).message}`,
       );
@@ -635,6 +650,13 @@ export class FortuneService {
       narrative = aiResult.narrative;
       promptVersion = aiResult.promptVersion;
     } catch (err) {
+      // S2 — a spend cap is NOT an AI failure for THIS chart. Falling through
+      // would persist a null-narrative snapshot and arm the 24h circuit breaker,
+      // so a two-hour global budget event would blank this user's fortune for
+      // the rest of the day (the anchor date passes before the backoff expires).
+      // Rethrow so the client gets the real 503 + code and nothing is written;
+      // the engine output is cheap to recompute next time.
+      if (isSpendCapError(err)) throw err;
       this.logger.error(
         `Yearly fortune AI failure (year=${targetYear} profile=${profile.id}): ${(err as Error).message}`,
       );
