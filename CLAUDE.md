@@ -3621,3 +3621,126 @@ Fixes the reported flatness where the daily 5 dimensions (感情/事業/財運/�
 **Known finding (Phase 2.x candidate, not shipped)**: dimension scores are **range-compressed toward the middle** — never reach 極佳/不利 (empirical ~[28,66]) because soft-trigger deltas + net cap top out ~64-66. Day-to-day differentiation is fixed; absolute range is intentionally narrow. Widening it must re-run the band grading (corpus + 3 grader prompts are in place).
 
 **Deferred follow-ups (from PR #55 code review)**: (1) wire `dayEnergyAlignment` + the 8 new signal types into FORTUNE **chat** (`chat_context.py::_slim_daily_for_chat` allowlist + `chat-context.service.ts::interpolateFortuneV1Fields` dispatch — currently DAY chat drops them; the C#2 pattern, per-dim signals still reach raw JSON); (2) fix the pre-existing `_dispatch_career` `('正官','七殺')` → should be `('正官','偏官')` (misses 偏官 days; `derive_ten_god` emits 偏官) — deferred because it would invalidate the fresh band corpus.
+
+---
+
+## 🔒 Security hardening (Phase 1) — LOAD-BEARING INVARIANTS
+
+Shipped on branch `claude/bazi-scalability-security-e4ff78` (25 commits, **unmerged**). Full
+findings + reasoning in **`docs/security/`** — `audit-2026-08.md` (per-finding, with what was
+accepted-not-fixed and why), `data-inventory-and-retention.md` (PDPA register), and
+`dependency-and-secret-scan.md`. Resume notes: `~/.claude/plans/launch-security-phase1-session-handoff.md`.
+
+Everything below is a control that **ordinary feature work can silently break**. None of it is
+obvious from the surrounding code.
+
+### ⚠️ DOMAIN PII RULE — the four pillars / 干支 are personal data
+
+They look like opaque symbols, so the instinct while debugging is 「it's just 甲子」. Year + month +
+day pillars pin a birth date to ~one candidate per 60-year cycle — within a lifespan, usually
+exactly one — and the hour pillar narrows to a two-hour window. Add the city and gender already in
+the same payload and it identifies a person.
+
+A single low-entropy field (`dayMasterStem`, 1-of-10) is fine. **The SET is not.** Never log,
+telemeter, or ship it to a third party. Correlate with a request id or `chartHash` and look the
+chart up inside the trust boundary.
+
+Binds: Sentry, PostHog, any new logging, any eval corpus, any future analytics.
+
+### The Sentry scrubber exists TWICE, on purpose
+
+`apps/api/src/common/sentry-scrub.ts` (canonical) and `apps/web/app/lib/sentry-scrub.ts`. Web cannot
+import from api, and `@repo/shared` is off-limits to the NestJS runtime — so there is no single
+home. **`apps/api/test/sentry-scrub-parity.spec.ts` fails if the two key lists drift.** Add a key to
+one, add it to both.
+
+It drops whole containers, not leaf keys, because the engine emits the pillars **twice** — as
+`fourPillars` *and* as `ganZhi`. It also scrubs `event.message` and `exception[].value`
+(PrismaClientValidationError embeds the failing arguments) and `spans[]` (transactions carry the
+payload there, not in `request`).
+
+### Account deletion: order is load-bearing
+
+`UsersService.erasePersonalData` deletes fortune **snapshots BEFORE profiles**, because
+`DailyFortuneSnapshot.birthProfileId` is `SetNull`, not `Cascade` — profile-first *orphans* them
+(narrative + `chartHash`, unattributable, and permanently beyond the reach of any later account
+deletion). `deleteBirthProfile` does the same pre-delete for the same reason.
+
+`deleteAccount` erases **before** the Clerk/Stripe/RC deletes so a failure is a retryable no-op
+rather than a locked-out user with intact PII. The Clerk `user.deleted` webhook calls
+`erasePersonalData` too — it runs on every in-app deletion, since `deleteAccount` deletes the Clerk
+user.
+
+Retained deliberately: `Transaction`, `Subscription`, `CreditLedger`, `MonthlyCreditsLog`,
+`AdRewardLog`, `SectionUnlock`. The published privacy policy (`legal.controller.ts` §4, and the URL
+on the Play Store listing) promises 「永久刪除」 — that claim is only true because of this code.
+
+### ⚠️ ANTI-REMEDY — do NOT switch `/payments/upgrade` to `always_invoice`
+
+`proration_behavior: 'create_prorations'` is deliberate. An immediate proration invoice has
+`lines.data[0].period.start` = the moment of change; `handleInvoicePaid` keys the monthly grant on
+exactly that; `MonthlyCreditsLog.@@unique([userId, periodStart])` is a full `DateTime`. So every
+upgrade would collide with nothing and grant **a whole month of credits**.
+
+`handleInvoicePaid` now refuses to grant on `billing_reason: 'subscription_update'` — a **deny**
+list, not an allow list, because `billing_reason` is absent from older payloads and an allow list
+would silently stop granting to paying customers. **This guard also defends a Dashboard-reachable
+path**: Stripe's portal has "Charge timing → Invoice prorations immediately", which produces the
+same invoice with no code change.
+
+### Two version constants that must stay DECOUPLED
+
+`PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE = 'v1.1.1'` (chat-side, locked for byte-identity with
+existing DAY sessions) and `FORTUNE_PRE_ANALYSIS_VERSIONS.day = 'v1.2.0'` (engine-side, what
+snapshots are stamped with). Aliasing them breaks either mass-eviction safety or the snapshot-reuse
+optimisation. A regression test asserts they differ.
+
+### Clerk `authorizedParties` (B5) — inert until configured, and NOT an origin lock
+
+`CLERK_AUTHORIZED_PARTIES` is empty by default = **no check**, with a boot warning. Both
+`verifyToken` call sites in `clerk.guard.ts` share `verifyOptions()`, and `apps/web/middleware.ts`
+(a second verifier) takes the same value.
+
+Per `@clerk/backend`: `if (!azp || !authorizedParties.length) return`. A token with **no** `azp`
+short-circuits — which is what keeps **native clients working**, since mobile has no web origin.
+So this constrains tokens that *carry* an origin; requiring `azp` would 401 every mobile user.
+`clerk-azp-contract.spec.ts` proves this against the real verifier with locally-minted RS256 tokens.
+
+Matching is exact and case-sensitive, so the parser lowercases and strips trailing slashes and
+warns about what it rewrote — a trailing slash in the env var would 401 every web session at once.
+
+### Other invariants
+
+- **`@Public()` routes get optional auth** — the guard verifies a token when present so
+  `explain-element` can tell a subscriber from an anonymous caller. The paywall is server-side
+  (`stripPaidExplanationLayers`), which **empties** rather than deletes keys — mobile dereferences
+  `data.personalized.pillarMeaning` unguarded.
+- **Subscribers pay credits.** There is no tier branch in `createReading`; `isSubscriber ||` was
+  removed from three entitlement gates because it granted free access nothing else implied.
+- **Never gate content on `creditsUsed > 0`** — 0-credit cache-hit readings are deliberately free.
+- **`/payments/upgrade` is `@Throttle(5/min)`** — it mutates Stripe before it can fail, its 402 tells
+  the user to retry, and it reaches a credit-*incrementing* refund path.
+
+### Local dev environment facts
+
+- **Local Postgres does not check passwords.** `pg_hba.conf` is on Homebrew's default `trust` — a
+  garbage password authenticates. Bounded to `localhost`. If you're debugging an auth error against
+  the local DB, it is not the password.
+- The dev DB password was rotated 2026-08-15; `.env.example` now carries `CHANGE_ME`. **Never paste
+  a real value there** — it is committed.
+- **The eslint suppressions ratchet (`apps/api/eslint-suppressions.json`) is two-sided**: it fails if
+  a count rises *and* if it falls without re-pinning. `--prune-suppressions` clears stale entries.
+- **⚠️ `npm audit fix` must NOT be run from a worktree** — `node_modules` is a symlink into main, so
+  the install writes through it and mutates main.
+
+### The verification lesson, six times over
+
+Every one of these passed the full suite with the control deleted: a well-covered **helper** behind
+**untested wiring**, or a **sibling path** doing the same thing unfixed — F6's stream door, O3's
+tier decision, F-1's `sendMessage`, F-7's ZWDS twin, F9's controller route, and 1C's Clerk
+`user.deleted` webhook.
+
+**Ask the question per CALL SITE, not per file — and against the column the decision actually
+reads.** F9's sweep grepped `subscriptionTier:` when the input to `computeEffectiveTier` is
+`Subscription.status`; that is how two sibling endpoints were missed. Answer it by mutation, and
+make sure the mutation COMPILES (`Tests: 0 total` means it didn't).
