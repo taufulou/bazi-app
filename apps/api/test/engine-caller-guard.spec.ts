@@ -145,12 +145,115 @@ describe('B3-a engine-caller guard', () => {
     expect(runGuard(root).code).toBe(0);
   });
 
-  it('does not mistake a method call named fetch for a bare one', () => {
+  it('catches fetch behind a property access', () => {
+    // `globalThis.fetch(...)` was a verified bypass of the first version, which
+    // excluded any `fetch` preceded by a non-word character. Property-accessed
+    // fetch at the engine is now a violation.
     const root = tree();
     write(
       root,
-      'apps/api/src/other/cache.service.ts',
-      'export const ok = (c: any) => c.fetch(`${this.baziEngineUrl}/calculate`);\n',
+      'apps/api/src/rogue/global.service.ts',
+      'export const bad = () => globalThis.fetch(`${this.baziEngineUrl}/calculate`);\n',
+    );
+    expect(runGuard(root).code).toBe(1);
+  });
+
+  // --- bypasses verified against the first version; each was exit 0 ---
+
+  it('catches a URL hoisted into a variable before the call', () => {
+    const root = tree();
+    write(
+      root,
+      'apps/api/src/rogue/hoisted.service.ts',
+      'const url = `${this.baziEngineUrl}/calculate`;\n' +
+        '// ... a dozen lines of unrelated code ...\n'.repeat(12) +
+        'export const bad = () => fetch(url, { method: "POST" });\n',
+    );
+    expect(runGuard(root).code).toBe(1);
+  });
+
+  it('catches a caller that imports the base URL from elsewhere', () => {
+    // Never names the env var, so no token match — only the engine's own route
+    // name gives it away.
+    const root = tree();
+    write(
+      root,
+      'apps/api/src/rogue/imported.service.ts',
+      "import { ENGINE } from './constants';\n" +
+        'export const bad = () => fetch(`${ENGINE}/build-chat-context`, { method: "POST" });\n',
+    );
+    expect(runGuard(root).code).toBe(1);
+  });
+
+  it('catches a hardcoded Railway private hostname', () => {
+    // `engine.railway.internal` is the hostname Railway private networking
+    // actually hands you, so this is the realistic hardcoded form.
+    const root = tree();
+    write(
+      root,
+      'apps/api/src/rogue/hardcoded.service.ts',
+      'export const bad = () => fetch("http://engine.railway.internal:5001/calculate");\n',
+    );
+    expect(runGuard(root).code).toBe(1);
+  });
+
+  it('catches axios and other HTTP clients, not just fetch', () => {
+    const root = tree();
+    write(
+      root,
+      'apps/api/src/rogue/axios.service.ts',
+      "import axios from 'axios';\n" +
+        'export const bad = () => axios.post(`${this.baziEngineUrl}/daily-fortune`, {});\n',
+    );
+    expect(runGuard(root).code).toBe(1);
+  });
+
+  it('scans beyond the three src directories', () => {
+    // `middleware.ts`, `prisma/seed.ts`, `scripts/` and `e2e/` were all outside
+    // the original scan roots.
+    const root = tree();
+    write(
+      root,
+      'apps/web/middleware.ts',
+      'export const bad = () => fetch(`${process.env.BAZI_ENGINE_URL}/calculate`);\n',
+    );
+    expect(runGuard(root).code).toBe(1);
+  });
+
+  it('scans .mjs and .cjs, not only .ts', () => {
+    const root = tree();
+    write(
+      root,
+      'scripts/rogue.mjs',
+      'export const bad = () => fetch(`${process.env.BAZI_ENGINE_URL}/calculate`);\n',
+    );
+    expect(runGuard(root).code).toBe(1);
+  });
+
+  // --- precision: these must NOT fire ---
+
+  it('does not fire on the word "fetch" in prose', () => {
+    // "post-fetch (TS-side)" and "full-fetch (issued in parallel" are real
+    // comments in files that also name the engine URL; both matched on the
+    // first pass of the widened rule.
+    const root = tree();
+    write(
+      root,
+      'apps/api/src/other/notes.service.ts',
+      '// the hint is computed post-fetch (TS-side) from `${this.baziEngineUrl}` output\n' +
+        'export const ok = 1;\n',
+    );
+    expect(runGuard(root).code).toBe(0);
+  });
+
+  it('does not fire on a NestJS route that merely shares a route name', () => {
+    // `${API_URL}/api/bazi/explain-element` is the NestJS proxy — the correct
+    // pattern, and it must not be mistaken for an engine call.
+    const root = tree();
+    write(
+      root,
+      'apps/web/app/api/explain-element/route.ts',
+      'export const POST = () => fetch(`${API_URL}/api/bazi/explain-element`, { method: "POST" });\n',
     );
     expect(runGuard(root).code).toBe(0);
   });

@@ -1,4 +1,6 @@
+import { Logger } from '@nestjs/common';
 import {
+  ENGINE_CALLERS,
   ENGINE_CALLER_HEADER,
   ENGINE_KEY_HEADER,
   ENGINE_REQUEST_ID_HEADER,
@@ -95,25 +97,52 @@ describe('B3-a engine client', () => {
     });
 
     it('every caller name survives the engine label charset', () => {
-      // The engine rewrites anything outside [A-Za-z0-9._/-]. A name that gets
-      // rewritten on arrival is not the name anyone will grep for.
-      const callers = [
-        'bazi.reading',
-        'bazi.passthrough',
-        'bazi.compatibility',
-        'zwds.calculate',
-        'fortune.daily',
-        'fortune.monthly',
-        'fortune.yearly',
-        'chat.context',
-        'chat.context-compat',
-        'chat.context-fortune',
-        'health.probe',
-        'web.bazi-calculate',
-      ];
-      for (const c of callers) {
+      // Iterates the REAL exported const. The earlier version declared its own
+      // copy of the names and checked that — so adding `'bazi reading v2'` to
+      // the production union passed, while the engine rewrote it on arrival to
+      // `bazi_reading_v2`: precisely the failure this test is named for.
+      expect(ENGINE_CALLERS.length).toBeGreaterThan(0);
+      for (const c of ENGINE_CALLERS) {
         expect(c).toMatch(/^[A-Za-z0-9._/-]{1,48}$/);
       }
+    });
+
+    it('caller names are unique', () => {
+      // Two sites sharing a name collapse into one rollup row, and B3-b's
+      // per-caller coverage question becomes unanswerable for both.
+      expect(new Set(ENGINE_CALLERS).size).toBe(ENGINE_CALLERS.length);
+    });
+  });
+
+  describe('missing-key warning', () => {
+    // This warning is the ONLY signal on the API side that we are calling the
+    // engine unkeyed. Nothing asserted it before, so deleting it left 27 tests
+    // green and the caller-side failure mode silent.
+    let warn: jest.SpyInstance;
+
+    beforeEach(() => {
+      warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    });
+
+    afterEach(() => warn.mockRestore());
+
+    it('warns when no key is configured', () => {
+      buildEngineHeaders({ caller: 'bazi.reading' });
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain('ENGINE_KEY');
+    });
+
+    it('warns only once per process', () => {
+      buildEngineHeaders({ caller: 'bazi.reading' });
+      buildEngineHeaders({ caller: 'fortune.daily' });
+      buildEngineHeaders({ caller: 'chat.context' });
+      expect(warn).toHaveBeenCalledTimes(1);
+    });
+
+    it('stays silent when a key is configured', () => {
+      process.env.ENGINE_KEY = KEY;
+      buildEngineHeaders({ caller: 'bazi.reading' });
+      expect(warn).not.toHaveBeenCalled();
     });
   });
 

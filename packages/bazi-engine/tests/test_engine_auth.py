@@ -158,6 +158,34 @@ class TestMatchKey:
     def test_prefix_is_not_a_match(self):
         assert match_key(GOOD_KEY[:-1], [GOOD_KEY]) is False
 
+    def test_comparison_is_constant_time(self, monkeypatch):
+        # `hmac.compare_digest` being *used* was a comment, not a test — swapping
+        # it for `==` left the suite green. A counting spy pins it behaviourally.
+        calls = []
+        real = engine_auth.hmac.compare_digest
+
+        def spy(a, b):
+            calls.append((a, b))
+            return real(a, b)
+
+        monkeypatch.setattr(engine_auth.hmac, "compare_digest", spy)
+        assert match_key(GOOD_KEY, [GOOD_KEY]) is True
+        assert len(calls) == 1
+
+    def test_every_candidate_is_compared_even_after_a_match(self, monkeypatch):
+        # The loop deliberately does not break early, so the work done does not
+        # reveal WHICH key matched. Without this, adding `return True` inside the
+        # loop passed every test.
+        calls = []
+        real = engine_auth.hmac.compare_digest
+        monkeypatch.setattr(
+            engine_auth.hmac,
+            "compare_digest",
+            lambda a, b: (calls.append(1), real(a, b))[1],
+        )
+        assert match_key(GOOD_KEY, [GOOD_KEY, OTHER_KEY, "third"]) is True
+        assert len(calls) == 3
+
 
 class TestFingerprint:
     def test_is_short_hex_and_stable(self):
@@ -330,12 +358,32 @@ class TestBookkeepingCannotBreakRequests:
 
 
 class TestLogSafety:
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("evil\nENGINE-AUTH-ROLLUP {}", "evil_ENGINE-AUTH-ROLLUP___"),
+            ("a\rb", "a_b"),
+            ("nul\x00byte", "nul_byte"),
+            ("丁卯戊申戊午庚申", "________"),
+            ("tab\tsep", "tab_sep"),
+        ],
+    )
+    def test_label_strips_everything_outside_the_safe_charset(self, raw, expected):
+        # Asserted on the LABEL, not on the emitted line. The obvious version of
+        # this test — "no \n in the log message" — passes with the sanitiser
+        # deleted, because `json.dumps` escapes newlines anyway. It therefore
+        # pins the serialiser, not the control, and a refactor of `_emit` to
+        # plain string formatting would quietly remove the last defence.
+        assert engine_auth._label(raw, "unknown") == expected
+
+    def test_label_is_the_only_thing_keeping_ganzhi_out_of_the_log(self):
+        # The DOMAIN PII rule in CLAUDE.md: the four pillars are close to a
+        # reversible encoding of a birth datetime, and must never be logged. The
+        # request PATH is attacker-shaped and goes straight into the rollup, so
+        # this sanitiser is what enforces the rule for this telemetry.
+        assert "丁卯" not in engine_auth._label("/calculate/丁卯戊申戊午庚申", "/")
+
     def test_caller_header_cannot_inject_a_log_record(self, monkeypatch, caplog):
-        # The caller label is attacker-controllable and lands in a log line, so
-        # the property under test is that a newline cannot FORGE A SECOND
-        # RECORD. (The literal text "ENGINE-AUTH-ROLLUP" surviving inside a JSON
-        # string value is harmless — it is the line break that would let a
-        # scanner write a fake all-clear into Railway's log.)
         monkeypatch.setenv("ENGINE_KEYS", GOOD_KEY)
         counter = RejectionCounter(interval_seconds=0)
         forged = 'evil\nENGINE-AUTH-ROLLUP {"totals": {"absent": 0}}'
@@ -346,9 +394,12 @@ class TestLogSafety:
         assert len(emitted) == 1
         message = emitted[0].getMessage()
         assert "\n" not in message and "\r" not in message
-        # The real window is reported, not the forged one.
         payload = json.loads(message.split("ENGINE-AUTH-ROLLUP ", 1)[1])
         assert payload["totals"] == {OUTCOME_ABSENT: 1}
+        # The recorded LABEL carries no line break — this is the assertion that
+        # dies if `_LABEL_SAFE` is neutered.
+        label = next(iter(payload["by_path"][OUTCOME_ABSENT]))
+        assert "\n" not in label and "\r" not in label
 
     def test_caller_header_is_truncated(self, monkeypatch):
         monkeypatch.setenv("ENGINE_KEYS", GOOD_KEY)
@@ -365,11 +416,62 @@ class TestLogSafety:
         assert "<other><-unknown" in labels
         assert len(labels) <= 51
 
+    def test_distinct_callers_are_capped(self):
+        # `caller` shares the dict key with `path`, so capping only `path` leaves
+        # the PAIR unbounded. Measured before the cap: 50k distinct callers held
+        # 9 MB and produced a single 1.5 MB log line — the same flood the rollup
+        # exists to prevent, delivered as one line instead of many.
+        counter = RejectionCounter()
+        for i in range(5000):
+            counter.record(OUTCOME_ABSENT, "/calculate", f"caller-{i}")
+        labels = counter.drain()["by_path"][OUTCOME_ABSENT]
+        assert len(labels) <= 51
+        assert "/calculate<-<other>" in labels
+
+    def test_a_path_scan_cannot_displace_a_real_endpoint(self):
+        # B3-b's gate is "every endpoint saw >=1 KEYED request". The middleware
+        # runs before the router, so 50 invented 404 paths would otherwise fill
+        # the table and relabel every real endpoint as <other> — blocking the
+        # flip indefinitely for the price of an unauthenticated scan.
+        counter = RejectionCounter()
+        for i in range(80):
+            counter.record(OUTCOME_ABSENT, f"/scan-{i}", "scanner")
+        counter.record(OUTCOME_KEYED, "/calculate", "bazi.reading", reserved_path=True)
+        keyed = counter.drain()["by_path"][OUTCOME_KEYED]
+        assert keyed == {"/calculate<-bazi.reading": 1}
+
     def test_rejected_fingerprints_are_capped(self):
         counter = RejectionCounter()
         for i in range(50):
             counter.record(OUTCOME_INVALID, "/calculate", "unknown", f"fp{i:04d}")
         assert len(counter.drain()["rejected_key_fingerprints"]) <= 10
+
+    def test_a_scanner_arriving_first_cannot_hide_the_repeat_offender(self):
+        # The original cap was first-come-wins, so a scanner that filled the
+        # table BEFORE the drifted caller appeared made it invisible however many
+        # times it retried — measured: 1000 rejections, fingerprint absent. Which
+        # ordering wins is exactly what an attacker controls.
+        counter = RejectionCounter()
+        for i in range(30):
+            counter.record(OUTCOME_INVALID, "/calculate", "scanner", f"junk{i}")
+        for _ in range(100):
+            counter.record(OUTCOME_INVALID, "/calculate", "drifted", "STALEFP")
+        payload = counter.drain()
+        fingerprints = payload["rejected_key_fingerprints"]
+        assert len(fingerprints) <= 10
+        # Present, and unambiguously the heavy hitter.
+        assert fingerprints["STALEFP"] == max(fingerprints.values())
+        # An upper bound, not a tally — the newcomer inherits the evicted count.
+        assert fingerprints["STALEFP"] >= 100
+        assert payload["rejected_key_fingerprints_approximate"] is True
+
+    def test_counts_are_exact_while_the_table_has_room(self):
+        counter = RejectionCounter()
+        for _ in range(7):
+            counter.record(OUTCOME_INVALID, "/calculate", "drifted", "STALEFP")
+        payload = counter.drain()
+        assert payload["rejected_key_fingerprints"] == {"STALEFP": 7}
+        assert "rejected_key_fingerprints_approximate" not in payload
 
     def test_emitted_line_never_contains_the_key(self, monkeypatch, caplog):
         monkeypatch.setenv("ENGINE_KEYS", GOOD_KEY)
@@ -402,6 +504,24 @@ class TestLogSafety:
             flush_counter(counter)
         assert caplog.records
         assert all(r.levelno == logging.INFO for r in caplog.records)
+
+    def test_unconfigured_window_warns_and_says_it_proves_nothing(self, caplog):
+        # The most dangerous state used to be the least alarming line in the log.
+        # With no keys set, a correctly-keyed caller and an unkeyed one both
+        # record `unconfigured` and `keyed` stays 0 — so an operator grepping for
+        # WARNING would find nothing and read that as "safe to flip", when
+        # flipping is a total outage.
+        counter = RejectionCounter(interval_seconds=0)
+        with caplog.at_level(logging.INFO, logger="bazi_engine.auth"):
+            client(counter).post(
+                "/calculate", json={}, headers={ENGINE_KEY_HEADER: GOOD_KEY}
+            )
+            flush_counter(counter)
+        record = next(r for r in caplog.records if "ENGINE-AUTH-ROLLUP" in r.getMessage())
+        assert record.levelno == logging.WARNING
+        payload = json.loads(record.getMessage().split("ENGINE-AUTH-ROLLUP ", 1)[1])
+        assert payload["totals"] == {OUTCOME_UNCONFIGURED: 1}
+        assert "proves nothing" in payload["warning"]
 
 
 # ============================================================
@@ -476,6 +596,20 @@ class TestEngineWiring:
 
         assert TestClient(engine_app).get("/health").status_code == 200
 
+    @pytest.mark.parametrize("probe", ["/health", "/health/", "/health?probe=1"])
+    def test_health_probe_variants_are_all_exempt(self, monkeypatch, probe):
+        # A human typing "/health/" into Railway's Healthcheck Path field is the
+        # whole failure mode the exemption exists to prevent, and an exact-match
+        # set does not cover it: this middleware runs before the router, so
+        # FastAPI's own trailing-slash redirect has not happened yet.
+        monkeypatch.setenv("ENGINE_KEYS", GOOD_KEY)
+        monkeypatch.setenv("ENGINE_REQUIRE_KEY", "1")
+        from app import main as engine_main
+
+        engine_main._engine_auth_counter.drain()
+        assert TestClient(engine_main.app).get(probe).status_code == 200
+        assert engine_main._engine_auth_counter.drain() is None
+
     def test_health_is_not_counted(self, monkeypatch):
         # A continuously-probed /health would keep the counter permanently
         # non-zero and B3-b's gate could never pass.
@@ -520,6 +654,23 @@ class TestEngineWiring:
             },
         )
         assert res.status_code == 200
+
+    def test_shutdown_flushes_the_tail_window(self, monkeypatch, caplog):
+        # `flush_counter` had two tests; the LIFESPAN CALL SITE that invokes it
+        # had none, so deleting main.py's flush line left the suite green. That
+        # is the "well-covered helper behind untested wiring" pattern this
+        # project has hit six times — the helper is not the risk, the wiring is.
+        monkeypatch.setenv("ENGINE_KEYS", GOOD_KEY)
+        from app import main as engine_main
+
+        engine_main._engine_auth_counter.drain()
+        with caplog.at_level(logging.INFO, logger="bazi_engine.auth"):
+            with TestClient(engine_main.app) as c:
+                c.post("/calculate", json={})
+                # Well inside the 60s interval, so nothing has been emitted yet.
+                assert "ENGINE-AUTH-ROLLUP" not in caplog.text
+            # Exiting the context runs the ASGI shutdown event.
+            assert "ENGINE-AUTH-ROLLUP" in caplog.text
 
     def test_docs_are_served_outside_production(self):
         from app.main import app as engine_app

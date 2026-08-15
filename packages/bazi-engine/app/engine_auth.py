@@ -56,17 +56,28 @@ REQUEST_ID_HEADER = "x-request-id"
 #: Never authenticated, never counted. Railway健康檢查 and the API's own
 #: ``health.controller.ts`` hop land here. If a Railway healthcheck path is ever
 #: configured it MUST be in this set, or enforcing would fail every deploy.
+#: Compared after stripping a trailing slash — this middleware runs BEFORE the
+#: router, so FastAPI's own ``/health/`` → ``/health`` redirect has not happened
+#: yet and an exact-match set would 401 a probe configured with a slash.
 EXEMPT_PATHS = frozenset({"/health"})
 
 ROLLUP_INTERVAL_SECONDS = 60.0
 
-#: Bounds on what a caller can push into our log line. Both `path` and `caller`
-#: are attacker-controllable, so they are truncated and charset-restricted —
-#: unbounded values are log injection (a `\n` forges a whole log record) and a
-#: scanner walking random paths would otherwise grow the rollup without limit.
+#: Bounds on what a caller can push into our log line. `path`, `caller` and the
+#: echoed request id are ALL attacker-controllable, so each is truncated and
+#: charset-restricted: unbounded values are log injection (a `\n` forges a whole
+#: log record), and unbounded CARDINALITY is a memory and log-size attack.
+#:
+#: ⚠️ `caller` needs its own cap, not just `path`. Both are attacker-supplied and
+#: both are part of the same dict key, so capping one leaves the product
+#: unbounded — measured at 50k distinct callers: 9 MB retained and a single
+#: 1.5 MB log line, which is exactly the flood the rollup exists to prevent,
+#: delivered as one line instead of many.
 _MAX_LABEL_LEN = 48
 _MAX_TRACKED_PATHS = 50
+_MAX_TRACKED_CALLERS = 50
 _MAX_REJECTED_FINGERPRINTS = 10
+_MAX_ECHOED_REQUEST_ID = 64
 _LABEL_SAFE = re.compile(r"[^A-Za-z0-9._/-]")
 _OTHER = "<other>"
 
@@ -95,12 +106,17 @@ def configure_auth_logging() -> None:
     this log are the ones asserting a key is never written to it. A safety
     assertion that silently stops running is worse than a duplicate log line.
     """
+    # Level FIRST, and unconditionally. Returning early on an existing handler
+    # used to skip it, leaving the logger at NOTSET → inheriting root's WARNING →
+    # the INFO all-clear rollups silently dropped while only the alarming ones
+    # appeared. A signal that goes missing in exactly one direction is worse than
+    # no signal.
+    logger.setLevel(logging.INFO)
     if logger.handlers:
         return
     handler = logging.StreamHandler()
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
 
 
 def _env(name: str) -> str:
@@ -108,9 +124,17 @@ def _env(name: str) -> str:
 
 
 def load_engine_keys() -> List[str]:
-    """Accepted keys, in order. Empty list ⇒ the engine cannot authenticate."""
-    raw = _env("ENGINE_KEYS") or _env("ENGINE_KEY")
-    return [k for k in (part.strip() for part in raw.split(",")) if k]
+    """Accepted keys, in order. Empty list ⇒ the engine cannot authenticate.
+
+    Only ``ENGINE_KEYS`` is comma-separated. ``ENGINE_KEY`` is taken whole: it is
+    ONE secret, and splitting it would turn a key that happens to contain a comma
+    into several shorter fragments, each of which independently authenticates.
+    """
+    plural = _env("ENGINE_KEYS")
+    if plural:
+        return [k for k in (part.strip() for part in plural.split(",")) if k]
+    single = _env("ENGINE_KEY")
+    return [single] if single else []
 
 
 def require_key_enabled() -> bool:
@@ -171,7 +195,9 @@ class RejectionCounter:
         self._lock = threading.Lock()
         self._counts: Dict[Tuple[str, str, str], int] = {}
         self._paths: set = set()
+        self._callers: set = set()
         self._fingerprints: Dict[str, int] = {}
+        self._fingerprints_approximate = False
         self._window_started = time.monotonic()
 
     def record(
@@ -180,21 +206,68 @@ class RejectionCounter:
         path: str,
         caller: str,
         rejected_fingerprint: Optional[str] = None,
+        reserved_path: bool = False,
     ) -> None:
+        """Tally one request.
+
+        ``reserved_path`` marks a path the engine actually routes. Those are
+        never displaced by the cap: the middleware runs BEFORE the router, so 50
+        requests to invented 404 paths would otherwise fill the table and push
+        every real endpoint into ``<other>`` — which makes B3-b's gate ("every
+        endpoint saw a keyed request") unevaluable for the price of a trivial
+        unauthenticated scan.
+        """
         safe_path = _label(path, "/")
         safe_caller = _label(caller, "unknown")
         with self._lock:
-            if safe_path not in self._paths:
+            if not reserved_path and safe_path not in self._paths:
                 if len(self._paths) >= _MAX_TRACKED_PATHS:
                     safe_path = _OTHER
                 else:
                     self._paths.add(safe_path)
+            # `caller` is as attacker-controlled as `path` and shares the dict
+            # key, so it needs its own cap — otherwise the pair is unbounded.
+            if safe_caller not in self._callers:
+                if len(self._callers) >= _MAX_TRACKED_CALLERS:
+                    safe_caller = _OTHER
+                else:
+                    self._callers.add(safe_caller)
             key = (outcome, safe_path, safe_caller)
             self._counts[key] = self._counts.get(key, 0) + 1
-            if rejected_fingerprint and len(self._fingerprints) < _MAX_REJECTED_FINGERPRINTS:
-                self._fingerprints[rejected_fingerprint] = (
-                    self._fingerprints.get(rejected_fingerprint, 0) + 1
-                )
+            if rejected_fingerprint:
+                self._record_fingerprint(rejected_fingerprint)
+
+    def _record_fingerprint(self, fingerprint: str) -> None:
+        """Bounded frequency tracking that keeps the REPEAT OFFENDER.
+
+        Caller must hold the lock.
+
+        The question fingerprints exist to answer is "one drifted service
+        resending a stale key, or a scanner spraying junk?" — and a plain
+        fixed-size table answers it backwards: whichever keys arrive FIRST take
+        the slots, so a scanner filling the table makes the drifted caller
+        invisible no matter how many times it retries. Gating the insertion
+        instead of the increment only helps if the repeat offender happens to be
+        seen first, which is exactly what an attacker controls.
+
+        This is Space-Saving: when full, the lowest-count entry is evicted and
+        the newcomer inherits its count. A key that keeps recurring climbs above
+        the noise within a few hits, while memory stays capped at N entries.
+
+        ⚠️ Once the table has overflowed, counts are an UPPER BOUND (a newcomer
+        inherits the evicted count), not an exact tally. `approximate` says so in
+        the payload — this is a triage signal, never an audit trail.
+        """
+        if fingerprint in self._fingerprints:
+            self._fingerprints[fingerprint] += 1
+            return
+        if len(self._fingerprints) < _MAX_REJECTED_FINGERPRINTS:
+            self._fingerprints[fingerprint] = 1
+            return
+        victim = min(self._fingerprints, key=self._fingerprints.__getitem__)
+        inherited = self._fingerprints.pop(victim)
+        self._fingerprints[fingerprint] = inherited + 1
+        self._fingerprints_approximate = True
 
     def due(self, now: Optional[float] = None) -> bool:
         with self._lock:
@@ -213,7 +286,10 @@ class RejectionCounter:
             started = self._window_started
             self._counts = {}
             self._paths = set()
+            self._callers = set()
+            approximate = self._fingerprints_approximate
             self._fingerprints = {}
+            self._fingerprints_approximate = False
             self._window_started = now or time.monotonic()
 
         totals: Dict[str, int] = {}
@@ -227,14 +303,27 @@ class RejectionCounter:
             "totals": totals,
             "by_path": detail,
             "rejected_key_fingerprints": fingerprints,
+            **({"rejected_key_fingerprints_approximate": True} if approximate else {}),
         }
 
 
 def _emit(payload: Dict[str, Any]) -> None:
     """One greppable line. ``ENGINE-AUTH-ROLLUP`` is the Railway-log search term."""
-    unkeyed = payload["totals"].get(OUTCOME_ABSENT, 0) + payload["totals"].get(
-        OUTCOME_INVALID, 0
-    )
+    totals = payload["totals"]
+    unconfigured = totals.get(OUTCOME_UNCONFIGURED, 0)
+    if unconfigured:
+        # ⚠️ The most dangerous state, and the one that used to look routine.
+        # With no keys set the middleware cannot inspect the presented value at
+        # all, so a correctly-keyed caller and a completely unkeyed one both land
+        # here — `keyed` stays 0 forever. An operator grepping for the WARNING
+        # line and finding none would read that as "no unkeyed callers, safe to
+        # flip", when in fact flipping is a total outage (unconfigured fails
+        # closed). The window is not evidence; say so in the line itself.
+        payload["warning"] = (
+            "ENGINE_KEYS/ENGINE_KEY is unset — this window proves nothing about "
+            "caller coverage, and enforcing now would reject every request"
+        )
+    unkeyed = totals.get(OUTCOME_ABSENT, 0) + totals.get(OUTCOME_INVALID, 0) + unconfigured
     line = "ENGINE-AUTH-ROLLUP " + json.dumps(payload, sort_keys=True, ensure_ascii=False)
     # Rejections are the signal B3-b reads; keyed-only windows are routine.
     (logger.warning if unkeyed else logger.info)(line)
@@ -252,25 +341,52 @@ class EngineKeyMiddleware:
     def __init__(self, app: Callable[..., Awaitable[None]], counter: Optional[RejectionCounter] = None):
         self.app = app
         self.counter = counter if counter is not None else RejectionCounter()
+        self._routed_paths: Optional[frozenset] = None
+
+    def _known_paths(self, scope: Dict[str, Any]) -> frozenset:
+        """The paths this app actually routes, read once from the ASGI scope.
+
+        Derived at request time rather than passed in, because ``add_middleware``
+        runs before the route decorators — there is nothing to pass at
+        construction. Used only to protect real endpoints from the path cap.
+        """
+        if self._routed_paths is None:
+            paths = set()
+            for route in getattr(scope.get("app"), "routes", None) or []:
+                candidate = getattr(route, "path", None)
+                if isinstance(candidate, str):
+                    paths.add(candidate)
+            self._routed_paths = frozenset(paths)
+        return self._routed_paths
 
     async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
         if scope.get("type") != "http":
+            # Websockets and lifespan pass through unchecked. There are no
+            # websocket routes today (`grep '@app.websocket'` → 0); the day one
+            # is added it is silently unauthenticated AND invisible to the
+            # counter, so this branch must be revisited then.
             await self.app(scope, receive, send)
             return
 
         path = scope.get("path", "")
-        if path in EXEMPT_PATHS:
+        # Trailing slash stripped before the exemption test: this runs before the
+        # router, so FastAPI's own `/health/` → `/health` redirect has not
+        # happened. A healthcheck configured with a slash would otherwise be
+        # counted, and 401'd once enforcing — the exact failure the exemption
+        # exists to prevent.
+        if (path.rstrip("/") or "/") in EXEMPT_PATHS:
             await self.app(scope, receive, send)
             return
 
         outcome = OUTCOME_ABSENT
-        caller = "unknown"
-        fingerprint: Optional[str] = None
+        request_id = ""
         try:
             headers = Headers(scope=scope)
+            request_id = headers.get(REQUEST_ID_HEADER) or ""
             caller = headers.get(CALLER_HEADER) or "unknown"
             presented = (headers.get(ENGINE_KEY_HEADER) or "").strip()
             accepted = load_engine_keys()
+            fingerprint: Optional[str] = None
             if not accepted:
                 outcome = OUTCOME_UNCONFIGURED
             elif not presented:
@@ -280,7 +396,9 @@ class EngineKeyMiddleware:
             else:
                 outcome = OUTCOME_INVALID
                 fingerprint = fingerprint_rejected_key(presented)
-            self.counter.record(outcome, path, caller, fingerprint)
+            self.counter.record(
+                outcome, path, caller, fingerprint, reserved_path=path in self._known_paths(scope)
+            )
             if self.counter.due():
                 payload = self.counter.drain()
                 if payload:
@@ -299,11 +417,18 @@ class EngineKeyMiddleware:
             # Fail-closed covers `unconfigured` too: a prod engine with no keys
             # set refuses everything rather than admitting everyone. The
             # deployment error is loud instead of silent.
-            request_id = Headers(scope=scope).get(REQUEST_ID_HEADER) or ""
+            #
+            # `request_id` is read inside the try above and sanitised here — it
+            # is caller-supplied and it LEAVES the process, so it gets the same
+            # treatment as every other attacker-controlled string in this file.
+            # (Re-parsing the headers at this point would also put an unguarded
+            # parse on the path reached by the `except` branch, whose cause may
+            # have been that very parse failing.)
+            echoed = _label(request_id, "")[:_MAX_ECHOED_REQUEST_ID]
             response = JSONResponse(
                 status_code=401,
                 content={"detail": "Engine authentication required."},
-                headers={REQUEST_ID_HEADER: request_id} if request_id else None,
+                headers={REQUEST_ID_HEADER: echoed} if echoed else None,
             )
             await response(scope, receive, send)
             return

@@ -18,14 +18,41 @@ export const ENGINE_KEY_HEADER = 'X-Engine-Key';
 export const ENGINE_CALLER_HEADER = 'X-Engine-Caller';
 export const ENGINE_REQUEST_ID_HEADER = 'X-Request-Id';
 
-/** Mirrors `EngineCaller` in the API helper; web owns only this one. */
-export type WebEngineCaller = 'web.bazi-calculate';
+/** Mirrors `ENGINE_CALLERS` in the API helper; web owns only this one. */
+export const WEB_ENGINE_CALLERS = ['web.bazi-calculate'] as const;
+export type WebEngineCaller = (typeof WEB_ENGINE_CALLERS)[number];
+
+/** Exported so the parity spec can compare the two helpers' resolution rules. */
+export function resolveEngineKey(env: NodeJS.ProcessEnv = process.env): string {
+  const single = (env.ENGINE_KEY || '').trim();
+  if (single) return single;
+  return (env.ENGINE_KEYS || '').split(',')[0]?.trim() || '';
+}
+
+let warnedMissingKey = false;
+
+/** Test seam: the missing-key warning fires once per process by design. */
+export function resetEngineKeyWarningForTests(): void {
+  warnedMissingKey = false;
+}
 
 export function buildEngineHeaders(
   caller: WebEngineCaller,
   extra?: Record<string, string>,
 ): Record<string, string> {
-  const key = (process.env.ENGINE_KEY || process.env.ENGINE_KEYS?.split(',')[0] || '').trim();
+  const key = resolveEngineKey();
+  if (!key && !warnedMissingKey) {
+    warnedMissingKey = true;
+    // The API helper warns; without the same warning here the web route would
+    // degrade to unkeyed with no diagnostic anywhere — and this route is the
+    // free chart preview, the one engine caller reachable without signing in.
+    console.warn(
+      '[engine-client] ENGINE_KEY is not set — engine calls from the web app go ' +
+        'out unkeyed. Harmless while the engine runs in observe mode; enforcing ' +
+        '(ENGINE_REQUIRE_KEY) would 401 the free chart preview. Note Next.js reads ' +
+        'env from apps/web/.env.local, not the monorepo root.',
+    );
+  }
   return {
     ...(key ? { [ENGINE_KEY_HEADER]: key } : {}),
     [ENGINE_CALLER_HEADER]: caller,

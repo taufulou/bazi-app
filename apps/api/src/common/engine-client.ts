@@ -32,19 +32,27 @@ export const ENGINE_REQUEST_ID_HEADER = 'X-Request-Id';
  * ⚠️ Keep these matching `_LABEL_SAFE` in `packages/bazi-engine/app/engine_auth.py`
  * (`[A-Za-z0-9._/-]`, 48 chars). Anything else is rewritten on arrival and the
  * name you grep for is not the name in the log.
+ *
+ * A runtime `const` rather than a bare union type, so the charset test can
+ * iterate the REAL list. As a type alone it is erased at compile time, and the
+ * test could only re-declare the names locally and check its own copy — passing
+ * happily while a newly added name arrived at the engine rewritten.
  */
-export type EngineCaller =
-  | 'bazi.reading'
-  | 'bazi.passthrough'
-  | 'bazi.compatibility'
-  | 'zwds.calculate'
-  | 'fortune.daily'
-  | 'fortune.monthly'
-  | 'fortune.yearly'
-  | 'chat.context'
-  | 'chat.context-compat'
-  | 'chat.context-fortune'
-  | 'health.probe';
+export const ENGINE_CALLERS = [
+  'bazi.reading',
+  'bazi.passthrough',
+  'bazi.compatibility',
+  'zwds.calculate',
+  'fortune.daily',
+  'fortune.monthly',
+  'fortune.yearly',
+  'chat.context',
+  'chat.context-compat',
+  'chat.context-fortune',
+  'health.probe',
+] as const;
+
+export type EngineCaller = (typeof ENGINE_CALLERS)[number];
 
 /**
  * The key this service presents.
