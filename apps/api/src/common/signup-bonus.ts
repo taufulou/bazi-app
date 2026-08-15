@@ -50,6 +50,53 @@ interface UserFinder {
   };
 }
 
+/** Same reasoning as {@link UserFinder} — structural, so no new DI wiring. */
+interface LedgerWriter {
+  creditLedger: {
+    create(args: {
+      data: { userId: string; amount: number; reason: string };
+    }): Promise<unknown>;
+  };
+}
+
+/** The one reason string for a signup grant. Greppable, and stable for reconciliation. */
+export const SIGNUP_BONUS_LEDGER_REASON = 'signup_bonus';
+
+/**
+ * Record the signup grant in `CreditLedger`.
+ *
+ * ⚠️ Without this the ledger invariant — `sum(CreditLedger.amount) == User.credits`,
+ * the whole point of the A6/A7/F7 work — held for **no account in the system**,
+ * because every user starts with an unledgered 3. The earlier sweep missed it by
+ * grepping for `credits: { increment | decrement }` and absolute `credits:`
+ * writes, and these three sites are `user.create({ data: { credits } })`: a
+ * different shape, and the only one that touches every single user.
+ *
+ * Deliberately NOT transactional with the insert. The alternative is wrapping
+ * three call sites (two of them in a webhook handler) in `$transaction` for a
+ * bookkeeping row, and a failure here must never cost a real user their account
+ * or their credits. A missing ledger row is a reconciliation discrepancy; a
+ * failed signup is a lost customer. Logged loudly so the discrepancy is
+ * attributable rather than mysterious.
+ */
+export async function recordSignupBonusLedger(
+  prisma: LedgerWriter,
+  userId: string,
+  credits: number,
+): Promise<void> {
+  if (credits <= 0) return; // returning identity — nothing was granted
+  try {
+    await prisma.creditLedger.create({
+      data: { userId, amount: credits, reason: SIGNUP_BONUS_LEDGER_REASON },
+    });
+  } catch (err) {
+    logger.error(
+      `Signup bonus ledger write FAILED for user ${userId} (${credits} credits ` +
+        `were granted). Balance and ledger now disagree for this account: ${err}`,
+    );
+  }
+}
+
 /**
  * How many credits a newly-inserted row for `clerkUserId` should start with.
  *

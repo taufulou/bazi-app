@@ -322,11 +322,27 @@ export class StripeService {
       },
     });
 
-    // F9 audit — `Subscription.status` is the SOLE input to `computeEffectiveTier`
-    // (it selects `status: 'ACTIVE'`), so any endpoint that writes it must
-    // recompute the user's tier. This one didn't, leaving `User.subscriptionTier`
-    // to whatever a later webhook happened to set.
-    await this.entitlements.syncUserTier(user.id);
+    // ⚠️ DO NOT call `syncUserTier` here. The Phase 1 gate audit caught this as a
+    // regression introduced by the F9 sibling sweep, which added the recompute on
+    // the reasoning that "any endpoint writing `Subscription.status` must
+    // recompute the tier". True of the WEBHOOK handlers, where a status write
+    // means entitlement actually changed — and false here.
+    //
+    // This is a `cancel_at_period_end` cancellation: Stripe keeps billing rights
+    // until the period ends, and this codebase uses `status: 'CANCELLED'` to mean
+    // "scheduled to cancel", not "no longer entitled" — see
+    // `payments.service.ts:84` and `upgradeSubscription`, both of which treat a
+    // CANCELLED row as live, and `dashboard/subscription/page.tsx`, which renders
+    // it as 「已排定取消」. `syncUserTier` selects `status: 'ACTIVE'` only, so
+    // recomputing here dropped the user to FREE the instant they clicked cancel,
+    // with up to a month of paid time left: fortune windows collapsed to the
+    // current period, explain-element paid layers were stripped, and the chat
+    // quota resnapshotted to the FREE cap of 0.
+    //
+    // The event that genuinely ends entitlement is `customer.subscription.deleted`
+    // → `handleSubscriptionDeleted`, which writes EXPIRED and recomputes there.
+    // RevenueCat already models it this way (`revenuecat.service.ts`: "keep status
+    // ACTIVE until EXPIRATION"); Stripe was the odd one out.
 
     // In clover API, period dates are on subscription items
     const firstItem = updated.items?.data?.[0];

@@ -40,10 +40,31 @@ function webRedacts(key: string): boolean {
 }
 
 describe('Sentry scrubber parity (api ↔ web)', () => {
-  const allKeys = [...new Set([...web.PII_KEY_LIST, ...web.PII_SUBTREE_KEY_LIST])];
+  // ⚠️ The union of BOTH sides. Deriving this from web alone made the check
+  // one-directional: a key deleted from web left the iteration set with it, and
+  // the suite stayed green while the browser SDK — the one running on the pages
+  // where birth data is TYPED — resumed shipping that field. Reproduced during
+  // the Phase 1 gate with `birthCity` and `fourPillars`.
+  const allKeys = [
+    ...new Set([
+      ...web.PII_KEY_LIST,
+      ...web.PII_SUBTREE_KEY_LIST,
+      ...api.PII_KEY_LIST,
+      ...api.PII_SUBTREE_KEY_LIST,
+    ]),
+  ];
 
   it('uses the same redaction marker', () => {
     expect(web.REDACTED).toBe(api.REDACTED);
+  });
+
+  it('the two key lists are set-equal, in both directions', () => {
+    // The declarative form of the same claim. `it.each` below proves BEHAVIOUR
+    // matches; this proves the LISTS match, which is what drifts in a refactor.
+    expect([...web.PII_KEY_LIST].sort()).toEqual([...api.PII_KEY_LIST].sort());
+    expect([...web.PII_SUBTREE_KEY_LIST].sort()).toEqual(
+      [...api.PII_SUBTREE_KEY_LIST].sort(),
+    );
   });
 
   it.each(allKeys)('both copies redact "%s"', (key) => {

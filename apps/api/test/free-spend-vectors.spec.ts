@@ -162,9 +162,13 @@ describe('F1 — signup bonus is once per identity, not once per insert', () => 
       const prisma = {
         user: {
           findFirst: jest.fn().mockResolvedValue({ id: 'prior-deleted-row' }),
-          create: jest.fn().mockResolvedValue({}),
-          upsert: jest.fn().mockResolvedValue({}),
+          // null = no existing row, so `handleUserUpdated`'s upsert takes the
+          // CREATE branch — which is the branch these vectors are about.
+          findUnique: jest.fn().mockResolvedValue(null),
+          create: jest.fn().mockResolvedValue({ id: 'user-1' }),
+          upsert: jest.fn().mockResolvedValue({ id: 'user-1' }),
         },
+        creditLedger: { create: jest.fn().mockResolvedValue({}) },
       };
       const controller = new ClerkWebhookController(
         prisma as never,
@@ -199,9 +203,11 @@ describe('F1 — signup bonus is once per identity, not once per insert', () => 
       const prisma = {
         user: {
           findFirst: jest.fn().mockResolvedValue(null), // no prior deletion
-          create: jest.fn().mockResolvedValue({}),
-          upsert: jest.fn().mockResolvedValue({}),
+          findUnique: jest.fn().mockResolvedValue(null), // upsert -> CREATE branch
+          create: jest.fn().mockResolvedValue({ id: 'user-1' }),
+          upsert: jest.fn().mockResolvedValue({ id: 'user-1' }),
         },
+        creditLedger: { create: jest.fn().mockResolvedValue({}) },
       };
       const controller = new ClerkWebhookController(
         prisma as never,

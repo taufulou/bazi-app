@@ -149,6 +149,21 @@ const PII_SUBTREE_KEYS = new Set(
   ].map((k) => k.toLowerCase()),
 );
 
+/**
+ * Exported for `sentry-scrub-parity.spec.ts` ONLY.
+ *
+ * These were private, and the parity test therefore had to derive its key list
+ * from the WEB copy's exports and probe this side indirectly — which made the
+ * check one-directional. Deleting a key from the web list removed it from the
+ * test's own iteration set, so the suite stayed green while the browser SDK
+ * started shipping that field. The gate audit reproduced it with `birthCity` and
+ * `fourPillars`: green, and all four pillars in the event verbatim. Parity has
+ * to be asserted as SET EQUALITY from both sides, which needs both sides
+ * enumerable.
+ */
+export const PII_KEY_LIST = [...PII_KEYS].sort();
+export const PII_SUBTREE_KEY_LIST = [...PII_SUBTREE_KEYS].sort();
+
 const MAX_DEPTH = 8;
 
 /** Recursively redact in place-safe fashion (returns a new value). */

@@ -28,9 +28,28 @@ if (
     // autocapture ON deliberately — turning it off is a product-analytics
     // decision; removing PII from it is not.
     mask_all_text: true,
-    // The manual $pageview below strips the query string on purpose, but
-    // autocapture attaches the full href — which re-adds `?profileId=…`.
+    // Masks `attr__*` on autocaptured elements — including a clicked anchor's
+    // `attr__href`, which on this app carries `?profileId=…`.
     mask_all_element_attributes: true,
+    // ⚠️ That setting alone does NOT cover it. `$current_url` and `$referrer`
+    // are TOP-LEVEL event properties derived from `window.location`, not element
+    // attributes, so every autocaptured event re-attached the full query string
+    // regardless — the manual `$pageview` below strips it, autocapture did not.
+    // A profile id is a correlatable identifier for a person's birth record, so
+    // it does not belong in third-party analytics even though it is not the
+    // birth data itself.
+    sanitize_properties: (properties) => {
+      const stripQuery = (value: unknown): unknown => {
+        if (typeof value !== 'string') return value;
+        const cut = value.search(/[?#]/);
+        return cut === -1 ? value : value.slice(0, cut);
+      };
+      return {
+        ...properties,
+        $current_url: stripQuery(properties.$current_url),
+        $referrer: stripQuery(properties.$referrer),
+      };
+    },
   });
 }
 

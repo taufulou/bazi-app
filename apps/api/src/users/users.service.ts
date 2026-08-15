@@ -13,7 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AIService } from '../ai/ai.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateBirthProfileDto, UpdateBirthProfileDto } from './dto/create-birth-profile.dto';
-import { resolveSignupCredits } from '../common/signup-bonus';
+import { recordSignupBonusLedger, resolveSignupCredits } from '../common/signup-bonus';
 
 @Injectable()
 export class UsersService {
@@ -636,6 +636,7 @@ export class UsersService {
       user = await this.prisma.user.create({
         data: { clerkUserId, credits },
       });
+      await recordSignupBonusLedger(this.prisma, user.id, credits);
     }
 
     return user;

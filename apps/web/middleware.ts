@@ -1,4 +1,5 @@
 import { clerkMiddleware, createRouteMatcher } from '@clerk/nextjs/server';
+import { parseAuthorizedParties } from './app/lib/authorized-parties';
 
 // Public routes that don't require authentication.
 //
@@ -39,10 +40,27 @@ const isPublicRoute = createRouteMatcher([
 // Empty/unset = no check (Clerk short-circuits on a zero-length list), matching
 // the API's default. See `apps/api/src/auth/clerk.guard.ts` for the full
 // reasoning, including why native clients — which send no `azp` — are unaffected.
-const authorizedParties = (process.env.CLERK_AUTHORIZED_PARTIES ?? '')
-  .split(',')
-  .map((s) => s.trim().replace(/\/+$/, '').toLowerCase())
-  .filter(Boolean);
+const authorizedParties = parseAuthorizedParties(
+  process.env.CLERK_AUTHORIZED_PARTIES,
+  (original, normalised) => {
+    // The API logs the same thing at boot. Without it here, a typo'd entry is
+    // silently rewritten on the web service only — and the launch-gate rule
+    // ("set it on both services, they must not drift") is enforced by nothing.
+    console.warn(
+      `[middleware] CLERK_AUTHORIZED_PARTIES entry "${original}" normalised to ` +
+        `"${normalised}". Clerk matches azp exactly and case-sensitively; fix the ` +
+        `env var so both services carry the identical value.`,
+    );
+  },
+);
+
+if (authorizedParties.length === 0) {
+  console.warn(
+    '[middleware] CLERK_AUTHORIZED_PARTIES is not set — the azp claim is NOT ' +
+      'checked here. Set it to the web origin(s) allowed to mint tokens, the same ' +
+      'value as the API service.',
+  );
+}
 
 export default clerkMiddleware(
   async (auth, request) => {

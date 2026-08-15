@@ -284,6 +284,18 @@ export class PaymentsController {
 
   // ============ Subscription Management ============
 
+  // Throttled for the same reason as `upgrade` below — and these two are the
+  // SHARPER case, which the Phase 1 gate audit caught. They flip
+  // `Subscription.status` directly, so they GUARANTEE the FREE↔tier change that
+  // reaches `syncUserTier` -> `refundStrandedPaidOnTierChange` and its
+  // `credits: { increment }`, whereas an upgrade between two paid tiers often
+  // changes nothing. The original sweep gave `upgrade` the throttle and left its
+  // two siblings on the global 100/min/IP.
+  //
+  // Each refund is idempotent per session, which bounds one cycle — nothing
+  // bounded the number of cycles: cancel→reactivate→cancel recovers a credit per
+  // partially-used chat extension, indefinitely.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('cancel')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Cancel active subscription (at period end)' })
@@ -291,6 +303,7 @@ export class PaymentsController {
     return this.stripeService.cancelSubscription(auth.userId);
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('reactivate')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Reactivate a cancelled subscription' })

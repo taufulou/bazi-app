@@ -394,12 +394,13 @@ describe('StripeService', () => {
       );
     });
 
-    // F9 audit — `Subscription.status` is the SOLE input to computeEffectiveTier,
-    // so an endpoint that writes it MUST recompute the user's tier. Both of these
-    // wrote status and skipped the recompute, leaving User.subscriptionTier to
-    // whatever a later webhook happened to set. The F9 sibling sweep missed them
-    // because it grepped `subscriptionTier:` — the wrong column.
-    it('recomputes the user tier after cancelling (status is a tier input)', async () => {
+    // ⚠️ This test previously asserted the OPPOSITE — that cancelling downgrades
+    // the user to FREE immediately — and so enshrined the regression the Phase 1
+    // gate audit found. A `cancel_at_period_end` cancellation does not end
+    // entitlement; `customer.subscription.deleted` does. Keeping the old
+    // assertion would have meant the fix could only land by deleting a test,
+    // which is the shape that makes a wrong behaviour look load-bearing.
+    it('does NOT downgrade the user when cancelling at period end', async () => {
       mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, subscriptionTier: 'PRO' });
       mockPrisma.subscription.findFirst.mockResolvedValue({
         id: 'sub-db-1',
@@ -410,15 +411,38 @@ describe('StripeService', () => {
         items: { data: [{ current_period_end: Math.floor(Date.now() / 1000) + 2592000 }] },
       });
       mockPrisma.subscription.update.mockResolvedValue({});
-      // No ACTIVE rows remain once this one is cancelled.
+      // `syncUserTier` would see no ACTIVE rows and compute FREE — so if anything
+      // calls it on this path, the user is downgraded with a month left to run.
       mockPrisma.subscription.findMany.mockResolvedValue([]);
 
       await service.cancelSubscription('clerk_user_abc');
 
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
-        where: { id: MOCK_USER.id },
-        data: { subscriptionTier: 'FREE' },
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('marks the subscription as scheduled-to-cancel, keeping it reactivatable', async () => {
+      // The UI renders 「已排定取消」 off `status === 'CANCELLED'` and
+      // `reactivateSubscription` looks the row up by it, so the write itself must
+      // stay — it is only the ENTITLEMENT recompute that was wrong.
+      mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, subscriptionTier: 'PRO' });
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-db-1',
+        stripeSubscriptionId: 'sub_stripe_123',
+        status: 'ACTIVE',
       });
+      mockStripeSubscriptions.update.mockResolvedValue({
+        items: { data: [{ current_period_end: Math.floor(Date.now() / 1000) + 2592000 }] },
+      });
+      mockPrisma.subscription.update.mockResolvedValue({});
+
+      await service.cancelSubscription('clerk_user_abc');
+
+      expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'sub-db-1' },
+          data: expect.objectContaining({ status: 'CANCELLED' }),
+        }),
+      );
     });
 
     it('should throw NotFoundException when no active subscription', async () => {
