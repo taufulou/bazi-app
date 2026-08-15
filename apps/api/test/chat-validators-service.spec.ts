@@ -24,7 +24,7 @@ describe('ChatValidatorsService', () => {
         return undefined;
       }),
     };
-    service = new ChatValidatorsService(mockConfig);
+    service = new ChatValidatorsService(mockConfig, { record: jest.fn(), assertUnderCap: jest.fn() } as never);
   });
 
   // ============================================================

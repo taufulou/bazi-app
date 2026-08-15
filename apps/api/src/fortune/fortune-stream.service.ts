@@ -37,6 +37,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { AiSpendService } from '../ai/ai-spend.service';
 import * as Sentry from '@sentry/nestjs';
 import {
   FORTUNE_PROMPT_VERSIONS,
@@ -210,6 +211,7 @@ export class FortuneStreamService {
     private readonly prisma: PrismaService,
     private readonly helpers: FortuneSnapshotHelpers,
     private readonly validators: FortuneValidatorsService,
+    private readonly aiSpend: AiSpendService,
   ) {}
 
   /**
@@ -509,6 +511,10 @@ export class FortuneStreamService {
     let finalStopReason: string | null = null;
 
     try {
+      // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+      // generation stops. Throws a typed 503 that the caller's existing
+      // error path maps to a refund where a credit was already taken.
+      await this.aiSpend.assertUnderCap('fortune:stream-daily');
       const stream = client.messages.stream(
         {
           model,
@@ -537,6 +543,24 @@ export class FortuneStreamService {
 
       const finalMessage = await stream.finalMessage();
       finalStopReason = (finalMessage as { stop_reason?: string }).stop_reason ?? null;
+      // S2 — meter the stream. `finalMessage()` carries the authoritative
+      // usage; an aborted stream never reaches here, which under-counts by
+      // design rather than over-counting a call that produced nothing.
+      void this.aiSpend.record({
+        provider: 'CLAUDE',
+        model,
+        usage: {
+          inputTokens: finalMessage.usage?.input_tokens ?? 0,
+          outputTokens: finalMessage.usage?.output_tokens ?? 0,
+          cacheReadTokens:
+            ((finalMessage.usage ?? {}) as { cache_read_input_tokens?: number })
+              .cache_read_input_tokens ?? 0,
+          cacheWriteTokens:
+            ((finalMessage.usage ?? {}) as { cache_creation_input_tokens?: number })
+              .cache_creation_input_tokens ?? 0,
+        },
+        context: 'fortune:stream-daily',
+      });
     } catch (err) {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
@@ -1165,6 +1189,10 @@ export class FortuneStreamService {
     let finalStopReason: string | null = null;
 
     try {
+      // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+      // generation stops. Throws a typed 503 that the caller's existing
+      // error path maps to a refund where a credit was already taken.
+      await this.aiSpend.assertUnderCap('fortune:stream-monthly');
       const stream = client.messages.stream(
         {
           model,
@@ -1193,6 +1221,24 @@ export class FortuneStreamService {
 
       const finalMessage = await stream.finalMessage();
       finalStopReason = (finalMessage as { stop_reason?: string }).stop_reason ?? null;
+      // S2 — meter the stream. `finalMessage()` carries the authoritative
+      // usage; an aborted stream never reaches here, which under-counts by
+      // design rather than over-counting a call that produced nothing.
+      void this.aiSpend.record({
+        provider: 'CLAUDE',
+        model,
+        usage: {
+          inputTokens: finalMessage.usage?.input_tokens ?? 0,
+          outputTokens: finalMessage.usage?.output_tokens ?? 0,
+          cacheReadTokens:
+            ((finalMessage.usage ?? {}) as { cache_read_input_tokens?: number })
+              .cache_read_input_tokens ?? 0,
+          cacheWriteTokens:
+            ((finalMessage.usage ?? {}) as { cache_creation_input_tokens?: number })
+              .cache_creation_input_tokens ?? 0,
+        },
+        context: 'fortune:stream-monthly',
+      });
     } catch (err) {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
@@ -1736,6 +1782,10 @@ export class FortuneStreamService {
     let finalStopReason: string | null = null;
 
     try {
+      // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+      // generation stops. Throws a typed 503 that the caller's existing
+      // error path maps to a refund where a credit was already taken.
+      await this.aiSpend.assertUnderCap('fortune:stream-yearly');
       const stream = client.messages.stream(
         {
           model,
@@ -1764,6 +1814,24 @@ export class FortuneStreamService {
 
       const finalMessage = await stream.finalMessage();
       finalStopReason = (finalMessage as { stop_reason?: string }).stop_reason ?? null;
+      // S2 — meter the stream. `finalMessage()` carries the authoritative
+      // usage; an aborted stream never reaches here, which under-counts by
+      // design rather than over-counting a call that produced nothing.
+      void this.aiSpend.record({
+        provider: 'CLAUDE',
+        model,
+        usage: {
+          inputTokens: finalMessage.usage?.input_tokens ?? 0,
+          outputTokens: finalMessage.usage?.output_tokens ?? 0,
+          cacheReadTokens:
+            ((finalMessage.usage ?? {}) as { cache_read_input_tokens?: number })
+              .cache_read_input_tokens ?? 0,
+          cacheWriteTokens:
+            ((finalMessage.usage ?? {}) as { cache_creation_input_tokens?: number })
+              .cache_creation_input_tokens ?? 0,
+        },
+        context: 'fortune:stream-yearly',
+      });
     } catch (err) {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);

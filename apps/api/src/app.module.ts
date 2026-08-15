@@ -16,6 +16,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { AdminModule } from './admin/admin.module';
 import { AdsModule } from './ads/ads.module';
 import { AIModule } from './ai/ai.module';
+import { AiSpendModule } from './ai/ai-spend.module';
 import { CreditsModule } from './credits/credits.module';
 import { ChatModule } from './chat/chat.module';
 import { FortuneModule } from './fortune/fortune.module';
@@ -85,6 +86,14 @@ import { BannerModule } from './banner/banner.module';
         // uncapped account is a denial-of-wallet vector. 10 is well above
         // genuine use; raise only with the AI spend controls (S1/S2) in place.
         BIRTH_PROFILE_MAX_PER_USER: Joi.number().integer().min(1).optional().default(10),
+        // S2 — AI spend ledger + circuit breaker. This is the only ceiling on
+        // AI spend that WE control; the $500/mo account limit is a real backstop
+        // but an all-at-once cliff. Defaults sit deliberately below it so the
+        // graceful ceiling is always reached first.
+        // `AI_SPEND_BREAKER_ENABLED=0` is the documented rollback.
+        AI_SPEND_BREAKER_ENABLED: Joi.string().valid('0', '1').optional().default('1'),
+        AI_DAILY_SPEND_LIMIT_USD: Joi.number().positive().optional().default(50),
+        AI_MONTHLY_SPEND_LIMIT_USD: Joi.number().positive().optional().default(400),
         PORT: Joi.number().default(4000),
         NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
       }),
@@ -106,6 +115,9 @@ import { BannerModule } from './banner/banner.module';
     // Infrastructure
     PrismaModule,
     RedisModule,
+    // S2 — global so every provider call site can meter, and so a NEW
+    // caller cannot forget to wire it up. See ai-spend.module.ts.
+    AiSpendModule,
 
     // Auth
     AuthModule,

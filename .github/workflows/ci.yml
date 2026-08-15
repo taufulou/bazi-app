@@ -25,6 +25,8 @@ jobs:
       # than after a full install.
       - name: Guard — every Bazi-engine call goes through the keyed helper
         run: node scripts/check-engine-callers.mjs
+      - name: Guard — every AI provider call is metered and capped
+        run: node scripts/check-ai-spend-metering.mjs
       - run: npm ci
       - name: Generate Prisma client
         run: cd apps/api && npx prisma generate

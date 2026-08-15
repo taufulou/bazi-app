@@ -15,6 +15,7 @@ import { ChatRole } from '@prisma/client';
 import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { AiSpendService } from '../ai/ai-spend.service';
 import {
   ChatPaymentService,
   CHAT_SESSION_HARD_CAP_MESSAGES,
@@ -122,6 +123,7 @@ export class ChatStreamService {
     private readonly paymentService: ChatPaymentService,
     private readonly contextService: ChatContextService,
     private readonly validators: ChatValidatorsService,
+    private readonly aiSpend: AiSpendService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     if (!apiKey) {
@@ -595,6 +597,10 @@ export class ChatStreamService {
     };
 
     try {
+      // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+      // generation stops. Throws a typed 503 that the caller's existing
+      // error path maps to a refund where a credit was already taken.
+      await this.aiSpend.assertUnderCap('chat:stream');
       const stream = this.anthropic.messages.stream(
         {
           model: this.model,
@@ -635,6 +641,20 @@ export class ChatStreamService {
           (finalMessage.usage as { cache_creation_input_tokens?: number })
             .cache_creation_input_tokens ?? 0,
       };
+      // S2 — meter this call. Chat and fortune bypassed `ai.service`'s
+      // logger entirely, so before this every token they spent was
+      // invisible to both `AIUsageLog` and the breaker.
+      void this.aiSpend.record({
+        provider: 'CLAUDE',
+        model: this.model,
+        usage: {
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          cacheReadTokens: usage.cacheReadTokens,
+          cacheWriteTokens: usage.cacheCreationTokens,
+        },
+        context: 'chat:stream',
+      });
     } catch (err) {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);

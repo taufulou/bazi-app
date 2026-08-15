@@ -25,6 +25,7 @@
  * `fortune-snapshot.helpers.contract.spec.ts`).
  */
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { AiSpendService } from '../ai/ai-spend.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   FORTUNE_PROMPT_VERSIONS,
@@ -69,6 +70,7 @@ export class FortuneService {
     private readonly prisma: PrismaService,
     private readonly helpers: FortuneSnapshotHelpers,
     private readonly validators: FortuneValidatorsService,
+    private readonly aiSpend: AiSpendService,
   ) {}
 
   // ============================================================
@@ -244,6 +246,10 @@ export class FortuneService {
     const client = await this.helpers.ensureClaudeClient();
     const model = this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
 
+    // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+    // generation stops. Throws a typed 503 that the caller's existing
+    // error path maps to a refund where a credit was already taken.
+    await this.aiSpend.assertUnderCap('fortune:daily');
     const response = await client.messages.create(
       {
         model,
@@ -254,6 +260,23 @@ export class FortuneService {
       },
       { timeout: AI_CALL_TIMEOUT_MS },
     );
+
+    // S2 — meter. Fortune called Anthropic directly and wrote no usage row,
+    // so its spend was invisible to both `AIUsageLog` and the breaker.
+    void this.aiSpend.record({
+      provider: 'CLAUDE',
+      model,
+      usage: {
+        inputTokens: response.usage?.input_tokens ?? 0,
+        outputTokens: response.usage?.output_tokens ?? 0,
+        cacheReadTokens:
+          ((response.usage ?? {}) as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
+        cacheWriteTokens:
+          ((response.usage ?? {}) as { cache_creation_input_tokens?: number })
+            .cache_creation_input_tokens ?? 0,
+      },
+      context: 'fortune:daily',
+    });
 
     const text = response.content
       .filter((b: { type: string }) => b.type === 'text')
@@ -454,6 +477,10 @@ export class FortuneService {
     const client = await this.helpers.ensureClaudeClient();
     const model = this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
 
+    // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+    // generation stops. Throws a typed 503 that the caller's existing
+    // error path maps to a refund where a credit was already taken.
+    await this.aiSpend.assertUnderCap('fortune:monthly');
     const response = await client.messages.create(
       {
         model,
@@ -464,6 +491,23 @@ export class FortuneService {
       },
       { timeout: AI_CALL_TIMEOUT_MS },
     );
+
+    // S2 — meter. Fortune called Anthropic directly and wrote no usage row,
+    // so its spend was invisible to both `AIUsageLog` and the breaker.
+    void this.aiSpend.record({
+      provider: 'CLAUDE',
+      model,
+      usage: {
+        inputTokens: response.usage?.input_tokens ?? 0,
+        outputTokens: response.usage?.output_tokens ?? 0,
+        cacheReadTokens:
+          ((response.usage ?? {}) as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
+        cacheWriteTokens:
+          ((response.usage ?? {}) as { cache_creation_input_tokens?: number })
+            .cache_creation_input_tokens ?? 0,
+      },
+      context: 'fortune:monthly',
+    });
 
     const text = response.content
       .filter((b: { type: string }) => b.type === 'text')
@@ -645,6 +689,10 @@ export class FortuneService {
     const client = await this.helpers.ensureClaudeClient();
     const model = this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
 
+    // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+    // generation stops. Throws a typed 503 that the caller's existing
+    // error path maps to a refund where a credit was already taken.
+    await this.aiSpend.assertUnderCap('fortune:yearly');
     const response = await client.messages.create(
       {
         model,
@@ -655,6 +703,23 @@ export class FortuneService {
       },
       { timeout: AI_CALL_TIMEOUT_MS },
     );
+
+    // S2 — meter. Fortune called Anthropic directly and wrote no usage row,
+    // so its spend was invisible to both `AIUsageLog` and the breaker.
+    void this.aiSpend.record({
+      provider: 'CLAUDE',
+      model,
+      usage: {
+        inputTokens: response.usage?.input_tokens ?? 0,
+        outputTokens: response.usage?.output_tokens ?? 0,
+        cacheReadTokens:
+          ((response.usage ?? {}) as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
+        cacheWriteTokens:
+          ((response.usage ?? {}) as { cache_creation_input_tokens?: number })
+            .cache_creation_input_tokens ?? 0,
+      },
+      context: 'fortune:yearly',
+    });
 
     const text = response.content
       .filter((b: { type: string }) => b.type === 'text')

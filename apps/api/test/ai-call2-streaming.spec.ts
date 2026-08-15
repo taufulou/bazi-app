@@ -68,6 +68,7 @@ function makeService(configOverrides: Record<string, string | undefined> = {}) {
     mockPrisma as any,
     mockRedis as any,
     { refundReadingCredit: jest.fn().mockResolvedValue({ refunded: false, amount: 0 }) } as any,
+    { record: jest.fn(), assertUnderCap: jest.fn() } as never,
   );
   // Seed a single provider config so the providers loop runs.
   (svc as any).providers = [{

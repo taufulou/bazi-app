@@ -9,6 +9,7 @@ import {
   CHAT_CROSS_SELL_OWNED_LINES,
 } from '../ai/prompts';
 import type { ChatContext } from './chat-context.service';
+import { AiSpendService } from '../ai/ai-spend.service';
 
 /**
  * Tier C output safety-net — maps a cross-sell target key to the reading's
@@ -90,7 +91,10 @@ export class ChatValidatorsService {
   private readonly judgeModel: string;
   private readonly judgeSampleRate: number;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly aiSpend: AiSpendService,
+  ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY') || 'placeholder';
     this.judgeAnthropic = new Anthropic({ apiKey });
     this.judgeModel = this.config.get<string>('CLAUDE_HAIKU_MODEL')
@@ -439,6 +443,19 @@ ${safeAssistantResponse}
         },
         { timeout: 30_000 },
       );
+      // S2 — the LLM judge is exempt from the S1 CONCURRENCY governor (it is a
+      // sampled internal check, not user-facing work) but it is NOT exempt from
+      // spend: it runs on 5% of chat turns against a real paid model, and an
+      // unmetered sampler is exactly the kind of drip a cap never sees.
+      void this.aiSpend.record({
+        provider: 'CLAUDE',
+        model: this.judgeModel,
+        usage: {
+          inputTokens: response.usage?.input_tokens ?? 0,
+          outputTokens: response.usage?.output_tokens ?? 0,
+        },
+        context: 'chat:llm-judge',
+      });
       const text = response.content
         .filter((b) => b.type === 'text')
         .map((b) => (b as { type: 'text'; text: string }).text)

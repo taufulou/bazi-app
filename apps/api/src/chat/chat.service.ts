@@ -20,6 +20,7 @@ import {
 import { ChatContextService } from './chat-context.service';
 import { ChatValidatorsService } from './chat-validators.service';
 import { RedisService } from '../redis/redis.service';
+import { AiSpendService } from '../ai/ai-spend.service';
 import { buildPrompt } from './chat-prompt-builder';
 import {
   CreateChatSessionResponse,
@@ -97,6 +98,7 @@ export class ChatService {
     private readonly contextService: ChatContextService,
     private readonly validators: ChatValidatorsService,
     private readonly redis: RedisService,
+    private readonly aiSpend: AiSpendService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     if (!apiKey) {
@@ -975,6 +977,10 @@ export class ChatService {
       // timeout is ~10 min — without this, a hung upstream pins our server
       // resources and racks up output tokens. Phase 1.6 streaming uses a
       // delta-level watchdog instead.
+      // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+      // generation stops. Throws a typed 503 that the caller's existing
+      // error path maps to a refund where a credit was already taken.
+      await this.aiSpend.assertUnderCap('chat:sync');
       const response = await this.anthropic.messages.create(
         {
           model: this.model,
@@ -991,6 +997,22 @@ export class ChatService {
         { timeout: 60_000 },
       );
 
+      // S2 — meter this call. Chat and fortune bypassed `ai.service`'s usage
+      // logger entirely, so before this every token they spent was invisible
+      // to both `AIUsageLog` and the spend breaker.
+      void this.aiSpend.record({
+        provider: 'CLAUDE',
+        model: this.model,
+        usage: {
+          inputTokens: response.usage?.input_tokens ?? 0,
+          outputTokens: response.usage?.output_tokens ?? 0,
+          cacheReadTokens:
+            ((response.usage ?? {}) as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
+          cacheWriteTokens:
+            ((response.usage ?? {}) as { cache_creation_input_tokens?: number }).cache_creation_input_tokens ?? 0,
+        },
+        context: 'chat:sync',
+      });
       const assistantContent = response.content
         .filter((b) => b.type === 'text')
         .map((b) => (b as { type: 'text'; text: string }).text)

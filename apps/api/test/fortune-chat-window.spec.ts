@@ -56,6 +56,7 @@ function makeChatService(tier: SubscriptionTier) {
     mockContext as never,
     {} as never,
     {} as never,
+    { record: jest.fn(), assertUnderCap: jest.fn() } as never,
   );
   return { service, mockPrisma, assertFortuneWindowForTier };
 }
@@ -271,6 +272,7 @@ describe('F5 door 4 — extendSession will not sell messages that cannot be spen
         acquireLock: jest.fn().mockResolvedValue(true),
         releaseLock: jest.fn().mockResolvedValue(undefined),
       } as never,
+      { record: jest.fn(), assertUnderCap: jest.fn() } as never,
     );
     return { service, extendSession, assertFortuneWindowForTier };
   }

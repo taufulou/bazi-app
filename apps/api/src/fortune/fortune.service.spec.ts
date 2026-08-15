@@ -76,7 +76,7 @@ describe('FortuneService — cache layer', () => {
     const configService: any = { get: (k: string) => (k === 'BAZI_ENGINE_URL' ? 'http://localhost:5001' : null) };
     const validatorsService: any = {};
     const helpers = new FortuneSnapshotHelpers(prismaService, redisService, configService);
-    const service = new FortuneService(prismaService, helpers, validatorsService);
+    const service = new FortuneService(prismaService, helpers, validatorsService, { record: jest.fn(), assertUnderCap: jest.fn() } as never);
     return { service, helpers, redisSet, dbUpsert, redisService, prismaService };
   }
 
@@ -466,7 +466,7 @@ describe('FortuneService — cache layer', () => {
         })),
       };
       const helpers = new FortuneSnapshotHelpers(prismaService, redisService, configService);
-      const service = new FortuneService(prismaService, helpers, validatorsService);
+      const service = new FortuneService(prismaService, helpers, validatorsService, { record: jest.fn(), assertUnderCap: jest.fn() } as never);
 
       // Bypass subscription gate — these tests cover the engineOnly path,
       // not subscription windowing. Test date `2026-05-14` may be outside

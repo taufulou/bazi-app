@@ -118,6 +118,7 @@ describe('ChatService', () => {
       mockContextService,
       mockValidators,
       mockRedis,
+      { record: jest.fn(), assertUnderCap: jest.fn() } as never,
     );
 
     // Patch the Anthropic client on the service to mock

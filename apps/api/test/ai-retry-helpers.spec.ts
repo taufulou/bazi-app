@@ -13,7 +13,7 @@ const mockRedis: any = {};
 const mockCredits: any = {};
 
 function makeService(): AIService {
-  return new AIService(mockConfigService as any, mockPrisma, mockRedis, mockCredits);
+  return new AIService(mockConfigService as any, mockPrisma, mockRedis, mockCredits, { record: jest.fn(), assertUnderCap: jest.fn() } as never);
 }
 
 describe('AIService retry helpers', () => {

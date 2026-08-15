@@ -44,6 +44,7 @@ describe('SSE Streaming — Phase E', () => {
       mockPrisma as any,
       mockRedis as any,
       {} as any,
+      { record: jest.fn(), assertUnderCap: jest.fn() } as never,
     );
   });
 

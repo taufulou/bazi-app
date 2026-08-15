@@ -169,6 +169,7 @@ describe('ChatStreamService', () => {
       mockPaymentService,
       mockContextService,
       mockValidators,
+      { record: jest.fn(), assertUnderCap: jest.fn() } as never,
     );
 
     // Patch Anthropic stream

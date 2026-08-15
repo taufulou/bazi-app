@@ -216,7 +216,7 @@ function buildNonStreamingMonthlyPath(anthropicResponse: any) {
   const { prisma, redis, config, upsertCalls } = buildSharedPrismaMocks();
   const helpers = new FortuneSnapshotHelpers(prisma, redis, config);
   const validators = new FortuneValidatorsService();
-  const service = new FortuneService(prisma, helpers, validators);
+  const service = new FortuneService(prisma, helpers, validators, { record: jest.fn(), assertUnderCap: jest.fn() } as never);
 
   jest.spyOn(helpers, 'enforceMonthlySubscriptionGate').mockImplementation(() => undefined);
   jest.spyOn(helpers, 'computeChartHash').mockReturnValue('m'.repeat(32));
@@ -233,7 +233,7 @@ function buildStreamingMonthlyPath(anthropicStreamResponse: any) {
   const { prisma, redis, config, upsertCalls } = buildSharedPrismaMocks();
   const helpers = new FortuneSnapshotHelpers(prisma, redis, config);
   const validators = new FortuneValidatorsService();
-  const service = new FortuneStreamService(prisma, helpers, validators);
+  const service = new FortuneStreamService(prisma, helpers, validators, { record: jest.fn(), assertUnderCap: jest.fn() } as never);
 
   jest.spyOn(helpers, 'enforceMonthlySubscriptionGate').mockImplementation(() => undefined);
   jest.spyOn(helpers, 'computeChartHash').mockReturnValue('m'.repeat(32));

@@ -9,6 +9,7 @@ import { Observable, Subscriber } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CreditsService } from '../credits/credits.service';
+import { AiSpendService } from './ai-spend.service';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
 import {
   READING_PROMPTS,
@@ -185,6 +186,7 @@ export class AIService implements OnModuleInit {
     private prisma: PrismaService,
     private redis: RedisService,
     private creditsService: CreditsService,
+    private readonly aiSpend: AiSpendService,
   ) {}
 
   async onModuleInit() {
@@ -298,6 +300,13 @@ export class AIService implements OnModuleInit {
       readingType,
       promptVariant,
     );
+
+    // S2 — refuse before spending. Checked ONCE here rather than per provider:
+    // the fallback chain is Claude → GPT-4o → Gemini, and a per-adapter check
+    // would let the breaker trip mid-chain, converting "over budget" into a
+    // partial failure that then retries onto a *different* paid provider.
+    // Cached reads never reach this method, so they are unaffected.
+    await this.aiSpend.assertUnderCap(`reading:${readingType}`);
 
     // Try each provider in order, with per-provider retry on transient errors.
     // Total time across all providers + retries bounded by AI_MAX_TOTAL_TIME_MS.
@@ -7211,6 +7220,23 @@ export class AIService implements OnModuleInit {
     result: AIGenerationResult,
     readingType?: ReadingType,
   ) {
+    // S2 — the spend counter the breaker reads. Recorded here because every
+    // provider adapter (Claude/GPT/Gemini, sync and streaming) funnels through
+    // this one method, so a new adapter is metered by construction.
+    //
+    // Cache hits are recorded too when they carry usage: a `isCacheHit` reading
+    // costs nothing, but `record` prices from the token counts, and a cache hit
+    // reports none — so it contributes 0 without a special case.
+    void this.aiSpend.record({
+      provider: config.provider,
+      model: config.model,
+      usage: {
+        inputTokens: result.tokenUsage.inputTokens,
+        outputTokens: result.tokenUsage.outputTokens,
+      },
+      context: `reading:${readingType ?? 'unknown'}`,
+    });
+
     try {
       await this.prisma.aIUsageLog.create({
         data: {
