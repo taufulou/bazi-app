@@ -89,9 +89,6 @@
   "src/fortune/fortune-stream.service.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 6
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 3
     }
   },
   "src/fortune/fortune-validators.service.spec.ts": {

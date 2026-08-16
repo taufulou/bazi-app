@@ -304,10 +304,13 @@ export class ChatStreamService {
     let deduction: { method: 'FREE_QUOTA' | 'PAID_ALLOWANCE' };
     let userMessageId: string;
     try {
+      // S4 — OUTSIDE the transaction, deliberately. Inside it, a Redis STALL
+      // (as opposed to an error) holds an open Postgres transaction and a pool
+      // connection for its duration, so `consume`'s fail-open guarantee did not
+      // hold there — it degraded into a transaction timeout that failed the
+      // message. This still satisfies "before the deduction".
+      await this.quota.consume('chat', userId);
       const result = await this.prisma.$transaction(async (tx) => {
-        // S4 — quota BEFORE the deduction: a user who is over their daily
-        // allowance should be told so, not charged and then refused.
-        await this.quota.consume('chat', userId);
         const d = await this.paymentService.deductForMessage(sessionId, userId, tx);
         if (session.firstMessageAt === null) {
           await tx.chatSession.updateMany({

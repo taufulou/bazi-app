@@ -40,6 +40,7 @@ import type { Response } from 'express';
 import { FortuneScope } from '@prisma/client';
 import { AiSpendService } from '../ai/ai-spend.service';
 import { AiGovernorService } from '../ai/ai-governor.service';
+import { QuotaService } from '../ai/quota.service';
 import { isSpendCapError } from './fortune-snapshot.helpers';
 import * as Sentry from '@sentry/nestjs';
 import {
@@ -216,6 +217,7 @@ export class FortuneStreamService {
     private readonly validators: FortuneValidatorsService,
     private readonly aiSpend: AiSpendService,
     private readonly aiGovernor: AiGovernorService,
+    private readonly quota: QuotaService,
   ) {}
 
   /**
@@ -337,6 +339,11 @@ export class FortuneStreamService {
       // ============================================================
       // Open Anthropic stream + run section detector
       // ============================================================
+      // S4 — the STREAM routes are what the web and mobile clients actually
+      // call; guarding only the sync entry point left every real fortune
+      // generation uncounted. Placed after the cache short-circuit above, so a
+      // cached read costs no quota.
+      await this.quota.consume('fortune', user.id);
       await this._streamWithSectionDetector({
         response,
         dailyOutput,
@@ -1072,6 +1079,11 @@ export class FortuneStreamService {
       });
 
       // Open Anthropic stream + section detector
+      // S4 — the STREAM routes are what the web and mobile clients actually
+      // call; guarding only the sync entry point left every real fortune
+      // generation uncounted. Placed after the cache short-circuit above, so a
+      // cached read costs no quota.
+      await this.quota.consume('fortune', user.id);
       await this._streamMonthlyWithSectionDetector({
         response,
         monthlyOutput,
@@ -1697,6 +1709,11 @@ export class FortuneStreamService {
       });
 
       // Open Anthropic stream + section detector
+      // S4 — the STREAM routes are what the web and mobile clients actually
+      // call; guarding only the sync entry point left every real fortune
+      // generation uncounted. Placed after the cache short-circuit above, so a
+      // cached read costs no quota.
+      await this.quota.consume('fortune', user.id);
       await this._streamYearlyWithSectionDetector({
         response,
         yearlyOutput,

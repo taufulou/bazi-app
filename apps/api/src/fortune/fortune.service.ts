@@ -119,10 +119,7 @@ export class FortuneService {
 
     // Subscription gate
     this.helpers.enforceSubscriptionGate(user.subscriptionTier, targetDate);
-    // S4 — the free fortune tier is per-profile-per-day, so an account with
-    // many profiles multiplies free generation. This is the per-user bound
-    // on top of that (A4 capped profiles at 10 for the same reason).
-    await this.quota.consume('fortune', user.id);
+
 
     // Compute chart hash (stable per chart — used as cache key).
     // 時辰未知: an unknown hour gets the 'HOUR_UNKNOWN' sentinel so it hashes
@@ -195,6 +192,12 @@ export class FortuneService {
     let promptVersion: string | null = null;
 
     try {
+      // S4 — charged here, AFTER the cache lookup and the `engineOnly`
+      // short-circuit, and only on the branch that actually generates.
+      // At the entry point it billed a quota unit for cache hits and for
+      // homepage `engineOnly` reads that spend nothing — rationing the free
+      // read while the paid generation went uncounted.
+      await this.quota.consume('fortune', user.id);
       const aiResult = await this.runDailyAINarration(dailyOutput, chartContext);
       narrative = aiResult.narrative;
       validationResult = aiResult.validation;
@@ -436,6 +439,12 @@ export class FortuneService {
     let promptVersion: string | null = null;
 
     try {
+      // S4 — charged here, AFTER the cache lookup and the `engineOnly`
+      // short-circuit, and only on the branch that actually generates.
+      // At the entry point it billed a quota unit for cache hits and for
+      // homepage `engineOnly` reads that spend nothing — rationing the free
+      // read while the paid generation went uncounted.
+      await this.quota.consume('fortune', user.id);
       const aiResult = await this.runMonthlyAINarration(
         monthlyOutput,
         chartContext,
@@ -674,6 +683,12 @@ export class FortuneService {
     let promptVersion: string | null = null;
 
     try {
+      // S4 — charged here, AFTER the cache lookup and the `engineOnly`
+      // short-circuit, and only on the branch that actually generates.
+      // At the entry point it billed a quota unit for cache hits and for
+      // homepage `engineOnly` reads that spend nothing — rationing the free
+      // read while the paid generation went uncounted.
+      await this.quota.consume('fortune', user.id);
       const aiResult = await this.runYearlyAINarration(yearlyOutput, chartContext, year);
       narrative = aiResult.narrative;
       promptVersion = aiResult.promptVersion;

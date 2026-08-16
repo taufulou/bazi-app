@@ -784,10 +784,13 @@ export class ChatService {
     //    the deduction txn, so a DB write failure could leak a deduction without
     //    persisting the message.
     //    deductForMessage throws 402 NEEDS_EXTENSION or 409 HARD_CAP_REACHED.
+    // S4 — OUTSIDE the transaction, deliberately. Inside it, a Redis STALL
+    // (as opposed to an error) holds an open Postgres transaction and a pool
+    // connection for its duration, so `consume`'s fail-open guarantee did not
+    // hold there — it degraded into a transaction timeout that failed the
+    // message. This still satisfies "before the deduction".
+    await this.quota.consume('chat', user.id);
     const { deduction, userMessage } = await this.prisma.$transaction(async (tx) => {
-      // S4 — quota BEFORE the deduction: a user who is over their daily
-      // allowance should be told so, not charged and then refused.
-      await this.quota.consume('chat', user.id);
       const result = await this.paymentService.deductForMessage(sessionId, user.id, tx);
       // Set firstMessageAt on first deduction (idempotent updateMany guard)
       if (session.firstMessageAt === null) {

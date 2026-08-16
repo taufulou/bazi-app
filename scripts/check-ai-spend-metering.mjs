@@ -47,12 +47,20 @@ const RECORDS_SPEND = /aiSpend\s*\.\s*record\s*\(|this\.logUsage\s*\(/;
 const CHECKS_BREAKER = /assertUnderCap\s*\(/;
 /** S1 — a provider call must also hold a concurrency slot. */
 const HOLDS_SLOT = /aiGovernor\s*\.\s*(acquire|run|runGenerator)\s*\(/;
+/** S1 — every hand-rolled `acquire` must have a matching release. */
+const ACQUIRES = /aiGovernor\s*\.\s*acquire\s*\(/;
+const RELEASES = /releaseSlot\s*\(\s*\)/;
+/** S4 — per-user quota. */
+const CONSUMES_QUOTA = /quota\s*\.\s*consume\s*\(/;
 
 /** Global twins, for counting rather than testing. */
 const PROVIDER_CALL_G = new RegExp(PROVIDER_CALL.source, 'g');
 const RECORDS_SPEND_G = new RegExp(RECORDS_SPEND.source, 'g');
 const CHECKS_BREAKER_G = new RegExp(CHECKS_BREAKER.source, 'g');
 const HOLDS_SLOT_G = new RegExp(HOLDS_SLOT.source, 'g');
+const ACQUIRES_G = new RegExp(ACQUIRES.source, 'g');
+const RELEASES_G = new RegExp(RELEASES.source, 'g');
+const CONSUMES_QUOTA_G = new RegExp(CONSUMES_QUOTA.source, 'g');
 
 const countMatches = (src, re) => {
   re.lastIndex = 0;
@@ -80,6 +88,22 @@ const COUNT_EXEMPT = new Map([
  * with the reason. Recording is NEVER exempt — an unmetered call is invisible
  * spend regardless of who checked the cap.
  */
+/**
+ * Files that legitimately do not spend a per-user quota, with the reason.
+ * Kept SEPARATE from BREAKER_EXEMPT: reusing one list would silently grant a
+ * second, unrelated exemption to anything on it.
+ */
+const QUOTA_EXEMPT = new Map([
+  [
+    'apps/api/src/ai/ai.service.ts',
+    'a shared generation layer — its callers (bazi, zwds) own the per-user quota, and quota needs a userId this layer is not always given',
+  ],
+  [
+    'apps/api/src/chat/chat-validators.service.ts',
+    'the sampled LLM judge is internal work, not a user action; it records spend but is not rationed per user',
+  ],
+]);
+
 const BREAKER_EXEMPT = new Map([
   [
     'apps/api/src/ai/ai.service.ts',
@@ -126,6 +150,40 @@ for (const file of walk(join(ROOT, SCAN_ROOT))) {
   const records = countMatches(source, RECORDS_SPEND_G);
   const caps = countMatches(source, CHECKS_BREAKER_G);
   const slots = countMatches(source, HOLDS_SLOT_G);
+  const acquires = countMatches(source, ACQUIRES_G);
+  const releases = countMatches(source, RELEASES_G);
+  const quotas = countMatches(source, CONSUMES_QUOTA_G);
+
+  // ⚠️ A hand-rolled `acquire` needs its own release. Deleting a
+  // `releaseSlot()` from a `finally` was invisible to both jest and this guard,
+  // and a leaked slot shrinks the pool permanently and silently — the exact
+  // failure the governor's docblock calls out. `run`/`runGenerator` own their
+  // release, so only bare `acquire` is counted. Two releases per acquire (a
+  // guard clause plus the finally) is fine; fewer is not.
+  if (acquires > 0 && releases < acquires) {
+    violations.push({
+      file: rel,
+      line,
+      message:
+        `calls aiGovernor.acquire() ${acquires} time(s) but releaseSlot() only ` +
+        `${releases} — an unreleased slot shrinks the pool for the life of the ` +
+        `process. Use aiGovernor.run()/runGenerator(), or release in a finally.`,
+    });
+  }
+
+  // S4 — a user-facing generation path must also spend the caller's daily
+  // quota. Exempted files are internal or already gated by their caller.
+  if (!QUOTA_EXEMPT.has(rel) && quotas < providerCalls) {
+    violations.push({
+      file: rel,
+      line,
+      message:
+        `has ${providerCalls} provider call(s) but only ${quotas} quota consume(s) — ` +
+        'S1 and S2 are ' +
+        'GLOBAL, so without this one account can exhaust the budget for everyone. ' +
+        'Add `await this.quota.consume(<kind>, <userId>)`, or add a QUOTA_EXEMPT entry.',
+    });
+  }
 
   if (!COUNT_EXEMPT.has(rel)) {
     if (records < providerCalls) {

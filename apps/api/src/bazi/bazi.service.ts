@@ -383,6 +383,17 @@ export class BaziService {
           targetYear: dto.targetYear,
         };
 
+        // S4 — BEFORE generation, not before the deduction.
+        //
+        // ⚠️ The first placement was inside the `$transaction` next to
+        // `deductCredits`, which runs AFTER this AI call. On refusal the
+        // transaction rolls back — no reading row, no credit taken — while the
+        // tokens were already paid. Past the daily limit that made generation
+        // strictly CHEAPER for an abuser than before the quota existed. The
+        // streaming path already ordered these correctly; this is the branch a
+        // direct caller selects by omitting `stream`.
+        await this.quota.consume('reading', user.id);
+
         // Route V2 reading types to their multi-call generators; all others use V1
         let aiResult;
         if (dto.readingType === ReadingType.LIFETIME) {
@@ -457,10 +468,6 @@ export class BaziService {
         },
       });
       if (!fromCache) {
-        // S4 — quota BEFORE the deduction. Readings are the most expensive
-        // unit of spend, so this is the per-user bound that stops one
-        // account consuming the whole global cap and denying everyone else.
-        await this.quota.consume('reading', user.id);
         await this.creditsService.deductCredits(
           user.id,
           service.creditCost,
