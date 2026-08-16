@@ -54,10 +54,17 @@ const RELEASES = /releaseSlot\s*\(\s*\)/;
 const CONSUMES_QUOTA = /quota\s*\.\s*consume\s*\(/;
 /**
  * A file can spend without calling a provider directly, by delegating to
- * `AIService`. `bazi.service.ts` does exactly that — so it was invisible to
- * every rule above, and deleting one of its five quota calls was green.
+ * `AIService`.
+ *
+ * ⚠️ Detected by INJECTION, not by receiver name. The first version matched the
+ * literal identifier `aiService` plus a `generate`/`stream` prefix, and an audit
+ * produced four working bypasses in minutes: rename the property (`this.ai.…`),
+ * use a different verb (`.interpret(…)`), alias it locally (`const svc = …`), or
+ * reach it by bracket (`this.aiService['generateX']`). A class cannot spend
+ * through `AIService` without having it injected, so the type annotation is the
+ * signal that cannot be renamed away.
  */
-const DELEGATES_TO_AI = /aiService\s*\.\s*(generate|stream)(?![A-Za-z0-9]*Hash\b)[A-Za-z0-9]*\s*\(/;
+const INJECTS_AI_SERVICE = /:\s*AIService\b/;
 
 /** Global twins, for counting rather than testing. */
 const PROVIDER_CALL_G = new RegExp(PROVIDER_CALL.source, 'g');
@@ -67,7 +74,6 @@ const HOLDS_SLOT_G = new RegExp(HOLDS_SLOT.source, 'g');
 const ACQUIRES_G = new RegExp(ACQUIRES.source, 'g');
 const RELEASES_G = new RegExp(RELEASES.source, 'g');
 const CONSUMES_QUOTA_G = new RegExp(CONSUMES_QUOTA.source, 'g');
-const DELEGATES_TO_AI_G = new RegExp(DELEGATES_TO_AI.source, 'g');
 
 const countMatches = (src, re) => {
   re.lastIndex = 0;
@@ -111,6 +117,10 @@ const COUNT_EXEMPT = new Map([
 const QUOTA_COUNT_RATCHET = new Map([['apps/api/src/bazi/bazi.service.ts', 5]]);
 
 const QUOTA_EXEMPT = new Map([
+  [
+    'apps/api/src/users/users.service.ts',
+    "injects AIService only for `generateBirthDataHash`, a pure hash helper used to scope the account-deletion cache purge — it spends nothing. ⚠️ TRIGGER: if this file ever calls a generate/stream method, it needs a quota.",
+  ],
   [
     'apps/api/src/zwds/zwds.service.ts',
     'ZWDS creation routes were removed 2026-08-03 — the controller exposes only @Get(\'readings/:id\'), so the five generation paths are unreachable. ⚠️ TRIGGER: add the quota before re-enabling any ZWDS create/generate route.',
@@ -164,8 +174,7 @@ for (const file of walk(join(ROOT, SCAN_ROOT))) {
   // needs a per-user quota — it just has no provider call for the rules below
   // to key off. Checked separately, then the file is done.
   if (!PROVIDER_CALL.test(source)) {
-    if (DELEGATES_TO_AI.test(source) && !QUOTA_EXEMPT.has(rel)) {
-      const delegations = countMatches(source, DELEGATES_TO_AI_G);
+    if (INJECTS_AI_SERVICE.test(source) && !QUOTA_EXEMPT.has(rel)) {
       const consumed = countMatches(source, CONSUMES_QUOTA_G);
       // ⚠️ A RATCHET, not a presence check. `consumed === 0` was the first
       // version, and it is exactly the shape the comment further down this file
@@ -187,9 +196,9 @@ for (const file of walk(join(ROOT, SCAN_ROOT))) {
       if (expected === undefined && consumed === 0) {
         violations.push({
           file: rel,
-          line: source.split('\n').findIndex((l) => DELEGATES_TO_AI.test(l)) + 1,
+          line: source.split('\n').findIndex((l) => INJECTS_AI_SERVICE.test(l)) + 1,
           message:
-            `delegates ${delegations} AI generation(s) to AIService but consumes no ` +
+            'injects AIService but consumes no ' +
             'per-user quota — S1 and S2 are global, so one account can exhaust the ' +
             'budget for everyone. Add `await this.quota.consume(<kind>, <userId>)`.',
         });
@@ -288,6 +297,54 @@ for (const file of walk(join(ROOT, SCAN_ROOT))) {
         '`await this.aiSpend.assertUnderCap(<context>)` before the call, or add an ' +
         'entry to BREAKER_EXEMPT in this script with the reason.',
     });
+  }
+}
+
+// ⚠️ QUOTA_EXEMPT's triggers, ENFORCED rather than described.
+//
+// Both entries carry a "⚠️ TRIGGER" sentence, and a sentence is not a control:
+// re-adding `@Post('readings')` to the ZWDS controller left the guard green and
+// ZWDS generation unrationed. These check the actual precondition.
+for (const [rel, reason] of QUOTA_EXEMPT) {
+  const full = join(ROOT, rel);
+  if (!existsSync(full)) {
+    violations.push({ file: rel, line: 0, message: `is quota-exempt ("${reason}") but no longer exists — remove the exemption.` });
+    continue;
+  }
+  const source = readFileSync(full, 'utf8');
+  if (!INJECTS_AI_SERVICE.test(source) && !PROVIDER_CALL.test(source)) {
+    violations.push({
+      file: rel,
+      line: 0,
+      message: `is quota-exempt ("${reason}") but no longer reaches AI at all — remove the exemption.`,
+    });
+  }
+  // ZWDS: the exemption rests on its controller exposing no write route.
+  if (rel.includes('zwds')) {
+    const controller = join(ROOT, 'apps/api/src/zwds/zwds.controller.ts');
+    if (existsSync(controller) && /@(Post|Put|Patch)\s*\(/.test(readFileSync(controller, 'utf8'))) {
+      violations.push({
+        file: 'apps/api/src/zwds/zwds.controller.ts',
+        line: 0,
+        message:
+          'exposes a write route, so the ZWDS quota exemption no longer holds — its ' +
+          'generation paths are reachable again. Add `quota.consume` in zwds.service.ts ' +
+          'and drop the QUOTA_EXEMPT entry.',
+      });
+    }
+  }
+  // users.service: the exemption rests on it using ONLY hash helpers.
+  if (rel.includes('users.service')) {
+    const spends = /aiService\s*\.\s*(generate|stream)(?![A-Za-z0-9]*Hash\b)[A-Za-z0-9]*\s*\(/;
+    if (spends.test(source)) {
+      violations.push({
+        file: rel,
+        line: 0,
+        message:
+          'is quota-exempt as "hash helpers only", but now calls a generate/stream ' +
+          'method — it spends, so it needs a quota.',
+      });
+    }
   }
 }
 
