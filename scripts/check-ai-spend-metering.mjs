@@ -100,6 +100,16 @@ const COUNT_EXEMPT = new Map([
  * Kept SEPARATE from BREAKER_EXEMPT: reusing one list would silently grant a
  * second, unrelated exemption to anything on it.
  */
+/**
+ * Expected `quota.consume` count per delegating spender. A ratchet: the guard
+ * fails when the count DROPS. Raise it when you add a spend path.
+ *
+ * Counting against delegations does not work here — `bazi.service.ts` has 14
+ * `aiService.*` calls across mutually exclusive `switch` arms serving 6 user
+ * actions, so 6 consumes is correct and 14 would be wrong.
+ */
+const QUOTA_COUNT_RATCHET = new Map([['apps/api/src/bazi/bazi.service.ts', 5]]);
+
 const QUOTA_EXEMPT = new Map([
   [
     'apps/api/src/zwds/zwds.service.ts',
@@ -157,7 +167,24 @@ for (const file of walk(join(ROOT, SCAN_ROOT))) {
     if (DELEGATES_TO_AI.test(source) && !QUOTA_EXEMPT.has(rel)) {
       const delegations = countMatches(source, DELEGATES_TO_AI_G);
       const consumed = countMatches(source, CONSUMES_QUOTA_G);
-      if (consumed === 0) {
+      // ⚠️ A RATCHET, not a presence check. `consumed === 0` was the first
+      // version, and it is exactly the shape the comment further down this file
+      // forbids: deleting 4 of 5 quota calls stayed green. A simple
+      // `consumed < delegations` is wrong too — 14 delegations sit in mutually
+      // exclusive `switch` arms, so the counts legitimately differ. So the
+      // expected count is PINNED per file, and any drop is a failure.
+      const expected = QUOTA_COUNT_RATCHET.get(rel);
+      if (expected !== undefined && consumed < expected) {
+        violations.push({
+          file: rel,
+          line: source.split('\n').findIndex((l) => CONSUMES_QUOTA.test(l)) + 1,
+          message:
+            `has ${consumed} quota consume(s) but ${expected} are expected — a spend ` +
+            `path lost its per-user bound. If the drop is intentional, update ` +
+            `QUOTA_COUNT_RATCHET in this script with the reason.`,
+        });
+      }
+      if (expected === undefined && consumed === 0) {
         violations.push({
           file: rel,
           line: source.split('\n').findIndex((l) => DELEGATES_TO_AI.test(l)) + 1,

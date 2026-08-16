@@ -59,6 +59,24 @@ const FRIENDLY: Record<QuotaKind, string> = {
   fortune: '今日的運勢查詢次數已達上限，請明天再試。',
 };
 
+/**
+ * Is this our own per-user quota refusal?
+ *
+ * Four catches were swallowing it and reporting something else: the compat
+ * stream sent a bare Chinese string over SSE, `generateComparisonAI` returned
+ * HTTP 200 with an un-generated comparison, `recalculateComparison` turned it
+ * into a 500, and the fortune sync path counted it as an AI failure — which
+ * arms a 24h circuit breaker that OUTLIVES the quota window that caused it.
+ *
+ * Deliberately narrow, like `isSpendCapError`: over-matching would stop those
+ * catches doing their real job, which is absorbing genuine AI failures.
+ */
+export function isQuotaError(err: unknown): boolean {
+  if (!(err instanceof HttpException)) return false;
+  const body = err.getResponse() as { code?: string } | string;
+  return typeof body === 'object' && body?.code === QUOTA_EXCEEDED_CODE;
+}
+
 @Injectable()
 export class QuotaService {
   private readonly logger = new Logger(QuotaService.name);

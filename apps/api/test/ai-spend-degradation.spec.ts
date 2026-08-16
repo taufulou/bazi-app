@@ -100,12 +100,46 @@ describe('the guards, against the REAL services', () => {
     expect(countOf(src, /if \(this\._serveLkg\(response, lkgRow, '(day|month|year)'\)\) return;/g)).toBe(3);
   });
 
-  it('the LKG read happens BEFORE the cap error is emitted', () => {
+  it.each(['DAY', 'MONTH', 'YEAR'])(
+    'the %s cap branch reads LKG BEFORE emitting the error',
+    (scope) => {
+      // ⚠️ Per BRANCH, not whole-file. The first version used a bare
+      // `indexOf`, so inverting the DAY branch still passed — the search
+      // simply found the MONTH occurrence further down. And the inversion is a
+      // real regression: `_emitError` calls `response.end()`, so the user gets
+      // the error banner and `_serveLkg` then falls into its `writableEnded`
+      // guard — exactly the bug this was written to prevent.
+      const src = readSource('src/fortune/fortune-stream.service.ts');
+      const branch = src.indexOf(`FortuneScope.${scope}, anchorDate`);
+      expect(branch).toBeGreaterThan(-1);
+      // Slice from the read to the next branch, so the assertion cannot borrow
+      // evidence from a sibling.
+      const slice = src.slice(branch, branch + 900);
+      const serve = slice.indexOf('_serveLkg(response, lkgRow');
+      const emit = slice.indexOf("capBody?.code ?? 'AI_SPEND_CAP'");
+      expect(serve).toBeGreaterThan(-1);
+      expect(emit).toBeGreaterThan(serve);
+    },
+  );
+
+  it('each cap branch serves LKG under its OWN scope label', () => {
+    // A DAY branch serving with the 'month' label survived the first version.
     const src = readSource('src/fortune/fortune-stream.service.ts');
-    const read = src.indexOf('_readLkgRow(chartHash');
-    const emit = src.indexOf("capBody?.code ?? 'AI_SPEND_CAP'", read);
-    expect(read).toBeGreaterThan(-1);
-    expect(emit).toBeGreaterThan(read);
+    for (const [scope, label] of [['DAY', 'day'], ['MONTH', 'month'], ['YEAR', 'year']]) {
+      const branch = src.indexOf(`FortuneScope.${scope}, anchorDate`);
+      const slice = src.slice(branch, branch + 300);
+      expect(slice).toContain(`_serveLkg(response, lkgRow, '${label}')`);
+    }
+  });
+
+  it('_readLkgRow actually returns the row it reads', () => {
+    // Hard-returning null kills LKG-on-cap entirely and survived every
+    // lexical assertion, because the calls were all still present.
+    const body = readSource('src/fortune/fortune-stream.service.ts');
+    const fn = body.slice(body.indexOf('private async _readLkgRow'), body.indexOf('private _serveLkg'));
+    expect(fn).toMatch(/return await this\.prisma\.dailyFortuneSnapshot\.findUnique/);
+    // …and does not short-circuit to null before ever querying.
+    expect(fn.indexOf('findUnique')).toBeLessThan(fn.indexOf('return null'));
   });
 
   it('the LKG read does NOT persist a failure', () => {

@@ -17,7 +17,7 @@ import { CreditsService } from '../credits/credits.service';
 import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto';
 import { Prisma, ReadingType } from '@prisma/client';
 import { deepCamelCase } from '../common/deep-camel-case';
-import { QuotaService } from '../ai/quota.service';
+import { QuotaService, isQuotaError } from '../ai/quota.service';
 import { engineFetch } from '../common/engine-client';
 
 /**
@@ -437,6 +437,11 @@ export class BaziService {
           aiResult.interpretation,
         ).catch((err) => this.logger.error(`Cache write failed: ${err}`));
       } catch (err: unknown) {
+        // S4 — a quota refusal is not an AI failure. This catch is
+        // "return the calculation without AI", after which the caller
+        // charges full price — so an over-quota user paid for an empty
+        // reading and got HTTP 200.
+        if (isQuotaError(err)) throw err;
         const message = err instanceof Error ? err.message : 'Unknown error';
         this.logger.error(`AI interpretation failed: ${message}`);
         // Don't fail the reading — return calculation without AI
@@ -995,6 +1000,15 @@ export class BaziService {
     // because a concurrent spend between generation and charge would let us
     // deliver the report for nothing; the CAS makes a retry free.
     try {
+      // S4 — BEFORE the 3-credit charge below. Placed after it, an over-quota
+      // user was debited and had `paidAt` set, and the throw had no refund
+      // path — `settleRefundIfEmpty` is declared later and never armed.
+      // 6. Delegate to ai.service streaming method
+      // S4 — comparisons are the most expensive unit in the app (3 credits, three
+      // parallel calls, 300s timeout) and had NO per-user bound: the reading quota
+      // only ever covered `createReading`. Charged against the same `reading`
+      // budget, because from a spend perspective that is what this is.
+      await this.quota.consume('reading', user.id);
       await this._chargeForReveal(user.id, comparison);
     } catch (err) {
       await this.redis.getClient().decr(activeKey);
@@ -1017,12 +1031,6 @@ export class BaziService {
     }
 
     try {
-      // 6. Delegate to ai.service streaming method
-      // S4 — comparisons are the most expensive unit in the app (3 credits, three
-      // parallel calls, 300s timeout) and had NO per-user bound: the reading quota
-      // only ever covered `createReading`. Charged against the same `reading`
-      // budget, because from a spend perspective that is what this is.
-      await this.quota.consume('reading', user.id);
       const aiObservable = this.aiService.streamCompatibilityRomanceV2(calculationData, comparisonId);
 
       // ⚠️ The refund CANNOT hang off the observable's `error` channel.
@@ -1607,6 +1615,9 @@ export class BaziService {
     try {
       calculationData = await this.callBaziCompatibility(profileA, profileB, dto) as Record<string, unknown>;
     } catch (err: unknown) {
+      // S4 — a quota refusal is not an AI failure. Without this the catch below
+      // converted the typed 429 into a 500, losing the status and the code.
+      if (isQuotaError(err)) throw err;
       const message = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(`Bazi recalculation engine call failed: ${message}`);
       throw new InternalServerErrorException('Bazi re-calculation failed.');
@@ -1891,6 +1902,9 @@ export class BaziService {
           aiResult.interpretation,
         ).catch((err) => this.logger.error(`Comparison cache write failed: ${err}`));
       } catch (err: unknown) {
+        // S4 — a quota refusal is not an AI failure. Without this the catch below
+        // returned HTTP 200 with an un-generated comparison and no signal.
+        if (isQuotaError(err)) throw err;
         const message = err instanceof Error ? err.message : 'Unknown error';
         this.logger.error(
           `AI compatibility generation failed for comparison ${comparisonId}: ${message}`,
