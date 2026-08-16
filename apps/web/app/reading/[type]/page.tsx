@@ -35,7 +35,6 @@ import {
 } from "../../lib/birth-profiles-api";
 import {
   createBaziReading,
-  createZwdsReading,
   getReading,
   streamBaziReading,
   regenerateBaziReading,
@@ -640,17 +639,10 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
       let response: NestJSReadingResponse;
 
       if (isZwds) {
-        response = await createZwdsReading(token, {
-          birthProfileId,
-          readingType: readingType,
-          targetYear: (readingType === "zwds-annual" || readingType === "zwds-monthly")
-            ? new Date().getFullYear() : undefined,
-          targetMonth: readingType === "zwds-monthly" ? targetMonth : undefined,
-          targetDay: readingType === "zwds-daily" ? targetDay : undefined,
-          questionText: readingType === "zwds-qa" ? questionText : undefined,
-        });
-        // Update chart data with NestJS response (may include additional server-side data)
-        setZwdsChartData(response.calculationData as unknown as ZwdsChartData);
+        // ⚠️ ZWDS generation is GONE, not disabled — the backend module was
+        // deleted. The slug stays valid so the two already-paid readings remain
+        // viewable via `?id=`, but nothing can create a new one.
+        throw new Error("紫微斗數功能已停用，目前僅提供八字命理服務。");
       } else {
         response = await createBaziReading(token, {
           birthProfileId,

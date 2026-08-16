@@ -60,7 +60,6 @@ const RULES = {
   EXEMPT_STALE_QUOTA: 'a QUOTA_EXEMPT entry no longer reaches AI',
   EXEMPT_STALE_BREAKER: 'a BREAKER_EXEMPT entry no longer calls a provider',
   EXEMPT_MISSING: 'an exempt or watched file is missing',
-  TRIGGER_ZWDS: 'a write route can reach ZwdsService again',
   TRIGGER_USERS: 'users.service calls a spending AIService method',
   TRIGGER_CHOKEPOINT: "ai.service.ts's provider-call count changed",
   CHOKEPOINT_UNRECORDED: 'a choke-point call site with no matching logUsage',
@@ -342,12 +341,8 @@ const QUOTA_EXEMPT = new Map([
     'injects AIService only for `generateBirthDataHash`, a pure hash helper used to scope the account-deletion cache purge — it spends nothing. TRIGGER enforced by TRIGGER_USERS.',
   ],
   [
-    'apps/api/src/zwds/zwds.service.ts',
-    'ZWDS creation routes were removed 2026-08-03, so its five generation paths are unreachable. TRIGGER enforced by TRIGGER_ZWDS.',
-  ],
-  [
     AI_SERVICE,
-    'a shared generation layer — its callers (bazi, zwds) own the per-user quota, and quota needs a userId this layer is not always given',
+    'a shared generation layer — its callers own the per-user quota, and quota needs a userId this layer is not always given',
   ],
   [
     'apps/api/src/chat/chat-validators.service.ts',
@@ -587,8 +582,8 @@ for (const file of files) {
 // ── Exemption premises, ENFORCED rather than described ───────────────────────
 //
 // Every entry above carries a reason, and a reason is not a control: re-adding
-// `@Post('readings')` to the ZWDS controller left the guard green and ZWDS
-// generation unrationed. These check the actual preconditions.
+// `@Post('readings')` to the (since-deleted) ZWDS controller left the guard
+// green and ZWDS generation unrationed. These check the actual preconditions.
 
 for (const [rel, reason] of QUOTA_EXEMPT) {
   const source = readWatched(rel, `is quota-exempt ("${reason}")`);
@@ -603,34 +598,6 @@ for (const [rel, reason] of BREAKER_EXEMPT) {
   if (source === null) continue;
   if (!PROVIDER_CALL.test(source)) {
     fail('EXEMPT_STALE_BREAKER', rel, 0, `is exempt from the breaker check ("${reason}") but no longer calls a provider — remove the exemption.`);
-  }
-}
-
-// TRIGGER_ZWDS — the exemption rests on ZwdsService being unreachable from any
-// write route.
-//
-// ⚠️ Keyed on the SERVICE, not on one hardcoded controller path. Watching
-// `zwds/zwds.controller.ts` for `@Post|@Put|@Patch` missed four realistic
-// revivals: a second controller in the same folder, a `@Post('zwds/readings')`
-// on bazi.controller.ts (cross-module wiring is already live here), `@All()`,
-// and — worst, because it is a refactor rather than a feature — renaming or
-// moving the controller, which made `existsSync` false and deleted the whole
-// trigger.
-if (QUOTA_EXEMPT.has('apps/api/src/zwds/zwds.service.ts')) {
-  for (const file of files) {
-    const rel = relative(ROOT, file).split(sep).join('/');
-    if (!rel.startsWith('apps/api/src/')) continue;
-    const source = readCode(file, rel);
-    if (!/@(?:[A-Za-z0-9_$]+\.)?(Post|Put|Patch|All)\s*\(/.test(source)) continue;
-    if (!/\bZwdsService\b|\bzwdsService\b/.test(source)) continue;
-    fail(
-      'TRIGGER_ZWDS',
-      rel,
-      Math.max(1, source.split('\n').findIndex((l) => /@(?:[A-Za-z0-9_$]+\.)?(Post|Put|Patch|All)\s*\(/.test(l)) + 1),
-      'exposes a write route and references ZwdsService, so the ZWDS quota ' +
-        'exemption no longer holds — its generation paths are reachable again. Add ' +
-        '`quota.consume` in zwds.service.ts and drop the QUOTA_EXEMPT entry.',
-    );
   }
 }
 

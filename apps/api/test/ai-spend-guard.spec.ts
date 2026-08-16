@@ -116,19 +116,6 @@ function cleanTree(): string {
       ' hash(b: unknown) { return this.aiService.generateBirthDataHash(b); } }\n',
   );
 
-  // QUOTA_EXEMPT — unreachable while nothing exposes a write route to it.
-  write(
-    root,
-    'apps/api/src/zwds/zwds.service.ts',
-    'export class ZwdsService { constructor(private readonly aiService: AIService) {}' +
-      ' go() { return this.aiService.generateInterpretation({}); } }\n',
-  );
-  write(
-    root,
-    'apps/api/src/zwds/zwds.controller.ts',
-    "export class ZC { constructor(private readonly zwdsService: ZwdsService) {} @Get('readings/:id') one() {} }\n",
-  );
-
   // CLIENT_FACTORY_EXEMPT — imports the SDK, constructs, never calls.
   write(
     root,
@@ -264,18 +251,6 @@ const CASES: Array<{ rule: string; what: string; plant: (root: string) => void }
     // `existsSync` used to short-circuit to a skip, which deletes a trigger by
     // renaming a file — a refactor nobody would think to re-audit.
     plant: (r) => rmSync(join(r, 'apps/api/src/users/users.service.ts')),
-  },
-  {
-    rule: 'TRIGGER_ZWDS',
-    what: 'a write route that can reach ZwdsService again',
-    // Deliberately on a DIFFERENT controller than the one the first version
-    // hardcoded — cross-module wiring is already live in this codebase.
-    plant: (r) =>
-      write(
-        r,
-        'apps/api/src/bazi/bazi.controller.ts',
-        "export class BC { constructor(private readonly zwdsService: ZwdsService) {} @Post('zwds/readings') create() {} }\n",
-      ),
   },
   {
     rule: 'TRIGGER_USERS',

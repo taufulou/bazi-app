@@ -105,7 +105,6 @@ describe('S1/S2/S4 — no degrade path swallows a refusal we issued', () => {
     for (const [file, n] of [
       ['src/bazi/bazi.service.ts', 3],
       ['src/fortune/fortune.service.ts', 3],
-      ['src/zwds/zwds.service.ts', 1],
     ] as const) {
       expect(count(src(file), /if \(isSelfRefusal\(err\)\) throw err;/g)).toBe(n);
     }
@@ -124,7 +123,6 @@ describe('S1/S2/S4 — no degrade path swallows a refusal we issued', () => {
   it('the old per-code guards are gone, so no site can drift back to a subset', () => {
     for (const file of [
       'src/bazi/bazi.service.ts',
-      'src/zwds/zwds.service.ts',
       'src/fortune/fortune.service.ts',
       'src/fortune/fortune-stream.service.ts',
     ]) {
