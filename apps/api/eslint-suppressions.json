@@ -111,11 +111,6 @@
       "count": 1
     }
   },
-  "src/zwds/zwds.service.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 15
-    }
-  },
   "test/admin-guard.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 4
@@ -299,19 +294,6 @@
   "test/users-delete-account.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 3
-    }
-  },
-  "test/zwds-phase8b-service.spec.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 17
-    }
-  },
-  "test/zwds-service.spec.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 16
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 4
     }
   }
 }

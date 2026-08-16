@@ -45,7 +45,14 @@ const VALID_SECTION_KEYS = [
 
 type SectionKey = (typeof VALID_SECTION_KEYS)[number];
 
-/** Valid reading types for section unlock */
+/**
+ * Valid reading types for section unlock.
+ *
+ * ⚠️ `'zwds'` stays on purpose, even though the ZWDS module was deleted. Two
+ * already-paid `ZWDS_LIFETIME` readings still render, and dropping this would
+ * make their sections permanently unlockable — the one outcome the deletion was
+ * designed to avoid. It grants no ability to CREATE anything.
+ */
 const VALID_READING_TYPES = ['bazi', 'zwds'] as const;
 
 type ReadingType = (typeof VALID_READING_TYPES)[number];

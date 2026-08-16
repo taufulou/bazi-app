@@ -1652,18 +1652,6 @@ const BAZI_CROSS_SELL = [
   { slug: "compatibility", icon: "🤝", name: "合盤比較" },
 ];
 
-const ZWDS_CROSS_SELL = [
-  { slug: "zwds-lifetime", icon: "🌟", name: "紫微終身運" },
-  { slug: "zwds-annual", icon: "📅", name: "紫微流年運" },
-  { slug: "zwds-career", icon: "💼", name: "紫微事業運" },
-  { slug: "zwds-love", icon: "💕", name: "紫微愛情運" },
-  { slug: "zwds-health", icon: "🏥", name: "紫微健康運" },
-  { slug: "zwds-compatibility", icon: "🤝", name: "紫微合盤" },
-  { slug: "zwds-monthly", icon: "🗓️", name: "紫微流月運" },
-  { slug: "zwds-daily", icon: "☀️", name: "紫微每日運勢" },
-  { slug: "zwds-major-period", icon: "🔄", name: "紫微大限分析" },
-  { slug: "zwds-qa", icon: "❓", name: "紫微問事" },
-];
 
 // ============================================================
 // Component
@@ -1775,9 +1763,14 @@ export default function AIReadingDisplay({
   const loveDet = isLoveV2 && det
     ? normalizeLoveDeterministic(det as unknown as Record<string, unknown>)
     : null;
-  const isZwds = readingType.startsWith("zwds-");
-  const crossSellItems = isZwds ? ZWDS_CROSS_SELL : BAZI_CROSS_SELL;
-  const crossSellFiltered = crossSellItems.filter(
+  // ⚠️ Always Bazi, including on a ZWDS reading.
+  //
+  // This grid used to offer a ZWDS reader all ten ZWDS types. ZWDS generation is
+  // gone, so every one of those links led to a form that errors on submit — and
+  // with ZWDS hidden from the homepage, this grid was the last remaining entry
+  // point to that dead end. The two already-paid ZWDS readers are exactly the
+  // audience worth pointing at something that still works.
+  const crossSellFiltered = BAZI_CROSS_SELL.filter(
     (item) => item.slug !== readingType,
   );
 

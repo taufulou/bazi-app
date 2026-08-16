@@ -42,7 +42,6 @@ export const ENGINE_CALLERS = [
   'bazi.reading',
   'bazi.passthrough',
   'bazi.compatibility',
-  'zwds.calculate',
   'fortune.daily',
   'fortune.monthly',
   'fortune.yearly',
