@@ -22,6 +22,7 @@ import {
 import { ZwdsChartData, ZwdsPalace, ZwdsStar } from './zwds.types';
 import { Prisma, ReadingType } from '@prisma/client';
 import { engineFetch } from '../common/engine-client';
+import { isSelfRefusal } from '../ai/typed-refusals';
 
 @Injectable()
 export class ZwdsService {
@@ -385,6 +386,13 @@ export class ZwdsService {
           aiResult.interpretation,
         ).catch((err) => this.logger.error(`Cache write failed: ${err}`));
       } catch (err: unknown) {
+        // S1/S2/S4 — a refusal WE issued is not an AI failure. Graceful
+        // degradation is right for a provider outage and wrong here: the caller
+        // charges `service.creditCost` a few lines below regardless, so a spend
+        // cap or a full pool billed full price for a chart with no
+        // interpretation, at HTTP 200. The bazi twin had this guard; this one
+        // was never given it.
+        if (isSelfRefusal(err)) throw err;
         const message = err instanceof Error ? err.message : 'Unknown error';
         this.logger.error(`AI interpretation failed for ZWDS: ${message}`);
         // Graceful degradation — return chart without AI

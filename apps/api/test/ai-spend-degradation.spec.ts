@@ -61,25 +61,30 @@ describe('the guards, against the REAL services', () => {
   // without booting the whole generation stack, and a COUNT is what a partial
   // deletion — the realistic mistake — actually changes.
 
-  it('all three fortune sync paths guard the cap', () => {
+  // ⚠️ The guard is now `isSelfRefusal`, which covers the cap AND its two
+  // siblings. A later audit found the cap was the only one of the three these
+  // catches recognised: a quota refusal and — far worse — an `AI_BUSY` thrown
+  // after three seconds of queue pressure both fell through to the degrade
+  // path and armed the same 24-hour breaker.
+  it('all three fortune sync paths guard every refusal we issue', () => {
     const src = readSource('src/fortune/fortune.service.ts');
-    expect(countOf(src, /isSpendCapError\(err\)/g)).toBe(3); // day, month, year
+    expect(countOf(src, /isSelfRefusal\(err\)/g)).toBe(3); // day, month, year
   });
 
-  it('all three fortune stream paths guard the cap', () => {
+  it('all three fortune stream paths guard every refusal we issue', () => {
     const src = readSource('src/fortune/fortune-stream.service.ts');
-    expect(countOf(src, /isSpendCapError\(err\)/g)).toBe(3);
+    expect(countOf(src, /isSelfRefusal\(err\)/g)).toBe(3);
   });
 
   it('the fortune sync guard RETHROWS rather than persisting a failure', () => {
     // Persisting is what armed the 24h breaker and blanked the day.
     const src = readSource('src/fortune/fortune.service.ts');
-    expect(src).toMatch(/if \(isSpendCapError\(err\)\) throw err;/);
+    expect(src).toMatch(/if \(isSelfRefusal\(err\)\) throw err;/);
   });
 
   it('the fortune stream guard returns BEFORE _persistAIFailure', () => {
     const src = readSource('src/fortune/fortune-stream.service.ts');
-    const guard = src.indexOf('isSpendCapError(err)');
+    const guard = src.indexOf('isSelfRefusal(err)');
     const persist = src.indexOf('_persistAIFailure', guard);
     expect(guard).toBeGreaterThan(-1);
     expect(persist).toBeGreaterThan(guard);
@@ -116,7 +121,7 @@ describe('the guards, against the REAL services', () => {
       // evidence from a sibling.
       const slice = src.slice(branch, branch + 900);
       const serve = slice.indexOf('_serveLkg(response, lkgRow');
-      const emit = slice.indexOf("capBody?.code ?? 'AI_SPEND_CAP'");
+      const emit = slice.indexOf("refusalBody?.code ?? 'AI_UNAVAILABLE'");
       expect(serve).toBeGreaterThan(-1);
       expect(emit).toBeGreaterThan(serve);
     },

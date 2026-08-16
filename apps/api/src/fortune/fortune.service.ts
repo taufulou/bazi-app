@@ -28,8 +28,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AiSpendService } from '../ai/ai-spend.service';
 import { AiGovernorService } from '../ai/ai-governor.service';
 import { QuotaService } from '../ai/quota.service';
-import { isSpendCapError } from './fortune-snapshot.helpers';
-import { isQuotaError } from '../ai/quota.service';
+import { isSelfRefusal } from '../ai/typed-refusals';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   FORTUNE_PROMPT_VERSIONS,
@@ -210,12 +209,14 @@ export class FortuneService {
       // the rest of the day (the anchor date passes before the backoff expires).
       // Rethrow so the client gets the real 503 + code and nothing is written;
       // the engine output is cheap to recompute next time.
-      if (isSpendCapError(err)) throw err;
-      // S4 — same reasoning for a quota refusal. Falling through wrote a
-      // null-narrative snapshot and armed the 24h breaker, which OUTLIVES
-      // the quota window that caused it — one over-quota fortune blanked
-      // that chart for the rest of the day.
-      if (isQuotaError(err)) throw err;
+      //
+      // S4 and S1 are the same argument. A quota refusal armed a breaker that
+      // OUTLIVES the quota window that caused it, and `AI_BUSY` — thrown after
+      // as little as three seconds of queue pressure — armed a 24-HOUR one.
+      // That last is why this is `isSelfRefusal` rather than a hand-written
+      // list: the two enumerated here were the two their authors were thinking
+      // about, and the cheapest refusal to trigger was covered by neither.
+      if (isSelfRefusal(err)) throw err;
       // AI failure should not block the engine output — degrade gracefully
       this.logger.error(`Daily fortune AI failure: ${(err as Error).message}`);
       narrative = null;
@@ -466,12 +467,14 @@ export class FortuneService {
       // the rest of the day (the anchor date passes before the backoff expires).
       // Rethrow so the client gets the real 503 + code and nothing is written;
       // the engine output is cheap to recompute next time.
-      if (isSpendCapError(err)) throw err;
-      // S4 — same reasoning for a quota refusal. Falling through wrote a
-      // null-narrative snapshot and armed the 24h breaker, which OUTLIVES
-      // the quota window that caused it — one over-quota fortune blanked
-      // that chart for the rest of the day.
-      if (isQuotaError(err)) throw err;
+      //
+      // S4 and S1 are the same argument. A quota refusal armed a breaker that
+      // OUTLIVES the quota window that caused it, and `AI_BUSY` — thrown after
+      // as little as three seconds of queue pressure — armed a 24-HOUR one.
+      // That last is why this is `isSelfRefusal` rather than a hand-written
+      // list: the two enumerated here were the two their authors were thinking
+      // about, and the cheapest refusal to trigger was covered by neither.
+      if (isSelfRefusal(err)) throw err;
       this.logger.error(
         `Monthly fortune AI failure (month=${targetMonth} profile=${profile.id}): ${(err as Error).message}`,
       );
@@ -710,12 +713,14 @@ export class FortuneService {
       // the rest of the day (the anchor date passes before the backoff expires).
       // Rethrow so the client gets the real 503 + code and nothing is written;
       // the engine output is cheap to recompute next time.
-      if (isSpendCapError(err)) throw err;
-      // S4 — same reasoning for a quota refusal. Falling through wrote a
-      // null-narrative snapshot and armed the 24h breaker, which OUTLIVES
-      // the quota window that caused it — one over-quota fortune blanked
-      // that chart for the rest of the day.
-      if (isQuotaError(err)) throw err;
+      //
+      // S4 and S1 are the same argument. A quota refusal armed a breaker that
+      // OUTLIVES the quota window that caused it, and `AI_BUSY` — thrown after
+      // as little as three seconds of queue pressure — armed a 24-HOUR one.
+      // That last is why this is `isSelfRefusal` rather than a hand-written
+      // list: the two enumerated here were the two their authors were thinking
+      // about, and the cheapest refusal to trigger was covered by neither.
+      if (isSelfRefusal(err)) throw err;
       this.logger.error(
         `Yearly fortune AI failure (year=${targetYear} profile=${profile.id}): ${(err as Error).message}`,
       );

@@ -60,22 +60,13 @@ const FRIENDLY: Record<QuotaKind, string> = {
 };
 
 /**
- * Is this our own per-user quota refusal?
+ * ⚠️ `isQuotaError` now lives in `./typed-refusals` alongside its two siblings.
  *
- * Four catches were swallowing it and reporting something else: the compat
- * stream sent a bare Chinese string over SSE, `generateComparisonAI` returned
- * HTTP 200 with an un-generated comparison, `recalculateComparison` turned it
- * into a 500, and the fortune sync path counted it as an AI failure — which
- * arms a 24h circuit breaker that OUTLIVES the quota window that caused it.
- *
- * Deliberately narrow, like `isSpendCapError`: over-matching would stop those
- * catches doing their real job, which is absorbing genuine AI failures.
+ * It was defined here, `isSpendCapError` lived in `fortune-snapshot.helpers`,
+ * and `AI_BUSY` had no predicate at all — so every catch guarded a different
+ * subset and `AI_BUSY` ended up guarded nowhere. Import all three from the one
+ * module, or better, use `isSelfRefusal`.
  */
-export function isQuotaError(err: unknown): boolean {
-  if (!(err instanceof HttpException)) return false;
-  const body = err.getResponse() as { code?: string } | string;
-  return typeof body === 'object' && body?.code === QUOTA_EXCEEDED_CODE;
-}
 
 @Injectable()
 export class QuotaService {

@@ -17,7 +17,8 @@ import { CreditsService } from '../credits/credits.service';
 import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto';
 import { Prisma, ReadingType } from '@prisma/client';
 import { deepCamelCase } from '../common/deep-camel-case';
-import { QuotaService, isQuotaError } from '../ai/quota.service';
+import { QuotaService } from '../ai/quota.service';
+import { isSelfRefusal } from '../ai/typed-refusals';
 import { engineFetch } from '../common/engine-client';
 
 /**
@@ -437,11 +438,18 @@ export class BaziService {
           aiResult.interpretation,
         ).catch((err) => this.logger.error(`Cache write failed: ${err}`));
       } catch (err: unknown) {
-        // S4 — a quota refusal is not an AI failure. This catch is
-        // "return the calculation without AI", after which the caller
-        // charges full price — so an over-quota user paid for an empty
-        // reading and got HTTP 200.
-        if (isQuotaError(err)) throw err;
+        // S1/S2/S4 — a refusal WE issued is not an AI failure. This catch is
+        // "return the calculation without AI", after which the caller charges
+        // full price — so a refused user paid for an empty reading and got
+        // HTTP 200.
+        //
+        // ⚠️ This guarded only the quota at first, which is the least likely of
+        // the three to arrive here: a spend cap or a full pool hits EVERY user
+        // at once, so during an incident every non-streaming reading billed
+        // full credits for a chart with no interpretation — revenue converted
+        // straight into refund tickets, at the moment the system was already
+        // degraded.
+        if (isSelfRefusal(err)) throw err;
         const message = err instanceof Error ? err.message : 'Unknown error';
         this.logger.error(`AI interpretation failed: ${message}`);
         // Don't fail the reading — return calculation without AI
@@ -1615,9 +1623,10 @@ export class BaziService {
     try {
       calculationData = await this.callBaziCompatibility(profileA, profileB, dto) as Record<string, unknown>;
     } catch (err: unknown) {
-      // S4 — a quota refusal is not an AI failure. Without this the catch below
-      // converted the typed 429 into a 500, losing the status and the code.
-      if (isQuotaError(err)) throw err;
+      // S1/S2/S4 — a refusal we issued is not an AI failure. Without this the
+      // catch below converted the typed 429/503 into a 500, losing the status
+      // and the code.
+      if (isSelfRefusal(err)) throw err;
       const message = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(`Bazi recalculation engine call failed: ${message}`);
       throw new InternalServerErrorException('Bazi re-calculation failed.');
@@ -1902,16 +1911,19 @@ export class BaziService {
           aiResult.interpretation,
         ).catch((err) => this.logger.error(`Comparison cache write failed: ${err}`));
       } catch (err: unknown) {
-        // S4 — a quota refusal is not an AI failure. Without this the catch below
-        // returned HTTP 200 with an un-generated comparison and no signal.
-        if (isQuotaError(err)) throw err;
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        this.logger.error(
-          `AI compatibility generation failed for comparison ${comparisonId}: ${message}`,
-        );
-        // The user was charged just above and is getting nothing. Refund rather
-        // than leaving a silent debit — `refundComparisonCredit` is idempotent
-        // and also clears `paidAt`, so a later retry re-charges cleanly.
+        // ⚠️ REFUND FIRST, decide how to report second.
+        //
+        // The user was charged 3 credits at `_chargeForReveal` above and is
+        // getting nothing, so this refund belongs to EVERY failure — including
+        // the ones we re-throw. Guarding the re-throw above the refund is
+        // precisely the bug an audit found here: an over-quota user lost 3
+        // credits, got a 429, and the row kept its `paidAt`, so the retry the
+        // 429 invites was a free no-op that returned nothing. The guard was
+        // added to stop this catch reporting success; it silently took the
+        // refund with it.
+        //
+        // `refundComparisonCredit` is idempotent and also clears `paidAt`, so a
+        // later retry re-charges cleanly.
         const refund = await this.creditsService
           .refundComparisonCredit(comparisonId, 'reveal-generate-failed')
           .catch((refundErr) => {
@@ -1923,6 +1935,15 @@ export class BaziService {
             `Refunded ${refund.amount} credits for failed comparison reveal ${comparisonId}`,
           );
         }
+
+        // S1/S2/S4 — a refusal we issued is not an AI failure. Without this the
+        // catch returned HTTP 200 with an un-generated comparison and no signal.
+        if (isSelfRefusal(err)) throw err;
+
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.logger.error(
+          `AI compatibility generation failed for comparison ${comparisonId}: ${message}`,
+        );
         // Return comparison as-is (no AI)
         return this.flattenComparisonResponse(comparison);
       }

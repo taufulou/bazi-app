@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * S2 CI guard — every AI provider call must be metered and capped.
+ * S1/S2/S4 CI guard — every AI provider call must be governed, metered and capped.
  *
  * WHY THIS EXISTS. Before S2 there were 15 provider call sites and only 6 were
  * metered: all of chat (including the LLM judge) and all of fortune called
@@ -9,17 +9,27 @@
  * 6 sites would have been worse than no breaker, because it would have reported
  * a comfortable number while the unmetered half ran free.
  *
- * The rule is per FILE, not per call: a file that calls a provider must both
- * record spend and consult the breaker. Per-call proximity matching would be
- * defeated by any helper extraction, and the file-level rule is the one that
- * survives refactoring.
+ * The rule is per FILE, not per call: a file that calls a provider must record
+ * spend, consult the breaker, hold a concurrency slot, and spend the caller's
+ * daily quota. Per-call proximity matching would be defeated by any helper
+ * extraction, and the file-level rule is the one that survives refactoring.
  *
- * ⚠️ WHAT IT CANNOT DO. It is a lexical scan. It cannot prove the `record` call
- * is on the same path as the provider call, or that the token counts passed are
- * the right ones. It catches the realistic mistake — a new caller that never
- * thought about spend — not a determined bypass.
+ * ⚠️ WHAT IT CANNOT DO. It is a lexical scan over code with comments and string
+ * literals removed. It cannot prove the `record` call is on the same PATH as the
+ * provider call — metering that only runs inside a `catch`, or behind a dead
+ * `if (false)`, still satisfies the count. It cannot see a spender that reaches
+ * AIService through a base class it extends. It catches the realistic mistake —
+ * a new caller that never thought about spend — not a determined bypass.
  *
- * Run: `npm run guard:ai-spend`
+ * ⚠️ EVERY RULE CARRIES AN ID (`[R-xxx]`). `apps/api/test/ai-spend-guard.spec.ts`
+ * asserts on those ids rather than on exit status, because an audit found the
+ * partial-removal case passing while THREE unrelated rules carried it, and six
+ * rules with no test at all. The ids make "which rule fired" checkable, and the
+ * spec's coverage meta-test asserts every id below is exercised by some fixture.
+ * If you add a rule, give it an id and add a case — the meta-test will fail
+ * until you do.
+ *
+ * Run: `npm run guard:ai-spend`  ·  `--list-rules` prints the id registry.
  */
 
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs';
@@ -32,18 +42,99 @@ const ROOT =
     ? process.argv[rootFlag + 1]
     : fileURLToPath(new URL('..', import.meta.url));
 
-const SCAN_ROOT = 'apps/api/src';
-const SKIP_DIRS = new Set(['node_modules', 'dist', 'build', 'coverage']);
+/**
+ * Every rule this guard can emit. The spec asserts on these ids, and its
+ * coverage meta-test fails if any id is never produced by a fixture.
+ */
+const RULES = {
+  RECORDS_COUNT: 'at least one provider call is unmetered',
+  SLOTS_COUNT: 'at least one provider call holds no concurrency slot',
+  CAPS_COUNT: 'at least one provider call skips the breaker',
+  RECORDS_PRESENT: 'file calls a provider and never records spend',
+  BREAKER_PRESENT: 'file calls a provider and never consults the breaker',
+  QUOTA_COUNT: 'provider calls outnumber per-user quota consumes',
+  SLOT_LEAK: 'acquire() without a matching releaseSlot()',
+  DELEGATE_NO_QUOTA: 'delegates to AIService with no per-user quota',
+  DELEGATE_RATCHET: 'a pinned quota-consume count has dropped',
+  IMPORT_UNMETERED: 'imports a provider SDK with no spend controls at all',
+  EXEMPT_STALE_QUOTA: 'a QUOTA_EXEMPT entry no longer reaches AI',
+  EXEMPT_STALE_BREAKER: 'a BREAKER_EXEMPT entry no longer calls a provider',
+  EXEMPT_MISSING: 'an exempt or watched file is missing',
+  TRIGGER_ZWDS: 'a write route can reach ZwdsService again',
+  TRIGGER_USERS: 'users.service calls a spending AIService method',
+  TRIGGER_CHOKEPOINT: "ai.service.ts's provider-call count changed",
+  CHOKEPOINT_UNRECORDED: 'a choke-point call site with no matching logUsage',
+  TRIGGER_CLIENT_FACTORY: 'a client-factory file started calling a provider',
+};
+
+if (process.argv.includes('--list-rules')) {
+  console.log(Object.keys(RULES).join('\n'));
+  process.exit(0);
+}
+
+/**
+ * Deliberately broad, and identical to the sibling engine-caller guard. That
+ * guard's own history is the argument: its first version scanned three `src`
+ * directories and missed `middleware.ts`, `prisma/seed.ts`, `scripts/` and
+ * `e2e/`. `@anthropic-ai/sdk` is hoisted to the root `node_modules`, so an
+ * `apps/web` route can import it and resolve today.
+ */
+const SCAN_ROOTS = ['apps', 'packages', 'scripts', 'e2e'];
+const SKIP_DIRS = new Set([
+  'node_modules', '.next', '.expo', 'dist', 'build', 'coverage',
+  '__pycache__', '.venv', 'ios', 'android', '.turbo', '.git', '.claude',
+]);
+const CODE_EXT = /\.(m|c)?(ts|js)x?$/;
 const IS_TEST = /\.(spec|test)\.[a-z]+$/;
+
+/** The guards themselves quote these patterns; scanning them is self-reference. */
+const SELF_SCRIPTS = new Set([
+  'scripts/check-ai-spend-metering.mjs',
+  'scripts/check-engine-callers.mjs',
+]);
 
 /** The service that owns metering — it is the thing being called, not a caller. */
 const SELF = 'apps/api/src/ai/ai-spend.service.ts';
+const AI_SERVICE = 'apps/api/src/ai/ai.service.ts';
 
-/** Any call that spends money at a model provider. */
-const PROVIDER_CALL =
-  /\.messages\s*\.\s*(create|stream)\s*\(|\.chat\s*\.\s*completions\s*\.\s*create\s*\(|\.generateContent(Stream)?\s*\(/;
+/**
+ * Any call that spends money at a model provider.
+ *
+ * ⚠️ The three shapes after the first two are NOT hypothetical future SDKs —
+ * every one exists in the versions installed right now. `responses.create` is
+ * OpenAI's current recommended surface (`openai@6`) and chat-completions is its
+ * legacy path, so the natural next OpenAI edit lands on the shape the first
+ * version of this regex could not see. `messages.batches.create` is a plausible
+ * cost optimisation (50% off) that spends real money.
+ */
+const PROVIDER_CALL = new RegExp(
+  [
+    /\.messages\s*\.\s*batches\s*\.\s*create\s*\(/, //  anthropic batch
+    /\.messages\s*\.\s*(create|stream)\s*\(/, //        anthropic
+    /\.chat\s*\.\s*completions\s*\.\s*(create|stream)\s*\(/, // openai legacy
+    /\.responses\s*\.\s*(create|stream)\s*\(/, //       openai current
+    /\.generateContent(Stream)?\s*\(/, //               gemini
+  ]
+    .map((r) => r.source)
+    .join('|'),
+);
 
-const RECORDS_SPEND = /aiSpend\s*\.\s*record\s*\(|this\.logUsage\s*\(/;
+/**
+ * A second, independent net. Call-shape matching is a game of enumeration the
+ * guard cannot win — `const { create } = client.messages` defeats all of the
+ * above. Importing the SDK does not, and it is import-level so it survives every
+ * rename.
+ */
+const PROVIDER_IMPORT =
+  /['"]@anthropic-ai\/sdk['"]|['"]openai['"]|['"]@google\/(generative-ai|genai)['"]|api\.anthropic\.com|api\.openai\.com|generativelanguage\.googleapis\.com/;
+
+const RECORDS_SPEND = /aiSpend\s*\.\s*record\s*\(/;
+/**
+ * ⚠️ `this.logUsage(` is ai.service.ts's own metering helper and is accepted
+ * ONLY there. Anywhere else it lets a file self-certify: define a no-op
+ * `private logUsage() {}`, call it, and both the presence and count checks pass.
+ */
+const RECORDS_SPEND_SELF = /aiSpend\s*\.\s*record\s*\(|this\.logUsage\s*\(/;
 const CHECKS_BREAKER = /assertUnderCap\s*\(/;
 /** S1 — a provider call must also hold a concurrency slot. */
 const HOLDS_SLOT = /aiGovernor\s*\.\s*(acquire|run|runGenerator)\s*\(/;
@@ -52,28 +143,54 @@ const ACQUIRES = /aiGovernor\s*\.\s*acquire\s*\(/;
 const RELEASES = /releaseSlot\s*\(\s*\)/;
 /** S4 — per-user quota. */
 const CONSUMES_QUOTA = /quota\s*\.\s*consume\s*\(/;
+
 /**
  * A file can spend without calling a provider directly, by delegating to
  * `AIService`.
  *
  * ⚠️ Detected by INJECTION, not by receiver name. The first version matched the
  * literal identifier `aiService` plus a `generate`/`stream` prefix, and an audit
- * produced four working bypasses in minutes: rename the property (`this.ai.…`),
- * use a different verb (`.interpret(…)`), alias it locally (`const svc = …`), or
- * reach it by bracket (`this.aiService['generateX']`). A class cannot spend
- * through `AIService` without having it injected, so the type annotation is the
+ * produced five working bypasses in minutes: rename the property (`this.ai.…`),
+ * use a different verb (`.interpret(…)`), end the method in `Hash`, alias it
+ * locally (`const svc = …`), or reach it by bracket. A class cannot spend
+ * through `AIService` without having it handed to it, so the injection is the
  * signal that cannot be renamed away.
+ *
+ * A second audit then found eight ways to be handed it without the literal text
+ * `: AIService` — a namespace-qualified type, a `Pick<>`, `InstanceType<>`, an
+ * `@Inject()` token, `ModuleRef.get()`, and an aliased type import. All are
+ * covered below except `extends SomeBaseThatHasIt`, which needs a type graph;
+ * that limit is stated in the file docblock rather than papered over.
  */
-const INJECTS_AI_SERVICE = /:\s*AIService\b/;
+const INJECTS_AI_SERVICE = new RegExp(
+  [
+    /:\s*(?:[A-Za-z0-9_$]+\.)?AIService\b/, //            : AIService · : NS.AIService
+    /:\s*(?:Pick|Omit|InstanceType)\s*<[^>]*\bAIService\b/, // mapped/derived types
+    /@Inject\(\s*AIService\s*\)/, //                       token DI
+    /\.\s*get\s*\(\s*AIService\s*\)/, //                   ModuleRef.get(AIService)
+  ]
+    .map((r) => r.source)
+    .join('|'),
+);
+
+/** `import { AIService as A }` then `: A` — the annotation never says AIService. */
+function injectsViaAlias(source) {
+  const m = source.match(/import\s+(?:type\s+)?\{[^}]*\bAIService\s+as\s+([A-Za-z0-9_$]+)/);
+  return m ? new RegExp(`:\\s*${m[1]}\\b`).test(source) : false;
+}
+
+const injectsAiService = (source) => INJECTS_AI_SERVICE.test(source) || injectsViaAlias(source);
 
 /** Global twins, for counting rather than testing. */
-const PROVIDER_CALL_G = new RegExp(PROVIDER_CALL.source, 'g');
-const RECORDS_SPEND_G = new RegExp(RECORDS_SPEND.source, 'g');
-const CHECKS_BREAKER_G = new RegExp(CHECKS_BREAKER.source, 'g');
-const HOLDS_SLOT_G = new RegExp(HOLDS_SLOT.source, 'g');
-const ACQUIRES_G = new RegExp(ACQUIRES.source, 'g');
-const RELEASES_G = new RegExp(RELEASES.source, 'g');
-const CONSUMES_QUOTA_G = new RegExp(CONSUMES_QUOTA.source, 'g');
+const g = (re) => new RegExp(re.source, 'g');
+const PROVIDER_CALL_G = g(PROVIDER_CALL);
+const RECORDS_SPEND_G = g(RECORDS_SPEND);
+const RECORDS_SPEND_SELF_G = g(RECORDS_SPEND_SELF);
+const CHECKS_BREAKER_G = g(CHECKS_BREAKER);
+const HOLDS_SLOT_G = g(HOLDS_SLOT);
+const ACQUIRES_G = g(ACQUIRES);
+const RELEASES_G = g(RELEASES);
+const CONSUMES_QUOTA_G = g(CONSUMES_QUOTA);
 
 const countMatches = (src, re) => {
   re.lastIndex = 0;
@@ -81,52 +198,155 @@ const countMatches = (src, re) => {
 };
 
 /**
+ * Blank out comments and string literals, preserving line count and offsets.
+ *
+ * ⚠️ NOT cosmetic. Before this, the guard's own remediation text was a working
+ * bypass: a file with one unmetered `messages.create()` and a docblock pasting
+ * "Add `await this.quota.consume(<kind>, <userId>)`", "call `this.aiSpend.record()`"
+ * and "Wrap it in `aiGovernor.run()`" exited 0. So did a `// FIXME(spend): needs
+ * quota.consume()` left behind while deferring the work, and a `releaseSlot()`
+ * that existed only inside a block comment. Pasting the error message must not
+ * silence the error.
+ *
+ * `{ strings: false }` keeps string literals (still removing comments). Two
+ * rules NEED them: an SDK import IS a string literal, and a bracket-access
+ * method name is one too — blanking those made both rules silently unfirable,
+ * which my own spec caught. Counting rules keep the default, since a string
+ * containing `messages.create(` should not inflate a count.
+ *
+ * Regex literals are left as code. Getting that wrong is a FAIL-OPEN — a
+ * character-class regex containing a quote, misread as a string start, would
+ * swallow the rest of the file including its provider call — so the standard
+ * preceding-token heuristic is applied.
+ */
+function stripNonCode(src, { strings = true } = {}) {
+  const REGEX_MAY_FOLLOW = new Set([...'(,=:[!&|?{};+-*%~^<>', '\n']);
+  let out = '';
+  let state = 'code';
+  let lastSignificant = '\n';
+  let i = 0;
+
+  const blank = (ch) => (ch === '\n' ? '\n' : ' ');
+
+  while (i < src.length) {
+    const c = src[i];
+    const c2 = src[i + 1];
+
+    if (state === 'code') {
+      if (c === '/' && c2 === '/') { state = 'line'; out += '  '; i += 2; continue; }
+      if (c === '/' && c2 === '*') { state = 'block'; out += '  '; i += 2; continue; }
+      if (c === '/' && REGEX_MAY_FOLLOW.has(lastSignificant)) {
+        state = 'regex'; out += c; i++; continue;
+      }
+      if (c === "'" || c === '"' || c === '`') {
+        state = c; out += strings ? ' ' : c; i++; continue;
+      }
+      out += c;
+      if (!/\s/.test(c)) lastSignificant = c;
+      else if (c === '\n') lastSignificant = '\n';
+      i++;
+      continue;
+    }
+
+    if (state === 'line') {
+      if (c === '\n') { state = 'code'; lastSignificant = '\n'; out += '\n'; i++; continue; }
+      out += ' '; i++; continue;
+    }
+
+    if (state === 'block') {
+      if (c === '*' && c2 === '/') { state = 'code'; out += '  '; i += 2; continue; }
+      out += blank(c); i++; continue;
+    }
+
+    if (state === 'regex') {
+      // A regex literal is kept verbatim; only its terminator matters here.
+      if (c === '\\') { out += src.slice(i, i + 2); i += 2; continue; }
+      if (c === '\n') { state = 'code'; lastSignificant = '\n'; out += '\n'; i++; continue; }
+      out += c;
+      if (c === '/') { state = 'code'; lastSignificant = '/'; }
+      i++;
+      continue;
+    }
+
+    // Inside a string literal (state is the quote char).
+    // ⚠️ `blank(c2)` on the escaped character, not a second space: a backslash
+    // before a real line break is a line continuation, and swallowing that
+    // newline shifts every line number after it. Verified — the first version
+    // lost 12 lines of prompts.ts.
+    if (c === '\\') { out += strings ? ' ' + blank(c2 ?? ' ') : src.slice(i, i + 2); i += 2; continue; }
+    if (c === state) { state = 'code'; lastSignificant = c; out += strings ? ' ' : c; i++; continue; }
+    out += strings ? blank(c) : c;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * Read a file as code, and refuse to proceed if the stripper mangled it.
+ *
+ * ⚠️ A stripper bug is a FAIL-OPEN, and the quietest kind: if it swallows a
+ * file's provider call the file is simply skipped and the guard stays green.
+ * Line count is the cheap invariant that catches it — the first version of the
+ * escape handling dropped 12 lines of `prompts.ts`, and nothing would have said
+ * so.
+ */
+function readCode(file, rel, opts) {
+  const raw = readFileSync(file, 'utf8');
+  const code = stripNonCode(raw, opts);
+  const a = raw.split('\n').length;
+  const b = code.split('\n').length;
+  if (a !== b) {
+    console.error(
+      `\n✖ internal error: comment/string stripping changed ${rel} from ${a} to ${b} ` +
+        `lines. That silently hides code from every rule below — fix stripNonCode ` +
+        `rather than suppressing this.\n`,
+    );
+    process.exit(2);
+  }
+  return code;
+}
+
+/**
  * Files where per-call counting does not apply, with the reason.
  *
- * `ai.service.ts` is the only entry: it routes ALL SIX of its provider adapters
+ * `ai.service.ts` is the only entry: it routes ALL of its provider adapters
  * through two choke points — `callProviderWithTimeout` and `streamProvider` —
  * which is strictly stronger than one check per call site, and is what closed
  * the hole where five of six reading paths were uncapped. Counting would demand
- * six of each and push it back toward per-site wiring.
+ * one of each per adapter and push it back toward per-site wiring.
+ *
+ * ⚠️ That premise is ENFORCED by TRIGGER_CHOKEPOINT below, which pins the
+ * provider-call count. Unpinned, this exemption plus BREAKER_EXEMPT left the
+ * file holding most of the repo's provider calls with only a presence check on
+ * it, and three extra adapters that skipped both choke points passed.
  */
 const COUNT_EXEMPT = new Map([
   [
-    'apps/api/src/ai/ai.service.ts',
+    AI_SERVICE,
     'meters and caps at two shared choke points (callProviderWithTimeout, streamProvider) rather than per adapter',
   ],
 ]);
 
-/**
- * Files allowed to call a provider without consulting the breaker themselves,
- * with the reason. Recording is NEVER exempt — an unmetered call is invisible
- * spend regardless of who checked the cap.
- */
+/** Pinned provider-call count for the choke-point exemption. Bump ONLY together
+ *  with a check that the new call routes through a choke point. */
+const CHOKEPOINT_PROVIDER_CALLS = 6;
+
 /**
  * Files that legitimately do not spend a per-user quota, with the reason.
  * Kept SEPARATE from BREAKER_EXEMPT: reusing one list would silently grant a
  * second, unrelated exemption to anything on it.
  */
-/**
- * Expected `quota.consume` count per delegating spender. A ratchet: the guard
- * fails when the count DROPS. Raise it when you add a spend path.
- *
- * Counting against delegations does not work here — `bazi.service.ts` has 14
- * `aiService.*` calls across mutually exclusive `switch` arms serving 6 user
- * actions, so 6 consumes is correct and 14 would be wrong.
- */
-const QUOTA_COUNT_RATCHET = new Map([['apps/api/src/bazi/bazi.service.ts', 5]]);
-
 const QUOTA_EXEMPT = new Map([
   [
     'apps/api/src/users/users.service.ts',
-    "injects AIService only for `generateBirthDataHash`, a pure hash helper used to scope the account-deletion cache purge — it spends nothing. ⚠️ TRIGGER: if this file ever calls a generate/stream method, it needs a quota.",
+    'injects AIService only for `generateBirthDataHash`, a pure hash helper used to scope the account-deletion cache purge — it spends nothing. TRIGGER enforced by TRIGGER_USERS.',
   ],
   [
     'apps/api/src/zwds/zwds.service.ts',
-    'ZWDS creation routes were removed 2026-08-03 — the controller exposes only @Get(\'readings/:id\'), so the five generation paths are unreachable. ⚠️ TRIGGER: add the quota before re-enabling any ZWDS create/generate route.',
+    'ZWDS creation routes were removed 2026-08-03, so its five generation paths are unreachable. TRIGGER enforced by TRIGGER_ZWDS.',
   ],
   [
-    'apps/api/src/ai/ai.service.ts',
+    AI_SERVICE,
     'a shared generation layer — its callers (bazi, zwds) own the per-user quota, and quota needs a userId this layer is not always given',
   ],
   [
@@ -137,7 +357,7 @@ const QUOTA_EXEMPT = new Map([
 
 const BREAKER_EXEMPT = new Map([
   [
-    'apps/api/src/ai/ai.service.ts',
+    AI_SERVICE,
     'checks once at the top of the fallback chain, not per adapter (see the comment there)',
   ],
   [
@@ -145,6 +365,32 @@ const BREAKER_EXEMPT = new Map([
     'the LLM judge is a sampled internal check wrapped in its own try/catch; it records spend but must not be the thing that fails a chat turn',
   ],
 ]);
+
+/**
+ * Files that import a provider SDK to CONSTRUCT a client without calling it —
+ * they hand the client to a caller that owns the controls. TRIGGER enforced by
+ * TRIGGER_CLIENT_FACTORY: the moment one calls a provider, the exemption ends.
+ */
+const CLIENT_FACTORY_EXEMPT = new Map([
+  [
+    'apps/api/src/fortune/fortune-snapshot.helpers.ts',
+    '`ensureClaudeClient` builds the Anthropic client; the calls live in fortune.service.ts and fortune-stream.service.ts, which carry the controls',
+  ],
+]);
+
+/**
+ * Expected `quota.consume` count per delegating spender. A ratchet: the guard
+ * fails when the count DROPS. Raise it when you add a spend path.
+ *
+ * Counting against delegations does not work here — `bazi.service.ts` has 14
+ * `aiService.*` calls across mutually exclusive `switch` arms, and only five of
+ * them are distinct user actions that spend: `createReading`, `streamReading`,
+ * `streamComparisonAI`, `recalculateComparison`, `generateComparisonAI`. (A
+ * sixth entry point, `regenerateReading`, flips flags and re-enters
+ * `streamReading`, so it must NOT consume a second time.) So the expected count
+ * is pinned per file rather than derived.
+ */
+const QUOTA_COUNT_RATCHET = new Map([['apps/api/src/bazi/bazi.service.ts', 5]]);
 
 function walk(dir, out = []) {
   if (!existsSync(dir)) return out;
@@ -158,63 +404,102 @@ function walk(dir, out = []) {
       continue;
     }
     if (st.isDirectory()) walk(full, out);
-    else if (/\.ts$/.test(entry) && !IS_TEST.test(entry)) out.push(full);
+    else if (CODE_EXT.test(entry) && !IS_TEST.test(entry)) out.push(full);
   }
   return out;
 }
 
 const violations = [];
+const fail = (rule, file, line, message) => violations.push({ rule, file, line, message });
 
-for (const file of walk(join(ROOT, SCAN_ROOT))) {
+/** Read a watched file, or record a violation. A missing watched file used to be
+ *  a silent skip — a fail-open in a control whose whole value is failing closed. */
+function readWatched(rel, why, opts) {
+  const full = join(ROOT, rel);
+  if (!existsSync(full)) {
+    fail('EXEMPT_MISSING', rel, 0, `${why} but the file no longer exists — remove the entry or repoint it.`);
+    return null;
+  }
+  return readCode(full, rel, opts);
+}
+
+const files = [];
+for (const root of SCAN_ROOTS) walk(join(ROOT, root), files);
+
+for (const file of files) {
   const rel = relative(ROOT, file).split(sep).join('/');
-  if (rel === SELF) continue;
-  const source = readFileSync(file, 'utf8');
+  if (rel === SELF || SELF_SCRIPTS.has(rel)) continue;
+
+  const source = readCode(file, rel);
+  // Imports are string literals, so this one rule reads a strings-preserving cut.
+  const withStrings = readCode(file, rel, { strings: false });
+  const recordsRe = rel === AI_SERVICE ? RECORDS_SPEND_SELF : RECORDS_SPEND;
+  const recordsReG = rel === AI_SERVICE ? RECORDS_SPEND_SELF_G : RECORDS_SPEND_G;
+
+  const hasProviderCall = PROVIDER_CALL.test(source);
+
+  // The import-level net: an SDK in the imports with none of the four controls
+  // is a spender the call-shape regex could not see.
+  if (!hasProviderCall && PROVIDER_IMPORT.test(withStrings) && !CLIENT_FACTORY_EXEMPT.has(rel)) {
+    const anyControl =
+      recordsRe.test(source) || CHECKS_BREAKER.test(source) || HOLDS_SLOT.test(source);
+    if (!anyControl) {
+      fail(
+        'IMPORT_UNMETERED',
+        rel,
+        withStrings.split('\n').findIndex((l) => PROVIDER_IMPORT.test(l)) + 1,
+        'imports a model-provider SDK but has no spend controls at all. If it only ' +
+          'constructs a client, add a CLIENT_FACTORY_EXEMPT entry; otherwise meter it.',
+      );
+    }
+  }
 
   // A delegating spender (calls AIService rather than a provider SDK) still
   // needs a per-user quota — it just has no provider call for the rules below
   // to key off. Checked separately, then the file is done.
-  if (!PROVIDER_CALL.test(source)) {
-    if (INJECTS_AI_SERVICE.test(source) && !QUOTA_EXEMPT.has(rel)) {
+  if (!hasProviderCall) {
+    if (injectsAiService(source) && !QUOTA_EXEMPT.has(rel)) {
       const consumed = countMatches(source, CONSUMES_QUOTA_G);
       // ⚠️ A RATCHET, not a presence check. `consumed === 0` was the first
-      // version, and it is exactly the shape the comment further down this file
-      // forbids: deleting 4 of 5 quota calls stayed green. A simple
-      // `consumed < delegations` is wrong too — 14 delegations sit in mutually
-      // exclusive `switch` arms, so the counts legitimately differ. So the
-      // expected count is PINNED per file, and any drop is a failure.
+      // version, and it is exactly the shape the comment further down forbids:
+      // deleting 4 of 5 quota calls stayed green. A simple `consumed <
+      // delegations` is wrong too — 14 delegations sit in mutually exclusive
+      // `switch` arms, so the counts legitimately differ. So the expected count
+      // is PINNED per file, and any drop is a failure.
       const expected = QUOTA_COUNT_RATCHET.get(rel);
       if (expected !== undefined && consumed < expected) {
-        violations.push({
-          file: rel,
-          line: source.split('\n').findIndex((l) => CONSUMES_QUOTA.test(l)) + 1,
-          message:
-            `has ${consumed} quota consume(s) but ${expected} are expected — a spend ` +
+        fail(
+          'DELEGATE_RATCHET',
+          rel,
+          Math.max(1, source.split('\n').findIndex((l) => CONSUMES_QUOTA.test(l)) + 1),
+          `has ${consumed} quota consume(s) but ${expected} are expected — a spend ` +
             `path lost its per-user bound. If the drop is intentional, update ` +
             `QUOTA_COUNT_RATCHET in this script with the reason.`,
-        });
+        );
       }
       if (expected === undefined && consumed === 0) {
-        violations.push({
-          file: rel,
-          line: source.split('\n').findIndex((l) => INJECTS_AI_SERVICE.test(l)) + 1,
-          message:
-            'injects AIService but consumes no ' +
-            'per-user quota — S1 and S2 are global, so one account can exhaust the ' +
-            'budget for everyone. Add `await this.quota.consume(<kind>, <userId>)`.',
-        });
+        fail(
+          'DELEGATE_NO_QUOTA',
+          rel,
+          Math.max(1, source.split('\n').findIndex((l) => INJECTS_AI_SERVICE.test(l)) + 1),
+          'injects AIService but consumes no per-user quota — S1 and S2 are global, ' +
+            'so one account can exhaust the budget for everyone. Add ' +
+            '`await this.quota.consume(<kind>, <userId>)`, or pin a count in ' +
+            'QUOTA_COUNT_RATCHET.',
+        );
       }
     }
     continue;
   }
 
-  const line = source.split('\n').findIndex((l) => PROVIDER_CALL.test(l)) + 1;
+  const line = Math.max(1, source.split('\n').findIndex((l) => PROVIDER_CALL.test(l)) + 1);
 
   // ⚠️ COUNT, don't just test-for-presence. Both Phase-2A auditors showed the
   // same bypass: delete 2 of 3 `assertUnderCap` calls from a file with three
   // provider calls and the file-level rule still passed. Partial removal is the
   // realistic mistake — a new branch added next to an existing metered one.
   const providerCalls = countMatches(source, PROVIDER_CALL_G);
-  const records = countMatches(source, RECORDS_SPEND_G);
+  const records = countMatches(source, recordsReG);
   const caps = countMatches(source, CHECKS_BREAKER_G);
   const slots = countMatches(source, HOLDS_SLOT_G);
   const acquires = countMatches(source, ACQUIRES_G);
@@ -223,147 +508,242 @@ for (const file of walk(join(ROOT, SCAN_ROOT))) {
 
   // ⚠️ A hand-rolled `acquire` needs its own release. Deleting a
   // `releaseSlot()` from a `finally` was invisible to both jest and this guard,
-  // and a leaked slot shrinks the pool permanently and silently — the exact
-  // failure the governor's docblock calls out. `run`/`runGenerator` own their
-  // release, so only bare `acquire` is counted. Two releases per acquire (a
-  // guard clause plus the finally) is fine; fewer is not.
+  // and a leaked slot shrinks the pool permanently and silently. `run`/
+  // `runGenerator` own their release, so only bare `acquire` is counted.
   if (acquires > 0 && releases < acquires) {
-    violations.push({
-      file: rel,
+    fail(
+      'SLOT_LEAK',
+      rel,
       line,
-      message:
-        `calls aiGovernor.acquire() ${acquires} time(s) but releaseSlot() only ` +
+      `calls aiGovernor.acquire() ${acquires} time(s) but releaseSlot() only ` +
         `${releases} — an unreleased slot shrinks the pool for the life of the ` +
         `process. Use aiGovernor.run()/runGenerator(), or release in a finally.`,
-    });
+    );
   }
 
-  // S4 — a user-facing generation path must also spend the caller's daily
-  // quota. Exempted files are internal or already gated by their caller.
+  // S4 — a user-facing generation path must also spend the caller's daily quota.
   if (!QUOTA_EXEMPT.has(rel) && quotas < providerCalls) {
-    violations.push({
-      file: rel,
+    fail(
+      'QUOTA_COUNT',
+      rel,
       line,
-      message:
-        `has ${providerCalls} provider call(s) but only ${quotas} quota consume(s) — ` +
-        'S1 and S2 are ' +
-        'GLOBAL, so without this one account can exhaust the budget for everyone. ' +
-        'Add `await this.quota.consume(<kind>, <userId>)`, or add a QUOTA_EXEMPT entry.',
-    });
+      `has ${providerCalls} provider call(s) but only ${quotas} quota consume(s) — ` +
+        'S1 and S2 are GLOBAL, so without this one account can exhaust the budget ' +
+        'for everyone. Add `await this.quota.consume(<kind>, <userId>)`, or add a ' +
+        'QUOTA_EXEMPT entry.',
+    );
   }
 
   if (!COUNT_EXEMPT.has(rel)) {
     if (records < providerCalls) {
-      violations.push({
-        file: rel,
+      fail(
+        'RECORDS_COUNT',
+        rel,
         line,
-        message: `has ${providerCalls} provider call(s) but only ${records} record() call(s) — at least one path spends without being counted.`,
-      });
+        `has ${providerCalls} provider call(s) but only ${records} record() call(s) — at least one path spends without being counted.`,
+      );
     }
     if (!BREAKER_EXEMPT.has(rel) && slots < providerCalls) {
-      violations.push({
-        file: rel,
+      fail(
+        'SLOTS_COUNT',
+        rel,
         line,
-        message:
-          `has ${providerCalls} provider call(s) but only ${slots} concurrency-slot ` +
-          `acquisition(s) — an ungoverned call is unbounded in-flight spend, which is ` +
-          `what S1 exists to prevent. Wrap it in aiGovernor.run()/acquire().`,
-      });
+        `has ${providerCalls} provider call(s) but only ${slots} concurrency-slot ` +
+          `acquisition(s) — an ungoverned call is unbounded in-flight spend, which ` +
+          `is what S1 exists to prevent. Wrap it in aiGovernor.run()/acquire().`,
+      );
     }
     if (!BREAKER_EXEMPT.has(rel) && caps < providerCalls) {
-      violations.push({
-        file: rel,
+      fail(
+        'CAPS_COUNT',
+        rel,
         line,
-        message: `has ${providerCalls} provider call(s) but only ${caps} assertUnderCap() call(s) — at least one path spends without consulting the breaker.`,
-      });
+        `has ${providerCalls} provider call(s) but only ${caps} assertUnderCap() call(s) — at least one path spends without consulting the breaker.`,
+      );
     }
   }
 
-  if (!RECORDS_SPEND.test(source)) {
-    violations.push({
-      file: rel,
+  if (!recordsRe.test(source)) {
+    fail(
+      'RECORDS_PRESENT',
+      rel,
       line,
-      message:
-        'calls an AI provider but never records spend — this call would be invisible ' +
+      'calls an AI provider but never records spend — this call would be invisible ' +
         'to both AIUsageLog and the S2 breaker. Inject AiSpendService and call record().',
-    });
+    );
   }
   if (!CHECKS_BREAKER.test(source) && !BREAKER_EXEMPT.has(rel)) {
-    violations.push({
-      file: rel,
+    fail(
+      'BREAKER_PRESENT',
+      rel,
       line,
-      message:
-        'calls an AI provider without consulting the spend breaker — add ' +
+      'calls an AI provider without consulting the spend breaker — add ' +
         '`await this.aiSpend.assertUnderCap(<context>)` before the call, or add an ' +
         'entry to BREAKER_EXEMPT in this script with the reason.',
-    });
+    );
   }
 }
 
-// ⚠️ QUOTA_EXEMPT's triggers, ENFORCED rather than described.
+// ── Exemption premises, ENFORCED rather than described ───────────────────────
 //
-// Both entries carry a "⚠️ TRIGGER" sentence, and a sentence is not a control:
-// re-adding `@Post('readings')` to the ZWDS controller left the guard green and
-// ZWDS generation unrationed. These check the actual precondition.
+// Every entry above carries a reason, and a reason is not a control: re-adding
+// `@Post('readings')` to the ZWDS controller left the guard green and ZWDS
+// generation unrationed. These check the actual preconditions.
+
 for (const [rel, reason] of QUOTA_EXEMPT) {
-  const full = join(ROOT, rel);
-  if (!existsSync(full)) {
-    violations.push({ file: rel, line: 0, message: `is quota-exempt ("${reason}") but no longer exists — remove the exemption.` });
-    continue;
+  const source = readWatched(rel, `is quota-exempt ("${reason}")`);
+  if (source === null) continue;
+  if (!injectsAiService(source) && !PROVIDER_CALL.test(source)) {
+    fail('EXEMPT_STALE_QUOTA', rel, 0, `is quota-exempt ("${reason}") but no longer reaches AI at all — remove the exemption.`);
   }
-  const source = readFileSync(full, 'utf8');
-  if (!INJECTS_AI_SERVICE.test(source) && !PROVIDER_CALL.test(source)) {
-    violations.push({
-      file: rel,
-      line: 0,
-      message: `is quota-exempt ("${reason}") but no longer reaches AI at all — remove the exemption.`,
-    });
+}
+
+for (const [rel, reason] of BREAKER_EXEMPT) {
+  const source = readWatched(rel, `is exempt from the breaker check ("${reason}")`);
+  if (source === null) continue;
+  if (!PROVIDER_CALL.test(source)) {
+    fail('EXEMPT_STALE_BREAKER', rel, 0, `is exempt from the breaker check ("${reason}") but no longer calls a provider — remove the exemption.`);
   }
-  // ZWDS: the exemption rests on its controller exposing no write route.
-  if (rel.includes('zwds')) {
-    const controller = join(ROOT, 'apps/api/src/zwds/zwds.controller.ts');
-    if (existsSync(controller) && /@(Post|Put|Patch)\s*\(/.test(readFileSync(controller, 'utf8'))) {
-      violations.push({
-        file: 'apps/api/src/zwds/zwds.controller.ts',
-        line: 0,
-        message:
-          'exposes a write route, so the ZWDS quota exemption no longer holds — its ' +
-          'generation paths are reachable again. Add `quota.consume` in zwds.service.ts ' +
-          'and drop the QUOTA_EXEMPT entry.',
-      });
-    }
+}
+
+// TRIGGER_ZWDS — the exemption rests on ZwdsService being unreachable from any
+// write route.
+//
+// ⚠️ Keyed on the SERVICE, not on one hardcoded controller path. Watching
+// `zwds/zwds.controller.ts` for `@Post|@Put|@Patch` missed four realistic
+// revivals: a second controller in the same folder, a `@Post('zwds/readings')`
+// on bazi.controller.ts (cross-module wiring is already live here), `@All()`,
+// and — worst, because it is a refactor rather than a feature — renaming or
+// moving the controller, which made `existsSync` false and deleted the whole
+// trigger.
+if (QUOTA_EXEMPT.has('apps/api/src/zwds/zwds.service.ts')) {
+  for (const file of files) {
+    const rel = relative(ROOT, file).split(sep).join('/');
+    if (!rel.startsWith('apps/api/src/')) continue;
+    const source = readCode(file, rel);
+    if (!/@(?:[A-Za-z0-9_$]+\.)?(Post|Put|Patch|All)\s*\(/.test(source)) continue;
+    if (!/\bZwdsService\b|\bzwdsService\b/.test(source)) continue;
+    fail(
+      'TRIGGER_ZWDS',
+      rel,
+      Math.max(1, source.split('\n').findIndex((l) => /@(?:[A-Za-z0-9_$]+\.)?(Post|Put|Patch|All)\s*\(/.test(l)) + 1),
+      'exposes a write route and references ZwdsService, so the ZWDS quota ' +
+        'exemption no longer holds — its generation paths are reachable again. Add ' +
+        '`quota.consume` in zwds.service.ts and drop the QUOTA_EXEMPT entry.',
+    );
   }
-  // users.service: the exemption rests on it using ONLY hash helpers.
-  if (rel.includes('users.service')) {
-    const spends = /aiService\s*\.\s*(generate|stream)(?![A-Za-z0-9]*Hash\b)[A-Za-z0-9]*\s*\(/;
-    if (spends.test(source)) {
-      violations.push({
-        file: rel,
-        line: 0,
-        message:
-          'is quota-exempt as "hash helpers only", but now calls a generate/stream ' +
-          'method — it spends, so it needs a quota.',
-      });
+}
+
+// TRIGGER_USERS — the exemption rests on users.service using ONLY hash helpers.
+//
+// ⚠️ Keyed on the METHOD NAME, derived from AIService itself. The first version
+// matched `aiService.(generate|stream)…` — the same receiver-name shape whose
+// five bypasses INJECTS_AI_SERVICE was rewritten to close, left behind in the
+// sibling location. Worse, its `(?!…Hash\b)` lookahead had the semantics
+// backwards: a real spender named `generateReadingHash` was waved through.
+// Matching the callee cannot be defeated by renaming the receiver, aliasing it,
+// or reaching it by bracket.
+{
+  const rel = 'apps/api/src/users/users.service.ts';
+  const HASH_ONLY_ALLOWED = new Set(['generateBirthDataHash', 'generateComparisonHash']);
+  // Strings preserved: `this.aiService['generateX']` is a string literal, and
+  // that was one of the bypasses this trigger exists to catch.
+  const users = QUOTA_EXEMPT.has(rel)
+    ? readWatched(rel, 'is quota-exempt as "hash helpers only"', { strings: false })
+    : null;
+  const ai = users === null ? null : readWatched(AI_SERVICE, 'is the AIService this guard derives method names from');
+  if (users && ai) {
+    const spendingMethods = [...ai.matchAll(/^\s{2}(?:public\s+)?(?:async\s+)?([A-Za-z_$][\w$]*)\s*\(/gm)]
+      .map((m) => m[1])
+      .filter((n) => /^(generate|stream)/.test(n) && !HASH_ONLY_ALLOWED.has(n));
+    for (const name of new Set(spendingMethods)) {
+      if (new RegExp(`\\b${name}\\s*\\(|['"\`]${name}['"\`]`).test(users)) {
+        fail(
+          'TRIGGER_USERS',
+          rel,
+          0,
+          `is quota-exempt as "hash helpers only", but calls AIService.${name}() — ` +
+            'it spends, so it needs a quota.',
+        );
+      }
     }
   }
 }
 
-// An exemption for a file that no longer calls a provider is stale, and a stale
-// allowlist is how a real exemption gets granted by accident later.
-for (const [rel, reason] of BREAKER_EXEMPT) {
-  const full = join(ROOT, rel);
-  if (!existsSync(full) || !PROVIDER_CALL.test(readFileSync(full, 'utf8'))) {
-    violations.push({
-      file: rel,
-      line: 0,
-      message: `is exempt from the breaker check ("${reason}") but no longer calls a provider — remove the exemption.`,
-    });
+// TRIGGER_CHOKEPOINT — the count exemption rests on every adapter routing
+// through the two shared choke points. Pinning the count is the closest a
+// lexical scan gets: a new adapter has to be justified rather than merely added.
+{
+  const ai = readWatched(AI_SERVICE, 'is exempt from per-call counting');
+  if (ai) {
+    const n = countMatches(ai, PROVIDER_CALL_G);
+    if (n !== CHOKEPOINT_PROVIDER_CALLS) {
+      fail(
+        'TRIGGER_CHOKEPOINT',
+        AI_SERVICE,
+        0,
+        `has ${n} provider call(s) but the choke-point exemption is pinned at ` +
+          `${CHOKEPOINT_PROVIDER_CALLS}. Confirm the new call routes through ` +
+          `callProviderWithTimeout or streamProvider, then update ` +
+          `CHOKEPOINT_PROVIDER_CALLS.`,
+      );
+    }
+  }
+}
+
+// CHOKEPOINT_UNRECORDED — the choke points cap and govern, but they do NOT
+// record. Recording is per-generator, via `logUsage`.
+//
+// ⚠️ This is the rule that should have caught the worst live bug S2 shipped
+// with. `generateCompatibilityRomanceV2` fires THREE `callProviderWithTimeout`
+// calls and never logs one — ~$0.72 of the app's single most expensive action,
+// invisible to the counter `assertUnderCap` reads — while the file-level rules
+// above marked ai.service.ts compliant, because its OTHER generators record.
+// COUNT_EXEMPT's premise ("everything routes through two choke points") is true
+// of the cap and the slot and false of the record, and nothing said so.
+{
+  const ai = readWatched(AI_SERVICE, 'is the choke-point generation layer');
+  if (ai) {
+    const sites = countMatches(ai, /this\.callProviderWithTimeout\s*\(/g);
+    // A local helper that wraps `this.logUsage` counts as a recording site at
+    // each of ITS call sites. Without this the rule punishes exactly the
+    // refactor it should encourage — three `recordCall(r)` calls collapse to one
+    // textual `logUsage(` — and the file docblock's whole claim is that these
+    // rules survive helper extraction.
+    let logs = countMatches(ai, /this\.logUsage\s*\(/g);
+    for (const m of ai.matchAll(/const\s+([A-Za-z0-9_$]+)\s*=\s*\([^)]*\)\s*=>/g)) {
+      const body = ai.slice(m.index, m.index + 1200);
+      if (!/this\.logUsage\s*\(/.test(body)) continue;
+      // Its own definition already counted once via the literal above.
+      logs += Math.max(0, countMatches(ai, new RegExp(`\\b${m[1]}\\s*\\(`, 'g')) - 1);
+    }
+    if (logs < sites) {
+      fail(
+        'CHOKEPOINT_UNRECORDED',
+        AI_SERVICE,
+        Math.max(1, ai.split('\n').findIndex((l) => /this\.callProviderWithTimeout\s*\(/.test(l)) + 1),
+        `has ${sites} callProviderWithTimeout() call site(s) but only ${logs} ` +
+          `logUsage() call(s). The choke point checks the cap and holds the slot ` +
+          `but does NOT record — each generator logs its own usage, so a generator ` +
+          `that forgets spends invisibly. Add a logUsage() per fulfilled result.`,
+      );
+    }
+  }
+}
+
+// TRIGGER_CLIENT_FACTORY — a factory that starts calling the provider is no
+// longer a factory.
+for (const [rel, reason] of CLIENT_FACTORY_EXEMPT) {
+  const source = readWatched(rel, `is exempt as a client factory ("${reason}")`);
+  if (source === null) continue;
+  if (PROVIDER_CALL.test(source)) {
+    fail('TRIGGER_CLIENT_FACTORY', rel, 0, `is exempt as a client factory ("${reason}") but now calls a provider — it must carry the controls.`);
   }
 }
 
 if (violations.length > 0) {
-  console.error('\n✖ S2 AI-spend metering guard failed:\n');
-  for (const v of violations) console.error(`  ${v.file}:${v.line}\n    ${v.message}\n`);
+  console.error('\n✖ S1/S2/S4 AI-spend metering guard failed:\n');
+  for (const v of violations) console.error(`  [R-${v.rule}] ${v.file}:${v.line}\n    ${v.message}\n`);
   console.error(`${violations.length} violation(s).\n`);
   process.exit(1);
 }

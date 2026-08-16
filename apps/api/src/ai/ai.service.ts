@@ -12,6 +12,7 @@ import { RedisService } from '../redis/redis.service';
 import { CreditsService } from '../credits/credits.service';
 import { AiSpendService, AI_SPEND_CAP_CODE } from './ai-spend.service';
 import { AiGovernorService, AI_BUSY_CODE } from './ai-governor.service';
+import { isSelfRefusal } from './typed-refusals';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
 import {
   READING_PROMPTS,
@@ -368,6 +369,17 @@ export class AIService implements OnModuleInit {
 
         return generationResult;
       } catch (err) {
+        // ⚠️ Our OWN refusals must NOT fail over to the next provider.
+        //
+        // `isRetryableError` already refuses to retry AI_BUSY / AI_SPEND_CAP —
+        // but that governs the INNER retry loop only, and this outer loop caught
+        // everything and tried the next provider anyway, undoing the same fix one
+        // level up. One request then queued once PER provider (3 × the 15s
+        // reading-pool timeout = 45s of queue occupancy applied exactly when the
+        // pool is full), fired the cap's Sentry alert three times, and finally
+        // threw a plain `Error('All AI providers failed…')` — so the typed 503
+        // body was gone and no caller downstream could recognise it.
+        if (isSelfRefusal(err)) throw err;
         lastError = err instanceof Error ? err : new Error(String(err));
         this.logger.warn(
           `Provider ${providerConfig.provider} failed: ${lastError.message}. Trying next...`,
@@ -572,6 +584,17 @@ export class AIService implements OnModuleInit {
           isCacheHit: false,
         };
       } catch (err) {
+        // ⚠️ Our OWN refusals must NOT fail over to the next provider.
+        //
+        // `isRetryableError` already refuses to retry AI_BUSY / AI_SPEND_CAP —
+        // but that governs the INNER retry loop only, and this outer loop caught
+        // everything and tried the next provider anyway, undoing the same fix one
+        // level up. One request then queued once PER provider (3 × the 15s
+        // reading-pool timeout = 45s of queue occupancy applied exactly when the
+        // pool is full), fired the cap's Sentry alert three times, and finally
+        // threw a plain `Error('All AI providers failed…')` — so the typed 503
+        // body was gone and no caller downstream could recognise it.
+        if (isSelfRefusal(err)) throw err;
         lastError = err instanceof Error ? err : new Error(String(err));
         this.logger.warn(
           `V2 provider ${providerConfig.provider} failed: ${lastError.message}. Trying next...`,
@@ -751,6 +774,17 @@ export class AIService implements OnModuleInit {
           isCacheHit: false,
         };
       } catch (err) {
+        // ⚠️ Our OWN refusals must NOT fail over to the next provider.
+        //
+        // `isRetryableError` already refuses to retry AI_BUSY / AI_SPEND_CAP —
+        // but that governs the INNER retry loop only, and this outer loop caught
+        // everything and tried the next provider anyway, undoing the same fix one
+        // level up. One request then queued once PER provider (3 × the 15s
+        // reading-pool timeout = 45s of queue occupancy applied exactly when the
+        // pool is full), fired the cap's Sentry alert three times, and finally
+        // threw a plain `Error('All AI providers failed…')` — so the typed 503
+        // body was gone and no caller downstream could recognise it.
+        if (isSelfRefusal(err)) throw err;
         lastError = err instanceof Error ? err : new Error(String(err));
         this.logger.warn(
           `Career V2 provider ${providerConfig.provider} failed: ${lastError.message}. Trying next...`,
@@ -1941,6 +1975,17 @@ export class AIService implements OnModuleInit {
           isCacheHit: false,
         };
       } catch (err) {
+        // ⚠️ Our OWN refusals must NOT fail over to the next provider.
+        //
+        // `isRetryableError` already refuses to retry AI_BUSY / AI_SPEND_CAP —
+        // but that governs the INNER retry loop only, and this outer loop caught
+        // everything and tried the next provider anyway, undoing the same fix one
+        // level up. One request then queued once PER provider (3 × the 15s
+        // reading-pool timeout = 45s of queue occupancy applied exactly when the
+        // pool is full), fired the cap's Sentry alert three times, and finally
+        // threw a plain `Error('All AI providers failed…')` — so the typed 503
+        // body was gone and no caller downstream could recognise it.
+        if (isSelfRefusal(err)) throw err;
         lastError = err instanceof Error ? err : new Error(String(err));
         this.logger.warn(
           `Annual V2 provider ${providerConfig.provider} failed: ${lastError.message}. Trying next...`,
@@ -3851,6 +3896,17 @@ export class AIService implements OnModuleInit {
           isCacheHit: false,
         };
       } catch (err: unknown) {
+        // ⚠️ Our OWN refusals must NOT fail over to the next provider.
+        //
+        // `isRetryableError` already refuses to retry AI_BUSY / AI_SPEND_CAP —
+        // but that governs the INNER retry loop only, and this outer loop caught
+        // everything and tried the next provider anyway, undoing the same fix one
+        // level up. One request then queued once PER provider (3 × the 15s
+        // reading-pool timeout = 45s of queue occupancy applied exactly when the
+        // pool is full), fired the cap's Sentry alert three times, and finally
+        // threw a plain `Error('All AI providers failed…')` — so the typed 503
+        // body was gone and no caller downstream could recognise it.
+        if (isSelfRefusal(err)) throw err;
         const message = err instanceof Error ? err.message : String(err);
         lastError = new Error(`${providerConfig.provider}: ${message}`);
         this.logger.warn(`Love V2 interpretation failed: ${message}`);
@@ -4539,7 +4595,44 @@ export class AIService implements OnModuleInit {
         let totalInputTokens = 0;
         let totalOutputTokens = 0;
 
+        /**
+         * ⚠️ Record EVERY fulfilled call, and do it here rather than once at the
+         * end.
+         *
+         * `callProviderWithTimeout` checks the cap and holds a slot, but it does
+         * NOT record — each generator logs its own usage. This one did not, so
+         * the app's single most expensive action (3 parallel calls, 3 credits,
+         * ~$0.70 a reveal) contributed exactly $0.00 to the figure the breaker
+         * reads. That is the same blindness S2 was built to end, hiding inside
+         * the file the CI guard marks compliant because its OTHER generators log.
+         *
+         * Per-call, because `Promise.allSettled` means calls 2 and 3 can fail
+         * independently — a summed record at the end would be skipped entirely
+         * when call 1 rejects, after all three had already spent.
+         */
+        const recordCall = (r: { inputTokens: number; outputTokens: number }) =>
+          this.logUsage(
+            userId,
+            readingId,
+            providerConfig,
+            {
+              interpretation: { sections: {}, summary: { preview: '', full: '' } },
+              provider: providerConfig.provider,
+              model: providerConfig.model,
+              tokenUsage: {
+                inputTokens: r.inputTokens,
+                outputTokens: r.outputTokens,
+                totalTokens: r.inputTokens + r.outputTokens,
+                estimatedCostUsd: 0,
+              },
+              latencyMs,
+              isCacheHit: false,
+            },
+            ReadingType.COMPATIBILITY,
+          ).catch(() => {});
+
         // Parse Call 1
+        recordCall(result1);
         totalInputTokens += result1.inputTokens;
         totalOutputTokens += result1.outputTokens;
         // Use parseAIResponse directly (generic JSON parser) — avoid parseLifetimeV2CallResponse
@@ -4554,6 +4647,7 @@ export class AIService implements OnModuleInit {
 
         // Parse Call 2 (may be null if timed out — partial result still useful)
         if (result2) {
+          recordCall(result2);
           totalInputTokens += result2.inputTokens;
           totalOutputTokens += result2.outputTokens;
           const parsed2 = this.parseAIResponse(result2.content, ReadingType.COMPATIBILITY);
@@ -4567,6 +4661,7 @@ export class AIService implements OnModuleInit {
 
         // Parse Call 3 (may be null if timed out — partial result still useful)
         if (result3) {
+          recordCall(result3);
           totalInputTokens += result3.inputTokens;
           totalOutputTokens += result3.outputTokens;
           const parsed3 = this.parseAIResponse(result3.content, ReadingType.COMPATIBILITY);
@@ -4611,6 +4706,17 @@ export class AIService implements OnModuleInit {
           isCacheHit: false,
         };
       } catch (err: unknown) {
+        // ⚠️ Our OWN refusals must NOT fail over to the next provider.
+        //
+        // `isRetryableError` already refuses to retry AI_BUSY / AI_SPEND_CAP —
+        // but that governs the INNER retry loop only, and this outer loop caught
+        // everything and tried the next provider anyway, undoing the same fix one
+        // level up. One request then queued once PER provider (3 × the 15s
+        // reading-pool timeout = 45s of queue occupancy applied exactly when the
+        // pool is full), fired the cap's Sentry alert three times, and finally
+        // threw a plain `Error('All AI providers failed…')` — so the typed 503
+        // body was gone and no caller downstream could recognise it.
+        if (isSelfRefusal(err)) throw err;
         const message = err instanceof Error ? err.message : String(err);
         lastError = new Error(`${providerConfig.provider}: ${message}`);
         this.logger.warn(`Compat Romance V2 interpretation failed: ${message}`);

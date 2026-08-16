@@ -23,13 +23,12 @@
  * same input across both code paths.
  */
 import {
-  HttpException,
   Injectable,
   Logger,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AI_SPEND_CAP_CODE } from '../ai/ai-spend.service';
+
 import { createHash } from 'crypto';
 import * as Sentry from '@sentry/nestjs';
 import {
@@ -165,11 +164,7 @@ export const ENERGY_LABEL_DIVERGENCE_THRESHOLD = 10;
  * retried, so a two-hour budget event permanently blanks that user's daily
  * fortune. `@Throttle(10/min)` allows ten times the three needed.
  */
-export function isSpendCapError(err: unknown): boolean {
-  if (!(err instanceof HttpException)) return false;
-  const body = err.getResponse() as { code?: string } | string;
-  return typeof body === 'object' && body?.code === AI_SPEND_CAP_CODE;
-}
+export { isSpendCapError } from '../ai/typed-refusals';
 
 @Injectable()
 export class FortuneSnapshotHelpers {

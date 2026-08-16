@@ -41,7 +41,7 @@ import { FortuneScope } from '@prisma/client';
 import { AiSpendService } from '../ai/ai-spend.service';
 import { AiGovernorService } from '../ai/ai-governor.service';
 import { QuotaService } from '../ai/quota.service';
-import { isSpendCapError } from './fortune-snapshot.helpers';
+import { isSelfRefusal } from '../ai/typed-refusals';
 import * as Sentry from '@sentry/nestjs';
 import {
   FORTUNE_PROMPT_VERSIONS,
@@ -608,25 +608,33 @@ export class FortuneStreamService {
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Fortune stream Anthropic failure: ${reason}`);
       detector.close();
-      // S2 — a spend cap must NOT arm this chart's 24h AI circuit breaker: the
-      // cause is a global budget event, not a broken chart, and the backoff
-      // outlives the cap (which clears at Taipei midnight) so a DAY scope would
-      // stay blank past its own anchor date. Emit the real code so the client
-      // can say what happened instead of «ai-stream-failed: …».
-      if (isSpendCapError(err)) {
+      // S1/S2/S4 — a refusal WE issued must NOT arm this chart's 24h AI
+      // circuit breaker: the cause is a global budget event, a full pool, or
+      // this user's daily allowance — never a broken chart. Each backoff
+      // outlives its cause (the cap clears at Taipei midnight, the pool in
+      // seconds), so a DAY scope would stay blank past its own anchor date.
+      // `AI_BUSY` is the sharpest of the three: three seconds of queue pressure
+      // for a 24-hour penalty. Emit the real code so the client can say what
+      // happened instead of «ai-stream-failed: …».
+      if (isSelfRefusal(err)) {
         // Serve the preserved narrative if this chart has ever rendered — a
-        // budget event should look like "yesterday's reading" rather than an
-        // error, and it is the highest-volume AI failure LKG will ever face.
+        // budget event or a busy pool should look like "yesterday's reading"
+        // rather than an error, and these are the highest-volume AI failures
+        // LKG will ever face.
         const lkgRow = await this._readLkgRow(chartHash, FortuneScope.DAY, anchorDate);
         if (this._serveLkg(response, lkgRow, 'day')) return;
-        const capBody = (err as HttpException).getResponse() as {
+        // The code and message come from the refusal itself, so the client can
+        // distinguish "over your daily limit" from "we are over budget" from
+        // "try again in a moment". The fallbacks are unreachable for our own
+        // typed errors and exist only so a malformed body still says something.
+        const refusalBody = (err as HttpException).getResponse() as {
           code?: string;
           message?: string;
         };
         this._emitError(
           response,
-          capBody?.code ?? 'AI_SPEND_CAP',
-          capBody?.message ?? '系統目前的 AI 用量已達上限，請稍後再試。',
+          refusalBody?.code ?? 'AI_UNAVAILABLE',
+          refusalBody?.message ?? '系統目前繁忙，請稍後再試。',
         );
         return;
       }
@@ -1340,25 +1348,33 @@ export class FortuneStreamService {
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Monthly fortune stream Anthropic failure: ${reason}`);
       detector.close();
-      // S2 — a spend cap must NOT arm this chart's 24h AI circuit breaker: the
-      // cause is a global budget event, not a broken chart, and the backoff
-      // outlives the cap (which clears at Taipei midnight) so a DAY scope would
-      // stay blank past its own anchor date. Emit the real code so the client
-      // can say what happened instead of «ai-stream-failed: …».
-      if (isSpendCapError(err)) {
+      // S1/S2/S4 — a refusal WE issued must NOT arm this chart's 24h AI
+      // circuit breaker: the cause is a global budget event, a full pool, or
+      // this user's daily allowance — never a broken chart. Each backoff
+      // outlives its cause (the cap clears at Taipei midnight, the pool in
+      // seconds), so a DAY scope would stay blank past its own anchor date.
+      // `AI_BUSY` is the sharpest of the three: three seconds of queue pressure
+      // for a 24-hour penalty. Emit the real code so the client can say what
+      // happened instead of «ai-stream-failed: …».
+      if (isSelfRefusal(err)) {
         // Serve the preserved narrative if this chart has ever rendered — a
-        // budget event should look like "yesterday's reading" rather than an
-        // error, and it is the highest-volume AI failure LKG will ever face.
+        // budget event or a busy pool should look like "yesterday's reading"
+        // rather than an error, and these are the highest-volume AI failures
+        // LKG will ever face.
         const lkgRow = await this._readLkgRow(chartHash, FortuneScope.MONTH, anchorDate);
         if (this._serveLkg(response, lkgRow, 'month')) return;
-        const capBody = (err as HttpException).getResponse() as {
+        // The code and message come from the refusal itself, so the client can
+        // distinguish "over your daily limit" from "we are over budget" from
+        // "try again in a moment". The fallbacks are unreachable for our own
+        // typed errors and exist only so a malformed body still says something.
+        const refusalBody = (err as HttpException).getResponse() as {
           code?: string;
           message?: string;
         };
         this._emitError(
           response,
-          capBody?.code ?? 'AI_SPEND_CAP',
-          capBody?.message ?? '系統目前的 AI 用量已達上限，請稍後再試。',
+          refusalBody?.code ?? 'AI_UNAVAILABLE',
+          refusalBody?.message ?? '系統目前繁忙，請稍後再試。',
         );
         return;
       }
@@ -1966,25 +1982,33 @@ export class FortuneStreamService {
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Yearly fortune stream Anthropic failure: ${reason}`);
       detector.close();
-      // S2 — a spend cap must NOT arm this chart's 24h AI circuit breaker: the
-      // cause is a global budget event, not a broken chart, and the backoff
-      // outlives the cap (which clears at Taipei midnight) so a DAY scope would
-      // stay blank past its own anchor date. Emit the real code so the client
-      // can say what happened instead of «ai-stream-failed: …».
-      if (isSpendCapError(err)) {
+      // S1/S2/S4 — a refusal WE issued must NOT arm this chart's 24h AI
+      // circuit breaker: the cause is a global budget event, a full pool, or
+      // this user's daily allowance — never a broken chart. Each backoff
+      // outlives its cause (the cap clears at Taipei midnight, the pool in
+      // seconds), so a DAY scope would stay blank past its own anchor date.
+      // `AI_BUSY` is the sharpest of the three: three seconds of queue pressure
+      // for a 24-hour penalty. Emit the real code so the client can say what
+      // happened instead of «ai-stream-failed: …».
+      if (isSelfRefusal(err)) {
         // Serve the preserved narrative if this chart has ever rendered — a
-        // budget event should look like "yesterday's reading" rather than an
-        // error, and it is the highest-volume AI failure LKG will ever face.
+        // budget event or a busy pool should look like "yesterday's reading"
+        // rather than an error, and these are the highest-volume AI failures
+        // LKG will ever face.
         const lkgRow = await this._readLkgRow(chartHash, FortuneScope.YEAR, anchorDate);
         if (this._serveLkg(response, lkgRow, 'year')) return;
-        const capBody = (err as HttpException).getResponse() as {
+        // The code and message come from the refusal itself, so the client can
+        // distinguish "over your daily limit" from "we are over budget" from
+        // "try again in a moment". The fallbacks are unreachable for our own
+        // typed errors and exist only so a malformed body still says something.
+        const refusalBody = (err as HttpException).getResponse() as {
           code?: string;
           message?: string;
         };
         this._emitError(
           response,
-          capBody?.code ?? 'AI_SPEND_CAP',
-          capBody?.message ?? '系統目前的 AI 用量已達上限，請稍後再試。',
+          refusalBody?.code ?? 'AI_UNAVAILABLE',
+          refusalBody?.message ?? '系統目前繁忙，請稍後再試。',
         );
         return;
       }

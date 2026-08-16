@@ -12,7 +12,7 @@
       "count": 2
     },
     "@typescript-eslint/no-unused-vars": {
-      "count": 6
+      "count": 4
     }
   },
   "src/bazi/bazi.service.reveal-charge.spec.ts": {
