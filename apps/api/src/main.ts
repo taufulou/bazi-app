@@ -76,8 +76,25 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language'],
   });
 
-  // Swagger API documentation — disabled in production
-  if (process.env.NODE_ENV !== 'production') {
+  // Swagger API documentation — OPT-IN, not opt-out.
+  //
+  // ⚠️ This was `NODE_ENV !== 'production'`, which fails OPEN: an unset
+  // NODE_ENV makes `undefined !== 'production'` true and publishes the full API
+  // surface. It was held closed by a single `ENV NODE_ENV=production` line in
+  // `docker/Dockerfile.api`, and there is no `railway.json` in the repo pinning
+  // that Dockerfile as the builder — so a switch to Nixpacks, or any host that
+  // does not set NODE_ENV, would silently expose it.
+  //
+  // It also carries the API's one accepted advisory: `@nestjs/swagger` pins
+  // `js-yaml` at exactly 5.2.1 (a parsing-DoS advisory), and npm will not apply
+  // a root `overrides` entry to a package nested inside a workspace, so no
+  // override reaches it. The exposure is nil because the only call is
+  // `jsyaml.dump` — serialization, never `.load` — and because this block never
+  // runs in production. Making the gate fail CLOSED is what keeps that second
+  // half true regardless of how the container is built.
+  const swaggerEnabled =
+    process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV === 'development';
+  if (swaggerEnabled) {
     const config = new DocumentBuilder()
       .setTitle('天命 API')
       .setDescription(
@@ -109,7 +126,10 @@ async function bootstrap() {
   const port = process.env.PORT || 4000;
   await app.listen(port);
   logger.log(`API server running on http://localhost:${port}`);
-  if (process.env.NODE_ENV !== 'production') {
+  // Same condition as the block that mounts it — this used to be a second,
+  // independently-written `NODE_ENV !== 'production'`, so it would have
+  // advertised a docs URL that no longer exists.
+  if (swaggerEnabled) {
     logger.log(`Swagger docs at http://localhost:${port}/api/docs`);
   }
 }

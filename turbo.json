@@ -3,6 +3,7 @@
   "ui": "tui",
   "globalEnv": [
     "NODE_ENV",
+    "ENABLE_SWAGGER",
     "SENTRY_DSN",
     "SENTRY_AUTH_TOKEN",
     "BAZI_ENGINE_URL",
