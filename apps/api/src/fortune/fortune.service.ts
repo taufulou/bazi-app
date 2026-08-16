@@ -27,6 +27,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AiSpendService } from '../ai/ai-spend.service';
 import { AiGovernorService } from '../ai/ai-governor.service';
+import { QuotaService } from '../ai/quota.service';
 import { isSpendCapError } from './fortune-snapshot.helpers';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -74,6 +75,7 @@ export class FortuneService {
     private readonly validators: FortuneValidatorsService,
     private readonly aiSpend: AiSpendService,
     private readonly aiGovernor: AiGovernorService,
+    private readonly quota: QuotaService,
   ) {}
 
   // ============================================================
@@ -117,6 +119,10 @@ export class FortuneService {
 
     // Subscription gate
     this.helpers.enforceSubscriptionGate(user.subscriptionTier, targetDate);
+    // S4 — the free fortune tier is per-profile-per-day, so an account with
+    // many profiles multiplies free generation. This is the per-user bound
+    // on top of that (A4 capped profiles at 10 for the same reason).
+    await this.quota.consume('fortune', user.id);
 
     // Compute chart hash (stable per chart — used as cache key).
     // 時辰未知: an unknown hour gets the 'HOUR_UNKNOWN' sentinel so it hashes

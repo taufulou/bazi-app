@@ -197,7 +197,7 @@ function buildNonStreamingPath(anthropicResponse: any) {
   }) };
   const helpers = new FortuneSnapshotHelpers(prisma, redis, config);
   const validators = new FortuneValidatorsService();
-  const service = new FortuneService(prisma, helpers, validators, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never);
+  const service = new FortuneService(prisma, helpers, validators, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never, { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never);
 
   // Stub deterministic helpers
   jest.spyOn(helpers, 'enforceSubscriptionGate').mockImplementation(() => undefined);

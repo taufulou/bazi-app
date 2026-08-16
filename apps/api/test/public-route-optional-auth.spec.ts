@@ -149,6 +149,7 @@ describe('O3 — passthroughExplainElement gates on the caller tier', () => {
       { get: jest.fn().mockReturnValue('http://engine:5001') } as never,
       {} as never,
       {} as never,
+      { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     );
     // Stub the engine hop — this test is about the gate, not the transport.
     (service as unknown as { enginePassthrough: unknown }).enginePassthrough = jest

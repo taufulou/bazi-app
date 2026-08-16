@@ -84,6 +84,7 @@ function makeService(readingOverrides: Record<string, unknown> = {}) {
     } as never,
     { record: jest.fn(), assertUnderCap: jest.fn() } as never,
     { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
+    { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
   );
   return { service, mockPrisma, extendSession };
 }
@@ -242,6 +243,7 @@ describe('F6 door 2 — sendMessage (the door the audit found untested)', () => 
       { acquireLock: jest.fn().mockResolvedValue(true), releaseLock: jest.fn() } as never,
       { record: jest.fn(), assertUnderCap: jest.fn() } as never,
       { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
+      { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     );
     return { service, getChatContextForReading, deductForMessage };
   }

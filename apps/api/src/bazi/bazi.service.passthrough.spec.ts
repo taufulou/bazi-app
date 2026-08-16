@@ -19,7 +19,8 @@ describe('BaziService — engine passthrough', () => {
       {} as never, // redis
       config,
       {} as never, // ai
-      {} as never, // credits
+      {} as never, // credits,
+      { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     );
     fetchMock = jest.fn();
     global.fetch = fetchMock as unknown as typeof fetch;

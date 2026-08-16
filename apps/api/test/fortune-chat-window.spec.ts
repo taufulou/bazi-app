@@ -58,6 +58,7 @@ function makeChatService(tier: SubscriptionTier) {
     {} as never,
     { record: jest.fn(), assertUnderCap: jest.fn() } as never,
     { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
+    { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
   );
   return { service, mockPrisma, assertFortuneWindowForTier };
 }
@@ -275,6 +276,7 @@ describe('F5 door 4 — extendSession will not sell messages that cannot be spen
       } as never,
       { record: jest.fn(), assertUnderCap: jest.fn() } as never,
       { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
+      { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     );
     return { service, extendSession, assertFortuneWindowForTier };
   }

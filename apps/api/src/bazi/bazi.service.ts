@@ -17,6 +17,7 @@ import { CreditsService } from '../credits/credits.service';
 import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto';
 import { Prisma, ReadingType } from '@prisma/client';
 import { deepCamelCase } from '../common/deep-camel-case';
+import { QuotaService } from '../ai/quota.service';
 import { engineFetch } from '../common/engine-client';
 
 /**
@@ -117,6 +118,7 @@ export class BaziService {
     private configService: ConfigService,
     private aiService: AIService,
     private creditsService: CreditsService,
+    private readonly quota: QuotaService,
   ) {
     this.baziEngineUrl = this.configService.get<string>('BAZI_ENGINE_URL') || 'http://localhost:5001';
   }
@@ -455,6 +457,10 @@ export class BaziService {
         },
       });
       if (!fromCache) {
+        // S4 — quota BEFORE the deduction. Readings are the most expensive
+        // unit of spend, so this is the per-user bound that stops one
+        // account consuming the whole global cap and denying everyone else.
+        await this.quota.consume('reading', user.id);
         await this.creditsService.deductCredits(
           user.id,
           service.creditCost,

@@ -31,7 +31,8 @@ describe('BaziService.regenerateReading', () => {
     const mockConfig: any = { get: jest.fn().mockReturnValue('http://localhost:5001') };
     const mockAI: any = {};
     const mockCredits: any = {};
-    service = new BaziService(mockPrisma, mockRedis, mockConfig, mockAI, mockCredits);
+    const mockQuota = { consume: jest.fn(), peek: jest.fn() } as never;
+    service = new BaziService(mockPrisma, mockRedis, mockConfig, mockAI, mockCredits, mockQuota);
   });
 
   it('throws NotFoundException when user does not exist', async () => {

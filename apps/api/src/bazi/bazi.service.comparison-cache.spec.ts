@@ -80,6 +80,7 @@ describe('BaziService.createComparison — free, and never delivers a report', (
       prisma as never, redis as never,
       { get: () => 'http://engine.test:5001' } as unknown as ConfigService,
       ai as never, { deductCredits } as never,
+      { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     );
 
     jest

@@ -101,6 +101,13 @@ import { BannerModule } from './banner/banner.module';
         // becomes unbounded again.
         AI_MAX_CONCURRENT_READING: Joi.number().integer().min(0).optional().default(25),
         AI_MAX_CONCURRENT_INTERACTIVE: Joi.number().integer().min(0).optional().default(40),
+        // S4 — per-user daily quotas. S1 and S2 are global: neither stops ONE
+        // account consuming the whole budget and denying everyone else. Limits
+        // are well above genuine use — they bound abuse, not behaviour. `0`
+        // disables an individual quota (the rollback).
+        QUOTA_READINGS_PER_DAY: Joi.number().integer().min(0).optional().default(20),
+        QUOTA_CHAT_MESSAGES_PER_DAY: Joi.number().integer().min(0).optional().default(200),
+        QUOTA_FORTUNE_PER_DAY: Joi.number().integer().min(0).optional().default(30),
         PORT: Joi.number().default(4000),
         NODE_ENV: Joi.string().valid('development', 'production', 'test').default('development'),
       }),

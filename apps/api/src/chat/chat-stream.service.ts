@@ -17,6 +17,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AiSpendService } from '../ai/ai-spend.service';
 import { AiGovernorService } from '../ai/ai-governor.service';
+import { QuotaService } from '../ai/quota.service';
 import {
   ChatPaymentService,
   CHAT_SESSION_HARD_CAP_MESSAGES,
@@ -126,6 +127,7 @@ export class ChatStreamService {
     private readonly validators: ChatValidatorsService,
     private readonly aiSpend: AiSpendService,
     private readonly aiGovernor: AiGovernorService,
+    private readonly quota: QuotaService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     if (!apiKey) {
@@ -303,6 +305,9 @@ export class ChatStreamService {
     let userMessageId: string;
     try {
       const result = await this.prisma.$transaction(async (tx) => {
+        // S4 — quota BEFORE the deduction: a user who is over their daily
+        // allowance should be told so, not charged and then refused.
+        await this.quota.consume('chat', userId);
         const d = await this.paymentService.deductForMessage(sessionId, userId, tx);
         if (session.firstMessageAt === null) {
           await tx.chatSession.updateMany({

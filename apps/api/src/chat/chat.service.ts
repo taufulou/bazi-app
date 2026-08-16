@@ -22,6 +22,7 @@ import { ChatValidatorsService } from './chat-validators.service';
 import { RedisService } from '../redis/redis.service';
 import { AiSpendService } from '../ai/ai-spend.service';
 import { AiGovernorService } from '../ai/ai-governor.service';
+import { QuotaService } from '../ai/quota.service';
 import { buildPrompt } from './chat-prompt-builder';
 import {
   CreateChatSessionResponse,
@@ -101,6 +102,7 @@ export class ChatService {
     private readonly redis: RedisService,
     private readonly aiSpend: AiSpendService,
     private readonly aiGovernor: AiGovernorService,
+    private readonly quota: QuotaService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     if (!apiKey) {
@@ -783,6 +785,9 @@ export class ChatService {
     //    persisting the message.
     //    deductForMessage throws 402 NEEDS_EXTENSION or 409 HARD_CAP_REACHED.
     const { deduction, userMessage } = await this.prisma.$transaction(async (tx) => {
+      // S4 — quota BEFORE the deduction: a user who is over their daily
+      // allowance should be told so, not charged and then refused.
+      await this.quota.consume('chat', user.id);
       const result = await this.paymentService.deductForMessage(sessionId, user.id, tx);
       // Set firstMessageAt on first deduction (idempotent updateMany guard)
       if (session.firstMessageAt === null) {
