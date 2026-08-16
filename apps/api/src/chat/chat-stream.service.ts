@@ -28,6 +28,7 @@ import { ChatValidatorsService } from './chat-validators.service';
 import { buildPrompt } from './chat-prompt-builder';
 import { sanitizeUserContent } from './chat.service';
 import { isTopicBoundaryRefuse } from '../ai/prompts';
+import { absorbStreamUsage, emptyStreamUsage, mergeFinalUsage } from '../ai/stream-usage';
 
 // ============================================================
 // Constants
@@ -309,6 +310,10 @@ export class ChatStreamService {
       // connection for its duration, so `consume`'s fail-open guarantee did not
       // hold there — it degraded into a transaction timeout that failed the
       // message. This still satisfies "before the deduction".
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('chat:stream');
       await this.quota.consume('chat', userId);
       const result = await this.prisma.$transaction(async (tx) => {
         const d = await this.paymentService.deductForMessage(sessionId, userId, tx);
@@ -605,6 +610,8 @@ export class ChatStreamService {
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
     };
+    // Accumulated as events arrive; recorded in the `finally`.
+    const streamUsage = emptyStreamUsage();
 
     // S1 — declared outside the try so the `finally` can return the slot.
     let releaseSlot: () => void = () => undefined;
@@ -636,6 +643,11 @@ export class ChatStreamService {
       );
 
       for await (const event of stream) {
+        // S2 — meter as we go. A chat turn's cost is mostly its ~10k-token
+        // cached system block, billed at the 2× cache-WRITE rate on the first
+        // turn — and read only from `message_start`, which arrives before any
+        // disconnect can happen. See `stream-usage.ts`.
+        absorbStreamUsage(event, streamUsage);
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           const text = event.delta.text;
           assistantBuffer += text;
@@ -656,20 +668,9 @@ export class ChatStreamService {
           (finalMessage.usage as { cache_creation_input_tokens?: number })
             .cache_creation_input_tokens ?? 0,
       };
-      // S2 — meter this call. Chat and fortune bypassed `ai.service`'s
-      // logger entirely, so before this every token they spent was
-      // invisible to both `AIUsageLog` and the breaker.
-      void this.aiSpend.record({
-        provider: 'CLAUDE',
-        model: this.model,
-        usage: {
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          cacheReadTokens: usage.cacheReadTokens,
-          cacheWriteTokens: usage.cacheCreationTokens,
-        },
-        context: 'chat:stream',
-      });
+      // Clean completion — prefer the authoritative final numbers. The
+      // `finally` does the recording either way.
+      mergeFinalUsage(streamUsage, finalMessage.usage);
     } catch (err) {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
@@ -734,6 +735,16 @@ export class ChatStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      // S2 — record in the FINALLY, so a client disconnect (the commonest
+      // ending on mobile) still books what Anthropic already billed.
+      if (streamUsage.inputTokens || streamUsage.outputTokens) {
+        void this.aiSpend.record({
+          provider: 'CLAUDE',
+          model: this.model,
+          usage: streamUsage,
+          context: 'chat:stream',
+        });
+      }
       releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
     }
 

@@ -32,7 +32,11 @@ describe('BaziService.regenerateReading', () => {
     const mockAI: any = {};
     const mockCredits: any = {};
     const mockQuota = { consume: jest.fn(), peek: jest.fn() } as never;
-    service = new BaziService(mockPrisma, mockRedis, mockConfig, mockAI, mockCredits, mockQuota);
+    // S2 — the cap pre-check that now runs before every quota consume.
+    const mockSpend = { assertUnderCap: jest.fn(), record: jest.fn() } as never;
+    service = new BaziService(
+      mockPrisma, mockRedis, mockConfig, mockAI, mockCredits, mockQuota, mockSpend,
+    );
   });
 
   it('throws NotFoundException when user does not exist', async () => {

@@ -285,7 +285,25 @@ export class AiSpendService {
     usage: TokenUsage;
     context?: string;
   }): Promise<number> {
-    const costUsd = this.estimateCostUsd(args.model, args.usage);
+    let costUsd: number;
+    try {
+      // ⚠️ Inside the try, not above it.
+      //
+      // `estimateCostUsd` dereferences `args.usage`, so it throws on a caller
+      // that passes a spread resolving to undefined — outside the try, that
+      // rejection escaped a method whose docblock promises it never throws. All
+      // ten call sites invoke it as a bare `void this.aiSpend.record(...)` on
+      // the strength of that promise, with no `.catch()`, so the rejection is
+      // unhandled and takes the API process down. No caller does this today;
+      // the guarantee is what licenses the bare `void`, so the guarantee has to
+      // hold at the first line as well as the rest.
+      costUsd = this.estimateCostUsd(args.model, args.usage);
+    } catch (err) {
+      this.logger.error(
+        `Failed to price AI spend (${args.provider}/${args.model}) — not counted: ${err}`,
+      );
+      return 0;
+    }
     if (!(costUsd > 0)) return 0;
 
     try {

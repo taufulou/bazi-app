@@ -6011,11 +6011,41 @@ export class AIService implements OnModuleInit {
 
   // ---- Gemini ----
 
+  /**
+   * ⚠️ Gemini must be raced against its own signal.
+   *
+   * `callProviderWithTimeout` arms `setTimeout(() => controller.abort(), …)`
+   * INSIDE the governor slot, but this adapter took `_signal` and dropped it,
+   * and the SDK sets no default timeout of its own. So the abort fired, nothing
+   * listened, and the `reading` slot stayed held until Gemini answered in its
+   * own time — the bound `AI_MAX_CONCURRENT_READING` is supposed to guarantee
+   * simply not enforced on this provider. Gemini is third in the fallback chain,
+   * i.e. reached precisely when Claude and GPT are already failing and the pool
+   * is at its most contended.
+   *
+   * `requestOptions.signal` is honoured by the SDK; the race is belt-and-braces
+   * for an SDK version that ignores it, and costs one already-settled promise.
+   */
+  private async raceSignal<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return work;
+    if (signal.aborted) throw new Error('Gemini call aborted before it started');
+    let onAbort!: () => void;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(new Error('Gemini call aborted by timeout'));
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      return await Promise.race([work, aborted]);
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
+
   private async callGemini(
     config: ProviderConfig,
     systemPrompt: string,
     userPrompt: string,
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
   ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
     if (!this.geminiAI) {
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
@@ -6027,7 +6057,14 @@ export class AIService implements OnModuleInit {
       generationConfig: { maxOutputTokens: 8192 },
     });
 
-    const result = await model.generateContent(userPrompt);
+    // The SDK's model handle is loosely typed, so the generic needs pinning or
+    // `result` collapses to `unknown`.
+    const result = await this.raceSignal<{
+      response: {
+        text(): string;
+        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+      };
+    }>(model.generateContent(userPrompt, { signal }), signal);
     const response = result.response;
 
     return {
@@ -6041,7 +6078,7 @@ export class AIService implements OnModuleInit {
     config: ProviderConfig,
     systemPrompt: string,
     userPrompt: string,
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
     usageOut?: { inputTokens: number; outputTokens: number },
   ): AsyncGenerator<string> {
     if (!this.geminiAI) {
@@ -6053,7 +6090,9 @@ export class AIService implements OnModuleInit {
       systemInstruction: systemPrompt,
     });
 
-    const result = await model.generateContentStream(userPrompt);
+    const result = await this.raceSignal<{
+      stream: AsyncIterable<{ text(): string }>;
+    }>(model.generateContentStream(userPrompt, { signal }), signal);
 
     for await (const chunk of result.stream) {
       // usageMetadata arrives only on NORMAL completion chunks.

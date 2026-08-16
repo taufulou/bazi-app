@@ -53,6 +53,8 @@ function makeService(readingOverrides: Record<string, unknown>, tier = 'FREE') {
     { get: jest.fn().mockReturnValue('http://localhost:5001') } as never,
     {} as never, {} as never,
     { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
+    // S2 — the cap pre-check that now runs before every quota consume.
+    { assertUnderCap: jest.fn(), record: jest.fn() } as never,
   );
   return { service, mockPrisma, reading };
 }
@@ -286,6 +288,8 @@ describe('F-4 sibling — getComparison has no subscriber exemption either', () 
       { get: jest.fn().mockReturnValue('http://localhost:5001') } as never,
       {} as never, {} as never,
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
+    // S2 — the cap pre-check that now runs before every quota consume.
+    { assertUnderCap: jest.fn(), record: jest.fn() } as never,
     );
     return { service };
   }

@@ -18,6 +18,7 @@ import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto'
 import { Prisma, ReadingType } from '@prisma/client';
 import { deepCamelCase } from '../common/deep-camel-case';
 import { QuotaService } from '../ai/quota.service';
+import { AiSpendService } from '../ai/ai-spend.service';
 import { isSelfRefusal } from '../ai/typed-refusals';
 import { engineFetch } from '../common/engine-client';
 
@@ -120,6 +121,7 @@ export class BaziService {
     private aiService: AIService,
     private creditsService: CreditsService,
     private readonly quota: QuotaService,
+    private readonly aiSpend: AiSpendService,
   ) {
     this.baziEngineUrl = this.configService.get<string>('BAZI_ENGINE_URL') || 'http://localhost:5001';
   }
@@ -393,6 +395,22 @@ export class BaziService {
         // strictly CHEAPER for an abuser than before the quota existed. The
         // streaming path already ordered these correctly; this is the branch a
         // direct caller selects by omitting `stream`.
+        // ⚠️ S2 BEFORE S4. A refusal we issue ourselves must not spend the user's
+        // daily allowance, because it spends nothing of ours.
+        //
+        // Quota was consumed first, so a global budget event — which refuses
+        // EVERY user at once — let one person burn their whole day's allowance on
+        // 503s and stay locked out for the rest of the Taipei day after the
+        // budget was raised. One incident became a day-long per-user outage.
+        // `QuotaService`'s own docblock promises the opposite: "a request we
+        // refuse ourselves before spending anything never reaches `consume`".
+        //
+        // This check is a second, cheap read (one Redis GET) of the same counter
+        // the generation layer consults; that one stays authoritative. Ordering
+        // the CHEAP check first is also why this is not a quota refund — the
+        // counter must never decrement, or inducing failures becomes a way to
+        // reclaim quota.
+        await this.aiSpend.assertUnderCap('reading:create');
         await this.quota.consume('reading', user.id);
 
         // Route V2 reading types to their multi-call generators; all others use V1
@@ -856,6 +874,10 @@ export class BaziService {
       // both generate. Regeneration is separately bounded per-reading by
       // REGENERATION_LIMIT and requires `isDegraded`, so this is the smaller
       // of the two holes — but it is still a spend path the daily bound missed.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('reading:stream');
       await this.quota.consume('reading', user.id);
 
       // 5. Delegate to correct V2 streamer based on reading type
@@ -1016,6 +1038,10 @@ export class BaziService {
       // parallel calls, 300s timeout) and had NO per-user bound: the reading quota
       // only ever covered `createReading`. Charged against the same `reading`
       // budget, because from a spend perspective that is what this is.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('compat:reveal-stream');
       await this.quota.consume('reading', user.id);
       await this._chargeForReveal(user.id, comparison);
     } catch (err) {
@@ -1023,14 +1049,27 @@ export class BaziService {
       // Headers are already sent on an SSE response, so a thrown
       // BadRequestException would reach the client as a message string, not a
       // 4xx. Emit a machine-readable code the frontend can dispatch on.
-      const isCredits =
-        err instanceof BadRequestException &&
-        (err.getResponse() as { code?: string })?.code === 'INSUFFICIENT_CREDITS';
+      // ⚠️ Forward the code for EVERY typed refusal, not just credits.
+      //
+      // Only `INSUFFICIENT_CREDITS` carried one, so a quota 429 or a spend-cap
+      // 503 reached the client as a bare Chinese string and the frontend had
+      // nothing to dispatch on — no quota dialog, no retry hint. Every other SSE
+      // surface (`fortune-stream`, `chat-stream`) already extracts `code` from
+      // the HttpException body; this was the odd one out.
+      const body =
+        err instanceof HttpException
+          ? (err.getResponse() as { code?: string; message?: string } | string)
+          : null;
+      const code = typeof body === 'object' && body?.code ? body.code : null;
+      const isCredits = code === 'INSUFFICIENT_CREDITS';
       subscriber.next({
         data: JSON.stringify(
           isCredits
             ? { code: 'INSUFFICIENT_CREDITS', message: '點數不足，無法解鎖完整報告。' }
-            : { message: err instanceof Error ? err.message : 'Reveal failed' },
+            : {
+                ...(code ? { code } : {}),
+                message: err instanceof Error ? err.message : 'Reveal failed',
+              },
         ),
         type: 'error',
       } as MessageEvent);
@@ -1652,6 +1691,10 @@ export class BaziService {
       // S4 — see the note at the compat stream site: comparisons are the most
       // expensive unit in the app and the reading quota covered only
       // `createReading`. Charged against the same `reading` budget.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('compat:recalculate');
       await this.quota.consume('reading', user.id);
 
       // Route: Romance V2 (3-call) vs V1 (single-call)
@@ -1755,6 +1798,14 @@ export class BaziService {
 
     // Charge before generating. Already-unlocked rows are a no-op (CAS returns
     // false), so a retry after a failed generation is free.
+    // ⚠️ Cap check ABOVE the charge, not merely above the quota.
+    //
+    // Everything else in this method already runs after `_chargeForReveal`, so
+    // a budget event here meant taking 3 credits and handing them straight back
+    // through the refund path. Refusing first is the same outcome without the
+    // round trip through the user's balance — and without a ledger entry pair
+    // that reads, to anyone auditing it later, like a failed generation.
+    await this.aiSpend.assertUnderCap('compat:reveal-generate');
     await this._chargeForReveal(user.id, comparison);
 
     // ⚠️ Read the AI cache HERE — after the charge, before generation.

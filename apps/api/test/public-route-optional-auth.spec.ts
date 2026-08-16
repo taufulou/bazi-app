@@ -150,6 +150,8 @@ describe('O3 — passthroughExplainElement gates on the caller tier', () => {
       {} as never,
       {} as never,
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
+    // S2 — the cap pre-check that now runs before every quota consume.
+    { assertUnderCap: jest.fn(), record: jest.fn() } as never,
     );
     // Stub the engine hop — this test is about the gate, not the transport.
     (service as unknown as { enginePassthrough: unknown }).enginePassthrough = jest

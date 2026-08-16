@@ -197,6 +197,10 @@ export class FortuneService {
       // At the entry point it billed a quota unit for cache hits and for
       // homepage `engineOnly` reads that spend nothing — rationing the free
       // read while the paid generation went uncounted.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('fortune:daily');
       await this.quota.consume('fortune', user.id);
       const aiResult = await this.runDailyAINarration(dailyOutput, chartContext);
       narrative = aiResult.narrative;
@@ -451,6 +455,10 @@ export class FortuneService {
       // At the entry point it billed a quota unit for cache hits and for
       // homepage `engineOnly` reads that spend nothing — rationing the free
       // read while the paid generation went uncounted.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('fortune:monthly');
       await this.quota.consume('fortune', user.id);
       const aiResult = await this.runMonthlyAINarration(
         monthlyOutput,
@@ -702,6 +710,10 @@ export class FortuneService {
       // At the entry point it billed a quota unit for cache hits and for
       // homepage `engineOnly` reads that spend nothing — rationing the free
       // read while the paid generation went uncounted.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('fortune:yearly');
       await this.quota.consume('fortune', user.id);
       const aiResult = await this.runYearlyAINarration(yearlyOutput, chartContext, year);
       narrative = aiResult.narrative;

@@ -789,6 +789,10 @@ export class ChatService {
     // connection for its duration, so `consume`'s fail-open guarantee did not
     // hold there — it degraded into a transaction timeout that failed the
     // message. This still satisfies "before the deduction".
+    // S2 before S4 — see the note at the first site: a refusal we issue must
+    // not spend the user's daily allowance. Cheap pre-read; the generation
+    // layer's check stays authoritative.
+    await this.aiSpend.assertUnderCap('chat:sync');
     await this.quota.consume('chat', user.id);
     const { deduction, userMessage } = await this.prisma.$transaction(async (tx) => {
       const result = await this.paymentService.deductForMessage(sessionId, user.id, tx);

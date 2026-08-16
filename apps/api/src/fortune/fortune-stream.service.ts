@@ -42,6 +42,7 @@ import { AiSpendService } from '../ai/ai-spend.service';
 import { AiGovernorService } from '../ai/ai-governor.service';
 import { QuotaService } from '../ai/quota.service';
 import { isSelfRefusal } from '../ai/typed-refusals';
+import { absorbStreamUsage, emptyStreamUsage, mergeFinalUsage } from '../ai/stream-usage';
 import * as Sentry from '@sentry/nestjs';
 import {
   FORTUNE_PROMPT_VERSIONS,
@@ -343,6 +344,10 @@ export class FortuneStreamService {
       // call; guarding only the sync entry point left every real fortune
       // generation uncounted. Placed after the cache short-circuit above, so a
       // cached read costs no quota.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('fortune:stream-daily');
       await this.quota.consume('fortune', user.id);
       await this._streamWithSectionDetector({
         response,
@@ -523,6 +528,8 @@ export class FortuneStreamService {
 
     // S1 — declared outside the try so the `finally` can return the slot.
     let releaseSlot: () => void = () => undefined;
+    // Accumulated as events arrive; recorded in the `finally`.
+    const streamUsage = emptyStreamUsage();
     try {
       // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
       // generation stops. Throws a typed 503 that the caller's existing
@@ -546,6 +553,9 @@ export class FortuneStreamService {
       );
 
       for await (const event of stream) {
+        // S2 — meter as we go. See `stream-usage.ts`: an aborted stream is
+        // billed in full but never reaches `finalMessage()`.
+        absorbStreamUsage(event, streamUsage);
         if (
           event.type === 'content_block_delta' &&
           event.delta.type === 'text_delta'
@@ -559,24 +569,9 @@ export class FortuneStreamService {
 
       const finalMessage = await stream.finalMessage();
       finalStopReason = (finalMessage as { stop_reason?: string }).stop_reason ?? null;
-      // S2 — meter the stream. `finalMessage()` carries the authoritative
-      // usage; an aborted stream never reaches here, which under-counts by
-      // design rather than over-counting a call that produced nothing.
-      void this.aiSpend.record({
-        provider: 'CLAUDE',
-        model,
-        usage: {
-          inputTokens: finalMessage.usage?.input_tokens ?? 0,
-          outputTokens: finalMessage.usage?.output_tokens ?? 0,
-          cacheReadTokens:
-            ((finalMessage.usage ?? {}) as { cache_read_input_tokens?: number })
-              .cache_read_input_tokens ?? 0,
-          cacheWriteTokens:
-            ((finalMessage.usage ?? {}) as { cache_creation_input_tokens?: number })
-              .cache_creation_input_tokens ?? 0,
-        },
-        context: 'fortune:stream-daily',
-      });
+      // Clean completion — prefer the authoritative final numbers over what the
+      // events accumulated. The `finally` below does the recording either way.
+      mergeFinalUsage(streamUsage, finalMessage.usage);
     } catch (err) {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
@@ -647,6 +642,18 @@ export class FortuneStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      // S2 — record in the FINALLY, so a client disconnect or a watchdog
+      // abort still books what Anthropic already billed. See
+      // `stream-usage.ts` for why the four streaming sites that only read
+      // `finalMessage()` were under-counting the commonest failure there is.
+      if (streamUsage.inputTokens || streamUsage.outputTokens) {
+        void this.aiSpend.record({
+          provider: 'CLAUDE',
+          model,
+          usage: streamUsage,
+          context: 'fortune:stream-daily',
+        });
+      }
       releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
     }
 
@@ -1091,6 +1098,10 @@ export class FortuneStreamService {
       // call; guarding only the sync entry point left every real fortune
       // generation uncounted. Placed after the cache short-circuit above, so a
       // cached read costs no quota.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('fortune:stream-monthly');
       await this.quota.consume('fortune', user.id);
       await this._streamMonthlyWithSectionDetector({
         response,
@@ -1270,6 +1281,8 @@ export class FortuneStreamService {
 
     // S1 — declared outside the try so the `finally` can return the slot.
     let releaseSlot: () => void = () => undefined;
+    // Accumulated as events arrive; recorded in the `finally`.
+    const streamUsage = emptyStreamUsage();
     try {
       // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
       // generation stops. Throws a typed 503 that the caller's existing
@@ -1293,6 +1306,9 @@ export class FortuneStreamService {
       );
 
       for await (const event of stream) {
+        // S2 — meter as we go. See `stream-usage.ts`: an aborted stream is
+        // billed in full but never reaches `finalMessage()`.
+        absorbStreamUsage(event, streamUsage);
         if (
           event.type === 'content_block_delta' &&
           event.delta.type === 'text_delta'
@@ -1306,24 +1322,9 @@ export class FortuneStreamService {
 
       const finalMessage = await stream.finalMessage();
       finalStopReason = (finalMessage as { stop_reason?: string }).stop_reason ?? null;
-      // S2 — meter the stream. `finalMessage()` carries the authoritative
-      // usage; an aborted stream never reaches here, which under-counts by
-      // design rather than over-counting a call that produced nothing.
-      void this.aiSpend.record({
-        provider: 'CLAUDE',
-        model,
-        usage: {
-          inputTokens: finalMessage.usage?.input_tokens ?? 0,
-          outputTokens: finalMessage.usage?.output_tokens ?? 0,
-          cacheReadTokens:
-            ((finalMessage.usage ?? {}) as { cache_read_input_tokens?: number })
-              .cache_read_input_tokens ?? 0,
-          cacheWriteTokens:
-            ((finalMessage.usage ?? {}) as { cache_creation_input_tokens?: number })
-              .cache_creation_input_tokens ?? 0,
-        },
-        context: 'fortune:stream-monthly',
-      });
+      // Clean completion — prefer the authoritative final numbers over what the
+      // events accumulated. The `finally` below does the recording either way.
+      mergeFinalUsage(streamUsage, finalMessage.usage);
     } catch (err) {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
@@ -1393,6 +1394,18 @@ export class FortuneStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      // S2 — record in the FINALLY, so a client disconnect or a watchdog
+      // abort still books what Anthropic already billed. See
+      // `stream-usage.ts` for why the four streaming sites that only read
+      // `finalMessage()` were under-counting the commonest failure there is.
+      if (streamUsage.inputTokens || streamUsage.outputTokens) {
+        void this.aiSpend.record({
+          provider: 'CLAUDE',
+          model,
+          usage: streamUsage,
+          context: 'fortune:stream-monthly',
+        });
+      }
       releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
     }
 
@@ -1729,6 +1742,10 @@ export class FortuneStreamService {
       // call; guarding only the sync entry point left every real fortune
       // generation uncounted. Placed after the cache short-circuit above, so a
       // cached read costs no quota.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('fortune:stream-yearly');
       await this.quota.consume('fortune', user.id);
       await this._streamYearlyWithSectionDetector({
         response,
@@ -1904,6 +1921,8 @@ export class FortuneStreamService {
 
     // S1 — declared outside the try so the `finally` can return the slot.
     let releaseSlot: () => void = () => undefined;
+    // Accumulated as events arrive; recorded in the `finally`.
+    const streamUsage = emptyStreamUsage();
     try {
       // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
       // generation stops. Throws a typed 503 that the caller's existing
@@ -1927,6 +1946,9 @@ export class FortuneStreamService {
       );
 
       for await (const event of stream) {
+        // S2 — meter as we go. See `stream-usage.ts`: an aborted stream is
+        // billed in full but never reaches `finalMessage()`.
+        absorbStreamUsage(event, streamUsage);
         if (
           event.type === 'content_block_delta' &&
           event.delta.type === 'text_delta'
@@ -1940,24 +1962,9 @@ export class FortuneStreamService {
 
       const finalMessage = await stream.finalMessage();
       finalStopReason = (finalMessage as { stop_reason?: string }).stop_reason ?? null;
-      // S2 — meter the stream. `finalMessage()` carries the authoritative
-      // usage; an aborted stream never reaches here, which under-counts by
-      // design rather than over-counting a call that produced nothing.
-      void this.aiSpend.record({
-        provider: 'CLAUDE',
-        model,
-        usage: {
-          inputTokens: finalMessage.usage?.input_tokens ?? 0,
-          outputTokens: finalMessage.usage?.output_tokens ?? 0,
-          cacheReadTokens:
-            ((finalMessage.usage ?? {}) as { cache_read_input_tokens?: number })
-              .cache_read_input_tokens ?? 0,
-          cacheWriteTokens:
-            ((finalMessage.usage ?? {}) as { cache_creation_input_tokens?: number })
-              .cache_creation_input_tokens ?? 0,
-        },
-        context: 'fortune:stream-yearly',
-      });
+      // Clean completion — prefer the authoritative final numbers over what the
+      // events accumulated. The `finally` below does the recording either way.
+      mergeFinalUsage(streamUsage, finalMessage.usage);
     } catch (err) {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
@@ -2027,6 +2034,18 @@ export class FortuneStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      // S2 — record in the FINALLY, so a client disconnect or a watchdog
+      // abort still books what Anthropic already billed. See
+      // `stream-usage.ts` for why the four streaming sites that only read
+      // `finalMessage()` were under-counting the commonest failure there is.
+      if (streamUsage.inputTokens || streamUsage.outputTokens) {
+        void this.aiSpend.record({
+          provider: 'CLAUDE',
+          model,
+          usage: streamUsage,
+          context: 'fortune:stream-yearly',
+        });
+      }
       releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
     }
 

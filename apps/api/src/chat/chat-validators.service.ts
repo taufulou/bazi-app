@@ -435,6 +435,15 @@ ${safeAssistantResponse}
 {"verdict": "pass" | "fail", "reason": "1 句說明"}`;
 
     try {
+      // S2 — the judge is exempt from the S1 concurrency governor by design (a
+      // sampled internal check must not compete for a user-facing slot), but it
+      // was never exempt from the cap and simply never consulted it. It records
+      // its spend, so it counts TOWARD the cap while ignoring it — during a
+      // budget event the only thing still calling the provider would have been
+      // our own QA sampler. Inside the existing try, so a refusal skips the
+      // judge rather than failing the chat turn, which is the whole reason this
+      // call is wrapped.
+      await this.aiSpend.assertUnderCap('chat:llm-judge');
       const response = await this.judgeAnthropic.messages.create(
         {
           model: this.judgeModel,

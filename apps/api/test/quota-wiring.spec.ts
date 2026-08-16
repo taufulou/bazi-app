@@ -131,3 +131,67 @@ describe('S1/S2/S4 — no degrade path swallows a refusal we issued', () => {
     }
   });
 });
+
+describe('S2 before S4 — a refusal we issue must not spend the daily allowance', () => {
+  // Quota was consumed first everywhere, so a global budget event — which
+  // refuses EVERY user at once — let one person burn their whole day's
+  // allowance on 503s and stay locked out for the rest of the Taipei day after
+  // the budget was raised. One incident became a day-long per-user outage,
+  // contradicting QuotaService's own promise that "a request we refuse
+  // ourselves before spending anything never reaches `consume`".
+  const SITES = [
+    ['src/bazi/bazi.service.ts', 5],
+    ['src/fortune/fortune.service.ts', 3],
+    ['src/fortune/fortune-stream.service.ts', 3],
+    ['src/chat/chat.service.ts', 1],
+    ['src/chat/chat-stream.service.ts', 1],
+  ] as const;
+
+  it.each(SITES)('%s checks the cap before every quota consume', (file, n) => {
+    const s = src(file);
+    let from = 0;
+    let checked = 0;
+    for (;;) {
+      const q = s.indexOf('this.quota.consume(', from);
+      if (q === -1) break;
+      const cap = s.lastIndexOf('this.aiSpend.assertUnderCap(', q);
+      expect(cap).toBeGreaterThan(-1);
+      // Immediately before, not merely somewhere earlier in the file: a cap
+      // check from an unrelated method further up would satisfy a loose test
+      // while this call site stayed unprotected.
+      const between = s.slice(cap, q);
+      expect(between).not.toContain('this.quota.consume(');
+      // ONE documented exception: the compat reveal hoists its check further
+      // up so it precedes `_chargeForReveal`, declining before taking 3 credits
+      // rather than charging and refunding. Encoded as a named condition, not
+      // as a slackened line budget, so any OTHER drift still fails.
+      const hoistedAboveTheCharge = between.includes('_chargeForReveal(user.id');
+      if (!hoistedAboveTheCharge) {
+        expect(between.split('\n').length).toBeLessThan(4);
+      }
+      checked += 1;
+      from = q + 1;
+    }
+    expect(checked).toBe(n);
+  });
+
+  it('the compat reveal refuses BEFORE taking 3 credits, not after', () => {
+    // Everything else in generateComparisonAI runs after `_chargeForReveal`, so
+    // a budget event meant charging and refunding rather than declining.
+    const s = src('src/bazi/bazi.service.ts');
+    const gen = s.indexOf('async generateComparisonAI');
+    const cap = s.indexOf("assertUnderCap('compat:reveal-generate')", gen);
+    const charge = s.indexOf('_chargeForReveal(user.id', gen);
+    expect(cap).toBeGreaterThan(-1);
+    expect(charge).toBeGreaterThan(cap);
+  });
+
+  it('the LLM judge consults the cap it already counts toward', () => {
+    // It records spend, so it counts TOWARD the cap while ignoring it — during
+    // a budget event the only thing still calling the provider would have been
+    // our own QA sampler.
+    expect(src('src/chat/chat-validators.service.ts')).toContain(
+      "assertUnderCap('chat:llm-judge')",
+    );
+  });
+});
