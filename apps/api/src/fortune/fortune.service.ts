@@ -26,6 +26,7 @@
  */
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AiSpendService } from '../ai/ai-spend.service';
+import { AiGovernorService } from '../ai/ai-governor.service';
 import { isSpendCapError } from './fortune-snapshot.helpers';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -72,6 +73,7 @@ export class FortuneService {
     private readonly helpers: FortuneSnapshotHelpers,
     private readonly validators: FortuneValidatorsService,
     private readonly aiSpend: AiSpendService,
+    private readonly aiGovernor: AiGovernorService,
   ) {}
 
   // ============================================================
@@ -258,7 +260,14 @@ export class FortuneService {
     // generation stops. Throws a typed 503 that the caller's existing
     // error path maps to a refund where a credit was already taken.
     await this.aiSpend.assertUnderCap('fortune:daily');
-    const response = await client.messages.create(
+    // S1 — hold an `interactive` slot for the upstream call. acquire/finally
+    // rather than `run()` because `client` is loosely typed: passing it through
+    // a generic collapses the response to `unknown` and every downstream field
+    // access becomes a cast.
+    const releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:daily');
+    let response;
+    try {
+      response = await client.messages.create(
       {
         model,
         max_tokens: 2048,
@@ -267,7 +276,10 @@ export class FortuneService {
         messages: [{ role: 'user', content: userPrompt }],
       },
       { timeout: AI_CALL_TIMEOUT_MS },
-    );
+      );
+    } finally {
+      releaseSlot();
+    }
 
     // S2 — meter. Fortune called Anthropic directly and wrote no usage row,
     // so its spend was invisible to both `AIUsageLog` and the breaker.
@@ -496,7 +508,14 @@ export class FortuneService {
     // generation stops. Throws a typed 503 that the caller's existing
     // error path maps to a refund where a credit was already taken.
     await this.aiSpend.assertUnderCap('fortune:monthly');
-    const response = await client.messages.create(
+    // S1 — hold an `interactive` slot for the upstream call. acquire/finally
+    // rather than `run()` because `client` is loosely typed: passing it through
+    // a generic collapses the response to `unknown` and every downstream field
+    // access becomes a cast.
+    const releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:monthly');
+    let response;
+    try {
+      response = await client.messages.create(
       {
         model,
         max_tokens: 2048,
@@ -505,7 +524,10 @@ export class FortuneService {
         messages: [{ role: 'user', content: userPrompt }],
       },
       { timeout: AI_CALL_TIMEOUT_MS },
-    );
+      );
+    } finally {
+      releaseSlot();
+    }
 
     // S2 — meter. Fortune called Anthropic directly and wrote no usage row,
     // so its spend was invisible to both `AIUsageLog` and the breaker.
@@ -715,7 +737,14 @@ export class FortuneService {
     // generation stops. Throws a typed 503 that the caller's existing
     // error path maps to a refund where a credit was already taken.
     await this.aiSpend.assertUnderCap('fortune:yearly');
-    const response = await client.messages.create(
+    // S1 — hold an `interactive` slot for the upstream call. acquire/finally
+    // rather than `run()` because `client` is loosely typed: passing it through
+    // a generic collapses the response to `unknown` and every downstream field
+    // access becomes a cast.
+    const releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:yearly');
+    let response;
+    try {
+      response = await client.messages.create(
       {
         model,
         max_tokens: 2048,
@@ -724,7 +753,10 @@ export class FortuneService {
         messages: [{ role: 'user', content: userPrompt }],
       },
       { timeout: AI_CALL_TIMEOUT_MS },
-    );
+      );
+    } finally {
+      releaseSlot();
+    }
 
     // S2 — meter. Fortune called Anthropic directly and wrote no usage row,
     // so its spend was invisible to both `AIUsageLog` and the breaker.

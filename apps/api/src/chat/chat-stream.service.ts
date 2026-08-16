@@ -16,6 +16,7 @@ import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AiSpendService } from '../ai/ai-spend.service';
+import { AiGovernorService } from '../ai/ai-governor.service';
 import {
   ChatPaymentService,
   CHAT_SESSION_HARD_CAP_MESSAGES,
@@ -124,6 +125,7 @@ export class ChatStreamService {
     private readonly contextService: ChatContextService,
     private readonly validators: ChatValidatorsService,
     private readonly aiSpend: AiSpendService,
+    private readonly aiGovernor: AiGovernorService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     if (!apiKey) {
@@ -596,11 +598,16 @@ export class ChatStreamService {
       cacheCreationTokens: 0,
     };
 
+    // S1 — declared outside the try so the `finally` can return the slot.
+    let releaseSlot: () => void = () => undefined;
     try {
       // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
       // generation stops. Throws a typed 503 that the caller's existing
       // error path maps to a refund where a credit was already taken.
       await this.aiSpend.assertUnderCap('chat:stream');
+      // S1 — held until the stream ENDS, released in the `finally` below so a
+      // watchdog abort or client disconnect returns the slot.
+      releaseSlot = await this.aiGovernor.acquire('interactive', 'chat:stream');
       const stream = this.anthropic.messages.stream(
         {
           model: this.model,
@@ -719,6 +726,7 @@ export class ChatStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
     }
 
     // ============================================================

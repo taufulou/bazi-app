@@ -45,11 +45,14 @@ const PROVIDER_CALL =
 
 const RECORDS_SPEND = /aiSpend\s*\.\s*record\s*\(|this\.logUsage\s*\(/;
 const CHECKS_BREAKER = /assertUnderCap\s*\(/;
+/** S1 — a provider call must also hold a concurrency slot. */
+const HOLDS_SLOT = /aiGovernor\s*\.\s*(acquire|run|runGenerator)\s*\(/;
 
 /** Global twins, for counting rather than testing. */
 const PROVIDER_CALL_G = new RegExp(PROVIDER_CALL.source, 'g');
 const RECORDS_SPEND_G = new RegExp(RECORDS_SPEND.source, 'g');
 const CHECKS_BREAKER_G = new RegExp(CHECKS_BREAKER.source, 'g');
+const HOLDS_SLOT_G = new RegExp(HOLDS_SLOT.source, 'g');
 
 const countMatches = (src, re) => {
   re.lastIndex = 0;
@@ -122,6 +125,7 @@ for (const file of walk(join(ROOT, SCAN_ROOT))) {
   const providerCalls = countMatches(source, PROVIDER_CALL_G);
   const records = countMatches(source, RECORDS_SPEND_G);
   const caps = countMatches(source, CHECKS_BREAKER_G);
+  const slots = countMatches(source, HOLDS_SLOT_G);
 
   if (!COUNT_EXEMPT.has(rel)) {
     if (records < providerCalls) {
@@ -129,6 +133,16 @@ for (const file of walk(join(ROOT, SCAN_ROOT))) {
         file: rel,
         line,
         message: `has ${providerCalls} provider call(s) but only ${records} record() call(s) — at least one path spends without being counted.`,
+      });
+    }
+    if (!BREAKER_EXEMPT.has(rel) && slots < providerCalls) {
+      violations.push({
+        file: rel,
+        line,
+        message:
+          `has ${providerCalls} provider call(s) but only ${slots} concurrency-slot ` +
+          `acquisition(s) — an ungoverned call is unbounded in-flight spend, which is ` +
+          `what S1 exists to prevent. Wrap it in aiGovernor.run()/acquire().`,
       });
     }
     if (!BREAKER_EXEMPT.has(rel) && caps < providerCalls) {

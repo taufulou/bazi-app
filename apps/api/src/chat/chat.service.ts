@@ -21,6 +21,7 @@ import { ChatContextService } from './chat-context.service';
 import { ChatValidatorsService } from './chat-validators.service';
 import { RedisService } from '../redis/redis.service';
 import { AiSpendService } from '../ai/ai-spend.service';
+import { AiGovernorService } from '../ai/ai-governor.service';
 import { buildPrompt } from './chat-prompt-builder';
 import {
   CreateChatSessionResponse,
@@ -99,6 +100,7 @@ export class ChatService {
     private readonly validators: ChatValidatorsService,
     private readonly redis: RedisService,
     private readonly aiSpend: AiSpendService,
+    private readonly aiGovernor: AiGovernorService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     if (!apiKey) {
@@ -981,7 +983,10 @@ export class ChatService {
       // generation stops. Throws a typed 503 that the caller's existing
       // error path maps to a refund where a credit was already taken.
       await this.aiSpend.assertUnderCap('chat:sync');
-      const response = await this.anthropic.messages.create(
+      // S1 — a non-streaming call IS the whole upstream request, so wrapping
+      // it in `run` holds the slot for exactly the right window.
+      const response = await this.aiGovernor.run('interactive', 'chat:sync', () =>
+        this.anthropic.messages.create(
         {
           model: this.model,
           max_tokens: CHAT_OUTPUT_MAX_TOKENS_LOCAL,
@@ -995,7 +1000,7 @@ export class ChatService {
           messages,
         },
         { timeout: 60_000 },
-      );
+      ));
 
       // S2 — meter this call. Chat and fortune bypassed `ai.service`'s usage
       // logger entirely, so before this every token they spent was invisible

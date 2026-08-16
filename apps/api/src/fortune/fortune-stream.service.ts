@@ -37,7 +37,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { FortuneScope } from '@prisma/client';
 import { AiSpendService } from '../ai/ai-spend.service';
+import { AiGovernorService } from '../ai/ai-governor.service';
 import { isSpendCapError } from './fortune-snapshot.helpers';
 import * as Sentry from '@sentry/nestjs';
 import {
@@ -213,6 +215,7 @@ export class FortuneStreamService {
     private readonly helpers: FortuneSnapshotHelpers,
     private readonly validators: FortuneValidatorsService,
     private readonly aiSpend: AiSpendService,
+    private readonly aiGovernor: AiGovernorService,
   ) {}
 
   /**
@@ -511,11 +514,16 @@ export class FortuneStreamService {
     let assistantBuffer = '';
     let finalStopReason: string | null = null;
 
+    // S1 — declared outside the try so the `finally` can return the slot.
+    let releaseSlot: () => void = () => undefined;
     try {
       // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
       // generation stops. Throws a typed 503 that the caller's existing
       // error path maps to a refund where a credit was already taken.
       await this.aiSpend.assertUnderCap('fortune:stream-daily');
+      // S1 — the slot is held until the stream ENDS, released in the
+      // `finally` below, so a watchdog abort or client disconnect returns it.
+      releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:stream-daily');
       const stream = client.messages.stream(
         {
           model,
@@ -599,6 +607,11 @@ export class FortuneStreamService {
       // stay blank past its own anchor date. Emit the real code so the client
       // can say what happened instead of «ai-stream-failed: …».
       if (isSpendCapError(err)) {
+        // Serve the preserved narrative if this chart has ever rendered — a
+        // budget event should look like "yesterday's reading" rather than an
+        // error, and it is the highest-volume AI failure LKG will ever face.
+        const lkgRow = await this._readLkgRow(chartHash, FortuneScope.DAY, anchorDate);
+        if (this._serveLkg(response, lkgRow, 'day')) return;
         const capBody = (err as HttpException).getResponse() as {
           code?: string;
           message?: string;
@@ -619,6 +632,7 @@ export class FortuneStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
     }
 
     detector.close();
@@ -842,6 +856,34 @@ export class FortuneStreamService {
    *  Returns true if it served (emitted done + ended response) — caller then
    *  returns. Returns false (no LKG to serve) → caller emits the honest
    *  AI_FAILED error so the FE shows the «AI 文字解讀暫時無法產生」 fallback. */
+  /**
+   * Read the existing snapshot for LKG WITHOUT recording a failure.
+   *
+   * `_persistAIFailure` conflates two things — "remember this chart's AI is
+   * broken" and "hand me the row so I can serve its last-known-good narrative".
+   * For a spend cap only the second is wanted: the cause is a global budget
+   * event, so arming this chart's 24h breaker is wrong, but the user should
+   * still get the reading they had yesterday rather than an error banner.
+   *
+   * Without this split the cap became the ONE high-volume AI failure that never
+   * reached LKG — the exact case the feature was built for.
+   */
+  private async _readLkgRow(
+    chartHash: string,
+    scope: FortuneScope,
+    anchorDate: Date,
+  ): Promise<LkgRow> {
+    try {
+      return await this.prisma.dailyFortuneSnapshot.findUnique({
+        where: { chartHash_scope_anchorDate: { chartHash, scope, anchorDate } },
+        select: { aiNarrativeJson: true, chartHash: true },
+      });
+    } catch (err) {
+      this.logger.warn(`LKG lookup failed (${scope} ${chartHash.slice(0, 8)}…): ${err}`);
+      return null;
+    }
+  }
+
   private _serveLkg(response: Response, row: LkgRow, scope: 'day' | 'month' | 'year'): boolean {
     if (!row) return false;
     const lkg = row.aiNarrativeJson;
@@ -1206,11 +1248,16 @@ export class FortuneStreamService {
     let assistantBuffer = '';
     let finalStopReason: string | null = null;
 
+    // S1 — declared outside the try so the `finally` can return the slot.
+    let releaseSlot: () => void = () => undefined;
     try {
       // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
       // generation stops. Throws a typed 503 that the caller's existing
       // error path maps to a refund where a credit was already taken.
       await this.aiSpend.assertUnderCap('fortune:stream-monthly');
+      // S1 — the slot is held until the stream ENDS, released in the
+      // `finally` below, so a watchdog abort or client disconnect returns it.
+      releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:stream-monthly');
       const stream = client.messages.stream(
         {
           model,
@@ -1287,6 +1334,11 @@ export class FortuneStreamService {
       // stay blank past its own anchor date. Emit the real code so the client
       // can say what happened instead of «ai-stream-failed: …».
       if (isSpendCapError(err)) {
+        // Serve the preserved narrative if this chart has ever rendered — a
+        // budget event should look like "yesterday's reading" rather than an
+        // error, and it is the highest-volume AI failure LKG will ever face.
+        const lkgRow = await this._readLkgRow(chartHash, FortuneScope.MONTH, anchorDate);
+        if (this._serveLkg(response, lkgRow, 'month')) return;
         const capBody = (err as HttpException).getResponse() as {
           code?: string;
           message?: string;
@@ -1313,6 +1365,7 @@ export class FortuneStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
     }
 
     detector.close();
@@ -1816,11 +1869,16 @@ export class FortuneStreamService {
     let assistantBuffer = '';
     let finalStopReason: string | null = null;
 
+    // S1 — declared outside the try so the `finally` can return the slot.
+    let releaseSlot: () => void = () => undefined;
     try {
       // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
       // generation stops. Throws a typed 503 that the caller's existing
       // error path maps to a refund where a credit was already taken.
       await this.aiSpend.assertUnderCap('fortune:stream-yearly');
+      // S1 — the slot is held until the stream ENDS, released in the
+      // `finally` below, so a watchdog abort or client disconnect returns it.
+      releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:stream-yearly');
       const stream = client.messages.stream(
         {
           model,
@@ -1897,6 +1955,11 @@ export class FortuneStreamService {
       // stay blank past its own anchor date. Emit the real code so the client
       // can say what happened instead of «ai-stream-failed: …».
       if (isSpendCapError(err)) {
+        // Serve the preserved narrative if this chart has ever rendered — a
+        // budget event should look like "yesterday's reading" rather than an
+        // error, and it is the highest-volume AI failure LKG will ever face.
+        const lkgRow = await this._readLkgRow(chartHash, FortuneScope.YEAR, anchorDate);
+        if (this._serveLkg(response, lkgRow, 'year')) return;
         const capBody = (err as HttpException).getResponse() as {
           code?: string;
           message?: string;
@@ -1923,6 +1986,7 @@ export class FortuneStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
     }
 
     detector.close();
