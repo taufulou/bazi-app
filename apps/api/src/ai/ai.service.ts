@@ -6028,7 +6028,15 @@ export class AIService implements OnModuleInit {
    */
   private async raceSignal<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
     if (!signal) return work;
-    if (signal.aborted) throw new Error('Gemini call aborted before it started');
+    if (signal.aborted) {
+      // The SDK call was already dispatched by the caller's argument
+      // evaluation, so throwing here leaves it unowned — an unhandled rejection
+      // when it settles, and there is no process-level handler. Adopt it first.
+      // (Unreachable today: `callProviderWithTimeout` mints a fresh controller
+      // inside the governor slot, so the signal is never pre-aborted on entry.)
+      work.catch(() => undefined);
+      throw new Error('Gemini call aborted before it started');
+    }
     let onAbort!: () => void;
     const aborted = new Promise<never>((_resolve, reject) => {
       onAbort = () => reject(new Error('Gemini call aborted by timeout'));

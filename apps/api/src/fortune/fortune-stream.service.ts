@@ -42,7 +42,7 @@ import { AiSpendService } from '../ai/ai-spend.service';
 import { AiGovernorService } from '../ai/ai-governor.service';
 import { QuotaService } from '../ai/quota.service';
 import { isSelfRefusal } from '../ai/typed-refusals';
-import { absorbStreamUsage, emptyStreamUsage, mergeFinalUsage } from '../ai/stream-usage';
+import { absorbStreamUsage, emptyStreamUsage, hasUsage, mergeFinalUsage } from '../ai/stream-usage';
 import * as Sentry from '@sentry/nestjs';
 import {
   FORTUNE_PROMPT_VERSIONS,
@@ -344,17 +344,13 @@ export class FortuneStreamService {
       // call; guarding only the sync entry point left every real fortune
       // generation uncounted. Placed after the cache short-circuit above, so a
       // cached read costs no quota.
-      // S2 before S4 — see the note at the first site: a refusal we issue must
-      // not spend the user's daily allowance. Cheap pre-read; the generation
-      // layer's check stays authoritative.
-      await this.aiSpend.assertUnderCap('fortune:stream-daily');
-      await this.quota.consume('fortune', user.id);
       await this._streamWithSectionDetector({
         response,
         dailyOutput,
         chartContext,
         chartHash,
         birthProfileId: profile.id,
+        userId: user.id,
         anchorDate: targetDateObj,
         targetDate,
       });
@@ -446,10 +442,12 @@ export class FortuneStreamService {
     chartContext: FortuneChartContext;
     chartHash: string;
     birthProfileId: string;
+    /** S4 — the quota is spent INSIDE, once the cap and the slot have passed. */
+    userId: string;
     anchorDate: Date;
     targetDate: string;
   }): Promise<void> {
-    const { response, dailyOutput, chartContext, chartHash, birthProfileId, anchorDate } = ctx;
+    const { response, dailyOutput, chartContext, chartHash, birthProfileId, userId, anchorDate } = ctx;
 
     if (!FORTUNE_V1_PROMPTS.daily) {
       this._emitError(response, 'PROMPT_NOT_CONFIGURED',
@@ -538,6 +536,20 @@ export class FortuneStreamService {
       // S1 — the slot is held until the stream ENDS, released in the
       // `finally` below, so a watchdog abort or client disconnect returns it.
       releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:stream-daily');
+      // ⚠️ S4 LAST of the three, and INSIDE this method.
+      //
+      // It used to sit in the caller, before both. That ordering spent a user's
+      // daily allowance on refusals that cost us nothing — and moving a cap
+      // check up beside it instead made things worse: the cap then threw into
+      // the CALLER's catch, which only emits an error, stranding the
+      // last-known-good narrative this method serves a few lines below. A
+      // budget event would have replaced "yesterday's reading" with an error
+      // banner, defeating LKG for the commonest failure it exists to absorb.
+      //
+      // Consuming here puts all three in their true order — global cap, then
+      // capacity, then this user's share — and gets `AI_BUSY` for free: a
+      // queue-timeout refusal now happens before the counter moves.
+      await this.quota.consume('fortune', userId);
       const stream = client.messages.stream(
         {
           model,
@@ -646,7 +658,7 @@ export class FortuneStreamService {
       // abort still books what Anthropic already billed. See
       // `stream-usage.ts` for why the four streaming sites that only read
       // `finalMessage()` were under-counting the commonest failure there is.
-      if (streamUsage.inputTokens || streamUsage.outputTokens) {
+      if (hasUsage(streamUsage)) {
         void this.aiSpend.record({
           provider: 'CLAUDE',
           model,
@@ -1098,17 +1110,13 @@ export class FortuneStreamService {
       // call; guarding only the sync entry point left every real fortune
       // generation uncounted. Placed after the cache short-circuit above, so a
       // cached read costs no quota.
-      // S2 before S4 — see the note at the first site: a refusal we issue must
-      // not spend the user's daily allowance. Cheap pre-read; the generation
-      // layer's check stays authoritative.
-      await this.aiSpend.assertUnderCap('fortune:stream-monthly');
-      await this.quota.consume('fortune', user.id);
       await this._streamMonthlyWithSectionDetector({
         response,
         monthlyOutput,
         chartContext,
         chartHash,
         birthProfileId: profile.id,
+        userId: user.id,
         anchorDate,
         targetMonth,
       });
@@ -1197,10 +1205,12 @@ export class FortuneStreamService {
     chartContext: FortuneChartContext;
     chartHash: string;
     birthProfileId: string;
+    /** S4 — the quota is spent INSIDE, once the cap and the slot have passed. */
+    userId: string;
     anchorDate: Date;
     targetMonth: string;
   }): Promise<void> {
-    const { response, monthlyOutput, chartContext, chartHash, birthProfileId, anchorDate, targetMonth } = ctx;
+    const { response, monthlyOutput, chartContext, chartHash, birthProfileId, userId, anchorDate, targetMonth } = ctx;
 
     if (!FORTUNE_V1_PROMPTS.monthly) {
       this._emitError(response, 'PROMPT_NOT_CONFIGURED', 'FORTUNE_V1_PROMPTS.monthly not configured');
@@ -1291,6 +1301,20 @@ export class FortuneStreamService {
       // S1 — the slot is held until the stream ENDS, released in the
       // `finally` below, so a watchdog abort or client disconnect returns it.
       releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:stream-monthly');
+      // ⚠️ S4 LAST of the three, and INSIDE this method.
+      //
+      // It used to sit in the caller, before both. That ordering spent a user's
+      // daily allowance on refusals that cost us nothing — and moving a cap
+      // check up beside it instead made things worse: the cap then threw into
+      // the CALLER's catch, which only emits an error, stranding the
+      // last-known-good narrative this method serves a few lines below. A
+      // budget event would have replaced "yesterday's reading" with an error
+      // banner, defeating LKG for the commonest failure it exists to absorb.
+      //
+      // Consuming here puts all three in their true order — global cap, then
+      // capacity, then this user's share — and gets `AI_BUSY` for free: a
+      // queue-timeout refusal now happens before the counter moves.
+      await this.quota.consume('fortune', userId);
       const stream = client.messages.stream(
         {
           model,
@@ -1398,7 +1422,7 @@ export class FortuneStreamService {
       // abort still books what Anthropic already billed. See
       // `stream-usage.ts` for why the four streaming sites that only read
       // `finalMessage()` were under-counting the commonest failure there is.
-      if (streamUsage.inputTokens || streamUsage.outputTokens) {
+      if (hasUsage(streamUsage)) {
         void this.aiSpend.record({
           provider: 'CLAUDE',
           model,
@@ -1742,17 +1766,13 @@ export class FortuneStreamService {
       // call; guarding only the sync entry point left every real fortune
       // generation uncounted. Placed after the cache short-circuit above, so a
       // cached read costs no quota.
-      // S2 before S4 — see the note at the first site: a refusal we issue must
-      // not spend the user's daily allowance. Cheap pre-read; the generation
-      // layer's check stays authoritative.
-      await this.aiSpend.assertUnderCap('fortune:stream-yearly');
-      await this.quota.consume('fortune', user.id);
       await this._streamYearlyWithSectionDetector({
         response,
         yearlyOutput,
         chartContext,
         chartHash,
         birthProfileId: profile.id,
+        userId: user.id,
         anchorDate,
         year,
       });
@@ -1841,10 +1861,12 @@ export class FortuneStreamService {
     chartContext: FortuneChartContext;
     chartHash: string;
     birthProfileId: string;
+    /** S4 — the quota is spent INSIDE, once the cap and the slot have passed. */
+    userId: string;
     anchorDate: Date;
     year: number;
   }): Promise<void> {
-    const { response, yearlyOutput, chartContext, chartHash, birthProfileId, anchorDate, year } = ctx;
+    const { response, yearlyOutput, chartContext, chartHash, birthProfileId, userId, anchorDate, year } = ctx;
 
     if (!FORTUNE_V1_PROMPTS.yearly) {
       this._emitError(response, 'PROMPT_NOT_CONFIGURED', 'FORTUNE_V1_PROMPTS.yearly not configured');
@@ -1931,6 +1953,20 @@ export class FortuneStreamService {
       // S1 — the slot is held until the stream ENDS, released in the
       // `finally` below, so a watchdog abort or client disconnect returns it.
       releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:stream-yearly');
+      // ⚠️ S4 LAST of the three, and INSIDE this method.
+      //
+      // It used to sit in the caller, before both. That ordering spent a user's
+      // daily allowance on refusals that cost us nothing — and moving a cap
+      // check up beside it instead made things worse: the cap then threw into
+      // the CALLER's catch, which only emits an error, stranding the
+      // last-known-good narrative this method serves a few lines below. A
+      // budget event would have replaced "yesterday's reading" with an error
+      // banner, defeating LKG for the commonest failure it exists to absorb.
+      //
+      // Consuming here puts all three in their true order — global cap, then
+      // capacity, then this user's share — and gets `AI_BUSY` for free: a
+      // queue-timeout refusal now happens before the counter moves.
+      await this.quota.consume('fortune', userId);
       const stream = client.messages.stream(
         {
           model,
@@ -2038,7 +2074,7 @@ export class FortuneStreamService {
       // abort still books what Anthropic already billed. See
       // `stream-usage.ts` for why the four streaming sites that only read
       // `finalMessage()` were under-counting the commonest failure there is.
-      if (streamUsage.inputTokens || streamUsage.outputTokens) {
+      if (hasUsage(streamUsage)) {
         void this.aiSpend.record({
           provider: 'CLAUDE',
           model,

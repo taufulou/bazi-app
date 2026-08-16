@@ -1798,14 +1798,6 @@ export class BaziService {
 
     // Charge before generating. Already-unlocked rows are a no-op (CAS returns
     // false), so a retry after a failed generation is free.
-    // ⚠️ Cap check ABOVE the charge, not merely above the quota.
-    //
-    // Everything else in this method already runs after `_chargeForReveal`, so
-    // a budget event here meant taking 3 credits and handing them straight back
-    // through the refund path. Refusing first is the same outcome without the
-    // round trip through the user's balance — and without a ledger entry pair
-    // that reads, to anyone auditing it later, like a failed generation.
-    await this.aiSpend.assertUnderCap('compat:reveal-generate');
     await this._chargeForReveal(user.id, comparison);
 
     // ⚠️ Read the AI cache HERE — after the charge, before generation.
@@ -1913,6 +1905,17 @@ export class BaziService {
         // S4 — see the note at the compat stream site: comparisons are the most
         // expensive unit in the app and the reading quota covered only
         // `createReading`. Charged against the same `reading` budget.
+        // ⚠️ Cap check here, AFTER the shared-AI-cache read above — not hoisted
+        // above `_chargeForReveal`.
+        //
+        // Hoisting it did avoid a charge-then-refund round trip, but it also
+        // put the refusal above the cache short-circuit, so a budget event
+        // declined reveals that would have been served from cache for $0.
+        // `assertUnderCap` promises the opposite in its own docblock: cached
+        // reads keep working, only new generation stops. Every other site gates
+        // on a cache MISS for exactly this reason. The charge-then-refund path
+        // is the cheaper mistake, and it only runs on a genuine miss.
+        await this.aiSpend.assertUnderCap('compat:reveal-generate');
         await this.quota.consume('reading', user.id);
 
         // Route: Romance V2 (3-call) vs V1 (single-call)

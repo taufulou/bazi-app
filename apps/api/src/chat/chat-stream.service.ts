@@ -28,7 +28,7 @@ import { ChatValidatorsService } from './chat-validators.service';
 import { buildPrompt } from './chat-prompt-builder';
 import { sanitizeUserContent } from './chat.service';
 import { isTopicBoundaryRefuse } from '../ai/prompts';
-import { absorbStreamUsage, emptyStreamUsage, mergeFinalUsage } from '../ai/stream-usage';
+import { absorbStreamUsage, emptyStreamUsage, hasUsage, mergeFinalUsage } from '../ai/stream-usage';
 
 // ============================================================
 // Constants
@@ -737,7 +737,7 @@ export class ChatStreamService {
       response.off('close', onClientClose);
       // S2 — record in the FINALLY, so a client disconnect (the commonest
       // ending on mobile) still books what Anthropic already billed.
-      if (streamUsage.inputTokens || streamUsage.outputTokens) {
+      if (hasUsage(streamUsage)) {
         void this.aiSpend.record({
           provider: 'CLAUDE',
           model: this.model,

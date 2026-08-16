@@ -13,6 +13,9 @@ import { join } from 'path';
 
 const src = (rel: string) => readFileSync(join(__dirname, '..', rel), 'utf8');
 const count = (s: string, re: RegExp) => (s.match(re) || []).length;
+/** Comments must not count as code when asserting what happens between two calls. */
+const stripComments = (s: string) =>
+  s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
 /**
  * S1/S2/S4 — the WIRING, not the services.
@@ -156,34 +159,61 @@ describe('S2 before S4 — a refusal we issue must not spend the daily allowance
       if (q === -1) break;
       const cap = s.lastIndexOf('this.aiSpend.assertUnderCap(', q);
       expect(cap).toBeGreaterThan(-1);
-      // Immediately before, not merely somewhere earlier in the file: a cap
-      // check from an unrelated method further up would satisfy a loose test
-      // while this call site stayed unprotected.
-      const between = s.slice(cap, q);
+
+      // ⚠️ The property is not "few lines apart" — it is that nothing which
+      // SPENDS or CHARGES happens in between. A line budget was the first
+      // version and it broke the moment the correct fix (slot acquisition
+      // between the two) landed, which is a test dictating shape rather than
+      // behaviour.
+      const between = stripComments(s.slice(cap, q));
       expect(between).not.toContain('this.quota.consume(');
-      // ONE documented exception: the compat reveal hoists its check further
-      // up so it precedes `_chargeForReveal`, declining before taking 3 credits
-      // rather than charging and refunding. Encoded as a named condition, not
-      // as a slackened line budget, so any OTHER drift still fails.
-      const hoistedAboveTheCharge = between.includes('_chargeForReveal(user.id');
-      if (!hoistedAboveTheCharge) {
-        expect(between.split('\n').length).toBeLessThan(4);
-      }
+      const awaited = [...between.matchAll(/await this\.([A-Za-z0-9_.]+)\(/g)].map((m) => m[1]);
+      const ALLOWED = new Set([
+        // Acquiring a slot between the cap and the quota is the correct order:
+        // global budget, then capacity, then this user's share.
+        'aiGovernor.acquire',
+        'aiGovernor.run',
+        'aiGovernor.runGenerator',
+      ]);
+      expect(awaited.filter((a) => !ALLOWED.has(a))).toEqual([]);
       checked += 1;
       from = q + 1;
     }
     expect(checked).toBe(n);
   });
 
-  it('the compat reveal refuses BEFORE taking 3 credits, not after', () => {
-    // Everything else in generateComparisonAI runs after `_chargeForReveal`, so
-    // a budget event meant charging and refunding rather than declining.
+  it('every stream-path cap check can still reach the LKG fallback', () => {
+    // ⚠️ The regression this locks, found by audit: hoisting the cap check up
+    // into the CALLER did order it before the quota — and threw into a catch
+    // that only emits an error, stranding the last-known-good narrative the
+    // inner method serves. A budget event would have replaced "yesterday's
+    // reading" with an error banner on all three scopes, defeating LKG for one
+    // of the two failures its own comment names as its primary use.
+    const s = src('src/fortune/fortune-stream.service.ts');
+    const caps = [...s.matchAll(/assertUnderCap\('fortune:stream-(daily|monthly|yearly)'\)/g)];
+    expect(caps).toHaveLength(3);
+    for (const m of caps) {
+      // From the check to the end of its method, the refusal must be caught and
+      // offered the preserved narrative.
+      const rest = s.slice(m.index ?? 0, (m.index ?? 0) + 6000);
+      expect(rest).toContain('isSelfRefusal(err)');
+      expect(rest).toContain('_serveLkg(response, lkgRow');
+    }
+  });
+
+  it('the compat reveal checks the cap AFTER the shared-cache read', () => {
+    // The opposite of the obvious placement, and the audit caught it: hoisting
+    // the check above `_chargeForReveal` also put it above the global AI-cache
+    // read, so a budget event declined reveals that would have been served for
+    // $0. `assertUnderCap` promises cached reads keep working. The
+    // charge-then-refund round trip on a genuine miss is the cheaper mistake —
+    // and the refund ordering is locked by its own test above.
     const s = src('src/bazi/bazi.service.ts');
     const gen = s.indexOf('async generateComparisonAI');
+    const cache = s.indexOf('getCachedInterpretation(', gen);
     const cap = s.indexOf("assertUnderCap('compat:reveal-generate')", gen);
-    const charge = s.indexOf('_chargeForReveal(user.id', gen);
-    expect(cap).toBeGreaterThan(-1);
-    expect(charge).toBeGreaterThan(cap);
+    expect(cache).toBeGreaterThan(-1);
+    expect(cap).toBeGreaterThan(cache);
   });
 
   it('the LLM judge consults the cap it already counts toward', () => {

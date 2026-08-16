@@ -3,6 +3,7 @@ import { join } from 'path';
 import {
   absorbStreamUsage,
   emptyStreamUsage,
+  hasUsage,
   mergeFinalUsage,
 } from '../src/ai/stream-usage';
 
@@ -166,5 +167,23 @@ describe('the four streaming sites record on EVERY exit path', () => {
       expect(finallyBefore).toBeGreaterThan(catchBefore);
       from = rec + 1;
     }
+  });
+});
+
+describe('hasUsage — the guard that decides whether to record at all', () => {
+  it('counts a cache-only stream as spend', () => {
+    // The case the first guard missed, in the module whose whole argument is
+    // that the cache-write half is the expensive one.
+    expect(
+      hasUsage({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 10_000 }),
+    ).toBe(true);
+    expect(
+      hasUsage({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 4_000, cacheWriteTokens: 0 }),
+    ).toBe(true);
+  });
+
+  it('is false only when the stream genuinely cost nothing', () => {
+    // A stream that threw before `message_start` must record nothing.
+    expect(hasUsage(emptyStreamUsage())).toBe(false);
   });
 });

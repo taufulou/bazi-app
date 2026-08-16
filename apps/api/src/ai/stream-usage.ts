@@ -87,3 +87,18 @@ export function mergeFinalUsage(into: StreamUsage, final: RawUsage | undefined):
   absorb(into, final);
   return into;
 }
+
+/**
+ * Did this stream cost anything?
+ *
+ * ⚠️ Includes the CACHE counters. The first version asked only about
+ * `inputTokens || outputTokens` — in a module whose whole argument is that the
+ * expensive part of a chat turn is a ~10k-token system block billed at the 2×
+ * cache-WRITE rate. An abort reporting `input_tokens: 0` alongside a large
+ * `cache_creation_input_tokens` would have been dropped by the guard protecting
+ * it. Reachable only if the SDK ever makes `input_tokens` optional, but the
+ * inconsistency is the kind that becomes true later without anyone noticing.
+ */
+export function hasUsage(u: StreamUsage): boolean {
+  return Boolean(u.inputTokens || u.outputTokens || u.cacheReadTokens || u.cacheWriteTokens);
+}

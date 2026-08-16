@@ -10,6 +10,7 @@ import {
 } from '../ai/prompts';
 import type { ChatContext } from './chat-context.service';
 import { AiSpendService } from '../ai/ai-spend.service';
+import { isSelfRefusal } from '../ai/typed-refusals';
 
 /**
  * Tier C output safety-net — maps a cross-sell target key to the reading's
@@ -473,6 +474,13 @@ ${safeAssistantResponse}
       const parsed = this.parseJudgeResponse(text);
       return parsed;
     } catch (err) {
+      // A cap refusal is the sampler being switched off on purpose, not a
+      // broken sampler. Logged as a warning it becomes a continuous stream of
+      // alarms during a budget event, each claiming QA is failing.
+      if (isSelfRefusal(err)) {
+        this.logger.debug('LLM-as-judge skipped — over spend cap');
+        return { verdict: 'pass' as const, reason: 'judge-skipped-over-cap' };
+      }
       this.logger.warn(`LLM-as-judge call failed: ${err}`);
       return { verdict: 'pass', reason: 'judge-error-skip' };
     }
