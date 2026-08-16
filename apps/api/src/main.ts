@@ -8,6 +8,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { scrubSentryEvent } from './common/sentry-scrub';
+import { isSwaggerEnabled } from './common/swagger-gate';
 
 // Initialize Sentry before anything else
 if (process.env.SENTRY_DSN) {
@@ -76,25 +77,10 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language'],
   });
 
-  // Swagger API documentation — OPT-IN, not opt-out.
-  //
-  // ⚠️ This was `NODE_ENV !== 'production'`, which fails OPEN: an unset
-  // NODE_ENV makes `undefined !== 'production'` true and publishes the full API
-  // surface. It was held closed by a single `ENV NODE_ENV=production` line in
-  // `docker/Dockerfile.api`, and there is no `railway.json` in the repo pinning
-  // that Dockerfile as the builder — so a switch to Nixpacks, or any host that
-  // does not set NODE_ENV, would silently expose it.
-  //
-  // It also carries the API's one accepted advisory: `@nestjs/swagger` pins
-  // `js-yaml` at exactly 5.2.1 (a parsing-DoS advisory), and npm will not apply
-  // a root `overrides` entry to a package nested inside a workspace, so no
-  // override reaches it. The exposure is nil because the only call is
-  // `jsyaml.dump` — serialization, never `.load` — and because this block never
-  // runs in production. Making the gate fail CLOSED is what keeps that second
-  // half true regardless of how the container is built.
-  const swaggerEnabled =
-    process.env.ENABLE_SWAGGER === 'true' || process.env.NODE_ENV === 'development';
-  if (swaggerEnabled) {
+  // Swagger API documentation — OPT-IN. See `common/swagger-gate.ts` for why
+  // this must not consult NODE_ENV (Joi defaults it to 'development' and writes
+  // it back into process.env, so an unset NODE_ENV reads as development here).
+  if (isSwaggerEnabled()) {
     const config = new DocumentBuilder()
       .setTitle('天命 API')
       .setDescription(
@@ -129,7 +115,7 @@ async function bootstrap() {
   // Same condition as the block that mounts it — this used to be a second,
   // independently-written `NODE_ENV !== 'production'`, so it would have
   // advertised a docs URL that no longer exists.
-  if (swaggerEnabled) {
+  if (isSwaggerEnabled()) {
     logger.log(`Swagger docs at http://localhost:${port}/api/docs`);
   }
 }
