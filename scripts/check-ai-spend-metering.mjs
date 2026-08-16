@@ -52,6 +52,12 @@ const ACQUIRES = /aiGovernor\s*\.\s*acquire\s*\(/;
 const RELEASES = /releaseSlot\s*\(\s*\)/;
 /** S4 — per-user quota. */
 const CONSUMES_QUOTA = /quota\s*\.\s*consume\s*\(/;
+/**
+ * A file can spend without calling a provider directly, by delegating to
+ * `AIService`. `bazi.service.ts` does exactly that — so it was invisible to
+ * every rule above, and deleting one of its five quota calls was green.
+ */
+const DELEGATES_TO_AI = /aiService\s*\.\s*(generate|stream)(?![A-Za-z0-9]*Hash\b)[A-Za-z0-9]*\s*\(/;
 
 /** Global twins, for counting rather than testing. */
 const PROVIDER_CALL_G = new RegExp(PROVIDER_CALL.source, 'g');
@@ -61,6 +67,7 @@ const HOLDS_SLOT_G = new RegExp(HOLDS_SLOT.source, 'g');
 const ACQUIRES_G = new RegExp(ACQUIRES.source, 'g');
 const RELEASES_G = new RegExp(RELEASES.source, 'g');
 const CONSUMES_QUOTA_G = new RegExp(CONSUMES_QUOTA.source, 'g');
+const DELEGATES_TO_AI_G = new RegExp(DELEGATES_TO_AI.source, 'g');
 
 const countMatches = (src, re) => {
   re.lastIndex = 0;
@@ -94,6 +101,10 @@ const COUNT_EXEMPT = new Map([
  * second, unrelated exemption to anything on it.
  */
 const QUOTA_EXEMPT = new Map([
+  [
+    'apps/api/src/zwds/zwds.service.ts',
+    'ZWDS creation routes were removed 2026-08-03 — the controller exposes only @Get(\'readings/:id\'), so the five generation paths are unreachable. ⚠️ TRIGGER: add the quota before re-enabling any ZWDS create/generate route.',
+  ],
   [
     'apps/api/src/ai/ai.service.ts',
     'a shared generation layer — its callers (bazi, zwds) own the per-user quota, and quota needs a userId this layer is not always given',
@@ -138,7 +149,27 @@ for (const file of walk(join(ROOT, SCAN_ROOT))) {
   const rel = relative(ROOT, file).split(sep).join('/');
   if (rel === SELF) continue;
   const source = readFileSync(file, 'utf8');
-  if (!PROVIDER_CALL.test(source)) continue;
+
+  // A delegating spender (calls AIService rather than a provider SDK) still
+  // needs a per-user quota — it just has no provider call for the rules below
+  // to key off. Checked separately, then the file is done.
+  if (!PROVIDER_CALL.test(source)) {
+    if (DELEGATES_TO_AI.test(source) && !QUOTA_EXEMPT.has(rel)) {
+      const delegations = countMatches(source, DELEGATES_TO_AI_G);
+      const consumed = countMatches(source, CONSUMES_QUOTA_G);
+      if (consumed === 0) {
+        violations.push({
+          file: rel,
+          line: source.split('\n').findIndex((l) => DELEGATES_TO_AI.test(l)) + 1,
+          message:
+            `delegates ${delegations} AI generation(s) to AIService but consumes no ` +
+            'per-user quota — S1 and S2 are global, so one account can exhaust the ' +
+            'budget for everyone. Add `await this.quota.consume(<kind>, <userId>)`.',
+        });
+      }
+    }
+    continue;
+  }
 
   const line = source.split('\n').findIndex((l) => PROVIDER_CALL.test(l)) + 1;
 

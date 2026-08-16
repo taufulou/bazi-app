@@ -72,9 +72,15 @@ export class QuotaService {
   limitFor(kind: QuotaKind): number {
     const raw = this.config.get<string | number>(ENV_KEY[kind]);
     const parsed = typeof raw === 'number' ? raw : Number.parseFloat(String(raw ?? ''));
-    // A malformed value must not silently become 0 (blocks everyone) or
-    // Infinity (disables the control). Fall back to the documented default.
-    if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_LIMITS[kind];
+    // A quota is a COUNT, so only a non-negative integer is meaningful.
+    //
+    // ⚠️ `parseFloat` accepts `0.5`, which is not `=== 0` and so skips the
+    // disable branch — the first request (`used = 1 > 0.5`) then throws and
+    // that user is blocked for the whole day. It also accepts `'20abc'` as 20.
+    // `Number.isInteger` closes both. Note `0` DISABLES this quota (see the
+    // JSDoc above); the value that would block everyone is a fraction below 1,
+    // which is exactly the case this rejects.
+    if (!Number.isInteger(parsed) || parsed < 0) return DEFAULT_LIMITS[kind];
     return parsed;
   }
 

@@ -85,6 +85,38 @@ describe('the guards, against the REAL services', () => {
     expect(persist).toBeGreaterThan(guard);
   });
 
+  it('every fortune stream cap branch tries LKG before emitting an error', () => {
+    // ⚠️ The fix this pins. The cap guard returns before `_persistAIFailure` —
+    // right, because a global budget event must not arm this chart's 24h
+    // breaker — but that method was ALSO where the LKG row came from, so the
+    // early return skipped `_serveLkg` too. A spend cap is the highest-volume
+    // AI failure the system will ever see, and it became the one case that
+    // never served a preserved narrative: a user who read their 日運 yesterday
+    // got an error banner instead.
+    const src = readSource('src/fortune/fortune-stream.service.ts');
+    expect(countOf(src, /_readLkgRow\(/g)).toBe(4); // 1 definition + 3 cap branches
+
+    // …and each read must be USED, not just performed.
+    expect(countOf(src, /if \(this\._serveLkg\(response, lkgRow, '(day|month|year)'\)\) return;/g)).toBe(3);
+  });
+
+  it('the LKG read happens BEFORE the cap error is emitted', () => {
+    const src = readSource('src/fortune/fortune-stream.service.ts');
+    const read = src.indexOf('_readLkgRow(chartHash');
+    const emit = src.indexOf("capBody?.code ?? 'AI_SPEND_CAP'", read);
+    expect(read).toBeGreaterThan(-1);
+    expect(emit).toBeGreaterThan(read);
+  });
+
+  it('the LKG read does NOT persist a failure', () => {
+    // The whole point of splitting it out of `_persistAIFailure`: reading the
+    // row must not arm the breaker.
+    const src = readSource('src/fortune/fortune-stream.service.ts');
+    const body = src.slice(src.indexOf('private async _readLkgRow'), src.indexOf('private _serveLkg'));
+    expect(body).toMatch(/findUnique/);
+    expect(body).not.toMatch(/upsert|update|create|aiFailureCount/);
+  });
+
   it('chat-stream branches on HttpException before reaching _refundOnError', () => {
     // `_refundOnError` hard-codes AI_CALL_FAILED; reaching it with a typed
     // refusal is the bug, so the branch has to come first.

@@ -839,6 +839,12 @@ export class BaziService {
         enrichedData.targetYear = reading.targetYear;
       }
 
+      // S4 — `_setupStream` serves BOTH the first stream and regeneration, and
+      // both generate. Regeneration is separately bounded per-reading by
+      // REGENERATION_LIMIT and requires `isDegraded`, so this is the smaller
+      // of the two holes — but it is still a spend path the daily bound missed.
+      await this.quota.consume('reading', user.id);
+
       // 5. Delegate to correct V2 streamer based on reading type
       let aiObservable;
       switch (reading.readingType) {
@@ -1012,6 +1018,11 @@ export class BaziService {
 
     try {
       // 6. Delegate to ai.service streaming method
+      // S4 — comparisons are the most expensive unit in the app (3 credits, three
+      // parallel calls, 300s timeout) and had NO per-user bound: the reading quota
+      // only ever covered `createReading`. Charged against the same `reading`
+      // budget, because from a spend perspective that is what this is.
+      await this.quota.consume('reading', user.id);
       const aiObservable = this.aiService.streamCompatibilityRomanceV2(calculationData, comparisonId);
 
       // ⚠️ The refund CANNOT hang off the observable's `error` channel.
@@ -1618,6 +1629,11 @@ export class BaziService {
         birthDateB: profileB.birthDate.toISOString().split('T')[0],
       };
 
+      // S4 — see the note at the compat stream site: comparisons are the most
+      // expensive unit in the app and the reading quota covered only
+      // `createReading`. Charged against the same `reading` budget.
+      await this.quota.consume('reading', user.id);
+
       // Route: Romance V2 (3-call) vs V1 (single-call)
       const isRomanceV2 = comparison.comparisonType === 'ROMANCE' &&
         !!(calculationData as Record<string, unknown>)['romancePreAnalysis'];
@@ -1823,6 +1839,11 @@ export class BaziService {
       let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
 
       try {
+        // S4 — see the note at the compat stream site: comparisons are the most
+        // expensive unit in the app and the reading quota covered only
+        // `createReading`. Charged against the same `reading` budget.
+        await this.quota.consume('reading', user.id);
+
         // Route: Romance V2 (3-call) vs V1 (single-call)
         const isRomanceV2 = comparison.comparisonType === 'ROMANCE' &&
           !!calcData['romancePreAnalysis'];

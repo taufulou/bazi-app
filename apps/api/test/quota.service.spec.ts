@@ -40,10 +40,18 @@ describe('S4 — limits', () => {
   });
 
   it('falls back to the default on a malformed value', () => {
-    // '' → NaN would disable the control; a negative would block everyone.
-    for (const bad of ['', 'abc', '-1']) {
+    // A quota is a COUNT. `0.5` is the dangerous one: it is not `=== 0`, so it
+    // skips the disable branch, and then `used = 1 > 0.5` blocks that user for
+    // the entire day. `'20abc'` parses to 20 under parseFloat, which silently
+    // accepts a typo'd env var as a real limit.
+    for (const bad of ['', 'abc', '-1', '0.5', '19.9', '20abc', 'Infinity']) {
       expect(make({ QUOTA_READINGS_PER_DAY: bad }).svc.limitFor('reading')).toBe(20);
     }
+  });
+
+  it('a fractional limit cannot block a user for the day', async () => {
+    const { svc } = make({ QUOTA_READINGS_PER_DAY: '0.5' });
+    await expect(svc.consume('reading', 'u1')).resolves.toBeUndefined();
   });
 
   it('0 disables that quota — the documented rollback', async () => {
