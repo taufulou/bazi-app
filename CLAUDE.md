@@ -1,7 +1,42 @@
 # Bazi SaaS Platform — Project Context
 
 ## What is this?
-AI-powered Bazi (八字) + ZWDS (紫微斗數) fortune-telling SaaS platform. Two-layer architecture: Python deterministic Bazi calculation + iztro ZWDS calculation + Claude AI interpretation with structured JSON output supporting preview/full per section for paywall.
+AI-powered Bazi (八字) fortune-telling SaaS platform. Two-layer architecture: Python deterministic Bazi calculation + Claude AI interpretation with structured JSON output supporting preview/full per section for paywall.
+
+> ## ⚠️ ZWDS (紫微斗數) IS DELETED — 2026-08-16, commit `8895516`
+>
+> **This document still describes ZWDS as live in many places below. Those
+> sections are HISTORY. Do not implement against them.** Rather than edit dozens
+> of scattered mentions, the correction lives here.
+>
+> ZWDS never shipped and never will. It had been controller-disabled since
+> 2026-08-03, which left the whole apparatus in the tree: five generation methods,
+> three of them charging credits through a raw
+> `user.updateMany({ credits: { decrement } })` that wrote **no `CreditLedger` row**
+> — unauditable spend, one controller revert away from live. Deleting beat
+> guarding: 15 files, 3715 lines, and with them an AI-spend-guard exemption plus a
+> bespoke trigger that every audit had to re-examine.
+>
+> **Deleted:** `apps/api/src/zwds/` entirely (controller, service, DTOs, types,
+> module registration), its 3 service/controller specs, the web client's create
+> helpers, and the reading page's ZWDS create branch.
+>
+> **Deliberately kept, and why:**
+> - `ReadingType.ZWDS_*` enum values and their rows — two paid `ZWDS_LIFETIME`
+>   readings exist. They live in `bazi_readings` and are fetched through the **Bazi**
+>   endpoint (`baziReading.findFirst({ id, userId })`, no type filter), so
+>   `GET /api/zwds/readings/:id` turned out to have zero callers. The slug stays in
+>   `VALID_TYPES` so `?id=` still resolves and `ZwdsChart` still renders them.
+> - `ZWDS_*` prompt constants in `prompts.ts` + their 2 spec files — inert strings in
+>   a file that is load-bearing for every live reading. ⚠️ They were NOT inert while
+>   `POST /api/bazi/readings` still accepted ZWDS types; that door is now shut by
+>   `BAZI_CREATABLE_READING_TYPES` (see the security section).
+> - `section-unlock`'s `'zwds'` — removing it would make those paid sections
+>   permanently unlockable.
+> - `POST /api/zwds-calculate` (Next.js route) — unauthenticated in-process iztro
+>   calc, same class as `bazi-calculate` which is already a deliberate keep.
+>
+> Reading types are now **6 Bazi + 2 special**, not 18.
 
 ## Tech Stack
 - **Monorepo**: Turborepo + npm workspaces
@@ -37,6 +72,25 @@ worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roami
   `https://bazi-app-production-5e54.up.railway.app` + private Python engine +
   Postgres + Redis. RC webhook re-pointed off ngrok. Health is `/health` (NOT
   `/api/health` — no global prefix); everything else is `/api/...`.
+  > ⚠️ **DEPLOY WIRING, corrected 2026-08-16.** Railway used to auto-deploy from
+  > **`feat/mobile-m0`**, so for ~4 weeks merging to `main` deployed NOTHING and
+  > prod sat frozen on 2026-07-19 while main moved 56 commits. The owner switched
+  > **both** the API service and the private engine service to **`main`**, with
+  > auto-deploy ON and **Wait for CI ON**. Switching the branch fired a deploy
+  > immediately (prod → `6167ea9`, healthy, migrations applied).
+  >
+  > **So merging to `main` IS a deploy.** Migrations are safe on their own:
+  > `docker/Dockerfile.api` CMD is `prisma migrate deploy && node …`, so a failed
+  > migration means no app — if the API is serving, the migrations ran. That holds
+  > only while the builder is that Dockerfile; there is no `railway.json` in the
+  > repo pinning it, so a switch to Nixpacks would silently skip migrations AND
+  > unset `NODE_ENV`.
+  >
+  > Check deploy history with
+  > `gh api "repos/taufulou/bazi-app/deployments?per_page=10"` — GitHub-triggered
+  > deploys only; CLI/dashboard deploys leave no record there. Probe what prod is
+  > actually running with a route that exists in only one version (unknown routes
+  > 404, so a 401 means the route exists).
 - **UI web-parity pass COMPLETE** (owner: mobile must look/flow like web).
   UI-1/3/5/7 `fe2b490` · UI-4+UI-8 `260c86b` · UI-6 `95ca29f` · UI-9 `c72505d`.
   Covers 首頁 parity, 運勢 folk card + FORTUNE chat, Apple-HIG text sizes, the
@@ -507,6 +561,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 
 ## Test suite sizes
 - Bazi Engine: ≈2986 collected (`pytest --collect-only` — counts collected items incl. xfail/skip, NOT "passing"; prose "X pass" figures elsewhere differ by counter, e.g. the 時辰未知 sections cite 2944/2965 *passing*). Grew from the ~2231 Phase-12i baseline (+ Fortune day/month/year + chat-scope + 時辰未知 unknown-birth-hour suites). Composition note (Phase 12i): ~2226 + 5 三刑/半刑/子卯刑 spouse-palace tests in test_compatibility_enhanced.py + 53 compat pair corpus regressions + Phase 12h.A/B additions, 5 xfail, 1 skip, 1 pre-existing fail unrelated | NestJS API: 692 | Frontend: 143 | ZWDS: 289
+  - ⚠️ **Measured on `claude/bazi-scalability-security-e4ff78` 2026-08-17** (the numbers above predate it): engine **3137 passed** / 2 skipped / 5 xfailed · API jest **96 suites / 1914 passed** / 5 skipped · web jest **35 of 37 suites, 383 passed** (the 2 failures — `pricing-page`, `reading-history` — are pre-existing on main) · api tsc 0 · api lint 0 · **web tsc 0** (was 106; the duplicate `@types/react` behind the chronic "cannot be used as a JSX component" errors was collapsed by the dependency dedupe). The ZWDS 289 no longer exists — those suites were deleted with the module.
   - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
 
 ## Reading Types
@@ -3709,8 +3764,85 @@ So this constrains tokens that *carry* an origin; requiring `azp` would 401 ever
 Matching is exact and case-sensitive, so the parser lowercases and strips trailing slashes and
 warns about what it rewrote — a trailing slash in the env var would 401 every web session at once.
 
+### ⚠️ NODE_ENV IS NOT HOST-CONTROLLED — never gate anything on it
+
+`app.module.ts` validates config with
+`NODE_ENV: Joi.string().valid('development','production','test').default('development')`,
+and `@nestjs/config` writes validated values **back into `process.env`**. Any code
+running after `NestFactory.create` therefore reads `'development'` on a host that
+sets nothing — `undefined` never arrives.
+
+This cost two fixes to learn. The Swagger gate was `NODE_ENV !== 'production'`
+(fails open on an unset var); the "fix" was
+`ENABLE_SWAGGER === 'true' || NODE_ENV === 'development'`, which fails open through
+the Joi default instead — **the same exposure, same deployment shape, new
+spelling**. The rule is not "prefer a flag", it is: **a security decision may not
+read `NODE_ENV` at all.** Reads before `NestFactory.create` (Sentry's `environment`
+label at the top of `main.ts`) see the real host value and are fine.
+
+Swagger is now opt-in via `isSwaggerEnabled()` in `apps/api/src/common/swagger-gate.ts`
+(`ENABLE_SWAGGER` ∈ true/1/yes/on). Local dev keeps docs via `apps/api/.env`, which is
+gitignored AND dockerignored. `apps/api/test/swagger-gate.spec.ts` reproduces the Joi
+write-back and asserts the old gate returns true on it while the new one does not.
+
+### ⚠️ npm overrides in this monorepo — three traps, all hit
+
+1. **A plain `npm install` silently ignores a newly-added override.** It reuses the
+   lockfile and reports success either way. `npm dedupe` is what collapsed the
+   duplicate `next`; `npm update <pkg>` is what made the `@nestjs/swagger` →
+   `js-yaml` override take. Always verify the resolved version on disk, never the
+   declaration.
+2. **A `_comment` key inside a nested override breaks npm outright.** Every key is
+   read as a package name: `Override without name: _comment` → `EUSAGE`, failing
+   `npm ci` in all four CI jobs and the deploy job. JSON has no comment syntax that
+   survives there — put the explanation in a `.ts` file or the commit message.
+3. **npm collapses per-parent overrides to ONE hoisted version.** A blanket
+   `brace-expansion` pin forced minimatch 9/10 out of range onto a CJS-only v1 and
+   broke every glob containing `{...}`. The majors are mutually exclusive (v5's CJS
+   export is an object with `.expand`; v1 exports a bare function), so no override
+   arrangement fixes it.
+
+**The general lesson: reach for `npm update`, not `overrides`.** Most advisories here
+were stale lockfile pins whose patched release already sat inside the consumer's
+declared range. The only override that is genuinely required is one where a
+dependency pins an EXACT vulnerable version (`@nestjs/swagger` → `js-yaml`).
+
+### Typed refusals — S1/S2/S4 must be distinguishable from AI failures
+
+`apps/api/src/ai/typed-refusals.ts` exports `isQuotaError`, `isSpendCapError`,
+`isAiBusyError` and **`isSelfRefusal`**. Use the last one; every site that
+enumerated a subset ended up with a different subset, and `AI_BUSY` — the cheapest
+to trigger, at ~3s of queue pressure — was guarded nowhere while arming a **24-hour**
+fortune breaker.
+
+- Ordering is **cap → capacity → quota → credits**. A refusal we issue must not spend
+  the user's daily allowance, because it spends nothing of ours. `quota-wiring.spec.ts`
+  asserts nothing that spends or charges happens between the cap check and the quota.
+- The fortune STREAM paths consume quota **inside** `_stream*WithSectionDetector`,
+  after the cap and the slot. Hoisting a cap check into the caller once stranded the
+  LKG fallback — the caller's catch only emits an SSE error, while the inner one
+  serves the preserved narrative.
+- The compat reveal's cap check sits **below** the shared-AI-cache read: above it,
+  a budget event declined reveals that would have been served for $0.
+- Refund **before** re-throwing. A guard placed above the refund cost users 3 credits
+  and left `paidAt` set, making the retry a free no-op.
+
+### Streaming spend must be recorded in a `finally`
+
+`apps/api/src/ai/stream-usage.ts` accumulates usage as events arrive.
+`message_start` carries the whole input side including both cache counters;
+`message_delta.output_tokens` is **cumulative, not incremental** (summing multiplies
+the bill). Four of five streaming sites previously read only `finalMessage()`, which
+a client disconnect never reaches — while Anthropic bills the input in full, and for
+chat that ~10k-token cached system block at the 2× write rate is most of the turn.
+
 ### Other invariants
 
+- **`POST /api/bazi/readings` accepts only Bazi types.** `@IsEnum(ReadingType)` accepted
+  all 17 while the `@ApiProperty` documented five, and class-validator does not read
+  Swagger metadata — so a ZWDS type validated, deducted 2 credits, and narrated a
+  紫微斗數 reading over Bazi-shaped data. Both now bind to
+  `BAZI_CREATABLE_READING_TYPES`.
 - **`@Public()` routes get optional auth** — the guard verifies a token when present so
   `explain-element` can tell a subscriber from an anonymous caller. The paywall is server-side
   (`stripPaidExplanationLayers`), which **empties** rather than deletes keys — mobile dereferences
@@ -3733,7 +3865,7 @@ warns about what it rewrote — a trailing slash in the env var would 401 every 
 - **⚠️ `npm audit fix` must NOT be run from a worktree** — `node_modules` is a symlink into main, so
   the install writes through it and mutates main.
 
-### The verification lesson, six times over
+### The verification lesson, now past a dozen times
 
 Every one of these passed the full suite with the control deleted: a well-covered **helper** behind
 **untested wiring**, or a **sibling path** doing the same thing unfixed — F6's stream door, O3's
@@ -3744,3 +3876,28 @@ tier decision, F-1's `sendMessage`, F-7's ZWDS twin, F9's controller route, and 
 reads.** F9's sweep grepped `subscriptionTier:` when the input to `computeEffectiveTier` is
 `Subscription.status`; that is how two sibling endpoints were missed. Answer it by mutation, and
 make sure the mutation COMPILES (`Tests: 0 total` means it didn't).
+
+**The 2026-08-16/17 sessions added a harder variant: the fix that breaks what it
+was protecting.** Every audit round found a defect introduced by the previous
+round's fix.
+
+- A cap check moved earlier for correct reasons **stranded the LKG fallback** — it
+  threw into a caller whose catch only emits an error, while the inner check
+  reached the one that serves the preserved narrative.
+- A typed-refusal guard added above a refund **jumped the refund**, costing 3
+  credits and leaving `paidAt` set so the retry was a free no-op.
+- An override that cleared an advisory **broke every brace-glob** in the tree.
+- A fail-open gate was "fixed" into a **different fail-open** via the Joi default.
+- A `_comment` documenting an npm trap **was** an npm trap, breaking `npm ci`.
+
+Two habits that actually caught these, both cheap:
+1. **Re-derive, don't re-read.** Four of the five escaped local verification
+   because the check read already-resolved state (`node_modules`, a warm test run)
+   instead of re-parsing from source. After editing a manifest or a gate, run the
+   thing that re-parses.
+2. **Write the test against the property, not the shape.** A line-budget assertion
+   between two calls broke the moment the *correct* fix inserted a slot
+   acquisition. Assert "nothing that spends or charges happens in between", not
+   "these are ≤3 lines apart". A spec asserting on lambdas defined inside itself
+   cannot fail; a spec that greps for a string stays green when the code is
+   replaced with `true`.
