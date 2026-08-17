@@ -39,6 +39,18 @@
  * subtree to re-resolve, and the advisory is now gone rather than accepted.
  * The gate stands on its own merits — an unauthenticated map of every endpoint
  * is worth withholding regardless of what it transitively depends on.
+ *
+ * ⚠️ OPERATIONAL NOTE for that override, which has nowhere better to live:
+ * `@nestjs/swagger` depends on `js-yaml` at an EXACT version, so only a
+ * parent-scoped `overrides` entry in the root package.json can reach the
+ * patched 5.3.0. Editing it requires `npm update @nestjs/swagger` afterwards —
+ * a plain `npm install` reuses the lockfile and ignores the new override
+ * silently, reporting success either way. Verify with:
+ *   node -p "require('./node_modules/@nestjs/swagger/node_modules/js-yaml/package.json').version"
+ * This warning used to be a `_comment` key inside the override object itself,
+ * which broke `npm ci` outright: npm reads every key in a nested override as a
+ * package name, so `Override without name: _comment` failed the install before
+ * any work began. JSON has no comment syntax that survives there.
  */
 
 /** Accepted spellings of yes. Operators write `1` and `yes`, not only `true`. */
