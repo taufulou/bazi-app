@@ -8,7 +8,8 @@
     "SENTRY_AUTH_TOKEN",
     "BAZI_ENGINE_URL",
     "ENGINE_KEY",
-    "ENGINE_KEYS"
+    "ENGINE_KEYS",
+    "CLERK_AUTHORIZED_PARTIES"
   ],
   "globalPassThroughEnv": ["PORT", "CORS_ORIGINS", "TEST_INTEGRATION", "MAX_TOTAL_AI_TIME_MS"],
   "tasks": {
