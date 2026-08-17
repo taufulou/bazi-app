@@ -3901,3 +3901,13 @@ Two habits that actually caught these, both cheap:
    "these are ≤3 lines apart". A spec asserting on lambdas defined inside itself
    cannot fail; a spec that greps for a string stays green when the code is
    replaced with `true`.
+3. **Run the command CI runs, not a subset of it.** `npm run lint` inside
+   `apps/api` is green while `turbo run lint` — what CI executes — fails, because
+   turbo covers **five** workspaces (api, web, mobile, `@repo/ui`,
+   `@repo/shared`). PR #64 failed exactly there: an env var read in
+   `apps/web/middleware.ts` and undeclared in `turbo.json`, in the one workspace
+   the local sweep never touched. Same for jest — `apps/api` and `apps/web` have
+   separate suites, and jest from the repo root silently uses babel instead of
+   ts-jest and reports phantom parse errors. Lint from the ROOT
+   (`./node_modules/.bin/turbo run lint` — the binary is at `./node_modules/.bin/`
+   in a worktree, not `../../`); run each jest from ITS app directory.
