@@ -3,7 +3,7 @@
 ## What is this?
 AI-powered Bazi (八字) fortune-telling SaaS platform. Two-layer architecture: Python deterministic Bazi calculation + Claude AI interpretation with structured JSON output supporting preview/full per section for paywall.
 
-> ## ⚠️ ZWDS (紫微斗數) IS DELETED — 2026-08-16, commit `8895516`
+> ## ⚠️ ZWDS (紫微斗數) IS DELETED — 2026-08-16, commit `ad106fc`
 >
 > **This document still describes ZWDS as live in many places below. Those
 > sections are HISTORY. Do not implement against them.** Rather than edit dozens
