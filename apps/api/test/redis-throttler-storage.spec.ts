@@ -123,6 +123,40 @@ describe('RedisThrottlerStorage — parity with the bundled reference', () => {
     expect(other.totalHits).toBe(1);
   });
 
+  it('is a SLIDING window — a paced caller cannot sustain 2x the limit at the boundary', async () => {
+    if (!available) return void console.warn('SKIPPED: no Redis');
+
+    // The case a fixed window gets wrong, and the reason this storage uses a
+    // sorted set. With expiry anchored to the FIRST hit, a caller who places
+    // one hit early and then bursts just after that anchor lapses gets a whole
+    // fresh allowance — ~2x the configured rate, forever. The reference decays
+    // hits individually, so it blocks; a fixed window does not.
+    const key = `slide:${Date.now()}:${Math.random()}`;
+    const s = makeStorage();
+    const reference = new ThrottlerStorageService();
+    const TTL_MS = 600;
+    const L = 2;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    const mine: boolean[] = [];
+    const ref: boolean[] = [];
+    const both = async () => {
+      mine.push((await s.increment(key, TTL_MS, L, TTL_MS, 'default')).isBlocked);
+      ref.push((await reference.increment(key, TTL_MS, L, TTL_MS, 'default')).isBlocked);
+    };
+
+    await both();          // A at t≈0
+    await sleep(550);
+    await both();          // B at t≈550
+    await sleep(120);
+    await both();          // C at t≈670 — A has aged out, B has not
+    await both();          // D at t≈670 — B,C,D = 3 in the last 600ms > limit 2
+
+    expect(mine[3]).toBe(true);        // the burst IS caught
+    expect(mine).toEqual(ref);         // and matches the reference throughout
+    reference.onApplicationShutdown();
+  });
+
   it('FAILS OPEN when Redis is unreachable, rather than 500ing every route', async () => {
     const dead = new RedisThrottlerStorage({
       getClient: () => ({ eval: () => Promise.reject(new Error('ECONNREFUSED')) }),

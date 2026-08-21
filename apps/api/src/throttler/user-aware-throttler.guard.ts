@@ -39,9 +39,21 @@ export class UserAwareThrottlerGuard extends ThrottlerGuard {
    * that order being what it is.
    */
   protected async getTracker(req: Record<string, unknown>): Promise<string> {
-    await this.identity.attach(req as unknown as AuthAttachable);
-
-    const userId = (req as { auth?: { userId?: string } }).auth?.userId;
+    // ⚠️ Deliberately does NOT verify. This used to `await identity.attach()`,
+    // which awaits Clerk's `verifyToken`; for a forged token's unknown `kid`
+    // Clerk's JWKS cache misses by construction and fetches from the network
+    // with no timeout — so any request carrying an Authorization header forced
+    // an unbounded outbound call BEFORE the throttle decision. The cheap gate
+    // has to come first, especially against attacker-controlled input.
+    //
+    // `peekVerifiedUserId` is a cache read: no network, no crypto beyond a
+    // hash. Safe here because bucketing is not authorization — `ClerkAuthGuard`
+    // still verifies every request. Cost: the first request of a session
+    // buckets by IP; every one after that keys per user.
+    const request = req as unknown as AuthAttachable;
+    const userId =
+      (req as { auth?: { userId?: string } }).auth?.userId ??
+      this.identity.peekVerifiedUserId(request);
     if (userId) return `${USER_PREFIX}${userId}`;
 
     // Anonymous. `req.ip` is only as trustworthy as Express's `trust proxy`

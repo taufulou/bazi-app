@@ -27,32 +27,58 @@ function makeGuard() {
 beforeEach(() => verifyToken.mockReset());
 
 describe('M1(c) — the rate-limit bucket is keyed on a VERIFIED identity', () => {
-  it('keys an authenticated caller on their userId, not their IP', async () => {
-    verifyToken.mockResolvedValue({ sub: 'user_alice', sid: 'sess_1' });
+  it('⚠️ NEVER verifies in the tracker — the cheap gate must precede the expensive one', async () => {
+    // THE regression this design exists to prevent. An earlier version awaited
+    // `attach()` here, which awaits Clerk's `verifyToken`; a forged token's
+    // unknown `kid` always misses Clerk's JWKS cache and fetches from the
+    // network with no timeout. So `Bearer <garbage>` forced an unbounded
+    // outbound call BEFORE the rate limiter had decided anything.
     const { track } = makeGuard();
+    await track({ headers: { authorization: 'Bearer anything-at-all' }, ip: '10.0.0.1' });
+    expect(verifyToken).not.toHaveBeenCalled();
+  });
 
-    const key = await track({ headers: { authorization: 'Bearer good' }, ip: '10.0.0.1' });
-    expect(key).toBe('u:user_alice');
+  it('keys on the userId once the token has been verified for a previous request', async () => {
+    verifyToken.mockResolvedValue({ sub: 'user_alice', sid: 'sess_1' });
+    const { track, identity } = makeGuard();
+    const headers = { authorization: 'Bearer good' };
+
+    // Request 1: nothing cached yet, so it buckets by IP — the accepted cost.
+    expect(await track({ headers, ip: '10.0.0.1' })).toBe('ip:10.0.0.1');
+    // ClerkAuthGuard then verifies for real, which populates the peek cache.
+    await identity.attach({ headers } as never);
+    // Request 2 onward: keyed per user, with no verification in the tracker.
+    verifyToken.mockClear();
+    expect(await track({ headers, ip: '10.0.0.1' })).toBe('u:user_alice');
+    expect(verifyToken).not.toHaveBeenCalled();
+  });
+
+  it('uses request.auth directly when the auth guard ran first', async () => {
+    const { track } = makeGuard();
+    const key = await track({ headers: {}, auth: { userId: 'user_bob' }, ip: '10.0.0.1' });
+    expect(key).toBe('u:user_bob');
   });
 
   it('gives two users separate buckets even from one IP', async () => {
-    const { track } = makeGuard();
+    const { track, identity } = makeGuard();
+    const hA = { authorization: 'Bearer a' };
+    const hB = { authorization: 'Bearer b' };
     verifyToken.mockResolvedValueOnce({ sub: 'user_alice' });
-    const a = await track({ headers: { authorization: 'Bearer a' }, ip: '10.0.0.1' });
+    await identity.attach({ headers: hA } as never);
     verifyToken.mockResolvedValueOnce({ sub: 'user_bob' });
-    const b = await track({ headers: { authorization: 'Bearer b' }, ip: '10.0.0.1' });
+    await identity.attach({ headers: hB } as never);
 
-    expect(a).not.toBe(b);
     // The case that motivated M1: everyone behind the web app shares one IP.
-    expect([a, b]).toEqual(['u:user_alice', 'u:user_bob']);
+    expect(await track({ headers: hA, ip: '10.0.0.1' })).toBe('u:user_alice');
+    expect(await track({ headers: hB, ip: '10.0.0.1' })).toBe('u:user_bob');
   });
 
   it('⚠️ a FORGED bearer does NOT mint its own bucket — it falls back to IP', async () => {
-    // THE security property. If the tracker trusted a decoded-but-unverified
-    // `sub`, an attacker would get a fresh bucket per request by editing the
-    // JWT payload — free, unlimited, and strictly worse than IP keying.
+    // If the tracker trusted a decoded-but-unverified `sub`, an attacker would
+    // get a fresh bucket per request by editing the JWT payload — free,
+    // unlimited, and strictly worse than IP keying.
     verifyToken.mockRejectedValue(new Error('signature verification failed'));
-    const { track } = makeGuard();
+    const { track, identity } = makeGuard();
 
     const forged =
       'Bearer ' +
@@ -62,9 +88,21 @@ describe('M1(c) — the rate-limit bucket is keyed on a VERIFIED identity', () =
         '',
       ].join('.');
 
+    // Even after the auth guard has tried and failed to verify it.
+    await identity.attach({ headers: { authorization: forged } } as never);
     const key = await track({ headers: { authorization: forged }, ip: '10.0.0.9' });
+
     expect(key).toBe('ip:10.0.0.9');
     expect(key).not.toContain('user_attacker_chosen');
+  });
+
+  it('a DIFFERENT token does not inherit a cached identity', async () => {
+    verifyToken.mockResolvedValue({ sub: 'user_alice' });
+    const { track, identity } = makeGuard();
+    await identity.attach({ headers: { authorization: 'Bearer alice-token' } } as never);
+
+    const key = await track({ headers: { authorization: 'Bearer someone-elses' }, ip: '10.0.0.2' });
+    expect(key).toBe('ip:10.0.0.2');
   });
 
   it('keys an anonymous caller on IP', async () => {
@@ -75,28 +113,31 @@ describe('M1(c) — the rate-limit bucket is keyed on a VERIFIED identity', () =
 
   it('never returns a bare userId that could collide with an IP literal', async () => {
     verifyToken.mockResolvedValue({ sub: '203.0.113.7' }); // adversarial sub
-    const { track } = makeGuard();
-    const asUser = await track({ headers: { authorization: 'Bearer x' }, ip: '198.51.100.1' });
+    const { track, identity } = makeGuard();
+    const headers = { authorization: 'Bearer x' };
+    await identity.attach({ headers } as never);
+
+    const asUser = await track({ headers, ip: '198.51.100.1' });
     const asIp = await track({ headers: {}, ip: '203.0.113.7' });
     expect(asUser).not.toBe(asIp);
   });
 
-  it('verifies ONCE per request — the auth guard reuses what the tracker attached', async () => {
+  it('verifies ONCE per request — the auth guard reuses what attach recorded', async () => {
     verifyToken.mockResolvedValue({ sub: 'user_alice' });
-    const { track, identity } = makeGuard();
-    const req: Record<string, unknown> = { headers: { authorization: 'Bearer good' }, ip: '1.1.1.1' };
+    const { identity } = makeGuard();
+    const req: Record<string, unknown> = { headers: { authorization: 'Bearer good' } };
 
-    await track(req);
-    await identity.attach(req as never); // what ClerkAuthGuard does next
+    await identity.attach(req as never);
+    await identity.attach(req as never);
     expect(verifyToken).toHaveBeenCalledTimes(1);
   });
 
-  it('re-verification is not retried for an anonymous caller either', async () => {
+  it('does not retry a failed verification for the same request', async () => {
     verifyToken.mockRejectedValue(new Error('nope'));
-    const { track, identity } = makeGuard();
-    const req: Record<string, unknown> = { headers: { authorization: 'Bearer bad' }, ip: '1.1.1.1' };
+    const { identity } = makeGuard();
+    const req: Record<string, unknown> = { headers: { authorization: 'Bearer bad' } };
 
-    await track(req);
+    await identity.attach(req as never);
     await identity.attach(req as never);
     // Idempotence keyed on a separate flag, not on `auth` being set — otherwise
     // every failed verification would be retried by each later caller.

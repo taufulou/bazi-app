@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { verifyToken } from '@clerk/backend';
@@ -16,6 +17,8 @@ export interface AuthAttachable {
   authResolved?: boolean;
   /** Why verification failed, for the protected path's 401 message. */
   authFailure?: string;
+  /** Was that failure specifically the azp allowlist? The caller decides how to report it. */
+  authFailureWasAzp?: boolean;
 }
 
 /**
@@ -73,6 +76,77 @@ export class AuthIdentityService {
   }
 
   /**
+   * Recently-verified tokens, for the RATE LIMITER only.
+   *
+   * ⚠️ Read `peekVerifiedUserId` before touching this: it exists because
+   * verifying in the throttler's tracker was a denial-of-service hole, and it
+   * is safe ONLY because bucketing is not an authorization decision.
+   *
+   * Keyed by a hash of the token, never the token itself — this map would
+   * otherwise be a pile of live bearer credentials sitting in memory for any
+   * heap dump or debugger to read.
+   */
+  private readonly recentlyVerified = new Map<string, { userId: string; expiresAt: number }>();
+  private static readonly PEEK_TTL_MS = 60_000;
+  private static readonly PEEK_MAX_ENTRIES = 10_000;
+
+  /**
+   * The userId for this request's token IF we verified it very recently.
+   * Never verifies, never touches the network, never throws.
+   *
+   * ⚠️ WHY THIS EXISTS. The throttler's tracker used to call `attach`, which
+   * awaits Clerk's `verifyToken`. For a token whose `kid` we have never seen —
+   * i.e. any forged one — Clerk's JWKS cache misses by construction and it
+   * issues a fresh HTTP request to Clerk, with no timeout anywhere in the
+   * chain. So `Authorization: Bearer <garbage>` forced an unbounded outbound
+   * call BEFORE the rate limiter had decided anything, which inverts the whole
+   * point of having a rate limiter: the cheap gate must come first.
+   *
+   * A cache read restores that ordering. The cost is that the FIRST request of
+   * a session buckets by IP rather than by user; from the second on it keys per
+   * user. That is an acceptable trade for bucketing, and it is emphatically NOT
+   * acceptable for authorization — which is why `ClerkAuthGuard` still calls
+   * `attach` and verifies properly on every single request. A stale entry here
+   * can only put someone in the wrong rate-limit bucket for up to a minute; it
+   * can never grant access.
+   */
+  peekVerifiedUserId(request: AuthAttachable): string | undefined {
+    const token = this.bearerToken(request);
+    if (!token) return undefined;
+
+    const hit = this.recentlyVerified.get(hashToken(token));
+    if (!hit) return undefined;
+    if (hit.expiresAt <= Date.now()) return undefined; // swept lazily below
+    return hit.userId;
+  }
+
+  private remember(token: string, userId: string): void {
+    // Cheap bound: the map is only ever a throttling optimisation, so dropping
+    // the oldest entries under pressure costs a coarser bucket, nothing more.
+    if (this.recentlyVerified.size >= AuthIdentityService.PEEK_MAX_ENTRIES) {
+      const now = Date.now();
+      for (const [k, v] of this.recentlyVerified) {
+        if (v.expiresAt <= now) this.recentlyVerified.delete(k);
+      }
+      if (this.recentlyVerified.size >= AuthIdentityService.PEEK_MAX_ENTRIES) {
+        // Still full of live entries — evict in insertion order.
+        const oldest = this.recentlyVerified.keys().next();
+        if (!oldest.done) this.recentlyVerified.delete(oldest.value);
+      }
+    }
+    this.recentlyVerified.set(hashToken(token), {
+      userId,
+      expiresAt: Date.now() + AuthIdentityService.PEEK_TTL_MS,
+    });
+  }
+
+  private bearerToken(request: AuthAttachable): string | undefined {
+    const header = request.headers.authorization as string | undefined;
+    if (!header?.startsWith('Bearer ')) return undefined;
+    return header.split(' ')[1] || undefined;
+  }
+
+  /**
    * Verify-if-present, at most once per request.
    *
    * Idempotent via `authResolved` rather than by checking `auth` — an anonymous
@@ -83,15 +157,13 @@ export class AuthIdentityService {
     if (request.authResolved) return;
     request.authResolved = true;
 
-    const authHeader = request.headers.authorization as string | undefined;
-    if (!authHeader?.startsWith('Bearer ')) return;
-
-    const token = authHeader.split(' ')[1];
+    const token = this.bearerToken(request);
     if (!token) return;
 
     try {
       const verified = await verifyToken(token, this.verifyOptions());
       request.auth = { userId: verified.sub, sessionId: verified.sid };
+      this.remember(token, verified.sub);
     } catch (err: unknown) {
       // Anonymous. An expired token on a public route is ORDINARY and must stay
       // silent — logging it would be noise on every request.
@@ -102,13 +174,12 @@ export class AuthIdentityService {
       // the web proxy swallows its own errors too — so the symptom would be
       // "customers say the paid content vanished" with nothing in any log.
       // Clerk tags this distinctly, so surface exactly it and nothing else.
-      if (isAuthorizedPartiesFailure(err)) {
-        this.logger.warn(
-          'A token was rejected for its azp claim — the caller was silently ' +
-            'downgraded to anonymous. If this repeats, CLERK_AUTHORIZED_PARTIES ' +
-            'is probably wrong or incomplete.',
-        );
-      }
+      // ⚠️ Recorded, NOT logged here. Whether an azp rejection means "silently
+      // downgraded to anonymous" (public route) or "rejected with a 401"
+      // (protected) depends on the route, which this service cannot see — and
+      // an earlier version claimed the former on both, which would send anyone
+      // debugging a 401 looking for a downgrade that never happened.
+      request.authFailureWasAzp = isAuthorizedPartiesFailure(err);
       // Kept for the protected path, which turns "we tried and failed" into a
       // 401 with the right message. Never surfaced to the client.
       request.authFailure = err instanceof Error ? err.message : 'unknown';
@@ -141,4 +212,9 @@ export class AuthIdentityService {
       }),
     };
   }
+}
+
+/** SHA-256 so the cache never holds a usable credential. */
+function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('base64url');
 }

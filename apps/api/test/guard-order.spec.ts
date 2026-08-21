@@ -50,9 +50,11 @@ describe('APP_GUARD execution order — imported module vs root providers', () =
     order.length = 0;
     const res = await fetch(`${url.replace('[::1]', '127.0.0.1')}/probe`);
     expect(res.status).toBe(200);
-    console.log('GUARD_ORDER =', JSON.stringify(order));
     await app.close();
-    expect(order).toHaveLength(2);
+    // Asserted, not just printed. A previous version only checked the LENGTH,
+    // so a framework change reversing the order would have left this green
+    // while silently falsifying the comments that cite it as evidence.
+    expect(order).toEqual(['root(AppModule-like)', 'child(AuthModule-like)']);
   });
 });
 
@@ -74,8 +76,7 @@ describe('APP_GUARD order WITHIN one providers array', () => {
     const url = await app.getUrl();
     order.length = 0;
     await fetch(`${url.replace('[::1]', '127.0.0.1')}/probe`);
-    console.log('ARRAY_ORDER =', JSON.stringify(order));
     await app.close();
-    expect(order).toHaveLength(2);
+    expect(order).toEqual(['child(AuthModule-like)', 'root(AppModule-like)']);
   });
 });

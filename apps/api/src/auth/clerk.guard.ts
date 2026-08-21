@@ -49,6 +49,21 @@ export class ClerkAuthGuard implements CanActivate {
       // Best-effort by design: a missing, malformed or expired token leaves
       // `request.auth` undefined and the request proceeds as anonymous. It
       // must NEVER throw — that would turn a public route private.
+      //
+      // One failure reason is not ordinary and is surfaced HERE, where we know
+      // the route is public and "downgraded" is therefore accurate. A
+      // misconfigured allowlist does not 401 on a public route; it quietly
+      // drops every SUBSCRIBER to the free tier (this is the path that decides
+      // whether `explain-element` returns paid layers), and the web proxy
+      // swallows its own errors too — so the symptom would be "customers say
+      // the paid content vanished" with nothing in any log.
+      if (request.authFailureWasAzp) {
+        this.logger.warn(
+          'A token was rejected for its azp claim on a PUBLIC route — the caller ' +
+            'was silently downgraded to anonymous. If this repeats, ' +
+            'CLERK_AUTHORIZED_PARTIES is probably wrong or incomplete.',
+        );
+      }
       return true;
     }
 

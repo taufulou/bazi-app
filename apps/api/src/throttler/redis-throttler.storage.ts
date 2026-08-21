@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable, Logger } from '@nestjs/common';
 import type { ThrottlerStorage } from '@nestjs/throttler';
 import type { ThrottlerStorageRecord } from '@nestjs/throttler/dist/throttler-storage-record.interface';
@@ -42,39 +43,57 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
   constructor(private readonly redis: RedisService) {}
 
   /**
-   * KEYS[1] hits counter · KEYS[2] block marker
-   * ARGV[1] ttl(ms) · ARGV[2] limit · ARGV[3] blockDuration(ms)
+   * KEYS[1] hit log (sorted set) · KEYS[2] block marker
+   * ARGV[1] ttl(ms) · ARGV[2] limit · ARGV[3] blockDuration(ms) · ARGV[4] unique member
    * → { totalHits, hitsPttl(ms), isBlocked(0|1), blockPttl(ms) }
+   *
+   * A SLIDING window (sorted set of hit timestamps), not a fixed one.
+   *
+   * ⚠️ The obvious implementation — INCR plus PEXPIRE on first hit — is a fixed
+   * window, and it is NOT what the reference does: `setExpirationTime` schedules
+   * a decrement per individual hit, so hits age out one by one. The difference
+   * is not academic. Under a fixed window a caller who places one hit early and
+   * then bursts at the boundary gets a whole fresh allowance immediately,
+   * sustaining ~2x the configured rate indefinitely — on `/payments/upgrade`
+   * that is 10/min against a limit of 5. Measured, not theorised.
+   *
+   * ZREMRANGEBYSCORE drops anything older than the window before counting, so
+   * the count is always "hits in the last `ttl` ms", which is what the limit is
+   * supposed to mean.
+   *
+   * Time comes from Redis's own clock (`TIME`), not the app's: with several API
+   * replicas, clock skew between them would otherwise shift the window per
+   * caller. `TIME` makes the script non-deterministic, which is fine — Redis
+   * has replicated script EFFECTS rather than the script itself since 5.0.
    */
   private static readonly SCRIPT = `
     local hitsKey, blockKey = KEYS[1], KEYS[2]
-    local ttl        = tonumber(ARGV[1])
-    local limit      = tonumber(ARGV[2])
-    local blockMs    = tonumber(ARGV[3])
+    local ttl     = tonumber(ARGV[1])
+    local limit   = tonumber(ARGV[2])
+    local blockMs = tonumber(ARGV[3])
+    local member  = ARGV[4]
+
+    local t = redis.call('TIME')
+    local now = (tonumber(t[1]) * 1000) + math.floor(tonumber(t[2]) / 1000)
 
     local blockPttl = redis.call('PTTL', blockKey)
     if blockPttl > 0 then
       -- Blocked: the reference does not count hits while blocked.
-      local held = tonumber(redis.call('GET', hitsKey) or '0')
+      local held = redis.call('ZCARD', hitsKey)
       local heldTtl = redis.call('PTTL', hitsKey)
       if heldTtl < 0 then heldTtl = 0 end
       return { held, heldTtl, 1, blockPttl }
     end
 
-    -- Block has lapsed (or never existed). The reference resets the counter
-    -- when a block expires, so a lapsed block starts a fresh window rather
-    -- than leaving the caller permanently over the limit.
-    local current = tonumber(redis.call('GET', hitsKey) or '0')
-    if current > limit then
-      redis.call('DEL', hitsKey)
-    end
+    -- Age out everything older than the window, then record this hit. PEXPIRE
+    -- is unconditional so the key can never outlive its contents.
+    redis.call('ZREMRANGEBYSCORE', hitsKey, 0, now - ttl)
+    redis.call('ZADD', hitsKey, now, member)
+    redis.call('PEXPIRE', hitsKey, ttl)
 
-    local hits = redis.call('INCR', hitsKey)
+    local hits = redis.call('ZCARD', hitsKey)
     local pttl = redis.call('PTTL', hitsKey)
-    if pttl < 0 then
-      redis.call('PEXPIRE', hitsKey, ttl)
-      pttl = ttl
-    end
+    if pttl < 0 then pttl = ttl end
 
     local isBlocked = 0
     local blockRemaining = 0
@@ -97,10 +116,33 @@ export class RedisThrottlerStorage implements ThrottlerStorage {
     const hitsKey = `throttle:${throttlerName}:${key}`;
     const blockKey = `${hitsKey}:blocked`;
 
+    // Validate BEFORE the script runs. A non-numeric `ttl` makes Lua's
+    // `tonumber` return nil, and the failure then lands on PEXPIRE — after ZADD
+    // has already committed, leaving a key with no expiry that grows forever.
+    // Nothing passes a dynamic value today; this is here so that when something
+    // does, it fails loudly at the boundary instead of leaking keys.
+    if (!Number.isFinite(ttl) || !Number.isFinite(limit) || !Number.isFinite(blockDuration)) {
+      throw new TypeError(
+        `Throttler storage got a non-numeric argument (ttl=${ttl}, limit=${limit}, ` +
+          `blockDuration=${blockDuration}) for "${throttlerName}"`,
+      );
+    }
+
     try {
       const raw = (await this.redis
         .getClient()
-        .eval(RedisThrottlerStorage.SCRIPT, 2, hitsKey, blockKey, String(ttl), String(limit), String(blockDuration))) as
+        .eval(
+          RedisThrottlerStorage.SCRIPT,
+          2,
+          hitsKey,
+          blockKey,
+          String(ttl),
+          String(limit),
+          String(blockDuration),
+          // Unique per hit — the sorted set stores one member per request, and
+          // a repeated member would overwrite rather than add.
+          `${Date.now()}-${randomUUID()}`,
+        )) as
         | [number, number, number, number]
         | null;
 
