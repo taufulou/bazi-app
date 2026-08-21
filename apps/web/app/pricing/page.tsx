@@ -175,12 +175,16 @@ export default function PricingPage() {
         const token = await getToken();
         if (!token) throw new Error("無法取得認證令牌，請重新登入");
 
-        await upgradeSubscription(token, {
+        const res = await upgradeSubscription(token, {
           planSlug: planKey,
           billingCycle: isAnnual ? "annual" : "monthly",
         });
 
-        setCurrentTier(planKey.toUpperCase());
+        // Render the EFFECTIVE tier, not the requested one. They differ when the
+        // user also holds a higher-tier subscription from another store (Apple /
+        // Google): changing the Stripe plan does not lower what they actually
+        // have. Falls back to the request only if the server predates the field.
+        setCurrentTier(res.effectiveTier ?? planKey.toUpperCase());
         setToast({
           message: direction === "upgrade" ? "方案升級成功！" : "方案已變更成功！",
           type: "success",

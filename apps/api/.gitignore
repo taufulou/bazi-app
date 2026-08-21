@@ -2,5 +2,9 @@ dist
 node_modules
 .env
 .env.local
+# 1D — a literal-filename list does NOT cover .env.production / .env.staging,
+# which is the variant most likely to hold live credentials. Glob + allowlist.
+.env*
+!.env.example
 
 /generated/prisma

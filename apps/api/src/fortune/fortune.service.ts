@@ -25,6 +25,10 @@
  * `fortune-snapshot.helpers.contract.spec.ts`).
  */
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { AiSpendService } from '../ai/ai-spend.service';
+import { AiGovernorService } from '../ai/ai-governor.service';
+import { QuotaService } from '../ai/quota.service';
+import { isSelfRefusal } from '../ai/typed-refusals';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   FORTUNE_PROMPT_VERSIONS,
@@ -69,6 +73,9 @@ export class FortuneService {
     private readonly prisma: PrismaService,
     private readonly helpers: FortuneSnapshotHelpers,
     private readonly validators: FortuneValidatorsService,
+    private readonly aiSpend: AiSpendService,
+    private readonly aiGovernor: AiGovernorService,
+    private readonly quota: QuotaService,
   ) {}
 
   // ============================================================
@@ -112,6 +119,7 @@ export class FortuneService {
 
     // Subscription gate
     this.helpers.enforceSubscriptionGate(user.subscriptionTier, targetDate);
+
 
     // Compute chart hash (stable per chart — used as cache key).
     // 時辰未知: an unknown hour gets the 'HOUR_UNKNOWN' sentinel so it hashes
@@ -184,11 +192,35 @@ export class FortuneService {
     let promptVersion: string | null = null;
 
     try {
+      // S4 — charged here, AFTER the cache lookup and the `engineOnly`
+      // short-circuit, and only on the branch that actually generates.
+      // At the entry point it billed a quota unit for cache hits and for
+      // homepage `engineOnly` reads that spend nothing — rationing the free
+      // read while the paid generation went uncounted.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('fortune:daily');
+      await this.quota.consume('fortune', user.id);
       const aiResult = await this.runDailyAINarration(dailyOutput, chartContext);
       narrative = aiResult.narrative;
       validationResult = aiResult.validation;
       promptVersion = aiResult.promptVersion;
     } catch (err) {
+      // S2 — a spend cap is NOT an AI failure for THIS chart. Falling through
+      // would persist a null-narrative snapshot and arm the 24h circuit breaker,
+      // so a two-hour global budget event would blank this user's fortune for
+      // the rest of the day (the anchor date passes before the backoff expires).
+      // Rethrow so the client gets the real 503 + code and nothing is written;
+      // the engine output is cheap to recompute next time.
+      //
+      // S4 and S1 are the same argument. A quota refusal armed a breaker that
+      // OUTLIVES the quota window that caused it, and `AI_BUSY` — thrown after
+      // as little as three seconds of queue pressure — armed a 24-HOUR one.
+      // That last is why this is `isSelfRefusal` rather than a hand-written
+      // list: the two enumerated here were the two their authors were thinking
+      // about, and the cheapest refusal to trigger was covered by neither.
+      if (isSelfRefusal(err)) throw err;
       // AI failure should not block the engine output — degrade gracefully
       this.logger.error(`Daily fortune AI failure: ${(err as Error).message}`);
       narrative = null;
@@ -244,7 +276,18 @@ export class FortuneService {
     const client = await this.helpers.ensureClaudeClient();
     const model = this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
 
-    const response = await client.messages.create(
+    // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+    // generation stops. Throws a typed 503 that the caller's existing
+    // error path maps to a refund where a credit was already taken.
+    await this.aiSpend.assertUnderCap('fortune:daily');
+    // S1 — hold an `interactive` slot for the upstream call. acquire/finally
+    // rather than `run()` because `client` is loosely typed: passing it through
+    // a generic collapses the response to `unknown` and every downstream field
+    // access becomes a cast.
+    const releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:daily');
+    let response;
+    try {
+      response = await client.messages.create(
       {
         model,
         max_tokens: 2048,
@@ -253,7 +296,27 @@ export class FortuneService {
         messages: [{ role: 'user', content: userPrompt }],
       },
       { timeout: AI_CALL_TIMEOUT_MS },
-    );
+      );
+    } finally {
+      releaseSlot();
+    }
+
+    // S2 — meter. Fortune called Anthropic directly and wrote no usage row,
+    // so its spend was invisible to both `AIUsageLog` and the breaker.
+    void this.aiSpend.record({
+      provider: 'CLAUDE',
+      model,
+      usage: {
+        inputTokens: response.usage?.input_tokens ?? 0,
+        outputTokens: response.usage?.output_tokens ?? 0,
+        cacheReadTokens:
+          ((response.usage ?? {}) as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
+        cacheWriteTokens:
+          ((response.usage ?? {}) as { cache_creation_input_tokens?: number })
+            .cache_creation_input_tokens ?? 0,
+      },
+      context: 'fortune:daily',
+    });
 
     const text = response.content
       .filter((b: { type: string }) => b.type === 'text')
@@ -387,6 +450,16 @@ export class FortuneService {
     let promptVersion: string | null = null;
 
     try {
+      // S4 — charged here, AFTER the cache lookup and the `engineOnly`
+      // short-circuit, and only on the branch that actually generates.
+      // At the entry point it billed a quota unit for cache hits and for
+      // homepage `engineOnly` reads that spend nothing — rationing the free
+      // read while the paid generation went uncounted.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('fortune:monthly');
+      await this.quota.consume('fortune', user.id);
       const aiResult = await this.runMonthlyAINarration(
         monthlyOutput,
         chartContext,
@@ -396,6 +469,20 @@ export class FortuneService {
       narrative = aiResult.narrative;
       promptVersion = aiResult.promptVersion;
     } catch (err) {
+      // S2 — a spend cap is NOT an AI failure for THIS chart. Falling through
+      // would persist a null-narrative snapshot and arm the 24h circuit breaker,
+      // so a two-hour global budget event would blank this user's fortune for
+      // the rest of the day (the anchor date passes before the backoff expires).
+      // Rethrow so the client gets the real 503 + code and nothing is written;
+      // the engine output is cheap to recompute next time.
+      //
+      // S4 and S1 are the same argument. A quota refusal armed a breaker that
+      // OUTLIVES the quota window that caused it, and `AI_BUSY` — thrown after
+      // as little as three seconds of queue pressure — armed a 24-HOUR one.
+      // That last is why this is `isSelfRefusal` rather than a hand-written
+      // list: the two enumerated here were the two their authors were thinking
+      // about, and the cheapest refusal to trigger was covered by neither.
+      if (isSelfRefusal(err)) throw err;
       this.logger.error(
         `Monthly fortune AI failure (month=${targetMonth} profile=${profile.id}): ${(err as Error).message}`,
       );
@@ -454,7 +541,18 @@ export class FortuneService {
     const client = await this.helpers.ensureClaudeClient();
     const model = this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
 
-    const response = await client.messages.create(
+    // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+    // generation stops. Throws a typed 503 that the caller's existing
+    // error path maps to a refund where a credit was already taken.
+    await this.aiSpend.assertUnderCap('fortune:monthly');
+    // S1 — hold an `interactive` slot for the upstream call. acquire/finally
+    // rather than `run()` because `client` is loosely typed: passing it through
+    // a generic collapses the response to `unknown` and every downstream field
+    // access becomes a cast.
+    const releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:monthly');
+    let response;
+    try {
+      response = await client.messages.create(
       {
         model,
         max_tokens: 2048,
@@ -463,7 +561,27 @@ export class FortuneService {
         messages: [{ role: 'user', content: userPrompt }],
       },
       { timeout: AI_CALL_TIMEOUT_MS },
-    );
+      );
+    } finally {
+      releaseSlot();
+    }
+
+    // S2 — meter. Fortune called Anthropic directly and wrote no usage row,
+    // so its spend was invisible to both `AIUsageLog` and the breaker.
+    void this.aiSpend.record({
+      provider: 'CLAUDE',
+      model,
+      usage: {
+        inputTokens: response.usage?.input_tokens ?? 0,
+        outputTokens: response.usage?.output_tokens ?? 0,
+        cacheReadTokens:
+          ((response.usage ?? {}) as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
+        cacheWriteTokens:
+          ((response.usage ?? {}) as { cache_creation_input_tokens?: number })
+            .cache_creation_input_tokens ?? 0,
+      },
+      context: 'fortune:monthly',
+    });
 
     const text = response.content
       .filter((b: { type: string }) => b.type === 'text')
@@ -587,10 +705,34 @@ export class FortuneService {
     let promptVersion: string | null = null;
 
     try {
+      // S4 — charged here, AFTER the cache lookup and the `engineOnly`
+      // short-circuit, and only on the branch that actually generates.
+      // At the entry point it billed a quota unit for cache hits and for
+      // homepage `engineOnly` reads that spend nothing — rationing the free
+      // read while the paid generation went uncounted.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('fortune:yearly');
+      await this.quota.consume('fortune', user.id);
       const aiResult = await this.runYearlyAINarration(yearlyOutput, chartContext, year);
       narrative = aiResult.narrative;
       promptVersion = aiResult.promptVersion;
     } catch (err) {
+      // S2 — a spend cap is NOT an AI failure for THIS chart. Falling through
+      // would persist a null-narrative snapshot and arm the 24h circuit breaker,
+      // so a two-hour global budget event would blank this user's fortune for
+      // the rest of the day (the anchor date passes before the backoff expires).
+      // Rethrow so the client gets the real 503 + code and nothing is written;
+      // the engine output is cheap to recompute next time.
+      //
+      // S4 and S1 are the same argument. A quota refusal armed a breaker that
+      // OUTLIVES the quota window that caused it, and `AI_BUSY` — thrown after
+      // as little as three seconds of queue pressure — armed a 24-HOUR one.
+      // That last is why this is `isSelfRefusal` rather than a hand-written
+      // list: the two enumerated here were the two their authors were thinking
+      // about, and the cheapest refusal to trigger was covered by neither.
+      if (isSelfRefusal(err)) throw err;
       this.logger.error(
         `Yearly fortune AI failure (year=${targetYear} profile=${profile.id}): ${(err as Error).message}`,
       );
@@ -645,7 +787,18 @@ export class FortuneService {
     const client = await this.helpers.ensureClaudeClient();
     const model = this.helpers.config.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929';
 
-    const response = await client.messages.create(
+    // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+    // generation stops. Throws a typed 503 that the caller's existing
+    // error path maps to a refund where a credit was already taken.
+    await this.aiSpend.assertUnderCap('fortune:yearly');
+    // S1 — hold an `interactive` slot for the upstream call. acquire/finally
+    // rather than `run()` because `client` is loosely typed: passing it through
+    // a generic collapses the response to `unknown` and every downstream field
+    // access becomes a cast.
+    const releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:yearly');
+    let response;
+    try {
+      response = await client.messages.create(
       {
         model,
         max_tokens: 2048,
@@ -654,7 +807,27 @@ export class FortuneService {
         messages: [{ role: 'user', content: userPrompt }],
       },
       { timeout: AI_CALL_TIMEOUT_MS },
-    );
+      );
+    } finally {
+      releaseSlot();
+    }
+
+    // S2 — meter. Fortune called Anthropic directly and wrote no usage row,
+    // so its spend was invisible to both `AIUsageLog` and the breaker.
+    void this.aiSpend.record({
+      provider: 'CLAUDE',
+      model,
+      usage: {
+        inputTokens: response.usage?.input_tokens ?? 0,
+        outputTokens: response.usage?.output_tokens ?? 0,
+        cacheReadTokens:
+          ((response.usage ?? {}) as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
+        cacheWriteTokens:
+          ((response.usage ?? {}) as { cache_creation_input_tokens?: number })
+            .cache_creation_input_tokens ?? 0,
+      },
+      context: 'fortune:yearly',
+    });
 
     const text = response.content
       .filter((b: { type: string }) => b.type === 'text')

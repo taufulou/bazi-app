@@ -5,12 +5,21 @@ All calculations are deterministic (no AI). AI interpretation is handled by the 
 """
 
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+from .engine_auth import (
+    EngineKeyMiddleware,
+    RejectionCounter,
+    configure_auth_logging,
+    flush_counter,
+    is_production,
+)
 
 from .calculator import (
     calculate_bazi,
@@ -30,13 +39,39 @@ from .monthly_enhanced import (
 )
 from .yearly_enhanced import compute_year_by_year
 
+configure_auth_logging()
+
+_IS_PRODUCTION = is_production()
+_engine_auth_counter = RejectionCounter()
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    yield
+    # Emit the tail window on shutdown. A scan that stops before the rollup
+    # interval elapses would otherwise never be reported at all.
+    flush_counter(_engine_auth_counter)
+
+
 app = FastAPI(
+    lifespan=_lifespan,
     title="Bazi Calculation Engine",
     description="八字排盤計算引擎 — Deterministic Four Pillars calculation with True Solar Time",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    # B3-a: the schema for all 10 endpoints — including the birth-data request
+    # shapes — is a map of the service for anyone who reaches it. Off in prod,
+    # on everywhere else so local development is unchanged.
+    docs_url=None if _IS_PRODUCTION else "/docs",
+    redoc_url=None if _IS_PRODUCTION else "/redoc",
+    openapi_url=None if _IS_PRODUCTION else "/openapi.json",
 )
+
+# ⚠️ ORDER MATTERS. Starlette's `add_middleware` inserts at position 0, so the
+# LAST call is the OUTERMOST layer. Auth is added first — i.e. it ends up INSIDE
+# CORS — so CORS answers preflight `OPTIONS` before auth sees it. Reversed, an
+# enforcing engine would 401 preflights, and every preflight would land in the
+# counter as an unkeyed request and hold B3-b's gate open forever.
+app.add_middleware(EngineKeyMiddleware, counter=_engine_auth_counter)
 
 app.add_middleware(
     CORSMiddleware,

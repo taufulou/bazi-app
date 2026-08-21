@@ -9,7 +9,7 @@ services:
     environment:
       POSTGRES_DB: bazi_platform
       POSTGRES_USER: bazi_user
-      POSTGRES_PASSWORD: bazi_dev_password
+      POSTGRES_PASSWORD: r5ulJmP48VjsHYSiRNubHAdu6C5H
     ports:
       - "5432:5432"
     volumes:
@@ -46,6 +46,13 @@ services:
       - "5000:5000"
     environment:
       PORT: 5000
+      # B3-a. Left unset deliberately: the engine runs in OBSERVE mode, so an
+      # unkeyed call is counted (grep the logs for ENGINE-AUTH-ROLLUP) and never
+      # refused. ⚠️ If this compose file is ever used for a real deployment, set
+      # ENGINE_KEY here AND on every caller BEFORE setting ENGINE_REQUIRE_KEY —
+      # enforcing with no key configured fails closed on every request by design.
+      # ENGINE_KEY: "${ENGINE_KEY}"
+      # ENGINE_REQUIRE_KEY: "0"
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
       interval: 30s

@@ -31,7 +31,12 @@ describe('BaziService.regenerateReading', () => {
     const mockConfig: any = { get: jest.fn().mockReturnValue('http://localhost:5001') };
     const mockAI: any = {};
     const mockCredits: any = {};
-    service = new BaziService(mockPrisma, mockRedis, mockConfig, mockAI, mockCredits);
+    const mockQuota = { consume: jest.fn(), peek: jest.fn() } as never;
+    // S2 — the cap pre-check that now runs before every quota consume.
+    const mockSpend = { assertUnderCap: jest.fn(), record: jest.fn() } as never;
+    service = new BaziService(
+      mockPrisma, mockRedis, mockConfig, mockAI, mockCredits, mockQuota, mockSpend,
+    );
   });
 
   it('throws NotFoundException when user does not exist', async () => {
@@ -125,6 +130,11 @@ describe('BaziService.regenerateReading', () => {
         aiInterpretation: Prisma.DbNull,
         aiProvider: null,
         aiModel: null,
+        // Deliberately absent: `refundedAt` and `creditsUsed`. `isDegraded: true`
+        // in the WHERE already implies the row was never refunded (one exclusive
+        // status per attempt — see the note in `regenerateReading`), so clearing
+        // the timestamp is a no-op and zeroing the charge would erase a real
+        // payment and block the refund if the retry also failed.
       },
     });
 

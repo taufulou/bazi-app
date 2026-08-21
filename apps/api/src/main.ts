@@ -7,6 +7,8 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
+import { scrubSentryEvent } from './common/sentry-scrub';
+import { isSwaggerEnabled } from './common/swagger-gate';
 
 // Initialize Sentry before anything else
 if (process.env.SENTRY_DSN) {
@@ -14,6 +16,20 @@ if (process.env.SENTRY_DSN) {
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV || 'development',
     tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.2 : 1.0,
+    // C2 — this used to be the whole config. Every request to this API carries
+    // birth data (date, time, city, coordinates, gender) in its body, so an
+    // error report that attaches the request is an error report that ships the
+    // most sensitive thing we hold to a third party.
+    //
+    // Two layers on purpose. `sendDefaultPii: false` is the SDK's own switch and
+    // states the intent; `beforeSend` enforces it regardless of what any given
+    // SDK version decides to attach by default — that behaviour has changed
+    // across major versions, and "I read node_modules once" is not a control
+    // that survives an upgrade.
+    sendDefaultPii: false,
+    beforeSend: scrubSentryEvent,
+    // Transactions carry request context too.
+    beforeSendTransaction: scrubSentryEvent,
   });
 }
 
@@ -61,8 +77,10 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept-Language'],
   });
 
-  // Swagger API documentation — disabled in production
-  if (process.env.NODE_ENV !== 'production') {
+  // Swagger API documentation — OPT-IN. See `common/swagger-gate.ts` for why
+  // this must not consult NODE_ENV (Joi defaults it to 'development' and writes
+  // it back into process.env, so an unset NODE_ENV reads as development here).
+  if (isSwaggerEnabled()) {
     const config = new DocumentBuilder()
       .setTitle('天命 API')
       .setDescription(
@@ -94,7 +112,10 @@ async function bootstrap() {
   const port = process.env.PORT || 4000;
   await app.listen(port);
   logger.log(`API server running on http://localhost:${port}`);
-  if (process.env.NODE_ENV !== 'production') {
+  // Same condition as the block that mounts it — this used to be a second,
+  // independently-written `NODE_ENV !== 'production'`, so it would have
+  // advertised a docs URL that no longer exists.
+  if (isSwaggerEnabled()) {
     logger.log(`Swagger docs at http://localhost:${port}/api/docs`);
   }
 }

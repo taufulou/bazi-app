@@ -15,6 +15,9 @@ import { ChatRole } from '@prisma/client';
 import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { AiSpendService } from '../ai/ai-spend.service';
+import { AiGovernorService } from '../ai/ai-governor.service';
+import { QuotaService } from '../ai/quota.service';
 import {
   ChatPaymentService,
   CHAT_SESSION_HARD_CAP_MESSAGES,
@@ -25,6 +28,7 @@ import { ChatValidatorsService } from './chat-validators.service';
 import { buildPrompt } from './chat-prompt-builder';
 import { sanitizeUserContent } from './chat.service';
 import { isTopicBoundaryRefuse } from '../ai/prompts';
+import { absorbStreamUsage, emptyStreamUsage, hasUsage, mergeFinalUsage } from '../ai/stream-usage';
 
 // ============================================================
 // Constants
@@ -122,6 +126,9 @@ export class ChatStreamService {
     private readonly paymentService: ChatPaymentService,
     private readonly contextService: ChatContextService,
     private readonly validators: ChatValidatorsService,
+    private readonly aiSpend: AiSpendService,
+    private readonly aiGovernor: AiGovernorService,
+    private readonly quota: QuotaService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     if (!apiKey) {
@@ -298,6 +305,16 @@ export class ChatStreamService {
     let deduction: { method: 'FREE_QUOTA' | 'PAID_ALLOWANCE' };
     let userMessageId: string;
     try {
+      // S4 — OUTSIDE the transaction, deliberately. Inside it, a Redis STALL
+      // (as opposed to an error) holds an open Postgres transaction and a pool
+      // connection for its duration, so `consume`'s fail-open guarantee did not
+      // hold there — it degraded into a transaction timeout that failed the
+      // message. This still satisfies "before the deduction".
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('chat:stream');
+      await this.quota.consume('chat', userId);
       const result = await this.prisma.$transaction(async (tx) => {
         const d = await this.paymentService.deductForMessage(sessionId, userId, tx);
         if (session.firstMessageAt === null) {
@@ -426,6 +443,21 @@ export class ChatStreamService {
           session.readingType,
         );
       } else if (session.readingId) {
+        // ⚠️ F6 — re-check entitlement here too. This method resolves the
+        // subject INDEPENDENTLY of `ChatService.sendMessage` and is the surface
+        // the web client actually uses, so gating only `sendMessage` would
+        // leave the real path open — the same note the comparison branch above
+        // carries. A refund sets `refundedAt`, so an open session must stop.
+        const reading = await this.prisma.baziReading.findUnique({
+          where: { id: session.readingId },
+          select: { refundedAt: true },
+        });
+        if (!reading || reading.refundedAt) {
+          throw new BadRequestException({
+            code: 'READING_REFUNDED',
+            message: '此分析已退款，點數已退回。請重新建立一次分析後再開始對話。',
+          });
+        }
         chatContext = await this.contextService.getChatContextForReading(
           session.readingId,
           session.readingType,
@@ -438,11 +470,16 @@ export class ChatStreamService {
         // Phase 2.x L3.5b — pass fortuneScope so engine dispatches DAY vs MONTH
         // chat-context. Default 'DAY' for sessions with null scope (pre-L3.5b
         // back-compat).
+        // F5 — see the twin call in `chat.service.ts`. This is the surface the
+        // web client actually uses, so gating only the non-streaming path would
+        // leave the real door open (the same reasoning as the comparison
+        // `paidAt` re-check above).
         chatContext = await this.contextService.getChatContextForFortune(
           session.profileId,
           session.fortuneAnchorDate.toISOString().slice(0, 10),
           session.readingType,
           (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? 'DAY',
+          userId,
         );
       } else {
         // CHECK constraint should prevent this. Defensive guard.
@@ -451,6 +488,26 @@ export class ChatStreamService {
         );
       }
     } catch (err) {
+      // ⚠️ An entitlement refusal is NOT an AI failure — see the twin branch in
+      // `chat.service.ts`. The F5 window gate throws from inside
+      // `getChatContextForFortune`, which this try block owns, so routing it
+      // through `_refundOnError` would report «AI 暫時無法回答» and stamp the
+      // row AI_FAILED. The frontend keys its paywall UI on `code`, and the
+      // AI-failure rate is an alerting signal.
+      if (err instanceof HttpException) {
+        const body = err.getResponse() as { code?: string; message?: string };
+        const refundResult = await this.paymentService
+          .refundLastMessage(userMessageId, sessionId, userId, `entitlement-refused: ${err.message}`)
+          .catch(() => ({ refunded: false, method: null }));
+        this._emitError(
+          response,
+          body?.code ?? 'FORBIDDEN',
+          body?.message ?? err.message,
+          refundResult.refunded,
+          refundResult.method,
+        );
+        return;
+      }
       await this._refundOnError(response, sessionId, userId, userMessageId,
         `chat-context-fetch-failed: ${err}`);
       return;
@@ -553,8 +610,19 @@ export class ChatStreamService {
       cacheReadTokens: 0,
       cacheCreationTokens: 0,
     };
+    // Accumulated as events arrive; recorded in the `finally`.
+    const streamUsage = emptyStreamUsage();
 
+    // S1 — declared outside the try so the `finally` can return the slot.
+    let releaseSlot: () => void = () => undefined;
     try {
+      // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+      // generation stops. Throws a typed 503 that the caller's existing
+      // error path maps to a refund where a credit was already taken.
+      await this.aiSpend.assertUnderCap('chat:stream');
+      // S1 — held until the stream ENDS, released in the `finally` below so a
+      // watchdog abort or client disconnect returns the slot.
+      releaseSlot = await this.aiGovernor.acquire('interactive', 'chat:stream');
       const stream = this.anthropic.messages.stream(
         {
           model: this.model,
@@ -575,6 +643,11 @@ export class ChatStreamService {
       );
 
       for await (const event of stream) {
+        // S2 — meter as we go. A chat turn's cost is mostly its ~10k-token
+        // cached system block, billed at the 2× cache-WRITE rate on the first
+        // turn — and read only from `message_start`, which arrives before any
+        // disconnect can happen. See `stream-usage.ts`.
+        absorbStreamUsage(event, streamUsage);
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
           const text = event.delta.text;
           assistantBuffer += text;
@@ -595,6 +668,9 @@ export class ChatStreamService {
           (finalMessage.usage as { cache_creation_input_tokens?: number })
             .cache_creation_input_tokens ?? 0,
       };
+      // Clean completion — prefer the authoritative final numbers. The
+      // `finally` does the recording either way.
+      mergeFinalUsage(streamUsage, finalMessage.usage);
     } catch (err) {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
@@ -624,6 +700,32 @@ export class ChatStreamService {
         return;
       }
 
+      // A typed refusal is NOT an AI failure — same reasoning as the
+      // entitlement branch ~180 lines above, which this block was missing.
+      // `_refundOnError` hard-codes `AI_CALL_FAILED` + «AI 暫時無法回答», stamps
+      // the row AI_FAILED, and feeds the AI-failure alerting signal. For an
+      // S2 spend cap that is wrong three times over: the AI never failed, the
+      // copy invites an immediate retry (and `AI_CALL_FAILED` is not in
+      // `LOCK_ERROR_CODES`, so the composer stays enabled at 30/min — the
+      // breaker would save Anthropic tokens while RAISING our own load), and it
+      // pollutes the metric that says how often generation is broken.
+      if (err instanceof HttpException) {
+        const body = err.getResponse() as { code?: string; message?: string };
+        const code = body?.code ?? 'FORBIDDEN';
+        const refundResult = await this.paymentService
+          .refundLastMessage(userMessageId, sessionId, userId, `refused: ${code}`)
+          .catch(() => ({ refunded: false, method: null }));
+        this.logger.warn(`Chat stream refused for ${sessionId}: ${code}`);
+        this._emitError(
+          response,
+          code,
+          body?.message ?? err.message,
+          refundResult.refunded,
+          refundResult.method,
+        );
+        return;
+      }
+
       const reason = watchdogTriggered
         ? 'watchdog-timeout-no-delta-60s'
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
@@ -633,6 +735,17 @@ export class ChatStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      // S2 — record in the FINALLY, so a client disconnect (the commonest
+      // ending on mobile) still books what Anthropic already billed.
+      if (hasUsage(streamUsage)) {
+        void this.aiSpend.record({
+          provider: 'CLAUDE',
+          model: this.model,
+          usage: streamUsage,
+          context: 'chat:stream',
+        });
+      }
+      releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
     }
 
     // ============================================================

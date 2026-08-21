@@ -20,7 +20,10 @@ import { ConfigService } from '@nestjs/config';
 import { ChatValidatorsService } from './chat-validators.service';
 import { CHAT_CROSS_SELL_OWNED_LINES } from '../ai/prompts';
 
-const svc = new ChatValidatorsService({ get: () => undefined } as unknown as ConfigService);
+const svc = new ChatValidatorsService(
+  { get: () => undefined } as unknown as ConfigService,
+  { record: () => Promise.resolve(0), assertUnderCap: () => Promise.resolve() } as never,
+);
 const rw = (text: string, owned: string[]) =>
   svc.rewriteOwnedCrossSell(text, new Set(owned));
 

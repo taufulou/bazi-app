@@ -93,6 +93,31 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return count ? parseInt(count, 10) : 0;
   }
 
+  /**
+   * Atomically add a fractional amount to a counter and return the new total.
+   *
+   * S2's spend ledger. `INCRBYFLOAT` rather than read-modify-write because the
+   * counter is incremented from every concurrent AI call, and a lost update here
+   * is spend that the breaker never sees.
+   *
+   * The TTL is refreshed on every increment, which is correct for the day/month
+   * keys it serves: each is written throughout its own window, and the TTL is set
+   * well beyond that window's length. Do NOT reuse this for a key whose lifetime
+   * must not slide.
+   */
+  async incrByFloat(key: string, amount: number, ttlSeconds: number): Promise<number> {
+    const multi = this.client.multi();
+    multi.incrbyfloat(key, amount);
+    multi.expire(key, ttlSeconds);
+    const results = await multi.exec();
+    if (!results) return 0;
+    // ioredis returns INCRBYFLOAT as a STRING (it is a float, not an integer),
+    // unlike the sibling `incrementRateLimit` above, which can cast INCR directly.
+    const raw = results[0]?.[1];
+    const parsed = typeof raw === 'string' ? Number.parseFloat(raw) : Number(raw);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
   // ============ Cache Operations ============
 
   /**

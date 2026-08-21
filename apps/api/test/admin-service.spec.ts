@@ -4,6 +4,7 @@
  * Uses mocked PrismaService and RedisService.
  */
 import { AdminService } from '../src/admin/admin.service';
+import { CreditsService } from '../src/credits/credits.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
 
 // ============================================================
@@ -88,7 +89,7 @@ describe('AdminService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AdminService(mockPrisma as any, mockRedis as any);
+    service = new AdminService(mockPrisma as any, mockRedis as any, new CreditsService(mockPrisma as never));
   });
 
   // ============================================================
@@ -384,11 +385,29 @@ describe('AdminService', () => {
   // ============================================================
 
   describe('adjustUserCredits', () => {
-    it('should update credits and create audit log in a transaction', async () => {
+    // A7: the adjustment now runs as an INTERACTIVE transaction so the credit
+    // change, its CreditLedger row and the audit log commit together, and the
+    // write is relative (`increment`) rather than an absolute value computed
+    // from a stale read. Full coverage — ledger contents, the lost-update
+    // property, DTO bounds — lives in `test/admin-credit-ledger.spec.ts`.
+    it('should update credits and create audit log in one interactive transaction', async () => {
       const updatedUser = { ...MOCK_USER, credits: 10 };
-      const auditLog = { id: 'audit-1' };
       mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
-      mockPrisma.$transaction.mockResolvedValue([updatedUser, auditLog]);
+
+      // `adjustCredits` takes NO separate "before" read — it derives `before`
+      // from the value `update` returns, so the pair can't be incoherent under
+      // READ COMMITTED. The only findUniqueOrThrow left is admin.service's
+      // final read of the row it returns.
+      const txUser = {
+        findUniqueOrThrow: jest.fn().mockResolvedValue(updatedUser),
+        update: jest.fn().mockResolvedValue({ credits: 10 }),
+      };
+      const txCreditLedger = { create: jest.fn().mockResolvedValue({}) };
+      const txAuditLog = { create: jest.fn().mockResolvedValue({ id: 'audit-1' }) };
+      mockPrisma.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => unknown) =>
+          fn({ user: txUser, creditLedger: txCreditLedger, adminAuditLog: txAuditLog }),
+      );
 
       const result = await service.adjustUserCredits(
         'user-1',
@@ -398,15 +417,19 @@ describe('AdminService', () => {
 
       expect(result).toEqual(updatedUser);
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
-      // $transaction receives an array of two elements (user.update + auditLog.create results)
-      const transactionArg = mockPrisma.$transaction.mock.calls[0][0];
-      expect(Array.isArray(transactionArg)).toBe(true);
-      expect(transactionArg).toHaveLength(2);
-      expect(mockPrisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: { credits: 10 },
+      expect(typeof mockPrisma.$transaction.mock.calls[0][0]).toBe('function');
+
+      // Relative, not absolute — an absolute write erases concurrent spends.
+      expect(txUser.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'user-1' },
+          data: { credits: { increment: 5 } },
+        }),
+      );
+      expect(txCreditLedger.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'user-1', amount: 5 }),
       });
-      expect(mockPrisma.adminAuditLog.create).toHaveBeenCalledWith({
+      expect(txAuditLog.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           adminUserId: ADMIN_USER_ID,
           action: 'adjust_credits',

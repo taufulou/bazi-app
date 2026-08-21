@@ -153,7 +153,7 @@ function buildPath(opts: {
   }) };
   const helpers = new FortuneSnapshotHelpers(prisma, redis, config);
   const validators = new FortuneValidatorsService();
-  const service = new FortuneStreamService(prisma, helpers, validators);
+  const service = new FortuneStreamService(prisma, helpers, validators, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never, { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never);
 
   jest.spyOn(helpers, 'enforceMonthlySubscriptionGate').mockImplementation(() => undefined);
   jest.spyOn(helpers, 'computeChartHash').mockReturnValue('m'.repeat(32));

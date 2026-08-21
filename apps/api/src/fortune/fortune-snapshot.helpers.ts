@@ -25,10 +25,10 @@
 import {
   Injectable,
   Logger,
-  ForbiddenException,
   InternalServerErrorException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+
 import { createHash } from 'crypto';
 import * as Sentry from '@sentry/nestjs';
 import {
@@ -37,7 +37,9 @@ import {
   SubscriptionTier,
   type DailyFortuneSnapshot,
 } from '@prisma/client';
+import { assertFortuneWindow, FORTUNE_WINDOWS } from './fortune-window';
 import { PrismaService } from '../prisma/prisma.service';
+import { engineFetch } from '../common/engine-client';
 import { RedisService } from '../redis/redis.service';
 import {
   FORTUNE_PRE_ANALYSIS_VERSIONS,
@@ -62,13 +64,18 @@ import {
 // Constants (re-exported so callers can import here vs. fortune.service.ts)
 // ============================================================
 
+// ⚠️ These are RE-EXPORTS of `FORTUNE_WINDOWS` in `fortune-window.ts`, which is
+// the single source of truth for the window rule. The names are kept because
+// existing callers and tests import them from here. Do not redefine the numbers
+// literally — two copies of a security boundary is how F5 happened.
+
 /** Free user can see ONLY today's daily fortune. */
-export const FREE_USER_WINDOW_DAYS_FUTURE = 0;
-export const FREE_USER_WINDOW_DAYS_PAST = 0;
+export const FREE_USER_WINDOW_DAYS_FUTURE = FORTUNE_WINDOWS.DAY.freeFuture;
+export const FREE_USER_WINDOW_DAYS_PAST = FORTUNE_WINDOWS.DAY.freePast;
 
 /** Subscriber window per locked plan: yesterday + today + +30 days. */
-export const SUBSCRIBER_WINDOW_DAYS_FUTURE = 30;
-export const SUBSCRIBER_WINDOW_DAYS_PAST = 1;
+export const SUBSCRIBER_WINDOW_DAYS_FUTURE = FORTUNE_WINDOWS.DAY.subscriberFuture;
+export const SUBSCRIBER_WINDOW_DAYS_PAST = FORTUNE_WINDOWS.DAY.subscriberPast;
 
 export const REDIS_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 export const ENGINE_REQUEST_TIMEOUT_MS = 30_000;
@@ -87,12 +94,12 @@ export const AI_CALL_TIMEOUT_MS = 90_000;
 // ============================================================
 
 /** Free user can see ONLY the current month. */
-export const FREE_MONTH_WINDOW_FUTURE = 0;
-export const FREE_MONTH_WINDOW_PAST = 0;
+export const FREE_MONTH_WINDOW_FUTURE = FORTUNE_WINDOWS.MONTH.freeFuture;
+export const FREE_MONTH_WINDOW_PAST = FORTUNE_WINDOWS.MONTH.freePast;
 
 /** Subscriber month window per locked plan: -1 month + current + +12 months INCLUSIVE. */
-export const SUBSCRIBER_MONTH_WINDOW_FUTURE = 12;
-export const SUBSCRIBER_MONTH_WINDOW_PAST = 1;
+export const SUBSCRIBER_MONTH_WINDOW_FUTURE = FORTUNE_WINDOWS.MONTH.subscriberFuture;
+export const SUBSCRIBER_MONTH_WINDOW_PAST = FORTUNE_WINDOWS.MONTH.subscriberPast;
 
 /** Monthly endpoint timeout — heavier than daily (cross-flow-year compute + L1.b breakdown). */
 export const MONTHLY_ENGINE_TIMEOUT_MS = 60_000;
@@ -102,13 +109,13 @@ export const MONTHLY_ENGINE_TIMEOUT_MS = 60_000;
 // ============================================================
 
 /** Free user can see ONLY the current year. */
-export const FREE_YEAR_WINDOW_FUTURE = 0;
-export const FREE_YEAR_WINDOW_PAST = 0;
+export const FREE_YEAR_WINDOW_FUTURE = FORTUNE_WINDOWS.YEAR.freeFuture;
+export const FREE_YEAR_WINDOW_PAST = FORTUNE_WINDOWS.YEAR.freePast;
 
 /** Subscriber year window per locked plan v? (Phase A): -1 year + current + +4 years INCLUSIVE.
  *  Matches Seer's 6-pill year selector. */
-export const SUBSCRIBER_YEAR_WINDOW_FUTURE = 4;
-export const SUBSCRIBER_YEAR_WINDOW_PAST = 1;
+export const SUBSCRIBER_YEAR_WINDOW_FUTURE = FORTUNE_WINDOWS.YEAR.subscriberFuture;
+export const SUBSCRIBER_YEAR_WINDOW_PAST = FORTUNE_WINDOWS.YEAR.subscriberPast;
 
 /** Yearly endpoint timeout — heavier than daily (12-month aggregation compute). */
 export const YEARLY_ENGINE_TIMEOUT_MS = 60_000;
@@ -143,6 +150,22 @@ export const ENERGY_LABEL_DIVERGENCE_THRESHOLD = 10;
 // FortuneSnapshotHelpers
 // ============================================================
 
+/**
+ * S2 — a spend cap is NOT an AI failure.
+ *
+ * The fortune paths degrade gracefully on any AI error: engine output is still
+ * served, `promptVersion` goes null, and `persistSnapshot` arms the circuit
+ * breaker. That is right for a broken prompt or a provider outage — and wrong
+ * for a global budget event, which says nothing about this chart.
+ *
+ * With `MAX_AI_FAILURES = 3` and a 24h backoff, three page loads during a cap
+ * window arm the breaker for that chart+date. The cap clears at Taipei midnight;
+ * the backoff does not. For `scope=DAY` the anchor date has passed before AI is
+ * retried, so a two-hour budget event permanently blanks that user's daily
+ * fortune. `@Throttle(10/min)` allows ten times the three needed.
+ */
+export { isSpendCapError } from '../ai/typed-refusals';
+
 @Injectable()
 export class FortuneSnapshotHelpers {
   private readonly logger = new Logger(FortuneSnapshotHelpers.name);
@@ -161,27 +184,14 @@ export class FortuneSnapshotHelpers {
   // Subscription gate
   // ============================================================
 
+  /**
+   * Delegates to `assertFortuneWindow` — the shared rule in `fortune-window.ts`.
+   * ⚠️ Do NOT re-inline the comparison here. F5 happened because this window
+   * existed only on the HTTP path while AI chat reached the same engine output
+   * through a different door. One implementation, every caller.
+   */
   enforceSubscriptionGate(tier: SubscriptionTier, targetDateIso: string): void {
-    const today = this.todayIsoDate();
-    const diffDays = this.daysBetween(today, targetDateIso);
-
-    if (tier === SubscriptionTier.FREE) {
-      if (diffDays < -FREE_USER_WINDOW_DAYS_PAST || diffDays > FREE_USER_WINDOW_DAYS_FUTURE) {
-        throw new ForbiddenException({
-          code: 'SUBSCRIBER_ONLY',
-          message: '此功能限訂閱用戶 — 免費用戶僅可查看當日運勢',
-        });
-      }
-      return;
-    }
-
-    // Subscriber tiers (BASIC/PRO/MASTER): yesterday + today + +30 days
-    if (diffDays < -SUBSCRIBER_WINDOW_DAYS_PAST || diffDays > SUBSCRIBER_WINDOW_DAYS_FUTURE) {
-      throw new ForbiddenException({
-        code: 'OUT_OF_WINDOW',
-        message: `日運可查範圍：昨日至今日後 ${SUBSCRIBER_WINDOW_DAYS_FUTURE} 天`,
-      });
-    }
+    assertFortuneWindow('DAY', tier, targetDateIso, this.todayIsoDate());
   }
 
   // ============================================================
@@ -355,8 +365,9 @@ export class FortuneSnapshotHelpers {
 
     let response: Response;
     try {
-      response = await fetch(`${this.baziEngineUrl}/daily-fortune`, {
+      response = await engineFetch(`${this.baziEngineUrl}/daily-fortune`, {
         method: 'POST',
+        caller: 'fortune.daily',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           birth_date: birthDateIso,
@@ -706,31 +717,8 @@ export class FortuneSnapshotHelpers {
 
   /** Subscription gate for month scope: -1 / current / +12 INCLUSIVE. */
   enforceMonthlySubscriptionGate(tier: SubscriptionTier, targetMonth: string): void {
-    const currentMonth = this.currentMonthIso();
-    const diffMonths = this.diffMonthsIso(currentMonth, targetMonth);
-
-    if (tier === SubscriptionTier.FREE) {
-      if (
-        diffMonths < -FREE_MONTH_WINDOW_PAST ||
-        diffMonths > FREE_MONTH_WINDOW_FUTURE
-      ) {
-        throw new ForbiddenException({
-          code: 'SUBSCRIBER_ONLY',
-          message: '此功能限訂閱用戶 — 免費用戶僅可查看當月運勢',
-        });
-      }
-      return;
-    }
-
-    if (
-      diffMonths < -SUBSCRIBER_MONTH_WINDOW_PAST ||
-      diffMonths > SUBSCRIBER_MONTH_WINDOW_FUTURE
-    ) {
-      throw new ForbiddenException({
-        code: 'OUT_OF_WINDOW',
-        message: `月運可查範圍：上個月 + 本月 + 未來 ${SUBSCRIBER_MONTH_WINDOW_FUTURE} 個月`,
-      });
-    }
+    // See the note on enforceSubscriptionGate — shared rule, not re-inlined.
+    assertFortuneWindow('MONTH', tier, targetMonth, this.currentMonthIso());
   }
 
   /** Current month YYYY-MM in FORTUNE_DEFAULT_TZ (Asia/Taipei). */
@@ -870,8 +858,9 @@ export class FortuneSnapshotHelpers {
 
     let response: Response;
     try {
-      response = await fetch(`${this.baziEngineUrl}/monthly-fortune`, {
+      response = await engineFetch(`${this.baziEngineUrl}/monthly-fortune`, {
         method: 'POST',
+        caller: 'fortune.monthly',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           birth_date: birthDateIso,
@@ -1052,31 +1041,8 @@ export class FortuneSnapshotHelpers {
 
   /** Subscription gate for year scope: -1 / current / +4 INCLUSIVE. */
   enforceYearlySubscriptionGate(tier: SubscriptionTier, targetYear: string): void {
-    const currentYear = this.currentYearIso();
-    const diffYears = this.diffYearsIso(currentYear, targetYear);
-
-    if (tier === SubscriptionTier.FREE) {
-      if (
-        diffYears < -FREE_YEAR_WINDOW_PAST ||
-        diffYears > FREE_YEAR_WINDOW_FUTURE
-      ) {
-        throw new ForbiddenException({
-          code: 'SUBSCRIBER_ONLY',
-          message: '此功能限訂閱用戶 — 免費用戶僅可查看當年運勢',
-        });
-      }
-      return;
-    }
-
-    if (
-      diffYears < -SUBSCRIBER_YEAR_WINDOW_PAST ||
-      diffYears > SUBSCRIBER_YEAR_WINDOW_FUTURE
-    ) {
-      throw new ForbiddenException({
-        code: 'OUT_OF_WINDOW',
-        message: `年運可查範圍：去年 + 今年 + 未來 ${SUBSCRIBER_YEAR_WINDOW_FUTURE} 年`,
-      });
-    }
+    // See the note on enforceSubscriptionGate — shared rule, not re-inlined.
+    assertFortuneWindow('YEAR', tier, targetYear, this.currentYearIso());
   }
 
   /** Current year YYYY in FORTUNE_DEFAULT_TZ (Asia/Taipei). */
@@ -1206,8 +1172,9 @@ export class FortuneSnapshotHelpers {
 
     let response: Response;
     try {
-      response = await fetch(`${this.baziEngineUrl}/yearly-fortune`, {
+      response = await engineFetch(`${this.baziEngineUrl}/yearly-fortune`, {
         method: 'POST',
+        caller: 'fortune.yearly',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           birth_date: birthDateIso,

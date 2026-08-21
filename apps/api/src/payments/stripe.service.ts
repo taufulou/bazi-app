@@ -8,7 +8,14 @@
  * - Create customer portal sessions
  * - Validate promo codes
  */
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -315,6 +322,28 @@ export class StripeService {
       },
     });
 
+    // ⚠️ DO NOT call `syncUserTier` here. The Phase 1 gate audit caught this as a
+    // regression introduced by the F9 sibling sweep, which added the recompute on
+    // the reasoning that "any endpoint writing `Subscription.status` must
+    // recompute the tier". True of the WEBHOOK handlers, where a status write
+    // means entitlement actually changed — and false here.
+    //
+    // This is a `cancel_at_period_end` cancellation: Stripe keeps billing rights
+    // until the period ends, and this codebase uses `status: 'CANCELLED'` to mean
+    // "scheduled to cancel", not "no longer entitled" — see
+    // `payments.service.ts:84` and `upgradeSubscription`, both of which treat a
+    // CANCELLED row as live, and `dashboard/subscription/page.tsx`, which renders
+    // it as 「已排定取消」. `syncUserTier` selects `status: 'ACTIVE'` only, so
+    // recomputing here dropped the user to FREE the instant they clicked cancel,
+    // with up to a month of paid time left: fortune windows collapsed to the
+    // current period, explain-element paid layers were stripped, and the chat
+    // quota resnapshotted to the FREE cap of 0.
+    //
+    // The event that genuinely ends entitlement is `customer.subscription.deleted`
+    // → `handleSubscriptionDeleted`, which writes EXPIRED and recomputes there.
+    // RevenueCat already models it this way (`revenuecat.service.ts`: "keep status
+    // ACTIVE until EXPIRATION"); Stripe was the odd one out.
+
     // In clover API, period dates are on subscription items
     const firstItem = updated.items?.data?.[0];
     const periodEnd = firstItem?.current_period_end || Math.floor(Date.now() / 1000);
@@ -354,18 +383,30 @@ export class StripeService {
       },
     });
 
+    // F9 audit — see the note in `cancelSubscription`. This direction is the
+    // sharper one: without the recompute the row says ACTIVE while
+    // `User.subscriptionTier` stays FREE, so every gate that reads it denies a
+    // paying customer until some webhook happens to repair it.
+    await this.entitlements.syncUserTier(user.id);
+
     return { success: true };
   }
 
   /**
    * Upgrade (or downgrade) a user's subscription to a different plan.
    * Uses Stripe subscription item replacement with proration.
+   *
+   * Returns both tiers because they can legitimately differ: `newTier` is what
+   * this Stripe subscription now is, `effectiveTier` is what the USER has once
+   * every provider's active subscription is considered. A Stripe BASIC -> PRO
+   * upgrade by someone holding Apple MASTER returns `newTier: 'PRO'` with
+   * `effectiveTier: 'MASTER'`. Clients must render `effectiveTier`.
    */
   async upgradeSubscription(
     clerkUserId: string,
     planSlug: string,
     billingCycle: 'monthly' | 'annual',
-  ): Promise<{ success: boolean; newTier: string }> {
+  ): Promise<{ success: boolean; newTier: string; effectiveTier: string }> {
     this.logger.log(`[upgrade] Starting upgrade for user=${clerkUserId} plan=${planSlug} cycle=${billingCycle}`);
 
     const user = await this.findUserOrThrow(clerkUserId);
@@ -406,11 +447,28 @@ export class StripeService {
     }
     this.logger.log(`[upgrade] Current item id=${currentItem.id}, product=${currentItem.price.product}`);
 
+    // F9 — REFUSE BEFORE MUTATING STRIPE.
+    //
+    // The entitlement question is answerable here, from the subscription we just
+    // retrieved, with zero side effects. Checking only AFTER `subscriptions.update`
+    // (which is where this gate first lived) meant a refusal still left Stripe
+    // re-priced AND — because we pass `cancel_at_period_end: false` — silently
+    // un-cancelled. Worked example: a user schedules cancellation, their card later
+    // fails, they try to upgrade. Stripe ends up holding a HIGHER price with the
+    // cancellation revoked, while the response says only "payment not completed",
+    // and the follow-up webhook then erases our own record of the cancellation.
+    //
+    // Safe to decide here because `create_prorations` raises no invoice, so the
+    // update itself cannot move the status. A post-update backstop re-checks anyway.
+    const newTier = this.planSlugToTier(planSlug);
+    await this.assertStripeEntitled(stripeSub, subscription.id, user.id, newTier);
+
     // Create (or reuse) a Stripe product for the target plan, then update subscription.
     // Checkout creates ad-hoc products via product_data, but subscription.update only
     // accepts a product ID string. We create a product per plan on-demand.
-    const newTier = this.planSlugToTier(planSlug);
     this.logger.log(`[upgrade] Updating Stripe subscription to tier=${newTier}...`);
+
+    let updatedSub: Stripe.Subscription;
 
     try {
       // Ensure the current product is active, or create a new one for this plan
@@ -439,7 +497,7 @@ export class StripeService {
         this.logger.log(`[upgrade] Created new product ${productId} (previous not found)`);
       }
 
-      await this.stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+      updatedSub = await this.stripe.subscriptions.update(subscription.stripeSubscriptionId, {
         items: [
           {
             id: currentItem.id,
@@ -451,10 +509,40 @@ export class StripeService {
             },
           },
         ],
+        // ⚠️ ANTI-REMEDY — do NOT "tighten" this to `always_invoice`.
+        //
+        // Collection here is deferred: `create_prorations` books proration line
+        // items onto the NEXT invoice rather than charging now, so an upgrade
+        // grants the new tier up to one billing cycle before it is paid for. The
+        // obvious fix is to invoice immediately. That is WORSE, and must not be
+        // applied without first reworking the credit grant:
+        //
+        //   `handleInvoicePaid` keys the monthly grant on `lines.data[0].period.start`
+        //   with no `billing_reason` filter, `grantMonthlyCredits` grants the FULL
+        //   month unprorated, and `MonthlyCreditsLog.@@unique([userId, periodStart])`
+        //   is a full DateTime. An immediate proration invoice therefore collides
+        //   with nothing and grants a WHOLE MONTH of credits — every upgrade.
+        //   Upgrade/downgrade/upgrade nets ~zero in prorations and mints credits
+        //   without limit.
+        //
+        // Every link above is verified in this repo and pinned by tests. The one
+        // ASSUMPTION is Stripe-side: that a proration line's `period.start` is the
+        // moment of the change rather than the cycle start. That is standard Stripe
+        // behaviour but no fixture here can prove it — so `monthly-credits.spec.ts`
+        // ("anti-remedy evidence") pins OUR half: given an invoice of that shape,
+        // we do grant a fresh full month, twice in one cycle.
         proration_behavior: 'create_prorations',
         cancel_at_period_end: false, // Ensure reactivated if was pending cancel
         metadata: {
           ...stripeSub.metadata,
+          // Both keys are load-bearing for recovery, not bookkeeping:
+          // `handleSubscriptionUpdated` early-returns without `internalUserId` and
+          // derives `planTier` from `planSlug`. A subscription created outside our
+          // checkout (Dashboard, migration, import) carries neither, so without
+          // this write the webhook can never land the new tier — Stripe would bill
+          // the higher price while the local tier stayed put, silently and
+          // permanently. `user.id` is already in hand; write it.
+          internalUserId: user.id,
           planSlug,
         },
       });
@@ -464,26 +552,106 @@ export class StripeService {
       throw new BadRequestException(`Stripe upgrade failed: ${errMsg}`);
     }
 
+    // Backstop. The pre-flight gate above is the real one; `create_prorations`
+    // raises no invoice, so the update should not have been able to move the
+    // status. If it did, refuse rather than grant — but Stripe is already
+    // mutated at this point, which is precisely why the decision is made earlier.
+    await this.assertStripeEntitled(updatedSub, subscription.id, user.id, newTier);
+
     this.logger.log(`[upgrade] Stripe updated successfully, updating DB...`);
 
-    // Immediately update DB (webhook will also fire, but this gives instant UI feedback)
     await this.prisma.subscription.update({
       where: { id: subscription.id },
       data: {
         planTier: newTier,
         status: 'ACTIVE',
-        cancelledAt: null,
+        cancelledAt: updatedSub.cancel_at ? new Date(updatedSub.cancel_at * 1000) : null,
       },
     });
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { subscriptionTier: newTier },
+    const { tier: effectiveTier } = await this.entitlements.syncUserTier(user.id);
+
+    this.logger.log(
+      `Subscription ${subscription.stripeSubscriptionId} upgraded to ${newTier} for user ` +
+        `${clerkUserId} (effective tier ${effectiveTier})`,
+    );
+
+    return { success: true, newTier, effectiveTier };
+  }
+
+  /**
+   * F9 — throw 402 unless Stripe itself says this subscription is entitled.
+   *
+   * Why this exists at all: the local `Subscription` row is selected on OUR
+   * `status` column, which can be stale (an unprocessed failed invoice, a dropped
+   * webhook). `upgradeSubscription` used to write `status: 'ACTIVE'` + the higher
+   * tier on the sole evidence that the Stripe call did not throw — so a delinquent
+   * account could be upgraded. Stripe's own view is the authority.
+   *
+   * Two conditions, not one:
+   *
+   *  • `mapStripeStatus(...) !== 'ACTIVE'` — covers past_due / unpaid / incomplete
+   *    / canceled / incomplete_expired / paused, and fails CLOSED on a status this
+   *    codebase doesn't recognise (the map returns `null`).
+   *
+   *  • `pause_collection != null` — a paused subscription reports `status: 'active'`
+   *    (per the vendored SDK, pausing collection "leaves the subscription's status
+   *    unchanged" — see the note in `handleSubscriptionUpdated`), so the status map
+   *    alone would wave it through while Stripe collects NOTHING. An earlier
+   *    revision of this code claimed the status map "encodes exactly the
+   *    entitlement question"; that was wrong, and this is the missing half.
+   *    Unlike the webhook — where revoking access would need a PAUSED enum plus UI,
+   *    hence its deliberate alert-only stance — refusing an upgrade needs neither.
+   *
+   * Also reconciles the stale local row before refusing. We have just learned from
+   * Stripe that our stored status is wrong; leaving it says ACTIVE would keep the
+   * lie in place and, worse, leave `handleInvoicePaid`'s dunning-recovery branch
+   * (gated on a local `PAST_DUE`) unable to fire when the invoice finally settles.
+   * The tier is NOT written — that is the grant being withheld. `syncUserTier` then
+   * recomputes, which correctly drops entitlement for a genuinely delinquent
+   * account while leaving anyone holding another provider's active sub untouched.
+   */
+  private async assertStripeEntitled(
+    sub: Stripe.Subscription,
+    localSubscriptionId: string,
+    userId: string,
+    requestedTier: string,
+  ): Promise<void> {
+    const mapped = this.mapStripeStatus(sub.status);
+    const paused = sub.pause_collection != null;
+    if (mapped === 'ACTIVE' && !paused) return;
+
+    this.logger.error(
+      `[upgrade] Stripe reports status="${sub.status}" paused=${paused} for ${sub.id} — ` +
+        `withholding the local ${requestedTier} grant`,
+    );
+    Sentry.captureMessage('stripe.upgrade_not_entitled', {
+      level: 'error',
+      extra: {
+        subscriptionId: sub.id,
+        stripeStatus: sub.status,
+        pauseCollection: paused,
+        requestedTier,
+      },
     });
 
-    this.logger.log(`Subscription ${subscription.stripeSubscriptionId} upgraded to ${newTier} for user ${clerkUserId}`);
+    // Only when Stripe gave us a status we understand. An unrecognised status is
+    // exactly the case where we must not overwrite a known-good stored value.
+    if (mapped !== null && !paused) {
+      await this.prisma.subscription.update({
+        where: { id: localSubscriptionId },
+        data: { status: mapped },
+      });
+      await this.entitlements.syncUserTier(userId);
+    }
 
-    return { success: true, newTier };
+    throw new HttpException(
+      {
+        code: 'UPGRADE_PAYMENT_REQUIRED',
+        message: '目前無法變更方案，因為訂閱的付款尚未完成。請更新付款方式後再試一次。',
+      },
+      HttpStatus.PAYMENT_REQUIRED,
+    );
   }
 
   // ============================================================
@@ -532,7 +700,32 @@ export class StripeService {
       return;
     }
 
-    const planTier = this.planSlugToTier(planSlug || 'basic');
+    // F9 audit — do NOT default an absent/unknown slug to a tier.
+    //
+    // This was `planSlugToTier(planSlug || 'basic')`, and `planSlugToTier` returns
+    // 'FREE' for anything it doesn't recognise. So a subscription whose metadata we
+    // don't own — Dashboard-created, migrated, imported, or one whose slug was
+    // renamed — got BASIC (or FREE) written over whatever tier it actually held, on
+    // every subscription event. `null` means "we cannot tell", and the write below
+    // omits `planTier` entirely in that case, exactly as it already does for an
+    // unrecognised `status`. Preserving a stored value beats guessing the cheapest.
+    //
+    // NOTE this does NOT fix the portal case: switching plans in Stripe's customer
+    // portal changes the PRICE without touching our metadata, so `planSlug` stays
+    // stale-but-valid and we write the OLD tier. That needs a price->plan mapping we
+    // don't have (checkout mints ad-hoc `price_data`, not reusable Price objects).
+    // Whether it is reachable depends on the portal configuration.
+    const planTier = planSlug ? this.knownPlanSlugToTier(planSlug) : null;
+    if (planTier === null) {
+      this.logger.error(
+        `Subscription ${sub.id} has planSlug="${planSlug ?? '(absent)'}" which maps to no known ` +
+          `tier — leaving the stored planTier unchanged`,
+      );
+      Sentry.captureMessage('stripe.unknown_plan_slug', {
+        level: 'error',
+        extra: { subscriptionId: sub.id, planSlug: planSlug ?? null },
+      });
+    }
     const status = this.mapStripeStatus(sub.status);
 
     if (status === null) {
@@ -614,12 +807,12 @@ export class StripeService {
       await this.prisma.subscription.update({
         where: { id: existing.id },
         data: {
-          // Omitted entirely when the status is unrecognised, so the stored
-          // value survives. planTier and the period still update — only the
-          // entitlement-bearing field is withheld, because that is the one we
-          // have no trustworthy new information about.
+          // Each omitted entirely when unrecognised, so the stored value
+          // survives. The period still updates — only the entitlement-bearing
+          // fields are withheld, because those are the ones we have no
+          // trustworthy new information about.
           ...(status !== null && { status }),
-          planTier,
+          ...(planTier !== null && { planTier }),
           ...(periodStart && { currentPeriodStart: new Date(periodStart * 1000) }),
           ...(periodEnd && { currentPeriodEnd: new Date(periodEnd * 1000) }),
           cancelledAt: sub.cancel_at ? new Date(sub.cancel_at * 1000) : null,
@@ -637,6 +830,19 @@ export class StripeService {
       // card declined — to 'ACTIVE' via `map[status] || 'ACTIVE'`. Gating on the
       // mapped value would create an ACTIVE row and grant a paid tier to someone
       // who has not paid.
+      //
+      // An unmappable slug is fatal HERE in a way it isn't on the update path:
+      // there is no stored value to preserve, and inventing one would create an
+      // ACTIVE row bearing a tier we cannot justify. Checkout always writes the
+      // slug, so reaching this with none means the subscription is not ours to
+      // interpret. Create nothing; whichever path owns it will.
+      if (planTier === null) {
+        this.logger.error(
+          `Subscription ${sub.id} arrived with no mappable planSlug and no local row — not creating one`,
+        );
+        return;
+      }
+
       try {
         await this.prisma.subscription.create({
           data: {
@@ -776,6 +982,49 @@ export class StripeService {
     } catch (err) {
       if (!isUniqueConstraintViolation(err)) throw err;
       this.logger.log(`Invoice ${invoice.id} already recorded — continuing to credit grant`);
+    }
+
+    // A PLAN-CHANGE PRORATION IS NOT A BILLING PERIOD — do not grant for it.
+    //
+    // The grant below keys `MonthlyCreditsLog` on `lines.data[0].period.start`,
+    // and that unique constraint is a full DateTime. A proration invoice's line
+    // period starts at the MOMENT OF THE CHANGE, so it collides with nothing and
+    // pays out a whole month of credits, unprorated — every plan change. Upgrade,
+    // downgrade, upgrade nets ~zero in prorations and mints credits without limit.
+    //
+    // `upgradeSubscription` avoids raising such an invoice by using
+    // `create_prorations`, and carries a comment saying so. That comment protects
+    // nothing here: **the Stripe Dashboard can produce the same invoice with no
+    // code change at all** — Billing → Customer portal → Subscriptions → "Charge
+    // timing" offers "Invoice prorations immediately" (as of 2026-08 the sandbox
+    // config is set to end-of-period, which is why this has never fired). One
+    // dropdown, and every portal plan switch mints a month of credits. So the
+    // invariant belongs in code, not in a comment on a line someone else won't read.
+    //
+    // DENY-list, not allow-list, and deliberately so: `billing_reason` is absent
+    // from older payloads and from several of our own fixtures, and an allow-list
+    // would then silently stop granting to paying customers — a quiet, severe
+    // failure in the direction that costs us trust. Denying the one reason we know
+    // to be wrong fails OPEN (users keep their credits) while closing the hazard.
+    // Anything unrecognised is granted AND alerted, so we learn rather than guess.
+    const billingReason = invoice.billing_reason;
+    if (billingReason === 'subscription_update') {
+      this.logger.log(
+        `Invoice ${invoice.id} is a plan-change proration (billing_reason=subscription_update) — ` +
+          `recording the payment but granting no monthly credits`,
+      );
+      return;
+    }
+    if (
+      billingReason != null &&
+      billingReason !== 'subscription_cycle' &&
+      billingReason !== 'subscription_create' &&
+      billingReason !== 'subscription'
+    ) {
+      Sentry.captureMessage('stripe.unexpected_invoice_billing_reason', {
+        level: 'warning',
+        extra: { invoiceId: invoice.id, billingReason },
+      });
     }
 
     // Grant monthly credits for the new billing period (renewal)
@@ -1234,13 +1483,26 @@ export class StripeService {
     }
   }
 
-  private planSlugToTier(slug: string): 'FREE' | 'BASIC' | 'PRO' | 'MASTER' {
-    const map: Record<string, 'FREE' | 'BASIC' | 'PRO' | 'MASTER'> = {
+  /**
+   * Slug -> tier, or `null` when the slug is not one we sell.
+   *
+   * The `null` matters: {@link planSlugToTier} answers 'FREE' for an unknown
+   * slug, which reads as a real answer and silently writes the CHEAPEST tier
+   * onto a paying subscription. Callers that are reflecting someone else's
+   * state (webhooks) must be able to tell "not a plan we know" apart from
+   * "the free plan" and preserve what they had.
+   */
+  private knownPlanSlugToTier(slug: string): 'BASIC' | 'PRO' | 'MASTER' | null {
+    const map: Record<string, 'BASIC' | 'PRO' | 'MASTER'> = {
       basic: 'BASIC',
       pro: 'PRO',
       master: 'MASTER',
     };
-    return map[slug] || 'FREE';
+    return map[slug] ?? null;
+  }
+
+  private planSlugToTier(slug: string): 'FREE' | 'BASIC' | 'PRO' | 'MASTER' {
+    return this.knownPlanSlugToTier(slug) ?? 'FREE';
   }
 
   /**

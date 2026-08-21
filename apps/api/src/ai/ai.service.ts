@@ -1,4 +1,5 @@
 import {
+  HttpException,
   Injectable,
   Logger,
   OnModuleInit,
@@ -9,6 +10,9 @@ import { Observable, Subscriber } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CreditsService } from '../credits/credits.service';
+import { AiSpendService, AI_SPEND_CAP_CODE } from './ai-spend.service';
+import { AiGovernorService, AI_BUSY_CODE } from './ai-governor.service';
+import { isSelfRefusal } from './typed-refusals';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
 import {
   READING_PROMPTS,
@@ -185,6 +189,8 @@ export class AIService implements OnModuleInit {
     private prisma: PrismaService,
     private redis: RedisService,
     private creditsService: CreditsService,
+    private readonly aiSpend: AiSpendService,
+    private readonly aiGovernor: AiGovernorService,
   ) {}
 
   async onModuleInit() {
@@ -299,6 +305,13 @@ export class AIService implements OnModuleInit {
       promptVariant,
     );
 
+    // S2 — refuse before spending. Checked ONCE here rather than per provider:
+    // the fallback chain is Claude → GPT-4o → Gemini, and a per-adapter check
+    // would let the breaker trip mid-chain, converting "over budget" into a
+    // partial failure that then retries onto a *different* paid provider.
+    // Cached reads never reach this method, so they are unaffected.
+    await this.aiSpend.assertUnderCap(`reading:${readingType}`);
+
     // Try each provider in order, with per-provider retry on transient errors.
     // Total time across all providers + retries bounded by AI_MAX_TOTAL_TIME_MS.
     let lastError: Error | undefined;
@@ -356,6 +369,17 @@ export class AIService implements OnModuleInit {
 
         return generationResult;
       } catch (err) {
+        // ⚠️ Our OWN refusals must NOT fail over to the next provider.
+        //
+        // `isRetryableError` already refuses to retry AI_BUSY / AI_SPEND_CAP —
+        // but that governs the INNER retry loop only, and this outer loop caught
+        // everything and tried the next provider anyway, undoing the same fix one
+        // level up. One request then queued once PER provider (3 × the 15s
+        // reading-pool timeout = 45s of queue occupancy applied exactly when the
+        // pool is full), fired the cap's Sentry alert three times, and finally
+        // threw a plain `Error('All AI providers failed…')` — so the typed 503
+        // body was gone and no caller downstream could recognise it.
+        if (isSelfRefusal(err)) throw err;
         lastError = err instanceof Error ? err : new Error(String(err));
         this.logger.warn(
           `Provider ${providerConfig.provider} failed: ${lastError.message}. Trying next...`,
@@ -560,6 +584,17 @@ export class AIService implements OnModuleInit {
           isCacheHit: false,
         };
       } catch (err) {
+        // ⚠️ Our OWN refusals must NOT fail over to the next provider.
+        //
+        // `isRetryableError` already refuses to retry AI_BUSY / AI_SPEND_CAP —
+        // but that governs the INNER retry loop only, and this outer loop caught
+        // everything and tried the next provider anyway, undoing the same fix one
+        // level up. One request then queued once PER provider (3 × the 15s
+        // reading-pool timeout = 45s of queue occupancy applied exactly when the
+        // pool is full), fired the cap's Sentry alert three times, and finally
+        // threw a plain `Error('All AI providers failed…')` — so the typed 503
+        // body was gone and no caller downstream could recognise it.
+        if (isSelfRefusal(err)) throw err;
         lastError = err instanceof Error ? err : new Error(String(err));
         this.logger.warn(
           `V2 provider ${providerConfig.provider} failed: ${lastError.message}. Trying next...`,
@@ -739,6 +774,17 @@ export class AIService implements OnModuleInit {
           isCacheHit: false,
         };
       } catch (err) {
+        // ⚠️ Our OWN refusals must NOT fail over to the next provider.
+        //
+        // `isRetryableError` already refuses to retry AI_BUSY / AI_SPEND_CAP —
+        // but that governs the INNER retry loop only, and this outer loop caught
+        // everything and tried the next provider anyway, undoing the same fix one
+        // level up. One request then queued once PER provider (3 × the 15s
+        // reading-pool timeout = 45s of queue occupancy applied exactly when the
+        // pool is full), fired the cap's Sentry alert three times, and finally
+        // threw a plain `Error('All AI providers failed…')` — so the typed 503
+        // body was gone and no caller downstream could recognise it.
+        if (isSelfRefusal(err)) throw err;
         lastError = err instanceof Error ? err : new Error(String(err));
         this.logger.warn(
           `Career V2 provider ${providerConfig.provider} failed: ${lastError.message}. Trying next...`,
@@ -765,14 +811,46 @@ export class AIService implements OnModuleInit {
     userPrompt: string,
     timeoutMs: number,
   ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    // S2 — the CHOKE POINT for every non-streaming provider call.
+    //
+    // ⚠️ The check was originally only at the top of `generateInterpretation`,
+    // which turned out to guard almost nothing: `bazi.service.ts` dispatches
+    // LIFETIME/CAREER/ANNUAL/LOVE to the V2 generators and COMPATIBILITY to its
+    // own method, none of which pass through it — they call THIS method
+    // directly, twice in parallel. So every paid reading type reached a model
+    // uncapped while the audit table said the breaker was wired.
+    //
+    // Putting it here makes coverage structural rather than a list someone has
+    // to keep complete. It costs one Redis read per provider attempt, which is
+    // the right trade for a control whose failure mode is silent overspend.
+    await this.aiSpend.assertUnderCap(`provider:${config.provider}`);
 
-    try {
-      return await this.callProvider(config, systemPrompt, userPrompt, controller.signal);
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    // S1 — hold a `reading` slot for the duration of the upstream call. This is
+    // what bounds S2's blind window: the spend counter only moves when a call
+    // FINISHES, so without a concurrency limit the overshoot between check and
+    // record is unbounded. With it, worst case is pool x cost.
+    return this.aiGovernor.run('reading', `provider:${config.provider}`, async () => {
+      // ⚠️ The timeout is armed AFTER the slot is held, not before. Arming it
+      // first charged up to 15s of queueing against the provider's own budget —
+      // a silent 25% cut at the 60s default, and with any timeout <= the queue
+      // wait the signal was already aborted before the call began. That surfaces
+      // as an AbortError, which is NOT retryable, so saturation was reported as
+      // a timed-out/degraded reading instead of an honest AI_BUSY.
+      //
+      // Re-check the cap too: the verdict taken before queueing can be up to 15s
+      // stale, and the queue only fills when 25 calls are in flight — i.e. the
+      // ones whose `record()` is about to trip it. "Cap trips while you wait" is
+      // the expected case at saturation, not a corner.
+      await this.aiSpend.assertUnderCap(`provider:${config.provider}`);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await this.callProvider(config, systemPrompt, userPrompt, controller.signal);
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    });
   }
 
   // ============================================================
@@ -785,6 +863,25 @@ export class AIService implements OnModuleInit {
    */
   isRetryableError(err: unknown): boolean {
     if (!(err instanceof Error)) return false;
+
+    // ⚠️ OUR OWN refusals are never retryable, and they LOOK retryable.
+    // NestJS `HttpException` exposes `status` as an own numeric property, so the
+    // S1 `AI_BUSY` and S2 `AI_SPEND_CAP` 503s both fell into the `>= 500` arm
+    // below. That inverted both controls:
+    //   - AI_BUSY: a caller refused after 15s of queueing was immediately
+    //     retried into the same saturated pool, then failed over to GPT and
+    //     Gemini and queued again — up to 6 x 15s of queue occupancy for ONE
+    //     request, applying retry pressure exactly when the pool is full.
+    //   - AI_SPEND_CAP: ~6 retries per request, each logging an error and
+    //     firing `ai.spend.cap_tripped`, so a budget incident multiplies paging
+    //     volume sixfold while spending nothing.
+    // Retrying is for the PROVIDER being unavailable. When we are the one
+    // saying no, the answer will not change within a request.
+    if (err instanceof HttpException) {
+      const body = err.getResponse() as { code?: string } | string;
+      const code = typeof body === 'object' ? body?.code : undefined;
+      if (code === AI_BUSY_CODE || code === AI_SPEND_CAP_CODE) return false;
+    }
 
     // Prefer SDK's typed status
     const statusFromError = (err as any).status as number | undefined;
@@ -807,16 +904,75 @@ export class AIService implements OnModuleInit {
   }
 
   /**
-   * Compute backoff delay for an attempt. Honors Retry-After if present.
-   * Uses AWS-pattern full positive jitter to avoid retry storm.
+   * S3 — the `Retry-After` HEADER, not the message text.
+   *
+   * ⚠️ The previous implementation regexed `err.message` for `retry-after: N`.
+   * No provider SDK puts that in the message: the Anthropic and OpenAI SDKs
+   * surface it on `err.headers['retry-after']`, and Gemini on
+   * `err.errorDetails`. So the branch never fired, every 429 fell through to
+   * blind exponential jitter, and we ignored the one number the provider gave us
+   * about when capacity actually returns. Under a sustained rate limit that is
+   * the difference between backing off correctly and hammering a closed door.
+   *
+   * The value is a LOWER BOUND, not a replacement: `max(retryAfter, jitter)`.
+   * Taking the header alone would sync every retrying worker onto the same
+   * instant — the thundering herd the jitter exists to prevent — so the jitter
+   * is still added on top.
    */
   computeBackoff(attempt: number, err: Error): number {
-    const retryAfterMatch = err.message.match(/retry[- ]after[:\s]+(\d+)/i);
-    if (retryAfterMatch) {
-      return Math.min(parseInt(retryAfterMatch[1], 10) * 1000, AI_RETRY_AFTER_CAP_MS);
+    // Full positive jitter: random(0, 2^attempt * 1000). AWS pattern.
+    const jitter = Math.floor(Math.random() * Math.pow(2, attempt) * 1000);
+    const retryAfterMs = this.retryAfterMsFromError(err);
+    if (retryAfterMs === null) return jitter;
+    // Cap first, THEN add jitter — an uncapped 600s Retry-After (which
+    // Anthropic can send on a daily limit) must not become a 10-minute sleep
+    // holding a request open.
+    return Math.min(retryAfterMs, AI_RETRY_AFTER_CAP_MS) + jitter;
+  }
+
+  /**
+   * Extract `Retry-After` from wherever the SDK in play puts it.
+   *
+   * Returns milliseconds, or null when absent/unparseable. Handles both forms
+   * the HTTP spec allows: delta-seconds (`120`) and an HTTP-date
+   * (`Wed, 21 Oct 2026 07:28:00 GMT`).
+   */
+  retryAfterMsFromError(err: unknown): number | null {
+    const e = err as {
+      headers?: Record<string, unknown> | { get?: (k: string) => string | null };
+      responseHeaders?: Record<string, unknown>;
+      response?: { headers?: { get?: (k: string) => string | null } };
+    };
+
+    const fromHeaders = (h: unknown): string | null => {
+      if (!h) return null;
+      // A `Headers` instance (fetch) — case-insensitive lookup via .get()
+      const getter = (h as { get?: (k: string) => string | null }).get;
+      if (typeof getter === 'function') {
+        return getter.call(h, 'retry-after') ?? null;
+      }
+      // A plain object — header names are case-insensitive, so scan.
+      for (const [k, v] of Object.entries(h as Record<string, unknown>)) {
+        if (k.toLowerCase() === 'retry-after') return v == null ? null : String(v);
+      }
+      return null;
+    };
+
+    const raw =
+      fromHeaders(e?.headers) ??
+      fromHeaders(e?.responseHeaders) ??
+      fromHeaders(e?.response?.headers);
+    if (raw === null || raw === '') return null;
+
+    const seconds = Number(raw);
+    if (Number.isFinite(seconds)) {
+      // Negative or zero means "retry now"; treat as absent so jitter applies.
+      return seconds > 0 ? seconds * 1000 : null;
     }
-    // Full positive jitter: random(0, 2^attempt * 1000)
-    return Math.floor(Math.random() * Math.pow(2, attempt) * 1000);
+    const asDate = Date.parse(String(raw));
+    if (Number.isNaN(asDate)) return null;
+    const delta = asDate - Date.now();
+    return delta > 0 ? delta : null;
   }
 
   /**
@@ -1819,6 +1975,17 @@ export class AIService implements OnModuleInit {
           isCacheHit: false,
         };
       } catch (err) {
+        // ⚠️ Our OWN refusals must NOT fail over to the next provider.
+        //
+        // `isRetryableError` already refuses to retry AI_BUSY / AI_SPEND_CAP —
+        // but that governs the INNER retry loop only, and this outer loop caught
+        // everything and tried the next provider anyway, undoing the same fix one
+        // level up. One request then queued once PER provider (3 × the 15s
+        // reading-pool timeout = 45s of queue occupancy applied exactly when the
+        // pool is full), fired the cap's Sentry alert three times, and finally
+        // threw a plain `Error('All AI providers failed…')` — so the typed 503
+        // body was gone and no caller downstream could recognise it.
+        if (isSelfRefusal(err)) throw err;
         lastError = err instanceof Error ? err : new Error(String(err));
         this.logger.warn(
           `Annual V2 provider ${providerConfig.provider} failed: ${lastError.message}. Trying next...`,
@@ -3729,6 +3896,17 @@ export class AIService implements OnModuleInit {
           isCacheHit: false,
         };
       } catch (err: unknown) {
+        // ⚠️ Our OWN refusals must NOT fail over to the next provider.
+        //
+        // `isRetryableError` already refuses to retry AI_BUSY / AI_SPEND_CAP —
+        // but that governs the INNER retry loop only, and this outer loop caught
+        // everything and tried the next provider anyway, undoing the same fix one
+        // level up. One request then queued once PER provider (3 × the 15s
+        // reading-pool timeout = 45s of queue occupancy applied exactly when the
+        // pool is full), fired the cap's Sentry alert three times, and finally
+        // threw a plain `Error('All AI providers failed…')` — so the typed 503
+        // body was gone and no caller downstream could recognise it.
+        if (isSelfRefusal(err)) throw err;
         const message = err instanceof Error ? err.message : String(err);
         lastError = new Error(`${providerConfig.provider}: ${message}`);
         this.logger.warn(`Love V2 interpretation failed: ${message}`);
@@ -4417,7 +4595,44 @@ export class AIService implements OnModuleInit {
         let totalInputTokens = 0;
         let totalOutputTokens = 0;
 
+        /**
+         * ⚠️ Record EVERY fulfilled call, and do it here rather than once at the
+         * end.
+         *
+         * `callProviderWithTimeout` checks the cap and holds a slot, but it does
+         * NOT record — each generator logs its own usage. This one did not, so
+         * the app's single most expensive action (3 parallel calls, 3 credits,
+         * ~$0.70 a reveal) contributed exactly $0.00 to the figure the breaker
+         * reads. That is the same blindness S2 was built to end, hiding inside
+         * the file the CI guard marks compliant because its OTHER generators log.
+         *
+         * Per-call, because `Promise.allSettled` means calls 2 and 3 can fail
+         * independently — a summed record at the end would be skipped entirely
+         * when call 1 rejects, after all three had already spent.
+         */
+        const recordCall = (r: { inputTokens: number; outputTokens: number }) =>
+          this.logUsage(
+            userId,
+            readingId,
+            providerConfig,
+            {
+              interpretation: { sections: {}, summary: { preview: '', full: '' } },
+              provider: providerConfig.provider,
+              model: providerConfig.model,
+              tokenUsage: {
+                inputTokens: r.inputTokens,
+                outputTokens: r.outputTokens,
+                totalTokens: r.inputTokens + r.outputTokens,
+                estimatedCostUsd: 0,
+              },
+              latencyMs,
+              isCacheHit: false,
+            },
+            ReadingType.COMPATIBILITY,
+          ).catch(() => {});
+
         // Parse Call 1
+        recordCall(result1);
         totalInputTokens += result1.inputTokens;
         totalOutputTokens += result1.outputTokens;
         // Use parseAIResponse directly (generic JSON parser) — avoid parseLifetimeV2CallResponse
@@ -4432,6 +4647,7 @@ export class AIService implements OnModuleInit {
 
         // Parse Call 2 (may be null if timed out — partial result still useful)
         if (result2) {
+          recordCall(result2);
           totalInputTokens += result2.inputTokens;
           totalOutputTokens += result2.outputTokens;
           const parsed2 = this.parseAIResponse(result2.content, ReadingType.COMPATIBILITY);
@@ -4445,6 +4661,7 @@ export class AIService implements OnModuleInit {
 
         // Parse Call 3 (may be null if timed out — partial result still useful)
         if (result3) {
+          recordCall(result3);
           totalInputTokens += result3.inputTokens;
           totalOutputTokens += result3.outputTokens;
           const parsed3 = this.parseAIResponse(result3.content, ReadingType.COMPATIBILITY);
@@ -4489,6 +4706,17 @@ export class AIService implements OnModuleInit {
           isCacheHit: false,
         };
       } catch (err: unknown) {
+        // ⚠️ Our OWN refusals must NOT fail over to the next provider.
+        //
+        // `isRetryableError` already refuses to retry AI_BUSY / AI_SPEND_CAP —
+        // but that governs the INNER retry loop only, and this outer loop caught
+        // everything and tried the next provider anyway, undoing the same fix one
+        // level up. One request then queued once PER provider (3 × the 15s
+        // reading-pool timeout = 45s of queue occupancy applied exactly when the
+        // pool is full), fired the cap's Sentry alert three times, and finally
+        // threw a plain `Error('All AI providers failed…')` — so the typed 503
+        // body was gone and no caller downstream could recognise it.
+        if (isSelfRefusal(err)) throw err;
         const message = err instanceof Error ? err.message : String(err);
         lastError = new Error(`${providerConfig.provider}: ${message}`);
         this.logger.warn(`Compat Romance V2 interpretation failed: ${message}`);
@@ -5568,18 +5796,67 @@ export class AIService implements OnModuleInit {
     // (most reliable). OpenAI's `stream_options.include_usage` + Gemini's
     // `usageMetadata` only arrive on normal completion. Callers must tolerate
     // {0, 0} as a legitimate "aborted before final chunk" signal.
-    switch (config.provider) {
-      case AIProvider.CLAUDE:
-        yield* this.streamClaude(config, systemPrompt, userPrompt, signal, usageOut);
-        break;
-      case AIProvider.GPT:
-        yield* this.streamGPT(config, systemPrompt, userPrompt, signal, usageOut);
-        break;
-      case AIProvider.GEMINI:
-        yield* this.streamGemini(config, systemPrompt, userPrompt, signal, usageOut);
-        break;
-      default:
-        throw new Error(`Unknown provider: ${config.provider}`);
+
+    // S2 — the CHOKE POINT for every streaming provider call.
+    //
+    // ⚠️ Streaming was the production path for readings and compat, and it was
+    // BOTH uncapped and UNCOUNTED: `usageOut` is optional and 5 of 6 call sites
+    // omitted it, so the tokens were discarded at the source. A breaker cannot
+    // trip on spend it never sees, so the largest single generation in the app
+    // was invisible to the ceiling AND to everything else the ceiling protects.
+    await this.aiSpend.assertUnderCap(`stream:${config.provider}`);
+
+    // Own the ref when the caller didn't supply one, so metering no longer
+    // depends on every call site remembering to ask for it.
+    const usage = usageOut ?? { inputTokens: 0, outputTokens: 0 };
+    // S1 — the slot is held until the LAST token, not until first byte:
+    // releasing early would let N slots admit far more than N upstream calls.
+    // Delegated to `runGenerator` rather than hand-rolling acquire/finally: the
+    // hand-rolled version meant the governor's own release-on-abandon tests
+    // covered a method production never called. Same behaviour, one owner.
+    yield* this.aiGovernor.runGenerator('reading', `stream:${config.provider}`, () =>
+      this._streamProviderInner(config, systemPrompt, userPrompt, signal, usage),
+    );
+  }
+
+  /**
+   * The provider dispatch itself, split out so the slot (S1) wraps it in one
+   * place while the spend record (S2) stays attached to the usage it measures.
+   */
+  private async *_streamProviderInner(
+    config: ProviderConfig,
+    systemPrompt: string,
+    userPrompt: string,
+    signal: AbortSignal | undefined,
+    usage: { inputTokens: number; outputTokens: number },
+  ): AsyncGenerator<string> {
+    try {
+      switch (config.provider) {
+        case AIProvider.CLAUDE:
+          yield* this.streamClaude(config, systemPrompt, userPrompt, signal, usage);
+          break;
+        case AIProvider.GPT:
+          yield* this.streamGPT(config, systemPrompt, userPrompt, signal, usage);
+          break;
+        case AIProvider.GEMINI:
+          yield* this.streamGemini(config, systemPrompt, userPrompt, signal, usage);
+          break;
+        default:
+          throw new Error(`Unknown provider: ${config.provider}`);
+      }
+    } finally {
+      // `finally` on a generator also runs when the consumer abandons it
+      // (client disconnect, watchdog abort, `break`). That matters: Anthropic
+      // bills the tokens generated before an abort, so recording only on clean
+      // completion would systematically under-count exactly the disconnect case
+      // mobile produces most. Whatever the adapter managed to populate is
+      // recorded; a genuine {0,0} costs nothing and is skipped by `record`.
+      void this.aiSpend.record({
+        provider: config.provider,
+        model: config.model,
+        usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
+        context: `stream:${config.provider}`,
+      });
     }
   }
 
@@ -5734,11 +6011,49 @@ export class AIService implements OnModuleInit {
 
   // ---- Gemini ----
 
+  /**
+   * ⚠️ Gemini must be raced against its own signal.
+   *
+   * `callProviderWithTimeout` arms `setTimeout(() => controller.abort(), …)`
+   * INSIDE the governor slot, but this adapter took `_signal` and dropped it,
+   * and the SDK sets no default timeout of its own. So the abort fired, nothing
+   * listened, and the `reading` slot stayed held until Gemini answered in its
+   * own time — the bound `AI_MAX_CONCURRENT_READING` is supposed to guarantee
+   * simply not enforced on this provider. Gemini is third in the fallback chain,
+   * i.e. reached precisely when Claude and GPT are already failing and the pool
+   * is at its most contended.
+   *
+   * `requestOptions.signal` is honoured by the SDK; the race is belt-and-braces
+   * for an SDK version that ignores it, and costs one already-settled promise.
+   */
+  private async raceSignal<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+    if (!signal) return work;
+    if (signal.aborted) {
+      // The SDK call was already dispatched by the caller's argument
+      // evaluation, so throwing here leaves it unowned — an unhandled rejection
+      // when it settles, and there is no process-level handler. Adopt it first.
+      // (Unreachable today: `callProviderWithTimeout` mints a fresh controller
+      // inside the governor slot, so the signal is never pre-aborted on entry.)
+      work.catch(() => undefined);
+      throw new Error('Gemini call aborted before it started');
+    }
+    let onAbort!: () => void;
+    const aborted = new Promise<never>((_resolve, reject) => {
+      onAbort = () => reject(new Error('Gemini call aborted by timeout'));
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+    try {
+      return await Promise.race([work, aborted]);
+    } finally {
+      signal.removeEventListener('abort', onAbort);
+    }
+  }
+
   private async callGemini(
     config: ProviderConfig,
     systemPrompt: string,
     userPrompt: string,
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
   ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
     if (!this.geminiAI) {
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
@@ -5750,7 +6065,14 @@ export class AIService implements OnModuleInit {
       generationConfig: { maxOutputTokens: 8192 },
     });
 
-    const result = await model.generateContent(userPrompt);
+    // The SDK's model handle is loosely typed, so the generic needs pinning or
+    // `result` collapses to `unknown`.
+    const result = await this.raceSignal<{
+      response: {
+        text(): string;
+        usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number };
+      };
+    }>(model.generateContent(userPrompt, { signal }), signal);
     const response = result.response;
 
     return {
@@ -5764,7 +6086,7 @@ export class AIService implements OnModuleInit {
     config: ProviderConfig,
     systemPrompt: string,
     userPrompt: string,
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
     usageOut?: { inputTokens: number; outputTokens: number },
   ): AsyncGenerator<string> {
     if (!this.geminiAI) {
@@ -5776,7 +6098,9 @@ export class AIService implements OnModuleInit {
       systemInstruction: systemPrompt,
     });
 
-    const result = await model.generateContentStream(userPrompt);
+    const result = await this.raceSignal<{
+      stream: AsyncIterable<{ text(): string }>;
+    }>(model.generateContentStream(userPrompt, { signal }), signal);
 
     for await (const chunk of result.stream) {
       // usageMetadata arrives only on NORMAL completion chunks.
@@ -7211,6 +7535,23 @@ export class AIService implements OnModuleInit {
     result: AIGenerationResult,
     readingType?: ReadingType,
   ) {
+    // S2 — the spend counter the breaker reads. Recorded here because every
+    // provider adapter (Claude/GPT/Gemini, sync and streaming) funnels through
+    // this one method, so a new adapter is metered by construction.
+    //
+    // Cache hits are recorded too when they carry usage: a `isCacheHit` reading
+    // costs nothing, but `record` prices from the token counts, and a cache hit
+    // reports none — so it contributes 0 without a special case.
+    void this.aiSpend.record({
+      provider: config.provider,
+      model: config.model,
+      usage: {
+        inputTokens: result.tokenUsage.inputTokens,
+        outputTokens: result.tokenUsage.outputTokens,
+      },
+      context: `reading:${readingType ?? 'unknown'}`,
+    });
+
     try {
       await this.prisma.aIUsageLog.create({
         data: {

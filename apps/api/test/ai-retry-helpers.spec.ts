@@ -5,6 +5,7 @@
  * - summarizeError: user-safe messages
  * - callProviderWithRetry: retry loop semantics, time budget, fallback
  */
+import { ServiceUnavailableException } from '@nestjs/common';
 import { AIService } from '../src/ai/ai.service';
 
 const mockConfigService = { get: jest.fn().mockReturnValue(undefined) };
@@ -13,7 +14,7 @@ const mockRedis: any = {};
 const mockCredits: any = {};
 
 function makeService(): AIService {
-  return new AIService(mockConfigService as any, mockPrisma, mockRedis, mockCredits);
+  return new AIService(mockConfigService as any, mockPrisma, mockRedis, mockCredits, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never);
 }
 
 describe('AIService retry helpers', () => {
@@ -85,6 +86,35 @@ describe('AIService retry helpers', () => {
       expect(svc.isRetryableError(new Error('some generic error'))).toBe(false);
     });
 
+    // ⚠️ OUR OWN refusals must never be retried, and they look retryable:
+    // NestJS `HttpException` exposes `status` as an own numeric 503, which lands
+    // in the `>= 500` arm. Unfixed, an AI_BUSY refusal was retried straight back
+    // into the saturated pool (up to 6 x 15s of queue occupancy for one
+    // request), and a spend cap fired ~6 error-level Sentry alerts per request
+    // during a budget incident while spending nothing.
+    it('does NOT retry our own AI_BUSY refusal', () => {
+      const err = new ServiceUnavailableException({ code: 'AI_BUSY', message: 'busy' });
+      expect((err as unknown as { status: number }).status).toBe(503); // the trap
+      expect(svc.isRetryableError(err)).toBe(false);
+    });
+
+    it('does NOT retry our own AI_SPEND_CAP refusal', () => {
+      const err = new ServiceUnavailableException({ code: 'AI_SPEND_CAP', message: 'capped' });
+      expect(svc.isRetryableError(err)).toBe(false);
+    });
+
+    it('STILL retries a genuine upstream 503', () => {
+      // The exemption must be narrow: a provider 503 is exactly what retry is
+      // for, and widening this to "all HttpException" would disable failover.
+      const err = Object.assign(new Error('upstream unavailable'), { status: 503 });
+      expect(svc.isRetryableError(err)).toBe(true);
+    });
+
+    it('STILL retries other HttpExceptions', () => {
+      const err = new ServiceUnavailableException({ code: 'SOMETHING_ELSE' });
+      expect(svc.isRetryableError(err)).toBe(true);
+    });
+
     it('does NOT retry on non-Error values', () => {
       expect(svc.isRetryableError('string error' as any)).toBe(false);
       expect(svc.isRetryableError(null)).toBe(false);
@@ -109,16 +139,74 @@ describe('AIService retry helpers', () => {
       }
     });
 
-    it('honors Retry-After header value', () => {
-      const err = new Error('rate limit, retry-after 5');
-      const v = svc.computeBackoff(1, err);
-      expect(v).toBe(5000);
+    // ⚠️ S3 — these two previously asserted that `Retry-After` was parsed out of
+    // `err.message`, which is where NO provider SDK puts it. Anthropic and
+    // OpenAI expose it on `err.headers`; the branch never fired in production,
+    // so every 429 fell through to blind jitter while the tests reported the
+    // feature as working. Rewritten against the shapes the SDKs actually throw.
+    const withHeaders = (headers: Record<string, string>) =>
+      Object.assign(new Error('429 rate_limit_error'), { headers });
+
+    it('honors Retry-After from the error HEADERS', () => {
+      const v = svc.computeBackoff(1, withHeaders({ 'retry-after': '5' }));
+      // Lower bound + jitter, never below the provider's own number.
+      expect(v).toBeGreaterThanOrEqual(5000);
     });
 
-    it('caps Retry-After at AI_RETRY_AFTER_CAP_MS (30s)', () => {
-      const err = new Error('retry-after 600'); // 600s = 10min, way over cap
-      const v = svc.computeBackoff(1, err);
-      expect(v).toBe(30000);
+    it('matches the header case-insensitively', () => {
+      const v = svc.computeBackoff(1, withHeaders({ 'Retry-After': '5' }));
+      expect(v).toBeGreaterThanOrEqual(5000);
+    });
+
+    it('reads a fetch Headers instance', () => {
+      const err = Object.assign(new Error('429'), {
+        headers: new Headers({ 'retry-after': '7' }),
+      });
+      expect(svc.computeBackoff(1, err)).toBeGreaterThanOrEqual(7000);
+    });
+
+    it('accepts the HTTP-date form the spec also allows', () => {
+      const when = new Date(Date.now() + 8000).toUTCString();
+      const v = svc.computeBackoff(1, withHeaders({ 'retry-after': when }));
+      expect(v).toBeGreaterThanOrEqual(6000); // ~8s, minus second-rounding
+    });
+
+    it('caps Retry-After at AI_RETRY_AFTER_CAP_MS before adding jitter', () => {
+      // Anthropic can send 600s on a daily limit. Sleeping 10 minutes with a
+      // request open is worse than failing over.
+      const v = svc.computeBackoff(1, withHeaders({ 'retry-after': '600' }));
+      expect(v).toBeGreaterThanOrEqual(30000);
+      expect(v).toBeLessThan(30000 + 2000 + 1); // cap + max jitter at attempt 1
+    });
+
+    it('adds jitter ON TOP rather than sleeping exactly the header value', () => {
+      // Honouring the header alone syncs every retrying worker onto the same
+      // instant — the thundering herd the jitter exists to prevent.
+      const runs = new Set(
+        Array.from({ length: 40 }, () =>
+          svc.computeBackoff(4, withHeaders({ 'retry-after': '1' })),
+        ),
+      );
+      expect(runs.size).toBeGreaterThan(1);
+    });
+
+    it('ignores an absent, empty, or non-positive Retry-After', () => {
+      const cases: Record<string, string>[] = [
+        {},
+        { 'retry-after': '' },
+        { 'retry-after': '0' },
+        { 'retry-after': '-5' },
+      ];
+      for (const headers of cases) {
+        expect(svc.computeBackoff(1, withHeaders(headers))).toBeLessThanOrEqual(2000);
+      }
+    });
+
+    it('no longer parses the message text', () => {
+      // The old behaviour, explicitly retired: a message that merely mentions
+      // retry-after must not produce a 5s floor.
+      const v = svc.computeBackoff(1, new Error('rate limit, retry-after 5'));
+      expect(v).toBeLessThanOrEqual(2000);
     });
   });
 

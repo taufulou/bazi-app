@@ -37,6 +37,12 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { FortuneScope } from '@prisma/client';
+import { AiSpendService } from '../ai/ai-spend.service';
+import { AiGovernorService } from '../ai/ai-governor.service';
+import { QuotaService } from '../ai/quota.service';
+import { isSelfRefusal } from '../ai/typed-refusals';
+import { absorbStreamUsage, emptyStreamUsage, hasUsage, mergeFinalUsage } from '../ai/stream-usage';
 import * as Sentry from '@sentry/nestjs';
 import {
   FORTUNE_PROMPT_VERSIONS,
@@ -210,6 +216,9 @@ export class FortuneStreamService {
     private readonly prisma: PrismaService,
     private readonly helpers: FortuneSnapshotHelpers,
     private readonly validators: FortuneValidatorsService,
+    private readonly aiSpend: AiSpendService,
+    private readonly aiGovernor: AiGovernorService,
+    private readonly quota: QuotaService,
   ) {}
 
   /**
@@ -331,12 +340,17 @@ export class FortuneStreamService {
       // ============================================================
       // Open Anthropic stream + run section detector
       // ============================================================
+      // S4 — the STREAM routes are what the web and mobile clients actually
+      // call; guarding only the sync entry point left every real fortune
+      // generation uncounted. Placed after the cache short-circuit above, so a
+      // cached read costs no quota.
       await this._streamWithSectionDetector({
         response,
         dailyOutput,
         chartContext,
         chartHash,
         birthProfileId: profile.id,
+        userId: user.id,
         anchorDate: targetDateObj,
         targetDate,
       });
@@ -428,10 +442,12 @@ export class FortuneStreamService {
     chartContext: FortuneChartContext;
     chartHash: string;
     birthProfileId: string;
+    /** S4 — the quota is spent INSIDE, once the cap and the slot have passed. */
+    userId: string;
     anchorDate: Date;
     targetDate: string;
   }): Promise<void> {
-    const { response, dailyOutput, chartContext, chartHash, birthProfileId, anchorDate } = ctx;
+    const { response, dailyOutput, chartContext, chartHash, birthProfileId, userId, anchorDate } = ctx;
 
     if (!FORTUNE_V1_PROMPTS.daily) {
       this._emitError(response, 'PROMPT_NOT_CONFIGURED',
@@ -508,7 +524,32 @@ export class FortuneStreamService {
     let assistantBuffer = '';
     let finalStopReason: string | null = null;
 
+    // S1 — declared outside the try so the `finally` can return the slot.
+    let releaseSlot: () => void = () => undefined;
+    // Accumulated as events arrive; recorded in the `finally`.
+    const streamUsage = emptyStreamUsage();
     try {
+      // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+      // generation stops. Throws a typed 503 that the caller's existing
+      // error path maps to a refund where a credit was already taken.
+      await this.aiSpend.assertUnderCap('fortune:stream-daily');
+      // S1 — the slot is held until the stream ENDS, released in the
+      // `finally` below, so a watchdog abort or client disconnect returns it.
+      releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:stream-daily');
+      // ⚠️ S4 LAST of the three, and INSIDE this method.
+      //
+      // It used to sit in the caller, before both. That ordering spent a user's
+      // daily allowance on refusals that cost us nothing — and moving a cap
+      // check up beside it instead made things worse: the cap then threw into
+      // the CALLER's catch, which only emits an error, stranding the
+      // last-known-good narrative this method serves a few lines below. A
+      // budget event would have replaced "yesterday's reading" with an error
+      // banner, defeating LKG for the commonest failure it exists to absorb.
+      //
+      // Consuming here puts all three in their true order — global cap, then
+      // capacity, then this user's share — and gets `AI_BUSY` for free: a
+      // queue-timeout refusal now happens before the counter moves.
+      await this.quota.consume('fortune', userId);
       const stream = client.messages.stream(
         {
           model,
@@ -524,6 +565,9 @@ export class FortuneStreamService {
       );
 
       for await (const event of stream) {
+        // S2 — meter as we go. See `stream-usage.ts`: an aborted stream is
+        // billed in full but never reaches `finalMessage()`.
+        absorbStreamUsage(event, streamUsage);
         if (
           event.type === 'content_block_delta' &&
           event.delta.type === 'text_delta'
@@ -537,6 +581,9 @@ export class FortuneStreamService {
 
       const finalMessage = await stream.finalMessage();
       finalStopReason = (finalMessage as { stop_reason?: string }).stop_reason ?? null;
+      // Clean completion — prefer the authoritative final numbers over what the
+      // events accumulated. The `finally` below does the recording either way.
+      mergeFinalUsage(streamUsage, finalMessage.usage);
     } catch (err) {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
@@ -568,6 +615,36 @@ export class FortuneStreamService {
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Fortune stream Anthropic failure: ${reason}`);
       detector.close();
+      // S1/S2/S4 — a refusal WE issued must NOT arm this chart's 24h AI
+      // circuit breaker: the cause is a global budget event, a full pool, or
+      // this user's daily allowance — never a broken chart. Each backoff
+      // outlives its cause (the cap clears at Taipei midnight, the pool in
+      // seconds), so a DAY scope would stay blank past its own anchor date.
+      // `AI_BUSY` is the sharpest of the three: three seconds of queue pressure
+      // for a 24-hour penalty. Emit the real code so the client can say what
+      // happened instead of «ai-stream-failed: …».
+      if (isSelfRefusal(err)) {
+        // Serve the preserved narrative if this chart has ever rendered — a
+        // budget event or a busy pool should look like "yesterday's reading"
+        // rather than an error, and these are the highest-volume AI failures
+        // LKG will ever face.
+        const lkgRow = await this._readLkgRow(chartHash, FortuneScope.DAY, anchorDate);
+        if (this._serveLkg(response, lkgRow, 'day')) return;
+        // The code and message come from the refusal itself, so the client can
+        // distinguish "over your daily limit" from "we are over budget" from
+        // "try again in a moment". The fallbacks are unreachable for our own
+        // typed errors and exist only so a malformed body still says something.
+        const refusalBody = (err as HttpException).getResponse() as {
+          code?: string;
+          message?: string;
+        };
+        this._emitError(
+          response,
+          refusalBody?.code ?? 'AI_UNAVAILABLE',
+          refusalBody?.message ?? '系統目前繁忙，請稍後再試。',
+        );
+        return;
+      }
       {
         const failRow = await this._persistAIFailure({ chartHash, birthProfileId, anchorDate, dailyOutput });
         if (this._serveLkg(response, failRow, 'day')) return;
@@ -577,6 +654,19 @@ export class FortuneStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      // S2 — record in the FINALLY, so a client disconnect or a watchdog
+      // abort still books what Anthropic already billed. See
+      // `stream-usage.ts` for why the four streaming sites that only read
+      // `finalMessage()` were under-counting the commonest failure there is.
+      if (hasUsage(streamUsage)) {
+        void this.aiSpend.record({
+          provider: 'CLAUDE',
+          model,
+          usage: streamUsage,
+          context: 'fortune:stream-daily',
+        });
+      }
+      releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
     }
 
     detector.close();
@@ -800,6 +890,34 @@ export class FortuneStreamService {
    *  Returns true if it served (emitted done + ended response) — caller then
    *  returns. Returns false (no LKG to serve) → caller emits the honest
    *  AI_FAILED error so the FE shows the «AI 文字解讀暫時無法產生」 fallback. */
+  /**
+   * Read the existing snapshot for LKG WITHOUT recording a failure.
+   *
+   * `_persistAIFailure` conflates two things — "remember this chart's AI is
+   * broken" and "hand me the row so I can serve its last-known-good narrative".
+   * For a spend cap only the second is wanted: the cause is a global budget
+   * event, so arming this chart's 24h breaker is wrong, but the user should
+   * still get the reading they had yesterday rather than an error banner.
+   *
+   * Without this split the cap became the ONE high-volume AI failure that never
+   * reached LKG — the exact case the feature was built for.
+   */
+  private async _readLkgRow(
+    chartHash: string,
+    scope: FortuneScope,
+    anchorDate: Date,
+  ): Promise<LkgRow> {
+    try {
+      return await this.prisma.dailyFortuneSnapshot.findUnique({
+        where: { chartHash_scope_anchorDate: { chartHash, scope, anchorDate } },
+        select: { aiNarrativeJson: true, chartHash: true },
+      });
+    } catch (err) {
+      this.logger.warn(`LKG lookup failed (${scope} ${chartHash.slice(0, 8)}…): ${err}`);
+      return null;
+    }
+  }
+
   private _serveLkg(response: Response, row: LkgRow, scope: 'day' | 'month' | 'year'): boolean {
     if (!row) return false;
     const lkg = row.aiNarrativeJson;
@@ -988,12 +1106,17 @@ export class FortuneStreamService {
       });
 
       // Open Anthropic stream + section detector
+      // S4 — the STREAM routes are what the web and mobile clients actually
+      // call; guarding only the sync entry point left every real fortune
+      // generation uncounted. Placed after the cache short-circuit above, so a
+      // cached read costs no quota.
       await this._streamMonthlyWithSectionDetector({
         response,
         monthlyOutput,
         chartContext,
         chartHash,
         birthProfileId: profile.id,
+        userId: user.id,
         anchorDate,
         targetMonth,
       });
@@ -1082,10 +1205,12 @@ export class FortuneStreamService {
     chartContext: FortuneChartContext;
     chartHash: string;
     birthProfileId: string;
+    /** S4 — the quota is spent INSIDE, once the cap and the slot have passed. */
+    userId: string;
     anchorDate: Date;
     targetMonth: string;
   }): Promise<void> {
-    const { response, monthlyOutput, chartContext, chartHash, birthProfileId, anchorDate, targetMonth } = ctx;
+    const { response, monthlyOutput, chartContext, chartHash, birthProfileId, userId, anchorDate, targetMonth } = ctx;
 
     if (!FORTUNE_V1_PROMPTS.monthly) {
       this._emitError(response, 'PROMPT_NOT_CONFIGURED', 'FORTUNE_V1_PROMPTS.monthly not configured');
@@ -1164,7 +1289,32 @@ export class FortuneStreamService {
     let assistantBuffer = '';
     let finalStopReason: string | null = null;
 
+    // S1 — declared outside the try so the `finally` can return the slot.
+    let releaseSlot: () => void = () => undefined;
+    // Accumulated as events arrive; recorded in the `finally`.
+    const streamUsage = emptyStreamUsage();
     try {
+      // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+      // generation stops. Throws a typed 503 that the caller's existing
+      // error path maps to a refund where a credit was already taken.
+      await this.aiSpend.assertUnderCap('fortune:stream-monthly');
+      // S1 — the slot is held until the stream ENDS, released in the
+      // `finally` below, so a watchdog abort or client disconnect returns it.
+      releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:stream-monthly');
+      // ⚠️ S4 LAST of the three, and INSIDE this method.
+      //
+      // It used to sit in the caller, before both. That ordering spent a user's
+      // daily allowance on refusals that cost us nothing — and moving a cap
+      // check up beside it instead made things worse: the cap then threw into
+      // the CALLER's catch, which only emits an error, stranding the
+      // last-known-good narrative this method serves a few lines below. A
+      // budget event would have replaced "yesterday's reading" with an error
+      // banner, defeating LKG for the commonest failure it exists to absorb.
+      //
+      // Consuming here puts all three in their true order — global cap, then
+      // capacity, then this user's share — and gets `AI_BUSY` for free: a
+      // queue-timeout refusal now happens before the counter moves.
+      await this.quota.consume('fortune', userId);
       const stream = client.messages.stream(
         {
           model,
@@ -1180,6 +1330,9 @@ export class FortuneStreamService {
       );
 
       for await (const event of stream) {
+        // S2 — meter as we go. See `stream-usage.ts`: an aborted stream is
+        // billed in full but never reaches `finalMessage()`.
+        absorbStreamUsage(event, streamUsage);
         if (
           event.type === 'content_block_delta' &&
           event.delta.type === 'text_delta'
@@ -1193,6 +1346,9 @@ export class FortuneStreamService {
 
       const finalMessage = await stream.finalMessage();
       finalStopReason = (finalMessage as { stop_reason?: string }).stop_reason ?? null;
+      // Clean completion — prefer the authoritative final numbers over what the
+      // events accumulated. The `finally` below does the recording either way.
+      mergeFinalUsage(streamUsage, finalMessage.usage);
     } catch (err) {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
@@ -1217,6 +1373,36 @@ export class FortuneStreamService {
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Monthly fortune stream Anthropic failure: ${reason}`);
       detector.close();
+      // S1/S2/S4 — a refusal WE issued must NOT arm this chart's 24h AI
+      // circuit breaker: the cause is a global budget event, a full pool, or
+      // this user's daily allowance — never a broken chart. Each backoff
+      // outlives its cause (the cap clears at Taipei midnight, the pool in
+      // seconds), so a DAY scope would stay blank past its own anchor date.
+      // `AI_BUSY` is the sharpest of the three: three seconds of queue pressure
+      // for a 24-hour penalty. Emit the real code so the client can say what
+      // happened instead of «ai-stream-failed: …».
+      if (isSelfRefusal(err)) {
+        // Serve the preserved narrative if this chart has ever rendered — a
+        // budget event or a busy pool should look like "yesterday's reading"
+        // rather than an error, and these are the highest-volume AI failures
+        // LKG will ever face.
+        const lkgRow = await this._readLkgRow(chartHash, FortuneScope.MONTH, anchorDate);
+        if (this._serveLkg(response, lkgRow, 'month')) return;
+        // The code and message come from the refusal itself, so the client can
+        // distinguish "over your daily limit" from "we are over budget" from
+        // "try again in a moment". The fallbacks are unreachable for our own
+        // typed errors and exist only so a malformed body still says something.
+        const refusalBody = (err as HttpException).getResponse() as {
+          code?: string;
+          message?: string;
+        };
+        this._emitError(
+          response,
+          refusalBody?.code ?? 'AI_UNAVAILABLE',
+          refusalBody?.message ?? '系統目前繁忙，請稍後再試。',
+        );
+        return;
+      }
       {
         const failRow = await this._persistMonthlyAIFailure({
           chartHash,
@@ -1232,6 +1418,19 @@ export class FortuneStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      // S2 — record in the FINALLY, so a client disconnect or a watchdog
+      // abort still books what Anthropic already billed. See
+      // `stream-usage.ts` for why the four streaming sites that only read
+      // `finalMessage()` were under-counting the commonest failure there is.
+      if (hasUsage(streamUsage)) {
+        void this.aiSpend.record({
+          provider: 'CLAUDE',
+          model,
+          usage: streamUsage,
+          context: 'fortune:stream-monthly',
+        });
+      }
+      releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
     }
 
     detector.close();
@@ -1563,12 +1762,17 @@ export class FortuneStreamService {
       });
 
       // Open Anthropic stream + section detector
+      // S4 — the STREAM routes are what the web and mobile clients actually
+      // call; guarding only the sync entry point left every real fortune
+      // generation uncounted. Placed after the cache short-circuit above, so a
+      // cached read costs no quota.
       await this._streamYearlyWithSectionDetector({
         response,
         yearlyOutput,
         chartContext,
         chartHash,
         birthProfileId: profile.id,
+        userId: user.id,
         anchorDate,
         year,
       });
@@ -1657,10 +1861,12 @@ export class FortuneStreamService {
     chartContext: FortuneChartContext;
     chartHash: string;
     birthProfileId: string;
+    /** S4 — the quota is spent INSIDE, once the cap and the slot have passed. */
+    userId: string;
     anchorDate: Date;
     year: number;
   }): Promise<void> {
-    const { response, yearlyOutput, chartContext, chartHash, birthProfileId, anchorDate, year } = ctx;
+    const { response, yearlyOutput, chartContext, chartHash, birthProfileId, userId, anchorDate, year } = ctx;
 
     if (!FORTUNE_V1_PROMPTS.yearly) {
       this._emitError(response, 'PROMPT_NOT_CONFIGURED', 'FORTUNE_V1_PROMPTS.yearly not configured');
@@ -1735,7 +1941,32 @@ export class FortuneStreamService {
     let assistantBuffer = '';
     let finalStopReason: string | null = null;
 
+    // S1 — declared outside the try so the `finally` can return the slot.
+    let releaseSlot: () => void = () => undefined;
+    // Accumulated as events arrive; recorded in the `finally`.
+    const streamUsage = emptyStreamUsage();
     try {
+      // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+      // generation stops. Throws a typed 503 that the caller's existing
+      // error path maps to a refund where a credit was already taken.
+      await this.aiSpend.assertUnderCap('fortune:stream-yearly');
+      // S1 — the slot is held until the stream ENDS, released in the
+      // `finally` below, so a watchdog abort or client disconnect returns it.
+      releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:stream-yearly');
+      // ⚠️ S4 LAST of the three, and INSIDE this method.
+      //
+      // It used to sit in the caller, before both. That ordering spent a user's
+      // daily allowance on refusals that cost us nothing — and moving a cap
+      // check up beside it instead made things worse: the cap then threw into
+      // the CALLER's catch, which only emits an error, stranding the
+      // last-known-good narrative this method serves a few lines below. A
+      // budget event would have replaced "yesterday's reading" with an error
+      // banner, defeating LKG for the commonest failure it exists to absorb.
+      //
+      // Consuming here puts all three in their true order — global cap, then
+      // capacity, then this user's share — and gets `AI_BUSY` for free: a
+      // queue-timeout refusal now happens before the counter moves.
+      await this.quota.consume('fortune', userId);
       const stream = client.messages.stream(
         {
           model,
@@ -1751,6 +1982,9 @@ export class FortuneStreamService {
       );
 
       for await (const event of stream) {
+        // S2 — meter as we go. See `stream-usage.ts`: an aborted stream is
+        // billed in full but never reaches `finalMessage()`.
+        absorbStreamUsage(event, streamUsage);
         if (
           event.type === 'content_block_delta' &&
           event.delta.type === 'text_delta'
@@ -1764,6 +1998,9 @@ export class FortuneStreamService {
 
       const finalMessage = await stream.finalMessage();
       finalStopReason = (finalMessage as { stop_reason?: string }).stop_reason ?? null;
+      // Clean completion — prefer the authoritative final numbers over what the
+      // events accumulated. The `finally` below does the recording either way.
+      mergeFinalUsage(streamUsage, finalMessage.usage);
     } catch (err) {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
@@ -1788,6 +2025,36 @@ export class FortuneStreamService {
         : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Yearly fortune stream Anthropic failure: ${reason}`);
       detector.close();
+      // S1/S2/S4 — a refusal WE issued must NOT arm this chart's 24h AI
+      // circuit breaker: the cause is a global budget event, a full pool, or
+      // this user's daily allowance — never a broken chart. Each backoff
+      // outlives its cause (the cap clears at Taipei midnight, the pool in
+      // seconds), so a DAY scope would stay blank past its own anchor date.
+      // `AI_BUSY` is the sharpest of the three: three seconds of queue pressure
+      // for a 24-hour penalty. Emit the real code so the client can say what
+      // happened instead of «ai-stream-failed: …».
+      if (isSelfRefusal(err)) {
+        // Serve the preserved narrative if this chart has ever rendered — a
+        // budget event or a busy pool should look like "yesterday's reading"
+        // rather than an error, and these are the highest-volume AI failures
+        // LKG will ever face.
+        const lkgRow = await this._readLkgRow(chartHash, FortuneScope.YEAR, anchorDate);
+        if (this._serveLkg(response, lkgRow, 'year')) return;
+        // The code and message come from the refusal itself, so the client can
+        // distinguish "over your daily limit" from "we are over budget" from
+        // "try again in a moment". The fallbacks are unreachable for our own
+        // typed errors and exist only so a malformed body still says something.
+        const refusalBody = (err as HttpException).getResponse() as {
+          code?: string;
+          message?: string;
+        };
+        this._emitError(
+          response,
+          refusalBody?.code ?? 'AI_UNAVAILABLE',
+          refusalBody?.message ?? '系統目前繁忙，請稍後再試。',
+        );
+        return;
+      }
       {
         const failRow = await this._persistYearlyAIFailure({
           chartHash,
@@ -1803,6 +2070,19 @@ export class FortuneStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      // S2 — record in the FINALLY, so a client disconnect or a watchdog
+      // abort still books what Anthropic already billed. See
+      // `stream-usage.ts` for why the four streaming sites that only read
+      // `finalMessage()` were under-counting the commonest failure there is.
+      if (hasUsage(streamUsage)) {
+        void this.aiSpend.record({
+          provider: 'CLAUDE',
+          model,
+          usage: streamUsage,
+          context: 'fortune:stream-yearly',
+        });
+      }
+      releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
     }
 
     detector.close();

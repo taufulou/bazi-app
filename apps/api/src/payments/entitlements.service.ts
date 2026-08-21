@@ -143,8 +143,13 @@ export class EntitlementsService {
    * (prevents double-grant on webhook replay). Moved verbatim from
    * `StripeService.grantMonthlyCredits` so its existing tests carry over.
    *
-   * NOTE: does NOT write a `CreditLedger` row (only `MonthlyCreditsLog` + the
-   * `credits` increment) — this preserves the pre-M6 behavior exactly.
+   * Writes a `CreditLedger` row alongside `MonthlyCreditsLog`, inside the same
+   * transaction. It historically did not ("preserves the pre-M6 behavior"),
+   * which left the single largest recurring credit inflow invisible to the
+   * ledger — so `sum(CreditLedger.amount) == user.credits` did not hold for any
+   * subscriber, and "did we over-grant?" was unanswerable from the ledger.
+   * `MonthlyCreditsLog` answers "was this period granted"; only `CreditLedger`
+   * reconciles against the balance.
    */
   async grantMonthlyCredits(
     userId: string,
@@ -182,6 +187,15 @@ export class EntitlementsService {
         await tx.user.update({
           where: { id: userId },
           data: { credits: { increment: monthlyCredits } },
+        });
+        // Same transaction as the log + increment: the three either all land or
+        // none do, so the ledger can never disagree with the balance.
+        await tx.creditLedger.create({
+          data: {
+            userId,
+            amount: +monthlyCredits,
+            reason: `monthly_subscription_credits:${planSlug}:${periodStart.toISOString()}`,
+          },
         });
       });
 

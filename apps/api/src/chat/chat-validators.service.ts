@@ -9,6 +9,8 @@ import {
   CHAT_CROSS_SELL_OWNED_LINES,
 } from '../ai/prompts';
 import type { ChatContext } from './chat-context.service';
+import { AiSpendService } from '../ai/ai-spend.service';
+import { isSelfRefusal } from '../ai/typed-refusals';
 
 /**
  * Tier C output safety-net — maps a cross-sell target key to the reading's
@@ -90,7 +92,10 @@ export class ChatValidatorsService {
   private readonly judgeModel: string;
   private readonly judgeSampleRate: number;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    private readonly aiSpend: AiSpendService,
+  ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY') || 'placeholder';
     this.judgeAnthropic = new Anthropic({ apiKey });
     this.judgeModel = this.config.get<string>('CLAUDE_HAIKU_MODEL')
@@ -431,6 +436,15 @@ ${safeAssistantResponse}
 {"verdict": "pass" | "fail", "reason": "1 句說明"}`;
 
     try {
+      // S2 — the judge is exempt from the S1 concurrency governor by design (a
+      // sampled internal check must not compete for a user-facing slot), but it
+      // was never exempt from the cap and simply never consulted it. It records
+      // its spend, so it counts TOWARD the cap while ignoring it — during a
+      // budget event the only thing still calling the provider would have been
+      // our own QA sampler. Inside the existing try, so a refusal skips the
+      // judge rather than failing the chat turn, which is the whole reason this
+      // call is wrapped.
+      await this.aiSpend.assertUnderCap('chat:llm-judge');
       const response = await this.judgeAnthropic.messages.create(
         {
           model: this.judgeModel,
@@ -439,6 +453,19 @@ ${safeAssistantResponse}
         },
         { timeout: 30_000 },
       );
+      // S2 — the LLM judge is exempt from the S1 CONCURRENCY governor (it is a
+      // sampled internal check, not user-facing work) but it is NOT exempt from
+      // spend: it runs on 5% of chat turns against a real paid model, and an
+      // unmetered sampler is exactly the kind of drip a cap never sees.
+      void this.aiSpend.record({
+        provider: 'CLAUDE',
+        model: this.judgeModel,
+        usage: {
+          inputTokens: response.usage?.input_tokens ?? 0,
+          outputTokens: response.usage?.output_tokens ?? 0,
+        },
+        context: 'chat:llm-judge',
+      });
       const text = response.content
         .filter((b) => b.type === 'text')
         .map((b) => (b as { type: 'text'; text: string }).text)
@@ -447,6 +474,13 @@ ${safeAssistantResponse}
       const parsed = this.parseJudgeResponse(text);
       return parsed;
     } catch (err) {
+      // A cap refusal is the sampler being switched off on purpose, not a
+      // broken sampler. Logged as a warning it becomes a continuous stream of
+      // alarms during a budget event, each claiming QA is failing.
+      if (isSelfRefusal(err)) {
+        this.logger.debug('LLM-as-judge skipped — over spend cap');
+        return { verdict: 'pass' as const, reason: 'judge-skipped-over-cap' };
+      }
       this.logger.warn(`LLM-as-judge call failed: ${err}`);
       return { verdict: 'pass', reason: 'judge-error-skip' };
     }

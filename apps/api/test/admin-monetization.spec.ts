@@ -8,6 +8,7 @@
  *   - Controller routing for new endpoints
  */
 import { AdminService } from '../src/admin/admin.service';
+import { CreditsService } from '../src/credits/credits.service';
 import { AdminController } from '../src/admin/admin.controller';
 
 // ============================================================
@@ -98,7 +99,7 @@ describe('AdminService — Credit Packages', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AdminService(mockPrisma as any, mockRedis as any);
+    service = new AdminService(mockPrisma as any, mockRedis as any, new CreditsService(mockPrisma as never));
   });
 
   describe('listCreditPackages', () => {
@@ -253,7 +254,7 @@ describe('AdminService — Monetization Analytics', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AdminService(mockPrisma as any, mockRedis as any);
+    service = new AdminService(mockPrisma as any, mockRedis as any, new CreditsService(mockPrisma as never));
 
     // Default mock returns for parallel queries
     mockPrisma.$queryRaw.mockResolvedValue([]);

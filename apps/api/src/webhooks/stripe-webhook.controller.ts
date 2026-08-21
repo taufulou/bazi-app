@@ -18,6 +18,7 @@ import {
   RawBodyRequest,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiExcludeEndpoint } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Request, Response } from 'express';
 import { Public } from '../auth/public.decorator';
 import { StripeService } from '../payments/stripe.service';
@@ -25,6 +26,12 @@ import { RedisService } from '../redis/redis.service';
 import Stripe from 'stripe';
 
 @ApiTags('Webhooks')
+// A3: signature-verified webhooks must not be throttled. Stripe retries with
+// backoff on non-2xx, so a 429 during a burst (subscription renewals cluster at
+// period boundaries) turns into delayed credit grants and, once retries are
+// exhausted, silently dropped events. Authenticity is established by the
+// signature check, not by rate limiting. Mirrors ClerkWebhookController.
+@SkipThrottle()
 @Controller('api/webhooks')
 export class StripeWebhookController {
   private readonly logger = new Logger(StripeWebhookController.name);

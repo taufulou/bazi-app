@@ -72,6 +72,26 @@ const nextConfig = {
             key: "Content-Security-Policy",
             value: [
               "default-src 'self'",
+              // C3 — three additions, each a no-op for this app and a real
+              // control if something is ever injected into a page:
+              //
+              //   frame-ancestors — the CSP-native clickjacking control. We
+              //     already send `X-Frame-Options: DENY`, but that header is the
+              //     legacy mechanism; modern browsers honour this one, and CSP
+              //     Level 2+ says frame-ancestors OVERRIDES X-Frame-Options
+              //     where both are present. Same policy, stated where it counts.
+              //   base-uri — without it, an injected `<base href>` silently
+              //     repoints every relative script/style URL at an attacker.
+              //     Nothing in this app sets `<base>`.
+              //   object-src — no plugins here; 'none' removes a legacy vector.
+              //
+              // `form-action` is deliberately NOT set: Clerk and Stripe both
+              // drive redirect/POST flows to their own domains, and getting the
+              // allowlist wrong breaks sign-in and checkout. Adding it needs a
+              // pass through both flows first — worth doing, not worth guessing.
+              "frame-ancestors 'none'",
+              "base-uri 'self'",
+              "object-src 'none'",
               "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.accounts.dev https://challenges.cloudflare.com",
               "style-src 'self' 'unsafe-inline'",
               "img-src 'self' data: blob: https://img.clerk.com https://*.clerk.accounts.dev" + r2ImgSrc,

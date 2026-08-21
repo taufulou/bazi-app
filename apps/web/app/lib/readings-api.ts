@@ -659,34 +659,6 @@ export async function createBaziReading(
   });
 }
 
-/**
- * Create a ZWDS reading via NestJS (chart + AI + credits + DB).
- * Slug → enum mapping happens internally.
- */
-export async function createZwdsReading(
-  token: string,
-  params: {
-    birthProfileId: string;
-    readingType: string; // frontend slug e.g. "zwds-career"
-    targetYear?: number;
-    targetMonth?: number;
-    targetDay?: string;
-    questionText?: string;
-  },
-): Promise<NestJSReadingResponse> {
-  return apiFetch<NestJSReadingResponse>('/api/zwds/readings', {
-    method: 'POST',
-    token,
-    body: JSON.stringify({
-      birthProfileId: params.birthProfileId,
-      readingType: READING_TYPE_MAP[params.readingType], // slug → enum
-      ...(params.targetYear && { targetYear: params.targetYear }),
-      ...(params.targetMonth && { targetMonth: params.targetMonth }),
-      ...(params.targetDay && { targetDay: params.targetDay }),
-      ...(params.questionText && { questionText: params.questionText }),
-    }),
-  });
-}
 
 /**
  * Fetch a saved reading by ID.

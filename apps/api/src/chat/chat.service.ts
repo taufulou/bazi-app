@@ -20,6 +20,9 @@ import {
 import { ChatContextService } from './chat-context.service';
 import { ChatValidatorsService } from './chat-validators.service';
 import { RedisService } from '../redis/redis.service';
+import { AiSpendService } from '../ai/ai-spend.service';
+import { AiGovernorService } from '../ai/ai-governor.service';
+import { QuotaService } from '../ai/quota.service';
 import { buildPrompt } from './chat-prompt-builder';
 import {
   CreateChatSessionResponse,
@@ -97,6 +100,9 @@ export class ChatService {
     private readonly contextService: ChatContextService,
     private readonly validators: ChatValidatorsService,
     private readonly redis: RedisService,
+    private readonly aiSpend: AiSpendService,
+    private readonly aiGovernor: AiGovernorService,
+    private readonly quota: QuotaService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     if (!apiKey) {
@@ -164,14 +170,33 @@ export class ChatService {
     let resolvedProfileId: string | null = null;
 
     if (hasReading) {
-      // Validate reading ownership
+      // Validate reading ownership AND entitlement
       const reading = await this.prisma.baziReading.findUnique({
         where: { id: readingId },
-        select: { id: true, userId: true, readingType: true },
+        select: { id: true, userId: true, readingType: true, refundedAt: true },
       });
       if (!reading) throw new NotFoundException(`Reading ${readingId} not found`);
       if (reading.userId !== user.id) {
         throw new ForbiddenException('Reading not owned by this user');
+      }
+      // ⚠️ F6 — ownership is NOT enough, exactly as the comparison branch below
+      // says for `paidAt`. That reasoning was never carried across to readings.
+      //
+      // Chat rebuilds the analysis from the birth profile via the engine — it
+      // does not read `aiInterpretation` — so a refunded reading, whose
+      // interpretation the refund nulled, still yields a full narration. F2
+      // closed `getReading` and `_setupStream`; this is the third door onto the
+      // same content, and for LIFETIME the refuse template is `null`, so the
+      // session answers anything.
+      //
+      // Truthiness, not `=== null`: Prisma returns null but a partial select or
+      // a mock yields undefined, and `undefined === null` is false — the exact
+      // slip that briefly paywalled paying customers during F2.
+      if (reading.refundedAt) {
+        throw new BadRequestException({
+          code: 'READING_REFUNDED',
+          message: '此分析已退款，點數已退回。請重新建立一次分析後再開始對話。',
+        });
       }
       resolvedReadingType = reading.readingType;
     } else if (hasComparison) {
@@ -242,6 +267,23 @@ export class ChatService {
           message: `FORTUNE chat supports DAY, MONTH, and YEAR scope (got: ${fortune!.fortuneScope}).`,
         });
       }
+
+      // ⚠️ F5 — the subscription window, same rule the fortune HTTP routes
+      // enforce. Without it, ownership + scope were the ONLY checks: a FREE
+      // user could anchor a session at 2030 and read a 年運 that
+      // `GET /api/fortune/yearly?year=2030` refuses with 403, and a subscriber
+      // could read any year at all out of their free-message quota.
+      //
+      // Enforced here as well as inside `getChatContextForFortune` — this is
+      // the fail-fast copy, so an out-of-window request never creates a session
+      // row. The context-builder copy is the load-bearing one: it re-checks on
+      // every message, catching a tier that changes mid-session.
+      this.contextService.assertFortuneWindowForTier(
+        user.subscriptionTier,
+        fortune!.fortuneScope as 'DAY' | 'MONTH' | 'YEAR',
+        fortune!.fortuneAnchorDate,
+      );
+
       resolvedReadingType = 'FORTUNE';
       resolvedProfileId = profile.id;
     }
@@ -328,6 +370,30 @@ export class ChatService {
       throw new BadRequestException({
         code: 'COMPARISON_NOT_UNLOCKED',
         message: '請先解鎖完整合盤報告，才能開始對話。',
+      });
+    }
+  }
+
+  /**
+   * F6 — the reading twin of `assertComparisonUnlocked`.
+   *
+   * Called on EVERY message, not just at session create: sessions are
+   * long-lived and a refund can land mid-conversation, at which point the user
+   * has their credits back and an open session over the content they returned.
+   * Same reasoning, same shape as the comparison helper above.
+   *
+   * Truthiness, not `=== null` — Prisma returns null but a partial select or a
+   * mock gives undefined, and `undefined === null` is false.
+   */
+  async assertReadingNotRefunded(readingId: string): Promise<void> {
+    const row = await this.prisma.baziReading.findUnique({
+      where: { id: readingId },
+      select: { refundedAt: true },
+    });
+    if (!row || row.refundedAt) {
+      throw new BadRequestException({
+        code: 'READING_REFUNDED',
+        message: '此分析已退款，點數已退回。請重新建立一次分析後再開始對話。',
       });
     }
   }
@@ -608,6 +674,29 @@ export class ChatService {
         );
       }
 
+      // F6 — same reasoning: don't sell 10 messages every send will refuse.
+      // A reading can be refunded between session create and extend.
+      if (session.readingId) {
+        await this.assertReadingNotRefunded(session.readingId);
+      }
+
+      // F5 — same reasoning as the drift check above, for the same reason:
+      // don't sell 10 messages that every send will refuse. A FORTUNE session
+      // can fall out of window between create and extend (a period rolls over,
+      // or the tier is downgraded), and the per-message gate in
+      // `getChatContextForFortune` would then reject each one.
+      if (
+        session.readingType === 'FORTUNE' &&
+        session.fortuneScope &&
+        session.fortuneAnchorDate
+      ) {
+        this.contextService.assertFortuneWindowForTier(
+          user.subscriptionTier,
+          session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR',
+          session.fortuneAnchorDate.toISOString().slice(0, 10),
+        );
+      }
+
       return await this.paymentService.extendSession(sessionId, user.id);
     } finally {
       await this.redis.releaseLock(lockKey).catch((err) => {
@@ -695,6 +784,16 @@ export class ChatService {
     //    the deduction txn, so a DB write failure could leak a deduction without
     //    persisting the message.
     //    deductForMessage throws 402 NEEDS_EXTENSION or 409 HARD_CAP_REACHED.
+    // S4 — OUTSIDE the transaction, deliberately. Inside it, a Redis STALL
+    // (as opposed to an error) holds an open Postgres transaction and a pool
+    // connection for its duration, so `consume`'s fail-open guarantee did not
+    // hold there — it degraded into a transaction timeout that failed the
+    // message. This still satisfies "before the deduction".
+    // S2 before S4 — see the note at the first site: a refusal we issue must
+    // not spend the user's daily allowance. Cheap pre-read; the generation
+    // layer's check stays authoritative.
+    await this.aiSpend.assertUnderCap('chat:sync');
+    await this.quota.consume('chat', user.id);
     const { deduction, userMessage } = await this.prisma.$transaction(async (tx) => {
       const result = await this.paymentService.deductForMessage(sessionId, user.id, tx);
       // Set firstMessageAt on first deduction (idempotent updateMany guard)
@@ -775,6 +874,10 @@ export class ChatService {
           session.readingType,
         );
       } else if (session.readingId) {
+        // F6 — mirrors the comparison re-check above. A refund clears the
+        // entitlement mid-session; without this the user keeps an open session
+        // over content they were refunded for.
+        await this.assertReadingNotRefunded(session.readingId);
         chatContext = await this.contextService.getChatContextForReading(
           session.readingId,
           session.readingType,
@@ -788,11 +891,18 @@ export class ChatService {
         // chat-context (different signals + intra-month breakdown for MONTH).
         // Default 'DAY' when scope is null (back-compat with sessions created
         // pre-L3.5b that may have null scope — should be rare).
+        // F5 — `userId` is what re-checks the subscription window on EVERY
+        // message, not just at session create. A subscriber can open a +4yr
+        // session and then downgrade; the anchor is pinned on the row, so
+        // without this the session keeps serving content the tier no longer
+        // entitles them to. Mirrors the comparison path's mid-session `paidAt`
+        // re-check a few branches up.
         chatContext = await this.contextService.getChatContextForFortune(
           session.profileId,
           session.fortuneAnchorDate.toISOString().slice(0, 10),
           session.readingType,
           (session.fortuneScope as 'DAY' | 'MONTH' | 'YEAR' | null) ?? 'DAY',
+          session.userId,
         );
       } else {
         throw new Error(
@@ -881,7 +991,14 @@ export class ChatService {
       // timeout is ~10 min — without this, a hung upstream pins our server
       // resources and racks up output tokens. Phase 1.6 streaming uses a
       // delta-level watchdog instead.
-      const response = await this.anthropic.messages.create(
+      // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
+      // generation stops. Throws a typed 503 that the caller's existing
+      // error path maps to a refund where a credit was already taken.
+      await this.aiSpend.assertUnderCap('chat:sync');
+      // S1 — a non-streaming call IS the whole upstream request, so wrapping
+      // it in `run` holds the slot for exactly the right window.
+      const response = await this.aiGovernor.run('interactive', 'chat:sync', () =>
+        this.anthropic.messages.create(
         {
           model: this.model,
           max_tokens: CHAT_OUTPUT_MAX_TOKENS_LOCAL,
@@ -895,8 +1012,24 @@ export class ChatService {
           messages,
         },
         { timeout: 60_000 },
-      );
+      ));
 
+      // S2 — meter this call. Chat and fortune bypassed `ai.service`'s usage
+      // logger entirely, so before this every token they spent was invisible
+      // to both `AIUsageLog` and the spend breaker.
+      void this.aiSpend.record({
+        provider: 'CLAUDE',
+        model: this.model,
+        usage: {
+          inputTokens: response.usage?.input_tokens ?? 0,
+          outputTokens: response.usage?.output_tokens ?? 0,
+          cacheReadTokens:
+            ((response.usage ?? {}) as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
+          cacheWriteTokens:
+            ((response.usage ?? {}) as { cache_creation_input_tokens?: number }).cache_creation_input_tokens ?? 0,
+        },
+        context: 'chat:sync',
+      });
       const assistantContent = response.content
         .filter((b) => b.type === 'text')
         .map((b) => (b as { type: 'text'; text: string }).text)
@@ -1004,6 +1137,30 @@ export class ChatService {
         },
       };
     } catch (err) {
+      // ⚠️ An entitlement refusal is NOT an AI failure. The F5 window gate lives
+      // inside `getChatContextForFortune`, which is called from this try block,
+      // so without this branch a FREE user whose session crossed a period
+      // boundary saw «AI 暫時無法回答» — the frontend cannot dispatch its
+      // paywall UI (it keys on `code`), the message row is stamped AI_FAILED,
+      // and every refusal inflates the AI-failure rate that the Sentry alert
+      // and the A6/A7 telemetry watch.
+      //
+      // Still refund: no Anthropic call was made, so the deduction must come
+      // back either way — but report the real reason.
+      if (err instanceof HttpException) {
+        await this.paymentService
+          .refundLastMessage(
+            userMessage.id,
+            sessionId,
+            user.id,
+            `entitlement-refused: ${err.message}`,
+          )
+          .catch((refundErr) =>
+            this.logger.warn(`Refund after entitlement refusal failed: ${refundErr}`),
+          );
+        throw err;
+      }
+
       // Anthropic call failed — refund the deducted message
       this.logger.error(`Anthropic call failed for message ${userMessage.id}: ${err}`);
 

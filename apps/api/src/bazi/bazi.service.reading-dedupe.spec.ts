@@ -62,6 +62,9 @@ describe('BaziService.createReading — dedupe', () => {
       prisma as never, redis as never,
       { get: () => 'http://engine.test' } as unknown as ConfigService,
       ai as never, { deductCredits } as never,
+      { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
+      // S2 — the cap pre-check that now runs before every quota consume.
+      { assertUnderCap: jest.fn(), record: jest.fn() } as never,
     );
     jest
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

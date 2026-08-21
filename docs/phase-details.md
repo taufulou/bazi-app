@@ -66,7 +66,7 @@
 
 ## ZWDS Engine (iztro) Details
 - **Library**: iztro v2.5.7 (Node.js, installed at monorepo root)
-- **Backend**: `apps/api/src/zwds/` -- NestJS module with full CRUD, credit system, AI integration
+- **Backend**: DELETED 2026-08-16. ZWDS never shipped; the module (controller, service, DTOs, 5 generation paths) was removed rather than left disabled. The `ZWDS_*` enum values and prompt constants remain so the two already-paid readings still render, and `POST /api/bazi/readings` now rejects ZWDS types outright.
 - **Frontend Direct**: `apps/web/app/api/zwds-calculate/route.ts` -- Next.js API route (no auth/credits)
 - **Chart Data**: Standardized `ZwdsChartData` with 12 palaces, major/minor/adjective stars, brightness, mutagens, horoscope (decadal/yearly/monthly/daily)
 - **Time Index**: HH:MM → iztro time index (0=early zi, 1=chou, ... 12=late zi)

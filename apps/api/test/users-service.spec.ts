@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ReadingType } from '@prisma/client';
 import { UsersService } from '../src/users/users.service';
+import { AIService } from '../src/ai/ai.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 
 describe('UsersService.getReadingHistory — ?type= filter', () => {
@@ -30,6 +31,10 @@ describe('UsersService.getReadingHistory — ?type= filter', () => {
         { provide: PrismaService, useValue: mockPrisma },
         // M6: UsersService.deleteAccount needs ConfigService (Stripe/Clerk/RC keys).
         { provide: ConfigService, useValue: { get: jest.fn().mockReturnValue(undefined) } },
+        // C1: deleteAccount purges ReadingCache using the AI service's own
+        // cache-key hash (injected rather than re-implemented, so the two can't
+        // drift). Irrelevant to reading-history; stubbed to satisfy the graph.
+        { provide: AIService, useValue: { generateBirthDataHash: jest.fn(() => 'hash') } },
       ],
     }).compile();
 

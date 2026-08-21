@@ -394,6 +394,57 @@ describe('StripeService', () => {
       );
     });
 
+    // ⚠️ This test previously asserted the OPPOSITE — that cancelling downgrades
+    // the user to FREE immediately — and so enshrined the regression the Phase 1
+    // gate audit found. A `cancel_at_period_end` cancellation does not end
+    // entitlement; `customer.subscription.deleted` does. Keeping the old
+    // assertion would have meant the fix could only land by deleting a test,
+    // which is the shape that makes a wrong behaviour look load-bearing.
+    it('does NOT downgrade the user when cancelling at period end', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, subscriptionTier: 'PRO' });
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-db-1',
+        stripeSubscriptionId: 'sub_stripe_123',
+        status: 'ACTIVE',
+      });
+      mockStripeSubscriptions.update.mockResolvedValue({
+        items: { data: [{ current_period_end: Math.floor(Date.now() / 1000) + 2592000 }] },
+      });
+      mockPrisma.subscription.update.mockResolvedValue({});
+      // `syncUserTier` would see no ACTIVE rows and compute FREE — so if anything
+      // calls it on this path, the user is downgraded with a month left to run.
+      mockPrisma.subscription.findMany.mockResolvedValue([]);
+
+      await service.cancelSubscription('clerk_user_abc');
+
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('marks the subscription as scheduled-to-cancel, keeping it reactivatable', async () => {
+      // The UI renders 「已排定取消」 off `status === 'CANCELLED'` and
+      // `reactivateSubscription` looks the row up by it, so the write itself must
+      // stay — it is only the ENTITLEMENT recompute that was wrong.
+      mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, subscriptionTier: 'PRO' });
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-db-1',
+        stripeSubscriptionId: 'sub_stripe_123',
+        status: 'ACTIVE',
+      });
+      mockStripeSubscriptions.update.mockResolvedValue({
+        items: { data: [{ current_period_end: Math.floor(Date.now() / 1000) + 2592000 }] },
+      });
+      mockPrisma.subscription.update.mockResolvedValue({});
+
+      await service.cancelSubscription('clerk_user_abc');
+
+      expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'sub-db-1' },
+          data: expect.objectContaining({ status: 'CANCELLED' }),
+        }),
+      );
+    });
+
     it('should throw NotFoundException when no active subscription', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
       mockPrisma.subscription.findFirst.mockResolvedValue(null);
@@ -422,6 +473,35 @@ describe('StripeService', () => {
         'sub_stripe_123',
         { cancel_at_period_end: false },
       );
+    });
+
+    // The sharper direction of the same defect: without the recompute the row
+    // says ACTIVE while User.subscriptionTier stays FREE, so every gate reading
+    // it denies a paying customer — and the endpoint returns {success: true}.
+    it('recomputes the user tier after reactivating (was silently left FREE)', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ ...MOCK_USER, subscriptionTier: 'FREE' });
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-db-1',
+        stripeSubscriptionId: 'sub_stripe_123',
+        status: 'CANCELLED',
+      });
+      mockStripeSubscriptions.update.mockResolvedValue({});
+      mockPrisma.subscription.update.mockResolvedValue({});
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        {
+          id: 'sub-db-1',
+          planTier: 'PRO',
+          status: 'ACTIVE',
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+        },
+      ]);
+
+      await service.reactivateSubscription('clerk_user_abc');
+
+      expect(mockPrisma.user.update).toHaveBeenCalledWith({
+        where: { id: MOCK_USER.id },
+        data: { subscriptionTier: 'PRO' },
+      });
     });
 
     it('should throw NotFoundException when no cancelled subscription', async () => {
@@ -1146,6 +1226,75 @@ describe('StripeService', () => {
   // Webhook — Subscription Updated
   // ============================================================
 
+  describe('handleSubscriptionUpdated — unmappable plan slug', () => {
+    // F9 audit. This was `planSlugToTier(planSlug || 'basic')`, and that helper
+    // answers 'FREE' for anything unrecognised — so a subscription whose metadata
+    // we don't own (Dashboard-created, migrated, renamed slug) had BASIC or FREE
+    // written over its real tier on EVERY subscription event.
+    const subWithSlug = (planSlug?: string) =>
+      ({
+        id: 'sub_stripe_123',
+        status: 'active',
+        cancel_at: null,
+        items: { data: [{ current_period_start: 1700000000, current_period_end: 1702592000 }] },
+        metadata: { internalUserId: 'user-123', ...(planSlug ? { planSlug } : {}) },
+      }) as any;
+
+    beforeEach(() => {
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
+      mockPrisma.subscription.update.mockResolvedValue({});
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-db-1', planTier: 'MASTER', status: 'ACTIVE', createdAt: new Date('2026-01-01') },
+      ]);
+    });
+
+    it.each([
+      ['absent', undefined],
+      ['unrecognised', 'enterprise'],
+    ])('preserves the stored tier when the slug is %s', async (_label, slug) => {
+      mockPrisma.subscription.findFirst.mockResolvedValue({ id: 'sub-db-1' });
+
+      await service.handleSubscriptionUpdated(subWithSlug(slug as string | undefined));
+
+      const [arg] = mockPrisma.subscription.update.mock.calls[0];
+      expect(arg.data).not.toHaveProperty('planTier');
+      // The period and status still update — only the entitlement-bearing field
+      // is withheld, matching how an unrecognised `status` is already handled.
+      expect(arg.data).toMatchObject({ status: 'ACTIVE' });
+    });
+
+    it('alerts on an unmappable slug rather than failing silently', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue({ id: 'sub-db-1' });
+
+      await service.handleSubscriptionUpdated(subWithSlug('enterprise'));
+
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'stripe.unknown_plan_slug',
+        expect.objectContaining({ extra: expect.objectContaining({ planSlug: 'enterprise' }) }),
+      );
+    });
+
+    it('creates NO row for an unmappable slug when none exists', async () => {
+      // No stored value to preserve here, so inventing one would create an ACTIVE
+      // row bearing a tier we cannot justify.
+      mockPrisma.subscription.findFirst.mockResolvedValue(null);
+
+      await service.handleSubscriptionUpdated(subWithSlug('enterprise'));
+
+      expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
+      expect(mockPrisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('still maps a known slug', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue({ id: 'sub-db-1' });
+
+      await service.handleSubscriptionUpdated(subWithSlug('master'));
+
+      const [arg] = mockPrisma.subscription.update.mock.calls[0];
+      expect(arg.data).toMatchObject({ planTier: 'MASTER' });
+    });
+  });
+
   describe('handleSubscriptionUpdated', () => {
     it('should update existing subscription status and tier', async () => {
       const sub = {
@@ -1705,7 +1854,12 @@ describe('StripeService', () => {
       );
     });
 
-    it('should default unknown slugs to FREE', async () => {
+    // WAS: "should default unknown slugs to FREE" — a test that encoded the
+    // defect. Defaulting to FREE is not a mapping, it is a silent downgrade of
+    // whatever tier the subscription actually held, applied on every event. The
+    // webhook now withholds `planTier` instead; see the "unmappable plan slug"
+    // describe above for the full contract.
+    it('withholds planTier for an unknown slug rather than defaulting to FREE', async () => {
       const sub = {
         id: 'sub_1',
         status: 'active',
@@ -1719,11 +1873,8 @@ describe('StripeService', () => {
 
       await service.handleSubscriptionUpdated(sub);
 
-      expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ planTier: 'FREE' }),
-        }),
-      );
+      const [arg] = mockPrisma.subscription.update.mock.calls[0];
+      expect(arg.data).not.toHaveProperty('planTier');
     });
   });
 });

@@ -25,7 +25,9 @@ describe('ChatService', () => {
   beforeEach(() => {
     mockPrisma = {
       user: { findUnique: jest.fn() },
-      baziReading: { findUnique: jest.fn() },
+      // F6 — sendMessage re-checks reading entitlement before building context,
+      // so this needs a non-refunded default or every sendMessage test 400s.
+      baziReading: { findUnique: jest.fn().mockResolvedValue({ refundedAt: null }) },
       chatSession: {
         findUnique: jest.fn(),
         findUniqueOrThrow: jest.fn(),
@@ -116,6 +118,9 @@ describe('ChatService', () => {
       mockContextService,
       mockValidators,
       mockRedis,
+      { record: jest.fn(), assertUnderCap: jest.fn() } as never,
+      { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
+      { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     );
 
     // Patch the Anthropic client on the service to mock
@@ -344,6 +349,61 @@ describe('ChatService', () => {
         's1',
         'user-1',
         expect.stringContaining('Anthropic 503'),
+      );
+    });
+
+    it('reports an ENTITLEMENT refusal as itself, not as an AI failure', async () => {
+      // F5 audit F-2. The fortune window gate lives inside
+      // `getChatContextForFortune`, which is called from the same try block as
+      // the Anthropic call — so a refusal used to surface as
+      // «AI 暫時無法回答» / AI_CALL_FAILED with the row stamped AI_FAILED.
+      // The frontend keys its paywall UI on `code`, and the AI-failure rate is
+      // an alerting signal, so mislabelling this is both a UX and an
+      // observability defect. The credit must still come back.
+      mockPrisma.chatSession.findUnique.mockResolvedValue({
+        id: 's1',
+        userId: 'user-1',
+        startedAt: new Date(),
+        endedAt: null,
+        contextVersion: 'v1.0.0',
+        preAnalysisVersion: 'life=v2.9.0|love=v1.11.0|car=v2.5.0|ann=v2.4.0',
+        messageCount: 0,
+        firstMessageAt: null,
+        readingId: 'reading-1',
+        creditExtensions: 0,
+        paidMessagesUsed: 0,
+      });
+      mockPaymentService.deductForMessage.mockResolvedValue({ method: 'FREE_QUOTA' });
+      mockPrisma.chatMessage.create.mockResolvedValue({ id: 'm1' });
+      mockPrisma.chatMessage.findMany.mockResolvedValue([]);
+      mockContextService.getChatContextForReading.mockRejectedValue(
+        new ForbiddenException({
+          code: 'SUBSCRIBER_ONLY',
+          message: '此功能限訂閱用戶 — 免費用戶僅可查看當年運勢',
+        }),
+      );
+      mockPaymentService.refundLastMessage.mockResolvedValue({
+        refunded: true,
+        method: 'FREE_QUOTA',
+      });
+
+      await expect(
+        service.sendMessage('clerk-1', 's1', 'hello'),
+      ).rejects.toMatchObject({
+        status: 403,
+        response: expect.objectContaining({ code: 'SUBSCRIBER_ONLY' }),
+      });
+
+      // Refunded — no Anthropic call was made.
+      expect(mockPaymentService.refundLastMessage).toHaveBeenCalledWith(
+        'm1',
+        's1',
+        'user-1',
+        expect.stringContaining('entitlement-refused'),
+      );
+      // And NOT mislabelled as an AI failure.
+      expect(mockPrisma.chatMessage.update).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { errorCode: 'AI_FAILED' } }),
       );
     });
   });

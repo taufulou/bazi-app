@@ -160,6 +160,90 @@ export class CreditsService {
     });
   }
 
+  /**
+   * Signed admin/manual adjustment. Positive grants, negative deducts.
+   * Writes a `CreditLedger` row either way — this is the ONLY sanctioned way to
+   * move credits outside the purchase/spend/refund flows, and it exists so the
+   * ledger stays a complete record of every movement. `sum(CreditLedger.amount)`
+   * must reconcile against `user.credits`; a raw `user.update({ credits })`
+   * silently breaks that invariant.
+   *
+   * Atomicity matters more here than it looks. The obvious implementation —
+   * read `user.credits`, add the delta, write the absolute result — loses any
+   * concurrent spend: a user burning 3 credits while an admin grants +1 ends up
+   * with their 3 credits handed back. So the negative branch is a guarded
+   * `updateMany` (the `deductCredits` pattern) and the positive branch is a
+   * relative `increment`; neither reads-then-writes.
+   *
+   * @param amount signed, non-zero
+   * @param reason free text; callers that act on behalf of a person should
+   *               encode who (e.g. `admin_adjust:<adminUserId>:<note>`)
+   * @returns the true before/after balances, read inside the same transaction
+   */
+  async adjustCredits(
+    userId: string,
+    amount: number,
+    reason: string,
+    options?: { tx?: Prisma.TransactionClient },
+  ): Promise<{ before: number; after: number }> {
+    if (!Number.isInteger(amount) || amount === 0) {
+      throw new BadRequestException(`Adjustment must be a non-zero integer, got ${amount}`);
+    }
+
+    const run = async (client: Prisma.TransactionClient) => {
+      let after: number;
+
+      if (amount < 0) {
+        const needed = -amount;
+        const guard = await client.user.updateMany({
+          where: { id: userId, credits: { gte: needed } },
+          data: { credits: { decrement: needed } },
+        });
+        if (guard.count === 0) {
+          // Only read to build the message — we're on the way to throwing.
+          const current = await client.user.findUniqueOrThrow({
+            where: { id: userId },
+            select: { credits: true },
+          });
+          throw new BadRequestException(
+            `Cannot adjust: user has ${current.credits} credits, adjustment of ${amount} would go negative`,
+          );
+        }
+        // `updateMany` returns a count, not the row.
+        const row = await client.user.findUniqueOrThrow({
+          where: { id: userId },
+          select: { credits: true },
+        });
+        after = row.credits;
+      } else {
+        const row = await client.user.update({
+          where: { id: userId },
+          data: { credits: { increment: amount } },
+          select: { credits: true },
+        });
+        after = row.credits;
+      }
+
+      await client.creditLedger.create({ data: { userId, amount, reason } });
+
+      // ⚠️ `before` is DERIVED from the post-write value, never read separately.
+      // Prisma interactive transactions run at the database default isolation
+      // (READ COMMITTED on Postgres), so each statement takes a fresh snapshot:
+      // a spend committing between a separate "before" read and the write would
+      // produce an incoherent pair — e.g. before=10, after=8, for amount=+1 —
+      // written verbatim into AdminAuditLog. Deriving it guarantees
+      // `after - before === amount` always reads as the adjustment that happened.
+      const before = after - amount;
+
+      this.logger.log(`Adjusted ${amount} credits for user ${userId} (${before} → ${after}): ${reason}`);
+      return { before, after };
+    };
+
+    // Prisma has no nested interactive transactions — when the caller supplies
+    // one, join it so the ledger row and their own writes commit together.
+    return options?.tx ? run(options.tx) : this.prisma.$transaction(run);
+  }
+
   async getBalance(userId: string): Promise<number> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

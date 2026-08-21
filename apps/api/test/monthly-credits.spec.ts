@@ -50,12 +50,19 @@ jest.mock('stripe', () => {
   }));
 });
 
+// Sentry mocked so the unexpected-billing_reason alert is observable + inert.
+const mockCaptureMessage = jest.fn();
+jest.mock('@sentry/nestjs', () => ({
+  captureMessage: (...args: unknown[]) => mockCaptureMessage(...args),
+}));
+
 // ============================================================
 // Mock Prisma — shared by both services
 // ============================================================
 
 const mockTxUser = { update: jest.fn() };
 const mockTxMonthlyCreditsLog = { create: jest.fn() };
+const mockTxCreditLedger = { create: jest.fn() };
 
 const mockPrisma = {
   user: {
@@ -95,6 +102,7 @@ const mockPrisma = {
     return fn({
       user: mockTxUser,
       monthlyCreditsLog: mockTxMonthlyCreditsLog,
+      creditLedger: mockTxCreditLedger,
     });
   }),
 };
@@ -200,6 +208,12 @@ describe('Monthly Credits', () => {
       expect(mockTxUser.update).toHaveBeenCalledWith({
         where: { id: 'user-123' },
         data: { credits: { increment: 5 } },
+      });
+      // The largest recurring credit inflow has to reach CreditLedger too, in
+      // the SAME transaction. MonthlyCreditsLog answers "was this period
+      // granted"; only CreditLedger reconciles against user.credits.
+      expect(mockTxCreditLedger.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'user-123', amount: 5 }),
       });
     });
 
@@ -471,6 +485,249 @@ describe('Monthly Credits', () => {
           creditAmount: 15,
         }),
       });
+    });
+
+    // ============================================================
+    // PLAN-CHANGE PRORATIONS MUST NOT GRANT (F9 audit)
+    //
+    // The hazard: a proration invoice's line period starts at the moment of the
+    // change, `MonthlyCreditsLog.@@unique([userId, periodStart])` is a full
+    // DateTime, so such an invoice collides with nothing and pays out a whole
+    // unprorated month — every plan change, repeatable.
+    //
+    // `upgradeSubscription` avoids RAISING one (`create_prorations`), but that
+    // only protects our own code path. The Stripe Dashboard can produce the same
+    // invoice via the portal's "Charge timing → Invoice prorations immediately",
+    // with no code change — so `handleInvoicePaid` now refuses to grant on
+    // `billing_reason: 'subscription_update'`.
+    //
+    // The first two tests below are the DAMAGE MODEL — they run the guard's
+    // deny-list around it (no `billing_reason`, as several real fixtures lack it)
+    // to show what the shape does when it reaches the grant. The third pins the
+    // guard itself. What is NOT proven here, and cannot be from this repo, is the
+    // Stripe-side premise that a proration line's `period.start` is the change
+    // moment; these take an invoice of that shape as GIVEN.
+    // ============================================================
+
+    it('refuses to grant on a plan-change proration (billing_reason=subscription_update)', async () => {
+      const invoice = {
+        id: 'in_portal_switch',
+        amount_paid: 4000,
+        currency: 'usd',
+        billing_reason: 'subscription_update',
+        lines: {
+          data: [{
+            description: 'Remaining time on Master after 15 Jan 2026',
+            period: {
+              start: Math.floor(new Date('2026-01-15T10:30:00.000Z').getTime() / 1000),
+              end: Math.floor(PERIOD_END.getTime() / 1000),
+            },
+          }],
+        },
+        parent: { subscription_details: { subscription: 'sub_stripe_123' } },
+      } as any;
+
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
+        status: 'ACTIVE',
+      });
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'PRO', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
+      mockPrisma.transaction.create.mockResolvedValue({});
+      mockPrisma.plan.findFirst.mockResolvedValue(MOCK_PRO_PLAN);
+
+      await stripeService.handleInvoicePaid(invoice);
+
+      // The payment is still recorded — we just don't treat it as a new period.
+      expect(mockPrisma.transaction.create).toHaveBeenCalled();
+      expect(mockTxMonthlyCreditsLog.create).not.toHaveBeenCalled();
+    });
+
+    it('still grants on a renewal (billing_reason=subscription_cycle)', async () => {
+      // The deny-list must not catch the case the grant exists for.
+      const invoice = {
+        id: 'in_cycle',
+        amount_paid: 999,
+        currency: 'usd',
+        billing_reason: 'subscription_cycle',
+        lines: {
+          data: [{
+            description: 'Pro Plan × 1',
+            period: {
+              start: Math.floor(new Date('2026-02-01').getTime() / 1000),
+              end: Math.floor(new Date('2026-03-01').getTime() / 1000),
+            },
+          }],
+        },
+        parent: { subscription_details: { subscription: 'sub_stripe_123' } },
+      } as any;
+
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
+        status: 'ACTIVE',
+      });
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'PRO', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
+      mockPrisma.transaction.create.mockResolvedValue({});
+      mockPrisma.plan.findFirst.mockResolvedValue(MOCK_PRO_PLAN);
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
+
+      await stripeService.handleInvoicePaid(invoice);
+
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'user-123', creditAmount: 15 }),
+      });
+    });
+
+    it('grants when billing_reason is absent — fails OPEN, and alerts on the unexpected', async () => {
+      // Older payloads and several of our own fixtures carry no billing_reason.
+      // An allow-list would silently stop paying customers' credits; a deny-list
+      // grants and tells us. An unrecognised value must alert, not pass quietly.
+      const invoice = {
+        id: 'in_weird',
+        amount_paid: 999,
+        currency: 'usd',
+        billing_reason: 'quote_accept',
+        lines: {
+          data: [{
+            description: 'x',
+            period: {
+              start: Math.floor(PERIOD_START.getTime() / 1000),
+              end: Math.floor(PERIOD_END.getTime() / 1000),
+            },
+          }],
+        },
+        parent: { subscription_details: { subscription: 'sub_stripe_123' } },
+      } as any;
+
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
+        status: 'ACTIVE',
+      });
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'PRO', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
+      mockPrisma.transaction.create.mockResolvedValue({});
+      mockPrisma.plan.findFirst.mockResolvedValue(MOCK_PRO_PLAN);
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
+
+      await stripeService.handleInvoicePaid(invoice);
+
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalled();
+      expect(mockCaptureMessage).toHaveBeenCalledWith(
+        'stripe.unexpected_invoice_billing_reason',
+        expect.objectContaining({ extra: expect.objectContaining({ billingReason: 'quote_accept' }) }),
+      );
+    });
+
+    it('damage model: a proration-shaped invoice grants a FULL month, unprorated', async () => {
+      // A mid-cycle upgrade on 2026-01-15, i.e. period.start is the change
+      // moment — NOT the 2026-01-01 cycle start the renewal was keyed on.
+      const midCycle = new Date('2026-01-15T10:30:00.000Z');
+      const invoice = {
+        id: 'in_proration_upgrade',
+        amount_paid: 500, // a few dollars of proration
+        currency: 'usd',
+        lines: {
+          data: [{
+            description: 'Remaining time on Pro after 15 Jan 2026',
+            period: {
+              start: Math.floor(midCycle.getTime() / 1000),
+              end: Math.floor(PERIOD_END.getTime() / 1000),
+            },
+          }],
+        },
+        parent: { subscription_details: { subscription: 'sub_stripe_123' } },
+      } as any;
+
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
+        status: 'ACTIVE',
+      });
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'PRO', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
+      mockPrisma.transaction.create.mockResolvedValue({});
+      mockPrisma.plan.findFirst.mockResolvedValue(MOCK_PRO_PLAN);
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
+
+      await stripeService.handleInvoicePaid(invoice);
+
+      // A $5 proration buys a WHOLE month of credits — no proration of the
+      // grant, and no `billing_reason` filter to notice this isn't a renewal.
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-123',
+          creditAmount: 15,
+          // Keyed to the CHANGE MOMENT, which is what defeats the idempotency
+          // key — @@unique([userId, periodStart]) is a full DateTime.
+          periodStart: midCycle,
+        }),
+      });
+    });
+
+    it('damage model: two proration invoices in ONE cycle grant twice', async () => {
+      // The loop the comment warns about: upgrade, downgrade, upgrade. Each
+      // change stamps a distinct timestamp, so nothing dedups them.
+      const sub = {
+        id: 'sub-1',
+        userId: 'user-123',
+        stripeSubscriptionId: 'sub_stripe_123',
+        planTier: 'PRO',
+        status: 'ACTIVE',
+      };
+      mockPrisma.subscription.findFirst.mockResolvedValue(sub);
+      mockPrisma.subscription.findMany.mockResolvedValue([
+        { id: 'sub-1', planTier: 'PRO', currentPeriodStart: PERIOD_START, currentPeriodEnd: PERIOD_END, status: 'ACTIVE' },
+      ]);
+      mockPrisma.transaction.create.mockResolvedValue({});
+      mockPrisma.plan.findFirst.mockResolvedValue(MOCK_PRO_PLAN);
+      mockTxUser.update.mockResolvedValue({});
+      mockTxMonthlyCreditsLog.create.mockResolvedValue({});
+
+      const prorationInvoice = (id: string, at: string) => ({
+        id,
+        amount_paid: 500,
+        currency: 'usd',
+        lines: {
+          data: [{
+            description: 'proration',
+            period: {
+              start: Math.floor(new Date(at).getTime() / 1000),
+              end: Math.floor(PERIOD_END.getTime() / 1000),
+            },
+          }],
+        },
+        parent: { subscription_details: { subscription: 'sub_stripe_123' } },
+      }) as any;
+
+      await stripeService.handleInvoicePaid(prorationInvoice('in_p1', '2026-01-15T10:00:00.000Z'));
+      await stripeService.handleInvoicePaid(prorationInvoice('in_p2', '2026-01-15T10:05:00.000Z'));
+
+      // 30 credits inside one billing period, for ~$10 of prorations that a
+      // matching downgrade would largely refund.
+      expect(mockTxMonthlyCreditsLog.create).toHaveBeenCalledTimes(2);
+      const stamps = mockTxMonthlyCreditsLog.create.mock.calls.map(
+        ([arg]: [{ data: { periodStart: Date } }]) => arg.data.periodStart.toISOString(),
+      );
+      expect(new Set(stamps).size).toBe(2); // distinct keys ⇒ no dedup
     });
 
     it('should skip monthly credits when no line items in invoice', async () => {

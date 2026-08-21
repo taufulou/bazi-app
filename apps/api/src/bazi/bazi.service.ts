@@ -17,6 +17,10 @@ import { CreditsService } from '../credits/credits.service';
 import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto';
 import { Prisma, ReadingType } from '@prisma/client';
 import { deepCamelCase } from '../common/deep-camel-case';
+import { QuotaService } from '../ai/quota.service';
+import { AiSpendService } from '../ai/ai-spend.service';
+import { isSelfRefusal } from '../ai/typed-refusals';
+import { engineFetch } from '../common/engine-client';
 
 /**
  * Used only when the COMPATIBILITY service row is missing or has been
@@ -43,6 +47,68 @@ const COMPATIBILITY_FALLBACK_CREDIT_COST = 3;
  */
 const FIRST_GENERATION_INFLIGHT_MS = 360_000;
 
+
+/**
+ * Removes the subscriber-only content from an `/explain-element` response.
+ *
+ * The paid boundary is defined by the CLIENTS — `ElementExplanation.tsx` on web
+ * (`:294-405`) and `apps/mobile/src/components/ElementExplanation.tsx`
+ * (`:207-...`) both render these inside an `isSubscriber ?` branch:
+ *
+ *   • `personalized`  — Layer B `pillarMeaning`, C `godRoleMeaning`/`godRole`,
+ *                       D `genderMeaning`
+ *   • `pillarContext.paid`   (`.free` is the teaser and stays)
+ *   • `interactions`         — cross-pillar 六合/六沖 detail, subscriber-only
+ *                              on BOTH clients
+ *   • `dayPillarCombo`       — `grade` + `teaser` are the free tier behind a
+ *                              「解鎖日柱組合完整解讀」 CTA; `summary`,
+ *                              `gradeReason`, `specialLabels` and
+ *                              `lifeStageSeat` are paid. The engine ships all
+ *                              60 combos, so leaving `summary` in lets an
+ *                              anonymous caller enumerate the entire paid set.
+ *
+ * ⚠️ `personalized` is EMPTIED, not deleted. Mobile dereferences
+ * `data.personalized.pillarMeaning` with no guard (`:206`, `:240`), and its own
+ * error stub always supplies `personalized: {}` — so "always present" is an
+ * invariant of this payload. Deleting the key crashed every non-subscriber
+ * mobile caller with a TypeError. Emptying keeps the invariant and leaks
+ * nothing.
+ *
+ * Pure + total: a non-object response passes through untouched.
+ */
+export function stripPaidExplanationLayers(result: unknown): unknown {
+  if (!result || typeof result !== 'object' || Array.isArray(result)) return result;
+
+  const src = result as Record<string, unknown>;
+  const out: Record<string, unknown> = { ...src };
+
+  // Layers B/C/D. Emptied rather than removed — see the note above.
+  if ('personalized' in out) out.personalized = {};
+
+  // Split field: `.free` is the teaser, `.paid` is the full text.
+  const ctx = src.pillarContext;
+  if (ctx && typeof ctx === 'object' && !Array.isArray(ctx)) {
+    const rest = { ...(ctx as Record<string, unknown>) };
+    delete rest.paid;
+    out.pillarContext = rest;
+  }
+
+  // Cross-pillar interactions — wholly subscriber-only.
+  delete out.interactions;
+
+  // Day-pillar combo — keep the free teaser, drop the paid analysis.
+  const combo = src.dayPillarCombo;
+  if (combo && typeof combo === 'object' && !Array.isArray(combo)) {
+    const c = combo as Record<string, unknown>;
+    out.dayPillarCombo = {
+      ...(c.grade !== undefined && { grade: c.grade }),
+      ...(c.teaser !== undefined && { teaser: c.teaser }),
+    };
+  }
+
+  return out;
+}
+
 @Injectable()
 export class BaziService {
   private readonly logger = new Logger(BaziService.name);
@@ -54,6 +120,8 @@ export class BaziService {
     private configService: ConfigService,
     private aiService: AIService,
     private creditsService: CreditsService,
+    private readonly quota: QuotaService,
+    private readonly aiSpend: AiSpendService,
   ) {
     this.baziEngineUrl = this.configService.get<string>('BAZI_ENGINE_URL') || 'http://localhost:5001';
   }
@@ -318,6 +386,33 @@ export class BaziService {
           targetYear: dto.targetYear,
         };
 
+        // S4 — BEFORE generation, not before the deduction.
+        //
+        // ⚠️ The first placement was inside the `$transaction` next to
+        // `deductCredits`, which runs AFTER this AI call. On refusal the
+        // transaction rolls back — no reading row, no credit taken — while the
+        // tokens were already paid. Past the daily limit that made generation
+        // strictly CHEAPER for an abuser than before the quota existed. The
+        // streaming path already ordered these correctly; this is the branch a
+        // direct caller selects by omitting `stream`.
+        // ⚠️ S2 BEFORE S4. A refusal we issue ourselves must not spend the user's
+        // daily allowance, because it spends nothing of ours.
+        //
+        // Quota was consumed first, so a global budget event — which refuses
+        // EVERY user at once — let one person burn their whole day's allowance on
+        // 503s and stay locked out for the rest of the Taipei day after the
+        // budget was raised. One incident became a day-long per-user outage.
+        // `QuotaService`'s own docblock promises the opposite: "a request we
+        // refuse ourselves before spending anything never reaches `consume`".
+        //
+        // This check is a second, cheap read (one Redis GET) of the same counter
+        // the generation layer consults; that one stays authoritative. Ordering
+        // the CHEAP check first is also why this is not a quota refund — the
+        // counter must never decrement, or inducing failures becomes a way to
+        // reclaim quota.
+        await this.aiSpend.assertUnderCap('reading:create');
+        await this.quota.consume('reading', user.id);
+
         // Route V2 reading types to their multi-call generators; all others use V1
         let aiResult;
         if (dto.readingType === ReadingType.LIFETIME) {
@@ -361,6 +456,18 @@ export class BaziService {
           aiResult.interpretation,
         ).catch((err) => this.logger.error(`Cache write failed: ${err}`));
       } catch (err: unknown) {
+        // S1/S2/S4 — a refusal WE issued is not an AI failure. This catch is
+        // "return the calculation without AI", after which the caller charges
+        // full price — so a refused user paid for an empty reading and got
+        // HTTP 200.
+        //
+        // ⚠️ This guarded only the quota at first, which is the least likely of
+        // the three to arrive here: a spend cap or a full pool hits EVERY user
+        // at once, so during an incident every non-streaming reading billed
+        // full credits for a chart with no interpretation — revenue converted
+        // straight into refund tickets, at the moment the system was already
+        // degraded.
+        if (isSelfRefusal(err)) throw err;
         const message = err instanceof Error ? err.message : 'Unknown error';
         this.logger.error(`AI interpretation failed: ${message}`);
         // Don't fail the reading — return calculation without AI
@@ -486,6 +593,21 @@ export class BaziService {
         aiInterpretation: Prisma.DbNull,
         aiProvider: null,
         aiModel: null,
+        // ⚠️ Deliberately does NOT touch `refundedAt` or `creditsUsed`.
+        //
+        // `isDegraded: true` in the WHERE above already means this row was NOT
+        // refunded: `ai.service.ts` computes one exclusive status per attempt
+        // and sets `isDegraded` only on 'degraded', while the refund fires only
+        // on 'failed'. So a refunded reading can never match here — the user
+        // was charged, got partial content, and kept the charge.
+        //
+        // An earlier version of this block cleared `refundedAt` and zeroed
+        // `creditsUsed` to close a double-refund it believed regeneration
+        // opened. The clear was a no-op (the column is already null on every
+        // row that matches), and the zeroing was actively harmful: it erased
+        // the record of a real charge, so if the regenerated stream also failed,
+        // `refundReadingCredit`'s `creditsUsed > 0` guard blocked the refund and
+        // the user silently ate the credits they had paid.
       },
     });
 
@@ -549,12 +671,49 @@ export class BaziService {
       throw new NotFoundException('Reading not found');
     }
 
-    // Server-side paywall: non-subscribers only get preview sections
-    const isSubscriber = user.subscriptionTier !== 'FREE';
-    const isOwnerReading = reading.creditsUsed > 0 || reading.userId === user.id;
+    // Server-side paywall: non-subscribers only get preview sections.
+    //
+    // F2 — the previous predicate was `creditsUsed > 0 || reading.userId === user.id`.
+    // The WHERE clause above already scopes to `userId: user.id`, so the second
+    // disjunct was ALWAYS true: the preview-stripping below was unreachable dead
+    // code and every caller got full content. (The identical bug was found and
+    // fixed on the comparison path — see the `paidAt` note near :1293 — and never
+    // applied here or in zwds.service.)
+    //
+    // Deleting just the tautology is WRONG: the residue `creditsUsed > 0` would
+    // paywall 0-credit cache-hit readings, which are deliberately free (F4 —
+    // "same birth data won't charge twice"). Entitlement is therefore the
+    // absence of a refund, not the presence of a charge.
+    //
+    // Refund semantics: `refundedAt` is set only when generation FAILED outright
+    // and the credits were returned. The refund also nulls `aiInterpretation`,
+    // so a refunded row usually has nothing to strip — but the null-out is a
+    // separate `.catch()`-ed update (ai.service.ts ~:1356) that can fail on its
+    // own, leaving a refunded row holding content. This gate is what covers that.
+    // Truthiness, not `=== null`: Prisma returns `null` for an unset
+    // `DateTime?`, but a partial `select` (or a test mock) yields `undefined`,
+    // and `undefined === null` is false — which would silently paywall every
+    // PAYING customer. A Date is always truthy, so `!refundedAt` is exact for
+    // both real shapes and cannot misfire that way.
+    const isEntitled = !reading.refundedAt;
 
-    // If user paid for this reading (credits or free trial) OR is a subscriber, return full
-    if (isSubscriber || isOwnerReading) {
+    // ⚠️ There is deliberately NO `isSubscriber ||` here (F-4, 1B audit).
+    //
+    // It used to read `if (isSubscriber || isEntitled)`, which handed a
+    // refunded subscriber the full report — removing exactly the coverage the
+    // comment above says this gate provides. Two different concepts had been
+    // fused into one boolean: the preview PAYWALL (tier-based) and the refund
+    // ENTITLEMENT check, and the OR let the weaker one win.
+    //
+    // Subscribers are not exempt from paying: `createReading` computes
+    // `creditsUsed = fromCache ? 0 : service.creditCost` with no tier branch
+    // and deducts unconditionally. So a subscriber who was refunded got their
+    // credits back and is no more entitled to THIS reading than a free user.
+    // Stale logic from an earlier all-access subscription model.
+    //
+    // The asymmetry was the tell: the chat gate (F6) and the fortune window
+    // (F5) both correctly have no subscriber exemption. This was the odd one out.
+    if (isEntitled) {
       return reading;
     }
 
@@ -617,6 +776,34 @@ export class BaziService {
     if (!reading) throw new NotFoundException('Reading not found');
 
     this.logger.log(`[Stream] Reading found, hasAI=${!!reading.aiInterpretation}, hasCalc=${!!reading.calculationData}`);
+
+    // 1b. F2 PAYMENT GATE. This route previously had none — the defect the note
+    // at ~:198 describes from the create side ("`/readings/:id/stream` has NO
+    // payment gate, so the user gets their credits back AND the full paid
+    // report"). Two distinct costs, not just content:
+    //   • a refunded row has `aiInterpretation` nulled, so falling through does
+    //     not replay stored text — it runs a FULL provider generation, i.e. real
+    //     Anthropic spend, for a reading the user was already refunded for;
+    //   • that generation bypasses the regeneration counter entirely, since the
+    //     3-per-reading cap is enforced in `regenerateReading`, not here.
+    // The legitimate path forward is a NEW reading, not regeneration.
+    // `regenerateReading` matches only `isDegraded: true`, and a refunded row is
+    // never degraded (one exclusive status per attempt), so it would answer
+    // 「此分析狀態正常，無需重新生成」 — and the web UI doesn't render the
+    // regenerate control for a non-degraded reading anyway. The user has their
+    // credits back, so `POST /readings` creates and charges a fresh row: all
+    // three reuse branches require `refundedAt === null`, so the refunded row is
+    // correctly skipped rather than handed back.
+    if (reading.refundedAt) {
+      this.logger.warn(
+        `[Stream] REFUSED refunded reading=${readingId} user=${user.id} ` +
+        `(refundedAt=${reading.refundedAt.toISOString()}) — user should create a new reading`,
+      );
+      throw new BadRequestException({
+        code: 'READING_REFUNDED',
+        message: '此分析已退款，點數已退回。請重新建立一次分析。',
+      });
+    }
 
     // 2. If AI already populated (cache hit or re-fetch), emit static sections
     if (reading.aiInterpretation) {
@@ -682,6 +869,16 @@ export class BaziService {
       if (reading.readingType === 'ANNUAL' && reading.targetYear != null) {
         enrichedData.targetYear = reading.targetYear;
       }
+
+      // S4 — `_setupStream` serves BOTH the first stream and regeneration, and
+      // both generate. Regeneration is separately bounded per-reading by
+      // REGENERATION_LIMIT and requires `isDegraded`, so this is the smaller
+      // of the two holes — but it is still a spend path the daily bound missed.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('reading:stream');
+      await this.quota.consume('reading', user.id);
 
       // 5. Delegate to correct V2 streamer based on reading type
       let aiObservable;
@@ -833,20 +1030,46 @@ export class BaziService {
     // because a concurrent spend between generation and charge would let us
     // deliver the report for nothing; the CAS makes a retry free.
     try {
+      // S4 — BEFORE the 3-credit charge below. Placed after it, an over-quota
+      // user was debited and had `paidAt` set, and the throw had no refund
+      // path — `settleRefundIfEmpty` is declared later and never armed.
+      // 6. Delegate to ai.service streaming method
+      // S4 — comparisons are the most expensive unit in the app (3 credits, three
+      // parallel calls, 300s timeout) and had NO per-user bound: the reading quota
+      // only ever covered `createReading`. Charged against the same `reading`
+      // budget, because from a spend perspective that is what this is.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('compat:reveal-stream');
+      await this.quota.consume('reading', user.id);
       await this._chargeForReveal(user.id, comparison);
     } catch (err) {
       await this.redis.getClient().decr(activeKey);
       // Headers are already sent on an SSE response, so a thrown
       // BadRequestException would reach the client as a message string, not a
       // 4xx. Emit a machine-readable code the frontend can dispatch on.
-      const isCredits =
-        err instanceof BadRequestException &&
-        (err.getResponse() as { code?: string })?.code === 'INSUFFICIENT_CREDITS';
+      // ⚠️ Forward the code for EVERY typed refusal, not just credits.
+      //
+      // Only `INSUFFICIENT_CREDITS` carried one, so a quota 429 or a spend-cap
+      // 503 reached the client as a bare Chinese string and the frontend had
+      // nothing to dispatch on — no quota dialog, no retry hint. Every other SSE
+      // surface (`fortune-stream`, `chat-stream`) already extracts `code` from
+      // the HttpException body; this was the odd one out.
+      const body =
+        err instanceof HttpException
+          ? (err.getResponse() as { code?: string; message?: string } | string)
+          : null;
+      const code = typeof body === 'object' && body?.code ? body.code : null;
+      const isCredits = code === 'INSUFFICIENT_CREDITS';
       subscriber.next({
         data: JSON.stringify(
           isCredits
             ? { code: 'INSUFFICIENT_CREDITS', message: '點數不足，無法解鎖完整報告。' }
-            : { message: err instanceof Error ? err.message : 'Reveal failed' },
+            : {
+                ...(code ? { code } : {}),
+                message: err instanceof Error ? err.message : 'Reveal failed',
+              },
         ),
         type: 'error',
       } as MessageEvent);
@@ -855,7 +1078,6 @@ export class BaziService {
     }
 
     try {
-      // 6. Delegate to ai.service streaming method
       const aiObservable = this.aiService.streamCompatibilityRomanceV2(calculationData, comparisonId);
 
       // ⚠️ The refund CANNOT hang off the observable's `error` channel.
@@ -1296,10 +1518,23 @@ export class BaziService {
     // was masked because a comparison always had `creditsUsed: 3` by the time it
     // had an interpretation. Now that creation is free, "unpaid" is a real,
     // reachable state and this is a live paywall.
-    const isSubscriber = user.subscriptionTier !== 'FREE';
-    const isOwnerReading = comparison.paidAt !== null;
+    // ⚠️ No `isSubscriber ||` — same fix as `getReading` (F-4), applied to the
+    // sibling the first pass missed. F-4's stated "tell" was that the chat and
+    // fortune gates carry no subscriber exemption while `getReading` did; this
+    // function, one screen away, still did.
+    //
+    // The refund case here is already covered more strongly than on the reading
+    // path — `refundComparisonCredit` clears `paidAt` AND nulls
+    // `aiInterpretation` in one atomic `updateMany`. The live gap is the OTHER
+    // state, which `:922-924` names explicitly: "an unpaid row with a stale
+    // interpretation falls through to the charge." On the SSE path that costs
+    // 3 credits; here a subscriber was handed it free.
+    //
+    // A subscription is a bounded credit allowance (`Plan.monthlyCredits`
+    // 5/15/50), not all-access — comparisons are charged with no tier branch.
+    const isPaid = comparison.paidAt !== null;
 
-    if (isSubscriber || isOwnerReading) {
+    if (isPaid) {
       return this.flattenComparisonResponse(comparison);
     }
 
@@ -1427,6 +1662,10 @@ export class BaziService {
     try {
       calculationData = await this.callBaziCompatibility(profileA, profileB, dto) as Record<string, unknown>;
     } catch (err: unknown) {
+      // S1/S2/S4 — a refusal we issued is not an AI failure. Without this the
+      // catch below converted the typed 429/503 into a 500, losing the status
+      // and the code.
+      if (isSelfRefusal(err)) throw err;
       const message = err instanceof Error ? err.message : 'Unknown error';
       this.logger.error(`Bazi recalculation engine call failed: ${message}`);
       throw new InternalServerErrorException('Bazi re-calculation failed.');
@@ -1448,6 +1687,15 @@ export class BaziService {
         birthDateA: profileA.birthDate.toISOString().split('T')[0],
         birthDateB: profileB.birthDate.toISOString().split('T')[0],
       };
+
+      // S4 — see the note at the compat stream site: comparisons are the most
+      // expensive unit in the app and the reading quota covered only
+      // `createReading`. Charged against the same `reading` budget.
+      // S2 before S4 — see the note at the first site: a refusal we issue must
+      // not spend the user's daily allowance. Cheap pre-read; the generation
+      // layer's check stays authoritative.
+      await this.aiSpend.assertUnderCap('compat:recalculate');
+      await this.quota.consume('reading', user.id);
 
       // Route: Romance V2 (3-call) vs V1 (single-call)
       const isRomanceV2 = comparison.comparisonType === 'ROMANCE' &&
@@ -1654,6 +1902,22 @@ export class BaziService {
       let tokenUsage: Prisma.InputJsonValue | undefined = undefined;
 
       try {
+        // S4 — see the note at the compat stream site: comparisons are the most
+        // expensive unit in the app and the reading quota covered only
+        // `createReading`. Charged against the same `reading` budget.
+        // ⚠️ Cap check here, AFTER the shared-AI-cache read above — not hoisted
+        // above `_chargeForReveal`.
+        //
+        // Hoisting it did avoid a charge-then-refund round trip, but it also
+        // put the refusal above the cache short-circuit, so a budget event
+        // declined reveals that would have been served from cache for $0.
+        // `assertUnderCap` promises the opposite in its own docblock: cached
+        // reads keep working, only new generation stops. Every other site gates
+        // on a cache MISS for exactly this reason. The charge-then-refund path
+        // is the cheaper mistake, and it only runs on a genuine miss.
+        await this.aiSpend.assertUnderCap('compat:reveal-generate');
+        await this.quota.consume('reading', user.id);
+
         // Route: Romance V2 (3-call) vs V1 (single-call)
         const isRomanceV2 = comparison.comparisonType === 'ROMANCE' &&
           !!calcData['romancePreAnalysis'];
@@ -1701,13 +1965,19 @@ export class BaziService {
           aiResult.interpretation,
         ).catch((err) => this.logger.error(`Comparison cache write failed: ${err}`));
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'Unknown error';
-        this.logger.error(
-          `AI compatibility generation failed for comparison ${comparisonId}: ${message}`,
-        );
-        // The user was charged just above and is getting nothing. Refund rather
-        // than leaving a silent debit — `refundComparisonCredit` is idempotent
-        // and also clears `paidAt`, so a later retry re-charges cleanly.
+        // ⚠️ REFUND FIRST, decide how to report second.
+        //
+        // The user was charged 3 credits at `_chargeForReveal` above and is
+        // getting nothing, so this refund belongs to EVERY failure — including
+        // the ones we re-throw. Guarding the re-throw above the refund is
+        // precisely the bug an audit found here: an over-quota user lost 3
+        // credits, got a 429, and the row kept its `paidAt`, so the retry the
+        // 429 invites was a free no-op that returned nothing. The guard was
+        // added to stop this catch reporting success; it silently took the
+        // refund with it.
+        //
+        // `refundComparisonCredit` is idempotent and also clears `paidAt`, so a
+        // later retry re-charges cleanly.
         const refund = await this.creditsService
           .refundComparisonCredit(comparisonId, 'reveal-generate-failed')
           .catch((refundErr) => {
@@ -1719,6 +1989,15 @@ export class BaziService {
             `Refunded ${refund.amount} credits for failed comparison reveal ${comparisonId}`,
           );
         }
+
+        // S1/S2/S4 — a refusal we issued is not an AI failure. Without this the
+        // catch returned HTTP 200 with an un-generated comparison and no signal.
+        if (isSelfRefusal(err)) throw err;
+
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        this.logger.error(
+          `AI compatibility generation failed for comparison ${comparisonId}: ${message}`,
+        );
         // Return comparison as-is (no AI)
         return this.flattenComparisonResponse(comparison);
       }
@@ -1867,8 +2146,9 @@ export class BaziService {
     profile: { birthDate: Date; birthTime: string | null; hourKnown: boolean; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
     dto: CreateReadingDto,
   ): Promise<Prisma.InputJsonValue> {
-    const response = await fetch(`${this.baziEngineUrl}/calculate`, {
+    const response = await engineFetch(`${this.baziEngineUrl}/calculate`, {
       method: 'POST',
+      caller: 'bazi.reading',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         birth_date: profile.birthDate.toISOString().split('T')[0],
@@ -1904,15 +2184,55 @@ export class BaziService {
     return this.enginePassthrough('/calculate', body);
   }
 
-  async passthroughExplainElement(body: Record<string, unknown>): Promise<unknown> {
-    return this.enginePassthrough('/explain-element', body);
+  /**
+   * B1/O3 — element encyclopedia, with the paid tiers gated SERVER-SIDE.
+   *
+   * The engine deliberately returns every layer (its docblock says so), and the
+   * paywall lived entirely in `ElementExplanation.tsx` behind an `isSubscriber`
+   * prop. A client-side paywall is not a paywall: `curl` got the paid content.
+   *
+   * Boundary mirrors the component exactly — FREE keeps Layer A and
+   * `pillarContext.free`; PAID is the whole `personalized` block (Layer B
+   * `pillarMeaning`, Layer C `godRoleMeaning`/`godRole`, Layer D
+   * `genderMeaning`) plus `pillarContext.paid`.
+   *
+   * @param clerkUserId optional — the route is public, so anonymous callers
+   *                    are normal and simply get the free tier.
+   */
+  async passthroughExplainElement(
+    body: Record<string, unknown>,
+    clerkUserId?: string,
+  ): Promise<unknown> {
+    const result = await this.enginePassthrough('/explain-element', body);
+    if (await this.isSubscriberByClerkId(clerkUserId)) return result;
+    return stripPaidExplanationLayers(result);
+  }
+
+  /**
+   * Fails CLOSED (returns false) for an absent id, an unknown user, or a DB
+   * error — the downside is a subscriber briefly seeing the free tier, versus
+   * handing paid content to everyone if the lookup hiccups.
+   */
+  private async isSubscriberByClerkId(clerkUserId?: string): Promise<boolean> {
+    if (!clerkUserId) return false;
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { clerkUserId },
+        select: { subscriptionTier: true },
+      });
+      return !!user && user.subscriptionTier !== 'FREE';
+    } catch (err) {
+      this.logger.warn(`explain-element tier lookup failed, serving free tier: ${err}`);
+      return false;
+    }
   }
 
   private async enginePassthrough(path: string, body: Record<string, unknown>): Promise<unknown> {
     let response: Response;
     try {
-      response = await fetch(`${this.baziEngineUrl}${path}`, {
+      response = await engineFetch(`${this.baziEngineUrl}${path}`, {
         method: 'POST',
+        caller: 'bazi.passthrough',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(30000),
@@ -1945,8 +2265,9 @@ export class BaziService {
     profileB: { birthDate: Date; birthTime: string | null; hourKnown: boolean; birthCity: string; birthTimezone: string; birthLongitude: number | null; birthLatitude: number | null; gender: string },
     dto: CreateComparisonDto,
   ): Promise<Prisma.InputJsonValue> {
-    const response = await fetch(`${this.baziEngineUrl}/compatibility`, {
+    const response = await engineFetch(`${this.baziEngineUrl}/compatibility`, {
       method: 'POST',
+      caller: 'bazi.compatibility',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         profile_a: {

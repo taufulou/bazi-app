@@ -38,6 +38,37 @@ describe('ChatContextService — resolveOwnedCrossSellTargets (Tier C)', () => {
     service = moduleRef.get(ChatContextService);
   });
 
+  it('EXCLUDES refunded readings from ownership (F-5)', async () => {
+    // A refunded reading is not owned. Without `refundedAt: null` in the where
+    // clause the user is told «您已解鎖《八字終身運》» — a suppressed upsell
+    // against a reading they were paid back for. Same "refunded ≠ entitled"
+    // principle as the F2/F5/F6 gates, applied to the cross-sell surface.
+    //
+    // Asserts the QUERY, because the filter is the behaviour: a mock cannot
+    // apply a where clause for us. (Verified by mutation — removing the filter
+    // fails this and nothing else.)
+    findMany.mockResolvedValue([]);
+    findFirst.mockResolvedValue(null);
+
+    await service.resolveOwnedCrossSellTargets({
+      userId: 'u1',
+      readingType: 'FORTUNE',
+      birthProfileId: 'p1',
+      anchorYear: 2026,
+    });
+
+    expect(findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ refundedAt: null }),
+      }),
+    );
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ refundedAt: null }),
+      }),
+    );
+  });
+
   it('FORTUNE owning LIFETIME (not this-year ANNUAL) → {lifetime}', async () => {
     findMany.mockResolvedValue([{ readingType: 'LIFETIME' }]);
     findFirst.mockResolvedValue(null);

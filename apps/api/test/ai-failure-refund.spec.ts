@@ -11,6 +11,8 @@ import { PrismaService } from '../src/prisma/prisma.service';
 import { RedisService } from '../src/redis/redis.service';
 import { AIService } from '../src/ai/ai.service';
 import { CreditsService } from '../src/credits/credits.service';
+import { QuotaService } from '../src/ai/quota.service';
+import { AiSpendService } from '../src/ai/ai-spend.service';
 import { ReadingType } from '@prisma/client';
 
 // ============================================================
@@ -138,6 +140,10 @@ describe('AI Failure Graceful Degradation', () => {
         { provide: AIService, useValue: mockAI },
         { provide: ConfigService, useValue: mockConfig },
         { provide: CreditsService, useValue: mockCredits },
+        // S4 — quota gates reading creation before the credit deduction.
+        { provide: QuotaService, useValue: { consume: jest.fn(), peek: jest.fn() } },
+        // S2 — the cap pre-check that now runs before every quota consume.
+        { provide: AiSpendService, useValue: { assertUnderCap: jest.fn(), record: jest.fn() } },
       ],
     }).compile();
 

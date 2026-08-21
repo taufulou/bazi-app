@@ -12,7 +12,7 @@
       "count": 2
     },
     "@typescript-eslint/no-unused-vars": {
-      "count": 6
+      "count": 3
     }
   },
   "src/bazi/bazi.service.reveal-charge.spec.ts": {
@@ -89,9 +89,6 @@
   "src/fortune/fortune-stream.service.ts": {
     "@typescript-eslint/no-explicit-any": {
       "count": 6
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 3
     }
   },
   "src/fortune/fortune-validators.service.spec.ts": {
@@ -112,16 +109,6 @@
   "src/payments/stripe.service.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1
-    }
-  },
-  "src/webhooks/clerk-webhook.controller.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "src/zwds/zwds.service.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 15
     }
   },
   "test/admin-guard.spec.ts": {
@@ -247,12 +234,12 @@
   },
   "test/monthly-credits.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 13
+      "count": 18
     }
   },
   "test/payments-controller.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 27
+      "count": 33
     }
   },
   "test/revenuecat-service.spec.ts": {
@@ -291,7 +278,7 @@
   },
   "test/stripe-service.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 33
+      "count": 34
     }
   },
   "test/stripe-webhook.spec.ts": {
@@ -299,25 +286,14 @@
       "count": 5
     }
   },
+  "test/subscription-upgrade.spec.ts": {
+    "@typescript-eslint/no-explicit-any": {
+      "count": 5
+    }
+  },
   "test/users-delete-account.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 2
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
-  "test/zwds-phase8b-service.spec.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 17
-    }
-  },
-  "test/zwds-service.spec.ts": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 16
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 4
+      "count": 3
     }
   }
 }

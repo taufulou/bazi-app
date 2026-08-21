@@ -46,6 +46,9 @@ describe('BaziService — 合盤 charge at reveal', () => {
       { get: () => 'http://engine.test' } as unknown as ConfigService,
       {} as never,
       { deductCredits, refundComparisonCredit } as never,
+      { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
+      // S2 — the cap pre-check that now runs before every quota consume.
+      { assertUnderCap: jest.fn(), record: jest.fn() } as never,
     );
     return svc;
   }
@@ -175,6 +178,9 @@ describe('BaziService — 合盤 charge at reveal', () => {
         { get: () => 'http://engine.test' } as unknown as ConfigService,
         ai as never,
         { deductCredits, refundComparisonCredit } as never,
+        { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
+      // S2 — the cap pre-check that now runs before every quota consume.
+      { assertUnderCap: jest.fn(), record: jest.fn() } as never,
       );
     }
 
@@ -268,6 +274,9 @@ describe('BaziService — 合盤 charge at reveal', () => {
         prisma as never, {} as never,
         { get: () => 'http://engine.test' } as unknown as ConfigService,
         ai as never, { deductCredits } as never,
+        { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
+      // S2 — the cap pre-check that now runs before every quota consume.
+      { assertUnderCap: jest.fn(), record: jest.fn() } as never,
       );
       jest
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

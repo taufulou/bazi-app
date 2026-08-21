@@ -6,6 +6,12 @@ import { redirectToSignInOnExpiry } from './auth-redirect';
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
+/** An `Error` carrying the API's machine-readable discriminator alongside its prose. */
+export interface ApiError extends Error {
+  code?: string;
+  status?: number;
+}
+
 /**
  * Fetch wrapper that adds auth token and handles errors.
  */
@@ -38,45 +44,31 @@ export async function apiFetch<T>(
       redirectToSignInOnExpiry();
     }
     const errorBody = await response.json().catch(() => ({}));
-    throw new Error(
+    const err = new Error(
       errorBody.message || `API error: ${response.status} ${response.statusText}`,
-    );
+    ) as ApiError;
+    // Carry the discriminator, not just the prose. The API returns machine-readable
+    // codes (`UPGRADE_PAYMENT_REQUIRED`, `NEEDS_EXTENSION`, …) and `AllExceptionsFilter`
+    // puts them on the wire, but this wrapper used to drop everything except
+    // `message` — so callers could render the error and never branch on it.
+    // Additive: nothing reads these today, and `err.message` is unchanged.
+    if (typeof errorBody.code === 'string') err.code = errorBody.code;
+    err.status = response.status;
+    throw err;
   }
 
   return response.json();
 }
 
-/**
- * Calculate Bazi chart directly via Python engine (for preview/demo).
- * This calls the Python Bazi engine directly, bypassing auth.
- */
-export async function calculateBaziDirect(params: {
-  birth_date: string;
-  birth_time: string;
-  birth_city: string;
-  timezone: string;
-  gender: string;
-  target_year?: number;
-}): Promise<Record<string, unknown>> {
-  const BAZI_ENGINE_URL = process.env.NEXT_PUBLIC_BAZI_ENGINE_URL || 'http://localhost:5001';
-
-  // Map frontend field names to engine field names
-  const { timezone, ...rest } = params;
-  const enginePayload = { ...rest, birth_timezone: timezone };
-
-  const response = await fetch(`${BAZI_ENGINE_URL}/calculate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(enginePayload),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Bazi engine error: ${response.status}`);
-  }
-
-  const result = await response.json();
-  return result.data || result;
-}
+// B3-a: `calculateBaziDirect` was removed here. It called the engine's
+// `/calculate` FROM THE BROWSER, off a `NEXT_PUBLIC_`-prefixed engine URL. It
+// had zero callers and the variable was set nowhere — but the prefix means that
+// had anyone wired it up, the engine's address would have been inlined into the
+// client bundle and the engine reached with no auth from the open internet.
+// Server-side callers go through `app/api/bazi-calculate/route.ts`, which is
+// keyed. (`scripts/check-engine-callers.mjs` now fails on that variable name
+// anywhere in app code, comments included — which is why it is not spelled out
+// here.)
 
 // ---------------------------------------------------------------------------
 // User Profile API
@@ -292,8 +284,8 @@ export async function cancelSubscription(token: string): Promise<{ success: bool
 export async function upgradeSubscription(
   token: string,
   params: { planSlug: string; billingCycle: 'monthly' | 'annual' },
-): Promise<{ success: boolean; newTier: string }> {
-  return apiFetch<{ success: boolean; newTier: string }>('/api/payments/upgrade', {
+): Promise<{ success: boolean; newTier: string; effectiveTier?: string }> {
+  return apiFetch<{ success: boolean; newTier: string; effectiveTier?: string }>('/api/payments/upgrade', {
     method: 'POST',
     token,
     body: JSON.stringify(params),

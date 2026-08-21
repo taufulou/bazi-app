@@ -12,6 +12,7 @@
  */
 import { AdsService } from '../src/ads/ads.service';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
+import type { ConfigService } from '@nestjs/config';
 
 // ============================================================
 // Mocks
@@ -19,6 +20,7 @@ import { NotFoundException, BadRequestException } from '@nestjs/common';
 
 const mockTxUser = { update: jest.fn() };
 const mockTxAdRewardLog = { create: jest.fn() };
+const mockTxCreditLedger = { create: jest.fn() };
 
 const mockPrisma = {
   user: {
@@ -32,6 +34,7 @@ const mockPrisma = {
     return callback({
       user: mockTxUser,
       adRewardLog: mockTxAdRewardLog,
+      creditLedger: mockTxCreditLedger,
     });
   }),
 };
@@ -68,7 +71,17 @@ describe('AdsService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new AdsService(mockPrisma as any, mockRedis as any);
+    // A8: rewards are gated behind ADS_REWARDS_ENABLED, which defaults to OFF in
+    // production because V1 does no ad-completion verification. This suite tests
+    // the reward FEATURE, so it forces the flag on. The switch itself (and the
+    // production default) is covered by test/ads-service.kill-switch.spec.ts.
+    // `as unknown as` rather than `as any`: this file has a bulk-suppression
+    // budget of 5 for no-explicit-any, and exceeding it un-suppresses the whole
+    // file. The lint ratchet only tightens.
+    const mockConfig = {
+      get: (key: string) => (key === 'ADS_REWARDS_ENABLED' ? '1' : undefined),
+    } as unknown as ConfigService;
+    service = new AdsService(mockPrisma as any, mockRedis as any, mockConfig);
 
     // Default mocks
     mockTxUser.update.mockResolvedValue({});
@@ -190,6 +203,12 @@ describe('AdsService', () => {
       expect(mockTxUser.update).toHaveBeenCalledWith({
         where: { id: 'user-uuid-1' },
         data: { credits: { increment: 1 } },
+      });
+      // A6/A7: the grant must land in CreditLedger too, in the SAME
+      // transaction. AdRewardLog records that an ad was watched; CreditLedger
+      // is what has to reconcile against user.credits.
+      expect(mockTxCreditLedger.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'user-uuid-1', amount: 1 }),
       });
       expect(mockTxAdRewardLog.create).toHaveBeenCalledWith({
         data: expect.objectContaining({

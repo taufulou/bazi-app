@@ -1,9 +1,16 @@
 /**
- * API client for ZWDS (紫微斗數) endpoints on the NestJS backend.
- * ZWDS calculations run natively in NestJS via iztro — no Python engine needed.
+ * ZWDS (紫微斗數) chart TYPES.
+ *
+ * ⚠️ Types only. Every API function here was deleted with the ZWDS backend
+ * module: the product is not shipping and never will, and the endpoints they
+ * called (`chart-preview`, `readings`, `horoscope`, `comparisons`,
+ * `cross-system`, `deep-stars`) no longer exist. Three of them charged credits
+ * through a raw decrement that wrote no `CreditLedger` row.
+ *
+ * These interfaces survive because `ZwdsChart` still RENDERS saved readings.
+ * The rows live in `bazi_readings` and are fetched through the Bazi endpoint,
+ * so the two already-paid ZWDS readings remain viewable.
  */
-
-import { apiFetch } from './api';
 
 // ============================================================
 // Types (matching backend ZwdsChartData)
@@ -75,190 +82,4 @@ export interface ZwdsReadingResponse {
     sections: Record<string, { preview: string; full: string }>;
   } | null;
   createdAt: string;
-}
-
-// ============================================================
-// API Functions
-// ============================================================
-
-/**
- * Get a ZWDS chart preview (free, no AI interpretation).
- * POST /api/zwds/chart-preview
- */
-export async function getZwdsChartPreview(
-  token: string,
-  data: { birthProfileId: string },
-): Promise<ZwdsChartData> {
-  return apiFetch<ZwdsChartData>('/api/zwds/chart-preview', {
-    method: 'POST',
-    token,
-    body: JSON.stringify(data),
-  });
-}
-
-/**
- * Create a ZWDS reading (chart + AI interpretation).
- * POST /api/zwds/readings
- */
-export async function createZwdsReading(
-  token: string,
-  data: {
-    birthProfileId: string;
-    readingType: string;
-    targetYear?: number;
-    targetMonth?: number;
-    targetDay?: string;
-    questionText?: string;
-  },
-): Promise<ZwdsReadingResponse> {
-  return apiFetch<ZwdsReadingResponse>('/api/zwds/readings', {
-    method: 'POST',
-    token,
-    body: JSON.stringify(data),
-  });
-}
-
-/**
- * Get a saved ZWDS reading.
- * GET /api/zwds/readings/:id
- */
-export async function getZwdsReading(
-  token: string,
-  readingId: string,
-): Promise<ZwdsReadingResponse> {
-  return apiFetch<ZwdsReadingResponse>(`/api/zwds/readings/${readingId}`, {
-    token,
-  });
-}
-
-/**
- * Get ZWDS horoscope (大限/流年/流月) for a specific date.
- * POST /api/zwds/horoscope
- */
-export async function getZwdsHoroscope(
-  token: string,
-  data: { birthProfileId: string; targetDate: string },
-): Promise<ZwdsChartData> {
-  return apiFetch<ZwdsChartData>('/api/zwds/horoscope', {
-    method: 'POST',
-    token,
-    body: JSON.stringify(data),
-  });
-}
-
-/**
- * Create a ZWDS compatibility comparison.
- * POST /api/zwds/comparisons
- */
-export async function createZwdsComparison(
-  token: string,
-  data: {
-    profileAId: string;
-    profileBId: string;
-    comparisonType: 'ROMANCE' | 'BUSINESS' | 'FRIENDSHIP';
-  },
-): Promise<ZwdsReadingResponse> {
-  return apiFetch<ZwdsReadingResponse>('/api/zwds/comparisons', {
-    method: 'POST',
-    token,
-    body: JSON.stringify(data),
-  });
-}
-
-// ============================================================
-// Phase 8B: Convenience functions for new reading types
-// ============================================================
-
-/**
- * Create a ZWDS monthly forecast reading.
- */
-export async function createZwdsMonthlyReading(
-  token: string,
-  data: {
-    birthProfileId: string;
-    targetYear: number;
-    targetMonth: number;
-  },
-): Promise<ZwdsReadingResponse> {
-  return createZwdsReading(token, {
-    ...data,
-    readingType: 'ZWDS_MONTHLY',
-  });
-}
-
-/**
- * Create a ZWDS daily fortune reading.
- */
-export async function createZwdsDailyReading(
-  token: string,
-  data: {
-    birthProfileId: string;
-    targetDay: string; // YYYY-M-D format
-  },
-): Promise<ZwdsReadingResponse> {
-  return createZwdsReading(token, {
-    ...data,
-    readingType: 'ZWDS_DAILY',
-  });
-}
-
-/**
- * Create a ZWDS major period analysis reading.
- */
-export async function createZwdsMajorPeriodReading(
-  token: string,
-  data: {
-    birthProfileId: string;
-  },
-): Promise<ZwdsReadingResponse> {
-  return createZwdsReading(token, {
-    ...data,
-    readingType: 'ZWDS_MAJOR_PERIOD',
-  });
-}
-
-/**
- * Create a ZWDS Q&A reading.
- */
-export async function createZwdsQaReading(
-  token: string,
-  data: {
-    birthProfileId: string;
-    questionText: string;
-  },
-): Promise<ZwdsReadingResponse> {
-  return createZwdsReading(token, {
-    ...data,
-    readingType: 'ZWDS_QA',
-  });
-}
-
-/**
- * Create a cross-system (Bazi + ZWDS) combined reading.
- * POST /api/zwds/cross-system
- */
-export async function createCrossSystemReading(
-  token: string,
-  data: { birthProfileId: string },
-): Promise<ZwdsReadingResponse> {
-  return apiFetch<ZwdsReadingResponse>('/api/zwds/cross-system', {
-    method: 'POST',
-    token,
-    body: JSON.stringify(data),
-  });
-}
-
-/**
- * Create a deep star analysis reading (enhanced ZWDS_LIFETIME).
- * POST /api/zwds/deep-stars
- */
-export async function createDeepStarReading(
-  token: string,
-  data: { birthProfileId: string },
-): Promise<ZwdsReadingResponse> {
-  return apiFetch<ZwdsReadingResponse>('/api/zwds/deep-stars', {
-    method: 'POST',
-    token,
-    body: JSON.stringify(data),
-  });
 }

@@ -38,6 +38,7 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 import { IsString, IsIn, IsOptional, IsUrl, Matches } from 'class-validator';
+import { Throttle } from '@nestjs/throttler';
 import { PaymentsService } from './payments.service';
 import { StripeService } from './stripe.service';
 import { SectionUnlockService } from './section-unlock.service';
@@ -102,7 +103,13 @@ class CreateCreditCheckoutDto {
 }
 
 class UpgradeSubscriptionDto {
-  @IsString()
+  // Allowlisted, not just `@IsString()`. `plan.findFirst` accepts ANY active
+  // slug while `planSlugToTier` recognises only these three and answers 'FREE'
+  // for anything else — so a 4th plan row would charge its real price in Stripe
+  // and leave the buyer entitled to nothing. Two validations that disagree, with
+  // the tier one failing to the cheapest answer. Keep this in sync with
+  // `StripeService.knownPlanSlugToTier`.
+  @IsIn(['basic', 'pro', 'master'])
   planSlug!: string;
 
   @IsIn(['monthly', 'annual'])
@@ -277,6 +284,18 @@ export class PaymentsController {
 
   // ============ Subscription Management ============
 
+  // Throttled for the same reason as `upgrade` below — and these two are the
+  // SHARPER case, which the Phase 1 gate audit caught. They flip
+  // `Subscription.status` directly, so they GUARANTEE the FREE↔tier change that
+  // reaches `syncUserTier` -> `refundStrandedPaidOnTierChange` and its
+  // `credits: { increment }`, whereas an upgrade between two paid tiers often
+  // changes nothing. The original sweep gave `upgrade` the throttle and left its
+  // two siblings on the global 100/min/IP.
+  //
+  // Each refund is idempotent per session, which bounds one cycle — nothing
+  // bounded the number of cycles: cancel→reactivate→cancel recovers a credit per
+  // partially-used chat extension, indefinitely.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('cancel')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Cancel active subscription (at period end)' })
@@ -284,6 +303,7 @@ export class PaymentsController {
     return this.stripeService.cancelSubscription(auth.userId);
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('reactivate')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Reactivate a cancelled subscription' })
@@ -291,6 +311,13 @@ export class PaymentsController {
     return this.stripeService.reactivateSubscription(auth.userId);
   }
 
+  // Every call mutates a live Stripe subscription (and mints a new Price) BEFORE
+  // it can fail, and the 402 this can return literally invites a retry
+  // (「再試一次」). It also reaches `syncUserTier` -> `refundStrandedPaidOnTierChange`,
+  // which INCREMENTS credits on a real tier change — a path that previously
+  // required a webhook and is now user-triggerable. The global 100/min/IP is far
+  // too loose for that; comparable-cost routes use 5/min (bazi) and 5/hour (chat).
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('upgrade')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Upgrade or change subscription plan' })

@@ -12,6 +12,19 @@
  * V1 (web): Trust client callback (mock ads). No server-side ad completion verification.
  * V2 (mobile): Verify via AdMob SSV (Server-Side Verification) callback URL.
  *
+ * ⚠️ REWARD CLAIMING IS DISABLED BY DEFAULT (`ADS_REWARDS_ENABLED`, default '0').
+ * Because V1 does no ad-completion verification, `claimReward` would mint real
+ * value — CREDIT grants `CREDITS_PER_AD_VIEW` credits that buy readings costing
+ * real Anthropic spend — to any authenticated caller who simply POSTs the
+ * endpoint. The daily counter bounds it per account (5/day), but Clerk signup is
+ * free, so it is unbounded across accounts. No client calls this endpoint today
+ * (verified: zero references in apps/web + apps/mobile), so gating it off costs
+ * nothing and closes the vector until V2's AdMob SSV lands.
+ *
+ * To re-enable, BOTH must be true: (1) AdMob SSV verification is wired into this
+ * method so a claim proves an ad was actually watched, and (2) `ADS_REWARDS_ENABLED=1`.
+ * Flipping the env alone re-opens the vector — the flag is a kill switch, not a fix.
+ *
  * All credit operations wrapped in $transaction (Issue #7, #D7).
  */
 import {
@@ -20,6 +33,7 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 
@@ -50,7 +64,17 @@ export class AdsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly config: ConfigService,
   ) {}
+
+  /**
+   * Kill switch for reward claiming. Default OFF — see the class docblock.
+   * Read per-call (not cached at construction) so the flag can be flipped by a
+   * restart without a code change, and so tests can vary it per case.
+   */
+  private rewardsEnabled(): boolean {
+    return this.config.get<string>('ADS_REWARDS_ENABLED') === '1';
+  }
 
   /**
    * Get ad configuration (public endpoint).
@@ -119,6 +143,20 @@ export class AdsService {
     creditsGranted: number;
     remainingDailyViews: number;
   }> {
+    // ---- Kill switch: unverified ad claims mint real value ----
+    // Checked FIRST, before any validation or Redis counter increment, so a
+    // disabled deployment neither leaks which arguments are valid nor burns a
+    // user's daily quota on a call that can never succeed.
+    if (!this.rewardsEnabled()) {
+      this.logger.warn(
+        `Ad reward claim REJECTED (ADS_REWARDS_ENABLED is off): user=${clerkUserId}, type=${rewardType}`,
+      );
+      throw new BadRequestException({
+        code: 'ADS_REWARDS_DISABLED',
+        message: '廣告獎勵功能目前未開放。',
+      });
+    }
+
     // ---- Validate reward type ----
     const validTypes: AdRewardType[] = ['CREDIT', 'SECTION_UNLOCK', 'DAILY_HOROSCOPE'];
     if (!validTypes.includes(rewardType as AdRewardType)) {
@@ -170,6 +208,18 @@ export class AdsService {
             rewardType: 'CREDIT',
             adNetworkId: adPlacementId || null,
             creditsGranted: CREDITS_PER_AD_VIEW,
+          },
+        });
+
+        // Ledger the grant too. `AdRewardLog` records that an ad was watched;
+        // `CreditLedger` is what has to reconcile against `user.credits`, and
+        // this was the one grant path missing from it. Kept inside the same
+        // transaction so the three writes cannot diverge.
+        await tx.creditLedger.create({
+          data: {
+            userId: user.id,
+            amount: +CREDITS_PER_AD_VIEW,
+            reason: `ad_reward:${adPlacementId || 'unknown-placement'}`,
           },
         });
       });
