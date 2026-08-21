@@ -70,6 +70,23 @@ jobs:
           CLERK_WEBHOOK_SECRET: 'whsec_test_fake'
           NODE_ENV: 'test'
 
+  test-web:
+    name: Web Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      # apps/web has no Prisma client of its own, and its specs mock every
+      # network boundary, so no DB/Redis service containers are needed.
+      - name: Run Web tests
+        run: cd apps/web && npx jest --verbose
+        env:
+          NODE_ENV: 'test'
+
   test-bazi:
     name: Bazi Engine Tests
     runs-on: ubuntu-latest
@@ -89,7 +106,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-api, test-bazi]
+    needs: [lint, typecheck, test-api, test-web, test-bazi]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

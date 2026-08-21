@@ -4,6 +4,7 @@
  */
 import { render, screen, waitFor } from '@testing-library/react';
 import ReadingHistoryPage from '../app/dashboard/readings/page';
+import { READING_TYPE_META } from '@repo/shared';
 
 // ============================================================
 // Mocks
@@ -31,14 +32,13 @@ jest.mock('../app/lib/readings-api', () => ({
   getReadingHistory: (...args: any[]) => mockGetReadingHistory(...args),
 }));
 
-jest.mock('@repo/shared', () => ({
-  READING_TYPE_META: {
-    lifetime: { icon: '🏛️', nameZhTw: '八字終身運' },
-    'zwds-lifetime': { icon: '⭐', nameZhTw: '紫微終身命盤' },
-    annual: { icon: '📅', nameZhTw: '八字流年運勢' },
-    career: { icon: '💼', nameZhTw: '八字事業詳批' },
-  },
-}));
+// ⚠️ NOT mocked. This used to stub `@repo/shared` with a READING_TYPE_META that
+// had icons and names but NO `creditCost`. After eb68c81 made the page read
+// `meta.creditCost`, every row fell to `?? 0`, so all three rendered 免費 and
+// both credit assertions failed — invisibly, because web jest is not in CI.
+//
+// The real constants come through jest's moduleNameMapper, so the page sees the
+// same prices users do and the stub cannot drift from them again.
 
 // ============================================================
 // Test Data
@@ -107,24 +107,44 @@ describe('ReadingHistoryPage', () => {
     expect(screen.getByText('未命名')).toBeInTheDocument();
   });
 
-  it('should show credit cost for paid readings', async () => {
-    mockGetReadingHistory.mockResolvedValue({ data: mockReadings });
+  it('shows the CANONICAL price for a paid reading, not the charged amount', async () => {
+    // eb68c81 — "Use canonical credit costs on history page instead of stale DB
+    // values". The row's own `creditsUsed` is deliberately NOT what is shown.
+    const lifetimeCost = READING_TYPE_META.lifetime.creditCost;
+    const careerCost = READING_TYPE_META.career.creditCost;
+    // Named rather than indexed: `[0]` is both weaker under
+    // noUncheckedIndexedAccess and silently wrong if the fixture is reordered.
+    const lifetimeRow = mockReadings.find((r) => r.readingType === 'LIFETIME');
+    if (!lifetimeRow) throw new Error('fixture must contain a LIFETIME reading');
+    const charged = lifetimeRow.creditsUsed;
 
+    // Guard: if the fixture ever matches the canonical price this test proves
+    // nothing, because both behaviours would print the same string.
+    expect(lifetimeCost).not.toBe(charged);
+
+    mockGetReadingHistory.mockResolvedValue({ data: mockReadings });
     render(<ReadingHistoryPage />);
 
-    await waitFor(() => {
-      expect(screen.getAllByText('-2 額度')).toHaveLength(2);
-    });
+    await waitFor(() => expect(screen.getAllByText(/免費|額度/)).toHaveLength(3));
+    const badges = screen.getAllByText(/免費|額度/).map((el) => el.textContent);
+
+    expect(badges).toEqual(
+      expect.arrayContaining([`-${lifetimeCost} 額度`, `-${careerCost} 額度`]),
+    );
+    expect(badges).not.toContain(`-${charged} 額度`);
   });
 
-  it('should show 免費 for free readings', async () => {
-    mockGetReadingHistory.mockResolvedValue({ data: mockReadings });
+  it('shows 免費 only for the reading that was actually free', async () => {
+    // `creditsUsed === 0` is the free predicate for ordinary readings (unlike
+    // comparisons, which use `paidAt` because create is now free). Exactly one
+    // fixture row has it, so all-three-free is the failure to catch.
+    const free = mockReadings.filter((r) => r.creditsUsed === 0);
+    expect(free).toHaveLength(1);
 
+    mockGetReadingHistory.mockResolvedValue({ data: mockReadings });
     render(<ReadingHistoryPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText('免費')).toBeInTheDocument();
-    });
+    await waitFor(() => expect(screen.getAllByText('免費')).toHaveLength(1));
   });
 
   it('should show error state when API fails', async () => {
@@ -165,10 +185,16 @@ describe('ReadingHistoryPage', () => {
 
     render(<ReadingHistoryPage />);
 
+    // Derived, not hardcoded: the old stub asserted 紫微終身命盤, a name the real
+    // constants never used (it is 紫微終身運), so this passed against the mock
+    // and would have failed against the product.
+    const lifetimeName = READING_TYPE_META.lifetime.nameZhTw;
+    const zwdsName = READING_TYPE_META['zwds-lifetime'].nameZhTw;
+
     await waitFor(() => {
-      expect(screen.getByText('八字終身運')).toBeInTheDocument();
+      expect(screen.getByText(lifetimeName)).toBeInTheDocument();
     });
-    expect(screen.getByText('紫微終身命盤')).toBeInTheDocument();
+    expect(screen.getByText(zwdsName)).toBeInTheDocument();
   });
 
   it('should call getReadingHistory with token, page 1, limit 50', async () => {
