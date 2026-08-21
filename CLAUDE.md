@@ -3972,3 +3972,9 @@ Two habits that actually caught these, both cheap:
    ts-jest and reports phantom parse errors. Lint from the ROOT
    (`./node_modules/.bin/turbo run lint` — the binary is at `./node_modules/.bin/`
    in a worktree, not `../../`); run each jest from ITS app directory.
+   ⚠️ And run the app's OWN jest: `../../node_modules/.bin/jest` from `apps/web`
+   is the root-hoisted **29.7.0**, while `apps/web` declares `^30.2.0` and CI's
+   `npx jest` resolves **30.4.x**. Two majors against one shared ts-jest cache
+   dir corrupts it and produces failures citing code that does not exist in the
+   file. Use `npx --no-install jest` from the app directory, and
+   `jest --clearCache` if you have already mixed them.

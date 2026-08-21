@@ -110,6 +110,16 @@ describe('ReadingHistoryPage', () => {
   it('shows the CANONICAL price for a paid reading, not the charged amount', async () => {
     // eb68c81 — "Use canonical credit costs on history page instead of stale DB
     // values". The row's own `creditsUsed` is deliberately NOT what is shown.
+    //
+    // ⚠️ This pins a PRODUCT DECISION, not a law. `creditsUsed` is the amount
+    // actually deducted (`bazi.service.ts` sets it from `Service.creditCost` at
+    // creation), whereas `READING_TYPE_META.creditCost` is a hardcoded frontend
+    // constant. `Service.creditCost` is admin-editable, so after any price
+    // change every historical card retroactively shows a price the user never
+    // paid — on what is essentially a receipt. Defensible (it keeps the page
+    // internally consistent with today's pricing) but not obviously right.
+    // If the decision is revisited, THIS TEST is what will go red — change it
+    // deliberately rather than treating the red as a regression.
     const lifetimeCost = READING_TYPE_META.lifetime.creditCost;
     const careerCost = READING_TYPE_META.career.creditCost;
     // Named rather than indexed: `[0]` is both weaker under

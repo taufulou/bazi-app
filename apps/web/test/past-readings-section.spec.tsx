@@ -32,14 +32,13 @@ jest.mock('../app/lib/readings-api', () => ({
     mockGetReadingHistoryByType(...args),
 }));
 
-jest.mock('@repo/shared', () => ({
-  READING_TYPE_META: {
-    lifetime: { icon: '🌟', nameZhTw: '八字終身運' },
-    annual: { icon: '📅', nameZhTw: '八字流年運勢' },
-    career: { icon: '💼', nameZhTw: '八字事業詳批' },
-    compatibility: { icon: '🤝', nameZhTw: '合盤比較' },
-  },
-}));
+// ⚠️ `@repo/shared` is deliberately NOT mocked. A partial stub of
+// READING_TYPE_META is what silently killed `reading-history.spec.tsx` for
+// months: it carried icons and names but no `creditCost`, so when the subject
+// started reading that field every row fell to `?? 0` and the assertions
+// tested the stub instead of the product. This component only reads
+// `nameZhTw`/`icon` today, so a stub would be inert — right up until it isn't.
+// The real constants arrive via jest's moduleNameMapper and cannot drift.
 
 // ============================================================
 // Test data
