@@ -26,11 +26,20 @@ import { SIGNUP_BONUS_LEDGER_REASON } from '../src/common/signup-bonus';
 type AnyFn = jest.Mock;
 const CLERK = 'clerk_user_x';
 
+/** Prisma's unique-constraint violation, as the client actually shapes it. */
+function p2002() {
+  return Object.assign(new Error('Unique constraint failed'), {
+    code: 'P2002',
+    meta: { target: ['clerk_user_id'] },
+  });
+}
+
 function makeController(opts?: {
   priorDeletedRow?: boolean;
   existingUser?: { id: string } | null;
   eraseImpl?: AnyFn;
   ledgerImpl?: AnyFn;
+  createImpl?: AnyFn;
 }) {
   const ledgerCreate: AnyFn = opts?.ledgerImpl ?? jest.fn().mockResolvedValue({});
   const prisma = {
@@ -40,7 +49,7 @@ function makeController(opts?: {
       findUnique: jest
         .fn()
         .mockResolvedValue(opts?.existingUser === undefined ? { id: 'user-1' } : opts.existingUser),
-      create: jest.fn().mockResolvedValue({ id: 'user-new' }),
+      create: opts?.createImpl ?? jest.fn().mockResolvedValue({ id: 'user-new' }),
       upsert: jest.fn().mockResolvedValue({ id: 'user-up' }),
       update: jest.fn().mockResolvedValue({}),
     },
@@ -86,22 +95,85 @@ describe('Clerk webhook — the signup bonus is ledgered', () => {
     expect(ledgerCreate).not.toHaveBeenCalled();
   });
 
-  it('handleUserUpdated ledgers only when the upsert actually INSERTS', async () => {
-    const { controller, ledgerCreate } = makeController({ existingUser: null });
+  it('handleUserUpdated ledgers only when it actually INSERTS', async () => {
+    const { controller, ledgerCreate, prisma } = makeController({ existingUser: null });
     await call(controller, 'handleUserUpdated', EVENT);
 
+    expect(prisma.user.create).toHaveBeenCalled();
     expect(ledgerCreate).toHaveBeenCalledWith({
-      data: { userId: 'user-up', amount: 3, reason: SIGNUP_BONUS_LEDGER_REASON },
+      data: { userId: 'user-new', amount: 3, reason: SIGNUP_BONUS_LEDGER_REASON },
     });
   });
 
   it('handleUserUpdated does NOT ledger when the row already exists', async () => {
     // The update branch leaves `credits` untouched; ledgering unconditionally
     // would mint a phantom 3 on every profile edit.
-    const { controller, ledgerCreate } = makeController({ existingUser: { id: 'user-existing' } });
+    const { controller, ledgerCreate, prisma } = makeController({
+      existingUser: { id: 'user-existing' },
+    });
     await call(controller, 'handleUserUpdated', EVENT);
 
     expect(ledgerCreate).not.toHaveBeenCalled();
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { clerkUserId: CLERK },
+      data: { name: 'A B', avatarUrl: null },
+    });
+  });
+
+  describe('the insert race — two handlers, one identity', () => {
+    /**
+     * Clerk fires `user.created` and `user.updated` for a brand-new identity
+     * close enough together that they overlap, and NestJS serves them
+     * concurrently (svix is signature verification, not deduplication).
+     *
+     * Every insert site used to answer "am I the one inserting?" with a read
+     * taken one round-trip before the write. These pin the answer to the
+     * database instead. Each test fails if its try/catch is removed.
+     */
+
+    it('handleUserUpdated does NOT double-ledger when it loses the race', async () => {
+      // THE BUG: the `existing` read returns null, so the old code took the
+      // grant branch; the atomic upsert then resolved to UPDATE. Credits stayed
+      // correct at 3 while a SECOND signup_bonus row was written, so
+      // sum(CreditLedger.amount) != User.credits for that account.
+      const { controller, ledgerCreate, prisma } = makeController({
+        existingUser: null,
+        createImpl: jest.fn().mockRejectedValue(p2002()),
+      });
+
+      await expect(call(controller, 'handleUserUpdated', EVENT)).resolves.toBeUndefined();
+
+      expect(ledgerCreate).not.toHaveBeenCalled();
+      // and it still does the thing the event was actually about
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { clerkUserId: CLERK },
+        data: { name: 'A B', avatarUrl: null },
+      });
+    });
+
+    it('handleUserCreated swallows the lost race instead of 500ing forever', async () => {
+      // Not merely transient: Clerk's retry collides with the same row, so an
+      // unhandled P2002 here fails this webhook permanently.
+      const { controller, ledgerCreate } = makeController({
+        createImpl: jest.fn().mockRejectedValue(p2002()),
+      });
+
+      await expect(call(controller, 'handleUserCreated', EVENT)).resolves.toBeUndefined();
+      expect(ledgerCreate).not.toHaveBeenCalled();
+    });
+
+    it('still surfaces a create failure that is NOT a unique violation', async () => {
+      // The catch must not become a blanket swallow — a dead database has to
+      // keep reaching Clerk as a 500 so the event is retried.
+      const { controller } = makeController({
+        createImpl: jest.fn().mockRejectedValue(new Error('connection refused')),
+      });
+
+      await expect(call(controller, 'handleUserCreated', EVENT)).rejects.toThrow(
+        'connection refused',
+      );
+    });
   });
 
   it('a ledger failure never costs a real user their signup', async () => {

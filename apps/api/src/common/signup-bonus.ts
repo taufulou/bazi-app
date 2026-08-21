@@ -63,6 +63,39 @@ interface LedgerWriter {
 export const SIGNUP_BONUS_LEDGER_REASON = 'signup_bonus';
 
 /**
+ * Prisma's unique-constraint violation (P2002).
+ *
+ * ⚠️ THE RACE THIS EXISTS TO CLOSE. All three insert sites used to decide
+ * "am I the one inserting this user?" with a SEPARATE read before the write:
+ * `findUnique` then `create`, or `findUnique` then `upsert`. That is check-then-act
+ * across two round-trips, and Clerk fires `user.created` and `user.updated` for a
+ * brand-new identity close enough together to land inside the window. The worst
+ * case was `handleUserUpdated`, whose read could return null while its atomic
+ * upsert then resolved to UPDATE — granting no credits but writing a SECOND
+ * `signup_bonus` ledger row, breaking `sum(CreditLedger.amount) == User.credits`
+ * for that account. The other two sites merely 500'd, and `handleUserCreated`'s
+ * 500 did not self-heal: the retry hit the same constraint.
+ *
+ * The fix is to stop asking a read and let the database answer. `clerkUserId` is
+ * the ONLY unique column on `User` (`id` is a generated uuid), so on these
+ * inserts a P2002 can mean exactly one thing: someone else inserted this
+ * identity first. Matching on the code alone is therefore precise here — do NOT
+ * copy this helper to a table with several unique constraints without also
+ * checking `meta.target`.
+ *
+ * Duck-typed rather than `instanceof PrismaClientKnownRequestError` to keep this
+ * module free of a Prisma import, for the same reason {@link LedgerWriter} is
+ * structural: two callers with different DI wiring share it.
+ */
+export function isUniqueConstraintViolation(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { code?: unknown }).code === 'P2002'
+  );
+}
+
+/**
  * Record the signup grant in `CreditLedger`.
  *
  * ⚠️ Without this the ledger invariant — `sum(CreditLedger.amount) == User.credits`,

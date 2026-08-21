@@ -15,7 +15,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { UsersService } from '../users/users.service';
 import { Public } from '../auth/public.decorator';
-import { recordSignupBonusLedger, resolveSignupCredits } from '../common/signup-bonus';
+import {
+  isUniqueConstraintViolation,
+  recordSignupBonusLedger,
+  resolveSignupCredits,
+} from '../common/signup-bonus';
 
 interface ClerkEmailAddress {
   email_address: string;
@@ -126,51 +130,84 @@ export class ClerkWebhookController {
     // re-mint the bonus.
     const credits = await resolveSignupCredits(this.prisma, data.id);
 
-    const created = await this.prisma.user.create({
-      data: {
-        clerkUserId: data.id,
-        name,
-        avatarUrl: data.image_url,
-        subscriptionTier: 'FREE',
-        credits,
-        languagePref: 'ZH_TW',
-      },
-    });
-    await recordSignupBonusLedger(this.prisma, created.id, credits);
-
-    this.logger.log(`User created in DB: ${data.id}`);
+    try {
+      const created = await this.prisma.user.create({
+        data: {
+          clerkUserId: data.id,
+          name,
+          avatarUrl: data.image_url,
+          subscriptionTier: 'FREE',
+          credits,
+          languagePref: 'ZH_TW',
+        },
+      });
+      await recordSignupBonusLedger(this.prisma, created.id, credits);
+      this.logger.log(`User created in DB: ${data.id}`);
+    } catch (err) {
+      if (!isUniqueConstraintViolation(err)) throw err;
+      // Another insert site won the race (`user.updated` arriving first, or
+      // `ensureUser` auto-creating on a request that beat the webhook). The row
+      // exists and the winner ledgered the grant, so there is nothing to do.
+      //
+      // Re-throwing here would 500 the webhook FOREVER rather than transiently:
+      // Clerk's retry hits the same constraint, because the row it collides
+      // with is not going away. Swallowing is what makes this self-healing.
+      this.logger.warn(
+        `User ${data.id} already existed on user.created — another path inserted ` +
+          `it first. Not re-granting; the winner recorded the ledger row.`,
+      );
+    }
   }
 
   private async handleUserUpdated(data: ClerkUserEventData) {
     const name = [data.first_name, data.last_name].filter(Boolean).join(' ') || null;
-    // F1: the upsert's create branch is a third insert site and re-mints the
+    // F1: this path's insert branch is a third insert site and re-mints the
     // bonus just like the other two. Resolved even though this path usually
-    // updates rather than creates — the create branch is exactly the one that
+    // updates rather than creates — the insert branch is exactly the one that
     // fires for a re-created identity whose user.created webhook was missed.
-    const credits = await resolveSignupCredits(this.prisma, data.id);
+    const profile = { name, avatarUrl: data.image_url };
 
-    const before = await this.prisma.user.findUnique({
+    const existing = await this.prisma.user.findUnique({
       where: { clerkUserId: data.id },
       select: { id: true },
     });
-    const upserted = await this.prisma.user.upsert({
-      where: { clerkUserId: data.id },
-      update: {
-        name,
-        avatarUrl: data.image_url,
-      },
-      create: {
-        clerkUserId: data.id,
-        name,
-        avatarUrl: data.image_url,
-        subscriptionTier: 'FREE',
-        credits,
-        languagePref: 'ZH_TW',
-      },
-    });
-    // Only the CREATE branch grants — an update leaves `credits` untouched, so
-    // ledgering unconditionally here would invent a grant on every profile edit.
-    if (!before) await recordSignupBonusLedger(this.prisma, upserted.id, credits);
+
+    if (existing) {
+      // The overwhelmingly common case: an ordinary profile edit. No grant —
+      // an update leaves `credits` untouched, so ledgering here would invent a
+      // grant on every name or avatar change.
+      await this.prisma.user.update({ where: { clerkUserId: data.id }, data: profile });
+    } else {
+      // ⚠️ This used to be an `upsert` whose grant was gated on the `existing`
+      // read above — check-then-act across two round-trips. The upsert itself is
+      // atomic, so a concurrent `user.created` meant the read saw null while the
+      // write resolved to UPDATE: credits correctly stayed at 3, but a SECOND
+      // `signup_bonus` ledger row was written, breaking
+      // `sum(CreditLedger.amount) == User.credits` — the invariant the whole
+      // A6/A7/F7 ledger effort exists to establish.
+      //
+      // Now the database decides who inserted, not a read that can go stale.
+      // Exactly one racer's `create` survives the `clerkUserId` unique
+      // constraint, and only that one ledgers.
+      const credits = await resolveSignupCredits(this.prisma, data.id);
+      try {
+        const created = await this.prisma.user.create({
+          data: {
+            clerkUserId: data.id,
+            ...profile,
+            subscriptionTier: 'FREE',
+            credits,
+            languagePref: 'ZH_TW',
+          },
+        });
+        await recordSignupBonusLedger(this.prisma, created.id, credits);
+      } catch (err) {
+        if (!isUniqueConstraintViolation(err)) throw err;
+        // Lost the race. The winner granted and ledgered; we owe only the
+        // profile update this event was actually about.
+        await this.prisma.user.update({ where: { clerkUserId: data.id }, data: profile });
+      }
+    }
 
     // Invalidate admin role cache so role changes take effect immediately
     await this.redis.del(`admin:role:${data.id}`);

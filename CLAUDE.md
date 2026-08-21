@@ -3743,6 +3743,26 @@ would silently stop granting to paying customers. **This guard also defends a Da
 path**: Stripe's portal has "Charge timing → Invoice prorations immediately", which produces the
 same invoice with no code change.
 
+### The signup grant: let the DB say who inserted, never a prior read
+
+There are **three** insert sites for a `User` (`ensureUser`'s auto-create fallback, and both create
+branches in the Clerk webhook), and each must ledger the 3-credit bonus **exactly once** or
+`sum(CreditLedger.amount) == User.credits` — the point of the A6/A7/F7 work — is false for that
+account.
+
+All three originally decided "am I the one inserting?" with a `findUnique` **one round-trip before**
+the write. Clerk fires `user.created` and `user.updated` for a new identity close enough together to
+land inside that window, and svix is signature verification, not deduplication. `handleUserUpdated`
+was the expensive one: its read returned null so it took the grant branch, while its atomic `upsert`
+resolved to UPDATE — correct credits, **duplicate ledger row**.
+
+Each site now attempts the `create` and treats `P2002` as "someone else won". `clerkUserId` is the
+**only** unique column on `User`, so the code alone identifies the cause — do not copy
+`isUniqueConstraintViolation` to a table with several unique constraints without also checking
+`meta.target`. Keep the catch narrow: a non-P2002 error must still propagate, or a dead database
+reads as a lost race. `handleUserCreated`'s swallow is what makes it self-healing — re-throwing
+there fails the webhook **permanently**, since Clerk's retry hits the same row.
+
 ### Two version constants that must stay DECOUPLED
 
 `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE = 'v1.1.1'` (chat-side, locked for byte-identity with

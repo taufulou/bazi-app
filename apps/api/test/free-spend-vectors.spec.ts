@@ -251,4 +251,53 @@ describe('F1 — signup bonus is once per identity, not once per insert', () => 
       expect.objectContaining({ data: expect.objectContaining({ credits: 0 }) }),
     );
   });
+
+  it('ensureUser survives losing the insert race, and grants nothing twice', async () => {
+    // `findUnique` and `create` are two round-trips, so the Clerk webhook (or a
+    // second concurrent request) can insert between them. Before this was
+    // handled the loser threw P2002 out of an ordinary request; now it re-reads
+    // the winner's row. The ledger must NOT be written on the losing path — the
+    // winner already wrote it, and a second row breaks
+    // sum(CreditLedger.amount) == User.credits.
+    const ledgerCreate = jest.fn().mockResolvedValue({});
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        findUniqueOrThrow: jest.fn().mockResolvedValue({ id: USER_ID, credits: 3 }),
+        findFirst: jest.fn().mockResolvedValue(null), // genuinely new identity
+        create: jest.fn().mockRejectedValue(
+          Object.assign(new Error('Unique constraint failed'), {
+            code: 'P2002',
+            meta: { target: ['clerk_user_id'] },
+          }),
+        ),
+      },
+      birthProfile: { count: jest.fn().mockResolvedValue(0), create: jest.fn(), updateMany: jest.fn() },
+      creditLedger: { create: ledgerCreate },
+    };
+    const service = new UsersService(prisma as never, { get: jest.fn() } as never, AI_STUB as never);
+
+    await service.createBirthProfile(CLERK, DTO).catch(() => undefined);
+
+    expect(prisma.user.findUniqueOrThrow).toHaveBeenCalledWith({ where: { clerkUserId: CLERK } });
+    expect(ledgerCreate).not.toHaveBeenCalled();
+  });
+
+  it('ensureUser still surfaces a create failure that is not a unique violation', async () => {
+    // The catch must stay narrow: a dead database is not a lost race.
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        findUniqueOrThrow: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockRejectedValue(new Error('connection refused')),
+      },
+      birthProfile: { count: jest.fn().mockResolvedValue(0), create: jest.fn(), updateMany: jest.fn() },
+      creditLedger: { create: jest.fn() },
+    };
+    const service = new UsersService(prisma as never, { get: jest.fn() } as never, AI_STUB as never);
+
+    await expect(service.createBirthProfile(CLERK, DTO)).rejects.toThrow('connection refused');
+    expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+  });
 });

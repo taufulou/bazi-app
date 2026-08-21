@@ -13,7 +13,11 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AIService } from '../ai/ai.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateBirthProfileDto, UpdateBirthProfileDto } from './dto/create-birth-profile.dto';
-import { recordSignupBonusLedger, resolveSignupCredits } from '../common/signup-bonus';
+import {
+  isUniqueConstraintViolation,
+  recordSignupBonusLedger,
+  resolveSignupCredits,
+} from '../common/signup-bonus';
 
 @Injectable()
 export class UsersService {
@@ -633,10 +637,20 @@ export class UsersService {
       // returning identity would otherwise re-mint 3 credits on every cycle.
       this.logger.warn(`User ${clerkUserId} not in DB — auto-creating`);
       const credits = await resolveSignupCredits(this.prisma, clerkUserId);
-      user = await this.prisma.user.create({
-        data: { clerkUserId, credits },
-      });
-      await recordSignupBonusLedger(this.prisma, user.id, credits);
+      try {
+        user = await this.prisma.user.create({
+          data: { clerkUserId, credits },
+        });
+        await recordSignupBonusLedger(this.prisma, user.id, credits);
+      } catch (err) {
+        if (!isUniqueConstraintViolation(err)) throw err;
+        // The `findUnique` above and this `create` are two round-trips, so a
+        // concurrent request — or the Clerk webhook landing mid-flight — can
+        // insert between them. Let the unique constraint settle who inserted
+        // rather than trusting the stale read: the loser re-reads and grants
+        // nothing, so the bonus is ledgered exactly once.
+        user = await this.prisma.user.findUniqueOrThrow({ where: { clerkUserId } });
+      }
     }
 
     return user;
