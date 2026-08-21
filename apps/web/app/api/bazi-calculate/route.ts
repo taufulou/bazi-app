@@ -67,11 +67,20 @@ export async function POST(request: NextRequest) {
 
     if (!response.ok) {
       const errorBody = await response.json().catch(() => ({}));
-      // NestJS shapes errors as `{ message }` (an ARRAY for validation
-      // failures); the engine's own `detail` still arrives for passthrough
-      // errors. The client reads `.error`, so both have to land there.
+      // NestJS shapes errors as `{ message }` — a STRING here, but an ARRAY for
+      // class-validator failures, and elsewhere in this API an OBJECT
+      // (`HttpException({ code, message })`). `AllExceptionsFilter` casts
+      // without a runtime check, so all three can reach the wire.
+      //
+      // The client does `new Error(errData.error || …)`, which stringifies an
+      // object to the literal "[object Object]" — so anything that is not a
+      // string has to be normalised HERE or it becomes the user-visible error.
+      // `detail` is the engine's own shape, kept as a fallback.
       const raw = errorBody.message ?? errorBody.detail;
-      const detail = Array.isArray(raw) ? raw.join('; ') : raw;
+      const detail =
+        typeof raw === 'string' ? raw
+        : Array.isArray(raw) ? raw.filter((x) => typeof x === 'string').join('; ')
+        : undefined;
       return NextResponse.json(
         { error: detail || `排盤失敗 (${response.status})` },
         { status: response.status },

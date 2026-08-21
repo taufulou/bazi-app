@@ -581,7 +581,9 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
     const token = await getToken();
     if (!token) return;
 
-    // Phase 1: Get chart data immediately via direct engine (fast ~3ms)
+    // Phase 1: chart data first, so the table renders before the AI narration.
+    // ⚠️ No longer a direct engine call — M10 routed /api/bazi-calculate through
+    // NestJS, so this is web → NestJS → engine and costs a Clerk token mint.
     try {
       if (isZwds) {
         const dateParts = data.birthDate.split("-") as [string, string, string];

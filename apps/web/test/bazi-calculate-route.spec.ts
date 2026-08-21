@@ -111,6 +111,22 @@ describe('POST /api/bazi-calculate — proxies to NestJS, not the engine', () =>
     await expect(res.json()).resolves.toEqual({ error: '無法解析出生日期' });
   });
 
+  it('never lets a non-string message reach the client as "[object Object]"', async () => {
+    // `AllExceptionsFilter` casts `resObj.message` to string without checking,
+    // and other routes in this API throw `HttpException({ code, message })`.
+    // The client does `new Error(errData.error || ...)`, so an object here is
+    // rendered to the user verbatim as "[object Object]".
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: { code: 'NOPE', detail: 'nested' } }), { status: 400 }),
+    );
+    const res = await post();
+
+    const body = (await res.json()) as { error: string };
+    expect(typeof body.error).toBe('string');
+    expect(body.error).not.toContain('[object Object]');
+    expect(body.error).toBe('排盤失敗 (400)'); // falls back to the status line
+  });
+
   it('returns 502 with an .error when NestJS is unreachable', async () => {
     fetchMock.mockRejectedValueOnce(new Error('ECONNREFUSED'));
     const res = await post();

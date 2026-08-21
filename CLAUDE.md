@@ -34,7 +34,13 @@ AI-powered Bazi (八字) fortune-telling SaaS platform. Two-layer architecture: 
 > - `section-unlock`'s `'zwds'` — removing it would make those paid sections
 >   permanently unlockable.
 > - `POST /api/zwds-calculate` (Next.js route) — unauthenticated in-process iztro
->   calc, same class as `bazi-calculate` which is already a deliberate keep.
+>   calc. ⚠️ Kept as "same class as `bazi-calculate`"; **M10 ended that
+>   equivalence**. `bazi-calculate` now proxies to NestJS and is throttled and
+>   optionally authenticated; `zwds-calculate` is still a raw unauthenticated,
+>   unthrottled iztro call in a route handler. It does NOT touch the Python
+>   engine, so it never blocked B3-b — but it is now the ONLY calc route with
+>   nothing in front of it, and should be judged on its own merits rather than
+>   by analogy to a sibling that has since moved.
 >
 > Reading types are now **6 Bazi + 2 special**, not 18.
 
@@ -3544,7 +3550,11 @@ App-wide "signed-out → auto-redirect to `/sign-in?redirect_url=<current>`" mec
 
 ### Follow-up (separate PR, OUT OF SCOPE here)
 - Update/skip the now-broken signed-out E2E tests (the 8 above + the standalone anon specs landing/pricing/reading-page/free-reading/credit-store). Playwright suite is NOT in CI / not all-green on main.
-- Protect-or-remove the still-public calc API endpoints (`/api/zwds-calculate`, `/api/bazi-calculate`, `/api/explain-element` — deliberate keep; stateless, no sensitive data).
+- Protect-or-remove the still-public calc API endpoints. Post-M10 only
+  **`/api/zwds-calculate`** is genuinely unprotected — `/api/bazi-calculate` and
+  `/api/explain-element` proxy to throttled NestJS routes now. Stateless with no
+  sensitive data, so still a deliberate keep; the open item is a rate limit on
+  the one route that has none.
 
 ### Files (11)
 NEW: `apps/web/app/components/SignedOutRedirect.tsx`, `apps/web/app/lib/auth-redirect.ts`. MODIFIED: `app/layout.tsx` (mount), `middleware.ts` (lockdown), `app/lib/api.ts` + `chat-api.ts` + `fortune-api.ts` (401 wiring), `app/reading/compatibility/page.tsx` (+`.module.css`), `app/reading/[type]/page.tsx`, `app/reading/fortune/page.tsx` (interstitials).
