@@ -35,6 +35,13 @@ const guardModule = require('../src/auth/clerk.guard') as {
   ) => string[];
 };
 const { ClerkAuthGuard, parseAuthorizedParties } = guardModule;
+// M1 split verification into AuthIdentityService; the guard now delegates to it,
+// so constructing the guard means constructing that too. Same ConfigService
+// stub, so the azp/secret wiring under test is unchanged.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { AuthIdentityService } = require('../src/auth/auth-identity.service') as {
+  AuthIdentityService: new (c: unknown) => unknown;
+};
 
 const WEB = 'https://tianming.up.railway.app';
 const LOCAL = 'http://localhost:3000';
@@ -56,7 +63,7 @@ function makeCtx(opts: { isPublic?: boolean; parties?: string; header?: string }
       return undefined;
     }),
   };
-  const guard = new ClerkAuthGuard(reflector as never, config as never);
+  const guard = new ClerkAuthGuard(reflector as never, new AuthIdentityService(config) as never);
   return { guard, ctx, request };
 }
 

@@ -1,3 +1,4 @@
+import { AuthIdentityService } from '../src/auth/auth-identity.service';
 /**
  * B1 / O3 (Phase 1B) — optional auth on public routes + server-side paywall.
  *
@@ -232,7 +233,7 @@ function makeCtx(isPublic: boolean, authHeader?: string) {
   const config = {
     get: jest.fn((key: string) => (key === 'CLERK_SECRET_KEY' ? 'sk_test_fake' : undefined)),
   };
-  const guard = new ClerkAuthGuard(reflector as never, config as never);
+  const guard = new ClerkAuthGuard(reflector as never, new AuthIdentityService(config as never) as never);
   return { guard, ctx, request };
 }
 

@@ -9,7 +9,9 @@
     "BAZI_ENGINE_URL",
     "ENGINE_KEY",
     "ENGINE_KEYS",
-    "CLERK_AUTHORIZED_PARTIES"
+    "CLERK_AUTHORIZED_PARTIES",
+    "TRUST_PROXY_HOPS",
+    "REDIS_URL"
   ],
   "globalPassThroughEnv": ["PORT", "CORS_ORIGINS", "TEST_INTEGRATION", "MAX_TOTAL_AI_TIME_MS"],
   "tasks": {

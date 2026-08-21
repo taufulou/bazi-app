@@ -52,6 +52,20 @@ jobs:
   test-api:
     name: API Tests
     runs-on: ubuntu-latest
+    # M1 — the throttler storage spec asserts parity with the bundled in-memory
+    # implementation against a REAL Redis (the contract is Lua + PTTL semantics;
+    # a fake would only re-state my reading of it). Without this service the
+    # spec skips, which is the worst outcome: green, and testing nothing.
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
