@@ -14,6 +14,12 @@
  * nothing about whether the REAL callers are keyed — which is the only thing
  * the flip actually depends on. Traffic has to come from driving the product.
  *
+ * ⚠️ RESIDUAL LIMITATION, not fixable in a script: nothing binds these lines to
+ * the production stream. Anyone with the key could curl a local engine using
+ * the (public) caller names and produce a fully-passing rollup. The freshness
+ * check raises the cost of replaying an old log; it cannot prove provenance.
+ * Read the logs from Railway yourself.
+ *
  * ⚠️ STRICTER THAN THE DOC on one point. The doc asks for `keyed >= 1` per
  * endpoint; this requires keyed from a RECOGNISED caller name. `keyed` from
  * `unknown` means somebody held the key, not that the API path is wired — and
@@ -35,22 +41,47 @@ const REQUIRED = {
 };
 
 const ROLLUP = 'ENGINE-AUTH-ROLLUP ';
-const BOOKKEEPING_FAILURE = 'engine-auth bookkeeping failed';
+/**
+ * BOTH of the engine's failure lines. `engine_auth.py` logs
+ * "engine-auth bookkeeping failed" on the request path (:408) and
+ * "engine-auth final flush failed" on shutdown (:450) — an earlier version of
+ * this gate matched only the first and passed a log containing the second,
+ * which is precisely the broken-counter-reads-zero case condition 3 exists for.
+ */
+const COUNTER_FAILURES = ['engine-auth bookkeeping failed', 'engine-auth final flush failed'];
 
-export function evaluate(logText) {
+/** Leading timestamp on a log line, in the shapes Python's formatter and Railway emit. */
+const TIMESTAMP = /(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})/;
+const DEFAULT_MAX_AGE_HOURS = 24;
+
+export function evaluate(logText, opts = {}) {
+  const maxAgeHours = opts.maxAgeHours ?? DEFAULT_MAX_AGE_HOURS;
+  const now = opts.now ?? Date.now();
   const rollups = [];
   let bookkeepingFailures = 0;
+  const timestamps = [];
 
   for (const line of logText.split('\n')) {
-    if (line.includes(BOOKKEEPING_FAILURE)) bookkeepingFailures++;
+    if (COUNTER_FAILURES.some((m) => line.includes(m))) bookkeepingFailures++;
     const at = line.indexOf(ROLLUP);
     if (at === -1) continue;
     try {
       rollups.push(JSON.parse(line.slice(at + ROLLUP.length)));
     } catch {
       // A truncated line is not evidence; ignore it rather than guess.
+      continue;
     }
+    // ⚠️ The rollup payload carries only a window DURATION, no absolute time, so
+    // a saved log from months ago parses exactly like a fresh one. `--file` mode
+    // has no other protection against replaying stale evidence.
+    const m = TIMESTAMP.exec(line.slice(0, at));
+    if (m) timestamps.push(Date.parse(`${m[1]}T${m[2]}Z`));
   }
+
+  const newest = timestamps.length ? Math.max(...timestamps) : null;
+  const ageHours = newest === null ? null : (now - newest) / 3_600_000;
+  const stale = ageHours !== null && ageHours > maxAgeHours;
+  const undated = rollups.length > 0 && timestamps.length === 0;
 
   const keyedBy = new Map(); // path -> Set(caller)
   const bad = { absent: 0, invalid: 0, unconfigured: 0 };
@@ -72,19 +103,28 @@ export function evaluate(logText) {
   const missing = [];
   for (const [path, callers] of Object.entries(REQUIRED)) {
     const seen = keyedBy.get(path) || new Set();
-    const recognised = callers.filter((c) => seen.has(c));
-    if (recognised.length === 0) {
-      missing.push({ path, expected: callers, seen: [...seen] });
+    // EVERY listed caller, not any one of them. `/calculate` is reached by both
+    // `bazi.reading` (the paid reading, cache-gated so it does not fire on a
+    // repeated birth date) and `bazi.passthrough` (the free preview) — they are
+    // separate call sites, and "any" let the gate pass while the paid path had
+    // never been exercised.
+    const absent = callers.filter((c) => !seen.has(c));
+    if (absent.length > 0) {
+      missing.push({ path, expected: absent, seen: [...seen] });
     }
   }
 
   const conditions = [
-    { id: 1, label: 'every endpoint keyed by a recognised caller', pass: missing.length === 0 },
+    { id: 1, label: 'every call site keyed by its own recognised caller', pass: missing.length === 0 },
     { id: 2, label: 'zero absent / invalid / unconfigured', pass: bad.absent + bad.invalid + bad.unconfigured === 0 },
-    { id: 3, label: 'zero bookkeeping failures', pass: bookkeepingFailures === 0 },
+    { id: 3, label: 'zero counter failures (request path AND shutdown flush)', pass: bookkeepingFailures === 0 },
+    { id: 5, label: `evidence is fresh (< ${maxAgeHours}h) and dated`, pass: !stale && !undated },
   ];
 
-  return { rollups: rollups.length, conditions, missing, bad, bookkeepingFailures, windowSeconds, sawUnconfiguredWarning };
+  return {
+    rollups: rollups.length, conditions, missing, bad, bookkeepingFailures,
+    windowSeconds, sawUnconfiguredWarning, ageHours, stale, undated,
+  };
 }
 
 function main() {
@@ -94,7 +134,14 @@ function main() {
       ? readFileSync(process.argv[fileFlag + 1], 'utf8')
       : readFileSync(0, 'utf8');
 
-  const r = evaluate(text);
+  const ageFlag = process.argv.indexOf('--max-age-hours');
+  const r = evaluate(text, {
+    maxAgeHours: process.argv.includes('--allow-undated')
+      ? Number.POSITIVE_INFINITY
+      : ageFlag !== -1 && process.argv[ageFlag + 1]
+        ? Number(process.argv[ageFlag + 1])
+        : undefined,
+  });
   console.log(`B3-b pre-flight — ${r.rollups} rollup window(s), ~${Math.round(r.windowSeconds)}s covered\n`);
 
   if (r.rollups === 0) {
@@ -120,7 +167,15 @@ function main() {
     console.log('\n  ⚠️ A window reported ENGINE_KEYS/ENGINE_KEY unset. That window proves NOTHING —\n' +
       '     with no keys configured the engine cannot tell a keyed caller from an unkeyed one.');
   }
-  if (r.bookkeepingFailures) console.log(`\n  ⚠️ ${r.bookkeepingFailures} bookkeeping failure(s) — the counter may be under-reporting.`);
+  if (r.bookkeepingFailures) console.log(`\n  ⚠️ ${r.bookkeepingFailures} counter failure(s) — the counter may be under-reporting.`);
+  if (r.undated) {
+    console.log('\n  ⚠️ No timestamp found on any rollup line, so freshness cannot be checked and\n' +
+      '     a saved log from any date would look identical. Pass --allow-undated only if\n' +
+      '     you are certain of the source.');
+  }
+  if (r.stale) {
+    console.log(`\n  ⚠️ Newest rollup is ~${Math.round(r.ageHours)}h old — this looks like a replayed or saved log.`);
+  }
 
   console.log(
     `\n  Condition 4 (window = exercise + 1h settle) is NOT machine-checkable from log text.\n` +
@@ -129,7 +184,7 @@ function main() {
   );
 
   const failed = r.conditions.filter((c) => !c.pass);
-  console.log(failed.length ? `\n✗ DO NOT FLIP — ${failed.length} condition(s) unmet.` : `\n✓ Conditions 1-3 met. Judge condition 4, then flip.`);
+  console.log(failed.length ? `\n✗ DO NOT FLIP — ${failed.length} condition(s) unmet.` : `\n✓ All machine-checkable conditions met. Judge condition 4 (the settle window), then flip.`);
   process.exit(failed.length ? 1 : 0);
 }
 
