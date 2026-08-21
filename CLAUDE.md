@@ -3804,6 +3804,28 @@ Each site now attempts the `create` and treats `P2002` as "someone else won". `c
 reads as a lost race. `handleUserCreated`'s swallow is what makes it self-healing — re-throwing
 there fails the webhook **permanently**, since Clerk's retry hits the same row.
 
+### The history page shows what was CHARGED, never the list price
+
+`apps/web/app/dashboard/readings/page.tsx` renders `-{reading.creditsUsed} 額度`,
+and `creditsUsed === 0` is the entire free predicate. Do not "improve" this to
+`READING_TYPE_META[...].creditCost`.
+
+It was that once (`eb68c81`, "use canonical credit costs instead of stale DB
+values") and the premise was wrong: `creditsUsed` is written from
+`Service.creditCost` at the moment of the charge and is 0 only for a cache hit,
+which genuinely cost nothing. The *list* price is the unstable one —
+`Service.creditCost` is admin-editable and `READING_TYPE_META.creditCost` is a
+hardcoded frontend constant — so the page re-priced history retroactively.
+事業詳批 and 流年運勢 went 2 → 3 credits, and 19 rows bought at 2 were rendering
+`-3 額度` on what is effectively a receipt, contradicting the credit ledger.
+
+The `|| typeCost === 0` half of the old free predicate went with it: for a type
+later repriced to 0 it would have shown 免費 to someone who paid.
+
+Comparisons are the exception and stay on `paidAt`, not `creditsUsed` — creating
+one is free and the charge happens at reveal, so 0 there means "not unlocked
+yet", not "free".
+
 ### Two version constants that must stay DECOUPLED
 
 `PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH.FORTUNE = 'v1.1.1'` (chat-side, locked for byte-identity with

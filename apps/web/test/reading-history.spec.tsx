@@ -107,30 +107,21 @@ describe('ReadingHistoryPage', () => {
     expect(screen.getByText('未命名')).toBeInTheDocument();
   });
 
-  it('shows the CANONICAL price for a paid reading, not the charged amount', async () => {
-    // eb68c81 — "Use canonical credit costs on history page instead of stale DB
-    // values". The row's own `creditsUsed` is deliberately NOT what is shown.
-    //
-    // ⚠️ This pins a PRODUCT DECISION, not a law. `creditsUsed` is the amount
-    // actually deducted (`bazi.service.ts` sets it from `Service.creditCost` at
-    // creation), whereas `READING_TYPE_META.creditCost` is a hardcoded frontend
-    // constant. `Service.creditCost` is admin-editable, so after any price
-    // change every historical card retroactively shows a price the user never
-    // paid — on what is essentially a receipt. Defensible (it keeps the page
-    // internally consistent with today's pricing) but not obviously right.
-    // If the decision is revisited, THIS TEST is what will go red — change it
-    // deliberately rather than treating the red as a regression.
-    const lifetimeCost = READING_TYPE_META.lifetime.creditCost;
-    const careerCost = READING_TYPE_META.career.creditCost;
-    // Named rather than indexed: `[0]` is both weaker under
-    // noUncheckedIndexedAccess and silently wrong if the fixture is reordered.
+  it('shows what the user ACTUALLY PAID, not the current list price', async () => {
+    // The history page is a receipt. `creditsUsed` is written from
+    // `Service.creditCost` at the moment of the charge; the list price is a
+    // hardcoded frontend constant and `Service.creditCost` is admin-editable,
+    // so pricing the badge off the list made past readings re-price themselves.
+    // Real case: 事業詳批/流年運勢 went 2 → 3 and 19 rows bought at 2 rendered
+    // as `-3 額度`.
     const lifetimeRow = mockReadings.find((r) => r.readingType === 'LIFETIME');
-    if (!lifetimeRow) throw new Error('fixture must contain a LIFETIME reading');
-    const charged = lifetimeRow.creditsUsed;
+    const careerRow = mockReadings.find((r) => r.readingType === 'CAREER');
+    if (!lifetimeRow || !careerRow) throw new Error('fixture must have LIFETIME + CAREER rows');
 
-    // Guard: if the fixture ever matches the canonical price this test proves
-    // nothing, because both behaviours would print the same string.
-    expect(lifetimeCost).not.toBe(charged);
+    // Guard: the fixture's charged amounts must DIFFER from the list price, or
+    // both behaviours print the same string and this test proves nothing.
+    expect(lifetimeRow.creditsUsed).not.toBe(READING_TYPE_META.lifetime.creditCost);
+    expect(careerRow.creditsUsed).not.toBe(READING_TYPE_META.career.creditCost);
 
     mockGetReadingHistory.mockResolvedValue({ data: mockReadings });
     render(<ReadingHistoryPage />);
@@ -139,9 +130,13 @@ describe('ReadingHistoryPage', () => {
     const badges = screen.getAllByText(/免費|額度/).map((el) => el.textContent);
 
     expect(badges).toEqual(
-      expect.arrayContaining([`-${lifetimeCost} 額度`, `-${careerCost} 額度`]),
+      expect.arrayContaining([
+        `-${lifetimeRow.creditsUsed} 額度`,
+        `-${careerRow.creditsUsed} 額度`,
+      ]),
     );
-    expect(badges).not.toContain(`-${charged} 額度`);
+    // and specifically NOT the list price
+    expect(badges).not.toContain(`-${READING_TYPE_META.lifetime.creditCost} 額度`);
   });
 
   it('shows 免費 only for the reading that was actually free', async () => {
