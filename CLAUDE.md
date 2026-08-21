@@ -664,6 +664,37 @@ node --import tsx dist/main.js
 
 **npx fails with `spawn sh ENOENT`:** Use direct binary paths: `node_modules/.bin/jest`
 
+**⚠️ A stray `node_modules/node_modules` symlink silently poisons the whole
+worktree.** Symptom: dozens of web jest suites fail at once with
+`Invalid hook call` / `Cannot read properties of null (reading 'useState')`,
+with no code change — and they keep failing on older commits, so it looks like
+pre-existing rot rather than an environment fault.
+
+Cause: Node resolves `<wt>/node_modules/node_modules` **before**
+`<wt>/node_modules`. So anything living inside the worktree's own
+`node_modules` (React Testing Library, for one) resolves its dependencies out of
+the MAIN checkout, while your test file — resolving from `apps/web` — gets the
+worktree's copy. Two Reacts, and the versions differ whenever the two installs
+were made at different times.
+
+It is created by `ln -sfn "$MAIN/node_modules" "$WT/node_modules"` run when
+`$WT/node_modules` ALREADY exists as a real directory: `ln` then puts the link
+INSIDE it instead of replacing it. The worktree guide above tells you to make
+that symlink, so this is easy to trigger twice.
+
+Detect:
+```bash
+find node_modules -maxdepth 2 -type l | while read -r l; do
+  readlink "$l" | grep -q "^/" && echo "$l -> $(readlink "$l")"; done
+```
+Fix: `rm -f <wt>/node_modules/node_modules` — `rm -f` on a symlink removes the
+LINK only and never follows it, so main is untouched. Verify main afterwards with
+the documented check (`ls node_modules | wc -l` should still be 1008).
+
+Diagnosing this by `require.resolve` from `apps/web` will MISLEAD you: that path
+does not walk through `node_modules/node_modules`, so both react and react-dom
+resolve correctly and everything looks fine.
+
 **`@repo/shared` exports missing at runtime (e.g. "Export X doesn't exist in target module"):**
 The `node_modules/@repo/shared` symlink can drift to point at a stale worktree's `packages/shared` (instead of main's), masking newly-added exports. After adding a new export to `packages/shared/src/constants.ts`, if the dev server reports it missing, repoint the symlink:
 ```bash
