@@ -9,6 +9,7 @@ import helmet from 'helmet';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { scrubSentryEvent } from './common/sentry-scrub';
 import { isSwaggerEnabled } from './common/swagger-gate';
+import { GLOBAL_VALIDATION_PIPE_OPTIONS } from './common/validation-pipe-options';
 import { resolveTrustProxyHops, TRUST_PROXY_ENV } from './common/trust-proxy';
 import { reportWebOrigins, webOriginsFromEnv } from './payments/safe-redirect-url';
 
@@ -99,13 +100,7 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   // Global validation pipe
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  app.useGlobalPipes(new ValidationPipe(GLOBAL_VALIDATION_PIPE_OPTIONS));
 
   // CORS
   app.enableCors({

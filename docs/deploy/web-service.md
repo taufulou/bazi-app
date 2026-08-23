@@ -37,10 +37,16 @@ switch also unsets `NODE_ENV`.
 
 ### Build-time — `NEXT_PUBLIC_*` is inlined during `next build`
 
-Railway exposes service variables to the build, but **a Dockerfile only receives
-the ones it declares as `ARG`** — see the `ARG` block in `docker/Dockerfile.web`.
-Setting these only as runtime variables produces a browser bundle carrying empty
-strings, with a server log that says nothing is wrong.
+A Dockerfile only receives the variables it declares as `ARG` — see the `ARG`
+block in `docker/Dockerfile.web`. Setting these only as runtime variables
+produces a browser bundle carrying empty strings, with a server log that says
+nothing is wrong.
+
+The three that fail invisibly are asserted in the image: the build **stops and
+names them** rather than producing a deploy that looks healthy. So if the build
+log says `FATAL: empty build arg(s): …`, the platform did not forward that
+variable to the build — set it explicitly rather than assuming it carried over
+from the runtime variables.
 
 | Variable | Required? | What breaks if wrong |
 |---|---|---|
@@ -64,7 +70,7 @@ strings, with a server log that says nothing is wrong.
 
 | Variable | Value |
 |---|---|
-| `WEB_ORIGINS` | The deployed web origin, e.g. `https://<service>.up.railway.app`, later `https://tianmingapp.com`. Comma-separated; **the first entry is canonical**, because relative redirects resolve against it. |
+| `WEB_ORIGINS` | **Every** origin the site is reachable at — the browser sends `window.location.origin`, so a site served at both `https://<service>.up.railway.app` and `https://tianmingapp.com` needs both, or checkout 400s on whichever is missing. Comma-separated; **the first entry is canonical**, because relative redirects resolve against it. |
 | `CORS_ORIGINS` | Add the same origin. Separate variable on purpose — see below. |
 
 `WEB_ORIGINS` is the Stripe redirect allowlist: the set of origins Stripe may

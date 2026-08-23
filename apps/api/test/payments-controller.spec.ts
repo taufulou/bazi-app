@@ -66,6 +66,13 @@ const MOCK_PLANS = [
 // Tests
 // ============================================================
 
+/**
+ * ⚠️ These call the controller METHODS directly, so the global `ValidationPipe`
+ * never runs. The `successUrl: 'https://example.com/success'` fixtures below
+ * would be REJECTED in production by `@SafeRedirectUrl()` — they exercise
+ * controller → service delegation, not validation. The redirect allowlist is
+ * covered by `safe-redirect-url.spec.ts`, which drives the real pipe.
+ */
 describe('PaymentsController', () => {
   let controller: PaymentsController;
 

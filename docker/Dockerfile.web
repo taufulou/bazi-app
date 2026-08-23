@@ -61,6 +61,32 @@ ARG NEXT_PUBLIC_USE_MOCK_AI
 ARG SENTRY_AUTH_TOKEN
 
 ENV NEXT_TELEMETRY_DISABLED=1
+
+# Turn a silent misconfiguration into a failed build.
+#
+# An undeclared or unpassed build arg is EMPTY, not an error, and two of these
+# fail invisibly: a missing NEXT_PUBLIC_API_URL bakes a CSP that blocks every
+# API call from the browser with nothing in the server logs, and a missing
+# NEXT_PUBLIC_SITE_URL points every canonical tag and the sitemap at localhost.
+# Both look like a healthy deploy. Whether Railway forwards service variables to
+# a Dockerfile build as build args is a property of the platform, not of this
+# file — so assert rather than trust, and let the build log say which one is
+# missing.
+#
+# The Clerk key is checked here too, though the build would fail on its own a
+# minute later while prerendering: failing in one second with a named variable
+# beats failing in sixty with a React error.
+RUN missing=""; \
+    [ -n "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" ] || missing="$missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"; \
+    [ -n "$NEXT_PUBLIC_API_URL" ]              || missing="$missing NEXT_PUBLIC_API_URL"; \
+    [ -n "$NEXT_PUBLIC_SITE_URL" ]             || missing="$missing NEXT_PUBLIC_SITE_URL"; \
+    if [ -n "$missing" ]; then \
+      echo "FATAL: empty build arg(s):$missing" >&2; \
+      echo "NEXT_PUBLIC_* is inlined at build time — set each as a service" >&2; \
+      echo "variable AND keep its ARG declaration in this file." >&2; \
+      exit 1; \
+    fi
+
 RUN cd apps/web && npx next build
 
 # Fail the BUILD, not the boot, if the standalone layout ever moves. This image

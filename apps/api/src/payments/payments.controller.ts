@@ -37,7 +37,7 @@ import {
   ApiBody,
   ApiParam,
 } from '@nestjs/swagger';
-import { IsString, IsIn, IsOptional, IsUrl } from 'class-validator';
+import { IsString, IsIn, IsOptional } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 import { PaymentsService } from './payments.service';
 import { StripeService } from './stripe.service';
@@ -56,7 +56,7 @@ import { SafeRedirectUrl } from './safe-redirect-url.decorator';
 // matched `//evil.com`. See `safe-redirect-url.ts` for the full reasoning.
 // ============================================================
 
-class CreateSubscriptionCheckoutDto {
+export class CreateSubscriptionCheckoutDto {
   @IsString()
   planSlug!: string;
 
@@ -76,7 +76,7 @@ class CreateSubscriptionCheckoutDto {
   cancelUrl!: string;
 }
 
-class CreateOneTimeCheckoutDto {
+export class CreateOneTimeCheckoutDto {
   @IsString()
   serviceSlug!: string;
 
@@ -93,7 +93,7 @@ class CreateOneTimeCheckoutDto {
   cancelUrl!: string;
 }
 
-class CreateCreditCheckoutDto {
+export class CreateCreditCheckoutDto {
   @IsString()
   packageSlug!: string;
 
@@ -120,7 +120,7 @@ class UpgradeSubscriptionDto {
   billingCycle!: 'monthly' | 'annual';
 }
 
-class CreatePortalSessionDto {
+export class CreatePortalSessionDto {
   @IsString()
   @SafeRedirectUrl()
   returnUrl!: string;

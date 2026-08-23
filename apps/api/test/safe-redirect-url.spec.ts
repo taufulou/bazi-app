@@ -7,9 +7,16 @@
  * been REJECTED by the very validation they appear to exercise. So these are
  * the first assertions that the redirect allowlist does anything.
  */
+import { ValidationPipe } from '@nestjs/common';
+import { GLOBAL_VALIDATION_PIPE_OPTIONS } from '../src/common/validation-pipe-options';
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { IsString } from 'class-validator';
+import {
+  CreateCreditCheckoutDto,
+  CreatePortalSessionDto,
+  CreateSubscriptionCheckoutDto,
+} from '../src/payments/payments.controller';
 import {
   DEFAULT_WEB_ORIGIN,
   parseWebOrigins,
@@ -262,5 +269,72 @@ describe('@SafeRedirectUrl() on a DTO', () => {
     const { errors, dto } = await check('/x');
     expect(errors).toHaveLength(0);
     expect(dto.successUrl).toBe('https://other.example.com/x');
+  });
+});
+
+/**
+ * The wiring, not the helper.
+ *
+ * Everything above proves `resolveRedirectUrl` and `plainToInstance` behave.
+ * Neither proves the value the CONTROLLER receives is the resolved one — that
+ * depends on the global pipe being constructed with `transform: true`, which
+ * lives in `main.ts`, a file none of the tests above touch. This session has
+ * repeatedly found a correct helper behind untested wiring, so: run the real
+ * `ValidationPipe` over the real DTO classes and read what comes out.
+ */
+describe('through the real ValidationPipe, on the real DTOs', () => {
+  // The SAME options object main.ts passes, imported rather than retyped. See
+  // validation-pipe-options.ts for which option combinations preserve the
+  // `@SafeRedirectUrl` rewrite — a hardcoded copy here could not catch a
+  // production change that dropped it.
+  const pipe = new ValidationPipe(GLOBAL_VALIDATION_PIPE_OPTIONS);
+
+  const ENV = process.env.WEB_ORIGINS;
+  beforeEach(() => {
+    process.env.WEB_ORIGINS = 'https://ours.example.com';
+  });
+  afterAll(() => {
+    if (ENV === undefined) delete process.env.WEB_ORIGINS;
+    else process.env.WEB_ORIGINS = ENV;
+  });
+
+  const run = (metatype: new () => object, value: unknown) =>
+    pipe.transform(value, { type: 'body', metatype });
+
+  it('hands the controller an ABSOLUTE url when the browser sent a relative one', async () => {
+    const out = (await run(CreateCreditCheckoutDto, {
+      packageSlug: 'starter',
+      successUrl: '/store?credits=success',
+      cancelUrl: '/store?cancelled=true',
+    })) as CreateCreditCheckoutDto;
+
+    // Stripe rejects a relative success_url, so this rewrite is the whole
+    // reason relative paths work at all.
+    expect(out.successUrl).toBe('https://ours.example.com/store?credits=success');
+    expect(out.cancelUrl).toBe('https://ours.example.com/store?cancelled=true');
+  });
+
+  it('rejects a foreign origin with 400 before Stripe is ever called', async () => {
+    await expect(
+      run(CreateSubscriptionCheckoutDto, {
+        planSlug: 'pro',
+        billingCycle: 'monthly',
+        successUrl: 'https://evil.example.com/x',
+        cancelUrl: '/pricing',
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects the protocol-relative form the old regex accepted', async () => {
+    await expect(
+      run(CreatePortalSessionDto, { returnUrl: '//evil.example.com/x' }),
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects every deployed origin when WEB_ORIGINS is unset — fails CLOSED', async () => {
+    delete process.env.WEB_ORIGINS;
+    await expect(
+      run(CreatePortalSessionDto, { returnUrl: 'https://app.up.railway.app/dashboard' }),
+    ).rejects.toMatchObject({ status: 400 });
   });
 });
