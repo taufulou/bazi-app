@@ -260,7 +260,25 @@ describe('HealthController — GET /health/ready', () => {
     expect(r.status).toHaveBeenCalledWith(503);
   });
 
-  it('returns the full per-dependency report, not a flattened error', async () => {
+  it('does NOT leak driver error text — this route is unauthenticated', async () => {
+    const full = report(false, 'not_ready');
+    full.checks = {
+      database: {
+        status: 'unhealthy',
+        latencyMs: 1,
+        required: true,
+        error: 'the URL postgresql://user:pw@host:5432/db is invalid',
+      },
+    };
+    mockReadiness.check.mockResolvedValue(full);
+    const out = await controller.ready(res());
+    expect(out.checks.database!.error).toBeUndefined();
+    expect(JSON.stringify(out)).not.toContain('postgresql://');
+    // Which dependency failed is still visible; only the text is gone.
+    expect(out.checks.database!.status).toBe('unhealthy');
+  });
+
+  it('returns the per-dependency report, not a flattened error', async () => {
     // `passthrough` + res.status() rather than throwing: AllExceptionsFilter
     // reduces a thrown body to {message, error, code}, discarding the only part
     // a human debugging an outage wants.
@@ -271,7 +289,7 @@ describe('HealthController — GET /health/ready', () => {
     };
     mockReadiness.check.mockResolvedValue(full);
     const out = await controller.ready(res());
-    expect(out.checks.redis!.error).toBe('down');
+    expect(out.checks.redis!.status).toBe('unhealthy');
     expect(out.checks.database!.status).toBe('healthy');
   });
 

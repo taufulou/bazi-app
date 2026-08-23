@@ -10,6 +10,7 @@ import {
   READINESS_CACHE_MS,
   READINESS_CHECK_TIMEOUT_MS,
   ReadinessService,
+  redactReadinessReport,
 } from '../src/health/readiness.service';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RedisService } from '../src/redis/redis.service';
@@ -147,14 +148,6 @@ describe('ReadinessService — cost control', () => {
     }
   });
 
-  it('invalidate() forces a fresh read', async () => {
-    const { service, db } = build();
-    await service.check();
-    service.invalidate();
-    await service.check();
-    expect(db).toHaveBeenCalledTimes(2);
-  });
-
   it('does not serve a stale READY after the dependency dies', async () => {
     jest.useFakeTimers();
     try {
@@ -201,5 +194,48 @@ describe('ReadinessService — a hung dependency is bounded', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+});
+
+describe('redactReadinessReport', () => {
+  it('removes dependency error text but keeps which one is unhealthy', () => {
+    const full = {
+      ready: false,
+      status: 'not_ready' as const,
+      timestamp: 't',
+      service: 'bazi-api',
+      version: '0.1.0',
+      checks: {
+        database: {
+          status: 'unhealthy' as const,
+          latencyMs: 5,
+          required: true,
+          // Prisma initialisation errors can embed the datasource URL, i.e.
+          // the database password, and this route is unauthenticated.
+          error: 'the URL postgresql://u:p@host:5432/db is invalid',
+        },
+        redis: { status: 'healthy' as const, latencyMs: 1, required: true },
+      },
+    };
+    const safe = redactReadinessReport(full);
+    expect(safe.checks.database!.error).toBeUndefined();
+    expect(JSON.stringify(safe)).not.toContain('postgresql://');
+    // The useful part survives.
+    expect(safe.checks.database!.status).toBe('unhealthy');
+    expect(safe.checks.database!.required).toBe(true);
+    expect(safe.ready).toBe(false);
+  });
+
+  it('does not mutate the caller\'s report — the logs still need the text', () => {
+    const full = {
+      ready: false,
+      status: 'not_ready' as const,
+      timestamp: 't',
+      service: 'bazi-api',
+      version: '0.1.0',
+      checks: { database: { status: 'unhealthy' as const, latencyMs: 5, required: true, error: 'secret' } },
+    };
+    redactReadinessReport(full);
+    expect(full.checks.database.error).toBe('secret');
   });
 });

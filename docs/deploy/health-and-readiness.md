@@ -50,6 +50,23 @@ Liveness staying 200 during a dependency outage is the point: restarting the
 process cannot reach Postgres, and a liveness probe that fails on someone else's
 outage is a restart loop.
 
+## The public body is redacted, on purpose
+
+`/health/ready` reports *which* dependency is unhealthy and never *why*. Driver
+error text is not safe to hand an unauthenticated caller: Prisma's
+initialisation errors can embed the datasource URL — database credentials — and
+ioredis and fetch errors name internal hosts and ports. That is exactly why
+`/health/detailed`, which reports the same text in full, sits behind
+`AdminGuard`.
+
+The text is not lost, it moves to the logs: a required failure logs at WARN, an
+advisory one at DEBUG (a polled endpoint would otherwise flood the log during a
+long engine outage).
+
+`redactReadinessReport` rebuilds each entry field by field rather than spreading
+and deleting `error`, so a field added to `DependencyCheck` later is excluded
+until someone decides it is publishable.
+
 ## Two things not to break
 
 **The engine hop must stay keyed.** It goes through `engineFetch` with

@@ -8,7 +8,11 @@ import { AdminGuard } from '../auth/admin.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { engineFetch } from '../common/engine-client';
-import { ReadinessService, ReadinessReport } from './readiness.service';
+import {
+  ReadinessService,
+  ReadinessReport,
+  redactReadinessReport,
+} from './readiness.service';
 
 @ApiTags('Health')
 @SkipThrottle()
@@ -68,7 +72,9 @@ export class HealthController {
   async ready(@Res({ passthrough: true }) res: Response): Promise<ReadinessReport> {
     const report = await this.readiness.check();
     res.status(report.ready ? 200 : 503);
-    return report;
+    // Redacted: this route is unauthenticated, and driver error text can carry
+    // the datasource URL. `/health/detailed` reports it in full, behind AdminGuard.
+    return redactReadinessReport(report);
   }
 
   @Get('detailed')

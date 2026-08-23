@@ -72,6 +72,36 @@ export interface DependencyCheck {
   error?: string;
 }
 
+/**
+ * Strip dependency error text for the PUBLIC endpoint.
+ *
+ * `/health/ready` is unauthenticated — it has to be, or the platform cannot
+ * poll it — and driver errors are not safe to hand out. Prisma's
+ * initialisation errors can embed the datasource URL, i.e. database
+ * credentials; ioredis and fetch errors name internal hosts and ports. That is
+ * exactly why `/health/detailed`, which reports the same text, is behind
+ * `AdminGuard`.
+ *
+ * Which dependency is unhealthy stays visible, because that is the useful part
+ * and reveals nothing an unauthenticated caller cannot infer from the 503. The
+ * text goes to the logs instead.
+ */
+export function redactReadinessReport(report: ReadinessReport): ReadinessReport {
+  const checks: Record<string, DependencyCheck> = {};
+  for (const [name, check] of Object.entries(report.checks)) {
+    // Rebuilt field by field rather than spread-minus-`error`. An allowlist
+    // fails safe: a field added to `DependencyCheck` later is excluded until
+    // someone decides it is publishable, instead of leaking the moment it
+    // exists.
+    checks[name] = {
+      status: check.status,
+      latencyMs: check.latencyMs,
+      required: check.required,
+    };
+  }
+  return { ...report, checks };
+}
+
 export interface ReadinessReport {
   /** The verdict. Drives the HTTP status: 200 when true, 503 when false. */
   ready: boolean;
@@ -113,11 +143,6 @@ export class ReadinessService {
         this.inFlight = null;
       });
     return this.inFlight;
-  }
-
-  /** Drop the memoised report. For tests, and for anything that needs a fresh read. */
-  invalidate(): void {
-    this.cached = null;
   }
 
   private async run(): Promise<ReadinessReport> {
@@ -166,9 +191,13 @@ export class ReadinessService {
       return { status: 'healthy', latencyMs: Date.now() - start, required };
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Unknown error';
-      // A required dependency failing is the reason a deploy will not go live,
-      // so it must be findable in the logs. Advisory failures are noise.
+      // The public response no longer carries this text (see
+      // `redactReadinessReport`), so the log is the ONLY place it exists.
+      // Required failures are the reason a deploy will not go live — warn.
+      // Advisory ones are debug, to keep a polled endpoint from flooding logs
+      // during a long engine outage.
       if (required) this.logger.warn(`Readiness: ${name} unhealthy — ${error}`);
+      else this.logger.debug(`Readiness: ${name} unhealthy (advisory) — ${error}`);
       return { status: 'unhealthy', latencyMs: Date.now() - start, required, error };
     }
   }
