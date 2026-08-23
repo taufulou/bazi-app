@@ -567,6 +567,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 
 ## Test suite sizes
 - Bazi Engine: ≈2986 collected (`pytest --collect-only` — counts collected items incl. xfail/skip, NOT "passing"; prose "X pass" figures elsewhere differ by counter, e.g. the 時辰未知 sections cite 2944/2965 *passing*). Grew from the ~2231 Phase-12i baseline (+ Fortune day/month/year + chat-scope + 時辰未知 unknown-birth-hour suites). Composition note (Phase 12i): ~2226 + 5 三刑/半刑/子卯刑 spouse-palace tests in test_compatibility_enhanced.py + 53 compat pair corpus regressions + Phase 12h.A/B additions, 5 xfail, 1 skip, 1 pre-existing fail unrelated | NestJS API: 692 | Frontend: 143 | ZWDS: 289
+  - ⚠️ **Superseded — measured on `claude/m10-web-calc-routes` 2026-08-23: api jest 100 suites / 1961 passed · web jest 38 suites / 405 passed (fully green for the first time; `test-web` is now a CI job) · api tsc 0 · web tsc 0 · turbo lint 5/5 workspaces.** The older figures below are kept for the composition notes.
   - ⚠️ **Measured on `claude/bazi-scalability-security-e4ff78` 2026-08-17** (the numbers above predate it): engine **3137 passed** / 2 skipped / 5 xfailed · API jest **96 suites / 1914 passed** / 5 skipped · web jest **35 of 37 suites, 383 passed** (the 2 failures — `pricing-page`, `reading-history` — are pre-existing on main) · api tsc 0 · api lint 0 · **web tsc 0** (was 106; the duplicate `@types/react` behind the chronic "cannot be used as a JSX component" errors was collapsed by the dependency dedupe). The ZWDS 289 no longer exists — those suites were deleted with the module.
   - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
 
@@ -3719,6 +3720,69 @@ Fixes the reported flatness where the daily 5 dimensions (感情/事業/財運/�
 **Deferred follow-ups (from PR #55 code review)**: (1) wire `dayEnergyAlignment` + the 8 new signal types into FORTUNE **chat** (`chat_context.py::_slim_daily_for_chat` allowlist + `chat-context.service.ts::interpolateFortuneV1Fields` dispatch — currently DAY chat drops them; the C#2 pattern, per-dim signals still reach raw JSON); (2) fix the pre-existing `_dispatch_career` `('正官','七殺')` → should be `('正官','偏官')` (misses 偏官 days; `derive_ten_god` emits 偏官) — deferred because it would invalidate the fresh band corpus.
 
 ---
+
+## 🌐 Production environment — LIVE FACTS (2026-08-23)
+
+Not derivable from the code. Wrong assumptions here waste a session.
+
+| | |
+|---|---|
+| **Domain** | `tianmingapp.com` — Namecheap, BasicDNS. ⚠️ The **bare domain resolves to NOTHING** (no A record, NXDOMAIN). Only Clerk's subdomains exist: `clerk.` `accounts.` `clkmail.` |
+| **Web app** | **NOT DEPLOYED ANYWHERE.** Railway hosts backend only. Any instruction that says "open the app" in prod is wrong. M9 is the task that changes this. |
+| **API** | `https://bazi-app-production-5e54.up.railway.app` — an API, not a website: `GET /` correctly 404s. |
+| **Clerk** | **PRODUCTION instance is LIVE** (B4-C done 2026-08-23). Prod API runs `sk_live` + a production webhook at `/api/webhooks/clerk`. Sign-in is Clerk's hosted portal at `accounts.tianmingapp.com` (`/user` renders; the root redirects a signed-in user to the dead bare domain). Plan: **Pro**. |
+| **Clerk dev** | Untouched, still what LOCAL development uses. Keep the `sk_test` values. |
+| **Social sign-in** | Apple/Facebook/Google/LINE are enabled in the UI but have **no custom OAuth credentials**, so they fail with `Missing required parameter: client_id`. Production requires your own OAuth app per provider; development used Clerk's shared ones. Email works. |
+| **Redis** | Official `redis:8.2.1`. `maxmemory 256mb` + `volatile-lru`, set in the **Custom Start Command** — `CONFIG SET` does NOT survive a restart here (tested: reverts to `0`/`noeviction`), and `REDIS_EXTRA_FLAGS` is a bitnami thing this image ignores. |
+| **Engine key** | `ENGINE_KEY` IS set on both services and confirmed `keyed` in the rollup. Still `observe` mode — B3-b's flip is blocked on driving all 9 endpoints, which needs the website. |
+
+⚠️ **`CLERK_AUTHORIZED_PARTIES` must stay UNSET until the web app is deployed.**
+It pins the JWT `azp` claim to a web origin; with no deployed origin there is
+nothing correct to put in it, and a wrong value 401s every web session at once.
+
+### B3-b pre-flight
+
+`node scripts/b3b-preflight.mjs` — pipe engine logs in, it evaluates the flip
+conditions and exits non-zero. It deliberately does NOT generate traffic
+(fabricated evidence proves nothing about the real callers), requires `keyed`
+from EVERY recognised caller of a path rather than any, and refuses undated or
+stale logs. Enforce mode is already rehearsed and works; what's missing is
+production evidence, not confidence in the mechanism.
+
+## ⚠️ M1 throttling — the tracker must NEVER verify a token
+
+`UserAwareThrottlerGuard.getTracker` reads `AuthIdentityService.peekVerifiedUserId`,
+a cache lookup. It must not call `attach()`.
+
+An earlier version did, and that was a denial-of-service hole: `attach` awaits
+Clerk's `verifyToken`, and for a forged token the `kid` is one Clerk never
+issued, so its JWKS cache misses **by construction** and it fetches from the
+network — with no timeout anywhere in the chain. `Authorization: Bearer <garbage>`
+therefore forced an unbounded outbound call BEFORE the rate limiter had decided
+anything, inverting cheap-gate-before-expensive-gate inside the rate limiter.
+
+The cache is safe there because **bucketing is not authorization** — a stale
+entry can only put someone in last minute's bucket, never grant access. Keyed by
+a SHA-256 of the token, never the token. `ClerkAuthGuard` still verifies every
+request.
+
+Three more invariants in that area:
+
+- **`RedisThrottlerStorage` is a SLIDING window** (sorted set), not `INCR` +
+  `PEXPIRE`. The bundled reference decays hits individually; a fixed window lets
+  a caller pace one hit then burst past the anchor for ~2x the configured rate
+  indefinitely. Measured, not theorised.
+- **The guard throws on `isBlocked`, not on `totalHits > limit`.** A storage that
+  counts perfectly and never sets that flag disables rate limiting while looking
+  healthy.
+- **A root-module `APP_GUARD` runs BEFORE an imported module's** (measured in
+  `guard-order.spec.ts`), so `ThrottlerGuard` beats `ClerkAuthGuard`. Nothing
+  depends on this — `attach` is idempotent — but do not design as if the order
+  were the other way.
+
+⚠️ Do not "fix" this by reordering the guards. Putting Clerk first means a
+protected route 401s BEFORE the throttler runs, so unauthenticated floods stop
+being rate-limited at all.
 
 ## 🔒 Security hardening (Phase 1) — LOAD-BEARING INVARIANTS
 
