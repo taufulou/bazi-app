@@ -3,7 +3,7 @@
 ## What is this?
 AI-powered Bazi (八字) fortune-telling SaaS platform. Two-layer architecture: Python deterministic Bazi calculation + Claude AI interpretation with structured JSON output supporting preview/full per section for paywall.
 
-> ## ⚠️ ZWDS (紫微斗數) IS DELETED — 2026-08-16, commit `8895516`
+> ## ⚠️ ZWDS (紫微斗數) IS DELETED — 2026-08-16, commit `ad106fc`
 >
 > **This document still describes ZWDS as live in many places below. Those
 > sections are HISTORY. Do not implement against them.** Rather than edit dozens
@@ -34,7 +34,13 @@ AI-powered Bazi (八字) fortune-telling SaaS platform. Two-layer architecture: 
 > - `section-unlock`'s `'zwds'` — removing it would make those paid sections
 >   permanently unlockable.
 > - `POST /api/zwds-calculate` (Next.js route) — unauthenticated in-process iztro
->   calc, same class as `bazi-calculate` which is already a deliberate keep.
+>   calc. ⚠️ Kept as "same class as `bazi-calculate`"; **M10 ended that
+>   equivalence**. `bazi-calculate` now proxies to NestJS and is throttled and
+>   optionally authenticated; `zwds-calculate` is still a raw unauthenticated,
+>   unthrottled iztro call in a route handler. It does NOT touch the Python
+>   engine, so it never blocked B3-b — but it is now the ONLY calc route with
+>   nothing in front of it, and should be judged on its own merits rather than
+>   by analogy to a sibling that has since moved.
 >
 > Reading types are now **6 Bazi + 2 special**, not 18.
 
@@ -561,6 +567,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 
 ## Test suite sizes
 - Bazi Engine: ≈2986 collected (`pytest --collect-only` — counts collected items incl. xfail/skip, NOT "passing"; prose "X pass" figures elsewhere differ by counter, e.g. the 時辰未知 sections cite 2944/2965 *passing*). Grew from the ~2231 Phase-12i baseline (+ Fortune day/month/year + chat-scope + 時辰未知 unknown-birth-hour suites). Composition note (Phase 12i): ~2226 + 5 三刑/半刑/子卯刑 spouse-palace tests in test_compatibility_enhanced.py + 53 compat pair corpus regressions + Phase 12h.A/B additions, 5 xfail, 1 skip, 1 pre-existing fail unrelated | NestJS API: 692 | Frontend: 143 | ZWDS: 289
+  - ⚠️ **Superseded — measured on `claude/m10-web-calc-routes` 2026-08-23: api jest 100 suites / 1961 passed · web jest 38 suites / 405 passed (fully green for the first time; `test-web` is now a CI job) · api tsc 0 · web tsc 0 · turbo lint 5/5 workspaces.** The older figures below are kept for the composition notes.
   - ⚠️ **Measured on `claude/bazi-scalability-security-e4ff78` 2026-08-17** (the numbers above predate it): engine **3137 passed** / 2 skipped / 5 xfailed · API jest **96 suites / 1914 passed** / 5 skipped · web jest **35 of 37 suites, 383 passed** (the 2 failures — `pricing-page`, `reading-history` — are pre-existing on main) · api tsc 0 · api lint 0 · **web tsc 0** (was 106; the duplicate `@types/react` behind the chronic "cannot be used as a JSX component" errors was collapsed by the dependency dedupe). The ZWDS 289 no longer exists — those suites were deleted with the module.
   - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
 
@@ -657,6 +664,37 @@ node --import tsx dist/main.js
 **Port already in use:** `lsof -iTCP:PORT -sTCP:LISTEN -P` then `kill $(lsof -ti:PORT)`
 
 **npx fails with `spawn sh ENOENT`:** Use direct binary paths: `node_modules/.bin/jest`
+
+**⚠️ A stray `node_modules/node_modules` symlink silently poisons the whole
+worktree.** Symptom: dozens of web jest suites fail at once with
+`Invalid hook call` / `Cannot read properties of null (reading 'useState')`,
+with no code change — and they keep failing on older commits, so it looks like
+pre-existing rot rather than an environment fault.
+
+Cause: Node resolves `<wt>/node_modules/node_modules` **before**
+`<wt>/node_modules`. So anything living inside the worktree's own
+`node_modules` (React Testing Library, for one) resolves its dependencies out of
+the MAIN checkout, while your test file — resolving from `apps/web` — gets the
+worktree's copy. Two Reacts, and the versions differ whenever the two installs
+were made at different times.
+
+It is created by `ln -sfn "$MAIN/node_modules" "$WT/node_modules"` run when
+`$WT/node_modules` ALREADY exists as a real directory: `ln` then puts the link
+INSIDE it instead of replacing it. The worktree guide above tells you to make
+that symlink, so this is easy to trigger twice.
+
+Detect:
+```bash
+find node_modules -maxdepth 2 -type l | while read -r l; do
+  readlink "$l" | grep -q "^/" && echo "$l -> $(readlink "$l")"; done
+```
+Fix: `rm -f <wt>/node_modules/node_modules` — `rm -f` on a symlink removes the
+LINK only and never follows it, so main is untouched. Verify main afterwards with
+the documented check (`ls node_modules | wc -l` should still be 1008).
+
+Diagnosing this by `require.resolve` from `apps/web` will MISLEAD you: that path
+does not walk through `node_modules/node_modules`, so both react and react-dom
+resolve correctly and everything looks fine.
 
 **`@repo/shared` exports missing at runtime (e.g. "Export X doesn't exist in target module"):**
 The `node_modules/@repo/shared` symlink can drift to point at a stale worktree's `packages/shared` (instead of main's), masking newly-added exports. After adding a new export to `packages/shared/src/constants.ts`, if the dev server reports it missing, repoint the symlink:
@@ -3544,7 +3582,11 @@ App-wide "signed-out → auto-redirect to `/sign-in?redirect_url=<current>`" mec
 
 ### Follow-up (separate PR, OUT OF SCOPE here)
 - Update/skip the now-broken signed-out E2E tests (the 8 above + the standalone anon specs landing/pricing/reading-page/free-reading/credit-store). Playwright suite is NOT in CI / not all-green on main.
-- Protect-or-remove the still-public calc API endpoints (`/api/zwds-calculate`, `/api/bazi-calculate`, `/api/explain-element` — deliberate keep; stateless, no sensitive data).
+- Protect-or-remove the still-public calc API endpoints. Post-M10 only
+  **`/api/zwds-calculate`** is genuinely unprotected — `/api/bazi-calculate` and
+  `/api/explain-element` proxy to throttled NestJS routes now. Stateless with no
+  sensitive data, so still a deliberate keep; the open item is a rate limit on
+  the one route that has none.
 
 ### Files (11)
 NEW: `apps/web/app/components/SignedOutRedirect.tsx`, `apps/web/app/lib/auth-redirect.ts`. MODIFIED: `app/layout.tsx` (mount), `middleware.ts` (lockdown), `app/lib/api.ts` + `chat-api.ts` + `fortune-api.ts` (401 wiring), `app/reading/compatibility/page.tsx` (+`.module.css`), `app/reading/[type]/page.tsx`, `app/reading/fortune/page.tsx` (interstitials).
@@ -3679,6 +3721,105 @@ Fixes the reported flatness where the daily 5 dimensions (感情/事業/財運/�
 
 ---
 
+## 🌐 Production environment — LIVE FACTS (2026-08-23)
+
+Not derivable from the code. Wrong assumptions here waste a session.
+
+| | |
+|---|---|
+| **Domain** | `tianmingapp.com` — Namecheap, BasicDNS. ⚠️ The **bare domain resolves to NOTHING** (no A record, NXDOMAIN). Only Clerk's subdomains exist: `clerk.` `accounts.` `clkmail.` |
+| **Web app** | **NOT DEPLOYED YET** — Railway hosts backend only, so any instruction that says "open the app" in prod is still wrong. M9 built the missing piece: `docker/Dockerfile.web` + the runbook at **`docs/deploy/web-service.md`**. Creating the service is owner-side and has not been done. |
+| **API** | `https://bazi-app-production-5e54.up.railway.app` — an API, not a website: `GET /` correctly 404s. |
+| **Clerk** | **PRODUCTION instance is LIVE** (B4-C done 2026-08-23). Prod API runs `sk_live` + a production webhook at `/api/webhooks/clerk`. Sign-in is Clerk's hosted portal at `accounts.tianmingapp.com` (`/user` renders; the root redirects a signed-in user to the dead bare domain). Plan: **Pro**. |
+| **Clerk dev** | Untouched, still what LOCAL development uses. Keep the `sk_test` values. |
+| **Social sign-in** | Apple/Facebook/Google/LINE are enabled in the UI but have **no custom OAuth credentials**, so they fail with `Missing required parameter: client_id`. Production requires your own OAuth app per provider; development used Clerk's shared ones. Email works. |
+| **Redis** | Official `redis:8.2.1`. `maxmemory 256mb` + `volatile-lru`, set in the **Custom Start Command** — `CONFIG SET` does NOT survive a restart here (tested: reverts to `0`/`noeviction`), and `REDIS_EXTRA_FLAGS` is a bitnami thing this image ignores. |
+| **Engine key** | `ENGINE_KEY` IS set on both services and confirmed `keyed` in the rollup. Still `observe` mode — B3-b's flip is blocked on driving all 9 endpoints, which needs the website. |
+
+⚠️ **`CLERK_AUTHORIZED_PARTIES` must stay UNSET until the web app is deployed.**
+It pins the JWT `azp` claim to a web origin; with no deployed origin there is
+nothing correct to put in it, and a wrong value 401s every web session at once.
+
+### B3-b pre-flight
+
+`node scripts/b3b-preflight.mjs` — pipe engine logs in, it evaluates the flip
+conditions and exits non-zero. It deliberately does NOT generate traffic
+(fabricated evidence proves nothing about the real callers), requires `keyed`
+from EVERY recognised caller of a path rather than any, and refuses undated or
+stale logs. Enforce mode is already rehearsed and works; what's missing is
+production evidence, not confidence in the mechanism.
+
+## ⚠️ WEB_ORIGINS is the Stripe redirect allowlist — not CORS, not SEO
+
+Three variables name the same site and are deliberately separate:
+
+| Variable | Where | What it is |
+|---|---|---|
+| `WEB_ORIGINS` | API | Origins Stripe may bounce a **paying customer** back to. A security control. |
+| `CORS_ORIGINS` | API | Every client allowed to READ a response — includes the Expo dev server on `:8081`. |
+| `NEXT_PUBLIC_SITE_URL` | web, **build time** | Canonical/OG URLs, sitemap, robots.txt. SEO metadata. |
+
+Adding a dev origin for CORS must not widen where a customer can be sent after
+paying, which is why the first two are not one variable.
+
+`WEB_ORIGINS` must list **every** origin the site answers on — the browser sends
+`window.location.origin`, so a site reachable at both the Railway domain and
+`tianmingapp.com` with only one listed 400s on the other. **The first entry is
+canonical**: relative redirects resolve against it.
+
+**`@SafeRedirectUrl()` resolves first, then checks the RESOLVED origin.** That
+order is the control. It replaced a regex that pattern-matched the input, which
+allowlisted `bazi-platform.com` — **a domain we do not own** — while rejecting
+ours, and whose relative branch matched `//evil.com`. One `new URL(...).origin`
+comparison covers protocol-relative, backslash, userinfo smuggling, case and
+default ports; a regex has to enumerate them.
+
+Unset falls back to `http://localhost:3000` alone. That fails **closed** in
+production and is announced at boot — verified by booting with it unset, and
+again with a deliberately messy value.
+
+⚠️ **`transform: true` is NOT what carries the rewrite to the controller.** Nest
+returns `classToPlain(entity)` whenever `validatorOptions` is non-empty, so the
+resolved URL survives `transform: false` too; only a bare `new ValidationPipe()`
+loses it. An earlier comment claimed otherwise and a mutation test disproved it.
+The options live in `common/validation-pipe-options.ts` and the spec imports
+that same object, so a hardcoded copy cannot drift from production.
+
+## ⚠️ M1 throttling — the tracker must NEVER verify a token
+
+`UserAwareThrottlerGuard.getTracker` reads `AuthIdentityService.peekVerifiedUserId`,
+a cache lookup. It must not call `attach()`.
+
+An earlier version did, and that was a denial-of-service hole: `attach` awaits
+Clerk's `verifyToken`, and for a forged token the `kid` is one Clerk never
+issued, so its JWKS cache misses **by construction** and it fetches from the
+network — with no timeout anywhere in the chain. `Authorization: Bearer <garbage>`
+therefore forced an unbounded outbound call BEFORE the rate limiter had decided
+anything, inverting cheap-gate-before-expensive-gate inside the rate limiter.
+
+The cache is safe there because **bucketing is not authorization** — a stale
+entry can only put someone in last minute's bucket, never grant access. Keyed by
+a SHA-256 of the token, never the token. `ClerkAuthGuard` still verifies every
+request.
+
+Three more invariants in that area:
+
+- **`RedisThrottlerStorage` is a SLIDING window** (sorted set), not `INCR` +
+  `PEXPIRE`. The bundled reference decays hits individually; a fixed window lets
+  a caller pace one hit then burst past the anchor for ~2x the configured rate
+  indefinitely. Measured, not theorised.
+- **The guard throws on `isBlocked`, not on `totalHits > limit`.** A storage that
+  counts perfectly and never sets that flag disables rate limiting while looking
+  healthy.
+- **A root-module `APP_GUARD` runs BEFORE an imported module's** (measured in
+  `guard-order.spec.ts`), so `ThrottlerGuard` beats `ClerkAuthGuard`. Nothing
+  depends on this — `attach` is idempotent — but do not design as if the order
+  were the other way.
+
+⚠️ Do not "fix" this by reordering the guards. Putting Clerk first means a
+protected route 401s BEFORE the throttler runs, so unauthenticated floods stop
+being rate-limited at all.
+
 ## 🔒 Security hardening (Phase 1) — LOAD-BEARING INVARIANTS
 
 Shipped on branch `claude/bazi-scalability-security-e4ff78` (25 commits, **unmerged**). Full
@@ -3762,6 +3903,28 @@ Each site now attempts the `create` and treats `P2002` as "someone else won". `c
 `meta.target`. Keep the catch narrow: a non-P2002 error must still propagate, or a dead database
 reads as a lost race. `handleUserCreated`'s swallow is what makes it self-healing — re-throwing
 there fails the webhook **permanently**, since Clerk's retry hits the same row.
+
+### The history page shows what was CHARGED, never the list price
+
+`apps/web/app/dashboard/readings/page.tsx` renders `-{reading.creditsUsed} 額度`,
+and `creditsUsed === 0` is the entire free predicate. Do not "improve" this to
+`READING_TYPE_META[...].creditCost`.
+
+It was that once (`eb68c81`, "use canonical credit costs instead of stale DB
+values") and the premise was wrong: `creditsUsed` is written from
+`Service.creditCost` at the moment of the charge and is 0 only for a cache hit,
+which genuinely cost nothing. The *list* price is the unstable one —
+`Service.creditCost` is admin-editable and `READING_TYPE_META.creditCost` is a
+hardcoded frontend constant — so the page re-priced history retroactively.
+事業詳批 and 流年運勢 went 2 → 3 credits, and 19 rows bought at 2 were rendering
+`-3 額度` on what is effectively a receipt, contradicting the credit ledger.
+
+The `|| typeCost === 0` half of the old free predicate went with it: for a type
+later repriced to 0 it would have shown 免費 to someone who paid.
+
+Comparisons are the exception and stay on `paidAt`, not `creditsUsed` — creating
+one is free and the charge happens at reveal, so 0 there means "not unlocked
+yet", not "free".
 
 ### Two version constants that must stay DECOUPLED
 
@@ -3931,3 +4094,9 @@ Two habits that actually caught these, both cheap:
    ts-jest and reports phantom parse errors. Lint from the ROOT
    (`./node_modules/.bin/turbo run lint` — the binary is at `./node_modules/.bin/`
    in a worktree, not `../../`); run each jest from ITS app directory.
+   ⚠️ And run the app's OWN jest: `../../node_modules/.bin/jest` from `apps/web`
+   is the root-hoisted **29.7.0**, while `apps/web` declares `^30.2.0` and CI's
+   `npx jest` resolves **30.4.x**. Two majors against one shared ts-jest cache
+   dir corrupts it and produces failures citing code that does not exist in the
+   file. Use `npx --no-install jest` from the app directory, and
+   `jest --clearCache` if you have already mixed them.

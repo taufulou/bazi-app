@@ -42,10 +42,15 @@ const ROOT =
     ? process.argv[rootFlag + 1]
     : fileURLToPath(new URL('..', import.meta.url));
 
-/** The only files permitted to make a raw HTTP call at the engine. */
+/** The only files permitted to make a raw HTTP call at the engine.
+ *
+ * ⚠️ M10 removed the second entry. `apps/web/app/lib/engine-client.ts` existed
+ * because the free-preview route called the engine directly; that route now
+ * proxies through NestJS, so the web app has NO permitted engine door and any
+ * new one is a violation rather than a keyed exception. Re-adding an entry here
+ * re-opens a path B3-b assumes does not exist — reroute through NestJS instead. */
 const HELPERS = [
   'apps/api/src/common/engine-client.ts',
-  'apps/web/app/lib/engine-client.ts',
 ];
 
 /** This file necessarily contains every token and route name it searches for. */
@@ -184,7 +189,7 @@ if (violations.length > 0) {
   for (const v of violations) console.error(`  ${v.file}:${v.line}\n    ${v.message}\n`);
   console.error(
     `${violations.length} violation(s). Route the call through engineFetch() ` +
-      `(apps/api/src/common/engine-client.ts or apps/web/app/lib/engine-client.ts).\n`,
+      `(apps/api/src/common/engine-client.ts). Web routes must proxy via NestJS.\n`,
   );
   process.exit(1);
 }

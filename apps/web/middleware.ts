@@ -21,6 +21,13 @@ const isPublicRoute = createRouteMatcher([
   '/api/bazi-calculate(.*)',
   '/api/explain-element(.*)',
   '/api/og(.*)', // crawler-facing OG-image routes (social share previews — no auth)
+  // M9 — crawler files. The matcher below skips a list of static
+  // extensions, and `.txt`/`.xml` are not on it, so under the full-lockdown
+  // rule these were `auth.protect()`ed and 404'd to every crawler. Verified
+  // against a real standalone build, which is the only place it shows up:
+  // the site was never deployed before M9, so nothing had ever fetched them.
+  '/robots.txt',
+  '/sitemap.xml',
   '/reading(.*)', // kept public for E2E cookie-bypass; guarded client-side by Layer A
 ]);
 

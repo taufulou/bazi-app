@@ -1,0 +1,125 @@
+# Next.js web — production image (Railway). FIRST deployment of this service:
+# until M9 the platform was backend-only (API + engine + Postgres + Redis), so
+# nothing here has ever run outside a dev machine.
+#
+# Multi-stage, unlike docker/Dockerfile.api. The API is single-stage because the
+# monorepo hoists deps and a naive copy of apps/api/node_modules loses them;
+# Next's `output: "standalone"` solves that differently — it traces the modules
+# actually reached and emits a self-contained tree — so the runtime stage needs
+# no node_modules install at all.
+FROM node:22-slim AS builder
+WORKDIR /app
+
+# --- deps: copy ALL workspace manifests so `npm ci` can validate the lockfile,
+#     then scope the install to web + its workspace deps (+ root). Mobile's
+#     native postinstalls are skipped. Cached unless a manifest changes.
+COPY package.json package-lock.json turbo.json ./
+COPY apps/api/package.json ./apps/api/
+COPY apps/web/package.json ./apps/web/
+COPY apps/mobile/package.json ./apps/mobile/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/ui/package.json ./packages/ui/
+COPY packages/eslint-config/package.json ./packages/eslint-config/
+COPY packages/typescript-config/package.json ./packages/typescript-config/
+RUN npm ci --workspace=web --workspace=@repo/shared --workspace=@repo/ui \
+      --include-workspace-root
+
+COPY . .
+
+# ⚠️ NEXT_PUBLIC_* IS INLINED AT BUILD TIME. These are ARGs, not runtime env:
+# setting them only as Railway service variables leaves the browser bundle
+# carrying whatever was present when the image was built (usually nothing).
+# Railway exposes service variables to the build, but a Dockerfile still has to
+# declare each one to receive it — an undeclared name is silently empty.
+#
+# Two of these are load-bearing beyond the bundle: `next.config.js` bakes
+# NEXT_PUBLIC_API_URL and NEXT_PUBLIC_R2_PUBLIC_HOST into the Content-Security-
+# Policy `connect-src` / `img-src` at build time, because `headers()` is
+# evaluated during `next build`. Get them wrong and the browser blocks every API
+# call and every banner image, with the server logs showing nothing at all.
+#
+# NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY must be a real, well-formed key: the build
+# PRERENDERS pages that mount ClerkProvider, and `@clerk/clerk-react` rejects a
+# placeholder outright ("The publishableKey passed to Clerk is invalid"), failing
+# the build rather than producing a broken page. Verified by building with a
+# dummy value.
+ARG NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+ARG NEXT_PUBLIC_CLERK_SIGN_IN_URL
+ARG NEXT_PUBLIC_CLERK_SIGN_UP_URL
+ARG NEXT_PUBLIC_CLERK_AFTER_SIGN_IN_URL
+ARG NEXT_PUBLIC_CLERK_AFTER_SIGN_UP_URL
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_SITE_URL
+ARG NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+ARG NEXT_PUBLIC_R2_PUBLIC_HOST
+ARG NEXT_PUBLIC_SENTRY_DSN
+ARG NEXT_PUBLIC_POSTHOG_KEY
+ARG NEXT_PUBLIC_POSTHOG_HOST
+ARG NEXT_PUBLIC_USE_MOCK_AI
+# Source-map upload only. Absent → `next.config.js` disables the Sentry webpack
+# plugins and silences the warning, so the build still succeeds.
+ARG SENTRY_AUTH_TOKEN
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Turn a silent misconfiguration into a failed build.
+#
+# An undeclared or unpassed build arg is EMPTY, not an error, and two of these
+# fail invisibly: a missing NEXT_PUBLIC_API_URL bakes a CSP that blocks every
+# API call from the browser with nothing in the server logs, and a missing
+# NEXT_PUBLIC_SITE_URL points every canonical tag and the sitemap at localhost.
+# Both look like a healthy deploy. Whether Railway forwards service variables to
+# a Dockerfile build as build args is a property of the platform, not of this
+# file — so assert rather than trust, and let the build log say which one is
+# missing.
+#
+# The Clerk key is checked here too, though the build would fail on its own a
+# minute later while prerendering: failing in one second with a named variable
+# beats failing in sixty with a React error.
+RUN missing=""; \
+    [ -n "$NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY" ] || missing="$missing NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"; \
+    [ -n "$NEXT_PUBLIC_API_URL" ]              || missing="$missing NEXT_PUBLIC_API_URL"; \
+    [ -n "$NEXT_PUBLIC_SITE_URL" ]             || missing="$missing NEXT_PUBLIC_SITE_URL"; \
+    if [ -n "$missing" ]; then \
+      echo "FATAL: empty build arg(s):$missing" >&2; \
+      echo "NEXT_PUBLIC_* is inlined at build time — set each as a service" >&2; \
+      echo "variable AND keep its ARG declaration in this file." >&2; \
+      exit 1; \
+    fi
+
+RUN cd apps/web && npx next build
+
+# Fail the BUILD, not the boot, if the standalone layout ever moves. This image
+# cannot be built or run on the dev machine (no Docker), so the COPY paths below
+# were derived from a real `next build` rather than from memory — and this check
+# is what keeps them honest when Next changes the layout.
+RUN test -f /app/apps/web/.next/standalone/apps/web/server.js \
+ && test -d /app/apps/web/.next/static
+
+# ---------------------------------------------------------------------------
+FROM node:22-slim AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+# The standalone server binds this; the default (localhost) is unreachable from
+# outside the container.
+ENV HOSTNAME=0.0.0.0
+EXPOSE 3000
+
+# Drop privileges — same reasoning as docker/Dockerfile.api. `--chown` on COPY
+# rather than a recursive chown afterwards, which would duplicate the tree into
+# another layer.
+#
+# `standalone` carries its own traced node_modules and a nested apps/web; the
+# two sibling copies are the pieces the tracer deliberately leaves behind
+# (`static` is emitted by the build, `public` is never traced at all). Omitting
+# either yields a server that boots cleanly and serves an unstyled, scriptless
+# page — a failure with no error anywhere.
+COPY --from=builder --chown=node:node /app/apps/web/.next/standalone ./
+COPY --from=builder --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
+COPY --from=builder --chown=node:node /app/apps/web/public ./apps/web/public
+
+USER node
+CMD ["node", "apps/web/server.js"]

@@ -5,6 +5,7 @@
  */
 
 import { HealthController } from '../src/health/health.controller';
+import type { ReadinessReport, ReadinessService } from '../src/health/readiness.service';
 
 // ============================================================
 // Mock Dependencies
@@ -22,6 +23,24 @@ const mockRedis = {
 const mockConfig = {
   get: jest.fn().mockReturnValue('http://localhost:5001'),
 };
+
+// M7. `/health/ready` delegates entirely; the controller's own job is the
+// STATUS CODE, which is what a platform healthcheck reads. ReadinessService's
+// verdict logic is covered in readiness.service.spec.ts.
+const mockReadiness = {
+  check: jest.fn<Promise<ReadinessReport>, []>(),
+};
+
+function report(ready: boolean, status: ReadinessReport['status']): ReadinessReport {
+  return {
+    ready,
+    status,
+    timestamp: '2026-01-01T00:00:00.000Z',
+    service: 'bazi-api',
+    version: '0.1.0',
+    checks: {},
+  };
+}
 
 // ============================================================
 // Global fetch mock
@@ -49,6 +68,7 @@ beforeEach(() => {
     mockPrisma as any,
     mockRedis as any,
     mockConfig as any,
+    mockReadiness as unknown as ReadinessService,
   );
 });
 
@@ -200,5 +220,84 @@ describe('HealthController', () => {
       expect(result.checks.redis.error).toBe('Redis timeout');
       expect(result.checks.baziEngine.status).toBe('healthy');
     });
+  });
+});
+
+// ============================================================
+// M7 — GET /health/ready
+//
+// The wiring, not the verdict: does the route turn a report into the right
+// HTTP status? Platforms read the code, not the body, so getting this backwards
+// is invisible in every service-level test and catastrophic in production —
+// an always-200 readiness endpoint reports a dead instance as fit for traffic.
+// ============================================================
+
+describe('HealthController — GET /health/ready', () => {
+  function res() {
+    return { status: jest.fn() } as unknown as import('express').Response & {
+      status: jest.Mock;
+    };
+  }
+
+  it('answers 200 when ready', async () => {
+    mockReadiness.check.mockResolvedValue(report(true, 'ready'));
+    const r = res();
+    await controller.ready(r);
+    expect(r.status).toHaveBeenCalledWith(200);
+  });
+
+  it('answers 200 when only an advisory dependency is down', async () => {
+    mockReadiness.check.mockResolvedValue(report(true, 'degraded'));
+    const r = res();
+    await controller.ready(r);
+    expect(r.status).toHaveBeenCalledWith(200);
+  });
+
+  it('answers 503 when a required dependency is down', async () => {
+    mockReadiness.check.mockResolvedValue(report(false, 'not_ready'));
+    const r = res();
+    await controller.ready(r);
+    expect(r.status).toHaveBeenCalledWith(503);
+  });
+
+  it('does NOT leak driver error text — this route is unauthenticated', async () => {
+    const full = report(false, 'not_ready');
+    full.checks = {
+      database: {
+        status: 'unhealthy',
+        latencyMs: 1,
+        required: true,
+        error: 'the URL postgresql://user:pw@host:5432/db is invalid',
+      },
+    };
+    mockReadiness.check.mockResolvedValue(full);
+    const out = await controller.ready(res());
+    expect(out.checks.database!.error).toBeUndefined();
+    expect(JSON.stringify(out)).not.toContain('postgresql://');
+    // Which dependency failed is still visible; only the text is gone.
+    expect(out.checks.database!.status).toBe('unhealthy');
+  });
+
+  it('returns the per-dependency report, not a flattened error', async () => {
+    // `passthrough` + res.status() rather than throwing: AllExceptionsFilter
+    // reduces a thrown body to {message, error, code}, discarding the only part
+    // a human debugging an outage wants.
+    const full = report(false, 'not_ready');
+    full.checks = {
+      database: { status: 'healthy', latencyMs: 1, required: true },
+      redis: { status: 'unhealthy', latencyMs: 2, required: true, error: 'down' },
+    };
+    mockReadiness.check.mockResolvedValue(full);
+    const out = await controller.ready(res());
+    expect(out.checks.redis!.status).toBe('unhealthy');
+    expect(out.checks.database!.status).toBe('healthy');
+  });
+
+  it('leaves liveness dependency-free — no probe runs for GET /health', () => {
+    mockReadiness.check.mockClear();
+    const out = controller.check();
+    expect(out.status).toBe('ok');
+    expect(mockReadiness.check).not.toHaveBeenCalled();
+    expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
   });
 });

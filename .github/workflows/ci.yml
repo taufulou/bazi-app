@@ -52,6 +52,20 @@ jobs:
   test-api:
     name: API Tests
     runs-on: ubuntu-latest
+    # M1 — the throttler storage spec asserts parity with the bundled in-memory
+    # implementation against a REAL Redis (the contract is Lua + PTTL semantics;
+    # a fake would only re-state my reading of it). Without this service the
+    # spec skips, which is the worst outcome: green, and testing nothing.
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -68,6 +82,23 @@ jobs:
           REDIS_URL: 'redis://localhost:6379'
           CLERK_SECRET_KEY: 'sk_test_fake'
           CLERK_WEBHOOK_SECRET: 'whsec_test_fake'
+          NODE_ENV: 'test'
+
+  test-web:
+    name: Web Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      # apps/web has no Prisma client of its own, and its specs mock every
+      # network boundary, so no DB/Redis service containers are needed.
+      - name: Run Web tests
+        run: cd apps/web && npx jest --verbose
+        env:
           NODE_ENV: 'test'
 
   test-bazi:
@@ -89,7 +120,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, test-api, test-bazi]
+    needs: [lint, typecheck, test-api, test-web, test-bazi]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -110,4 +141,7 @@ jobs:
           # to Clerk is invalid" while prerendering /_not-found. Decodes to
           # example.clerk.accounts.dev — a domain that authenticates nothing.
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_test_ZXhhbXBsZS5jbGVyay5hY2NvdW50cy5kZXYk'
-          NEXT_PUBLIC_SITE_URL: 'https://bazi-platform.com'
+          # M9: was 'https://bazi-platform.com' — a domain we do not own, which
+          # would have been baked into this build's canonical/OG URLs. Nothing
+          # consumes CI's build output, but it is the value someone copies.
+          NEXT_PUBLIC_SITE_URL: 'https://tianmingapp.com'

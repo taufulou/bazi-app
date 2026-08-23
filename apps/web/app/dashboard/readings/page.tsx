@@ -174,8 +174,24 @@ export default function ReadingHistoryPage() {
                 const slug = ENUM_TO_SLUG[reading.readingType] || "lifetime";
                 const meta = READING_TYPE_META[slug as keyof typeof READING_TYPE_META];
                 const isZwds = slug.startsWith("zwds-");
-                const typeCost = meta?.creditCost ?? 0;
-                const isActuallyFree = reading.creditsUsed === 0 || typeCost === 0;
+                // ⚠️ Show what the user ACTUALLY PAID, not today's list price.
+                //
+                // eb68c81 switched this to the canonical `meta.creditCost`
+                // ("instead of stale DB values"). The DB values are not stale:
+                // `creditsUsed` is written from `Service.creditCost` at the
+                // moment of the charge (bazi.service.ts) and is 0 only for a
+                // cache hit, which genuinely cost nothing. What IS unstable is
+                // the list price — `Service.creditCost` is admin-editable and
+                // `READING_TYPE_META.creditCost` is a hardcoded frontend
+                // constant — so pricing off it made every past reading
+                // re-price itself retroactively. 事業詳批 and 流年運勢 went
+                // 2 → 3 credits, and 19 readings bought at 2 were displaying
+                // `-3 額度` on what is effectively a receipt.
+                //
+                // `creditsUsed === 0` is the whole free predicate now. The old
+                // `|| typeCost === 0` had to go with it: for a type later
+                // repriced to 0 it would have shown 免費 to someone who paid.
+                const isActuallyFree = reading.creditsUsed === 0;
 
                 return (
                   <Link
@@ -204,7 +220,7 @@ export default function ReadingHistoryPage() {
                             <>
                               <span className={styles.metaDot}>·</span>
                               <span className={styles.creditsBadge}>
-                                -{typeCost} 額度
+                                -{reading.creditsUsed} 額度
                               </span>
                             </>
                           )}

@@ -9,6 +9,9 @@ import helmet from 'helmet';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { scrubSentryEvent } from './common/sentry-scrub';
 import { isSwaggerEnabled } from './common/swagger-gate';
+import { GLOBAL_VALIDATION_PIPE_OPTIONS } from './common/validation-pipe-options';
+import { resolveTrustProxyHops, TRUST_PROXY_ENV } from './common/trust-proxy';
+import { reportWebOrigins, webOriginsFromEnv } from './payments/safe-redirect-url';
 
 // Initialize Sentry before anything else
 if (process.env.SENTRY_DSN) {
@@ -41,6 +44,42 @@ async function bootstrap() {
     rawBody: true,
   });
 
+  // M1(b) — how much of X-Forwarded-For Express may believe.
+  //
+  // Read from the RAW env, not ConfigService: this decides whose address the
+  // anonymous rate-limit bucket is keyed on, and `NODE_ENV` taught us that
+  // anything Joi has defaulted is not the host's answer. See trust-proxy.ts for
+  // why a hop COUNT and never `true`.
+  const trustProxy = resolveTrustProxyHops(process.env[TRUST_PROXY_ENV]);
+  if (trustProxy.rejected !== undefined) {
+    logger.error(
+      `${TRUST_PROXY_ENV}="${trustProxy.rejected}" is not a hop count and was IGNORED. ` +
+        `Express's "trust proxy: true" would trust a client-supplied header, letting a ` +
+        `caller mint a fresh rate-limit bucket per request. Set an integer.`,
+    );
+  }
+  if (trustProxy.hops > 0) {
+    app.set('trust proxy', trustProxy.hops);
+    logger.log(`trust proxy = ${trustProxy.hops} hop(s)`);
+  } else {
+    logger.warn(
+      `${TRUST_PROXY_ENV} is not set — req.ip is the socket peer, so behind a ` +
+        `proxy EVERY anonymous caller shares one rate-limit bucket. Authenticated ` +
+        `callers are keyed on their verified userId and are unaffected. Verify the ` +
+        `real hop count against the edge and set it before launch.`,
+    );
+  }
+
+  // M9 — announce the Stripe redirect allowlist once, at boot. A wrong value
+  // here surfaces as "checkout returns 400", which is the loudest failure for a
+  // customer and the quietest for us: no exception, no Sentry event, just a
+  // declined payment. Say it out loud instead.
+  reportWebOrigins(
+    webOriginsFromEnv(),
+    (msg) => logger.log(msg),
+    (msg) => logger.warn(msg),
+  );
+
   // Graceful shutdown
   app.enableShutdownHooks();
 
@@ -61,13 +100,7 @@ async function bootstrap() {
   app.useGlobalFilters(new AllExceptionsFilter());
 
   // Global validation pipe
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  );
+  app.useGlobalPipes(new ValidationPipe(GLOBAL_VALIDATION_PIPE_OPTIONS));
 
   // CORS
   app.enableCors({

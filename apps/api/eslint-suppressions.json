@@ -101,11 +101,6 @@
       "count": 22
     }
   },
-  "src/payments/payments.controller.ts": {
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
-    }
-  },
   "src/payments/stripe.service.ts": {
     "@typescript-eslint/no-unused-vars": {
       "count": 1

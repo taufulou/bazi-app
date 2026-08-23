@@ -15,7 +15,10 @@ import { join, dirname } from 'path';
 const GUARD = join(__dirname, '..', '..', '..', 'scripts', 'check-engine-callers.mjs');
 
 const API_HELPER = 'apps/api/src/common/engine-client.ts';
-const WEB_HELPER = 'apps/web/app/lib/engine-client.ts';
+// M10 deleted the web helper: the free-preview route proxies through NestJS
+// now, so the web app has no permitted engine door. Kept as a path constant
+// because it is exactly the file whose RETURN must be caught as a violation.
+const FORMER_WEB_HELPER = 'apps/web/app/lib/engine-client.ts';
 
 function write(root: string, rel: string, content: string): void {
   const full = join(root, rel);
@@ -27,7 +30,6 @@ function makeCleanTree(): string {
   const root = mkdtempSync(join(tmpdir(), 'engine-guard-'));
   // Both helpers present, and each is allowed to call fetch at the engine.
   write(root, API_HELPER, 'export const f = () => fetch(`${baziEngineUrl}/x`, {});\n');
-  write(root, WEB_HELPER, 'export const f = () => fetch(`${process.env.BAZI_ENGINE_URL}/x`, {});\n');
   write(root, 'apps/api/src/bazi/bazi.service.ts', "import { engineFetch } from '../common/engine-client';\nexport const g = () => engineFetch(`${this.baziEngineUrl}/calculate`, { caller: 'bazi.reading' });\n");
   return root;
 }
@@ -119,10 +121,19 @@ describe('B3-a engine-caller guard', () => {
     // An allowlist that has drifted off disk silently permits everything it was
     // meant to constrain.
     const root = tree();
-    rmSync(join(root, WEB_HELPER));
+    rmSync(join(root, API_HELPER));
     const { code, output } = runGuard(root);
     expect(code).toBe(1);
     expect(output).toContain('allowlisted engine helper is missing');
+  });
+
+  it('now treats a REINSTATED web engine helper as a violation (M10)', () => {
+    // Before M10 this exact file was allowlisted. Deleting the route that used
+    // it is only half the job: if the helper comes back, the guard has to say
+    // so, or the door B3-b assumes is shut quietly reopens.
+    const root = tree();
+    write(root, FORMER_WEB_HELPER, 'export const f = () => fetch(`${process.env.BAZI_ENGINE_URL}/x`, {});\n');
+    expect(runGuard(root).code).toBe(1);
   });
 
   it('ignores unrelated fetch calls', () => {

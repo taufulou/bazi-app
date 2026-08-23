@@ -1,9 +1,13 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { RedisService } from './redis/redis.service';
+import { RedisThrottlerStorage } from './throttler/redis-throttler.storage';
+import { UserAwareThrottlerGuard } from './throttler/user-aware-throttler.guard';
 import { APP_GUARD } from '@nestjs/core';
 import * as Joi from 'joi';
 import { HealthController } from './health/health.controller';
+import { ReadinessService } from './health/readiness.service';
 import { LegalController } from './legal/legal.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
@@ -59,6 +63,14 @@ import { BannerModule } from './banner/banner.module';
         R2_BUCKET: Joi.string().allow('').optional().default(''),
         R2_PUBLIC_BASE_URL: Joi.string().allow('').optional().default(''),
         CORS_ORIGINS: Joi.string().optional().default('http://localhost:3000'),
+        // M9 — comma-separated origins Stripe may redirect a paying customer
+        // back to (successUrl / cancelUrl / returnUrl). SEPARATE from
+        // CORS_ORIGINS by design: CORS lists every client that may READ a
+        // response, and includes dev tooling (the Expo dev server on :8081).
+        // Adding a dev origin there must not silently widen where we can bounce
+        // a customer after payment. Empty is allowed and falls back to
+        // localhost — see DEFAULT_WEB_ORIGIN, which fails closed in prod.
+        WEB_ORIGINS: Joi.string().allow('').optional().default(''),
         // B5 — comma-separated `azp` allowlist for Clerk JWTs (the frontend
         // origins allowed to mint tokens this API accepts). Kept SEPARATE from
         // CORS_ORIGINS on purpose: CORS is a browser-enforced hint about who may
@@ -117,13 +129,22 @@ import { BannerModule } from './banner/banner.module';
     }),
 
     // Rate limiting — 100 requests per 60 seconds per IP
-    ThrottlerModule.forRoot([
-      {
-        name: 'default',
-        ttl: 60000,
-        limit: 100,
-      },
-    ]),
+    // M1(a) — counters in Redis, not per-process memory. With M8's two
+    // replicas an in-memory Map makes the real limit 2× the configured one,
+    // because each replica counts only its own share.
+    ThrottlerModule.forRootAsync({
+      inject: [RedisService],
+      useFactory: (redis: RedisService) => ({
+        throttlers: [
+          {
+            name: 'default',
+            ttl: 60000,
+            limit: 100,
+          },
+        ],
+        storage: new RedisThrottlerStorage(redis),
+      }),
+    }),
 
     // Infrastructure
     PrismaModule,
@@ -164,9 +185,13 @@ import { BannerModule } from './banner/banner.module';
   providers: [
     // Apply rate limiting globally
     {
+      // M1(c) — keys per VERIFIED userId, falling back to IP. See the guard.
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: UserAwareThrottlerGuard,
     },
+    // M7 — backs GET /health/ready. Registered here because HealthController is
+    // declared on the root module rather than in a feature module of its own.
+    ReadinessService,
   ],
 })
 export class AppModule {}

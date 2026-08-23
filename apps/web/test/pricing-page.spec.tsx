@@ -3,7 +3,7 @@
  * Validates plan display, billing toggle, CTA checkout flow,
  * toast notifications, and sign-in redirect.
  */
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within} from '@testing-library/react';
 import PricingPage from '../app/pricing/page';
 
 // ============================================================
@@ -25,8 +25,21 @@ jest.mock('@clerk/nextjs', () => ({
 
 // Mock Next.js hooks
 const mockSearchParams = new URLSearchParams();
+const mockRouterBack = jest.fn();
+
 jest.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
+  // `page.tsx` gained `useRouter()` for its back button in 303fc15. This mock
+  // was never extended, so every test in this file died on
+  // `useRouter is not a function` — invisibly, because web jest is not in CI.
+  useRouter: () => ({
+    back: mockRouterBack,
+    push: jest.fn(),
+    replace: jest.fn(),
+    refresh: jest.fn(),
+    prefetch: jest.fn(),
+    forward: jest.fn(),
+  }),
 }));
 
 jest.mock('next/link', () => {
@@ -53,6 +66,27 @@ jest.mock('@repo/shared', () => ({
 // ============================================================
 // Tests
 // ============================================================
+
+/**
+ * The subscribe CTA, scoped to one plan card.
+ *
+ * ⚠️ These tests used to do `screen.getByText('立即訂閱')`, which worked only
+ * while exactly one plan rendered that label. There are three, so it threw
+ * "found multiple elements" — and separately the label itself changed from
+ * 選擇方案. Both went unnoticed because web jest is not in CI.
+ *
+ * Scoping by card rather than by index so a reordering of the plans cannot
+ * silently point these assertions at the wrong plan.
+ */
+function ctaFor(planName: string): HTMLElement {
+  const heading = screen
+    .getAllByText(planName)
+    .find((el) => el.tagName === 'H2' && /planName/.test(el.className));
+  if (!heading) throw new Error(`No plan card heading found for "${planName}"`);
+  const card = heading.closest('[class*="planCard"]');
+  if (!card) throw new Error(`Plan heading for "${planName}" is not inside a plan card`);
+  return within(card as HTMLElement).getByRole('button');
+}
 
 describe('PricingPage', () => {
   beforeEach(() => {
@@ -125,10 +159,7 @@ describe('PricingPage', () => {
 
     render(<PricingPage />);
 
-    const basicButton = screen.getAllByRole('button').find(
-      (btn) => btn.textContent === '選擇方案'
-    )!;
-    fireEvent.click(basicButton);
+    fireEvent.click(ctaFor('Basic'));
 
     // API should NOT be called — user is redirected to sign-in instead
     expect(mockCreateSubscriptionCheckout).not.toHaveBeenCalled();
@@ -143,8 +174,7 @@ describe('PricingPage', () => {
 
     render(<PricingPage />);
 
-    const proButton = screen.getByText('立即訂閱');
-    fireEvent.click(proButton);
+    fireEvent.click(ctaFor('Pro'));
 
     await waitFor(() => {
       expect(mockCreateSubscriptionCheckout).toHaveBeenCalledWith(
@@ -169,8 +199,7 @@ describe('PricingPage', () => {
     // Toggle to annual
     fireEvent.click(screen.getByText('年繳'));
 
-    const proButton = screen.getByText('立即訂閱');
-    fireEvent.click(proButton);
+    fireEvent.click(ctaFor('Pro'));
 
     await waitFor(() => {
       expect(mockCreateSubscriptionCheckout).toHaveBeenCalledWith(
@@ -188,8 +217,7 @@ describe('PricingPage', () => {
 
     render(<PricingPage />);
 
-    const proButton = screen.getByText('立即訂閱');
-    fireEvent.click(proButton);
+    fireEvent.click(ctaFor('Pro'));
 
     await waitFor(() => {
       expect(screen.getByText('Stripe error')).toBeInTheDocument();
