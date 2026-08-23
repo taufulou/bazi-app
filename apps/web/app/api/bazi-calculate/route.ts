@@ -22,19 +22,21 @@
  * returned before, so the client contract is unchanged — `page.tsx` reads
  * `baziResult.data || baziResult` and keeps working either way.
  *
- * ⚠️ KNOWN INTERIM (M1): NestJS registers the stock IP-scoped `ThrottlerGuard`,
- * so until M1 lands its per-user tracker, every preview proxied from this route
- * shares ONE bucket keyed to the WEB SERVER's IP — 20/min globally, not
- * per-user. Harmless pre-launch (no real users) and strictly more protection
- * than the zero this route had before, but it MUST NOT reach launch: M1 is in
- * the same phase and its acceptance criterion is "two distinct signed-in
- * clients → distinct throttle buckets".
- *
  * The bearer is minted SERVER-SIDE from the Clerk session rather than forwarded
  * — the browser client sends no Authorization header on this path (see
- * `page.tsx`, Content-Type only). Sending it is what lets M1's tracker key per
- * user without touching this file again. Anonymous callers send none and are
- * throttled by IP, which the plan documents as acceptable (scripts only).
+ * `page.tsx`, Content-Type only). That is what lets M1's tracker key per user
+ * without touching this file again: `UserAwareThrottlerGuard` buckets on the
+ * VERIFIED userId from this bearer, so two signed-in clients get two buckets.
+ * Anonymous callers send none and are throttled by IP, which the plan documents
+ * as acceptable (scripts only).
+ *
+ * (This paragraph used to warn that NestJS still registered the stock IP-scoped
+ * `ThrottlerGuard`, so every preview shared ONE bucket keyed to the web
+ * server's IP, and that it MUST NOT reach launch. True when written; M1 shipped
+ * in the same batch and `UserAwareThrottlerGuard` is now the global `APP_GUARD`
+ * — see `apps/api/src/app.module.ts`. Recorded rather than deleted because a
+ * resolved launch-blocker that still reads as open is what sends the next
+ * person chasing finished work.)
  */
 
 import { NextRequest, NextResponse } from 'next/server';

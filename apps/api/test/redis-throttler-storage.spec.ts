@@ -12,9 +12,15 @@ import { RedisThrottlerStorage } from '../src/throttler/redis-throttler.storage'
  * test full of hand-written expectations would encode my reading of it, which
  * is the thing most likely to be wrong.
  *
- * Needs a real Redis. Skips (loudly) rather than fails when there is none, so
- * the suite still runs in a container that has no Redis — CI's API job has no
- * Redis service, and a silent pass there would be worse than a visible skip.
+ * Needs a real Redis. CI's API job provides one (`.github/workflows/ci.yml`,
+ * the `test-api` job's `services:` block, added alongside this spec) — a fake
+ * would only re-state my reading of the contract, so a skip in CI would be the
+ * worst outcome: green, and testing nothing.
+ *
+ * It still SKIPS (loudly) rather than fails when no Redis is reachable, so the
+ * suite runs on a dev machine without one. A silent pass would be worse than a
+ * visible skip — but note that a skip in CI now means the service is broken,
+ * not absent.
  */
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 let client: Redis;
