@@ -9,6 +9,7 @@ import SignedOutRedirect from "./components/SignedOutRedirect";
 import LanguageProvider from "./components/LanguageProvider";
 import LanguageFirstRunModal from "./components/LanguageFirstRunModal";
 import "./globals.css";
+import { SITE_URL } from './lib/site-url';
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -37,7 +38,7 @@ const notoSerifSC = Noto_Serif_SC({
   preload: false,
 });
 
-const BASE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://bazi-platform.com';
+const BASE_URL = SITE_URL;
 
 export const metadata: Metadata = {
   title: "天命 | AI 命理平台",

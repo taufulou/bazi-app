@@ -62,6 +62,14 @@ import { BannerModule } from './banner/banner.module';
         R2_BUCKET: Joi.string().allow('').optional().default(''),
         R2_PUBLIC_BASE_URL: Joi.string().allow('').optional().default(''),
         CORS_ORIGINS: Joi.string().optional().default('http://localhost:3000'),
+        // M9 — comma-separated origins Stripe may redirect a paying customer
+        // back to (successUrl / cancelUrl / returnUrl). SEPARATE from
+        // CORS_ORIGINS by design: CORS lists every client that may READ a
+        // response, and includes dev tooling (the Expo dev server on :8081).
+        // Adding a dev origin there must not silently widen where we can bounce
+        // a customer after payment. Empty is allowed and falls back to
+        // localhost — see DEFAULT_WEB_ORIGIN, which fails closed in prod.
+        WEB_ORIGINS: Joi.string().allow('').optional().default(''),
         // B5 — comma-separated `azp` allowlist for Clerk JWTs (the frontend
         // origins allowed to mint tokens this API accepts). Kept SEPARATE from
         // CORS_ORIGINS on purpose: CORS is a browser-enforced hint about who may

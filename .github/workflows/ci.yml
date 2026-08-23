@@ -141,4 +141,7 @@ jobs:
           # to Clerk is invalid" while prerendering /_not-found. Decodes to
           # example.clerk.accounts.dev — a domain that authenticates nothing.
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_test_ZXhhbXBsZS5jbGVyay5hY2NvdW50cy5kZXYk'
-          NEXT_PUBLIC_SITE_URL: 'https://bazi-platform.com'
+          # M9: was 'https://bazi-platform.com' — a domain we do not own, which
+          # would have been baked into this build's canonical/OG URLs. Nothing
+          # consumes CI's build output, but it is the value someone copies.
+          NEXT_PUBLIC_SITE_URL: 'https://tianmingapp.com'

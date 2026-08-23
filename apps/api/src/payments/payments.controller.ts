@@ -37,20 +37,24 @@ import {
   ApiBody,
   ApiParam,
 } from '@nestjs/swagger';
-import { IsString, IsIn, IsOptional, IsUrl, Matches } from 'class-validator';
+import { IsString, IsIn, IsOptional, IsUrl } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 import { PaymentsService } from './payments.service';
 import { StripeService } from './stripe.service';
 import { SectionUnlockService } from './section-unlock.service';
 import { CurrentUser, AuthPayload } from '../auth/current-user.decorator';
 import { Public } from '../auth/public.decorator';
+import { SafeRedirectUrl } from './safe-redirect-url.decorator';
 
 // ============================================================
-// DTOs — validated to prevent open redirect via successUrl/cancelUrl
-// Only allow URLs that start with our own site origin (relative or absolute).
+// DTOs — validated to prevent open redirect via successUrl/cancelUrl.
+//
+// M9: `@SafeRedirectUrl()` resolves the value against the canonical web origin
+// and then checks the RESOLVED origin against the `WEB_ORIGINS` allowlist. It
+// replaces a hardcoded regex that allowlisted `bazi-platform.com` — a domain we
+// do not own — while rejecting our real one, and whose relative-path branch
+// matched `//evil.com`. See `safe-redirect-url.ts` for the full reasoning.
 // ============================================================
-
-const SAFE_URL_REGEX = /^(https?:\/\/(localhost(:\d+)?|[a-z0-9-]+\.bazi-platform\.com)\/|\/)/;
 
 class CreateSubscriptionCheckoutDto {
   @IsString()
@@ -64,11 +68,11 @@ class CreateSubscriptionCheckoutDto {
   promoCode?: string;
 
   @IsString()
-  @Matches(SAFE_URL_REGEX, { message: 'successUrl must be a relative path or point to our domain' })
+  @SafeRedirectUrl()
   successUrl!: string;
 
   @IsString()
-  @Matches(SAFE_URL_REGEX, { message: 'cancelUrl must be a relative path or point to our domain' })
+  @SafeRedirectUrl()
   cancelUrl!: string;
 }
 
@@ -81,11 +85,11 @@ class CreateOneTimeCheckoutDto {
   promoCode?: string;
 
   @IsString()
-  @Matches(SAFE_URL_REGEX, { message: 'successUrl must be a relative path or point to our domain' })
+  @SafeRedirectUrl()
   successUrl!: string;
 
   @IsString()
-  @Matches(SAFE_URL_REGEX, { message: 'cancelUrl must be a relative path or point to our domain' })
+  @SafeRedirectUrl()
   cancelUrl!: string;
 }
 
@@ -94,11 +98,11 @@ class CreateCreditCheckoutDto {
   packageSlug!: string;
 
   @IsString()
-  @Matches(SAFE_URL_REGEX, { message: 'successUrl must be a relative path or point to our domain' })
+  @SafeRedirectUrl()
   successUrl!: string;
 
   @IsString()
-  @Matches(SAFE_URL_REGEX, { message: 'cancelUrl must be a relative path or point to our domain' })
+  @SafeRedirectUrl()
   cancelUrl!: string;
 }
 
@@ -118,7 +122,7 @@ class UpgradeSubscriptionDto {
 
 class CreatePortalSessionDto {
   @IsString()
-  @Matches(SAFE_URL_REGEX, { message: 'returnUrl must be a relative path or point to our domain' })
+  @SafeRedirectUrl()
   returnUrl!: string;
 }
 

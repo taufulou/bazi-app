@@ -10,6 +10,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { scrubSentryEvent } from './common/sentry-scrub';
 import { isSwaggerEnabled } from './common/swagger-gate';
 import { resolveTrustProxyHops, TRUST_PROXY_ENV } from './common/trust-proxy';
+import { reportWebOrigins, webOriginsFromEnv } from './payments/safe-redirect-url';
 
 // Initialize Sentry before anything else
 if (process.env.SENTRY_DSN) {
@@ -67,6 +68,16 @@ async function bootstrap() {
         `real hop count against the edge and set it before launch.`,
     );
   }
+
+  // M9 — announce the Stripe redirect allowlist once, at boot. A wrong value
+  // here surfaces as "checkout returns 400", which is the loudest failure for a
+  // customer and the quietest for us: no exception, no Sentry event, just a
+  // declined payment. Say it out loud instead.
+  reportWebOrigins(
+    webOriginsFromEnv(),
+    (msg) => logger.log(msg),
+    (msg) => logger.warn(msg),
+  );
 
   // Graceful shutdown
   app.enableShutdownHooks();
