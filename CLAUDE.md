@@ -3728,7 +3728,7 @@ Not derivable from the code. Wrong assumptions here waste a session.
 | | |
 |---|---|
 | **Domain** | `tianmingapp.com` — Namecheap, BasicDNS. ⚠️ The **bare domain resolves to NOTHING** (no A record, NXDOMAIN). Only Clerk's subdomains exist: `clerk.` `accounts.` `clkmail.` |
-| **Web app** | **NOT DEPLOYED ANYWHERE.** Railway hosts backend only. Any instruction that says "open the app" in prod is wrong. M9 is the task that changes this. |
+| **Web app** | **NOT DEPLOYED YET** — Railway hosts backend only, so any instruction that says "open the app" in prod is still wrong. M9 built the missing piece: `docker/Dockerfile.web` + the runbook at **`docs/deploy/web-service.md`**. Creating the service is owner-side and has not been done. |
 | **API** | `https://bazi-app-production-5e54.up.railway.app` — an API, not a website: `GET /` correctly 404s. |
 | **Clerk** | **PRODUCTION instance is LIVE** (B4-C done 2026-08-23). Prod API runs `sk_live` + a production webhook at `/api/webhooks/clerk`. Sign-in is Clerk's hosted portal at `accounts.tianmingapp.com` (`/user` renders; the root redirects a signed-in user to the dead bare domain). Plan: **Pro**. |
 | **Clerk dev** | Untouched, still what LOCAL development uses. Keep the `sk_test` values. |
@@ -3748,6 +3748,42 @@ conditions and exits non-zero. It deliberately does NOT generate traffic
 from EVERY recognised caller of a path rather than any, and refuses undated or
 stale logs. Enforce mode is already rehearsed and works; what's missing is
 production evidence, not confidence in the mechanism.
+
+## ⚠️ WEB_ORIGINS is the Stripe redirect allowlist — not CORS, not SEO
+
+Three variables name the same site and are deliberately separate:
+
+| Variable | Where | What it is |
+|---|---|---|
+| `WEB_ORIGINS` | API | Origins Stripe may bounce a **paying customer** back to. A security control. |
+| `CORS_ORIGINS` | API | Every client allowed to READ a response — includes the Expo dev server on `:8081`. |
+| `NEXT_PUBLIC_SITE_URL` | web, **build time** | Canonical/OG URLs, sitemap, robots.txt. SEO metadata. |
+
+Adding a dev origin for CORS must not widen where a customer can be sent after
+paying, which is why the first two are not one variable.
+
+`WEB_ORIGINS` must list **every** origin the site answers on — the browser sends
+`window.location.origin`, so a site reachable at both the Railway domain and
+`tianmingapp.com` with only one listed 400s on the other. **The first entry is
+canonical**: relative redirects resolve against it.
+
+**`@SafeRedirectUrl()` resolves first, then checks the RESOLVED origin.** That
+order is the control. It replaced a regex that pattern-matched the input, which
+allowlisted `bazi-platform.com` — **a domain we do not own** — while rejecting
+ours, and whose relative branch matched `//evil.com`. One `new URL(...).origin`
+comparison covers protocol-relative, backslash, userinfo smuggling, case and
+default ports; a regex has to enumerate them.
+
+Unset falls back to `http://localhost:3000` alone. That fails **closed** in
+production and is announced at boot — verified by booting with it unset, and
+again with a deliberately messy value.
+
+⚠️ **`transform: true` is NOT what carries the rewrite to the controller.** Nest
+returns `classToPlain(entity)` whenever `validatorOptions` is non-empty, so the
+resolved URL survives `transform: false` too; only a bare `new ValidationPipe()`
+loses it. An earlier comment claimed otherwise and a mutation test disproved it.
+The options live in `common/validation-pipe-options.ts` and the spec imports
+that same object, so a hardcoded copy cannot drift from production.
 
 ## ⚠️ M1 throttling — the tracker must NEVER verify a token
 
