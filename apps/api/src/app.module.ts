@@ -7,6 +7,7 @@ import { UserAwareThrottlerGuard } from './throttler/user-aware-throttler.guard'
 import { APP_GUARD } from '@nestjs/core';
 import * as Joi from 'joi';
 import { HealthController } from './health/health.controller';
+import { ReadinessService } from './health/readiness.service';
 import { LegalController } from './legal/legal.controller';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
@@ -188,6 +189,9 @@ import { BannerModule } from './banner/banner.module';
       provide: APP_GUARD,
       useClass: UserAwareThrottlerGuard,
     },
+    // M7 — backs GET /health/ready. Registered here because HealthController is
+    // declared on the root module rather than in a feature module of its own.
+    ReadinessService,
   ],
 })
 export class AppModule {}
