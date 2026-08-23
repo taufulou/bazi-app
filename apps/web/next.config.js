@@ -8,6 +8,44 @@ import { withSentryConfig } from '@sentry/nextjs';
 const r2Host = process.env.NEXT_PUBLIC_R2_PUBLIC_HOST?.trim();
 const r2ImgSrc = r2Host ? ` https://${r2Host}` : '';
 
+// The Clerk frontend-API host, DERIVED from the publishable key rather than
+// hardcoded.
+//
+// A Clerk publishable key is `pk_<env>_` + base64("<frontend-api-host>$"), so
+// the key already names the host the browser will load Clerk from. On the
+// DEVELOPMENT instance that is `<something>.clerk.accounts.dev`, which the
+// wildcards below happen to cover. On a PRODUCTION instance it is a subdomain
+// of your own domain — `clerk.tianmingapp.com` — which they do not.
+//
+// That gap is invisible server-side: the sign-in page still returns 200,
+// because the CSP only bites in a browser. What breaks is Clerk's script, its
+// API calls and its iframes, all at once, on every page.
+//
+// Deriving beats hardcoding for the same reason `WEB_ORIGINS` does: a hardcoded
+// host is one someone must remember to change, and the last hardcoded domain in
+// this repo was one we did not even own. This one cannot drift from the key.
+function clerkHostFromPublishableKey(key) {
+  if (!key) return null;
+  const encoded = key.trim().replace(/^pk_(test|live)_/, '');
+  if (!encoded) return null;
+  try {
+    const host = Buffer.from(encoded, 'base64').toString('utf8').replace(/\$+$/, '').trim();
+    // Only accept something that looks like a bare hostname — a malformed key
+    // must not be able to inject directives into the policy.
+    return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(host)
+      ? host
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const clerkHost = clerkHostFromPublishableKey(
+  process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+);
+const clerkHttp = clerkHost ? ` https://${clerkHost}` : '';
+const clerkWs = clerkHost ? ` wss://${clerkHost}` : '';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Enable transpilation of monorepo packages
@@ -92,12 +130,12 @@ const nextConfig = {
               "frame-ancestors 'none'",
               "base-uri 'self'",
               "object-src 'none'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.accounts.dev https://challenges.cloudflare.com",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.accounts.dev https://challenges.cloudflare.com" + clerkHttp,
               "style-src 'self' 'unsafe-inline'",
-              "img-src 'self' data: blob: https://img.clerk.com https://*.clerk.accounts.dev" + r2ImgSrc,
+              "img-src 'self' data: blob: https://img.clerk.com https://*.clerk.accounts.dev" + clerkHttp + r2ImgSrc,
               "font-src 'self' data:",
-              `connect-src 'self' https://*.clerk.accounts.dev https://api.clerk.com https://api.stripe.com wss://*.clerk.accounts.dev ${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'} https://*.ingest.sentry.io https://*.i.posthog.com`,
-              "frame-src https://*.clerk.accounts.dev https://challenges.cloudflare.com https://js.stripe.com",
+              `connect-src 'self' https://*.clerk.accounts.dev https://api.clerk.com https://api.stripe.com wss://*.clerk.accounts.dev${clerkHttp}${clerkWs} ${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'} https://*.ingest.sentry.io https://*.i.posthog.com`,
+              "frame-src https://*.clerk.accounts.dev https://challenges.cloudflare.com https://js.stripe.com" + clerkHttp,
               "worker-src 'self' blob:",
             ].join("; "),
           },
