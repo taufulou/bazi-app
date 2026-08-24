@@ -113,11 +113,31 @@ export function periodsBetween(
  * @throws ForbiddenException `SUBSCRIBER_ONLY` (free user outside the current
  *         period) or `OUT_OF_WINDOW` (subscriber beyond the lookahead).
  */
+/**
+ * @param altNowIso  A SECOND acceptable anchor for "now"; the target is in
+ *   window if it satisfies the rule against EITHER. Exists for the 子時
+ *   boundary: per Bazi doctrine the day flips at 23:00, so between 23:00 and
+ *   midnight the civil day and the Bazi day are different dates and BOTH are
+ *   legitimate answers to "today".
+ *
+ *   The client already rolls correctly (`resolveBaziToday`), and the server's
+ *   `todayIsoDate()` deliberately does not — its own comment says the client is
+ *   expected to resolve the boundary. Comparing one against the other made the
+ *   gate see "+1 day" and refuse: for one hour every night, a free user asking
+ *   for today's fortune got `SUBSCRIBER_ONLY`. Found in production at 23:31
+ *   Taipei, which is the only reason it surfaced.
+ *
+ *   Accepting either anchor is deliberate over picking one. Rolling the server
+ *   instead would just move the break to any client that sends the civil date;
+ *   during that hour the question genuinely has two right answers, and a gate
+ *   is the wrong place to adjudicate doctrine.
+ */
 export function assertFortuneWindow(
   scope: FortuneScope,
   tier: SubscriptionTier,
   targetIso: string,
   nowIso: string,
+  altNowIso?: string,
 ): void {
   const spec = FORTUNE_WINDOWS[scope];
 
@@ -140,25 +160,41 @@ export function assertFortuneWindow(
     });
   }
 
-  const diff = periodsBetween(scope, nowIso, targetIso);
-  if (!Number.isFinite(diff)) {
+  // Every anchor worth measuring against — deduped, and only the finite ones.
+  // An unusable alt anchor must not make the gate more permissive OR less: it
+  // is simply dropped, leaving the primary anchor's verdict to stand.
+  const diffs = [nowIso, ...(altNowIso && altNowIso !== nowIso ? [altNowIso] : [])]
+    .map((anchor) => periodsBetween(scope, anchor, targetIso))
+    .filter((d) => Number.isFinite(d));
+
+  if (diffs.length === 0) {
     throw new ForbiddenException({
       code: 'OUT_OF_WINDOW',
       message: spec.outOfWindowMessage(spec.subscriberPast, spec.subscriberFuture),
     });
   }
 
+  const withinFree = diffs.some((d) => d >= -spec.freePast && d <= spec.freeFuture);
+  const withinSubscriber = diffs.some(
+    (d) => d >= -spec.subscriberPast && d <= spec.subscriberFuture,
+  );
+
   if (tier === SubscriptionTier.FREE) {
-    if (diff < -spec.freePast || diff > spec.freeFuture) {
+    if (!withinFree) {
+      // Still SUBSCRIBER_ONLY rather than OUT_OF_WINDOW when a subscriber
+      // could have seen it — the message should name the thing that would fix
+      // it, and "subscribe" is a different remedy from "pick another date".
       throw new ForbiddenException({
-        code: 'SUBSCRIBER_ONLY',
-        message: spec.freeMessage,
+        code: withinSubscriber ? 'SUBSCRIBER_ONLY' : 'OUT_OF_WINDOW',
+        message: withinSubscriber
+          ? spec.freeMessage
+          : spec.outOfWindowMessage(spec.subscriberPast, spec.subscriberFuture),
       });
     }
     return;
   }
 
-  if (diff < -spec.subscriberPast || diff > spec.subscriberFuture) {
+  if (!withinSubscriber) {
     throw new ForbiddenException({
       code: 'OUT_OF_WINDOW',
       message: spec.outOfWindowMessage(spec.subscriberPast, spec.subscriberFuture),

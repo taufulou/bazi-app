@@ -386,7 +386,22 @@ export class UsersService {
         birthLatitude: dto.birthLatitude,
         gender: dto.gender,
         relationshipTag: dto.relationshipTag || 'SELF',
-        isPrimary: dto.isPrimary || false,
+        // A user's FIRST profile becomes primary automatically.
+        //
+        // Without this, the default is `false`, and every new user walks into a
+        // dead end: they enter their birth data, open 運勢, and are told
+        // 「找不到出生資料」 — the feature reports no birth data one screen after
+        // they typed it in. Fortune resolves the profile via `isPrimary`, not
+        // via `relationshipTag: 'SELF'`, and the create form does not surface
+        // the primary flag at all. Found by walking the real first-run path in
+        // production; it is on the path EVERY new user takes.
+        //
+        // `profileCount` is the count taken above for the per-user cap, so this
+        // costs no extra query. Two concurrent first-creates could both see 0
+        // and both land primary — harmless, since the lookup orders by
+        // `isPrimary desc` and takes one, and the next explicit primary change
+        // unsets the others.
+        isPrimary: dto.isPrimary || profileCount === 0,
       },
     });
   }

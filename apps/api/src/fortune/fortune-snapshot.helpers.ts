@@ -77,6 +77,16 @@ export const FREE_USER_WINDOW_DAYS_PAST = FORTUNE_WINDOWS.DAY.freePast;
 export const SUBSCRIBER_WINDOW_DAYS_FUTURE = FORTUNE_WINDOWS.DAY.subscriberFuture;
 export const SUBSCRIBER_WINDOW_DAYS_PAST = FORTUNE_WINDOWS.DAY.subscriberPast;
 
+/**
+ * The hour at which the Bazi day flips (子時).
+ *
+ * Mirrors `DAILY_BAZI_DAY_BOUNDARY_HOUR` in
+ * `packages/bazi-engine/app/fortune_constants.py` and the web client's
+ * `resolveBaziToday`. Three copies of one doctrinal constant, in three
+ * languages — if it ever changes, all three move together.
+ */
+export const BAZI_DAY_BOUNDARY_HOUR = 23;
+
 export const REDIS_TTL_SECONDS = 24 * 60 * 60; // 24 hours
 export const ENGINE_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -191,7 +201,13 @@ export class FortuneSnapshotHelpers {
    * through a different door. One implementation, every caller.
    */
   enforceSubscriptionGate(tier: SubscriptionTier, targetDateIso: string): void {
-    assertFortuneWindow('DAY', tier, targetDateIso, this.todayIsoDate());
+    assertFortuneWindow(
+      'DAY',
+      tier,
+      targetDateIso,
+      this.todayIsoDate(),
+      this.baziTodayIsoDate(),
+    );
   }
 
   // ============================================================
@@ -699,6 +715,44 @@ export class FortuneSnapshotHelpers {
     return new Intl.DateTimeFormat('sv-SE', { timeZone: tz }).format(new Date());
   }
 
+  /**
+   * "Today" as Bazi counts it: the civil date, rolled forward one day from
+   * 23:00 local time (子時).
+   *
+   * The web client computes exactly this (`resolveBaziToday`) and sends it as
+   * `date`. `todayIsoDate()` above deliberately does NOT roll, because it is
+   * the default for a caller that omits the date entirely. The two disagreeing
+   * is correct; the WINDOW GATE comparing one against the other was not — it
+   * read the client's correctly-rolled date as "tomorrow" and returned
+   * SUBSCRIBER_ONLY for one hour every night. Both are passed to
+   * `assertFortuneWindow` now, and either satisfies it.
+   */
+  baziTodayIsoDate(): string {
+    const tz = this.config.get<string>('FORTUNE_DEFAULT_TZ') || 'Asia/Taipei';
+    const now = new Date();
+    const hour = Number(
+      new Intl.DateTimeFormat('en-GB', {
+        timeZone: tz,
+        hour: '2-digit',
+        hour12: false,
+      }).format(now),
+    );
+    // 24 is a legal en-GB rendering of midnight; treat only 23 as the boundary.
+    if (hour !== BAZI_DAY_BOUNDARY_HOUR) return this.todayIsoDate();
+    const rolled = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    return new Intl.DateTimeFormat('sv-SE', { timeZone: tz }).format(rolled);
+  }
+
+  /** Month containing `baziTodayIsoDate()` — the 子時 roll can cross a month end. */
+  baziCurrentMonthIso(): string {
+    return this.baziTodayIsoDate().slice(0, 7);
+  }
+
+  /** Year containing `baziTodayIsoDate()` — the roll can cross New Year's Eve. */
+  baziCurrentYearIso(): string {
+    return this.baziTodayIsoDate().slice(0, 4);
+  }
+
   daysBetween(fromIso: string, toIso: string): number {
     const from = new Date(`${fromIso}T00:00:00Z`).getTime();
     const to = new Date(`${toIso}T00:00:00Z`).getTime();
@@ -718,7 +772,13 @@ export class FortuneSnapshotHelpers {
   /** Subscription gate for month scope: -1 / current / +12 INCLUSIVE. */
   enforceMonthlySubscriptionGate(tier: SubscriptionTier, targetMonth: string): void {
     // See the note on enforceSubscriptionGate — shared rule, not re-inlined.
-    assertFortuneWindow('MONTH', tier, targetMonth, this.currentMonthIso());
+    assertFortuneWindow(
+      'MONTH',
+      tier,
+      targetMonth,
+      this.currentMonthIso(),
+      this.baziCurrentMonthIso(),
+    );
   }
 
   /** Current month YYYY-MM in FORTUNE_DEFAULT_TZ (Asia/Taipei). */
@@ -1042,7 +1102,13 @@ export class FortuneSnapshotHelpers {
   /** Subscription gate for year scope: -1 / current / +4 INCLUSIVE. */
   enforceYearlySubscriptionGate(tier: SubscriptionTier, targetYear: string): void {
     // See the note on enforceSubscriptionGate — shared rule, not re-inlined.
-    assertFortuneWindow('YEAR', tier, targetYear, this.currentYearIso());
+    assertFortuneWindow(
+      'YEAR',
+      tier,
+      targetYear,
+      this.currentYearIso(),
+      this.baziCurrentYearIso(),
+    );
   }
 
   /** Current year YYYY in FORTUNE_DEFAULT_TZ (Asia/Taipei). */
