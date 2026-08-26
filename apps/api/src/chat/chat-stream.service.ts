@@ -29,6 +29,7 @@ import { buildPrompt } from './chat-prompt-builder';
 import { sanitizeUserContent } from './chat.service';
 import { isTopicBoundaryRefuse } from '../ai/prompts';
 import { absorbStreamUsage, emptyStreamUsage, hasUsage, mergeFinalUsage } from '../ai/stream-usage';
+import { ShutdownService } from '../common/shutdown.service';
 
 // ============================================================
 // Constants
@@ -129,6 +130,7 @@ export class ChatStreamService {
     private readonly aiSpend: AiSpendService,
     private readonly aiGovernor: AiGovernorService,
     private readonly quota: QuotaService,
+    private readonly shutdown: ShutdownService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY');
     if (!apiKey) {
@@ -583,6 +585,10 @@ export class ChatStreamService {
     // hung waiting for the next event.
     const abortController = new AbortController();
     let lastDeltaAt = Date.now();
+    // M6 — a shutdown abort lands on the SAME abortController the watchdog and
+    // the client-disconnect handler use, so a drained stream takes the tested
+    // persist-if-parseable path rather than dying as a TCP reset.
+    const releaseShutdown = this.shutdown.registerStream(() => abortController.abort());
     let watchdogTriggered = false;
     const watchdogTimer = setInterval(() => {
       if (Date.now() - lastDeltaAt > STREAM_WATCHDOG_MS) {
@@ -735,6 +741,9 @@ export class ChatStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      // M6 — de-register BEFORE the usage/persist work below, so a shutdown
+      // that starts mid-cleanup does not abort an already-finished stream.
+      releaseShutdown();
       // S2 — record in the FINALLY, so a client disconnect (the commonest
       // ending on mobile) still books what Anthropic already billed.
       if (hasUsage(streamUsage)) {

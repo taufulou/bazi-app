@@ -27,4 +27,10 @@ USER baziuser
 ENV PORT=8000
 EXPOSE 8000
 
-CMD ["sh", "-c", "uvicorn app.main:app --host :: --port ${PORT:-8000}"]
+# `exec` is redundant TODAY and kept deliberately: `sh -c` with a single
+# command already auto-execs (measured), so uvicorn is PID 1 and receives
+# SIGTERM, which is what makes its graceful shutdown work. That's an
+# optimisation we are relying on, not a guarantee — chain one `&&` in front
+# and the shell stays PID 1 and swallows the signal silently. Dockerfile.api
+# had exactly that bug. Stating it costs nothing.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host :: --port ${PORT:-8000}"]

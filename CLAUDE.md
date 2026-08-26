@@ -3843,6 +3843,52 @@ loses it. An earlier comment claimed otherwise and a mutation test disproved it.
 The options live in `common/validation-pipe-options.ts` and the spec imports
 that same object, so a hardcoded copy cannot drift from production.
 
+## ⚠️ M6 graceful shutdown — two traps, both silent
+
+Shipped 2026-08-26. `ShutdownService` (`apps/api/src/common/shutdown.service.ts`,
+`@Global` via `ShutdownModule`) drains on SIGTERM: flip `isShuttingDown` →
+`/health/ready` 503s instantly → wait `SHUTDOWN_DRAIN_DELAY_MS` for the LB to
+notice → wait up to `SHUTDOWN_STREAM_GRACE_MS` for active streams (exits early
+when the last ends) → abort the rest → settle → close. Six streaming surfaces
+register: fortune ×3, chat ×1, and **bazi ×2**.
+
+**Trap 1 — `sh -c "a && node …"` swallows SIGTERM entirely.** `Dockerfile.api`
+chained `prisma migrate deploy && node …`, which leaves `sh` as PID 1 with node
+as a CHILD, and PID 1 ignores signals it has no handler for. Node never received
+SIGTERM; every deploy went straight to SIGKILL. Measured: without `exec` the
+child PID receives nothing, with `exec` the handler fires. ⚠️ `sh -c` with a
+SINGLE command auto-execs, which is why `Dockerfile.bazi` was fine and why the
+naive form looks correct right up until someone chains a migration in front of
+it. **Any new `CMD` that chains commands needs an explicit `exec`.**
+
+**Trap 2 — `beforeApplicationShutdown` is the WRONG hook to drain in.** Nest's
+measured order on close is `onModuleDestroy` → `beforeApplicationShutdown` →
+`onApplicationShutdown`, and BOTH `PrismaService.$disconnect()` and
+`RedisService.quit()` live in `onModuleDestroy`. A drain in the hook waits for
+streams to persist into a disconnected pool and a Redis client that has already
+quit (ioredis does not auto-reconnect after an explicit `quit()`). So `main.ts`
+does **not** call `app.enableShutdownHooks()`; it registers its own
+SIGTERM/SIGINT handler and does `await shutdown.drain(sig)` **then**
+`await app.close()`. Pinned by `shutdown.lifecycle-order.spec.ts` — if Nest ever
+flips the order, that spec fails and the simpler hook version becomes viable.
+
+Other invariants: liveness `/health` must keep returning 200 during the drain
+(a failing liveness invites the platform to kill us mid-drain) while readiness
+503s — the flag is checked BEFORE the 1s readiness cache, or a stale `ready:true`
+keeps traffic coming. `registerStream` returns an **idempotent** release that
+MUST be called from the stream's `finally`; a leaked registration makes every
+later shutdown burn the full grace waiting on something already finished. Nest
+passes the signal name only for a real signal — `undefined` for a programmatic
+`app.close()` — which is what keeps the multi-second drain out of the test suite.
+
+⚠️ The two `@Sse()` Observable streams (`bazi.controller` readings + comparisons)
+are invisible to a `text/event-stream` grep and were missed on the first pass —
+they are the EXPENSIVE ones. Registering them makes the drain wait and closes the
+SSE cleanly, but does NOT abort the underlying generation; the persisted row plus
+degraded/refund remain the net. ⚠️ Railway's exact SIGKILL deadline is unverified;
+defaults total ~14s worst case. If logs show truncated drains, lower
+`SHUTDOWN_STREAM_GRACE_MS`.
+
 ## ⚠️ M1 throttling — the tracker must NEVER verify a token
 
 `UserAwareThrottlerGuard.getTracker` reads `AuthIdentityService.peekVerifiedUserId`,

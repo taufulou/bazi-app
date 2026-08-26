@@ -14,6 +14,7 @@ import { CreditsService } from '../src/credits/credits.service';
 import { QuotaService } from '../src/ai/quota.service';
 import { AiSpendService } from '../src/ai/ai-spend.service';
 import { ReadingType } from '@prisma/client';
+import { ShutdownService } from '../src/common/shutdown.service';
 
 // ============================================================
 // Mock fetch
@@ -135,6 +136,7 @@ describe('AI Failure Graceful Degradation', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BaziService,
+        ShutdownService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: RedisService, useValue: mockRedis },
         { provide: AIService, useValue: mockAI },

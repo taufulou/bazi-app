@@ -22,6 +22,7 @@ import { AuthIdentityService } from '../src/auth/auth-identity.service';
  */
 import { UnauthorizedException } from '@nestjs/common';
 import { BaziService, stripPaidExplanationLayers } from '../src/bazi/bazi.service';
+import { ShutdownService } from '../src/common/shutdown.service';
 
 // The REAL engine shape. The first version of this fixture invented
 // `layerA`/`title` and a `{type, detail}` interaction — the engine actually
@@ -153,6 +154,7 @@ describe('O3 — passthroughExplainElement gates on the caller tier', () => {
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     // S2 — the cap pre-check that now runs before every quota consume.
     { assertUnderCap: jest.fn(), record: jest.fn() } as never,
+      new ShutdownService(),
     );
     // Stub the engine hop — this test is about the gate, not the transport.
     (service as unknown as { enginePassthrough: unknown }).enginePassthrough = jest

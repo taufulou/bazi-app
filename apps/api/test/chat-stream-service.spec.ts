@@ -6,6 +6,7 @@
  * MockResponse helper that records every `write()` call as a parsed SSE event.
  */
 import { ChatStreamService } from '../src/chat/chat-stream.service';
+import { ShutdownService } from '../src/common/shutdown.service';
 
 // ============================================================
 // Mock Express Response — captures SSE events for assertion
@@ -172,6 +173,7 @@ describe('ChatStreamService', () => {
       { record: jest.fn(), assertUnderCap: jest.fn() } as never,
       { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
+      new ShutdownService(),
     );
 
     // Patch Anthropic stream

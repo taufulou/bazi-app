@@ -15,6 +15,7 @@ import {
 import { PrismaService } from '../src/prisma/prisma.service';
 import { RedisService } from '../src/redis/redis.service';
 import { engineFetch } from '../src/common/engine-client';
+import { ShutdownService } from '../src/common/shutdown.service';
 
 jest.mock('../src/common/engine-client', () => ({ engineFetch: jest.fn() }));
 const engineFetchMock = engineFetch as jest.MockedFunction<typeof engineFetch>;
@@ -35,7 +36,7 @@ function build(overrides?: {
   const redis = { getClient: () => ({ ping }) } as unknown as RedisService;
   const config = { get: () => 'http://engine.test' } as unknown as ConfigService;
 
-  return { service: new ReadinessService(prisma, redis, config), db, ping };
+  return { service: new ReadinessService(prisma, redis, config, new ShutdownService()), db, ping };
 }
 
 describe('ReadinessService — the verdict', () => {

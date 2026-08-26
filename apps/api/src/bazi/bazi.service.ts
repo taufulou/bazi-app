@@ -21,6 +21,7 @@ import { QuotaService } from '../ai/quota.service';
 import { AiSpendService } from '../ai/ai-spend.service';
 import { isSelfRefusal } from '../ai/typed-refusals';
 import { engineFetch } from '../common/engine-client';
+import { ShutdownService } from '../common/shutdown.service';
 
 /**
  * Used only when the COMPATIBILITY service row is missing or has been
@@ -122,6 +123,7 @@ export class BaziService {
     private creditsService: CreditsService,
     private readonly quota: QuotaService,
     private readonly aiSpend: AiSpendService,
+    private readonly shutdown: ShutdownService,
   ) {
     this.baziEngineUrl = this.configService.get<string>('BAZI_ENGINE_URL') || 'http://localhost:5001';
   }
@@ -745,16 +747,42 @@ export class BaziService {
    * Stream AI interpretation for a LIFETIME reading via SSE.
    * Returns an Observable<MessageEvent> consumed by the @Sse endpoint.
    */
+  /**
+   * M6 — these two are `@Sse()` Observables, not raw `Response` writers, so a
+   * `text/event-stream` grep does not find them and they were missed on the
+   * first pass. They are also the EXPENSIVE streams: a paid LIFETIME reading
+   * and a 3-credit compat reveal.
+   *
+   * Registering buys two things. The drain WAITS on them, so a reading a few
+   * seconds from finishing now completes instead of being killed; and if the
+   * grace expires we complete the subscriber, closing the SSE cleanly so the
+   * client can show a retry rather than hanging on a reset socket.
+   *
+   * ⚠️ It does NOT abort the underlying generation — that dies with the
+   * process. The persisted row plus the existing degraded/refund paths remain
+   * the safety net, exactly as for any other mid-generation crash.
+   */
   streamReading(clerkUserId: string, readingId: string): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
-      this._setupStream(clerkUserId, readingId, subscriber).catch((err) => {
-        const message = err instanceof Error ? err.message : 'Stream setup failed';
+      const releaseShutdown = this.shutdown.registerStream(() => {
         subscriber.next({
-          data: JSON.stringify({ message }),
+          data: JSON.stringify({ message: 'Server is restarting — please retry.' }),
           type: 'error',
         } as MessageEvent);
         subscriber.complete();
       });
+      this._setupStream(clerkUserId, readingId, subscriber)
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Stream setup failed';
+          subscriber.next({
+            data: JSON.stringify({ message }),
+            type: 'error',
+          } as MessageEvent);
+          subscriber.complete();
+        })
+        .finally(() => releaseShutdown());
+      // Unsubscribe teardown (client disconnect). Release is idempotent.
+      return () => releaseShutdown();
     });
   }
 
@@ -961,16 +989,42 @@ export class BaziService {
    * Stream AI interpretation for a Romance V2 comparison via SSE.
    * Returns an Observable<MessageEvent> consumed by the @Sse endpoint.
    */
+  /**
+   * M6 — these two are `@Sse()` Observables, not raw `Response` writers, so a
+   * `text/event-stream` grep does not find them and they were missed on the
+   * first pass. They are also the EXPENSIVE streams: a paid LIFETIME reading
+   * and a 3-credit compat reveal.
+   *
+   * Registering buys two things. The drain WAITS on them, so a reading a few
+   * seconds from finishing now completes instead of being killed; and if the
+   * grace expires we complete the subscriber, closing the SSE cleanly so the
+   * client can show a retry rather than hanging on a reset socket.
+   *
+   * ⚠️ It does NOT abort the underlying generation — that dies with the
+   * process. The persisted row plus the existing degraded/refund paths remain
+   * the safety net, exactly as for any other mid-generation crash.
+   */
   streamComparisonAI(clerkUserId: string, comparisonId: string): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
-      this._setupComparisonStream(clerkUserId, comparisonId, subscriber).catch((err) => {
-        const message = err instanceof Error ? err.message : 'Stream setup failed';
+      const releaseShutdown = this.shutdown.registerStream(() => {
         subscriber.next({
-          data: JSON.stringify({ message }),
+          data: JSON.stringify({ message: 'Server is restarting — please retry.' }),
           type: 'error',
         } as MessageEvent);
         subscriber.complete();
       });
+      this._setupComparisonStream(clerkUserId, comparisonId, subscriber)
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Stream setup failed';
+          subscriber.next({
+            data: JSON.stringify({ message }),
+            type: 'error',
+          } as MessageEvent);
+          subscriber.complete();
+        })
+        .finally(() => releaseShutdown());
+      // Unsubscribe teardown (client disconnect). Release is idempotent.
+      return () => releaseShutdown();
     });
   }
 

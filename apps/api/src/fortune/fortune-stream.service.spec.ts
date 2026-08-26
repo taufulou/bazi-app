@@ -33,6 +33,7 @@ import { FortuneStreamService } from './fortune-stream.service';
 import { FortuneSnapshotHelpers } from './fortune-snapshot.helpers';
 import { FortuneValidatorsService } from './fortune-validators.service';
 import { FORTUNE_PROMPT_VERSIONS } from '../ai/prompts';
+import { ShutdownService } from '../common/shutdown.service';
 
 // ============================================================
 // MockResponse — captures SSE events
@@ -240,7 +241,7 @@ function buildService(opts: {
   };
   const helpers = new FortuneSnapshotHelpers(prisma, redis, config);
   const validators = new FortuneValidatorsService();
-  const service = new FortuneStreamService(prisma, helpers, validators, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never, { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never);
+  const service = new FortuneStreamService(prisma, helpers, validators, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never, { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never, new ShutdownService());
 
   // Stub helper methods to make the test path deterministic
   jest.spyOn(helpers, 'enforceSubscriptionGate').mockImplementation(() => undefined);

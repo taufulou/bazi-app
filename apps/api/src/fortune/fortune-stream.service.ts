@@ -77,6 +77,7 @@ import {
   REDIS_TTL_SECONDS,
 } from './fortune-snapshot.helpers';
 import { createSectionDetector } from './fortune-section-detector';
+import { ShutdownService } from '../common/shutdown.service';
 
 // ============================================================
 // SSE event types
@@ -219,6 +220,7 @@ export class FortuneStreamService {
     private readonly aiSpend: AiSpendService,
     private readonly aiGovernor: AiGovernorService,
     private readonly quota: QuotaService,
+    private readonly shutdown: ShutdownService,
   ) {}
 
   /**
@@ -504,6 +506,10 @@ export class FortuneStreamService {
     // ============================================================
     const abortController = new AbortController();
     let lastDeltaAt = Date.now();
+    // M6 — a shutdown abort lands on the SAME abortController the watchdog and
+    // the client-disconnect handler use, so a drained stream takes the tested
+    // persist-if-parseable path rather than dying as a TCP reset.
+    const releaseShutdown = this.shutdown.registerStream(() => abortController.abort());
     let watchdogTriggered = false;
     const watchdogTimer = setInterval(() => {
       if (Date.now() - lastDeltaAt > STREAM_WATCHDOG_MS) {
@@ -654,6 +660,9 @@ export class FortuneStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      // M6 — de-register BEFORE the usage/persist work below, so a shutdown
+      // that starts mid-cleanup does not abort an already-finished stream.
+      releaseShutdown();
       // S2 — record in the FINALLY, so a client disconnect or a watchdog
       // abort still books what Anthropic already billed. See
       // `stream-usage.ts` for why the four streaming sites that only read
@@ -1269,6 +1278,10 @@ export class FortuneStreamService {
 
     const abortController = new AbortController();
     let lastDeltaAt = Date.now();
+    // M6 — a shutdown abort lands on the SAME abortController the watchdog and
+    // the client-disconnect handler use, so a drained stream takes the tested
+    // persist-if-parseable path rather than dying as a TCP reset.
+    const releaseShutdown = this.shutdown.registerStream(() => abortController.abort());
     let watchdogTriggered = false;
     const watchdogTimer = setInterval(() => {
       if (Date.now() - lastDeltaAt > STREAM_WATCHDOG_MS) {
@@ -1418,6 +1431,9 @@ export class FortuneStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      // M6 — de-register BEFORE the usage/persist work below, so a shutdown
+      // that starts mid-cleanup does not abort an already-finished stream.
+      releaseShutdown();
       // S2 — record in the FINALLY, so a client disconnect or a watchdog
       // abort still books what Anthropic already billed. See
       // `stream-usage.ts` for why the four streaming sites that only read
@@ -1921,6 +1937,10 @@ export class FortuneStreamService {
 
     const abortController = new AbortController();
     let lastDeltaAt = Date.now();
+    // M6 — a shutdown abort lands on the SAME abortController the watchdog and
+    // the client-disconnect handler use, so a drained stream takes the tested
+    // persist-if-parseable path rather than dying as a TCP reset.
+    const releaseShutdown = this.shutdown.registerStream(() => abortController.abort());
     let watchdogTriggered = false;
     const watchdogTimer = setInterval(() => {
       if (Date.now() - lastDeltaAt > STREAM_WATCHDOG_MS) {
@@ -2070,6 +2090,9 @@ export class FortuneStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
+      // M6 — de-register BEFORE the usage/persist work below, so a shutdown
+      // that starts mid-cleanup does not abort an already-finished stream.
+      releaseShutdown();
       // S2 — record in the FINALLY, so a client disconnect or a watchdog
       // abort still books what Anthropic already billed. See
       // `stream-usage.ts` for why the four streaming sites that only read

@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { BaziService } from './bazi.service';
+import { ShutdownService } from '../common/shutdown.service';
 
 /**
  * Bundle A regression lock — the 合盤 charge moved from CREATE to REVEAL.
@@ -49,6 +50,7 @@ describe('BaziService — 合盤 charge at reveal', () => {
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       // S2 — the cap pre-check that now runs before every quota consume.
       { assertUnderCap: jest.fn(), record: jest.fn() } as never,
+      new ShutdownService(),
     );
     return svc;
   }
@@ -181,6 +183,7 @@ describe('BaziService — 合盤 charge at reveal', () => {
         { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       // S2 — the cap pre-check that now runs before every quota consume.
       { assertUnderCap: jest.fn(), record: jest.fn() } as never,
+        new ShutdownService(),
       );
     }
 
@@ -277,6 +280,7 @@ describe('BaziService — 合盤 charge at reveal', () => {
         { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       // S2 — the cap pre-check that now runs before every quota consume.
       { assertUnderCap: jest.fn(), record: jest.fn() } as never,
+        new ShutdownService(),
       );
       jest
         // eslint-disable-next-line @typescript-eslint/no-explicit-any

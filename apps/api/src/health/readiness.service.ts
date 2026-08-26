@@ -46,6 +46,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
+import { ShutdownService } from '../common/shutdown.service';
 import { engineFetch } from '../common/engine-client';
 
 /** Per-dependency budget. Beyond this the dependency is reported unhealthy. */
@@ -122,9 +123,18 @@ export class ReadinessService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly config: ConfigService,
+    private readonly shutdown: ShutdownService,
   ) {}
 
   async check(): Promise<ReadinessReport> {
+    // M6 — checked BEFORE the cache on purpose. The whole value of the
+    // readiness flip is that it is instant: a cached `ready: true` served for
+    // up to READINESS_CACHE_MS after SIGTERM is a second of the load balancer
+    // still sending us traffic we are about to stop serving. It also skips the
+    // dependency probes entirely — the answer does not depend on them, and
+    // probing a database we are in the middle of disconnecting is pure noise.
+    if (this.shutdown.isShuttingDown) return this.shuttingDownReport();
+
     const now = Date.now();
     if (this.cached && now - this.cached.at < READINESS_CACHE_MS) {
       return this.cached.report;
@@ -143,6 +153,29 @@ export class ReadinessService {
         this.inFlight = null;
       });
     return this.inFlight;
+  }
+
+  /**
+   * Deliberately NOT cached and deliberately not reusing the last good report:
+   * `ready` must be false, and the per-dependency detail would be stale and
+   * misleading ("database: healthy" while we are closing the pool).
+   */
+  private shuttingDownReport(): ReadinessReport {
+    return {
+      ready: false,
+      status: 'not_ready',
+      timestamp: new Date().toISOString(),
+      service: 'bazi-api',
+      version: '0.1.0',
+      checks: {
+        shutdown: {
+          status: 'unhealthy',
+          required: true,
+          latencyMs: 0,
+          error: 'instance is shutting down',
+        },
+      },
+    };
   }
 
   private async run(): Promise<ReadinessReport> {

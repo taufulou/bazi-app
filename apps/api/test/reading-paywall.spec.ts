@@ -19,6 +19,7 @@
  */
 import { BaziService } from '../src/bazi/bazi.service';
 import { CreditsService } from '../src/credits/credits.service';
+import { ShutdownService } from '../src/common/shutdown.service';
 
 const CLERK = 'clerk-1';
 const USER_ID = 'user-1';
@@ -55,6 +56,7 @@ function makeService(readingOverrides: Record<string, unknown>, tier = 'FREE') {
     { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     // S2 — the cap pre-check that now runs before every quota consume.
     { assertUnderCap: jest.fn(), record: jest.fn() } as never,
+    new ShutdownService(),
   );
   return { service, mockPrisma, reading };
 }
@@ -290,6 +292,7 @@ describe('F-4 sibling — getComparison has no subscriber exemption either', () 
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     // S2 — the cap pre-check that now runs before every quota consume.
     { assertUnderCap: jest.fn(), record: jest.fn() } as never,
+      new ShutdownService(),
     );
     return { service };
   }

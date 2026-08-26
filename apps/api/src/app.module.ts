@@ -24,9 +24,12 @@ import { CreditsModule } from './credits/credits.module';
 import { ChatModule } from './chat/chat.module';
 import { FortuneModule } from './fortune/fortune.module';
 import { BannerModule } from './banner/banner.module';
+import { ShutdownModule } from './common/shutdown.module';
 
 @Module({
   imports: [
+    // M6 — @Global; must be present before any streaming module registers.
+    ShutdownModule,
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: ['.env.local', '.env'],

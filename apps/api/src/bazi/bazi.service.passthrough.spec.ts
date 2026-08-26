@@ -1,6 +1,7 @@
 import { HttpException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { BaziService } from './bazi.service';
+import { ShutdownService } from '../common/shutdown.service';
 
 /**
  * Focused unit tests for the public engine passthrough (mobile free-preview 排盤 +
@@ -23,6 +24,7 @@ describe('BaziService — engine passthrough', () => {
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       // S2 — the cap pre-check that now runs before every quota consume.
       { assertUnderCap: jest.fn(), record: jest.fn() } as never,
+      new ShutdownService(),
     );
     fetchMock = jest.fn();
     global.fetch = fetchMock as unknown as typeof fetch;

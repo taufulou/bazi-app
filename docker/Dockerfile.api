@@ -59,4 +59,14 @@ USER node
 # needless failure mode now that we run unprivileged. Guarded by the `test -x`
 # above. `prisma`/`tsx` are present because ENV NODE_ENV=production is set AFTER
 # `npm ci`, so devDependencies were installed.
-CMD ["sh", "-c", "/app/node_modules/.bin/prisma migrate deploy && node --import tsx dist/main.js"]
+# ⚠️ `exec` is load-bearing, not style. Without it `sh` stays PID 1 with node as
+# a CHILD, and PID 1 ignores signals it has no handler for — so Railway's
+# SIGTERM never reaches Node, the M6 drain never runs, and every deploy kills
+# in-flight AI streams with SIGKILL. Measured, not assumed: `sh -c "a && node"`
+# leaves a child PID that receives nothing; `sh -c "a && exec node"` replaces
+# the shell and the handler fires.
+#
+# The `&&` is why this needs saying: `sh -c` with a SINGLE command is optimised
+# into an exec automatically, so the naive form looks fine right up until
+# someone chains a migration in front of it — which is exactly what happened.
+CMD ["sh", "-c", "/app/node_modules/.bin/prisma migrate deploy && exec node --import tsx dist/main.js"]

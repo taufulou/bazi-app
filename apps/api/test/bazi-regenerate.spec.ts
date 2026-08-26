@@ -8,6 +8,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { BaziService } from '../src/bazi/bazi.service';
+import { ShutdownService } from '../src/common/shutdown.service';
 
 describe('BaziService.regenerateReading', () => {
   let mockPrisma: any;
@@ -36,6 +37,7 @@ describe('BaziService.regenerateReading', () => {
     const mockSpend = { assertUnderCap: jest.fn(), record: jest.fn() } as never;
     service = new BaziService(
       mockPrisma, mockRedis, mockConfig, mockAI, mockCredits, mockQuota, mockSpend,
+      new ShutdownService(),
     );
   });
 

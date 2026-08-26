@@ -12,6 +12,7 @@ import { isSwaggerEnabled } from './common/swagger-gate';
 import { GLOBAL_VALIDATION_PIPE_OPTIONS } from './common/validation-pipe-options';
 import { resolveTrustProxyHops, TRUST_PROXY_ENV } from './common/trust-proxy';
 import { reportWebOrigins, webOriginsFromEnv } from './payments/safe-redirect-url';
+import { ShutdownService } from './common/shutdown.service';
 
 // Initialize Sentry before anything else
 if (process.env.SENTRY_DSN) {
@@ -80,8 +81,39 @@ async function bootstrap() {
     (msg) => logger.warn(msg),
   );
 
-  // Graceful shutdown
-  app.enableShutdownHooks();
+  // M6 — graceful shutdown, driven explicitly rather than via
+  // `app.enableShutdownHooks()`.
+  //
+  // ⚠️ `enableShutdownHooks()` is deliberately NOT used. It registers signal
+  // handlers that call `app.close()`, and `close()` runs `onModuleDestroy`
+  // BEFORE `beforeApplicationShutdown` (measured — see
+  // `shutdown.lifecycle-order.spec.ts`). PrismaService and RedisService both
+  // tear down in `onModuleDestroy`, so any drain hung off the Nest hook would
+  // wait for in-flight streams to persist into a disconnected pool and a
+  // closed Redis client. Draining first and closing second is the whole point,
+  // and the hook ordering makes that impossible from inside a hook.
+  //
+  // The lifecycle hooks still run — `app.close()` invokes them regardless;
+  // `enableShutdownHooks()` only adds the signal listeners we are replacing.
+  const shutdown = app.get(ShutdownService);
+  let closing = false;
+  for (const sig of ['SIGTERM', 'SIGINT'] as const) {
+    process.on(sig, () => {
+      // Guard re-entry: a second Ctrl-C must not start a parallel teardown.
+      if (closing) return;
+      closing = true;
+      void (async () => {
+        try {
+          await shutdown.drain(sig);
+          await app.close();
+        } catch (err) {
+          logger.error(`Shutdown failed: ${err instanceof Error ? err.message : String(err)}`);
+        } finally {
+          process.exit(0);
+        }
+      })();
+    });
+  }
 
   // Security headers
   app.use(helmet());

@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config';
 import { BaziService } from './bazi.service';
+import { ShutdownService } from '../common/shutdown.service';
 
 /**
  * Bundle B — a re-run of the same reading returns the EXISTING row instead of
@@ -65,6 +66,7 @@ describe('BaziService.createReading — dedupe', () => {
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       // S2 — the cap pre-check that now runs before every quota consume.
       { assertUnderCap: jest.fn(), record: jest.fn() } as never,
+      new ShutdownService(),
     );
     jest
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
