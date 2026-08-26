@@ -3843,6 +3843,49 @@ loses it. An earlier comment claimed otherwise and a mutation test disproved it.
 The options live in `common/validation-pipe-options.ts` and the spec imports
 that same object, so a hardcoded copy cannot drift from production.
 
+## ⚠️ M2 — the Prisma pool is bounded, and `REPLICA_COUNT` divides it
+
+Unset, Prisma sizes its pool at `num_physical_cpus * 2 + 1` **per process**, and
+inside a container that reads the HOST's core count rather than your share —
+routinely 17-65 connections per instance. Two replicas reach a stock
+`max_connections=100` with no traffic worth mentioning, and the symptom is
+random 500s under load (`too many clients already` from whichever query lost the
+race) pointing nowhere near connection count.
+
+`PrismaService` sets `connection_limit` (default 10, `DATABASE_CONNECTION_LIMIT`)
+and `pool_timeout`, and warns at boot when `replicas × limit` exceeds the assumed
+safe ceiling. Proven end-to-end rather than asserted: 12 concurrent 1s queries
+finish in 4014 / 2017 / 1021 ms at limits 3 / 6 / 12 — exactly the wave pattern
+the pool size predicts.
+
+⚠️ A `connection_limit` already in `DATABASE_URL` **wins**. The connection string
+stays the operator's lever for pgbouncer or firefighting, and silently
+overriding it would make the URL a lie.
+
+⚠️ The URL is resolved at CALL time, not module scope. `ConfigModule` loads
+`.env` into `process.env` AFTER this module is imported, so a module-scope read
+would work in production and silently skip the bound pool in local dev — the
+worst asymmetry, since local is where you would try to observe it.
+
+⚠️ **Readiness competes for the bounded pool.** `/health/ready` runs `SELECT 1`
+through the same connections and its 3s timeout fires long before
+`pool_timeout=20`, so under genuine exhaustion readiness reports unhealthy, the
+LB pulls the instance, and load lands on its sibling. Mostly correct, but note
+the cause can be self-inflicted contention rather than a database problem.
+Prisma has no reserved-connection concept, so this is accepted and documented;
+if it fires, raise `DATABASE_CONNECTION_LIMIT` rather than lowering the
+readiness timeout.
+
+⚠️ Migrations are unaffected: `prisma migrate deploy` in the Dockerfile CMD is a
+separate CLI process reading `DATABASE_URL` from the environment, so the runtime
+`datasourceUrl` override never touches it.
+
+`REPLICA_COUNT` (`common/replica-count.ts`) **must move IN LOCKSTEP with the
+platform's replica count** — a container cannot detect how many siblings it has,
+and guessing from CPU count or hostname would be worse than a stated number.
+Unset, garbage, or < 1 all mean 1: the safe direction, i.e. the old behaviour
+rather than a fleet that has silently throttled itself.
+
 ## ⚠️ M6 graceful shutdown — two traps, both silent
 
 Shipped 2026-08-26. `ShutdownService` (`apps/api/src/common/shutdown.service.ts`,
