@@ -3721,33 +3721,73 @@ Fixes the reported flatness where the daily 5 dimensions (感情/事業/財運/�
 
 ---
 
-## 🌐 Production environment — LIVE FACTS (2026-08-23)
+## 🌐 Production environment — LIVE FACTS (2026-08-26)
 
 Not derivable from the code. Wrong assumptions here waste a session.
 
 | | |
 |---|---|
-| **Domain** | `tianmingapp.com` — Namecheap, BasicDNS. ⚠️ The **bare domain resolves to NOTHING** (no A record, NXDOMAIN). Only Clerk's subdomains exist: `clerk.` `accounts.` `clkmail.` |
-| **Web app** | **NOT DEPLOYED YET** — Railway hosts backend only, so any instruction that says "open the app" in prod is still wrong. M9 built the missing piece: `docker/Dockerfile.web` + the runbook at **`docs/deploy/web-service.md`**. Creating the service is owner-side and has not been done. |
-| **API** | `https://bazi-app-production-5e54.up.railway.app` — an API, not a website: `GET /` correctly 404s. |
-| **Clerk** | **PRODUCTION instance is LIVE** (B4-C done 2026-08-23). Prod API runs `sk_live` + a production webhook at `/api/webhooks/clerk`. Sign-in is Clerk's hosted portal at `accounts.tianmingapp.com` (`/user` renders; the root redirects a signed-in user to the dead bare domain). Plan: **Pro**. |
-| **Clerk dev** | Untouched, still what LOCAL development uses. Keep the `sk_test` values. |
-| **Social sign-in** | Apple/Facebook/Google/LINE are enabled in the UI but have **no custom OAuth credentials**, so they fail with `Missing required parameter: client_id`. Production requires your own OAuth app per provider; development used Clerk's shared ones. Email works. |
-| **Redis** | Official `redis:8.2.1`. `maxmemory 256mb` + `volatile-lru`, set in the **Custom Start Command** — `CONFIG SET` does NOT survive a restart here (tested: reverts to `0`/`noeviction`), and `REDIS_EXTRA_FLAGS` is a bitnami thing this image ignores. |
-| **Engine key** | `ENGINE_KEY` IS set on both services and confirmed `keyed` in the rollup. Still `observe` mode — B3-b's flip is blocked on driving all 9 endpoints, which needs the website. |
+| **The app is LIVE** | `https://tianmingapp.com` serves the real product. Sign-in, readings, fortune, chat, compatibility and payments all work in production. Superseded 2026-08-26 — earlier notes saying "backend only / not deployed" are HISTORY. |
+| **Web service** | Railway, Dockerfile builder, `docker/Dockerfile.web`, branch `main`. ⚠️ **Port 8080, not 3000** — Railway injects its own `PORT`, overriding the image's `ENV PORT=3000`. A custom domain pointed at 3000 502s. |
+| **DNS** | Namecheap **ALIAS** record on host `@` (a CNAME is illegal at an apex; Railway's UI says "CNAME" anyway) + the `_railway-verify` TXT. TLS is Let's Encrypt, issued ~2 min after the records land. |
+| **API** | `https://bazi-app-production-5e54.up.railway.app` — an API, not a website: `GET /` correctly 404s. Healthcheck path is `/health/ready`. |
+| **Clerk** | Production instance live; `sk_live` + production webhook. ⚠️ A **production publishable key is bound to one domain** — it will NOT work on the Railway `*.up.railway.app` URL, only on `tianmingapp.com`. `CLERK_AUTHORIZED_PARTIES` is now SET on both services. |
+| **Social sign-in** | Apple/Facebook/Google/LINE are enabled but have **no OAuth credentials**, so they fail with `Missing required parameter: client_id`. Email works. Either add credentials or hide them. |
+| **Stripe** | Test mode, configured. Credit packages and subscriptions both build prices INLINE (`price_data`), so the Stripe product catalog is irrelevant to this app. Webhook at `/api/webhooks/stripe`, 5 events. |
+| **Redis** | `maxmemory 256mb` + `volatile-lru`, set in the **Custom Start Command** — `CONFIG SET` does not survive a restart, and `REDIS_EXTRA_FLAGS` is a bitnami thing this image ignores. |
+| **Engine** | Private, no public domain. `ENGINE_KEY` set on both services. Still **observe** mode — B3-b's flip is the last open security item. |
 
-⚠️ **`CLERK_AUTHORIZED_PARTIES` must stay UNSET until the web app is deployed.**
-It pins the JWT `azp` claim to a web origin; with no deployed origin there is
-nothing correct to put in it, and a wrong value 401s every web session at once.
+### ⚠️ Launch-day lesson: a green pipeline says nothing about configuration
+
+Six real bugs surfaced within hours of the site going live. **CI could not have
+caught a single one** — three were unset environment variables, and three only
+manifest in a browser, on a new account, or at a specific hour.
+
+| | Why CI was blind to it |
+|---|---|
+| `iztro` declared in `apps/api`, imported by `apps/web` | CI runs a bare `npm ci` (all workspaces), so hoisting always hides it. The web Dockerfile scopes its install and the crutch vanishes. |
+| CSP allowed dev Clerk, not the production host | A CSP only bites client-side; every server check returns 200 while sign-in is a blank box. |
+| `STRIPE_SECRET_KEY` absent | `stripe.service.ts` falls back to the literal `'sk_test_placeholder'`; the API boots with one warning and 500s only when someone pays. |
+| `CHAT_ENABLED_READING_TYPES` absent | Fallback is `['LIFETIME']`. Five of six chat surfaces were silently off. |
+| First birth profile never `isPrimary` | Needs a brand-new account to see. |
+| 子時 boundary paywall | Needs the wall clock to be 23:00–24:00 Taipei. |
+
+**The generalisable rule: when a feature is gated by an env var with a
+permissive-looking fallback, the fallback IS the production behaviour until
+someone proves otherwise.** Grep for `|| false`, `?? \'\'`, and `new Set([...])`
+defaults in config parsing before believing a feature is on.
+
+### ⚠️ The 子時 boundary — "today" has two right answers
+
+Per doctrine the Bazi day flips at **23:00**. Between 23:00 and midnight the
+civil date and the Bazi date differ, and BOTH are legitimate answers to "today".
+
+The web client rolls correctly (`resolveBaziToday`). `todayIsoDate()` on the
+server deliberately does NOT roll — its own comment says the client is expected
+to resolve the boundary. Nothing reconciled them, so the window gate read the
+client's correct date as "tomorrow" and returned `SUBSCRIBER_ONLY` — for one
+hour every night, to every free user, on the free tier's headline feature.
+
+`assertFortuneWindow` now takes an **optional second anchor** and admits a target
+satisfying EITHER (`baziTodayIsoDate()` / `baziCurrentMonthIso()` /
+`baziCurrentYearIso()`). Accepting both beats picking one: rolling the server
+instead would move the break onto any client that sends the civil date. A
+malformed alt anchor is dropped in both directions — it can neither admit a
+target the primary rejects nor reject one it accepts.
 
 ### B3-b pre-flight
 
-`node scripts/b3b-preflight.mjs` — pipe engine logs in, it evaluates the flip
-conditions and exits non-zero. It deliberately does NOT generate traffic
-(fabricated evidence proves nothing about the real callers), requires `keyed`
-from EVERY recognised caller of a path rather than any, and refuses undated or
-stale logs. Enforce mode is already rehearsed and works; what's missing is
-production evidence, not confidence in the mechanism.
+`node scripts/b3b-preflight.mjs --file <log>` — evaluates the flip conditions
+and exits non-zero. It deliberately does NOT generate traffic, requires `keyed`
+from **EVERY** recognised caller of a path rather than any (`/calculate` needs
+both `bazi.reading` and `bazi.passthrough`), and refuses undated or stale logs.
+
+⚠️ **The rollup only emits when a request arrives AFTER the 60s window elapses.**
+A quiet engine keeps its window open and never writes the line — drive one cheap
+request to flush it.
+
+⚠️ **`bazi.reading` is cache-gated** and will not fire on a birth date that
+already has a reading. Use a fresh birth date to exercise it.
 
 ## ⚠️ WEB_ORIGINS is the Stripe redirect allowlist — not CORS, not SEO
 
