@@ -728,7 +728,7 @@ Clerk cannot be mocked at the API level in Playwright because the SDK validates 
 
 ## Known Issues
 - Clerk deprecated props: migrate `afterSignInUrl`/`afterSignUpUrl` to `fallbackRedirectUrl`/`forceRedirectUrl`
-- Clerk phone set to "required" — blocks Google sign-in. Change to "optional" in Clerk Dashboard
+- ~~Clerk phone set to "required" — blocks Google sign-in~~ **RESOLVED on the production instance (verified 2026-08-26).** `GET https://clerk.tianmingapp.com/v1/environment` reports only `email_address` + `password` as required; phone is not an enabled attribute at all. That endpoint is public and unauthenticated — use it to read the LIVE instance config (required attributes, which social providers are enabled) instead of guessing or opening the dashboard.
 - Next.js 16 middleware convention deprecated, should use "proxy"
 - ZWDS AI readings still use mock data until ZWDS prompts get anti-hallucination treatment
 - `@repo/shared` runtime issue: NestJS files must NOT import from `@repo/shared` at runtime
@@ -3732,10 +3732,10 @@ Not derivable from the code. Wrong assumptions here waste a session.
 | **DNS** | Namecheap **ALIAS** record on host `@` (a CNAME is illegal at an apex; Railway's UI says "CNAME" anyway) + the `_railway-verify` TXT. TLS is Let's Encrypt, issued ~2 min after the records land. |
 | **API** | `https://bazi-app-production-5e54.up.railway.app` — an API, not a website: `GET /` correctly 404s. Healthcheck path is `/health/ready`. |
 | **Clerk** | Production instance live; `sk_live` + production webhook. ⚠️ A **production publishable key is bound to one domain** — it will NOT work on the Railway `*.up.railway.app` URL, only on `tianmingapp.com`. `CLERK_AUTHORIZED_PARTIES` is now SET on both services. |
-| **Social sign-in** | Apple/Facebook/Google/LINE are enabled but have **no OAuth credentials**, so they fail with `Missing required parameter: client_id`. Email works. Either add credentials or hide them. |
+| **Social sign-in** | All four (Apple/Facebook/Google/LINE) are **enabled with no OAuth credentials** → the buttons render and fail with `Missing required parameter: client_id`. A **production** Clerk instance never gets Clerk's shared dev credentials — you must supply your own per provider. Email works. |
 | **Stripe** | Test mode, configured. Credit packages and subscriptions both build prices INLINE (`price_data`), so the Stripe product catalog is irrelevant to this app. Webhook at `/api/webhooks/stripe`, 5 events. |
 | **Redis** | `maxmemory 256mb` + `volatile-lru`, set in the **Custom Start Command** — `CONFIG SET` does not survive a restart, and `REDIS_EXTRA_FLAGS` is a bitnami thing this image ignores. |
-| **Engine** | Private, no public domain. `ENGINE_KEY` set on both services. Still **observe** mode — B3-b's flip is the last open security item. |
+| **Engine** | Private, no public domain. `ENGINE_KEY` set on both services. **`ENGINE_REQUIRE_KEY=1` since 2026-08-26 — enforce mode, unkeyed callers get 401.** `/health` is the only exempt path (`engine_auth.py:62`), which is why Railway's healthcheck never appears in a rollup. |
 
 ### ⚠️ Launch-day lesson: a green pipeline says nothing about configuration
 
@@ -3788,6 +3788,24 @@ request to flush it.
 
 ⚠️ **`bazi.reading` is cache-gated** and will not fire on a birth date that
 already has a reading. Use a fresh birth date to exercise it.
+
+⚠️ **So are the two compat paths, and worse.** `/compatibility` fires at
+comparison *create* (`bazi.service.ts:1390`) — but creating a comparison for a
+pair that already exists returns the stored row and calls nothing. The first
+attempt drove Roger × Laopo, a pair compared earlier the same day, and both
+`/compatibility` and `/build-chat-context-compat` silently stayed absent while
+every request returned 200. **Use a pair that has never been compared**, which
+in practice means a brand-new profile. `/build-chat-context-compat` additionally
+requires the comparison to be *unlocked* (`COMPARISON_NOT_UNLOCKED`), so
+exercising it costs the 3-credit reveal.
+
+**RESULT (2026-08-26): GO, flipped.** 10 windows / 2h22m, all 9 call sites keyed,
+zero rejected fingerprints. Condition 4 (the un-checkable "1h settle") was
+resolved by inspection rather than by waiting: there are **no scheduled callers**
+— zero `@Cron`/`@Interval`/`@Timeout` in `apps/api/src` — and the only continuous
+caller is the healthcheck, which hits the exempt `/health`. Post-flip smoke test
+(sign-in, `/calculate` both callers, `/explain-element`, `/daily-fortune`, a real
+LIFETIME reading) came back clean with `"mode": "enforce"` and no rejections.
 
 ## ⚠️ WEB_ORIGINS is the Stripe redirect allowlist — not CORS, not SEO
 

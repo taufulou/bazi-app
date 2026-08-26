@@ -28,6 +28,17 @@ const isPublicRoute = createRouteMatcher([
   // the site was never deployed before M9, so nothing had ever fetched them.
   '/robots.txt',
   '/sitemap.xml',
+  // RFC 8615 well-known URIs. Public BY DEFINITION — these exist to be fetched
+  // by a third party that has no session and never will. Same failure mode as
+  // the two lines above: the matcher does not skip `.txt`/`.json`, so under the
+  // full-lockdown rule an unauthenticated fetch is `auth.protect()`ed and
+  // redirected to sign-in, and the verifier reports the domain as unverified
+  // with no clue why.
+  //
+  // Needed by: Apple's `apple-developer-domain-association.txt` (Sign in with
+  // Apple domain verification), and later `apple-app-site-association` +
+  // `assetlinks.json` if the mobile app ever wants universal / app links.
+  '/.well-known(.*)',
   '/reading(.*)', // kept public for E2E cookie-bypass; guarded client-side by Layer A
 ]);
 
