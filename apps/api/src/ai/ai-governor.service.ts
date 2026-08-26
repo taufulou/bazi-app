@@ -1,6 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as Sentry from '@sentry/nestjs';
+import { parseReplicaCount } from '../common/replica-count';
 
 /**
  * S1 — concurrency governor for AI generation.
@@ -66,13 +67,43 @@ export class AiGovernorService {
 
   constructor(private readonly config: ConfigService) {}
 
+  /**
+   * M8 — how many replicas share the global budget.
+   *
+   * The pool sizes are derived from SPEND, not from a per-process resource, so
+   * they describe a fleet-wide ceiling. The pools themselves are in-memory, so
+   * without this every added replica silently multiplies the ceiling: two
+   * instances at `reading: 25` burn like 50. The Redis spend cap (S2) is still
+   * the hard backstop, but the governor's job is to keep us away from it and
+   * off Anthropic's rate limits, and it cannot do that while its own limit
+   * moves with the deployment.
+   *
+   * `REPLICA_COUNT` is shared with `PrismaService`, which needs the same fact
+   * for its own per-process pool — see `common/replica-count.ts` for the
+   * parsing rule and why the fallback direction is 1.
+   */
+  private replicaCount(): number {
+    return parseReplicaCount(this.config.get<string | number>('REPLICA_COUNT'));
+  }
+
   /** `0` disables the pool entirely — the documented rollback. */
   limitFor(pool: AiPool): number {
     const key = pool === 'reading' ? 'AI_MAX_CONCURRENT_READING' : 'AI_MAX_CONCURRENT_INTERACTIVE';
     const raw = this.config.get<string | number>(key);
     const parsed = typeof raw === 'number' ? raw : Number.parseFloat(String(raw ?? ''));
-    if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_LIMITS[pool];
-    return parsed;
+    const configured =
+      !Number.isFinite(parsed) || parsed < 0 ? DEFAULT_LIMITS[pool] : parsed;
+
+    // ⚠️ 0 means "disabled / unlimited", NOT "a very small limit". Dividing it
+    // would be harmless, but it must not survive the Math.max below and come
+    // back as 1 — that would turn the documented rollback into the tightest
+    // throttle in the system.
+    if (configured === 0) return 0;
+
+    // ⚠️ And the floor must never reach 0 the other way: a fleet large enough
+    // to divide the limit below 1 would disable the pool outright — removing
+    // the guard at exactly the scale it matters most.
+    return Math.max(1, Math.floor(configured / this.replicaCount()));
   }
 
   /**

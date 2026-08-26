@@ -3843,48 +3843,69 @@ loses it. An earlier comment claimed otherwise and a mutation test disproved it.
 The options live in `common/validation-pipe-options.ts` and the spec imports
 that same object, so a hardcoded copy cannot drift from production.
 
-## ⚠️ M2 — the Prisma pool is bounded, and `REPLICA_COUNT` divides it
+## ⚠️ M2 + M8 — `REPLICA_COUNT` must move WITH the platform's replica count
 
-Unset, Prisma sizes its pool at `num_physical_cpus * 2 + 1` **per process**, and
-inside a container that reads the HOST's core count rather than your share —
-routinely 17-65 connections per instance. Two replicas reach a stock
-`max_connections=100` with no traffic worth mentioning, and the symptom is
-random 500s under load (`too many clients already` from whichever query lost the
-race) pointing nowhere near connection count.
+The API is safe to run multi-instance: throttling is Redis-backed (M1), the AI
+spend ledger and breaker are Redis `INCRBYFLOAT` (S2), quotas are Redis, and
+every lock goes through `redis.acquireLock`. Sessions live in Postgres, so SSE
+needs no affinity — any replica can serve any request.
 
-`PrismaService` sets `connection_limit` (default 10, `DATABASE_CONNECTION_LIMIT`)
-and `pool_timeout`, and warns at boot when `replicas × limit` exceeds the assumed
-safe ceiling. Proven end-to-end rather than asserted: 12 concurrent 1s queries
-finish in 4014 / 2017 / 1021 ms at limits 3 / 6 / 12 — exactly the wave pattern
-the pool size predicts.
+**Two things do NOT scale by themselves, and both divide by `REPLICA_COUNT`**
+(`common/replica-count.ts` — one var, because a container cannot detect how
+many siblings it has and two vars for one fact would drift).
 
-⚠️ A `connection_limit` already in `DATABASE_URL` **wins**. The connection string
-stays the operator's lever for pgbouncer or firefighting, and silently
-overriding it would make the URL a lie.
+**M2 — the Prisma pool.** Unset, Prisma sizes it at `num_physical_cpus * 2 + 1`
+**per process**, and inside a container that reads the HOST's core count, not
+your share — routinely 17-65 connections per instance. Two replicas reach a
+stock `max_connections=100` with no traffic worth mentioning, and the symptom
+is random 500s under load (`too many clients already` from whichever query lost
+the race) pointing nowhere near connection count. `PrismaService` now sets
+`connection_limit` (default 10, `DATABASE_CONNECTION_LIMIT`) and `pool_timeout`,
+and warns at boot when `replicas × limit` exceeds the assumed safe ceiling.
+⚠️ A `connection_limit` already in `DATABASE_URL` **wins** — the connection
+string stays the operator's lever for pgbouncer or firefighting. ⚠️ The URL is
+resolved at CALL time, not module scope: `ConfigModule` loads `.env` after this
+module is imported, so a module-scope read would silently skip the bound pool
+in local dev while working in production.
 
-⚠️ The URL is resolved at CALL time, not module scope. `ConfigModule` loads
-`.env` into `process.env` AFTER this module is imported, so a module-scope read
-would work in production and silently skip the bound pool in local dev — the
-worst asymmetry, since local is where you would try to observe it.
-
-⚠️ **Readiness competes for the bounded pool.** `/health/ready` runs `SELECT 1`
-through the same connections and its 3s timeout fires long before
-`pool_timeout=20`, so under genuine exhaustion readiness reports unhealthy, the
-LB pulls the instance, and load lands on its sibling. Mostly correct, but note
-the cause can be self-inflicted contention rather than a database problem.
-Prisma has no reserved-connection concept, so this is accepted and documented;
-if it fires, raise `DATABASE_CONNECTION_LIMIT` rather than lowering the
-readiness timeout.
+⚠️ **Readiness competes for the bounded pool.** `/health/ready` runs
+`SELECT 1` through the same 10 connections, and its own 3s timeout fires long
+before `pool_timeout=20` — so under genuine pool exhaustion readiness reports
+unhealthy, the LB pulls the instance, and the load lands on its sibling. That
+cascade is *mostly correct* (an instance that cannot reach its database should
+leave rotation) but note the cause can be self-inflicted contention rather than
+a database problem. Prisma has no reserved-connection concept, so this is
+accepted and documented rather than engineered around; if it ever fires,
+raising `DATABASE_CONNECTION_LIMIT` is the lever, not lowering the readiness
+timeout.
 
 ⚠️ Migrations are unaffected: `prisma migrate deploy` in the Dockerfile CMD is a
 separate CLI process reading `DATABASE_URL` from the environment, so the runtime
 `datasourceUrl` override never touches it.
 
-`REPLICA_COUNT` (`common/replica-count.ts`) **must move IN LOCKSTEP with the
-platform's replica count** — a container cannot detect how many siblings it has,
-and guessing from CPU count or hostname would be worse than a stated number.
-Unset, garbage, or < 1 all mean 1: the safe direction, i.e. the old behaviour
-rather than a fleet that has silently throttled itself.
+**M8 — `AiGovernorService`.** Its pools
+are in-memory (per process) while their sizes are derived from SPEND (per
+fleet), so two replicas at `reading: 25` burn like 50 with nobody having changed
+a number. `limitFor()` therefore returns `limit / REPLICA_COUNT`. **Scaling
+replicas without updating that var silently doubles the burn ceiling; setting it
+higher than the real count throttles the fleet.** The Redis spend cap is still
+the hard backstop, but the governor exists to keep us away from it and off
+Anthropic's rate limits, and it cannot while its own limit moves with the
+deployment.
+
+Two clamps in `limitFor()` that look like defensive noise and are not: `0` must
+keep meaning **disabled/unlimited** (it is the documented rollback — dividing it
+and flooring to 1 would make the rollback the tightest throttle in the system),
+and the result must never floor to **0** (a fleet big enough to divide the limit
+below 1 would disable the guard at exactly the scale it matters most). Both are
+pinned by tests.
+
+Benign per-instance state, deliberately left alone: `readiness.inFlight` (probe
+collapsing is correctly per-process), the chat sample-questions LRU
+(version-keyed through Redis), `auth-identity.recentlyVerified` (bucketing, not
+authorization — see the M1 section), and `ShutdownService.activeStreams`. One
+cosmetic drift: `ai-spend.warned` is per-instance, so the 80%-of-budget warning
+fires once per replica.
 
 ## ⚠️ M6 graceful shutdown — two traps, both silent
 

@@ -274,3 +274,54 @@ describe('S1 — observability', () => {
     expect(snap.rejected).toBe(0);
   });
 });
+
+/**
+ * M8 — replicas share one fleet-wide AI budget.
+ *
+ * The pools are in-memory, so the limit is per PROCESS while the number it is
+ * derived from (spend) is per FLEET. Without dividing, scaling to 2 replicas
+ * doubles the burn ceiling without anyone changing a number.
+ */
+describe('AiGovernorService — replica-aware limits (M8)', () => {
+  function build(env: Record<string, string | number>) {
+    const config = { get: (k: string) => env[k] } as never;
+    return new AiGovernorService(config);
+  }
+
+  it('is unchanged at one replica', () => {
+    const g = build({ AI_MAX_CONCURRENT_READING: 25, REPLICA_COUNT: 1 });
+    expect(g.limitFor('reading')).toBe(25);
+  });
+
+  it('treats an unset replica count as 1 rather than dividing by NaN', () => {
+    const g = build({ AI_MAX_CONCURRENT_READING: 25 });
+    expect(g.limitFor('reading')).toBe(25);
+  });
+
+  it('halves the per-process limit at two replicas', () => {
+    const g = build({ AI_MAX_CONCURRENT_READING: 25, REPLICA_COUNT: 2 });
+    // 25 / 2 -> 12 per process, so the fleet stays at 24 rather than 50.
+    expect(g.limitFor('reading')).toBe(12);
+  });
+
+  it('keeps 0 meaning DISABLED, not "a limit of one"', () => {
+    const g = build({ AI_MAX_CONCURRENT_INTERACTIVE: 0, REPLICA_COUNT: 4 });
+    // Turning the documented rollback into the tightest throttle in the system
+    // would be the worst possible reading of this value.
+    expect(g.limitFor('interactive')).toBe(0);
+  });
+
+  it('never floors a real limit to 0, however many replicas', () => {
+    const g = build({ AI_MAX_CONCURRENT_READING: 3, REPLICA_COUNT: 100 });
+    // Disabling the guard at exactly the scale it matters most is the failure
+    // mode this clamp exists to prevent.
+    expect(g.limitFor('reading')).toBe(1);
+  });
+
+  it('falls back to 1 replica on garbage, i.e. towards the OLD behaviour', () => {
+    for (const bad of ['abc', '0', '-4', '']) {
+      const g = build({ AI_MAX_CONCURRENT_READING: 25, REPLICA_COUNT: bad });
+      expect(g.limitFor('reading')).toBe(25);
+    }
+  });
+});
