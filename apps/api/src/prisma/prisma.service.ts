@@ -4,7 +4,9 @@ import {
   buildPooledDatabaseUrl,
   connectionBudgetWarning,
   DEFAULT_CONNECTION_LIMIT,
+  type PooledUrlResult,
 } from '../common/database-url';
+import { replicaCountFromEnv } from '../common/replica-count';
 
 /**
  * M2 — the pool is bounded here rather than left to Prisma's default, which is
@@ -39,15 +41,29 @@ function resolvePool() {
   });
 }
 
+/**
+ * Set by `datasourceOverride()` and claimed by the constructor on the very next
+ * statement. JS is single-threaded, so the value the constructor reads is
+ * exactly the one that was passed to `super()`.
+ *
+ * ⚠️ The alternative — recomputing in `onModuleInit` purely to log — can print
+ * a different answer from the one in force if `process.env.DATABASE_URL` was
+ * populated in between. That log line is the designated way to confirm M2 is
+ * live, so it must report what happened, not re-derive what probably happened.
+ */
+let pendingPool: PooledUrlResult | null = null;
+
 /** `{}` when we changed nothing, so the schema's `env("DATABASE_URL")` stands. */
 function datasourceOverride(): { datasourceUrl?: string } {
-  const pooled = resolvePool();
-  return pooled.applied && pooled.url ? { datasourceUrl: pooled.url } : {};
+  pendingPool = resolvePool();
+  return pendingPool.applied && pendingPool.url ? { datasourceUrl: pendingPool.url } : {};
 }
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PrismaService.name);
+  /** What `super()` was actually given — see `pendingPool`. */
+  private readonly appliedPool: PooledUrlResult;
 
   constructor() {
     super({
@@ -60,15 +76,20 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
       // the argument list is allowed where a preceding statement is not.
       ...datasourceOverride(),
     });
+    this.appliedPool = pendingPool as PooledUrlResult;
   }
 
   async onModuleInit() {
     // Logged at boot because the effective pool size is otherwise invisible —
     // and its symptom (random 500s under load) points nowhere near it.
-    this.logger.log(`Prisma pool — ${resolvePool().reason}`);
+    this.logger.log(`Prisma pool — ${this.appliedPool.reason}`);
+    // ⚠️ The EFFECTIVE limit, not the configured one. When DATABASE_URL carries
+    // its own `connection_limit` we respect it, so the env value is not what is
+    // in force — and warning against the wrong number silenced this check in
+    // precisely the case where an operator had raised the limit by hand.
     const warning = connectionBudgetWarning(
-      resolveConnectionLimit(),
-      process.env.REPLICA_COUNT,
+      this.appliedPool.effectiveConnectionLimit ?? resolveConnectionLimit(),
+      replicaCountFromEnv(),
     );
     if (warning) this.logger.warn(warning);
     await this.$connect();

@@ -69,3 +69,29 @@ describe('ReadinessService — shutdown behaviour', () => {
     expect(ping).not.toHaveBeenCalled();
   });
 });
+
+describe('ReadinessService — shutdown report shape (M6 audit fix)', () => {
+  it('keeps the usual dependency keys so consumers do not read undefined', async () => {
+    const queryRaw = jest.fn().mockResolvedValue([{ ok: 1 }]);
+    const prisma = { $queryRaw: queryRaw } as never;
+    const redis = { getClient: () => ({ ping: jest.fn() }) } as never;
+    const config = { get: jest.fn().mockReturnValue('http://127.0.0.1:1') } as never;
+    const shutdown = new ShutdownService();
+    const service = new ReadinessService(prisma, redis, config, shutdown);
+
+    await shutdown.beforeApplicationShutdown();
+    const report = await service.check();
+
+    // Dashboards, uptime checks and the existing specs all index these by
+    // name; a one-key object makes them read undefined or throw during a
+    // shutdown — exactly when someone is looking at them.
+    expect(Object.keys(report.checks).sort()).toEqual(
+      ['baziEngine', 'database', 'redis', 'shutdown'].sort(),
+    );
+    expect(report.checks.database!.status).toBe('unhealthy');
+    expect(report.checks.database!.required).toBe(true);
+    // The engine stays advisory even here, matching the healthy-path contract.
+    expect(report.checks.baziEngine!.required).toBe(false);
+    expect(report.ready).toBe(false);
+  });
+});

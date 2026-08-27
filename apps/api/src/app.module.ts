@@ -28,7 +28,8 @@ import { ShutdownModule } from './common/shutdown.module';
 
 @Module({
   imports: [
-    // M6 — @Global; must be present before any streaming module registers.
+    // M6 — @Global, so every streaming module can inject ShutdownService
+    // without importing it. Position in this array is irrelevant.
     ShutdownModule,
     ConfigModule.forRoot({
       isGlobal: true,

@@ -239,9 +239,10 @@ function buildService(opts: {
     get: jest.fn().mockResolvedValue(null),
     set: jest.fn().mockResolvedValue(undefined),
   };
+  const shutdown = new ShutdownService();
   const helpers = new FortuneSnapshotHelpers(prisma, redis, config);
   const validators = new FortuneValidatorsService();
-  const service = new FortuneStreamService(prisma, helpers, validators, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never, { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never, new ShutdownService());
+  const service = new FortuneStreamService(prisma, helpers, validators, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never, { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never, shutdown);
 
   // Stub helper methods to make the test path deterministic
   jest.spyOn(helpers, 'enforceSubscriptionGate').mockImplementation(() => undefined);
@@ -285,7 +286,7 @@ function buildService(opts: {
     } as any);
   }
 
-  return { service, helpers, validators, prisma, config, redis, persistSpy, streamFn };
+  return { service, helpers, validators, prisma, config, redis, persistSpy, streamFn, shutdown };
 }
 
 /** Build a sequence of content_block_delta events from a single chunk array. */
@@ -686,5 +687,52 @@ describe('FortuneStreamService', () => {
       expect(res.headers['X-Accel-Buffering']).toBe('no');
       expect(res.flushHeadersCalled).toBe(true);
     });
+  });
+});
+
+
+/**
+ * M6 — the registration sites themselves.
+ *
+ * `ShutdownService` is thoroughly unit-tested in isolation, but nothing proved
+ * that the production call sites actually register and — the part that matters
+ * — actually release. A leaked registration is silent: no test fails, and
+ * every subsequent shutdown burns the full stream grace waiting for a stream
+ * that ended long ago. This is the "well-covered helper behind untested
+ * wiring" pattern, so it gets behavioural tests rather than a comment.
+ */
+describe('FortuneStreamService — shutdown registration (M6)', () => {
+  it('registers while streaming, and releases once the handler resolves', async () => {
+    const { service, shutdown } = buildService({});
+    const registerSpy = jest.spyOn(shutdown, 'registerStream');
+    const res = new MockResponse() as never;
+
+    expect(shutdown.activeStreamCount).toBe(0);
+    await service.streamDailyFortune(CLERK_ID, { date: TARGET_DATE }, res);
+
+    expect(registerSpy).toHaveBeenCalledTimes(1);
+    // The leak check. Drop `releaseShutdown()` from the `finally`, or slip an
+    // early return above it, and this stays at 1.
+    expect(shutdown.activeStreamCount).toBe(0);
+  });
+
+  it('releases when the stream path throws', async () => {
+    const { service, shutdown } = buildService({ engineFetchThrows: new Error('engine exploded') });
+    const res = new MockResponse() as never;
+
+    await service.streamDailyFortune(CLERK_ID, { date: TARGET_DATE }, res);
+
+    // The `finally` is the only thing between an error path and a permanently
+    // leaked registration.
+    expect(shutdown.activeStreamCount).toBe(0);
+  });
+
+  it('releases on the cache-hit path, which returns before the stream starts', async () => {
+    const { service, shutdown } = buildService({ cached: buildFreshSnapshot() });
+    const res = new MockResponse() as never;
+
+    await service.streamDailyFortune(CLERK_ID, { date: TARGET_DATE }, res);
+
+    expect(shutdown.activeStreamCount).toBe(0);
   });
 });

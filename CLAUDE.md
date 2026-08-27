@@ -3925,7 +3925,18 @@ SINGLE command auto-execs, which is why `Dockerfile.bazi` was fine and why the
 naive form looks correct right up until someone chains a migration in front of
 it. **Any new `CMD` that chains commands needs an explicit `exec`.**
 
-**Trap 2 — `beforeApplicationShutdown` is the WRONG hook to drain in.** Nest's
+**Trap 2 — the post-abort window.** Aborting a stream is what STARTS its
+persist work: the Prisma write for an LKG snapshot and the Redis spend record
+for tokens Anthropic already billed. The first version aborted, cleared the
+registry, slept a flat 500ms and handed to `app.close()` — reintroducing the
+disconnected-pool failure in a narrower window, and destroying the only signal
+it could have waited on. The drain now aborts, waits (bounded by
+`SHUTDOWN_POST_ABORT_GRACE_MS`) for registrations to release, and clears only
+what never did. **Each stream therefore releases at the END of its `finally`,
+after the spend record** — `shutdown-registration.guard.spec.ts` pins that
+ordering across all six sites, because releasing early makes the wait a no-op.
+
+**Trap 3 — `beforeApplicationShutdown` is the WRONG hook to drain in.** Nest's
 measured order on close is `onModuleDestroy` → `beforeApplicationShutdown` →
 `onApplicationShutdown`, and BOTH `PrismaService.$disconnect()` and
 `RedisService.quit()` live in `onModuleDestroy`. A drain in the hook waits for
@@ -3935,6 +3946,23 @@ does **not** call `app.enableShutdownHooks()`; it registers its own
 SIGTERM/SIGINT handler and does `await shutdown.drain(sig)` **then**
 `await app.close()`. Pinned by `shutdown.lifecycle-order.spec.ts` — if Nest ever
 flips the order, that spec fails and the simpler hook version becomes viable.
+
+**Trap 4 — `app.close()` can wedge for ever.** `server.close()` waits on EVERY
+open connection, and an idle keep-alive socket (the steady state for any
+browser client) has no request in flight for the drain to finish. Nest never
+calls `closeIdleConnections()`. `shutdown-runner.ts` calls it before the close
+and wraps the whole sequence in a `SHUTDOWN_HARD_EXIT_MS` watchdog, so a wedge
+is caught by us rather than by the platform's SIGKILL.
+
+The signal handling lives in `common/shutdown-runner.ts`, not inline in
+`bootstrap()`, purely so it is testable: everything interesting about it is a
+failure path (wedged close, second Ctrl-C, non-zero exit) and `main.ts` had no
+tests at all. A second signal **escalates** (`exit(130)`) rather than being
+swallowed — with a ~19s drain, an operator whose second Ctrl-C did nothing is
+reaching for `kill -9`. A failed shutdown exits **non-zero**, and telemetry is
+flushed before exit because `process.exit()` discards buffered stdout — which
+is a pipe in every container, so the "Drain complete" line you are told to look
+for is exactly what gets lost.
 
 Other invariants: liveness `/health` must keep returning 200 during the drain
 (a failing liveness invites the platform to kill us mid-drain) while readiness

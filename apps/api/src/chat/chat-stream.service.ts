@@ -741,9 +741,6 @@ export class ChatStreamService {
     } finally {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
-      // M6 — de-register BEFORE the usage/persist work below, so a shutdown
-      // that starts mid-cleanup does not abort an already-finished stream.
-      releaseShutdown();
       // S2 — record in the FINALLY, so a client disconnect (the commonest
       // ending on mobile) still books what Anthropic already billed.
       if (hasUsage(streamUsage)) {
@@ -755,6 +752,14 @@ export class ChatStreamService {
         });
       }
       releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
+      // M6 — released LAST, deliberately. This call is what tells the drain
+      // that this stream's persist work has been issued, so the shutdown
+      // sequence may safely disconnect Prisma and Redis. Releasing it earlier
+      // (as the first version did) makes the post-abort wait a no-op and puts
+      // the spend record back in a race with teardown. Aborting an
+      // already-finished stream is harmless — the controller's consumer is
+      // long gone — so there is no cost to holding the registration to here.
+      releaseShutdown();
     }
 
     // ============================================================

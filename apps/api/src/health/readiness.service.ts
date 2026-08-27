@@ -161,6 +161,17 @@ export class ReadinessService {
    * misleading ("database: healthy" while we are closing the pool).
    */
   private shuttingDownReport(): ReadinessReport {
+    // ⚠️ The usual dependency keys are emitted too, not just `shutdown`.
+    // Consumers index this object by name — dashboards, uptime checks and the
+    // existing specs all read `checks.database.status` — so returning a
+    // one-key object makes them read `undefined` or throw during a shutdown,
+    // exactly when someone is watching. Same shape, honest values.
+    const shuttingDown = (required: boolean): DependencyCheck => ({
+      status: 'unhealthy',
+      required,
+      latencyMs: 0,
+      error: 'instance is shutting down',
+    });
     return {
       ready: false,
       status: 'not_ready',
@@ -168,12 +179,10 @@ export class ReadinessService {
       service: 'bazi-api',
       version: '0.1.0',
       checks: {
-        shutdown: {
-          status: 'unhealthy',
-          required: true,
-          latencyMs: 0,
-          error: 'instance is shutting down',
-        },
+        shutdown: shuttingDown(true),
+        database: shuttingDown(true),
+        redis: shuttingDown(true),
+        baziEngine: shuttingDown(false),
       },
     };
   }

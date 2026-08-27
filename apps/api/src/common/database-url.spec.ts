@@ -56,6 +56,7 @@ describe('buildPooledDatabaseUrl (M2)', () => {
       url: undefined,
       applied: false,
       reason: 'DATABASE_URL is not set',
+      effectiveConnectionLimit: null,
     });
   });
 
@@ -93,5 +94,35 @@ describe('connectionBudgetWarning (M2 × M8)', () => {
     expect(parseReplicaCount('garbage')).toBe(1);
     expect(connectionBudgetWarning(10, 'garbage')).toBeNull(); // treated as 1
     expect(connectionBudgetWarning(10, '9')).not.toBeNull(); // string parses
+  });
+});
+
+describe('effectiveConnectionLimit (M2 audit fix)', () => {
+  it('reports the limit we applied', () => {
+    expect(buildPooledDatabaseUrl(BASE, { connectionLimit: 7 }).effectiveConnectionLimit).toBe(7);
+  });
+
+  it("reports the URL's own limit when we deferred to it", () => {
+    // The bug this locks: the budget warning used the env/default value even
+    // when the URL overrode it, so the guard went silent in exactly the case
+    // where a human had raised the limit by hand.
+    const r = buildPooledDatabaseUrl(`${BASE}?connection_limit=50`, { connectionLimit: 10 });
+    expect(r.applied).toBe(false);
+    expect(r.effectiveConnectionLimit).toBe(50);
+  });
+
+  it('is null when the limit is genuinely unknowable', () => {
+    expect(buildPooledDatabaseUrl(undefined).effectiveConnectionLimit).toBeNull();
+    expect(buildPooledDatabaseUrl('not a url').effectiveConnectionLimit).toBeNull();
+    // Non-numeric in the URL is Prisma's error to raise, not ours to guess at.
+    expect(
+      buildPooledDatabaseUrl(`${BASE}?connection_limit=abc`).effectiveConnectionLimit,
+    ).toBeNull();
+  });
+
+  it('drives a warning that fires on the overridden limit', () => {
+    const r = buildPooledDatabaseUrl(`${BASE}?connection_limit=50`);
+    // 2 x 50 = 100, over the 80 ceiling — silent before this fix.
+    expect(connectionBudgetWarning(r.effectiveConnectionLimit!, 2)).toContain('= 100');
   });
 });

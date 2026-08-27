@@ -22,11 +22,12 @@ import { Injectable, Logger, BeforeApplicationShutdown } from '@nestjs/common';
  *   SIGTERM
  *     1. flip `isShuttingDown`  → /health/ready answers 503 immediately
  *     2. wait DRAIN_DELAY       → the LB observes the 503 and stops routing
- *     3. wait for active streams to drain, up to STREAM_GRACE
+ *     3. wait for active streams to finish naturally, up to STREAM_GRACE
  *     4. abort whatever is left → each stream takes its OWN client-disconnect
  *                                 path, which already persists what is
  *                                 parseable and releases the AI slot
- *     5. settle, then let Nest close the server
+ *     5. wait for those aborts to finish cleaning up, up to POST_ABORT_GRACE
+ *     6. settle, then let `main.ts` close the server
  *
  * Step 4 is the reason this class holds abort callbacks rather than killing
  * sockets: the streaming services already have tested abort handling (watchdog
@@ -34,28 +35,41 @@ import { Injectable, Logger, BeforeApplicationShutdown } from '@nestjs/common';
  * exactly as much as a browser-closed one, through code that is already
  * covered by specs.
  *
+ * ⚠️ **Step 5 is not optional, and its absence was a real bug.** Aborting a
+ * stream is what STARTS its persist work — the Prisma write for a
+ * last-known-good snapshot, and the Redis spend record for tokens Anthropic
+ * already billed. An earlier version aborted, cleared the registry, slept a
+ * flat 500ms and handed over to `app.close()`, which disconnects Prisma and
+ * quits Redis. That is the same "persist into a disconnected pool" failure this
+ * whole design exists to avoid, reintroduced in a narrower window. Clearing the
+ * registry at abort time also destroyed the only signal that could have been
+ * waited on. So: abort, wait for the registrations to release themselves, and
+ * clear only what never did.
+ *
  * ## The budget must fit inside the platform's SIGKILL deadline
  *
  * Everything above is worthless if the process is killed mid-drain, so the
- * defaults are deliberately conservative: 3 + 10 + 0.5 ≈ **14s worst case**.
+ * defaults are deliberately conservative: 3 + 10 + 5 + 0.5 ≈ **19s worst case**.
  * ⚠️ The exact Railway grace period is not verifiable from the codebase — if it
- * turns out to be shorter than ~20s, lower `SHUTDOWN_STREAM_GRACE_MS` rather
- * than discovering it as truncated drains. Step 3 exits early the moment the
- * last stream finishes, so the worst case is rare, not typical.
+ * turns out to be shorter than ~25s, lower `SHUTDOWN_STREAM_GRACE_MS` rather
+ * than discovering it as truncated drains. Steps 3 and 5 both exit early the
+ * moment the last stream finishes, so the worst case is rare, not typical.
  */
-
-/** Time for the load balancer to observe the 503 and stop routing to us. */
-export const SHUTDOWN_DRAIN_DELAY_MS = envInt('SHUTDOWN_DRAIN_DELAY_MS', 3_000);
-
-/** How long to let already-running streams finish before aborting them. */
-export const SHUTDOWN_STREAM_GRACE_MS = envInt('SHUTDOWN_STREAM_GRACE_MS', 10_000);
-
-/** Lets aborted streams flush their final SSE frame before the server closes. */
-export const SHUTDOWN_SETTLE_MS = envInt('SHUTDOWN_SETTLE_MS', 500);
 
 /** Poll interval while waiting for the active-stream count to reach zero. */
 const DRAIN_POLL_MS = 250;
 
+/**
+ * ⚠️ Read at CALL time, never at module scope.
+ *
+ * `ConfigModule.forRoot({ envFilePath: [...] })` loads `.env` into `process.env`
+ * during Nest bootstrap, which happens AFTER `main.ts` imports this module. A
+ * module-scope `const` therefore captures an unset value in local dev (where it
+ * comes from the file) while working fine in production (where the platform
+ * sets real env vars) — so the knob appears broken in exactly the environment
+ * where someone would try it. `PrismaService` documents the same trap; this
+ * file had it too until an audit caught it.
+ */
 function envInt(name: string, fallback: number): number {
   const raw = process.env[name];
   if (raw === undefined || raw.trim() === '') return fallback;
@@ -64,6 +78,19 @@ function envInt(name: string, fallback: number): number {
   // an infinite wait. A typo'd env var must not silently disable the drain.
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
+
+/** Time for the load balancer to observe the 503 and stop routing to us. */
+export const shutdownDrainDelayMs = (): number => envInt('SHUTDOWN_DRAIN_DELAY_MS', 3_000);
+
+/** How long to let already-running streams finish before aborting them. */
+export const shutdownStreamGraceMs = (): number => envInt('SHUTDOWN_STREAM_GRACE_MS', 10_000);
+
+/** How long aborted streams get to finish persisting before we tear down. */
+export const shutdownPostAbortGraceMs = (): number =>
+  envInt('SHUTDOWN_POST_ABORT_GRACE_MS', 5_000);
+
+/** Lets aborted streams flush their final SSE frame before the server closes. */
+export const shutdownSettleMs = (): number => envInt('SHUTDOWN_SETTLE_MS', 500);
 
 @Injectable()
 export class ShutdownService implements BeforeApplicationShutdown {
@@ -95,12 +122,14 @@ export class ShutdownService implements BeforeApplicationShutdown {
   }
 
   /**
-   * Register a running stream so shutdown can (a) wait for it and (b) abort it
-   * if it outlives the grace window.
+   * Register a running stream so shutdown can (a) wait for it, (b) abort it if
+   * it outlives the grace window, and (c) wait again for that abort's cleanup.
    *
-   * ⚠️ The returned function MUST be called from the stream's `finally`.
-   * Leaking a registration makes every future shutdown burn the full stream
-   * grace waiting for something that already ended.
+   * ⚠️ The returned function MUST be called from the stream's `finally`, and as
+   * LATE in that `finally` as possible — it is what tells the drain this
+   * stream's persist work has been issued. Releasing early narrows step 5 to
+   * nothing; leaking the release entirely makes every future shutdown burn the
+   * full grace waiting for something that already ended.
    *
    * If shutdown has ALREADY begun, `abort` is invoked immediately and the
    * stream is never added — otherwise a request that slipped past the readiness
@@ -147,7 +176,9 @@ export class ShutdownService implements BeforeApplicationShutdown {
     if (!signal) {
       // Programmatic close (tests, or an explicit app.close()). Abort anything
       // still registered so nothing is left dangling, but skip the waits.
-      this.abortAll();
+      this.abortAllStreams();
+      this.activeStreams.clear();
+      this.abortSharedSignal();
       return;
     }
 
@@ -157,35 +188,61 @@ export class ShutdownService implements BeforeApplicationShutdown {
         `readiness now reports 503`,
     );
 
-    await sleep(SHUTDOWN_DRAIN_DELAY_MS);
-    await this.waitForStreams();
+    await sleep(shutdownDrainDelayMs());
+    await this.waitForStreams(shutdownStreamGraceMs());
 
     const remaining = this.activeStreams.size;
     if (remaining > 0) {
+      const postAbortGrace = shutdownPostAbortGraceMs();
       this.logger.warn(
-        `${remaining} stream(s) still running after ${SHUTDOWN_STREAM_GRACE_MS}ms — ` +
+        `${remaining} stream(s) still running after ${shutdownStreamGraceMs()}ms — ` +
           `aborting; each takes its own client-disconnect path and persists what it has`,
       );
+      this.abortAllStreams();
+
+      // ⚠️ The registry is deliberately NOT cleared before this wait. Each
+      // aborted stream releases at the END of its `finally`, once the Prisma
+      // and Redis writes its abort triggered have been issued — so an empty
+      // registry here is the signal that it is safe to disconnect. Clearing
+      // first would fake that signal instantly and put us straight back into
+      // persisting against a closed pool.
+      await this.waitForStreams(postAbortGrace);
+
+      const stragglers = this.activeStreams.size;
+      if (stragglers > 0) {
+        this.logger.warn(
+          `${stragglers} stream(s) did not finish cleaning up within ${postAbortGrace}ms — ` +
+            `their persist may be incomplete`,
+        );
+      }
+      this.activeStreams.clear();
     }
-    this.abortAll();
-    await sleep(SHUTDOWN_SETTLE_MS);
+
+    this.abortSharedSignal();
+    await sleep(shutdownSettleMs());
 
     this.logger.log(`Drain complete in ${Date.now() - started}ms — closing server`);
   }
 
-  /** Resolves as soon as the last stream finishes, or when the grace expires. */
-  private async waitForStreams(): Promise<void> {
-    const deadline = Date.now() + SHUTDOWN_STREAM_GRACE_MS;
+  /** Resolves as soon as the last stream finishes, or when `budgetMs` expires. */
+  private async waitForStreams(budgetMs: number): Promise<void> {
+    const deadline = Date.now() + budgetMs;
     while (this.activeStreams.size > 0 && Date.now() < deadline) {
       await sleep(Math.min(DRAIN_POLL_MS, Math.max(0, deadline - Date.now())));
     }
   }
 
-  private abortAll(): void {
-    // Snapshot first: an abort callback releases its registration, which
-    // mutates the set we would otherwise be iterating.
+  /**
+   * Abort every registered stream WITHOUT clearing the registry — the caller
+   * decides when to clear, because the registry is what step 5 waits on.
+   */
+  private abortAllStreams(): void {
+    // Snapshot first: an abort callback may release its registration
+    // synchronously, which mutates the set we would otherwise be iterating.
     for (const abort of [...this.activeStreams]) this.safeAbort(abort);
-    this.activeStreams.clear();
+  }
+
+  private abortSharedSignal(): void {
     if (!this.controller.signal.aborted) this.controller.abort();
   }
 

@@ -13,6 +13,7 @@ import { GLOBAL_VALIDATION_PIPE_OPTIONS } from './common/validation-pipe-options
 import { resolveTrustProxyHops, TRUST_PROXY_ENV } from './common/trust-proxy';
 import { reportWebOrigins, webOriginsFromEnv } from './payments/safe-redirect-url';
 import { ShutdownService } from './common/shutdown.service';
+import { createShutdownHandler, shutdownHardExitMs } from './common/shutdown-runner';
 
 // Initialize Sentry before anything else
 if (process.env.SENTRY_DSN) {
@@ -35,6 +36,31 @@ if (process.env.SENTRY_DSN) {
     // Transactions carry request context too.
     beforeSendTransaction: scrubSentryEvent,
   });
+}
+
+/**
+ * Give buffered stdout/stderr and the Sentry transport a bounded chance to
+ * drain before `process.exit()` discards them. Bounded because a blocked pipe
+ * must not turn a shutdown into a hang — the whole point is to exit.
+ */
+async function flushTelemetry(): Promise<void> {
+  const flushStream = (stream: NodeJS.WriteStream) =>
+    new Promise<void>((resolve) => {
+      if (stream.writableLength === 0) return resolve();
+      stream.write('', () => resolve());
+    });
+  try {
+    await Promise.race([
+      Promise.all([
+        flushStream(process.stdout),
+        flushStream(process.stderr),
+        process.env.SENTRY_DSN ? Sentry.close(2_000) : Promise.resolve(),
+      ]),
+      new Promise((resolve) => setTimeout(resolve, 3_000)),
+    ]);
+  } catch {
+    // Flushing is best-effort; never let it block the exit.
+  }
 }
 
 async function bootstrap() {
@@ -96,24 +122,16 @@ async function bootstrap() {
   // The lifecycle hooks still run — `app.close()` invokes them regardless;
   // `enableShutdownHooks()` only adds the signal listeners we are replacing.
   const shutdown = app.get(ShutdownService);
-  let closing = false;
-  for (const sig of ['SIGTERM', 'SIGINT'] as const) {
-    process.on(sig, () => {
-      // Guard re-entry: a second Ctrl-C must not start a parallel teardown.
-      if (closing) return;
-      closing = true;
-      void (async () => {
-        try {
-          await shutdown.drain(sig);
-          await app.close();
-        } catch (err) {
-          logger.error(`Shutdown failed: ${err instanceof Error ? err.message : String(err)}`);
-        } finally {
-          process.exit(0);
-        }
-      })();
-    });
-  }
+  const handleSignal = createShutdownHandler({
+    drain: (sig) => shutdown.drain(sig),
+    closeApp: () => app.close(),
+    closeIdleConnections: () => app.getHttpServer()?.closeIdleConnections?.(),
+    exit: (code) => process.exit(code),
+    flush: flushTelemetry,
+    logger,
+    hardExitMs: shutdownHardExitMs(),
+  });
+  for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => handleSignal(sig));
 
   // Security headers
   app.use(helmet());

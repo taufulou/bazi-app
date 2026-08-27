@@ -45,6 +45,16 @@ export interface PooledUrlResult {
   applied: boolean;
   /** Human-readable explanation, logged at boot. */
   reason: string;
+  /**
+   * The limit ACTUALLY in force, which is not always the one we were asked for.
+   *
+   * ⚠️ This exists because the connection-budget warning was computing against
+   * the env/default value even when the URL carried its own `connection_limit`
+   * — so the one guard meant to catch an over-provisioned fleet went silent in
+   * exactly the case where a human had overridden the default. `null` when the
+   * URL is absent or unparseable, i.e. when we genuinely cannot know.
+   */
+  effectiveConnectionLimit: number | null;
 }
 
 /**
@@ -60,7 +70,12 @@ export function buildPooledDatabaseUrl(
   opts: { connectionLimit?: number; poolTimeout?: number } = {},
 ): PooledUrlResult {
   if (!rawUrl) {
-    return { url: undefined, applied: false, reason: 'DATABASE_URL is not set' };
+    return {
+      url: undefined,
+      applied: false,
+      reason: 'DATABASE_URL is not set',
+      effectiveConnectionLimit: null,
+    };
   }
 
   const limit = opts.connectionLimit ?? DEFAULT_CONNECTION_LIMIT;
@@ -72,14 +87,24 @@ export function buildPooledDatabaseUrl(
   } catch {
     // A URL we cannot parse is one we must not rewrite. Hand it back unchanged
     // and let Prisma produce its own, far better, error about it.
-    return { url: rawUrl, applied: false, reason: 'DATABASE_URL is not parseable — left as-is' };
-  }
-
-  if (parsed.searchParams.has('connection_limit')) {
     return {
       url: rawUrl,
       applied: false,
-      reason: `connection_limit=${parsed.searchParams.get('connection_limit')} already set in DATABASE_URL — respected`,
+      reason: 'DATABASE_URL is not parseable — left as-is',
+      effectiveConnectionLimit: null,
+    };
+  }
+
+  const fromUrl = parsed.searchParams.get('connection_limit');
+  if (fromUrl !== null) {
+    const parsedFromUrl = Number.parseInt(fromUrl, 10);
+    return {
+      url: rawUrl,
+      applied: false,
+      reason: `connection_limit=${fromUrl} already set in DATABASE_URL — respected`,
+      // Non-numeric would be Prisma's error to raise, not ours to guess at.
+      effectiveConnectionLimit:
+        Number.isFinite(parsedFromUrl) && parsedFromUrl > 0 ? parsedFromUrl : null,
     };
   }
 
@@ -93,6 +118,7 @@ export function buildPooledDatabaseUrl(
     url: parsed.toString(),
     applied: true,
     reason: `connection_limit=${limit} pool_timeout=${parsed.searchParams.get('pool_timeout')}`,
+    effectiveConnectionLimit: limit,
   };
 }
 
