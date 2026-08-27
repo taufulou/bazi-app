@@ -33,4 +33,17 @@ EXPOSE 8000
 # optimisation we are relying on, not a guarantee — chain one `&&` in front
 # and the shell stays PID 1 and swallows the signal silently. Dockerfile.api
 # had exactly that bug. Stating it costs nothing.
-CMD ["sh", "-c", "exec uvicorn app.main:app --host :: --port ${PORT:-8000}"]
+# M3 — two worker PROCESSES, not just threads.
+#
+# The `def` handlers in main.py move CPU work off the event loop, which buys
+# LATENCY ISOLATION: /health answers while a calculation runs. It does NOT buy
+# parallelism — those threads still contend for one GIL, so total throughput is
+# unchanged. Separate processes have separate GILs, which is where the actual
+# concurrency comes from. Both halves of M3 are needed and they do different
+# things.
+#
+# ⚠️ Sizing: each worker is a full Python heap with its own copy of the loaded
+# data tables and its own `_flow_year_cache`, so N workers means N times the
+# memory and a diluted cache hit rate. 2 is deliberate, not a placeholder —
+# raise it only with the memory ceiling in view.
+CMD ["sh", "-c", "exec uvicorn app.main:app --host :: --port ${PORT:-8000} --workers ${WEB_CONCURRENCY:-2}"]

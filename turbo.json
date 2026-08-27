@@ -28,7 +28,8 @@
     "SHUTDOWN_POST_ABORT_GRACE_MS",
     "SHUTDOWN_SETTLE_MS",
     "SHUTDOWN_HARD_EXIT_MS",
-    "LOG_ROUTES"
+    "LOG_ROUTES",
+    "LOG_FORWARDED_FOR"
   ],
   "tasks": {
     "build": {

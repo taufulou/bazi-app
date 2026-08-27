@@ -287,7 +287,19 @@ class HealthResponse(BaseModel):
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint.
+
+    ⚠️ M3 — deliberately the ONLY `async def` endpoint left.
+
+    Every other handler is a plain `def`, so FastAPI runs it in the threadpool
+    and the event loop stays free. That makes this one answer immediately even
+    while the engine is saturated: it needs microseconds of loop time and has
+    nothing to queue behind.
+
+    Making it `def` too would be worse, not better — it would join the same
+    threadpool as the heavy work and queue behind whatever calculations are in
+    flight, which is exactly the readiness-probe timeout M3 exists to prevent.
+    """
     return HealthResponse(
         status="ok",
         service="bazi-engine",
@@ -297,7 +309,7 @@ async def health_check():
 
 
 @app.post("/calculate")
-async def calculate_bazi_endpoint(data: BirthDataInput):
+def calculate_bazi_endpoint(data: BirthDataInput):
     """
     Calculate Bazi (Four Pillars) from birth data.
 
@@ -349,7 +361,7 @@ async def calculate_bazi_endpoint(data: BirthDataInput):
 
 
 @app.post("/compatibility")
-async def calculate_compatibility_endpoint(data: CompatibilityInput):
+def calculate_compatibility_endpoint(data: CompatibilityInput):
     """
     Calculate compatibility between two Bazi charts.
 
@@ -436,7 +448,7 @@ class ChatContextInput(_HourKnownValidatedInput):
 
 
 @app.post("/build-chat-context")
-async def build_chat_context_endpoint(data: ChatContextInput):
+def build_chat_context_endpoint(data: ChatContextInput):
     """
     Build the slim AI chat context payload (per next-the-big-feature-proud-manatee
     plan). Always runs all 4 enhanced pipelines (lifetime + love + career + annual)
@@ -505,7 +517,7 @@ class CompatChatContextInput(BaseModel):
 
 
 @app.post("/build-chat-context-compat")
-async def build_chat_context_compat_endpoint(data: CompatChatContextInput):
+def build_chat_context_compat_endpoint(data: CompatChatContextInput):
     """
     Phase 3 — build the slim chat context for COMPATIBILITY chat. Calls
     calculate_bazi_with_all_pipelines for BOTH parties, runs
@@ -625,7 +637,7 @@ class FortuneChatContextInput(_HourKnownValidatedInput):
 
 
 @app.post("/build-chat-context-fortune")
-async def build_chat_context_fortune_endpoint(data: FortuneChatContextInput):
+def build_chat_context_fortune_endpoint(data: FortuneChatContextInput):
     """Phase Fortune — build the slim chat context for FORTUNE chat (八字日運).
 
     Merges the single-chart 4-pipeline slim (lifetime/love/career/annual)
@@ -720,7 +732,7 @@ class DailyFortuneInput(_HourKnownValidatedInput):
 
 
 @app.post("/daily-fortune")
-async def daily_fortune_endpoint(data: DailyFortuneInput):
+def daily_fortune_endpoint(data: DailyFortuneInput):
     """Compute 八字日運 (daily fortune) for the given chart on a target date.
 
     Returns the engine's deterministic daily pre-analysis:
@@ -929,7 +941,7 @@ class YearlyFortuneInput(_HourKnownValidatedInput):
 
 
 @app.post("/monthly-fortune")
-async def monthly_fortune_endpoint(data: MonthlyFortuneInput):
+def monthly_fortune_endpoint(data: MonthlyFortuneInput):
     """Compute 八字月運 (monthly fortune) for the given chart on a target (year, month).
 
     Returns the engine's deterministic monthly pre-analysis:
@@ -1023,7 +1035,7 @@ async def monthly_fortune_endpoint(data: MonthlyFortuneInput):
 
 
 @app.post("/yearly-fortune")
-async def yearly_fortune_endpoint(data: YearlyFortuneInput):
+def yearly_fortune_endpoint(data: YearlyFortuneInput):
     """Compute 八字年運 (yearly fortune) for the given chart on a flow year.
 
     Returns the engine's deterministic yearly pre-analysis (Phase 3):
@@ -1081,7 +1093,7 @@ async def yearly_fortune_endpoint(data: YearlyFortuneInput):
 
 
 @app.post("/explain-element")
-async def explain_element(data: ExplainElementInput):
+def explain_element(data: ExplainElementInput):
     """
     Look up pre-computed explanation for a Bazi chart element.
 

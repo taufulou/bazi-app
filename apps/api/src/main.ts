@@ -14,6 +14,7 @@ import { resolveTrustProxyHops, TRUST_PROXY_ENV } from './common/trust-proxy';
 import { reportWebOrigins, webOriginsFromEnv } from './payments/safe-redirect-url';
 import { ShutdownService } from './common/shutdown.service';
 import { QuietBootstrapLogger } from './common/quiet-logger';
+import { createForwardedForProbe, forwardedForProbeEnabled } from './common/forwarded-for-probe';
 import { createShutdownHandler, shutdownHardExitMs } from './common/shutdown-runner';
 
 // Initialize Sentry before anything else
@@ -137,6 +138,17 @@ async function bootstrap() {
     hardExitMs: shutdownHardExitMs(),
   });
   for (const sig of ['SIGTERM', 'SIGINT'] as const) process.on(sig, () => handleSignal(sig));
+
+  // M1(b) — temporary visibility for setting TRUST_PROXY_HOPS. Off unless
+  // LOG_FORWARDED_FOR is truthy, self-limiting to a handful of requests, and
+  // addresses are masked to their network portion. See forwarded-for-probe.ts.
+  if (forwardedForProbeEnabled()) {
+    logger.warn(
+      `${'LOG_FORWARDED_FOR'} is ON — the next few requests will log their ` +
+        `X-Forwarded-For shape. Unset it once TRUST_PROXY_HOPS is chosen.`,
+    );
+    app.use(createForwardedForProbe((m) => logger.warn(m)));
+  }
 
   // Security headers
   app.use(helmet());

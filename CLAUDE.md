@@ -3843,6 +3843,41 @@ loses it. An earlier comment claimed otherwise and a mutation test disproved it.
 The options live in `common/validation-pipe-options.ts` and the spec imports
 that same object, so a hardcoded copy cannot drift from production.
 
+## ⚠️ M3 — engine handlers must stay OFF the event loop
+
+Every engine endpoint is pure CPU with **zero awaits**. As `async def`, FastAPI
+runs them ON the event loop, so one in-flight `/calculate` blocks every other
+request on that worker — including `/health`, which is what turns a busy engine
+into a failed readiness probe.
+
+All nine heavy handlers are now plain `def` (FastAPI runs those in a
+threadpool). **`/health` is the deliberate exception and must STAY `async def`**
+— on a now-free loop it answers in microseconds, whereas as `def` it would
+queue in the same threadpool behind the heavy work, which is the opposite of
+the point. `tests/test_endpoint_concurrency_guard.py` enforces both directions;
+an `async def` here is the idiomatic thing to write, so the constraint is
+enforced rather than documented.
+
+The two halves of M3 do **different** things and both are needed. `def` buys
+LATENCY ISOLATION (the loop is free) but not throughput — those threads still
+contend for one GIL. `--workers ${WEB_CONCURRENCY:-2}` buys real parallelism
+via separate processes with separate GILs. Measured, 10 concurrent
+`/calculate`, median `/health`: **36.6ms** async/1-worker → **24.6ms**
+sync/1-worker → **6.5ms** sync/2-workers (p95 13.4ms, criterion was <100ms).
+
+Verified alongside: SIGTERM still works under `--workers` (supervisor exits in
+~750ms, zero orphaned workers), and memory goes 61 MB → 170 MB for the second
+worker plus supervisor.
+
+⚠️ **Two workers means two of every per-process thing.** `_flow_year_cache`
+(`monthly_enhanced.py`) is a memo, so the hit rate dilutes but answers stay
+correct; the other module-level dicts are read-only lookup tables. More
+subtly, **`engine_auth`'s rollup counter is per-process**, so each worker keeps
+its own window and emits its own `ENGINE-AUTH-ROLLUP` line. Aggregate coverage
+still works (the pre-flight merges every line), but "drive one request to flush
+the window" now flushes only whichever worker got that request. Enforcement is
+per-request and unaffected.
+
 ## ⚠️ M2 + M8 — `REPLICA_COUNT` must move WITH the platform's replica count
 
 The API is safe to run multi-instance: throttling is Redis-backed (M1), the AI
