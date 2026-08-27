@@ -567,6 +567,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 
 ## Test suite sizes
 - Bazi Engine: ≈2986 collected (`pytest --collect-only` — counts collected items incl. xfail/skip, NOT "passing"; prose "X pass" figures elsewhere differ by counter, e.g. the 時辰未知 sections cite 2944/2965 *passing*). Grew from the ~2231 Phase-12i baseline (+ Fortune day/month/year + chat-scope + 時辰未知 unknown-birth-hour suites). Composition note (Phase 12i): ~2226 + 5 三刑/半刑/子卯刑 spouse-palace tests in test_compatibility_enhanced.py + 53 compat pair corpus regressions + Phase 12h.A/B additions, 5 xfail, 1 skip, 1 pre-existing fail unrelated | NestJS API: 692 | Frontend: 143 | ZWDS: 289
+  - ⚠️ **CURRENT — measured 2026-08-27 on `claude/m10-web-calc-routes`: engine **3142 passed** / 2 skipped / 5 xfailed · api jest **2123 passed** / 5 skipped (113 suites) · web jest **405 passed** (38 suites) · api+web tsc 0 · `turbo run lint` 5/5.** Phase 2B (M1–M10) is complete; the growth over the figures below is M2/M3/M6/M8 plus their guards. The older lines are kept for their composition notes.
   - ⚠️ **Superseded — measured on `claude/m10-web-calc-routes` 2026-08-23: api jest 100 suites / 1961 passed · web jest 38 suites / 405 passed (fully green for the first time; `test-web` is now a CI job) · api tsc 0 · web tsc 0 · turbo lint 5/5 workspaces.** The older figures below are kept for the composition notes.
   - ⚠️ **Measured on `claude/bazi-scalability-security-e4ff78` 2026-08-17** (the numbers above predate it): engine **3137 passed** / 2 skipped / 5 xfailed · API jest **96 suites / 1914 passed** / 5 skipped · web jest **35 of 37 suites, 383 passed** (the 2 failures — `pricing-page`, `reading-history` — are pre-existing on main) · api tsc 0 · api lint 0 · **web tsc 0** (was 106; the duplicate `@types/react` behind the chronic "cannot be used as a JSX component" errors was collapsed by the dependency dedupe). The ZWDS 289 no longer exists — those suites were deleted with the module.
   - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
@@ -3732,10 +3733,48 @@ Not derivable from the code. Wrong assumptions here waste a session.
 | **DNS** | Namecheap **ALIAS** record on host `@` (a CNAME is illegal at an apex; Railway's UI says "CNAME" anyway) + the `_railway-verify` TXT. TLS is Let's Encrypt, issued ~2 min after the records land. |
 | **API** | `https://bazi-app-production-5e54.up.railway.app` — an API, not a website: `GET /` correctly 404s. Healthcheck path is `/health/ready`. |
 | **Clerk** | Production instance live; `sk_live` + production webhook. ⚠️ A **production publishable key is bound to one domain** — it will NOT work on the Railway `*.up.railway.app` URL, only on `tianmingapp.com`. `CLERK_AUTHORIZED_PARTIES` is now SET on both services. |
-| **Social sign-in** | All four (Apple/Facebook/Google/LINE) are **enabled with no OAuth credentials** → the buttons render and fail with `Missing required parameter: client_id`. A **production** Clerk instance never gets Clerk's shared dev credentials — you must supply your own per provider. Email works. |
+| **Social sign-in** | **Google is LIVE** (own OAuth client, production Clerk). Apple/Facebook/LINE are still enabled with NO credentials, so they render as buttons that fail — disable them or add credentials. A **production** Clerk instance never inherits Clerk's shared dev credentials. |
 | **Stripe** | Test mode, configured. Credit packages and subscriptions both build prices INLINE (`price_data`), so the Stripe product catalog is irrelevant to this app. Webhook at `/api/webhooks/stripe`, 5 events. |
 | **Redis** | `maxmemory 256mb` + `volatile-lru`, set in the **Custom Start Command** — `CONFIG SET` does not survive a restart, and `REDIS_EXTRA_FLAGS` is a bitnami thing this image ignores. |
 | **Engine** | Private, no public domain. `ENGINE_KEY` set on both services. **`ENGINE_REQUIRE_KEY=1` since 2026-08-26 — enforce mode, unkeyed callers get 401.** `/health` is the only exempt path (`engine_auth.py:62`), which is why Railway's healthcheck never appears in a rollup. |
+| **Scaling** | API at **2 replicas** with `REPLICA_COUNT=2` (they MUST move together — see the M2+M8 section). Engine at `WEB_CONCURRENCY=2`. `DATABASE_CONNECTION_LIMIT` defaults to 10, so 2×10=20 connections against `max_connections=100`. |
+| **Proxy** | `TRUST_PROXY_HOPS=2`, measured and verified. ⚠️ Railway **discards** a client-supplied `X-Forwarded-For` — see the TRUST_PROXY_HOPS section for why that matters and how to re-verify. |
+| **Sign-in** | On **our own** `/sign-in` and `/sign-up` pages, not Clerk's Account Portal. Needs BOTH the Clerk dashboard Paths setting (absolute URLs) and `NEXT_PUBLIC_CLERK_SIGN_IN_URL` (relative, build-time). |
+
+### Phase 2B is COMPLETE (2026-08-27) — and what the sequence taught
+
+All ten items M1–M10 shipped and are verified in production, not just merged.
+Remaining before launch: Phase 2C (observability), a load test, the launch gate,
+and **Stripe live mode** (it is still test-mode, so no real revenue can flow).
+
+**Three lessons worth more than the code.**
+
+**1. The "well-covered helper behind untested wiring" shape recurred three more
+times in one session** and is now the most reliable bug shape in this repo. Each
+time the pure function had thorough tests and the thing that used it had none:
+`buildPooledDatabaseUrl` (11 tests, nothing proved Prisma honoured the URL — the
+proof was timing 12 concurrent queries at limits 3/6/12 and seeing 4/2/1 waves);
+`ShutdownService` (12 tests, none of the 6 registration sites); and
+`QuietBootstrapLogger` (asserted Nest context strings it had hardcoded — only a
+real Nest boot could prove they match). **Ask per CALL SITE, and prove it by
+running the thing, not by reading it.**
+
+**2. Measuring beat reasoning every single time.** Three confident priors were
+wrong, and all three were caught by executing something: `sh -c "a && node"`
+swallows SIGTERM (PID 1 ignores unhandled signals); Nest runs `onModuleDestroy`
+BEFORE `beforeApplicationShutdown` (so a drain in the hook has no database);
+Railway **discards** a client-supplied `X-Forwarded-For` rather than appending to
+it (so the documented "subtract what you sent" arithmetic did not apply).
+
+**3. Fixes introduce defects — audit the fix, not just the original.** The M6
+review found that the drain's own post-abort window re-created, in miniature,
+the disconnected-pool bug the M6 commit was written to fix: it aborted streams,
+cleared the registry, slept 500ms and let `app.close()` disconnect Prisma while
+the persist those aborts had just started was still in flight.
+
+**Mutation testing is what made all of this trustworthy.** 22 mutations across
+the session, every one caught. Neuter each control and watch its test go red —
+a green suite you wrote yourself proves nothing until you have seen it fail.
 
 ### ⚠️ Launch-day lesson: a green pipeline says nothing about configuration
 
