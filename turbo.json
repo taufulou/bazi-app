@@ -27,7 +27,8 @@
     "SHUTDOWN_STREAM_GRACE_MS",
     "SHUTDOWN_POST_ABORT_GRACE_MS",
     "SHUTDOWN_SETTLE_MS",
-    "SHUTDOWN_HARD_EXIT_MS"
+    "SHUTDOWN_HARD_EXIT_MS",
+    "LOG_ROUTES"
   ],
   "tasks": {
     "build": {

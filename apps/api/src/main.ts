@@ -13,6 +13,7 @@ import { GLOBAL_VALIDATION_PIPE_OPTIONS } from './common/validation-pipe-options
 import { resolveTrustProxyHops, TRUST_PROXY_ENV } from './common/trust-proxy';
 import { reportWebOrigins, webOriginsFromEnv } from './payments/safe-redirect-url';
 import { ShutdownService } from './common/shutdown.service';
+import { QuietBootstrapLogger } from './common/quiet-logger';
 import { createShutdownHandler, shutdownHardExitMs } from './common/shutdown-runner';
 
 // Initialize Sentry before anything else
@@ -69,6 +70,10 @@ async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     // Enable raw body for webhook signature verification (Svix/Clerk)
     rawBody: true,
+    // Drops Nest's ~140-line per-route boot inventory, which otherwise buries
+    // the single lines worth reading — the Prisma pool line, a connection-budget
+    // warning, and M6's drain output during a deploy. `LOG_ROUTES=1` restores it.
+    logger: new QuietBootstrapLogger(),
   });
 
   // M1(b) — how much of X-Forwarded-For Express may believe.
