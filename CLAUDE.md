@@ -4016,6 +4016,38 @@ degraded/refund remain the net. ⚠️ Railway's exact SIGKILL deadline is unver
 defaults total ~14s worst case. If logs show truncated drains, lower
 `SHUTDOWN_STREAM_GRACE_MS`.
 
+## TRUST_PROXY_HOPS = 2 — measured, and Railway DISCARDS client XFF
+
+Set 2026-08-27 after measuring against the live edge, which is the only way the
+value can be established. Recording the measurement because repeating it costs
+a deploy and a flag.
+
+**Railway's edge does not append to a client-supplied `X-Forwarded-For` — it
+discards it and writes its own.** A request sent with `X-Forwarded-For:
+9.9.9.9` arrived with a chain byte-identical to one sent with no header at all.
+So the "count what the edge appended" arithmetic in `trust-proxy.ts` does not
+apply here; the chain is always `[real client, Railway inner hop]`, two entries,
+whatever the caller sends.
+
+That makes `req.ip` resolve as: `hops=1` → the shared inner hop (one global
+bucket, i.e. no better than 0), **`hops=2` → the real client address**, which is
+what we want. Modelled against Express's own numeric trust function
+(`express/lib/utils.js`: `(a, i) => i < val`) and then verified in production —
+25 requests each carrying a DIFFERENT forged `X-Forwarded-For` produced 20×201
+then 429, proving all of them landed in one bucket and the forged headers were
+ignored.
+
+⚠️ Re-verify if the edge ever changes (a CDN in front, a custom domain moving
+providers). The check is that same loop: forge a different XFF per request past
+the endpoint's limit and confirm you still get 429. All 201s means the number is
+too high and a caller can mint a bucket per request — which deletes the limit
+for exactly the anonymous traffic it protects.
+
+The `LOG_FORWARDED_FOR` probe (`common/forwarded-for-probe.ts`) is how the chain
+was observed: flag-gated, self-limiting to 5 requests, addresses masked to their
+network portion. Railway's internal healthcheck bypasses the edge entirely
+(`received=0`), so readiness probes are unaffected by this setting.
+
 ## ⚠️ M1 throttling — the tracker must NEVER verify a token
 
 `UserAwareThrottlerGuard.getTracker` reads `AuthIdentityService.peekVerifiedUserId`,
