@@ -3741,6 +3741,18 @@ Not derivable from the code. Wrong assumptions here waste a session.
 | **Proxy** | `TRUST_PROXY_HOPS=2`, measured and verified. ⚠️ Railway **discards** a client-supplied `X-Forwarded-For` — see the TRUST_PROXY_HOPS section for why that matters and how to re-verify. |
 | **Sign-in** | On **our own** `/sign-in` and `/sign-up` pages, not Clerk's Account Portal. Needs BOTH the Clerk dashboard Paths setting (absolute URLs) and `NEXT_PUBLIC_CLERK_SIGN_IN_URL` (relative, build-time). |
 
+### 📋 THE TODO LIST — where it lives
+
+**When asked to "check the todo list", read
+`~/.claude/plans/launch-security-phase1-session-handoff.md` → the section headed
+`## ✅ THE TODO LIST`.** That is the canonical list of what is left before
+launch; this file is reference, not a task tracker. Its `§0 STATE` block at the
+top supersedes every dated section below it in that file.
+
+The same handoff carries `## 📌 DEFERRED FINDING — prompt caching`, a measured
+but unimplemented cost optimisation (71% of every reading's input is an uncached
+static system prompt) with the two traps that make a naive fix wrong.
+
 ### Phase 2B is COMPLETE (2026-08-27) — and what the sequence taught
 
 All ten items M1–M10 shipped and are verified in production, not just merged.
