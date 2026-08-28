@@ -10,3 +10,9 @@ pytest-asyncio>=0.24.0
 # Phase 1.5 follow-up B (live mode recording for chat doctrine eval) — runner-only,
 # not used by the FastAPI engine. Can be installed dev-only if pinning matters.
 anthropic>=0.40.0
+
+# Ob3 — error reporting + tracing. Optional at runtime: `observability.init_sentry`
+# degrades to a warning when the import fails, so a missing wheel cannot stop the
+# calculation engine from booting. `fastapi` extra pulls the Starlette/ASGI
+# integration that creates the per-request scope the request-id tag attaches to.
+sentry-sdk[fastapi]>=2.20.0

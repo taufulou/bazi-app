@@ -20,6 +20,11 @@ from .engine_auth import (
     flush_counter,
     is_production,
 )
+from .observability import (
+    SentryRequestTagMiddleware,
+    init_sentry,
+    register_sensitive_values,
+)
 
 from .calculator import (
     calculate_bazi,
@@ -40,6 +45,11 @@ from .monthly_enhanced import (
 from .yearly_enhanced import compute_year_by_year
 
 configure_auth_logging()
+
+# Ob3 — before the app exists, so the SDK's Starlette/FastAPI integration is
+# installed by the time `FastAPI()` below is constructed. Initialising after
+# would leave the app un-instrumented while `sentry_sdk` reported itself ready.
+init_sentry()
 
 _IS_PRODUCTION = is_production()
 _engine_auth_counter = RejectionCounter()
@@ -72,6 +82,11 @@ app = FastAPI(
 # enforcing engine would 401 preflights, and every preflight would land in the
 # counter as an unkeyed request and hold B3-b's gate open forever.
 app.add_middleware(EngineKeyMiddleware, counter=_engine_auth_counter)
+
+# Ob3 — added AFTER auth, so it is OUTSIDE it (Starlette inserts at position 0).
+# A 401 from the key middleware should still carry the request id: an unkeyed
+# caller is precisely the thing you want to trace back to its origin.
+app.add_middleware(SentryRequestTagMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
@@ -108,6 +123,25 @@ class _HourKnownValidatedInput(BaseModel):
                 "birth_time is required when hour_known is True; "
                 "omit birth_time only when hour_known is False (三柱/時辰未知)"
             )
+        # Ob3 — declare this request's identifying values so any exception text
+        # can be scrubbed by VALUE, not only by shape. A city name has no shape
+        # a regex can match; the only reliable way to remove `吉打` from a future
+        # `f"failed for {city}"` is to know we were handed it.
+        #
+        # Here rather than in an ASGI middleware because this mixin is already
+        # the common ancestor of every birth-data DTO (that is what N1
+        # established), so all six inherit it and a seventh cannot forget. A
+        # middleware would have to buffer and re-parse the request body.
+        #
+        # `gender` is deliberately NOT registered: 1-of-2 is not identifying once
+        # the date, time and place are gone, and redacting the word "male" from
+        # every message would cost more diagnosis than it buys.
+        register_sensitive_values(
+            getattr(self, "birth_date", None),
+            getattr(self, "birth_time", None),
+            getattr(self, "birth_city", None),
+            getattr(self, "birth_timezone", None),
+        )
         return self
 
 
