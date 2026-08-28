@@ -462,8 +462,8 @@ export class FortuneSnapshotHelpers {
     if (!apiKey) {
       throw new InternalServerErrorException('ANTHROPIC_API_KEY not configured');
     }
-    const { default: Anthropic } = await import('@anthropic-ai/sdk');
-    this.claudeClient = new Anthropic({ apiKey });
+    const { createAnthropicClient } = await import('../ai/anthropic-client');
+    this.claudeClient = createAnthropicClient({ apiKey });
     return this.claudeClient;
   }
 

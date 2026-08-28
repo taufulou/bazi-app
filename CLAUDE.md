@@ -567,6 +567,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 
 ## Test suite sizes
 - Bazi Engine: ≈2986 collected (`pytest --collect-only` — counts collected items incl. xfail/skip, NOT "passing"; prose "X pass" figures elsewhere differ by counter, e.g. the 時辰未知 sections cite 2944/2965 *passing*). Grew from the ~2231 Phase-12i baseline (+ Fortune day/month/year + chat-scope + 時辰未知 unknown-birth-hour suites). Composition note (Phase 12i): ~2226 + 5 三刑/半刑/子卯刑 spouse-palace tests in test_compatibility_enhanced.py + 53 compat pair corpus regressions + Phase 12h.A/B additions, 5 xfail, 1 skip, 1 pre-existing fail unrelated | NestJS API: 692 | Frontend: 143 | ZWDS: 289
+  - ⚠️ **CURRENT — measured 2026-08-28 on `claude/m10-web-calc-routes`: engine **3180 passed** / 2 skipped / 5 xfailed · api jest **2196 passed** / 5 skipped (119 suites) · web jest **405 passed** (38 suites) · api+web tsc 0 · `turbo run lint` 5/5.** ⚠️ Scoped to THIS branch, so it goes stale the moment the branch adds a test — re-measure rather than trusting it. Phase 2B (M1–M10) and Phase 2C (Ob1–Ob3) are both complete; the growth over the figures below is M2/M3/M6/M8 and the observability work, plus their guards. The older lines are kept for their composition notes.
   - ⚠️ **Superseded — measured on `claude/m10-web-calc-routes` 2026-08-23: api jest 100 suites / 1961 passed · web jest 38 suites / 405 passed (fully green for the first time; `test-web` is now a CI job) · api tsc 0 · web tsc 0 · turbo lint 5/5 workspaces.** The older figures below are kept for the composition notes.
   - ⚠️ **Measured on `claude/bazi-scalability-security-e4ff78` 2026-08-17** (the numbers above predate it): engine **3137 passed** / 2 skipped / 5 xfailed · API jest **96 suites / 1914 passed** / 5 skipped · web jest **35 of 37 suites, 383 passed** (the 2 failures — `pricing-page`, `reading-history` — are pre-existing on main) · api tsc 0 · api lint 0 · **web tsc 0** (was 106; the duplicate `@types/react` behind the chronic "cannot be used as a JSX component" errors was collapsed by the dependency dedupe). The ZWDS 289 no longer exists — those suites were deleted with the module.
   - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
@@ -3732,10 +3733,52 @@ Not derivable from the code. Wrong assumptions here waste a session.
 | **DNS** | Namecheap **ALIAS** record on host `@` (a CNAME is illegal at an apex; Railway's UI says "CNAME" anyway) + the `_railway-verify` TXT. TLS is Let's Encrypt, issued ~2 min after the records land. |
 | **API** | `https://bazi-app-production-5e54.up.railway.app` — an API, not a website: `GET /` correctly 404s. Healthcheck path is `/health/ready`. |
 | **Clerk** | Production instance live; `sk_live` + production webhook. ⚠️ A **production publishable key is bound to one domain** — it will NOT work on the Railway `*.up.railway.app` URL, only on `tianmingapp.com`. `CLERK_AUTHORIZED_PARTIES` is now SET on both services. |
-| **Social sign-in** | All four (Apple/Facebook/Google/LINE) are **enabled with no OAuth credentials** → the buttons render and fail with `Missing required parameter: client_id`. A **production** Clerk instance never gets Clerk's shared dev credentials — you must supply your own per provider. Email works. |
+| **Social sign-in** | **Google is LIVE** (own OAuth client, production Clerk). Apple/Facebook/LINE are still enabled with NO credentials, so they render as buttons that fail — disable them or add credentials. A **production** Clerk instance never inherits Clerk's shared dev credentials. |
 | **Stripe** | Test mode, configured. Credit packages and subscriptions both build prices INLINE (`price_data`), so the Stripe product catalog is irrelevant to this app. Webhook at `/api/webhooks/stripe`, 5 events. |
 | **Redis** | `maxmemory 256mb` + `volatile-lru`, set in the **Custom Start Command** — `CONFIG SET` does not survive a restart, and `REDIS_EXTRA_FLAGS` is a bitnami thing this image ignores. |
 | **Engine** | Private, no public domain. `ENGINE_KEY` set on both services. **`ENGINE_REQUIRE_KEY=1` since 2026-08-26 — enforce mode, unkeyed callers get 401.** `/health` is the only exempt path (`engine_auth.py:62`), which is why Railway's healthcheck never appears in a rollup. |
+| **Scaling** | API at **2 replicas** with `REPLICA_COUNT=2` (they MUST move together — see the M2+M8 section). Engine at 2 workers via the Dockerfile's `${WEB_CONCURRENCY:-2}` **default** — the variable is NOT set on the Railway engine service and does not need to be. ⚠️ Don't read the engine's variable list as incomplete because it is absent; its three service variables (`ENGINE_KEY`, `ENGINE_REQUIRE_KEY`, `RAILWAY_DOCKERFILE_PATH`) are the whole set, and `RAILWAY_ENVIRONMENT` — which `is_production()` reads — is injected by Railway. `DATABASE_CONNECTION_LIMIT` defaults to 10, so 2×10=20 connections against `max_connections=100`. |
+| **Proxy** | `TRUST_PROXY_HOPS=2`, measured and verified. ⚠️ Railway **discards** a client-supplied `X-Forwarded-For` — see the TRUST_PROXY_HOPS section for why that matters and how to re-verify. |
+| **Sign-in** | On **our own** `/sign-in` and `/sign-up` pages, not Clerk's Account Portal. Needs BOTH the Clerk dashboard Paths setting (absolute URLs) and `NEXT_PUBLIC_CLERK_SIGN_IN_URL` (relative, build-time). |
+
+### Phase 2B is COMPLETE (2026-08-27) — and what the sequence taught
+
+All ten items M1–M10 shipped and are verified in production, not just merged.
+
+⚠️ **Phase 2C (observability) is ALSO complete, as of 2026-08-28** — Ob1 per-AI-call
+logging, Ob2 `GET /api/admin/ops`, Ob3 the engine's first Sentry. It is committed but
+NOT yet deployed, and Ob3 stays inert until `SENTRY_DSN_ENGINE` is set on the Railway
+engine service. Remaining before launch: a load test, the launch gate, and **Stripe
+live mode** (it is still test-mode, so no real revenue can flow).
+
+**Three lessons worth more than the code.**
+
+**1. The "well-covered helper behind untested wiring" shape recurred three more
+times in one session** and is now the most reliable bug shape in this repo. Each
+time the pure function had thorough tests and the thing that used it had none:
+`buildPooledDatabaseUrl` (11 tests, nothing proved Prisma honoured the URL — the
+proof was timing 12 concurrent queries at limits 3/6/12 and seeing 4/2/1 waves);
+`ShutdownService` (12 tests, none of the 6 registration sites); and
+`QuietBootstrapLogger` (asserted Nest context strings it had hardcoded — only a
+real Nest boot could prove they match). **Ask per CALL SITE, and prove it by
+running the thing, not by reading it.**
+
+**2. Measuring beat reasoning every single time.** Three confident priors were
+wrong, and all three were caught by executing something: `sh -c "a && node"`
+swallows SIGTERM (PID 1 ignores unhandled signals); Nest runs `onModuleDestroy`
+BEFORE `beforeApplicationShutdown` (so a drain in the hook has no database);
+Railway **discards** a client-supplied `X-Forwarded-For` rather than appending to
+it (so the documented "subtract what you sent" arithmetic did not apply).
+
+**3. Fixes introduce defects — audit the fix, not just the original.** The M6
+review found that the drain's own post-abort window re-created, in miniature,
+the disconnected-pool bug the M6 commit was written to fix: it aborted streams,
+cleared the registry, slept 500ms and let `app.close()` disconnect Prisma while
+the persist those aborts had just started was still in flight.
+
+**Mutation testing is what made all of this trustworthy.** 22 mutations across
+the session, every one caught. Neuter each control and watch its test go red —
+a green suite you wrote yourself proves nothing until you have seen it fail.
 
 ### ⚠️ Launch-day lesson: a green pipeline says nothing about configuration
 
@@ -4016,6 +4059,38 @@ degraded/refund remain the net. ⚠️ Railway's exact SIGKILL deadline is unver
 defaults total ~14s worst case. If logs show truncated drains, lower
 `SHUTDOWN_STREAM_GRACE_MS`.
 
+## TRUST_PROXY_HOPS = 2 — measured, and Railway DISCARDS client XFF
+
+Set 2026-08-27 after measuring against the live edge, which is the only way the
+value can be established. Recording the measurement because repeating it costs
+a deploy and a flag.
+
+**Railway's edge does not append to a client-supplied `X-Forwarded-For` — it
+discards it and writes its own.** A request sent with `X-Forwarded-For:
+9.9.9.9` arrived with a chain byte-identical to one sent with no header at all.
+So the "count what the edge appended" arithmetic in `trust-proxy.ts` does not
+apply here; the chain is always `[real client, Railway inner hop]`, two entries,
+whatever the caller sends.
+
+That makes `req.ip` resolve as: `hops=1` → the shared inner hop (one global
+bucket, i.e. no better than 0), **`hops=2` → the real client address**, which is
+what we want. Modelled against Express's own numeric trust function
+(`express/lib/utils.js`: `(a, i) => i < val`) and then verified in production —
+25 requests each carrying a DIFFERENT forged `X-Forwarded-For` produced 20×201
+then 429, proving all of them landed in one bucket and the forged headers were
+ignored.
+
+⚠️ Re-verify if the edge ever changes (a CDN in front, a custom domain moving
+providers). The check is that same loop: forge a different XFF per request past
+the endpoint's limit and confirm you still get 429. All 201s means the number is
+too high and a caller can mint a bucket per request — which deletes the limit
+for exactly the anonymous traffic it protects.
+
+The `LOG_FORWARDED_FOR` probe (`common/forwarded-for-probe.ts`) is how the chain
+was observed: flag-gated, self-limiting to 5 requests, addresses masked to their
+network portion. Railway's internal healthcheck bypasses the edge entirely
+(`received=0`), so readiness probes are unaffected by this setting.
+
 ## ⚠️ M1 throttling — the tracker must NEVER verify a token
 
 `UserAwareThrottlerGuard.getTracker` reads `AuthIdentityService.peekVerifiedUserId`,
@@ -4074,12 +4149,20 @@ chart up inside the trust boundary.
 
 Binds: Sentry, PostHog, any new logging, any eval corpus, any future analytics.
 
-### The Sentry scrubber exists TWICE, on purpose
+### The Sentry scrubber exists THREE times, on purpose
 
-`apps/api/src/common/sentry-scrub.ts` (canonical) and `apps/web/app/lib/sentry-scrub.ts`. Web cannot
-import from api, and `@repo/shared` is off-limits to the NestJS runtime — so there is no single
-home. **`apps/api/test/sentry-scrub-parity.spec.ts` fails if the two key lists drift.** Add a key to
-one, add it to both.
+`apps/api/src/common/sentry-scrub.ts` (canonical), `apps/web/app/lib/sentry-scrub.ts`, and — since
+Ob3 — `packages/bazi-engine/app/observability.py`. Web cannot import from api, `@repo/shared` is
+off-limits to the NestJS runtime, and the engine is Python and cannot import TypeScript at all — so
+there is no single home. **`apps/api/test/sentry-scrub-parity.spec.ts` fails if the two TS key lists
+drift.** Add a key to one, add it to both.
+
+The Python copy is held by a different mechanism, because a TS parity spec cannot run there:
+`tests/test_observability.py::test_python_key_set_is_a_superset_of_the_typescript_one` parses
+`sentry-scrub.ts` and asserts the engine's set is a SUPERSET. Superset rather than equality on
+purpose — the engine EMITS most of these field names so it must never be the laxer side, but it
+also carries engine-only shapes (`party_a`, `natal_chart`) the TS side has no reason to know about.
+**A key added to the TS list must be added to the Python one too, or that test fails.**
 
 It drops whole containers, not leaf keys, because the engine emits the pillars **twice** — as
 `fourPillars` *and* as `ganZhi`. It also scrubs `event.message` and `exception[].value`

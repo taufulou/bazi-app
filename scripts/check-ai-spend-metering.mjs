@@ -368,6 +368,10 @@ const BREAKER_EXEMPT = new Map([
  */
 const CLIENT_FACTORY_EXEMPT = new Map([
   [
+    'apps/api/src/ai/anthropic-client.ts',
+    'Ob1 — the single `new Anthropic()` factory; it installs the rate-limit observer on `fetch` and never calls the provider. The controls live with the callers it hands the client to',
+  ],
+  [
     'apps/api/src/fortune/fortune-snapshot.helpers.ts',
     '`ensureClaudeClient` builds the Anthropic client; the calls live in fortune.service.ts and fortune-stream.service.ts, which carry the controls',
   ],

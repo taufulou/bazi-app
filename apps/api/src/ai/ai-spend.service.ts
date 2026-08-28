@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import * as Sentry from '@sentry/nestjs';
 import { AIProvider } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
+import { getRateLimitSnapshot } from './anthropic-rate-limit';
+import { AI_CALL_LOG_PREFIX, formatAiCallLog, hashUserId } from './ai-call-log';
 
 /**
  * S2 — AI spend ledger + circuit breaker.
@@ -283,7 +285,12 @@ export class AiSpendService {
     provider: AIProvider | string;
     model: string;
     usage: TokenUsage;
+    /** Surface + operation, e.g. `chat:stream`. Doubles as Ob1's `route`. */
     context?: string;
+    /** Ob1 — wall-clock duration of the provider call, when the site can time it. */
+    durationMs?: number;
+    /** Ob1 — hashed before it reaches the log; never written raw. */
+    userId?: string | null;
   }): Promise<number> {
     let costUsd: number;
     try {
@@ -292,7 +299,7 @@ export class AiSpendService {
       // `estimateCostUsd` dereferences `args.usage`, so it throws on a caller
       // that passes a spread resolving to undefined — outside the try, that
       // rejection escaped a method whose docblock promises it never throws. All
-      // ten call sites invoke it as a bare `void this.aiSpend.record(...)` on
+      // eleven call sites invoke it as a bare `void this.aiSpend.record(...)` on
       // the strength of that promise, with no `.catch()`, so the rejection is
       // unhandled and takes the API process down. No caller does this today;
       // the guarantee is what licenses the bare `void`, so the guarantee has to
@@ -304,6 +311,8 @@ export class AiSpendService {
       );
       return 0;
     }
+    this.logCall(args, costUsd);
+
     if (!(costUsd > 0)) return 0;
 
     try {
@@ -324,6 +333,76 @@ export class AiSpendService {
       );
     }
     return costUsd;
+  }
+
+  /**
+   * Ob1 — emit the per-call line.
+   *
+   * ## Why it lives here and not at the eleven call sites
+   *
+   * `scripts/check-ai-spend-metering.mjs` already fails CI when a provider call
+   * appears in a file that does not reach `record()`. That guard was built for
+   * S2's completeness problem, and hanging the log off the same choke point
+   * inherits it wholesale: a new AI surface cannot be added without a log line,
+   * because it cannot be added without metering. A `logger.log` sprinkled at
+   * each site would have had no such property and would have drifted the first
+   * time someone added a twelfth.
+   *
+   * ## Coverage boundary, stated honestly
+   *
+   * This fires for every call that reaches `record()` with well-formed usage.
+   *
+   * Whether a FAILED call reaches it varies by site, and the difference is
+   * deliberate rather than tidy. The chat and fortune streaming sites guard on
+   * `hasUsage(...)`, so an abort that produced no tokens logs nothing — there
+   * is no usage to report. `ai.service.ts::_streamProviderInner` does NOT
+   * guard, so an aborted reading stream emits a `$0` line. Both are defensible
+   * and neither is dark: the governor logs its refusals, the breaker logs its
+   * trips, and provider errors reach Sentry.
+   *
+   * (An earlier version of this paragraph claimed every site guards on
+   * `hasUsage`. It does not, and a comment that describes call sites has to be
+   * checked against them.)
+   *
+   * Never throws — `record()`'s docblock promises it, and all eleven callers
+   * use a bare `void` on the strength of that promise.
+   */
+  private logCall(
+    args: { provider: AIProvider | string; model: string; usage: TokenUsage; context?: string; durationMs?: number; userId?: string | null },
+    costUsd: number,
+  ): void {
+    try {
+      const rl = getRateLimitSnapshot();
+      this.logger.log(
+        formatAiCallLog({
+          route: args.context ?? 'unknown',
+          provider: String(args.provider),
+          model: args.model,
+          ms: typeof args.durationMs === 'number' ? Math.round(args.durationMs) : null,
+          inTok: args.usage.inputTokens ?? 0,
+          outTok: args.usage.outputTokens ?? 0,
+          cacheReadTok: args.usage.cacheReadTokens ?? 0,
+          cacheWriteTok: args.usage.cacheWriteTokens ?? 0,
+          costUsd,
+          userIdHash: hashUserId(args.userId),
+          rlOutRemaining: rl.outputTokensRemaining,
+          rlOutReset: rl.outputTokensReset,
+        }),
+      );
+    } catch (err) {
+      // ⚠️ The fallback needs its own guard. `record()` promises it never
+      // throws, and eleven callers invoke it as a bare `void` with no
+      // `.catch()` — so anything escaping here is an unhandled rejection that
+      // takes the process down. A catch block whose only statement can itself
+      // throw is not a catch block.
+      try {
+        this.logger.warn(`Failed to emit ${AI_CALL_LOG_PREFIX} line: ${err}`);
+      } catch {
+        // Nothing left to report WITH. Swallowing is the only option that keeps
+        // the promise, and a lost warning about a lost log line is a strictly
+        // better outcome than a dead API.
+      }
+    }
   }
 
   private maybeWarn(scope: string, key: string, total: number, limit: number): void {

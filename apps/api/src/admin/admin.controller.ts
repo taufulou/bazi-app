@@ -13,6 +13,7 @@ import {
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { Throttle } from '@nestjs/throttler';
 import { AdminService } from './admin.service';
+import { OpsService } from './ops.service';
 import { AdminGuard } from '../auth/admin.guard';
 import { CurrentUser, AuthPayload } from '../auth/current-user.decorator';
 import {
@@ -33,7 +34,10 @@ import {
 @Throttle({ default: { limit: 30, ttl: 60000 } })
 @Controller('api/admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly opsService: OpsService,
+  ) {}
 
   // ============ Dashboard ============
 
@@ -41,6 +45,21 @@ export class AdminController {
   @ApiOperation({ summary: 'Get admin dashboard statistics' })
   async getDashboardStats() {
     return this.adminService.getDashboardStats();
+  }
+
+  // ============ Ops (Ob2) ============
+
+  @Get('ops')
+  @ApiOperation({
+    summary: 'AI spend-control operations snapshot',
+    description:
+      'Read-only. Pool occupancy (S1), spend + breaker state (S2), quota top-consumers (S4) ' +
+      'and the account-level Anthropic rate-limit gauge (Ob1), in one view. `pools` is ' +
+      'per-replica — multiply by `replicas` for the fleet ceiling; every other section is ' +
+      'fleet-wide.',
+  })
+  async getOps() {
+    return this.opsService.snapshot();
   }
 
   // ============ Chat aggregate (Phase 1.10) ============

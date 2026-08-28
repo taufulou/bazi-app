@@ -20,6 +20,11 @@ from .engine_auth import (
     flush_counter,
     is_production,
 )
+from .observability import (
+    SentryRequestTagMiddleware,
+    init_sentry,
+    register_sensitive_values,
+)
 
 from .calculator import (
     calculate_bazi,
@@ -40,6 +45,21 @@ from .monthly_enhanced import (
 from .yearly_enhanced import compute_year_by_year
 
 configure_auth_logging()
+
+# Ob3 — initialise before the app serves its first request.
+#
+# ⚠️ The requirement is weaker than it looks, and an earlier version of this
+# comment overstated it ("before `FastAPI()` is constructed, or the app is
+# un-instrumented"). That is false: the SDK's Starlette integration patches
+# CLASS-level methods (`Starlette.__call__`, `Middleware.__init__`), and
+# Starlette builds its middleware stack lazily on the first request — so
+# initialising after construction still instruments an existing app. Verified
+# against the pinned sentry-sdk rather than assumed.
+#
+# Module-level here is still the right place; it just isn't load-bearing for
+# the reason first given. `SentryRequestTagMiddleware`'s own docstring states
+# the correct, weaker version.
+init_sentry()
 
 _IS_PRODUCTION = is_production()
 _engine_auth_counter = RejectionCounter()
@@ -73,6 +93,11 @@ app = FastAPI(
 # counter as an unkeyed request and hold B3-b's gate open forever.
 app.add_middleware(EngineKeyMiddleware, counter=_engine_auth_counter)
 
+# Ob3 — added AFTER auth, so it is OUTSIDE it (Starlette inserts at position 0).
+# A 401 from the key middleware should still carry the request id: an unkeyed
+# caller is precisely the thing you want to trace back to its origin.
+app.add_middleware(SentryRequestTagMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:4000", "http://localhost:3000"],  # NestJS API + Next.js dev
@@ -103,6 +128,51 @@ class _HourKnownValidatedInput(BaseModel):
 
     @model_validator(mode="after")
     def _require_time_when_hour_known(self):
+        # Ob3 — declare this request's identifying values so any exception text
+        # can be scrubbed by VALUE, not only by shape. A city name has no shape
+        # a regex can match; the only reliable way to remove `吉打` from a future
+        # `f"failed for {city}"` is to know we were handed it.
+        #
+        # Here rather than in an ASGI middleware because this mixin is already
+        # the common ancestor of every birth-data DTO (that is what N1
+        # established), so all six inherit it and a seventh cannot forget. A
+        # middleware would have to buffer and re-parse the request body.
+        #
+        # ⚠️ BEFORE the raise below, not after — but for a narrower reason than
+        # it first appears, and the narrower reason is the accurate one.
+        #
+        # It was after, which skipped registration entirely whenever validation
+        # failed. A code review called that a live leak on the grounds that a
+        # pydantic ValidationError embeds the offending input in its message.
+        # Measured against the pinned pydantic (2.12), that is NOT true of the
+        # message: `str(e)` truncates `input_value` to ~50 characters at every
+        # payload size tried, so the city never appears there. The full input
+        # does live in `e.errors()[0]["input"]` — structured data Sentry does
+        # not serialise by default, and which `scrub_event` would redact by key
+        # (`birth_city`, `birth_date`) if it ever did.
+        #
+        # So this is ordering discipline and defence in depth, not a fix for an
+        # active leak. Kept because it costs nothing, because "registered for
+        # every request" is a far easier invariant to reason about than
+        # "registered unless validation failed", and because the truncation that
+        # saves us is pydantic's implementation detail rather than our control.
+        #
+        # One real curiosity found while measuring: the truncation can leave a
+        # PARTIAL date (`'1987-09-0`), which neither the ISO-date pattern nor
+        # value-based redaction matches — the former needs a full date, the
+        # latter an exact value. It narrows a birth date to ten candidates
+        # inside an already-truncated dict, so it is documented rather than
+        # chased; a prefix-matching rule would shred ordinary text.
+        #
+        # `gender` is deliberately NOT registered: 1-of-2 is not identifying once
+        # the date, time and place are gone, and redacting the word "male" from
+        # every message would cost more diagnosis than it buys.
+        register_sensitive_values(
+            getattr(self, "birth_date", None),
+            getattr(self, "birth_time", None),
+            getattr(self, "birth_city", None),
+            getattr(self, "birth_timezone", None),
+        )
         if getattr(self, "hour_known", True) and not getattr(self, "birth_time", None):
             raise ValueError(
                 "birth_time is required when hour_known is True; "

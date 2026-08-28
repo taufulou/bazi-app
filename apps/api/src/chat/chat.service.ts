@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../ai/anthropic-client';
 import { ChatRole, Prisma, ReadingType } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -108,7 +109,7 @@ export class ChatService {
     if (!apiKey) {
       this.logger.warn('ANTHROPIC_API_KEY not set — chat will fail at runtime');
     }
-    this.anthropic = new Anthropic({ apiKey: apiKey || 'placeholder' });
+    this.anthropic = createAnthropicClient({ apiKey: apiKey || 'placeholder' });
     // Phase 1.5 follow-up C iter 2: upgraded default from Sonnet 4.5 to
     // Sonnet 4.6 after eval showed dramatic accuracy improvement (judge
     // fail rate 39.6% → 11.3%). Identical pricing — no cost impact.
@@ -997,8 +998,15 @@ export class ChatService {
       await this.aiSpend.assertUnderCap('chat:sync');
       // S1 — a non-streaming call IS the whole upstream request, so wrapping
       // it in `run` holds the slot for exactly the right window.
-      const response = await this.aiGovernor.run('interactive', 'chat:sync', () =>
-        this.anthropic.messages.create(
+      // Ob1 — set INSIDE the thunk, not before `run`. `run` acquires a slot
+      // first, so timing from out here would fold queue wait into the reported
+      // duration — and only on this route, making `ms` mean two different
+      // things depending on which line emitted it. It would also inflate
+      // exactly when the pool is saturated, which is when the number is read.
+      let aiStartedAt = Date.now();
+      const response = await this.aiGovernor.run('interactive', 'chat:sync', () => {
+        aiStartedAt = Date.now();
+        return this.anthropic.messages.create(
         {
           model: this.model,
           max_tokens: CHAT_OUTPUT_MAX_TOKENS_LOCAL,
@@ -1012,7 +1020,8 @@ export class ChatService {
           messages,
         },
         { timeout: 60_000 },
-      ));
+        );
+      });
 
       // S2 — meter this call. Chat and fortune bypassed `ai.service`'s usage
       // logger entirely, so before this every token they spent was invisible
@@ -1029,6 +1038,8 @@ export class ChatService {
             ((response.usage ?? {}) as { cache_creation_input_tokens?: number }).cache_creation_input_tokens ?? 0,
         },
         context: 'chat:sync',
+        durationMs: Date.now() - aiStartedAt,
+        userId: user.id,
       });
       const assistantContent = response.content
         .filter((b) => b.type === 'text')

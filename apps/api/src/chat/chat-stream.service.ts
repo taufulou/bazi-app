@@ -11,6 +11,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../ai/anthropic-client';
 import { ChatRole } from '@prisma/client';
 import * as Sentry from '@sentry/nestjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -136,7 +137,7 @@ export class ChatStreamService {
     if (!apiKey) {
       this.logger.warn('ANTHROPIC_API_KEY not set — chat will fail at runtime');
     }
-    this.anthropic = new Anthropic({ apiKey: apiKey || 'placeholder' });
+    this.anthropic = createAnthropicClient({ apiKey: apiKey || 'placeholder' });
     // Phase 1.5 follow-up C iter 2: upgraded default from Sonnet 4.5 to
     // Sonnet 4.6 after eval showed dramatic accuracy improvement (judge
     // fail rate 39.6% → 11.3%). Identical pricing. See chat.service.ts
@@ -621,6 +622,9 @@ export class ChatStreamService {
 
     // S1 — declared outside the try so the `finally` can return the slot.
     let releaseSlot: () => void = () => undefined;
+    // Ob1 — reassigned immediately before the provider call so the logged
+    // duration is the upstream request, not the time spent queued for a slot.
+    let aiStartedAt = Date.now();
     try {
       // S2 — refuse BEFORE spending. Cached reads are unaffected; only new
       // generation stops. Throws a typed 503 that the caller's existing
@@ -629,6 +633,7 @@ export class ChatStreamService {
       // S1 — held until the stream ENDS, released in the `finally` below so a
       // watchdog abort or client disconnect returns the slot.
       releaseSlot = await this.aiGovernor.acquire('interactive', 'chat:stream');
+      aiStartedAt = Date.now();
       const stream = this.anthropic.messages.stream(
         {
           model: this.model,
@@ -749,6 +754,8 @@ export class ChatStreamService {
           model: this.model,
           usage: streamUsage,
           context: 'chat:stream',
+          durationMs: Date.now() - aiStartedAt,
+          userId,
         });
       }
       releaseSlot(); // S1 — idempotent; returns the slot on every exit path.

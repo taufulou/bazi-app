@@ -532,6 +532,9 @@ export class FortuneStreamService {
 
     // S1 — declared outside the try so the `finally` can return the slot.
     let releaseSlot: () => void = () => undefined;
+    // Ob1 — reassigned immediately before the provider call so the logged
+    // duration is the upstream request, not the time spent queued for a slot.
+    let aiStartedAt = Date.now();
     // Accumulated as events arrive; recorded in the `finally`.
     const streamUsage = emptyStreamUsage();
     try {
@@ -556,6 +559,7 @@ export class FortuneStreamService {
       // capacity, then this user's share — and gets `AI_BUSY` for free: a
       // queue-timeout refusal now happens before the counter moves.
       await this.quota.consume('fortune', userId);
+      aiStartedAt = Date.now();
       const stream = client.messages.stream(
         {
           model,
@@ -670,6 +674,8 @@ export class FortuneStreamService {
           model,
           usage: streamUsage,
           context: 'fortune:stream-daily',
+          durationMs: Date.now() - aiStartedAt,
+          userId,
         });
       }
       releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
@@ -1309,6 +1315,9 @@ export class FortuneStreamService {
 
     // S1 — declared outside the try so the `finally` can return the slot.
     let releaseSlot: () => void = () => undefined;
+    // Ob1 — reassigned immediately before the provider call so the logged
+    // duration is the upstream request, not the time spent queued for a slot.
+    let aiStartedAt = Date.now();
     // Accumulated as events arrive; recorded in the `finally`.
     const streamUsage = emptyStreamUsage();
     try {
@@ -1333,6 +1342,7 @@ export class FortuneStreamService {
       // capacity, then this user's share — and gets `AI_BUSY` for free: a
       // queue-timeout refusal now happens before the counter moves.
       await this.quota.consume('fortune', userId);
+      aiStartedAt = Date.now();
       const stream = client.messages.stream(
         {
           model,
@@ -1446,6 +1456,8 @@ export class FortuneStreamService {
           model,
           usage: streamUsage,
           context: 'fortune:stream-monthly',
+          durationMs: Date.now() - aiStartedAt,
+          userId,
         });
       }
       releaseSlot(); // S1 — idempotent; returns the slot on every exit path.
@@ -1973,6 +1985,9 @@ export class FortuneStreamService {
 
     // S1 — declared outside the try so the `finally` can return the slot.
     let releaseSlot: () => void = () => undefined;
+    // Ob1 — reassigned immediately before the provider call so the logged
+    // duration is the upstream request, not the time spent queued for a slot.
+    let aiStartedAt = Date.now();
     // Accumulated as events arrive; recorded in the `finally`.
     const streamUsage = emptyStreamUsage();
     try {
@@ -1997,6 +2012,7 @@ export class FortuneStreamService {
       // capacity, then this user's share — and gets `AI_BUSY` for free: a
       // queue-timeout refusal now happens before the counter moves.
       await this.quota.consume('fortune', userId);
+      aiStartedAt = Date.now();
       const stream = client.messages.stream(
         {
           model,
@@ -2110,6 +2126,8 @@ export class FortuneStreamService {
           model,
           usage: streamUsage,
           context: 'fortune:stream-yearly',
+          durationMs: Date.now() - aiStartedAt,
+          userId,
         });
       }
       releaseSlot(); // S1 — idempotent; returns the slot on every exit path.

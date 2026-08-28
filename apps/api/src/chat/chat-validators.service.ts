@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
+import { createAnthropicClient } from '../ai/anthropic-client';
 import {
   CHAT_V1_BANNED_PHRASES_LIST,
   CHAT_V1_CITATION_OPENING_REGEX,
@@ -97,7 +98,7 @@ export class ChatValidatorsService {
     private readonly aiSpend: AiSpendService,
   ) {
     const apiKey = this.config.get<string>('ANTHROPIC_API_KEY') || 'placeholder';
-    this.judgeAnthropic = new Anthropic({ apiKey });
+    this.judgeAnthropic = createAnthropicClient({ apiKey });
     this.judgeModel = this.config.get<string>('CLAUDE_HAIKU_MODEL')
       || 'claude-haiku-4-5-20251001';
     // 5% sample by default in prod; 100% in CI/eval contexts
@@ -445,6 +446,7 @@ ${safeAssistantResponse}
       // judge rather than failing the chat turn, which is the whole reason this
       // call is wrapped.
       await this.aiSpend.assertUnderCap('chat:llm-judge');
+      const aiStartedAt = Date.now();
       const response = await this.judgeAnthropic.messages.create(
         {
           model: this.judgeModel,
@@ -465,6 +467,10 @@ ${safeAssistantResponse}
           outputTokens: response.usage?.output_tokens ?? 0,
         },
         context: 'chat:llm-judge',
+        durationMs: Date.now() - aiStartedAt,
+        // Ob1 — no userId: the judge samples 5% of turns as an internal QA
+        // check. It is not the user's request and must not be attributed to
+        // their account in a per-user cost view.
       });
       const text = response.content
         .filter((b) => b.type === 'text')

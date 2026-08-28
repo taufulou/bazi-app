@@ -255,8 +255,8 @@ export class AIService implements OnModuleInit {
       try {
         switch (provider.provider) {
           case AIProvider.CLAUDE: {
-            const { default: Anthropic } = await import('@anthropic-ai/sdk');
-            this.claudeClient = new Anthropic({ apiKey: provider.apiKey });
+            const { createAnthropicClient } = await import('./anthropic-client');
+            this.claudeClient = createAnthropicClient({ apiKey: provider.apiKey });
             this.logger.log('Claude SDK client cached');
             break;
           }
@@ -5830,6 +5830,7 @@ export class AIService implements OnModuleInit {
     signal: AbortSignal | undefined,
     usage: { inputTokens: number; outputTokens: number },
   ): AsyncGenerator<string> {
+    const aiStartedAt = Date.now();
     try {
       switch (config.provider) {
         case AIProvider.CLAUDE:
@@ -5856,6 +5857,22 @@ export class AIService implements OnModuleInit {
         model: config.model,
         usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
         context: `stream:${config.provider}`,
+        durationMs: Date.now() - aiStartedAt,
+        // ⚠️ Ob1 — no userId, and this one IS a gap rather than a choice.
+        //
+        // `logUsage` (which does have it) sits on the NON-streaming methods:
+        // `generate*V2Interpretation`. The streaming entry points —
+        // `_executeStream*V2` and `streamCompatibilityRomanceV2` — reach the
+        // provider through here instead, and the two sets are disjoint. So a
+        // STREAMED reading, the most expensive generation in the app, logs
+        // `userIdHash: null`.
+        //
+        // Not fixed here because the id would have to be threaded through five
+        // public signatures, `_executeStreamV2Common`'s opts and `streamProvider`
+        // — a large diff through the riskiest file in the repo for one log
+        // field. It is also not the only answer to "which account is spending":
+        // S4's per-user quota counters cover reading generation, and Ob2's
+        // `/api/admin/ops` ranks them. Revisit if that proves insufficient.
       });
     }
   }
@@ -5869,8 +5886,8 @@ export class AIService implements OnModuleInit {
     signal?: AbortSignal,
   ): Promise<{ content: string; inputTokens: number; outputTokens: number }> {
     if (!this.claudeClient) {
-      const { default: Anthropic } = await import('@anthropic-ai/sdk');
-      this.claudeClient = new Anthropic({ apiKey: config.apiKey });
+      const { createAnthropicClient } = await import('./anthropic-client');
+      this.claudeClient = createAnthropicClient({ apiKey: config.apiKey });
     }
 
     const response = await this.claudeClient.messages.create(
@@ -5903,8 +5920,8 @@ export class AIService implements OnModuleInit {
     usageOut?: { inputTokens: number; outputTokens: number; stopReason?: string },
   ): AsyncGenerator<string> {
     if (!this.claudeClient) {
-      const { default: Anthropic } = await import('@anthropic-ai/sdk');
-      this.claudeClient = new Anthropic({ apiKey: config.apiKey });
+      const { createAnthropicClient } = await import('./anthropic-client');
+      this.claudeClient = createAnthropicClient({ apiKey: config.apiKey });
     }
 
     const stream = this.claudeClient.messages.stream(
@@ -7550,6 +7567,8 @@ export class AIService implements OnModuleInit {
         outputTokens: result.tokenUsage.outputTokens,
       },
       context: `reading:${readingType ?? 'unknown'}`,
+      durationMs: result.latencyMs,
+      userId,
     });
 
     try {
