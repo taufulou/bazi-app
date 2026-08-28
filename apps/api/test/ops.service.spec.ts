@@ -29,6 +29,7 @@ function makeService(opts: {
   quotaKeys?: Record<string, string>;
   truncated?: boolean;
   redisThrows?: boolean;
+  spendThrows?: boolean;
   replicas?: string;
 } = {}) {
   const spend = {
@@ -43,9 +44,23 @@ function makeService(opts: {
     }),
     mget: jest.fn(async (keys: string[]) => keys.map((k) => store[k] ?? null)),
   };
+  const aiSpend = {
+    getSnapshot: async () => {
+      if (opts.spendThrows) throw new Error('ECONNREFUSED');
+      return spend;
+    },
+    // Config-derived, so still readable when Redis is down — the service now
+    // takes limits and keys from here rather than from the Redis-backed
+    // snapshot, which is what lets it degrade instead of 500.
+    dailyLimitUsd: spend.dayLimitUsd,
+    monthlyLimitUsd: spend.monthLimitUsd,
+    dayKey: () => spend.dayKey,
+    monthKey: () => spend.monthKey,
+    enabled: spend.enabled,
+  };
   const service = new OpsService(
     { snapshot: () => POOLS } as never,
-    { getSnapshot: async () => spend } as never,
+    aiSpend as never,
     {
       dayKey: () => '20260828',
       limitFor: (k: string) => ({ reading: 20, chat: 200, fortune: 30 })[k] ?? 0,
@@ -130,6 +145,57 @@ describe('breaker state agrees with the breaker itself', () => {
   });
 });
 
+describe('a Redis outage must not take the whole page down', () => {
+  it('degrades the spend section instead of 500-ing', async () => {
+    // The bug this replaces: `topQuotaConsumers` was guarded and the spend read
+    // directly above it was not, so an outage threw out of `snapshot()` and the
+    // request failed — taking the pool and rate-limit numbers with it, which
+    // come from process memory and were fine. The endpoint whose whole purpose
+    // is "open this during an incident" broke during incidents.
+    const { service } = makeService({ spendThrows: true });
+    const snap = await service.snapshot();
+
+    expect(snap.spend.available).toBe(false);
+    expect(snap.pools).toEqual(POOLS); // the point: still there
+    expect(snap.rateLimit).toBeDefined();
+  });
+
+  it('reports unknown spend as null, never as zero', async () => {
+    // A `0` here during a budget incident renders as "nothing spent today",
+    // which is the most reassuring possible display of "we have no idea".
+    const { service } = makeService({ spendThrows: true });
+    const { spend } = await service.snapshot();
+    expect(spend.dayUsd).toBeNull();
+    expect(spend.monthUsd).toBeNull();
+    expect(spend.dayPct).toBeNull();
+    expect(spend.monthPct).toBeNull();
+  });
+
+  it('still reports the limits and the day keys, which are config not Redis', async () => {
+    const { service } = makeService({ spendThrows: true });
+    const { spend } = await service.snapshot();
+    expect(spend.dayLimitUsd).toBe(50);
+    expect(spend.monthLimitUsd).toBe(400);
+    expect(spend.dayKey).toBe('2026-08-28');
+  });
+
+  it("reports the breaker as 'unknown', which is not the same as healthy", async () => {
+    // `null` means "checked, you are fine". Collapsing the two would tell an
+    // operator generation is flowing when we cannot tell.
+    const { service } = makeService({ spendThrows: true });
+    expect((await service.snapshot()).breaker.trippedOn).toBe('unknown');
+  });
+
+  it('survives BOTH reads failing at once', async () => {
+    // The realistic outage: Redis is down, so neither collaborator works.
+    const { service } = makeService({ spendThrows: true, redisThrows: true });
+    const snap = await service.snapshot();
+    expect(snap.spend.available).toBe(false);
+    expect(snap.quota.available).toBe(false);
+    expect(snap.pools).toEqual(POOLS);
+  });
+});
+
 describe('quota top-consumers', () => {
   const keys = {
     'quota:chat:user-light:20260828': '150',
@@ -178,7 +244,14 @@ describe('quota top-consumers', () => {
   it('reports null rather than 0% for a disabled quota', async () => {
     const svc = new OpsService(
       { snapshot: () => POOLS } as never,
-      { getSnapshot: async () => ({ dayUsd: 0, monthUsd: 0, dayLimitUsd: 50, monthLimitUsd: 400, dayKey: 'd', monthKey: 'm', enabled: true }) } as never,
+      {
+        getSnapshot: async () => ({ dayUsd: 0, monthUsd: 0, dayLimitUsd: 50, monthLimitUsd: 400, dayKey: 'd', monthKey: 'm', enabled: true }),
+        dailyLimitUsd: 50,
+        monthlyLimitUsd: 400,
+        dayKey: () => 'd',
+        monthKey: () => 'm',
+        enabled: true,
+      } as never,
       { dayKey: () => '20260828', limitFor: () => 0 } as never,
       {
         scanKeys: async () => ({ keys: ['quota:chat:u1:20260828'], truncated: false }),

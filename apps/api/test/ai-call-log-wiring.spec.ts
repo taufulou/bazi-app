@@ -157,6 +157,29 @@ describe('record() emits the Ob1 line', () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining(AI_CALL_LOG_PREFIX));
   });
 
+  it('holds the promise even when the FALLBACK logger throws too', async () => {
+    // The previous test breaks `log` and leaves `warn` working, so it only
+    // proves the guarantee under a PARTIAL logger failure. A catch block whose
+    // one statement can itself throw is not a catch block — and an escape here
+    // is an unhandled rejection through eleven bare-`void` call sites, i.e. a
+    // dead API process.
+    const { service } = makeService();
+    jest.spyOn(Logger.prototype, 'log').mockImplementation(() => {
+      throw new Error('log transport down');
+    });
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {
+      throw new Error('warn transport down too');
+    });
+    await expect(
+      service.record({
+        provider: 'CLAUDE',
+        model: 'claude-sonnet-4-5',
+        usage: { inputTokens: 100, outputTokens: 100 },
+        context: 'chat:sync',
+      }),
+    ).resolves.toBeGreaterThan(0); // and the spend is STILL counted
+  });
+
   it('does not log when usage is malformed — pricing fails first, loudly', async () => {
     const { service, lines } = makeService();
     await expect(

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiGovernorService, type AiPool } from '../ai/ai-governor.service';
-import { AiSpendService } from '../ai/ai-spend.service';
+import { AiSpendService, type SpendSnapshot } from '../ai/ai-spend.service';
 import { QuotaService, type QuotaKind } from '../ai/quota.service';
 import { RedisService } from '../redis/redis.service';
 import { getRateLimitSnapshot, type RateLimitSnapshot } from '../ai/anthropic-rate-limit';
@@ -65,19 +65,34 @@ export interface OpsSnapshot {
   replicas: number;
   pools: Record<AiPool, ReturnType<AiGovernorService['snapshot']>[AiPool]>;
   spend: {
-    dayUsd: number;
-    monthUsd: number;
+    /**
+     * False when the spend counters could not be read. The usd/pct fields are
+     * then `null` — NOT `0`. A zero here during a budget incident reads as
+     * "nothing has been spent today", which is the most reassuring possible
+     * rendering of "we have no idea".
+     */
+    available: boolean;
+    dayUsd: number | null;
+    monthUsd: number | null;
+    /** From config, so still known even when Redis is down. */
     dayLimitUsd: number;
     monthLimitUsd: number;
-    dayPct: number;
-    monthPct: number;
+    dayPct: number | null;
+    monthPct: number | null;
     dayKey: string;
     monthKey: string;
   };
   breaker: {
     enabled: boolean;
-    /** `null` when under both caps; otherwise which one tripped. */
-    trippedOn: 'daily' | 'monthly' | null;
+    /**
+     * `null` when under both caps, `'unknown'` when spend could not be read.
+     *
+     * ⚠️ These are deliberately different values. Collapsing "we checked and
+     * you are fine" into "we could not check" is the same reassuring-zero
+     * mistake as above, one layer up — and this is the field an operator looks
+     * at to decide whether generation is being refused.
+     */
+    trippedOn: 'daily' | 'monthly' | 'unknown' | null;
   };
   quota: {
     dayKey: string;
@@ -104,7 +119,7 @@ export class OpsService {
   ) {}
 
   async snapshot(): Promise<OpsSnapshot> {
-    const spend = await this.aiSpend.getSnapshot();
+    const spend = await this.readSpend();
     const quota = await this.topQuotaConsumers();
 
     const pct = (used: number, limit: number) =>
@@ -115,32 +130,63 @@ export class OpsService {
       replicas: parseReplicaCount(this.config.get<string | number>('REPLICA_COUNT')),
       pools: this.governor.snapshot(),
       spend: {
-        dayUsd: round6(spend.dayUsd),
-        monthUsd: round6(spend.monthUsd),
-        dayLimitUsd: spend.dayLimitUsd,
-        monthLimitUsd: spend.monthLimitUsd,
-        dayPct: pct(spend.dayUsd, spend.dayLimitUsd),
-        monthPct: pct(spend.monthUsd, spend.monthLimitUsd),
-        dayKey: spend.dayKey,
-        monthKey: spend.monthKey,
+        available: spend !== null,
+        dayUsd: spend ? round6(spend.dayUsd) : null,
+        monthUsd: spend ? round6(spend.monthUsd) : null,
+        // Config-derived, so knowable either way — and worth showing, because
+        // "the cap is $50" is useful context even when today's total is not.
+        dayLimitUsd: this.aiSpend.dailyLimitUsd,
+        monthLimitUsd: this.aiSpend.monthlyLimitUsd,
+        dayPct: spend ? pct(spend.dayUsd, spend.dayLimitUsd) : null,
+        monthPct: spend ? pct(spend.monthUsd, spend.monthLimitUsd) : null,
+        dayKey: this.aiSpend.dayKey(),
+        monthKey: this.aiSpend.monthKey(),
       },
       breaker: {
-        enabled: spend.enabled,
+        enabled: spend ? spend.enabled : this.aiSpend.enabled,
         // Mirrors `assertUnderCap`'s own precedence — daily is checked first,
         // so a day that has tripped reports daily even if the month also has.
         // Deriving it here rather than duplicating a threshold keeps the ops
         // view and the enforcement from disagreeing.
-        trippedOn: !spend.enabled
-          ? null
-          : spend.dayUsd >= spend.dayLimitUsd
-            ? 'daily'
-            : spend.monthUsd >= spend.monthLimitUsd
-              ? 'monthly'
-              : null,
+        trippedOn: !spend
+          ? 'unknown'
+          : !spend.enabled
+            ? null
+            : spend.dayUsd >= spend.dayLimitUsd
+              ? 'daily'
+              : spend.monthUsd >= spend.monthLimitUsd
+                ? 'monthly'
+                : null,
       },
       quota,
       rateLimit: getRateLimitSnapshot(),
     };
+  }
+
+  /**
+   * The spend counters, or `null` when Redis could not be read.
+   *
+   * ⚠️ This guard is the whole reason the endpoint is usable during an
+   * incident, and it was missing. `topQuotaConsumers` was wrapped and this was
+   * not, so a Redis outage threw straight out of `snapshot()` and 500'd the
+   * request — taking the pool and rate-limit numbers with it, which come from
+   * process memory and were perfectly fine. The docblock below promised soft
+   * failure for one collaborator while the sibling call above it failed hard.
+   *
+   * `AiSpendService.getSnapshot` cannot be relied on to fail open itself: it
+   * awaits two bare `redis.get` calls with no try/catch, unlike its sibling
+   * `assertUnderCap`, which fails open deliberately.
+   */
+  private async readSpend(): Promise<SpendSnapshot | null> {
+    try {
+      return await this.aiSpend.getSnapshot();
+    } catch (err) {
+      this.logger.error(
+        `Ops spend read failed — reporting the section unavailable rather than ` +
+          `failing the whole view: ${err}`,
+      );
+      return null;
+    }
   }
 
   /**

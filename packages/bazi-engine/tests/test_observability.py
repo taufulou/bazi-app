@@ -570,3 +570,74 @@ def test_the_observability_logger_is_given_a_handler(monkeypatch):
 
     assert log.level == logging.INFO
     assert log.handlers, "no handler — INFO would be dropped in production"
+
+
+def test_values_are_registered_even_when_validation_fails():
+    """Registration must not be skipped by the raising path.
+
+    "Registered for every request" is a far easier invariant to hold than
+    "registered unless validation failed", and it used to be the latter — the
+    call sat after the `raise`.
+
+    Note what this does NOT claim. A review asserted the ValidationError
+    message leaks the city; measured against pydantic 2.12 it does not, because
+    `str(e)` truncates `input_value`. This asserts the ordering property
+    itself, which is the thing under our control.
+    """
+    import pydantic
+
+    from app.main import BirthDataInput
+
+    observability.clear_sensitive_values()
+    with pytest.raises(pydantic.ValidationError):
+        BirthDataInput(
+            birth_date="1987-09-06",
+            birth_time=None,        # ← with hour_known True, this raises
+            hour_known=True,
+            birth_city="吉打",
+            birth_timezone="Asia/Kuala_Lumpur",
+            gender="male",
+        )
+    assert "吉打" in observability._request_pii_values.get()
+    assert "1987-09-06" in observability._request_pii_values.get()
+
+
+def test_the_happy_path_still_registers():
+    # Guard the guard: moving the call must not have skipped the normal path.
+    from app.main import BirthDataInput
+
+    observability.clear_sensitive_values()
+    BirthDataInput(
+        birth_date="1987-09-06", birth_time="16:11", hour_known=True,
+        birth_city="吉打", birth_timezone="Asia/Kuala_Lumpur", gender="male",
+    )
+    assert "吉打" in observability._request_pii_values.get()
+
+
+def test_the_structured_validation_input_is_scrubbed_if_it_reaches_an_event():
+    """The place the full payload actually survives.
+
+    `e.errors()[0]["input"]` carries every field verbatim, unlike the truncated
+    message. Sentry does not serialise it by default — but "a library does not
+    currently do X" is not a control, and the key-based scrubber is.
+    """
+    import pydantic
+
+    from app.main import BirthDataInput
+
+    try:
+        BirthDataInput(
+            birth_date="1987-09-06", birth_time=None, hour_known=True,
+            birth_city="吉打", birth_timezone="Asia/Kuala_Lumpur", gender="male",
+        )
+        raise AssertionError("expected a ValidationError")
+    except pydantic.ValidationError as exc:
+        raw = exc.errors()[0]["input"]
+
+    # Precondition: the structured form really does hold everything.
+    assert raw["birth_city"] == "吉打" and raw["birth_date"] == "1987-09-06"
+
+    scrubbed = scrub_event({"extra": {"validation_input": raw}})["extra"]["validation_input"]
+    assert scrubbed["birth_city"] == REDACTED
+    assert scrubbed["birth_date"] == REDACTED
+    assert scrubbed["birth_timezone"] == REDACTED

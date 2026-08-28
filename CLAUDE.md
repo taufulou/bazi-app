@@ -567,7 +567,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 
 ## Test suite sizes
 - Bazi Engine: ≈2986 collected (`pytest --collect-only` — counts collected items incl. xfail/skip, NOT "passing"; prose "X pass" figures elsewhere differ by counter, e.g. the 時辰未知 sections cite 2944/2965 *passing*). Grew from the ~2231 Phase-12i baseline (+ Fortune day/month/year + chat-scope + 時辰未知 unknown-birth-hour suites). Composition note (Phase 12i): ~2226 + 5 三刑/半刑/子卯刑 spouse-palace tests in test_compatibility_enhanced.py + 53 compat pair corpus regressions + Phase 12h.A/B additions, 5 xfail, 1 skip, 1 pre-existing fail unrelated | NestJS API: 692 | Frontend: 143 | ZWDS: 289
-  - ⚠️ **CURRENT — measured 2026-08-27 on `claude/m10-web-calc-routes`: engine **3142 passed** / 2 skipped / 5 xfailed · api jest **2123 passed** / 5 skipped (113 suites) · web jest **405 passed** (38 suites) · api+web tsc 0 · `turbo run lint` 5/5.** Phase 2B (M1–M10) is complete; the growth over the figures below is M2/M3/M6/M8 plus their guards. The older lines are kept for their composition notes.
+  - ⚠️ **CURRENT — measured 2026-08-28 on `claude/m10-web-calc-routes`: engine **3180 passed** / 2 skipped / 5 xfailed · api jest **2196 passed** / 5 skipped (119 suites) · web jest **405 passed** (38 suites) · api+web tsc 0 · `turbo run lint` 5/5.** ⚠️ Scoped to THIS branch, so it goes stale the moment the branch adds a test — re-measure rather than trusting it. Phase 2B (M1–M10) and Phase 2C (Ob1–Ob3) are both complete; the growth over the figures below is M2/M3/M6/M8 and the observability work, plus their guards. The older lines are kept for their composition notes.
   - ⚠️ **Superseded — measured on `claude/m10-web-calc-routes` 2026-08-23: api jest 100 suites / 1961 passed · web jest 38 suites / 405 passed (fully green for the first time; `test-web` is now a CI job) · api tsc 0 · web tsc 0 · turbo lint 5/5 workspaces.** The older figures below are kept for the composition notes.
   - ⚠️ **Measured on `claude/bazi-scalability-security-e4ff78` 2026-08-17** (the numbers above predate it): engine **3137 passed** / 2 skipped / 5 xfailed · API jest **96 suites / 1914 passed** / 5 skipped · web jest **35 of 37 suites, 383 passed** (the 2 failures — `pricing-page`, `reading-history` — are pre-existing on main) · api tsc 0 · api lint 0 · **web tsc 0** (was 106; the duplicate `@types/react` behind the chronic "cannot be used as a JSX component" errors was collapsed by the dependency dedupe). The ZWDS 289 no longer exists — those suites were deleted with the module.
   - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
@@ -3744,8 +3744,12 @@ Not derivable from the code. Wrong assumptions here waste a session.
 ### Phase 2B is COMPLETE (2026-08-27) — and what the sequence taught
 
 All ten items M1–M10 shipped and are verified in production, not just merged.
-Remaining before launch: Phase 2C (observability), a load test, the launch gate,
-and **Stripe live mode** (it is still test-mode, so no real revenue can flow).
+
+⚠️ **Phase 2C (observability) is ALSO complete, as of 2026-08-28** — Ob1 per-AI-call
+logging, Ob2 `GET /api/admin/ops`, Ob3 the engine's first Sentry. It is committed but
+NOT yet deployed, and Ob3 stays inert until `SENTRY_DSN_ENGINE` is set on the Railway
+engine service. Remaining before launch: a load test, the launch gate, and **Stripe
+live mode** (it is still test-mode, so no real revenue can flow).
 
 **Three lessons worth more than the code.**
 
@@ -4145,12 +4149,20 @@ chart up inside the trust boundary.
 
 Binds: Sentry, PostHog, any new logging, any eval corpus, any future analytics.
 
-### The Sentry scrubber exists TWICE, on purpose
+### The Sentry scrubber exists THREE times, on purpose
 
-`apps/api/src/common/sentry-scrub.ts` (canonical) and `apps/web/app/lib/sentry-scrub.ts`. Web cannot
-import from api, and `@repo/shared` is off-limits to the NestJS runtime — so there is no single
-home. **`apps/api/test/sentry-scrub-parity.spec.ts` fails if the two key lists drift.** Add a key to
-one, add it to both.
+`apps/api/src/common/sentry-scrub.ts` (canonical), `apps/web/app/lib/sentry-scrub.ts`, and — since
+Ob3 — `packages/bazi-engine/app/observability.py`. Web cannot import from api, `@repo/shared` is
+off-limits to the NestJS runtime, and the engine is Python and cannot import TypeScript at all — so
+there is no single home. **`apps/api/test/sentry-scrub-parity.spec.ts` fails if the two TS key lists
+drift.** Add a key to one, add it to both.
+
+The Python copy is held by a different mechanism, because a TS parity spec cannot run there:
+`tests/test_observability.py::test_python_key_set_is_a_superset_of_the_typescript_one` parses
+`sentry-scrub.ts` and asserts the engine's set is a SUPERSET. Superset rather than equality on
+purpose — the engine EMITS most of these field names so it must never be the laxer side, but it
+also carries engine-only shapes (`party_a`, `natal_chart`) the TS side has no reason to know about.
+**A key added to the TS list must be added to the Python one too, or that test fails.**
 
 It drops whole containers, not leaf keys, because the engine emits the pillars **twice** — as
 `fourPillars` *and* as `ganZhi`. It also scrubs `event.message` and `exception[].value`
