@@ -202,7 +202,7 @@ export class FortuneService {
       // layer's check stays authoritative.
       await this.aiSpend.assertUnderCap('fortune:daily');
       await this.quota.consume('fortune', user.id);
-      const aiResult = await this.runDailyAINarration(dailyOutput, chartContext);
+      const aiResult = await this.runDailyAINarration(dailyOutput, chartContext, user.id);
       narrative = aiResult.narrative;
       validationResult = aiResult.validation;
       promptVersion = aiResult.promptVersion;
@@ -262,6 +262,8 @@ export class FortuneService {
   private async runDailyAINarration(
     daily: DailyEngineOutput,
     chart: FortuneChartContext,
+    /** Ob1 — hashed at the log boundary; never written raw. */
+    userId: string,
   ): Promise<{
     narrative: DailyFortuneAINarrative | null;
     validation: FortuneValidationResult;
@@ -286,6 +288,7 @@ export class FortuneService {
     // access becomes a cast.
     const releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:daily');
     let response;
+    const aiStartedAt = Date.now();
     try {
       response = await client.messages.create(
       {
@@ -316,6 +319,8 @@ export class FortuneService {
             .cache_creation_input_tokens ?? 0,
       },
       context: 'fortune:daily',
+      durationMs: Date.now() - aiStartedAt,
+      userId,
     });
 
     const text = response.content
@@ -465,6 +470,7 @@ export class FortuneService {
         chartContext,
         targetMonth,
         flowYear,
+        user.id,
       );
       narrative = aiResult.narrative;
       promptVersion = aiResult.promptVersion;
@@ -524,6 +530,8 @@ export class FortuneService {
     chart: FortuneChartContext,
     targetMonth: string,
     flowYear: number,
+    /** Ob1 — hashed at the log boundary; never written raw. */
+    userId: string,
   ): Promise<{
     narrative: MonthlyFortuneAINarrative | null;
     validation: FortuneValidationResult;
@@ -551,6 +559,7 @@ export class FortuneService {
     // access becomes a cast.
     const releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:monthly');
     let response;
+    const aiStartedAt = Date.now();
     try {
       response = await client.messages.create(
       {
@@ -581,6 +590,8 @@ export class FortuneService {
             .cache_creation_input_tokens ?? 0,
       },
       context: 'fortune:monthly',
+      durationMs: Date.now() - aiStartedAt,
+      userId,
     });
 
     const text = response.content
@@ -715,7 +726,7 @@ export class FortuneService {
       // layer's check stays authoritative.
       await this.aiSpend.assertUnderCap('fortune:yearly');
       await this.quota.consume('fortune', user.id);
-      const aiResult = await this.runYearlyAINarration(yearlyOutput, chartContext, year);
+      const aiResult = await this.runYearlyAINarration(yearlyOutput, chartContext, year, user.id);
       narrative = aiResult.narrative;
       promptVersion = aiResult.promptVersion;
     } catch (err) {
@@ -773,6 +784,8 @@ export class FortuneService {
     yearly: YearlyEngineOutput,
     chart: FortuneChartContext,
     year: number,
+    /** Ob1 — hashed at the log boundary; never written raw. */
+    userId: string,
   ): Promise<{
     narrative: YearlyFortuneAINarrative | null;
     validation: FortuneValidationResult;
@@ -797,6 +810,7 @@ export class FortuneService {
     // access becomes a cast.
     const releaseSlot = await this.aiGovernor.acquire('interactive', 'fortune:yearly');
     let response;
+    const aiStartedAt = Date.now();
     try {
       response = await client.messages.create(
       {
@@ -827,6 +841,8 @@ export class FortuneService {
             .cache_creation_input_tokens ?? 0,
       },
       context: 'fortune:yearly',
+      durationMs: Date.now() - aiStartedAt,
+      userId,
     });
 
     const text = response.content

@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import * as Sentry from '@sentry/nestjs';
 import { AIProvider } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
+import { getRateLimitSnapshot } from './anthropic-rate-limit';
+import { AI_CALL_LOG_PREFIX, formatAiCallLog, hashUserId } from './ai-call-log';
 
 /**
  * S2 — AI spend ledger + circuit breaker.
@@ -283,7 +285,12 @@ export class AiSpendService {
     provider: AIProvider | string;
     model: string;
     usage: TokenUsage;
+    /** Surface + operation, e.g. `chat:stream`. Doubles as Ob1's `route`. */
     context?: string;
+    /** Ob1 — wall-clock duration of the provider call, when the site can time it. */
+    durationMs?: number;
+    /** Ob1 — hashed before it reaches the log; never written raw. */
+    userId?: string | null;
   }): Promise<number> {
     let costUsd: number;
     try {
@@ -304,6 +311,8 @@ export class AiSpendService {
       );
       return 0;
     }
+    this.logCall(args, costUsd);
+
     if (!(costUsd > 0)) return 0;
 
     try {
@@ -324,6 +333,58 @@ export class AiSpendService {
       );
     }
     return costUsd;
+  }
+
+  /**
+   * Ob1 — emit the per-call line.
+   *
+   * ## Why it lives here and not at the eleven call sites
+   *
+   * `scripts/check-ai-spend-metering.mjs` already fails CI when a provider call
+   * appears in a file that does not reach `record()`. That guard was built for
+   * S2's completeness problem, and hanging the log off the same choke point
+   * inherits it wholesale: a new AI surface cannot be added without a log line,
+   * because it cannot be added without metering. A `logger.log` sprinkled at
+   * each site would have had no such property and would have drifted the first
+   * time someone added a twelfth.
+   *
+   * ## Coverage boundary, stated honestly
+   *
+   * This fires for every call that reaches `record()` with well-formed usage.
+   * It does NOT fire for a call that failed before producing any tokens — those
+   * sites guard on `hasUsage(...)` and never call in. That is the right
+   * boundary for a usage line (there is nothing to report), and those paths are
+   * not dark: the governor logs its refusals, the breaker logs its trips, and
+   * provider errors reach Sentry.
+   *
+   * Never throws — `record()`'s docblock promises it, and all ten callers use a
+   * bare `void` on the strength of that promise.
+   */
+  private logCall(
+    args: { provider: AIProvider | string; model: string; usage: TokenUsage; context?: string; durationMs?: number; userId?: string | null },
+    costUsd: number,
+  ): void {
+    try {
+      const rl = getRateLimitSnapshot();
+      this.logger.log(
+        formatAiCallLog({
+          route: args.context ?? 'unknown',
+          provider: String(args.provider),
+          model: args.model,
+          ms: typeof args.durationMs === 'number' ? Math.round(args.durationMs) : null,
+          inTok: args.usage.inputTokens ?? 0,
+          outTok: args.usage.outputTokens ?? 0,
+          cacheReadTok: args.usage.cacheReadTokens ?? 0,
+          cacheWriteTok: args.usage.cacheWriteTokens ?? 0,
+          costUsd,
+          userIdHash: hashUserId(args.userId),
+          rlOutRemaining: rl.outputTokensRemaining,
+          rlOutReset: rl.outputTokensReset,
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(`Failed to emit ${AI_CALL_LOG_PREFIX} line: ${err}`);
+    }
   }
 
   private maybeWarn(scope: string, key: string, total: number, limit: number): void {

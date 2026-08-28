@@ -117,10 +117,20 @@ function cleanTree(): string {
   );
 
   // CLIENT_FACTORY_EXEMPT — imports the SDK, constructs, never calls.
+  //
+  // ⚠️ EVERY entry in the guard's CLIENT_FACTORY_EXEMPT map needs a file here.
+  // The guard's own EXEMPT_MISSING rule fires on an entry with no file, so a new
+  // exemption that is not planted turns the whole self-test red — which is the
+  // rule working, not a fixture bug.
   write(
     root,
     'apps/api/src/fortune/fortune-snapshot.helpers.ts',
     "export async function ensureClaudeClient() { const { default: A } = await import('@anthropic-ai/sdk'); return new A(); }\n",
+  );
+  write(
+    root,
+    'apps/api/src/ai/anthropic-client.ts',
+    "import Anthropic from '@anthropic-ai/sdk';\nexport function createAnthropicClient(o: unknown) { return new Anthropic(o); }\n",
   );
 
   // The pinned delegating spender.
