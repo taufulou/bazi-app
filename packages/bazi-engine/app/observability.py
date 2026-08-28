@@ -303,6 +303,19 @@ def init_sentry() -> bool:
     global _sentry_enabled
     _sentry_enabled = False
 
+    # ⚠️ BEFORE the first log call, not after.
+    #
+    # This service configures no logging globally — deliberately, because
+    # `basicConfig(level=INFO)` would switch on INFO for every library in the
+    # process, httpx included, and httpx logs full request URLs. So each named
+    # logger has to opt in. Without this, every INFO below is emitted into a
+    # logger with no handler, inherits root's WARNING, and vanishes — including
+    # the "Sentry initialised" line that is the documented way to confirm Ob3 is
+    # actually on. Shipped that way once; the line was unfindable in Railway.
+    from .engine_auth import configure_service_logger
+
+    configure_service_logger(logger)
+
     dsn = sentry_dsn()
     if not dsn:
         logger.info("SENTRY_DSN_ENGINE not set — engine error reporting is OFF")

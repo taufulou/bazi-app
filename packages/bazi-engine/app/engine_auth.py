@@ -89,6 +89,29 @@ OUTCOME_UNCONFIGURED = "unconfigured"
 _TRUTHY = {"1", "true", "yes", "on"}
 
 
+def configure_service_logger(target: logging.Logger) -> None:
+    """Give ONE named logger a handler and an INFO level, and nothing else one.
+
+    Extracted from :func:`configure_auth_logging` when a second module needed
+    the same treatment and did not get it: ``bazi_engine.observability`` emitted
+    its "Sentry initialised" line at INFO into a logger with no handler and no
+    level, so it inherited root's WARNING and the line — the documented way to
+    confirm Ob3 is on — could never appear. Any future named logger in this
+    service must call this, or its INFO output silently goes nowhere.
+    """
+    # Level FIRST, and unconditionally. Returning early on an existing handler
+    # used to skip it, leaving the logger at NOTSET → inheriting root's WARNING →
+    # the INFO all-clear rollups silently dropped while only the alarming ones
+    # appeared. A signal that goes missing in exactly one direction is worse than
+    # no signal.
+    target.setLevel(logging.INFO)
+    if target.handlers:
+        return
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    target.addHandler(handler)
+
+
 def configure_auth_logging() -> None:
     """Give ``bazi_engine.auth`` a handler, and give it ONLY to that logger.
 
@@ -106,17 +129,7 @@ def configure_auth_logging() -> None:
     this log are the ones asserting a key is never written to it. A safety
     assertion that silently stops running is worse than a duplicate log line.
     """
-    # Level FIRST, and unconditionally. Returning early on an existing handler
-    # used to skip it, leaving the logger at NOTSET → inheriting root's WARNING →
-    # the INFO all-clear rollups silently dropped while only the alarming ones
-    # appeared. A signal that goes missing in exactly one direction is worse than
-    # no signal.
-    logger.setLevel(logging.INFO)
-    if logger.handlers:
-        return
-    handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
-    logger.addHandler(handler)
+    configure_service_logger(logger)
 
 
 def _env(name: str) -> str:

@@ -513,3 +513,60 @@ def test_traces_sample_rate_reaches_init(monkeypatch):
 
 def test_the_configured_dsn_is_the_engine_one(monkeypatch):
     assert _captured_init_kwargs(monkeypatch)["dsn"] == "https://public@example.invalid/1"
+
+
+# ============================================================
+# The logger has to actually emit
+# ============================================================
+
+def test_the_initialised_line_is_actually_emitted(monkeypatch, caplog):
+    """The documented way to confirm Ob3 is on must reach the log stream.
+
+    This service configures no logging globally, so a named logger with no
+    handler inherits root's WARNING and every INFO it writes disappears. Ob3
+    shipped exactly that way: `init_sentry` logged "Sentry initialised" at INFO
+    into `bazi_engine.observability`, which `configure_auth_logging` does not
+    touch — so the one line the runbook tells an operator to look for could
+    never appear in Railway. Found by looking at a real deploy log, not by any
+    test.
+    """
+    import sentry_sdk
+
+    monkeypatch.setenv("SENTRY_DSN_ENGINE", "https://public@example.invalid/1")
+    monkeypatch.setattr(sentry_sdk, "init", lambda **_k: None)
+    with caplog.at_level("INFO", logger="bazi_engine.observability"):
+        assert observability.init_sentry() is True
+    assert any("Sentry initialised for bazi-engine" in r.message for r in caplog.records)
+
+
+def test_the_disabled_line_is_actually_emitted(monkeypatch, caplog):
+    # The other direction matters just as much: an operator who set the variable
+    # on the wrong service needs to see WHY nothing is arriving.
+    monkeypatch.delenv("SENTRY_DSN_ENGINE", raising=False)
+    with caplog.at_level("INFO", logger="bazi_engine.observability"):
+        assert observability.init_sentry() is False
+    assert any("SENTRY_DSN_ENGINE not set" in r.message for r in caplog.records)
+
+
+def test_the_observability_logger_is_given_a_handler(monkeypatch):
+    """Structural, not just behavioural.
+
+    `caplog` attaches its own handler at the root, so the two tests above would
+    still pass on a logger this service never configured — the records would
+    propagate to pytest and vanish in production. Assert the configuration too.
+    """
+    import logging
+
+    import sentry_sdk
+
+    log = logging.getLogger("bazi_engine.observability")
+    for h in list(log.handlers):
+        log.removeHandler(h)
+    log.setLevel(logging.NOTSET)
+
+    monkeypatch.setenv("SENTRY_DSN_ENGINE", "https://public@example.invalid/1")
+    monkeypatch.setattr(sentry_sdk, "init", lambda **_k: None)
+    observability.init_sentry()
+
+    assert log.level == logging.INFO
+    assert log.handlers, "no handler — INFO would be dropped in production"
