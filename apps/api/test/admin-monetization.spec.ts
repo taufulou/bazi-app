@@ -488,7 +488,7 @@ describe('AdminController — Monetization Endpoints', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    controller = new AdminController(mockService as any);
+    controller = new AdminController(mockService as any, { snapshot: jest.fn() } as never);
   });
 
   describe('GET /api/admin/credit-packages', () => {

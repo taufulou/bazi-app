@@ -186,4 +186,53 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async ttl(key: string): Promise<number> {
     return this.client.ttl(key);
   }
+
+  /**
+   * Ob2 — enumerate keys matching a glob, bounded.
+   *
+   * ⚠️ SCAN, never KEYS. `KEYS` is O(N) over the entire keyspace and blocks the
+   * single-threaded server for the whole walk, so on a production instance it
+   * is an outage waiting for the first admin who opens the ops page while the
+   * cache is warm. SCAN is incremental and yields between passes.
+   *
+   * Two bounds, because SCAN alone is not one:
+   *
+   * - `limit` caps what we return. The caller only ever renders a top-N.
+   * - `maxIterations` caps the walk itself. SCAN's cursor is only guaranteed to
+   *   terminate on a keyspace that is not growing faster than we read it; an
+   *   unbounded loop against a hot Redis is a hang in a request handler.
+   *
+   * Returns `{ keys, truncated }` rather than a bare array so a caller can say
+   * "top 10 of at least 500" instead of silently presenting a partial scan as
+   * the whole picture.
+   */
+  async scanKeys(
+    match: string,
+    { limit = 500, count = 200, maxIterations = 50 }: {
+      limit?: number;
+      count?: number;
+      maxIterations?: number;
+    } = {},
+  ): Promise<{ keys: string[]; truncated: boolean }> {
+    const keys: string[] = [];
+    let cursor = '0';
+    let iterations = 0;
+    do {
+      const [next, batch] = await this.client.scan(cursor, 'MATCH', match, 'COUNT', count);
+      cursor = next;
+      for (const k of batch) {
+        if (keys.length >= limit) return { keys, truncated: true };
+        keys.push(k);
+      }
+      iterations += 1;
+      if (iterations >= maxIterations) return { keys, truncated: cursor !== '0' };
+    } while (cursor !== '0');
+    return { keys, truncated: false };
+  }
+
+  /** Ob2 — batched read for the keys `scanKeys` found. */
+  async mget(keys: string[]): Promise<(string | null)[]> {
+    if (keys.length === 0) return [];
+    return this.client.mget(...keys);
+  }
 }

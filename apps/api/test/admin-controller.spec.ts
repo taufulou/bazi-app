@@ -36,6 +36,11 @@ const mockAdminService = {
   getAuditLog: jest.fn(),
 };
 
+/** Ob2 — the ops snapshot is assembled by its own service; see ops.service.spec.ts. */
+const mockOpsService = {
+  snapshot: jest.fn(),
+};
+
 // ============================================================
 // Test Data
 // ============================================================
@@ -54,7 +59,7 @@ describe('AdminController', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    controller = new AdminController(mockAdminService as any);
+    controller = new AdminController(mockAdminService as any, mockOpsService as any);
   });
 
   // ============================================================
