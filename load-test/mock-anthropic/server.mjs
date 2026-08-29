@@ -218,7 +218,7 @@ const rateLimitHeaders = () => ({
   'request-id': 'req_mock_' + Math.random().toString(36).slice(2, 10),
 });
 
-createServer((req, res) => {
+const server = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json' });
     return res.end(JSON.stringify({ status: 'ok', streamMs: STREAM_MS, usageScale: USAGE_SCALE, failRate: FAIL_RATE }));
@@ -230,6 +230,31 @@ createServer((req, res) => {
   let body = '';
   req.on('data', (c) => { body += c; });
   req.on('end', () => { handleMessages(req, res, body).catch(() => { try { res.end(); } catch {} }); });
-}).listen(PORT, () => {
-  console.log(`mock-anthropic listening on :${PORT} — streamMs=${STREAM_MS} usageScale=${USAGE_SCALE} failRate=${FAIL_RATE}`);
+});
+
+// ⚠️ Bind the IPv6 wildcard EXPLICITLY, exactly as docker/Dockerfile.bazi does
+// (`--host ::`) and for the same documented reason: Railway's
+// `*.railway.internal` DNS resolves to IPv6 ONLY, so an IPv4-only bind is
+// unreachable over private networking. Node's bare `.listen(port)` usually
+// dual-stacks and would probably have worked — but "probably" is the wrong
+// standard when the sibling service carries a comment warning about precisely
+// this, and the symptom would be a service that looks healthy while the API
+// cannot reach it.
+//
+// On a dual-stack host (`bindv6only=0`) an IPv6 wildcard also accepts IPv4, so
+// this stays reachable on localhost for the local smoke test.
+server.listen(PORT, '::', () => {
+  const a = server.address();
+  console.log(
+    `mock-anthropic listening on ${typeof a === 'object' && a ? `${a.address}:${a.port}` : PORT} ` +
+      `— streamMs=${STREAM_MS} usageScale=${USAGE_SCALE} failRate=${FAIL_RATE}`,
+  );
+});
+
+// If the port is taken or the bind fails, say so loudly rather than exiting
+// silently — a container that dies without a line in the deploy log is the
+// hardest kind to diagnose from a dashboard.
+server.on('error', (err) => {
+  console.error(`mock-anthropic FAILED to bind :${PORT} — ${err.message}`);
+  process.exit(1);
 });
