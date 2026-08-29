@@ -98,14 +98,42 @@ refreshing every minute. **Neither is needed, and the first cannot work**: L2
 runs the test against PRODUCTION, and a dev-instance token cannot authenticate
 against prod (different issuer, different JWKS).
 
-`sessions.getToken()` takes a per-token `expiresInSeconds`. Measured against
-@clerk/backend 2.33.5, 60s / 3600s / 14400s were all honoured exactly, so a
-token that outlives the run can be minted without touching a JWT template and
-without deploying anything.
+### ⚠️ `sessions.createSession()` is DEVELOPMENT-ONLY
+
+The obvious approach — `createSession` then `getToken(id, undefined, ttl)` —
+works perfectly against a dev instance and fails on production with:
+
+```
+request_invalid_for_environment
+"Request only valid for development instances."
+```
+
+Found by running the seeder against production with 3 users after it had passed
+against dev. **No amount of local testing finds this**, because local is exactly
+the instance where it works. It is the whole argument for trialling with 3.
+
+### What works — the browser's own flow, over plain HTTP
+
+1. `signInTokens.createSignInToken({ userId })` → a ticket. Production-safe.
+2. `POST https://{fapi}/v1/client/sign_ins?_is_native=1` with `strategy=ticket`.
+   **`_is_native=1` is load-bearing**: it returns the session token in the BODY
+   instead of setting a browser cookie, which is what makes this scriptable.
+3. `sessions.getToken(sessionId, undefined, ttl)` to extend — step 2 alone
+   yields a **60-second** token, the very problem this section exists to solve.
+
+Step 3 is a different endpoint from `createSession` and is expected to be
+production-safe, but that is not yet confirmed against a live instance. If it
+fails the scripts DEGRADE to the 60s token and warn; k6 must then refresh
+mid-run.
+
+The Frontend API host comes from `--fapi`, or is decoded from
+`CLERK_PUBLISHABLE_KEY`. **Production is `clerk.tianmingapp.com`.**
 
 ```bash
 export CLERK_SECRET_KEY=sk_live_...      # in YOUR shell. Never paste it elsewhere.
-node load-test/mint-tokens.mjs --match '+loadtest' --ttl 4200      --verify https://bazi-app-production-5e54.up.railway.app
+node load-test/mint-tokens.mjs --match 'loadtest+' --ttl 4200 \
+     --fapi clerk.tianmingapp.com \
+     --verify https://bazi-app-production-5e54.up.railway.app
 ```
 
 Writes `load-test/tokens.json` (0600, gitignored).
