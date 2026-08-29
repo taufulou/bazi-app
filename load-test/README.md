@@ -1,7 +1,7 @@
 # Phase 3 — load test
 
 Everything here exists only for load testing. **None of it ships to users, and
-the one piece that touches production code (`ANTHROPIC_BASE_URL`) is inert
+the one piece that touches production code (`LOADTEST_ANTHROPIC_BASE_URL`) is inert
 unless the variable is set.**
 
 ## What is here
@@ -50,7 +50,7 @@ Whichever you choose, **restore the cap afterwards** and confirm via
 ```bash
 # local smoke
 MOCK_STREAM_MS=3000 node load-test/mock-anthropic/server.mjs
-ANTHROPIC_BASE_URL=http://127.0.0.1:8080 npm run dev:api
+LOADTEST_ANTHROPIC_BASE_URL=http://127.0.0.1:8080 npm run dev:api
 ```
 
 Deploying to Railway as a temporary service:
@@ -58,21 +58,37 @@ Deploying to Railway as a temporary service:
 1. New service from this repo, `RAILWAY_DOCKERFILE_PATH=load-test/mock-anthropic/Dockerfile`.
 2. **Private networking only — do not give it a public domain.** It answers to
    any caller and fabricates readings.
-3. On the **API** service set `ANTHROPIC_BASE_URL=http://<mock>.railway.internal:8080`.
+3. On the **API** service set `LOADTEST_ANTHROPIC_BASE_URL=http://<mock>.railway.internal:8080`.
 4. **Strip `OPENAI_API_KEY` and `GEMINI_API_KEY`** for the window. Providers are
    key-gated at registration (`ai.service.ts`), so removing the keys removes the
    fallback chain entirely — a mock failure then fails the reading instead of
    quietly falling back to a real paid provider.
 
+### ⚠️ Two names, and only one of them is ours
+
+`LOADTEST_ANTHROPIC_BASE_URL` is the app's switch. **`ANTHROPIC_BASE_URL` is
+not** — it is a conventional name other tooling sets (Claude Code exports it),
+and the app deliberately ignores it.
+
+But **the Anthropic SDK reads `ANTHROPIC_BASE_URL` itself**, so setting it still
+redirects every call — through the SDK rather than through us, with our own
+`aiBaseUrlOverride` reporting `null` the whole time. That is why
+`GET /api/admin/ops` also reports **`aiBaseUrlEffective`**, the resolved
+`client.baseURL`.
+
+**During an incident, read `aiBaseUrlEffective`.** It is the value the SDK will
+actually use, whoever set it. `aiBaseUrlOverride` only answers "did WE do this?"
+
 ### Teardown — the step that actually matters
 
-**Unset `ANTHROPIC_BASE_URL` before the mock service is deleted.** In that order.
+**Unset `LOADTEST_ANTHROPIC_BASE_URL` before the mock service is deleted.** In that order.
 A stale override pointing at a deleted service makes every reading fail in a way
 that looks exactly like an Anthropic outage, and nothing else about the app
 looks wrong.
 
-Confirm teardown with `GET /api/admin/ops` → **`aiBaseUrlOverride` must be
-`null`**. That field exists for this moment.
+Confirm teardown with `GET /api/admin/ops`: **`aiBaseUrlOverride` must be `null`
+AND `aiBaseUrlEffective` must point at `api.anthropic.com`.** Checking only the
+first would miss a redirect set through the SDK's own variable.
 
 ## L3 — auth for k6
 
