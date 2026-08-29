@@ -55,6 +55,7 @@
 
 import { writeFileSync, chmodSync } from 'node:fs';
 import { createClerkClient } from '@clerk/backend';
+import { mintForUser, resolveFapiHost } from './clerk-auth.mjs';
 
 const arg = (name, fallback = null) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -117,17 +118,27 @@ if (!users.length) {
   process.exit(1);
 }
 
+const FAPI = resolveFapiHost({ flag: arg('fapi'), publishableKey: process.env.CLERK_PUBLISHABLE_KEY });
+console.log(`frontend API: ${FAPI}`);
+
 const minted = [];
+let anyShort = false;
 for (const u of users) {
-  const session = await clerk.sessions.createSession({ userId: u.id });
-  const tok = await clerk.sessions.getToken(session.id, undefined, TTL);
+  // ⚠️ NOT createSession — dev-instance only. See clerk-auth.mjs.
+  const r = await mintForUser(clerk, u.id, { ttl: TTL, fapi: FAPI });
+  if (!r.extended) anyShort = true;
   minted.push({
     userId: u.id,
     email: u.emailAddresses?.[0]?.emailAddress ?? null,
-    sessionId: session.id,
-    token: tok.jwt,
+    sessionId: r.sessionId,
+    ttlSeconds: r.ttlSeconds,
+    token: r.jwt,
   });
   process.stdout.write(`\rminted ${minted.length}/${users.length}`);
+}
+if (anyShort) {
+  console.warn('\n⚠️  Lifetime could not be extended — some tokens expire in 60s.');
+  console.warn('   k6 must refresh them mid-run, or re-run this between scenarios.');
 }
 process.stdout.write('\n');
 

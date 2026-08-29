@@ -44,6 +44,7 @@
 
 import { writeFileSync, readFileSync, existsSync, chmodSync } from 'node:fs';
 import { createClerkClient } from '@clerk/backend';
+import { mintForUser, resolveFapiHost } from './clerk-auth.mjs';
 
 const argv = process.argv;
 const has = (f) => argv.includes(`--${f}`);
@@ -106,10 +107,21 @@ const api = async (path, { token, method = 'GET', body } = {}) => {
   return { status: res.status, ok: res.ok, body: json ?? text.slice(0, 300) };
 };
 
+const FAPI = resolveFapiHost({ flag: arg('fapi'), publishableKey: process.env.CLERK_PUBLISHABLE_KEY });
+
+/**
+ * ⚠️ NOT `sessions.createSession()`. That is development-instance ONLY and
+ * fails on production with `request_invalid_for_environment` — found by running
+ * the seeder against production after it passed against dev. See clerk-auth.mjs.
+ */
+let warnedShortTtl = false;
 const mintFor = async (userId, ttl = 3600) => {
-  const s = await clerk.sessions.createSession({ userId });
-  const t = await clerk.sessions.getToken(s.id, undefined, ttl);
-  return t.jwt;
+  const r = await mintForUser(clerk, userId, { ttl, fapi: FAPI });
+  if (!r.extended && !warnedShortTtl) {
+    warnedShortTtl = true;
+    console.warn('\n⚠️  Could not extend token lifetime — these expire in 60s.');
+  }
+  return r.jwt;
 };
 
 /** The admin account, for credit top-ups. Found by role, not hardcoded. */
@@ -143,7 +155,7 @@ async function listSeeded() {
 
 // ============================================================
 async function seed() {
-  console.log(`Clerk: ${live ? 'PRODUCTION (sk_live)' : 'development (sk_test)'} · api=${API}`);
+  console.log(`Clerk: ${live ? 'PRODUCTION (sk_live)' : 'development (sk_test)'} · api=${API} · fapi=${FAPI}`);
   console.log(`Seeding ${COUNT} users as ${email(0)} … ${email(COUNT - 1)}\n`);
 
   const admin = await findAdmin();
