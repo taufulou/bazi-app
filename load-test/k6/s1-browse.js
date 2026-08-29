@@ -8,7 +8,7 @@
  *   k6 run load-test/k6/s1-browse.js
  */
 import { sleep, check } from 'k6';
-import { actor, get, L5_THRESHOLDS } from './lib.js';
+import { actor, assertEnoughTokens, get, L5_THRESHOLDS } from './lib.js';
 
 export const options = {
   stages: [
@@ -18,6 +18,10 @@ export const options = {
   ],
   thresholds: L5_THRESHOLDS,
 };
+
+export function setup() {
+  return assertEnoughTokens(100);
+}
 
 export default function () {
   const { token } = actor();

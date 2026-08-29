@@ -43,6 +43,33 @@ export function actor() {
   return TOKENS[(__VU - 1) % TOKENS.length];
 }
 
+/**
+ * Refuse to let a run produce meaningless numbers quietly.
+ *
+ * ⚠️ Measured: 100 VUs sharing 3 tokens put ~38 req/s through EACH user and
+ * M1's per-user limiter shed 79% of it. Every threshold still passed, because
+ * a 429 is fast and cheap — so the p95 was really "how quickly can we be
+ * rejected", and it looked like a healthy 295ms.
+ *
+ * That is the dangerous shape of wrong: not a failure, a plausible pass. The
+ * fix is to say so loudly at setup rather than to discover it while writing up
+ * L6.
+ */
+export function assertEnoughTokens(targetVus) {
+  const perUser = targetVus / TOKENS.length;
+  console.log(`${TOKENS.length} tokens for ${targetVus} VUs — ${perUser.toFixed(1)} VUs per user`);
+  if (perUser > 2) {
+    console.warn(
+      `\n⚠️  ONLY ${TOKENS.length} TOKENS FOR ${targetVus} VUs.\n` +
+        `   Each user will take ~${perUser.toFixed(0)}x its natural share of traffic and M1's\n` +
+        `   per-user limiter will shed most of it. Latency figures will mostly\n` +
+        `   measure how fast we return 429, which looks healthy and means nothing.\n` +
+        `   Seed more users before trusting anything from this run.\n`,
+    );
+  }
+  return { tokens: TOKENS.length, targetVus };
+}
+
 export function headers(token) {
   return { Authorization: `Bearer ${token}`, 'content-type': 'application/json' };
 }
@@ -98,4 +125,12 @@ export const L5_THRESHOLDS = {
   // refuse a fifth of legitimate traffic.
   'ai_busy': ['rate<0.05'],
   'sse_first_byte': ['p(95)<1500'],
+  // ⚠️ Not in L5's written list, and it should be. A run where most requests
+  // were rejected is not a pass — but every other threshold here happily goes
+  // green on 429s, because being rejected is fast. Without this a 3-token
+  // trial reports clean, and its latency numbers get quoted.
+  //
+  // At 100 users each VU makes ~1 req/s and this should sit near zero. It
+  // fires when tokens are too few, or when a limit is genuinely too tight.
+  'throttled': ['rate<0.10'],
 };

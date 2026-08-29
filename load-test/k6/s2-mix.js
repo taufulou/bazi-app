@@ -25,7 +25,7 @@
  *   k6 run load-test/k6/s2-mix.js
  */
 import { sleep, check } from 'k6';
-import { actor, get, post, sseFirstByte, L5_THRESHOLDS } from './lib.js';
+import { actor, assertEnoughTokens, get, post, sseFirstByte, L5_THRESHOLDS } from './lib.js';
 
 export const options = {
   stages: [
@@ -84,6 +84,10 @@ function reading(token, profileId) {
     readingType: 'LIFETIME',
   }, tags);
   sseFirstByte.add(res.timings.waiting, tags);
+}
+
+export function setup() {
+  return assertEnoughTokens(100);
 }
 
 export default function () {
