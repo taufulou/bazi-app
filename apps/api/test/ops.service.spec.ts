@@ -86,7 +86,7 @@ describe('assembly', () => {
     const { service } = makeService();
     const snap = await service.snapshot();
     expect(Object.keys(snap).sort()).toEqual(
-      ['breaker', 'generatedAt', 'pools', 'quota', 'rateLimit', 'replicas', 'spend'].sort(),
+      ['aiBaseUrlOverride', 'breaker', 'generatedAt', 'pools', 'quota', 'rateLimit', 'replicas', 'spend'].sort(),
     );
     expect(snap.pools).toEqual(POOLS);
     expect(snap.rateLimit.outputTokensRemaining).toBe(9000);
@@ -142,6 +142,31 @@ describe('breaker state agrees with the breaker itself', () => {
     // would send an operator hunting a block that is not happening.
     const { service } = makeService({ spend: { dayUsd: 999, enabled: false } });
     expect((await service.snapshot()).breaker).toEqual({ enabled: false, trippedOn: null });
+  });
+});
+
+describe('L1 — the load-test redirect is visible here', () => {
+  const saved = process.env.ANTHROPIC_BASE_URL;
+  afterEach(() => {
+    if (saved === undefined) delete process.env.ANTHROPIC_BASE_URL;
+    else process.env.ANTHROPIC_BASE_URL = saved;
+  });
+
+  it('reports null in normal operation', async () => {
+    delete process.env.ANTHROPIC_BASE_URL;
+    const { service } = makeService();
+    expect((await service.snapshot()).aiBaseUrlOverride).toBeNull();
+  });
+
+  it('names the mock when the override is live', async () => {
+    // The failure this exists for: the variable is left set after a load test,
+    // production talks to a torn-down mock, and the app looks perfectly healthy
+    // from every other angle.
+    process.env.ANTHROPIC_BASE_URL = 'http://mock-anthropic.railway.internal:8080';
+    const { service } = makeService();
+    expect((await service.snapshot()).aiBaseUrlOverride).toBe(
+      'http://mock-anthropic.railway.internal:8080',
+    );
   });
 });
 

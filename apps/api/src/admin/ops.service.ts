@@ -5,6 +5,7 @@ import { AiSpendService, type SpendSnapshot } from '../ai/ai-spend.service';
 import { QuotaService, type QuotaKind } from '../ai/quota.service';
 import { RedisService } from '../redis/redis.service';
 import { getRateLimitSnapshot, type RateLimitSnapshot } from '../ai/anthropic-rate-limit';
+import { anthropicBaseUrlOverride } from '../ai/anthropic-client';
 import { parseReplicaCount } from '../common/replica-count';
 
 /**
@@ -104,6 +105,16 @@ export interface OpsSnapshot {
     available: boolean;
   };
   rateLimit: RateLimitSnapshot;
+  /**
+   * L1 — non-null when `ANTHROPIC_BASE_URL` redirects every AI call away from
+   * the real API (the load-test mock). `null` in normal operation.
+   *
+   * Here because the alternative is answering "why is every reading strange?"
+   * by shelling into a container. A stale override after a load test is the
+   * realistic failure and it is invisible from outside: the app is healthy, the
+   * AI is simply talking to something else.
+   */
+  aiBaseUrlOverride: string | null;
 }
 
 @Injectable()
@@ -160,6 +171,7 @@ export class OpsService {
       },
       quota,
       rateLimit: getRateLimitSnapshot(),
+      aiBaseUrlOverride: anthropicBaseUrlOverride(),
     };
   }
 
