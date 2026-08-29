@@ -74,6 +74,44 @@ looks wrong.
 Confirm teardown with `GET /api/admin/ops` → **`aiBaseUrlOverride` must be
 `null`**. That field exists for this moment.
 
+## L3 — auth for k6
+
+Clerk session JWTs live 60 seconds, which is shorter than any scenario. The
+plan offered a raised-lifetime JWT template on the dev instance, or a sidecar
+refreshing every minute. **Neither is needed, and the first cannot work**: L2
+runs the test against PRODUCTION, and a dev-instance token cannot authenticate
+against prod (different issuer, different JWKS).
+
+`sessions.getToken()` takes a per-token `expiresInSeconds`. Measured against
+@clerk/backend 2.33.5, 60s / 3600s / 14400s were all honoured exactly, so a
+token that outlives the run can be minted without touching a JWT template and
+without deploying anything.
+
+```bash
+export CLERK_SECRET_KEY=sk_live_...      # in YOUR shell. Never paste it elsewhere.
+node load-test/mint-tokens.mjs --match '+loadtest' --ttl 4200      --verify https://bazi-app-production-5e54.up.railway.app
+```
+
+Writes `load-test/tokens.json` (0600, gitignored).
+
+### ⚠️ Two measured facts that change how you handle these
+
+1. **Revoking the session does NOT invalidate a token already minted from it.**
+   Verified: mint → revoke → wait → the same `verifyToken` call the guard makes
+   still ACCEPTS. The guard checks signature and expiry and makes no network
+   call to test revocation. So "revoke afterwards" is a comfort, not a control.
+   **The only real control is a short `--ttl`** — long enough for the run, and
+   no longer. Disposal is deleting the file and waiting for expiry.
+
+2. **The minted token has no `azp` claim**, so Clerk's `authorizedParties`
+   check short-circuits and passes. That is why these work against production
+   with `CLERK_AUTHORIZED_PARTIES` set — and it is exactly the kind of thing
+   that would otherwise be discovered at the start of a booked window.
+
+The script refuses to mint when `--match` matches nothing, rather than falling
+back to every user: a silent fallback would hand out live tokens for real
+accounts.
+
 ## Env
 
 | var | default | what |

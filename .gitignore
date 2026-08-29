@@ -69,3 +69,6 @@ apps/api/prisma/*.db
 apps/mobile/ios/
 apps/mobile/android/
 .claude/worktrees/
+
+# Phase 3 load test — live bearer tokens, never commit
+load-test/tokens.json
