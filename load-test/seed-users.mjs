@@ -176,15 +176,23 @@ async function seed() {
 
       const token = await mintFor(user.id);
 
-      // Forces the DB row to exist. `ensureUser` auto-creates on this route, so
-      // we do NOT race the user.created webhook — whichever wins, the row is
-      // there before the profile POST.
+      // ⚠️ Profile FIRST, then /me. Not the other way round.
+      //
+      // `GET /api/users/me` calls `findByClerkId`, which 404s when the DB row
+      // does not exist yet — it does NOT auto-create. `createBirthProfile` is
+      // one of the six service methods that DO call `ensureUser`, so the POST
+      // is what brings the user into existence. Doing `/me` first fails every
+      // time for a fresh Clerk user, which is exactly what the 3-user trial
+      // run showed: 3/3 failed with 404 User not found.
+      //
+      // This also means we never race the `user.created` webhook: whichever
+      // arrives first, the row exists before we read it back.
+      const prof = await api('/api/users/me/birth-profiles', { token, method: 'POST', body: birthData(i) });
+      if (!prof.ok) throw new Error(`create profile -> ${prof.status} ${JSON.stringify(prof.body)}`);
+
       const me = await api('/api/users/me', { token });
       if (!me.ok) throw new Error(`/api/users/me -> ${me.status} ${JSON.stringify(me.body)}`);
       const dbUserId = me.body?.id ?? null;
-
-      const prof = await api('/api/users/me/birth-profiles', { token, method: 'POST', body: birthData(i) });
-      if (!prof.ok) throw new Error(`create profile -> ${prof.status} ${JSON.stringify(prof.body)}`);
 
       manifest.users.push({
         index: i, email: addr, clerkUserId: user.id, dbUserId,
@@ -245,36 +253,81 @@ async function status() {
 async function cleanup() {
   const users = await listSeeded();
   if (!users.length) { console.log('nothing to clean up'); return; }
-  console.log(`Deleting ${users.length} Clerk users matching ${TAG}+*@${DOMAIN}.`);
-  console.log('Each fires user.deleted -> erasePersonalData, which removes profiles,');
-  console.log('readings AND the cached reading rows the run fabricated.\n');
 
-  let deleted = 0;
+  console.log(`Removing ${users.length} seeded accounts.\n`);
+  console.log('Using the app\'s own DELETE /api/users/me, which calls');
+  console.log('erasePersonalData (profiles, readings, chat AND the cached reading');
+  console.log('rows the run fabricated), then deletes the Clerk user itself.\n');
+
+  let erased = 0;
+  const stubborn = [];
   for (const u of users) {
-    try { await clerk.users.deleteUser(u.id); deleted++; } catch (e) {
-      console.log(`  failed ${u.emailAddresses?.[0]?.emailAddress}: ${e instanceof Error ? e.message : e}`);
+    const addr = u.emailAddresses?.[0]?.emailAddress ?? u.id;
+    try {
+      const token = await mintFor(u.id, 600);
+      // acknowledgeIap because the route refuses when a store subscription may
+      // still be live; seeded users have none, and passing it is harmless.
+      const r = await api('/api/users/me?acknowledgeIap=true', { token, method: 'DELETE' });
+      if (r.ok) erased++;
+      else stubborn.push({ addr, why: `DELETE /me -> ${r.status} ${JSON.stringify(r.body)}` });
+    } catch (e) {
+      stubborn.push({ addr, why: e instanceof Error ? e.message : String(e) });
     }
-    process.stdout.write(`\rdeleted ${deleted}/${users.length}`);
-    await sleep(120);
+    process.stdout.write(`\rerased ${erased}/${users.length}`);
+    await sleep(150);
   }
   process.stdout.write('\n');
 
-  // ⚠️ VERIFY. The deletes returning 200 says Clerk accepted them, not that 100
-  // webhooks arrived and 100 erasePersonalData transactions committed. A silent
-  // partial failure leaves fabricated readings cached in production.
-  console.log('\nwaiting 20s for the deletion webhooks to land…');
-  await sleep(20_000);
-  const left = await listSeeded();
-  if (left.length) {
-    console.log(`\n⚠️  ${left.length} still present in Clerk — re-run --cleanup.`);
+  // Fallback ONLY for accounts the app-side delete could not handle. This
+  // removes the Clerk user without erasing the DB, so it is reported loudly
+  // rather than counted as success.
+  if (stubborn.length) {
+    console.log(`\n${stubborn.length} could not be removed through the app:`);
+    for (const s2 of stubborn.slice(0, 10)) console.log(`  ${s2.addr}: ${s2.why}`);
+    console.log('\nDeleting their Clerk users directly as a fallback.');
+    console.log('⚠️  That does NOT erase their DB rows unless the user.deleted');
+    console.log('   webhook arrives — verify below and purge by hand if needed.');
+    for (const s2 of stubborn) {
+      const hit = users.find((u) => (u.emailAddresses?.[0]?.emailAddress ?? u.id) === s2.addr);
+      if (hit) { try { await clerk.users.deleteUser(hit.id); } catch {} }
+    }
+  }
+
+  // ⚠️ VERIFY — but on the right signal.
+  //
+  // Two dead ends found while testing this, both of which would have reported
+  // a false all-clear:
+  //
+  // 1. The first version deleted Clerk users and trusted the `user.deleted`
+  //    webhook to erase the database. Against a local API that left 3 of 3
+  //    profiles behind — the webhook never arrived.
+  // 2. The second version queried the admin API and filtered rows on `email`.
+  //    The `users` table HAS NO EMAIL COLUMN, so that filter matches nothing
+  //    and reports clean no matter what. `deleteAccount` also ANONYMISES the
+  //    row rather than removing it, so "does the user still exist" is not the
+  //    question either.
+  //
+  // The sound signal is the DELETE itself: `deleteAccount` runs
+  // `erasePersonalData` synchronously inside the request, so a 200 IS the
+  // receipt that profiles, readings and cache rows are gone. No webhook, no
+  // polling, nothing to race.
+  console.log('\nverifying…');
+  const leftInClerk = await listSeeded();
+  const allErased = erased === users.length;
+
+  console.log(`  erased through the app:   ${erased}/${users.length}${allErased ? '' : '  ← DB residue for the rest'}`);
+  console.log(`  Clerk accounts remaining: ${leftInClerk.length}`);
+
+  if (!allErased || leftInClerk.length) {
+    console.log('\n⚠️  NOT clean. Re-run --cleanup.');
+    if (!allErased) {
+      console.log('   Accounts that failed the app-side delete may still hold birth');
+      console.log('   profiles, readings and CACHED readings. Confirm with:');
+      console.log("     select count(*) from birth_profiles where name like 'LoadTest %';");
+    }
     process.exit(1);
   }
-  console.log('Clerk side clean.');
-  console.log(
-    '\n⚠️  Verify the DB side too: the webhook is what erases readings and cache\n' +
-      '   rows, and a webhook that never arrived leaves them behind. Check the\n' +
-      '   admin users list for any remaining ' + TAG + ' account.',
-  );
+  console.log('\nclean — every account erased through the app, Clerk clear.');
 }
 
 // ============================================================

@@ -128,6 +128,54 @@ The script refuses to mint when `--match` matches nothing, rather than falling
 back to every user: a silent fallback would hand out live tokens for real
 accounts.
 
+## L4 — seeded test users
+
+```bash
+export CLERK_SECRET_KEY=sk_live_...
+node load-test/seed-users.mjs --seed --count 100 --api https://<api-host>
+node load-test/seed-users.mjs --status  --api https://<api-host>
+node load-test/seed-users.mjs --cleanup --api https://<api-host>
+```
+
+100 distinct users, because M1 keys throttling per userId and S4 rations per
+user per day — a hundred VUs on one account would measure our own rationing
+rather than capacity.
+
+Writes `seed-manifest.json` (0600, gitignored). Birth dates are spread through
+the 1920s at 03:37 so a fabricated cached reading can never collide with a real
+user's chart.
+
+⚠️ Credit top-ups are paced at ~2.1s each: they all use the SAME admin token and
+admin routes are throttled 30/min, so 100 users take ~3.5 minutes however fast
+you ask.
+
+⚠️ Seeded accounts are REAL users on the production Clerk instance and count
+toward MAU until `--cleanup` runs.
+
+### Cleanup goes through the app, not around it
+
+`--cleanup` calls `DELETE /api/users/me` for each account. That runs
+`erasePersonalData` — profiles, readings, chat, comparisons AND the
+content-addressed `ReadingCache` rows the run fabricated — then deletes the
+Clerk user. The 200 IS the receipt, because the erase is synchronous inside the
+request.
+
+**Three things found by running this that review had not:**
+
+1. `GET /api/users/me` 404s for a fresh Clerk user — it does not auto-create.
+   `createBirthProfile` is one of the six methods that call `ensureUser`, so
+   the profile POST must come FIRST. The original order failed 3/3.
+2. Deleting the Clerk user and trusting the `user.deleted` webhook to erase the
+   database left **3 of 3 profiles behind** — the webhook never arrived. Hence
+   the app-side delete.
+3. Verifying the DB side by filtering admin rows on `email` always reported
+   clean, because the `users` table **has no email column** — and
+   `deleteAccount` anonymises the row rather than removing it, so "does the user
+   exist" is not the question either.
+
+Verified end to end against a real API and database: 3 seeded → 3 profiles in
+the DB → cleanup → 0 profiles, 0 Clerk accounts.
+
 ## Env
 
 | var | default | what |
