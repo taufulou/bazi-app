@@ -47,6 +47,28 @@ const ops = await res.json();
 const eff = ops.aiBaseUrlEffective;
 const override = ops.aiBaseUrlOverride;
 
+// ⚠️ A MISSING field is not a null field, and conflating them cost three rounds
+// of diagnosis. Production was running code from before `aiBaseUrlEffective`
+// existed, so the response simply had no such key — and this script rendered
+// that identically to "present, but no client built yet". Both readings were
+// honest; both were useless.
+//
+// Same for the override: if the deployed API predates the rename it reads
+// `ANTHROPIC_BASE_URL`, so setting `LOADTEST_ANTHROPIC_BASE_URL` is inert and
+// reports null forever, which looks exactly like not having set it.
+const missingEffective = !('aiBaseUrlEffective' in ops);
+const missingOverride = !('aiBaseUrlOverride' in ops);
+if (missingEffective || missingOverride) {
+  console.log('');
+  console.log('  ⚠️  THE DEPLOYED API IS OLDER THAN THIS SCRIPT.');
+  console.log(`     /api/admin/ops did not return ${missingEffective ? 'aiBaseUrlEffective' : ''}` +
+    `${missingEffective && missingOverride ? ' or ' : ''}${missingOverride ? 'aiBaseUrlOverride' : ''}.`);
+  console.log('     That field ships with the load-test switch, so the running code');
+  console.log('     probably predates the rename and reads ANTHROPIC_BASE_URL instead.');
+  console.log('     Setting LOADTEST_ANTHROPIC_BASE_URL against it does nothing at all.');
+  console.log('     Deploy the current branch before trusting anything below.');
+}
+
 // ⚠️ Both signals, because either alone gets it wrong in a dangerous direction.
 //
 // `effective` is null until a client is built on the replica that served this
