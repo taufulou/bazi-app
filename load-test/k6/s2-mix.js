@@ -43,8 +43,9 @@
  *
  *   k6 run load-test/k6/s2-mix.js
  */
+import http from 'k6/http';
 import { sleep, check } from 'k6';
-import { actor, aiTurn, assertEnoughTokens, get, post, sseFirstByte, L5_THRESHOLDS } from './lib.js';
+import { API, actor, assertEnoughTokens, get, headers, post, recordAiCall, sseFirstByte, L5_THRESHOLDS } from './lib.js';
 
 // Every AI surface here generates INLINE. k6's 60s default abandons the request
 // while the server keeps working — full load applied, nothing measured.
@@ -109,18 +110,48 @@ function chat(token, profileId) {
   if (!session.id || session.messages >= 9) {
     // A FORTUNE-scoped session needs no paid reading to exist first, which makes
     // it the cheapest realistic way to exercise the chat path.
+    //
+    // ⚠️ NO `readingType`. CreateChatSessionDto takes exactly one of
+    // `readingId` / `comparisonId` / `fortune`, and the pipe runs
+    // forbidNonWhitelisted — so an extra property is a 400, not an ignored
+    // field. This arm sent `readingType: 'FORTUNE'` for two full runs and
+    // never created a single session.
+    //
+    // It hid behind the throttler: `POST /api/chat/sessions` is
+    // @Throttle({ limit: 5, ttl: 1h }), and the root APP_GUARD ThrottlerGuard
+    // runs BEFORE the validation pipe. So the first 5 per user were 429s, which
+    // read as an honest quota result, and the 400 underneath only surfaced once
+    // the hourly window cleared.
     const created = post('/api/chat/sessions', token, {
-      readingType: 'FORTUNE',
       fortune: { profileId, fortuneScope: 'DAY', fortuneAnchorDate: today() },
     }, tags);
     if (created.status !== 201 && created.status !== 200) {
       // 429 here means the hourly cap is genuinely spent. Stop asking — retrying
       // would inflate `throttled` with requests we know will be refused.
       if (created.status === 429) session.exhausted = true;
+      // A 400 is OUR bug, not a system limit. Say so once per VU rather than
+      // silently skipping the arm for the whole run, which is exactly how the
+      // malformed payload above survived two runs.
+      if (created.status === 400) {
+        session.exhausted = true;
+        console.error(`chat session REJECTED 400 — payload is wrong, arm is dead: ${created.body}`);
+      }
       return;
     }
-    try { session = { id: created.json('id'), messages: 0, exhausted: false }; } catch (e) { return; }
+    // ⚠️ The response field is `sessionId`, not `id`.
+    try { session = { id: created.json('sessionId'), messages: 0, exhausted: false }; } catch (e) { return; }
     if (!session.id) return;
+
+    // ⚠️ FREE tier reports `monthlyQuota: 0` — a free user gets NO free chat
+    // messages at all, so an un-extended session answers every message with
+    // 402 NEEDS_EXTENSION. This is the product working as designed, not a
+    // limit to route around: buying the extension IS what a real free user
+    // does. 1 credit buys 10 messages; the seeded users hold 200.
+    const ext = post(`/api/chat/sessions/${session.id}/extend`, token, {}, tags);
+    if (ext.status !== 201 && ext.status !== 200) {
+      session.exhausted = true;
+      return;
+    }
   }
 
   // messages-sync, not the SSE route: k6 cannot consume an event stream
@@ -131,12 +162,51 @@ function chat(token, profileId) {
   }, tags, AI_TIMEOUT);
   session.messages += 1;
   // Full turn, not a first byte — messages-sync returns once generation ends.
-  aiTurn.add(msg.timings.waiting, tags);
+  recordAiCall(msg.timings.duration, tags);
+}
+
+/**
+ * ⚠️ A FRESH PROFILE PER READING, not the seeded one.
+ *
+ * Readings are cached by a hash of the birth data, so a given (chart, type)
+ * generates exactly ONCE and every later request is a ~250ms cache read. With
+ * 90 seeded users and 3 types that is 270 generations in total for all time —
+ * and earlier runs had already spent nearly all of them. Run 4 issued ~775
+ * reading requests and reached the model exactly ONCE.
+ *
+ * No amount of concurrency fixes that: replaying cached charts cannot saturate
+ * an AI pool. A unique birth date per iteration guarantees a miss, which is
+ * also the more faithful model — in production each reading really is a
+ * distinct chart, so AI load tracks DISTINCT WORK, not request volume.
+ *
+ * S5 does the same thing for the same reason.
+ */
+function freshBirthDate() {
+  // Unique per (VU, iteration), and far from any plausible real user so a
+  // fabricated reading can never be served to someone real.
+  const n = __VU * 100000 + __ITER;
+  const year = 1900 + (n % 60);
+  const month = String((n % 12) + 1).padStart(2, '0');
+  const day = String((n % 28) + 1).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function reading(token, profileId) {
   const tags = { kind: 'reading' };
   const readingType = READING_TYPES[__ITER % READING_TYPES.length];
+
+  const prof = post('/api/users/me/birth-profiles', token, {
+    name: `LT ${__VU}-${__ITER}`,
+    birthDate: freshBirthDate(),
+    birthTime: '03:37',
+    birthCity: '台北市',
+    birthTimezone: 'Asia/Taipei',
+    gender: __VU % 2 === 0 ? 'MALE' : 'FEMALE',
+    relationshipTag: 'FRIEND',
+  }, tags);
+  if (prof.status !== 201 && prof.status !== 200) return;
+  try { profileId = prof.json('id'); } catch (e) { return; }
+  if (!profileId) return;
 
   // Step 1 CHARGES and returns a row. It does NOT generate — verified against
   // production: a row created by this call alone has aiProvider=null, no
@@ -145,6 +215,10 @@ function reading(token, profileId) {
     birthProfileId: profileId,
     readingType,
   }, tags, AI_TIMEOUT);
+  // ⚠️ THE POST is the expensive hop — generation is INLINE. Recording only the
+  // stream below measured a ~200ms cache read of work the POST had already
+  // done, so an 80-second call was invisible to every metric in the summary.
+  recordAiCall(res.timings.duration, tags);
   if (res.status !== 201 && res.status !== 200) return;
 
   let id = null;
@@ -156,9 +230,18 @@ function reading(token, profileId) {
   //
   // k6 has no streaming client, so it buys the whole stream: `waiting` is a
   // true time-to-first-event and `duration` is the full generation.
+  // A no-op when the POST already generated; the real work on the path where it
+  // did not. Either way its first byte is a genuine time-to-first-event.
   const stream = get(`/api/bazi/readings/${id}/stream`, token, tags, AI_TIMEOUT);
   sseFirstByte.add(stream.timings.waiting, tags);
-  aiTurn.add(stream.timings.duration, tags);
+  recordAiCall(stream.timings.duration, tags);
+
+  // ⚠️ RECYCLE THE SLOT. A user may hold at most 10 birth profiles
+  // (BIRTH_PROFILE_LIMIT_REACHED), so creating one per iteration fills all 90
+  // users to the ceiling within a couple of minutes and every later create
+  // 400s — which is how run 5 reached zero generations. Deleting after use
+  // keeps cache misses unlimited and leaves less for teardown to clean up.
+  http.del(`${API}/api/users/me/birth-profiles/${profileId}`, null, { headers: headers(token), tags });
 }
 
 export function setup() {
