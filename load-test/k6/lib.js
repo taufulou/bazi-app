@@ -179,5 +179,11 @@ export const L5_THRESHOLDS = {
   'throttled': ['rate<0.10'],
   // ⚠️ The guard that three green-but-empty runs needed. Everything above can
   // pass on a run that never called the model; this cannot.
-  'ai_generations': ['count>0'],
+  //
+  // NOT `count>0`: run 4 satisfied that with exactly ONE generation in six and
+  // a half minutes, which is indistinguishable from nothing for any conclusion
+  // L6 draws. The floor is a fraction of the reading arm's expected volume
+  // (~10% of iterations), low enough to tolerate throttling and quotas, high
+  // enough that a cache-bound run cannot clear it.
+  'ai_generations': ['count>50'],
 };

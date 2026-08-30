@@ -164,9 +164,48 @@ function chat(token, profileId) {
   recordAiCall(msg.timings.duration, tags);
 }
 
+/**
+ * ⚠️ A FRESH PROFILE PER READING, not the seeded one.
+ *
+ * Readings are cached by a hash of the birth data, so a given (chart, type)
+ * generates exactly ONCE and every later request is a ~250ms cache read. With
+ * 90 seeded users and 3 types that is 270 generations in total for all time —
+ * and earlier runs had already spent nearly all of them. Run 4 issued ~775
+ * reading requests and reached the model exactly ONCE.
+ *
+ * No amount of concurrency fixes that: replaying cached charts cannot saturate
+ * an AI pool. A unique birth date per iteration guarantees a miss, which is
+ * also the more faithful model — in production each reading really is a
+ * distinct chart, so AI load tracks DISTINCT WORK, not request volume.
+ *
+ * S5 does the same thing for the same reason.
+ */
+function freshBirthDate() {
+  // Unique per (VU, iteration), and far from any plausible real user so a
+  // fabricated reading can never be served to someone real.
+  const n = __VU * 100000 + __ITER;
+  const year = 1900 + (n % 60);
+  const month = String((n % 12) + 1).padStart(2, '0');
+  const day = String((n % 28) + 1).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function reading(token, profileId) {
   const tags = { kind: 'reading' };
   const readingType = READING_TYPES[__ITER % READING_TYPES.length];
+
+  const prof = post('/api/users/me/birth-profiles', token, {
+    name: `LT ${__VU}-${__ITER}`,
+    birthDate: freshBirthDate(),
+    birthTime: '03:37',
+    birthCity: '台北市',
+    birthTimezone: 'Asia/Taipei',
+    gender: __VU % 2 === 0 ? 'MALE' : 'FEMALE',
+    relationshipTag: 'FRIEND',
+  }, tags);
+  if (prof.status !== 201 && prof.status !== 200) return;
+  try { profileId = prof.json('id'); } catch (e) { return; }
+  if (!profileId) return;
 
   // Step 1 CHARGES and returns a row. It does NOT generate — verified against
   // production: a row created by this call alone has aiProvider=null, no
