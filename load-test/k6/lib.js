@@ -24,7 +24,7 @@
  * its own Rate and its own threshold.
  */
 import http from 'k6/http';
-import { Rate, Trend } from 'k6/metrics';
+import { Counter, Rate, Trend } from 'k6/metrics';
 
 export const serverErrors = new Rate('server_errors');       // 5xx only
 export const aiBusy = new Rate('ai_busy');                   // deliberate shed (S1)
@@ -44,6 +44,30 @@ export const sseFirstByte = new Trend('sse_first_byte', true);
  * run, not an input to it.
  */
 export const aiTurn = new Trend('ai_turn_duration', true);
+
+/**
+ * How many calls actually reached the model.
+ *
+ * ⚠️ THREE consecutive S2 runs passed all five thresholds while generating
+ * nothing — twice from harness bugs, once from cached rows. Every threshold
+ * here happily goes green on a run that does no AI work at all, because not
+ * doing work is fast. Nothing in the summary distinguished "the AI path is
+ * healthy" from "the AI path was never touched"; it took noticing that
+ * `ai_turn_duration` was implausibly quick.
+ *
+ * A generation is inferred from duration: the mock is paced at MOCK_STREAM_MS
+ * (40s/call), so anything under `AI_GENERATION_FLOOR_MS` was a cache hit, a
+ * rejection, or a no-op. `L5_THRESHOLDS` requires this to be non-zero, so a
+ * run that measures no AI now FAILS instead of reporting green.
+ */
+export const aiGenerations = new Counter('ai_generations');
+export const AI_GENERATION_FLOOR_MS = 5000;
+
+/** Record a call's duration and count it as a generation if it plausibly hit the model. */
+export function recordAiCall(ms, tags) {
+  aiTurn.add(ms, tags);
+  if (ms >= AI_GENERATION_FLOOR_MS) aiGenerations.add(1, tags);
+}
 
 export const API = __ENV.API_URL || 'https://bazi-app-production-5e54.up.railway.app';
 
@@ -153,4 +177,7 @@ export const L5_THRESHOLDS = {
   // At 100 users each VU makes ~1 req/s and this should sit near zero. It
   // fires when tokens are too few, or when a limit is genuinely too tight.
   'throttled': ['rate<0.10'],
+  // ⚠️ The guard that three green-but-empty runs needed. Everything above can
+  // pass on a run that never called the model; this cannot.
+  'ai_generations': ['count>0'],
 };

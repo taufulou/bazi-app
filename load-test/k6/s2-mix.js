@@ -44,7 +44,7 @@
  *   k6 run load-test/k6/s2-mix.js
  */
 import { sleep, check } from 'k6';
-import { actor, aiTurn, assertEnoughTokens, get, post, sseFirstByte, L5_THRESHOLDS } from './lib.js';
+import { actor, assertEnoughTokens, get, post, recordAiCall, sseFirstByte, L5_THRESHOLDS } from './lib.js';
 
 // Every AI surface here generates INLINE. k6's 60s default abandons the request
 // while the server keeps working — full load applied, nothing measured.
@@ -161,7 +161,7 @@ function chat(token, profileId) {
   }, tags, AI_TIMEOUT);
   session.messages += 1;
   // Full turn, not a first byte — messages-sync returns once generation ends.
-  aiTurn.add(msg.timings.waiting, tags);
+  recordAiCall(msg.timings.duration, tags);
 }
 
 function reading(token, profileId) {
@@ -175,6 +175,10 @@ function reading(token, profileId) {
     birthProfileId: profileId,
     readingType,
   }, tags, AI_TIMEOUT);
+  // ⚠️ THE POST is the expensive hop — generation is INLINE. Recording only the
+  // stream below measured a ~200ms cache read of work the POST had already
+  // done, so an 80-second call was invisible to every metric in the summary.
+  recordAiCall(res.timings.duration, tags);
   if (res.status !== 201 && res.status !== 200) return;
 
   let id = null;
@@ -186,9 +190,11 @@ function reading(token, profileId) {
   //
   // k6 has no streaming client, so it buys the whole stream: `waiting` is a
   // true time-to-first-event and `duration` is the full generation.
+  // A no-op when the POST already generated; the real work on the path where it
+  // did not. Either way its first byte is a genuine time-to-first-event.
   const stream = get(`/api/bazi/readings/${id}/stream`, token, tags, AI_TIMEOUT);
   sseFirstByte.add(stream.timings.waiting, tags);
-  aiTurn.add(stream.timings.duration, tags);
+  recordAiCall(stream.timings.duration, tags);
 }
 
 export function setup() {
