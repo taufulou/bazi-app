@@ -41,7 +41,7 @@
  *
  *   # the secret must ALREADY be in your shell — never paste it into a chat
  *   export CLERK_SECRET_KEY=sk_live_...
- *   node load-test/mint-tokens.mjs --match 'loadtest+' --ttl 4200 \
+ *   node load-test/mint-tokens.mjs --match 'loadtest+' --ttl 14400 \
  *        --fapi clerk.tianmingapp.com \
  *        --verify https://bazi-app-production-5e54.up.railway.app
  *
@@ -60,7 +60,15 @@
  *                 is exported — the secret key alone does not encode it, and the
  *                 token exchange is a call to that host. Production is
  *                 `clerk.tianmingapp.com`.
- *   --ttl <sec>   token lifetime (default 4200 = 70 min)
+ *   --ttl <sec>   token lifetime (default 14400 = 4h)
+ *
+ *                 ⚠️ Short is the security position — see below, revocation is
+ *                 not a control — but a TTL near the mint's OWN duration is
+ *                 self-defeating. Clerk's Frontend API rate-limits sign-ins
+ *                 hard and hints multi-second `retry-after`s, so 100 users can
+ *                 take an hour of wall clock. A 70-minute lifetime bought
+ *                 ten usable minutes and the next scenario had to pay the hour
+ *                 again. 4h covers a session's scenarios; it is not a day.
  *   --limit <n>   max users (default 100)
  *   --verify <url>  call <url>/api/users/me with the first token and report
  *   --out <path>  default load-test/tokens.json
@@ -83,7 +91,7 @@ if (!SECRET) {
 
 const MATCH = arg('match', 'loadtest+');
 const IDS = arg('ids');
-const TTL = Number(arg('ttl', '4200'));
+const TTL = Number(arg('ttl', '14400'));
 const LIMIT = Number(arg('limit', '100'));
 const VERIFY = arg('verify');
 const OUT = arg('out', new URL('./tokens.json', import.meta.url).pathname);
@@ -137,6 +145,20 @@ if (!users.length) {
 }
 
 console.log(`frontend API: ${FAPI}`);
+
+// ⚠️ Measured: Clerk hinted `retry-after`s pushed a 100-user mint to ~65s per
+// user — an hour of wall clock. A TTL of the same order means the earliest
+// tokens are dead, or nearly, before the last one is written. Say so BEFORE
+// spending the hour rather than discovering it at `k6 run`.
+const MEASURED_WORST_CASE_SECONDS_PER_MINT = 65;
+const projectedSeconds = users.length * MEASURED_WORST_CASE_SECONDS_PER_MINT;
+if (TTL < projectedSeconds * 2) {
+  console.warn(
+    `\n⚠️  --ttl ${TTL}s may be too short for ${users.length} users.\n` +
+      `   Worst case this mint takes ~${Math.round(projectedSeconds / 60)} min, and the FIRST token\n` +
+      `   starts expiring immediately. Consider --ttl ${Math.min(43_200, Math.round(projectedSeconds * 4 / 600) * 600)}.\n`,
+  );
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const minted = [];
