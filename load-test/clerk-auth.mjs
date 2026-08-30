@@ -63,15 +63,40 @@ export function resolveFapiHost({ flag, publishableKey }) {
 /**
  * @returns {Promise<{ jwt: string, sessionId: string, ttlSeconds: number, extended: boolean }>}
  */
-export async function mintForUser(clerk, userId, { ttl = 3600, fapi }) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export async function mintForUser(clerk, userId, { ttl = 3600, fapi, attempts = 5 }) {
   const ticket = await clerk.signInTokens.createSignInToken({ userId, expiresInSeconds: 600 });
 
-  const res = await fetch(`https://${fapi}/v1/client/sign_ins?_is_native=1`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ strategy: 'ticket', ticket: ticket.token }),
-  });
-  const json = await res.json().catch(() => null);
+  // ⚠️ The Frontend API is rate limited far more tightly than the Backend API.
+  // It is built for browsers, where one human signs in once — not for a script
+  // minting a hundred sessions in a burst. A tight loop gets
+  // `too_many_requests` after about FIVE, which is what happened the first time
+  // 100 users were minted.
+  //
+  // Retry here rather than only pacing the caller: pacing alone is a guess at a
+  // limit Clerk does not publish, and a guess that is slightly wrong fails the
+  // whole run at user 60.
+  let res, json;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    res = await fetch(`https://${fapi}/v1/client/sign_ins?_is_native=1`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ strategy: 'ticket', ticket: ticket.token }),
+    });
+    json = await res.json().catch(() => null);
+    if (res.status !== 429) break;
+
+    // Honour Retry-After when given; otherwise back off exponentially with a
+    // little jitter, so a hundred callers do not resynchronise on the retry.
+    const hinted = Number(res.headers.get('retry-after'));
+    const waitMs = Number.isFinite(hinted) && hinted > 0
+      ? hinted * 1000
+      : Math.min(30_000, 2 ** attempt * 500) + Math.random() * 400;
+    if (attempt === attempts) break;
+    await sleep(waitMs);
+  }
+
   if (!res.ok) {
     const why = json?.errors?.map((e) => `${e.code}: ${e.message}`).join('; ') ?? `HTTP ${res.status}`;
     throw new Error(`sign_ins exchange failed — ${why}`);

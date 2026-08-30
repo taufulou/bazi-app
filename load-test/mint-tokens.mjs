@@ -121,20 +121,42 @@ if (!users.length) {
 const FAPI = resolveFapiHost({ flag: arg('fapi'), publishableKey: process.env.CLERK_PUBLISHABLE_KEY });
 console.log(`frontend API: ${FAPI}`);
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const minted = [];
+const mintFailures = [];
 let anyShort = false;
 for (const u of users) {
-  // ⚠️ NOT createSession — dev-instance only. See clerk-auth.mjs.
-  const r = await mintForUser(clerk, u.id, { ttl: TTL, fapi: FAPI });
-  if (!r.extended) anyShort = true;
-  minted.push({
-    userId: u.id,
-    email: u.emailAddresses?.[0]?.emailAddress ?? null,
-    sessionId: r.sessionId,
-    ttlSeconds: r.ttlSeconds,
-    token: r.jwt,
-  });
-  process.stdout.write(`\rminted ${minted.length}/${users.length}`);
+  try {
+    // ⚠️ NOT createSession — dev-instance only. See clerk-auth.mjs.
+    const r = await mintForUser(clerk, u.id, { ttl: TTL, fapi: FAPI });
+    if (!r.extended) anyShort = true;
+    minted.push({
+      userId: u.id,
+      email: u.emailAddresses?.[0]?.emailAddress ?? null,
+      sessionId: r.sessionId,
+      ttlSeconds: r.ttlSeconds,
+      token: r.jwt,
+    });
+  } catch (e) {
+    // ⚠️ Do NOT abort the run. The first version threw, which discarded five
+    // successfully minted tokens because the sixth was rate limited. Ninety
+    // tokens are perfectly usable; zero are not.
+    mintFailures.push({ email: u.emailAddresses?.[0]?.emailAddress ?? u.id, why: e instanceof Error ? e.message : String(e) });
+  }
+  process.stdout.write(`\rminted ${minted.length}/${users.length}${mintFailures.length ? ` (${mintFailures.length} failed)` : ''}`);
+  // The Frontend API is browser-shaped and tightly limited. Pacing keeps the
+  // retry path in clerk-auth.mjs as a backstop rather than the normal case.
+  await sleep(250);
+}
+process.stdout.write('\n');
+
+if (!minted.length) {
+  console.error('\nEvery mint failed. First error:', mintFailures[0]?.why);
+  process.exit(1);
+}
+if (mintFailures.length) {
+  console.warn(`\n⚠️  ${mintFailures.length} of ${users.length} could not be minted; continuing with ${minted.length}.`);
+  for (const f of mintFailures.slice(0, 5)) console.warn(`   ${f.email}: ${f.why}`);
 }
 if (anyShort) {
   console.warn('\n⚠️  Lifetime could not be extended — some tokens expire in 60s.');
