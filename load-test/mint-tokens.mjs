@@ -142,10 +142,55 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const minted = [];
 const mintFailures = [];
 let anyShort = false;
+// ⚠️ The FIRST mint, not the last. Every token carries its own TTL from its own
+// mint moment, and a 100-user mint takes minutes — so the file's single
+// `expiresAt` must describe when the OLDEST token dies, or it over-promises by
+// the whole duration of the run and a scenario starts against dead credentials.
+let firstMintedAt = null;
+
+/**
+ * ⚠️ Write what we have, whenever we have it.
+ *
+ * Minting is serial and paced at 250ms — the pacing is what keeps the Frontend
+ * API's rate limit out of the picture, so it is not negotiable — which makes a
+ * 100-user mint take minutes. The file used to be written only after the loop,
+ * so an operator who decided it was taking too long and pressed Ctrl-C threw
+ * away every token already minted and had to start over. Slower AND lossier.
+ *
+ * A partial file is genuinely useful: k6 sticks one VU to one token, so N
+ * tokens run fine at up to ~2N VUs. Checkpointing turns "too slow" into "stop
+ * whenever you have enough".
+ */
+const flush = () => {
+  if (!minted.length) return false;
+  writeFileSync(
+    OUT,
+    JSON.stringify(
+      { mintedAt: firstMintedAt, expiresAt: new Date(Date.parse(firstMintedAt) + TTL * 1000).toISOString(), ttlSeconds: TTL, tokens: minted },
+      null,
+      2,
+    ),
+  );
+  chmodSync(OUT, 0o600);
+  return true;
+};
+
+process.on('SIGINT', () => {
+  process.stdout.write('\n');
+  if (flush()) {
+    console.log(`\ninterrupted — wrote the ${minted.length} tokens minted so far -> ${OUT} (0600)`);
+    console.log(`that is enough for roughly ${minted.length * 2} VUs before per-user throttling distorts the run.`);
+  } else {
+    console.log('\ninterrupted before any token was minted — nothing written.');
+  }
+  process.exit(130);
+});
+
 for (const u of users) {
   try {
     // ⚠️ NOT createSession — dev-instance only. See clerk-auth.mjs.
     const r = await mintForUser(clerk, u.id, { ttl: TTL, fapi: FAPI });
+    if (!firstMintedAt) firstMintedAt = new Date().toISOString();
     if (!r.extended) anyShort = true;
     minted.push({
       userId: u.id,
@@ -160,6 +205,8 @@ for (const u of users) {
     // tokens are perfectly usable; zero are not.
     mintFailures.push({ email: u.emailAddresses?.[0]?.emailAddress ?? u.id, why: e instanceof Error ? e.message : String(e) });
   }
+  // Checkpoint often enough that an interrupt costs seconds, not the run.
+  if (minted.length % 10 === 0) flush();
   process.stdout.write(`\rminted ${minted.length}/${users.length}${mintFailures.length ? ` (${mintFailures.length} failed)` : ''}`);
   // The Frontend API is browser-shaped and tightly limited. Pacing keeps the
   // retry path in clerk-auth.mjs as a backstop rather than the normal case.
@@ -181,10 +228,9 @@ if (anyShort) {
 }
 process.stdout.write('\n');
 
-const expiresAt = new Date(Date.now() + TTL * 1000).toISOString();
-writeFileSync(OUT, JSON.stringify({ mintedAt: new Date().toISOString(), expiresAt, ttlSeconds: TTL, tokens: minted }, null, 2));
-chmodSync(OUT, 0o600);
-console.log(`wrote ${minted.length} tokens -> ${OUT} (0600), all expire ${expiresAt}`);
+flush();
+const expiresAt = new Date(Date.parse(firstMintedAt) + TTL * 1000).toISOString();
+console.log(`wrote ${minted.length} tokens -> ${OUT} (0600), oldest expires ${expiresAt}`);
 
 if (VERIFY) {
   const url = VERIFY.replace(/\/$/, '') + '/api/users/me';
