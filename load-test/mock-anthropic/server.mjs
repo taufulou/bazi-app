@@ -185,6 +185,17 @@ async function handleMessages(req, res, body) {
   const outputTokens = Math.round(payload.length * 0.95 * USAGE_SCALE);
 
   if (!parsed.stream) {
+    // ⚠️ PACE THIS BRANCH TOO. It used to answer instantly while only the SSE
+    // branch honoured STREAM_MS — and the V2 reading pipeline calls
+    // `messages.create` (non-streaming) via callProviderWithTimeout, not
+    // `messages.stream`. So every reading and every chat turn finished in
+    // milliseconds, never held an AI pool slot, and pinned ai_busy at 0 no
+    // matter how many VUs were applied.
+    //
+    // Five S2 runs were shaped by this: a load test whose expensive calls are
+    // free measures nothing about capacity, and four of those runs reported
+    // all-green while doing so.
+    await sleep(STREAM_MS);
     res.writeHead(200, { 'content-type': 'application/json', ...rateLimitHeaders() });
     return res.end(JSON.stringify({
       id: 'msg_mock', type: 'message', role: 'assistant', model: parsed.model,

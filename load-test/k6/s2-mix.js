@@ -43,8 +43,9 @@
  *
  *   k6 run load-test/k6/s2-mix.js
  */
+import http from 'k6/http';
 import { sleep, check } from 'k6';
-import { actor, assertEnoughTokens, get, post, recordAiCall, sseFirstByte, L5_THRESHOLDS } from './lib.js';
+import { API, actor, assertEnoughTokens, get, headers, post, recordAiCall, sseFirstByte, L5_THRESHOLDS } from './lib.js';
 
 // Every AI surface here generates INLINE. k6's 60s default abandons the request
 // while the server keeps working — full load applied, nothing measured.
@@ -234,6 +235,13 @@ function reading(token, profileId) {
   const stream = get(`/api/bazi/readings/${id}/stream`, token, tags, AI_TIMEOUT);
   sseFirstByte.add(stream.timings.waiting, tags);
   recordAiCall(stream.timings.duration, tags);
+
+  // ⚠️ RECYCLE THE SLOT. A user may hold at most 10 birth profiles
+  // (BIRTH_PROFILE_LIMIT_REACHED), so creating one per iteration fills all 90
+  // users to the ceiling within a couple of minutes and every later create
+  // 400s — which is how run 5 reached zero generations. Deleting after use
+  // keeps cache misses unlimited and leaves less for teardown to clean up.
+  http.del(`${API}/api/users/me/birth-profiles/${profileId}`, null, { headers: headers(token), tags });
 }
 
 export function setup() {
