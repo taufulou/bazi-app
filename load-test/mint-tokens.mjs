@@ -42,6 +42,7 @@
  *   # the secret must ALREADY be in your shell — never paste it into a chat
  *   export CLERK_SECRET_KEY=sk_live_...
  *   node load-test/mint-tokens.mjs --match 'loadtest+' --ttl 4200 \
+ *        --fapi clerk.tianmingapp.com \
  *        --verify https://bazi-app-production-5e54.up.railway.app
  *
  * Flags:
@@ -55,6 +56,10 @@
  *                 Failing closed made it a five-minute confusion instead of an
  *                 incident, but the right default costs nothing.
  *   --ids a,b,c   explicit Clerk user ids instead of a match
+ *   --fapi <host> Clerk Frontend API host. REQUIRED unless CLERK_PUBLISHABLE_KEY
+ *                 is exported — the secret key alone does not encode it, and the
+ *                 token exchange is a call to that host. Production is
+ *                 `clerk.tianmingapp.com`.
  *   --ttl <sec>   token lifetime (default 4200 = 70 min)
  *   --limit <n>   max users (default 100)
  *   --verify <url>  call <url>/api/users/me with the first token and report
@@ -89,6 +94,11 @@ if (!Number.isFinite(TTL) || TTL < 60 || TTL > 43_200) {
   console.error(`--ttl must be 60..43200 seconds (got ${TTL}). These are live credentials that revocation cannot recall.`);
   process.exit(1);
 }
+
+// Resolved up front, deliberately: this used to sit after the user listing, so
+// a missing --fapi paged through every user on the instance and only THEN said
+// it had no host to talk to. Config errors should cost a second, not a sweep.
+const FAPI = resolveFapiHost({ flag: arg('fapi'), publishableKey: process.env.CLERK_PUBLISHABLE_KEY });
 
 const live = SECRET.startsWith('sk_live_');
 console.log(`Clerk instance: ${live ? 'PRODUCTION (sk_live)' : 'development (sk_test)'} · ttl=${TTL}s`);
@@ -126,7 +136,6 @@ if (!users.length) {
   process.exit(1);
 }
 
-const FAPI = resolveFapiHost({ flag: arg('fapi'), publishableKey: process.env.CLERK_PUBLISHABLE_KEY });
 console.log(`frontend API: ${FAPI}`);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
