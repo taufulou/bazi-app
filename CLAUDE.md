@@ -567,7 +567,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 
 ## Test suite sizes
 - Bazi Engine: ≈2986 collected (`pytest --collect-only` — counts collected items incl. xfail/skip, NOT "passing"; prose "X pass" figures elsewhere differ by counter, e.g. the 時辰未知 sections cite 2944/2965 *passing*). Grew from the ~2231 Phase-12i baseline (+ Fortune day/month/year + chat-scope + 時辰未知 unknown-birth-hour suites). Composition note (Phase 12i): ~2226 + 5 三刑/半刑/子卯刑 spouse-palace tests in test_compatibility_enhanced.py + 53 compat pair corpus regressions + Phase 12h.A/B additions, 5 xfail, 1 skip, 1 pre-existing fail unrelated | NestJS API: 692 | Frontend: 143 | ZWDS: 289
-  - ⚠️ **CURRENT — measured 2026-08-28 on `claude/m10-web-calc-routes`: engine **3180 passed** / 2 skipped / 5 xfailed · api jest **2196 passed** / 5 skipped (119 suites) · web jest **405 passed** (38 suites) · api+web tsc 0 · `turbo run lint` 5/5.** ⚠️ Scoped to THIS branch, so it goes stale the moment the branch adds a test — re-measure rather than trusting it. Phase 2B (M1–M10) and Phase 2C (Ob1–Ob3) are both complete; the growth over the figures below is M2/M3/M6/M8 and the observability work, plus their guards. The older lines are kept for their composition notes.
+  - ⚠️ **CURRENT — measured 2026-08-30 on `claude/m10-web-calc-routes`: engine **3180 passed** / 2 skipped / 5 xfailed · api jest **2196 passed** / 5 skipped (119 suites) · web jest **405 passed** (38 suites) · api+web tsc 0 · `turbo run lint` 5/5.** ⚠️ Scoped to THIS branch, so it goes stale the moment the branch adds a test — re-measure rather than trusting it. Phase 2B (M1–M10) and Phase 2C (Ob1–Ob3) are both complete; the growth over the figures below is M2/M3/M6/M8 and the observability work, plus their guards. The older lines are kept for their composition notes.
   - ⚠️ **Superseded — measured on `claude/m10-web-calc-routes` 2026-08-23: api jest 100 suites / 1961 passed · web jest 38 suites / 405 passed (fully green for the first time; `test-web` is now a CI job) · api tsc 0 · web tsc 0 · turbo lint 5/5 workspaces.** The older figures below are kept for the composition notes.
   - ⚠️ **Measured on `claude/bazi-scalability-security-e4ff78` 2026-08-17** (the numbers above predate it): engine **3137 passed** / 2 skipped / 5 xfailed · API jest **96 suites / 1914 passed** / 5 skipped · web jest **35 of 37 suites, 383 passed** (the 2 failures — `pricing-page`, `reading-history` — are pre-existing on main) · api tsc 0 · api lint 0 · **web tsc 0** (was 106; the duplicate `@types/react` behind the chronic "cannot be used as a JSX component" errors was collapsed by the dependency dedupe). The ZWDS 289 no longer exists — those suites were deleted with the module.
   - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
@@ -3738,8 +3738,42 @@ Not derivable from the code. Wrong assumptions here waste a session.
 | **Redis** | `maxmemory 256mb` + `volatile-lru`, set in the **Custom Start Command** — `CONFIG SET` does not survive a restart, and `REDIS_EXTRA_FLAGS` is a bitnami thing this image ignores. |
 | **Engine** | Private, no public domain. `ENGINE_KEY` set on both services. **`ENGINE_REQUIRE_KEY=1` since 2026-08-26 — enforce mode, unkeyed callers get 401.** `/health` is the only exempt path (`engine_auth.py:62`), which is why Railway's healthcheck never appears in a rollup. |
 | **Scaling** | API at **2 replicas** with `REPLICA_COUNT=2` (they MUST move together — see the M2+M8 section). Engine at 2 workers via the Dockerfile's `${WEB_CONCURRENCY:-2}` **default** — the variable is NOT set on the Railway engine service and does not need to be. ⚠️ Don't read the engine's variable list as incomplete because it is absent; its three service variables (`ENGINE_KEY`, `ENGINE_REQUIRE_KEY`, `RAILWAY_DOCKERFILE_PATH`) are the whole set, and `RAILWAY_ENVIRONMENT` — which `is_production()` reads — is injected by Railway. `DATABASE_CONNECTION_LIMIT` defaults to 10, so 2×10=20 connections against `max_connections=100`. |
+| **Load-test mock** | Railway service **`mock-anthropic`** (private, no domain). Armed by setting `LOADTEST_ANTHROPIC_BASE_URL` on the API — see § Phase 3. ⚠️ Renaming a Railway service CHANGES its `.railway.internal` hostname. |
 | **Proxy** | `TRUST_PROXY_HOPS=2`, measured and verified. ⚠️ Railway **discards** a client-supplied `X-Forwarded-For` — see the TRUST_PROXY_HOPS section for why that matters and how to re-verify. |
 | **Sign-in** | On **our own** `/sign-in` and `/sign-up` pages, not Clerk's Account Portal. Needs BOTH the Clerk dashboard Paths setting (absolute URLs) and `NEXT_PUBLIC_CLERK_SIGN_IN_URL` (relative, build-time). |
+
+### ⚠️ Phase 3 load test — the switch, and what it cannot tell you
+
+Everything lives in `load-test/` with its own README. Three invariants that are
+easy to get wrong and expensive to debug:
+
+**The switch is `LOADTEST_ANTHROPIC_BASE_URL`, never `ANTHROPIC_BASE_URL`.** The
+latter is a CONVENTIONAL name other tooling sets — Claude Code exports it — so
+the app deliberately ignores it. **But the Anthropic SDK reads it anyway**, so
+setting it still redirects every call while our `aiBaseUrlOverride` reports
+`null`. That is why `GET /api/admin/ops` also returns **`aiBaseUrlEffective`**
+(the resolved `client.baseURL`): it is the only value that cannot lie about
+where AI traffic is going. **Read it at teardown, not the override.**
+`node load-test/ops.mjs` prints a plain ARMED / NOT ARMED verdict.
+
+**`sessions.createSession()` is DEVELOPMENT-INSTANCE ONLY** — it fails on
+production with `request_invalid_for_environment`. Minting a production token
+means the browser's flow: `createSignInToken` → `POST {fapi}/v1/client/sign_ins?_is_native=1`
+→ `getToken(sessionId, undefined, ttl)`. `_is_native=1` returns the token in the
+BODY instead of a cookie. Tickets are SINGLE-USE (a 429'd attempt spends one),
+and revoking a session does NOT invalidate a token already minted from it — the
+only control is a short TTL.
+
+**The mock's fabricated tokens drive the REAL spend ledger.** At
+`MOCK_USAGE_SCALE=1` the S2 breaker trips after ~165 readings and every request
+after that is a legitimate `AI_SPEND_CAP` 503, which destroys the `5xx<0.5%`
+criterion. Run the throughput scenarios at `0.01`.
+
+⚠️ **The load test leaves fabricated readings CACHED BY BIRTH-DATA HASH.**
+Cleanup is not optional: `seed-users.mjs --cleanup` goes through the app's own
+`DELETE /api/users/me`, whose 200 is a synchronous receipt that
+`erasePersonalData` ran. Do NOT rely on the `user.deleted` webhook — tested, it
+left 3 of 3 profiles behind while reporting success.
 
 ### 📋 THE TODO LIST — where it lives
 
@@ -3762,6 +3796,19 @@ logging, Ob2 `GET /api/admin/ops`, Ob3 the engine's first Sentry. It is committe
 NOT yet deployed, and Ob3 stays inert until `SENTRY_DSN_ENGINE` is set on the Railway
 engine service. Remaining before launch: a load test, the launch gate, and **Stripe
 live mode** (it is still test-mode, so no real revenue can flow).
+
+### ⚠️ When config seems inert, check the CODE is deployed before the config
+
+An env var was set on the right service, with a correct redeploy, and did
+nothing — because the code that reads it existed only on an unpushed branch.
+Every signal said "not set"; every signal was right about the observation and
+wrong about the cause, and it took three rounds to see.
+
+The tell was available and missed: `/api/admin/ops` was returning no
+`aiBaseUrlEffective` key at all, and the checker rendered a MISSING field
+identically to a null one (`undefined ?? '(explanation)'`). "This API is older
+than you think" and "this value is empty" want completely different actions, so
+never collapse them.
 
 **Three lessons worth more than the code.**
 
