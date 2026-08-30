@@ -109,18 +109,48 @@ function chat(token, profileId) {
   if (!session.id || session.messages >= 9) {
     // A FORTUNE-scoped session needs no paid reading to exist first, which makes
     // it the cheapest realistic way to exercise the chat path.
+    //
+    // ⚠️ NO `readingType`. CreateChatSessionDto takes exactly one of
+    // `readingId` / `comparisonId` / `fortune`, and the pipe runs
+    // forbidNonWhitelisted — so an extra property is a 400, not an ignored
+    // field. This arm sent `readingType: 'FORTUNE'` for two full runs and
+    // never created a single session.
+    //
+    // It hid behind the throttler: `POST /api/chat/sessions` is
+    // @Throttle({ limit: 5, ttl: 1h }), and the root APP_GUARD ThrottlerGuard
+    // runs BEFORE the validation pipe. So the first 5 per user were 429s, which
+    // read as an honest quota result, and the 400 underneath only surfaced once
+    // the hourly window cleared.
     const created = post('/api/chat/sessions', token, {
-      readingType: 'FORTUNE',
       fortune: { profileId, fortuneScope: 'DAY', fortuneAnchorDate: today() },
     }, tags);
     if (created.status !== 201 && created.status !== 200) {
       // 429 here means the hourly cap is genuinely spent. Stop asking — retrying
       // would inflate `throttled` with requests we know will be refused.
       if (created.status === 429) session.exhausted = true;
+      // A 400 is OUR bug, not a system limit. Say so once per VU rather than
+      // silently skipping the arm for the whole run, which is exactly how the
+      // malformed payload above survived two runs.
+      if (created.status === 400) {
+        session.exhausted = true;
+        console.error(`chat session REJECTED 400 — payload is wrong, arm is dead: ${created.body}`);
+      }
       return;
     }
-    try { session = { id: created.json('id'), messages: 0, exhausted: false }; } catch (e) { return; }
+    // ⚠️ The response field is `sessionId`, not `id`.
+    try { session = { id: created.json('sessionId'), messages: 0, exhausted: false }; } catch (e) { return; }
     if (!session.id) return;
+
+    // ⚠️ FREE tier reports `monthlyQuota: 0` — a free user gets NO free chat
+    // messages at all, so an un-extended session answers every message with
+    // 402 NEEDS_EXTENSION. This is the product working as designed, not a
+    // limit to route around: buying the extension IS what a real free user
+    // does. 1 credit buys 10 messages; the seeded users hold 200.
+    const ext = post(`/api/chat/sessions/${session.id}/extend`, token, {}, tags);
+    if (ext.status !== 201 && ext.status !== 200) {
+      session.exhausted = true;
+      return;
+    }
   }
 
   // messages-sync, not the SSE route: k6 cannot consume an event stream
