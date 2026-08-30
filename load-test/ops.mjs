@@ -45,12 +45,28 @@ if (!res.ok) { console.error(`GET /api/admin/ops -> ${res.status}`, await res.te
 const ops = await res.json();
 
 const eff = ops.aiBaseUrlEffective;
-const armed = !!eff && !eff.includes('api.anthropic.com');
+const override = ops.aiBaseUrlOverride;
+
+// ⚠️ Both signals, because either alone gets it wrong in a dangerous direction.
+//
+// `effective` is null until a client is built on the replica that served this
+// request — clients are lazy and there are 2 replicas. Judging on it alone
+// reports NOT ARMED while the variable IS set, which at teardown reads as a
+// false all-clear.
+//
+// `override` alone misses the other case: the SDK honours a bare
+// ANTHROPIC_BASE_URL of its own accord, which redirects traffic while our
+// override stays null.
+const redirected = !!eff && !eff.includes('api.anthropic.com');
+const armed = redirected || !!override;
+const uncertain = !eff && !override;
 
 console.log('');
 console.log(armed
   ? '  🟠 ARMED — AI traffic is going to the MOCK, not to Anthropic.'
-  : '  🟢 NOT ARMED — AI traffic is going to the real Anthropic API.');
+  : uncertain
+    ? '  🟢 NOT ARMED — no override set, and no client built yet to confirm against.'
+    : '  🟢 NOT ARMED — AI traffic is going to the real Anthropic API.');
 console.log('');
 console.log(`  aiBaseUrlEffective : ${eff ?? '(no client built yet on this replica)'}`);
 console.log(`  aiBaseUrlOverride  : ${ops.aiBaseUrlOverride ?? 'null'}`);
