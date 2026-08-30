@@ -85,6 +85,10 @@ export async function mintForUser(clerk, userId, { ttl = 3600, fapi, attempts = 
   // The Backend API that issues them is limited far more loosely than the
   // Frontend API that spends them, so re-issuing is cheap.
   let res, json;
+  // Reported back so the CALLER can slow its own pace. Retrying here fixes one
+  // user; only the caller can stop us re-entering the limit on the next one.
+  let rateLimitedAttempts = 0;
+  let lastHintedMs = 0;
   for (let attempt = 1; attempt <= attempts; attempt++) {
     const ticket = await clerk.signInTokens.createSignInToken({ userId, expiresInSeconds: 600 });
     res = await fetch(`https://${fapi}/v1/client/sign_ins?_is_native=1`, {
@@ -94,6 +98,7 @@ export async function mintForUser(clerk, userId, { ttl = 3600, fapi, attempts = 
     });
     json = await res.json().catch(() => null);
     if (res.status !== 429) break;
+    rateLimitedAttempts += 1;
 
     // Honour Retry-After when given; otherwise back off exponentially with a
     // little jitter, so a hundred callers do not resynchronise on the retry.
@@ -101,6 +106,7 @@ export async function mintForUser(clerk, userId, { ttl = 3600, fapi, attempts = 
     const waitMs = Number.isFinite(hinted) && hinted > 0
       ? hinted * 1000
       : Math.min(30_000, 2 ** attempt * 500) + Math.random() * 400;
+    lastHintedMs = Math.max(lastHintedMs, waitMs);
     if (attempt === attempts) break;
     await sleep(waitMs);
   }
@@ -120,8 +126,8 @@ export async function mintForUser(clerk, userId, { ttl = 3600, fapi, attempts = 
   // has to be refreshed, and that is a far better outcome than no token.
   try {
     const long = await clerk.sessions.getToken(sessionId, undefined, ttl);
-    return { jwt: long.jwt, sessionId, ttlSeconds: ttl, extended: true };
+    return { jwt: long.jwt, sessionId, ttlSeconds: ttl, extended: true, rateLimitedAttempts, lastHintedMs };
   } catch {
-    return { jwt: short, sessionId, ttlSeconds: 60, extended: false };
+    return { jwt: short, sessionId, ttlSeconds: 60, extended: false, rateLimitedAttempts, lastHintedMs };
   }
 }

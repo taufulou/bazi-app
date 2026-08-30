@@ -208,12 +208,37 @@ process.on('SIGINT', () => {
   process.exit(130);
 });
 
+/**
+ * ⚠️ ADAPTIVE, not fixed.
+ *
+ * The pace used to be a flat 250ms no matter what came back. `mintForUser`
+ * backs off internally on a 429, so a user eventually succeeded — and then the
+ * caller immediately resumed at 250ms for the next one. We therefore sat
+ * permanently above Clerk's sign-in limit: every user paid the full retry
+ * ladder, and a 100-user mint measured ~65s per user. An hour, almost all of it
+ * spent being told to slow down and not doing so.
+ *
+ * Per-user retry fixes one user. Only the caller's pace can stop us re-entering
+ * the limit on the next. So: widen hard on a 429 (honouring the server's own
+ * hint when it gives one), decay gently on a clean first-attempt success. The
+ * pace converges on whatever the limit actually is, which Clerk does not
+ * publish and we should not have to guess.
+ */
+let paceMs = 250;
+const PACE_MIN = 250;
+const PACE_MAX = 10_000;
+
 for (const u of users) {
   try {
     // ⚠️ NOT createSession — dev-instance only. See clerk-auth.mjs.
     const r = await mintForUser(clerk, u.id, { ttl: TTL, fapi: FAPI });
     if (!firstMintedAt) firstMintedAt = new Date().toISOString();
     if (!r.extended) anyShort = true;
+    if (r.rateLimitedAttempts > 0) {
+      paceMs = Math.min(PACE_MAX, Math.max(paceMs * 2, r.lastHintedMs || 0));
+    } else {
+      paceMs = Math.max(PACE_MIN, Math.round(paceMs * 0.9));
+    }
     minted.push({
       userId: u.id,
       email: u.emailAddresses?.[0]?.emailAddress ?? null,
@@ -222,6 +247,9 @@ for (const u of users) {
       token: r.jwt,
     });
   } catch (e) {
+    // A throw here is usually the retry ladder exhausted — still rate limited,
+    // so widen for the next user rather than charging straight back in.
+    paceMs = Math.min(PACE_MAX, paceMs * 2);
     // ⚠️ Do NOT abort the run. The first version threw, which discarded five
     // successfully minted tokens because the sixth was rate limited. Ninety
     // tokens are perfectly usable; zero are not.
@@ -229,10 +257,12 @@ for (const u of users) {
   }
   // Checkpoint often enough that an interrupt costs seconds, not the run.
   if (minted.length % 10 === 0) flush();
-  process.stdout.write(`\rminted ${minted.length}/${users.length}${mintFailures.length ? ` (${mintFailures.length} failed)` : ''}`);
+  process.stdout.write(
+    `\rminted ${minted.length}/${users.length}${mintFailures.length ? ` (${mintFailures.length} failed)` : ''} · pace ${paceMs}ms`,
+  );
   // The Frontend API is browser-shaped and tightly limited. Pacing keeps the
   // retry path in clerk-auth.mjs as a backstop rather than the normal case.
-  await sleep(250);
+  await sleep(paceMs);
 }
 process.stdout.write('\n');
 
