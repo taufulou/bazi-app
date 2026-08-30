@@ -66,7 +66,6 @@ export function resolveFapiHost({ flag, publishableKey }) {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function mintForUser(clerk, userId, { ttl = 3600, fapi, attempts = 5 }) {
-  const ticket = await clerk.signInTokens.createSignInToken({ userId, expiresInSeconds: 600 });
 
   // ⚠️ The Frontend API is rate limited far more tightly than the Backend API.
   // It is built for browsers, where one human signs in once — not for a script
@@ -77,8 +76,17 @@ export async function mintForUser(clerk, userId, { ttl = 3600, fapi, attempts = 
   // Retry here rather than only pacing the caller: pacing alone is a guess at a
   // limit Clerk does not publish, and a guess that is slightly wrong fails the
   // whole run at user 60.
+  //
+  // ⚠️ A FRESH TICKET PER ATTEMPT. Sign-in tokens are SINGLE-USE, and a 429'd
+  // attempt still consumes one — so retrying with the same ticket fails with
+  // `ticket_expired_code` every time, and the retry loop can never succeed.
+  // Minting 100 tokens showed this precisely: once the backoff fixed the rate
+  // limiting, all 12 remaining failures were expired tickets rather than 429s.
+  // The Backend API that issues them is limited far more loosely than the
+  // Frontend API that spends them, so re-issuing is cheap.
   let res, json;
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    const ticket = await clerk.signInTokens.createSignInToken({ userId, expiresInSeconds: 600 });
     res = await fetch(`https://${fapi}/v1/client/sign_ins?_is_native=1`, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
