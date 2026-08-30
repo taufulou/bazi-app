@@ -1,7 +1,7 @@
 # Phase 3 — load test
 
 Everything here exists only for load testing. **None of it ships to users, and
-the one piece that touches production code (`ANTHROPIC_BASE_URL`) is inert
+the one piece that touches production code (`LOADTEST_ANTHROPIC_BASE_URL`) is inert
 unless the variable is set.**
 
 ## What is here
@@ -50,7 +50,7 @@ Whichever you choose, **restore the cap afterwards** and confirm via
 ```bash
 # local smoke
 MOCK_STREAM_MS=3000 node load-test/mock-anthropic/server.mjs
-ANTHROPIC_BASE_URL=http://127.0.0.1:8080 npm run dev:api
+LOADTEST_ANTHROPIC_BASE_URL=http://127.0.0.1:8080 npm run dev:api
 ```
 
 Deploying to Railway as a temporary service:
@@ -58,21 +58,37 @@ Deploying to Railway as a temporary service:
 1. New service from this repo, `RAILWAY_DOCKERFILE_PATH=load-test/mock-anthropic/Dockerfile`.
 2. **Private networking only — do not give it a public domain.** It answers to
    any caller and fabricates readings.
-3. On the **API** service set `ANTHROPIC_BASE_URL=http://<mock>.railway.internal:8080`.
+3. On the **API** service set `LOADTEST_ANTHROPIC_BASE_URL=http://<mock>.railway.internal:8080`.
 4. **Strip `OPENAI_API_KEY` and `GEMINI_API_KEY`** for the window. Providers are
    key-gated at registration (`ai.service.ts`), so removing the keys removes the
    fallback chain entirely — a mock failure then fails the reading instead of
    quietly falling back to a real paid provider.
 
+### ⚠️ Two names, and only one of them is ours
+
+`LOADTEST_ANTHROPIC_BASE_URL` is the app's switch. **`ANTHROPIC_BASE_URL` is
+not** — it is a conventional name other tooling sets (Claude Code exports it),
+and the app deliberately ignores it.
+
+But **the Anthropic SDK reads `ANTHROPIC_BASE_URL` itself**, so setting it still
+redirects every call — through the SDK rather than through us, with our own
+`aiBaseUrlOverride` reporting `null` the whole time. That is why
+`GET /api/admin/ops` also reports **`aiBaseUrlEffective`**, the resolved
+`client.baseURL`.
+
+**During an incident, read `aiBaseUrlEffective`.** It is the value the SDK will
+actually use, whoever set it. `aiBaseUrlOverride` only answers "did WE do this?"
+
 ### Teardown — the step that actually matters
 
-**Unset `ANTHROPIC_BASE_URL` before the mock service is deleted.** In that order.
+**Unset `LOADTEST_ANTHROPIC_BASE_URL` before the mock service is deleted.** In that order.
 A stale override pointing at a deleted service makes every reading fail in a way
 that looks exactly like an Anthropic outage, and nothing else about the app
 looks wrong.
 
-Confirm teardown with `GET /api/admin/ops` → **`aiBaseUrlOverride` must be
-`null`**. That field exists for this moment.
+Confirm teardown with `GET /api/admin/ops`: **`aiBaseUrlOverride` must be `null`
+AND `aiBaseUrlEffective` must point at `api.anthropic.com`.** Checking only the
+first would miss a redirect set through the SDK's own variable.
 
 ## L3 — auth for k6
 
@@ -82,14 +98,42 @@ refreshing every minute. **Neither is needed, and the first cannot work**: L2
 runs the test against PRODUCTION, and a dev-instance token cannot authenticate
 against prod (different issuer, different JWKS).
 
-`sessions.getToken()` takes a per-token `expiresInSeconds`. Measured against
-@clerk/backend 2.33.5, 60s / 3600s / 14400s were all honoured exactly, so a
-token that outlives the run can be minted without touching a JWT template and
-without deploying anything.
+### ⚠️ `sessions.createSession()` is DEVELOPMENT-ONLY
+
+The obvious approach — `createSession` then `getToken(id, undefined, ttl)` —
+works perfectly against a dev instance and fails on production with:
+
+```
+request_invalid_for_environment
+"Request only valid for development instances."
+```
+
+Found by running the seeder against production with 3 users after it had passed
+against dev. **No amount of local testing finds this**, because local is exactly
+the instance where it works. It is the whole argument for trialling with 3.
+
+### What works — the browser's own flow, over plain HTTP
+
+1. `signInTokens.createSignInToken({ userId })` → a ticket. Production-safe.
+2. `POST https://{fapi}/v1/client/sign_ins?_is_native=1` with `strategy=ticket`.
+   **`_is_native=1` is load-bearing**: it returns the session token in the BODY
+   instead of setting a browser cookie, which is what makes this scriptable.
+3. `sessions.getToken(sessionId, undefined, ttl)` to extend — step 2 alone
+   yields a **60-second** token, the very problem this section exists to solve.
+
+Step 3 is a different endpoint from `createSession` and is expected to be
+production-safe, but that is not yet confirmed against a live instance. If it
+fails the scripts DEGRADE to the 60s token and warn; k6 must then refresh
+mid-run.
+
+The Frontend API host comes from `--fapi`, or is decoded from
+`CLERK_PUBLISHABLE_KEY`. **Production is `clerk.tianmingapp.com`.**
 
 ```bash
 export CLERK_SECRET_KEY=sk_live_...      # in YOUR shell. Never paste it elsewhere.
-node load-test/mint-tokens.mjs --match '+loadtest' --ttl 4200      --verify https://bazi-app-production-5e54.up.railway.app
+node load-test/mint-tokens.mjs --match 'loadtest+' --ttl 4200 \
+     --fapi clerk.tianmingapp.com \
+     --verify https://bazi-app-production-5e54.up.railway.app
 ```
 
 Writes `load-test/tokens.json` (0600, gitignored).
@@ -111,6 +155,54 @@ Writes `load-test/tokens.json` (0600, gitignored).
 The script refuses to mint when `--match` matches nothing, rather than falling
 back to every user: a silent fallback would hand out live tokens for real
 accounts.
+
+## L4 — seeded test users
+
+```bash
+export CLERK_SECRET_KEY=sk_live_...
+node load-test/seed-users.mjs --seed --count 100 --api https://<api-host>
+node load-test/seed-users.mjs --status  --api https://<api-host>
+node load-test/seed-users.mjs --cleanup --api https://<api-host>
+```
+
+100 distinct users, because M1 keys throttling per userId and S4 rations per
+user per day — a hundred VUs on one account would measure our own rationing
+rather than capacity.
+
+Writes `seed-manifest.json` (0600, gitignored). Birth dates are spread through
+the 1920s at 03:37 so a fabricated cached reading can never collide with a real
+user's chart.
+
+⚠️ Credit top-ups are paced at ~2.1s each: they all use the SAME admin token and
+admin routes are throttled 30/min, so 100 users take ~3.5 minutes however fast
+you ask.
+
+⚠️ Seeded accounts are REAL users on the production Clerk instance and count
+toward MAU until `--cleanup` runs.
+
+### Cleanup goes through the app, not around it
+
+`--cleanup` calls `DELETE /api/users/me` for each account. That runs
+`erasePersonalData` — profiles, readings, chat, comparisons AND the
+content-addressed `ReadingCache` rows the run fabricated — then deletes the
+Clerk user. The 200 IS the receipt, because the erase is synchronous inside the
+request.
+
+**Three things found by running this that review had not:**
+
+1. `GET /api/users/me` 404s for a fresh Clerk user — it does not auto-create.
+   `createBirthProfile` is one of the six methods that call `ensureUser`, so
+   the profile POST must come FIRST. The original order failed 3/3.
+2. Deleting the Clerk user and trusting the `user.deleted` webhook to erase the
+   database left **3 of 3 profiles behind** — the webhook never arrived. Hence
+   the app-side delete.
+3. Verifying the DB side by filtering admin rows on `email` always reported
+   clean, because the `users` table **has no email column** — and
+   `deleteAccount` anonymises the row rather than removing it, so "does the user
+   exist" is not the question either.
+
+Verified end to end against a real API and database: 3 seeded → 3 profiles in
+the DB → cleanup → 0 profiles, 0 Clerk accounts.
 
 ## Env
 

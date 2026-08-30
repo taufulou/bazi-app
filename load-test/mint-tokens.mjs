@@ -55,6 +55,7 @@
 
 import { writeFileSync, chmodSync } from 'node:fs';
 import { createClerkClient } from '@clerk/backend';
+import { mintForUser, resolveFapiHost } from './clerk-auth.mjs';
 
 const arg = (name, fallback = null) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -117,17 +118,49 @@ if (!users.length) {
   process.exit(1);
 }
 
+const FAPI = resolveFapiHost({ flag: arg('fapi'), publishableKey: process.env.CLERK_PUBLISHABLE_KEY });
+console.log(`frontend API: ${FAPI}`);
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const minted = [];
+const mintFailures = [];
+let anyShort = false;
 for (const u of users) {
-  const session = await clerk.sessions.createSession({ userId: u.id });
-  const tok = await clerk.sessions.getToken(session.id, undefined, TTL);
-  minted.push({
-    userId: u.id,
-    email: u.emailAddresses?.[0]?.emailAddress ?? null,
-    sessionId: session.id,
-    token: tok.jwt,
-  });
-  process.stdout.write(`\rminted ${minted.length}/${users.length}`);
+  try {
+    // ⚠️ NOT createSession — dev-instance only. See clerk-auth.mjs.
+    const r = await mintForUser(clerk, u.id, { ttl: TTL, fapi: FAPI });
+    if (!r.extended) anyShort = true;
+    minted.push({
+      userId: u.id,
+      email: u.emailAddresses?.[0]?.emailAddress ?? null,
+      sessionId: r.sessionId,
+      ttlSeconds: r.ttlSeconds,
+      token: r.jwt,
+    });
+  } catch (e) {
+    // ⚠️ Do NOT abort the run. The first version threw, which discarded five
+    // successfully minted tokens because the sixth was rate limited. Ninety
+    // tokens are perfectly usable; zero are not.
+    mintFailures.push({ email: u.emailAddresses?.[0]?.emailAddress ?? u.id, why: e instanceof Error ? e.message : String(e) });
+  }
+  process.stdout.write(`\rminted ${minted.length}/${users.length}${mintFailures.length ? ` (${mintFailures.length} failed)` : ''}`);
+  // The Frontend API is browser-shaped and tightly limited. Pacing keeps the
+  // retry path in clerk-auth.mjs as a backstop rather than the normal case.
+  await sleep(250);
+}
+process.stdout.write('\n');
+
+if (!minted.length) {
+  console.error('\nEvery mint failed. First error:', mintFailures[0]?.why);
+  process.exit(1);
+}
+if (mintFailures.length) {
+  console.warn(`\n⚠️  ${mintFailures.length} of ${users.length} could not be minted; continuing with ${minted.length}.`);
+  for (const f of mintFailures.slice(0, 5)) console.warn(`   ${f.email}: ${f.why}`);
+}
+if (anyShort) {
+  console.warn('\n⚠️  Lifetime could not be extended — some tokens expire in 60s.');
+  console.warn('   k6 must refresh them mid-run, or re-run this between scenarios.');
 }
 process.stdout.write('\n');
 

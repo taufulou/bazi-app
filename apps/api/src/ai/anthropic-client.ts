@@ -25,6 +25,13 @@ import { observeRateLimits } from './anthropic-rate-limit';
 export function createAnthropicClient(options: ClientOptions): Anthropic {
   const override = anthropicBaseUrlOverride();
   if (override) warnOnceAboutOverride(override);
+  const client = buildClient(options, override);
+  // Record where this client ACTUALLY resolved to — see `effectiveAnthropicBaseUrl`.
+  lastEffectiveBaseUrl = client.baseURL;
+  return client;
+}
+
+function buildClient(options: ClientOptions, override: string | null): Anthropic {
   return new Anthropic({
     ...options,
     // An explicit option wins, so a test double passing its own baseURL is not
@@ -34,6 +41,35 @@ export function createAnthropicClient(options: ClientOptions): Anthropic {
     // (a test double, a proxy), it stays in the chain and is still observed.
     fetch: observeRateLimits(options.fetch),
   });
+}
+
+let lastEffectiveBaseUrl: string | null = null;
+
+/**
+ * Where AI traffic is ACTUALLY going, as resolved by the most recently built
+ * client. `null` until one is constructed (they are lazy).
+ *
+ * ⚠️ This exists because `anthropicBaseUrlOverride()` alone cannot answer the
+ * question, and discovering that was the whole point of running the thing.
+ *
+ * **The Anthropic SDK reads `ANTHROPIC_BASE_URL` from the environment itself.**
+ * So after this switch was renamed to `LOADTEST_ANTHROPIC_BASE_URL` — which was
+ * right, because the generic name is one other tooling sets — the generic
+ * variable STILL redirects every call, just through the SDK instead of through
+ * us. That is strictly more dangerous than before: traffic goes somewhere else
+ * while our own field reports `null`, i.e. the ops view would answer "not
+ * overridden" during precisely the incident it was built for.
+ *
+ * Reporting the resolved `client.baseURL` is the only answer that cannot lie,
+ * because it is the value the SDK will actually use whatever set it.
+ */
+export function effectiveAnthropicBaseUrl(): string | null {
+  return lastEffectiveBaseUrl;
+}
+
+/** Tests only. */
+export function resetEffectiveBaseUrl(): void {
+  lastEffectiveBaseUrl = null;
 }
 
 /**
@@ -56,12 +92,22 @@ export function createAnthropicClient(options: ClientOptions): Anthropic {
  * it under `aiBaseUrlOverride` precisely so the question can be answered
  * without shell access during an incident.
  *
+ * ⚠️ NOT named `ANTHROPIC_BASE_URL`. That is a CONVENTIONAL name other tooling
+ * sets for its own reasons — Claude Code exports it as `https://api.anthropic.com`
+ * — and the first local boot after this shipped produced a false alarm because
+ * of exactly that. A variable that redirects where the app sends its API key
+ * must not share a name the ecosystem treats as generic: the failure mode is a
+ * silent redirect of production AI traffic by a variable the app does not own.
+ * The `LOADTEST_` prefix makes both the purpose and the ownership unmistakable.
+ *
  * Read at CALL time, not module scope: `ConfigModule` loads `.env` after this
  * module is imported, so a module-scope read would skip the override in local
  * development while working in production — the same trap `PrismaService` hit.
  */
+export const LOADTEST_BASE_URL_ENV = 'LOADTEST_ANTHROPIC_BASE_URL';
+
 export function anthropicBaseUrlOverride(): string | null {
-  const raw = (process.env.ANTHROPIC_BASE_URL ?? '').trim();
+  const raw = (process.env[LOADTEST_BASE_URL_ENV] ?? '').trim();
   return raw === '' ? null : raw;
 }
 
@@ -72,10 +118,10 @@ function warnOnceAboutOverride(url: string): void {
   // Not the app Logger: this can fire before Nest's logger is configured, and
   // the one thing it must not do is be silent.
   console.warn(
-    `[anthropic-client] ⚠️  ANTHROPIC_BASE_URL is set — every Anthropic call ` +
-      `goes to ${url}, NOT the real API. This is the load-test switch (L1). ` +
-      `If you are not running a load test, UNSET IT: readings will fail or be ` +
-      `fabricated. Visible at GET /api/admin/ops as aiBaseUrlOverride.`,
+    `[anthropic-client] ⚠️  ${LOADTEST_BASE_URL_ENV} is set — every Anthropic ` +
+      `call goes to ${url} instead of the SDK default. This is the load-test ` +
+      `switch (L1). If you are not running a load test, UNSET IT: readings will ` +
+      `fail or be fabricated. Visible at GET /api/admin/ops as aiBaseUrlOverride.`,
   );
 }
 

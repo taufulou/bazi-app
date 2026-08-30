@@ -72,3 +72,4 @@ apps/mobile/android/
 
 # Phase 3 load test — live bearer tokens, never commit
 load-test/tokens.json
+load-test/seed-manifest.json

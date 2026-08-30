@@ -5,7 +5,7 @@ import { AiSpendService, type SpendSnapshot } from '../ai/ai-spend.service';
 import { QuotaService, type QuotaKind } from '../ai/quota.service';
 import { RedisService } from '../redis/redis.service';
 import { getRateLimitSnapshot, type RateLimitSnapshot } from '../ai/anthropic-rate-limit';
-import { anthropicBaseUrlOverride } from '../ai/anthropic-client';
+import { anthropicBaseUrlOverride, effectiveAnthropicBaseUrl } from '../ai/anthropic-client';
 import { parseReplicaCount } from '../common/replica-count';
 
 /**
@@ -106,7 +106,7 @@ export interface OpsSnapshot {
   };
   rateLimit: RateLimitSnapshot;
   /**
-   * L1 — non-null when `ANTHROPIC_BASE_URL` redirects every AI call away from
+   * L1 — non-null when `LOADTEST_ANTHROPIC_BASE_URL` redirects every AI call away from
    * the real API (the load-test mock). `null` in normal operation.
    *
    * Here because the alternative is answering "why is every reading strange?"
@@ -115,6 +115,16 @@ export interface OpsSnapshot {
    * AI is simply talking to something else.
    */
   aiBaseUrlOverride: string | null;
+  /**
+   * Where AI traffic is ACTUALLY going, per the last client built. `null` until
+   * one is constructed.
+   *
+   * ⚠️ Read THIS during an incident, not `aiBaseUrlOverride`. The Anthropic SDK
+   * honours a bare `ANTHROPIC_BASE_URL` from the environment on its own, so
+   * traffic can be redirected by a variable this app does not own — in which
+   * case `aiBaseUrlOverride` is `null` and only this field shows it.
+   */
+  aiBaseUrlEffective: string | null;
 }
 
 @Injectable()
@@ -172,6 +182,7 @@ export class OpsService {
       quota,
       rateLimit: getRateLimitSnapshot(),
       aiBaseUrlOverride: anthropicBaseUrlOverride(),
+      aiBaseUrlEffective: effectiveAnthropicBaseUrl(),
     };
   }
 
