@@ -41,11 +41,19 @@
  *
  *   # the secret must ALREADY be in your shell — never paste it into a chat
  *   export CLERK_SECRET_KEY=sk_live_...
- *   node load-test/mint-tokens.mjs --match '+loadtest' --ttl 4200 \
+ *   node load-test/mint-tokens.mjs --match 'loadtest+' --ttl 4200 \
  *        --verify https://bazi-app-production-5e54.up.railway.app
  *
  * Flags:
- *   --match <s>   only users whose primary email contains this (default: +loadtest)
+ *   --match <s>   only users whose primary email contains this (default: loadtest+)
+ *
+ *                 ⚠️ The default MUST stay in step with `seed-users.mjs`, which
+ *                 builds addresses as `${TAG}+${NNN}@${DOMAIN}` — so the
+ *                 substring is `loadtest+`, not `+loadtest`. It was the latter
+ *                 once, matched nothing, and the script correctly refused to
+ *                 mint rather than falling back to every user on the instance.
+ *                 Failing closed made it a five-minute confusion instead of an
+ *                 incident, but the right default costs nothing.
  *   --ids a,b,c   explicit Clerk user ids instead of a match
  *   --ttl <sec>   token lifetime (default 4200 = 70 min)
  *   --limit <n>   max users (default 100)
@@ -68,7 +76,7 @@ if (!SECRET) {
   process.exit(1);
 }
 
-const MATCH = arg('match', '+loadtest');
+const MATCH = arg('match', 'loadtest+');
 const IDS = arg('ids');
 const TTL = Number(arg('ttl', '4200'));
 const LIMIT = Number(arg('limit', '100'));
