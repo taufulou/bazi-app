@@ -25,7 +25,11 @@
  *   k6 run load-test/k6/s2-mix.js
  */
 import { sleep, check } from 'k6';
-import { actor, assertEnoughTokens, get, post, sseFirstByte, L5_THRESHOLDS } from './lib.js';
+import { actor, aiTurn, assertEnoughTokens, get, post, sseFirstByte, L5_THRESHOLDS } from './lib.js';
+
+// Every AI surface here generates INLINE. k6's 60s default abandons the request
+// while the server keeps working — full load applied, nothing measured.
+const AI_TIMEOUT = { timeout: '300s' };
 
 export const options = {
   stages: [
@@ -47,9 +51,17 @@ function browse(token) {
 
 function fortune(token, profileId) {
   const tags = { kind: 'fortune' };
-  const res = get(`/api/fortune/daily?profileId=${profileId}&date=${today()}`, token, tags);
-  // `waiting` is time-to-first-byte, which for the streaming surfaces is the
-  // number a user actually feels — L5's "SSE first event p95 < 1.5s".
+  // ⚠️ The STREAM route, not `/api/fortune/daily`. Both cost the same upstream,
+  // but only this one has a meaningful first byte: it emits `engine_ready` in
+  // ~100ms and the AI sections after. On the JSON route TTFB is the entire
+  // generation, so measuring it as "first byte" would put a ~145s sample
+  // against L5's 1.5s criterion and quietly redefine what that criterion means.
+  const res = get(
+    `/api/fortune/daily/stream?profileId=${profileId}&date=${today()}`,
+    token,
+    tags,
+    AI_TIMEOUT,
+  );
   sseFirstByte.add(res.timings.waiting, tags);
   check(res, { 'fortune not 5xx': (r) => r.status < 500 || r.status === 503 });
 }
@@ -73,8 +85,9 @@ function chat(token, profileId) {
   // identical either way.
   const msg = post(`/api/chat/sessions/${sessionId}/messages-sync`, token, {
     content: '今天適合談重要的事嗎？',
-  }, tags);
-  sseFirstByte.add(msg.timings.waiting, tags);
+  }, tags, AI_TIMEOUT);
+  // Full turn, not a first byte — messages-sync returns once generation ends.
+  aiTurn.add(msg.timings.waiting, tags);
 }
 
 function reading(token, profileId) {
@@ -82,8 +95,9 @@ function reading(token, profileId) {
   const res = post('/api/bazi/readings', token, {
     birthProfileId: profileId,
     readingType: 'LIFETIME',
-  }, tags);
-  sseFirstByte.add(res.timings.waiting, tags);
+  }, tags, AI_TIMEOUT);
+  // Also inline: S5 measured ~145s end to end. Same reason as chat.
+  aiTurn.add(res.timings.waiting, tags);
 }
 
 export function setup() {
