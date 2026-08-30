@@ -31,6 +31,19 @@ export const aiBusy = new Rate('ai_busy');                   // deliberate shed 
 export const throttled = new Rate('throttled');              // 429 — working as designed
 export const spendCapped = new Rate('spend_capped');         // AI_SPEND_CAP (S2 breaker)
 export const sseFirstByte = new Trend('sse_first_byte', true);
+/**
+ * Full turn duration for the inline-generating AI surfaces.
+ *
+ * ⚠️ Kept SEPARATE from `sse_first_byte` on purpose. `POST /api/bazi/readings`
+ * and `messages-sync` generate INLINE — their TTFB is the whole generation, and
+ * S5 measured that at ~145s. Folding those into the first-byte trend would put
+ * a 145s sample against a 1.5s threshold and make the one number L5 actually
+ * cares about — how fast a streaming surface starts painting — unreadable.
+ *
+ * Deliberately threshold-free: what a fair ceiling is here is an OUTPUT of this
+ * run, not an input to it.
+ */
+export const aiTurn = new Trend('ai_turn_duration', true);
 
 export const API = __ENV.API_URL || 'https://bazi-app-production-5e54.up.railway.app';
 
@@ -98,14 +111,21 @@ export function classify(res, tags) {
   return { shed, capped, code };
 }
 
-export function get(path, token, tags) {
-  const res = http.get(`${API}${path}`, { headers: headers(token), tags });
+/**
+ * ⚠️ `extra` exists for one reason: `timeout`. k6 abandons a request at 60s by
+ * default while the SERVER KEEPS WORKING — so an under-timed run still applies
+ * the full load but records status 0 for every AI call, which `classify` does
+ * not count as a 5xx. The result is a run that looks clean and measured
+ * nothing. Every inline-generating call site must pass a real timeout.
+ */
+export function get(path, token, tags, extra) {
+  const res = http.get(`${API}${path}`, { headers: headers(token), tags, ...extra });
   classify(res, tags);
   return res;
 }
 
-export function post(path, token, body, tags) {
-  const res = http.post(`${API}${path}`, JSON.stringify(body ?? {}), { headers: headers(token), tags });
+export function post(path, token, body, tags, extra) {
+  const res = http.post(`${API}${path}`, JSON.stringify(body ?? {}), { headers: headers(token), tags, ...extra });
   classify(res, tags);
   return res;
 }

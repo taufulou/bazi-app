@@ -77,11 +77,47 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * mock that hard-fails on an unfamiliar prompt turns one unmapped reading type
  * into a dead load test.
  */
+/**
+ * Two formats, because prompts.ts uses two.
+ *
+ * ⚠️ Only the JSON-skeleton form was handled originally, and that is the RARER
+ * one. The dominant format — every reading type, both calls — names its keys in
+ * prose:
+ *
+ *     sections 的 key 必須為：chart_identity, finance_pattern, career_pattern, …
+ *
+ * With no match the mock fell back to `generic_section` and returned a
+ * perfectly well-formed response containing none of the keys asked for. Two
+ * full S2 runs therefore passed every threshold while EVERY reading failed with
+ * `ai-failed-LIFETIME-call1=0/8`. Silence is what made it expensive, so the
+ * fallback now announces itself.
+ */
 function sectionKeysFrom(prompt) {
+  const keys = new Set();
+
+  // Prose form: `sections 的 key 必須為：a, b, c` — the common case.
+  for (const m of prompt.matchAll(/sections\s*的\s*key\s*必須為\s*[：:]\s*([^\n]+)/g)) {
+    for (const raw of m[1].split(/[,、，]/)) {
+      const k = raw.trim().match(/^[a-z0-9_]+/);
+      if (k) keys.add(k[0]);
+    }
+  }
+
+  // JSON-skeleton form: `"chart_identity": { "preview": …`.
   const block = prompt.match(/"sections"\s*:\s*\{([\s\S]*?)\n\s*\}/);
   const source = block ? block[1] : prompt;
-  const keys = [...source.matchAll(/"([a-z0-9_]+)"\s*:\s*\{\s*"(?:score|preview)"/g)].map((m) => m[1]);
-  return keys.length ? [...new Set(keys)] : ['generic_section'];
+  for (const m of source.matchAll(/"([a-z0-9_]+)"\s*:\s*\{\s*"(?:score|preview)"/g)) keys.add(m[1]);
+
+  if (keys.size) return [...keys];
+
+  // ⚠️ Loud on purpose. A silent fallback here is indistinguishable from a
+  // working mock at every layer above it, all the way to a green k6 summary.
+  console.warn(
+    `[mock] NO SECTION KEYS FOUND in a ${prompt.length}-char prompt — falling back to ` +
+      `generic_section. Every reading built on this response WILL fail parsing. ` +
+      `Prompt head: ${JSON.stringify(prompt.slice(0, 160))}`,
+  );
+  return ['generic_section'];
 }
 
 /** Does this prompt ask for a `score` field? (Guide style injects one.) */
