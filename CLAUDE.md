@@ -567,7 +567,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 
 ## Test suite sizes
 - Bazi Engine: ≈2986 collected (`pytest --collect-only` — counts collected items incl. xfail/skip, NOT "passing"; prose "X pass" figures elsewhere differ by counter, e.g. the 時辰未知 sections cite 2944/2965 *passing*). Grew from the ~2231 Phase-12i baseline (+ Fortune day/month/year + chat-scope + 時辰未知 unknown-birth-hour suites). Composition note (Phase 12i): ~2226 + 5 三刑/半刑/子卯刑 spouse-palace tests in test_compatibility_enhanced.py + 53 compat pair corpus regressions + Phase 12h.A/B additions, 5 xfail, 1 skip, 1 pre-existing fail unrelated | NestJS API: 692 | Frontend: 143 | ZWDS: 289
-  - ⚠️ **CURRENT — measured 2026-08-30 on `claude/m10-web-calc-routes`: engine **3180 passed** / 2 skipped / 5 xfailed · api jest **2196 passed** / 5 skipped (119 suites) · web jest **405 passed** (38 suites) · api+web tsc 0 · `turbo run lint` 5/5.** ⚠️ Scoped to THIS branch, so it goes stale the moment the branch adds a test — re-measure rather than trusting it. Phase 2B (M1–M10) and Phase 2C (Ob1–Ob3) are both complete; the growth over the figures below is M2/M3/M6/M8 and the observability work, plus their guards. The older lines are kept for their composition notes.
+  - ⚠️ **CURRENT — measured 2026-08-31 on `claude/m10-web-calc-routes`: api jest **2216 passed** / 5 skipped (121 suites) · web jest **405 passed** (38 suites) · api tsc clean · `turbo run lint` **5/5**.** (Engine unchanged at 3180 passed / 2 skipped / 5 xfailed, last measured 2026-08-30.) ⚠️ Scoped to THIS branch — re-measure rather than trusting it. ⚠️ Run each jest from ITS OWN app directory with `npx --no-install jest`: the root-hoisted jest is two majors behind `apps/web`'s and mixing them corrupts the shared ts-jest cache. Lint from the ROOT with `./node_modules/.bin/turbo run lint` — `npm run lint` inside `apps/api` passes while turbo (five workspaces) fails. ⚠️ A suite that fails to COMPILE reports `0 tests` and silently drops its cases from the total, so watch the count, not just the pass line. The older lines below are kept for their composition notes.
   - ⚠️ **Superseded — measured on `claude/m10-web-calc-routes` 2026-08-23: api jest 100 suites / 1961 passed · web jest 38 suites / 405 passed (fully green for the first time; `test-web` is now a CI job) · api tsc 0 · web tsc 0 · turbo lint 5/5 workspaces.** The older figures below are kept for the composition notes.
   - ⚠️ **Measured on `claude/bazi-scalability-security-e4ff78` 2026-08-17** (the numbers above predate it): engine **3137 passed** / 2 skipped / 5 xfailed · API jest **96 suites / 1914 passed** / 5 skipped · web jest **35 of 37 suites, 383 passed** (the 2 failures — `pricing-page`, `reading-history` — are pre-existing on main) · api tsc 0 · api lint 0 · **web tsc 0** (was 106; the duplicate `@types/react` behind the chronic "cannot be used as a JSX component" errors was collapsed by the dependency dedupe). The ZWDS 289 no longer exists — those suites were deleted with the module.
   - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
@@ -3909,6 +3909,72 @@ caller is the healthcheck, which hits the exempt `/health`. Post-flip smoke test
 (sign-in, `/calculate` both callers, `/explain-element`, `/daily-fortune`, a real
 LIFETIME reading) came back clean with `"mode": "enforce"` and no rejections.
 
+## ⚠️ Readings: STREAMING and INLINE are not interchangeable
+
+`POST /api/bazi/readings` has two paths, and they give the same work
+**different time budgets**. This is the highest-value fact in the reading
+pipeline and it is not visible from any one file.
+
+| path | selected by | timeout | measured need |
+|---|---|---|---|
+| streaming (SSE) | `stream: true` + a V2 type + no cache | `AI_STREAM_TIMEOUT_MS` **300s** | LIFETIME **180.3s** ✅ |
+| inline | anything else | `AI_CALL_TIMEOUT_MS` **60s** | ❌ impossible for V2 |
+
+**Six timeout call sites, three defaults, splitting cleanly:** the four inline
+V2 generators (`ai.service.ts:440`, `:634`, `:1842`, `:3758`) read
+`AI_CALL_TIMEOUT_MS` with **no** `AI_STREAM_TIMEOUT_MS` fallback; only
+`_executeStreamV2Common` (`:1140`) and the compat streamer (`:4758`) prefer the
+stream variable.
+
+So **V2 inline could never complete** — six production runs failed at 90.4s
+within 0.2s of each other, because it is a stopwatch (~30s engine + the 60s
+abort), not a flaky upstream. It is now refused at admission with **400
+`STREAM_REQUIRED`**, placed ABOVE the engine call so a rejection costs nothing,
+and BELOW the reuse branch so a cached re-fetch still serves.
+
+**Measured 2026-08-31, real Anthropic:** LIFETIME streaming **180.3s**, 15
+sections, $0.303624. HEALTH inline **10s**, 4 sections. Web and mobile both
+send `stream: true` for LIFETIME/CAREER/ANNUAL/LOVE; **HEALTH is the only
+real-user inline caller.**
+
+⚠️ **`AI_MAX_TOTAL_TIME_MS` (900s) is the constant people forget.** It bounds
+one generation across all providers and retries, and it gates the START of an
+attempt rather than aborting one in flight — so an attempt admitted at 14:59
+runs a further `AI_STREAM_TIMEOUT_MS`, ~20 min worst case. Anything reasoning
+about "how long can a reading take" must use this, not the 300s/360s timeouts.
+The shipped stream lock at `bazi.service.ts:865` gets this wrong (330s TTL,
+commented against the 300s figure) and can expire mid-generation — todo #15.
+
+### The charge must follow the content
+
+An AI failure used to be swallowed ("Don't fail the reading — return
+calculation without AI") and the transaction charged anyway: 3 credits for a
+row with `aiInterpretation: null`, `isDegraded: false`, `failedReason: null`,
+so no refund fired and no alert saw it. Fixed 2026-08-31 (`cc02da5`).
+
+Three invariants, all mutation-tested:
+
+- **Inline AI failure throws** (503 `AI_CALL_FAILED`). The AI call precedes the
+  `$transaction`, so throwing means no row and no deduction.
+- **`chargeable = !fromCache && (isStreamingRequest || !!aiInterpretation)`**
+  drives BOTH the persisted `creditsUsed` column AND the deduction. They live in
+  different places; changing only one breaks
+  `sum(CreditLedger.amount) == User.credits`.
+- **`_setupStream` refuses a never-charged row** (`!aiInterpretation &&
+  creditsUsed === 0` → `READING_NOT_PAID`). That route has no charge of its own
+  and its only other gate is `refundedAt`, so without this an uncharged row is
+  streamable for a FREE full reading. ⚠️ The interpretation conjunct is what
+  keeps legitimate CACHE HITS out — those are also `creditsUsed: 0`. Never gate
+  on the bare zero.
+
+⚠️ **Do not add a narrowing `select` to `_setupStream`'s `findFirst`.** Three
+payment gates read from it; an omitted field yields `undefined`, and
+`undefined === 0` is false — the gate silently stops firing.
+
+⚠️ **k6 scenarios must send `stream: true`.** Both `s2-mix.js` and
+`s5-correctness.js` post V2 types; without the flag they are refused and s5 —
+the double-charge gate — goes permanently red.
+
 ## ⚠️ WEB_ORIGINS is the Stripe redirect allowlist — not CORS, not SEO
 
 Three variables name the same site and are deliberately separate:
@@ -4420,6 +4486,28 @@ chat that ~10k-token cached system block at the 2× write rate is most of the tu
   a count rises *and* if it falls without re-pinning. `--prune-suppressions` clears stale entries.
 - **⚠️ `npm audit fix` must NOT be run from a worktree** — `node_modules` is a symlink into main, so
   the install writes through it and mutates main.
+
+### Mutation-test every guard, and expect the FIRST pass to fail
+
+2026-08-31, fixing the charged-empty-reading bug: 8 mutations, and the first run
+left **three guards uncaught** — including `chargeable`, the central one. Its
+false branch is unreachable through the public API once the sibling guards land,
+so nothing exercised it; catching it needed a generator mocked to *resolve* with
+a falsy interpretation. A later audit pass found a comment claiming "the engine
+was never called" while the test asserted on the AI generator — so the placement
+guarantee was untested and the guard could have drifted below the engine call
+while staying green. **A guard whose test has not been SEEN to fail is
+decoration.**
+
+### Write predicates from what the code can PRODUCE, not from what the state ought to look like
+
+Five staff-review rounds on that same fix struck three separate controls aimed
+at states nothing can produce: a stream gate keyed on a `failedReason` no path
+can write on a zero-credit row; an `isFirstGenerationInFlight` clause that
+matched the very rows it was meant to exclude; and a remediation query whose
+match set included every in-flight streaming reading — refunding those would
+have stripped live paying customers' content mid-read. Each looked like
+protection. **Enumerate the matching set before writing the predicate.**
 
 ### The verification lesson, now past a dozen times
 
