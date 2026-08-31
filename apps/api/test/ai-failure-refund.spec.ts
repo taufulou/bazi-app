@@ -1,8 +1,20 @@
 /**
- * Tests for AI failure graceful degradation.
- * Validates that when AI providers fail, credits are NOT charged
- * (since credit deduction happens AFTER AI call in the transaction),
- * and the reading is saved with chart data only (no AI interpretation).
+ * AI failure behaviour on the reading-create path.
+ *
+ * ⚠️ This file previously claimed credits were NOT charged on AI failure while
+ * ASSERTING that they were (`creditsUsed` toBe(3), commented "user chose to
+ * create reading"). The assertion described the truth; the docblock did not.
+ * Production confirmed it: 3 credits taken for a row with no interpretation,
+ * `isDegraded: false`, `failedReason: null`, so no refund ever fired.
+ *
+ * That behaviour is now REVERSED — a deliberate reversal of a recorded product
+ * decision, not a slip. An AI failure throws and nothing is charged.
+ *
+ * ⚠️ V2 types (LIFETIME/CAREER/ANNUAL/LOVE) can no longer reach the inline AI
+ * branch at all — they are refused at admission with STREAM_REQUIRED, because
+ * a V2 generation needs ~180s against a 60s inline budget. So a test that wants
+ * to exercise the inline AI-failure path must use a V1 type (HEALTH), or it
+ * will pass against the WRONG error while covering nothing.
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
@@ -164,7 +176,7 @@ describe('AI Failure Graceful Degradation', () => {
     jest.clearAllMocks();
   });
 
-  it('should save reading without AI when all AI providers fail', async () => {
+  it('throws AI_CALL_FAILED and charges nothing when all AI providers fail', async () => {
     aiService.generateInterpretation.mockRejectedValue(
       new Error('All AI providers failed'),
     );
@@ -190,21 +202,100 @@ describe('AI Failure Graceful Degradation', () => {
       return result;
     });
 
-    const result = await service.createReading('clerk_user_1', {
-      birthProfileId: 'profile-1',
-      readingType: ReadingType.LIFETIME,
+    // HEALTH, not LIFETIME: a V2 type is refused at admission and would never
+    // reach the AI, so this test would pass against STREAM_REQUIRED while
+    // proving nothing about the AI-failure path.
+    await expect(
+      service.createReading('clerk_user_1', {
+        birthProfileId: 'profile-1',
+        readingType: ReadingType.HEALTH,
+      }),
+    ).rejects.toMatchObject({
+      // Assert the CODE, never a bare toThrow — the whole point is that this
+      // is the AI failure and not some other rejection.
+      response: expect.objectContaining({ code: 'AI_CALL_FAILED' }),
     });
 
-    // Reading should be created successfully
-    expect(result).toBeDefined();
-    // AI interpretation should be undefined (not included)
-    expect(savedReadingData.aiInterpretation).toBeUndefined();
-    // Calculation data should still be present
-    expect(savedReadingData.calculationData).toBeDefined();
-    // Credits should still be deducted (user chose to create reading)
-    expect(savedReadingData.creditsUsed).toBe(3);
+    // No row, and therefore no charge: the AI call precedes the transaction.
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(savedReadingData).toBeNull();
   });
 
+  // ⚠️ THE STRUCTURAL BACKSTOP. After the throw above and the STREAM_REQUIRED
+  // refusal, no PUBLIC path persists a row without an interpretation — so
+  // `chargeable`'s false branch is unreachable in production and every
+  // mutation of it passed until this test existed. It is reachable by a
+  // generator that RESOLVES with a falsy interpretation, which is exactly the
+  // future edit the backstop guards against: charge only for content, never
+  // for a resolved-but-empty result.
+  it('charges nothing when a generator resolves without an interpretation', async () => {
+    aiService.generateInterpretation.mockResolvedValue({
+      interpretation: null, provider: 'CLAUDE', model: 'm', tokenUsage: {},
+    });
+
+    prisma.user.findUnique.mockResolvedValue(mockUser);
+    prisma.birthProfile.findFirst.mockResolvedValue(mockProfile);
+    prisma.service.findFirst.mockResolvedValue(mockService);
+
+    // Typed rather than `any`: this file is on the eslint suppressions ratchet,
+    // which may only go DOWN. New `any` uses would fail the build.
+    let savedReadingData: Record<string, unknown> | null = null;
+    const deduct = jest.fn().mockResolvedValue(undefined);
+    (service as unknown as { creditsService: { deductCredits: jest.Mock } })
+      .creditsService.deductCredits = deduct;
+    prisma.$transaction.mockImplementation(
+      async (fn: (tx: unknown) => unknown) =>
+        fn({
+          user: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+          baziReading: {
+            create: jest.fn().mockImplementation(
+              (args: { data: Record<string, unknown> }) => {
+                savedReadingData = args.data;
+                return { id: 'reading-empty', ...args.data };
+              },
+            ),
+          },
+        }),
+    );
+
+    await service.createReading('clerk_user_1', {
+      birthProfileId: 'profile-1',
+      readingType: ReadingType.HEALTH,
+    });
+
+    // Both halves of `chargeable` — the persisted column AND the ledger — must
+    // agree, or sum(CreditLedger.amount) == User.credits breaks.
+    expect(savedReadingData).not.toBeNull();
+    expect((savedReadingData as unknown as { creditsUsed: number }).creditsUsed).toBe(0);
+    expect(deduct).not.toHaveBeenCalled();
+  });
+
+  it('refuses a V2 reading requested without stream, before calling the engine', async () => {
+    prisma.user.findUnique.mockResolvedValue(mockUser);
+    prisma.birthProfile.findFirst.mockResolvedValue(mockProfile);
+    prisma.service.findFirst.mockResolvedValue(mockService);
+
+    await expect(
+      service.createReading('clerk_user_1', {
+        birthProfileId: 'profile-1',
+        readingType: ReadingType.LIFETIME,
+      }),
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'STREAM_REQUIRED' }),
+    });
+
+    // Nothing charged, and — THE PLACEMENT GUARANTEE — the Bazi engine was
+    // never called, so the caller does not wait ~30s to be told to use
+    // streaming. `mockFetch` IS the engine; asserting on the AI generator
+    // instead would leave the guard free to drift below the engine call while
+    // the test stayed green.
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(aiService.generateLifetimeV2Interpretation).not.toHaveBeenCalled();
+  });
+
+  // HEALTH (V1) — the only type that still generates INLINE. A V2 type here
+  // would be refused at admission and this test would prove nothing.
   it('should include AI interpretation when AI succeeds', async () => {
     const mockAIResult = {
       interpretation: {
@@ -217,6 +308,10 @@ describe('AI Failure Graceful Degradation', () => {
       tokenUsage: { inputTokens: 1000, outputTokens: 1500 },
     };
 
+    // HEALTH is V1, so it routes to generateInterpretation — mocking only the
+    // V2 generator would leave the V1 one returning undefined and the test
+    // would fail against AI_CALL_FAILED rather than exercising success.
+    aiService.generateInterpretation.mockResolvedValue(mockAIResult);
     aiService.generateLifetimeV2Interpretation.mockResolvedValue(mockAIResult);
 
     prisma.user.findUnique.mockResolvedValue(mockUser);
@@ -239,12 +334,14 @@ describe('AI Failure Graceful Degradation', () => {
 
     const result = await service.createReading('clerk_user_1', {
       birthProfileId: 'profile-1',
-      readingType: ReadingType.LIFETIME,
+      readingType: ReadingType.HEALTH,
     });
 
     expect(result).toBeDefined();
     expect(savedReadingData.aiInterpretation).toBeDefined();
     expect(savedReadingData.aiProvider).toBe('CLAUDE');
+    // Charged, because an interpretation was produced — the other half of
+    // `chargeable`. Guards against a fix that stops charging altogether.
     expect(savedReadingData.creditsUsed).toBe(3);
   });
 
@@ -269,10 +366,14 @@ describe('AI Failure Graceful Degradation', () => {
     });
 
     const redis = (service as any).redis;
-    await service.createReading('clerk_user_1', {
-      birthProfileId: 'profile-1',
-      readingType: ReadingType.LIFETIME,
-    });
+    // HEALTH so the AI is actually reached; and it now THROWS, so an
+    // unawaited-rejection here would fail the suite.
+    await expect(
+      service.createReading('clerk_user_1', {
+        birthProfileId: 'profile-1',
+        readingType: ReadingType.HEALTH,
+      }),
+    ).rejects.toThrow();
 
     // Lock should be released regardless of AI failure
     expect(redis.releaseLock).toHaveBeenCalledWith('reading:create:user-1');
@@ -307,6 +408,10 @@ describe('AI Failure Graceful Degradation', () => {
       readingType: ReadingType.LIFETIME,
     });
 
+    // ⚠️ LIFETIME here ON PURPOSE. A V2 type without `stream` is normally
+    // refused, but the refusal excludes cache hits — so this doubles as the
+    // boundary regression proving STREAM_REQUIRED does not break a cached
+    // V2 re-read.
     // Should NOT call generateInterpretation or V2 when cache hit
     expect(aiService.generateInterpretation).not.toHaveBeenCalled();
     expect(aiService.generateLifetimeV2Interpretation).not.toHaveBeenCalled();
@@ -315,6 +420,8 @@ describe('AI Failure Graceful Degradation', () => {
     expect(savedReadingData.aiModel).toBe('cached');
   });
 
+  // HEALTH: a V2 type is now refused BEFORE the engine call, so this would
+  // assert against STREAM_REQUIRED instead of the engine failure it exists for.
   it('should handle Bazi engine failure with InternalServerError', async () => {
     mockFetch.mockResolvedValue({
       ok: false,
@@ -329,7 +436,7 @@ describe('AI Failure Graceful Degradation', () => {
     await expect(
       service.createReading('clerk_user_1', {
         birthProfileId: 'profile-1',
-        readingType: ReadingType.LIFETIME,
+        readingType: ReadingType.HEALTH,
       }),
     ).rejects.toThrow('Bazi calculation failed');
 

@@ -75,7 +75,16 @@ export function setup() {
 export default function (data) {
   const res = http.post(
     `${API}/api/bazi/readings`,
-    JSON.stringify({ birthProfileId: data.profileId, readingType: 'LIFETIME' }),
+    // ⚠️ `stream: true` is REQUIRED, not a preference. A V2 type requested
+    // inline is refused with STREAM_REQUIRED, which would make `spent` 0 on
+    // every run and fail BOTH hard checks for ever — silently retiring the
+    // double-charge gate this scenario exists to be.
+    //
+    // It still tests exactly what it must: with stream:true the 3 credits are
+    // deducted inside the same $transaction in the POST, so the herd still
+    // races the reading:create lock and the in-flight carve-out. It also no
+    // longer depends on a working AI, and it is fast.
+    JSON.stringify({ birthProfileId: data.profileId, readingType: 'LIFETIME', stream: true }),
     {
       headers: headers(data.token),
       // Generation is inline and takes ~145s. The default 60s abandons the

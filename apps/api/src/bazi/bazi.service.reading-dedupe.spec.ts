@@ -124,7 +124,11 @@ describe('BaziService.createReading — dedupe', () => {
   ])('does NOT reuse a %s row — it creates a fresh one', async (_label, over) => {
     const svc = build(completeRow(over));
 
-    await svc.createReading('clerk-1', dto);
+    // streamDto, not dto: a V2 type requested INLINE is now refused with
+    // STREAM_REQUIRED before it can create anything, and a real client always
+    // sends stream:true for LIFETIME. What this test asserts — falls through
+    // the reuse branch, creates a fresh row — is unchanged.
+    await svc.createReading('clerk-1', streamDto);
 
     // a broken row is what regenerate/retry exists to replace, not something to serve
     expect(createReading).toHaveBeenCalled();
@@ -239,10 +243,11 @@ describe('BaziService.createReading — dedupe', () => {
     );
   });
 
+  // streamDto for the same reason as above: inline V2 is refused at admission.
   it('creates normally when the user has no prior reading', async () => {
     const svc = build(null);
 
-    await svc.createReading('clerk-1', dto);
+    await svc.createReading('clerk-1', streamDto);
 
     expect(createReading).toHaveBeenCalled();
     expect(deductCredits).toHaveBeenCalledTimes(1);

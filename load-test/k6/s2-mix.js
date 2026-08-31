@@ -28,9 +28,10 @@
  * doing something other than AI work. Each cause is a property of the system,
  * not a typo, so they are documented at their call sites:
  *
- *   - `POST /api/bazi/readings` CHARGES but does not generate. Generation is
- *     driven by `@Sse('readings/:id/stream')`. The arm posted and moved on, so
- *     rows appeared with `aiProvider: null` and no interpretation.
+ *   - `POST /api/bazi/readings` CHARGES but does not generate — TRUE AGAIN as
+ *     of the STREAM_REQUIRED change, because the arm now sends `stream: true`.
+ *     Generation is driven by `@Sse('readings/:id/stream')`, which is the only
+ *     hop worth timing as an AI call.
  *   - `POST /api/chat/sessions` is throttled at 5 per HOUR per user. Creating a
  *     session per iteration burned all 90 users' quota inside two minutes; the
  *     rest of the run was 429s.
@@ -211,14 +212,19 @@ function reading(token, profileId) {
   // Step 1 CHARGES and returns a row. It does NOT generate — verified against
   // production: a row created by this call alone has aiProvider=null, no
   // interpretation, isDegraded=false, and stays that way indefinitely.
+  // ⚠️ `stream: true` is REQUIRED. A V2 type requested inline is refused with
+  // STREAM_REQUIRED — without this the entire reading arm 400s.
   const res = post('/api/bazi/readings', token, {
     birthProfileId: profileId,
     readingType,
+    stream: true,
   }, tags, AI_TIMEOUT);
-  // ⚠️ THE POST is the expensive hop — generation is INLINE. Recording only the
-  // stream below measured a ~200ms cache read of work the POST had already
-  // done, so an 80-second call was invisible to every metric in the summary.
-  recordAiCall(res.timings.duration, tags);
+  // ⚠️ Deliberately NOT recorded as an AI call. With stream:true the POST is a
+  // ~1-3s non-AI call that creates and charges the row; the generation happens
+  // on the SSE below. Feeding these sub-second samples into ai_call_duration
+  // would drag its percentiles down and make an L5 threshold look healthier
+  // than it is. (This line was correct while the POST generated inline — that
+  // stopped being true when STREAM_REQUIRED landed.)
   if (res.status !== 201 && res.status !== 200) return;
 
   let id = null;

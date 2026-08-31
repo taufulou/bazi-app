@@ -5,6 +5,7 @@ import {
   ConflictException,
   Logger,
   InternalServerErrorException,
+  ServiceUnavailableException,
   HttpException,
   type MessageEvent,
 } from '@nestjs/common';
@@ -345,6 +346,49 @@ export class BaziService {
       dto.readingType,
     );
 
+    // Streaming path: V2 reading types + stream=true + no cache → skip AI, return streamReady
+    const isV2Reading = dto.readingType === ReadingType.LIFETIME
+      || dto.readingType === ReadingType.CAREER
+      || dto.readingType === ReadingType.ANNUAL
+      || dto.readingType === ReadingType.LOVE;
+    const isStreamingRequest = dto.stream === true
+      && isV2Reading
+      && !cachedInterpretation;
+
+    // A V2 reading cannot be generated inline. Measured on production
+    // 2026-08-31: a LIFETIME generation takes ~180s, while the inline path is
+    // bounded by AI_CALL_TIMEOUT_MS — 60s at all four inline V2 call sites,
+    // none of which fall back to AI_STREAM_TIMEOUT_MS the way the streaming
+    // path does. So the attempt aborts EVERY time ("All AI providers failed.
+    // Last error: Request was aborted."), and six runs landed within 0.2s of
+    // each other because it is a stopwatch, not a flaky upstream.
+    //
+    // Refuse at admission rather than raising the timeout. A doomed attempt
+    // still drives 60s of generation upstream before we hang up — and note our
+    // OWN ledger never sees it, because AiSpendService.record() only runs once
+    // usage comes back, so an aborted call is invisible to `dayUsd` whether or
+    // not Anthropic bills it. (Unverified either way; treat the cost as
+    // upstream capacity at minimum.) A synchronous POST that blocks for 3+
+    // minutes is also the wrong shape regardless, and rejecting is robust to
+    // whatever the six timeout sites are set to.
+    //
+    // ⚠️ PLACEMENT IS LOAD-BEARING, both edges:
+    //   • AFTER the reuse branch above — a caller re-fetching an existing
+    //     complete V2 reading POSTs without `stream` and is served there.
+    //     Checking earlier would 400 every re-fetch.
+    //   • BEFORE callBaziEngine below — otherwise a rejected request still
+    //     burns ~30s of engine + pre-analysis, and "fails at admission" stops
+    //     being true.
+    // ⚠️ A 400 rather than silently upgrading to streaming: the response shape
+    // differs (streamReady + deterministic vs a completed reading), so a quiet
+    // switch would break a caller reading the result field.
+    if (isV2Reading && !isStreamingRequest && !cachedInterpretation) {
+      throw new BadRequestException({
+        code: 'STREAM_REQUIRED',
+        message: '此類型分析需使用串流模式，請以 stream: true 建立後讀取串流。',
+      });
+    }
+
     // Call Python Bazi engine for calculation
     let calculationData: Record<string, unknown>;
     try {
@@ -354,15 +398,6 @@ export class BaziService {
       this.logger.error(`Bazi engine call failed: ${message}`);
       throw new InternalServerErrorException('Bazi calculation failed. Please try again.');
     }
-
-    // Streaming path: V2 reading types + stream=true + no cache → skip AI, return streamReady
-    const isV2Reading = dto.readingType === ReadingType.LIFETIME
-      || dto.readingType === ReadingType.CAREER
-      || dto.readingType === ReadingType.ANNUAL
-      || dto.readingType === ReadingType.LOVE;
-    const isStreamingRequest = dto.stream === true
-      && isV2Reading
-      && !cachedInterpretation;
 
     // Generate AI interpretation (or use cache)
     let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
@@ -472,8 +507,30 @@ export class BaziService {
         if (isSelfRefusal(err)) throw err;
         const message = err instanceof Error ? err.message : 'Unknown error';
         this.logger.error(`AI interpretation failed: ${message}`);
-        // Don't fail the reading — return calculation without AI
-        // The frontend can request AI interpretation later
+
+        // ⚠️ THROW. This used to swallow, with the comment "Don't fail the
+        // reading — return calculation without AI / The frontend can request
+        // AI interpretation later". Execution then reached the $transaction
+        // below and charged full price for a row with `aiInterpretation: null`,
+        // `aiProvider: null`, and NEITHER `isDegraded` NOR `failedReason` set —
+        // so the refund path never saw it and no alert fired. Measured on
+        // production: 3 credits taken, nothing delivered, reported as success.
+        //
+        // The AI call happens BEFORE the $transaction opens, so throwing here
+        // means no row and no deduction, with no rollback to reason about. The
+        // `reading:create:` lock is released by this method's own finally.
+        //
+        // This is the house pattern: `_recalculateComparison` throws
+        // 「合盤分析更新失敗，未扣除點數，請稍後再試。」 for the same class of
+        // failure. `createReading` was the outlier.
+        //
+        // Cost accepted: the chart is no longer returned on AI failure, and no
+        // client currently falls back to the calculate endpoint. That is
+        // strictly better than today's empty reading the user paid for.
+        throw new ServiceUnavailableException({
+          code: 'AI_CALL_FAILED',
+          message: '分析產生失敗，未扣除點數，請稍後再試。',
+        });
       }
     }
     // else: streaming request — aiInterpretation stays null, will be populated by SSE endpoint
@@ -481,7 +538,20 @@ export class BaziService {
     // Cache hit: no credit deduction (user already paid for this interpretation)
     // Regular: deduct service.creditCost credits
     const fromCache = !!cachedInterpretation;
-    const creditsUsed = fromCache ? 0 : service.creditCost;
+
+    // ⚠️ ONE expression drives BOTH the persisted column and the deduction.
+    // They live in different places — the column here, the guard inside the
+    // transaction — and an earlier draft of this fix changed only the guard,
+    // which would have written a row claiming `creditsUsed: 3` while the ledger
+    // recorded nothing, breaking `sum(CreditLedger.amount) == User.credits` and
+    // mis-rendering the history receipt.
+    //
+    // Streaming charges up front and refunds on failure (unchanged, and now
+    // visibly intentional). A non-streaming request without an interpretation
+    // is unreachable after the throw above; this is the structural backstop, so
+    // the bug cannot return by a different route.
+    const chargeable = !fromCache && (isStreamingRequest || !!aiInterpretation);
+    const creditsUsed = chargeable ? service.creditCost : 0;
 
     const reading = await this.prisma.$transaction(async (tx) => {
       // Create reading first so we have an id to attach to the credit ledger.
@@ -500,7 +570,7 @@ export class BaziService {
           targetYear: dto.targetYear,
         },
       });
-      if (!fromCache) {
+      if (chargeable) {
         await this.creditsService.deductCredits(
           user.id,
           service.creditCost,
@@ -797,6 +867,12 @@ export class BaziService {
     const user = await this.prisma.user.findUnique({ where: { clerkUserId } });
     if (!user) throw new NotFoundException('User not found');
 
+    // ⚠️ DO NOT add a narrowing `select` here. The payment gates below read
+    // `refundedAt`, `aiInterpretation` and `creditsUsed`; a `select` that omits
+    // any of them yields `undefined`, and `undefined === 0` is false — which
+    // would silently stop a PAYMENT GATE from firing. (The mirror of the trap
+    // documented at `getReading`, where `=== null` on a `DateTime?` would have
+    // paywalled every paying customer.)
     const reading = await this.prisma.baziReading.findFirst({
       where: { id: readingId, userId: user.id },
       include: { birthProfile: true },
@@ -830,6 +906,32 @@ export class BaziService {
       throw new BadRequestException({
         code: 'READING_REFUNDED',
         message: '此分析已退款，點數已退回。請重新建立一次分析。',
+      });
+    }
+
+    // 1c. NEVER-PAID GATE. `refundedAt` above only catches a reading that WAS
+    // charged and then given back. It does not catch one that was never charged
+    // at all — and this route has no charge of its own, so it relies entirely on
+    // `createReading` having taken payment. A row with no interpretation and no
+    // charge therefore falls straight through to the full V2 generation below
+    // and is delivered FREE, at real Anthropic cost, with `getReading`'s
+    // `isEntitled = !refundedAt` then serving the complete report rather than a
+    // preview. One 3-credit balance would yield unlimited readings.
+    //
+    // ⚠️ Truthiness on the interpretation, matching `!reading.refundedAt` above
+    // and the trap documented at `getReading`.
+    // ⚠️ The interpretation conjunct is what keeps legitimate CACHE HITS out —
+    // those are also `creditsUsed: 0`, but always carry an interpretation, so a
+    // bare `creditsUsed === 0` here would refuse readings the user already paid
+    // for once. Gate on "never paid AND nothing generated", never on the zero.
+    if (!reading.aiInterpretation && reading.creditsUsed === 0) {
+      this.logger.warn(
+        `[Stream] REFUSED never-charged reading=${readingId} user=${user.id} ` +
+        `(creditsUsed=0, no interpretation) — would have generated for free`,
+      );
+      throw new BadRequestException({
+        code: 'READING_NOT_PAID',
+        message: '此分析未完成付款，請重新建立一次分析。',
       });
     }
 
