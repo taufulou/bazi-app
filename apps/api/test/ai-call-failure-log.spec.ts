@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { HttpException } from '@nestjs/common';
 import { classifyAiError } from '../src/ai/ai-call-log';
 import { AIService } from '../src/ai/ai.service';
@@ -194,4 +196,43 @@ describe('_streamProviderInner — how the stream ENDED', () => {
       outcome: 'error', errorKind: 'rate_limit',
     });
   });
+});
+
+/**
+ * Completeness sweep across the streaming sites.
+ *
+ * Only the DAILY fortune branch and the chat branch are proven by execution
+ * (their specs have an Anthropic-throws test to hang the assertion on).
+ * Monthly and yearly are byte-identical apart from the context string, and
+ * writing two more near-identical stream harnesses buys less than an invariant
+ * that catches the real risk: a site wired HALF way, or a new one added with a
+ * `record` and no failure branch.
+ *
+ * The invariant is countable — every `hasUsage(streamUsage)` guard exists
+ * precisely to skip `record()` when there is nothing to price, so every one of
+ * them needs a matching failure branch or that path goes dark again.
+ */
+describe('every hasUsage-guarded streaming site has a failure branch', () => {
+  const SITES = [
+    'src/chat/chat-stream.service.ts',
+    'src/fortune/fortune-stream.service.ts',
+  ];
+
+  for (const rel of SITES) {
+    it(`${rel} — one recordFailure per hasUsage guard`, () => {
+      const src = readFileSync(join(__dirname, '..', rel), 'utf8');
+      const guards = src.match(/if \(hasUsage\(streamUsage\)\)/g)?.length ?? 0;
+      const failures = src.match(/this\.aiSpend\.recordFailure\(/g)?.length ?? 0;
+      // Non-zero, or the assertion passes vacuously on a file that lost both.
+      expect(guards).toBeGreaterThan(0);
+      expect(failures).toBe(guards);
+    });
+
+    it(`${rel} — every guarded site marks the outcome on the success path too`, () => {
+      const src = readFileSync(join(__dirname, '..', rel), 'utf8');
+      const guards = src.match(/if \(hasUsage\(streamUsage\)\)/g)?.length ?? 0;
+      const outcomes = src.match(/outcome: aiCallError === undefined \? 'ok' : 'error'/g)?.length ?? 0;
+      expect(outcomes).toBe(guards);
+    });
+  }
 });

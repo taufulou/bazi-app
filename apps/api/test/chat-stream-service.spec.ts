@@ -79,6 +79,8 @@ describe('ChatStreamService', () => {
   let mockPaymentService: any;
   let mockContextService: any;
   let mockValidators: any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let mockAiSpend: any;
   let service: ChatStreamService;
   let mockAnthropicStream: jest.Mock;
 
@@ -163,6 +165,11 @@ describe('ChatStreamService', () => {
       shouldJudge: jest.fn().mockReturnValue(false),
     };
 
+    // Ob1 #14 — hoisted so tests can assert the zero-usage failure line is
+    // actually emitted. `recordFailure` is what makes a stream that died before
+    // its first token visible at all; before it, that path logged nothing.
+    mockAiSpend = { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() };
+
     service = new ChatStreamService(
       mockPrisma,
       mockConfig,
@@ -170,11 +177,7 @@ describe('ChatStreamService', () => {
       mockPaymentService,
       mockContextService,
       mockValidators,
-      // `recordFailure` is Ob1 #14 — the zero-usage failure line. Three tests
-      // below reach it (lock error, client disconnect, Anthropic error), which
-      // is the coverage that matters: those are the paths that used to emit
-      // nothing at all.
-      { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never,
+      mockAiSpend as never,
       { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       new ShutdownService(),
@@ -555,6 +558,18 @@ describe('ChatStreamService', () => {
       const errorEvent = res.events.find((e: any) => e.type === 'error') as any;
       expect(errorEvent.code).toBe('AI_CALL_FAILED');
       expect(errorEvent.refunded).toBe(true);
+
+      // Ob1 #14 — the whole point. This stream threw BEFORE its first yield, so
+      // there is no usage to price and `record()` is skipped; without
+      // `recordFailure` the call left no AI-CALL line at all and the only trace
+      // in the log was the refund. Assert the wiring, not just the helper.
+      expect(mockAiSpend.record).not.toHaveBeenCalled();
+      expect(mockAiSpend.recordFailure).toHaveBeenCalledTimes(1);
+      expect(mockAiSpend.recordFailure.mock.calls[0][0]).toMatchObject({
+        provider: 'CLAUDE',
+        context: 'chat:stream',
+        error: expect.any(Error),
+      });
       expect(errorEvent.refundMethod).toBe('FREE_QUOTA');
 
       // Original errorCode set BEFORE refund (preserves audit trail)
