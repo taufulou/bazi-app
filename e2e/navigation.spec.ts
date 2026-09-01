@@ -92,22 +92,4 @@ test.describe('Navigation - Public API Routes', () => {
     expect(response.status()).not.toBe(404);
   });
 
-  test('ZWDS calculate API route responds', async ({ request }) => {
-    const response = await request.post('/api/zwds-calculate', {
-      data: {
-        birthDate: '1990-1-15',
-        birthTime: '08:00',
-        gender: 'male',
-      },
-    });
-
-    // Should return 200 with chart data (iztro is Node.js, no external engine needed)
-    expect(response.status()).toBe(200);
-
-    const data = await response.json();
-    // Should have palaces array (ZWDS chart structure)
-    expect(data).toHaveProperty('palaces');
-    expect(Array.isArray(data.palaces)).toBe(true);
-    expect(data.palaces.length).toBe(12);
-  });
 });

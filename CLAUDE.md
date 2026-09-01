@@ -33,14 +33,22 @@ AI-powered Bazi (八字) fortune-telling SaaS platform. Two-layer architecture: 
 >   `BAZI_CREATABLE_READING_TYPES` (see the security section).
 > - `section-unlock`'s `'zwds'` — removing it would make those paid sections
 >   permanently unlockable.
-> - `POST /api/zwds-calculate` (Next.js route) — unauthenticated in-process iztro
->   calc. ⚠️ Kept as "same class as `bazi-calculate`"; **M10 ended that
->   equivalence**. `bazi-calculate` now proxies to NestJS and is throttled and
->   optionally authenticated; `zwds-calculate` is still a raw unauthenticated,
->   unthrottled iztro call in a route handler. It does NOT touch the Python
->   engine, so it never blocked B3-b — but it is now the ONLY calc route with
->   nothing in front of it, and should be judged on its own merits rather than
->   by analogy to a sibling that has since moved.
+>
+> **`POST /api/zwds-calculate` was DELETED 2026-09-01** — it had been kept as
+> "same class as `bazi-calculate`", but M10 ended that equivalence and the route
+> was left as the only calc endpoint with nothing in front of it: no auth, no
+> throttle, and a synchronous `iztro` call on the **Next.js web server**, whose
+> single-threaded event loop also serves every page including sign-in. A flood
+> there was a whole-site outage, not a degraded feature — for a product that no
+> longer exists. Deleting beat rate-limiting: it removed the code, the `iztro`
+> dependency, and the recurring audit burden in one move.
+>
+> ⚠️ **The `zwds-*` slugs STAY in `VALID_TYPES`** (`apps/web/app/reading/[type]/page.tsx`).
+> Removing them is what would break the two paid `ZWDS_LIFETIME` readings — the
+> `?id=` path renders them from `reading.calculationData` in the DB (`:509`, and
+> the retry at `:989`) and never called the deleted route. A `zwds-*` page now
+> serves a form that refuses on submit with the existing 已停用 error, before
+> doing any work.
 >
 > Reading types are now **6 Bazi + 2 special**, not 18.
 
@@ -3583,11 +3591,10 @@ App-wide "signed-out → auto-redirect to `/sign-in?redirect_url=<current>`" mec
 
 ### Follow-up (separate PR, OUT OF SCOPE here)
 - Update/skip the now-broken signed-out E2E tests (the 8 above + the standalone anon specs landing/pricing/reading-page/free-reading/credit-store). Playwright suite is NOT in CI / not all-green on main.
-- Protect-or-remove the still-public calc API endpoints. Post-M10 only
-  **`/api/zwds-calculate`** is genuinely unprotected — `/api/bazi-calculate` and
-  `/api/explain-element` proxy to throttled NestJS routes now. Stateless with no
-  sensitive data, so still a deliberate keep; the open item is a rate limit on
-  the one route that has none.
+- ✅ **DONE 2026-09-01** — the calc endpoints are settled. `/api/zwds-calculate`
+  was DELETED (see the ZWDS banner at the top of this file); `/api/bazi-calculate`
+  and `/api/explain-element` proxy to throttled NestJS routes. No public calc
+  route is left without something in front of it.
 
 ### Files (11)
 NEW: `apps/web/app/components/SignedOutRedirect.tsx`, `apps/web/app/lib/auth-redirect.ts`. MODIFIED: `app/layout.tsx` (mount), `middleware.ts` (lockdown), `app/lib/api.ts` + `chat-api.ts` + `fortune-api.ts` (401 wiring), `app/reading/compatibility/page.tsx` (+`.module.css`), `app/reading/[type]/page.tsx`, `app/reading/fortune/page.tsx` (interstitials).
@@ -4482,8 +4489,16 @@ chat that ~10k-token cached system block at the 2× write rate is most of the tu
   the local DB, it is not the password.
 - The dev DB password was rotated 2026-08-15; `.env.example` now carries `CHANGE_ME`. **Never paste
   a real value there** — it is committed.
-- **The eslint suppressions ratchet (`apps/api/eslint-suppressions.json`) is two-sided**: it fails if
-  a count rises *and* if it falls without re-pinning. `--prune-suppressions` clears stale entries.
+- **The eslint suppressions ratchet is two-sided**: it fails if a count rises *and* if it falls
+  without re-pinning. `--prune-suppressions` clears stale entries. ⚠️ **There are TWO of these** —
+  `apps/api/eslint-suppressions.json` AND `apps/web/eslint-suppressions.json` (25 files). The web one
+  is easy to misread: suppressions are a **count per file+rule**, so when your change adds one new
+  violation, ESLint reports *every* violation of that rule in that file — the pre-existing ones
+  included. A three-error report can be one error of yours plus two that were always there and
+  suppressed. Diff against the pristine file before assuming you broke three things.
+  ⚠️ **And `turbo run lint` CACHES.** A green "5 successful" can be 5 cache hits that never executed
+  eslint. Use `turbo run lint --force` when the result is load-bearing, and check the `Cached:` line —
+  `0 cached` is the only proof it actually ran.
 - **⚠️ `npm audit fix` must NOT be run from a worktree** — `node_modules` is a symlink into main, so
   the install writes through it and mutates main.
 
