@@ -1,5 +1,9 @@
 import { BaziService } from './bazi.service';
-import { AIService, AI_MAX_TOTAL_TIME_MS } from '../ai/ai.service';
+import {
+  AIService,
+  AI_MAX_TOTAL_TIME_MS,
+  AI_GENERATION_BOUND_FALLBACK_MS,
+} from '../ai/ai.service';
 
 /**
  * Anything held for the duration of an AI generation must be sized from the
@@ -30,6 +34,7 @@ describe('generation wall-clock bounds', () => {
     Object.assign(svc, {
       configService: cfg(values),
       providers: Array.from({ length: providerCount }, () => ({})),
+      logger: { error: jest.fn(), warn: jest.fn(), log: jest.fn() },
     });
     return svc;
   }
@@ -69,6 +74,50 @@ describe('generation wall-clock bounds', () => {
     it('never returns 0 when no provider is configured', () => {
       expect(ai({ AI_COMPAT_V2_TIMEOUT_MS: '300000' }, 0).getMaxCompatGenerationMs())
         .toBe(300_000);
+    });
+  });
+
+  describe('malformed timeout env vars', () => {
+    // Deriving the TTLs introduced a failure mode the hardcoded literals did
+    // not have: parseInt('abc') is NaN, and the result is handed to Redis as an
+    // expiry. On the compat path the lock sits AFTER the credit charge, so this
+    // would charge 3 credits and then 500 — charged-but-empty, from a typo.
+    it('never yields a non-finite bound from a garbage stream timeout', () => {
+      const svc = ai({ AI_STREAM_TIMEOUT_MS: 'not-a-number' });
+      const bound = svc.getMaxStreamedGenerationMs();
+      expect(Number.isFinite(bound)).toBe(true);
+      expect(bound).toBe(AI_GENERATION_BOUND_FALLBACK_MS);
+      expect(Number.isFinite(Math.ceil(bound / 1000) + 60)).toBe(true);
+    });
+
+    it('never yields a non-finite bound from a garbage compat timeout', () => {
+      const svc = ai({ AI_COMPAT_V2_TIMEOUT_MS: 'oops' });
+      expect(svc.getMaxCompatGenerationMs()).toBe(AI_GENERATION_BOUND_FALLBACK_MS);
+    });
+
+    it('fails WIDE, not narrow — a short fallback is the expensive direction', () => {
+      const svc = ai({ AI_STREAM_TIMEOUT_MS: 'x' });
+      expect(svc.getMaxStreamedGenerationMs()).toBeGreaterThan(AI_MAX_TOTAL_TIME_MS);
+    });
+
+    it('logs at error level so a config typo stays visible', () => {
+      const svc = ai({ AI_STREAM_TIMEOUT_MS: 'x' });
+      svc.getMaxStreamedGenerationMs();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((svc as any).logger.error).toHaveBeenCalled();
+    });
+
+    it('treats a ZERO bound as malformed too — a 0s TTL expires instantly', () => {
+      // Reachable: AI_COMPAT_V2_TIMEOUT_MS=0 makes providers x timeout = 0.
+      expect(ai({ AI_COMPAT_V2_TIMEOUT_MS: '0' }, 3).getMaxCompatGenerationMs())
+        .toBe(AI_GENERATION_BOUND_FALLBACK_MS);
+    });
+
+    it('leaves a VALID configuration untouched', () => {
+      const svc = ai({ AI_STREAM_TIMEOUT_MS: '300000' });
+      expect(svc.getMaxStreamedGenerationMs()).toBe(AI_MAX_TOTAL_TIME_MS + 300_000);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((svc as any).logger.error).not.toHaveBeenCalled();
     });
   });
 

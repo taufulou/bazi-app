@@ -111,6 +111,13 @@ export const AI_MAX_RETRIES_PER_PROVIDER = 2;
  * to avoid silent budget waste. Common defaults: nginx=60s,
  * Cloudflare=100s (Pro/Free) / unlimited (Enterprise), Vercel=300s (Pro).
  */
+/**
+ * Fallback wall-clock bound used when a timeout env var is malformed, in ms.
+ * Wider than any real generation — see `safeBoundMs` for why wide is the safe
+ * direction for a value that sizes a lock.
+ */
+export const AI_GENERATION_BOUND_FALLBACK_MS = 1_800_000;
+
 export const AI_MAX_TOTAL_TIME_MS = parseInt(
   process.env.MAX_TOTAL_AI_TIME_MS ?? '900000', // 15 min default
   10,
@@ -290,7 +297,10 @@ export class AIService implements OnModuleInit {
    * the per-call timeout alone.
    */
   getMaxStreamedGenerationMs(): number {
-    return AI_MAX_TOTAL_TIME_MS + this.getStreamTimeoutMs();
+    return this.safeBoundMs(
+      AI_MAX_TOTAL_TIME_MS + this.getStreamTimeoutMs(),
+      'getMaxStreamedGenerationMs',
+    );
   }
 
   /**
@@ -303,7 +313,35 @@ export class AIService implements OnModuleInit {
    * providers x per-call timeout.
    */
   getMaxCompatGenerationMs(): number {
-    return Math.max(1, this.providers.length) * this.getCompatTimeoutMs();
+    return this.safeBoundMs(
+      Math.max(1, this.providers.length) * this.getCompatTimeoutMs(),
+      'getMaxCompatGenerationMs',
+    );
+  }
+
+  /**
+   * Guard the derived bounds against a malformed timeout env var.
+   *
+   * ⚠️ This exists because DERIVING the TTLs introduced a failure mode the
+   * hardcoded literals did not have. `parseInt('abc', 10)` is NaN, NaN
+   * propagates through the arithmetic, and the result is handed to
+   * `redis.acquireLock` as an expiry — where Redis rejects it. On the compat
+   * path that lock sits AFTER `_chargeForReveal`, so a single typo in
+   * AI_COMPAT_V2_TIMEOUT_MS would charge 3 credits and then 500: the
+   * charged-but-empty shape again, this time from config rather than code.
+   *
+   * Fail CLOSED, which for a lock means WIDE — a bound that is too large only
+   * delays a retry after a crash, while a missing one costs money. Logged at
+   * error level because a config typo must stay visible, not be absorbed.
+   */
+  private safeBoundMs(value: number, label: string): number {
+    if (Number.isFinite(value) && value > 0) return value;
+    this.logger.error(
+      `${label} resolved to ${value} — check MAX_TOTAL_AI_TIME_MS / ` +
+      `AI_STREAM_TIMEOUT_MS / AI_CALL_TIMEOUT_MS / AI_COMPAT_V2_TIMEOUT_MS. ` +
+      `Falling back to ${AI_GENERATION_BOUND_FALLBACK_MS}ms.`,
+    );
+    return AI_GENERATION_BOUND_FALLBACK_MS;
   }
 
   /**

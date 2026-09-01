@@ -3992,6 +3992,13 @@ It derives from a hard 90s per-stream timeout plus a 60s watchdog, and chat has
 no retry/fallback budget — so there the naive "TTL > per-call timeout" reasoning
 genuinely holds. Don't "fix" it by analogy.
 
+⚠️ **Deriving a value can put `parseInt` output somewhere a literal never
+was.** These TTLs now flow into `redis.acquireLock`, so a malformed timeout env
+var (NaN) would be handed to Redis as an expiry it rejects — and on the compat
+path the lock sits AFTER the credit charge, making one typo charge 3 credits and
+then 500. `AIService.safeBoundMs` fails CLOSED to a wide fallback and logs at
+error level. Any future derived TTL must go through it.
+
 ⚠️ **`redis.acquireLock` stores a constant `'1'`, with no ownership token**, and
 `releaseLock` is a bare `DEL`. A holder whose lock expired therefore deletes its
 SUCCESSOR's lock, and safe renewal is impossible. Correcting the TTLs removes
