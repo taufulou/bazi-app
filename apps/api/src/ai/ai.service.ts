@@ -247,6 +247,65 @@ export class AIService implements OnModuleInit {
     }
   }
 
+  // ============================================================
+  // Generation wall-clock bounds
+  //
+  // ⚠️ A per-call timeout is NOT how long a generation can run, and mistaking
+  // one for the other is the bug these exist to close. Anything that holds a
+  // resource for the duration of a generation — a Redis lock, above all — must
+  // size itself from the methods below, never from AI_STREAM_TIMEOUT_MS or
+  // AI_COMPAT_V2_TIMEOUT_MS directly.
+  //
+  // Contrast `chat-stream.service.ts`, whose 150s lock IS correctly derived
+  // from its per-call timeout (90s) plus its watchdog (60s). That reasoning is
+  // sound there because chat has a hard per-stream timeout and NO retry or
+  // provider-fallback budget. The reading paths have both, so it fails here.
+  // ============================================================
+
+  /** Per-call timeout for the V2 reading stream path. */
+  private getStreamTimeoutMs(): number {
+    return parseInt(
+      this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
+      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '180000',
+      10,
+    );
+  }
+
+  /** Per-call timeout for the compatibility reveal path. */
+  private getCompatTimeoutMs(): number {
+    return parseInt(
+      this.configService.get<string>('AI_COMPAT_V2_TIMEOUT_MS') || '300000',
+      10,
+    );
+  }
+
+  /**
+   * Worst-case wall clock for ONE streamed V2 reading generation, in ms.
+   *
+   * AI_MAX_TOTAL_TIME_MS gates the START of each attempt — the Call 1 and
+   * Call 2 retry loops `break` at the top when the budget is spent — rather
+   * than aborting an attempt in flight. So an attempt admitted a millisecond
+   * under the budget still runs a further full per-call timeout on top of it.
+   * The bound is budget + one call timeout, never the budget alone and never
+   * the per-call timeout alone.
+   */
+  getMaxStreamedGenerationMs(): number {
+    return AI_MAX_TOTAL_TIME_MS + this.getStreamTimeoutMs();
+  }
+
+  /**
+   * Worst-case wall clock for ONE compatibility reveal generation, in ms.
+   *
+   * `generateCompatibilityRomanceV2` fires its 3 calls in PARALLEL, so one
+   * per-call timeout covers all three — but it retries the whole set against
+   * each configured provider in turn, and that loop carries NO budget check.
+   * AI_MAX_TOTAL_TIME_MS therefore does not apply, and the bound is
+   * providers x per-call timeout.
+   */
+  getMaxCompatGenerationMs(): number {
+    return Math.max(1, this.providers.length) * this.getCompatTimeoutMs();
+  }
+
   /**
    * Initialize SDK clients once at startup — avoids re-importing and re-instantiating per request.
    */
@@ -1135,11 +1194,7 @@ export class AIService implements OnModuleInit {
     } = opts;
 
     const totalStartMs = Date.now();
-    const timeoutMs = parseInt(
-      this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
-      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '180000',
-      10,
-    );
+    const timeoutMs = this.getStreamTimeoutMs();
 
     if (this.providers.length === 0) {
       throw new Error('No AI providers configured');
@@ -4554,10 +4609,7 @@ export class AIService implements OnModuleInit {
     }
 
     // Compatibility V2 uses 3 parallel AI calls — needs longer per-call timeout
-    const timeoutMs = parseInt(
-      this.configService.get<string>('AI_COMPAT_V2_TIMEOUT_MS') || '300000',  // 5 minutes
-      10,
-    );
+    const timeoutMs = this.getCompatTimeoutMs();
 
     const { systemPrompt, call1User, call2User, call3User } =
       this.buildCompatibilityRomanceV2Prompts(calculationData);

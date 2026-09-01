@@ -33,21 +33,13 @@ import { ShutdownService } from '../common/shutdown.service';
 const COMPATIBILITY_FALLBACK_CREDIT_COST = 3;
 
 /**
- * How long a reading row with no interpretation is presumed to still be
- * GENERATING rather than abandoned.
+ * Safety margin added to every derived generation bound, in seconds.
  *
- * A row on its first generation ({aiInterpretation: null, regenerationCount: 0})
- * is byte-identical to one whose generation died, so age is the only signal that
- * separates them. Set above `AI_STREAM_TIMEOUT_MS` (300s, `ai.service.ts`) plus
- * headroom for the retry/provider-fallback chain, because anything still inside
- * that window could legitimately still be writing.
- *
- * Too LOW and a concurrent create during a slow generation charges the user a
- * second time; too HIGH and a genuinely dead row can't be replaced by a fresh
- * create until it ages out (the user can still use Regenerate, which has its own
- * path). The money error is the worse one, so this errs high.
+ * The bounds from `AIService` cover the AI calls only. A lock is held across
+ * the surrounding work too — the Python engine call, the DB reads and writes,
+ * SSE setup — so the margin covers that envelope.
  */
-const FIRST_GENERATION_INFLIGHT_MS = 360_000;
+const GENERATION_LOCK_MARGIN_SECONDS = 60;
 
 
 /**
@@ -299,7 +291,7 @@ export class BaziService {
         // drops createdAt, fall back to the pre-fix behaviour (treat as not in
         // flight) instead of throwing inside the create path.
         Date.now() - (reusable.createdAt?.getTime() ?? 0) <
-          FIRST_GENERATION_INFLIGHT_MS;
+          this.firstGenerationInFlightMs();
 
       if (isComplete) {
         // ⚠️ `fromCache: true` is a live client contract — web
@@ -337,7 +329,7 @@ export class BaziService {
       // Otherwise fall through: a degraded / refunded / long-abandoned row is
       // what `regenerateBaziReading` exists to replace, not something to serve.
       // "Long-abandoned" is the key word — a row younger than
-      // FIRST_GENERATION_INFLIGHT_MS is caught by the branch above instead.
+      // `firstGenerationInFlightMs()` is caught by the branch above instead.
     }
 
     // Check cache for existing interpretation
@@ -856,6 +848,35 @@ export class BaziService {
     });
   }
 
+  /**
+   * How long a reading row with no interpretation is presumed to still be
+   * GENERATING rather than abandoned.
+   *
+   * A row on its first generation ({aiInterpretation: null, regenerationCount: 0})
+   * is byte-identical to one whose generation died, so age is the only signal
+   * that separates them.
+   *
+   * ⚠️ DERIVED, and it was previously a hardcoded 360_000 justified as
+   * "above AI_STREAM_TIMEOUT_MS (300s) plus headroom" — the same wrong constant
+   * that under-sized the stream lock. A generation can legitimately run to
+   * AI_MAX_TOTAL_TIME_MS plus one more call timeout, so between 360s and that
+   * bound a STILL-RUNNING generation was being read as abandoned, the reuse
+   * branch was skipped, and the user was charged a SECOND time for a reading
+   * already in progress. That is the exact failure the old docblock said it
+   * wanted to err against.
+   *
+   * This pairs with the per-reading lock in `_setupStream` (see the note at the
+   * `isFirstGenerationInFlight` site): this one stops the duplicate row and the
+   * second charge, that one stops the duplicate generation. They are one
+   * mechanism and must be sized from the same bound.
+   */
+  private firstGenerationInFlightMs(): number {
+    return (
+      this.aiService.getMaxStreamedGenerationMs() +
+      GENERATION_LOCK_MARGIN_SECONDS * 1000
+    );
+  }
+
   private async _setupStream(
     clerkUserId: string,
     readingId: string,
@@ -964,10 +985,28 @@ export class BaziService {
     // `updateMany` on `regenerationCount` — that guard covers the /regenerate
     // entry point, and this covers the stream entry point.
     //
-    // TTL exceeds AI_STREAM_TIMEOUT_MS (300s) so the lock cannot expire under a
-    // still-running generation; the explicit releases below are the normal path.
+    // ⚠️ The TTL is DERIVED, not chosen. It was hardcoded at 330s with the
+    // comment "exceeds AI_STREAM_TIMEOUT_MS (300s) so the lock cannot expire
+    // under a still-running generation" — wrong twice over: 300s is the timeout
+    // of ONE call and a V2 generation makes two, each with retries and a
+    // provider-fallback loop, all bounded by AI_MAX_TOTAL_TIME_MS (900s), which
+    // gates the START of an attempt rather than aborting one in flight. So any
+    // generation past 330s silently lost its lock and a reload could start a
+    // second full generation on the same row — the exact double Anthropic spend
+    // and last-writer-wins clobber this lock exists to prevent.
+    //
+    // Sizing long is the safe direction: every non-crash path below releases
+    // explicitly (error, complete, and the setup catch), and M6's drain aborts
+    // in-flight streams on SIGTERM, so only a SIGKILL leaves it to expire.
+    // A too-short TTL costs money silently; a too-long one self-heals.
     const readingLockKey = `stream:reading:${readingId}`;
-    const readingLockAcquired = await this.redis.acquireLock(readingLockKey, 330);
+    const readingLockTtlSeconds = Math.ceil(
+      this.aiService.getMaxStreamedGenerationMs() / 1000,
+    ) + GENERATION_LOCK_MARGIN_SECONDS;
+    const readingLockAcquired = await this.redis.acquireLock(
+      readingLockKey,
+      readingLockTtlSeconds,
+    );
     if (!readingLockAcquired) {
       await this.redis.getClient().decr(activeKey);
       throw new ConflictException(
@@ -1044,7 +1083,7 @@ export class BaziService {
       });
     } catch (err) {
       // Release both the per-user slot and the per-reading lock on setup error,
-      // otherwise a failure here would wedge the reading for the whole 330s TTL.
+      // otherwise a failure here would wedge the reading for the whole lock TTL.
       releaseStreamSlot();
       throw err;
     }
@@ -1999,9 +2038,17 @@ export class BaziService {
       return this.flattenComparisonResponse(hydrated ?? comparison);
     }
 
-    // Acquire distributed lock to prevent concurrent AI generation
+    // Acquire distributed lock to prevent concurrent AI generation.
+    // ⚠️ Same derived-TTL rule as the reading stream lock above, and this one
+    // was the worse offender: 60s guarding `generateCompatibilityRomanceV2`,
+    // which runs 3 PARALLEL calls at AI_COMPAT_V2_TIMEOUT_MS (300s) inside a
+    // provider-fallback loop with no budget check. The lock was guaranteed to
+    // expire on any reveal slower than a minute — on a 3-credit purchase.
     const lockKey = `ai:generate:comparison:${comparisonId}`;
-    const lockAcquired = await this.redis.acquireLock(lockKey, 60);
+    const compatLockTtlSeconds = Math.ceil(
+      this.aiService.getMaxCompatGenerationMs() / 1000,
+    ) + GENERATION_LOCK_MARGIN_SECONDS;
+    const lockAcquired = await this.redis.acquireLock(lockKey, compatLockTtlSeconds);
     if (!lockAcquired) {
       // Another request is already generating AI — poll until done (max 30s)
       for (let i = 0; i < 10; i++) {

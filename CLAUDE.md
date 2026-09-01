@@ -3952,6 +3952,53 @@ about "how long can a reading take" must use this, not the 300s/360s timeouts.
 The shipped stream lock at `bazi.service.ts:865` gets this wrong (330s TTL,
 commented against the 300s figure) and can expire mid-generation — todo #15.
 
+### A per-call timeout is NOT how long a generation can run
+
+Three separate values were sized against `AI_STREAM_TIMEOUT_MS` and were all
+too small. Fixed 2026-09-01; the reasoning is the reusable part.
+
+`AI_MAX_TOTAL_TIME_MS` (900s) **gates the START of an attempt** — the Call 1 and
+Call 2 retry loops `break` at the top when the budget is spent — rather than
+aborting one in flight. So an attempt admitted a millisecond under the budget
+still runs a further full per-call timeout. A V2 generation also makes **two**
+such calls, each with retries, inside a provider-fallback loop that carries no
+budget check of its own. The bound is therefore **budget + one call timeout**
+(~1200s), and nothing may be derived from the per-call timeout alone.
+
+| value | was | consequence of being short |
+|---|---|---|
+| `stream:reading:{id}` lock | 330s | lock expires mid-generation → a reload starts a SECOND full generation: double Anthropic spend, two writers racing one row |
+| `ai:generate:comparison:{id}` lock | 60s | same, **guaranteed** on any reveal past a minute — `generateCompatibilityRomanceV2` runs 3 parallel calls at 300s each across providers. On a 3-credit purchase. |
+| first-generation in-flight window | 360s | a still-running generation reads as abandoned, the reuse branch is skipped, and the **user is charged a second time** |
+
+All three now derive from `AIService.getMaxStreamedGenerationMs()` /
+`getMaxCompatGenerationMs()`. **Add new ones the same way** — the failure is
+silent and costs money.
+
+⚠️ **The lock and the in-flight window are ONE mechanism** (see the note at the
+`isFirstGenerationInFlight` site): the window stops the duplicate row and the
+second charge, the lock stops the duplicate generation. Size them from the same
+bound or they disagree about whether a generation is still alive.
+
+**Sizing long is the safe direction.** Every non-crash path releases explicitly
+(error, complete, and the setup catch), and M6's drain aborts in-flight streams
+on SIGTERM, so only a SIGKILL leaves a lock to expire. The cost of that is a
+longer wedge — a crashed generation now blocks a retry for ~21 min instead of
+~6 — against a too-short TTL that charges silently. Rare-and-visible beats
+common-and-silent.
+
+⚠️ **`chat-stream.service.ts`'s 150s lock is CORRECT and is not the same case.**
+It derives from a hard 90s per-stream timeout plus a 60s watchdog, and chat has
+no retry/fallback budget — so there the naive "TTL > per-call timeout" reasoning
+genuinely holds. Don't "fix" it by analogy.
+
+⚠️ **`redis.acquireLock` stores a constant `'1'`, with no ownership token**, and
+`releaseLock` is a bare `DEL`. A holder whose lock expired therefore deletes its
+SUCCESSOR's lock, and safe renewal is impossible. Correcting the TTLs removes
+the trigger on these keys (a lock that never expires while held is always
+released by its own holder) but the primitive is still unsafe — adding a token
+would be the real fix, and it touches all five call sites.
+
 ### The charge must follow the content
 
 An AI failure used to be swallowed ("Don't fail the reading — return

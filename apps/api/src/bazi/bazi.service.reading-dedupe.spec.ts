@@ -15,6 +15,9 @@ import { ShutdownService } from '../common/shutdown.service';
  * NOT to the AI cache. The AI cache is GLOBAL — keying on it would hand back a
  * different user's row.
  */
+/** Stand-in for `AIService.getMaxStreamedGenerationMs()` (budget + one call timeout). */
+const MOCK_GENERATION_BOUND_MS = 1_200_000;
+
 describe('BaziService.createReading — dedupe', () => {
   const USER_ID = 'user-1';
   const PROFILE_ID = 'profile-1';
@@ -52,6 +55,10 @@ describe('BaziService.createReading — dedupe', () => {
     };
     const ai = {
       generateBirthDataHash: jest.fn().mockReturnValue('hash-1'),
+      // The in-flight window is DERIVED from this bound — see
+      // `bazi.service.generation-lock-ttl.spec.ts` for why a per-call timeout
+      // is not one. The mock must supply it or the branch throws.
+      getMaxStreamedGenerationMs: () => MOCK_GENERATION_BOUND_MS,
       getCachedInterpretation,
       generateLifetimeV2Interpretation: jest.fn().mockResolvedValue({
         interpretation: {}, provider: 'CLAUDE', model: 'm', tokenUsage: {},
@@ -84,13 +91,20 @@ describe('BaziService.createReading — dedupe', () => {
     aiInterpretation: { sections: {} }, isDegraded: false, refundedAt: null,
     regenerationCount: 0, calculationData: {}, creditsUsed: 1,
     // Age matters now: a row with no AI is only treated as abandoned once it is
-    // older than FIRST_GENERATION_INFLIGHT_MS. Default to "just created".
+    // older than the derived in-flight window. Default to "just created".
     createdAt: new Date(),
     ...over,
   });
 
-  /** Older than FIRST_GENERATION_INFLIGHT_MS (360s) — i.e. genuinely abandoned. */
-  const longAgo = () => new Date(Date.now() - 600_000);
+  /**
+   * Comfortably past the derived in-flight window — i.e. genuinely abandoned.
+   *
+   * ⚠️ Derived, not a magic number. This was a hardcoded 600_000, chosen when
+   * the window was 360s; correcting the window upward silently turned this
+   * fixture into "still in flight" and flipped three tests. Tie it to the same
+   * bound the production code uses.
+   */
+  const longAgo = () => new Date(Date.now() - MOCK_GENERATION_BOUND_MS * 2);
 
   it('returns the existing reading and creates NO second row', async () => {
     const svc = build(completeRow());
