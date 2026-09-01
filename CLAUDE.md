@@ -3952,6 +3952,36 @@ about "how long can a reading take" must use this, not the 300s/360s timeouts.
 The shipped stream lock at `bazi.service.ts:865` gets this wrong (330s TTL,
 commented against the 300s figure) and can expire mid-generation — todo #15.
 
+### Ob1: attribution — who the call was for, and which call it was
+
+A streamed reading is the most expensive generation in the app, and its
+`AI-CALL` lines could be attributed to neither an ACCOUNT nor a CALL:
+`userIdHash: null`, and a route of `stream:CLAUDE` for every streamed call, so
+the two V2 calls of one reading and all three of a compat reveal were one
+indistinguishable row. "Why is the bill up today" had no answer on the path that
+dominates the bill.
+
+Closed 2026-09-01. `AiCallAttribution` (`{route, userId}`) is threaded from the
+five public stream entry points down to `_streamProviderInner`. Routes are now
+`stream:{READING_TYPE}:call1|call2` and `stream:COMPATIBILITY:call1|2|3`.
+
+⚠️ **`userId` on those five entry points is REQUIRED, not optional, and the
+COMPILER is what enforces it** — weakening it to optional fails `tsc` (the
+helper below takes `string | null`, so `undefined` is rejected), and deleting it
+fails at every call site. Both verified by doing them. An optional parameter is
+exactly how the original gap arose, so do not "tidy" it back.
+
+⚠️ **`streamProvider` keeps a fallback** (`attribution?.route ?? stream:{provider}`)
+so an unthreaded caller still logs something usable rather than `undefined`.
+That is right at runtime and is also why a missing one is invisible — hence the
+source-level invariant in `ai-call-attribution.spec.ts` that **no two call sites
+share a route**, which is the original bug stated as a property.
+
+⚠️ **A test that builds two attribution objects and asserts they differ proves
+nothing** — it exercises only the literals the test itself wrote. The property
+is about the SITES, so it belongs in a source assertion. One was written the
+wrong way here first and caught by mutation.
+
 ### Ob1: a failed AI call must leave a line
 
 `AI-CALL` lines come out of `AiSpendService.record()`, which PRICES USAGE — so

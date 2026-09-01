@@ -119,6 +119,27 @@ function sanitiseKind(raw: string): string {
   return cleaned || 'error';
 }
 
+/**
+ * Who a provider call is FOR, and what it is. Ob1 attribution.
+ *
+ * Both fields fix the same defect from opposite ends. A streamed reading — the
+ * most expensive generation in the app — used to log `userIdHash: null` and a
+ * route of `stream:CLAUDE`, so its lines could be attributed to neither an
+ * ACCOUNT nor a CALL. Two V2 calls per reading and three per compatibility
+ * reveal all rendered identically, which made "why is the bill up" unanswerable
+ * on precisely the path that dominates the bill.
+ *
+ * Carried as one object rather than two positional parameters because the two
+ * are always known together, at the same place, and a bare trailing `string`
+ * next to an existing optional `AbortSignal` is easy to pass in the wrong slot.
+ */
+export interface AiCallAttribution {
+  /** Ob1 `route` — surface, operation and which call, e.g. `stream:LIFETIME:call1`. */
+  route: string;
+  /** RAW id. Hashed at the log boundary by `hashUserId`; never written raw. */
+  userId: string | null;
+}
+
 export interface AiCallLogFields {
   /** Surface + operation, e.g. `chat:stream`, `reading:LIFETIME`. */
   route: string;

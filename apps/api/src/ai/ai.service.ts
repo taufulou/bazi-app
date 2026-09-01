@@ -11,7 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CreditsService } from '../credits/credits.service';
 import { AiSpendService, AI_SPEND_CAP_CODE } from './ai-spend.service';
-import { classifyAiError } from './ai-call-log';
+import { classifyAiError, type AiCallAttribution } from './ai-call-log';
 import { AiGovernorService, AI_BUSY_CODE } from './ai-governor.service';
 import { isSelfRefusal } from './typed-refusals';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
@@ -508,7 +508,14 @@ export class AIService implements OnModuleInit {
     // For streaming, only try the primary provider
     const providerConfig = this.providers[0];
 
-    yield* this.streamProvider(providerConfig, systemPrompt, userPrompt);
+    // ⚠️ No caller anywhere in the repo (verified by grep, 2026-09-01), so
+    // there is no user id to thread — but it DOES reach a provider, and dead
+    // code gets resurrected. A real route at least means a revival shows up as
+    // itself rather than as an anonymous `stream:CLAUDE`.
+    yield* this.streamProvider(providerConfig, systemPrompt, userPrompt, undefined, undefined, {
+      route: `stream:${readingType}:legacy`,
+      userId: null,
+    });
   }
 
   // ============================================================
@@ -1172,10 +1179,17 @@ export class AIService implements OnModuleInit {
   streamLifetimeV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    /**
+     * Ob1 #12 — REQUIRED. A streamed reading used to log `userIdHash: null`,
+     * so the most expensive generation in the app could be attributed to no
+     * account. An optional parameter would let the next caller reintroduce
+     * that silently; a required one makes it a compile error.
+     */
+    userId: string | null,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
       const externalControllers = new Set<AbortController>();
-      this._executeStreamLifetimeV2(calculationData, readingId, subscriber, externalControllers)
+      this._executeStreamLifetimeV2(calculationData, readingId, userId, subscriber, externalControllers)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -1198,12 +1212,14 @@ export class AIService implements OnModuleInit {
   private async _executeStreamLifetimeV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    userId: string | null,
     subscriber: Subscriber<MessageEvent>,
     externalControllers?: Set<AbortController>,
   ) {
     await this._executeStreamV2Common({
       calculationData,
       readingId,
+      userId,
       subscriber,
       readingType: ReadingType.LIFETIME,
       promptsBuilder: () => this.buildLifetimeV2Prompts(calculationData),
@@ -1225,6 +1241,12 @@ export class AIService implements OnModuleInit {
     readingId: string;
     subscriber: Subscriber<MessageEvent>;
     readingType: ReadingType;
+    /**
+     * Ob1 #12 — REQUIRED, not optional. The whole defect was that this field
+     * was silently absent on the most expensive path; an optional parameter
+     * would let the next streaming caller reintroduce it without noticing.
+     */
+    userId: string | null;
     promptsBuilder: () => { systemPrompt: string; userPromptCall1: string; userPromptCall2: string };
     call1SectionKeys: string[];
     /** Returns expected Call 2 section keys; called once per execution. */
@@ -1329,6 +1351,7 @@ export class AIService implements OnModuleInit {
         } else if (streamCall2Enabled) {
           // New path: stream Call 2 in parallel with Call 1
           call2Promise = this._streamV2Call2Loop({
+            userId: opts.userId,
             providerConfig,
             systemPrompt,
             userPromptCall2,
@@ -1392,6 +1415,8 @@ export class AIService implements OnModuleInit {
             try {
               const streamGen = this.streamProvider(
                 providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
+                undefined,
+                { route: `stream:${readingType}:call1`, userId: opts.userId },
               );
 
               for await (const chunk of streamGen) {
@@ -1696,6 +1721,8 @@ export class AIService implements OnModuleInit {
     userPromptCall2: string;
     subscriber: Subscriber<MessageEvent>;
     readingType: ReadingType;
+    /** Ob1 #12 — attribution for the Call 2 line. See `AiCallAttribution`. */
+    userId: string | null;
     call2FixedSections: Record<string, InterpretationSection>;
     emittedKeys: Set<string>;
     call2ExpectedKeys: string[];
@@ -1716,7 +1743,8 @@ export class AIService implements OnModuleInit {
     externalControllers?: Set<AbortController>;
   }): Promise<{ streamed: true; inputTokens: number; outputTokens: number; timedOut?: boolean; stopReason?: string } | null> {
     const {
-      providerConfig, systemPrompt, userPromptCall2, subscriber, readingType: _readingType,
+      providerConfig, systemPrompt, userPromptCall2, subscriber, readingType,
+      userId: attribUserId,
       call2FixedSections, emittedKeys, call2ExpectedKeys, call2Parser, fixSection,
       totalStartMs, timeoutMs, includeScore, expectedCall2Count, degradeConfig,
       pendingTimeouts, tag, externalControllers,
@@ -1745,6 +1773,7 @@ export class AIService implements OnModuleInit {
 
         const streamGen = this.streamProvider(
           providerConfig, systemPrompt, userPromptCall2, call2Controller.signal, usageOut,
+          { route: `stream:${readingType}:call2`, userId: attribUserId },
         );
 
         for await (const chunk of streamGen) {
@@ -1877,10 +1906,17 @@ export class AIService implements OnModuleInit {
   streamCareerV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    /**
+     * Ob1 #12 — REQUIRED. A streamed reading used to log `userIdHash: null`,
+     * so the most expensive generation in the app could be attributed to no
+     * account. An optional parameter would let the next caller reintroduce
+     * that silently; a required one makes it a compile error.
+     */
+    userId: string | null,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
       const externalControllers = new Set<AbortController>();
-      this._executeStreamCareerV2(calculationData, readingId, subscriber, externalControllers)
+      this._executeStreamCareerV2(calculationData, readingId, userId, subscriber, externalControllers)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -1900,6 +1936,7 @@ export class AIService implements OnModuleInit {
   private async _executeStreamCareerV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    userId: string | null,
     subscriber: Subscriber<MessageEvent>,
     externalControllers?: Set<AbortController>,
   ) {
@@ -1908,6 +1945,7 @@ export class AIService implements OnModuleInit {
     await this._executeStreamV2Common({
       calculationData,
       readingId,
+      userId,
       subscriber,
       readingType: ReadingType.CAREER,
       promptsBuilder: () => this.buildCareerV2Prompts(calculationData),
@@ -2128,11 +2166,18 @@ export class AIService implements OnModuleInit {
   streamAnnualV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    /**
+     * Ob1 #12 — REQUIRED. A streamed reading used to log `userIdHash: null`,
+     * so the most expensive generation in the app could be attributed to no
+     * account. An optional parameter would let the next caller reintroduce
+     * that silently; a required one makes it a compile error.
+     */
+    userId: string | null,
     targetYear?: number,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
       const externalControllers = new Set<AbortController>();
-      this._executeStreamAnnualV2(calculationData, readingId, subscriber, targetYear, externalControllers)
+      this._executeStreamAnnualV2(calculationData, readingId, userId, subscriber, targetYear, externalControllers)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -2152,6 +2197,7 @@ export class AIService implements OnModuleInit {
   private async _executeStreamAnnualV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    userId: string | null,
     subscriber: Subscriber<MessageEvent>,
     targetYear?: number,
     externalControllers?: Set<AbortController>,
@@ -2165,6 +2211,7 @@ export class AIService implements OnModuleInit {
     await this._executeStreamV2Common({
       calculationData,
       readingId,
+      userId,
       subscriber,
       readingType: ReadingType.ANNUAL,
       promptsBuilder: () => this.buildAnnualV2Prompts(calculationData),
@@ -4045,9 +4092,16 @@ export class AIService implements OnModuleInit {
   streamLoveV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    /**
+     * Ob1 #12 — REQUIRED. A streamed reading used to log `userIdHash: null`,
+     * so the most expensive generation in the app could be attributed to no
+     * account. An optional parameter would let the next caller reintroduce
+     * that silently; a required one makes it a compile error.
+     */
+    userId: string | null,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
-      this._executeStreamLoveV2(calculationData, readingId, subscriber)
+      this._executeStreamLoveV2(calculationData, readingId, userId, subscriber)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -4062,6 +4116,7 @@ export class AIService implements OnModuleInit {
   private async _executeStreamLoveV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    userId: string | null,
     subscriber: Subscriber<MessageEvent>,
   ) {
     const call2ExpectedKeys = this.buildLoveV2Call2ExpectedKeys(calculationData);
@@ -4069,6 +4124,7 @@ export class AIService implements OnModuleInit {
     await this._executeStreamV2Common({
       calculationData,
       readingId,
+      userId,
       subscriber,
       readingType: ReadingType.LOVE,
       promptsBuilder: () => this.buildLoveV2Prompts(calculationData),
@@ -4852,9 +4908,16 @@ export class AIService implements OnModuleInit {
   streamCompatibilityRomanceV2(
     calculationData: Record<string, unknown>,
     comparisonId: string,
+    /**
+     * Ob1 #12 — REQUIRED. A streamed reading used to log `userIdHash: null`,
+     * so the most expensive generation in the app could be attributed to no
+     * account. An optional parameter would let the next caller reintroduce
+     * that silently; a required one makes it a compile error.
+     */
+    userId: string | null,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
-      this._executeStreamCompatRomanceV2(calculationData, comparisonId, subscriber)
+      this._executeStreamCompatRomanceV2(calculationData, comparisonId, userId, subscriber)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -4869,6 +4932,7 @@ export class AIService implements OnModuleInit {
   private async _executeStreamCompatRomanceV2(
     calculationData: Record<string, unknown>,
     comparisonId: string,
+    userId: string | null,
     subscriber: Subscriber<MessageEvent>,
   ) {
     const startTime = Date.now();
@@ -4920,6 +4984,8 @@ export class AIService implements OnModuleInit {
           try {
             const streamGen = this.streamProvider(
               providerConfig, systemPrompt, call1User, call1Controller.signal,
+              undefined,
+              { route: 'stream:COMPATIBILITY:call1', userId },
             );
 
             for await (const chunk of streamGen) {
@@ -5027,6 +5093,8 @@ export class AIService implements OnModuleInit {
           try {
             const streamGen2 = this.streamProvider(
               providerConfig, systemPrompt, call2User, call2Controller.signal,
+              undefined,
+              { route: 'stream:COMPATIBILITY:call2', userId },
             );
 
             for await (const chunk of streamGen2) {
@@ -5124,6 +5192,8 @@ export class AIService implements OnModuleInit {
           try {
             const streamGen3 = this.streamProvider(
               providerConfig, systemPrompt, call3User, call3Controller.signal,
+              undefined,
+              { route: 'stream:COMPATIBILITY:call3', userId },
             );
 
             for await (const chunk of streamGen3) {
@@ -5907,6 +5977,7 @@ export class AIService implements OnModuleInit {
     userPrompt: string,
     signal?: AbortSignal,
     usageOut?: { inputTokens: number; outputTokens: number },
+    attribution?: AiCallAttribution,
   ): AsyncGenerator<string> {
     // `usageOut` is a mutable ref populated by the underlying stream. On NORMAL
     // stream completion, usageOut reflects actual token usage. On ABORT or
@@ -5934,7 +6005,7 @@ export class AIService implements OnModuleInit {
     // hand-rolled version meant the governor's own release-on-abandon tests
     // covered a method production never called. Same behaviour, one owner.
     yield* this.aiGovernor.runGenerator('reading', `stream:${config.provider}`, () =>
-      this._streamProviderInner(config, systemPrompt, userPrompt, signal, usage),
+      this._streamProviderInner(config, systemPrompt, userPrompt, signal, usage, attribution),
     );
   }
 
@@ -5948,6 +6019,7 @@ export class AIService implements OnModuleInit {
     userPrompt: string,
     signal: AbortSignal | undefined,
     usage: { inputTokens: number; outputTokens: number },
+    attribution?: AiCallAttribution,
   ): AsyncGenerator<string> {
     const aiStartedAt = Date.now();
     // Ob1 — this site already emitted a line on abort (the `finally` below), but
@@ -5987,7 +6059,11 @@ export class AIService implements OnModuleInit {
         provider: config.provider,
         model: config.model,
         usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
-        context: `stream:${config.provider}`,
+        // Ob1 #12 — the route was `stream:CLAUDE` for every streamed call, so
+        // Call 1 and Call 2 of a reading, and all three of a compat reveal,
+        // were indistinguishable. The fallback keeps the old shape for any
+        // site that has not been threaded.
+        context: attribution?.route ?? `stream:${config.provider}`,
         durationMs: Date.now() - aiStartedAt,
         // ⚠️ Reported through `record()`, not `recordFailure()`, precisely
         // BECAUSE a partially-streamed abort has real usage — Anthropic bills
@@ -5996,21 +6072,11 @@ export class AIService implements OnModuleInit {
         outcome:
           streamError !== undefined ? 'error' : completed ? 'ok' : 'abandoned',
         errorKind: streamError === undefined ? null : classifyAiError(streamError),
-        // ⚠️ Ob1 — no userId, and this one IS a gap rather than a choice.
-        //
-        // `logUsage` (which does have it) sits on the NON-streaming methods:
-        // `generate*V2Interpretation`. The streaming entry points —
-        // `_executeStream*V2` and `streamCompatibilityRomanceV2` — reach the
-        // provider through here instead, and the two sets are disjoint. So a
-        // STREAMED reading, the most expensive generation in the app, logs
-        // `userIdHash: null`.
-        //
-        // Not fixed here because the id would have to be threaded through five
-        // public signatures, `_executeStreamV2Common`'s opts and `streamProvider`
-        // — a large diff through the riskiest file in the repo for one log
-        // field. It is also not the only answer to "which account is spending":
-        // S4's per-user quota counters cover reading generation, and Ob2's
-        // `/api/admin/ops` ranks them. Revisit if that proves insufficient.
+        // Ob1 #12 — threaded from the five public stream entry points, whose
+        // `userId` parameter is REQUIRED precisely so a new streaming caller
+        // cannot reintroduce the `userIdHash: null` this closed. Hashed at the
+        // log boundary; the raw id never reaches the line.
+        userId: attribution?.userId ?? null,
       });
     }
   }

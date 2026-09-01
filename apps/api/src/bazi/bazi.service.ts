@@ -1053,16 +1053,16 @@ export class BaziService {
       let aiObservable;
       switch (reading.readingType) {
         case 'CAREER':
-          aiObservable = this.aiService.streamCareerV2(enrichedData, readingId);
+          aiObservable = this.aiService.streamCareerV2(enrichedData, readingId, user.id);
           break;
         case 'ANNUAL':
-          aiObservable = this.aiService.streamAnnualV2(enrichedData, readingId, reading.targetYear ?? undefined);
+          aiObservable = this.aiService.streamAnnualV2(enrichedData, readingId, user.id, reading.targetYear ?? undefined);
           break;
         case 'LOVE':
-          aiObservable = this.aiService.streamLoveV2(enrichedData, readingId);
+          aiObservable = this.aiService.streamLoveV2(enrichedData, readingId, user.id);
           break;
         default:
-          aiObservable = this.aiService.streamLifetimeV2(enrichedData, readingId);
+          aiObservable = this.aiService.streamLifetimeV2(enrichedData, readingId, user.id);
           break;
       }
       aiObservable.subscribe({
@@ -1273,7 +1273,7 @@ export class BaziService {
     }
 
     try {
-      const aiObservable = this.aiService.streamCompatibilityRomanceV2(calculationData, comparisonId);
+      const aiObservable = this.aiService.streamCompatibilityRomanceV2(calculationData, comparisonId, user.id);
 
       // ⚠️ The refund CANNOT hang off the observable's `error` channel.
       // `streamCompatibilityRomanceV2` never calls `subscriber.error()` — there
