@@ -3952,6 +3952,37 @@ about "how long can a reading take" must use this, not the 300s/360s timeouts.
 The shipped stream lock at `bazi.service.ts:865` gets this wrong (330s TTL,
 commented against the 300s figure) and can expire mid-generation — todo #15.
 
+### A built alert and a delivered alert are different claims
+
+`AiSpendService` fires three Sentry events. `Sentry.init()` in `main.ts` runs
+only `if (process.env.SENTRY_DSN)`, so with no DSN every one is a **silent
+no-op** — no throw, no log, nothing at boot. The early-warning system can be
+fully built and fully disconnected, which is the worst shape a control can have
+because an audit passes it.
+
+| event | level | meaning if unseen |
+|---|---|---|
+| `ai.spend.threshold_80` | warning | 80% of the day's budget gone, nobody told; first real signal becomes a hard refusal at 100%. |
+| `ai.spend.cap_tripped` | error | the breaker is refusing paying customers. Fails CLOSED, so safe — but silent. |
+| `ai.spend.breaker_unavailable` | error | **fails OPEN.** Redis unreadable, the call is ALLOWED, only the Anthropic account limit remains. Spend is uncapped and nobody knows. |
+
+⚠️ **The third is the one usually left off the list, and it is the one that
+matters most** — the other two mean a control fired; this one means there is no
+control. Any alert rule that covers only the first two is missing the outage.
+
+`common/alerting-status.ts` reports this at boot (warns when silent, and
+confirms POSITIVELY when armed — "no warning" is also what a missing check
+looks like) and exposes it as a read on `GET /api/admin/ops` under `alerting`.
+Verified at a real boot in both branches; the DSN key appears **0 times** in the
+log, only the host.
+
+⚠️ **It can only see the deliverable half.** A DSN means events reach Sentry; it
+cannot see whether an alert RULE exists for those names, and the log line says
+so rather than implying coverage it has not checked.
+
+⚠️ **The 80% warning dedupes per process**, so N replicas emit it N times. Set
+the rule to notify on first occurrence, not on a count threshold.
+
 ### Defense in depth can hide a layer that is entirely gone
 
 The signed-out lockdown has two layers on the same request: middleware

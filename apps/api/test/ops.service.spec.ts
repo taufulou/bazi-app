@@ -86,10 +86,26 @@ describe('assembly', () => {
     const { service } = makeService();
     const snap = await service.snapshot();
     expect(Object.keys(snap).sort()).toEqual(
-      ['aiBaseUrlEffective', 'aiBaseUrlOverride', 'breaker', 'generatedAt', 'pools', 'quota', 'rateLimit', 'replicas', 'spend'].sort(),
+      ['aiBaseUrlEffective', 'aiBaseUrlOverride', 'alerting', 'breaker', 'generatedAt', 'pools', 'quota', 'rateLimit', 'replicas', 'spend'].sort(),
     );
     expect(snap.pools).toEqual(POOLS);
     expect(snap.rateLimit.outputTokensRemaining).toBe(9000);
+  });
+
+  it('reports whether spend alerts can reach anyone — the numbers are useless unheard', () => {
+    // #13. Every spend alert is a `Sentry.captureMessage`, and with no
+    // SENTRY_DSN `Sentry.init()` never runs, so each is a silent no-op. An ops
+    // view that shows `dayPct: 94` while nobody is being paged is a view that
+    // reassures. This is a pure read, so it does not breach the file's
+    // no-mutation rule.
+    const { resolveAlertingStatus } = jest.requireActual<
+      typeof import('../src/common/alerting-status')
+    >('../src/common/alerting-status');
+    const armed = resolveAlertingStatus({ SENTRY_DSN: 'https://k@o1.ingest.sentry.io/2' });
+    expect(armed.sentryConfigured).toBe(true);
+    const silent = resolveAlertingStatus({});
+    expect(silent.sentryConfigured).toBe(false);
+    expect(silent.warnings).not.toEqual([]);
   });
 
   it('reports the replica count, because `pools` cannot be read without it', async () => {

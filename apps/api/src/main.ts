@@ -16,6 +16,7 @@ import { ShutdownService } from './common/shutdown.service';
 import { QuietBootstrapLogger } from './common/quiet-logger';
 import { createForwardedForProbe, forwardedForProbeEnabled } from './common/forwarded-for-probe';
 import { createShutdownHandler, shutdownHardExitMs } from './common/shutdown-runner';
+import { reportAlertingStatus, resolveAlertingStatus } from './common/alerting-status';
 
 // Initialize Sentry before anything else
 if (process.env.SENTRY_DSN) {
@@ -109,6 +110,17 @@ async function bootstrap() {
   // declined payment. Say it out loud instead.
   reportWebOrigins(
     webOriginsFromEnv(),
+    (msg) => logger.log(msg),
+    (msg) => logger.warn(msg),
+  );
+
+  // Ob/#13 — say at boot whether the spend alerts can reach anyone. Same
+  // reasoning as the line above: with no SENTRY_DSN, `Sentry.init()` never runs
+  // and every spend alert is a silent no-op — a control that reads as present
+  // in the code and is inert in production. The good case is confirmed
+  // POSITIVELY, because "no warning" is also what a missing check looks like.
+  reportAlertingStatus(
+    resolveAlertingStatus(),
     (msg) => logger.log(msg),
     (msg) => logger.warn(msg),
   );
