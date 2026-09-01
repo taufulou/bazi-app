@@ -195,3 +195,75 @@ describe('every streaming provider call site is attributed', () => {
     }
   });
 });
+
+/**
+ * The CHAIN, not the pieces.
+ *
+ * Every test above hands `_streamProviderInner` an attribution object the test
+ * itself wrote, and the source assertions read literals out of the file.
+ * Neither proves that calling the PUBLIC entry point with a user id produces
+ * the right route and the right id at the provider — which is the whole claim.
+ * That hop (entry → `_executeStream*V2` → `_executeStreamV2Common` → the
+ * `streamProvider` call sites) is where a dropped `userId,` in one of the four
+ * opts objects would hide, and it is the "well-covered helper behind untested
+ * wiring" shape that keeps producing bugs here.
+ */
+describe('end to end: public entry point → streamProvider', () => {
+  function build() {
+    const seen: Array<{ route: string; userId: string | null }> = [];
+    const svc = Object.create(AIService.prototype) as AIService;
+    Object.assign(svc, {
+      providers: [{ provider: 'CLAUDE', model: 'm', apiKey: 'k', timeoutMs: 1000 }],
+      configService: { get: () => undefined },
+      aiSpend: { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() },
+      aiGovernor: { runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g() },
+      logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+      // Capture what the real call sites hand down, then yield nothing so the
+      // generation degrades quickly instead of exercising the parser.
+      // eslint-disable-next-line require-yield
+      streamProvider: async function* (
+        _c: unknown, _s: unknown, _u: unknown, _sig: unknown, _usage: unknown,
+        attribution?: { route: string; userId: string | null },
+      ) {
+        if (attribution) seen.push(attribution);
+      },
+      buildLifetimeV2Prompts: () => ({
+        systemPrompt: 'sys', userPromptCall1: 'c1', userPromptCall2: 'c2',
+      }),
+      cacheInterpretation: jest.fn(),
+      generateBirthDataHash: jest.fn().mockReturnValue('hash'),
+    });
+    return { svc, seen };
+  }
+
+  it('carries the caller-supplied user id and a per-call route all the way down', async () => {
+    const { svc, seen } = build();
+    await new Promise<void>((resolve) => {
+      svc.streamLifetimeV2({}, 'reading-1', 'user-42').subscribe({
+        complete: () => resolve(),
+        error: () => resolve(),
+      });
+    });
+
+    expect(seen.length).toBeGreaterThan(0);
+    // Every call the real chain made is attributed to the caller's account…
+    for (const a of seen) expect(a.userId).toBe('user-42');
+    // …and names the reading type, not the provider.
+    for (const a of seen) expect(a.route).toMatch(/^stream:LIFETIME:call[12]$/);
+    // The old label is gone from the live path.
+    expect(seen.map((a) => a.route)).not.toContain('stream:CLAUDE');
+  }, 30000);
+
+  it('reaches BOTH V2 calls with distinct routes', async () => {
+    const { svc, seen } = build();
+    await new Promise<void>((resolve) => {
+      svc.streamLifetimeV2({}, 'reading-1', 'user-42').subscribe({
+        complete: () => resolve(),
+        error: () => resolve(),
+      });
+    });
+    // Proves the two calls are separable in the log, on the live path rather
+    // than in literals a test wrote.
+    expect(new Set(seen.map((a) => a.route)).size).toBeGreaterThan(1);
+  }, 30000);
+});
