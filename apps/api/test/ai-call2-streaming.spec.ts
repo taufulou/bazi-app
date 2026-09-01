@@ -68,7 +68,7 @@ function makeService(configOverrides: Record<string, string | undefined> = {}) {
     mockPrisma as any,
     mockRedis as any,
     { refundReadingCredit: jest.fn().mockResolvedValue({ refunded: false, amount: 0 }) } as any,
-    { record: jest.fn(), assertUnderCap: jest.fn() } as never,
+    { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never,
     { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
   );
   // Seed a single provider config so the providers loop runs.

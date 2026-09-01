@@ -122,7 +122,7 @@ describe('AIService', () => {
       mockPrisma as any,
       mockRedis as any,
       {} as any,
-      { record: jest.fn(), assertUnderCap: jest.fn() } as never,
+      { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never,
       { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
     );
   });
@@ -679,7 +679,7 @@ describe('AIService', () => {
         if (key === 'ANTHROPIC_API_KEY') return 'test-key';
         return undefined;
       });
-      const s = new AIService(mockConfigService as any, mockPrisma as any, mockRedis as any, {} as any, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never);
+      const s = new AIService(mockConfigService as any, mockPrisma as any, mockRedis as any, {} as any, { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never);
       await s.onModuleInit();
 
       // Mock the Claude client call
@@ -732,7 +732,7 @@ describe('AIService', () => {
         return undefined;
       });
 
-      const s = new AIService(mockConfigService as any, mockPrisma as any, mockRedis as any, {} as any, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never);
+      const s = new AIService(mockConfigService as any, mockPrisma as any, mockRedis as any, {} as any, { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never);
       s.onModuleInit();
 
       // Verify by checking that it doesn't throw "no providers"
@@ -749,7 +749,7 @@ describe('AIService', () => {
         return undefined;
       });
 
-      const s = new AIService(mockConfigService as any, mockPrisma as any, mockRedis as any, {} as any, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never);
+      const s = new AIService(mockConfigService as any, mockPrisma as any, mockRedis as any, {} as any, { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never);
       s.onModuleInit();
 
       expect((s as any).providers.length).toBe(3);

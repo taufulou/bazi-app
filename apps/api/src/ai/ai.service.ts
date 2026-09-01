@@ -11,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CreditsService } from '../credits/credits.service';
 import { AiSpendService, AI_SPEND_CAP_CODE } from './ai-spend.service';
+import { classifyAiError } from './ai-call-log';
 import { AiGovernorService, AI_BUSY_CODE } from './ai-governor.service';
 import { isSelfRefusal } from './typed-refusals';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
@@ -942,8 +943,36 @@ export class AIService implements OnModuleInit {
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      // Ob1 — a FAILED call must leave a trace. `logUsage` sits on the success
+      // path only, so before this a non-streaming call that died before its
+      // first response emitted nothing at all: no usage to price meant no
+      // `record()`, and no `record()` meant no AI-CALL line. That is the exact
+      // shape of the charged-empty-reading incident, whose entire log record
+      // was `[Stream] Setup starting` and, 4s later, a refund.
+      //
+      // Emitting HERE rather than at each caller inherits this method's
+      // property of being the documented choke point for every non-streaming
+      // provider call — the same reason the cap and the slot live here.
+      //
+      // ⚠️ One line per ATTEMPT, so a fully-failing generation emits up to
+      // retries x providers of them. That is the intent: the retry storm is
+      // what an operator needs to see, and collapsing it would hide the
+      // difference between one dead provider and three.
+      const callStartedAt = Date.now();
       try {
         return await this.callProvider(config, systemPrompt, userPrompt, controller.signal);
+      } catch (err) {
+        this.aiSpend.recordFailure({
+          provider: config.provider,
+          model: config.model,
+          error: err,
+          context: `provider:${config.provider}`,
+          durationMs: Date.now() - callStartedAt,
+          // ⚠️ No userId — this method never receives one. Same documented gap
+          // as `_streamProviderInner` (todo #12); threading it touches five
+          // public signatures.
+        });
+        throw err;
       } finally {
         clearTimeout(timeoutId);
       }
@@ -5921,6 +5950,14 @@ export class AIService implements OnModuleInit {
     usage: { inputTokens: number; outputTokens: number },
   ): AsyncGenerator<string> {
     const aiStartedAt = Date.now();
+    // Ob1 — this site already emitted a line on abort (the `finally` below), but
+    // it was a `$0` line indistinguishable from a cache hit. Capturing the error
+    // lets the same line say WHICH it was.
+    let streamError: unknown;
+    // Set only when the switch runs to completion. A consumer that abandons the
+    // generator jumps straight to `finally` from the current yield, so this
+    // stays false and the ending is reported as `abandoned` rather than `ok`.
+    let completed = false;
     try {
       switch (config.provider) {
         case AIProvider.CLAUDE:
@@ -5935,6 +5972,10 @@ export class AIService implements OnModuleInit {
         default:
           throw new Error(`Unknown provider: ${config.provider}`);
       }
+      completed = true;
+    } catch (err) {
+      streamError = err;
+      throw err;
     } finally {
       // `finally` on a generator also runs when the consumer abandons it
       // (client disconnect, watchdog abort, `break`). That matters: Anthropic
@@ -5948,6 +5989,13 @@ export class AIService implements OnModuleInit {
         usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
         context: `stream:${config.provider}`,
         durationMs: Date.now() - aiStartedAt,
+        // ⚠️ Reported through `record()`, not `recordFailure()`, precisely
+        // BECAUSE a partially-streamed abort has real usage — Anthropic bills
+        // the tokens produced before the abort. Marking the outcome must not
+        // stop that spend being counted.
+        outcome:
+          streamError !== undefined ? 'error' : completed ? 'ok' : 'abandoned',
+        errorKind: streamError === undefined ? null : classifyAiError(streamError),
         // ⚠️ Ob1 — no userId, and this one IS a gap rather than a choice.
         //
         // `logUsage` (which does have it) sits on the NON-streaming methods:

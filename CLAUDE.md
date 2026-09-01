@@ -3952,6 +3952,50 @@ about "how long can a reading take" must use this, not the 300s/360s timeouts.
 The shipped stream lock at `bazi.service.ts:865` gets this wrong (330s TTL,
 commented against the 300s figure) and can expire mid-generation — todo #15.
 
+### Ob1: a failed AI call must leave a line
+
+`AI-CALL` lines come out of `AiSpendService.record()`, which PRICES USAGE — so
+it only ever ran once usage existed. A call that died before its first response
+therefore emitted nothing at the non-streaming choke point, and nothing at the
+four streaming sites guarding on `hasUsage`. The most expensive path in the app
+could fail completely and be invisible; that is precisely what the
+charged-empty-reading incident looked like in the log — a bare
+`[Stream] Setup starting` and, 4s later, a refund line.
+
+Closed 2026-09-01. Every AI call now emits exactly one line:
+
+| where | before | now |
+|---|---|---|
+| `callProviderWithTimeout` (non-streaming choke point) | nothing on throw | `outcome:"error"` + `errorKind`, then rethrows |
+| `_streamProviderInner` (streaming choke point) | a `$0` line indistinguishable from a cache hit | `ok` / `error` / `abandoned` |
+| chat + fortune ×3 (`hasUsage` guards) | nothing on a zero-token abort | `recordFailure` in the `else` |
+
+⚠️ **`recordFailure` is deliberately NOT `record()` with a flag.** `record()`
+moves the spend counters and a failed call must not; putting a "sometimes don't
+count this" branch inside the one function the daily cap depends on is how that
+control gets broken later. It is also why `recordFailure` does not satisfy the
+CI metering guard — `/aiSpend\s*\.\s*record\s*\(/` does not match
+`recordFailure(`, so a file that only logs failures still counts as unmetered.
+That is correct; do not "fix" it.
+
+⚠️ **A partially-streamed abort still goes through `record()`, not
+`recordFailure()`** — Anthropic bills the tokens produced before an abort, so
+marking the outcome must not stop the spend being counted. `recordFailure` is
+only for the case where there is genuinely nothing to price.
+
+⚠️ **`abandoned` is its own outcome, not folded into `ok`.** A consumer that
+walks away abandons the generator WITHOUT throwing, and the code's own note
+calls that "the commonest ending on mobile". Labelling the most frequent
+non-success ending `ok` would make the field actively misleading.
+
+⚠️ **`errorKind` never contains `error.message`.** A provider error can echo
+request content back, and these prompts carry the four pillars — a reversible
+encoding of a birth datetime, i.e. personal data (see the domain PII rule).
+Error NAME, numeric status, and our own typed codes only. `classifyAiError` is
+also TOTAL: every call site evaluates it as an argument, outside the try that
+protects the logger, and two sit in a `finally` where a throw would replace the
+real exception with a logging one.
+
 ### A per-call timeout is NOT how long a generation can run
 
 Three separate values were sized against `AI_STREAM_TIMEOUT_MS` and were all

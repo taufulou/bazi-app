@@ -44,7 +44,7 @@ describe('SSE Streaming — Phase E', () => {
       mockPrisma as any,
       mockRedis as any,
       {} as any,
-      { record: jest.fn(), assertUnderCap: jest.fn() } as never,
+      { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never,
       { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
     );
   });

@@ -170,7 +170,11 @@ describe('ChatStreamService', () => {
       mockPaymentService,
       mockContextService,
       mockValidators,
-      { record: jest.fn(), assertUnderCap: jest.fn() } as never,
+      // `recordFailure` is Ob1 #14 — the zero-usage failure line. Three tests
+      // below reach it (lock error, client disconnect, Anthropic error), which
+      // is the coverage that matters: those are the paths that used to emit
+      // nothing at all.
+      { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never,
       { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       new ShutdownService(),

@@ -85,6 +85,91 @@ describe('record() emits the Ob1 line', () => {
       userIdHash: hashUserId('user-42'),
       rlOutRemaining: 17500,
       rlOutReset: '2026-08-28T04:05:06Z',
+      // Ob1 #14 — always present, including on success. A field that appears
+      // only on failure cannot be filtered on, and `outcome!=ok` is the query.
+      outcome: 'ok',
+      errorKind: null,
+    });
+  });
+
+  /**
+   * Ob1 #14 — a call that DIED must leave a line.
+   *
+   * `record()` prices usage, so it only ran once usage existed. A call that
+   * failed before its first response therefore emitted nothing at all at the
+   * non-streaming choke point and at every streaming site guarding on
+   * `hasUsage`. The most expensive path in the app could fail completely and be
+   * invisible — which is what happened in the charged-empty-reading incident.
+   */
+  describe('recordFailure', () => {
+    it('emits a line for a call that produced nothing', () => {
+      const { service, lines } = makeService();
+      service.recordFailure({
+        provider: 'CLAUDE',
+        model: 'claude-sonnet-4-5',
+        error: Object.assign(new Error('boom'), { status: 529 }),
+        context: 'provider:CLAUDE',
+        durationMs: 1200.4,
+        userId: 'user-42',
+      });
+      expect(aiLines(lines)).toHaveLength(1);
+      expect(parseOne(lines)).toEqual({
+        route: 'provider:CLAUDE',
+        provider: 'CLAUDE',
+        model: 'claude-sonnet-4-5',
+        ms: 1200,
+        inTok: 0,
+        outTok: 0,
+        cacheReadTok: 0,
+        cacheWriteTok: 0,
+        costUsd: 0,
+        userIdHash: hashUserId('user-42'),
+        rlOutRemaining: null,
+        rlOutReset: null,
+        outcome: 'error',
+        errorKind: 'overloaded',
+      });
+    });
+
+    it('does NOT move the spend counters — a failed call is not spend', () => {
+      const { service, redis } = makeService();
+      service.recordFailure({
+        provider: 'CLAUDE',
+        model: 'claude-sonnet-4-5',
+        error: new Error('boom'),
+        context: 'provider:CLAUDE',
+      });
+      expect(redis.incrByFloat).not.toHaveBeenCalled();
+    });
+
+    it('never throws — callers invoke it from catch blocks as a bare statement', () => {
+      const { service } = makeService();
+      expect(() =>
+        service.recordFailure({
+          provider: 'CLAUDE',
+          model: 'claude-sonnet-4-5',
+          // a non-Error, the shape a `throw 'string'` produces
+          error: 'not-an-error',
+          context: 'provider:CLAUDE',
+        }),
+      ).not.toThrow();
+    });
+
+    it('NEVER puts the error message in the line — prompts carry birth data', () => {
+      const { service, lines } = makeService();
+      service.recordFailure({
+        provider: 'CLAUDE',
+        model: 'claude-sonnet-4-5',
+        // A provider error can echo request content back, and these requests
+        // carry the four pillars — a reversible encoding of a birth datetime.
+        error: new Error('invalid request: 丁卯 戊申 戊午 庚申 for 1987-09-06'),
+        context: 'provider:CLAUDE',
+      });
+      const line = aiLines(lines)[0]!;
+      expect(line).not.toContain('丁卯');
+      expect(line).not.toContain('1987-09-06');
+      expect(line).not.toContain('invalid request');
+      expect(parseOne(lines)).toMatchObject({ outcome: 'error', errorKind: 'Error' });
     });
   });
 

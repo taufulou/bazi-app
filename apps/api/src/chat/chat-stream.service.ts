@@ -30,6 +30,7 @@ import { buildPrompt } from './chat-prompt-builder';
 import { sanitizeUserContent } from './chat.service';
 import { isTopicBoundaryRefuse } from '../ai/prompts';
 import { absorbStreamUsage, emptyStreamUsage, hasUsage, mergeFinalUsage } from '../ai/stream-usage';
+import { classifyAiError } from '../ai/ai-call-log';
 import { ShutdownService } from '../common/shutdown.service';
 
 // ============================================================
@@ -591,6 +592,9 @@ export class ChatStreamService {
     // persist-if-parseable path rather than dying as a TCP reset.
     const releaseShutdown = this.shutdown.registerStream(() => abortController.abort());
     let watchdogTriggered = false;
+    // Ob1 (#14) — captured so the `finally` can say WHY a stream produced no
+    // usage. Without it a zero-token abort emitted no AI-CALL line at all.
+    let aiCallError: unknown;
     const watchdogTimer = setInterval(() => {
       if (Date.now() - lastDeltaAt > STREAM_WATCHDOG_MS) {
         this.logger.warn(`Stream watchdog timeout for session ${sessionId}`);
@@ -683,6 +687,7 @@ export class ChatStreamService {
       // `finally` does the recording either way.
       mergeFinalUsage(streamUsage, finalMessage.usage);
     } catch (err) {
+      aiCallError = err;
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
 
@@ -753,6 +758,20 @@ export class ChatStreamService {
           provider: 'CLAUDE',
           model: this.model,
           usage: streamUsage,
+          context: 'chat:stream',
+          durationMs: Date.now() - aiStartedAt,
+          userId,
+          outcome: aiCallError === undefined ? 'ok' : 'error',
+          errorKind: aiCallError === undefined ? null : classifyAiError(aiCallError),
+        });
+      } else if (aiCallError !== undefined) {
+        // Ob1 (#14) — a stream that died before producing a single token has no
+        // usage to price, so `record()` was skipped and the call left NO trace.
+        // A failure that emits nothing is the one an operator cannot debug.
+        this.aiSpend.recordFailure({
+          provider: 'CLAUDE',
+          model: this.model,
+          error: aiCallError,
           context: 'chat:stream',
           durationMs: Date.now() - aiStartedAt,
           userId,

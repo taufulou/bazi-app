@@ -56,7 +56,7 @@ function makeChatService(tier: SubscriptionTier) {
     mockContext as never,
     {} as never,
     {} as never,
-    { record: jest.fn(), assertUnderCap: jest.fn() } as never,
+    { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never,
     { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
     { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
   );
@@ -274,7 +274,7 @@ describe('F5 door 4 — extendSession will not sell messages that cannot be spen
         acquireLock: jest.fn().mockResolvedValue(true),
         releaseLock: jest.fn().mockResolvedValue(undefined),
       } as never,
-      { record: jest.fn(), assertUnderCap: jest.fn() } as never,
+      { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never,
       { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     );

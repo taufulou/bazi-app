@@ -72,7 +72,7 @@ describe('BaziService.createReading — dedupe', () => {
       ai as never, { deductCredits } as never,
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       // S2 — the cap pre-check that now runs before every quota consume.
-      { assertUnderCap: jest.fn(), record: jest.fn() } as never,
+      { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn() } as never,
       new ShutdownService(),
     );
     jest

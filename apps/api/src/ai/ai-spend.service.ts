@@ -4,7 +4,13 @@ import * as Sentry from '@sentry/nestjs';
 import { AIProvider } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
 import { getRateLimitSnapshot } from './anthropic-rate-limit';
-import { AI_CALL_LOG_PREFIX, formatAiCallLog, hashUserId } from './ai-call-log';
+import {
+  AI_CALL_LOG_PREFIX,
+  classifyAiError,
+  formatAiCallLog,
+  hashUserId,
+  type AiCallOutcome,
+} from './ai-call-log';
 
 /**
  * S2 — AI spend ledger + circuit breaker.
@@ -291,6 +297,14 @@ export class AiSpendService {
     durationMs?: number;
     /** Ob1 — hashed before it reaches the log; never written raw. */
     userId?: string | null;
+    /**
+     * Ob1 — `'error'` when the call died. Affects the LOG LINE ONLY; whatever
+     * usage is supplied is still priced and still counted, because a stream
+     * aborted mid-flight is billed for the tokens it produced. Use
+     * `recordFailure()` when there is no usage at all.
+     */
+    outcome?: AiCallOutcome;
+    errorKind?: string | null;
   }): Promise<number> {
     let costUsd: number;
     try {
@@ -336,6 +350,59 @@ export class AiSpendService {
   }
 
   /**
+   * Ob1 — emit a line for a provider call that DIED.
+   *
+   * ## The gap this closes
+   *
+   * `record()` prices usage, so it only ever ran once a call produced some. A
+   * call that failed before its first response therefore left no `AI-CALL` line
+   * at all at the non-streaming choke point, and none at the streaming sites
+   * that guard on `hasUsage`. The most expensive path in the system could fail
+   * completely and emit nothing — which is exactly what happened in the
+   * charged-empty-reading incident, where the whole log record was a bare
+   * `[Stream] Setup starting` and, four seconds later, a refund line.
+   *
+   * ## Why it is separate from `record()` rather than a flag on it
+   *
+   * `record()` moves the spend counters, and a failed call must not. Passing an
+   * `outcome` into `record()` would put a "sometimes don't count this" branch
+   * inside the one function whose correctness the daily cap depends on. A
+   * failure emits a line and touches nothing else.
+   *
+   * ⚠️ A failed call is NOT always free — Anthropic bills input tokens for a
+   * stream aborted mid-flight. Where usage was accumulated it is reported
+   * through `record()` as usual (see `_streamProviderInner`'s `finally`); this
+   * method is for the case where there is genuinely nothing to price.
+   *
+   * Never throws, for the same reason `record()` does not: callers invoke it as
+   * a bare `void` from `catch` blocks, where an unhandled rejection would turn
+   * a provider error into a dead process.
+   */
+  recordFailure(args: {
+    provider: AIProvider | string;
+    model: string;
+    error: unknown;
+    /** Surface + operation, e.g. `provider:CLAUDE`. Doubles as Ob1's `route`. */
+    context?: string;
+    durationMs?: number;
+    userId?: string | null;
+  }): void {
+    this.logCall(
+      {
+        provider: args.provider,
+        model: args.model,
+        usage: { inputTokens: 0, outputTokens: 0 },
+        context: args.context,
+        durationMs: args.durationMs,
+        userId: args.userId,
+        outcome: 'error',
+        errorKind: classifyAiError(args.error),
+      },
+      0,
+    );
+  }
+
+  /**
    * Ob1 — emit the per-call line.
    *
    * ## Why it lives here and not at the eleven call sites
@@ -368,7 +435,16 @@ export class AiSpendService {
    * use a bare `void` on the strength of that promise.
    */
   private logCall(
-    args: { provider: AIProvider | string; model: string; usage: TokenUsage; context?: string; durationMs?: number; userId?: string | null },
+    args: {
+      provider: AIProvider | string;
+      model: string;
+      usage: TokenUsage;
+      context?: string;
+      durationMs?: number;
+      userId?: string | null;
+      outcome?: AiCallOutcome;
+      errorKind?: string | null;
+    },
     costUsd: number,
   ): void {
     try {
@@ -387,6 +463,8 @@ export class AiSpendService {
           userIdHash: hashUserId(args.userId),
           rlOutRemaining: rl.outputTokensRemaining,
           rlOutReset: rl.outputTokensReset,
+          outcome: args.outcome ?? 'ok',
+          errorKind: args.errorKind ?? null,
         }),
       );
     } catch (err) {

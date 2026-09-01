@@ -14,7 +14,7 @@ import { AI_SPEND_CAP_CODE } from '../src/ai/ai-spend.service';
  *
  * Two audits found this independently, and neither the 22 service tests nor the
  * CI guard caught it, because every spec injected an ANONYMOUS stub
- * (`{ record: jest.fn(), assertUnderCap: jest.fn() } as never`) that no
+ * (`{ record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never`) that no
  * assertion could reach. So the coverage claim rested on a list someone had to
  * keep complete.
  *
