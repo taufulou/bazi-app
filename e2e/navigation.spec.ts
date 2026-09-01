@@ -5,29 +5,9 @@
  */
 import { test, expect } from '@playwright/test';
 
-/**
- * ⚠️ SKIPPED — this file's premise was removed, not broken.
- *
- * Full lockdown ended anonymous access. This file visits /, /pricing, /admin and /reading/*, so a
- * signed-out run is redirected to sign-in and every assertion below runs
- * against the WRONG PAGE. The failures that produces name missing headings and
- * absent locators, which sends a reader hunting for a UI regression instead of
- * telling them the page needs an account.
- *
- * Left in place rather than deleted: these pages still exist for signed-in
- * users, so this is coverage waiting for an authenticated E2E fixture. The
- * `__e2e_auth` cookie bypass is NOT that fixture — it covers `/reading/*` only,
- * and widening a backdoor through a security control to suit tests is the
- * wrong trade.
- *
- * The behaviour that REPLACED this is covered, and passing:
- * `e2e/signed-out-lockdown.spec.ts`.
- */
-test.skip(true, 'anonymous access removed by full lockdown — see e2e/signed-out-lockdown.spec.ts');
-
-
 test.describe('Navigation - Public Routes', () => {
-  test('landing page → pricing', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('landing page → pricing', async ({ page }) => {
     await page.goto('/');
     // There should be some way to get to pricing (footer, nav, etc.)
     // For now, verify pricing page loads directly
@@ -35,18 +15,21 @@ test.describe('Navigation - Public Routes', () => {
     await expect(page.getByText('選擇您的方案')).toBeVisible();
   });
 
-  test('pricing → reading page via direct URL', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('pricing → reading page via direct URL', async ({ page }) => {
     await page.goto('/reading/lifetime');
     await expect(page.locator('[class*="headerTitle"]')).toContainText('八字終身運');
   });
 
-  test('pricing page → contact link exists', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('pricing page → contact link exists', async ({ page }) => {
     await page.goto('/pricing');
     const contactLink = page.getByRole('link', { name: '聯絡我們' });
     await expect(contactLink).toHaveAttribute('href', '/contact');
   });
 
-  test('reading page back button works', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('reading page back button works', async ({ page }) => {
     await page.goto('/reading/career');
     await expect(page.locator('[class*="headerTitle"]')).toContainText('八字事業詳批');
 

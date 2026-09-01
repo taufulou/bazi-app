@@ -10,32 +10,6 @@
  */
 import { test, expect } from '@playwright/test';
 
-/**
- * ⚠️ SKIPPED — this file's premise was removed, not broken.
- *
- * Full lockdown ended anonymous access. This file visits / and /reading/*, so a
- * signed-out run is redirected to sign-in and every assertion below runs
- * against the WRONG PAGE. The failures that produces name missing headings and
- * absent locators, which sends a reader hunting for a UI regression instead of
- * telling them the page needs an account. *
- * ⚠️ SECOND cause, so un-skipping alone will not make this green: parts of this
- * file drive `/reading/zwds-*` and mock `/api/zwds-calculate` or
- * `/api/zwds/readings`. ZWDS was deleted (`ad106fc`), and its unauthenticated
- * calc route was deleted with this batch. Those tests need removing, not
- * reviving.
- *
- * Left in place rather than deleted: these pages still exist for signed-in
- * users, so this is coverage waiting for an authenticated E2E fixture. The
- * `__e2e_auth` cookie bypass is NOT that fixture — it covers `/reading/*` only,
- * and widening a backdoor through a security control to suit tests is the
- * wrong trade.
- *
- * The behaviour that REPLACED this is covered, and passing:
- * `e2e/signed-out-lockdown.spec.ts`.
- */
-test.skip(true, 'anonymous access removed by full lockdown — see e2e/signed-out-lockdown.spec.ts');
-
-
 // ============================================================
 // Mock Data
 // ============================================================
@@ -194,7 +168,8 @@ async function interceptGetReading(
 // ============================================================
 
 test.describe('Free Reading — Unauthenticated Chart-Only', () => {
-  test('ZWDS chart renders without auth via direct iztro path', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('ZWDS chart renders without auth via direct iztro path', async ({ page }) => {
     await interceptZwdsCalculate(page);
 
     await page.goto('/reading/zwds-lifetime');
@@ -208,7 +183,8 @@ test.describe('Free Reading — Unauthenticated Chart-Only', () => {
     await expect(stepIndicator).toBeVisible();
   });
 
-  test('Bazi reading page loads without auth', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('Bazi reading page loads without auth', async ({ page }) => {
     await interceptBaziCalculate(page);
 
     await page.goto('/reading/lifetime');
@@ -217,7 +193,8 @@ test.describe('Free Reading — Unauthenticated Chart-Only', () => {
     await expect(page.getByText('輸入資料')).toBeVisible();
   });
 
-  test('unauthenticated user sees submit button', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('unauthenticated user sees submit button', async ({ page }) => {
     await page.goto('/reading/zwds-career');
     await page.waitForLoadState('domcontentloaded');
 

@@ -8,33 +8,13 @@
  */
 import { test, expect } from '@playwright/test';
 
-/**
- * ⚠️ SKIPPED — this file's premise was removed, not broken.
- *
- * Full lockdown ended anonymous access: a signed-out visitor to `/` is
- * redirected to sign-in, so every assertion below now runs against the sign-in
- * page and fails with things like «expected 八字命理» — a message that sends the
- * reader hunting for a missing heading instead of telling them the page is
- * simply not reachable without an account.
- *
- * Left in place rather than deleted: the PAGE still exists for signed-in users,
- * so this is coverage waiting for an authenticated E2E fixture, not dead
- * weight. The `__e2e_auth` cookie bypass is not that fixture — it only covers
- * `/reading/*`, and widening a backdoor through a security control to suit
- * tests is the wrong trade.
- *
- * The behaviour that REPLACED this is covered, and passing:
- * `e2e/signed-out-lockdown.spec.ts`.
- */
-test.skip(true, 'anonymous access removed by full lockdown — see e2e/signed-out-lockdown.spec.ts');
-
-
 test.describe('Landing Page', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
   });
 
-  test('displays hero section with title and CTA', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('displays hero section with title and CTA', async ({ page }) => {
     // Main title
     await expect(page.locator('h1')).toContainText('八字命理');
 
@@ -43,7 +23,8 @@ test.describe('Landing Page', () => {
     await expect(cta).toBeVisible();
   });
 
-  test('shows Bazi feature cards', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('shows Bazi feature cards', async ({ page }) => {
     // Bazi section title
     await expect(page.getByText('八字命理分析')).toBeVisible();
 
@@ -52,7 +33,8 @@ test.describe('Landing Page', () => {
     await expect(page.getByText('流年運勢')).toBeVisible();
   });
 
-  test('shows ZWDS feature cards', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('shows ZWDS feature cards', async ({ page }) => {
     // ZWDS section should exist
     await expect(page.getByText('紫微斗數分析')).toBeVisible();
 

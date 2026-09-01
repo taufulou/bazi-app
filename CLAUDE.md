@@ -3982,14 +3982,26 @@ layer through a channel the other cannot reach.
 Start `next dev` on :3000 and use `playwright-minimal.config.ts` (the default
 config tries to boot its own server and hangs).
 
-⚠️ **17 of 21 spec files are `test.skip`ped with a stated reason** — full
-lockdown removed the anonymous access they were written against, so they ran
-against the sign-in page and failed with things like «expected 八字命理», which
-sends a reader hunting for a UI regression. They are skipped rather than
-deleted because the PAGES still exist for signed-in users; reviving them needs
-an authenticated E2E fixture. The `__e2e_auth` cookie is not that fixture — it
-covers `/reading/*` only, and widening a backdoor through a security control to
-suit tests is the wrong trade.
+⚠️ **Skips are per MEASURED FAILURE, not per file — and the difference is
+large.** The obvious move is "this file visits a locked route, so skip the
+file". That is wrong: many specs `goto('/')` only to obtain a browser context
+and then assert on `page.evaluate(fetch(...))` against **mocked** routes, so the
+page content is irrelevant and lockdown never touched them. `ad-rewards`
+(12/12), `monthly-credits` (18/18), `subscription-checkout` (10/10),
+`admin-monetization`, `credit-purchase`, `reading-history` and
+`subscription-page` were all fully green. A first pass banded 17 files by
+inspection and disabled **99 passing tests**; measuring first and skipping only
+what actually fails gives **125 passed / 0 failed / 99 skipped**.
+
+So: 6 files carry a file-level skip (nothing in them passes) and 5 more carry
+per-test skips. Skipped rather than deleted because the pages still exist for
+signed-in users; reviving them needs an authenticated fixture. The `__e2e_auth`
+cookie is not that fixture — it covers `/reading/*` only, and widening a
+backdoor through a security control to suit tests is the wrong trade.
+
+⚠️ **Run it with `--reporter=list`.** The `line` reporter only persists
+FAILURES, so a log from it cannot tell you which tests passed — which is
+exactly the measurement this decision needs.
 
 ### Ob1: attribution — who the call was for, and which call it was
 

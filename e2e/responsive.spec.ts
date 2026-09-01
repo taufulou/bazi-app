@@ -8,36 +8,11 @@
  */
 import { test, expect } from '@playwright/test';
 
-/**
- * ⚠️ SKIPPED — this file's premise was removed, not broken.
- *
- * Full lockdown ended anonymous access. This file visits /, /pricing and /reading/*, so a
- * signed-out run is redirected to sign-in and every assertion below runs
- * against the WRONG PAGE. The failures that produces name missing headings and
- * absent locators, which sends a reader hunting for a UI regression instead of
- * telling them the page needs an account. *
- * ⚠️ SECOND cause, so un-skipping alone will not make this green: parts of this
- * file drive `/reading/zwds-*` and mock `/api/zwds-calculate` or
- * `/api/zwds/readings`. ZWDS was deleted (`ad106fc`), and its unauthenticated
- * calc route was deleted with this batch. Those tests need removing, not
- * reviving.
- *
- * Left in place rather than deleted: these pages still exist for signed-in
- * users, so this is coverage waiting for an authenticated E2E fixture. The
- * `__e2e_auth` cookie bypass is NOT that fixture — it covers `/reading/*` only,
- * and widening a backdoor through a security control to suit tests is the
- * wrong trade.
- *
- * The behaviour that REPLACED this is covered, and passing:
- * `e2e/signed-out-lockdown.spec.ts`.
- */
-test.skip(true, 'anonymous access removed by full lockdown — see e2e/signed-out-lockdown.spec.ts');
-
-
 test.describe('Responsive - Desktop (1280x720)', () => {
   test.use({ viewport: { width: 1280, height: 720 } });
 
-  test('pricing page shows plan cards in grid layout', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('pricing page shows plan cards in grid layout', async ({ page }) => {
     await page.goto('/pricing');
 
     const basic = page.getByRole('heading', { name: 'Basic' });
@@ -79,7 +54,8 @@ test.describe('Responsive - Desktop (1280x720)', () => {
 test.describe('Responsive - Tablet (768x1024)', () => {
   test.use({ viewport: { width: 768, height: 1024 } });
 
-  test('pricing page is usable on tablet', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('pricing page is usable on tablet', async ({ page }) => {
     await page.goto('/pricing');
 
     // All plans should be visible
@@ -109,7 +85,8 @@ test.describe('Responsive - Tablet (768x1024)', () => {
 test.describe('Responsive - Mobile (390x844)', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test('pricing page is usable on mobile', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('pricing page is usable on mobile', async ({ page }) => {
     await page.goto('/pricing');
 
     // All content should be visible (may need scrolling)
@@ -121,7 +98,8 @@ test.describe('Responsive - Mobile (390x844)', () => {
     await expect(page.getByText(/最高省 33%/)).toBeVisible();
   });
 
-  test('reading page form is usable on mobile', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('reading page form is usable on mobile', async ({ page }) => {
     await page.goto('/reading/zwds-career');
 
     // Form should be visible and usable (use headerTitle to avoid duplicate text)

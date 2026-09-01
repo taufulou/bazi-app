@@ -14,27 +14,6 @@
  */
 import { test, expect } from '@playwright/test';
 
-/**
- * ⚠️ SKIPPED — this file's premise was removed, not broken.
- *
- * Full lockdown ended anonymous access. This file visits /, so a
- * signed-out run is redirected to sign-in and every assertion below runs
- * against the WRONG PAGE. The failures that produces name missing headings and
- * absent locators, which sends a reader hunting for a UI regression instead of
- * telling them the page needs an account.
- *
- * Left in place rather than deleted: these pages still exist for signed-in
- * users, so this is coverage waiting for an authenticated E2E fixture. The
- * `__e2e_auth` cookie bypass is NOT that fixture — it covers `/reading/*` only,
- * and widening a backdoor through a security control to suit tests is the
- * wrong trade.
- *
- * The behaviour that REPLACED this is covered, and passing:
- * `e2e/signed-out-lockdown.spec.ts`.
- */
-test.skip(true, 'anonymous access removed by full lockdown — see e2e/signed-out-lockdown.spec.ts');
-
-
 // ============================================================
 // Mock Data
 // ============================================================
