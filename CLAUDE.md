@@ -3991,7 +3991,7 @@ page content is irrelevant and lockdown never touched them. `ad-rewards`
 `admin-monetization`, `credit-purchase`, `reading-history` and
 `subscription-page` were all fully green. A first pass banded 17 files by
 inspection and disabled **99 passing tests**; measuring first and skipping only
-what actually fails gives **125 passed / 0 failed / 99 skipped**.
+what actually fails gives **126 passed / 0 failed / 99 skipped**.
 
 So: 6 files carry a file-level skip (nothing in them passes) and 5 more carry
 per-test skips. Skipped rather than deleted because the pages still exist for
