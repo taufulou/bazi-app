@@ -31,15 +31,10 @@ test.describe('Bazi Calculate Endpoint', () => {
 });
 
 test.describe('Static Pages', () => {
-  test('landing page returns 200', async ({ request }) => {
-    const response = await request.get('/');
-    expect(response.status()).toBe(200);
-  });
-
-  test('pricing page returns 200', async ({ request }) => {
-    const response = await request.get('/pricing');
-    expect(response.status()).toBe(200);
-  });
+  // `/` and `/pricing` used to be asserted here as 200. Full lockdown made that
+  // false — a signed-out GET is protect-rewritten — and the CORRECT assertion
+  // (that they are NOT served) now lives in `e2e/signed-out-lockdown.spec.ts`.
+  // Removed rather than inverted, so there is one owner of that fact.
 
   test('reading page returns 200', async ({ request }) => {
     const response = await request.get('/reading/lifetime');

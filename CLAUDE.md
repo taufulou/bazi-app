@@ -3952,6 +3952,45 @@ about "how long can a reading take" must use this, not the 300s/360s timeouts.
 The shipped stream lock at `bazi.service.ts:865` gets this wrong (330s TTL,
 commented against the 300s figure) and can expire mid-generation — todo #15.
 
+### Defense in depth can hide a layer that is entirely gone
+
+The signed-out lockdown has two layers on the same request: middleware
+`auth.protect()` (server) and `SignedOutRedirect` (client). The obvious test —
+`page.goto('/pricing')` then expect to land on `/sign-in` — passes if EITHER
+fires.
+
+Measured, not reasoned: re-opening `/pricing` in the middleware allowlist left
+that assertion green, because the client watcher still redirected. A test suite
+could therefore report a fully removed server-side lockdown as healthy.
+
+`e2e/signed-out-lockdown.spec.ts` splits them:
+
+| layer | how to assert it ALONE |
+|---|---|
+| B, middleware | `request.get(path)` — no JS runs, so only the server can refuse. A protected route answers a signed-out caller with a rewrite (`x-clerk-auth-reason: protect-rewrite`), which is **not** a 200. |
+| A, client watcher | `page.goto('/reading/lifetime')` — `/reading(.*)` is deliberately middleware-PUBLIC (the `__e2e_auth` bypass needs it), so the client is the only guard and the browser assertion tests it on its own. |
+
+Both directions are mutation-verified: re-opening a route in the middleware
+fails the server-side test only; neutering `SignedOutRedirect` fails the
+`/reading/*` test only.
+
+**Generalises past this feature:** whenever two controls cover one request, a
+test that asserts only the OUTCOME cannot tell you either is alive. Assert each
+layer through a channel the other cannot reach.
+
+⚠️ **The Playwright suite is NOT in CI**, so none of this runs automatically.
+Start `next dev` on :3000 and use `playwright-minimal.config.ts` (the default
+config tries to boot its own server and hangs).
+
+⚠️ **17 of 21 spec files are `test.skip`ped with a stated reason** — full
+lockdown removed the anonymous access they were written against, so they ran
+against the sign-in page and failed with things like «expected 八字命理», which
+sends a reader hunting for a UI regression. They are skipped rather than
+deleted because the PAGES still exist for signed-in users; reviving them needs
+an authenticated E2E fixture. The `__e2e_auth` cookie is not that fixture — it
+covers `/reading/*` only, and widening a backdoor through a security control to
+suit tests is the wrong trade.
+
 ### Ob1: attribution — who the call was for, and which call it was
 
 A streamed reading is the most expensive generation in the app, and its
