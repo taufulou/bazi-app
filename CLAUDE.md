@@ -3795,9 +3795,10 @@ left 3 of 3 profiles behind while reporting success.
 
 ⚠️ **The three instruments are not equally trustworthy.** `GET /api/admin/ops`
 and the `AI-CALL` log lines are authoritative — both read what the breaker
-reads. `/admin/ai-costs` was blind to the streaming path (#19) and polluted by
-1,383 load-test rows (#17, tooling written, prod rows not yet purged). Do not
-size a budget from that page.
+reads. `/admin/ai-costs` was blind to streamed readings (#19), is still polluted
+by 1,383 load-test rows (#17, tooling written, prod rows not yet purged), and
+has **never** included chat or fortune — those call `aiSpend.record()` directly
+and write no `AIUsageLog` row. Do not size a budget from that page.
 
 ### 📋 THE TODO LIST — where it lives
 

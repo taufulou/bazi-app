@@ -65,11 +65,19 @@ describe('#20 — the abort estimate is wired at every metering site', () => {
     expect(applyAt).toBeLessThan(recordAt);
   });
 
-  it('streamClaude counts the streamed characters', () => {
-    // Without this the reading path has no output signal to estimate from.
-    const src = read('src/ai/ai.service.ts');
-    expect(src).toContain('usageOut.outputTextChars = (usageOut.outputTextChars ?? 0)');
-  });
+  it.each(['streamClaude', 'streamGPT', 'streamGemini'])(
+    '%s counts the streamed characters', (fn) => {
+      // ⚠️ All THREE, not just Claude. A line audit found GPT and Gemini
+      // yielding text without counting it, so an abort on a FALLBACK provider
+      // still booked zero output — and the fallback chain is used precisely
+      // when things are going wrong, i.e. when aborts are most likely.
+      const src = read('src/ai/ai.service.ts');
+      const start = src.indexOf(`*${fn}(`);
+      expect(start).toBeGreaterThan(-1);
+      const body = src.slice(start, src.indexOf('\n  }\n', start));
+      expect(body).toContain('usageOut.outputTextChars = (usageOut.outputTextChars ?? 0)');
+    },
+  );
 
   it('the AI-CALL line carries outEst, always — including false', () => {
     // A field that appears only in the unusual case cannot be filtered on.

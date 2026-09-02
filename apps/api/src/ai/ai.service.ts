@@ -6394,6 +6394,11 @@ export class AIService implements OnModuleInit {
       }
       const text = chunk.choices[0]?.delta?.content;
       if (text) {
+        // #20 — count on EVERY provider, not just Claude. The fallback chain is
+        // used precisely when things are going wrong, which is when aborts are
+        // most likely; counting only on the happy-path provider would leave the
+        // under-count exactly where it hurts.
+        if (usageOut) usageOut.outputTextChars = (usageOut.outputTextChars ?? 0) + text.length;
         yield text;
       }
     }
@@ -6501,6 +6506,8 @@ export class AIService implements OnModuleInit {
       }
       const text = chunk.text();
       if (text) {
+        // #20 — see streamGPT.
+        if (usageOut) usageOut.outputTextChars = (usageOut.outputTextChars ?? 0) + text.length;
         yield text;
       }
     }

@@ -17,7 +17,7 @@ the alert names are exactly what Sentry sends.
 |---|---|---|
 | `GET /api/admin/ops` | Live spend, breaker state, pool occupancy, quota, replica count, alerting status | **Authoritative.** Reads the same Redis counters the breaker reads. |
 | `AI-CALL` log lines | Per-call route, tokens, cost, outcome, duration | **Authoritative.** One JSON line per call, including failures. |
-| `/admin/ai-costs` | Historical cost by type/provider | ⚠️ **Was unreliable.** Blind to streaming until #19, and polluted by 1,383 load-test rows until #17 is run against prod. Cross-check against the two above. |
+| `/admin/ai-costs` | Historical cost by READING type/provider | ⚠️ **Partial, by design and by accident.** Streamed readings were absent until #19. It is still polluted by 1,383 load-test rows until #17's purge is run against prod. And it has **never** included CHAT or FORTUNE — those call `aiSpend.record()` directly and write no `AIUsageLog` row, so their spend shows in `ops.spend` and the `AI-CALL` lines but not here. Cross-check against the two above; never size a budget from this page. |
 
 ⚠️ `pools` is **per-replica**; every other section is fleet-wide. Multiply by
 `replicas` for the fleet ceiling.
