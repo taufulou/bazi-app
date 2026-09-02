@@ -18,14 +18,14 @@ import {
 describe('alerting status', () => {
   const DSN = 'https://abc123@o12345.ingest.sentry.io/456';
 
-  it('reports NOT configured when the DSN is absent', () => {
-    const s = resolveAlertingStatus({});
+  it('reports NOT configured when Sentry never initialised', () => {
+    const s = resolveAlertingStatus({}, false);
     expect(s.sentryConfigured).toBe(false);
     expect(s.warnings).toHaveLength(1);
   });
 
   it('names every silenced event, so the warning is actionable', () => {
-    const [w] = resolveAlertingStatus({}).warnings;
+    const [w] = resolveAlertingStatus({}, false).warnings;
     for (const e of SPEND_ALERT_EVENTS) expect(w).toContain(e);
   });
 
@@ -34,7 +34,7 @@ describe('alerting status', () => {
     // means there is no control: Redis is unreadable, the call is ALLOWED, and
     // spend is bounded only by the Anthropic account limit. An operator reading
     // the warning has to learn that from the warning.
-    const [w] = resolveAlertingStatus({}).warnings;
+    const [w] = resolveAlertingStatus({}, false).warnings;
     expect(w).toContain('breaker_unavailable');
     expect(w.toUpperCase()).toContain('UNCAPPED');
   });
@@ -42,7 +42,7 @@ describe('alerting status', () => {
   it('treats a MALFORMED dsn as worse than a missing one', () => {
     // `Sentry.init()` is attempted, so "is it configured" answers yes while
     // nothing is deliverable — the failure hides behind a truthy check.
-    const s = resolveAlertingStatus({ [SENTRY_DSN_ENV]: 'not-a-url' });
+    const s = resolveAlertingStatus({ [SENTRY_DSN_ENV]: 'not-a-url' }, true);
     expect(s.sentryConfigured).toBe(true);
     expect(s.sentryHost).toBeNull();
     expect(s.warnings).toHaveLength(1);
@@ -50,7 +50,7 @@ describe('alerting status', () => {
   });
 
   it('reports configured, with the HOST and never the DSN', () => {
-    const s = resolveAlertingStatus({ [SENTRY_DSN_ENV]: DSN });
+    const s = resolveAlertingStatus({ [SENTRY_DSN_ENV]: DSN }, true);
     expect(s.sentryConfigured).toBe(true);
     expect(s.sentryHost).toBe('o12345.ingest.sentry.io');
     expect(s.warnings).toEqual([]);
@@ -58,14 +58,42 @@ describe('alerting status', () => {
     expect(JSON.stringify(s)).not.toContain('abc123');
   });
 
+  it('trusts the INIT STATE over the env var — the write-back trap', () => {
+    // `Sentry.init()` runs at module load, before NestFactory; this runs after,
+    // and @nestjs/config writes validated values back into process.env. If a
+    // default for SENTRY_DSN were ever added to the Joi schema, an env-only
+    // check would report "armed" for an init that never happened. The env is a
+    // label here; the client is the verdict.
+    const envSaysYes = resolveAlertingStatus({ [SENTRY_DSN_ENV]: DSN }, false);
+    expect(envSaysYes.sentryConfigured).toBe(false);
+    expect(envSaysYes.warnings[0]).toContain('NOT initialised');
+  });
+
+  it('handles initialised-but-no-visible-DSN without inventing a host', () => {
+    const s = resolveAlertingStatus({}, true);
+    expect(s.sentryConfigured).toBe(true);
+    expect(s.sentryHost).toBeNull();
+    expect(s.warnings[0]).toContain('cannot name the destination');
+  });
+
   it('ignores a whitespace-only DSN', () => {
-    expect(resolveAlertingStatus({ [SENTRY_DSN_ENV]: '   ' }).sentryConfigured).toBe(false);
+    expect(resolveAlertingStatus({ [SENTRY_DSN_ENV]: '   ' }, false).sentryConfigured).toBe(false);
+  });
+
+  it('DEFAULTS to the real Sentry client, not to the env var', () => {
+    // Every other test injects `clientPresent`, so the default path — the one
+    // production actually uses — would otherwise never run. Sentry is not
+    // initialised in this process, so a DSN in the env must NOT be enough:
+    // if the default were `Boolean(dsn)` this reports armed, and the whole
+    // point of reading the client instead of the env is lost.
+    const s = resolveAlertingStatus({ [SENTRY_DSN_ENV]: DSN });
+    expect(s.sentryConfigured).toBe(false);
   });
 
   describe('boot report', () => {
     const run = (env: NodeJS.ProcessEnv) => {
       const log: string[] = [], warn: string[] = [];
-      reportAlertingStatus(resolveAlertingStatus(env), (m) => log.push(m), (m) => warn.push(m));
+      reportAlertingStatus(resolveAlertingStatus(env, Boolean(env[SENTRY_DSN_ENV]?.trim())), (m) => log.push(m), (m) => warn.push(m));
       return { log, warn };
     };
 

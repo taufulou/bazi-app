@@ -3976,6 +3976,14 @@ looks like) and exposes it as a read on `GET /api/admin/ops` under `alerting`.
 Verified at a real boot in both branches; the DSN key appears **0 times** in the
 log, only the host.
 
+⚠️ **The verdict reads `Sentry.getClient()`, NOT `process.env.SENTRY_DSN`** —
+and that is deliberate. `Sentry.init()` runs at module load in `main.ts`, before
+`NestFactory.create`; this check runs after, and `@nestjs/config` writes
+validated values BACK into `process.env`. `SENTRY_DSN` is absent from the Joi
+schema today so the two agree, but adding a default there later would make an
+env-only check report "armed" for an init that never ran. Same write-back trap
+as `NODE_ENV`. The env is still read, for the HOST label only.
+
 ⚠️ **It can only see the deliverable half.** A DSN means events reach Sentry; it
 cannot see whether an alert RULE exists for those names, and the log line says
 so rather than implying coverage it has not checked.

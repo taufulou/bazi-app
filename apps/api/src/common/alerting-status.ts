@@ -56,17 +56,56 @@ function hostFromDsn(dsn: string): string | null {
   }
 }
 
-export function resolveAlertingStatus(env: NodeJS.ProcessEnv = process.env): AlertingStatus {
+/**
+ * @param clientPresent whether `Sentry.init()` actually produced a client.
+ *
+ * ⚠️ This is the GROUND TRUTH and the env var is not. `Sentry.init()` runs at
+ * module load in `main.ts`, before `NestFactory.create`, while this function is
+ * called afterwards — and `@nestjs/config` writes validated values BACK into
+ * `process.env`. Today `SENTRY_DSN` is absent from the Joi schema so the two
+ * agree, but adding a default there later would make an env-only check report
+ * "armed" for an init that never ran. That is precisely the write-back trap
+ * documented for `NODE_ENV`, and the reason a security-ish decision must not
+ * read the env when it can read the outcome instead.
+ *
+ * The DSN is still read, but only for the HOST — a label, not the verdict.
+ */
+/**
+ * Did `Sentry.init()` actually produce a client? Imported lazily so this module
+ * stays cheap for callers that inject `clientPresent` (every test does).
+ */
+function defaultClientPresent(): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const Sentry = require('@sentry/nestjs') as { getClient?: () => unknown };
+    return typeof Sentry.getClient === 'function' && Sentry.getClient() !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+export function resolveAlertingStatus(
+  env: NodeJS.ProcessEnv = process.env,
+  clientPresent: boolean = defaultClientPresent(),
+): AlertingStatus {
   const dsn = env[SENTRY_DSN_ENV]?.trim();
-  const configured = Boolean(dsn);
+  const configured = clientPresent;
   const host = dsn ? hostFromDsn(dsn) : null;
   const warnings: string[] = [];
 
   if (!configured) {
     warnings.push(
-      `${SENTRY_DSN_ENV} is not set — Sentry.init() never runs, so all ${SPEND_ALERT_EVENTS.length} ` +
+      `Sentry is NOT initialised (${SENTRY_DSN_ENV} unset at startup) — all ${SPEND_ALERT_EVENTS.length} ` +
         `spend alerts (${SPEND_ALERT_EVENTS.join(', ')}) are silent no-ops. ` +
         'ai.spend.breaker_unavailable fails OPEN, so an unnoticed Redis outage means UNCAPPED spend.',
+    );
+  } else if (!dsn) {
+    // Initialised without a DSN we can see: possible if init is wired from
+    // somewhere other than SENTRY_DSN. Events deliver; we just cannot name the
+    // project, so say that rather than inventing a host.
+    warnings.push(
+      `Sentry is initialised but ${SENTRY_DSN_ENV} is not readable here — ` +
+        'alerts deliver, but this report cannot name the destination project.',
     );
   } else if (!host) {
     // A malformed DSN is worse than none: init() is attempted, so the "is it

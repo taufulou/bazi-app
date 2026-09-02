@@ -101,9 +101,12 @@ describe('assembly', () => {
     const { resolveAlertingStatus } = jest.requireActual<
       typeof import('../src/common/alerting-status')
     >('../src/common/alerting-status');
-    const armed = resolveAlertingStatus({ SENTRY_DSN: 'https://k@o1.ingest.sentry.io/2' });
+    // `clientPresent` is injected: the verdict reads `Sentry.getClient()`, not
+    // the env var (see alerting-status.ts — the config write-back trap), and
+    // Sentry is not initialised in this process.
+    const armed = resolveAlertingStatus({ SENTRY_DSN: 'https://k@o1.ingest.sentry.io/2' }, true);
     expect(armed.sentryConfigured).toBe(true);
-    const silent = resolveAlertingStatus({});
+    const silent = resolveAlertingStatus({}, false);
     expect(silent.sentryConfigured).toBe(false);
     expect(silent.warnings).not.toEqual([]);
   });
