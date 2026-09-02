@@ -3782,6 +3782,23 @@ Cleanup is not optional: `seed-users.mjs --cleanup` goes through the app's own
 `erasePersonalData` ran. Do NOT rely on the `user.deleted` webhook — tested, it
 left 3 of 3 profiles behind while reporting success.
 
+### 📕 Ops docs — runbook and DR
+
+- **`docs/ops/incident-runbook.md`** — what to do when an alert fires. Every
+  instrument named in it exists; alert names match what Sentry actually sends.
+  ⚠️ Its first instruction is to check `alerting` in `GET /api/admin/ops`,
+  because with no `SENTRY_DSN` every spend alert is a silent no-op.
+- **`docs/ops/backups-and-dr.md`** — a GAP ANALYSIS, not a working DR posture.
+  Railway backup settings cannot be established from the repo, so they are
+  marked unverified. The highest-value open item is performing ONE restore: an
+  untested backup is a hypothesis.
+
+⚠️ **The three instruments are not equally trustworthy.** `GET /api/admin/ops`
+and the `AI-CALL` log lines are authoritative — both read what the breaker
+reads. `/admin/ai-costs` was blind to the streaming path (#19) and polluted by
+1,383 load-test rows (#17, tooling written, prod rows not yet purged). Do not
+size a budget from that page.
+
 ### 📋 THE TODO LIST — where it lives
 
 **When asked to "check the todo list", read
