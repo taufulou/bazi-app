@@ -83,7 +83,9 @@ describe('#19 — the streaming path writes an AIUsageLog row', () => {
       expect(window).toContain('readingType');
     });
 
-    it.each(['stream:COMPATIBILITY:call1', 'stream:COMPATIBILITY:call2'])(
+    // ⚠️ call3 included after the #8 sweep test found it missing here: the
+    // compat reveal makes THREE calls, and a two-entry list looked complete.
+    it.each(['stream:COMPATIBILITY:call1', 'stream:COMPATIBILITY:call2', 'stream:COMPATIBILITY:call3'])(
       '%s passes a readingType', (route) => {
         const at = SRC.indexOf(route);
         expect(at).toBeGreaterThan(-1);

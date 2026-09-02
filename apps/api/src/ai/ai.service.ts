@@ -1434,8 +1434,15 @@ export class AIService implements OnModuleInit {
             let yieldedAny = false;
             const call1Controller = new AbortController();
             if (externalControllers) externalControllers.add(call1Controller);
-            const call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
-            pendingTimeouts.add(call1Timeout);
+            // #8 — armed when the S1 slot is HELD, not here. Arming before the
+            // call charged up to QUEUE_TIMEOUT_MS (15s) of queueing against the
+            // provider's own budget. `callProviderWithTimeout` already worked
+            // this way; the streaming path did not.
+            let call1Timeout: ReturnType<typeof setTimeout> | undefined;
+            const armCall1Timeout = () => {
+              call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
+              pendingTimeouts.add(call1Timeout);
+            };
 
             try {
               const streamGen = this.streamProvider(
@@ -1447,6 +1454,7 @@ export class AIService implements OnModuleInit {
                   readingId: opts.readingId,
                   readingType,
                 },
+                armCall1Timeout,
               );
 
               for await (const chunk of streamGen) {
@@ -1526,8 +1534,12 @@ export class AIService implements OnModuleInit {
               );
               await new Promise((r) => setTimeout(r, backoffMs));
             } finally {
-              clearTimeout(call1Timeout);
-              pendingTimeouts.delete(call1Timeout);
+              // May be unarmed: a refusal at the S1 gate (AI_BUSY) or a
+              // budget break means the slot was never held.
+              if (call1Timeout !== undefined) {
+                clearTimeout(call1Timeout);
+                pendingTimeouts.delete(call1Timeout);
+              }
               if (externalControllers) externalControllers.delete(call1Controller);
             }
           }
@@ -1797,8 +1809,12 @@ export class AIService implements OnModuleInit {
       let yieldedAny = false;
       const call2Controller = new AbortController();
       if (externalControllers) externalControllers.add(call2Controller);
-      const call2Timeout = setTimeout(() => call2Controller.abort(), timeoutMs);
-      pendingTimeouts.add(call2Timeout);
+      // #8 — see the Call 1 site: armed on slot acquisition, not before.
+      let call2Timeout: ReturnType<typeof setTimeout> | undefined;
+      const armCall2Timeout = () => {
+        call2Timeout = setTimeout(() => call2Controller.abort(), timeoutMs);
+        pendingTimeouts.add(call2Timeout);
+      };
 
       try {
         this.logger.log(`${tag} Call 2 START provider=${providerConfig.provider} attempt=${attempt}/${AI_MAX_RETRIES_PER_PROVIDER}`);
@@ -1811,6 +1827,7 @@ export class AIService implements OnModuleInit {
             readingId: opts.readingId,
             readingType,
           },
+          armCall2Timeout,
         );
 
         for await (const chunk of streamGen) {
@@ -1922,8 +1939,11 @@ export class AIService implements OnModuleInit {
         );
         await new Promise((r) => setTimeout(r, backoffMs));
       } finally {
-        clearTimeout(call2Timeout);
-        pendingTimeouts.delete(call2Timeout);
+        // May be unarmed — see the Call 1 site.
+        if (call2Timeout !== undefined) {
+          clearTimeout(call2Timeout);
+          pendingTimeouts.delete(call2Timeout);
+        }
         if (externalControllers) externalControllers.delete(call2Controller);
       }
     }
@@ -5009,10 +5029,14 @@ export class AIService implements OnModuleInit {
           let call1ChunkCount = 0;
 
           const call1Controller = new AbortController();
-          activeTimeout = setTimeout(() => {
-            this.logger.warn(`[CompatV2Stream] Call 1 TIMEOUT after ${timeoutMs}ms`);
-            call1Controller.abort();
-          }, timeoutMs);
+          // #8 — armed on S1 slot acquisition, not before. See the reading
+          // Call 1 site: queue wait must not be charged to the provider budget.
+          const armCompatCall1 = () => {
+            activeTimeout = setTimeout(() => {
+              this.logger.warn(`[CompatV2Stream] Call 1 TIMEOUT after ${timeoutMs}ms`);
+              call1Controller.abort();
+            }, timeoutMs);
+          };
 
           const call1ExtractedKeys = new Set<string>();
           const call1Keys = [...COMPAT_V2_SECTIONS.CALL1];
@@ -5027,6 +5051,7 @@ export class AIService implements OnModuleInit {
                 userId,
                 readingType: ReadingType.COMPATIBILITY,
               },
+              armCompatCall1,
             );
 
             for await (const chunk of streamGen) {
@@ -5121,10 +5146,13 @@ export class AIService implements OnModuleInit {
           this.logger.log(`[CompatV2Stream] Call 2 START — elapsed=${Date.now()-startTime}ms`);
           const call2Sections: Record<string, InterpretationSection> = {};
           const call2Controller = new AbortController();
-          activeTimeout = setTimeout(() => {
-            this.logger.warn(`[CompatV2Stream] Call 2 TIMEOUT after ${timeoutMs}ms`);
-            call2Controller.abort();
-          }, timeoutMs);
+          // #8 — see Call 1 above.
+          const armCompatCall2 = () => {
+            activeTimeout = setTimeout(() => {
+              this.logger.warn(`[CompatV2Stream] Call 2 TIMEOUT after ${timeoutMs}ms`);
+              call2Controller.abort();
+            }, timeoutMs);
+          };
 
           const call2ExtractedKeys = new Set<string>();
           const call2Keys = [...COMPAT_V2_SECTIONS.CALL2];
@@ -5140,6 +5168,7 @@ export class AIService implements OnModuleInit {
                 userId,
                 readingType: ReadingType.COMPATIBILITY,
               },
+              armCompatCall2,
             );
 
             for await (const chunk of streamGen2) {
@@ -5224,10 +5253,13 @@ export class AIService implements OnModuleInit {
           const call3Sections: Record<string, InterpretationSection> = {};
           let call3Summary: InterpretationSection = { preview: '', full: '' };
           const call3Controller = new AbortController();
-          activeTimeout = setTimeout(() => {
-            this.logger.warn(`[CompatV2Stream] Call 3 TIMEOUT after ${timeoutMs}ms`);
-            call3Controller.abort();
-          }, timeoutMs);
+          // #8 — see Call 1 above.
+          const armCompatCall3 = () => {
+            activeTimeout = setTimeout(() => {
+              this.logger.warn(`[CompatV2Stream] Call 3 TIMEOUT after ${timeoutMs}ms`);
+              call3Controller.abort();
+            }, timeoutMs);
+          };
 
           const call3ExtractedKeys = new Set<string>();
           const call3Keys = [...COMPAT_V2_SECTIONS.CALL3];
@@ -5238,7 +5270,12 @@ export class AIService implements OnModuleInit {
             const streamGen3 = this.streamProvider(
               providerConfig, systemPrompt, call3User, call3Controller.signal,
               undefined,
-              { route: 'stream:COMPATIBILITY:call3', userId },
+              {
+                route: 'stream:COMPATIBILITY:call3',
+                userId,
+                readingType: ReadingType.COMPATIBILITY,
+              },
+              armCompatCall3,
             );
 
             for await (const chunk of streamGen3) {
@@ -6021,8 +6058,14 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal?: AbortSignal,
-    usageOut?: { inputTokens: number; outputTokens: number },
+    usageOut?: StreamUsageOut,
     attribution?: AiCallAttribution,
+    /**
+     * #8 — invoked once the S1 slot is HELD, immediately before the upstream
+     * call. Arm abort timeouts here, not before calling this method: queue wait
+     * would otherwise be charged against the provider's own budget.
+     */
+    onSlotAcquired?: () => void,
   ): AsyncGenerator<string> {
     // `usageOut` is a mutable ref populated by the underlying stream. On NORMAL
     // stream completion, usageOut reflects actual token usage. On ABORT or
@@ -6050,7 +6093,9 @@ export class AIService implements OnModuleInit {
     // hand-rolled version meant the governor's own release-on-abandon tests
     // covered a method production never called. Same behaviour, one owner.
     yield* this.aiGovernor.runGenerator('reading', `stream:${config.provider}`, () =>
-      this._streamProviderInner(config, systemPrompt, userPrompt, signal, usage, attribution),
+      this._streamProviderInner(
+        config, systemPrompt, userPrompt, signal, usage, attribution, onSlotAcquired,
+      ),
     );
   }
 
@@ -6065,7 +6110,28 @@ export class AIService implements OnModuleInit {
     signal: AbortSignal | undefined,
     usage: StreamUsageOut,
     attribution?: AiCallAttribution,
+    onSlotAcquired?: () => void,
   ): AsyncGenerator<string> {
+    // #8 — S1 GATE PASSED. `runGenerator` awaits `acquire()` before invoking
+    // this factory, so reaching this line means the slot is held and the
+    // upstream call is about to begin.
+    //
+    // Callers arm their abort timeout HERE rather than before the call, so
+    // queue wait is not charged against the provider's own budget. The
+    // non-streaming path already worked this way (`callProviderWithTimeout`
+    // arms inside `aiGovernor.run`); the streaming path did not, and it is the
+    // more expensive one.
+    //
+    // Safe because queue wait is separately bounded: `acquire` rejects with
+    // AI_BUSY after QUEUE_TIMEOUT_MS (15s for `reading`), so moving the clock
+    // cannot turn a slow queue into an unbounded hang — it converts budget
+    // erosion into an honest, retryable refusal.
+    try {
+      onSlotAcquired?.();
+    } catch (err) {
+      // A caller's timer bookkeeping must never take down the generation.
+      this.logger.error(`onSlotAcquired threw: ${err}`);
+    }
     const aiStartedAt = Date.now();
     // Ob1 — this site already emitted a line on abort (the `finally` below), but
     // it was a `$0` line indistinguishable from a cache hit. Capturing the error
