@@ -139,4 +139,73 @@ describe('BaziService._setupStream — self-refusal refund backstop', () => {
     expect((service as any).aiSpend.assertUnderCap).not.toHaveBeenCalled();
     expect(refundReadingCredit).not.toHaveBeenCalled();
   });
+
+  describe('ZWDS — a row with no streamer must be refused, not silently regenerated', () => {
+    // Found by auditing the recovery branch (#21c): `_setupStream`'s switch ends
+    // in `default: streamLifetimeV2`, so a ZWDS row sent there would generate
+    // 八字終身運 content over 紫微斗數 data and OVERWRITE one of the two paid
+    // `ZWDS_LIFETIME` reports. The comparison path has carried this guard for a
+    // while (`_assertRomanceV2`); the reading path never had it.
+    const zwdsReading = (aiInterpretation: unknown = null) => ({
+      id: 'reading-z', userId: USER_ID, creditsUsed: 3,
+      aiInterpretation, refundedAt: null, isDegraded: false,
+      readingType: 'ZWDS_LIFETIME', targetYear: null, calculationData: {},
+      birthProfile: { gender: 'MALE', birthDate: new Date('1987-09-06'), birthCity: 'x', hourKnown: true },
+    });
+
+    function buildWith(reading: Record<string, unknown>) {
+      const refundReadingCredit = jest.fn().mockResolvedValue({ refunded: true, amount: 3 });
+      const streamLifetimeV2 = jest.fn();
+      const service = Object.create(BaziService.prototype) as BaziService;
+      Object.assign(service, {
+        prisma: {
+          user: { findUnique: jest.fn().mockResolvedValue({ id: USER_ID }) },
+          baziReading: { findFirst: jest.fn().mockResolvedValue(reading) },
+        },
+        logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
+        redis: {
+          incrementRateLimit: jest.fn().mockResolvedValue(1),
+          getClient: jest.fn().mockReturnValue({ decr: jest.fn().mockResolvedValue(0) }),
+          acquireLock: jest.fn().mockResolvedValue(true),
+          releaseLock: jest.fn().mockResolvedValue(undefined),
+        },
+        aiService: { getMaxStreamedGenerationMs: jest.fn().mockReturnValue(1_260_000), streamLifetimeV2 },
+        aiSpend: { assertUnderCap: jest.fn().mockResolvedValue(undefined) },
+        quota: { consume: jest.fn().mockResolvedValue(undefined) },
+        creditsService: { refundReadingCredit },
+        emitStaticSections: jest.fn(),
+      });
+      return { service, streamLifetimeV2, refundReadingCredit };
+    }
+
+    it('REFUSES rather than generating LIFETIME over ZWDS data', async () => {
+      const { service, streamLifetimeV2 } = buildWith(zwdsReading());
+      await expect(run(service)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'READING_TYPE_NOT_STREAMABLE' }),
+      });
+      expect(streamLifetimeV2).not.toHaveBeenCalled();
+    });
+
+    it('does NOT refund — the user keeps a report we merely decline to regenerate', async () => {
+      const { service, refundReadingCredit } = buildWith(zwdsReading());
+      await expect(run(service)).rejects.toBeDefined();
+      expect(refundReadingCredit).not.toHaveBeenCalled();
+    });
+
+    it('still SERVES a paid ZWDS row that already has content', async () => {
+      // The guard sits after step 2 on purpose. Placing it earlier would break
+      // the two paid reports it exists to protect.
+      const { service } = buildWith(zwdsReading({ sections: { a: { preview: 'p', full: 'f' } } }));
+      await run(service);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect((service as any).emitStaticSections).toHaveBeenCalled();
+    });
+
+    it('does not refuse a normal Bazi row', async () => {
+      const { service } = buildWith({ ...zwdsReading(), readingType: 'LIFETIME' });
+      await expect(run(service)).rejects.not.toMatchObject({
+        response: expect.objectContaining({ code: 'READING_TYPE_NOT_STREAMABLE' }),
+      });
+    });
+  });
 });

@@ -578,7 +578,14 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
       //     and the user is told to create a new reading.
       // Streaming an existing id does NOT re-charge: the charge lives in
       // `createReading`, which is not on this path.
-      if (needsInterpretationRecovery(reading, aiReading?.sections?.length ?? 0)) {
+      //
+      // ⚠️ `!isZwds` is LOAD-BEARING, not tidiness. `_setupStream`'s streamer
+      // switch ends in `default: streamLifetimeV2`, so a ZWDS row sent there
+      // would generate a 八字終身運 reading over 紫微斗數 calculation data and
+      // OVERWRITE one of the two paid `ZWDS_LIFETIME` reports. ZWDS is deleted
+      // (`ad106fc`) and has no correct streamer, so there is nothing to recover
+      // — the row renders from `calculationData` and must be left alone.
+      if (!isZwds && needsInterpretationRecovery(reading, aiReading?.sections?.length ?? 0)) {
         void recoverPaidReading(reading.id, readingType, { owned: true });
       }
     } catch {

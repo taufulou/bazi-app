@@ -154,7 +154,12 @@ export default function ReadingHistoryPage() {
                                 <span className={styles.metaDot}>·</span>
                                 <span
                                   className={styles.refundedBadge}
-                                  title={`已退還 ${compCost} 額度`}
+                                  // The ACTUAL refund, not the list price.
+                                  // `refundComparisonCredit` gives back
+                                  // `comparison.creditsUsed` and preserves it, and
+                                  // re-pricing history from `compCost` is the exact
+                                  // class of bug eb68c81 was reverted for.
+                                  title={`已退還 ${reading.creditsUsed} 額度`}
                                 >
                                   已退款
                                 </span>

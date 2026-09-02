@@ -1088,6 +1088,37 @@ export class BaziService {
         enrichedData.targetYear = reading.targetYear;
       }
 
+      // ⚠️ Refuse a row this endpoint cannot interpret. Mirrors the LOAD-BEARING
+      // guard the comparison path already carries (`_assertRomanceV2`) and that
+      // this one never had.
+      //
+      // The streamer switch below ends in `default: streamLifetimeV2`, so a
+      // ZWDS row reaching it generates 八字終身運 content over 紫微斗數
+      // calculation data and OVERWRITES the row — and two paid `ZWDS_LIFETIME`
+      // reports exist. ZWDS was deleted in `ad106fc`; there is no correct
+      // streamer, so refusing is the only honest answer.
+      //
+      // Placed AFTER step 2 on purpose: a paid ZWDS row that already HAS an
+      // interpretation must still be served by `emitStaticSections`, and it
+      // returns before reaching here.
+      //
+      // ⚠️ This is NOT a self-refusal, so the backstop below correctly does not
+      // refund: the user keeps a report we are merely declining to regenerate.
+      //
+      // ⚠️ HEALTH has the same `default:` problem and is deliberately NOT
+      // covered here — it is a sellable product needing a decision (build
+      // `streamHealthV2` or withdraw it), tracked as its own item.
+      if (reading.readingType.startsWith('ZWDS')) {
+        this.logger.warn(
+          `[Stream] REFUSED ZWDS reading=${readingId} user=${user.id} — ` +
+            `no ZWDS streamer exists; would have generated LIFETIME over ZWDS data`,
+        );
+        throw new BadRequestException({
+          code: 'READING_TYPE_NOT_STREAMABLE',
+          message: '紫微斗數功能已停用，此報告無法重新生成。',
+        });
+      }
+
       // S4 — `_setupStream` serves BOTH the first stream and regeneration, and
       // both generate. Regeneration is separately bounded per-reading by
       // REGENERATION_LIMIT and requires `isDegraded`, so this is the smaller
