@@ -160,6 +160,16 @@ export interface AiCallLogFields {
   outcome?: AiCallOutcome;
   /** Set only when `outcome` is `'error'`. See `classifyAiError` — never a message. */
   errorKind?: string | null;
+  /**
+   * #20 — `outTok` is an ESTIMATE from streamed characters, not a figure the
+   * API returned. True only for an aborted stream, which never sees the
+   * `message_delta` carrying the real count.
+   *
+   * ⚠️ Emitted always, including `false`. A field that appears only in the
+   * unusual case cannot be filtered on, and `outEst:true` is exactly the query
+   * an operator needs to size how much of the day's spend is inferred.
+   */
+  outTokEstimated?: boolean;
 }
 
 /**
@@ -198,5 +208,6 @@ export function formatAiCallLog(f: AiCallLogFields): string {
     // actually wants.
     outcome: f.outcome ?? 'ok',
     errorKind: f.errorKind ?? null,
+    outEst: f.outTokEstimated ?? false,
   })}`;
 }

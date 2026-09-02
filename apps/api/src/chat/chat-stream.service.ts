@@ -29,7 +29,13 @@ import { ChatValidatorsService } from './chat-validators.service';
 import { buildPrompt } from './chat-prompt-builder';
 import { sanitizeUserContent } from './chat.service';
 import { isTopicBoundaryRefuse } from '../ai/prompts';
-import { absorbStreamUsage, emptyStreamUsage, hasUsage, mergeFinalUsage } from '../ai/stream-usage';
+import {
+  absorbStreamUsage,
+  emptyStreamUsage,
+  finalizeStreamUsage,
+  hasUsage,
+  mergeFinalUsage,
+} from '../ai/stream-usage';
 import { classifyAiError } from '../ai/ai-call-log';
 import { ShutdownService } from '../common/shutdown.service';
 
@@ -753,11 +759,15 @@ export class ChatStreamService {
       response.off('close', onClientClose);
       // S2 — record in the FINALLY, so a client disconnect (the commonest
       // ending on mobile) still books what Anthropic already billed.
+      // #20 — an abort never sees `message_delta`, so without this the output
+      // side is recorded as a confident zero while Anthropic bills every token.
+      finalizeStreamUsage(streamUsage);
       if (hasUsage(streamUsage)) {
         void this.aiSpend.record({
           provider: 'CLAUDE',
           model: this.model,
           usage: streamUsage,
+          outputTokensEstimated: streamUsage.outputTokensEstimated,
           context: 'chat:stream',
           durationMs: Date.now() - aiStartedAt,
           userId,

@@ -303,6 +303,12 @@ export class AiSpendService {
      * aborted mid-flight is billed for the tokens it produced. Use
      * `recordFailure()` when there is no usage at all.
      */
+    /**
+     * #20 — the output side is an estimate from streamed characters because the
+     * stream aborted before `message_delta`. Affects the LOG LINE ONLY: the
+     * tokens are priced and counted either way, since Anthropic bills them.
+     */
+    outputTokensEstimated?: boolean;
     outcome?: AiCallOutcome;
     errorKind?: string | null;
   }): Promise<number> {
@@ -442,6 +448,7 @@ export class AiSpendService {
       context?: string;
       durationMs?: number;
       userId?: string | null;
+      outputTokensEstimated?: boolean;
       outcome?: AiCallOutcome;
       errorKind?: string | null;
     },
@@ -457,6 +464,7 @@ export class AiSpendService {
           ms: typeof args.durationMs === 'number' ? Math.round(args.durationMs) : null,
           inTok: args.usage.inputTokens ?? 0,
           outTok: args.usage.outputTokens ?? 0,
+          outTokEstimated: args.outputTokensEstimated ?? false,
           cacheReadTok: args.usage.cacheReadTokens ?? 0,
           cacheWriteTok: args.usage.cacheWriteTokens ?? 0,
           costUsd,

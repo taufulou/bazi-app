@@ -44,6 +44,9 @@ describe('absorbStreamUsage', () => {
       outputTokens: 1,
       cacheReadTokens: 400,
       cacheWriteTokens: 10_000,
+      // #20 — message_start carries no text, so the char counter stays 0.
+      outputTextChars: 0,
+      outputTokensEstimated: false,
     });
   });
 
@@ -73,7 +76,10 @@ describe('absorbStreamUsage', () => {
       { type: 'message_start', message: { usage: { input_tokens: 5, cache_read_input_tokens: null } } },
       u,
     );
-    expect(u).toEqual({ inputTokens: 5, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
+    expect(u).toEqual({
+      inputTokens: 5, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
+      outputTextChars: 0, outputTokensEstimated: false,
+    });
   });
 
   it('ignores every other event shape without throwing', () => {
@@ -86,14 +92,28 @@ describe('absorbStreamUsage', () => {
       {},
       'text',
       42,
-      { type: 'content_block_delta', delta: { type: 'text_delta', text: 'hi' } },
+      // ⚠️ `content_block_delta` used to sit in this list. It is now COUNTED —
+      // its text is the only output signal an aborted stream leaves behind
+      // (#20), so it moved to its own assertion below.
       { type: 'message_stop' },
       { type: 'message_start' },
       { type: 'message_delta' },
+      // Still ignored: a delta whose text is absent or not a string.
+      { type: 'content_block_delta' },
+      { type: 'content_block_delta', delta: { type: 'text_delta', text: 42 } },
     ]) {
       expect(() => absorbStreamUsage(e, u)).not.toThrow();
     }
     expect(u).toEqual(emptyStreamUsage());
+  });
+
+  it('COUNTS content_block_delta text — the abort-survivable output signal', () => {
+    const u = emptyStreamUsage();
+    absorbStreamUsage({ type: 'content_block_delta', delta: { type: 'text_delta', text: 'hi' } }, u);
+    absorbStreamUsage({ type: 'content_block_delta', delta: { type: 'text_delta', text: '八字' } }, u);
+    expect(u.outputTextChars).toBe(4);
+    // Counting alone must not invent tokens — that is `finalizeStreamUsage`'s job.
+    expect(u.outputTokens).toBe(0);
   });
 
   it('an abort after message_start still bills the expensive half', () => {
@@ -175,10 +195,10 @@ describe('hasUsage — the guard that decides whether to record at all', () => {
     // The case the first guard missed, in the module whose whole argument is
     // that the cache-write half is the expensive one.
     expect(
-      hasUsage({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 10_000 }),
+      hasUsage({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 10_000 , outputTextChars: 0, outputTokensEstimated: false }),
     ).toBe(true);
     expect(
-      hasUsage({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 4_000, cacheWriteTokens: 0 }),
+      hasUsage({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 4_000, cacheWriteTokens: 0 , outputTextChars: 0, outputTokensEstimated: false }),
     ).toBe(true);
   });
 

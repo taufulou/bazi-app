@@ -42,7 +42,13 @@ import { AiSpendService } from '../ai/ai-spend.service';
 import { AiGovernorService } from '../ai/ai-governor.service';
 import { QuotaService } from '../ai/quota.service';
 import { isSelfRefusal } from '../ai/typed-refusals';
-import { absorbStreamUsage, emptyStreamUsage, hasUsage, mergeFinalUsage } from '../ai/stream-usage';
+import {
+  absorbStreamUsage,
+  emptyStreamUsage,
+  finalizeStreamUsage,
+  hasUsage,
+  mergeFinalUsage,
+} from '../ai/stream-usage';
 import { classifyAiError } from '../ai/ai-call-log';
 import * as Sentry from '@sentry/nestjs';
 import {
@@ -673,11 +679,15 @@ export class FortuneStreamService {
       // abort still books what Anthropic already billed. See
       // `stream-usage.ts` for why the four streaming sites that only read
       // `finalMessage()` were under-counting the commonest failure there is.
+      // #20 — an abort never sees `message_delta`, so without this the output
+      // side is recorded as a confident zero while Anthropic bills every token.
+      finalizeStreamUsage(streamUsage);
       if (hasUsage(streamUsage)) {
         void this.aiSpend.record({
           provider: 'CLAUDE',
           model,
           usage: streamUsage,
+          outputTokensEstimated: streamUsage.outputTokensEstimated,
           context: 'fortune:stream-daily',
           durationMs: Date.now() - aiStartedAt,
           userId,
@@ -1473,11 +1483,15 @@ export class FortuneStreamService {
       // abort still books what Anthropic already billed. See
       // `stream-usage.ts` for why the four streaming sites that only read
       // `finalMessage()` were under-counting the commonest failure there is.
+      // #20 — an abort never sees `message_delta`, so without this the output
+      // side is recorded as a confident zero while Anthropic bills every token.
+      finalizeStreamUsage(streamUsage);
       if (hasUsage(streamUsage)) {
         void this.aiSpend.record({
           provider: 'CLAUDE',
           model,
           usage: streamUsage,
+          outputTokensEstimated: streamUsage.outputTokensEstimated,
           context: 'fortune:stream-monthly',
           durationMs: Date.now() - aiStartedAt,
           userId,
@@ -2161,11 +2175,15 @@ export class FortuneStreamService {
       // abort still books what Anthropic already billed. See
       // `stream-usage.ts` for why the four streaming sites that only read
       // `finalMessage()` were under-counting the commonest failure there is.
+      // #20 — an abort never sees `message_delta`, so without this the output
+      // side is recorded as a confident zero while Anthropic bills every token.
+      finalizeStreamUsage(streamUsage);
       if (hasUsage(streamUsage)) {
         void this.aiSpend.record({
           provider: 'CLAUDE',
           model,
           usage: streamUsage,
+          outputTokensEstimated: streamUsage.outputTokensEstimated,
           context: 'fortune:stream-yearly',
           durationMs: Date.now() - aiStartedAt,
           userId,

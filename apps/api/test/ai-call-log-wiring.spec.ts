@@ -89,6 +89,9 @@ describe('record() emits the Ob1 line', () => {
       // only on failure cannot be filtered on, and `outcome!=ok` is the query.
       outcome: 'ok',
       errorKind: null,
+      // #20 — always emitted, including false: a field that appears only in
+      // the unusual case cannot be filtered on.
+      outEst: false,
     });
   });
 
@@ -128,6 +131,7 @@ describe('record() emits the Ob1 line', () => {
         rlOutReset: null,
         outcome: 'error',
         errorKind: 'overloaded',
+        outEst: false,
       });
     });
 

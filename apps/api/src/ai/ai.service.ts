@@ -12,6 +12,7 @@ import { RedisService } from '../redis/redis.service';
 import { CreditsService } from '../credits/credits.service';
 import { AiSpendService, AI_SPEND_CAP_CODE } from './ai-spend.service';
 import { classifyAiError, type AiCallAttribution } from './ai-call-log';
+import { estimateOutputTokensFromChars } from './stream-usage';
 import { AiGovernorService, AI_BUSY_CODE } from './ai-governor.service';
 import { isSelfRefusal } from './typed-refusals';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
@@ -182,6 +183,29 @@ export const CAREER_V2_ANNUAL_FORECAST_CAP = 5;
 // ============================================================
 // AI Service
 // ============================================================
+
+/**
+ * The reading path's usage accumulator.
+ *
+ * Parallel to `StreamUsage` in `stream-usage.ts` (which chat and fortune use) —
+ * they were written separately and both had the #20 abort bug. This one carries
+ * `stopReason`, which the degraded-reading `failedReason` needs, and shares the
+ * char-estimate mechanism via `finalizeStreamUsage`-equivalent logic in
+ * `_streamProviderInner`.
+ *
+ * `outputTextChars` is the only output signal an aborted stream leaves behind:
+ * `message_delta` carries the real `output_tokens` but arrives ONCE, near the
+ * end, so an abort before it recorded a confident ZERO while Anthropic billed
+ * every token produced.
+ */
+export type StreamUsageOut = {
+  inputTokens: number;
+  outputTokens: number;
+  /** Optional so existing callers that build the narrow object still compile. */
+  outputTextChars?: number;
+  outputTokensEstimated?: boolean;
+  stopReason?: string;
+};
 
 @Injectable()
 export class AIService implements OnModuleInit {
@@ -1750,7 +1774,7 @@ export class AIService implements OnModuleInit {
       pendingTimeouts, tag, externalControllers,
     } = opts;
 
-    const usageOut: { inputTokens: number; outputTokens: number; stopReason?: string } = { inputTokens: 0, outputTokens: 0 };
+    const usageOut: StreamUsageOut = { inputTokens: 0, outputTokens: 0, outputTextChars: 0 };
     const threshold = Math.floor(expectedCall2Count * degradeConfig.call2CompletionMin);
     let chunkCount = 0;
 
@@ -5998,7 +6022,7 @@ export class AIService implements OnModuleInit {
 
     // Own the ref when the caller didn't supply one, so metering no longer
     // depends on every call site remembering to ask for it.
-    const usage = usageOut ?? { inputTokens: 0, outputTokens: 0 };
+    const usage: StreamUsageOut = usageOut ?? { inputTokens: 0, outputTokens: 0, outputTextChars: 0 };
     // S1 — the slot is held until the LAST token, not until first byte:
     // releasing early would let N slots admit far more than N upstream calls.
     // Delegated to `runGenerator` rather than hand-rolling acquire/finally: the
@@ -6018,7 +6042,7 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal: AbortSignal | undefined,
-    usage: { inputTokens: number; outputTokens: number },
+    usage: StreamUsageOut,
     attribution?: AiCallAttribution,
   ): AsyncGenerator<string> {
     const aiStartedAt = Date.now();
@@ -6055,10 +6079,27 @@ export class AIService implements OnModuleInit {
       // completion would systematically under-count exactly the disconnect case
       // mobile produces most. Whatever the adapter managed to populate is
       // recorded; a genuine {0,0} costs nothing and is skipped by `record`.
+      // #20 — an abort never sees `message_delta`, which is the ONLY event
+      // carrying the real `output_tokens` and arrives once, near the end. Before
+      // this, a partially-streamed reading booked its output as a confident
+      // ZERO while Anthropic billed every token. Measured in production:
+      // `inTok:22222 outTok:0 costUsd:0.066666` — input only, for a call that
+      // had produced most of 14 sections (~45% under-count).
+      //
+      // ⚠️ `Math.max`, never assignment: some responses emit more than one
+      // `message_delta`, so a late abort can hold a real-but-partial count that
+      // must not be moved DOWN by the estimate.
+      const estimatedOut = estimateOutputTokensFromChars(usage.outputTextChars ?? 0);
+      if (estimatedOut > usage.outputTokens) {
+        usage.outputTokens = estimatedOut;
+        usage.outputTokensEstimated = true;
+      }
+
       void this.aiSpend.record({
         provider: config.provider,
         model: config.model,
         usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
+        outputTokensEstimated: usage.outputTokensEstimated ?? false,
         // Ob1 #12 — the route was `stream:CLAUDE` for every streamed call, so
         // Call 1 and Call 2 of a reading, and all three of a compat reveal,
         // were indistinguishable. The fallback keeps the old shape for any
@@ -6121,7 +6162,7 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal?: AbortSignal,
-    usageOut?: { inputTokens: number; outputTokens: number; stopReason?: string },
+    usageOut?: StreamUsageOut,
   ): AsyncGenerator<string> {
     if (!this.claudeClient) {
       const { createAnthropicClient } = await import('./anthropic-client');
@@ -6149,6 +6190,10 @@ export class AIService implements OnModuleInit {
         'delta' in event &&
         event.delta.type === 'text_delta'
       ) {
+        // #20 — the abort-survivable output signal. See StreamUsageOut.
+        if (usageOut) {
+          usageOut.outputTextChars = (usageOut.outputTextChars ?? 0) + event.delta.text.length;
+        }
         yield event.delta.text;
       } else if (event.type === 'message_delta' && usageOut) {
         const u = (event as any).usage;
@@ -6196,7 +6241,7 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal?: AbortSignal,
-    usageOut?: { inputTokens: number; outputTokens: number },
+    usageOut?: StreamUsageOut,
   ): AsyncGenerator<string> {
     if (!this.openaiClient) {
       const { default: OpenAI } = await import('openai');
@@ -6308,7 +6353,7 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal?: AbortSignal,
-    usageOut?: { inputTokens: number; outputTokens: number },
+    usageOut?: StreamUsageOut,
   ): AsyncGenerator<string> {
     if (!this.geminiAI) {
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
