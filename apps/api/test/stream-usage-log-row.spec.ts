@@ -35,18 +35,33 @@ describe('#19 — the streaming path writes an AIUsageLog row', () => {
     expect(innerBody).not.toContain('this.logUsage(');
   });
 
-  it('prices without awaiting record() — that call is a deliberate void', () => {
-    // `record()` returns the cost, but it is fire-and-forget inside a
-    // generator's `finally`; awaiting it would change when the generator
-    // settles. The same pricing function is used instead.
-    expect(innerBody).toContain('this.aiSpend.estimateCostUsd(');
+  it('prices in persistUsageRow, NOT at the streaming site — the dedupe', () => {
+    // ⚠️ This assertion was inverted deliberately. It used to require
+    // `estimateCostUsd(` INSIDE `_streamProviderInner`, which was right while
+    // the streaming site priced its own row. Pricing now lives in
+    // `persistUsageRow` (via `priceOrZero`) so that a caller cannot supply a
+    // wrong cost at all — nine of them used to hardcode `0`.
+    //
+    // Asserting the ABSENCE here is the stronger guard: it pins the dedupe, so
+    // re-introducing a second pricing site at the streaming path fails.
+    const priceOrZeroAt = SRC.indexOf('private priceOrZero(');
+    const persistAt = SRC.indexOf('private async persistUsageRow(');
+    expect(priceOrZeroAt).toBeGreaterThan(-1);
+    expect(SRC.slice(priceOrZeroAt, priceOrZeroAt + 900)).toContain('this.aiSpend.estimateCostUsd(');
+    expect(SRC.slice(persistAt, persistAt + 2000)).toContain('this.priceOrZero(');
+
+    expect(innerBody).not.toContain('this.aiSpend.estimateCostUsd(');
+    // Still true, and still the reason: `record()` here is a fire-and-forget
+    // `void` inside a generator's `finally`; awaiting it would change when the
+    // generator settles.
     expect(innerBody).not.toContain('await this.aiSpend.record(');
   });
 
   it('records the estimated output tokens, not the raw ones (#20 interaction)', () => {
     // The estimate is applied to `usage.outputTokens` in place before both the
     // spend record and this row, so an aborted stream is not written to the
-    // dashboard as zero output either.
+    // dashboard as zero output either. Still an ordering property even though
+    // the PRICING moved out — the tokens are read here.
     const applyAt = innerBody.indexOf('estimateOutputTokensFromChars(');
     const rowAt = innerBody.indexOf('this.persistUsageRow({');
     expect(applyAt).toBeGreaterThan(-1);

@@ -245,7 +245,7 @@ function buildService(opts: {
   // Ob1 #14 — hoisted so a test can assert the zero-usage failure line is
   // actually emitted. A stream that dies before its first token has no usage
   // to price, so `record()` is skipped and this is the ONLY trace it leaves.
-  const aiSpend = { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() };
+  const aiSpend = { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) };
   const service = new FortuneStreamService(prisma, helpers, validators, aiSpend as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never, { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never, shutdown);
 
   // Stub helper methods to make the test path deterministic

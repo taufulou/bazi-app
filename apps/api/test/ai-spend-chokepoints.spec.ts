@@ -14,9 +14,15 @@ import { AI_SPEND_CAP_CODE } from '../src/ai/ai-spend.service';
  *
  * Two audits found this independently, and neither the 22 service tests nor the
  * CI guard caught it, because every spec injected an ANONYMOUS stub
- * (`{ record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never`) that no
+ * (`{ record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never`) that no
  * assertion could reach. So the coverage claim rested on a list someone had to
  * keep complete.
+ *
+ * ⚠️ `estimateCostUsd` is in that literal DELIBERATELY, and a copy of this shape
+ * must carry all four methods. `persistUsageRow` prices the `ai_usage_log` row
+ * through it, and its own try/catch would swallow the `TypeError` from a stub
+ * that omits it — writing `costUsd: 0`, i.e. reproducing the exact defect under
+ * test while every spec stayed green.
  *
  * These tests hold a NAMED stub and assert against it, at the two methods every
  * provider call must pass through. If either check is deleted, they fail.
@@ -71,8 +77,6 @@ const CLAUDE_CONFIG = {
   model: 'claude-sonnet-4-5-20250929',
   apiKey: 'k',
   timeoutMs: 1000,
-  costPerInputToken: 0,
-  costPerOutputToken: 0,
 };
 
 describe('S2 chokepoint — callProviderWithTimeout (every non-streaming call)', () => {

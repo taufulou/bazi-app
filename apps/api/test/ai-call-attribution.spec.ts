@@ -25,7 +25,7 @@ describe('streamed calls carry attribution', () => {
     const record = jest.fn();
     const svc = Object.create(AIService.prototype) as AIService;
     Object.assign(svc, {
-      aiSpend: { record, recordFailure: jest.fn() },
+      aiSpend: { record, recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) },
       streamClaude: async function* () { yield 'chunk'; },
       logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
     });
@@ -215,7 +215,7 @@ describe('end to end: public entry point → streamProvider', () => {
     Object.assign(svc, {
       providers: [{ provider: 'CLAUDE', model: 'm', apiKey: 'k', timeoutMs: 1000 }],
       configService: { get: () => undefined },
-      aiSpend: { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() },
+      aiSpend: { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) },
       aiGovernor: { runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g() },
       logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
       // Capture what the real call sites hand down, then yield nothing so the

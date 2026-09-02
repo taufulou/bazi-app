@@ -194,7 +194,19 @@ export class AiSpendService {
    * Longest-prefix match, so `claude-sonnet-4-5-20250929` resolves via
    * `claude-sonnet-4-5` rather than needing a row per dated snapshot.
    */
-  priceFor(model: string): ModelPrice {
+  /**
+   * THE one scan. `null` means the model would fall back.
+   *
+   * Extracted so `priceFor` and `hasPriceEntry` share it — a `boolean` carries
+   * no price, so `priceFor` delegating to `hasPriceEntry` would have to scan a
+   * second time to find WHICH entry matched.
+   *
+   * ⚠️ The "no price entry" warning deliberately does NOT live here. It belongs
+   * to `priceFor` alone: a predicate with a logging side effect would emit one
+   * line per row when a caller partitions a batch on `hasPriceEntry`, and would
+   * collide with that same warning's job as the unknown-model signal.
+   */
+  private findPrice(model: string): ModelPrice | null {
     const id = (model || '').toLowerCase();
     let best: { key: string; price: ModelPrice } | null = null;
     for (const [key, price] of Object.entries(PRICE_TABLE)) {
@@ -202,14 +214,38 @@ export class AiSpendService {
         best = { key, price };
       }
     }
-    if (!best) {
+    return best ? best.price : null;
+  }
+
+  /**
+   * Does `model` resolve to a real `PRICE_TABLE` entry, or would it fall back?
+   *
+   * ⚠️ This cannot be answered from outside the service, which is why it exists.
+   * `priceFor` returns only a `ModelPrice`; `FALLBACK_PRICE` is not exported;
+   * and comparing VALUES is not merely unavailable but actively WRONG —
+   * `FALLBACK_PRICE` is byte-identical to the `claude-opus-4` / `claude-opus`
+   * entries, so a value check would report the most expensive real models in the
+   * table as unpriced.
+   *
+   * Used by anything that must refuse to act on a fallback price rather than
+   * silently accept it — a cost repair writing an irreversible figure, or an
+   * "unknown model in production" alert, which today exists only as the warn in
+   * `priceFor`.
+   */
+  hasPriceEntry(model: string): boolean {
+    return this.findPrice(model) !== null;
+  }
+
+  priceFor(model: string): ModelPrice {
+    const price = this.findPrice(model);
+    if (!price) {
       this.logger.warn(
         `No price entry for model "${model}" — billing at the most expensive known ` +
           `rate so the breaker errs toward tripping early. Add it to PRICE_TABLE.`,
       );
       return FALLBACK_PRICE;
     }
-    return best.price;
+    return price;
   }
 
   estimateCostUsd(model: string, usage: TokenUsage): number {

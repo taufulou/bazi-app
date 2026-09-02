@@ -168,7 +168,7 @@ describe('ChatStreamService', () => {
     // Ob1 #14 — hoisted so tests can assert the zero-usage failure line is
     // actually emitted. `recordFailure` is what makes a stream that died before
     // its first token visible at all; before it, that path logged nothing.
-    mockAiSpend = { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() };
+    mockAiSpend = { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) };
 
     service = new ChatStreamService(
       mockPrisma,

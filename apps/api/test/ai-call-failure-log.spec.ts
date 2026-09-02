@@ -152,7 +152,7 @@ describe('_streamProviderInner — how the stream ENDED', () => {
     const record = jest.fn();
     const svc = Object.create(AIService.prototype) as AIService;
     Object.assign(svc, {
-      aiSpend: { record, recordFailure: jest.fn() },
+      aiSpend: { record, recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) },
       streamClaude: impl,
       logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
     });

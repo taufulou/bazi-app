@@ -49,7 +49,7 @@ describe('BaziService — 合盤 charge at reveal', () => {
       { deductCredits, refundComparisonCredit } as never,
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       // S2 — the cap pre-check that now runs before every quota consume.
-      { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn() } as never,
+      { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never,
       new ShutdownService(),
     );
     return svc;
@@ -182,7 +182,7 @@ describe('BaziService — 合盤 charge at reveal', () => {
         { deductCredits, refundComparisonCredit } as never,
         { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       // S2 — the cap pre-check that now runs before every quota consume.
-      { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn() } as never,
+      { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never,
         new ShutdownService(),
       );
     }
@@ -279,7 +279,7 @@ describe('BaziService — 合盤 charge at reveal', () => {
         ai as never, { deductCredits } as never,
         { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       // S2 — the cap pre-check that now runs before every quota consume.
-      { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn() } as never,
+      { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never,
         new ShutdownService(),
       );
       jest

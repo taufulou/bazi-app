@@ -86,8 +86,6 @@ interface ProviderConfig {
   model: string;
   apiKey: string;
   timeoutMs: number;
-  costPerInputToken: number;  // USD per token
-  costPerOutputToken: number; // USD per token
 }
 
 // ============================================================
@@ -244,8 +242,6 @@ export class AIService implements OnModuleInit {
         model: this.configService.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929',
         apiKey: claudeKey,
         timeoutMs: 30000,
-        costPerInputToken: 3 / 1_000_000,   // $3 per 1M input tokens
-        costPerOutputToken: 15 / 1_000_000,  // $15 per 1M output tokens
       });
       this.logger.log('Claude provider initialized');
     }
@@ -256,8 +252,6 @@ export class AIService implements OnModuleInit {
         model: this.configService.get<string>('GPT_MODEL') || 'gpt-4o',
         apiKey: openaiKey,
         timeoutMs: 30000,
-        costPerInputToken: 2.5 / 1_000_000,
-        costPerOutputToken: 10 / 1_000_000,
       });
       this.logger.log('GPT provider initialized');
     }
@@ -268,8 +262,6 @@ export class AIService implements OnModuleInit {
         model: this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash',
         apiKey: geminiKey,
         timeoutMs: 30000,
-        costPerInputToken: 2 / 1_000_000,
-        costPerOutputToken: 12 / 1_000_000,
       });
       this.logger.log('Gemini provider initialized');
     }
@@ -455,8 +447,7 @@ export class AIService implements OnModuleInit {
 
         // Calculate cost
         const estimatedCostUsd =
-          result.inputTokens * providerConfig.costPerInputToken +
-          result.outputTokens * providerConfig.costPerOutputToken;
+          this.priceOrZero(providerConfig.model, result.inputTokens, result.outputTokens);
 
         // Parse the AI response into structured sections
         const interpretation = this.parseAIResponse(result.content, readingType);
@@ -469,7 +460,7 @@ export class AIService implements OnModuleInit {
             inputTokens: result.inputTokens,
             outputTokens: result.outputTokens,
             totalTokens: result.inputTokens + result.outputTokens,
-            estimatedCostUsd: Math.round(estimatedCostUsd * 1_000_000) / 1_000_000,
+            estimatedCostUsd,
           },
           latencyMs,
           isCacheHit: false,
@@ -629,14 +620,9 @@ export class AIService implements OnModuleInit {
 
           // Log Call 1 usage
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: fixed1.sections, summary: fixed1.summary },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r1.inputTokens,
               outputTokens: r1.outputTokens,
-              totalTokens: r1.inputTokens + r1.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -655,14 +641,9 @@ export class AIService implements OnModuleInit {
 
           // Log Call 2 usage
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r2.inputTokens,
               outputTokens: r2.outputTokens,
-              totalTokens: r2.inputTokens + r2.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -683,8 +664,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          totalInputTokens * providerConfig.costPerInputToken +
-          totalOutputTokens * providerConfig.costPerOutputToken;
+          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -707,7 +687,7 @@ export class AIService implements OnModuleInit {
             inputTokens: totalInputTokens,
             outputTokens: totalOutputTokens,
             totalTokens: totalInputTokens + totalOutputTokens,
-            estimatedCostUsd: Math.round(totalCost * 1_000_000) / 1_000_000,
+            estimatedCostUsd: totalCost,
           },
           latencyMs,
           isCacheHit: false,
@@ -820,14 +800,9 @@ export class AIService implements OnModuleInit {
           }
 
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: fixed1.sections, summary: fixed1.summary },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r1.inputTokens,
               outputTokens: r1.outputTokens,
-              totalTokens: r1.inputTokens + r1.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -849,14 +824,9 @@ export class AIService implements OnModuleInit {
           sections = { ...sections, ...fixed2.sections };
 
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r2.inputTokens,
               outputTokens: r2.outputTokens,
-              totalTokens: r2.inputTokens + r2.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -873,8 +843,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          totalInputTokens * providerConfig.costPerInputToken +
-          totalOutputTokens * providerConfig.costPerOutputToken;
+          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -897,7 +866,7 @@ export class AIService implements OnModuleInit {
             inputTokens: totalInputTokens,
             outputTokens: totalOutputTokens,
             totalTokens: totalInputTokens + totalOutputTokens,
-            estimatedCostUsd: Math.round(totalCost * 1_000_000) / 1_000_000,
+            estimatedCostUsd: totalCost,
           },
           latencyMs,
           isCacheHit: false,
@@ -2118,14 +2087,9 @@ export class AIService implements OnModuleInit {
           }
 
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: fixed1.sections, summary: fixed1.summary },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r1.inputTokens,
               outputTokens: r1.outputTokens,
-              totalTokens: r1.inputTokens + r1.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -2142,14 +2106,9 @@ export class AIService implements OnModuleInit {
           sections = { ...sections, ...fixed2.sections };
 
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r2.inputTokens,
               outputTokens: r2.outputTokens,
-              totalTokens: r2.inputTokens + r2.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -2162,8 +2121,7 @@ export class AIService implements OnModuleInit {
         const deterministic = (enhancedInsights ? deepCamelCase(enhancedInsights) : {}) as Record<string, unknown>;
 
         const totalCost =
-          totalInputTokens * providerConfig.costPerInputToken +
-          totalOutputTokens * providerConfig.costPerOutputToken;
+          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -2186,7 +2144,7 @@ export class AIService implements OnModuleInit {
             inputTokens: totalInputTokens,
             outputTokens: totalOutputTokens,
             totalTokens: totalInputTokens + totalOutputTokens,
-            estimatedCostUsd: Math.round(totalCost * 1_000_000) / 1_000_000,
+            estimatedCostUsd: totalCost,
           },
           latencyMs,
           isCacheHit: false,
@@ -4040,14 +3998,9 @@ export class AIService implements OnModuleInit {
           }
 
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: fixed1.sections, summary: fixed1.summary },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r1.inputTokens,
               outputTokens: r1.outputTokens,
-              totalTokens: r1.inputTokens + r1.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -4068,14 +4021,9 @@ export class AIService implements OnModuleInit {
           sections = { ...sections, ...fixed2.sections };
 
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r2.inputTokens,
               outputTokens: r2.outputTokens,
-              totalTokens: r2.inputTokens + r2.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -4092,8 +4040,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          totalInputTokens * providerConfig.costPerInputToken +
-          totalOutputTokens * providerConfig.costPerOutputToken;
+          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -4848,14 +4795,9 @@ export class AIService implements OnModuleInit {
             readingId,
             providerConfig,
             {
-              interpretation: { sections: {}, summary: { preview: '', full: '' } },
-              provider: providerConfig.provider,
-              model: providerConfig.model,
               tokenUsage: {
                 inputTokens: r.inputTokens,
                 outputTokens: r.outputTokens,
-                totalTokens: r.inputTokens + r.outputTokens,
-                estimatedCostUsd: 0,
               },
               latencyMs,
               isCacheHit: false,
@@ -4909,8 +4851,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          totalInputTokens * providerConfig.costPerInputToken +
-          totalOutputTokens * providerConfig.costPerOutputToken;
+          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
 
         this.logger.log(
           `Compat Romance V2 generated via ${providerConfig.provider} in ${latencyMs}ms, ` +
@@ -6215,22 +6156,12 @@ export class AIService implements OnModuleInit {
       // ⚠️ NOT `logUsage()`: that calls `record()` too, which would double-count
       // this call against the daily cap. Only the DB half belongs here.
       //
-      // ⚠️ Priced separately rather than by awaiting `record()`'s return. That
-      // call is a deliberate fire-and-forget `void` inside a generator's
-      // `finally`; awaiting it would change when the generator settles.
-      // `estimateCostUsd` is the same pricing function `record()` uses.
+      // ⚠️ The row is priced by `persistUsageRow` (via `priceOrZero`), NOT by
+      // awaiting `record()`'s return value. `record()` here is a deliberate
+      // fire-and-forget `void` inside a generator's `finally`, and awaiting it
+      // would change when the generator settles. Both end up in the same
+      // `estimateCostUsd`, which is the point.
       if (attribution?.readingType || attribution?.readingId) {
-        let costUsd = 0;
-        try {
-          costUsd = this.aiSpend.estimateCostUsd(config.model, {
-            inputTokens: usage.inputTokens,
-            outputTokens: usage.outputTokens,
-          });
-        } catch (err) {
-          // Pricing an unknown model must not cost us the row; the token counts
-          // are the part that cannot be recomputed later.
-          this.logger.error(`Failed to price streamed usage (${config.model}): ${err}`);
-        }
         void this.persistUsageRow({
           userId: attribution.userId,
           readingId: attribution.readingId,
@@ -6239,7 +6170,6 @@ export class AIService implements OnModuleInit {
           model: config.model,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
-          costUsd,
           latencyMs: Date.now() - aiStartedAt,
         });
       }
@@ -7929,7 +7859,24 @@ export class AIService implements OnModuleInit {
     userId: string | undefined,
     readingId: string | undefined,
     config: ProviderConfig,
-    result: AIGenerationResult,
+    /**
+     * ⚠️ Deliberately NARROWER than `AIGenerationResult`.
+     *
+     * It used to take the whole result, whose `tokenUsage.estimatedCostUsd` is a
+     * required `number` — so nine call sites had to supply one, and every one of
+     * them hardcoded `0`. The row is priced from `model` + tokens now, and
+     * narrowing the type is what makes that invariant COMPILER-ENFORCED rather
+     * than dependent on a source test nobody runs.
+     *
+     * It also drops `interpretation`, `provider` and `model`, which this method
+     * never read — the compat site was building an empty `interpretation`
+     * literal purely to satisfy the wider type.
+     */
+    result: {
+      tokenUsage: { inputTokens: number; outputTokens: number };
+      latencyMs: number;
+      isCacheHit?: boolean;
+    },
     readingType?: ReadingType,
   ) {
     // S2 — the spend counter the breaker reads. Recorded here because every
@@ -7959,7 +7906,6 @@ export class AIService implements OnModuleInit {
       model: config.model,
       inputTokens: result.tokenUsage.inputTokens,
       outputTokens: result.tokenUsage.outputTokens,
-      costUsd: result.tokenUsage.estimatedCostUsd,
       latencyMs: result.latencyMs,
       isCacheHit: result.isCacheHit,
     });
@@ -7982,6 +7928,42 @@ export class AIService implements OnModuleInit {
    * Never throws: every caller treats usage logging as best-effort, and losing
    * a metrics row must not fail a paid reading.
    */
+  /**
+   * The only place `AIService` computes a cost. Never throws, never returns a
+   * non-finite value.
+   *
+   * (`AiSpendService.record` computes one too, and must — it is the breaker's
+   * path and cannot depend on `AIService`.)
+   *
+   * ⚠️ The post-fix property is ONE CALCULATION, TWO REPRESENTATIONS — not
+   * equality. `record()` increments Redis with the UNROUNDED result, and that is
+   * deliberate: rounding there to "make them agree" would change what the
+   * breaker counts. The drift is bounded at 5e-7 per call, and
+   * `AIUsageLog.costUsd` is `Decimal(10,6)`, which rounds anyway.
+   *
+   * ⚠️ `Number.isFinite` is checked BEFORE the rounding. `Math.round(NaN)` is
+   * `NaN`, and Prisma rejects that for a `Decimal` column — from inside the
+   * caller's `create`, i.e. past the try below, so the ROW would be lost. Token
+   * counts are the part that cannot be recomputed later; a $0 row that says so
+   * in the log can be repaired.
+   */
+  private priceOrZero(model: string, inputTokens: number, outputTokens: number): number {
+    let priced = 0;
+    try {
+      priced = this.aiSpend.estimateCostUsd(model, { inputTokens, outputTokens });
+    } catch (err) {
+      // ⚠️ Name the likely cause. In a test environment this is almost always an
+      // `aiSpend` stub missing `estimateCostUsd` rather than a real pricing
+      // failure, and the two need completely different fixes.
+      this.logger.error(
+        `Failed to price (${model}) — typeof estimateCostUsd=` +
+          `${typeof this.aiSpend?.estimateCostUsd}: ${err}`,
+      );
+    }
+    if (!Number.isFinite(priced)) return 0;
+    return Math.round(priced * 1_000_000) / 1_000_000;
+  }
+
   private async persistUsageRow(row: {
     userId?: string | null;
     readingId?: string | null;
@@ -7990,9 +7972,10 @@ export class AIService implements OnModuleInit {
     model: string;
     inputTokens: number;
     outputTokens: number;
-    costUsd: number;
     latencyMs: number;
     isCacheHit?: boolean;
+    // costUsd — REMOVED. Priced here, from `model` + tokens, so a caller cannot
+    // supply a wrong one. Nine of them used to hardcode `0`.
   }): Promise<void> {
     try {
       await this.prisma.aIUsageLog.create({
@@ -8004,7 +7987,7 @@ export class AIService implements OnModuleInit {
           aiModel: row.model,
           inputTokens: row.inputTokens,
           outputTokens: row.outputTokens,
-          costUsd: row.costUsd,
+          costUsd: this.priceOrZero(row.model, row.inputTokens, row.outputTokens),
           latencyMs: row.latencyMs,
           isCacheHit: row.isCacheHit ?? false,
         },

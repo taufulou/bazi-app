@@ -1,7 +1,16 @@
 # Fix: persisted AI cost figures disagree with the spend counter
 
-**Status:** planned, not implemented. Standalone — not part of the launch-gate
-todo list.
+**Status:** **D1 implemented** 2026-09-02. D2 planned, approved, not started.
+Standalone — not part of the launch-gate todo list.
+
+⚠️ **One thing the implementation found that five review rounds did not.** §4's
+stub work has TWO halves — widen the stubs, and make a missing one fail loudly —
+and doing only the first leaves the defect exactly as hidden as before. The
+mutation "remove `estimateCostUsd` from a stub" SURVIVED on the first attempt.
+The fix was a guard on the STUB SHAPE itself (every `recordFailure: jest.fn()`
+literal in the spec tree must carry `estimateCostUsd`), which is coverage by
+construction rather than a list of specs someone keeps complete — the same
+argument that put the spend cap inside `callProviderWithTimeout`.
 
 **Revision 5.** v1 → CHANGES REQUIRED (11 issues, 2 factual errors). v2 →
 CHANGES REQUIRED (3 required + 4 polish). v3 → CHANGES REQUIRED, confined to the
@@ -12,7 +21,7 @@ deliverables.** All five rounds' findings are folded in and listed in §7.
 
 | | | Status |
 |---|---|---|
-| **D1 — the code fix** | §3 parts A, B, C, D + the `hasPriceEntry` accessor | ✅ **APPROVED** (staff review round 4) |
+| **D1 — the code fix** | §3 parts A, B, C, D + the `hasPriceEntry` accessor | ✅ **IMPLEMENTED** 2026-09-02 |
 | **D2 — the backfill** | §3E | lands AFTER D1 is deployed; needs `hasPriceEntry`, which is why that accessor sits in D1 |
 
 D1 does not depend on D2 and should not wait for it. D2 writes money figures to

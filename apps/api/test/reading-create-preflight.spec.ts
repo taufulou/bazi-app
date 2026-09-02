@@ -62,7 +62,7 @@ describe('createReading — self-refusal pre-flight runs before the charge', () 
     };
     credits = { deductCredits: jest.fn(), refundReadingCredit: jest.fn(), refundComparisonCredit: jest.fn() };
     quota = { consume: jest.fn(), check: jest.fn(), peek: jest.fn() };
-    aiSpend = { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn() };
+    aiSpend = { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) };
     ai = {
       generateBirthDataHash: jest.fn().mockReturnValue('hash-test'),
       getCachedInterpretation: jest.fn().mockResolvedValue(null),

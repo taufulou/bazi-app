@@ -74,7 +74,7 @@ describe('BaziService.createReading — dedupe', () => {
       // before charging; `consume` still happens once, later, in `_setupStream`.
       { consume: jest.fn(), check: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       // S2 — the cap pre-check that now runs before every quota consume.
-      { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn() } as never,
+      { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never,
       new ShutdownService(),
     );
     jest

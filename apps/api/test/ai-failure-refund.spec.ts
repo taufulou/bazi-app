@@ -157,7 +157,7 @@ describe('AI Failure Graceful Degradation', () => {
         // S4 — quota gates reading creation before the credit deduction.
         { provide: QuotaService, useValue: { consume: jest.fn(), peek: jest.fn() } },
         // S2 — the cap pre-check that now runs before every quota consume.
-        { provide: AiSpendService, useValue: { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn() } },
+        { provide: AiSpendService, useValue: { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } },
       ],
     }).compile();
 
