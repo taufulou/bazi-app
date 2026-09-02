@@ -64,6 +64,29 @@ describe('AIUsageLog cost pricing', () => {
     expect(Number(create.mock.calls[0][0].data.costUsd)).toBeCloseTo(recorded, 6);
   });
 
+  it('END TO END through logUsage: the counter and the row agree', async () => {
+    // ⚠️ The tests above exercise `persistUsageRow` directly. That is the
+    // helper, not the PATH — and "well-covered helper behind untested wiring"
+    // is this repo's most reliable bug shape. The claim is about one CALL, so
+    // this drives `logUsage`, which is what every generator actually invokes,
+    // and compares the number `record()` returned with the number persisted.
+    const spend = realSpend();
+    const recordSpy = jest.spyOn(spend, 'record');
+    const { svc, create } = build(spend);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (svc as any).logUsage('u1', 'r1',
+      { provider: 'CLAUDE', model: 'claude-sonnet-4-5-20250929' },
+      { tokenUsage: { inputTokens: 1_000_000, outputTokens: 0 }, latencyMs: 5, isCacheHit: false },
+      null);
+
+    expect(recordSpy).toHaveBeenCalledTimes(1);
+    const counted = await recordSpy.mock.results[0]!.value;
+    const persisted = Number(create.mock.calls[0][0].data.costUsd);
+    expect(persisted).toBeCloseTo(counted, 6);
+    expect(persisted).toBeGreaterThan(0);   // the defect was a confident $0
+  });
+
   it('an UNKNOWN model still writes a row, at the fallback rate', async () => {
     // ⚠️ Unknown does NOT throw — `priceFor` returns FALLBACK_PRICE after a
     // warn. This asserts the fallback VALUE, not an exception.
@@ -229,6 +252,14 @@ describe('D1 source invariants', () => {
  *
  * So the guard is on the STUB SHAPE, not on a list of specs someone has to keep
  * complete. Deleting `estimateCostUsd` from any of them fails here.
+ *
+ * ⚠️ KNOWN BLIND SPOT, recorded rather than papered over: this keys on
+ * `recordFailure: jest.fn()`, so a hand-written stub with a DIFFERENT shape
+ * evades it. Two such two-method stubs exist today
+ * (`bazi.service.self-refusal-refund.spec.ts`), and both build `BaziService`,
+ * which cannot reach `persistUsageRow` — so the gap is theoretical. Production
+ * always receives the real `AiSpendService` through Nest DI, so this is a
+ * test-fidelity concern and never a production one.
  */
 describe('every aiSpend stub carries estimateCostUsd', () => {
   it('no three-method stub survives in the spec tree', () => {
