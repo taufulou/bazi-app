@@ -33,6 +33,8 @@
  *
  * ## Usage
  *
+ *   node load-test/purge-usage-log.mjs --inspect              # describe the table
+ *   node load-test/purge-usage-log.mjs --owners               # anonymised load-test accounts
  *   node load-test/purge-usage-log.mjs                        # dry run
  *   node load-test/purge-usage-log.mjs --execute --target railway
  *   node load-test/purge-usage-log.mjs --by-ids               # precise; BEFORE deletion
@@ -122,6 +124,118 @@ async function main() {
     process.exit(1);
   }
 
+  // ⚠️ READ-ONLY diagnostic. Added after the first real run against production
+  // matched 0 of 1,383 rows: the predicate was built from an ASSUMPTION about
+  // when the rows were written and whether their `user_id` had been nulled.
+  // Widening the window on a guess is exactly how the wrong rows get deleted,
+  // so the tool can describe the table instead.
+  if (has('inspect')) {
+    const prisma = new PrismaClient();
+    try {
+      const [total, nulls, span, models] = await Promise.all([
+        prisma.aIUsageLog.count(),
+        prisma.aIUsageLog.count({ where: { userId: null } }),
+        prisma.aIUsageLog.aggregate({ _min: { createdAt: true }, _max: { createdAt: true } }),
+        prisma.aIUsageLog.groupBy({
+          by: ['aiModel'],
+          _count: { _all: true },
+          _avg: { inputTokens: true },
+          _min: { createdAt: true },
+          _max: { createdAt: true },
+        }),
+      ]);
+      console.log(`total rows:      ${total}`);
+      console.log(`user_id IS NULL: ${nulls}   (orphaned by an account deletion)`);
+      console.log(`user_id set:     ${total - nulls}`);
+      console.log(`created_at span: ${span._min.createdAt?.toISOString()} .. ${span._max.createdAt?.toISOString()}`);
+      console.log(`manifest window: ${from.toISOString()} .. ${until.toISOString()}`);
+      console.log('\nby model (avg input tokens is the fabrication tell — real LIFETIME is ~22,000):');
+      for (const m of models.sort((a, b) => b._count._all - a._count._all)) {
+        console.log(
+          `  ${String(m._count._all).padStart(6)}  avg_in=${String(Math.round(m._avg.inputTokens ?? 0)).padStart(6)}  ` +
+          `${m._min.createdAt?.toISOString().slice(0, 16)} .. ${m._max.createdAt?.toISOString().slice(0, 16)}  ${m.aiModel}`,
+        );
+      }
+      // ⚠️ The averages above can hide a handful of real rows. `max` cannot:
+      // if the largest input in the set is still tiny, nothing real is in there.
+      const extremes = await prisma.aIUsageLog.aggregate({
+        _max: { inputTokens: true }, _min: { inputTokens: true },
+      });
+      console.log(`\ninput tokens min/max: ${extremes._min.inputTokens} / ${extremes._max.inputTokens}`);
+      console.log('  (a single real LIFETIME call is ~22,000 — a small MAX means no real row is hiding here)');
+
+      // Who owns them. The rows point at users that still EXIST, because
+      // `deleteAccount` anonymises the row rather than removing it — which is
+      // why `SetNull` never fired and `user_id IS NULL` found nothing.
+      const owners = await prisma.aIUsageLog.groupBy({
+        by: ['userId'], _count: { _all: true }, _max: { inputTokens: true },
+      });
+      console.log(`\ndistinct owning users: ${owners.length}`);
+      const ids = owners.map((o) => o.userId).filter((x) => x !== null);
+      const users = await prisma.user.findMany({
+        where: { id: { in: ids } },
+        select: { id: true, clerkUserId: true, credits: true, _count: { select: { birthProfiles: true, baziReadings: true } } },
+      });
+      const byId = new Map(users.map((u) => [u.id, u]));
+      const shown = owners.sort((a, b) => b._count._all - a._count._all).slice(0, 8);
+      console.log('  rows  maxIn  profiles  readings  clerkUserId');
+      for (const o of shown) {
+        const u = o.userId ? byId.get(o.userId) : undefined;
+        console.log(
+          `  ${String(o._count._all).padStart(4)}  ${String(o._max.inputTokens).padStart(5)}  ` +
+          `${String(u?._count.birthProfiles ?? '-').padStart(8)}  ${String(u?._count.baziReadings ?? '-').padStart(8)}  ` +
+          `${u?.clerkUserId ?? '(user row missing)'}`,
+        );
+      }
+      if (owners.length > shown.length) console.log(`  … and ${owners.length - shown.length} more`);
+
+      // ⚠️ Whatever produced the MAX above. An average of ~177 with a max of
+      // ~14,769 means the set is not uniform, and a purge rule that cannot
+      // account for the outlier is a rule I do not trust.
+      const biggest = await prisma.aIUsageLog.findMany({
+        orderBy: { inputTokens: 'desc' }, take: 5,
+        select: { createdAt: true, readingType: true, inputTokens: true, outputTokens: true, costUsd: true, userId: true },
+      });
+      console.log('\nlargest rows (is the outlier a load-test account, or a real one?):');
+      for (const r of biggest) {
+        const u = r.userId ? byId.get(r.userId) : undefined;
+        const who = u ? u.clerkUserId : '(owner not in the set above)';
+        console.log(`  in=${String(r.inputTokens).padStart(6)} out=${String(r.outputTokens).padStart(6)} ` +
+                    `$${r.costUsd}  ${r.readingType ?? '-'}  ${r.createdAt.toISOString().slice(0, 16)}  ${who}`);
+      }
+
+      // The purge predicate this evidence actually supports.
+      const liveOwners = owners.filter((o) => {
+        const u = o.userId ? byId.get(o.userId) : undefined;
+        return !u || !u.clerkUserId.startsWith('deleted_user_');
+      });
+      console.log(`\nowners that are NOT anonymised load-test accounts: ${liveOwners.length}`);
+      if (liveOwners.length) {
+        console.log('  ⚠️ A live account owns some of these rows — an owner-based purge must exclude it:');
+        for (const o of liveOwners.slice(0, 5)) {
+          const u = o.userId ? byId.get(o.userId) : undefined;
+          console.log(`     ${String(o._count._all).padStart(5)} rows  ${u?.clerkUserId ?? o.userId}`);
+        }
+      } else {
+        console.log('  ✅ every owning user is a `deleted_user_*` account with no profiles and no readings.');
+      }
+
+      console.log('\nRead-only. Nothing was deleted.');
+    } finally {
+      await prisma.$disconnect();
+    }
+    return;
+  }
+
+  // Owner-based predicate — what the production evidence actually supports.
+  //
+  // ⚠️ The original `user_id IS NULL` rule matched ZERO of 1,383 rows, because
+  // `deleteAccount` ANONYMISES the User row (clerkUserId becomes
+  // `deleted_user_*`) rather than deleting it. The FK still resolves, so
+  // `SetNull` never fires. Scoping by owner is precise where the time window
+  // was a guess.
+  const byOwners = has('owners');
+
   const byIds = has('by-ids');
   const dbUserIds = (manifest.users ?? []).map((u) => u.dbUserId).filter(Boolean);
   if (byIds && !dbUserIds.length) {
@@ -134,13 +248,37 @@ async function main() {
     // ⚠️ Two predicates, and WHICH ONE depends on whether the accounts still
     // exist. `--by-ids` is precise but only works BEFORE the deletes null the
     // pointers; after that the time window is all that is left.
-    const where = byIds
-      ? { userId: { in: dbUserIds } }
-      : { userId: null, createdAt: { gte: from, lte: until } };
+    let where;
+    if (byIds) {
+      where = { userId: { in: dbUserIds } };
+    } else if (byOwners) {
+      // Anonymised accounts that retain NOTHING — no profiles, no readings.
+      // A real customer who deletes their account also becomes
+      // `deleted_user_*`, so the empty-content conditions are what keep this
+      // from reaching their cost history.
+      const purgeable = await prisma.user.findMany({
+        where: {
+          clerkUserId: { startsWith: 'deleted_user_' },
+          birthProfiles: { none: {} },
+          baziReadings: { none: {} },
+        },
+        select: { id: true },
+      });
+      if (!purgeable.length) {
+        console.log('No anonymised load-test accounts found. Nothing to do.');
+        return;
+      }
+      where = { userId: { in: purgeable.map((u) => u.id) } };
+      console.log(`owners:   ${purgeable.length} anonymised accounts with no profiles and no readings`);
+    } else {
+      where = { userId: null, createdAt: { gte: from, lte: until } };
+    }
 
-    console.log(`mode:     ${byIds ? '--by-ids (precise, pre-deletion)' : 'post-hoc window'}`);
-    if (!byIds) console.log(`window:   ${from.toISOString()} .. ${until.toISOString()}`);
-    else console.log(`ids:      ${dbUserIds.length} seeded dbUserIds`);
+    console.log(
+      `mode:     ${byIds ? '--by-ids (precise, pre-deletion)' : byOwners ? '--owners (anonymised load-test accounts)' : 'post-hoc window'}`,
+    );
+    if (byIds) console.log(`ids:      ${dbUserIds.length} seeded dbUserIds`);
+    else if (!byOwners) console.log(`window:   ${from.toISOString()} .. ${until.toISOString()}`);
 
     const [matched, agg, total] = await Promise.all([
       prisma.aIUsageLog.count({ where }),
