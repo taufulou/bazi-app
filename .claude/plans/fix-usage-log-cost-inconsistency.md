@@ -1,6 +1,7 @@
 # Fix: persisted AI cost figures disagree with the spend counter
 
-**Status:** **D1 implemented** 2026-09-02. D2 planned, approved, not started.
+**Status:** **D1 and D2 both implemented** 2026-09-02. ⚠️ D2 has NOT been run
+against production — the ordering constraint in §5 requires D1 deployed first.
 Standalone — not part of the launch-gate todo list.
 
 ⚠️ **One thing the implementation found that five review rounds did not.** §4's
@@ -22,7 +23,7 @@ deliverables.** All five rounds' findings are folded in and listed in §7.
 | | | Status |
 |---|---|---|
 | **D1 — the code fix** | §3 parts A, B, C, D + the `hasPriceEntry` accessor | ✅ **IMPLEMENTED** 2026-09-02 |
-| **D2 — the backfill** | §3E | lands AFTER D1 is deployed; needs `hasPriceEntry`, which is why that accessor sits in D1 |
+| **D2 — the backfill** | §3E | ✅ **IMPLEMENTED** 2026-09-02 — `apps/api/src/scripts/repair-usage-costs.ts`. ⚠️ NOT RUN against production: it must wait until D1 is deployed |
 
 D1 does not depend on D2 and should not wait for it. D2 writes money figures to
 production irreversibly and deserves its own review pass.
@@ -344,6 +345,27 @@ production" alert would key on. Today that condition exists only as a
   `this.logUsage(` and `aiSpend.record(`, neither of which changes. Confirmed.
 
 ### E. Backfill — NOT in the load-test script
+
+> **AS BUILT:** `apps/api/src/scripts/repair-usage-costs.ts`,
+> `npm --prefix apps/api run repair-usage-costs`. The decision is a pure
+> exported `planRepair()` with 8 tests, so the money call is verifiable without
+> a database — the objection to the `.mjs` home was never only about the price
+> table.
+>
+> ⚠️ **Deviation from the plan, deliberate:** it does NOT use
+> `NestFactory.createApplicationContext`. `estimateCostUsd`, `hasPriceEntry` and
+> `priceFor` reference neither `redis` nor `config` (verified: zero), so booting
+> `AppModule` would open Redis connections, register shutdown hooks and demand
+> full env for what is a pure function. The real `AiSpendService` is
+> instantiated directly, which reuses the real `PRICE_TABLE` and the real
+> matching logic — the actual requirement — with none of that surface.
+>
+> Verified end to end against the local DB with four synthetic rows: a known
+> model repaired ($0 → $3.000000), an unknown model SKIPPED, an
+> already-priced row untouched, and a genuinely-free row (no tokens) correctly
+> not matched. Both wrong-database guards refuse, `--allow-fallback-price`
+> warns and includes, and `--rows` reached a row the predicate could no longer
+> match.
 
 ⚠️ v1 proposed `--repair-costs` in `load-test/purge-usage-log.mjs`. **Wrong
 home.** That file is plain `.mjs` importing `@prisma/client` directly;
