@@ -3,7 +3,7 @@
 **Status:** planned, not implemented. Standalone — not part of the launch-gate
 todo list.
 
-**Revision 4.** v1 → CHANGES REQUIRED (11 issues, 2 factual errors). v2 →
+**Revision 5.** v1 → CHANGES REQUIRED (11 issues, 2 factual errors). v2 →
 CHANGES REQUIRED (3 required + 4 polish). v3 → CHANGES REQUIRED, confined to the
 backfill. All three rounds' findings are folded in and listed in §7.
 
@@ -11,8 +11,8 @@ backfill. All three rounds' findings are folded in and listed in §7.
 
 | | | Status |
 |---|---|---|
-| **D1 — the code fix** | §3 parts A, B, C, D | ✅ reviewed and approved as written |
-| **D2 — the backfill** | §3E | separate, smaller, lands AFTER D1 is deployed |
+| **D1 — the code fix** | §3 parts A, B, C, D + the `hasPriceEntry` accessor | ✅ **APPROVED** (staff review round 4) |
+| **D2 — the backfill** | §3E | lands AFTER D1 is deployed; needs `hasPriceEntry`, which is why that accessor sits in D1 |
 
 D1 does not depend on D2 and should not wait for it. D2 writes money figures to
 production irreversibly and deserves its own review pass.
@@ -153,6 +153,12 @@ so the "one price table" property holds at ONE call site rather than seven:
  *
  * Rounds to 6dp, which is what `AIUsageLog.costUsd` stores anyway
  * (`Decimal(10,6)`) — see §3C for why the rounding lives here.
+ *
+ * ⚠️ So the post-fix property is ONE CALCULATION, TWO REPRESENTATIONS — not
+ * equality. `record()` increments Redis with the UNROUNDED result
+ * (`ai-spend.service.ts:327` → `:343`), and it must: rounding inside `record()`
+ * to "make them agree" would change what the breaker counts. The drift is
+ * bounded at 5e-7 per call and is the right trade.
  */
 private priceOrZero(model: string, inputTokens: number, outputTokens: number): number {
   let priced = 0;
@@ -251,6 +257,36 @@ cannot drift") would be false on delivery.
 Deleting `estimatedCostUsd` from `TokenUsage` outright is the cleanest end state
 and nothing reads it — but it changes a `Json` column's shape on two tables, so
 it belongs in a follow-up. Re-pricing it does not.
+
+### C-bis. `AiSpendService.hasPriceEntry(model)` — a prerequisite for D2, shipped in D1
+
+```ts
+/** Does `model` resolve to a real PRICE_TABLE entry, or would it fall back? */
+hasPriceEntry(model: string): boolean { … }   // the existing startsWith scan
+priceFor(model: string): ModelPrice { … }     // delegates, so there is ONE scan
+```
+
+⚠️ **D2 cannot be written without this, and the obvious workarounds are worse
+than unavailable.** §3E must skip rows whose model would be priced at
+`FALLBACK_PRICE`, but nothing outside `AiSpendService` can determine that:
+
+- **Reference comparison** (`priceFor(m) === FALLBACK_PRICE`) would work —
+  `priceFor` returns the constant itself — but `FALLBACK_PRICE` is a bare
+  module-level `const` (`ai-spend.service.ts:115`), not exported, and
+  `ModelPrice` (`:75`) is not exported either, so the script cannot even type
+  the return value.
+- **Value comparison is actively WRONG, not merely unavailable.**
+  `FALLBACK_PRICE` is `{ input: 15, output: 75, cacheRead: 1.5, cacheWrite: 30 }`
+  and `PRICE_TABLE['claude-opus-4']` / `['claude-opus']` (`:99-100`) are
+  **byte-identical**. A value check would classify every legitimate Opus row as
+  "unmatched" and skip it — and Opus is the most expensive model in the table,
+  so it would refuse exactly the rows most worth repairing.
+- **Re-implementing the `startsWith` scan in the script** is a second copy of
+  the matching logic — the defect §3E exists to prevent, restated one level down.
+
+Second use, worth noting: the same predicate is what an "unknown model in
+production" alert would key on. Today that condition exists only as a
+`logger.warn` at `:206`.
 
 ### D. Fix the test and comment this change invalidates
 
@@ -375,7 +411,7 @@ Required, before anything else in this section:
 | Test | Asserts |
 |---|---|
 | `persistUsageRow` prices from model + tokens | the row carries what `estimateCostUsd` returns |
-| **Counter and row agree** | for one call, `record()`'s cost equals the persisted `costUsd`. ⚠️ Prisma returns a `Prisma.Decimal` and Postgres rounds to 6dp, so compare `Number(row.costUsd)` with `toBeCloseTo(recorded, 6)`, using token counts whose exact cost is representable at 6dp — a loose assertion here would be worse than none, since this is the one test the change exists for |
+| **Counter and row agree** | for one call, `record()`'s cost equals the persisted `costUsd`. Compare `Number(row.costUsd)` with `toBeCloseTo(recorded, 6)`. ⚠️ **The token counts MUST have a cost exactly representable at 6dp** — this is a requirement, not a suggestion, and it became load-bearing when `priceOrZero` started rounding. `toBeCloseTo(x, 6)` passes only when the difference is `< 5e-7` (strict), and rounding to 6dp produces a maximum error of *exactly* 5e-7 when the seventh decimal is a 5 — so the assertion otherwise sits precisely on its own boundary and fails intermittently. Representable inputs make the rounding a no-op and the comparison exact. If no convenient pair exists, use `toBeCloseTo(recorded, 5)`, which loses nothing that matters |
 | Unknown model uses FALLBACK_PRICE | ⚠️ an unknown model does **not** throw — `priceFor` returns `FALLBACK_PRICE` after a warn (`:205-212`). This test asserts the fallback **value**, not a throw |
 | A throwing `estimateCostUsd` logs at error and still writes | ⚠️ must be written with `jest.spyOn(aiSpend, 'estimateCostUsd').mockImplementation(() => { throw … })`. Under the new signature the real function cannot throw (the usage object is built in place from two required numbers, and `per()` handles `undefined`), so a malformed-input version of this test passes for the wrong reason and leaves the defensive branch unexercised |
 | A non-finite price still writes the row at 0 | the `Number.isFinite` guard — otherwise Prisma rejects and the row is lost |
@@ -433,8 +469,10 @@ and — the one that proves the catch is not hiding the defect —
 
   1. **The dry-run default** — the operator sees every computed value before
      anything is committed. This is the real control, not the ordering.
-  2. **`--rows <ids>` is REQUIRED, not optional.** It is the only way back to a
-     row the predicate can no longer match.
+  2. **`--rows <ids>` is a required CAPABILITY, not an optional extra** — and
+     not a mandatory flag on every run, which would make the normal bulk repair
+     impossible. It is the recovery path, used when the predicate can no longer
+     reach a row.
   3. **Ordering that does matter: run it after part A is deployed**, or new `$0`
      rows keep accruing behind the repair. That is completeness, not
      correctness — the predicate still matches them on a later run.
@@ -464,6 +502,18 @@ occur. Adjacent to this change, not caused by it; recorded so the next reader of
 that docblock is not misled.
 
 ## 7. What earlier revisions got wrong (kept deliberately)
+
+### Round 4 (v4 → v5) — D1 APPROVED
+
+1. **Moderate** — D2's FALLBACK-skip had no implementable detection. Worse, the
+   obvious value comparison would have skipped every legitimate Opus row, since
+   `FALLBACK_PRICE` is byte-identical to the two Opus entries. → §3C-bis.
+2. **Nit** — "`--rows` is REQUIRED" read as a mandatory flag on every run. → §5.
+3. **Nit** — after rounding moved into `priceOrZero`, the property is "one
+   calculation, two representations", not equality; `record()` stays unrounded
+   deliberately. → §3A.
+4. **Nit** — the agreement test's representable-token-count guidance became
+   load-bearing and was still written as a parenthetical. → §4.
 
 ### Round 3 (v3 → v4)
 
