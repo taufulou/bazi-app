@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+// Type-only: erased at runtime, so this module stays free of a Prisma import.
+import type { ReadingType } from '@prisma/client';
 
 /**
  * Ob1 — one structured line per AI call.
@@ -138,6 +140,18 @@ export interface AiCallAttribution {
   route: string;
   /** RAW id. Hashed at the log boundary by `hashUserId`; never written raw. */
   userId: string | null;
+  /**
+   * #19 — what an `AIUsageLog` row needs, so the streaming path can write one.
+   *
+   * `/admin/ai-costs` reads that table, and `_executeStreamV2Common` never
+   * called `logUsage`, so the most expensive path in the app was absent from
+   * the dashboard entirely — only the Redis counter moved.
+   *
+   * Optional because the log line itself does not need them; a site that omits
+   * them still gets full Ob1 attribution and simply writes no DB row.
+   */
+  readingId?: string | null;
+  readingType?: ReadingType | null;
 }
 
 export interface AiCallLogFields {

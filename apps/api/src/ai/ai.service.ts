@@ -1376,6 +1376,7 @@ export class AIService implements OnModuleInit {
           // New path: stream Call 2 in parallel with Call 1
           call2Promise = this._streamV2Call2Loop({
             userId: opts.userId,
+            readingId: opts.readingId,
             providerConfig,
             systemPrompt,
             userPromptCall2,
@@ -1440,7 +1441,12 @@ export class AIService implements OnModuleInit {
               const streamGen = this.streamProvider(
                 providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
                 undefined,
-                { route: `stream:${readingType}:call1`, userId: opts.userId },
+                {
+                  route: `stream:${readingType}:call1`,
+                  userId: opts.userId,
+                  readingId: opts.readingId,
+                  readingType,
+                },
               );
 
               for await (const chunk of streamGen) {
@@ -1747,6 +1753,8 @@ export class AIService implements OnModuleInit {
     readingType: ReadingType;
     /** Ob1 #12 — attribution for the Call 2 line. See `AiCallAttribution`. */
     userId: string | null;
+    /** #19 — so Call 2 writes an `AIUsageLog` row attributable to the reading. */
+    readingId: string;
     call2FixedSections: Record<string, InterpretationSection>;
     emittedKeys: Set<string>;
     call2ExpectedKeys: string[];
@@ -1797,7 +1805,12 @@ export class AIService implements OnModuleInit {
 
         const streamGen = this.streamProvider(
           providerConfig, systemPrompt, userPromptCall2, call2Controller.signal, usageOut,
-          { route: `stream:${readingType}:call2`, userId: attribUserId },
+          {
+            route: `stream:${readingType}:call2`,
+            userId: attribUserId,
+            readingId: opts.readingId,
+            readingType,
+          },
         );
 
         for await (const chunk of streamGen) {
@@ -5009,7 +5022,11 @@ export class AIService implements OnModuleInit {
             const streamGen = this.streamProvider(
               providerConfig, systemPrompt, call1User, call1Controller.signal,
               undefined,
-              { route: 'stream:COMPATIBILITY:call1', userId },
+              {
+                route: 'stream:COMPATIBILITY:call1',
+                userId,
+                readingType: ReadingType.COMPATIBILITY,
+              },
             );
 
             for await (const chunk of streamGen) {
@@ -5118,7 +5135,11 @@ export class AIService implements OnModuleInit {
             const streamGen2 = this.streamProvider(
               providerConfig, systemPrompt, call2User, call2Controller.signal,
               undefined,
-              { route: 'stream:COMPATIBILITY:call2', userId },
+              {
+                route: 'stream:COMPATIBILITY:call2',
+                userId,
+                readingType: ReadingType.COMPATIBILITY,
+              },
             );
 
             for await (const chunk of streamGen2) {
@@ -6119,6 +6140,43 @@ export class AIService implements OnModuleInit {
         // log boundary; the raw id never reaches the line.
         userId: attribution?.userId ?? null,
       });
+
+      // #19 — the DB row `/admin/ai-costs` reads. `record()` above moves the
+      // Redis counter and emits the Ob1 line; neither is that table, so the
+      // streamed path — the most expensive in the app — was absent from the
+      // dashboard entirely.
+      //
+      // ⚠️ NOT `logUsage()`: that calls `record()` too, which would double-count
+      // this call against the daily cap. Only the DB half belongs here.
+      //
+      // ⚠️ Priced separately rather than by awaiting `record()`'s return. That
+      // call is a deliberate fire-and-forget `void` inside a generator's
+      // `finally`; awaiting it would change when the generator settles.
+      // `estimateCostUsd` is the same pricing function `record()` uses.
+      if (attribution?.readingType || attribution?.readingId) {
+        let costUsd = 0;
+        try {
+          costUsd = this.aiSpend.estimateCostUsd(config.model, {
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+          });
+        } catch (err) {
+          // Pricing an unknown model must not cost us the row; the token counts
+          // are the part that cannot be recomputed later.
+          this.logger.error(`Failed to price streamed usage (${config.model}): ${err}`);
+        }
+        void this.persistUsageRow({
+          userId: attribution.userId,
+          readingId: attribution.readingId,
+          readingType: attribution.readingType,
+          provider: config.provider,
+          model: config.model,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          costUsd,
+          latencyMs: Date.now() - aiStartedAt,
+        });
+      }
     }
   }
 
@@ -7820,19 +7878,62 @@ export class AIService implements OnModuleInit {
       userId,
     });
 
+    await this.persistUsageRow({
+      userId,
+      readingId,
+      readingType,
+      provider: config.provider,
+      model: config.model,
+      inputTokens: result.tokenUsage.inputTokens,
+      outputTokens: result.tokenUsage.outputTokens,
+      costUsd: result.tokenUsage.estimatedCostUsd,
+      latencyMs: result.latencyMs,
+      isCacheHit: result.isCacheHit,
+    });
+  }
+
+  /**
+   * Write one `AIUsageLog` row — the table `/admin/ai-costs` reads.
+   *
+   * ## Why this is separate from `logUsage` (#19)
+   *
+   * `logUsage` does TWO things: `aiSpend.record()` (the Redis counter the
+   * breaker reads, plus the Ob1 line) and this DB row. The streaming path
+   * already calls `record()` directly, so calling `logUsage` from there would
+   * DOUBLE-COUNT spend against the cap. It needs the DB half alone.
+   *
+   * Before this split, `_executeStreamV2Common` wrote no row at all, so the
+   * dashboard omitted the most expensive path in the app while showing 1,383
+   * retained load-test fabrications (#17) — close to the inverse of reality.
+   *
+   * Never throws: every caller treats usage logging as best-effort, and losing
+   * a metrics row must not fail a paid reading.
+   */
+  private async persistUsageRow(row: {
+    userId?: string | null;
+    readingId?: string | null;
+    readingType?: ReadingType | null;
+    provider: AIProvider | string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+    latencyMs: number;
+    isCacheHit?: boolean;
+  }): Promise<void> {
     try {
       await this.prisma.aIUsageLog.create({
         data: {
-          userId,
-          readingId,
-          readingType: readingType ?? null,
-          aiProvider: config.provider,
-          aiModel: config.model,
-          inputTokens: result.tokenUsage.inputTokens,
-          outputTokens: result.tokenUsage.outputTokens,
-          costUsd: result.tokenUsage.estimatedCostUsd,
-          latencyMs: result.latencyMs,
-          isCacheHit: result.isCacheHit,
+          userId: row.userId ?? null,
+          readingId: row.readingId ?? null,
+          readingType: row.readingType ?? null,
+          aiProvider: row.provider as AIProvider,
+          aiModel: row.model,
+          inputTokens: row.inputTokens,
+          outputTokens: row.outputTokens,
+          costUsd: row.costUsd,
+          latencyMs: row.latencyMs,
+          isCacheHit: row.isCacheHit ?? false,
         },
       });
     } catch (err) {
