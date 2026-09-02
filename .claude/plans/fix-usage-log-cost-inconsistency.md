@@ -360,6 +360,24 @@ production" alert would key on. Today that condition exists only as a
 > instantiated directly, which reuses the real `PRICE_TABLE` and the real
 > matching logic — the actual requirement — with none of that surface.
 >
+> ⚠️ **A line audit of D2 found one real defect I had introduced.** I added a
+> `take` cap the plan never asked for, and reported `rows.length` against the
+> TABLE count — so a truncated batch read as complete coverage. On a ONE-WAY
+> write that is the worst failure mode available: the operator sees
+> "repaired: 5000", concludes the job is done, and rows stay broken with no
+> signal. It now counts MATCHING rows, announces truncation before and after,
+> and the cap is overridable with `--max-rows`. Verified by running it:
+> 5 matched → 2 repaired → "remaining: 3" → re-run → 3 repaired → 0.
+>
+> Also from that audit: the script constructs `AiSpendService` with null deps
+> (deliberately — see the deviation above), which is only safe while the pricing
+> methods stay dependency-free. A config read added to `estimateCostUsd` later
+> would kill the script mid-repair on an irreversible write, and no unit test of
+> the METHOD would notice. Pinned with a source assertion plus a behavioural
+> test that constructs it exactly as the script does. And a write that throws
+> mid-loop now reports how far it got, because a partially-applied one-way run
+> is the case where "which rows are done" is the only useful fact.
+>
 > Verified end to end against the local DB with four synthetic rows: a known
 > model repaired ($0 → $3.000000), an unknown model SKIPPED, an
 > already-priced row untouched, and a genuinely-free row (no tokens) correctly

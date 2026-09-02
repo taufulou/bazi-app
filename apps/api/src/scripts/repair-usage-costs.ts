@@ -118,6 +118,10 @@ const val = (f: string): string | undefined => {
  *  value. O(rows), which is fine at the scale this exists for; the cap keeps a
  *  mistake bounded rather than being a performance concern. */
 const DEFAULT_MAX_ROWS = 5000;
+const maxRows = (v: string | undefined): number => {
+  const n = v === undefined ? DEFAULT_MAX_ROWS : Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_MAX_ROWS;
+};
 
 async function main(): Promise<void> {
   const dbUrl = process.env.DATABASE_URL;
@@ -176,12 +180,25 @@ async function main(): Promise<void> {
         : 'mode:     $0 rows with real tokens',
     );
 
+    // ⚠️ Count the MATCHING rows, not the table. An earlier version reported
+    // `rows.length` against the table total, so a batch truncated by `take`
+    // read as "matched 5000 of 120000" — and the operator, seeing
+    // "repaired: 5000", would believe the job was done while rows stayed
+    // broken with no signal. On a ONE-WAY write that is the worst kind of
+    // quiet: a silent cap reads as complete coverage.
+    const matching = await prisma.aIUsageLog.count({ where });
     const rows = await prisma.aIUsageLog.findMany({
       where,
-      select: { id: true, aiModel: true, inputTokens: true, outputTokens: true, costUsd: true },
-      take: DEFAULT_MAX_ROWS,
+      select: { id: true, aiModel: true, inputTokens: true, outputTokens: true },
+      take: maxRows(val('max-rows')),
+      orderBy: { createdAt: 'asc' },   // stable, so a re-run resumes predictably
     });
-    console.log(`matched:  ${rows.length} of ${await prisma.aIUsageLog.count()} rows in the table`);
+    console.log(`matched:  ${matching} row(s)`);
+    if (matching > rows.length) {
+      console.log(`⚠️ TRUNCATED — this run covers ${rows.length} of them (--max-rows ${maxRows(val('max-rows'))}).`);
+      console.log(`   ${matching - rows.length} will remain. Re-run to continue; the predicate still`);
+      console.log('   reaches them because an unrepaired row is still $0.');
+    }
     if (!rows.length) {
       console.log('\nNothing to do.');
       return;
@@ -226,13 +243,29 @@ async function main(): Promise<void> {
       return;
     }
 
+    // ⚠️ One row at a time — `updateMany` cannot set a per-row computed value.
+    // O(rows), which is the point of the cap above rather than a perf concern.
+    //
+    // ⚠️ If a write throws mid-loop, report how far it got BEFORE rethrowing.
+    // The run is one-way and partially applied, so "which rows are done" is the
+    // only thing the operator needs; a bare stack trace does not say.
     let written = 0;
-    for (const r of willWrite) {
-      await prisma.aIUsageLog.update({ where: { id: r.id }, data: { costUsd: costOf(r) } });
-      written++;
+    try {
+      for (const r of willWrite) {
+        await prisma.aIUsageLog.update({ where: { id: r.id }, data: { costUsd: costOf(r) } });
+        written++;
+      }
+    } catch (err) {
+      console.error(`\n⚠️ FAILED after repairing ${written} of ${willWrite.length} rows.`);
+      console.error('   The repaired ones now have costUsd > 0 and no longer match the');
+      console.error('   predicate; the rest are untouched at $0, so a re-run continues.');
+      throw err;
     }
     console.log(`\nrepaired: ${written} rows`);
     console.log(`skipped:  ${rows.length - written} rows`);
+    if (matching > rows.length) {
+      console.log(`remaining: ${matching - rows.length} matched rows NOT covered by this run — re-run.`);
+    }
   } finally {
     await prisma.$disconnect();
   }

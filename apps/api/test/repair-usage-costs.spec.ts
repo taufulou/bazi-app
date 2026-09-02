@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { AiSpendService } from '../src/ai/ai-spend.service';
 import { planRepair, type RepairableRow } from '../src/scripts/repair-usage-costs';
 
@@ -88,3 +90,84 @@ describe('planRepair', () => {
     expect(p.costs.get('a')).toBe(live);
   });
 });
+
+/**
+ * ⚠️ The assumption the repair script's construction rests on.
+ *
+ * `repair-usage-costs.ts` does `new AiSpendService(null as never, null as never)`
+ * — deliberately, so a one-off repair does not boot Redis, cron and Clerk for
+ * what is a pure function. That is only safe while the pricing methods touch
+ * neither dependency. If someone adds a config read to `estimateCostUsd`, the
+ * script dies at runtime, mid-repair, on a ONE-WAY write.
+ *
+ * The source assertion is the guard, because no unit test of the METHOD would
+ * notice: tests build the service with `Object.create` and assign what they
+ * need.
+ */
+describe('the repair script may construct AiSpendService without deps', () => {
+  const read = (rel: string) => readFileSync(join(__dirname, '..', rel), 'utf8');
+
+  it('the pricing methods touch neither redis nor config', () => {
+    const SRC = read('src/ai/ai-spend.service.ts');
+    const start = SRC.indexOf('private findPrice(');
+    const end = SRC.indexOf('// The breaker', start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    // findPrice + hasPriceEntry + priceFor + estimateCostUsd all live in here.
+    const pricingBlock = SRC.slice(start, end);
+    expect(pricingBlock).toContain('hasPriceEntry');
+    expect(pricingBlock).toContain('estimateCostUsd');
+    expect(pricingBlock).not.toMatch(/this\.redis/);
+    expect(pricingBlock).not.toMatch(/this\.config/);
+  });
+
+  it('constructing with null deps really does price correctly', () => {
+    // The behavioural half: prove the construction the script uses works,
+    // rather than only asserting the source property that permits it.
+    const s = new AiSpendService(null as never, null as never);
+    expect(s.hasPriceEntry('claude-sonnet-4-5-20250929')).toBe(true);
+    expect(s.estimateCostUsd('claude-sonnet-4-5-20250929', {
+      inputTokens: 1_000_000, outputTokens: 0,
+    })).toBeCloseTo(3, 6);
+  });
+});
+
+/**
+ * ⚠️ No silent caps.
+ *
+ * The script fetches with `take`, so a batch larger than the cap is partially
+ * covered. An earlier version reported `rows.length` against the TABLE total,
+ * which read as complete coverage — the operator would see "repaired: 5000",
+ * believe the job done, and leave rows broken with no signal. On a one-way
+ * write that is the worst failure mode available.
+ *
+ * Source-level because the property is about what the run TELLS the operator,
+ * and driving `main()` would need the whole database mocked to assert a console
+ * line.
+ */
+describe('the repair announces truncation', () => {
+  const SRC = readFileSync(join(__dirname, '..', 'src/scripts/repair-usage-costs.ts'), 'utf8');
+
+  it('counts MATCHING rows, not the table', () => {
+    // `count()` with no `where` is the bug: it makes the denominator the table.
+    expect(SRC).toContain('prisma.aIUsageLog.count({ where })');
+    expect(SRC).not.toMatch(/aIUsageLog\.count\(\)/);
+  });
+
+  it('warns when the cap truncated the batch', () => {
+    expect(SRC).toContain('TRUNCATED');
+    expect(SRC).toMatch(/matching > rows\.length/);
+  });
+
+  it('says what REMAINS after an execute, not just what was written', () => {
+    const after = SRC.slice(SRC.indexOf('repaired: ${written}'));
+    expect(after).toMatch(/remaining/);
+  });
+
+  it('reports partial progress when a write throws mid-loop', () => {
+    // One-way and partially applied: "which rows are done" is the only thing
+    // the operator needs, and a bare stack trace does not say.
+    expect(SRC).toMatch(/FAILED after repairing \$\{written\} of/);
+  });
+});
+
