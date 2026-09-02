@@ -50,10 +50,27 @@ The published claim is now accurate. Anyone changing `deleteAccount` is changing
 > $0.0000 average per reading. Teardown now points at
 > `load-test/purge-usage-log.mjs` (dry-run by default).
 >
-> ⚠️ `user_id IS NULL` is NOT a safe predicate for identifying them on its own —
-> a genuine user's rows go NULL the moment they delete their account. The purge
-> tool scopes by TIME WINDOW (from the seed manifest) and prints the token shape
-> as evidence before deleting anything.
+> ⚠️ **`user_id IS NULL` finds NOTHING, and the reason is worth knowing.**
+> `SetNull` only fires when the User ROW is deleted. `deleteAccount` does not
+> delete it — it ANONYMISES it (`clerkUserId` becomes `deleted_user_*`) and
+> leaves it in place, so the FK still resolves. The first production run of the
+> purge tool matched **0 of 1,383 rows** on that predicate.
+>
+> The tool therefore scopes by **OWNER**: users whose `clerkUserId` starts with
+> `deleted_user_` AND who have no birth profiles AND no readings. The
+> empty-content conditions are load-bearing — a real customer who deletes their
+> account also becomes `deleted_user_*`, and their cost history is retained by
+> policy.
+>
+> ⚠️ The seed manifest is NOT a reliable list of load-test accounts (the real one
+> recorded 1 user for a 103-account run), and its `createdAt` is when accounts
+> were SEEDED, not when the traffic ran — the rows spanned five days before it.
+> Query the database; do not trust the manifest.
+>
+> **Executed 2026-09-02: 1,378 of 1,383 rows removed.** The 5 left behind are
+> owned by live accounts — 4 belong to a real user (genuine COMPATIBILITY calls
+> at ~14k input tokens) and 1 to a load-test account whose deletion failed. The
+> tool excludes live owners structurally, which is the correct side to err on.
 | `AdminAuditLog` | admin actor + action | Low | Retained | Audit integrity — must survive the subject |
 
 ### The ordering trap
