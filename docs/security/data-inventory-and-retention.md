@@ -37,6 +37,23 @@ The published claim is now accurate. Anyone changing `deleteAccount` is changing
 | `MonthlyCreditsLog` | period + amount granted | Low | **Retained** | Double-grant investigations |
 | `AdRewardLog`, `SectionUnlock` | ids, timestamps | Low | **Retained** | Abuse/entitlement audit |
 | `AIUsageLog` | tokens, cost, model | Low | Retained (`userId` is `SetNull`) | Spend monitoring |
+
+> **`AIUsageLog` retention — decided 2026-09-02 (#17).** Deliberately KEPT on
+> account deletion. The row holds tokens, cost, latency and model; once `userId`
+> and `readingId` are nulled by their `SetNull` FKs it is an anonymous cost
+> aggregate, in the same class as `Transaction` and `CreditLedger`, which are
+> retained for the same reason. Deleting it would destroy real billing history.
+>
+> ⚠️ The corollary is that a LOAD TEST must clean up after itself, because its
+> rows are fabrications rather than history. The first run had no such step and
+> left **1,383 mock rows in production**, which made `/admin/ai-costs` report
+> $0.0000 average per reading. Teardown now points at
+> `load-test/purge-usage-log.mjs` (dry-run by default).
+>
+> ⚠️ `user_id IS NULL` is NOT a safe predicate for identifying them on its own —
+> a genuine user's rows go NULL the moment they delete their account. The purge
+> tool scopes by TIME WINDOW (from the seed manifest) and prints the token shape
+> as evidence before deleting anything.
 | `AdminAuditLog` | admin actor + action | Low | Retained | Audit integrity — must survive the subject |
 
 ### The ordering trap
