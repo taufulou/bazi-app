@@ -5,7 +5,8 @@ todo list.
 
 **Revision 5.** v1 → CHANGES REQUIRED (11 issues, 2 factual errors). v2 →
 CHANGES REQUIRED (3 required + 4 polish). v3 → CHANGES REQUIRED, confined to the
-backfill. All three rounds' findings are folded in and listed in §7.
+backfill. v4 → D1 APPROVED, D2 blocked on one issue. v5 → **APPROVE, both
+deliverables.** All five rounds' findings are folded in and listed in §7.
 
 ⚠️ **Split into two deliverables**, because they are ready at different times:
 
@@ -41,9 +42,19 @@ second price table exists that nothing reconciles against the first.
 
 ## 2. Blast radius — measured
 
-⚠️ **The spend breaker is UNAFFECTED.** `record()` calls
-`estimateCostUsd(args.model, args.usage)` (`ai-spend.service.ts:327`) and never
-reads `estimatedCostUsd`. The daily cap, the 80% warning and the trip all price
+⚠️ **The breaker's INPUTS AND SEMANTICS are unchanged** — but as of C-bis this
+is no longer the structural "we don't touch that file" claim it was in v1–v4.
+`record()` calls `estimateCostUsd(args.model, args.usage)`
+(`ai-spend.service.ts:327`) and never reads `estimatedCostUsd`; that stays true.
+But C-bis refactors `priceFor`, which sits directly on the breaker's hot path
+(`record()` → `estimateCostUsd` `:216` → `priceFor` → the daily cap), so it
+**must be proven behaviour-preserving** rather than assumed.
+
+The refactor is well covered already: `ai-spend.service.spec.ts:48-56` pins the
+longest-prefix tiebreak (`gpt-4o-mini` must not price as `gpt-4o` — 0.15 vs
+2.5), and `:58-70` pins the fallback with `expect(unknown).toBe(opus)` — an
+assertion that itself encodes the Opus/FALLBACK collision C-bis is built around.
+What is missing is coverage of the NEW method; see §4. The daily cap, the 80% warning and the trip all price
 from `PRICE_TABLE`. This is a **reporting** bug, not a safety one.
 
 ### ⚠️ Two v1 claims that were WRONG
@@ -261,10 +272,29 @@ it belongs in a follow-up. Re-pricing it does not.
 ### C-bis. `AiSpendService.hasPriceEntry(model)` — a prerequisite for D2, shipped in D1
 
 ```ts
+/** THE one scan. Null means "would fall back". */
+private findPrice(model: string): ModelPrice | null { … }   // existing startsWith logic
+
 /** Does `model` resolve to a real PRICE_TABLE entry, or would it fall back? */
-hasPriceEntry(model: string): boolean { … }   // the existing startsWith scan
-priceFor(model: string): ModelPrice { … }     // delegates, so there is ONE scan
+hasPriceEntry(model: string): boolean { return this.findPrice(model) !== null; }
+
+priceFor(model: string): ModelPrice {
+  const p = this.findPrice(model);
+  if (!p) { this.logger.warn(/* …unchanged… */); return FALLBACK_PRICE; }
+  return p;
+}
 ```
+
+⚠️ **A `boolean` cannot give `priceFor` its price**, so the two-method shape a
+first draft of this section showed (`priceFor` delegating to `hasPriceEntry`)
+would scan twice while claiming one scan. The private `findPrice` is what makes
+the single-scan claim true.
+
+⚠️ **The `logger.warn` (`:206`) stays in `priceFor` ALONE**, not in `findPrice`.
+Moving it into the shared scan would make `hasPriceEntry` a predicate with a
+logging side effect, and D2's dry run over N unmatched rows would emit N
+warnings — colliding with the "unknown model in production" signal this same
+section cites that warn as providing.
 
 ⚠️ **D2 cannot be written without this, and the obvious workarounds are worse
 than unavailable.** §3E must skip rows whose model would be priced at
@@ -416,6 +446,9 @@ Required, before anything else in this section:
 | A throwing `estimateCostUsd` logs at error and still writes | ⚠️ must be written with `jest.spyOn(aiSpend, 'estimateCostUsd').mockImplementation(() => { throw … })`. Under the new signature the real function cannot throw (the usage object is built in place from two required numbers, and `per()` handles `undefined`), so a malformed-input version of this test passes for the wrong reason and leaves the defensive branch unexercised |
 | A non-finite price still writes the row at 0 | the `Number.isFinite` guard — otherwise Prisma rejects and the row is lost |
 | Gemini aggregate re-priced from `PRICE_TABLE` | pins the 20×/30× correction |
+| `hasPriceEntry('claude-opus-4') === true` | ⚠️ **the case the accessor exists for.** It is exactly what a value-based check gets wrong, since `FALLBACK_PRICE` is byte-identical to that entry |
+| `hasPriceEntry(<unmatched id>) === false` | the other half |
+| `priceFor` behaviour is preserved | the existing tiebreak and fallback specs must still pass unchanged after the C-bis extraction |
 | Source invariant: one price table | `costPerInputToken` / `costPerOutputToken` appear nowhere in `apps/api/src/ai/` |
 | Source invariant: no caller passes a cost | `persistUsageRow` has no `costUsd` parameter |
 | #19 guard, rewritten | `estimateCostUsd(` present in `persistUsageRow`'s slice, ABSENT from `_streamProviderInner`'s |
@@ -502,6 +535,17 @@ occur. Adjacent to this change, not caused by it; recorded so the next reader of
 that docblock is not misled.
 
 ## 7. What earlier revisions got wrong (kept deliberately)
+
+### Round 5 (v5 → v6) — APPROVE, both deliverables
+
+1. **Minor** — the C-bis sketch could not deliver the "one scan" it claimed: a
+   `boolean` carries no price, so `priceFor` would scan twice. Needs a private
+   `findPrice`. → §3C-bis.
+2. **Minor** — §2's "the spend breaker is UNAFFECTED" went stale the moment
+   C-bis was added to D1: it edits `priceFor`, which IS on the breaker's hot
+   path. The claim was structural ("we don't touch that file") and had to become
+   a behaviour-preservation obligation. → §2, §4.
+3. **Nit** — the header said "three rounds"; it was four. → header.
 
 ### Round 4 (v4 → v5) — D1 APPROVED
 
