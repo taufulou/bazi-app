@@ -3,10 +3,19 @@
 **Status:** planned, not implemented. Standalone — not part of the launch-gate
 todo list.
 
-**Revision 3.** v1 → CHANGES REQUIRED (11 issues, 2 factual errors). v2 →
-CHANGES REQUIRED, narrowly: the design was approved, three edits required. Both
-rounds' findings are folded in and listed in §7. The architecture (parts A, B,
-C, E) is unchanged from v2 and has been reviewed as correct.
+**Revision 4.** v1 → CHANGES REQUIRED (11 issues, 2 factual errors). v2 →
+CHANGES REQUIRED (3 required + 4 polish). v3 → CHANGES REQUIRED, confined to the
+backfill. All three rounds' findings are folded in and listed in §7.
+
+⚠️ **Split into two deliverables**, because they are ready at different times:
+
+| | | Status |
+|---|---|---|
+| **D1 — the code fix** | §3 parts A, B, C, D | ✅ reviewed and approved as written |
+| **D2 — the backfill** | §3E | separate, smaller, lands AFTER D1 is deployed |
+
+D1 does not depend on D2 and should not wait for it. D2 writes money figures to
+production irreversibly and deserves its own review pass.
 
 **Found:** 2026-09-02, while purging load-test rows. Three production
 `COMPATIBILITY` rows showed real token counts (14,769 / 11,347 / 9,939 input)
@@ -136,7 +145,15 @@ One shared helper, used by `persistUsageRow` **and** all six part-C aggregates �
 so the "one price table" property holds at ONE call site rather than seven:
 
 ```ts
-/** The only place a cost is computed. Never throws, never returns non-finite. */
+/**
+ * The only place `AIService` computes a cost. Never throws, never returns
+ * non-finite. (`AiSpendService.record` computes one too, at
+ * `ai-spend.service.ts:327`, and must — it is the breaker's path and cannot
+ * depend on `AIService`.)
+ *
+ * Rounds to 6dp, which is what `AIUsageLog.costUsd` stores anyway
+ * (`Decimal(10,6)`) — see §3C for why the rounding lives here.
+ */
 private priceOrZero(model: string, inputTokens: number, outputTokens: number): number {
   let priced = 0;
   try {
@@ -150,7 +167,8 @@ private priceOrZero(model: string, inputTokens: number, outputTokens: number): n
       `${typeof this.aiSpend?.estimateCostUsd}: ${err}`,
     );
   }
-  return Number.isFinite(priced) ? priced : 0;   // never lose the row
+  if (!Number.isFinite(priced)) return 0;   // never lose the row
+  return Math.round(priced * 1_000_000) / 1_000_000;
 }
 ```
 
@@ -206,6 +224,13 @@ Replace the six aggregate expressions
 `this.aiSpend.estimateCostUsd(providerConfig.model, { inputTokens, outputTokens })`,
 then **delete `costPerInputToken` / `costPerOutputToken` from `ProviderConfig`**
 (`:89-90`).
+
+⚠️ **Rounding — decide it once, here.** The six sites currently disagree: four
+wrap in `Math.round(x * 1_000_000) / 1_000_000` (`:472`, `:710`, `:900`,
+`:2189`), two do not (`:4119` LOVE, `:4935` COMPAT — and COMPAT is the live
+one). Since `priceOrZero` now rounds to 6dp internally, **delete all six
+wrappers**: one rule, one place, matching what the `Decimal(10,6)` column stores
+anyway. Leaving this open would invite six independent decisions.
 
 ⚠️ That alone does not remove the second table. There are 28 repo-wide
 references: 20 in `ai.service.ts` and **8 in four spec files**
@@ -264,6 +289,27 @@ and `--target` confirmation; drop the manifest gate.
 - ⚠️ Write mechanism: `updateMany` **cannot** set a per-row computed value, so
   this is N individual updates (or a raw `UPDATE … CASE` keyed on `ai_model`).
   At today's 5 production rows either is fine; state that it is O(rows).
+- ⚠️ **The backfill must NOT write a `FALLBACK_PRICE` row by default.**
+  `priceFor` returns `FALLBACK_PRICE` = `{ input: 15, output: 75 }` for any
+  `aiModel` that does not prefix-match `PRICE_TABLE`
+  (`ai-spend.service.ts:205-212, 115`), and its own warning says why: *"billing
+  at the most expensive known rate so the breaker errs toward tripping early."*
+
+  That bias is right for a breaker, where over-counting merely trips early. **In
+  a one-way reporting repair it is not conservative — it is just wrong**, and it
+  is unrecoverable, because the repaired row stops matching the predicate.
+
+  ⚠️ Not a marginal case: matching is `startsWith`, so a plausible historical id
+  like `gpt-4-turbo` does not match `gpt-4o` and lands on FALLBACK — $15/$75
+  against a real $10/$30, and a Gemini-era id would be off by 100×+.
+
+  So: **skip rows whose model does not match `PRICE_TABLE`, and report them
+  separately in the dry run.** The operator adds the model to `PRICE_TABLE` and
+  re-runs — which the predicate still permits, since the row is untouched at
+  `$0`. An explicit `--allow-fallback-price` may override, acknowledging the row
+  will be priced at the most expensive known rate. This is a handful of lines
+  and it is the difference between a repair and a fabrication.
+
 - ⚠️ **Invariant the backfill depends on:** `costUsd` must remain a pure
   function of `(aiModel, inputTokens, outputTokens)`. `ai_usage_log` has **no
   cache-token columns**, but `estimateCostUsd` prices `cacheReadTokens` /
@@ -285,9 +331,18 @@ and `--target` confirmation; drop the manifest gate.
 ### ⚠️ First: the test stub that would hide this fix
 
 `persistUsageRow` touches no `aiSpend` method today. After part A it calls
-`this.aiSpend.estimateCostUsd(...)` — and **26 spec files stub `aiSpend` as
+`this.aiSpend.estimateCostUsd(...)` — and **~25 spec files stub `aiSpend` as
 `{ record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn() } as never`.
 None has `estimateCostUsd`.**
+
+⚠️ Scope precisely: only the **~10 that construct `AIService`** can reach
+`persistUsageRow` and need the stub widened (`ai-service.spec.ts`,
+`streaming.spec.ts`, `ai-call2-streaming.spec.ts`, `ai-retry-helpers.spec.ts`,
+`ai-spend-chokepoints.spec.ts`, `ai-spend-guard.spec.ts`,
+`ai-failure-refund.spec.ts`, `reading-create-preflight.spec.ts`,
+`users-service.spec.ts`, `bazi.service.generation-lock-ttl.spec.ts`). The wider
+count matters for a different reason: it is why the **docblock** that propagates
+the shape must change, or the idiom regrows.
 
 So every one of those specs would hit `TypeError: this.aiSpend.estimateCostUsd
 is not a function`, §3A's catch would swallow it, and the row would be written
@@ -330,7 +385,8 @@ Required, before anything else in this section:
 | #19 guard, rewritten | `estimateCostUsd(` present in `persistUsageRow`'s slice, ABSENT from `_streamProviderInner`'s |
 | Backfill dry run changes nothing | mirrors the purge tool's proven shape |
 | Backfill leaves a correctly-priced row alone | only `$0`-with-tokens rows are touched |
-| **Recomputability** | write a row through `persistUsageRow`, then recompute from `(aiModel, inputTokens, outputTokens)` ALONE and assert equality. ⚠️ This replaces the prose-only invariant in §3E. A grep-based source test would not cover it: the "one price table" test says nothing about someone passing `cacheReadTokens` into `estimateCostUsd`, and the absent cache COLUMNS are not a guard either — widening the price needs no schema change, since `StreamUsage` already tracks both (`stream-usage.ts:38-39`) and `estimateCostUsd` already prices them (`ai-spend.service.ts:221-222`). This test goes red the moment anyone widens the inputs, wherever they do it |
+| **Recomputability — behavioural half** | write a row through `persistUsageRow`, recompute from `(aiModel, inputTokens, outputTokens)` ALONE, assert equality |
+| **Recomputability — the half that actually bites** | ⚠️ the behavioural test above is near-tautological TODAY: `persistUsageRow` has no cache-token parameters, so the two calls cannot diverge, and it only fails after someone widens the signature — at which point they are editing its call site anyway. Pair it with a source assertion that fires without the author noticing: `cacheReadTokens` / `cacheWriteTokens` appear nowhere in `persistUsageRow`'s or `priceOrZero`'s source slice (the #19 guard already establishes the slicing technique). The absent cache COLUMNS are not a guard — widening the price needs no schema change, since `StreamUsage` tracks both (`stream-usage.ts:38-39`) and `estimateCostUsd` prices them (`ai-spend.service.ts:221-222`) |
 
 **Mutations** (each must turn a test red): price the row at a literal `0`;
 swallow the throw without logging; drop the `Number.isFinite` guard; re-add a
@@ -365,10 +421,23 @@ and — the one that proves the catch is not hiding the defect —
   against a stale table — the only recovery is widening the predicate on a guess,
   which is exactly the hazard `purge-usage-log.mjs`'s own comment warns about.
 
-  **Mitigation, and it is an ordering constraint, not advice:** the backfill runs
-  ONLY after part C is deployed and verified, so there is one price table in
-  effect when it writes. A `--rows <ids>` re-run mode is a cheap belt-and-braces
-  addition; the ordering is the part that must hold.
+  ⚠️ **v3's mitigation was inert and is withdrawn.** It said "runs only after
+  part C is deployed, so there is one price table in effect." But the backfill
+  injects `AiSpendService` and calls `estimateCostUsd`; it never reads
+  `providerConfig`. `PRICE_TABLE` is already the only table it can reach —
+  before part C and after. That constraint could not change a single value it
+  writes, while `--rows`, the one thing that actually recovers a bad run, was
+  labelled optional. The two were the wrong way round.
+
+  **What actually protects an irreversible write:**
+
+  1. **The dry-run default** — the operator sees every computed value before
+     anything is committed. This is the real control, not the ordering.
+  2. **`--rows <ids>` is REQUIRED, not optional.** It is the only way back to a
+     row the predicate can no longer match.
+  3. **Ordering that does matter: run it after part A is deployed**, or new `$0`
+     rows keep accruing behind the repair. That is completeness, not
+     correctness — the predicate still matches them on a later run.
 
 ## 6. Adjacent gaps, noted not fixed
 
@@ -395,6 +464,22 @@ occur. Adjacent to this change, not caused by it; recorded so the next reader of
 that docblock is not misled.
 
 ## 7. What earlier revisions got wrong (kept deliberately)
+
+### Round 3 (v3 → v4)
+
+1. **Moderate** — §5's ordering mitigation was INERT: the backfill never reads
+   `providerConfig`, so "after part C" could not change any value it writes,
+   while `--rows` (the only real recovery) was labelled optional. → §5.
+2. **Moderate** — the backfill would silently apply `FALLBACK_PRICE` ($15/$75)
+   to any unrecognised model, permanently and unrecoverably overstating it. The
+   bias exists for the breaker and does not belong in a reporting repair. → §3E.
+3. **Minor** — the recomputability test was near-tautological as specified. → §4.
+4. **Nit** — the six part-C sites round inconsistently (`:4119`, `:4935` do not,
+   and COMPAT is the live one); the plan left it open. → §3A, §3C.
+5. **Nit** — `priceOrZero`'s docstring claimed to be the only place a cost is
+   computed; `record()` computes one too and must. → §3A.
+6. **Nit** — "26 spec files" is the idiom count; only ~10 construct `AIService`
+   and need the stub widened. → §4.
 
 ### Round 2 (v2 → v3)
 
