@@ -124,6 +124,11 @@ export default function ReadingHistoryPage() {
                   // "this cost nothing" — it usually means "not unlocked yet",
                   // which would otherwise read as 免費 and then silently become a
                   // 3-credit charge. `paidAt` is the paid predicate.
+                  // ⚠️ Checked FIRST, below. `refundComparisonCredit` clears
+                  // `paidAt`, so a refunded comparison would otherwise fall into
+                  // the 未解鎖 branch and read as "not unlocked yet" — true in a
+                  // narrow sense, and wrong about what happened.
+                  const isRefunded = !!reading.refundedAt;
                   const isCompUnpaid = !reading.paidAt;
                   const isCompFree = !isCompUnpaid && (reading.creditsUsed === 0 || compCost === 0);
                   return (
@@ -144,7 +149,17 @@ export default function ReadingHistoryPage() {
                             <span className={styles.cardDate}>
                               {formatDate(reading.createdAt)}
                             </span>
-                            {isCompUnpaid ? (
+                            {isRefunded ? (
+                              <>
+                                <span className={styles.metaDot}>·</span>
+                                <span
+                                  className={styles.refundedBadge}
+                                  title={`已退還 ${compCost} 額度`}
+                                >
+                                  已退款
+                                </span>
+                              </>
+                            ) : isCompUnpaid ? (
                               <>
                                 <span className={styles.metaDot}>·</span>
                                 <span className={styles.freeBadge}>未解鎖</span>
@@ -192,6 +207,10 @@ export default function ReadingHistoryPage() {
                 // `|| typeCost === 0` had to go with it: for a type later
                 // repriced to 0 it would have shown 免費 to someone who paid.
                 const isActuallyFree = reading.creditsUsed === 0;
+                // ⚠️ `creditsUsed` SURVIVES a refund by design (it is the refund
+                // amount and the double-refund guard), so it can never signal
+                // this on its own — the row would keep claiming -3 額度.
+                const isRefunded = !!reading.refundedAt;
 
                 return (
                   <Link
@@ -211,7 +230,17 @@ export default function ReadingHistoryPage() {
                           <span className={styles.cardDate}>
                             {formatDate(reading.createdAt)}
                           </span>
-                          {isActuallyFree ? (
+                          {isRefunded ? (
+                            <>
+                              <span className={styles.metaDot}>·</span>
+                              <span
+                                className={styles.refundedBadge}
+                                title={`已退還 ${reading.creditsUsed} 額度`}
+                              >
+                                已退款
+                              </span>
+                            </>
+                          ) : isActuallyFree ? (
                             <>
                               <span className={styles.metaDot}>·</span>
                               <span className={styles.freeBadge}>免費</span>

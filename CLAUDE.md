@@ -4170,6 +4170,57 @@ the trigger on these keys (a lock that never expires while held is always
 released by its own holder) but the primitive is still unsafe — adding a token
 would be the real fix, and it touches all five call sites.
 
+### A refusal WE issue must not leave the user charged — and the receipt must say so
+
+The sibling of the section below, found 2026-09-02 by the spend-cap drill (the
+drill's own refusal took 3 credits and delivered nothing). That one fixed
+*AI failed → charged*; this is *we deliberately refused → charged*.
+
+`createReading` branches `if (cachedInterpretation) … else if (!isStreamingRequest) …`,
+so a **streaming** request — what web and mobile send for every V2 type — took
+NEITHER branch and reached the charge with nothing checked. All three
+self-refusals (S2 cap, S4 quota, S1 concurrency) are raised later, in
+`_setupStream`, whose catch only released the slot and rethrew.
+
+Three controls now, and they are not interchangeable:
+
+| control | where | covers |
+|---|---|---|
+| **pre-flight** | `createReading`, above the charging `$transaction` | the common case: no row, no charge, no history entry |
+| **refund backstop** | `_setupStream`'s catch, on `isSelfRefusal(err)` | the race the pre-flight cannot close, and S1, which cannot be reserved from another method |
+| **recovery** | `needsInterpretationRecovery` → `loadSavedReading` | a paid-empty row with NO refusal behind it (crash, deploy mid-stream, dropped connection) |
+
+⚠️ **The pre-flight is gated on `isStreamingRequest`, NOT on `chargeable`.** An
+earlier draft used `chargeable` and broke the last V1 reading of the day: the
+inline branch has already run `quota.consume`, which increments and refuses at
+`used > limit`, so the final allowed reading leaves `used === limit` — at which
+point a second, post-increment `check` (`used >= limit`) refuses it, *after* the
+AI has run. Pinned by a regression test.
+
+⚠️ **Use `quota.check`, never `consume`, in a pre-flight.** `consume` runs
+exactly once, in `_setupStream`; a second consume burns two units of a limit
+measured in single digits. `check` shares `consume`'s throw via a private
+`exceeded()` so `isQuotaError` cannot stop matching one of them.
+
+⚠️ **Refunding FORECLOSES recovery** — `refundedAt` makes `_setupStream` refuse
+the row for good. That is the intended division of labour between rows 2 and 3
+above, not an oversight.
+
+⚠️ **`!reading.aiInterpretation` in the backstop is unreachable-false**, because
+step 2 of `_setupStream` returns early whenever an interpretation exists —
+including for a REGENERATION, which `regenerateReading` nulls the interpretation
+for first. It is kept as a structural backstop, and is documented as such rather
+than as the regeneration guard it cannot be.
+
+**The receipt must match.** `refundReadingCredit` deliberately does NOT zero
+`creditsUsed` — that column is both the refund amount and the double-refund
+guard — so 歷史分析記錄, whose only predicate was `creditsUsed === 0` → 免費 else
+`-{creditsUsed} 額度`, kept claiming a refunded reading was paid for. It now
+carries `refundedAt` and renders 已退款. ⚠️ `getReadingHistory` has THREE
+branches and the two comparison ones RE-MAP field by field, so adding a column
+to a `select` is not enough there; and a refunded comparison must be checked
+BEFORE the unpaid branch, because `refundComparisonCredit` clears `paidAt`.
+
 ### The charge must follow the content
 
 An AI failure used to be swallowed ("Don't fail the reading — return

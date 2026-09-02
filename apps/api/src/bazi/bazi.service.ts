@@ -20,7 +20,7 @@ import { Prisma, ReadingType } from '@prisma/client';
 import { deepCamelCase } from '../common/deep-camel-case';
 import { QuotaService } from '../ai/quota.service';
 import { AiSpendService } from '../ai/ai-spend.service';
-import { isSelfRefusal } from '../ai/typed-refusals';
+import { isSelfRefusal, selfRefusalCode } from '../ai/typed-refusals';
 import { engineFetch } from '../common/engine-client';
 import { ShutdownService } from '../common/shutdown.service';
 
@@ -542,8 +542,57 @@ export class BaziService {
     // visibly intentional). A non-streaming request without an interpretation
     // is unreachable after the throw above; this is the structural backstop, so
     // the bug cannot return by a different route.
+    //
+    // ⚠️ "refunds on failure" was FALSE for the three refusals we issue
+    // ourselves until 2026-09-02 — those are raised in `_setupStream`, whose
+    // catch only released the stream slot and rethrew. See the pre-flight
+    // immediately below and the backstop in `_setupStream`'s catch.
     const chargeable = !fromCache && (isStreamingRequest || !!aiInterpretation);
     const creditsUsed = chargeable ? service.creditCost : 0;
+
+    // ⚠️ PRE-FLIGHT — refuse BEFORE charging, not after.
+    //
+    // All three self-refusals (S2 spend cap, S4 quota, S1 concurrency) are
+    // raised in `_setupStream`, which runs AFTER this transaction has already
+    // deducted credits. The create-path `assertUnderCap` a few hundred lines up
+    // sits inside the `else if (!isStreamingRequest)` branch, so a STREAMING
+    // request — which is what web and mobile send for every V2 type — reached
+    // the charge with nothing checked. Measured in production 2026-09-02: the
+    // spend-cap drill's own refusal took 3 credits and delivered nothing.
+    //
+    // The GATE is what matters: a cache hit charges nothing and must not be
+    // refused by a budget event, because serving it costs us nothing. Removing
+    // the condition is a real defect and is mutation-tested.
+    //
+    // ⚠️ Gated on `isStreamingRequest`, NOT on `chargeable`. An earlier draft of
+    // this fix used `chargeable` and introduced a regression that this comment
+    // exists to stop coming back:
+    //
+    // The inline branch ABOVE already ran `assertUnderCap` + `quota.consume`
+    // (`:442`). `consume` increments and refuses at `used > limit`, so the last
+    // allowed reading of the day leaves `used === limit` — at which point a
+    // second, post-increment `check` (`used >= limit`) refuses it. The AI had
+    // already run by then, so the user would lose their final quota unit AND a
+    // real Anthropic call, and get an error instead of the reading they earned.
+    //
+    // Streaming is the only path with the gap: it skips that branch entirely and
+    // its `consume` happens later, in `_setupStream`. A cache hit is excluded for
+    // free, because `isStreamingRequest` already requires `!cachedInterpretation`.
+    //
+    // Only NON-CONSUMING checks belong here:
+    //   • `assertUnderCap` is a Redis GET. Idempotent; `_setupStream` runs it
+    //     again and that one stays authoritative.
+    //   • `quota.check` reads the counter without spending it. `consume` still
+    //     happens exactly once, in `_setupStream`; calling it here too would
+    //     burn two units per reading.
+    // The concurrency slot is deliberately NOT pre-flighted: it would have to be
+    // acquired here and released in another method, which is a leak waiting to
+    // happen, and a check without a reservation is only a race. S1 is covered by
+    // the refund backstop instead.
+    if (isStreamingRequest) {
+      await this.aiSpend.assertUnderCap('reading:create');
+      await this.quota.check('reading', user.id);
+    }
 
     const reading = await this.prisma.$transaction(async (tx) => {
       // Create reading first so we have an id to attach to the credit ledger.
@@ -1085,6 +1134,63 @@ export class BaziService {
       // Release both the per-user slot and the per-reading lock on setup error,
       // otherwise a failure here would wedge the reading for the whole lock TTL.
       releaseStreamSlot();
+
+      // ⚠️ REFUND BACKSTOP — "the charge must follow the content".
+      //
+      // The three refusals above (S2 cap, S4 quota, S1 concurrency) are raised
+      // AFTER `createReading` has already charged on the streaming path. The
+      // pre-flight there catches the common case, but it cannot be complete:
+      // the slot cannot be reserved from another method, and cap/quota can both
+      // flip in the window between create and stream. So this is where the
+      // guarantee actually lives — one place, at the point the refusal is
+      // raised, which is why it cannot drift the way a duplicated check would.
+      //
+      // ⚠️ `!reading.aiInterpretation` is UNREACHABLE-FALSE today, and kept
+      // deliberately. Step 2 above returns early whenever an interpretation
+      // exists, so nothing with content ever reaches this catch — including a
+      // REGENERATION, which `regenerateReading` nulls the interpretation for
+      // before re-streaming (`aiInterpretation: Prisma.DbNull`). An earlier
+      // draft of this comment claimed the conjunct distinguished regeneration.
+      // It does not, and a guard documented as doing something it cannot is
+      // worse than no guard. It stays as a structural backstop: if step 2 ever
+      // stops returning early, this must not start refunding delivered content.
+      //
+      // A cap-refused REGENERATION therefore does refund, and that is correct —
+      // the row's partial content has already been destroyed by the nulling
+      // above, so the user is left with nothing for their original charge.
+      //
+      // Safe against the other refund path: `refundReadingCredit` guards
+      // atomically on `refundedAt: null` and `creditsUsed > 0`, so a cache-hit
+      // row (0 credits) and an already-refunded row are both no-ops.
+      //
+      // ⚠️ Refunding here deliberately FORECLOSES the recovery branch in the
+      // web client's `loadSavedReading` — `refundedAt` makes `_setupStream`
+      // refuse the row for good. That is the intended division: a refusal we
+      // issued gives the money back now, while a paid-empty row with no refusal
+      // behind it (a crash, a deploy mid-stream, a dropped connection) stays
+      // recoverable by reopening it.
+      if (isSelfRefusal(err) && !reading.aiInterpretation) {
+        const reason = selfRefusalCode(err) ?? 'SELF_REFUSAL';
+        // Never let the refund's own failure replace the refusal the caller
+        // needs to see; a lost refund is recoverable from the log, a swallowed
+        // 503 is not.
+        await this.creditsService
+          .refundReadingCredit(readingId, `self-refusal:${reason}`)
+          .then((r) => {
+            if (r.refunded) {
+              this.logger.warn(
+                `[Stream] Refunded ${r.amount} credits for reading=${readingId} ` +
+                  `user=${user.id} refused by ${reason} before any content`,
+              );
+            }
+          })
+          .catch((refundErr) =>
+            this.logger.error(
+              `[Stream] REFUND FAILED for reading=${readingId} user=${user.id} ` +
+                `after ${reason} — user is charged with no content: ${refundErr}`,
+            ),
+          );
+      }
       throw err;
     }
   }

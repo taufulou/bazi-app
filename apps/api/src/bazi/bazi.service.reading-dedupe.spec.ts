@@ -70,7 +70,9 @@ describe('BaziService.createReading — dedupe', () => {
       prisma as never, redis as never,
       { get: () => 'http://engine.test' } as unknown as ConfigService,
       ai as never, { deductCredits } as never,
-      { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
+      // S4 — `check` is the NON-consuming pre-flight the streaming path runs
+      // before charging; `consume` still happens once, later, in `_setupStream`.
+      { consume: jest.fn(), check: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       // S2 — the cap pre-check that now runs before every quota consume.
       { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn() } as never,
       new ShutdownService(),

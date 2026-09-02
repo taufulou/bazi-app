@@ -68,5 +68,22 @@ export function isAiBusyError(err: unknown): boolean {
  * never the one the author was thinking about.
  */
 export function isSelfRefusal(err: unknown): boolean {
-  return isQuotaError(err) || isSpendCapError(err) || isAiBusyError(err);
+  return selfRefusalCode(err) !== null;
+}
+
+/**
+ * WHICH refusal, or null. For logs, and for the `failedReason` a refund writes
+ * onto the reading — "we refused, here is why" is the difference between a
+ * readable ledger and a mystery.
+ *
+ * ⚠️ `isSelfRefusal` is defined in terms of this rather than the other way
+ * round, so a fourth refusal added here is automatically covered by the
+ * predicate. The reverse (predicate listing three, this listing three) is the
+ * duplicated-subset problem the module docblock is about.
+ */
+export function selfRefusalCode(err: unknown): string | null {
+  for (const code of [QUOTA_EXCEEDED_CODE, AI_SPEND_CAP_CODE, AI_BUSY_CODE]) {
+    if (hasCode(err, code)) return code;
+  }
+  return null;
 }

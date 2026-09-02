@@ -37,6 +37,7 @@ import {
   createBaziReading,
   getReading,
   streamBaziReading,
+  needsInterpretationRecovery,
   regenerateBaziReading,
   transformAIResponse,
   SECTION_TITLE_MAP,
@@ -558,6 +559,27 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
       setTab("chart");
       if (isFullPageLayout) {
         window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
+      }
+
+      // ⚠️ RECOVERY — a row the user PAID for that has no interpretation.
+      //
+      // Until 2026-09-02 this branch did not exist, and it is what made a
+      // charged-empty reading PERMANENT rather than merely delayed. Opening such
+      // a row from 歷史分析記錄 lands here (not in `recoverPaidReading`, which
+      // only runs in the post-purchase flow), and this function's only job was
+      // to render whatever it found — so it rendered nothing, forever, on a
+      // reading that cost 3 credits. Verified against a real production row.
+      //
+      // The three conditions are each load-bearing:
+      //   • no sections — never re-stream over content the user already has.
+      //   • `creditsUsed > 0` — a free/chart-only row is legitimately empty, and
+      //     the backend refuses it anyway (`READING_NOT_PAID`).
+      //   • not refunded — the money is back; `_setupStream` refuses these too
+      //     and the user is told to create a new reading.
+      // Streaming an existing id does NOT re-charge: the charge lives in
+      // `createReading`, which is not on this path.
+      if (needsInterpretationRecovery(reading, aiReading?.sections?.length ?? 0)) {
+        void recoverPaidReading(reading.id, readingType, { owned: true });
       }
     } catch {
       // If loading fails, fall back to input step
@@ -1388,9 +1410,18 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLifetime, isLoaded]);
 
-  async function recoverPaidReading(readingId: string, sessionKeyPrefix: string) {
+  /**
+   * @param opts.owned  Caller has already established the user owns this reading
+   *   (the `?id=` history path). Suppresses the paywall fallback — showing a
+   *   paywall for a reading they have already paid for is worse than an error.
+   */
+  async function recoverPaidReading(
+    readingId: string,
+    sessionKeyPrefix: string,
+    opts?: { owned?: boolean },
+  ) {
     const token = await getToken();
-    if (!token) { setShowPaywall(true); return; }
+    if (!token) { if (!opts?.owned) setShowPaywall(true); return; }
 
     try {
       const existing = await getReading(token, readingId);
@@ -1497,8 +1528,14 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
         streamCleanupRef.current = () => stream.close();
       }
     } catch {
-      // Reading not found or error → show paywall again
-      setShowPaywall(true);
+      // Reading not found or error → show paywall again, UNLESS the caller has
+      // already established ownership (see `opts.owned`).
+      if (opts?.owned) {
+        setIsAiLoading(false);
+        setError("分析內容載入失敗，請稍後再試。");
+      } else {
+        setShowPaywall(true);
+      }
       try {
         sessionStorage.removeItem(`${sessionKeyPrefix}_reading_id`);
         sessionStorage.removeItem(`${sessionKeyPrefix}_lunar_date`);

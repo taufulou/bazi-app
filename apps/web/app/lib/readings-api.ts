@@ -525,6 +525,34 @@ export interface AIReadingData {
   deterministic?: V2DeterministicData;
 }
 
+/**
+ * Does this reading need its AI interpretation re-streamed?
+ *
+ * A row the user PAID for that carries no interpretation is a charge with
+ * nothing behind it. `recoverPaidReading` has always handled that in the
+ * post-purchase flow, but `loadSavedReading` — the path a click in
+ * 歷史分析記錄 takes — only rendered whatever it found, so such a row rendered
+ * blank FOREVER. That is what turned a charged-empty reading from a delay into
+ * a permanent loss; verified against a real production row on 2026-09-02.
+ *
+ * Streaming an existing id does NOT re-charge: the charge lives in
+ * `createReading`, which is not on this path.
+ *
+ * Each condition is load-bearing:
+ *  - `sectionCount === 0` — never re-stream over content the user already has.
+ *  - `creditsUsed > 0` — a free or chart-only row is legitimately empty. The
+ *    backend refuses those anyway (`READING_NOT_PAID`), so asking would just be
+ *    a wasted round-trip that surfaces as an error.
+ *  - not refunded — the money is already back. `_setupStream` refuses these and
+ *    tells the user to create a new reading, which is the correct end state.
+ */
+export function needsInterpretationRecovery(
+  reading: { creditsUsed: number; refundedAt?: string | null },
+  sectionCount: number,
+): boolean {
+  return sectionCount === 0 && reading.creditsUsed > 0 && !reading.refundedAt;
+}
+
 export interface ReadingHistoryItem {
   id: string;
   readingType: string;
@@ -535,6 +563,16 @@ export interface ReadingHistoryItem {
    * "free" — it usually means "not unlocked yet". Drives the 未解鎖 badge.
    */
   paidAt?: string | null;
+  /**
+   * Set when the charge was given back. Readings AND comparisons.
+   *
+   * ⚠️ A refund does NOT zero `creditsUsed` — that column is both the refund
+   * amount and the double-refund guard in `refundReadingCredit`, so it stays at
+   * 3. Without this field the row renders `-3 額度` on a reading the user was
+   * paid back for, which is the receipt lying. Refunds already happen today via
+   * the AI-failure path, so this is not hypothetical.
+   */
+  refundedAt?: string | null;
   createdAt: string;
   birthProfile: {
     name: string;

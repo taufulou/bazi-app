@@ -145,12 +145,48 @@ export class QuotaService {
     }
 
     if (used > limit) {
-      this.logger.warn(`Quota exceeded: ${kind} ${used}/${limit} for user ${userId}`);
-      throw new HttpException(
-        { code: QUOTA_EXCEEDED_CODE, message: FRIENDLY[kind], kind, limit },
-        HttpStatus.TOO_MANY_REQUESTS,
-      );
+      throw this.exceeded(kind, userId, used, limit);
     }
+  }
+
+  /**
+   * Non-consuming pre-flight. Same verdict as `consume`, without spending a unit.
+   *
+   * Exists so a caller that CHARGES CREDITS before reaching `consume` can refuse
+   * first. `createReading` is exactly that shape: on the streaming path the
+   * charge lands in `createReading` and `consume` runs later in `_setupStream`,
+   * so without this the user pays for a reading we then refuse.
+   *
+   * ⚠️ Use `consume` for the real thing. This is advisory by construction — a
+   * concurrent request can take the last unit between the check and the
+   * consume, which is why the refund backstop in `_setupStream` still exists.
+   * Calling `consume` here instead would burn TWO units per reading.
+   *
+   * Boundary matches `consume`: that one increments first and refuses at
+   * `used > limit`, so the pre-increment equivalent is `used >= limit`.
+   */
+  async check(kind: QuotaKind, userId: string): Promise<void> {
+    const limit = this.limitFor(kind);
+    if (limit === 0) return;
+    // `peek` swallows Redis errors and reports 0 used, so this fails OPEN in an
+    // outage — deliberately the same direction as `consume`. See the class docblock.
+    const { used } = await this.peek(kind, userId);
+    if (used >= limit) {
+      throw this.exceeded(kind, userId, used, limit);
+    }
+  }
+
+  /**
+   * The refusal, in one place. `consume` and `check` must be indistinguishable
+   * to a caller — `isQuotaError` matches on `code`, and a second hand-built
+   * throw is how that kind of predicate silently stops matching.
+   */
+  private exceeded(kind: QuotaKind, userId: string, used: number, limit: number): HttpException {
+    this.logger.warn(`Quota exceeded: ${kind} ${used}/${limit} for user ${userId}`);
+    return new HttpException(
+      { code: QUOTA_EXCEEDED_CODE, message: FRIENDLY[kind], kind, limit },
+      HttpStatus.TOO_MANY_REQUESTS,
+    );
   }
 
   /** Read-only, for an ops endpoint or a "N left today" hint. */

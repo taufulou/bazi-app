@@ -211,4 +211,73 @@ describe('ReadingHistoryPage', () => {
       expect(mockGetReadingHistory).toHaveBeenCalledWith('test-token', 1, 50);
     });
   });
+
+  // ============================================================
+  // #22 — a REFUNDED row must not claim the user paid
+  // ============================================================
+  //
+  // `refundReadingCredit` deliberately leaves `creditsUsed` at 3 (it is both the
+  // refund amount and the double-refund guard), so `creditsUsed` alone can never
+  // signal this. Without `refundedAt` the row renders `-3 額度` on a reading the
+  // user was paid back for. Refunds already happen via the AI-failure path, so
+  // this was live rather than hypothetical.
+
+  it('renders 已退款 instead of a credit charge for a refunded reading', async () => {
+    mockGetReadingHistory.mockResolvedValue({
+      data: [{
+        id: 'reading-r', readingType: 'LIFETIME', creditsUsed: 3,
+        refundedAt: '2026-09-02T00:00:00.000Z',
+        createdAt: '2026-09-02T00:00:00.000Z', birthProfile: { name: 'Roger4' },
+      }],
+    });
+
+    render(<ReadingHistoryPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('已退款')).toBeInTheDocument();
+    });
+    // The claim that matters: the receipt no longer says money was taken.
+    expect(screen.queryByText('-3 額度')).not.toBeInTheDocument();
+    expect(screen.queryByText('免費')).not.toBeInTheDocument();
+  });
+
+  it('still shows the charge on a NON-refunded reading', async () => {
+    // The badge must be driven by `refundedAt`, not by anything that would also
+    // hide a real charge.
+    mockGetReadingHistory.mockResolvedValue({
+      data: [{
+        id: 'reading-p', readingType: 'LIFETIME', creditsUsed: 3, refundedAt: null,
+        createdAt: '2026-09-02T00:00:00.000Z', birthProfile: { name: 'Roger3' },
+      }],
+    });
+
+    render(<ReadingHistoryPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('-3 額度')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('已退款')).not.toBeInTheDocument();
+  });
+
+  it('renders 已退款 for a refunded COMPARISON, not 未解鎖', async () => {
+    // `refundComparisonCredit` CLEARS `paidAt`, so a refunded comparison would
+    // otherwise fall into the 未解鎖 branch and read as "not unlocked yet" —
+    // true in a narrow sense, and wrong about what happened.
+    mockGetReadingHistory.mockResolvedValue({
+      data: [{
+        id: 'comp-r', readingType: 'COMPATIBILITY', isComparison: true,
+        comparisonType: 'ROMANCE', creditsUsed: 3,
+        paidAt: null, refundedAt: '2026-08-26T00:00:00.000Z',
+        createdAt: '2026-08-26T00:00:00.000Z',
+        birthProfile: { name: 'Roger' }, profileB: { name: 'Laopo' },
+      }],
+    });
+
+    render(<ReadingHistoryPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('已退款')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('未解鎖')).not.toBeInTheDocument();
+  });
 });
