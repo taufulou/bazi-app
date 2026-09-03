@@ -1,19 +1,13 @@
-import {
-  HttpException,
-  Injectable,
-  Logger,
-  OnModuleInit,
-  type MessageEvent,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, type MessageEvent,  } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Observable, Subscriber } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CreditsService } from '../credits/credits.service';
-import { AiSpendService, AI_SPEND_CAP_CODE } from './ai-spend.service';
+import { AiSpendService } from './ai-spend.service';
 import { classifyAiError, type AiCallAttribution } from './ai-call-log';
 import { estimateOutputTokensFromChars } from './stream-usage';
-import { AiGovernorService, AI_BUSY_CODE } from './ai-governor.service';
+import { AiGovernorService } from './ai-governor.service';
 import { isSelfRefusal, selfRefusalCode, selfRefusalMessage } from './typed-refusals';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
 import {
@@ -1003,11 +997,18 @@ export class AIService implements OnModuleInit {
     //     volume sixfold while spending nothing.
     // Retrying is for the PROVIDER being unavailable. When we are the one
     // saying no, the answer will not change within a request.
-    if (err instanceof HttpException) {
-      const body = err.getResponse() as { code?: string } | string;
-      const code = typeof body === 'object' ? body?.code : undefined;
-      if (code === AI_BUSY_CODE || code === AI_SPEND_CAP_CODE) return false;
-    }
+    // ⚠️ `isSelfRefusal`, NOT a hand-written list of codes. This site listed
+    // AI_BUSY and AI_SPEND_CAP and MISSED QUOTA_EXCEEDED — which is an
+    // HttpException with status 429, and `statusFromError === 429` a few lines
+    // below returns `true`. So a user who had spent their daily allowance was
+    // retried up to 3 times per provider across 3 providers: nine attempts at a
+    // refusal that cannot change within a request.
+    //
+    // That is precisely what `typed-refusals.ts` exists to prevent, and its
+    // docblock names this failure in advance: "Every place that listed them by
+    // hand ended up with a different subset, and the missing one was never the
+    // one the author was thinking about."
+    if (isSelfRefusal(err)) return false;
 
     // Prefer SDK's typed status
     const statusFromError = (err as any).status as number | undefined;

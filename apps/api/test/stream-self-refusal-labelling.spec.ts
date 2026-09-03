@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { HttpException, HttpStatus } from '@nestjs/common';
+import { AIService } from '../src/ai/ai.service';
 import { selfRefusalMessage } from '../src/ai/typed-refusals';
 import { AI_SPEND_CAP_CODE } from '../src/ai/ai-spend.service';
 import { AI_BUSY_CODE } from '../src/ai/ai-governor.service';
@@ -105,3 +106,51 @@ describe('_streamV2Call2Loop — the refusal must travel as a VALUE', () => {
     expect(around).not.toContain('refusal');
   });
 });
+
+/**
+ * ⚠️ Found by auditing the fix, not by the review: `isRetryableError` listed
+ * AI_BUSY and AI_SPEND_CAP by hand and MISSED QUOTA_EXCEEDED.
+ *
+ * A quota refusal is an `HttpException` with status 429, and the status arm
+ * returns `true` for 429 — so a user who had spent their daily allowance was
+ * retried up to 3 times per provider across 3 providers: nine attempts at a
+ * refusal that cannot change within a request. Exactly the failure the
+ * function's own docblock describes for the other two.
+ *
+ * `typed-refusals.ts` predicted it: "Every place that listed them by hand ended
+ * up with a different subset, and the missing one was never the one the author
+ * was thinking about."
+ */
+describe('isRetryableError — none of OUR refusals is retryable', () => {
+  const svc = () => Object.create(AIService.prototype) as AIService;
+  const refuse = (code: string, status: HttpStatus) =>
+    new HttpException({ code, message: 'x' }, status);
+
+  it.each([
+    ['AI_BUSY (503)', AI_BUSY_CODE, HttpStatus.SERVICE_UNAVAILABLE],
+    ['AI_SPEND_CAP (503)', AI_SPEND_CAP_CODE, HttpStatus.SERVICE_UNAVAILABLE],
+    ['QUOTA_EXCEEDED (429)', QUOTA_EXCEEDED_CODE, HttpStatus.TOO_MANY_REQUESTS],
+  ])('%s is NOT retryable', (_label, code, status) => {
+    expect(svc().isRetryableError(refuse(code, status))).toBe(false);
+  });
+
+  it('a REAL 429 from the provider is still retryable', () => {
+    // The exclusion must be about OUR refusals, not about the status code —
+    // an upstream rate limit is exactly what retry exists for.
+    const rateLimited = Object.assign(new Error('rate_limit_error'), { status: 429 });
+    expect(svc().isRetryableError(rateLimited)).toBe(true);
+  });
+
+  it('a real 503 from the provider is still retryable', () => {
+    const overloaded = Object.assign(new Error('overloaded_error'), { status: 503 });
+    expect(svc().isRetryableError(overloaded)).toBe(true);
+  });
+
+  it('uses isSelfRefusal rather than a hand-written list of codes', () => {
+    // The source property that stops a fourth refusal being missed.
+    const body = SRC.slice(SRC.indexOf('isRetryableError(err: unknown)'), SRC.indexOf('isRetryableError(err: unknown)') + 1800);
+    expect(body).toContain('if (isSelfRefusal(err)) return false;');
+    expect(body).not.toMatch(/code === AI_BUSY_CODE \|\| code === AI_SPEND_CAP_CODE/);
+  });
+});
+
