@@ -55,7 +55,7 @@ function makeService(readingOverrides: Record<string, unknown>, tier = 'FREE') {
     {} as never, {} as never,
     { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     // S2 — the cap pre-check that now runs before every quota consume.
-    { assertUnderCap: jest.fn(), record: jest.fn() } as never,
+    { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never,
     new ShutdownService(),
   );
   return { service, mockPrisma, reading };
@@ -291,7 +291,7 @@ describe('F-4 sibling — getComparison has no subscriber exemption either', () 
       {} as never, {} as never,
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     // S2 — the cap pre-check that now runs before every quota consume.
-    { assertUnderCap: jest.fn(), record: jest.fn() } as never,
+    { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never,
       new ShutdownService(),
     );
     return { service };

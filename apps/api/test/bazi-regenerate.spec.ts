@@ -34,7 +34,7 @@ describe('BaziService.regenerateReading', () => {
     const mockCredits: any = {};
     const mockQuota = { consume: jest.fn(), peek: jest.fn() } as never;
     // S2 — the cap pre-check that now runs before every quota consume.
-    const mockSpend = { assertUnderCap: jest.fn(), record: jest.fn() } as never;
+    const mockSpend = { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never;
     service = new BaziService(
       mockPrisma, mockRedis, mockConfig, mockAI, mockCredits, mockQuota, mockSpend,
       new ShutdownService(),

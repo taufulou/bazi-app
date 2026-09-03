@@ -82,7 +82,7 @@ function makeService(readingOverrides: Record<string, unknown> = {}) {
       acquireLock: jest.fn().mockResolvedValue(true),
       releaseLock: jest.fn().mockResolvedValue(undefined),
     } as never,
-    { record: jest.fn(), assertUnderCap: jest.fn() } as never,
+    { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never,
     { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
     { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
   );
@@ -241,7 +241,7 @@ describe('F6 door 2 — sendMessage (the door the audit found untested)', () => 
       } as never,
       { refuseListPreFlight: jest.fn().mockReturnValue({ refused: false }) } as never,
       { acquireLock: jest.fn().mockResolvedValue(true), releaseLock: jest.fn() } as never,
-      { record: jest.fn(), assertUnderCap: jest.fn() } as never,
+      { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never,
       { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
       { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     );

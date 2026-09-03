@@ -168,7 +168,8 @@ async function interceptGetReading(
 // ============================================================
 
 test.describe('Free Reading — Unauthenticated Chart-Only', () => {
-  test('ZWDS chart renders without auth via direct iztro path', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('ZWDS chart renders without auth via direct iztro path', async ({ page }) => {
     await interceptZwdsCalculate(page);
 
     await page.goto('/reading/zwds-lifetime');
@@ -182,7 +183,8 @@ test.describe('Free Reading — Unauthenticated Chart-Only', () => {
     await expect(stepIndicator).toBeVisible();
   });
 
-  test('Bazi reading page loads without auth', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('Bazi reading page loads without auth', async ({ page }) => {
     await interceptBaziCalculate(page);
 
     await page.goto('/reading/lifetime');
@@ -191,7 +193,8 @@ test.describe('Free Reading — Unauthenticated Chart-Only', () => {
     await expect(page.getByText('輸入資料')).toBeVisible();
   });
 
-  test('unauthenticated user sees submit button', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('unauthenticated user sees submit button', async ({ page }) => {
     await page.goto('/reading/zwds-career');
     await page.waitForLoadState('domcontentloaded');
 

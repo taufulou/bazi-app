@@ -511,6 +511,7 @@ export class UsersService {
             creditsUsed: true,
             createdAt: true,
             targetYear: true,
+            refundedAt: true, // #22 — 已退款 badge; a refund keeps creditsUsed (it IS the refund amount)
             birthProfile: { select: { name: true, birthDate: true } },
           },
           // Secondary `id` sort key guards against ties on `createdAt` to the ms
@@ -541,6 +542,7 @@ export class UsersService {
             comparisonType: true,
             creditsUsed: true,
             paidAt: true, // A7 — 未解鎖 badge; free creates now have creditsUsed 0
+            refundedAt: true, // #22 — 已退款 badge; a refund keeps creditsUsed (it IS the refund amount)
             createdAt: true,
             profileA: { select: { name: true, birthDate: true } },
             profileB: { select: { name: true, birthDate: true } },
@@ -560,6 +562,10 @@ export class UsersService {
         // ⚠️ Same trap as the merged branch below — this re-maps explicitly, so
         // selecting `paidAt` is not enough. Without it the 未解鎖 badge is dead.
         paidAt: c.paidAt,
+      // ⚠️ Same trap as `paidAt`: this branch RE-MAPS, so the `select` alone
+      // is not enough — without this line a refunded comparison still
+      // renders as if the user paid.
+      refundedAt: c.refundedAt,
         createdAt: c.createdAt,
         birthProfile: c.profileA,
         profileB: c.profileB,
@@ -585,6 +591,7 @@ export class UsersService {
           creditsUsed: true,
           createdAt: true,
           targetYear: true,
+          refundedAt: true, // #22 — 已退款 badge; a refund keeps creditsUsed (it IS the refund amount)
           birthProfile: { select: { name: true, birthDate: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -596,6 +603,7 @@ export class UsersService {
           comparisonType: true,
           creditsUsed: true,
             paidAt: true, // A7 — 未解鎖 badge; free creates now have creditsUsed 0
+            refundedAt: true, // #22 — 已退款 badge; a refund keeps creditsUsed (it IS the refund amount)
           createdAt: true,
           profileA: { select: { name: true, birthDate: true } },
           profileB: { select: { name: true, birthDate: true } },
@@ -615,6 +623,10 @@ export class UsersService {
       // clients see `paidAt: undefined` and render 「免費」 for an unpaid
       // comparison that will later cost 3 credits.
       paidAt: c.paidAt,
+      // ⚠️ Same trap as `paidAt`: this branch RE-MAPS, so the `select` alone
+      // is not enough — without this line a refunded comparison still
+      // renders as if the user paid.
+      refundedAt: c.refundedAt,
       createdAt: c.createdAt,
       birthProfile: c.profileA,
       profileB: c.profileB,

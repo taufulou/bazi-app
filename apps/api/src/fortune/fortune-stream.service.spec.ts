@@ -242,7 +242,11 @@ function buildService(opts: {
   const shutdown = new ShutdownService();
   const helpers = new FortuneSnapshotHelpers(prisma, redis, config);
   const validators = new FortuneValidatorsService();
-  const service = new FortuneStreamService(prisma, helpers, validators, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never, { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never, shutdown);
+  // Ob1 #14 — hoisted so a test can assert the zero-usage failure line is
+  // actually emitted. A stream that dies before its first token has no usage
+  // to price, so `record()` is skipped and this is the ONLY trace it leaves.
+  const aiSpend = { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) };
+  const service = new FortuneStreamService(prisma, helpers, validators, aiSpend as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never, { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never, shutdown);
 
   // Stub helper methods to make the test path deterministic
   jest.spyOn(helpers, 'enforceSubscriptionGate').mockImplementation(() => undefined);
@@ -286,7 +290,7 @@ function buildService(opts: {
     } as any);
   }
 
-  return { service, helpers, validators, prisma, config, redis, persistSpy, streamFn, shutdown };
+  return { service, helpers, validators, prisma, config, redis, persistSpy, streamFn, shutdown, aiSpend };
 }
 
 /** Build a sequence of content_block_delta events from a single chunk array. */
@@ -519,7 +523,7 @@ describe('FortuneStreamService', () => {
   // ============================================================
   describe('failure paths', () => {
     it('Anthropic stream throws → AI_FAILED error + persists null (circuit-breaker)', async () => {
-      const { service, persistSpy } = buildService({
+      const { service, persistSpy, aiSpend } = buildService({
         streamThrows: new Error('Anthropic 503'),
       });
       const res = new MockResponse() as any;
@@ -531,6 +535,17 @@ describe('FortuneStreamService', () => {
       expect(persistSpy).toHaveBeenCalledTimes(1);
       // Circuit-breaker increment per plan v2 M4
       expect(persistSpy.mock.calls[0][0].promptVersion).toBeNull();
+
+      // Ob1 #14 — this stream threw before producing a token, so there is no
+      // usage to price and `record()` is skipped. Without `recordFailure` the
+      // call emitted NO AI-CALL line and the failure was invisible in the log.
+      expect(aiSpend.record).not.toHaveBeenCalled();
+      expect(aiSpend.recordFailure).toHaveBeenCalledTimes(1);
+      expect(aiSpend.recordFailure.mock.calls[0]![0]).toMatchObject({
+        provider: 'CLAUDE',
+        context: 'fortune:stream-daily',
+        error: expect.any(Error),
+      });
     });
 
     it('engine fetch throws → ENGINE_FAILED error, NO persist', async () => {

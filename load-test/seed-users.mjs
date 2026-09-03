@@ -323,6 +323,19 @@ async function cleanup() {
   // `erasePersonalData` synchronously inside the request, so a 200 IS the
   // receipt that profiles, readings and cache rows are gone. No webhook, no
   // polling, nothing to race.
+  // ⚠️ `erasePersonalData` deliberately does NOT touch `ai_usage_log` — the
+  // rows carry no personal data, so they are retained as cost history in the
+  // same class as Transaction/CreditLedger. That policy is right for a real
+  // user and WRONG for a load test, whose rows are fabrications.
+  //
+  // The first run had no step for this: deleting 103 accounts nulled the
+  // pointers and left 1,383 mock rows in production, which is what made
+  // /admin/ai-costs report $0.0000 average per reading (#17).
+  console.log('\n⚠️  ai_usage_log rows are NOT removed by the deletes above.');
+  console.log('   Purge this run\'s fabricated usage rows with:');
+  console.log('     node load-test/purge-usage-log.mjs                    # dry run first');
+  console.log('     node load-test/purge-usage-log.mjs --execute --target <db-host>');
+
   console.log('\nverifying…');
   const leftInClerk = await listSeeded();
   const allErased = erased === users.length;

@@ -33,14 +33,22 @@ AI-powered Bazi (八字) fortune-telling SaaS platform. Two-layer architecture: 
 >   `BAZI_CREATABLE_READING_TYPES` (see the security section).
 > - `section-unlock`'s `'zwds'` — removing it would make those paid sections
 >   permanently unlockable.
-> - `POST /api/zwds-calculate` (Next.js route) — unauthenticated in-process iztro
->   calc. ⚠️ Kept as "same class as `bazi-calculate`"; **M10 ended that
->   equivalence**. `bazi-calculate` now proxies to NestJS and is throttled and
->   optionally authenticated; `zwds-calculate` is still a raw unauthenticated,
->   unthrottled iztro call in a route handler. It does NOT touch the Python
->   engine, so it never blocked B3-b — but it is now the ONLY calc route with
->   nothing in front of it, and should be judged on its own merits rather than
->   by analogy to a sibling that has since moved.
+>
+> **`POST /api/zwds-calculate` was DELETED 2026-09-01** — it had been kept as
+> "same class as `bazi-calculate`", but M10 ended that equivalence and the route
+> was left as the only calc endpoint with nothing in front of it: no auth, no
+> throttle, and a synchronous `iztro` call on the **Next.js web server**, whose
+> single-threaded event loop also serves every page including sign-in. A flood
+> there was a whole-site outage, not a degraded feature — for a product that no
+> longer exists. Deleting beat rate-limiting: it removed the code, the `iztro`
+> dependency, and the recurring audit burden in one move.
+>
+> ⚠️ **The `zwds-*` slugs STAY in `VALID_TYPES`** (`apps/web/app/reading/[type]/page.tsx`).
+> Removing them is what would break the two paid `ZWDS_LIFETIME` readings — the
+> `?id=` path renders them from `reading.calculationData` in the DB (`:509`, and
+> the retry at `:989`) and never called the deleted route. A `zwds-*` page now
+> serves a form that refuses on submit with the existing 已停用 error, before
+> doing any work.
 >
 > Reading types are now **6 Bazi + 2 special**, not 18.
 
@@ -567,7 +575,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 
 ## Test suite sizes
 - Bazi Engine: ≈2986 collected (`pytest --collect-only` — counts collected items incl. xfail/skip, NOT "passing"; prose "X pass" figures elsewhere differ by counter, e.g. the 時辰未知 sections cite 2944/2965 *passing*). Grew from the ~2231 Phase-12i baseline (+ Fortune day/month/year + chat-scope + 時辰未知 unknown-birth-hour suites). Composition note (Phase 12i): ~2226 + 5 三刑/半刑/子卯刑 spouse-palace tests in test_compatibility_enhanced.py + 53 compat pair corpus regressions + Phase 12h.A/B additions, 5 xfail, 1 skip, 1 pre-existing fail unrelated | NestJS API: 692 | Frontend: 143 | ZWDS: 289
-  - ⚠️ **CURRENT — measured 2026-08-30 on `claude/m10-web-calc-routes`: engine **3180 passed** / 2 skipped / 5 xfailed · api jest **2196 passed** / 5 skipped (119 suites) · web jest **405 passed** (38 suites) · api+web tsc 0 · `turbo run lint` 5/5.** ⚠️ Scoped to THIS branch, so it goes stale the moment the branch adds a test — re-measure rather than trusting it. Phase 2B (M1–M10) and Phase 2C (Ob1–Ob3) are both complete; the growth over the figures below is M2/M3/M6/M8 and the observability work, plus their guards. The older lines are kept for their composition notes.
+  - ⚠️ **CURRENT — measured 2026-08-31 on `claude/m10-web-calc-routes`: api jest **2216 passed** / 5 skipped (121 suites) · web jest **405 passed** (38 suites) · api tsc clean · `turbo run lint` **5/5**.** (Engine unchanged at 3180 passed / 2 skipped / 5 xfailed, last measured 2026-08-30.) ⚠️ Scoped to THIS branch — re-measure rather than trusting it. ⚠️ Run each jest from ITS OWN app directory with `npx --no-install jest`: the root-hoisted jest is two majors behind `apps/web`'s and mixing them corrupts the shared ts-jest cache. Lint from the ROOT with `./node_modules/.bin/turbo run lint` — `npm run lint` inside `apps/api` passes while turbo (five workspaces) fails. ⚠️ A suite that fails to COMPILE reports `0 tests` and silently drops its cases from the total, so watch the count, not just the pass line. The older lines below are kept for their composition notes.
   - ⚠️ **Superseded — measured on `claude/m10-web-calc-routes` 2026-08-23: api jest 100 suites / 1961 passed · web jest 38 suites / 405 passed (fully green for the first time; `test-web` is now a CI job) · api tsc 0 · web tsc 0 · turbo lint 5/5 workspaces.** The older figures below are kept for the composition notes.
   - ⚠️ **Measured on `claude/bazi-scalability-security-e4ff78` 2026-08-17** (the numbers above predate it): engine **3137 passed** / 2 skipped / 5 xfailed · API jest **96 suites / 1914 passed** / 5 skipped · web jest **35 of 37 suites, 383 passed** (the 2 failures — `pricing-page`, `reading-history` — are pre-existing on main) · api tsc 0 · api lint 0 · **web tsc 0** (was 106; the duplicate `@types/react` behind the chronic "cannot be used as a JSX component" errors was collapsed by the dependency dedupe). The ZWDS 289 no longer exists — those suites were deleted with the module.
   - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
@@ -3583,11 +3591,10 @@ App-wide "signed-out → auto-redirect to `/sign-in?redirect_url=<current>`" mec
 
 ### Follow-up (separate PR, OUT OF SCOPE here)
 - Update/skip the now-broken signed-out E2E tests (the 8 above + the standalone anon specs landing/pricing/reading-page/free-reading/credit-store). Playwright suite is NOT in CI / not all-green on main.
-- Protect-or-remove the still-public calc API endpoints. Post-M10 only
-  **`/api/zwds-calculate`** is genuinely unprotected — `/api/bazi-calculate` and
-  `/api/explain-element` proxy to throttled NestJS routes now. Stateless with no
-  sensitive data, so still a deliberate keep; the open item is a rate limit on
-  the one route that has none.
+- ✅ **DONE 2026-09-01** — the calc endpoints are settled. `/api/zwds-calculate`
+  was DELETED (see the ZWDS banner at the top of this file); `/api/bazi-calculate`
+  and `/api/explain-element` proxy to throttled NestJS routes. No public calc
+  route is left without something in front of it.
 
 ### Files (11)
 NEW: `apps/web/app/components/SignedOutRedirect.tsx`, `apps/web/app/lib/auth-redirect.ts`. MODIFIED: `app/layout.tsx` (mount), `middleware.ts` (lockdown), `app/lib/api.ts` + `chat-api.ts` + `fortune-api.ts` (401 wiring), `app/reading/compatibility/page.tsx` (+`.module.css`), `app/reading/[type]/page.tsx`, `app/reading/fortune/page.tsx` (interstitials).
@@ -3775,6 +3782,24 @@ Cleanup is not optional: `seed-users.mjs --cleanup` goes through the app's own
 `erasePersonalData` ran. Do NOT rely on the `user.deleted` webhook — tested, it
 left 3 of 3 profiles behind while reporting success.
 
+### 📕 Ops docs — runbook and DR
+
+- **`docs/ops/incident-runbook.md`** — what to do when an alert fires. Every
+  instrument named in it exists; alert names match what Sentry actually sends.
+  ⚠️ Its first instruction is to check `alerting` in `GET /api/admin/ops`,
+  because with no `SENTRY_DSN` every spend alert is a silent no-op.
+- **`docs/ops/backups-and-dr.md`** — a GAP ANALYSIS, not a working DR posture.
+  Railway backup settings cannot be established from the repo, so they are
+  marked unverified. The highest-value open item is performing ONE restore: an
+  untested backup is a hypothesis.
+
+⚠️ **The three instruments are not equally trustworthy.** `GET /api/admin/ops`
+and the `AI-CALL` log lines are authoritative — both read what the breaker
+reads. `/admin/ai-costs` was blind to streamed readings (#19), is still polluted
+by 1,383 load-test rows (#17, tooling written, prod rows not yet purged), and
+has **never** included chat or fortune — those call `aiSpend.record()` directly
+and write no `AIUsageLog` row. Do not size a budget from that page.
+
 ### 📋 THE TODO LIST — where it lives
 
 **When asked to "check the todo list", read
@@ -3908,6 +3933,341 @@ resolved by inspection rather than by waiting: there are **no scheduled callers*
 caller is the healthcheck, which hits the exempt `/health`. Post-flip smoke test
 (sign-in, `/calculate` both callers, `/explain-element`, `/daily-fortune`, a real
 LIFETIME reading) came back clean with `"mode": "enforce"` and no rejections.
+
+## ⚠️ Readings: STREAMING and INLINE are not interchangeable
+
+`POST /api/bazi/readings` has two paths, and they give the same work
+**different time budgets**. This is the highest-value fact in the reading
+pipeline and it is not visible from any one file.
+
+| path | selected by | timeout | measured need |
+|---|---|---|---|
+| streaming (SSE) | `stream: true` + a V2 type + no cache | `AI_STREAM_TIMEOUT_MS` **300s** | LIFETIME **180.3s** ✅ |
+| inline | anything else | `AI_CALL_TIMEOUT_MS` **60s** | ❌ impossible for V2 |
+
+**Six timeout call sites, three defaults, splitting cleanly:** the four inline
+V2 generators (`ai.service.ts:440`, `:634`, `:1842`, `:3758`) read
+`AI_CALL_TIMEOUT_MS` with **no** `AI_STREAM_TIMEOUT_MS` fallback; only
+`_executeStreamV2Common` (`:1140`) and the compat streamer (`:4758`) prefer the
+stream variable.
+
+So **V2 inline could never complete** — six production runs failed at 90.4s
+within 0.2s of each other, because it is a stopwatch (~30s engine + the 60s
+abort), not a flaky upstream. It is now refused at admission with **400
+`STREAM_REQUIRED`**, placed ABOVE the engine call so a rejection costs nothing,
+and BELOW the reuse branch so a cached re-fetch still serves.
+
+**Measured 2026-08-31, real Anthropic:** LIFETIME streaming **180.3s**, 15
+sections, $0.303624. HEALTH inline **10s**, 4 sections. Web and mobile both
+send `stream: true` for LIFETIME/CAREER/ANNUAL/LOVE; **HEALTH is the only
+real-user inline caller.**
+
+⚠️ **`AI_MAX_TOTAL_TIME_MS` (900s) is the constant people forget.** It bounds
+one generation across all providers and retries, and it gates the START of an
+attempt rather than aborting one in flight — so an attempt admitted at 14:59
+runs a further `AI_STREAM_TIMEOUT_MS`, ~20 min worst case. Anything reasoning
+about "how long can a reading take" must use this, not the 300s/360s timeouts.
+The shipped stream lock at `bazi.service.ts:865` gets this wrong (330s TTL,
+commented against the 300s figure) and can expire mid-generation — todo #15.
+
+### A built alert and a delivered alert are different claims
+
+`AiSpendService` fires three Sentry events. `Sentry.init()` in `main.ts` runs
+only `if (process.env.SENTRY_DSN)`, so with no DSN every one is a **silent
+no-op** — no throw, no log, nothing at boot. The early-warning system can be
+fully built and fully disconnected, which is the worst shape a control can have
+because an audit passes it.
+
+| event | level | meaning if unseen |
+|---|---|---|
+| `ai.spend.threshold_80` | warning | 80% of the day's budget gone, nobody told; first real signal becomes a hard refusal at 100%. |
+| `ai.spend.cap_tripped` | error | the breaker is refusing paying customers. Fails CLOSED, so safe — but silent. |
+| `ai.spend.breaker_unavailable` | error | **fails OPEN.** Redis unreadable, the call is ALLOWED, only the Anthropic account limit remains. Spend is uncapped and nobody knows. |
+
+⚠️ **The third is the one usually left off the list, and it is the one that
+matters most** — the other two mean a control fired; this one means there is no
+control. Any alert rule that covers only the first two is missing the outage.
+
+`common/alerting-status.ts` reports this at boot (warns when silent, and
+confirms POSITIVELY when armed — "no warning" is also what a missing check
+looks like) and exposes it as a read on `GET /api/admin/ops` under `alerting`.
+Verified at a real boot in both branches; the DSN key appears **0 times** in the
+log, only the host.
+
+⚠️ **The verdict reads `Sentry.getClient()`, NOT `process.env.SENTRY_DSN`** —
+and that is deliberate. `Sentry.init()` runs at module load in `main.ts`, before
+`NestFactory.create`; this check runs after, and `@nestjs/config` writes
+validated values BACK into `process.env`. `SENTRY_DSN` is absent from the Joi
+schema today so the two agree, but adding a default there later would make an
+env-only check report "armed" for an init that never ran. Same write-back trap
+as `NODE_ENV`. The env is still read, for the HOST label only.
+
+⚠️ **It can only see the deliverable half.** A DSN means events reach Sentry; it
+cannot see whether an alert RULE exists for those names, and the log line says
+so rather than implying coverage it has not checked.
+
+⚠️ **The 80% warning dedupes per process**, so N replicas emit it N times. Set
+the rule to notify on first occurrence, not on a count threshold.
+
+### Defense in depth can hide a layer that is entirely gone
+
+The signed-out lockdown has two layers on the same request: middleware
+`auth.protect()` (server) and `SignedOutRedirect` (client). The obvious test —
+`page.goto('/pricing')` then expect to land on `/sign-in` — passes if EITHER
+fires.
+
+Measured, not reasoned: re-opening `/pricing` in the middleware allowlist left
+that assertion green, because the client watcher still redirected. A test suite
+could therefore report a fully removed server-side lockdown as healthy.
+
+`e2e/signed-out-lockdown.spec.ts` splits them:
+
+| layer | how to assert it ALONE |
+|---|---|
+| B, middleware | `request.get(path)` — no JS runs, so only the server can refuse. A protected route answers a signed-out caller with a rewrite (`x-clerk-auth-reason: protect-rewrite`), which is **not** a 200. |
+| A, client watcher | `page.goto('/reading/lifetime')` — `/reading(.*)` is deliberately middleware-PUBLIC (the `__e2e_auth` bypass needs it), so the client is the only guard and the browser assertion tests it on its own. |
+
+Both directions are mutation-verified: re-opening a route in the middleware
+fails the server-side test only; neutering `SignedOutRedirect` fails the
+`/reading/*` test only.
+
+**Generalises past this feature:** whenever two controls cover one request, a
+test that asserts only the OUTCOME cannot tell you either is alive. Assert each
+layer through a channel the other cannot reach.
+
+⚠️ **The Playwright suite is NOT in CI**, so none of this runs automatically.
+Start `next dev` on :3000 and use `playwright-minimal.config.ts` (the default
+config tries to boot its own server and hangs).
+
+⚠️ **Skips are per MEASURED FAILURE, not per file — and the difference is
+large.** The obvious move is "this file visits a locked route, so skip the
+file". That is wrong: many specs `goto('/')` only to obtain a browser context
+and then assert on `page.evaluate(fetch(...))` against **mocked** routes, so the
+page content is irrelevant and lockdown never touched them. `ad-rewards`
+(12/12), `monthly-credits` (18/18), `subscription-checkout` (10/10),
+`admin-monetization`, `credit-purchase`, `reading-history` and
+`subscription-page` were all fully green. A first pass banded 17 files by
+inspection and disabled **99 passing tests**; measuring first and skipping only
+what actually fails gives **126 passed / 0 failed / 99 skipped**.
+
+So: 6 files carry a file-level skip (nothing in them passes) and 5 more carry
+per-test skips. Skipped rather than deleted because the pages still exist for
+signed-in users; reviving them needs an authenticated fixture. The `__e2e_auth`
+cookie is not that fixture — it covers `/reading/*` only, and widening a
+backdoor through a security control to suit tests is the wrong trade.
+
+⚠️ **Run it with `--reporter=list`.** The `line` reporter only persists
+FAILURES, so a log from it cannot tell you which tests passed — which is
+exactly the measurement this decision needs.
+
+### Ob1: attribution — who the call was for, and which call it was
+
+A streamed reading is the most expensive generation in the app, and its
+`AI-CALL` lines could be attributed to neither an ACCOUNT nor a CALL:
+`userIdHash: null`, and a route of `stream:CLAUDE` for every streamed call, so
+the two V2 calls of one reading and all three of a compat reveal were one
+indistinguishable row. "Why is the bill up today" had no answer on the path that
+dominates the bill.
+
+Closed 2026-09-01. `AiCallAttribution` (`{route, userId}`) is threaded from the
+five public stream entry points down to `_streamProviderInner`. Routes are now
+`stream:{READING_TYPE}:call1|call2` and `stream:COMPATIBILITY:call1|2|3`.
+
+⚠️ **`userId` on those five entry points is REQUIRED, not optional, and the
+COMPILER is what enforces it** — weakening it to optional fails `tsc` (the
+helper below takes `string | null`, so `undefined` is rejected), and deleting it
+fails at every call site. Both verified by doing them. An optional parameter is
+exactly how the original gap arose, so do not "tidy" it back.
+
+⚠️ **`streamProvider` keeps a fallback** (`attribution?.route ?? stream:{provider}`)
+so an unthreaded caller still logs something usable rather than `undefined`.
+That is right at runtime and is also why a missing one is invisible — hence the
+source-level invariant in `ai-call-attribution.spec.ts` that **no two call sites
+share a route**, which is the original bug stated as a property.
+
+⚠️ **A test that builds two attribution objects and asserts they differ proves
+nothing** — it exercises only the literals the test itself wrote. The property
+is about the SITES, so it belongs in a source assertion. One was written the
+wrong way here first and caught by mutation.
+
+### Ob1: a failed AI call must leave a line
+
+`AI-CALL` lines come out of `AiSpendService.record()`, which PRICES USAGE — so
+it only ever ran once usage existed. A call that died before its first response
+therefore emitted nothing at the non-streaming choke point, and nothing at the
+four streaming sites guarding on `hasUsage`. The most expensive path in the app
+could fail completely and be invisible; that is precisely what the
+charged-empty-reading incident looked like in the log — a bare
+`[Stream] Setup starting` and, 4s later, a refund line.
+
+Closed 2026-09-01. Every AI call now emits exactly one line:
+
+| where | before | now |
+|---|---|---|
+| `callProviderWithTimeout` (non-streaming choke point) | nothing on throw | `outcome:"error"` + `errorKind`, then rethrows |
+| `_streamProviderInner` (streaming choke point) | a `$0` line indistinguishable from a cache hit | `ok` / `error` / `abandoned` |
+| chat + fortune ×3 (`hasUsage` guards) | nothing on a zero-token abort | `recordFailure` in the `else` |
+
+⚠️ **`recordFailure` is deliberately NOT `record()` with a flag.** `record()`
+moves the spend counters and a failed call must not; putting a "sometimes don't
+count this" branch inside the one function the daily cap depends on is how that
+control gets broken later. It is also why `recordFailure` does not satisfy the
+CI metering guard — `/aiSpend\s*\.\s*record\s*\(/` does not match
+`recordFailure(`, so a file that only logs failures still counts as unmetered.
+That is correct; do not "fix" it.
+
+⚠️ **A partially-streamed abort still goes through `record()`, not
+`recordFailure()`** — Anthropic bills the tokens produced before an abort, so
+marking the outcome must not stop the spend being counted. `recordFailure` is
+only for the case where there is genuinely nothing to price.
+
+⚠️ **`abandoned` is its own outcome, not folded into `ok`.** A consumer that
+walks away abandons the generator WITHOUT throwing, and the code's own note
+calls that "the commonest ending on mobile". Labelling the most frequent
+non-success ending `ok` would make the field actively misleading.
+
+⚠️ **`errorKind` never contains `error.message`.** A provider error can echo
+request content back, and these prompts carry the four pillars — a reversible
+encoding of a birth datetime, i.e. personal data (see the domain PII rule).
+Error NAME, numeric status, and our own typed codes only. `classifyAiError` is
+also TOTAL: every call site evaluates it as an argument, outside the try that
+protects the logger, and two sit in a `finally` where a throw would replace the
+real exception with a logging one.
+
+### A per-call timeout is NOT how long a generation can run
+
+Three separate values were sized against `AI_STREAM_TIMEOUT_MS` and were all
+too small. Fixed 2026-09-01; the reasoning is the reusable part.
+
+`AI_MAX_TOTAL_TIME_MS` (900s) **gates the START of an attempt** — the Call 1 and
+Call 2 retry loops `break` at the top when the budget is spent — rather than
+aborting one in flight. So an attempt admitted a millisecond under the budget
+still runs a further full per-call timeout. A V2 generation also makes **two**
+such calls, each with retries, inside a provider-fallback loop that carries no
+budget check of its own. The bound is therefore **budget + one call timeout**
+(~1200s), and nothing may be derived from the per-call timeout alone.
+
+| value | was | consequence of being short |
+|---|---|---|
+| `stream:reading:{id}` lock | 330s | lock expires mid-generation → a reload starts a SECOND full generation: double Anthropic spend, two writers racing one row |
+| `ai:generate:comparison:{id}` lock | 60s | same, **guaranteed** on any reveal past a minute — `generateCompatibilityRomanceV2` runs 3 parallel calls at 300s each across providers. On a 3-credit purchase. |
+| first-generation in-flight window | 360s | a still-running generation reads as abandoned, the reuse branch is skipped, and the **user is charged a second time** |
+
+All three now derive from `AIService.getMaxStreamedGenerationMs()` /
+`getMaxCompatGenerationMs()`. **Add new ones the same way** — the failure is
+silent and costs money.
+
+⚠️ **The lock and the in-flight window are ONE mechanism** (see the note at the
+`isFirstGenerationInFlight` site): the window stops the duplicate row and the
+second charge, the lock stops the duplicate generation. Size them from the same
+bound or they disagree about whether a generation is still alive.
+
+**Sizing long is the safe direction.** Every non-crash path releases explicitly
+(error, complete, and the setup catch), and M6's drain aborts in-flight streams
+on SIGTERM, so only a SIGKILL leaves a lock to expire. The cost of that is a
+longer wedge — a crashed generation now blocks a retry for ~21 min instead of
+~6 — against a too-short TTL that charges silently. Rare-and-visible beats
+common-and-silent.
+
+⚠️ **`chat-stream.service.ts`'s 150s lock is CORRECT and is not the same case.**
+It derives from a hard 90s per-stream timeout plus a 60s watchdog, and chat has
+no retry/fallback budget — so there the naive "TTL > per-call timeout" reasoning
+genuinely holds. Don't "fix" it by analogy.
+
+⚠️ **Deriving a value can put `parseInt` output somewhere a literal never
+was.** These TTLs now flow into `redis.acquireLock`, so a malformed timeout env
+var (NaN) would be handed to Redis as an expiry it rejects — and on the compat
+path the lock sits AFTER the credit charge, making one typo charge 3 credits and
+then 500. `AIService.safeBoundMs` fails CLOSED to a wide fallback and logs at
+error level. Any future derived TTL must go through it.
+
+⚠️ **`redis.acquireLock` stores a constant `'1'`, with no ownership token**, and
+`releaseLock` is a bare `DEL`. A holder whose lock expired therefore deletes its
+SUCCESSOR's lock, and safe renewal is impossible. Correcting the TTLs removes
+the trigger on these keys (a lock that never expires while held is always
+released by its own holder) but the primitive is still unsafe — adding a token
+would be the real fix, and it touches all five call sites.
+
+### A refusal WE issue must not leave the user charged — and the receipt must say so
+
+The sibling of the section below, found 2026-09-02 by the spend-cap drill (the
+drill's own refusal took 3 credits and delivered nothing). That one fixed
+*AI failed → charged*; this is *we deliberately refused → charged*.
+
+`createReading` branches `if (cachedInterpretation) … else if (!isStreamingRequest) …`,
+so a **streaming** request — what web and mobile send for every V2 type — took
+NEITHER branch and reached the charge with nothing checked. All three
+self-refusals (S2 cap, S4 quota, S1 concurrency) are raised later, in
+`_setupStream`, whose catch only released the slot and rethrew.
+
+Three controls now, and they are not interchangeable:
+
+| control | where | covers |
+|---|---|---|
+| **pre-flight** | `createReading`, above the charging `$transaction` | the common case: no row, no charge, no history entry |
+| **refund backstop** | `_setupStream`'s catch, on `isSelfRefusal(err)` | the race the pre-flight cannot close, and S1, which cannot be reserved from another method |
+| **recovery** | `needsInterpretationRecovery` → `loadSavedReading` | a paid-empty row with NO refusal behind it (crash, deploy mid-stream, dropped connection) |
+
+⚠️ **The pre-flight is gated on `isStreamingRequest`, NOT on `chargeable`.** An
+earlier draft used `chargeable` and broke the last V1 reading of the day: the
+inline branch has already run `quota.consume`, which increments and refuses at
+`used > limit`, so the final allowed reading leaves `used === limit` — at which
+point a second, post-increment `check` (`used >= limit`) refuses it, *after* the
+AI has run. Pinned by a regression test.
+
+⚠️ **Use `quota.check`, never `consume`, in a pre-flight.** `consume` runs
+exactly once, in `_setupStream`; a second consume burns two units of a limit
+measured in single digits. `check` shares `consume`'s throw via a private
+`exceeded()` so `isQuotaError` cannot stop matching one of them.
+
+⚠️ **Refunding FORECLOSES recovery** — `refundedAt` makes `_setupStream` refuse
+the row for good. That is the intended division of labour between rows 2 and 3
+above, not an oversight.
+
+⚠️ **`!reading.aiInterpretation` in the backstop is unreachable-false**, because
+step 2 of `_setupStream` returns early whenever an interpretation exists —
+including for a REGENERATION, which `regenerateReading` nulls the interpretation
+for first. It is kept as a structural backstop, and is documented as such rather
+than as the regeneration guard it cannot be.
+
+**The receipt must match.** `refundReadingCredit` deliberately does NOT zero
+`creditsUsed` — that column is both the refund amount and the double-refund
+guard — so 歷史分析記錄, whose only predicate was `creditsUsed === 0` → 免費 else
+`-{creditsUsed} 額度`, kept claiming a refunded reading was paid for. It now
+carries `refundedAt` and renders 已退款. ⚠️ `getReadingHistory` has THREE
+branches and the two comparison ones RE-MAP field by field, so adding a column
+to a `select` is not enough there; and a refunded comparison must be checked
+BEFORE the unpaid branch, because `refundComparisonCredit` clears `paidAt`.
+
+### The charge must follow the content
+
+An AI failure used to be swallowed ("Don't fail the reading — return
+calculation without AI") and the transaction charged anyway: 3 credits for a
+row with `aiInterpretation: null`, `isDegraded: false`, `failedReason: null`,
+so no refund fired and no alert saw it. Fixed 2026-08-31 (`cc02da5`).
+
+Three invariants, all mutation-tested:
+
+- **Inline AI failure throws** (503 `AI_CALL_FAILED`). The AI call precedes the
+  `$transaction`, so throwing means no row and no deduction.
+- **`chargeable = !fromCache && (isStreamingRequest || !!aiInterpretation)`**
+  drives BOTH the persisted `creditsUsed` column AND the deduction. They live in
+  different places; changing only one breaks
+  `sum(CreditLedger.amount) == User.credits`.
+- **`_setupStream` refuses a never-charged row** (`!aiInterpretation &&
+  creditsUsed === 0` → `READING_NOT_PAID`). That route has no charge of its own
+  and its only other gate is `refundedAt`, so without this an uncharged row is
+  streamable for a FREE full reading. ⚠️ The interpretation conjunct is what
+  keeps legitimate CACHE HITS out — those are also `creditsUsed: 0`. Never gate
+  on the bare zero.
+
+⚠️ **Do not add a narrowing `select` to `_setupStream`'s `findFirst`.** Three
+payment gates read from it; an omitted field yields `undefined`, and
+`undefined === 0` is false — the gate silently stops firing.
+
+⚠️ **k6 scenarios must send `stream: true`.** Both `s2-mix.js` and
+`s5-correctness.js` post V2 types; without the flag they are refused and s5 —
+the double-charge gate — goes permanently red.
 
 ## ⚠️ WEB_ORIGINS is the Stripe redirect allowlist — not CORS, not SEO
 
@@ -4416,10 +4776,40 @@ chat that ~10k-token cached system block at the 2× write rate is most of the tu
   the local DB, it is not the password.
 - The dev DB password was rotated 2026-08-15; `.env.example` now carries `CHANGE_ME`. **Never paste
   a real value there** — it is committed.
-- **The eslint suppressions ratchet (`apps/api/eslint-suppressions.json`) is two-sided**: it fails if
-  a count rises *and* if it falls without re-pinning. `--prune-suppressions` clears stale entries.
+- **The eslint suppressions ratchet is two-sided**: it fails if a count rises *and* if it falls
+  without re-pinning. `--prune-suppressions` clears stale entries. ⚠️ **There are TWO of these** —
+  `apps/api/eslint-suppressions.json` AND `apps/web/eslint-suppressions.json` (25 files). The web one
+  is easy to misread: suppressions are a **count per file+rule**, so when your change adds one new
+  violation, ESLint reports *every* violation of that rule in that file — the pre-existing ones
+  included. A three-error report can be one error of yours plus two that were always there and
+  suppressed. Diff against the pristine file before assuming you broke three things.
+  ⚠️ **And `turbo run lint` CACHES.** A green "5 successful" can be 5 cache hits that never executed
+  eslint. Use `turbo run lint --force` when the result is load-bearing, and check the `Cached:` line —
+  `0 cached` is the only proof it actually ran.
 - **⚠️ `npm audit fix` must NOT be run from a worktree** — `node_modules` is a symlink into main, so
   the install writes through it and mutates main.
+
+### Mutation-test every guard, and expect the FIRST pass to fail
+
+2026-08-31, fixing the charged-empty-reading bug: 8 mutations, and the first run
+left **three guards uncaught** — including `chargeable`, the central one. Its
+false branch is unreachable through the public API once the sibling guards land,
+so nothing exercised it; catching it needed a generator mocked to *resolve* with
+a falsy interpretation. A later audit pass found a comment claiming "the engine
+was never called" while the test asserted on the AI generator — so the placement
+guarantee was untested and the guard could have drifted below the engine call
+while staying green. **A guard whose test has not been SEEN to fail is
+decoration.**
+
+### Write predicates from what the code can PRODUCE, not from what the state ought to look like
+
+Five staff-review rounds on that same fix struck three separate controls aimed
+at states nothing can produce: a stream gate keyed on a `failedReason` no path
+can write on a zero-credit row; an `isFirstGenerationInFlight` clause that
+matched the very rows it was meant to exclude; and a remediation query whose
+match set included every in-flight streaming reading — refunding those would
+have stripped live paying customers' content mid-read. Each looked like
+protection. **Enumerate the matching set before writing the predicate.**
 
 ### The verification lesson, now past a dozen times
 

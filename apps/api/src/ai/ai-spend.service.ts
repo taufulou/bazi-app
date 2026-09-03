@@ -4,7 +4,13 @@ import * as Sentry from '@sentry/nestjs';
 import { AIProvider } from '@prisma/client';
 import { RedisService } from '../redis/redis.service';
 import { getRateLimitSnapshot } from './anthropic-rate-limit';
-import { AI_CALL_LOG_PREFIX, formatAiCallLog, hashUserId } from './ai-call-log';
+import {
+  AI_CALL_LOG_PREFIX,
+  classifyAiError,
+  formatAiCallLog,
+  hashUserId,
+  type AiCallOutcome,
+} from './ai-call-log';
 
 /**
  * S2 — AI spend ledger + circuit breaker.
@@ -188,7 +194,19 @@ export class AiSpendService {
    * Longest-prefix match, so `claude-sonnet-4-5-20250929` resolves via
    * `claude-sonnet-4-5` rather than needing a row per dated snapshot.
    */
-  priceFor(model: string): ModelPrice {
+  /**
+   * THE one scan. `null` means the model would fall back.
+   *
+   * Extracted so `priceFor` and `hasPriceEntry` share it — a `boolean` carries
+   * no price, so `priceFor` delegating to `hasPriceEntry` would have to scan a
+   * second time to find WHICH entry matched.
+   *
+   * ⚠️ The "no price entry" warning deliberately does NOT live here. It belongs
+   * to `priceFor` alone: a predicate with a logging side effect would emit one
+   * line per row when a caller partitions a batch on `hasPriceEntry`, and would
+   * collide with that same warning's job as the unknown-model signal.
+   */
+  private findPrice(model: string): ModelPrice | null {
     const id = (model || '').toLowerCase();
     let best: { key: string; price: ModelPrice } | null = null;
     for (const [key, price] of Object.entries(PRICE_TABLE)) {
@@ -196,14 +214,38 @@ export class AiSpendService {
         best = { key, price };
       }
     }
-    if (!best) {
+    return best ? best.price : null;
+  }
+
+  /**
+   * Does `model` resolve to a real `PRICE_TABLE` entry, or would it fall back?
+   *
+   * ⚠️ This cannot be answered from outside the service, which is why it exists.
+   * `priceFor` returns only a `ModelPrice`; `FALLBACK_PRICE` is not exported;
+   * and comparing VALUES is not merely unavailable but actively WRONG —
+   * `FALLBACK_PRICE` is byte-identical to the `claude-opus-4` / `claude-opus`
+   * entries, so a value check would report the most expensive real models in the
+   * table as unpriced.
+   *
+   * Used by anything that must refuse to act on a fallback price rather than
+   * silently accept it — a cost repair writing an irreversible figure, or an
+   * "unknown model in production" alert, which today exists only as the warn in
+   * `priceFor`.
+   */
+  hasPriceEntry(model: string): boolean {
+    return this.findPrice(model) !== null;
+  }
+
+  priceFor(model: string): ModelPrice {
+    const price = this.findPrice(model);
+    if (!price) {
       this.logger.warn(
         `No price entry for model "${model}" — billing at the most expensive known ` +
           `rate so the breaker errs toward tripping early. Add it to PRICE_TABLE.`,
       );
       return FALLBACK_PRICE;
     }
-    return best.price;
+    return price;
   }
 
   estimateCostUsd(model: string, usage: TokenUsage): number {
@@ -291,6 +333,20 @@ export class AiSpendService {
     durationMs?: number;
     /** Ob1 — hashed before it reaches the log; never written raw. */
     userId?: string | null;
+    /**
+     * Ob1 — `'error'` when the call died. Affects the LOG LINE ONLY; whatever
+     * usage is supplied is still priced and still counted, because a stream
+     * aborted mid-flight is billed for the tokens it produced. Use
+     * `recordFailure()` when there is no usage at all.
+     */
+    /**
+     * #20 — the output side is an estimate from streamed characters because the
+     * stream aborted before `message_delta`. Affects the LOG LINE ONLY: the
+     * tokens are priced and counted either way, since Anthropic bills them.
+     */
+    outputTokensEstimated?: boolean;
+    outcome?: AiCallOutcome;
+    errorKind?: string | null;
   }): Promise<number> {
     let costUsd: number;
     try {
@@ -336,6 +392,59 @@ export class AiSpendService {
   }
 
   /**
+   * Ob1 — emit a line for a provider call that DIED.
+   *
+   * ## The gap this closes
+   *
+   * `record()` prices usage, so it only ever ran once a call produced some. A
+   * call that failed before its first response therefore left no `AI-CALL` line
+   * at all at the non-streaming choke point, and none at the streaming sites
+   * that guard on `hasUsage`. The most expensive path in the system could fail
+   * completely and emit nothing — which is exactly what happened in the
+   * charged-empty-reading incident, where the whole log record was a bare
+   * `[Stream] Setup starting` and, four seconds later, a refund line.
+   *
+   * ## Why it is separate from `record()` rather than a flag on it
+   *
+   * `record()` moves the spend counters, and a failed call must not. Passing an
+   * `outcome` into `record()` would put a "sometimes don't count this" branch
+   * inside the one function whose correctness the daily cap depends on. A
+   * failure emits a line and touches nothing else.
+   *
+   * ⚠️ A failed call is NOT always free — Anthropic bills input tokens for a
+   * stream aborted mid-flight. Where usage was accumulated it is reported
+   * through `record()` as usual (see `_streamProviderInner`'s `finally`); this
+   * method is for the case where there is genuinely nothing to price.
+   *
+   * Never throws, for the same reason `record()` does not: callers invoke it as
+   * a bare `void` from `catch` blocks, where an unhandled rejection would turn
+   * a provider error into a dead process.
+   */
+  recordFailure(args: {
+    provider: AIProvider | string;
+    model: string;
+    error: unknown;
+    /** Surface + operation, e.g. `provider:CLAUDE`. Doubles as Ob1's `route`. */
+    context?: string;
+    durationMs?: number;
+    userId?: string | null;
+  }): void {
+    this.logCall(
+      {
+        provider: args.provider,
+        model: args.model,
+        usage: { inputTokens: 0, outputTokens: 0 },
+        context: args.context,
+        durationMs: args.durationMs,
+        userId: args.userId,
+        outcome: 'error',
+        errorKind: classifyAiError(args.error),
+      },
+      0,
+    );
+  }
+
+  /**
    * Ob1 — emit the per-call line.
    *
    * ## Why it lives here and not at the eleven call sites
@@ -368,7 +477,17 @@ export class AiSpendService {
    * use a bare `void` on the strength of that promise.
    */
   private logCall(
-    args: { provider: AIProvider | string; model: string; usage: TokenUsage; context?: string; durationMs?: number; userId?: string | null },
+    args: {
+      provider: AIProvider | string;
+      model: string;
+      usage: TokenUsage;
+      context?: string;
+      durationMs?: number;
+      userId?: string | null;
+      outputTokensEstimated?: boolean;
+      outcome?: AiCallOutcome;
+      errorKind?: string | null;
+    },
     costUsd: number,
   ): void {
     try {
@@ -381,12 +500,15 @@ export class AiSpendService {
           ms: typeof args.durationMs === 'number' ? Math.round(args.durationMs) : null,
           inTok: args.usage.inputTokens ?? 0,
           outTok: args.usage.outputTokens ?? 0,
+          outTokEstimated: args.outputTokensEstimated ?? false,
           cacheReadTok: args.usage.cacheReadTokens ?? 0,
           cacheWriteTok: args.usage.cacheWriteTokens ?? 0,
           costUsd,
           userIdHash: hashUserId(args.userId),
           rlOutRemaining: rl.outputTokensRemaining,
           rlOutReset: rl.outputTokensReset,
+          outcome: args.outcome ?? 'ok',
+          errorKind: args.errorKind ?? null,
         }),
       );
     } catch (err) {

@@ -5,6 +5,7 @@ import {
   ConflictException,
   Logger,
   InternalServerErrorException,
+  ServiceUnavailableException,
   HttpException,
   type MessageEvent,
 } from '@nestjs/common';
@@ -19,7 +20,7 @@ import { Prisma, ReadingType } from '@prisma/client';
 import { deepCamelCase } from '../common/deep-camel-case';
 import { QuotaService } from '../ai/quota.service';
 import { AiSpendService } from '../ai/ai-spend.service';
-import { isSelfRefusal } from '../ai/typed-refusals';
+import { isSelfRefusal, selfRefusalCode } from '../ai/typed-refusals';
 import { engineFetch } from '../common/engine-client';
 import { ShutdownService } from '../common/shutdown.service';
 
@@ -32,21 +33,13 @@ import { ShutdownService } from '../common/shutdown.service';
 const COMPATIBILITY_FALLBACK_CREDIT_COST = 3;
 
 /**
- * How long a reading row with no interpretation is presumed to still be
- * GENERATING rather than abandoned.
+ * Safety margin added to every derived generation bound, in seconds.
  *
- * A row on its first generation ({aiInterpretation: null, regenerationCount: 0})
- * is byte-identical to one whose generation died, so age is the only signal that
- * separates them. Set above `AI_STREAM_TIMEOUT_MS` (300s, `ai.service.ts`) plus
- * headroom for the retry/provider-fallback chain, because anything still inside
- * that window could legitimately still be writing.
- *
- * Too LOW and a concurrent create during a slow generation charges the user a
- * second time; too HIGH and a genuinely dead row can't be replaced by a fresh
- * create until it ages out (the user can still use Regenerate, which has its own
- * path). The money error is the worse one, so this errs high.
+ * The bounds from `AIService` cover the AI calls only. A lock is held across
+ * the surrounding work too — the Python engine call, the DB reads and writes,
+ * SSE setup — so the margin covers that envelope.
  */
-const FIRST_GENERATION_INFLIGHT_MS = 360_000;
+const GENERATION_LOCK_MARGIN_SECONDS = 60;
 
 
 /**
@@ -298,7 +291,7 @@ export class BaziService {
         // drops createdAt, fall back to the pre-fix behaviour (treat as not in
         // flight) instead of throwing inside the create path.
         Date.now() - (reusable.createdAt?.getTime() ?? 0) <
-          FIRST_GENERATION_INFLIGHT_MS;
+          this.firstGenerationInFlightMs();
 
       if (isComplete) {
         // ⚠️ `fromCache: true` is a live client contract — web
@@ -336,7 +329,7 @@ export class BaziService {
       // Otherwise fall through: a degraded / refunded / long-abandoned row is
       // what `regenerateBaziReading` exists to replace, not something to serve.
       // "Long-abandoned" is the key word — a row younger than
-      // FIRST_GENERATION_INFLIGHT_MS is caught by the branch above instead.
+      // `firstGenerationInFlightMs()` is caught by the branch above instead.
     }
 
     // Check cache for existing interpretation
@@ -344,6 +337,49 @@ export class BaziService {
       birthDataHash,
       dto.readingType,
     );
+
+    // Streaming path: V2 reading types + stream=true + no cache → skip AI, return streamReady
+    const isV2Reading = dto.readingType === ReadingType.LIFETIME
+      || dto.readingType === ReadingType.CAREER
+      || dto.readingType === ReadingType.ANNUAL
+      || dto.readingType === ReadingType.LOVE;
+    const isStreamingRequest = dto.stream === true
+      && isV2Reading
+      && !cachedInterpretation;
+
+    // A V2 reading cannot be generated inline. Measured on production
+    // 2026-08-31: a LIFETIME generation takes ~180s, while the inline path is
+    // bounded by AI_CALL_TIMEOUT_MS — 60s at all four inline V2 call sites,
+    // none of which fall back to AI_STREAM_TIMEOUT_MS the way the streaming
+    // path does. So the attempt aborts EVERY time ("All AI providers failed.
+    // Last error: Request was aborted."), and six runs landed within 0.2s of
+    // each other because it is a stopwatch, not a flaky upstream.
+    //
+    // Refuse at admission rather than raising the timeout. A doomed attempt
+    // still drives 60s of generation upstream before we hang up — and note our
+    // OWN ledger never sees it, because AiSpendService.record() only runs once
+    // usage comes back, so an aborted call is invisible to `dayUsd` whether or
+    // not Anthropic bills it. (Unverified either way; treat the cost as
+    // upstream capacity at minimum.) A synchronous POST that blocks for 3+
+    // minutes is also the wrong shape regardless, and rejecting is robust to
+    // whatever the six timeout sites are set to.
+    //
+    // ⚠️ PLACEMENT IS LOAD-BEARING, both edges:
+    //   • AFTER the reuse branch above — a caller re-fetching an existing
+    //     complete V2 reading POSTs without `stream` and is served there.
+    //     Checking earlier would 400 every re-fetch.
+    //   • BEFORE callBaziEngine below — otherwise a rejected request still
+    //     burns ~30s of engine + pre-analysis, and "fails at admission" stops
+    //     being true.
+    // ⚠️ A 400 rather than silently upgrading to streaming: the response shape
+    // differs (streamReady + deterministic vs a completed reading), so a quiet
+    // switch would break a caller reading the result field.
+    if (isV2Reading && !isStreamingRequest && !cachedInterpretation) {
+      throw new BadRequestException({
+        code: 'STREAM_REQUIRED',
+        message: '此類型分析需使用串流模式，請以 stream: true 建立後讀取串流。',
+      });
+    }
 
     // Call Python Bazi engine for calculation
     let calculationData: Record<string, unknown>;
@@ -354,15 +390,6 @@ export class BaziService {
       this.logger.error(`Bazi engine call failed: ${message}`);
       throw new InternalServerErrorException('Bazi calculation failed. Please try again.');
     }
-
-    // Streaming path: V2 reading types + stream=true + no cache → skip AI, return streamReady
-    const isV2Reading = dto.readingType === ReadingType.LIFETIME
-      || dto.readingType === ReadingType.CAREER
-      || dto.readingType === ReadingType.ANNUAL
-      || dto.readingType === ReadingType.LOVE;
-    const isStreamingRequest = dto.stream === true
-      && isV2Reading
-      && !cachedInterpretation;
 
     // Generate AI interpretation (or use cache)
     let aiInterpretation: Prisma.InputJsonValue | undefined = undefined;
@@ -472,8 +499,30 @@ export class BaziService {
         if (isSelfRefusal(err)) throw err;
         const message = err instanceof Error ? err.message : 'Unknown error';
         this.logger.error(`AI interpretation failed: ${message}`);
-        // Don't fail the reading — return calculation without AI
-        // The frontend can request AI interpretation later
+
+        // ⚠️ THROW. This used to swallow, with the comment "Don't fail the
+        // reading — return calculation without AI / The frontend can request
+        // AI interpretation later". Execution then reached the $transaction
+        // below and charged full price for a row with `aiInterpretation: null`,
+        // `aiProvider: null`, and NEITHER `isDegraded` NOR `failedReason` set —
+        // so the refund path never saw it and no alert fired. Measured on
+        // production: 3 credits taken, nothing delivered, reported as success.
+        //
+        // The AI call happens BEFORE the $transaction opens, so throwing here
+        // means no row and no deduction, with no rollback to reason about. The
+        // `reading:create:` lock is released by this method's own finally.
+        //
+        // This is the house pattern: `_recalculateComparison` throws
+        // 「合盤分析更新失敗，未扣除點數，請稍後再試。」 for the same class of
+        // failure. `createReading` was the outlier.
+        //
+        // Cost accepted: the chart is no longer returned on AI failure, and no
+        // client currently falls back to the calculate endpoint. That is
+        // strictly better than today's empty reading the user paid for.
+        throw new ServiceUnavailableException({
+          code: 'AI_CALL_FAILED',
+          message: '分析產生失敗，未扣除點數，請稍後再試。',
+        });
       }
     }
     // else: streaming request — aiInterpretation stays null, will be populated by SSE endpoint
@@ -481,7 +530,69 @@ export class BaziService {
     // Cache hit: no credit deduction (user already paid for this interpretation)
     // Regular: deduct service.creditCost credits
     const fromCache = !!cachedInterpretation;
-    const creditsUsed = fromCache ? 0 : service.creditCost;
+
+    // ⚠️ ONE expression drives BOTH the persisted column and the deduction.
+    // They live in different places — the column here, the guard inside the
+    // transaction — and an earlier draft of this fix changed only the guard,
+    // which would have written a row claiming `creditsUsed: 3` while the ledger
+    // recorded nothing, breaking `sum(CreditLedger.amount) == User.credits` and
+    // mis-rendering the history receipt.
+    //
+    // Streaming charges up front and refunds on failure (unchanged, and now
+    // visibly intentional). A non-streaming request without an interpretation
+    // is unreachable after the throw above; this is the structural backstop, so
+    // the bug cannot return by a different route.
+    //
+    // ⚠️ "refunds on failure" was FALSE for the three refusals we issue
+    // ourselves until 2026-09-02 — those are raised in `_setupStream`, whose
+    // catch only released the stream slot and rethrew. See the pre-flight
+    // immediately below and the backstop in `_setupStream`'s catch.
+    const chargeable = !fromCache && (isStreamingRequest || !!aiInterpretation);
+    const creditsUsed = chargeable ? service.creditCost : 0;
+
+    // ⚠️ PRE-FLIGHT — refuse BEFORE charging, not after.
+    //
+    // All three self-refusals (S2 spend cap, S4 quota, S1 concurrency) are
+    // raised in `_setupStream`, which runs AFTER this transaction has already
+    // deducted credits. The create-path `assertUnderCap` a few hundred lines up
+    // sits inside the `else if (!isStreamingRequest)` branch, so a STREAMING
+    // request — which is what web and mobile send for every V2 type — reached
+    // the charge with nothing checked. Measured in production 2026-09-02: the
+    // spend-cap drill's own refusal took 3 credits and delivered nothing.
+    //
+    // The GATE is what matters: a cache hit charges nothing and must not be
+    // refused by a budget event, because serving it costs us nothing. Removing
+    // the condition is a real defect and is mutation-tested.
+    //
+    // ⚠️ Gated on `isStreamingRequest`, NOT on `chargeable`. An earlier draft of
+    // this fix used `chargeable` and introduced a regression that this comment
+    // exists to stop coming back:
+    //
+    // The inline branch ABOVE already ran `assertUnderCap` + `quota.consume`
+    // (`:442`). `consume` increments and refuses at `used > limit`, so the last
+    // allowed reading of the day leaves `used === limit` — at which point a
+    // second, post-increment `check` (`used >= limit`) refuses it. The AI had
+    // already run by then, so the user would lose their final quota unit AND a
+    // real Anthropic call, and get an error instead of the reading they earned.
+    //
+    // Streaming is the only path with the gap: it skips that branch entirely and
+    // its `consume` happens later, in `_setupStream`. A cache hit is excluded for
+    // free, because `isStreamingRequest` already requires `!cachedInterpretation`.
+    //
+    // Only NON-CONSUMING checks belong here:
+    //   • `assertUnderCap` is a Redis GET. Idempotent; `_setupStream` runs it
+    //     again and that one stays authoritative.
+    //   • `quota.check` reads the counter without spending it. `consume` still
+    //     happens exactly once, in `_setupStream`; calling it here too would
+    //     burn two units per reading.
+    // The concurrency slot is deliberately NOT pre-flighted: it would have to be
+    // acquired here and released in another method, which is a leak waiting to
+    // happen, and a check without a reservation is only a race. S1 is covered by
+    // the refund backstop instead.
+    if (isStreamingRequest) {
+      await this.aiSpend.assertUnderCap('reading:create');
+      await this.quota.check('reading', user.id);
+    }
 
     const reading = await this.prisma.$transaction(async (tx) => {
       // Create reading first so we have an id to attach to the credit ledger.
@@ -500,7 +611,7 @@ export class BaziService {
           targetYear: dto.targetYear,
         },
       });
-      if (!fromCache) {
+      if (chargeable) {
         await this.creditsService.deductCredits(
           user.id,
           service.creditCost,
@@ -786,6 +897,35 @@ export class BaziService {
     });
   }
 
+  /**
+   * How long a reading row with no interpretation is presumed to still be
+   * GENERATING rather than abandoned.
+   *
+   * A row on its first generation ({aiInterpretation: null, regenerationCount: 0})
+   * is byte-identical to one whose generation died, so age is the only signal
+   * that separates them.
+   *
+   * ⚠️ DERIVED, and it was previously a hardcoded 360_000 justified as
+   * "above AI_STREAM_TIMEOUT_MS (300s) plus headroom" — the same wrong constant
+   * that under-sized the stream lock. A generation can legitimately run to
+   * AI_MAX_TOTAL_TIME_MS plus one more call timeout, so between 360s and that
+   * bound a STILL-RUNNING generation was being read as abandoned, the reuse
+   * branch was skipped, and the user was charged a SECOND time for a reading
+   * already in progress. That is the exact failure the old docblock said it
+   * wanted to err against.
+   *
+   * This pairs with the per-reading lock in `_setupStream` (see the note at the
+   * `isFirstGenerationInFlight` site): this one stops the duplicate row and the
+   * second charge, that one stops the duplicate generation. They are one
+   * mechanism and must be sized from the same bound.
+   */
+  private firstGenerationInFlightMs(): number {
+    return (
+      this.aiService.getMaxStreamedGenerationMs() +
+      GENERATION_LOCK_MARGIN_SECONDS * 1000
+    );
+  }
+
   private async _setupStream(
     clerkUserId: string,
     readingId: string,
@@ -797,6 +937,12 @@ export class BaziService {
     const user = await this.prisma.user.findUnique({ where: { clerkUserId } });
     if (!user) throw new NotFoundException('User not found');
 
+    // ⚠️ DO NOT add a narrowing `select` here. The payment gates below read
+    // `refundedAt`, `aiInterpretation` and `creditsUsed`; a `select` that omits
+    // any of them yields `undefined`, and `undefined === 0` is false — which
+    // would silently stop a PAYMENT GATE from firing. (The mirror of the trap
+    // documented at `getReading`, where `=== null` on a `DateTime?` would have
+    // paywalled every paying customer.)
     const reading = await this.prisma.baziReading.findFirst({
       where: { id: readingId, userId: user.id },
       include: { birthProfile: true },
@@ -833,6 +979,32 @@ export class BaziService {
       });
     }
 
+    // 1c. NEVER-PAID GATE. `refundedAt` above only catches a reading that WAS
+    // charged and then given back. It does not catch one that was never charged
+    // at all — and this route has no charge of its own, so it relies entirely on
+    // `createReading` having taken payment. A row with no interpretation and no
+    // charge therefore falls straight through to the full V2 generation below
+    // and is delivered FREE, at real Anthropic cost, with `getReading`'s
+    // `isEntitled = !refundedAt` then serving the complete report rather than a
+    // preview. One 3-credit balance would yield unlimited readings.
+    //
+    // ⚠️ Truthiness on the interpretation, matching `!reading.refundedAt` above
+    // and the trap documented at `getReading`.
+    // ⚠️ The interpretation conjunct is what keeps legitimate CACHE HITS out —
+    // those are also `creditsUsed: 0`, but always carry an interpretation, so a
+    // bare `creditsUsed === 0` here would refuse readings the user already paid
+    // for once. Gate on "never paid AND nothing generated", never on the zero.
+    if (!reading.aiInterpretation && reading.creditsUsed === 0) {
+      this.logger.warn(
+        `[Stream] REFUSED never-charged reading=${readingId} user=${user.id} ` +
+        `(creditsUsed=0, no interpretation) — would have generated for free`,
+      );
+      throw new BadRequestException({
+        code: 'READING_NOT_PAID',
+        message: '此分析未完成付款，請重新建立一次分析。',
+      });
+    }
+
     // 2. If AI already populated (cache hit or re-fetch), emit static sections
     if (reading.aiInterpretation) {
       this.emitStaticSections(
@@ -862,10 +1034,28 @@ export class BaziService {
     // `updateMany` on `regenerationCount` — that guard covers the /regenerate
     // entry point, and this covers the stream entry point.
     //
-    // TTL exceeds AI_STREAM_TIMEOUT_MS (300s) so the lock cannot expire under a
-    // still-running generation; the explicit releases below are the normal path.
+    // ⚠️ The TTL is DERIVED, not chosen. It was hardcoded at 330s with the
+    // comment "exceeds AI_STREAM_TIMEOUT_MS (300s) so the lock cannot expire
+    // under a still-running generation" — wrong twice over: 300s is the timeout
+    // of ONE call and a V2 generation makes two, each with retries and a
+    // provider-fallback loop, all bounded by AI_MAX_TOTAL_TIME_MS (900s), which
+    // gates the START of an attempt rather than aborting one in flight. So any
+    // generation past 330s silently lost its lock and a reload could start a
+    // second full generation on the same row — the exact double Anthropic spend
+    // and last-writer-wins clobber this lock exists to prevent.
+    //
+    // Sizing long is the safe direction: every non-crash path below releases
+    // explicitly (error, complete, and the setup catch), and M6's drain aborts
+    // in-flight streams on SIGTERM, so only a SIGKILL leaves it to expire.
+    // A too-short TTL costs money silently; a too-long one self-heals.
     const readingLockKey = `stream:reading:${readingId}`;
-    const readingLockAcquired = await this.redis.acquireLock(readingLockKey, 330);
+    const readingLockTtlSeconds = Math.ceil(
+      this.aiService.getMaxStreamedGenerationMs() / 1000,
+    ) + GENERATION_LOCK_MARGIN_SECONDS;
+    const readingLockAcquired = await this.redis.acquireLock(
+      readingLockKey,
+      readingLockTtlSeconds,
+    );
     if (!readingLockAcquired) {
       await this.redis.getClient().decr(activeKey);
       throw new ConflictException(
@@ -898,6 +1088,37 @@ export class BaziService {
         enrichedData.targetYear = reading.targetYear;
       }
 
+      // ⚠️ Refuse a row this endpoint cannot interpret. Mirrors the LOAD-BEARING
+      // guard the comparison path already carries (`_assertRomanceV2`) and that
+      // this one never had.
+      //
+      // The streamer switch below ends in `default: streamLifetimeV2`, so a
+      // ZWDS row reaching it generates 八字終身運 content over 紫微斗數
+      // calculation data and OVERWRITES the row — and two paid `ZWDS_LIFETIME`
+      // reports exist. ZWDS was deleted in `ad106fc`; there is no correct
+      // streamer, so refusing is the only honest answer.
+      //
+      // Placed AFTER step 2 on purpose: a paid ZWDS row that already HAS an
+      // interpretation must still be served by `emitStaticSections`, and it
+      // returns before reaching here.
+      //
+      // ⚠️ This is NOT a self-refusal, so the backstop below correctly does not
+      // refund: the user keeps a report we are merely declining to regenerate.
+      //
+      // ⚠️ HEALTH has the same `default:` problem and is deliberately NOT
+      // covered here — it is a sellable product needing a decision (build
+      // `streamHealthV2` or withdraw it), tracked as its own item.
+      if (reading.readingType.startsWith('ZWDS')) {
+        this.logger.warn(
+          `[Stream] REFUSED ZWDS reading=${readingId} user=${user.id} — ` +
+            `no ZWDS streamer exists; would have generated LIFETIME over ZWDS data`,
+        );
+        throw new BadRequestException({
+          code: 'READING_TYPE_NOT_STREAMABLE',
+          message: '紫微斗數功能已停用，此報告無法重新生成。',
+        });
+      }
+
       // S4 — `_setupStream` serves BOTH the first stream and regeneration, and
       // both generate. Regeneration is separately bounded per-reading by
       // REGENERATION_LIMIT and requires `isDegraded`, so this is the smaller
@@ -905,6 +1126,16 @@ export class BaziService {
       // S2 before S4 — see the note at the first site: a refusal we issue must
       // not spend the user's daily allowance. Cheap pre-read; the generation
       // layer's check stays authoritative.
+      //
+      // ⚠️ This is NOT a duplicate of the pre-flight in `createReading`, and the
+      // two must both stay. That one exists so a refusal cannot land AFTER the
+      // charge (the charged-then-refused bug); this one is authoritative,
+      // because the verdict taken at create time can be stale by the time the
+      // client opens the stream. Read the reasoning there before removing
+      // either — deleting the pre-flight reintroduces charging for a reading we
+      // then refuse. A streamed reading performs 3-4 cap reads in total
+      // (`create`, `stream`, and one per `streamProvider` call — Call 1 and
+      // Call 2 each); each is a single Redis GET.
       await this.aiSpend.assertUnderCap('reading:stream');
       await this.quota.consume('reading', user.id);
 
@@ -912,16 +1143,16 @@ export class BaziService {
       let aiObservable;
       switch (reading.readingType) {
         case 'CAREER':
-          aiObservable = this.aiService.streamCareerV2(enrichedData, readingId);
+          aiObservable = this.aiService.streamCareerV2(enrichedData, readingId, user.id);
           break;
         case 'ANNUAL':
-          aiObservable = this.aiService.streamAnnualV2(enrichedData, readingId, reading.targetYear ?? undefined);
+          aiObservable = this.aiService.streamAnnualV2(enrichedData, readingId, user.id, reading.targetYear ?? undefined);
           break;
         case 'LOVE':
-          aiObservable = this.aiService.streamLoveV2(enrichedData, readingId);
+          aiObservable = this.aiService.streamLoveV2(enrichedData, readingId, user.id);
           break;
         default:
-          aiObservable = this.aiService.streamLifetimeV2(enrichedData, readingId);
+          aiObservable = this.aiService.streamLifetimeV2(enrichedData, readingId, user.id);
           break;
       }
       aiObservable.subscribe({
@@ -942,8 +1173,65 @@ export class BaziService {
       });
     } catch (err) {
       // Release both the per-user slot and the per-reading lock on setup error,
-      // otherwise a failure here would wedge the reading for the whole 330s TTL.
+      // otherwise a failure here would wedge the reading for the whole lock TTL.
       releaseStreamSlot();
+
+      // ⚠️ REFUND BACKSTOP — "the charge must follow the content".
+      //
+      // The three refusals above (S2 cap, S4 quota, S1 concurrency) are raised
+      // AFTER `createReading` has already charged on the streaming path. The
+      // pre-flight there catches the common case, but it cannot be complete:
+      // the slot cannot be reserved from another method, and cap/quota can both
+      // flip in the window between create and stream. So this is where the
+      // guarantee actually lives — one place, at the point the refusal is
+      // raised, which is why it cannot drift the way a duplicated check would.
+      //
+      // ⚠️ `!reading.aiInterpretation` is UNREACHABLE-FALSE today, and kept
+      // deliberately. Step 2 above returns early whenever an interpretation
+      // exists, so nothing with content ever reaches this catch — including a
+      // REGENERATION, which `regenerateReading` nulls the interpretation for
+      // before re-streaming (`aiInterpretation: Prisma.DbNull`). An earlier
+      // draft of this comment claimed the conjunct distinguished regeneration.
+      // It does not, and a guard documented as doing something it cannot is
+      // worse than no guard. It stays as a structural backstop: if step 2 ever
+      // stops returning early, this must not start refunding delivered content.
+      //
+      // A cap-refused REGENERATION therefore does refund, and that is correct —
+      // the row's partial content has already been destroyed by the nulling
+      // above, so the user is left with nothing for their original charge.
+      //
+      // Safe against the other refund path: `refundReadingCredit` guards
+      // atomically on `refundedAt: null` and `creditsUsed > 0`, so a cache-hit
+      // row (0 credits) and an already-refunded row are both no-ops.
+      //
+      // ⚠️ Refunding here deliberately FORECLOSES the recovery branch in the
+      // web client's `loadSavedReading` — `refundedAt` makes `_setupStream`
+      // refuse the row for good. That is the intended division: a refusal we
+      // issued gives the money back now, while a paid-empty row with no refusal
+      // behind it (a crash, a deploy mid-stream, a dropped connection) stays
+      // recoverable by reopening it.
+      if (isSelfRefusal(err) && !reading.aiInterpretation) {
+        const reason = selfRefusalCode(err) ?? 'SELF_REFUSAL';
+        // Never let the refund's own failure replace the refusal the caller
+        // needs to see; a lost refund is recoverable from the log, a swallowed
+        // 503 is not.
+        await this.creditsService
+          .refundReadingCredit(readingId, `self-refusal:${reason}`)
+          .then((r) => {
+            if (r.refunded) {
+              this.logger.warn(
+                `[Stream] Refunded ${r.amount} credits for reading=${readingId} ` +
+                  `user=${user.id} refused by ${reason} before any content`,
+              );
+            }
+          })
+          .catch((refundErr) =>
+            this.logger.error(
+              `[Stream] REFUND FAILED for reading=${readingId} user=${user.id} ` +
+                `after ${reason} — user is charged with no content: ${refundErr}`,
+            ),
+          );
+      }
       throw err;
     }
   }
@@ -1132,7 +1420,7 @@ export class BaziService {
     }
 
     try {
-      const aiObservable = this.aiService.streamCompatibilityRomanceV2(calculationData, comparisonId);
+      const aiObservable = this.aiService.streamCompatibilityRomanceV2(calculationData, comparisonId, user.id);
 
       // ⚠️ The refund CANNOT hang off the observable's `error` channel.
       // `streamCompatibilityRomanceV2` never calls `subscriber.error()` — there
@@ -1897,9 +2185,17 @@ export class BaziService {
       return this.flattenComparisonResponse(hydrated ?? comparison);
     }
 
-    // Acquire distributed lock to prevent concurrent AI generation
+    // Acquire distributed lock to prevent concurrent AI generation.
+    // ⚠️ Same derived-TTL rule as the reading stream lock above, and this one
+    // was the worse offender: 60s guarding `generateCompatibilityRomanceV2`,
+    // which runs 3 PARALLEL calls at AI_COMPAT_V2_TIMEOUT_MS (300s) inside a
+    // provider-fallback loop with no budget check. The lock was guaranteed to
+    // expire on any reveal slower than a minute — on a 3-credit purchase.
     const lockKey = `ai:generate:comparison:${comparisonId}`;
-    const lockAcquired = await this.redis.acquireLock(lockKey, 60);
+    const compatLockTtlSeconds = Math.ceil(
+      this.aiService.getMaxCompatGenerationMs() / 1000,
+    ) + GENERATION_LOCK_MARGIN_SECONDS;
+    const lockAcquired = await this.redis.acquireLock(lockKey, compatLockTtlSeconds);
     if (!lockAcquired) {
       // Another request is already generating AI — poll until done (max 30s)
       for (let i = 0; i < 10; i++) {

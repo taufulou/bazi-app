@@ -37,6 +37,7 @@ import {
   createBaziReading,
   getReading,
   streamBaziReading,
+  needsInterpretationRecovery,
   regenerateBaziReading,
   transformAIResponse,
   SECTION_TITLE_MAP,
@@ -559,6 +560,34 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
       if (isFullPageLayout) {
         window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior });
       }
+
+      // ⚠️ RECOVERY — a row the user PAID for that has no interpretation.
+      //
+      // Until 2026-09-02 this branch did not exist, and it is what made a
+      // charged-empty reading PERMANENT rather than merely delayed. Opening such
+      // a row from 歷史分析記錄 lands here (not in `recoverPaidReading`, which
+      // only runs in the post-purchase flow), and this function's only job was
+      // to render whatever it found — so it rendered nothing, forever, on a
+      // reading that cost 3 credits. Verified against a real production row.
+      //
+      // The three conditions are each load-bearing:
+      //   • no sections — never re-stream over content the user already has.
+      //   • `creditsUsed > 0` — a free/chart-only row is legitimately empty, and
+      //     the backend refuses it anyway (`READING_NOT_PAID`).
+      //   • not refunded — the money is back; `_setupStream` refuses these too
+      //     and the user is told to create a new reading.
+      // Streaming an existing id does NOT re-charge: the charge lives in
+      // `createReading`, which is not on this path.
+      //
+      // ⚠️ `!isZwds` is LOAD-BEARING, not tidiness. `_setupStream`'s streamer
+      // switch ends in `default: streamLifetimeV2`, so a ZWDS row sent there
+      // would generate a 八字終身運 reading over 紫微斗數 calculation data and
+      // OVERWRITE one of the two paid `ZWDS_LIFETIME` reports. ZWDS is deleted
+      // (`ad106fc`) and has no correct streamer, so there is nothing to recover
+      // — the row renders from `calculationData` and must be left alone.
+      if (!isZwds && needsInterpretationRecovery(reading, aiReading?.sections?.length ?? 0)) {
+        void recoverPaidReading(reading.id, readingType, { owned: true });
+      }
     } catch {
       // If loading fails, fall back to input step
       setStep("input");
@@ -585,24 +614,15 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
     // ⚠️ No longer a direct engine call — M10 routed /api/bazi-calculate through
     // NestJS, so this is web → NestJS → engine and costs a Clerk token mint.
     try {
-      if (isZwds) {
-        const dateParts = data.birthDate.split("-") as [string, string, string];
-        const solarDate = `${parseInt(dateParts[0])}-${parseInt(dateParts[1])}-${parseInt(dateParts[2])}`;
-        const zwdsResponse = await fetch("/api/zwds-calculate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            birthDate: solarDate,
-            birthTime: data.birthTime,
-            gender: data.gender,
-            targetDate: needsDatePicker ? targetDay : undefined,
-          }),
-        });
-        if (zwdsResponse.ok) {
-          const realChart = await zwdsResponse.json();
-          setZwdsChartData(realChart);
-        }
-      } else {
+      // ⚠️ ZWDS chart calculation is GONE, not disabled. The
+      // /api/zwds-calculate route was an unauthenticated, unthrottled, CPU-bound
+      // iztro call running on the Next.js web server — a single-threaded event
+      // loop that also serves every page including sign-in — for a product
+      // deleted in `ad106fc`. Phase 2 below throws the user-facing 已停用 error,
+      // so there is nothing to calculate here first. Already-paid ZWDS readings
+      // still render: the `?id=` path reads `reading.calculationData` from the DB
+      // and never called that route.
+      if (!isZwds) {
         const baziResponse = await fetch("/api/bazi-calculate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -790,36 +810,15 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
   // Direct Engine Path (unauthenticated — chart only, no AI)
   // ============================================================
 
-  async function callDirectEngine(data: BirthDataFormValues, lunarBirthDate?: string) {
+  // The `lunarBirthDate` second parameter is gone with the ZWDS calc route —
+  // it existed solely to feed iztro's astrolabeByLunarDate. The Bazi branch
+  // reads the already-converted solar date off `data`.
+  async function callDirectEngine(data: BirthDataFormValues) {
     if (isZwds) {
-      const dateParts = data.birthDate.split("-") as [string, string, string];
-      const solarDate = `${parseInt(dateParts[0])}-${parseInt(dateParts[1])}-${parseInt(dateParts[2])}`;
-
-      const zwdsBody: Record<string, unknown> = {
-        birthDate: solarDate,
-        birthTime: data.birthTime,
-        gender: data.gender,
-        targetDate: needsDatePicker ? targetDay : undefined,
-      };
-      // Pass lunar date for direct astrolabeByLunarDate (better ZWDS accuracy)
-      if (data.isLunarDate && lunarBirthDate) {
-        zwdsBody.lunarDate = lunarBirthDate;
-        zwdsBody.isLeapMonth = data.isLeapMonth;
-      }
-
-      const zwdsResponse = await fetch("/api/zwds-calculate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(zwdsBody),
-      });
-
-      if (!zwdsResponse.ok) {
-        const errData = await zwdsResponse.json().catch(() => ({}));
-        throw new Error(errData.error || `紫微排盤失敗 (${zwdsResponse.status})`);
-      }
-
-      const realChart = await zwdsResponse.json();
-      setZwdsChartData(realChart);
+      // See the note in callNestJSReading — the /api/zwds-calculate route is
+      // deleted. Refuse before doing any work rather than rendering a chart for
+      // a product that cannot be generated.
+      throw new Error("紫微斗數功能已停用，目前僅提供八字命理服務。");
     } else {
       const baziResponse = await fetch("/api/bazi-calculate", {
         method: "POST",
@@ -949,7 +948,7 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
         if (isCareer) {
           // Career Phase 1: Chart only (no reading_type sent, no pre-analysis)
           // Shows chart + paywall CTA, regardless of auth status
-          await callDirectEngine(data, lunarDate);
+          await callDirectEngine(data);
           // Store form values + lunar date for refresh resilience
           try {
             sessionStorage.setItem('career_form', JSON.stringify(data));
@@ -959,7 +958,7 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
           setIsLoading(false);
         } else if (isAnnual) {
           // Annual Phase 1: Chart only → paywall CTA, same flow as career
-          await callDirectEngine(data, lunarDate);
+          await callDirectEngine(data);
           try {
             sessionStorage.setItem('annual_form', JSON.stringify(data));
             if (lunarDate) sessionStorage.setItem('annual_lunar_date', lunarDate);
@@ -968,7 +967,7 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
           setIsLoading(false);
         } else if (isLove) {
           // Love Phase 1: Chart only → paywall CTA, same flow as career/annual
-          await callDirectEngine(data, lunarDate);
+          await callDirectEngine(data);
           try {
             sessionStorage.setItem('love_form', JSON.stringify(data));
             if (lunarDate) sessionStorage.setItem('love_lunar_date', lunarDate);
@@ -977,7 +976,7 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
           setIsLoading(false);
         } else if (isLifetime) {
           // Lifetime Phase 1: Chart only → paywall CTA (same as career/annual/love)
-          await callDirectEngine(data, lunarDate);
+          await callDirectEngine(data);
           try {
             sessionStorage.setItem('lifetime_form', JSON.stringify(data));
             if (lunarDate) sessionStorage.setItem('lifetime_lunar_date', lunarDate);
@@ -990,7 +989,7 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
           await callNestJSReading(data, birthProfileId);
         } else {
           // Not signed in OR profile creation failed → direct engine (chart only, no AI)
-          await callDirectEngine(data, lunarDate);
+          await callDirectEngine(data);
           setIsLoading(false);
         }
       } catch {
@@ -1103,7 +1102,7 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
   // ============================================================
 
   const handleFreeChart = useCallback(
-    async (data: BirthDataFormValues, _profileId: string | null, lunarBirthDate?: string) => {
+    async (data: BirthDataFormValues) => {
       setFormValues(data);
       setIsLoading(true);
       setError(undefined);
@@ -1114,7 +1113,7 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
       setIsPaidReading(false);
 
       try {
-        await callDirectEngine(data, lunarBirthDate);
+        await callDirectEngine(data);
       } catch (err) {
         const msg = err instanceof Error ? err.message : "排盤失敗，請稍後再試";
         setError(msg);
@@ -1230,11 +1229,9 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
     }
 
     // Re-submit Phase 1 (free chart)
-    let lunarDate: string | undefined;
-    try { lunarDate = sessionStorage.getItem('career_lunar_date') ?? undefined; } catch { /* ignore */ }
     setFormValues(savedForm);
     setIsLoading(true);
-    callDirectEngine(savedForm, lunarDate).then(() => {
+    callDirectEngine(savedForm).then(() => {
       setStep('result');
       setIsLoading(false);
 
@@ -1290,11 +1287,9 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
     }
 
     // Re-submit Phase 1 (free chart)
-    let lunarDate: string | undefined;
-    try { lunarDate = sessionStorage.getItem('annual_lunar_date') ?? undefined; } catch { /* ignore */ }
     setFormValues(savedForm);
     setIsLoading(true);
-    callDirectEngine(savedForm, lunarDate).then(() => {
+    callDirectEngine(savedForm).then(() => {
       setStep('result');
       setIsLoading(false);
 
@@ -1346,11 +1341,9 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
       return;
     }
 
-    let lunarDate: string | undefined;
-    try { lunarDate = sessionStorage.getItem('love_lunar_date') ?? undefined; } catch { /* ignore */ }
     setFormValues(savedForm);
     setIsLoading(true);
-    callDirectEngine(savedForm, lunarDate).then(() => {
+    callDirectEngine(savedForm).then(() => {
       setStep('result');
       setIsLoading(false);
 
@@ -1404,11 +1397,9 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
       return;
     }
 
-    let lunarDate: string | undefined;
-    try { lunarDate = sessionStorage.getItem('lifetime_lunar_date') ?? undefined; } catch { /* ignore */ }
     setFormValues(savedForm);
     setIsLoading(true);
-    callDirectEngine(savedForm, lunarDate).then(() => {
+    callDirectEngine(savedForm).then(() => {
       setStep('result');
       setIsLoading(false);
 
@@ -1426,9 +1417,18 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLifetime, isLoaded]);
 
-  async function recoverPaidReading(readingId: string, sessionKeyPrefix: string) {
+  /**
+   * @param opts.owned  Caller has already established the user owns this reading
+   *   (the `?id=` history path). Suppresses the paywall fallback — showing a
+   *   paywall for a reading they have already paid for is worse than an error.
+   */
+  async function recoverPaidReading(
+    readingId: string,
+    sessionKeyPrefix: string,
+    opts?: { owned?: boolean },
+  ) {
     const token = await getToken();
-    if (!token) { setShowPaywall(true); return; }
+    if (!token) { if (!opts?.owned) setShowPaywall(true); return; }
 
     try {
       const existing = await getReading(token, readingId);
@@ -1535,8 +1535,14 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
         streamCleanupRef.current = () => stream.close();
       }
     } catch {
-      // Reading not found or error → show paywall again
-      setShowPaywall(true);
+      // Reading not found or error → show paywall again, UNLESS the caller has
+      // already established ownership (see `opts.owned`).
+      if (opts?.owned) {
+        setIsAiLoading(false);
+        setError("分析內容載入失敗，請稍後再試。");
+      } else {
+        setShowPaywall(true);
+      }
       try {
         sessionStorage.removeItem(`${sessionKeyPrefix}_reading_id`);
         sessionStorage.removeItem(`${sessionKeyPrefix}_lunar_date`);
@@ -1818,7 +1824,7 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
               userCredits !== null ? (<>完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點・剩 {userCredits}</span></>) :
               (<>完整解讀<span className={styles.btnCredit}>💎 {meta.creditCost} 點</span></>)
             }
-            onSecondarySubmit={isSignedIn && !isCareer && !isAnnual && !isLove && !isLifetime ? (data, _pid, lunarDate) => handleFreeChart(data, _pid, lunarDate) : undefined}
+            onSecondarySubmit={isSignedIn && !isCareer && !isAnnual && !isLove && !isLifetime ? (data) => handleFreeChart(data) : undefined}
             secondaryLabel={isSignedIn && !isCareer && !isAnnual && !isLove && !isLifetime ? "查看免費命盤 →" : undefined}
             savedProfiles={isSignedIn ? savedProfiles : undefined}
             showSaveOption={isSignedIn === true}
@@ -2128,7 +2134,7 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
           if (formValues) {
             setIsLoading(true);
             try {
-              await callDirectEngine(formValues, lastSaveIntent?.lunarBirthDate);
+              await callDirectEngine(formValues);
               setShowSubscribeCTA(true);
             } catch {
               setError("排盤失敗，請稍後再試");

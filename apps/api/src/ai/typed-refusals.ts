@@ -68,5 +68,47 @@ export function isAiBusyError(err: unknown): boolean {
  * never the one the author was thinking about.
  */
 export function isSelfRefusal(err: unknown): boolean {
-  return isQuotaError(err) || isSpendCapError(err) || isAiBusyError(err);
+  return selfRefusalCode(err) !== null;
 }
+
+/**
+ * WHICH refusal, or null. For logs, and for the `failedReason` a refund writes
+ * onto the reading — "we refused, here is why" is the difference between a
+ * readable ledger and a mystery.
+ *
+ * ⚠️ `isSelfRefusal` is defined in terms of this rather than the other way
+ * round, so a fourth refusal added here is automatically covered by the
+ * predicate. The reverse (predicate listing three, this listing three) is the
+ * duplicated-subset problem the module docblock is about.
+ */
+export function selfRefusalCode(err: unknown): string | null {
+  for (const code of [QUOTA_EXCEEDED_CODE, AI_SPEND_CAP_CODE, AI_BUSY_CODE]) {
+    if (hasCode(err, code)) return code;
+  }
+  return null;
+}
+
+/**
+ * The message a user should see when a generation ended in a refusal WE issued.
+ *
+ * ⚠️ The three are not interchangeable. "AI service is temporarily busy" — the
+ * single message the streaming path used for every failure — is accurate for
+ * `AI_BUSY` and actively misleading for the other two: a spent daily allowance
+ * and a platform budget are not congestion, and "try again shortly" sends a
+ * user whose quota is gone into a retry loop that cannot succeed.
+ *
+ * Falls back to the busy message for a non-refusal, which keeps the existing
+ * copy for the ordinary AI-failure case.
+ */
+export function selfRefusalMessage(err: unknown): string {
+  switch (selfRefusalCode(err)) {
+    case QUOTA_EXCEEDED_CODE:
+      return 'You have reached your reading limit for today. Please try again tomorrow.';
+    case AI_SPEND_CAP_CODE:
+      return 'The service has reached its usage limit for today. Please try again later.';
+    case AI_BUSY_CODE:
+    default:
+      return 'AI service is temporarily busy. Please try again shortly.';
+  }
+}
+

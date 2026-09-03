@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import * as Sentry from '@sentry/nestjs';
 import { Prisma } from '@prisma/client';
 
 @Catch()
@@ -82,6 +83,27 @@ export class AllExceptionsFilter implements ExceptionFilter {
         `${request.method} ${request.url} ${status}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
+
+      // ⚠️ Sentry sees NOTHING without this. `Sentry.init()` runs in `main.ts`,
+      // but nothing wires the SDK into Nest's exception pipeline — no
+      // `SentryModule`, no `SentryGlobalFilter`, no `@SentryExceptionCaptured()`
+      // — and this `@Catch()` filter intercepts every exception before the SDK
+      // could see one. So the DSN was armed and delivering only the explicit
+      // `captureMessage` spend alerts; not one application error had ever been
+      // reported. Found while trying to prove the DSN worked by forcing a 500,
+      // which is a test that could never have passed.
+      //
+      // Reported HERE, inside the >= 500 branch, rather than by decorating
+      // `catch()`. The decorator captures whatever the filter catches, and this
+      // API answers every unauthenticated request with a 401 — that would bury
+      // real failures under client-error noise within a day. The existing
+      // "is this actually our fault" test is reused instead of inventing a
+      // second one that could drift from it.
+      //
+      // PII: `beforeSend: scrubSentryEvent` in `main.ts` strips the request
+      // body, so the birth data this exception was raised while handling does
+      // not travel with it. That scrubber is what makes this call safe.
+      Sentry.captureException(exception);
     }
 
     response.status(status).json({

@@ -7,6 +7,7 @@ import { RedisService } from '../redis/redis.service';
 import { getRateLimitSnapshot, type RateLimitSnapshot } from '../ai/anthropic-rate-limit';
 import { anthropicBaseUrlOverride, effectiveAnthropicBaseUrl } from '../ai/anthropic-client';
 import { parseReplicaCount } from '../common/replica-count';
+import { resolveAlertingStatus, type AlertingStatus } from '../common/alerting-status';
 
 /**
  * Ob2 — one read-only view of every AI spend control at once.
@@ -64,6 +65,16 @@ export interface OpsSnapshot {
   generatedAt: string;
   /** M8 — the divisor the in-process pool limits were derived with. */
   replicas: number;
+  /**
+   * #13 — can a spend alert reach a human at all?
+   *
+   * The spend numbers below are only useful if someone is TOLD when they move,
+   * and every spend alert is a `Sentry.captureMessage` that becomes a silent
+   * no-op when `SENTRY_DSN` is unset. This reports the deliverable half; it
+   * CANNOT see whether an alert RULE exists for those event names, and does
+   * not pretend to.
+   */
+  alerting: AlertingStatus;
   pools: Record<AiPool, ReturnType<AiGovernorService['snapshot']>[AiPool]>;
   spend: {
     /**
@@ -149,6 +160,7 @@ export class OpsService {
     return {
       generatedAt: new Date().toISOString(),
       replicas: parseReplicaCount(this.config.get<string | number>('REPLICA_COUNT')),
+      alerting: resolveAlertingStatus(),
       pools: this.governor.snapshot(),
       spend: {
         available: spend !== null,

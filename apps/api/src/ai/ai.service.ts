@@ -1,18 +1,14 @@
-import {
-  HttpException,
-  Injectable,
-  Logger,
-  OnModuleInit,
-  type MessageEvent,
-} from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, type MessageEvent,  } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Observable, Subscriber } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CreditsService } from '../credits/credits.service';
-import { AiSpendService, AI_SPEND_CAP_CODE } from './ai-spend.service';
-import { AiGovernorService, AI_BUSY_CODE } from './ai-governor.service';
-import { isSelfRefusal } from './typed-refusals';
+import { AiSpendService } from './ai-spend.service';
+import { classifyAiError, type AiCallAttribution } from './ai-call-log';
+import { estimateOutputTokensFromChars } from './stream-usage';
+import { AiGovernorService } from './ai-governor.service';
+import { isSelfRefusal, selfRefusalCode, selfRefusalMessage } from './typed-refusals';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
 import {
   READING_PROMPTS,
@@ -84,8 +80,6 @@ interface ProviderConfig {
   model: string;
   apiKey: string;
   timeoutMs: number;
-  costPerInputToken: number;  // USD per token
-  costPerOutputToken: number; // USD per token
 }
 
 // ============================================================
@@ -111,6 +105,13 @@ export const AI_MAX_RETRIES_PER_PROVIDER = 2;
  * to avoid silent budget waste. Common defaults: nginx=60s,
  * Cloudflare=100s (Pro/Free) / unlimited (Enterprise), Vercel=300s (Pro).
  */
+/**
+ * Fallback wall-clock bound used when a timeout env var is malformed, in ms.
+ * Wider than any real generation — see `safeBoundMs` for why wide is the safe
+ * direction for a value that sizes a lock.
+ */
+export const AI_GENERATION_BOUND_FALLBACK_MS = 1_800_000;
+
 export const AI_MAX_TOTAL_TIME_MS = parseInt(
   process.env.MAX_TOTAL_AI_TIME_MS ?? '900000', // 15 min default
   10,
@@ -175,6 +176,29 @@ export const CAREER_V2_ANNUAL_FORECAST_CAP = 5;
 // AI Service
 // ============================================================
 
+/**
+ * The reading path's usage accumulator.
+ *
+ * Parallel to `StreamUsage` in `stream-usage.ts` (which chat and fortune use) —
+ * they were written separately and both had the #20 abort bug. This one carries
+ * `stopReason`, which the degraded-reading `failedReason` needs, and shares the
+ * char-estimate mechanism via `finalizeStreamUsage`-equivalent logic in
+ * `_streamProviderInner`.
+ *
+ * `outputTextChars` is the only output signal an aborted stream leaves behind:
+ * `message_delta` carries the real `output_tokens` but arrives ONCE, near the
+ * end, so an abort before it recorded a confident ZERO while Anthropic billed
+ * every token produced.
+ */
+export type StreamUsageOut = {
+  inputTokens: number;
+  outputTokens: number;
+  /** Optional so existing callers that build the narrow object still compile. */
+  outputTextChars?: number;
+  outputTokensEstimated?: boolean;
+  stopReason?: string;
+};
+
 @Injectable()
 export class AIService implements OnModuleInit {
   private readonly logger = new Logger(AIService.name);
@@ -212,8 +236,6 @@ export class AIService implements OnModuleInit {
         model: this.configService.get<string>('CLAUDE_MODEL') || 'claude-sonnet-4-5-20250929',
         apiKey: claudeKey,
         timeoutMs: 30000,
-        costPerInputToken: 3 / 1_000_000,   // $3 per 1M input tokens
-        costPerOutputToken: 15 / 1_000_000,  // $15 per 1M output tokens
       });
       this.logger.log('Claude provider initialized');
     }
@@ -224,8 +246,6 @@ export class AIService implements OnModuleInit {
         model: this.configService.get<string>('GPT_MODEL') || 'gpt-4o',
         apiKey: openaiKey,
         timeoutMs: 30000,
-        costPerInputToken: 2.5 / 1_000_000,
-        costPerOutputToken: 10 / 1_000_000,
       });
       this.logger.log('GPT provider initialized');
     }
@@ -236,8 +256,6 @@ export class AIService implements OnModuleInit {
         model: this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash',
         apiKey: geminiKey,
         timeoutMs: 30000,
-        costPerInputToken: 2 / 1_000_000,
-        costPerOutputToken: 12 / 1_000_000,
       });
       this.logger.log('Gemini provider initialized');
     }
@@ -245,6 +263,96 @@ export class AIService implements OnModuleInit {
     if (this.providers.length === 0) {
       this.logger.warn('No AI providers configured! Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.');
     }
+  }
+
+  // ============================================================
+  // Generation wall-clock bounds
+  //
+  // ⚠️ A per-call timeout is NOT how long a generation can run, and mistaking
+  // one for the other is the bug these exist to close. Anything that holds a
+  // resource for the duration of a generation — a Redis lock, above all — must
+  // size itself from the methods below, never from AI_STREAM_TIMEOUT_MS or
+  // AI_COMPAT_V2_TIMEOUT_MS directly.
+  //
+  // Contrast `chat-stream.service.ts`, whose 150s lock IS correctly derived
+  // from its per-call timeout (90s) plus its watchdog (60s). That reasoning is
+  // sound there because chat has a hard per-stream timeout and NO retry or
+  // provider-fallback budget. The reading paths have both, so it fails here.
+  // ============================================================
+
+  /** Per-call timeout for the V2 reading stream path. */
+  private getStreamTimeoutMs(): number {
+    return parseInt(
+      this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
+      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '180000',
+      10,
+    );
+  }
+
+  /** Per-call timeout for the compatibility reveal path. */
+  private getCompatTimeoutMs(): number {
+    return parseInt(
+      this.configService.get<string>('AI_COMPAT_V2_TIMEOUT_MS') || '300000',
+      10,
+    );
+  }
+
+  /**
+   * Worst-case wall clock for ONE streamed V2 reading generation, in ms.
+   *
+   * AI_MAX_TOTAL_TIME_MS gates the START of each attempt — the Call 1 and
+   * Call 2 retry loops `break` at the top when the budget is spent — rather
+   * than aborting an attempt in flight. So an attempt admitted a millisecond
+   * under the budget still runs a further full per-call timeout on top of it.
+   * The bound is budget + one call timeout, never the budget alone and never
+   * the per-call timeout alone.
+   */
+  getMaxStreamedGenerationMs(): number {
+    return this.safeBoundMs(
+      AI_MAX_TOTAL_TIME_MS + this.getStreamTimeoutMs(),
+      'getMaxStreamedGenerationMs',
+    );
+  }
+
+  /**
+   * Worst-case wall clock for ONE compatibility reveal generation, in ms.
+   *
+   * `generateCompatibilityRomanceV2` fires its 3 calls in PARALLEL, so one
+   * per-call timeout covers all three — but it retries the whole set against
+   * each configured provider in turn, and that loop carries NO budget check.
+   * AI_MAX_TOTAL_TIME_MS therefore does not apply, and the bound is
+   * providers x per-call timeout.
+   */
+  getMaxCompatGenerationMs(): number {
+    return this.safeBoundMs(
+      Math.max(1, this.providers.length) * this.getCompatTimeoutMs(),
+      'getMaxCompatGenerationMs',
+    );
+  }
+
+  /**
+   * Guard the derived bounds against a malformed timeout env var.
+   *
+   * ⚠️ This exists because DERIVING the TTLs introduced a failure mode the
+   * hardcoded literals did not have. `parseInt('abc', 10)` is NaN, NaN
+   * propagates through the arithmetic, and the result is handed to
+   * `redis.acquireLock` as an expiry — where Redis rejects it. On the compat
+   * path that lock sits AFTER `_chargeForReveal`, so a single typo in
+   * AI_COMPAT_V2_TIMEOUT_MS would charge 3 credits and then 500: the
+   * charged-but-empty shape again, this time from config rather than code.
+   *
+   * Fail CLOSED, which for a lock means WIDE — a bound that is too large only
+   * delays a retry after a crash, while a missing one costs money. Logged at
+   * error level because a config typo must stay visible, not be absorbed.
+   */
+  private safeBoundMs(value: number, label: string): number {
+    if (Number.isFinite(value) && value > 0) return value;
+    this.logger.error(
+      `${label} resolved to ${value} — check MAX_TOTAL_AI_TIME_MS / ` +
+      `AI_STREAM_TIMEOUT_MS / AI_CALL_TIMEOUT_MS / AI_COMPAT_V2_TIMEOUT_MS. ` +
+      `Falling back to ${AI_GENERATION_BOUND_FALLBACK_MS}ms.`,
+    );
+    return AI_GENERATION_BOUND_FALLBACK_MS;
   }
 
   /**
@@ -333,8 +441,7 @@ export class AIService implements OnModuleInit {
 
         // Calculate cost
         const estimatedCostUsd =
-          result.inputTokens * providerConfig.costPerInputToken +
-          result.outputTokens * providerConfig.costPerOutputToken;
+          this.priceOrZero(providerConfig.model, result.inputTokens, result.outputTokens);
 
         // Parse the AI response into structured sections
         const interpretation = this.parseAIResponse(result.content, readingType);
@@ -347,7 +454,7 @@ export class AIService implements OnModuleInit {
             inputTokens: result.inputTokens,
             outputTokens: result.outputTokens,
             totalTokens: result.inputTokens + result.outputTokens,
-            estimatedCostUsd: Math.round(estimatedCostUsd * 1_000_000) / 1_000_000,
+            estimatedCostUsd,
           },
           latencyMs,
           isCacheHit: false,
@@ -410,7 +517,14 @@ export class AIService implements OnModuleInit {
     // For streaming, only try the primary provider
     const providerConfig = this.providers[0];
 
-    yield* this.streamProvider(providerConfig, systemPrompt, userPrompt);
+    // ⚠️ No caller anywhere in the repo (verified by grep, 2026-09-01), so
+    // there is no user id to thread — but it DOES reach a provider, and dead
+    // code gets resurrected. A real route at least means a revival shows up as
+    // itself rather than as an anonymous `stream:CLAUDE`.
+    yield* this.streamProvider(providerConfig, systemPrompt, userPrompt, undefined, undefined, {
+      route: `stream:${readingType}:legacy`,
+      userId: null,
+    });
   }
 
   // ============================================================
@@ -500,14 +614,9 @@ export class AIService implements OnModuleInit {
 
           // Log Call 1 usage
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: fixed1.sections, summary: fixed1.summary },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r1.inputTokens,
               outputTokens: r1.outputTokens,
-              totalTokens: r1.inputTokens + r1.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -526,14 +635,9 @@ export class AIService implements OnModuleInit {
 
           // Log Call 2 usage
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r2.inputTokens,
               outputTokens: r2.outputTokens,
-              totalTokens: r2.inputTokens + r2.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -554,8 +658,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          totalInputTokens * providerConfig.costPerInputToken +
-          totalOutputTokens * providerConfig.costPerOutputToken;
+          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -578,7 +681,7 @@ export class AIService implements OnModuleInit {
             inputTokens: totalInputTokens,
             outputTokens: totalOutputTokens,
             totalTokens: totalInputTokens + totalOutputTokens,
-            estimatedCostUsd: Math.round(totalCost * 1_000_000) / 1_000_000,
+            estimatedCostUsd: totalCost,
           },
           latencyMs,
           isCacheHit: false,
@@ -691,14 +794,9 @@ export class AIService implements OnModuleInit {
           }
 
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: fixed1.sections, summary: fixed1.summary },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r1.inputTokens,
               outputTokens: r1.outputTokens,
-              totalTokens: r1.inputTokens + r1.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -720,14 +818,9 @@ export class AIService implements OnModuleInit {
           sections = { ...sections, ...fixed2.sections };
 
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r2.inputTokens,
               outputTokens: r2.outputTokens,
-              totalTokens: r2.inputTokens + r2.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -744,8 +837,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          totalInputTokens * providerConfig.costPerInputToken +
-          totalOutputTokens * providerConfig.costPerOutputToken;
+          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -768,7 +860,7 @@ export class AIService implements OnModuleInit {
             inputTokens: totalInputTokens,
             outputTokens: totalOutputTokens,
             totalTokens: totalInputTokens + totalOutputTokens,
-            estimatedCostUsd: Math.round(totalCost * 1_000_000) / 1_000_000,
+            estimatedCostUsd: totalCost,
           },
           latencyMs,
           isCacheHit: false,
@@ -845,8 +937,36 @@ export class AIService implements OnModuleInit {
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      // Ob1 — a FAILED call must leave a trace. `logUsage` sits on the success
+      // path only, so before this a non-streaming call that died before its
+      // first response emitted nothing at all: no usage to price meant no
+      // `record()`, and no `record()` meant no AI-CALL line. That is the exact
+      // shape of the charged-empty-reading incident, whose entire log record
+      // was `[Stream] Setup starting` and, 4s later, a refund.
+      //
+      // Emitting HERE rather than at each caller inherits this method's
+      // property of being the documented choke point for every non-streaming
+      // provider call — the same reason the cap and the slot live here.
+      //
+      // ⚠️ One line per ATTEMPT, so a fully-failing generation emits up to
+      // retries x providers of them. That is the intent: the retry storm is
+      // what an operator needs to see, and collapsing it would hide the
+      // difference between one dead provider and three.
+      const callStartedAt = Date.now();
       try {
         return await this.callProvider(config, systemPrompt, userPrompt, controller.signal);
+      } catch (err) {
+        this.aiSpend.recordFailure({
+          provider: config.provider,
+          model: config.model,
+          error: err,
+          context: `provider:${config.provider}`,
+          durationMs: Date.now() - callStartedAt,
+          // ⚠️ No userId — this method never receives one. Same documented gap
+          // as `_streamProviderInner` (todo #12); threading it touches five
+          // public signatures.
+        });
+        throw err;
       } finally {
         clearTimeout(timeoutId);
       }
@@ -877,11 +997,18 @@ export class AIService implements OnModuleInit {
     //     volume sixfold while spending nothing.
     // Retrying is for the PROVIDER being unavailable. When we are the one
     // saying no, the answer will not change within a request.
-    if (err instanceof HttpException) {
-      const body = err.getResponse() as { code?: string } | string;
-      const code = typeof body === 'object' ? body?.code : undefined;
-      if (code === AI_BUSY_CODE || code === AI_SPEND_CAP_CODE) return false;
-    }
+    // ⚠️ `isSelfRefusal`, NOT a hand-written list of codes. This site listed
+    // AI_BUSY and AI_SPEND_CAP and MISSED QUOTA_EXCEEDED — which is an
+    // HttpException with status 429, and `statusFromError === 429` a few lines
+    // below returns `true`. So a user who had spent their daily allowance was
+    // retried up to 3 times per provider across 3 providers: nine attempts at a
+    // refusal that cannot change within a request.
+    //
+    // That is precisely what `typed-refusals.ts` exists to prevent, and its
+    // docblock names this failure in advance: "Every place that listed them by
+    // hand ended up with a different subset, and the missing one was never the
+    // one the author was thinking about."
+    if (isSelfRefusal(err)) return false;
 
     // Prefer SDK's typed status
     const statusFromError = (err as any).status as number | undefined;
@@ -1046,10 +1173,17 @@ export class AIService implements OnModuleInit {
   streamLifetimeV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    /**
+     * Ob1 #12 — REQUIRED. A streamed reading used to log `userIdHash: null`,
+     * so the most expensive generation in the app could be attributed to no
+     * account. An optional parameter would let the next caller reintroduce
+     * that silently; a required one makes it a compile error.
+     */
+    userId: string | null,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
       const externalControllers = new Set<AbortController>();
-      this._executeStreamLifetimeV2(calculationData, readingId, subscriber, externalControllers)
+      this._executeStreamLifetimeV2(calculationData, readingId, userId, subscriber, externalControllers)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -1072,12 +1206,14 @@ export class AIService implements OnModuleInit {
   private async _executeStreamLifetimeV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    userId: string | null,
     subscriber: Subscriber<MessageEvent>,
     externalControllers?: Set<AbortController>,
   ) {
     await this._executeStreamV2Common({
       calculationData,
       readingId,
+      userId,
       subscriber,
       readingType: ReadingType.LIFETIME,
       promptsBuilder: () => this.buildLifetimeV2Prompts(calculationData),
@@ -1099,6 +1235,12 @@ export class AIService implements OnModuleInit {
     readingId: string;
     subscriber: Subscriber<MessageEvent>;
     readingType: ReadingType;
+    /**
+     * Ob1 #12 — REQUIRED, not optional. The whole defect was that this field
+     * was silently absent on the most expensive path; an optional parameter
+     * would let the next streaming caller reintroduce it without noticing.
+     */
+    userId: string | null;
     promptsBuilder: () => { systemPrompt: string; userPromptCall1: string; userPromptCall2: string };
     call1SectionKeys: string[];
     /** Returns expected Call 2 section keys; called once per execution. */
@@ -1135,11 +1277,7 @@ export class AIService implements OnModuleInit {
     } = opts;
 
     const totalStartMs = Date.now();
-    const timeoutMs = parseInt(
-      this.configService.get<string>('AI_STREAM_TIMEOUT_MS') ||
-      this.configService.get<string>('AI_CALL_TIMEOUT_MS') || '180000',
-      10,
-    );
+    const timeoutMs = this.getStreamTimeoutMs();
 
     if (this.providers.length === 0) {
       throw new Error('No AI providers configured');
@@ -1187,6 +1325,16 @@ export class AIService implements OnModuleInit {
       return autoFixCallback ? autoFixCallback(key, section, calculationData) : section;
     };
 
+    // ⚠️ A refusal WE issued (S1 spend cap / S2 quota / AI_BUSY), captured rather
+    // than thrown. Rethrowing would escape past the `finally { subscriber
+    // .complete() }` below, so the Observable wrapper's `.catch()` would call
+    // `next()` on a stopped subscriber and the user would be told NOTHING.
+    //
+    // This changes only the refund REASON and the final MESSAGE. The status
+    // machine — including `call2Critical`, which is true for every consumer —
+    // is deliberately untouched: it already refunds and nulls the row.
+    let selfRefusal: unknown;
+
     try {
       for (const providerConfig of this.providers) {
         activeProviderConfig = providerConfig;
@@ -1199,7 +1347,11 @@ export class AIService implements OnModuleInit {
         //   streaming: { streamed: true, inputTokens, outputTokens }  ← already emitted sections
         //   non-streaming: { content, inputTokens, outputTokens }     ← caller parses + emits
         //   null = complete failure for this provider; advance to next
-        type Call2Streamed = { streamed: true; inputTokens: number; outputTokens: number; timedOut?: boolean; stopReason?: string };
+        // ⚠️ `refusal` travels as a VALUE, never a throw. The `.catch()` at the
+        // call site below turns any rejection into `null`, so a rethrown
+        // self-refusal would be silently swallowed and the guard would be a
+        // no-op — guard added, swallow point untouched.
+        type Call2Streamed = { streamed: true; inputTokens: number; outputTokens: number; timedOut?: boolean; stopReason?: string; refusal?: unknown };
         type Call2NonStreamed = { content: string; inputTokens: number; outputTokens: number };
         let call2Promise: Promise<Call2Streamed | Call2NonStreamed | null>;
         if (haveCall2) {
@@ -1207,6 +1359,8 @@ export class AIService implements OnModuleInit {
         } else if (streamCall2Enabled) {
           // New path: stream Call 2 in parallel with Call 1
           call2Promise = this._streamV2Call2Loop({
+            userId: opts.userId,
+            readingId: opts.readingId,
             providerConfig,
             systemPrompt,
             userPromptCall2,
@@ -1264,12 +1418,27 @@ export class AIService implements OnModuleInit {
             let yieldedAny = false;
             const call1Controller = new AbortController();
             if (externalControllers) externalControllers.add(call1Controller);
-            const call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
-            pendingTimeouts.add(call1Timeout);
+            // #8 — armed when the S1 slot is HELD, not here. Arming before the
+            // call charged up to QUEUE_TIMEOUT_MS (15s) of queueing against the
+            // provider's own budget. `callProviderWithTimeout` already worked
+            // this way; the streaming path did not.
+            let call1Timeout: ReturnType<typeof setTimeout> | undefined;
+            const armCall1Timeout = () => {
+              call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
+              pendingTimeouts.add(call1Timeout);
+            };
 
             try {
               const streamGen = this.streamProvider(
                 providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
+                undefined,
+                {
+                  route: `stream:${readingType}:call1`,
+                  userId: opts.userId,
+                  readingId: opts.readingId,
+                  readingType,
+                },
+                armCall1Timeout,
               );
 
               for await (const chunk of streamGen) {
@@ -1312,6 +1481,12 @@ export class AIService implements OnModuleInit {
               call1Err = undefined;
               break;
             } catch (err) {
+              // ⚠️ Capture and fall through — do NOT break the provider loop from
+              // here. `call2Promise` was created before Call 1 ran and is only
+              // awaited below; breaking here jumps past that await, so its token
+              // accounting and `call_complete` never happen while its sections
+              // survive by reference. The loop exit is after the Call 2 await.
+              if (isSelfRefusal(err)) selfRefusal ??= err;
               call1Err = err instanceof Error ? err : new Error(String(err));
               if ((call1Err as any).name === 'AbortError') {
                 this.logger.warn(`${tag} Call 1 aborted_timeout provider=${providerConfig.provider}`);
@@ -1349,8 +1524,12 @@ export class AIService implements OnModuleInit {
               );
               await new Promise((r) => setTimeout(r, backoffMs));
             } finally {
-              clearTimeout(call1Timeout);
-              pendingTimeouts.delete(call1Timeout);
+              // May be unarmed: a refusal at the S1 gate (AI_BUSY) or a
+              // budget break means the slot was never held.
+              if (call1Timeout !== undefined) {
+                clearTimeout(call1Timeout);
+                pendingTimeouts.delete(call1Timeout);
+              }
               if (externalControllers) externalControllers.delete(call1Controller);
             }
           }
@@ -1363,6 +1542,9 @@ export class AIService implements OnModuleInit {
 
         // ============ Wait for Call 2 ============
         const call2Result = await call2Promise;
+        if (call2Result && 'refusal' in call2Result && call2Result.refusal !== undefined) {
+          selfRefusal ??= call2Result.refusal;
+        }
         if (call2Result) {
           call2TotalInputTokens += call2Result.inputTokens;
           call2TotalOutputTokens += call2Result.outputTokens;
@@ -1393,6 +1575,15 @@ export class AIService implements OnModuleInit {
           data: JSON.stringify({ call: 2 }),
           type: 'call_complete',
         } as MessageEvent);
+
+        // ⚠️ A refusal is GLOBAL (spend cap, quota, pool) — providers 2 and 3
+        // would hit the identical refusal, so trying them only burns latency
+        // before the same outcome. Placed here, after the Call 2 await and its
+        // `call_complete`, so the accounting cannot desync from the content.
+        //
+        // The `totalSoFar > 0` break below already covers the delivered case;
+        // this only changes what happens when nothing was delivered.
+        if (selfRefusal !== undefined) break;
 
         const totalSoFar = Object.keys(call1Sections).length + Object.keys(call2FixedSections).length;
         if (totalSoFar > 0) break;
@@ -1502,7 +1693,12 @@ export class AIService implements OnModuleInit {
         try {
           const refundResult = await this.creditsService.refundReadingCredit(
             readingId,
-            `ai-failed-${readingType}-call1=${call1Got}/${expectedCall1Count}-call2=${call2Got}/${expectedCall2Count}`,
+            // ⚠️ Name the refusal when we issued one. `ai-failed-…` on a spend
+            // cap or a full pool pollutes the ledger and every AI-failure-rate
+            // metric with refusals that say nothing about the provider.
+            selfRefusal !== undefined
+              ? `self-refusal:${selfRefusalCode(selfRefusal) ?? 'SELF_REFUSAL'}-${readingType}`
+              : `ai-failed-${readingType}-call1=${call1Got}/${expectedCall1Count}-call2=${call2Got}/${expectedCall2Count}`,
           );
           refunded = refundResult.refunded;
           refundedAmount = refundResult.amount;
@@ -1526,7 +1722,11 @@ export class AIService implements OnModuleInit {
           ...(status === 'failed' && {
             refunded,
             refundedAmount,
-            message: 'AI service is temporarily busy. Please try again shortly.',
+            // ⚠️ "temporarily busy" is right for AI_BUSY and WRONG for the other
+            // two: a daily allowance and a platform budget are not congestion,
+            // and telling a user to "try again shortly" when their quota is
+            // spent sends them into a loop.
+            message: selfRefusalMessage(selfRefusal),
           }),
           ...(status === 'degraded' && {
             message: 'Partial reading delivered. Click Regenerate to retry the missing sections (free).',
@@ -1574,6 +1774,10 @@ export class AIService implements OnModuleInit {
     userPromptCall2: string;
     subscriber: Subscriber<MessageEvent>;
     readingType: ReadingType;
+    /** Ob1 #12 — attribution for the Call 2 line. See `AiCallAttribution`. */
+    userId: string | null;
+    /** #19 — so Call 2 writes an `AIUsageLog` row attributable to the reading. */
+    readingId: string;
     call2FixedSections: Record<string, InterpretationSection>;
     emittedKeys: Set<string>;
     call2ExpectedKeys: string[];
@@ -1592,15 +1796,24 @@ export class AIService implements OnModuleInit {
     pendingTimeouts: Set<ReturnType<typeof setTimeout>>;
     tag: string;
     externalControllers?: Set<AbortController>;
-  }): Promise<{ streamed: true; inputTokens: number; outputTokens: number; timedOut?: boolean; stopReason?: string } | null> {
+  }): Promise<{
+    streamed: true;
+    inputTokens: number;
+    outputTokens: number;
+    timedOut?: boolean;
+    stopReason?: string;
+    /** A refusal WE issued, returned as a VALUE — see the catch below. */
+    refusal?: unknown;
+  } | null> {
     const {
-      providerConfig, systemPrompt, userPromptCall2, subscriber, readingType: _readingType,
+      providerConfig, systemPrompt, userPromptCall2, subscriber, readingType,
+      userId: attribUserId,
       call2FixedSections, emittedKeys, call2ExpectedKeys, call2Parser, fixSection,
       totalStartMs, timeoutMs, includeScore, expectedCall2Count, degradeConfig,
       pendingTimeouts, tag, externalControllers,
     } = opts;
 
-    const usageOut: { inputTokens: number; outputTokens: number; stopReason?: string } = { inputTokens: 0, outputTokens: 0 };
+    const usageOut: StreamUsageOut = { inputTokens: 0, outputTokens: 0, outputTextChars: 0 };
     const threshold = Math.floor(expectedCall2Count * degradeConfig.call2CompletionMin);
     let chunkCount = 0;
 
@@ -1615,14 +1828,25 @@ export class AIService implements OnModuleInit {
       let yieldedAny = false;
       const call2Controller = new AbortController();
       if (externalControllers) externalControllers.add(call2Controller);
-      const call2Timeout = setTimeout(() => call2Controller.abort(), timeoutMs);
-      pendingTimeouts.add(call2Timeout);
+      // #8 — see the Call 1 site: armed on slot acquisition, not before.
+      let call2Timeout: ReturnType<typeof setTimeout> | undefined;
+      const armCall2Timeout = () => {
+        call2Timeout = setTimeout(() => call2Controller.abort(), timeoutMs);
+        pendingTimeouts.add(call2Timeout);
+      };
 
       try {
         this.logger.log(`${tag} Call 2 START provider=${providerConfig.provider} attempt=${attempt}/${AI_MAX_RETRIES_PER_PROVIDER}`);
 
         const streamGen = this.streamProvider(
           providerConfig, systemPrompt, userPromptCall2, call2Controller.signal, usageOut,
+          {
+            route: `stream:${readingType}:call2`,
+            userId: attribUserId,
+            readingId: opts.readingId,
+            readingType,
+          },
+          armCall2Timeout,
         );
 
         for await (const chunk of streamGen) {
@@ -1680,6 +1904,18 @@ export class AIService implements OnModuleInit {
 
         return { streamed: true, inputTokens: usageOut.inputTokens, outputTokens: usageOut.outputTokens, stopReason: usageOut.stopReason };
       } catch (err) {
+        // ⚠️ A refusal WE issued travels back as a VALUE. Throwing would be
+        // `.catch()`ed into `null` by the caller, so the caller could never tell
+        // a refusal from an ordinary provider failure.
+        if (isSelfRefusal(err)) {
+          return {
+            streamed: true,
+            inputTokens: usageOut.inputTokens,
+            outputTokens: usageOut.outputTokens,
+            stopReason: usageOut.stopReason,
+            refusal: err,
+          };
+        }
         const e = err instanceof Error ? err : new Error(String(err));
         const extracted = Object.keys(call2FixedSections).length;
 
@@ -1734,8 +1970,11 @@ export class AIService implements OnModuleInit {
         );
         await new Promise((r) => setTimeout(r, backoffMs));
       } finally {
-        clearTimeout(call2Timeout);
-        pendingTimeouts.delete(call2Timeout);
+        // May be unarmed — see the Call 1 site.
+        if (call2Timeout !== undefined) {
+          clearTimeout(call2Timeout);
+          pendingTimeouts.delete(call2Timeout);
+        }
         if (externalControllers) externalControllers.delete(call2Controller);
       }
     }
@@ -1755,10 +1994,17 @@ export class AIService implements OnModuleInit {
   streamCareerV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    /**
+     * Ob1 #12 — REQUIRED. A streamed reading used to log `userIdHash: null`,
+     * so the most expensive generation in the app could be attributed to no
+     * account. An optional parameter would let the next caller reintroduce
+     * that silently; a required one makes it a compile error.
+     */
+    userId: string | null,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
       const externalControllers = new Set<AbortController>();
-      this._executeStreamCareerV2(calculationData, readingId, subscriber, externalControllers)
+      this._executeStreamCareerV2(calculationData, readingId, userId, subscriber, externalControllers)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -1778,6 +2024,7 @@ export class AIService implements OnModuleInit {
   private async _executeStreamCareerV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    userId: string | null,
     subscriber: Subscriber<MessageEvent>,
     externalControllers?: Set<AbortController>,
   ) {
@@ -1786,6 +2033,7 @@ export class AIService implements OnModuleInit {
     await this._executeStreamV2Common({
       calculationData,
       readingId,
+      userId,
       subscriber,
       readingType: ReadingType.CAREER,
       promptsBuilder: () => this.buildCareerV2Prompts(calculationData),
@@ -1901,14 +2149,9 @@ export class AIService implements OnModuleInit {
           }
 
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: fixed1.sections, summary: fixed1.summary },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r1.inputTokens,
               outputTokens: r1.outputTokens,
-              totalTokens: r1.inputTokens + r1.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -1925,14 +2168,9 @@ export class AIService implements OnModuleInit {
           sections = { ...sections, ...fixed2.sections };
 
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r2.inputTokens,
               outputTokens: r2.outputTokens,
-              totalTokens: r2.inputTokens + r2.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -1945,8 +2183,7 @@ export class AIService implements OnModuleInit {
         const deterministic = (enhancedInsights ? deepCamelCase(enhancedInsights) : {}) as Record<string, unknown>;
 
         const totalCost =
-          totalInputTokens * providerConfig.costPerInputToken +
-          totalOutputTokens * providerConfig.costPerOutputToken;
+          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -1969,7 +2206,7 @@ export class AIService implements OnModuleInit {
             inputTokens: totalInputTokens,
             outputTokens: totalOutputTokens,
             totalTokens: totalInputTokens + totalOutputTokens,
-            estimatedCostUsd: Math.round(totalCost * 1_000_000) / 1_000_000,
+            estimatedCostUsd: totalCost,
           },
           latencyMs,
           isCacheHit: false,
@@ -2006,11 +2243,18 @@ export class AIService implements OnModuleInit {
   streamAnnualV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    /**
+     * Ob1 #12 — REQUIRED. A streamed reading used to log `userIdHash: null`,
+     * so the most expensive generation in the app could be attributed to no
+     * account. An optional parameter would let the next caller reintroduce
+     * that silently; a required one makes it a compile error.
+     */
+    userId: string | null,
     targetYear?: number,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
       const externalControllers = new Set<AbortController>();
-      this._executeStreamAnnualV2(calculationData, readingId, subscriber, targetYear, externalControllers)
+      this._executeStreamAnnualV2(calculationData, readingId, userId, subscriber, targetYear, externalControllers)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -2030,6 +2274,7 @@ export class AIService implements OnModuleInit {
   private async _executeStreamAnnualV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    userId: string | null,
     subscriber: Subscriber<MessageEvent>,
     targetYear?: number,
     externalControllers?: Set<AbortController>,
@@ -2043,6 +2288,7 @@ export class AIService implements OnModuleInit {
     await this._executeStreamV2Common({
       calculationData,
       readingId,
+      userId,
       subscriber,
       readingType: ReadingType.ANNUAL,
       promptsBuilder: () => this.buildAnnualV2Prompts(calculationData),
@@ -3814,14 +4060,9 @@ export class AIService implements OnModuleInit {
           }
 
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: fixed1.sections, summary: fixed1.summary },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r1.inputTokens,
               outputTokens: r1.outputTokens,
-              totalTokens: r1.inputTokens + r1.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -3842,14 +4083,9 @@ export class AIService implements OnModuleInit {
           sections = { ...sections, ...fixed2.sections };
 
           this.logUsage(userId, readingId, providerConfig, {
-            interpretation: { sections: parsed2.sections, summary: { preview: '', full: '' } },
-            provider: providerConfig.provider,
-            model: providerConfig.model,
             tokenUsage: {
               inputTokens: r2.inputTokens,
               outputTokens: r2.outputTokens,
-              totalTokens: r2.inputTokens + r2.outputTokens,
-              estimatedCostUsd: 0,
             },
             latencyMs,
             isCacheHit: false,
@@ -3866,8 +4102,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          totalInputTokens * providerConfig.costPerInputToken +
-          totalOutputTokens * providerConfig.costPerOutputToken;
+          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -3923,9 +4158,16 @@ export class AIService implements OnModuleInit {
   streamLoveV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    /**
+     * Ob1 #12 — REQUIRED. A streamed reading used to log `userIdHash: null`,
+     * so the most expensive generation in the app could be attributed to no
+     * account. An optional parameter would let the next caller reintroduce
+     * that silently; a required one makes it a compile error.
+     */
+    userId: string | null,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
-      this._executeStreamLoveV2(calculationData, readingId, subscriber)
+      this._executeStreamLoveV2(calculationData, readingId, userId, subscriber)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -3940,6 +4182,7 @@ export class AIService implements OnModuleInit {
   private async _executeStreamLoveV2(
     calculationData: Record<string, unknown>,
     readingId: string,
+    userId: string | null,
     subscriber: Subscriber<MessageEvent>,
   ) {
     const call2ExpectedKeys = this.buildLoveV2Call2ExpectedKeys(calculationData);
@@ -3947,6 +4190,7 @@ export class AIService implements OnModuleInit {
     await this._executeStreamV2Common({
       calculationData,
       readingId,
+      userId,
       subscriber,
       readingType: ReadingType.LOVE,
       promptsBuilder: () => this.buildLoveV2Prompts(calculationData),
@@ -4554,10 +4798,7 @@ export class AIService implements OnModuleInit {
     }
 
     // Compatibility V2 uses 3 parallel AI calls — needs longer per-call timeout
-    const timeoutMs = parseInt(
-      this.configService.get<string>('AI_COMPAT_V2_TIMEOUT_MS') || '300000',  // 5 minutes
-      10,
-    );
+    const timeoutMs = this.getCompatTimeoutMs();
 
     const { systemPrompt, call1User, call2User, call3User } =
       this.buildCompatibilityRomanceV2Prompts(calculationData);
@@ -4616,14 +4857,9 @@ export class AIService implements OnModuleInit {
             readingId,
             providerConfig,
             {
-              interpretation: { sections: {}, summary: { preview: '', full: '' } },
-              provider: providerConfig.provider,
-              model: providerConfig.model,
               tokenUsage: {
                 inputTokens: r.inputTokens,
                 outputTokens: r.outputTokens,
-                totalTokens: r.inputTokens + r.outputTokens,
-                estimatedCostUsd: 0,
               },
               latencyMs,
               isCacheHit: false,
@@ -4677,8 +4913,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          totalInputTokens * providerConfig.costPerInputToken +
-          totalOutputTokens * providerConfig.costPerOutputToken;
+          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
 
         this.logger.log(
           `Compat Romance V2 generated via ${providerConfig.provider} in ${latencyMs}ms, ` +
@@ -4733,9 +4968,16 @@ export class AIService implements OnModuleInit {
   streamCompatibilityRomanceV2(
     calculationData: Record<string, unknown>,
     comparisonId: string,
+    /**
+     * Ob1 #12 — REQUIRED. A streamed reading used to log `userIdHash: null`,
+     * so the most expensive generation in the app could be attributed to no
+     * account. An optional parameter would let the next caller reintroduce
+     * that silently; a required one makes it a compile error.
+     */
+    userId: string | null,
   ): Observable<MessageEvent> {
     return new Observable((subscriber: Subscriber<MessageEvent>) => {
-      this._executeStreamCompatRomanceV2(calculationData, comparisonId, subscriber)
+      this._executeStreamCompatRomanceV2(calculationData, comparisonId, userId, subscriber)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream failed';
           subscriber.next({
@@ -4750,6 +4992,7 @@ export class AIService implements OnModuleInit {
   private async _executeStreamCompatRomanceV2(
     calculationData: Record<string, unknown>,
     comparisonId: string,
+    userId: string | null,
     subscriber: Subscriber<MessageEvent>,
   ) {
     const startTime = Date.now();
@@ -4789,10 +5032,14 @@ export class AIService implements OnModuleInit {
           let call1ChunkCount = 0;
 
           const call1Controller = new AbortController();
-          activeTimeout = setTimeout(() => {
-            this.logger.warn(`[CompatV2Stream] Call 1 TIMEOUT after ${timeoutMs}ms`);
-            call1Controller.abort();
-          }, timeoutMs);
+          // #8 — armed on S1 slot acquisition, not before. See the reading
+          // Call 1 site: queue wait must not be charged to the provider budget.
+          const armCompatCall1 = () => {
+            activeTimeout = setTimeout(() => {
+              this.logger.warn(`[CompatV2Stream] Call 1 TIMEOUT after ${timeoutMs}ms`);
+              call1Controller.abort();
+            }, timeoutMs);
+          };
 
           const call1ExtractedKeys = new Set<string>();
           const call1Keys = [...COMPAT_V2_SECTIONS.CALL1];
@@ -4801,6 +5048,13 @@ export class AIService implements OnModuleInit {
           try {
             const streamGen = this.streamProvider(
               providerConfig, systemPrompt, call1User, call1Controller.signal,
+              undefined,
+              {
+                route: 'stream:COMPATIBILITY:call1',
+                userId,
+                readingType: ReadingType.COMPATIBILITY,
+              },
+              armCompatCall1,
             );
 
             for await (const chunk of streamGen) {
@@ -4895,10 +5149,13 @@ export class AIService implements OnModuleInit {
           this.logger.log(`[CompatV2Stream] Call 2 START — elapsed=${Date.now()-startTime}ms`);
           const call2Sections: Record<string, InterpretationSection> = {};
           const call2Controller = new AbortController();
-          activeTimeout = setTimeout(() => {
-            this.logger.warn(`[CompatV2Stream] Call 2 TIMEOUT after ${timeoutMs}ms`);
-            call2Controller.abort();
-          }, timeoutMs);
+          // #8 — see Call 1 above.
+          const armCompatCall2 = () => {
+            activeTimeout = setTimeout(() => {
+              this.logger.warn(`[CompatV2Stream] Call 2 TIMEOUT after ${timeoutMs}ms`);
+              call2Controller.abort();
+            }, timeoutMs);
+          };
 
           const call2ExtractedKeys = new Set<string>();
           const call2Keys = [...COMPAT_V2_SECTIONS.CALL2];
@@ -4908,6 +5165,13 @@ export class AIService implements OnModuleInit {
           try {
             const streamGen2 = this.streamProvider(
               providerConfig, systemPrompt, call2User, call2Controller.signal,
+              undefined,
+              {
+                route: 'stream:COMPATIBILITY:call2',
+                userId,
+                readingType: ReadingType.COMPATIBILITY,
+              },
+              armCompatCall2,
             );
 
             for await (const chunk of streamGen2) {
@@ -4992,10 +5256,13 @@ export class AIService implements OnModuleInit {
           const call3Sections: Record<string, InterpretationSection> = {};
           let call3Summary: InterpretationSection = { preview: '', full: '' };
           const call3Controller = new AbortController();
-          activeTimeout = setTimeout(() => {
-            this.logger.warn(`[CompatV2Stream] Call 3 TIMEOUT after ${timeoutMs}ms`);
-            call3Controller.abort();
-          }, timeoutMs);
+          // #8 — see Call 1 above.
+          const armCompatCall3 = () => {
+            activeTimeout = setTimeout(() => {
+              this.logger.warn(`[CompatV2Stream] Call 3 TIMEOUT after ${timeoutMs}ms`);
+              call3Controller.abort();
+            }, timeoutMs);
+          };
 
           const call3ExtractedKeys = new Set<string>();
           const call3Keys = [...COMPAT_V2_SECTIONS.CALL3];
@@ -5005,6 +5272,13 @@ export class AIService implements OnModuleInit {
           try {
             const streamGen3 = this.streamProvider(
               providerConfig, systemPrompt, call3User, call3Controller.signal,
+              undefined,
+              {
+                route: 'stream:COMPATIBILITY:call3',
+                userId,
+                readingType: ReadingType.COMPATIBILITY,
+              },
+              armCompatCall3,
             );
 
             for await (const chunk of streamGen3) {
@@ -5787,7 +6061,14 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal?: AbortSignal,
-    usageOut?: { inputTokens: number; outputTokens: number },
+    usageOut?: StreamUsageOut,
+    attribution?: AiCallAttribution,
+    /**
+     * #8 — invoked once the S1 slot is HELD, immediately before the upstream
+     * call. Arm abort timeouts here, not before calling this method: queue wait
+     * would otherwise be charged against the provider's own budget.
+     */
+    onSlotAcquired?: () => void,
   ): AsyncGenerator<string> {
     // `usageOut` is a mutable ref populated by the underlying stream. On NORMAL
     // stream completion, usageOut reflects actual token usage. On ABORT or
@@ -5808,14 +6089,16 @@ export class AIService implements OnModuleInit {
 
     // Own the ref when the caller didn't supply one, so metering no longer
     // depends on every call site remembering to ask for it.
-    const usage = usageOut ?? { inputTokens: 0, outputTokens: 0 };
+    const usage: StreamUsageOut = usageOut ?? { inputTokens: 0, outputTokens: 0, outputTextChars: 0 };
     // S1 — the slot is held until the LAST token, not until first byte:
     // releasing early would let N slots admit far more than N upstream calls.
     // Delegated to `runGenerator` rather than hand-rolling acquire/finally: the
     // hand-rolled version meant the governor's own release-on-abandon tests
     // covered a method production never called. Same behaviour, one owner.
     yield* this.aiGovernor.runGenerator('reading', `stream:${config.provider}`, () =>
-      this._streamProviderInner(config, systemPrompt, userPrompt, signal, usage),
+      this._streamProviderInner(
+        config, systemPrompt, userPrompt, signal, usage, attribution, onSlotAcquired,
+      ),
     );
   }
 
@@ -5828,9 +6111,39 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal: AbortSignal | undefined,
-    usage: { inputTokens: number; outputTokens: number },
+    usage: StreamUsageOut,
+    attribution?: AiCallAttribution,
+    onSlotAcquired?: () => void,
   ): AsyncGenerator<string> {
+    // #8 — S1 GATE PASSED. `runGenerator` awaits `acquire()` before invoking
+    // this factory, so reaching this line means the slot is held and the
+    // upstream call is about to begin.
+    //
+    // Callers arm their abort timeout HERE rather than before the call, so
+    // queue wait is not charged against the provider's own budget. The
+    // non-streaming path already worked this way (`callProviderWithTimeout`
+    // arms inside `aiGovernor.run`); the streaming path did not, and it is the
+    // more expensive one.
+    //
+    // Safe because queue wait is separately bounded: `acquire` rejects with
+    // AI_BUSY after QUEUE_TIMEOUT_MS (15s for `reading`), so moving the clock
+    // cannot turn a slow queue into an unbounded hang — it converts budget
+    // erosion into an honest, retryable refusal.
+    try {
+      onSlotAcquired?.();
+    } catch (err) {
+      // A caller's timer bookkeeping must never take down the generation.
+      this.logger.error(`onSlotAcquired threw: ${err}`);
+    }
     const aiStartedAt = Date.now();
+    // Ob1 — this site already emitted a line on abort (the `finally` below), but
+    // it was a `$0` line indistinguishable from a cache hit. Capturing the error
+    // lets the same line say WHICH it was.
+    let streamError: unknown;
+    // Set only when the switch runs to completion. A consumer that abandons the
+    // generator jumps straight to `finally` from the current yield, so this
+    // stays false and the ending is reported as `abandoned` rather than `ok`.
+    let completed = false;
     try {
       switch (config.provider) {
         case AIProvider.CLAUDE:
@@ -5845,6 +6158,10 @@ export class AIService implements OnModuleInit {
         default:
           throw new Error(`Unknown provider: ${config.provider}`);
       }
+      completed = true;
+    } catch (err) {
+      streamError = err;
+      throw err;
     } finally {
       // `finally` on a generator also runs when the consumer abandons it
       // (client disconnect, watchdog abort, `break`). That matters: Anthropic
@@ -5852,28 +6169,75 @@ export class AIService implements OnModuleInit {
       // completion would systematically under-count exactly the disconnect case
       // mobile produces most. Whatever the adapter managed to populate is
       // recorded; a genuine {0,0} costs nothing and is skipped by `record`.
+      // #20 — an abort never sees `message_delta`, which is the ONLY event
+      // carrying the real `output_tokens` and arrives once, near the end. Before
+      // this, a partially-streamed reading booked its output as a confident
+      // ZERO while Anthropic billed every token. Measured in production:
+      // `inTok:22222 outTok:0 costUsd:0.066666` — input only, for a call that
+      // had produced most of 14 sections (~45% under-count).
+      //
+      // ⚠️ `Math.max`, never assignment: some responses emit more than one
+      // `message_delta`, so a late abort can hold a real-but-partial count that
+      // must not be moved DOWN by the estimate.
+      const estimatedOut = estimateOutputTokensFromChars(usage.outputTextChars ?? 0);
+      if (estimatedOut > usage.outputTokens) {
+        usage.outputTokens = estimatedOut;
+        usage.outputTokensEstimated = true;
+      }
+
       void this.aiSpend.record({
         provider: config.provider,
         model: config.model,
         usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
-        context: `stream:${config.provider}`,
+        outputTokensEstimated: usage.outputTokensEstimated ?? false,
+        // Ob1 #12 — the route was `stream:CLAUDE` for every streamed call, so
+        // Call 1 and Call 2 of a reading, and all three of a compat reveal,
+        // were indistinguishable. The fallback keeps the old shape for any
+        // site that has not been threaded.
+        context: attribution?.route ?? `stream:${config.provider}`,
         durationMs: Date.now() - aiStartedAt,
-        // ⚠️ Ob1 — no userId, and this one IS a gap rather than a choice.
-        //
-        // `logUsage` (which does have it) sits on the NON-streaming methods:
-        // `generate*V2Interpretation`. The streaming entry points —
-        // `_executeStream*V2` and `streamCompatibilityRomanceV2` — reach the
-        // provider through here instead, and the two sets are disjoint. So a
-        // STREAMED reading, the most expensive generation in the app, logs
-        // `userIdHash: null`.
-        //
-        // Not fixed here because the id would have to be threaded through five
-        // public signatures, `_executeStreamV2Common`'s opts and `streamProvider`
-        // — a large diff through the riskiest file in the repo for one log
-        // field. It is also not the only answer to "which account is spending":
-        // S4's per-user quota counters cover reading generation, and Ob2's
-        // `/api/admin/ops` ranks them. Revisit if that proves insufficient.
+        // ⚠️ Reported through `record()`, not `recordFailure()`, precisely
+        // BECAUSE a partially-streamed abort has real usage — Anthropic bills
+        // the tokens produced before the abort. Marking the outcome must not
+        // stop that spend being counted.
+        outcome:
+          streamError !== undefined ? 'error' : completed ? 'ok' : 'abandoned',
+        errorKind: streamError === undefined ? null : classifyAiError(streamError),
+        // Ob1 #12 — threaded from the five public stream entry points, whose
+        // `userId` parameter is REQUIRED precisely so a new streaming caller
+        // cannot reintroduce the `userIdHash: null` this closed. Hashed at the
+        // log boundary; the raw id never reaches the line.
+        userId: attribution?.userId ?? null,
       });
+
+      // #19 — the DB row `/admin/ai-costs` reads. `record()` above moves the
+      // Redis counter and emits the Ob1 line; neither is that table, so the
+      // streamed path — the most expensive in the app — was absent from the
+      // dashboard entirely.
+      //
+      // ⚠️ NOT `logUsage()`: that calls `record()` too, which would double-count
+      // this call against the daily cap. Only the DB half belongs here.
+      //
+      // ⚠️ The row is priced by `persistUsageRow` (via `priceOrZero`), NOT by
+      // awaiting `record()`'s return value. `record()` here is a deliberate
+      // fire-and-forget `void` inside a generator's `finally`, and awaiting it
+      // would change when the generator settles. Both end up in the same
+      // `estimateCostUsd`, which is the point.
+      if (attribution?.readingType || attribution?.readingId) {
+        void this.persistUsageRow({
+          userId: attribution.userId,
+          readingId: attribution.readingId,
+          readingType: attribution.readingType,
+          provider: config.provider,
+          model: config.model,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          // F4 — the same fact the AI-CALL line carries as `outEst`, so the
+          // dashboard can eventually tell inferred spend from measured.
+          outputTokensEstimated: usage.outputTokensEstimated ?? false,
+          latencyMs: Date.now() - aiStartedAt,
+        });
+      }
     }
   }
 
@@ -5917,7 +6281,7 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal?: AbortSignal,
-    usageOut?: { inputTokens: number; outputTokens: number; stopReason?: string },
+    usageOut?: StreamUsageOut,
   ): AsyncGenerator<string> {
     if (!this.claudeClient) {
       const { createAnthropicClient } = await import('./anthropic-client');
@@ -5945,6 +6309,10 @@ export class AIService implements OnModuleInit {
         'delta' in event &&
         event.delta.type === 'text_delta'
       ) {
+        // #20 — the abort-survivable output signal. See StreamUsageOut.
+        if (usageOut) {
+          usageOut.outputTextChars = (usageOut.outputTextChars ?? 0) + event.delta.text.length;
+        }
         yield event.delta.text;
       } else if (event.type === 'message_delta' && usageOut) {
         const u = (event as any).usage;
@@ -5992,7 +6360,7 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal?: AbortSignal,
-    usageOut?: { inputTokens: number; outputTokens: number },
+    usageOut?: StreamUsageOut,
   ): AsyncGenerator<string> {
     if (!this.openaiClient) {
       const { default: OpenAI } = await import('openai');
@@ -6021,6 +6389,11 @@ export class AIService implements OnModuleInit {
       }
       const text = chunk.choices[0]?.delta?.content;
       if (text) {
+        // #20 — count on EVERY provider, not just Claude. The fallback chain is
+        // used precisely when things are going wrong, which is when aborts are
+        // most likely; counting only on the happy-path provider would leave the
+        // under-count exactly where it hurts.
+        if (usageOut) usageOut.outputTextChars = (usageOut.outputTextChars ?? 0) + text.length;
         yield text;
       }
     }
@@ -6104,7 +6477,7 @@ export class AIService implements OnModuleInit {
     systemPrompt: string,
     userPrompt: string,
     signal?: AbortSignal,
-    usageOut?: { inputTokens: number; outputTokens: number },
+    usageOut?: StreamUsageOut,
   ): AsyncGenerator<string> {
     if (!this.geminiAI) {
       const { GoogleGenerativeAI } = await import('@google/generative-ai');
@@ -6128,6 +6501,8 @@ export class AIService implements OnModuleInit {
       }
       const text = chunk.text();
       if (text) {
+        // #20 — see streamGPT.
+        if (usageOut) usageOut.outputTextChars = (usageOut.outputTextChars ?? 0) + text.length;
         yield text;
       }
     }
@@ -7549,7 +7924,24 @@ export class AIService implements OnModuleInit {
     userId: string | undefined,
     readingId: string | undefined,
     config: ProviderConfig,
-    result: AIGenerationResult,
+    /**
+     * ⚠️ Deliberately NARROWER than `AIGenerationResult`.
+     *
+     * It used to take the whole result, whose `tokenUsage.estimatedCostUsd` is a
+     * required `number` — so nine call sites had to supply one, and every one of
+     * them hardcoded `0`. The row is priced from `model` + tokens now, and
+     * narrowing the type is what makes that invariant COMPILER-ENFORCED rather
+     * than dependent on a source test nobody runs.
+     *
+     * It also drops `interpretation`, `provider` and `model`, which this method
+     * never read — the compat site was building an empty `interpretation`
+     * literal purely to satisfy the wider type.
+     */
+    result: {
+      tokenUsage: { inputTokens: number; outputTokens: number };
+      latencyMs: number;
+      isCacheHit?: boolean;
+    },
     readingType?: ReadingType,
   ) {
     // S2 — the spend counter the breaker reads. Recorded here because every
@@ -7571,19 +7963,109 @@ export class AIService implements OnModuleInit {
       userId,
     });
 
+    await this.persistUsageRow({
+      userId,
+      readingId,
+      readingType,
+      provider: config.provider,
+      model: config.model,
+      inputTokens: result.tokenUsage.inputTokens,
+      outputTokens: result.tokenUsage.outputTokens,
+      latencyMs: result.latencyMs,
+      isCacheHit: result.isCacheHit,
+    });
+  }
+
+  /**
+   * Write one `AIUsageLog` row — the table `/admin/ai-costs` reads.
+   *
+   * ## Why this is separate from `logUsage` (#19)
+   *
+   * `logUsage` does TWO things: `aiSpend.record()` (the Redis counter the
+   * breaker reads, plus the Ob1 line) and this DB row. The streaming path
+   * already calls `record()` directly, so calling `logUsage` from there would
+   * DOUBLE-COUNT spend against the cap. It needs the DB half alone.
+   *
+   * Before this split, `_executeStreamV2Common` wrote no row at all, so the
+   * dashboard omitted the most expensive path in the app while showing 1,383
+   * retained load-test fabrications (#17) — close to the inverse of reality.
+   *
+   * Never throws: every caller treats usage logging as best-effort, and losing
+   * a metrics row must not fail a paid reading.
+   */
+  /**
+   * The only place `AIService` computes a cost. Never throws, never returns a
+   * non-finite value.
+   *
+   * (`AiSpendService.record` computes one too, and must — it is the breaker's
+   * path and cannot depend on `AIService`.)
+   *
+   * ⚠️ The post-fix property is ONE CALCULATION, TWO REPRESENTATIONS — not
+   * equality. `record()` increments Redis with the UNROUNDED result, and that is
+   * deliberate: rounding there to "make them agree" would change what the
+   * breaker counts. The drift is bounded at 5e-7 per call, and
+   * `AIUsageLog.costUsd` is `Decimal(10,6)`, which rounds anyway.
+   *
+   * ⚠️ `Number.isFinite` is checked BEFORE the rounding. `Math.round(NaN)` is
+   * `NaN`, and Prisma rejects that for a `Decimal` column — from inside the
+   * caller's `create`, i.e. past the try below, so the ROW would be lost. Token
+   * counts are the part that cannot be recomputed later; a $0 row that says so
+   * in the log can be repaired.
+   */
+  private priceOrZero(model: string, inputTokens: number, outputTokens: number): number {
+    let priced = 0;
+    try {
+      priced = this.aiSpend.estimateCostUsd(model, { inputTokens, outputTokens });
+    } catch (err) {
+      // ⚠️ Name the likely cause. In a test environment this is almost always an
+      // `aiSpend` stub missing `estimateCostUsd` rather than a real pricing
+      // failure, and the two need completely different fixes.
+      this.logger.error(
+        `Failed to price (${model}) — typeof estimateCostUsd=` +
+          `${typeof this.aiSpend?.estimateCostUsd}: ${err}`,
+      );
+    }
+    if (!Number.isFinite(priced)) return 0;
+    return Math.round(priced * 1_000_000) / 1_000_000;
+  }
+
+  private async persistUsageRow(row: {
+    userId?: string | null;
+    readingId?: string | null;
+    readingType?: ReadingType | null;
+    provider: AIProvider | string;
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    latencyMs: number;
+    isCacheHit?: boolean;
+    /**
+     * #20 / F4 — the output token count was ESTIMATED from streamed characters
+     * because the stream aborted before `message_delta`, so `costUsd` is
+     * inferred rather than measured.
+     *
+     * ⚠️ Only the streaming path can set this. `logUsage`'s narrowed parameter
+     * deliberately has no such field: the non-streaming path never estimates,
+     * and widening that type would undo what D1 narrowed it for.
+     */
+    outputTokensEstimated?: boolean;
+    // costUsd — REMOVED. Priced here, from `model` + tokens, so a caller cannot
+    // supply a wrong one. Nine of them used to hardcode `0`.
+  }): Promise<void> {
     try {
       await this.prisma.aIUsageLog.create({
         data: {
-          userId,
-          readingId,
-          readingType: readingType ?? null,
-          aiProvider: config.provider,
-          aiModel: config.model,
-          inputTokens: result.tokenUsage.inputTokens,
-          outputTokens: result.tokenUsage.outputTokens,
-          costUsd: result.tokenUsage.estimatedCostUsd,
-          latencyMs: result.latencyMs,
-          isCacheHit: result.isCacheHit,
+          userId: row.userId ?? null,
+          readingId: row.readingId ?? null,
+          readingType: row.readingType ?? null,
+          aiProvider: row.provider as AIProvider,
+          aiModel: row.model,
+          inputTokens: row.inputTokens,
+          outputTokens: row.outputTokens,
+          costUsd: this.priceOrZero(row.model, row.inputTokens, row.outputTokens),
+          outputTokensEstimated: row.outputTokensEstimated ?? false,
+          latencyMs: row.latencyMs,
+          isCacheHit: row.isCacheHit ?? false,
         },
       });
     } catch (err) {

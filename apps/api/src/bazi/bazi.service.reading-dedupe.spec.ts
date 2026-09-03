@@ -15,6 +15,9 @@ import { ShutdownService } from '../common/shutdown.service';
  * NOT to the AI cache. The AI cache is GLOBAL — keying on it would hand back a
  * different user's row.
  */
+/** Stand-in for `AIService.getMaxStreamedGenerationMs()` (budget + one call timeout). */
+const MOCK_GENERATION_BOUND_MS = 1_200_000;
+
 describe('BaziService.createReading — dedupe', () => {
   const USER_ID = 'user-1';
   const PROFILE_ID = 'profile-1';
@@ -52,6 +55,10 @@ describe('BaziService.createReading — dedupe', () => {
     };
     const ai = {
       generateBirthDataHash: jest.fn().mockReturnValue('hash-1'),
+      // The in-flight window is DERIVED from this bound — see
+      // `bazi.service.generation-lock-ttl.spec.ts` for why a per-call timeout
+      // is not one. The mock must supply it or the branch throws.
+      getMaxStreamedGenerationMs: () => MOCK_GENERATION_BOUND_MS,
       getCachedInterpretation,
       generateLifetimeV2Interpretation: jest.fn().mockResolvedValue({
         interpretation: {}, provider: 'CLAUDE', model: 'm', tokenUsage: {},
@@ -63,9 +70,11 @@ describe('BaziService.createReading — dedupe', () => {
       prisma as never, redis as never,
       { get: () => 'http://engine.test' } as unknown as ConfigService,
       ai as never, { deductCredits } as never,
-      { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
+      // S4 — `check` is the NON-consuming pre-flight the streaming path runs
+      // before charging; `consume` still happens once, later, in `_setupStream`.
+      { consume: jest.fn(), check: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
       // S2 — the cap pre-check that now runs before every quota consume.
-      { assertUnderCap: jest.fn(), record: jest.fn() } as never,
+      { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never,
       new ShutdownService(),
     );
     jest
@@ -84,13 +93,20 @@ describe('BaziService.createReading — dedupe', () => {
     aiInterpretation: { sections: {} }, isDegraded: false, refundedAt: null,
     regenerationCount: 0, calculationData: {}, creditsUsed: 1,
     // Age matters now: a row with no AI is only treated as abandoned once it is
-    // older than FIRST_GENERATION_INFLIGHT_MS. Default to "just created".
+    // older than the derived in-flight window. Default to "just created".
     createdAt: new Date(),
     ...over,
   });
 
-  /** Older than FIRST_GENERATION_INFLIGHT_MS (360s) — i.e. genuinely abandoned. */
-  const longAgo = () => new Date(Date.now() - 600_000);
+  /**
+   * Comfortably past the derived in-flight window — i.e. genuinely abandoned.
+   *
+   * ⚠️ Derived, not a magic number. This was a hardcoded 600_000, chosen when
+   * the window was 360s; correcting the window upward silently turned this
+   * fixture into "still in flight" and flipped three tests. Tie it to the same
+   * bound the production code uses.
+   */
+  const longAgo = () => new Date(Date.now() - MOCK_GENERATION_BOUND_MS * 2);
 
   it('returns the existing reading and creates NO second row', async () => {
     const svc = build(completeRow());
@@ -124,7 +140,11 @@ describe('BaziService.createReading — dedupe', () => {
   ])('does NOT reuse a %s row — it creates a fresh one', async (_label, over) => {
     const svc = build(completeRow(over));
 
-    await svc.createReading('clerk-1', dto);
+    // streamDto, not dto: a V2 type requested INLINE is now refused with
+    // STREAM_REQUIRED before it can create anything, and a real client always
+    // sends stream:true for LIFETIME. What this test asserts — falls through
+    // the reuse branch, creates a fresh row — is unchanged.
+    await svc.createReading('clerk-1', streamDto);
 
     // a broken row is what regenerate/retry exists to replace, not something to serve
     expect(createReading).toHaveBeenCalled();
@@ -239,10 +259,11 @@ describe('BaziService.createReading — dedupe', () => {
     );
   });
 
+  // streamDto for the same reason as above: inline V2 is refused at admission.
   it('creates normally when the user has no prior reading', async () => {
     const svc = build(null);
 
-    await svc.createReading('clerk-1', dto);
+    await svc.createReading('clerk-1', streamDto);
 
     expect(createReading).toHaveBeenCalled();
     expect(deductCredits).toHaveBeenCalledTimes(1);

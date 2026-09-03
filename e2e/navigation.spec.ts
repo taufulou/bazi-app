@@ -6,7 +6,8 @@
 import { test, expect } from '@playwright/test';
 
 test.describe('Navigation - Public Routes', () => {
-  test('landing page → pricing', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('landing page → pricing', async ({ page }) => {
     await page.goto('/');
     // There should be some way to get to pricing (footer, nav, etc.)
     // For now, verify pricing page loads directly
@@ -14,18 +15,21 @@ test.describe('Navigation - Public Routes', () => {
     await expect(page.getByText('選擇您的方案')).toBeVisible();
   });
 
-  test('pricing → reading page via direct URL', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('pricing → reading page via direct URL', async ({ page }) => {
     await page.goto('/reading/lifetime');
     await expect(page.locator('[class*="headerTitle"]')).toContainText('八字終身運');
   });
 
-  test('pricing page → contact link exists', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('pricing page → contact link exists', async ({ page }) => {
     await page.goto('/pricing');
     const contactLink = page.getByRole('link', { name: '聯絡我們' });
     await expect(contactLink).toHaveAttribute('href', '/contact');
   });
 
-  test('reading page back button works', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('reading page back button works', async ({ page }) => {
     await page.goto('/reading/career');
     await expect(page.locator('[class*="headerTitle"]')).toContainText('八字事業詳批');
 
@@ -92,22 +96,4 @@ test.describe('Navigation - Public API Routes', () => {
     expect(response.status()).not.toBe(404);
   });
 
-  test('ZWDS calculate API route responds', async ({ request }) => {
-    const response = await request.post('/api/zwds-calculate', {
-      data: {
-        birthDate: '1990-1-15',
-        birthTime: '08:00',
-        gender: 'male',
-      },
-    });
-
-    // Should return 200 with chart data (iztro is Node.js, no external engine needed)
-    expect(response.status()).toBe(200);
-
-    const data = await response.json();
-    // Should have palaces array (ZWDS chart structure)
-    expect(data).toHaveProperty('palaces');
-    expect(Array.isArray(data.palaces)).toBe(true);
-    expect(data.palaces.length).toBe(12);
-  });
 });

@@ -11,7 +11,8 @@ import { test, expect } from '@playwright/test';
 test.describe('Responsive - Desktop (1280x720)', () => {
   test.use({ viewport: { width: 1280, height: 720 } });
 
-  test('pricing page shows plan cards in grid layout', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('pricing page shows plan cards in grid layout', async ({ page }) => {
     await page.goto('/pricing');
 
     const basic = page.getByRole('heading', { name: 'Basic' });
@@ -53,7 +54,8 @@ test.describe('Responsive - Desktop (1280x720)', () => {
 test.describe('Responsive - Tablet (768x1024)', () => {
   test.use({ viewport: { width: 768, height: 1024 } });
 
-  test('pricing page is usable on tablet', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('pricing page is usable on tablet', async ({ page }) => {
     await page.goto('/pricing');
 
     // All plans should be visible
@@ -83,7 +85,8 @@ test.describe('Responsive - Tablet (768x1024)', () => {
 test.describe('Responsive - Mobile (390x844)', () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test('pricing page is usable on mobile', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('pricing page is usable on mobile', async ({ page }) => {
     await page.goto('/pricing');
 
     // All content should be visible (may need scrolling)
@@ -95,7 +98,8 @@ test.describe('Responsive - Mobile (390x844)', () => {
     await expect(page.getByText(/最高省 33%/)).toBeVisible();
   });
 
-  test('reading page form is usable on mobile', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('reading page form is usable on mobile', async ({ page }) => {
     await page.goto('/reading/zwds-career');
 
     // Form should be visible and usable (use headerTitle to avoid duplicate text)

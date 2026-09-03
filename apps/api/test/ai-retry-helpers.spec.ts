@@ -14,7 +14,7 @@ const mockRedis: any = {};
 const mockCredits: any = {};
 
 function makeService(): AIService {
-  return new AIService(mockConfigService as any, mockPrisma, mockRedis, mockCredits, { record: jest.fn(), assertUnderCap: jest.fn() } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never);
+  return new AIService(mockConfigService as any, mockPrisma, mockRedis, mockCredits, { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never, { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never);
 }
 
 describe('AIService retry helpers', () => {
@@ -244,8 +244,6 @@ describe('AIService retry helpers', () => {
       model: 'claude-test',
       apiKey: 'sk-test',
       timeoutMs: 1000,
-      costPerInputToken: 0,
-      costPerOutputToken: 0,
     };
 
     it('returns immediately on first success', async () => {

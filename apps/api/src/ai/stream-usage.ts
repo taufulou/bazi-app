@@ -38,6 +38,16 @@ export interface StreamUsage {
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
+  /**
+   * Characters of assistant text seen so far, from `content_block_delta`.
+   *
+   * The ONLY output signal an aborted stream leaves behind — see
+   * `finalizeStreamUsage`. Counted always, so a completed stream can be used to
+   * re-calibrate `CHARS_PER_OUTPUT_TOKEN` against its authoritative count.
+   */
+  outputTextChars: number;
+  /** True when `outputTokens` came from the char estimate, not from the API. */
+  outputTokensEstimated: boolean;
 }
 
 export const emptyStreamUsage = (): StreamUsage => ({
@@ -45,7 +55,35 @@ export const emptyStreamUsage = (): StreamUsage => ({
   outputTokens: 0,
   cacheReadTokens: 0,
   cacheWriteTokens: 0,
+  outputTextChars: 0,
+  outputTokensEstimated: false,
 });
+
+/**
+ * Characters of zh-TW output per token, for the abort estimate.
+ *
+ * Calibrated against a real completed LIFETIME generation (2026-09-02):
+ * `outTok: 7667` for a 15-section Traditional Chinese reading of roughly 11.5k
+ * characters — about 1.5 chars per token. English runs nearer 4, so this
+ * OVER-estimates a latin-heavy response.
+ *
+ * ⚠️ That direction is deliberate. This number feeds a SPEND CAP, where
+ * under-counting is the dangerous error (a blind breaker during exactly the
+ * runaway it exists to stop) and over-counting merely trips it early. Combined
+ * with `Math.ceil` and the `max(observed, estimate)` rule below, the bias is
+ * mildly upward on purpose.
+ *
+ * ⚠️ It is an ESTIMATE and is flagged as one (`outputTokensEstimated`), which
+ * is what makes it auditable: `outputTextChars` is recorded on completed
+ * streams too, so the true ratio can be recomputed from real traffic and this
+ * constant re-tuned rather than trusted forever.
+ */
+export const CHARS_PER_OUTPUT_TOKEN = 1.5;
+
+export function estimateOutputTokensFromChars(chars: number): number {
+  if (!Number.isFinite(chars) || chars <= 0) return 0;
+  return Math.ceil(chars / CHARS_PER_OUTPUT_TOKEN);
+}
 
 /** The SDK types the cache counters as `number | null`, so null must be a
  *  first-class case here rather than something the caller has to launder. */
@@ -76,16 +114,67 @@ function absorb(into: StreamUsage, usage: RawUsage | undefined): void {
  * the hot path and must never throw on an event shape this does not recognise.
  */
 export function absorbStreamUsage(event: unknown, into: StreamUsage): void {
-  const e = event as { type?: string; message?: { usage?: RawUsage }; usage?: RawUsage };
+  const e = event as {
+    type?: string;
+    message?: { usage?: RawUsage };
+    usage?: RawUsage;
+    delta?: { text?: unknown };
+  };
   if (!e || typeof e.type !== 'string') return;
   if (e.type === 'message_start') absorb(into, e.message?.usage);
   else if (e.type === 'message_delta') absorb(into, e.usage);
+  else if (e.type === 'content_block_delta' && typeof e.delta?.text === 'string') {
+    // The abort-survivable output signal. `message_delta` carries the real
+    // `output_tokens` but arrives ONCE, near the end, so an abort before it
+    // leaves only `message_start`'s token count — which is ~1.
+    into.outputTextChars += e.delta.text.length;
+  }
 }
 
 /** Prefer the authoritative final numbers when the stream completed cleanly. */
 export function mergeFinalUsage(into: StreamUsage, final: RawUsage | undefined): StreamUsage {
   absorb(into, final);
   return into;
+}
+
+/**
+ * Fill in an output figure the API never gave us.
+ *
+ * ## The bug this closes
+ *
+ * `message_delta` carries the cumulative `output_tokens` and is emitted ONCE,
+ * near the end. Abort before it — a client disconnect, a watchdog, a timeout —
+ * and the output side is recorded as a confident ZERO while Anthropic bills
+ * every token produced.
+ *
+ * Measured in production 2026-09-02 on a real reading:
+ *
+ *     ms:179998  inTok:22222  outTok:0  costUsd:0.066666
+ *
+ * 22222 x $3/1M = $0.066666 exactly — input only, for a call that had produced
+ * most of 14 sections. At a plausible ~10k output tokens the reading truly cost
+ * ~$0.34 against $0.187 booked, roughly a 45% under-count.
+ *
+ * ⚠️ The breaker is blindest exactly when spend spikes: timeouts and retries
+ * ARE the runaway case, and they are the case that under-reported.
+ *
+ * ## Why `max` rather than "estimate when no message_delta arrived"
+ *
+ * Some responses produce more than one `message_delta`, so a late abort can
+ * capture a partial cumulative count that is real but low. Taking the larger of
+ * the two is correct under either emission pattern, and can never move an
+ * authoritative number DOWN.
+ *
+ * Idempotent — safe to call twice, and safe to call after `mergeFinalUsage`,
+ * where the authoritative count normally wins.
+ */
+export function finalizeStreamUsage(u: StreamUsage): StreamUsage {
+  const estimate = estimateOutputTokensFromChars(u.outputTextChars);
+  if (estimate > u.outputTokens) {
+    u.outputTokens = estimate;
+    u.outputTokensEstimated = true;
+  }
+  return u;
 }
 
 /**

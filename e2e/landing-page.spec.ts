@@ -13,7 +13,8 @@ test.describe('Landing Page', () => {
     await page.goto('/');
   });
 
-  test('displays hero section with title and CTA', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('displays hero section with title and CTA', async ({ page }) => {
     // Main title
     await expect(page.locator('h1')).toContainText('八字命理');
 
@@ -22,7 +23,8 @@ test.describe('Landing Page', () => {
     await expect(cta).toBeVisible();
   });
 
-  test('shows Bazi feature cards', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('shows Bazi feature cards', async ({ page }) => {
     // Bazi section title
     await expect(page.getByText('八字命理分析')).toBeVisible();
 
@@ -31,7 +33,8 @@ test.describe('Landing Page', () => {
     await expect(page.getByText('流年運勢')).toBeVisible();
   });
 
-  test('shows ZWDS feature cards', async ({ page }) => {
+    // Lockdown: asserts page content on a route that now redirects to sign-in.
+  test.skip('shows ZWDS feature cards', async ({ page }) => {
     // ZWDS section should exist
     await expect(page.getByText('紫微斗數分析')).toBeVisible();
 

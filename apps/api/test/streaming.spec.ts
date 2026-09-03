@@ -44,7 +44,7 @@ describe('SSE Streaming — Phase E', () => {
       mockPrisma as any,
       mockRedis as any,
       {} as any,
-      { record: jest.fn(), assertUnderCap: jest.fn() } as never,
+      { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never,
       { run: (_p: unknown, _c: unknown, fn: () => unknown) => fn(), acquire: async () => () => undefined, runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g(), snapshot: () => ({}) } as never,
     );
   });
@@ -329,7 +329,10 @@ describe('SSE Streaming — Phase E', () => {
 
   describe('streamLifetimeV2 (Observable structure)', () => {
     it('should return an Observable', () => {
-      const result = service.streamLifetimeV2({}, 'test-reading-id');
+      // Ob1 #12 — `userId` is a REQUIRED parameter so a streamed reading can
+      // never again log `userIdHash: null`. `null` is the honest value for a
+      // structural test with no user.
+      const result = service.streamLifetimeV2({}, 'test-reading-id', null);
       expect(result).toBeInstanceOf(Observable);
     });
 
@@ -348,6 +351,7 @@ describe('SSE Streaming — Phase E', () => {
           dayMaster: { element: '土', pattern: '食神格' },
         },
         'test-reading-id',
+        null,
       );
 
       const events = await firstValueFrom(obs.pipe(toArray()));

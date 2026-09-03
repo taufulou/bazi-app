@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+// Type-only: erased at runtime, so this module stays free of a Prisma import.
+import type { ReadingType } from '@prisma/client';
 
 /**
  * Ob1 — one structured line per AI call.
@@ -39,6 +41,119 @@ export function hashUserId(userId: string | null | undefined): string | null {
   return createHash('sha256').update(userId).digest('hex').slice(0, HASH_CHARS);
 }
 
+/**
+ * Did the provider call produce a result, or die?
+ *
+ * Ob1 originally had no such field, and the gap was not cosmetic: a call that
+ * failed before its first response reached `record()` at some sites and not at
+ * others, so the most expensive path in the system could fail completely and
+ * emit NOTHING. Where a line did appear it was a `$0` one, indistinguishable
+ * from a cache hit. One field makes "it ran and cost nothing" and "it died"
+ * different rows.
+ *
+ * `'abandoned'` is its own value rather than folded into either. A consumer
+ * that walks away — client disconnect, watchdog abort, a `break` — abandons the
+ * generator WITHOUT throwing, so it is not an `'error'`; but it is also not a
+ * completed call, and the code's own note calls it "the commonest ending on
+ * mobile". Labelling the most frequent non-success ending `'ok'` would make
+ * this field actively misleading, which is worse than not having it.
+ */
+export type AiCallOutcome = 'ok' | 'error' | 'abandoned';
+
+/**
+ * Coarse classification of a provider failure, for the `errorKind` field.
+ *
+ * ⚠️ It NEVER includes `error.message`. A provider error can echo request
+ * content back, and these requests carry birth data — the four pillars are a
+ * reversible encoding of a birth datetime, so they are personal data and must
+ * not reach a third-party log store (see the domain PII rule in CLAUDE.md).
+ * Error NAME, numeric status and our own typed codes are all non-identifying;
+ * the message is not, so it is dropped rather than filtered.
+ *
+ * The name is also stripped to `[A-Za-z0-9_]` — an error name is attacker-
+ * influenceable in principle, and this line is grepped by operators.
+ */
+export function classifyAiError(err: unknown): string {
+  // ⚠️ TOTAL by construction. Every call site evaluates this as an ARGUMENT —
+  // outside the `try` that makes `logCall` safe — and two of them sit in a
+  // `finally`, where a throw would REPLACE the original exception with a
+  // logging error. Same reasoning as the nested catch in `logCall`: a helper
+  // whose job is to make failures visible must not be able to create one.
+  // Reading `.name` or `.getResponse()` off an arbitrary thrown value can run
+  // a getter, and a getter can throw.
+  try {
+    return classifyAiErrorInner(err);
+  } catch {
+    return 'unclassifiable';
+  }
+}
+
+function classifyAiErrorInner(err: unknown): string {
+  if (!(err instanceof Error)) return 'unknown';
+
+  // Our OWN refusals, which are not provider failures at all. Distinguishing
+  // them matters: "Anthropic is down" and "we shed load" want different
+  // responses, and both otherwise land in the 5xx bucket because NestJS
+  // HttpException exposes a numeric `status` (the same trap documented on
+  // `isRetryableError`).
+  const body = (err as { getResponse?: () => unknown }).getResponse?.();
+  const code =
+    body && typeof body === 'object'
+      ? (body as { code?: unknown }).code
+      : undefined;
+  if (typeof code === 'string' && code) return sanitiseKind(code);
+
+  if (err.name === 'AbortError' || /abort/i.test(err.name)) return 'abort';
+
+  const status = (err as { status?: unknown }).status;
+  if (typeof status === 'number') {
+    if (status === 429) return 'rate_limit';
+    if (status === 529) return 'overloaded';
+    if (status >= 500 && status < 600) return `server_${status}`;
+    if (status >= 400 && status < 500) return `client_${status}`;
+  }
+
+  return sanitiseKind(err.name || 'error');
+}
+
+function sanitiseKind(raw: string): string {
+  const cleaned = raw.replace(/[^A-Za-z0-9_]/g, '_').slice(0, 40);
+  return cleaned || 'error';
+}
+
+/**
+ * Who a provider call is FOR, and what it is. Ob1 attribution.
+ *
+ * Both fields fix the same defect from opposite ends. A streamed reading — the
+ * most expensive generation in the app — used to log `userIdHash: null` and a
+ * route of `stream:CLAUDE`, so its lines could be attributed to neither an
+ * ACCOUNT nor a CALL. Two V2 calls per reading and three per compatibility
+ * reveal all rendered identically, which made "why is the bill up" unanswerable
+ * on precisely the path that dominates the bill.
+ *
+ * Carried as one object rather than two positional parameters because the two
+ * are always known together, at the same place, and a bare trailing `string`
+ * next to an existing optional `AbortSignal` is easy to pass in the wrong slot.
+ */
+export interface AiCallAttribution {
+  /** Ob1 `route` — surface, operation and which call, e.g. `stream:LIFETIME:call1`. */
+  route: string;
+  /** RAW id. Hashed at the log boundary by `hashUserId`; never written raw. */
+  userId: string | null;
+  /**
+   * #19 — what an `AIUsageLog` row needs, so the streaming path can write one.
+   *
+   * `/admin/ai-costs` reads that table, and `_executeStreamV2Common` never
+   * called `logUsage`, so the most expensive path in the app was absent from
+   * the dashboard entirely — only the Redis counter moved.
+   *
+   * Optional because the log line itself does not need them; a site that omits
+   * them still gets full Ob1 attribution and simply writes no DB row.
+   */
+  readingId?: string | null;
+  readingType?: ReadingType | null;
+}
+
 export interface AiCallLogFields {
   /** Surface + operation, e.g. `chat:stream`, `reading:LIFETIME`. */
   route: string;
@@ -55,6 +170,20 @@ export interface AiCallLogFields {
   /** Account-level gauge — see `anthropic-rate-limit.ts`, NOT per-call. */
   rlOutRemaining: number | null;
   rlOutReset: string | null;
+  /** `'error'` when the call died. Defaults to `'ok'` so existing sites are unchanged. */
+  outcome?: AiCallOutcome;
+  /** Set only when `outcome` is `'error'`. See `classifyAiError` — never a message. */
+  errorKind?: string | null;
+  /**
+   * #20 — `outTok` is an ESTIMATE from streamed characters, not a figure the
+   * API returned. True only for an aborted stream, which never sees the
+   * `message_delta` carrying the real count.
+   *
+   * ⚠️ Emitted always, including `false`. A field that appears only in the
+   * unusual case cannot be filtered on, and `outEst:true` is exactly the query
+   * an operator needs to size how much of the day's spend is inferred.
+   */
+  outTokEstimated?: boolean;
 }
 
 /**
@@ -88,5 +217,11 @@ export function formatAiCallLog(f: AiCallLogFields): string {
     userIdHash: f.userIdHash,
     rlOutRemaining: f.rlOutRemaining,
     rlOutReset: f.rlOutReset,
+    // Always emitted, including the `'ok'` case: a field that appears only on
+    // failure cannot be filtered on, and `outcome!=ok` is the query an operator
+    // actually wants.
+    outcome: f.outcome ?? 'ok',
+    errorKind: f.errorKind ?? null,
+    outEst: f.outTokEstimated ?? false,
   })}`;
 }

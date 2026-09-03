@@ -7,6 +7,27 @@
  */
 import { test, expect } from '@playwright/test';
 
+/**
+ * ⚠️ SKIPPED — this file's premise was removed, not broken.
+ *
+ * Full lockdown ended anonymous access. This file visits /pricing and /reading/*, so a
+ * signed-out run lands on the sign-in page and every assertion here runs
+ * against the WRONG PAGE, failing with missing headings and absent locators —
+ * which reads as a UI regression rather than "this needs an account".
+ *
+ * ⚠️ MEASURED, not assumed: every test in this file fails for that reason.
+ * Files whose tests still PASS (they drive mocked API routes and never look at
+ * the page) are deliberately left alone.
+ *
+ * Skipped rather than deleted: the pages still exist for signed-in users, so
+ * this is coverage awaiting an authenticated fixture. The `__e2e_auth` cookie
+ * is NOT that fixture — it covers `/reading/*` only.
+ *
+ * The behaviour that REPLACED this: `e2e/signed-out-lockdown.spec.ts`.
+ */
+test.skip(true, 'anonymous access removed by full lockdown — see e2e/signed-out-lockdown.spec.ts');
+
+
 test.describe('Insufficient Credits Modal - UI Behavior', () => {
   // These tests verify the modal structure by navigating to a reading page
   // and examining available UI elements. The actual modal trigger requires
