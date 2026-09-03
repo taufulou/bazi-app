@@ -1126,6 +1126,16 @@ export class BaziService {
       // S2 before S4 — see the note at the first site: a refusal we issue must
       // not spend the user's daily allowance. Cheap pre-read; the generation
       // layer's check stays authoritative.
+      //
+      // ⚠️ This is NOT a duplicate of the pre-flight in `createReading`, and the
+      // two must both stay. That one exists so a refusal cannot land AFTER the
+      // charge (the charged-then-refused bug); this one is authoritative,
+      // because the verdict taken at create time can be stale by the time the
+      // client opens the stream. Read the reasoning there before removing
+      // either — deleting the pre-flight reintroduces charging for a reading we
+      // then refuse. A streamed reading performs 3-4 cap reads in total
+      // (`create`, `stream`, and one per `streamProvider` call — Call 1 and
+      // Call 2 each); each is a single Redis GET.
       await this.aiSpend.assertUnderCap('reading:stream');
       await this.quota.consume('reading', user.id);
 

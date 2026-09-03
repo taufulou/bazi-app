@@ -107,6 +107,51 @@ export function planRepair<T extends RepairableRow>(
   return { priced, unpriced, willWrite, costs, totalUsd };
 }
 
+/** Minimal Prisma surface the write loop needs, so a test can supply a double. */
+export interface UsageLogWriter {
+  aIUsageLog: { update(args: { where: { id: string }; data: { costUsd: number } }): Promise<unknown> };
+}
+
+/**
+ * Apply the plan. Returns how many rows were written.
+ *
+ * ⚠️ Exported, and the module's auto-run is guarded, ONLY so this loop is
+ * testable. `--allow-fallback-price` is the single flag that permits an
+ * irreversible write at the most-expensive fallback rate, and while the loop
+ * lived inline the best available check was a source assertion — which is what
+ * the finding objected to. A refactor dropping `willWrite` back to `priced`
+ * must fail a test, not a grep.
+ *
+ * ⚠️ One row at a time: `updateMany` cannot set a per-row computed value.
+ * O(rows), which is what the `--max-rows` cap is for.
+ *
+ * ⚠️ On a mid-loop throw, report how far it got BEFORE rethrowing. The run is
+ * one-way and partially applied, so "which rows are done" is the only thing the
+ * operator needs, and a bare stack trace does not say it.
+ */
+export async function executeRepair<T extends RepairableRow>(
+  prisma: UsageLogWriter,
+  willWrite: T[],
+  costs: Map<string, number>,
+): Promise<number> {
+  let written = 0;
+  try {
+    for (const r of willWrite) {
+      await prisma.aIUsageLog.update({
+        where: { id: r.id },
+        data: { costUsd: costs.get(r.id) ?? 0 },
+      });
+      written++;
+    }
+  } catch (err) {
+    console.error(`\n⚠️ FAILED after repairing ${written} of ${willWrite.length} rows.`);
+    console.error('   The repaired ones now have costUsd > 0 and no longer match the');
+    console.error('   predicate; the rest are untouched at $0, so a re-run continues.');
+    throw err;
+  }
+  return written;
+}
+
 const argv = process.argv.slice(2);
 const has = (f: string) => argv.includes(`--${f}`);
 const val = (f: string): string | undefined => {
@@ -166,6 +211,9 @@ async function main(): Promise<void> {
   //
   // The constructor deps are unused by the three pricing methods (verified), so
   // they are not wired.
+  // F7 — computed ONCE. The truncation message's job is to state the cap that
+  // was actually applied, so it must not be able to drift from `take`.
+  const cap = maxRows(val('max-rows'));
   const pricer = new AiSpendService(null as never, null as never);
   const prisma = new PrismaClient();
 
@@ -190,12 +238,32 @@ async function main(): Promise<void> {
     const rows = await prisma.aIUsageLog.findMany({
       where,
       select: { id: true, aiModel: true, inputTokens: true, outputTokens: true },
-      take: maxRows(val('max-rows')),
+      take: cap,
       orderBy: { createdAt: 'asc' },   // stable, so a re-run resumes predictably
     });
     console.log(`matched:  ${matching} row(s)`);
+
+    // ⚠️ F5 — report ids that matched NOTHING, and do NOT shape-check them.
+    //
+    // The review proposed a uuid guard. `ai_usage_log.id` is **TEXT**, not
+    // `uuid` (`migrations/20260206155710_init/migration.sql:36`; the model is
+    // `id String @id @default(uuid())` with no `@db.Uuid`), so a malformed id
+    // produces no Prisma error at all — there is nothing to catch — and a
+    // format check could REJECT an id the table genuinely contains, on the
+    // recovery path, which is used when something has already gone wrong.
+    //
+    // The real gap is that `findMany` silently returns fewer rows, so a typo
+    // reads as success. Name the absentees instead.
+    if (ids) {
+      const found = new Set(rows.map((r) => r.id));
+      const missing = ids.filter((id) => !found.has(id));
+      if (missing.length) {
+        console.log(`⚠️ ${missing.length} requested id(s) matched no row:`);
+        for (const m of missing) console.log(`     ${m}`);
+      }
+    }
     if (matching > rows.length) {
-      console.log(`⚠️ TRUNCATED — this run covers ${rows.length} of them (--max-rows ${maxRows(val('max-rows'))}).`);
+      console.log(`⚠️ TRUNCATED — this run covers ${rows.length} of them (--max-rows ${cap}).`);
       console.log(`   ${matching - rows.length} will remain. Re-run to continue; the predicate still`);
       console.log('   reaches them because an unrepaired row is still $0.');
     }
@@ -221,13 +289,24 @@ async function main(): Promise<void> {
     if (unpriced.length) {
       console.log('\n  ⚠️ SKIPPED — no PRICE_TABLE entry, so pricing them would use the');
       console.log('     most-expensive fallback rate and overstate them irreversibly:');
-      for (const [m, n] of Object.entries(
-        unpriced.reduce<Record<string, number>>((a, r) => ((a[r.aiModel] = (a[r.aiModel] ?? 0) + 1), a), {}),
-      )) {
-        console.log(`       ${String(n).padStart(5)}  ${m}`);
+      // F3 — under `--rows` the operator asked about SPECIFIC rows, so an
+      // aggregate by model does not answer the question they asked. Itemise.
+      if (ids) {
+        for (const r of unpriced) console.log(`       ${r.id}  ${r.aiModel}`);
+        console.log('     Pass --allow-fallback-price to write these at the most');
+        console.log('     expensive known rate, or add the model to PRICE_TABLE and re-run.');
+        // ⚠️ `--rows` deliberately does NOT imply `--allow-fallback-price`. The
+        // recovery path is used when something has already gone wrong, which is
+        // the worst moment to widen a rule silently.
+      } else {
+        for (const [m, n] of Object.entries(
+          unpriced.reduce<Record<string, number>>((a, r) => ((a[r.aiModel] = (a[r.aiModel] ?? 0) + 1), a), {}),
+        )) {
+          console.log(`       ${String(n).padStart(5)}  ${m}`);
+        }
+        console.log('     Add the model to PRICE_TABLE and re-run — these rows are');
+        console.log('     untouched at $0, so the predicate still reaches them.');
       }
-      console.log('     Add the model to PRICE_TABLE and re-run — these rows are');
-      console.log('     untouched at $0, so the predicate still reaches them.');
     }
 
     if (has('allow-fallback-price') && unpriced.length) {
@@ -243,24 +322,7 @@ async function main(): Promise<void> {
       return;
     }
 
-    // ⚠️ One row at a time — `updateMany` cannot set a per-row computed value.
-    // O(rows), which is the point of the cap above rather than a perf concern.
-    //
-    // ⚠️ If a write throws mid-loop, report how far it got BEFORE rethrowing.
-    // The run is one-way and partially applied, so "which rows are done" is the
-    // only thing the operator needs; a bare stack trace does not say.
-    let written = 0;
-    try {
-      for (const r of willWrite) {
-        await prisma.aIUsageLog.update({ where: { id: r.id }, data: { costUsd: costOf(r) } });
-        written++;
-      }
-    } catch (err) {
-      console.error(`\n⚠️ FAILED after repairing ${written} of ${willWrite.length} rows.`);
-      console.error('   The repaired ones now have costUsd > 0 and no longer match the');
-      console.error('   predicate; the rest are untouched at $0, so a re-run continues.');
-      throw err;
-    }
+    const written = await executeRepair(prisma, willWrite, costs);
     console.log(`\nrepaired: ${written} rows`);
     console.log(`skipped:  ${rows.length - written} rows`);
     if (matching > rows.length) {
@@ -271,7 +333,11 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// ⚠️ Guarded: without this, importing the module to test `executeRepair` would
+// RUN the repair. That is why the write loop had no test before.
+if (require.main === module) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

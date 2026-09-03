@@ -264,6 +264,19 @@ model AIUsageLog {
   inputTokens  Int          @map("input_tokens")
   outputTokens Int          @map("output_tokens")
   costUsd      Decimal      @map("cost_usd") @db.Decimal(10, 6)
+  /// #20 — `outputTokens` was ESTIMATED from streamed characters because the
+  /// stream aborted before `message_delta`, so `costUsd` is inferred rather
+  /// than measured. The AI-CALL log line carries the same flag as `outEst`;
+  /// without it here, `/admin/ai-costs` cannot separate the two.
+  ///
+  /// ⚠️ `@default(false)` is safe as a backfill ONLY because the estimator has
+  /// never been deployed — before #20 an aborted stream recorded ZERO output
+  /// rather than an estimate. If #20 ever ships ahead of this column, rows
+  /// written in that window are estimated but recorded `false`.
+  ///
+  /// ⚠️ Nothing READS this yet; the dashboard change is deliberately deferred.
+  /// This exists so the distinction stops being unrecoverable.
+  outputTokensEstimated Boolean @default(false) @map("output_tokens_estimated")
   latencyMs    Int          @map("latency_ms")
   isCacheHit   Boolean      @default(false) @map("is_cache_hit")
   createdAt    DateTime     @default(now()) @map("created_at")

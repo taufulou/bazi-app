@@ -87,3 +87,28 @@ export function selfRefusalCode(err: unknown): string | null {
   }
   return null;
 }
+
+/**
+ * The message a user should see when a generation ended in a refusal WE issued.
+ *
+ * ⚠️ The three are not interchangeable. "AI service is temporarily busy" — the
+ * single message the streaming path used for every failure — is accurate for
+ * `AI_BUSY` and actively misleading for the other two: a spent daily allowance
+ * and a platform budget are not congestion, and "try again shortly" sends a
+ * user whose quota is gone into a retry loop that cannot succeed.
+ *
+ * Falls back to the busy message for a non-refusal, which keeps the existing
+ * copy for the ordinary AI-failure case.
+ */
+export function selfRefusalMessage(err: unknown): string {
+  switch (selfRefusalCode(err)) {
+    case QUOTA_EXCEEDED_CODE:
+      return 'You have reached your reading limit for today. Please try again tomorrow.';
+    case AI_SPEND_CAP_CODE:
+      return 'The service has reached its usage limit for today. Please try again later.';
+    case AI_BUSY_CODE:
+    default:
+      return 'AI service is temporarily busy. Please try again shortly.';
+  }
+}
+

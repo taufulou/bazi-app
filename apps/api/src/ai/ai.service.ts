@@ -14,7 +14,7 @@ import { AiSpendService, AI_SPEND_CAP_CODE } from './ai-spend.service';
 import { classifyAiError, type AiCallAttribution } from './ai-call-log';
 import { estimateOutputTokensFromChars } from './stream-usage';
 import { AiGovernorService, AI_BUSY_CODE } from './ai-governor.service';
-import { isSelfRefusal } from './typed-refusals';
+import { isSelfRefusal, selfRefusalCode, selfRefusalMessage } from './typed-refusals';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
 import {
   READING_PROMPTS,
@@ -1324,6 +1324,16 @@ export class AIService implements OnModuleInit {
       return autoFixCallback ? autoFixCallback(key, section, calculationData) : section;
     };
 
+    // ⚠️ A refusal WE issued (S1 spend cap / S2 quota / AI_BUSY), captured rather
+    // than thrown. Rethrowing would escape past the `finally { subscriber
+    // .complete() }` below, so the Observable wrapper's `.catch()` would call
+    // `next()` on a stopped subscriber and the user would be told NOTHING.
+    //
+    // This changes only the refund REASON and the final MESSAGE. The status
+    // machine — including `call2Critical`, which is true for every consumer —
+    // is deliberately untouched: it already refunds and nulls the row.
+    let selfRefusal: unknown;
+
     try {
       for (const providerConfig of this.providers) {
         activeProviderConfig = providerConfig;
@@ -1336,7 +1346,11 @@ export class AIService implements OnModuleInit {
         //   streaming: { streamed: true, inputTokens, outputTokens }  ← already emitted sections
         //   non-streaming: { content, inputTokens, outputTokens }     ← caller parses + emits
         //   null = complete failure for this provider; advance to next
-        type Call2Streamed = { streamed: true; inputTokens: number; outputTokens: number; timedOut?: boolean; stopReason?: string };
+        // ⚠️ `refusal` travels as a VALUE, never a throw. The `.catch()` at the
+        // call site below turns any rejection into `null`, so a rethrown
+        // self-refusal would be silently swallowed and the guard would be a
+        // no-op — guard added, swallow point untouched.
+        type Call2Streamed = { streamed: true; inputTokens: number; outputTokens: number; timedOut?: boolean; stopReason?: string; refusal?: unknown };
         type Call2NonStreamed = { content: string; inputTokens: number; outputTokens: number };
         let call2Promise: Promise<Call2Streamed | Call2NonStreamed | null>;
         if (haveCall2) {
@@ -1466,6 +1480,12 @@ export class AIService implements OnModuleInit {
               call1Err = undefined;
               break;
             } catch (err) {
+              // ⚠️ Capture and fall through — do NOT break the provider loop from
+              // here. `call2Promise` was created before Call 1 ran and is only
+              // awaited below; breaking here jumps past that await, so its token
+              // accounting and `call_complete` never happen while its sections
+              // survive by reference. The loop exit is after the Call 2 await.
+              if (isSelfRefusal(err)) selfRefusal ??= err;
               call1Err = err instanceof Error ? err : new Error(String(err));
               if ((call1Err as any).name === 'AbortError') {
                 this.logger.warn(`${tag} Call 1 aborted_timeout provider=${providerConfig.provider}`);
@@ -1521,6 +1541,9 @@ export class AIService implements OnModuleInit {
 
         // ============ Wait for Call 2 ============
         const call2Result = await call2Promise;
+        if (call2Result && 'refusal' in call2Result && call2Result.refusal !== undefined) {
+          selfRefusal ??= call2Result.refusal;
+        }
         if (call2Result) {
           call2TotalInputTokens += call2Result.inputTokens;
           call2TotalOutputTokens += call2Result.outputTokens;
@@ -1551,6 +1574,15 @@ export class AIService implements OnModuleInit {
           data: JSON.stringify({ call: 2 }),
           type: 'call_complete',
         } as MessageEvent);
+
+        // ⚠️ A refusal is GLOBAL (spend cap, quota, pool) — providers 2 and 3
+        // would hit the identical refusal, so trying them only burns latency
+        // before the same outcome. Placed here, after the Call 2 await and its
+        // `call_complete`, so the accounting cannot desync from the content.
+        //
+        // The `totalSoFar > 0` break below already covers the delivered case;
+        // this only changes what happens when nothing was delivered.
+        if (selfRefusal !== undefined) break;
 
         const totalSoFar = Object.keys(call1Sections).length + Object.keys(call2FixedSections).length;
         if (totalSoFar > 0) break;
@@ -1660,7 +1692,12 @@ export class AIService implements OnModuleInit {
         try {
           const refundResult = await this.creditsService.refundReadingCredit(
             readingId,
-            `ai-failed-${readingType}-call1=${call1Got}/${expectedCall1Count}-call2=${call2Got}/${expectedCall2Count}`,
+            // ⚠️ Name the refusal when we issued one. `ai-failed-…` on a spend
+            // cap or a full pool pollutes the ledger and every AI-failure-rate
+            // metric with refusals that say nothing about the provider.
+            selfRefusal !== undefined
+              ? `self-refusal:${selfRefusalCode(selfRefusal) ?? 'SELF_REFUSAL'}-${readingType}`
+              : `ai-failed-${readingType}-call1=${call1Got}/${expectedCall1Count}-call2=${call2Got}/${expectedCall2Count}`,
           );
           refunded = refundResult.refunded;
           refundedAmount = refundResult.amount;
@@ -1684,7 +1721,11 @@ export class AIService implements OnModuleInit {
           ...(status === 'failed' && {
             refunded,
             refundedAmount,
-            message: 'AI service is temporarily busy. Please try again shortly.',
+            // ⚠️ "temporarily busy" is right for AI_BUSY and WRONG for the other
+            // two: a daily allowance and a platform budget are not congestion,
+            // and telling a user to "try again shortly" when their quota is
+            // spent sends them into a loop.
+            message: selfRefusalMessage(selfRefusal),
           }),
           ...(status === 'degraded' && {
             message: 'Partial reading delivered. Click Regenerate to retry the missing sections (free).',
@@ -1754,7 +1795,15 @@ export class AIService implements OnModuleInit {
     pendingTimeouts: Set<ReturnType<typeof setTimeout>>;
     tag: string;
     externalControllers?: Set<AbortController>;
-  }): Promise<{ streamed: true; inputTokens: number; outputTokens: number; timedOut?: boolean; stopReason?: string } | null> {
+  }): Promise<{
+    streamed: true;
+    inputTokens: number;
+    outputTokens: number;
+    timedOut?: boolean;
+    stopReason?: string;
+    /** A refusal WE issued, returned as a VALUE — see the catch below. */
+    refusal?: unknown;
+  } | null> {
     const {
       providerConfig, systemPrompt, userPromptCall2, subscriber, readingType,
       userId: attribUserId,
@@ -1854,6 +1903,18 @@ export class AIService implements OnModuleInit {
 
         return { streamed: true, inputTokens: usageOut.inputTokens, outputTokens: usageOut.outputTokens, stopReason: usageOut.stopReason };
       } catch (err) {
+        // ⚠️ A refusal WE issued travels back as a VALUE. Throwing would be
+        // `.catch()`ed into `null` by the caller, so the caller could never tell
+        // a refusal from an ordinary provider failure.
+        if (isSelfRefusal(err)) {
+          return {
+            streamed: true,
+            inputTokens: usageOut.inputTokens,
+            outputTokens: usageOut.outputTokens,
+            stopReason: usageOut.stopReason,
+            refusal: err,
+          };
+        }
         const e = err instanceof Error ? err : new Error(String(err));
         const extracted = Object.keys(call2FixedSections).length;
 
@@ -6170,6 +6231,9 @@ export class AIService implements OnModuleInit {
           model: config.model,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
+          // F4 — the same fact the AI-CALL line carries as `outEst`, so the
+          // dashboard can eventually tell inferred spend from measured.
+          outputTokensEstimated: usage.outputTokensEstimated ?? false,
           latencyMs: Date.now() - aiStartedAt,
         });
       }
@@ -7974,6 +8038,16 @@ export class AIService implements OnModuleInit {
     outputTokens: number;
     latencyMs: number;
     isCacheHit?: boolean;
+    /**
+     * #20 / F4 — the output token count was ESTIMATED from streamed characters
+     * because the stream aborted before `message_delta`, so `costUsd` is
+     * inferred rather than measured.
+     *
+     * ⚠️ Only the streaming path can set this. `logUsage`'s narrowed parameter
+     * deliberately has no such field: the non-streaming path never estimates,
+     * and widening that type would undo what D1 narrowed it for.
+     */
+    outputTokensEstimated?: boolean;
     // costUsd — REMOVED. Priced here, from `model` + tokens, so a caller cannot
     // supply a wrong one. Nine of them used to hardcode `0`.
   }): Promise<void> {
@@ -7988,6 +8062,7 @@ export class AIService implements OnModuleInit {
           inputTokens: row.inputTokens,
           outputTokens: row.outputTokens,
           costUsd: this.priceOrZero(row.model, row.inputTokens, row.outputTokens),
+          outputTokensEstimated: row.outputTokensEstimated ?? false,
           latencyMs: row.latencyMs,
           isCacheHit: row.isCacheHit ?? false,
         },
