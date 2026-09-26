@@ -3803,8 +3803,20 @@ and write no `AIUsageLog` row. Do not size a budget from that page.
 ### 📋 THE TODO LIST — where it lives
 
 **When asked to "check the todo list", read
-`~/.claude/plans/launch-security-phase1-session-handoff.md` → the section headed
-`## ✅ THE TODO LIST`.** That is the canonical list of what is left before
+`.claude/plans/launch-security-phase1-session-handoff.md` (IN THIS REPO) → the
+section headed `## ✅ THE TODO LIST`.**
+
+> ⚠️ **`~/.claude/plans/...` paths in this file are the AUTHOR'S MAC and do not
+> exist in a cloud container or on another machine** (a cloud session's home is
+> `/root`). That bit a session on 2026-09-26. The three documents that a fresh
+> session actually needs are therefore mirrored INTO the repo at
+> `.claude/plans/`: this handoff, `security-review-brief.md` and
+> `scalability-review-brief.md`. **The repo copies are canonical — edit those.**
+> Every other `~/.claude/plans/...` reference below is historical session
+> scratch; if it is not reachable, it is not on your machine and you are not
+> missing anything load-bearing.
+
+That is the canonical list of what is left before
 launch; this file is reference, not a task tracker. Its `§0 STATE` block at the
 top supersedes every dated section below it in that file.
 
