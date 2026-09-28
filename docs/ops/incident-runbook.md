@@ -16,8 +16,8 @@ the alert names are exactly what Sentry sends.
 | | What it answers | Trust |
 |---|---|---|
 | `GET /api/admin/ops` | Live spend, breaker state, pool occupancy, quota, replica count, alerting status | **Authoritative.** Reads the same Redis counters the breaker reads. |
-| `AI-CALL` log lines | Per-call route, tokens, cost, outcome, duration | **Authoritative.** One JSON line per call, including failures. |
-| `/admin/ai-costs` | Historical cost by READING type/provider | ⚠️ **Partial, by design and by accident.** Streamed readings were absent until #19. It is still polluted by 1,383 load-test rows until #17's purge is run against prod. And it has **never** included CHAT or FORTUNE — those call `aiSpend.record()` directly and write no `AIUsageLog` row, so their spend shows in `ops.spend` and the `AI-CALL` lines but not here. Cross-check against the two above; never size a budget from this page. |
+| `AI-CALL` log lines | Per-call route, tokens (incl. prompt-cache `cacheReadTok` / `cacheWriteTok` / `cacheW5mTok`), cost, outcome, duration | **Authoritative.** One JSON line per call, including failures. Reconcilable by hand — see "Reconciling an `AI-CALL` line" below. |
+| `/admin/ai-costs` | Historical cost by READING type/provider | ⚠️ **Partial, by design and by accident.** Streamed readings were absent until #19. It is still polluted by 1,383 load-test rows until #17's purge is run against prod. And it has **never** included CHAT or FORTUNE — those call `aiSpend.record()` directly and write no `AIUsageLog` row, so their spend shows in `ops.spend` and the `AI-CALL` lines but not here. Since prompt caching (#6), a reading row's `input_tokens` is the UNCACHED remainder — token totals drop ~70% while cost drops ~10%; the cached part is in `totalPromptCache*Tokens`. Cross-check against the two above; never size a budget from this page. |
 
 ⚠️ `pools` is **per-replica**; every other section is fleet-wide. Multiply by
 `replicas` for the fleet ceiling.
@@ -62,7 +62,8 @@ is genuinely uncapped.
    this is exactly why that number must be deliberate rather than $200,000.
 3. Restore Redis. The counters are `INCRBYFLOAT` keyed by day/month, so a brief
    outage loses the increments that happened during it: `spend.dayUsd` will
-   under-report for the rest of the day. Reconcile from `AI-CALL` lines.
+   under-report for the rest of the day. Reconcile from `AI-CALL` lines (see
+   "Reconciling an `AI-CALL` line" below).
 
 ---
 
@@ -138,9 +139,30 @@ expected volume trips on a good day and breaks the product for paying customers.
 
 Rough guide: `expected peak readings/day × per-reading cost × 10`.
 
-⚠️ **Re-measure the per-reading cost before using it.** The last measurement
-($0.312474, 2026-09-02) was taken while aborted streams reported ZERO output
-tokens (#20). That is fixed, so treat the old figure as a **floor**, not the
-number.
+⚠️ **Re-measure the per-reading cost before using it.** $0.312474 (2026-09-02)
+is PRE-caching and was taken while aborted streams reported ZERO output tokens
+(#20). The 2026-09-28 measurement with prompt caching (#6), local stack against
+real Anthropic: LIFETIME **$0.275** isolated and **$0.230** when a second
+LIFETIME reading starts inside 5 minutes; CAREER $0.229, LOVE $0.253, ANNUAL
+$0.243, COMPAT reveal $0.275. Re-measure from the first production readings.
 
 Measure from `AI-CALL` lines, not `/admin/ai-costs`.
+
+### Reconciling an `AI-CALL` line
+
+Sonnet 4.5, USD per million tokens:
+
+    inTok×3 + outTok×15 + cacheReadTok×0.30 + cacheW5mTok×3.75
+      + (cacheWriteTok − cacheW5mTok)×6
+
+`cacheWriteTok` is the TOTAL cache write; `cacheW5mTok` is the part the API
+attributed to the 5-minute TTL; the rest is priced at the 1-hour rate (chat's
+writes are all 1-hour). The sum of a period's lines should equal the change in
+`ops.spend.dayUsd` to within ~1e-6 per call (Redis is incremented unrounded, the
+line prints 6 decimals).
+
+A healthy isolated reading is two lines: `…:call1` WRITES the prompt cache
+(`cacheWriteTok ≈ prefix`, `cacheW5mTok == cacheWriteTok`) and `…:call2` READS
+it (`cacheReadTok ≈ prefix`, `cacheWriteTok 0`). If both write, Call 2 did not
+wait for Call 1 — look for a `gate cap=` warning. The rollback is
+`AI_READING_PROMPT_CACHE=0` (config only; restores the pre-caching behaviour).

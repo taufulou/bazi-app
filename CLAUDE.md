@@ -3958,7 +3958,8 @@ abort), not a flaky upstream. It is now refused at admission with **400
 and BELOW the reuse branch so a cached re-fetch still serves.
 
 **Measured 2026-08-31, real Anthropic:** LIFETIME streaming **180.3s**, 15
-sections, $0.303624. HEALTH inline **10s**, 4 sections. Web and mobile both
+sections, $0.303624 (⚠️ PRE-caching — see the prompt-caching section below for
+the current figure). HEALTH inline **10s**, 4 sections. Web and mobile both
 send `stream: true` for LIFETIME/CAREER/ANNUAL/LOVE; **HEALTH is the only
 real-user inline caller.**
 
@@ -3969,6 +3970,97 @@ runs a further `AI_STREAM_TIMEOUT_MS`, ~20 min worst case. Anything reasoning
 about "how long can a reading take" must use this, not the 300s/360s timeouts.
 The shipped stream lock at `bazi.service.ts:865` gets this wrong (330s TTL,
 commented against the 300s figure) and can expire mid-generation — todo #15.
+
+### ⚠️ Prompt caching on the reading paths — four traps (#6, 2026-09-28)
+
+Every V2 reading sends one system prompt that is byte-identical across its calls
+AND across every reading of that type, so `streamClaude` marks it
+`cache_control: { type: 'ephemeral' }`. Plan + review log:
+`~/.claude/plans/prompt-caching-reading-paths.md`.
+
+**Measured 2026-09-28, real Anthropic, local stack:**
+
+| Reading | Cached prefix | Cost | Pre-caching |
+|---|---|---|---|
+| LIFETIME, isolated | 15,757 tok | **$0.275** | $0.312 |
+| LIFETIME, 2nd inside 5 min | 15,757 tok | **$0.230** | |
+| CAREER / LOVE / ANNUAL | 5,831 / 9,901 / 3,664 tok | $0.229 / $0.253 / $0.243 | |
+| COMPAT reveal (3 calls) | 7,951 tok | $0.275 | |
+| LIFETIME, `AI_READING_PROMPT_CACHE=0` | — | $0.305 | |
+
+The isolated saving is exactly `1.95 × prefix` per MTok (two full-price copies
+become one 1.25x write + one 0.1x read): LIFETIME $0.031, LOVE $0.019, CAREER
+$0.011, ANNUAL $0.007, COMPAT $0.037 (one write, two reads). Whole-reading costs
+across different charts also vary with output length, so use the prefix figure.
+
+**1. 5-minute TTL, never 1-hour.** A reading is one-shot. The 1h write costs 2x
+input against 1.25x, which makes an ISOLATED reading cost MORE than not caching.
+Chat uses `ttl: '1h'` correctly (its turns repeat) — which is exactly why it is
+the shape most likely to be copied in here by mistake.
+`prompt-cache-streamclaude.spec.ts` pins the absence of a `ttl` key.
+
+**2. Parallel calls BOTH write.** A cache entry becomes readable only once the
+writing request has begun streaming. The two V2 calls ran in parallel, so naive
+caching made an isolated LIFETIME reading's input cost $0.1559 against $0.1323
+uncached. `_executeStreamV2Common` therefore holds Call 2 behind a gate
+(`makePromptCacheGate`) that opens on the earliest of: Call 1's first chunk;
+Call 1 entering a retry backoff ≥ `PROMPT_CACHE_GATE_BACKOFF_RESOLVE_MS` (5s — a
+jitter-only backoff keeps it closed so the retry writes and Call 2 reads); Call
+1's loop exiting (`'refused'` when WE refused Call 1, and Call 2 is then skipped);
+or `PROMPT_CACHE_GATE_MAX_WAIT_MS` (30s). Measured cost of the gate: ~2s on a
+~175s reading. **Never "parallelise Call 2 for speed" without it.**
+- ⚠️ The 30s cap is NOT only a hang bound: the SDK retries 429/529 inside
+  `messages.stream()` (default `maxRetries: 2`, `retry-after` up to 60s),
+  invisibly to Call 1's loop, and the cap is what frees Call 2 then.
+- ⚠️ Recorded behaviour change: a Call 1 refused `AI_BUSY` no longer lets a queued
+  Call 2 deliver a half-reading — the reading fails with a refund instead.
+- Compat streaming is already sequential and needs no gate; GPT/Gemini fallbacks
+  are not gated (no Anthropic cache there).
+
+**3. The TTL split comes from the API, never from a caller flag.**
+`message_start.usage.cache_creation.ephemeral_5m_input_tokens` →
+`cacheWrite5mTokens`. `AiSpendService` prices that at 1.25x and EVERY other write
+token at the 1h 2x rate — chat (which passes only the total) is priced exactly as
+before. The total is `max(cacheWriteTokens, cacheWrite5mTokens)`, never `min`:
+`min` would bill a real write at $0 on a payload with the split but no total.
+`absorbInputSideUsage` (`stream-usage.ts`) is the ONE reader of the input side,
+shared by readings and chat/fortune.
+
+**4. Never price a token you do not persist.** `AIUsageLog` has
+`cache_read_tokens` / `cache_write_tokens` / `cache_write_5m_tokens`, and
+`persistUsageRow` spreads ONE token object into the row AND prices it, so
+`costUsd` stays recomputable (the D2 repair re-prices from the row).
+⚠️ On `/admin/ai-costs`, a reading row's `input_tokens` is now the UNCACHED
+remainder — token totals drop ~70% while cost drops ~10%. Not a bug.
+
+**Reconcile an AI-CALL line by hand** (Sonnet, per MTok):
+`inTok×3 + outTok×15 + cacheReadTok×0.30 + cacheW5mTok×3.75 + (cacheWriteTok−cacheW5mTok)×6`.
+A healthy isolated reading is two lines: `call1` with `cacheWriteTok ≈ prefix`
+and `cacheW5mTok == cacheWriteTok`, `call2` with `cacheReadTok ≈ prefix` and
+`cacheWriteTok 0`. If `call2` WRITES, the gate did not hold — look for the
+`gate cap=` warning.
+
+**Kill switch:** `AI_READING_PROMPT_CACHE=0` restores BOTH the plain-string
+system prompt and the parallel, un-gated Call 2 (read through one helper,
+`isReadingPromptCacheEnabled()`). No prompt text changed, so there is no
+cache-version bump and no Redis flush either way. If you ever set
+`AI_STREAM_CALL2=0` (legacy non-streaming Call 2), set this to `0` too — that path
+cannot READ the cache.
+
+**Standing guard:** `prompt-cache-prefix-stability.spec.ts` builds every V2
+system prompt from `{}` and from two fully different charts and requires them
+byte-identical. A later edit that interpolates ANY chart field into a system
+prompt fails it — the silent-invalidator regression, where requests keep
+succeeding and only the bill goes up.
+
+⚠️ `callClaude` (non-streaming) is deliberately NOT cached: V1 HEALTH is a single
+isolated call, and inline compat fires three calls in PARALLEL (all would write).
+
+⚠️ **Observed while testing, pre-existing:** `BaziService.streamReading` never
+unsubscribes the inner AI observable, so a client disconnect does NOT abort a
+reading's AI calls — the reading generates to completion and persists. The
+`externalControllers` abort-on-teardown machinery in `ai.service.ts` is
+therefore unreachable from the reading endpoint today.
 
 ### A built alert and a delivered alert are different claims
 
