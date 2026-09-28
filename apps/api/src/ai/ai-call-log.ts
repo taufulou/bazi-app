@@ -175,6 +175,11 @@ export interface AiCallLogFields {
    *   inTok×3 + outTok×15 + cacheReadTok×0.30 + cacheW5mTok×3.75
    *     + (cacheWriteTok − cacheW5mTok)×6
    *
+   * Both fields are the API's RAW figures. On a malformed payload where the
+   * split exceeds the total, the price uses `max(cacheWriteTok, cacheW5mTok)`
+   * as the total (the over-count direction) and the 1-hour term is 0 — so
+   * read a negative `cacheWriteTok − cacheW5mTok` as 0 when reconciling.
+   *
    * ⚠️ OPTIONAL, like `outTokEstimated`, and for the same reason: fixtures
    * build this whole object, and ts-jest type-checks them — a required field
    * makes those suites fail to COMPILE, which reports `0 tests` rather than a

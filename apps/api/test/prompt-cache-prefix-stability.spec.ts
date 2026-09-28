@@ -12,9 +12,15 @@ import { AIService } from '../src/ai/ai.service';
  * later, well-meant edit that interpolates something chart-specific (a name, a
  * date, the day master) into the system prompt instead of the user prompt.
  *
- * So: build every V2 prompt for two DIFFERENT charts and require the system
- * prompt to be byte-identical. The chart-specific part belongs in the user
- * prompt, and that is asserted too, so this test cannot pass vacuously.
+ * So: build every V2 prompt from an EMPTY input and from two full, entirely
+ * different charts, and require the system prompt to be byte-identical across
+ * all of them. Comparing against `{}` is what makes this strong — a system
+ * prompt that reads ANY field present in the fixtures differs from the empty
+ * build, whichever field it is. Comparing two charts only catches the fields in
+ * which those two charts happen to differ (the first version of this spec built
+ * one chart by spreading the other and missed five fields that way). The
+ * chart-specific part belongs in the user prompt, and that is asserted too, so
+ * the test cannot pass vacuously.
  *
  * Measured system-prompt sizes when #6 shipped (chars; ~1 token per CJK char):
  *   LIFETIME 15,527 · LOVE 10,525 · COMPAT 7,844 · CAREER 5,853 · ANNUAL 3,589
@@ -62,6 +68,16 @@ const ROGER = {
   preAnalysis: '日主戊土生於申月',
   currentYear: 2026,
   targetYear: 2026,
+  lifetimeEnhancedInsights: {
+    patternNarrative: { patternName: '食神格', patternLogic: '月令申金藏庚為食神', dominantTenGods: ['食神', '比肩'] },
+    childrenInsights: { hourPillarTenGod: '食神', hourBranchLifeStage: '病' },
+    parentsInsights: { fatherStar: '偏財', motherStar: '正印', yearPillarFavorability: '喜神' },
+    deterministic: { favorable_direction: '南方', romance_years: [2027, 2030], partner_zodiac: ['羊'] },
+    narrativeAnchors: { personality: '穩重踏實' },
+  },
+  careerEnhancedInsights: { careerPattern: '食神生財', deterministic: { favorable_industries: ['教育'] } },
+  loveEnhancedInsights: { spouseStar: { star: '正財' }, deterministic: { romance_years: [2027] } },
+  annualEnhancedInsights: { flowYear: { stem: '丙', branch: '午', tenGod: '偏印' } },
 };
 
 const LAOPO = {
@@ -82,6 +98,21 @@ const LAOPO = {
   dayMasterStem: '甲',
   fiveElementsBalanceZh: { '木': 20, '火': 15, '土': 30, '金': 25, '水': 10 },
   preAnalysis: '日主甲木生於丑月',
+  luckPeriods: [{ startAge: 8, endAge: 17, startYear: 1995, endYear: 2004, stem: '庚', branch: '子', tenGod: '七殺', isCurrent: false }],
+  annualStars: [{ year: 2027, stem: '丁', branch: '未', tenGod: '傷官', isCurrent: true }],
+  allShenSha: [{ name: '紅鸞', pillar: 'month', branch: '丑' }],
+  currentYear: 2027,
+  targetYear: 2027,
+  lifetimeEnhancedInsights: {
+    patternNarrative: { patternName: '正官格', patternLogic: '月令丑土藏辛為正官', dominantTenGods: ['正官', '偏財'] },
+    childrenInsights: { hourPillarTenGod: '偏印', hourBranchLifeStage: '絕' },
+    parentsInsights: { fatherStar: '偏財', motherStar: '正印', yearPillarFavorability: '忌神' },
+    deterministic: { favorable_direction: '北方', romance_years: [2031, 2033], partner_zodiac: ['豬'] },
+    narrativeAnchors: { personality: '細膩敏感' },
+  },
+  careerEnhancedInsights: { careerPattern: '官印相生', deterministic: { favorable_industries: ['金融'] } },
+  loveEnhancedInsights: { spouseStar: { star: '正官' }, deterministic: { romance_years: [2031] } },
+  annualEnhancedInsights: { flowYear: { stem: '丁', branch: '未', tenGod: '傷官' } },
 };
 
 /** Same person as LAOPO, birth hour unknown — the one input that changes a prompt's SHAPE. */
@@ -104,11 +135,13 @@ const SINGLE_CHART_BUILDERS = [
 describe('#6 — every V2 system prompt is identical across charts (the prompt-cache prefix)', () => {
   const svc = makeService() as unknown as Record<string, (d: unknown) => Built>;
 
-  it.each(SINGLE_CHART_BUILDERS)('%s: same system prompt for two different charts', (builder) => {
+  it.each(SINGLE_CHART_BUILDERS)('%s: the system prompt does not depend on the input at all', (builder) => {
+    const empty = svc[builder]!.call(svc, {});
     const a = svc[builder]!.call(svc, ROGER);
     const b = svc[builder]!.call(svc, LAOPO);
-    expect(b.systemPrompt).toBe(a.systemPrompt);
-    expect(a.systemPrompt.length).toBeGreaterThanOrEqual(MIN_SYSTEM_PROMPT_CHARS);
+    expect(a.systemPrompt).toBe(empty.systemPrompt);
+    expect(b.systemPrompt).toBe(empty.systemPrompt);
+    expect(empty.systemPrompt.length).toBeGreaterThanOrEqual(MIN_SYSTEM_PROMPT_CHARS);
     // Not vacuous: the charts DID reach the builder — just the user prompts.
     expect(b.userPromptCall1).not.toBe(a.userPromptCall1);
   });
@@ -116,9 +149,11 @@ describe('#6 — every V2 system prompt is identical across charts (the prompt-c
   it.each(SINGLE_CHART_BUILDERS)(
     '%s: an hour-unknown chart changes the USER prompt, never the cached system prompt',
     (builder) => {
+      const empty = svc[builder]!.call(svc, {});
       const known = svc[builder]!.call(svc, LAOPO);
       const unknown = svc[builder]!.call(svc, LAOPO_HOUR_UNKNOWN);
-      expect(unknown.systemPrompt).toBe(known.systemPrompt);
+      expect(unknown.systemPrompt).toBe(empty.systemPrompt);
+      expect(unknown.userPromptCall1).not.toBe(known.userPromptCall1);
     },
   );
 
@@ -134,10 +169,13 @@ describe('#6 — every V2 system prompt is identical across charts (the prompt-c
           currentYear: 2026,
         });
 
-    it('two hour-known pairs share one system prompt', () => {
+    it('two hour-known pairs share one system prompt — the same one an empty input builds', () => {
+      const empty = (svc as unknown as { buildCompatibilityRomanceV2Prompts: (d: unknown) => Compat })
+        .buildCompatibilityRomanceV2Prompts({});
       const p1 = compat(ROGER, LAOPO);
       const p2 = compat(LAOPO, ROGER);
-      expect(p2.systemPrompt).toBe(p1.systemPrompt);
+      expect(p1.systemPrompt).toBe(empty.systemPrompt);
+      expect(p2.systemPrompt).toBe(empty.systemPrompt);
       expect(p1.systemPrompt.length).toBeGreaterThanOrEqual(MIN_SYSTEM_PROMPT_CHARS);
       expect(p2.call1User).not.toBe(p1.call1User);
     });

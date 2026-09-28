@@ -30,10 +30,11 @@ function deferred<T = void>() {
   return { promise, resolve };
 }
 
-type Handler = (attempt: number, log: string[]) => AsyncGenerator<string>;
+type Handler = (attempt: number, log: string[], signal: AbortSignal) => AsyncGenerator<string>;
 
 function build(opts: {
   env?: Record<string, string | undefined>;
+  provider?: string;
   call1: Handler;
   call2?: Handler;
   computeBackoff?: (attempt: number, err: Error) => number;
@@ -52,7 +53,7 @@ function build(opts: {
 
   const svc = Object.create(AIService.prototype) as AIService;
   Object.assign(svc, {
-    providers: [{ provider: 'CLAUDE', model: 'claude-sonnet-4-5', apiKey: 'k', timeoutMs: 1000 }],
+    providers: [{ provider: opts.provider ?? 'CLAUDE', model: 'claude-sonnet-4-5', apiKey: 'k', timeoutMs: 1000 }],
     configService: { get: (k: string) => env[k] },
     aiSpend: { record: jest.fn(), recordFailure: jest.fn(), assertUnderCap: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) },
     aiGovernor: { runGenerator: (_p: unknown, _c: unknown, g: () => unknown) => g() },
@@ -60,15 +61,15 @@ function build(opts: {
     creditsService: { refundReadingCredit },
     prisma: { baziReading: { update: jest.fn().mockResolvedValue({}) } },
     streamProvider: (
-      _c: unknown, _s: unknown, _u: unknown, _sig: unknown, _usage: unknown,
+      _c: unknown, _s: unknown, _u: unknown, sig: AbortSignal, _usage: unknown,
       attribution: { route: string },
     ) => {
       if (attribution.route.endsWith(':call1')) {
         attempts.call1 += 1;
-        return opts.call1(attempts.call1, log);
+        return opts.call1(attempts.call1, log, sig);
       }
       attempts.call2 += 1;
-      return (opts.call2 ?? defaultCall2)(attempts.call2, log);
+      return (opts.call2 ?? defaultCall2)(attempts.call2, log, sig);
     },
     buildLifetimeV2Prompts: () => ({ systemPrompt: 'sys', userPromptCall1: 'c1', userPromptCall2: 'c2' }),
     cacheInterpretation: jest.fn().mockResolvedValue(undefined),
@@ -77,8 +78,9 @@ function build(opts: {
   });
 
   let done = false;
+  let subscription!: { unsubscribe: () => void };
   const finished = new Promise<void>((resolve) => {
-    svc.streamLifetimeV2({}, 'reading-1', 'user-42').subscribe({
+    subscription = svc.streamLifetimeV2({}, 'reading-1', 'user-42').subscribe({
       next: (ev) => {
         let data: unknown = ev.data;
         try {
@@ -100,7 +102,7 @@ function build(opts: {
   });
 
   return {
-    log, attempts, events, warn, refundReadingCredit, finished,
+    log, attempts, events, warn, refundReadingCredit, finished, subscription,
     isDone: () => done,
     capLogged: () => warn.mock.calls.some((c) => String(c[0]).includes('gate cap=')),
   };
@@ -219,6 +221,9 @@ describe('#6 — the Call-2 prompt-cache gate', () => {
     });
     const subscriber = { next: jest.fn(), complete: jest.fn(), error: jest.fn(), closed: false };
 
+    // Installed BEFORE the call: the gate (and any cap timer) is built in the
+    // synchronous prefix of `_executeStreamV2Common`, before its first await.
+    const armed = jest.spyOn(global, 'setTimeout');
     const run = (svc as unknown as { _executeStreamV2Common: (o: unknown) => Promise<void> })
       ._executeStreamV2Common({
         calculationData: {},
@@ -236,6 +241,11 @@ describe('#6 — the Call-2 prompt-cache gate', () => {
 
     expect(log).toEqual(['call2'].map((c) => `enter:${c}`));
     expect(jest.getTimerCount()).toBe(0);
+    // PRE-opened, not opened-a-tick-later by the loop-exit trigger: the cap
+    // timer is never armed at all. (`getTimerCount` alone cannot tell — an armed
+    // timer is cleared by the loop-exit resolve in the same tick.)
+    expect(armed.mock.calls.some(([, ms]) => ms === PROMPT_CACHE_GATE_MAX_WAIT_MS)).toBe(false);
+    armed.mockRestore();
   });
 
   it('5. a LONG retry backoff (Retry-After) opens the gate at backoff entry — Call 2 writes, the retry reads', async () => {
@@ -372,5 +382,55 @@ describe('#6 — the Call-2 prompt-cache gate', () => {
     await jest.advanceTimersByTimeAsync(PROMPT_CACHE_GATE_MAX_WAIT_MS + 1);
     expect(h.attempts.call2).toBe(0);
     expect(h.log).toEqual(['enter:call1']);
+  });
+
+  it('9. a consumer that LEAVES before Call 1\'s first chunk never gets a Call 2 started for nobody', async () => {
+    // Line-audit regression: the disconnect teardown aborts the controllers in
+    // `externalControllers` ONCE. Call 2 registers its controller only after the
+    // gate opens — after that teardown — so without the `subscriber.closed`
+    // check it would run a full paid call nobody reads.
+    const h = build({
+      // eslint-disable-next-line require-yield
+      call1: async function* (_a, log, signal) {
+        log.push('enter:call1');
+        await new Promise((_, reject) =>
+          signal.addEventListener('abort', () =>
+            reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })),
+          ),
+        );
+      },
+    });
+
+    await settle();
+    expect(h.log).toEqual(['enter:call1']);
+
+    h.subscription.unsubscribe(); // the client disconnects
+    await settle();
+    await jest.advanceTimersByTimeAsync(PROMPT_CACHE_GATE_MAX_WAIT_MS + 1);
+
+    expect(h.attempts.call2).toBe(0);
+    expect(h.log).toEqual(['enter:call1']);
+  });
+
+  it('10. a GPT/Gemini fallback is NOT gated — there is no Anthropic cache to read there', async () => {
+    const release = deferred();
+    const h = build({
+      provider: 'GPT',
+      call1: async function* (_a, log) {
+        log.push('enter:call1');
+        await release.promise;
+        log.push('yield:call1');
+        yield 'x';
+      },
+    });
+
+    await settle();
+    expect(h.log).toContain('enter:call2'); // parallel, as before #6
+    expect(h.log).not.toContain('yield:call1');
+
+    release.resolve();
+    await settle();
+    await h.finished;
+    expect(h.capLogged()).toBe(false);
   });
 });

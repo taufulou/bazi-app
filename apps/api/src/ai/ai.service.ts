@@ -1489,7 +1489,10 @@ export class AIService implements OnModuleInit {
         // and Call 2 will actually stream: with the flag off there is NO gate
         // object and no await, so `0` restores the parallel start exactly; the
         // legacy non-streaming Call 2 cannot read the cache, so it is not gated.
+        // Claude only: `cache_control` is sent by `streamClaude` alone, so on a
+        // GPT/Gemini fallback there is no cache to read and waiting buys nothing.
         const cacheGate =
+          providerConfig.provider === AIProvider.CLAUDE &&
           streamCall2Enabled && !haveCall2 && this.isReadingPromptCacheEnabled()
             ? makePromptCacheGate({
                 preResolved: haveCall1,
@@ -2003,6 +2006,16 @@ export class AIService implements OnModuleInit {
         // handling is identical — and nothing was attempted: no provider call,
         // no slot, no AI-CALL line.
         return { streamed: true, inputTokens: 0, outputTokens: 0, refusal: opts.call1Refusal?.() };
+      }
+      // ⚠️ The consumer may have LEFT while this call waited. On unsubscribe the
+      // entry point aborts every controller in `externalControllers` ONCE; this
+      // call registers its controller only below, after the wait, so a
+      // disconnect before Call 1's first chunk would miss it entirely — and
+      // Call 1's abort makes its loop exit normally, opening the gate. Starting
+      // now would buy a full Call 2 for nobody. Before the gate, the controller
+      // was registered synchronously and the disconnect aborted it.
+      if (subscriber.closed) {
+        return { streamed: true, inputTokens: 0, outputTokens: 0 };
       }
     }
 

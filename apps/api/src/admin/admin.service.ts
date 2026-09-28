@@ -648,6 +648,7 @@ export class AdminService {
             outputTokens: true,
             cacheReadTokens: true,
             cacheWriteTokens: true,
+            cacheWrite5mTokens: true,
           },
           _count: { id: true },
         }),
@@ -787,6 +788,8 @@ export class AdminService {
         // is the READING cache (a whole reading served from Redis/DB).
         totalPromptCacheReadTokens: summary._sum.cacheReadTokens || 0,
         totalPromptCacheWriteTokens: summary._sum.cacheWriteTokens || 0,
+        // The 5-minute part of the writes; the remainder was priced at 1 hour.
+        totalPromptCacheWrite5mTokens: summary._sum.cacheWrite5mTokens || 0,
         totalRequests: totalCount,
         cacheHitRate: totalCount > 0 ? cacheHits / totalCount : 0,
         costByProvider: costByProvider.map((p) => ({
