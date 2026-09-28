@@ -446,7 +446,18 @@ describe('Phase — streaming Call 2 in _executeStreamV2Common', () => {
       messages: {
         stream: () => ({
           [Symbol.asyncIterator]: async function* () {
-            yield { type: 'message_start', message: { usage: { input_tokens: 1234 } } };
+            yield {
+              type: 'message_start',
+              message: {
+                usage: {
+                  input_tokens: 1234,
+                  // #6 — the cached part of the input arrives as separate counters.
+                  cache_read_input_tokens: 700,
+                  cache_creation_input_tokens: 300,
+                  cache_creation: { ephemeral_5m_input_tokens: 300, ephemeral_1h_input_tokens: 0 },
+                },
+              },
+            };
             yield {
               type: 'content_block_delta',
               delta: { type: 'text_delta', text: 'hello' },
@@ -460,7 +471,7 @@ describe('Phase — streaming Call 2 in _executeStreamV2Common', () => {
       },
     };
 
-    const usageOut = { inputTokens: 0, outputTokens: 0 };
+    const usageOut: Record<string, number> = { inputTokens: 0, outputTokens: 0 };
     const gen = (svc as any).streamClaude(
       (svc as any).providers[0],
       'sys', 'user', undefined, usageOut,
@@ -471,5 +482,9 @@ describe('Phase — streaming Call 2 in _executeStreamV2Common', () => {
     expect(text).toBe('hello');
     expect(usageOut.inputTokens).toBe(1234);
     expect(usageOut.outputTokens).toBe(567);
+    // #6 — without these the ledger loses the cached part of every call.
+    expect(usageOut.cacheReadTokens).toBe(700);
+    expect(usageOut.cacheWriteTokens).toBe(300);
+    expect(usageOut.cacheWrite5mTokens).toBe(300);
   });
 });

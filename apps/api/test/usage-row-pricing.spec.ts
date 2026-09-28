@@ -87,6 +87,45 @@ describe('AIUsageLog cost pricing', () => {
     expect(persisted).toBeGreaterThan(0);   // the defect was a confident $0
   });
 
+  it('#6 — a row carrying cache tokens is RE-PRICEABLE from what was written (behavioural half)', async () => {
+    const spend = realSpend();
+    const { svc, create } = build(spend);
+    await persist(svc, {
+      ...ROW,
+      inputTokens: 6_000,
+      outputTokens: 4_000,
+      cacheReadTokens: 15_000,
+      cacheWriteTokens: 16_000,
+      cacheWrite5mTokens: 12_000,
+    });
+    const data = create.mock.calls[0][0].data;
+    expect(data).toMatchObject({
+      cacheReadTokens: 15_000,
+      cacheWriteTokens: 16_000,
+      cacheWrite5mTokens: 12_000,
+    });
+    // Re-price using ONLY the stored row — which is what the D2 repair does.
+    const fromRow = spend.estimateCostUsd(data.aiModel, {
+      inputTokens: data.inputTokens,
+      outputTokens: data.outputTokens,
+      cacheReadTokens: data.cacheReadTokens,
+      cacheWriteTokens: data.cacheWriteTokens,
+      cacheWrite5mTokens: data.cacheWrite5mTokens,
+    });
+    expect(Number(data.costUsd)).toBeCloseTo(fromRow, 6);
+    // Sanity on the arithmetic: 6k×3 + 4k×15 + 15k×0.30 + 12k×3.75 + 4k×6, /1M.
+    expect(Number(data.costUsd)).toBeCloseTo(0.1515, 6);
+  });
+
+  it('#6 — a row with no cache tokens persists them as 0 and prices exactly as before', async () => {
+    const spend = realSpend();
+    const { svc, create } = build(spend);
+    await persist(svc, ROW);
+    const data = create.mock.calls[0][0].data;
+    expect(data).toMatchObject({ cacheReadTokens: 0, cacheWriteTokens: 0, cacheWrite5mTokens: 0 });
+    expect(Number(data.costUsd)).toBeCloseTo(3, 6);
+  });
+
   it('an UNKNOWN model still writes a row, at the fallback rate', async () => {
     // ⚠️ Unknown does NOT throw — `priceFor` returns FALLBACK_PRICE after a
     // warn. This asserts the fallback VALUE, not an exception.
@@ -210,17 +249,21 @@ describe('D1 source invariants', () => {
     expect(sig).not.toMatch(/costUsd\s*:/);
   });
 
-  it('the price inputs stay (model, inputTokens, outputTokens) — recomputability', () => {
-    // ⚠️ The behavioural recomputability test is near-tautological today, since
-    // `persistUsageRow` has no cache-token parameters to diverge on. THIS is the
-    // half that bites: `ai_usage_log` has no cache columns, so the moment anyone
-    // feeds cache tokens into the price, `costUsd` stops being recomputable from
-    // stored data and the D2 backfill silently under-prices. Widening the price
-    // needs no schema change, so nothing else catches it.
-    const start = AI.indexOf('private priceOrZero(');
-    const body = AI.slice(start, AI.indexOf('private async persistUsageRow(', start));
+  it('#6 — every token priced is a token PERSISTED (recomputability, source half)', () => {
+    // ⚠️ This test used to assert the OPPOSITE — that `priceOrZero` never read
+    // cache tokens — and its reason still stands: `costUsd` must be
+    // recomputable from stored data, and the D2 repair re-prices from the row.
+    // #6 made cache tokens part of the price, so the invariant is now carried
+    // by persisting them. `persistUsageRow` builds ONE object and both spreads
+    // it into the row and prices it, so the two lists cannot drift.
+    const start = AI.indexOf('private async persistUsageRow(');
+    const body = AI.slice(start, AI.indexOf('// Reading Cache', start));
     expect(start).toBeGreaterThan(-1);
-    expect(body).not.toMatch(/cacheReadTokens|cacheWriteTokens/);
+    for (const k of ['cacheReadTokens', 'cacheWriteTokens', 'cacheWrite5mTokens']) {
+      expect(body).toMatch(new RegExp(`${k}: row\\.${k} \\?\\? 0`));
+    }
+    expect(body).toContain('...tokens,');
+    expect(body).toContain('costUsd: this.priceOrZero(row.model, tokens)');
   });
 
   it('nine hardcoded estimatedCostUsd: 0 literals are gone', () => {

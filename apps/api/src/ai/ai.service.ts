@@ -4,9 +4,9 @@ import { Observable, Subscriber } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CreditsService } from '../credits/credits.service';
-import { AiSpendService } from './ai-spend.service';
+import { AiSpendService, type TokenUsage } from './ai-spend.service';
 import { classifyAiError, type AiCallAttribution } from './ai-call-log';
-import { estimateOutputTokensFromChars } from './stream-usage';
+import { absorbInputSideUsage, estimateOutputTokensFromChars } from './stream-usage';
 import { AiGovernorService } from './ai-governor.service';
 import { isSelfRefusal, selfRefusalCode, selfRefusalMessage } from './typed-refusals';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
@@ -197,6 +197,15 @@ export type StreamUsageOut = {
   outputTextChars?: number;
   outputTokensEstimated?: boolean;
   stopReason?: string;
+  /**
+   * #6 — the input side's cache counters, from `message_start`. Once the system
+   * prompt is cached, `inputTokens` is only the UNCACHED remainder; without
+   * these the ledger would silently lose the cached part of every call.
+   * Optional for the same reason as `outputTextChars`.
+   */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheWrite5mTokens?: number;
 };
 
 @Injectable()
@@ -441,7 +450,7 @@ export class AIService implements OnModuleInit {
 
         // Calculate cost
         const estimatedCostUsd =
-          this.priceOrZero(providerConfig.model, result.inputTokens, result.outputTokens);
+          this.priceOrZero(providerConfig.model, { inputTokens: result.inputTokens, outputTokens: result.outputTokens });
 
         // Parse the AI response into structured sections
         const interpretation = this.parseAIResponse(result.content, readingType);
@@ -658,7 +667,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
+          this.priceOrZero(providerConfig.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -837,7 +846,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
+          this.priceOrZero(providerConfig.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -2183,7 +2192,7 @@ export class AIService implements OnModuleInit {
         const deterministic = (enhancedInsights ? deepCamelCase(enhancedInsights) : {}) as Record<string, unknown>;
 
         const totalCost =
-          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
+          this.priceOrZero(providerConfig.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -4102,7 +4111,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
+          this.priceOrZero(providerConfig.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -4913,7 +4922,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
+          this.priceOrZero(providerConfig.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
 
         this.logger.log(
           `Compat Romance V2 generated via ${providerConfig.provider} in ${latencyMs}ms, ` +
@@ -6185,10 +6194,18 @@ export class AIService implements OnModuleInit {
         usage.outputTokensEstimated = true;
       }
 
+      // #6 — ALWAYS the five-field shape, `?? 0`, never conditional keys: the
+      // cache counters are most of a reading's input once the system prompt is
+      // cached, and the row below must price from the same five fields.
+      const cacheTokens = {
+        cacheReadTokens: usage.cacheReadTokens ?? 0,
+        cacheWriteTokens: usage.cacheWriteTokens ?? 0,
+        cacheWrite5mTokens: usage.cacheWrite5mTokens ?? 0,
+      };
       void this.aiSpend.record({
         provider: config.provider,
         model: config.model,
-        usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
+        usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, ...cacheTokens },
         outputTokensEstimated: usage.outputTokensEstimated ?? false,
         // Ob1 #12 — the route was `stream:CLAUDE` for every streamed call, so
         // Call 1 and Call 2 of a reading, and all three of a compat reveal,
@@ -6232,6 +6249,7 @@ export class AIService implements OnModuleInit {
           model: config.model,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
+          ...cacheTokens,
           // F4 — the same fact the AI-CALL line carries as `outEst`, so the
           // dashboard can eventually tell inferred spend from measured.
           outputTokensEstimated: usage.outputTokensEstimated ?? false,
@@ -6302,8 +6320,9 @@ export class AIService implements OnModuleInit {
       // input_tokens arrive on message_start; output_tokens are cumulative
       // on each message_delta (final value wins). SDK docs confirmed.
       if (event.type === 'message_start' && usageOut) {
-        const u = event.message?.usage;
-        if (u?.input_tokens != null) usageOut.inputTokens = u.input_tokens;
+        // #6 — the whole input side, cache counters included. Shared reader, so
+        // this and chat/fortune cannot disagree on how a TTL split is read.
+        absorbInputSideUsage(event.message?.usage, usageOut);
       } else if (
         event.type === 'content_block_delta' &&
         'delta' in event &&
@@ -7936,6 +7955,9 @@ export class AIService implements OnModuleInit {
      * It also drops `interpretation`, `provider` and `model`, which this method
      * never read — the compat site was building an empty `interpretation`
      * literal purely to satisfy the wider type.
+     *
+     * #6 — no cache counters here, on purpose: this is the NON-streaming path,
+     * and `callClaude` sends no `cache_control`, so its cache usage is zero.
      */
     result: {
       tokenUsage: { inputTokens: number; outputTokens: number };
@@ -8012,10 +8034,10 @@ export class AIService implements OnModuleInit {
    * counts are the part that cannot be recomputed later; a $0 row that says so
    * in the log can be repaired.
    */
-  private priceOrZero(model: string, inputTokens: number, outputTokens: number): number {
+  private priceOrZero(model: string, tokens: TokenUsage): number {
     let priced = 0;
     try {
-      priced = this.aiSpend.estimateCostUsd(model, { inputTokens, outputTokens });
+      priced = this.aiSpend.estimateCostUsd(model, tokens);
     } catch (err) {
       // ⚠️ Name the likely cause. In a test environment this is almost always an
       // `aiSpend` stub missing `estimateCostUsd` rather than a real pricing
@@ -8049,9 +8071,22 @@ export class AIService implements OnModuleInit {
      * and widening that type would undo what D1 narrowed it for.
      */
     outputTokensEstimated?: boolean;
+    /** #6 — persisted, because they are priced: `costUsd` must stay recomputable. */
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    cacheWrite5mTokens?: number;
     // costUsd — REMOVED. Priced here, from `model` + tokens, so a caller cannot
     // supply a wrong one. Nine of them used to hardcode `0`.
   }): Promise<void> {
+    // #6 — ONE object is both written and priced, so a token cannot be priced
+    // without being persisted: `costUsd` stays recomputable from the row.
+    const tokens = {
+      inputTokens: row.inputTokens,
+      outputTokens: row.outputTokens,
+      cacheReadTokens: row.cacheReadTokens ?? 0,
+      cacheWriteTokens: row.cacheWriteTokens ?? 0,
+      cacheWrite5mTokens: row.cacheWrite5mTokens ?? 0,
+    };
     try {
       await this.prisma.aIUsageLog.create({
         data: {
@@ -8060,9 +8095,8 @@ export class AIService implements OnModuleInit {
           readingType: row.readingType ?? null,
           aiProvider: row.provider as AIProvider,
           aiModel: row.model,
-          inputTokens: row.inputTokens,
-          outputTokens: row.outputTokens,
-          costUsd: this.priceOrZero(row.model, row.inputTokens, row.outputTokens),
+          ...tokens,
+          costUsd: this.priceOrZero(row.model, tokens),
           outputTokensEstimated: row.outputTokensEstimated ?? false,
           latencyMs: row.latencyMs,
           isCacheHit: row.isCacheHit ?? false,

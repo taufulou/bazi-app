@@ -44,6 +44,9 @@ describe('absorbStreamUsage', () => {
       outputTokens: 1,
       cacheReadTokens: 400,
       cacheWriteTokens: 10_000,
+      // #6 — no `cache_creation` split in this payload, so nothing is ATTRIBUTED
+      // to the 5-minute TTL; the whole write is priced at the 1-hour rate.
+      cacheWrite5mTokens: 0,
       // #20 — message_start carries no text, so the char counter stays 0.
       outputTextChars: 0,
       outputTokensEstimated: false,
@@ -70,6 +73,77 @@ describe('absorbStreamUsage', () => {
     expect(u.cacheWriteTokens).toBe(9000);
   });
 
+  describe('#6 — the cache-write TTL split', () => {
+    it('reads the 5-minute attribution from message_start.usage.cache_creation', () => {
+      const u = emptyStreamUsage();
+      absorbStreamUsage(
+        {
+          type: 'message_start',
+          message: {
+            usage: {
+              input_tokens: 6_800,
+              cache_creation_input_tokens: 15_700,
+              cache_creation: { ephemeral_5m_input_tokens: 15_700, ephemeral_1h_input_tokens: 0 },
+            },
+          },
+        },
+        u,
+      );
+      expect(u.cacheWriteTokens).toBe(15_700);
+      expect(u.cacheWrite5mTokens).toBe(15_700);
+    });
+
+    it('leaves the split at 0 when the payload carries none, while the total still lands', () => {
+      const u = emptyStreamUsage();
+      absorbStreamUsage(
+        { type: 'message_start', message: { usage: { input_tokens: 1, cache_creation_input_tokens: 500 } } },
+        u,
+      );
+      expect(u.cacheWriteTokens).toBe(500);
+      expect(u.cacheWrite5mTokens).toBe(0);
+    });
+
+    it('a later message_delta carrying only totals does not reset the split', () => {
+      // `MessageDeltaUsage` has the cache totals but no `cache_creation` split.
+      const u = emptyStreamUsage();
+      absorbStreamUsage(
+        {
+          type: 'message_start',
+          message: {
+            usage: {
+              input_tokens: 1,
+              cache_creation_input_tokens: 900,
+              cache_creation: { ephemeral_5m_input_tokens: 900, ephemeral_1h_input_tokens: 0 },
+            },
+          },
+        },
+        u,
+      );
+      absorbStreamUsage(
+        { type: 'message_delta', usage: { output_tokens: 40, cache_creation_input_tokens: 900 } },
+        u,
+      );
+      expect(u.cacheWrite5mTokens).toBe(900);
+      expect(u.outputTokens).toBe(40);
+    });
+
+    it('tolerates a null split and null TTL fields', () => {
+      const u = emptyStreamUsage();
+      absorbStreamUsage(
+        { type: 'message_start', message: { usage: { input_tokens: 1, cache_creation: null } } },
+        u,
+      );
+      absorbStreamUsage(
+        {
+          type: 'message_start',
+          message: { usage: { input_tokens: 1, cache_creation: { ephemeral_5m_input_tokens: null } } },
+        },
+        u,
+      );
+      expect(u.cacheWrite5mTokens).toBe(0);
+    });
+  });
+
   it('tolerates null counters, which the SDK really does emit', () => {
     const u = emptyStreamUsage();
     absorbStreamUsage(
@@ -78,7 +152,7 @@ describe('absorbStreamUsage', () => {
     );
     expect(u).toEqual({
       inputTokens: 5, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0,
-      outputTextChars: 0, outputTokensEstimated: false,
+      cacheWrite5mTokens: 0, outputTextChars: 0, outputTokensEstimated: false,
     });
   });
 
@@ -195,10 +269,10 @@ describe('hasUsage — the guard that decides whether to record at all', () => {
     // The case the first guard missed, in the module whose whole argument is
     // that the cache-write half is the expensive one.
     expect(
-      hasUsage({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 10_000 , outputTextChars: 0, outputTokensEstimated: false }),
+      hasUsage({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 10_000, cacheWrite5mTokens: 0, outputTextChars: 0, outputTokensEstimated: false }),
     ).toBe(true);
     expect(
-      hasUsage({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 4_000, cacheWriteTokens: 0 , outputTextChars: 0, outputTokensEstimated: false }),
+      hasUsage({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 4_000, cacheWriteTokens: 0, cacheWrite5mTokens: 0, outputTextChars: 0, outputTokensEstimated: false }),
     ).toBe(true);
   });
 

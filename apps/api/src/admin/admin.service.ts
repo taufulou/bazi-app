@@ -640,7 +640,15 @@ export class AdminService {
         // Summary stats
         this.prisma.aIUsageLog.aggregate({
           where: { createdAt: { gte: sinceDate } },
-          _sum: { inputTokens: true, outputTokens: true },
+          // #6 — prompt-cache counters too. Once a reading caches its system
+          // prompt, `inputTokens` is only the UNCACHED remainder, so the input
+          // total alone understates the tokens actually processed.
+          _sum: {
+            inputTokens: true,
+            outputTokens: true,
+            cacheReadTokens: true,
+            cacheWriteTokens: true,
+          },
           _count: { id: true },
         }),
         // Cost by provider using raw SQL for Decimal aggregation
@@ -775,6 +783,10 @@ export class AdminService {
         totalTokens: (summary._sum.inputTokens || 0) + (summary._sum.outputTokens || 0),
         totalInputTokens: summary._sum.inputTokens || 0,
         totalOutputTokens: summary._sum.outputTokens || 0,
+        // Named PROMPT cache so it cannot be confused with `cacheHitRate`, which
+        // is the READING cache (a whole reading served from Redis/DB).
+        totalPromptCacheReadTokens: summary._sum.cacheReadTokens || 0,
+        totalPromptCacheWriteTokens: summary._sum.cacheWriteTokens || 0,
         totalRequests: totalCount,
         cacheHitRate: totalCount > 0 ? cacheHits / totalCount : 0,
         costByProvider: costByProvider.map((p) => ({

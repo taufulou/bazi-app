@@ -31,13 +31,24 @@
  *
  * Fields are only overwritten when present, so a later event that omits one
  * cannot erase what an earlier event established.
+ *
+ * ## The cache-write TTL split (#6)
+ *
+ * `message_start` also carries `usage.cache_creation`, which splits the cache
+ * write by TTL (`ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens`).
+ * `message_delta` carries only the totals, so the split is taken from
+ * `message_start` and never reset by a later event. `AiSpendService` prices the
+ * attributed 5-minute part at 1.25x and everything else at the 1-hour 2x rate.
  */
 
 export interface StreamUsage {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  /** TOTAL cache writes, both TTLs. */
   cacheWriteTokens: number;
+  /** The part of `cacheWriteTokens` attributed to the 5-minute TTL (#6). */
+  cacheWrite5mTokens: number;
   /**
    * Characters of assistant text seen so far, from `content_block_delta`.
    *
@@ -55,6 +66,7 @@ export const emptyStreamUsage = (): StreamUsage => ({
   outputTokens: 0,
   cacheReadTokens: 0,
   cacheWriteTokens: 0,
+  cacheWrite5mTokens: 0,
   outputTextChars: 0,
   outputTokensEstimated: false,
 });
@@ -87,24 +99,55 @@ export function estimateOutputTokensFromChars(chars: number): number {
 
 /** The SDK types the cache counters as `number | null`, so null must be a
  *  first-class case here rather than something the caller has to launder. */
-type RawUsage = {
+export type RawUsage = {
   input_tokens?: number | null;
   output_tokens?: number | null;
   cache_read_input_tokens?: number | null;
   cache_creation_input_tokens?: number | null;
+  /** Per-TTL breakdown of `cache_creation_input_tokens`. `message_start` only. */
+  cache_creation?: {
+    ephemeral_5m_input_tokens?: number | null;
+    ephemeral_1h_input_tokens?: number | null;
+  } | null;
 };
+
+/** Anything that holds the input side of a call's usage. */
+export interface InputSideUsage {
+  inputTokens: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheWrite5mTokens?: number;
+}
+
+/**
+ * Fold the INPUT side of a usage object — input tokens and all three cache
+ * counters — into `into`. The ONE reading of those fields, shared by this
+ * module's accumulator (chat, fortune) and `ai.service.ts::streamClaude`
+ * (readings), so the two cannot drift on how a cache split is read.
+ *
+ * ⚠️ Deliberately does NOT touch `output_tokens`. `absorb` below copies it from
+ * both events (cumulative), which is right for this module; `streamClaude`
+ * takes it from `message_delta` only. Folding the output copy in here would
+ * change what an early-aborted READING stream records, for no gain.
+ */
+export function absorbInputSideUsage(raw: RawUsage | undefined, into: InputSideUsage): void {
+  if (!raw) return;
+  if (typeof raw.input_tokens === 'number') into.inputTokens = raw.input_tokens;
+  if (typeof raw.cache_read_input_tokens === 'number') {
+    into.cacheReadTokens = raw.cache_read_input_tokens;
+  }
+  if (typeof raw.cache_creation_input_tokens === 'number') {
+    into.cacheWriteTokens = raw.cache_creation_input_tokens;
+  }
+  const split5m = raw.cache_creation?.ephemeral_5m_input_tokens;
+  if (typeof split5m === 'number') into.cacheWrite5mTokens = split5m;
+}
 
 function absorb(into: StreamUsage, usage: RawUsage | undefined): void {
   if (!usage) return;
-  if (typeof usage.input_tokens === 'number') into.inputTokens = usage.input_tokens;
+  absorbInputSideUsage(usage, into);
   // Cumulative, not incremental — see the docblock.
   if (typeof usage.output_tokens === 'number') into.outputTokens = usage.output_tokens;
-  if (typeof usage.cache_read_input_tokens === 'number') {
-    into.cacheReadTokens = usage.cache_read_input_tokens;
-  }
-  if (typeof usage.cache_creation_input_tokens === 'number') {
-    into.cacheWriteTokens = usage.cache_creation_input_tokens;
-  }
 }
 
 /**

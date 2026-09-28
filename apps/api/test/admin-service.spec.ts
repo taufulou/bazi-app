@@ -856,6 +856,32 @@ describe('AdminService', () => {
       expect(result.totalOutputTokens).toBe(25000);
     });
 
+    it('#6 — surfaces prompt-cache token totals, named apart from the READING cache hit rate', async () => {
+      setupAICostsMocks();
+      mockPrisma.aIUsageLog.aggregate.mockResolvedValue({
+        _sum: { inputTokens: 50000, outputTokens: 25000, cacheReadTokens: 31000, cacheWriteTokens: 15700 },
+        _count: { id: 100 },
+      });
+
+      const result = await service.getAICosts();
+
+      expect(result.totalPromptCacheReadTokens).toBe(31000);
+      expect(result.totalPromptCacheWriteTokens).toBe(15700);
+      // Asked for in the aggregate, not just read off a mock that happens to carry them.
+      expect(mockPrisma.aIUsageLog.aggregate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          _sum: expect.objectContaining({ cacheReadTokens: true, cacheWriteTokens: true }),
+        }),
+      );
+    });
+
+    it('#6 — reports 0 prompt-cache tokens when the sums are null', async () => {
+      setupAICostsMocks();
+      const result = await service.getAICosts();
+      expect(result.totalPromptCacheReadTokens).toBe(0);
+      expect(result.totalPromptCacheWriteTokens).toBe(0);
+    });
+
     it('should compute cacheHitRate', async () => {
       setupAICostsMocks();
 
