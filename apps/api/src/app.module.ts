@@ -109,6 +109,10 @@ import { ShutdownModule } from './common/shutdown.module';
         AI_SPEND_BREAKER_ENABLED: Joi.string().valid('0', '1').optional().default('1'),
         AI_DAILY_SPEND_LIMIT_USD: Joi.number().positive().optional().default(50),
         AI_MONTHLY_SPEND_LIMIT_USD: Joi.number().positive().optional().default(400),
+        // #6 — 5-minute prompt cache on the streaming reading path. `0` is the
+        // config-only rollback: plain-string system prompt AND a parallel,
+        // un-gated Call 2 (no prompt text changes, so no cache-version bump).
+        AI_READING_PROMPT_CACHE: Joi.string().valid('0', '1').optional().default('1'),
         // S1 — concurrency governor. Two pools so a burst of chat cannot starve
         // reading generation, and vice versa. Sizes are budget-derived, not
         // rate-limit-derived. `0` disables a pool (the rollback) — spend is

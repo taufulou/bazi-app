@@ -289,6 +289,20 @@ export class AIService implements OnModuleInit {
   // provider-fallback budget. The reading paths have both, so it fails here.
   // ============================================================
 
+  /**
+   * #6 — is the 5-minute prompt cache on for the streaming reading path?
+   *
+   * The ONE read of `AI_READING_PROMPT_CACHE`, used in TWO places that must
+   * agree: `streamClaude` (whether the system block carries `cache_control`)
+   * and `_executeStreamV2Common` (whether Call 2 waits behind Call 1's first
+   * chunk). `0` restores today's behaviour exactly — a plain-string system
+   * prompt AND a parallel, un-gated Call 2. Leaving the gate on with the cache
+   * off would delay every reading for nothing. Default ON.
+   */
+  private isReadingPromptCacheEnabled(): boolean {
+    return (this.configService.get<string>('AI_READING_PROMPT_CACHE') ?? '1') !== '0';
+  }
+
   /** Per-call timeout for the V2 reading stream path. */
   private getStreamTimeoutMs(): number {
     return parseInt(
@@ -6306,11 +6320,21 @@ export class AIService implements OnModuleInit {
       this.claudeClient = createAnthropicClient({ apiKey: config.apiKey });
     }
 
+    // #6 — the V2 system prompt is byte-identical across a reading's calls AND
+    // across every reading of that type (~15.7k tokens for LIFETIME), so it is
+    // cached. 5-MINUTE TTL, deliberately: a reading is one-shot, and the 1-hour
+    // write premium (2x vs 1.25x) makes an ISOLATED reading cost MORE than not
+    // caching. Never add `ttl: '1h'` here — chat uses 1h because its turns
+    // repeat; readings do not. The saving also depends on Call 2 starting after
+    // Call 1 has begun streaming (see PROMPT_CACHE_GATE_MAX_WAIT_MS): parallel
+    // requests all WRITE and none read.
     const stream = this.claudeClient.messages.stream(
       {
         model: config.model,
         max_tokens: 16384,
-        system: systemPrompt,
+        system: this.isReadingPromptCacheEnabled()
+          ? [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }]
+          : systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       },
       signal ? { signal } : undefined,
