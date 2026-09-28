@@ -164,7 +164,23 @@ export interface AiCallLogFields {
   inTok: number;
   outTok: number;
   cacheReadTok: number;
+  /** TOTAL cache writes, both TTLs. Saved Railway queries rely on this meaning. */
   cacheWriteTok: number;
+  /**
+   * The part of `cacheWriteTok` the API attributed to the 5-minute TTL. The
+   * rest (`cacheWriteTok - cacheW5mTok`) was priced at the 1-hour rate — see
+   * `AiSpendService.estimateCostUsd`. So a line is reconcilable by hand
+   * (Sonnet, per MTok):
+   *
+   *   inTok×3 + outTok×15 + cacheReadTok×0.30 + cacheW5mTok×3.75
+   *     + (cacheWriteTok − cacheW5mTok)×6
+   *
+   * ⚠️ OPTIONAL, like `outTokEstimated`, and for the same reason: fixtures
+   * build this whole object, and ts-jest type-checks them — a required field
+   * makes those suites fail to COMPILE, which reports `0 tests` rather than a
+   * failure. Emitted always, as `0` when absent.
+   */
+  cacheW5mTok?: number;
   costUsd: number;
   userIdHash: string | null;
   /** Account-level gauge — see `anthropic-rate-limit.ts`, NOT per-call. */
@@ -211,6 +227,7 @@ export function formatAiCallLog(f: AiCallLogFields): string {
     outTok: f.outTok,
     cacheReadTok: f.cacheReadTok,
     cacheWriteTok: f.cacheWriteTok,
+    cacheW5mTok: f.cacheW5mTok ?? 0,
     // Six decimals: a cheap Haiku call rounds to $0.000 at three, and a column
     // of zeroes is indistinguishable from "not metered".
     costUsd: Number(f.costUsd.toFixed(6)),

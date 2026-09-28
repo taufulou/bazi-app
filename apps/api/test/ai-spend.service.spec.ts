@@ -86,6 +86,102 @@ describe('S2 — pricing', () => {
     expect(write).toBeGreaterThan(input);
   });
 
+  /**
+   * #6 — TTL-aware cache-write pricing.
+   *
+   * Readings cache their system prompt at the 5-minute TTL (1.25x input); chat
+   * caches at the 1-hour TTL (2x). One rate for both would have over-reported
+   * every reading write by 60%. The split comes from the API's own
+   * `usage.cache_creation`, never from a caller flag.
+   */
+  describe('#6 — cache writes by TTL', () => {
+    const M = 1_000_000;
+    const u = { inputTokens: 0, outputTokens: 0 };
+
+    it('prices an attributed 5-minute write at 1.25x input', () => {
+      const { service } = makeService();
+      const cost = service.estimateCostUsd('claude-sonnet-4-5', {
+        ...u, cacheWriteTokens: M, cacheWrite5mTokens: M,
+      });
+      expect(cost).toBeCloseTo(3.75, 9);
+    });
+
+    it('prices an UNATTRIBUTED write at the 1-hour rate — the conservative direction', () => {
+      const { service } = makeService();
+      expect(
+        service.estimateCostUsd('claude-sonnet-4-5', { ...u, cacheWriteTokens: M }),
+      ).toBeCloseTo(6, 9);
+    });
+
+    it('prices a read at 0.1x input', () => {
+      const { service } = makeService();
+      expect(
+        service.estimateCostUsd('claude-sonnet-4-5', { ...u, cacheReadTokens: M }),
+      ).toBeCloseTo(0.3, 9);
+    });
+
+    it('splits a mixed write: the attributed part at 5m, the remainder at 1h', () => {
+      const { service } = makeService();
+      const cost = service.estimateCostUsd('claude-sonnet-4-5', {
+        ...u, cacheWriteTokens: M, cacheWrite5mTokens: 400_000,
+      });
+      expect(cost).toBeCloseTo(0.4 * 3.75 + 0.6 * 6, 9); // $5.10
+    });
+
+    it('chat parity lock — a total with no 5-minute split prices exactly as before the split existed', () => {
+      // Chat passes only the total (it sends ttl:'1h'). Before #6 the table had
+      // ONE write rate, the 1-hour one. The price of that shape must not move.
+      const { service } = makeService();
+      const N = 12_345;
+      expect(
+        service.estimateCostUsd('claude-sonnet-4-5', { ...u, cacheWriteTokens: N }),
+      ).toBeCloseTo((N * 6) / M, 12);
+    });
+
+    it('clamp errs toward OVER-count: a 5m split with an absent total is still billed', () => {
+      // `min(w5m, total)` would discard real tokens here — $0 for a real write.
+      const { service } = makeService();
+      expect(
+        service.estimateCostUsd('claude-sonnet-4-5', { ...u, cacheWrite5mTokens: M }),
+      ).toBeCloseTo(3.75, 9);
+      expect(
+        service.estimateCostUsd('claude-sonnet-4-5', {
+          ...u, cacheWriteTokens: 0, cacheWrite5mTokens: M,
+        }),
+      ).toBeCloseTo(3.75, 9);
+    });
+
+    it('clamp never produces a negative 1-hour term when the split exceeds the total', () => {
+      const { service } = makeService();
+      const cost = service.estimateCostUsd('claude-sonnet-4-5', {
+        ...u, cacheWriteTokens: 400_000, cacheWrite5mTokens: M,
+      });
+      expect(cost).toBeCloseTo(3.75, 9);
+      expect(cost).toBeGreaterThan(0);
+    });
+
+    it('both write rates stay dearer than plain input', () => {
+      const { service } = makeService();
+      const input = service.estimateCostUsd('claude-sonnet-4-5', { inputTokens: M, outputTokens: 0 });
+      const w5 = service.estimateCostUsd('claude-sonnet-4-5', { ...u, cacheWriteTokens: M, cacheWrite5mTokens: M });
+      const w1 = service.estimateCostUsd('claude-sonnet-4-5', { ...u, cacheWriteTokens: M });
+      expect(w5).toBeGreaterThan(input);
+      expect(w1).toBeGreaterThan(w5);
+    });
+
+    it('an unknown model bills a 5-minute write at the most expensive known 5-minute rate', () => {
+      const { service } = makeService();
+      const unknown = service.estimateCostUsd('some-new-model-v9', {
+        ...u, cacheWriteTokens: M, cacheWrite5mTokens: M,
+      });
+      const opus = service.estimateCostUsd('claude-opus-4-6', {
+        ...u, cacheWriteTokens: M, cacheWrite5mTokens: M,
+      });
+      expect(unknown).toBe(opus);
+      expect(unknown).toBeCloseTo(18.75, 9);
+    });
+  });
+
   it('treats missing cache fields as zero, not NaN', () => {
     const { service } = makeService();
     const cost = service.estimateCostUsd('claude-sonnet-4-5', { inputTokens: 100, outputTokens: 100 });

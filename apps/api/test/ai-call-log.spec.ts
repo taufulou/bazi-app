@@ -68,6 +68,16 @@ describe('formatAiCallLog', () => {
     expect(parse(formatAiCallLog({ ...base, costUsd: 0.0000841 })).costUsd).toBe(0.000084);
   });
 
+  it('#6 — always emits cacheW5mTok, as 0 when the caller omits it', () => {
+    // `base` deliberately does not set it: the field is OPTIONAL so every
+    // existing fixture still compiles, and ALWAYS EMITTED so it can be
+    // filtered on. Both halves are the contract.
+    expect('cacheW5mTok' in base).toBe(false);
+    const parsed = parse(formatAiCallLog(base));
+    expect(parsed).toHaveProperty('cacheW5mTok', 0);
+    expect(parse(formatAiCallLog({ ...base, cacheW5mTok: 1234 })).cacheW5mTok).toBe(1234);
+  });
+
   it('renders an untimed call as null, not as 0ms', () => {
     expect(parse(formatAiCallLog({ ...base, ms: null })).ms).toBeNull();
   });
