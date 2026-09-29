@@ -17,13 +17,39 @@ import { ReadingType, ComparisonType } from '@prisma/client';
  * ZWDS was deleted for never shipping; this is the door it was still reachable
  * through. Kept as a validator rather than a DB flag so it survives a re-seed,
  * and next to the `@ApiProperty` so the two can be seen to agree.
+ *
+ * HEALTH withdrawn 2026-09-28 (todo #3). It was V1-only (one call, no
+ * deterministic pre-analysis), hidden from the homepage since `7a15e37`
+ * (2026-03-06), absent from mobile/chat/admin banners — yet still purchasable
+ * through the cross-sell grid, the sitemap and the pricing page. Existing HEALTH
+ * rows still render via `?id=`; nothing that generates or displays one is
+ * deleted. Removing it here is what stops the sale, whichever client asks.
  */
 export const BAZI_CREATABLE_READING_TYPES = [
   ReadingType.LIFETIME,
   ReadingType.ANNUAL,
   ReadingType.CAREER,
   ReadingType.LOVE,
-  ReadingType.HEALTH,
+] as const;
+
+/**
+ * The reading types `BaziService._setupStream` has a streamer for. Every type
+ * here has an explicit `case` in that dispatcher; anything else is REFUSED
+ * there, never defaulted.
+ *
+ * ⚠️ `createReading`'s `isV2Reading` reads THIS list. The two used to be
+ * separate literals, and `_setupStream` had no list at all — just a `default:`
+ * that fell through to `streamLifetimeV2`. That is how a HEALTH row was
+ * narrated as 八字終身運 and persisted that way (todo #3), and how a ZWDS row
+ * nearly was (`3336922`). `apps/api/test/reading-type-surface.spec.ts` asserts
+ * this list equals `BAZI_CREATABLE_READING_TYPES`: what can be bought here can
+ * be streamed, and nothing else can be either.
+ */
+export const STREAMABLE_READING_TYPES = [
+  ReadingType.LIFETIME,
+  ReadingType.CAREER,
+  ReadingType.ANNUAL,
+  ReadingType.LOVE,
 ] as const;
 
 export class CreateReadingDto {

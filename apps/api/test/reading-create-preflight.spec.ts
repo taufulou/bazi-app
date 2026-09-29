@@ -21,6 +21,7 @@ import { CreditsService } from '../src/credits/credits.service';
 import { QuotaService, QUOTA_EXCEEDED_CODE } from '../src/ai/quota.service';
 import { AiSpendService, AI_SPEND_CAP_CODE } from '../src/ai/ai-spend.service';
 import { ReadingType } from '@prisma/client';
+import { STREAMABLE_READING_TYPES } from '../src/bazi/dto/create-reading.dto';
 import { ShutdownService } from '../src/common/shutdown.service';
 
 const mockFetch = jest.fn();
@@ -154,6 +155,37 @@ describe('createReading — self-refusal pre-flight runs before the charge', () 
     await expect(create()).resolves.toBeDefined();
     expect(aiSpend.assertUnderCap).not.toHaveBeenCalled();
     expect(credits.deductCredits).not.toHaveBeenCalled();
+  });
+
+  describe('the streamable set is the whole creatable set (todo #3)', () => {
+    // `createReading`'s `isV2Reading` reads STREAMABLE_READING_TYPES. An audit
+    // collapsed it to `=== LIFETIME` and every suite stayed GREEN — nothing
+    // created CAREER / ANNUAL / LOVE through this method. A dropped type routes
+    // a `stream: true` create INLINE → 60s abort → AI_CALL_FAILED for every
+    // reading of that type, suite green. This is the create-side twin of the
+    // derived dispatch table in `bazi.service.self-refusal-refund.spec.ts`.
+    const dtoFor = (readingType: ReadingType, stream: boolean) => ({
+      birthProfileId: 'profile-1',
+      readingType,
+      stream,
+      ...(readingType === ReadingType.ANNUAL ? { targetYear: 2026 } : {}),
+    });
+
+    it.each(STREAMABLE_READING_TYPES)('%s with stream:true is admitted as a STREAMING create', async (readingType) => {
+      prisma.service.findFirst.mockResolvedValue({ ...mockService, type: readingType });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await expect(service.createReading('clerk_user_1', dtoFor(readingType, true) as any))
+        .resolves.toMatchObject({ streamReady: true });
+      expect(ai.generateInterpretation).not.toHaveBeenCalled();
+    });
+
+    it.each(STREAMABLE_READING_TYPES)('%s without stream is refused with STREAM_REQUIRED, uncharged', async (readingType) => {
+      prisma.service.findFirst.mockResolvedValue({ ...mockService, type: readingType });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await expect(service.createReading('clerk_user_1', dtoFor(readingType, false) as any))
+        .rejects.toMatchObject({ response: expect.objectContaining({ code: 'STREAM_REQUIRED' }) });
+      expect(credits.deductCredits).not.toHaveBeenCalled();
+    });
   });
 
   it('charges normally when nothing refuses', async () => {

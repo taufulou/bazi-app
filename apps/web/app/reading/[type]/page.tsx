@@ -38,6 +38,7 @@ import {
   getReading,
   streamBaziReading,
   needsInterpretationRecovery,
+  STREAMABLE_READING_SLUGS,
   regenerateBaziReading,
   transformAIResponse,
   SECTION_TITLE_MAP,
@@ -106,6 +107,18 @@ function isZwdsType(type: string): boolean {
   return type.startsWith("zwds-");
 }
 
+/**
+ * Reading types withdrawn from sale but kept viewable. Same treatment as ZWDS:
+ * the slug stays in VALID_TYPES so `?id=` still renders an already-paid reading,
+ * and the form refuses on SUBMIT (never in render — see the ReadingPage docblock
+ * for why an early return above the hooks is a crash, not a tidy-up).
+ *
+ * `health` — 先天健康分析 was V1-only, hidden from the homepage since `7a15e37`,
+ * and the API no longer accepts it (`BAZI_CREATABLE_READING_TYPES`). This is the
+ * friendly message in front of that 400. Withdrawn 2026-09-28 (todo #3).
+ */
+const WITHDRAWN_TYPES: ReadonlySet<string> = new Set(["health"]);
+
 // ============================================================
 // Restore guard — module-scope flag (not component state)
 // ============================================================
@@ -154,6 +167,7 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
 
   const meta = READING_TYPE_META[readingType];
   const isZwds = isZwdsType(readingType);
+  const isWithdrawn = WITHDRAWN_TYPES.has(readingType);
   const isLifetime = readingType === "lifetime";
   const isCareer = readingType === "career";
   const isAnnual = readingType === "annual";
@@ -579,13 +593,16 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
       // Streaming an existing id does NOT re-charge: the charge lives in
       // `createReading`, which is not on this path.
       //
-      // ⚠️ `!isZwds` is LOAD-BEARING, not tidiness. `_setupStream`'s streamer
-      // switch ends in `default: streamLifetimeV2`, so a ZWDS row sent there
-      // would generate a 八字終身運 reading over 紫微斗數 calculation data and
-      // OVERWRITE one of the two paid `ZWDS_LIFETIME` reports. ZWDS is deleted
-      // (`ad106fc`) and has no correct streamer, so there is nothing to recover
-      // — the row renders from `calculationData` and must be left alone.
-      if (!isZwds && needsInterpretationRecovery(reading, aiReading?.sections?.length ?? 0)) {
+      // ⚠️ The predicate is TYPE-AWARE and fails closed (see
+      // `needsInterpretationRecovery`). `_setupStream`'s streamer switch used to
+      // end in `default: streamLifetimeV2`, so a ZWDS or HEALTH row sent there
+      // generated a 八字終身運 reading over the wrong chart and OVERWROTE the row
+      // (two paid `ZWDS_LIFETIME` reports exist; HEALTH was todo #3). Those rows
+      // render whatever they hold and must be left alone; the backend now
+      // refuses them too, but refusing here first avoids a wasted round-trip
+      // that would end in a silent spinner stop (`recoverPaidReading`'s
+      // `onError` sets no message).
+      if (needsInterpretationRecovery(reading, aiReading?.sections?.length ?? 0)) {
         void recoverPaidReading(reading.id, readingType, { owned: true });
       }
     } catch {
@@ -622,7 +639,14 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
       // so there is nothing to calculate here first. Already-paid ZWDS readings
       // still render: the `?id=` path reads `reading.calculationData` from the DB
       // and never called that route.
-      if (!isZwds) {
+      //
+      // A WITHDRAWN type (todo #3) skips this for the same reason: Phase 2
+      // refuses before creating anything, so computing a chart first would be
+      // a throttled web → NestJS → engine round-trip for a result-step the
+      // user only sees an error on. ⚠️ Do NOT hoist Phase 2's throw up here
+      // instead — `handleFormSubmit`'s catch would swallow it; the Phase-2
+      // placement is what routes it through `handleNestJSError` to the banner.
+      if (!isZwds && !isWithdrawn) {
         const baziResponse = await fetch("/api/bazi-calculate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -660,6 +684,11 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
     try {
       let response: NestJSReadingResponse;
 
+      if (isWithdrawn) {
+        // Withdrawn from sale (todo #3). The API rejects the type at the DTO;
+        // this refuses before the request so the user sees why, not a 400.
+        throw new Error("先天健康分析已停止提供，請選擇其他分析。");
+      }
       if (isZwds) {
         // ⚠️ ZWDS generation is GONE, not disabled — the backend module was
         // deleted. The slug stays valid so the two already-paid readings remain
@@ -670,7 +699,9 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
           birthProfileId,
           readingType: readingType,
           targetYear: readingType === "annual" ? new Date().getFullYear() : undefined,
-          stream: readingType === "lifetime" || readingType === "career" || readingType === "annual" || readingType === "love", // V2 streaming
+          // V2 streaming — the SAME list the recovery predicate reads, so the
+          // two can never disagree about what streams.
+          stream: (STREAMABLE_READING_SLUGS as readonly string[]).includes(readingType),
         });
         setChartData(response.calculationData);
       }
@@ -814,6 +845,10 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
   // it existed solely to feed iztro's astrolabeByLunarDate. The Bazi branch
   // reads the already-converted solar date off `data`.
   async function callDirectEngine(data: BirthDataFormValues) {
+    if (isWithdrawn) {
+      // Withdrawn from sale (todo #3) — mirror of the refusal in callNestJSReading.
+      throw new Error("先天健康分析已停止提供，請選擇其他分析。");
+    }
     if (isZwds) {
       // See the note in callNestJSReading — the /api/zwds-calculate route is
       // deleted. Refuse before doing any work rather than rendering a chart for
@@ -992,7 +1027,13 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
           await callDirectEngine(data);
           setIsLoading(false);
         }
-      } catch {
+      } catch (err) {
+        // Was a bare `catch { setIsLoading(false) }` — a rejection from
+        // `callDirectEngine` (the withdrawn/ZWDS refusals, or a real 排盤失敗)
+        // reached here as a spinner that just stopped, with no message. Same
+        // shape as `handleFreeChart`'s catch. `callNestJSReading` catches its
+        // own errors and never rejects into this branch.
+        setError(err instanceof Error ? err.message : "排盤失敗，請稍後再試");
         setIsLoading(false);
       }
     },

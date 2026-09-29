@@ -358,7 +358,56 @@ next, not by size. Update it in place as items land.
       the same treatment — `refundComparisonCredit` also clears `paidAt`, so a
       refunded comparison currently renders as 未解鎖 rather than 已退款.
 
-3. **🔴 HEALTH readings deliver LIFETIME content — a customer buys the wrong
+3. ✅ **FIXED 2026-09-28 (uncommitted in worktree `claude/launch-security-phase1-review-05ef66`) — HEALTH withdrawn from sale (Option A) + the dispatcher made an allowlist.**
+   Plan (3 staff-engineer rounds, APPROVED): `.claude/plans/fix-health-reading-dispatch.md`.
+   Owner decision: HEALTH is not a product we deliver now; fix only what touches the
+   main product. Nothing that generates or renders a HEALTH reading was deleted.
+   - **Dispatcher (unconditional):** `STREAMABLE_READING_TYPES` next to
+     `BAZI_CREATABLE_READING_TYPES` is ONE list read by `createReading.isV2Reading`
+     and by a new step-2b allowlist guard in `_setupStream` (after the
+     content-present return, BEFORE slot/lock/quota — a refusal spends nothing);
+     the switch has an explicit `LIFETIME` case and `default:` THROWS. The old
+     ZWDS `startsWith` denylist is subsumed (same code, same message). Web
+     `needsInterpretationRecovery` is type-aware and fails closed.
+   - **Withdrawn from sale:** HEALTH removed from the create DTO allowlist (the
+     gate that stops the money), the public pricing page row, the cross-sell grid
+     (the last in-app link) and the sitemap; `/reading/health` still renders the
+     form but SUBMIT refuses (ZWDS pattern — no early return above the hooks);
+     `?id=` on an existing row renders as before.
+   - **Tests:** dispatch table derived from the constant (exhaustively typed map),
+     HEALTH refused before anything is spent, placement above S2/S4 and below
+     step 2, a separate spec that `jest.mock`s the list wider to actually reach
+     `default:` (asserts the throw, slot+lock released, no refund, quota already
+     spent, ERROR log), surface spec asserts creatable == streamable, web
+     predicate + cross-sell negative assertions. **12 mutations, 12 red** (M1's
+     first form did not compile — redone as a block deletion; non-results are
+     not passes).
+   - ⚠️ Worktree gotcha found on the way: the generated Prisma client was STALE
+     (`outputTokensEstimated` from PR #71 missing) so every suite importing
+     `ai.service` failed to COMPILE. `../../node_modules/.bin/prisma generate`
+     in the worktree fixed it; it writes to the worktree's own `node_modules`.
+   - ✅ **Step 0 WAIVED 2026-09-29 (owner: no production customers yet).** There
+     is no real-account HEALTH row to refund; the one known affected row
+     (`ab232801…`) was load-test/hand-driven, already refunded, account deleted.
+     Post-fix a leftover HEALTH row can only render its stored content by `?id=`
+     or render empty — never streamed as LIFETIME, regenerated, or charged.
+     **If real customers exist before this deploys, run Q1/Q2 (plan § 2) first
+     and refund per plan § 6.** Optional: deactivate the `health` `Service` row
+     via `PATCH /api/admin/services/:id`.
+   - Deploy: no migration, no env var, no cache bump. Merging to `main` deploys.
+   - **2026-09-29 — line audit (3 parallel agents) + live browser test, both DONE.**
+     Audit: 0 critical/high, 3 medium (all fixed same day — `regenerateReading`
+     sibling path now carries the same allowlist + `refundedAt: null`; the
+     create-side `isV2Reading` is pinned by an `it.each` over the list; the web
+     form's swallowed `callDirectEngine` catch now sets the error), 11 low (all
+     applied). 16/16 mutations red. Live, on this worktree's build at API 4001 /
+     web 3001 (the 3000/4000/5001 stack belongs to another session): HEALTH
+     create → 400 uncharged; paid-empty HEALTH stream → SSE `event: error`, no
+     refund; content HEALTH row renders via `?id=`; recovery predicate sends no
+     stream; both form paths refuse with the message; pricing/cross-sell/sitemap
+     clean; regenerate on a degraded HEALTH row → 400, content intact. Full
+     record: plan § 12. api 2438 / web 421 / lint 5 of 5 / tsc 0+0.
+   (Was:) **🔴 HEALTH readings deliver LIFETIME content — a customer buys the wrong
    product.** Found 2026-08-30 while verifying the load-test mock; fix in its
    own session, do not fold it into Phase 3.
    - `apps/api/src/bazi/bazi.service.ts` ~:910 (`_setupStream`, "Delegate to

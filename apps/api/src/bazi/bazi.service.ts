@@ -15,7 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { AIService } from '../ai/ai.service';
 import { CreditsService } from '../credits/credits.service';
-import { CreateReadingDto, CreateComparisonDto } from './dto/create-reading.dto';
+import { CreateReadingDto, CreateComparisonDto, STREAMABLE_READING_TYPES } from './dto/create-reading.dto';
 import { Prisma, ReadingType } from '@prisma/client';
 import { deepCamelCase } from '../common/deep-camel-case';
 import { QuotaService } from '../ai/quota.service';
@@ -339,10 +339,11 @@ export class BaziService {
     );
 
     // Streaming path: V2 reading types + stream=true + no cache → skip AI, return streamReady
-    const isV2Reading = dto.readingType === ReadingType.LIFETIME
-      || dto.readingType === ReadingType.CAREER
-      || dto.readingType === ReadingType.ANNUAL
-      || dto.readingType === ReadingType.LOVE;
+    //
+    // ONE list, shared with `_setupStream`'s allowlist guard (step 2b): what this
+    // method routes to the stream is exactly what that method has a streamer
+    // for. They were two separate literals until todo #3.
+    const isV2Reading = (STREAMABLE_READING_TYPES as readonly ReadingType[]).includes(dto.readingType);
     const isStreamingRequest = dto.stream === true
       && isV2Reading
       && !cachedInterpretation;
@@ -404,6 +405,15 @@ export class BaziService {
       aiModel = 'cached';
     } else if (!isStreamingRequest) {
       // Non-streaming: generate AI inline (existing behavior)
+      //
+      // NOT reachable over HTTP at all: every creatable type is streamable
+      // (HEALTH was withdrawn from `BAZI_CREATABLE_READING_TYPES`), a cache hit
+      // takes the branch above, and a streamable type without `stream` is
+      // refused with STREAM_REQUIRED before this point. Reachable at the
+      // SERVICE layer only — `test/reading-create-preflight.spec.ts` and
+      // `test/ai-failure-refund.spec.ts` call this method directly with HEALTH
+      // as the V1 stand-in — and `generateInterpretation` is also the V2
+      // total-failure fallback, so do NOT add a service-level type check here.
       try {
         // Add birth info to calculation data for prompt interpolation
         const enrichedData = {
@@ -698,6 +708,20 @@ export class BaziService {
         isDegraded: true,
         regenerationExhausted: false,
         regenerationCount: { lt: REGENERATION_LIMIT },
+        // todo #3 — same allowlist as `_setupStream` step 2b. Regeneration is
+        // "null the content, then re-stream"; a row the stream will REFUSE must
+        // therefore be refused HERE, before its content is destroyed. Without
+        // this, a pre-fix degraded HEALTH row (narrated by `streamLifetimeV2`
+        // before 2b existed, so `isDegraded: true` is possible on it) would be
+        // nulled, then refused at the stream with no refund, then answer
+        // 「狀態正常」 to a second regenerate: paid-empty, forever.
+        readingType: { in: [...STREAMABLE_READING_TYPES] },
+        // The comment below says "isDegraded ⇒ never refunded" — true for rows
+        // the pipeline produced, false the moment an operator refunds a
+        // degraded row by hand (plan § 6). Enforce it rather than assume it: a
+        // refunded row must not have its content nulled and then be refused at
+        // the stream (`READING_REFUNDED`) with nothing left to show.
+        refundedAt: null,
       },
       data: {
         regenerationCount: { increment: 1 },
@@ -730,6 +754,24 @@ export class BaziService {
         where: { id: readingId, userId: user.id },
       });
       if (!reading) throw new NotFoundException('Reading not found');
+      // Checked BEFORE the isDegraded/exhausted answers: those would describe a
+      // row this endpoint is never going to regenerate. Not a self-refusal —
+      // the user keeps whatever the row holds (the WHERE above never touched it).
+      if (!(STREAMABLE_READING_TYPES as readonly ReadingType[]).includes(reading.readingType)) {
+        this.logger.warn(
+          `[Regenerate] REFUSED reading=${readingId} user=${user.id} type=${reading.readingType} — no streamer for this type`,
+        );
+        throw new BadRequestException({
+          code: 'READING_TYPE_NOT_STREAMABLE',
+          message: '此類型分析不支援重新生成。',
+        });
+      }
+      if (reading.refundedAt) {
+        throw new BadRequestException({
+          code: 'READING_REFUNDED',
+          message: '此分析已退款，點數已退回。請重新建立一次分析。',
+        });
+      }
       if (!reading.isDegraded) {
         throw new BadRequestException('此分析狀態正常，無需重新生成');
       }
@@ -1014,6 +1056,38 @@ export class BaziService {
       return;
     }
 
+    // 2b. NO STREAMER → REFUSE. An ALLOWLIST, not a denylist. Mirrors the
+    // LOAD-BEARING guard the comparison path carries (`_assertRomanceV2`).
+    //
+    // The streamer switch at step 5 used to end in `default: streamLifetimeV2`,
+    // so any type without a `case` was silently narrated as 八字終身運 and
+    // PERSISTED onto its own row by `_executeStreamV2Common`. Two types reached
+    // it: ZWDS (deleted in `ad106fc`, two paid `ZWDS_LIFETIME` reports exist —
+    // guarded by a `startsWith('ZWDS')` denylist since `3336922`) and HEALTH
+    // (V1, inline-only, no V2 streamer — todo #3). A denylist has to name every
+    // future mistake; this names the four things that work.
+    //
+    // Placed AFTER step 2 on purpose: a paid row that already HAS content is
+    // served by `emitStaticSections` above and never gets here. Placed BEFORE
+    // step 3 so a refusal takes no slot, no lock and no quota.
+    //
+    // ⚠️ NOT a self-refusal (nothing we control failed; the row simply cannot
+    // be regenerated), so the refund backstop in the catch below does not fire:
+    // the user keeps whatever the row holds. On this `@Sse` route the caller
+    // sees `event: error` with only the message; the `code` is for the specs.
+    if (!(STREAMABLE_READING_TYPES as readonly ReadingType[]).includes(reading.readingType)) {
+      this.logger.warn(
+        `[Stream] REFUSED reading=${readingId} user=${user.id} type=${reading.readingType} — ` +
+          `no streamer for this type; would have generated LIFETIME over its data`,
+      );
+      throw new BadRequestException({
+        code: 'READING_TYPE_NOT_STREAMABLE',
+        message: reading.readingType.startsWith('ZWDS')
+          ? '紫微斗數功能已停用，此報告無法重新生成。'
+          : '此類型分析不支援串流生成，無法重新生成。',
+      });
+    }
+
     // 3. Check concurrent stream limit (max 2 per user)
     const activeKey = `stream:active:${user.id}`;
     const active = await this.redis.incrementRateLimit(activeKey, 300); // 5 min TTL safety
@@ -1088,37 +1162,6 @@ export class BaziService {
         enrichedData.targetYear = reading.targetYear;
       }
 
-      // ⚠️ Refuse a row this endpoint cannot interpret. Mirrors the LOAD-BEARING
-      // guard the comparison path already carries (`_assertRomanceV2`) and that
-      // this one never had.
-      //
-      // The streamer switch below ends in `default: streamLifetimeV2`, so a
-      // ZWDS row reaching it generates 八字終身運 content over 紫微斗數
-      // calculation data and OVERWRITES the row — and two paid `ZWDS_LIFETIME`
-      // reports exist. ZWDS was deleted in `ad106fc`; there is no correct
-      // streamer, so refusing is the only honest answer.
-      //
-      // Placed AFTER step 2 on purpose: a paid ZWDS row that already HAS an
-      // interpretation must still be served by `emitStaticSections`, and it
-      // returns before reaching here.
-      //
-      // ⚠️ This is NOT a self-refusal, so the backstop below correctly does not
-      // refund: the user keeps a report we are merely declining to regenerate.
-      //
-      // ⚠️ HEALTH has the same `default:` problem and is deliberately NOT
-      // covered here — it is a sellable product needing a decision (build
-      // `streamHealthV2` or withdraw it), tracked as its own item.
-      if (reading.readingType.startsWith('ZWDS')) {
-        this.logger.warn(
-          `[Stream] REFUSED ZWDS reading=${readingId} user=${user.id} — ` +
-            `no ZWDS streamer exists; would have generated LIFETIME over ZWDS data`,
-        );
-        throw new BadRequestException({
-          code: 'READING_TYPE_NOT_STREAMABLE',
-          message: '紫微斗數功能已停用，此報告無法重新生成。',
-        });
-      }
-
       // S4 — `_setupStream` serves BOTH the first stream and regeneration, and
       // both generate. Regeneration is separately bounded per-reading by
       // REGENERATION_LIMIT and requires `isDegraded`, so this is the smaller
@@ -1139,9 +1182,13 @@ export class BaziService {
       await this.aiSpend.assertUnderCap('reading:stream');
       await this.quota.consume('reading', user.id);
 
-      // 5. Delegate to correct V2 streamer based on reading type
+      // 5. Delegate to the V2 streamer for this type. Every member of
+      // STREAMABLE_READING_TYPES has a `case`; `default:` THROWS.
       let aiObservable;
       switch (reading.readingType) {
+        case 'LIFETIME':
+          aiObservable = this.aiService.streamLifetimeV2(enrichedData, readingId, user.id);
+          break;
         case 'CAREER':
           aiObservable = this.aiService.streamCareerV2(enrichedData, readingId, user.id);
           break;
@@ -1152,8 +1199,23 @@ export class BaziService {
           aiObservable = this.aiService.streamLoveV2(enrichedData, readingId, user.id);
           break;
         default:
-          aiObservable = this.aiService.streamLifetimeV2(enrichedData, readingId, user.id);
-          break;
+          // Unreachable while step 2b and STREAMABLE_READING_TYPES agree — and
+          // kept precisely for the day they do not. This used to be
+          // `streamLifetimeV2`, which is how a HEALTH row became a LIFETIME
+          // reading (todo #3): a plausible answer where an error belonged.
+          //
+          // Two things the reader should know: (1) the S4 `quota.consume` above
+          // has ALREADY run, so reaching here has spent one daily quota unit
+          // (`bazi.service.stream-dispatch-default.spec.ts` pins that); (2) the
+          // catch below releases the slot and lock, does not refund (a plain
+          // Error is not a self-refusal), and `streamReading` turns the throw
+          // into an SSE `event: error` over HTTP 200 — there is no 500 on this
+          // route, so the log line is the operator's signal.
+          this.logger.error(
+            `[Stream] UNREACHABLE reading=${readingId} user=${user.id} type=${reading.readingType} — ` +
+              `passed the streamable allowlist but has no case in the dispatcher`,
+          );
+          throw new Error(`Unreachable: no streamer for ${reading.readingType}`);
       }
       aiObservable.subscribe({
         next: (event) => subscriber.next(event),

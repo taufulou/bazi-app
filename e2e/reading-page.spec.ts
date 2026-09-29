@@ -177,6 +177,9 @@ test.describe('Reading Page - Bazi Types', () => {
   });
 
   test('health reading page loads', async ({ page }) => {
+    // HEALTH is withdrawn from sale (2026-09-28, todo #3): the form still
+    // renders (header below stays true) but submit refuses and the API rejects
+    // the type. Only `?id=` on an already-paid reading is a real path now.
     await page.goto('/reading/health');
     await expect(page.locator('[class*="headerTitle"]')).toContainText('先天健康分析');
   });

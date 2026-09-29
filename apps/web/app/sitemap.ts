@@ -8,7 +8,8 @@ const READING_SLUGS = [
   'annual',
   'career',
   'love',
-  'health',
+  // 'health' removed 2026-09-28 — withdrawn from sale (todo #3); existing
+  // readings still render via `?id=` but nothing should be indexed to buy one.
   'compatibility',
 ];
 

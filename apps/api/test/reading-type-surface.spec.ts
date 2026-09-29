@@ -1,7 +1,7 @@
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
 import { ReadingType } from '@prisma/client';
-import { CreateReadingDto, BAZI_CREATABLE_READING_TYPES } from '../src/bazi/dto/create-reading.dto';
+import { CreateReadingDto, BAZI_CREATABLE_READING_TYPES, STREAMABLE_READING_TYPES } from '../src/bazi/dto/create-reading.dto';
 
 /**
  * Which reading types the Bazi endpoint will create.
@@ -45,6 +45,23 @@ describe('CreateReadingDto — the Bazi endpoint accepts only Bazi types', () =>
     for (const t of BAZI_CREATABLE_READING_TYPES) {
       expect(await errorsFor(t)).toHaveLength(0);
     }
+  });
+
+  it('rejects HEALTH — withdrawn from sale 2026-09-28 (todo #3)', async () => {
+    // V1-only, hidden from the homepage since 7a15e37, no V2 streamer. Existing
+    // rows still render via ?id=; this is what stops a NEW purchase, whichever
+    // client sends it.
+    const errors = await errorsFor(ReadingType.HEALTH);
+    expect(errors.map((e) => e.property)).toContain('readingType');
+  });
+
+  it('every type this endpoint can create, _setupStream can stream — and vice versa', () => {
+    // The todo #3 bug was CREATABLE ⊋ STREAMABLE with a `default:` that fell
+    // through to LIFETIME. ⚠️ This compares two literals from one module; it
+    // is a RELATIONSHIP lock. The proof that the list is actually READ by the
+    // dispatcher is the derived `it.each` in
+    // `src/bazi/bazi.service.self-refusal-refund.spec.ts`.
+    expect(new Set<string>(STREAMABLE_READING_TYPES)).toEqual(new Set<string>(BAZI_CREATABLE_READING_TYPES));
   });
 
   it('rejects a value that is not in the enum at all', async () => {

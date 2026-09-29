@@ -1648,7 +1648,8 @@ const BAZI_CROSS_SELL = [
   { slug: "annual", icon: "📅", name: "八字流年運勢" },
   { slug: "career", icon: "💼", name: "八字事業詳批" },
   { slug: "love", icon: "💕", name: "愛情姻緣" },
-  { slug: "health", icon: "🏥", name: "先天健康分析" },
+  // `health` removed 2026-09-28 — withdrawn from sale (todo #3). This grid was
+  // the last in-app link to a page whose form now refuses on submit.
   { slug: "compatibility", icon: "🤝", name: "合盤比較" },
 ];
 

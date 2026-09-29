@@ -2,7 +2,7 @@
  * Tests for AIReadingDisplay component.
  * Validates reading sections, paywall, cross-sell, and loading states.
  */
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import AIReadingDisplay from '../app/components/AIReadingDisplay';
 
 // Mock Next.js navigation (Link component uses router context)
@@ -261,20 +261,27 @@ describe('AIReadingDisplay', () => {
     });
 
     it('should not show current reading type in cross-sell', () => {
-      render(
+      const { container } = render(
         <AIReadingDisplay
           data={SAMPLE_READING_DATA}
           readingType="lifetime"
           isSubscriber={true}
         />,
       );
+      // Scoped to the cross-sell GRID: 「先天健康分析」 is also the lifetime
+      // `health` SECTION title, so a page-wide negative query would go red for
+      // the wrong reason the day a fixture carries that section.
+      const grid = container.querySelector('[class*="crossSellGrid"]') as HTMLElement | null;
+      expect(grid).not.toBeNull();
+      const inGrid = within(grid as HTMLElement);
       // Should show other types but NOT lifetime (八字終身運)
-      // The cross-sell should contain 5 items (all except current)
-      expect(screen.getByText('八字流年運勢')).toBeInTheDocument();
-      expect(screen.getByText('八字事業詳批')).toBeInTheDocument();
-      expect(screen.getByText('愛情姻緣')).toBeInTheDocument();
-      expect(screen.getByText('先天健康分析')).toBeInTheDocument();
-      expect(screen.getByText('合盤比較')).toBeInTheDocument();
+      // The cross-sell should contain 4 items (all except current; HEALTH is
+      // withdrawn from sale — todo #3 — and must NOT be offered).
+      expect(inGrid.getByText('八字流年運勢')).toBeInTheDocument();
+      expect(inGrid.getByText('八字事業詳批')).toBeInTheDocument();
+      expect(inGrid.getByText('愛情姻緣')).toBeInTheDocument();
+      expect(inGrid.queryByText('先天健康分析')).not.toBeInTheDocument();
+      expect(inGrid.getByText('合盤比較')).toBeInTheDocument();
     });
 
     it('should link cross-sell cards to correct reading pages', () => {
@@ -290,7 +297,8 @@ describe('AIReadingDisplay', () => {
       expect(hrefs).toContain('/reading/annual');
       expect(hrefs).toContain('/reading/career');
       expect(hrefs).toContain('/reading/love');
-      expect(hrefs).toContain('/reading/health');
+      // Withdrawn from sale (todo #3): this grid was the last in-app link.
+      expect(hrefs).not.toContain('/reading/health');
       expect(hrefs).toContain('/reading/compatibility');
       // Should NOT include current type
       expect(hrefs).not.toContain('/reading/lifetime');

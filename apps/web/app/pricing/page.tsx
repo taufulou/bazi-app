@@ -77,7 +77,8 @@ const COMPARISON_ROWS: [string, ComparisonValue, ComparisonValue, ComparisonValu
   ["流年運勢", false, "基礎", "進階", "進階"],
   ["八字事業詳批", false, false, true, true],
   ["愛情姻緣分析", false, false, true, true],
-  ["先天健康分析", false, false, true, true],
+  // 先天健康分析 removed 2026-09-28 — withdrawn from sale (todo #3); a paid tier
+  // must not promise a product the API no longer creates.
   ["合盤比較", false, false, true, true],
   ["PDF 報告匯出", false, false, true, true],
   ["優先 AI 引擎", false, false, true, true],

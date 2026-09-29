@@ -8,6 +8,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { BaziService } from '../src/bazi/bazi.service';
+import { STREAMABLE_READING_TYPES } from '../src/bazi/dto/create-reading.dto';
 import { ShutdownService } from '../src/common/shutdown.service';
 
 describe('BaziService.regenerateReading', () => {
@@ -60,6 +61,9 @@ describe('BaziService.regenerateReading', () => {
     mockPrisma.baziReading.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.baziReading.findFirst.mockResolvedValue({
       id: readingId,
+      // todo #3: a real row always has a type; the allowlist check fails CLOSED on an untyped one
+      readingType: 'LIFETIME',
+      refundedAt: null,
       isDegraded: false,
       regenerationExhausted: false,
       regenerationCount: 0,
@@ -74,6 +78,9 @@ describe('BaziService.regenerateReading', () => {
     mockPrisma.baziReading.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.baziReading.findFirst.mockResolvedValue({
       id: readingId,
+      // todo #3: a real row always has a type; the allowlist check fails CLOSED on an untyped one
+      readingType: 'LIFETIME',
+      refundedAt: null,
       isDegraded: true,
       regenerationExhausted: true,
       regenerationCount: 3,
@@ -88,6 +95,9 @@ describe('BaziService.regenerateReading', () => {
     mockPrisma.baziReading.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.baziReading.findFirst.mockResolvedValue({
       id: readingId,
+      // todo #3: a real row always has a type; the allowlist check fails CLOSED on an untyped one
+      readingType: 'LIFETIME',
+      refundedAt: null,
       isDegraded: true,
       regenerationExhausted: false,
       regenerationCount: 3, // already at limit
@@ -124,6 +134,12 @@ describe('BaziService.regenerateReading', () => {
         isDegraded: true,
         regenerationExhausted: false,
         regenerationCount: { lt: 3 },
+        // todo #3 — regeneration is "null the content, then re-stream", so a
+        // row the stream would REFUSE must be excluded HERE, before its content
+        // is destroyed. `refundedAt: null` enforces what the comment in the
+        // service only assumed.
+        readingType: { in: [...STREAMABLE_READING_TYPES] },
+        refundedAt: null,
       },
       data: {
         regenerationCount: { increment: 1 },
@@ -147,6 +163,58 @@ describe('BaziService.regenerateReading', () => {
     });
   });
 
+  describe('todo #3 — a row with no streamer is refused BEFORE its content is touched', () => {
+    // A pre-fix degraded HEALTH row (narrated by `streamLifetimeV2` before the
+    // 2b allowlist existed, so `isDegraded: true` is possible on it) used to be
+    // nulled by the updateMany, then refused at the stream with no refund, then
+    // told 「狀態正常」 on a second regenerate: paid-empty, forever.
+    it('refuses a degraded HEALTH row with READING_TYPE_NOT_STREAMABLE, ahead of the degraded/exhausted answers', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ id: userId });
+      mockPrisma.baziReading.updateMany.mockResolvedValue({ count: 0 }); // WHERE excludes it
+      mockPrisma.baziReading.findFirst.mockResolvedValue({
+        id: readingId, readingType: 'HEALTH', isDegraded: true, refundedAt: null,
+        regenerationExhausted: false, regenerationCount: 0,
+      });
+      await expect(service.regenerateReading(clerkUserId, readingId)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'READING_TYPE_NOT_STREAMABLE' }),
+      });
+      // The WHERE is what protects the content; pin the conjunct, not just the throw.
+      expect(mockPrisma.baziReading.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ readingType: { in: [...STREAMABLE_READING_TYPES] } }) }),
+      );
+      expect(mockPrisma.baziReading.update).not.toHaveBeenCalled();
+    });
+
+    it('answers with the TYPE refusal even for a NON-degraded HEALTH row — the type check comes first', async () => {
+      // Pins the ORDER: below `!reading.isDegraded` this row would get
+      // 「此分析狀態正常」, a message about a regeneration that can never happen.
+      mockPrisma.user.findUnique.mockResolvedValue({ id: userId });
+      mockPrisma.baziReading.updateMany.mockResolvedValue({ count: 0 });
+      mockPrisma.baziReading.findFirst.mockResolvedValue({
+        id: readingId, readingType: 'HEALTH', isDegraded: false, refundedAt: null,
+        regenerationExhausted: false, regenerationCount: 0,
+      });
+      await expect(service.regenerateReading(clerkUserId, readingId)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'READING_TYPE_NOT_STREAMABLE' }),
+      });
+    });
+
+    it('refuses a REFUNDED row with READING_REFUNDED — the money is back, there is nothing to regenerate', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ id: userId });
+      mockPrisma.baziReading.updateMany.mockResolvedValue({ count: 0 });
+      mockPrisma.baziReading.findFirst.mockResolvedValue({
+        id: readingId, readingType: 'LIFETIME', isDegraded: true, refundedAt: new Date('2026-09-02'),
+        regenerationExhausted: false, regenerationCount: 0,
+      });
+      await expect(service.regenerateReading(clerkUserId, readingId)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'READING_REFUNDED' }),
+      });
+      expect(mockPrisma.baziReading.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ refundedAt: null }) }),
+      );
+    });
+  });
+
   it('returns 0 regenerationsRemaining at the limit boundary', async () => {
     mockPrisma.user.findUnique.mockResolvedValue({ id: userId });
     mockPrisma.baziReading.updateMany.mockResolvedValue({ count: 1 });
@@ -167,6 +235,9 @@ describe('BaziService.regenerateReading', () => {
     mockPrisma.baziReading.updateMany.mockResolvedValue({ count: 0 });
     mockPrisma.baziReading.findFirst.mockResolvedValue({
       id: readingId,
+      // todo #3: a real row always has a type; the allowlist check fails CLOSED on an untyped one
+      readingType: 'LIFETIME',
+      refundedAt: null,
       isDegraded: true,
       regenerationExhausted: false,
       regenerationCount: 1, // below limit, but updateMany still missed

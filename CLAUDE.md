@@ -50,7 +50,12 @@ AI-powered Bazi (八字) fortune-telling SaaS platform. Two-layer architecture: 
 > serves a form that refuses on submit with the existing 已停用 error, before
 > doing any work.
 >
-> Reading types are now **6 Bazi + 2 special**, not 18.
+> Reading types are now **4 sellable Bazi (LIFETIME / ANNUAL / CAREER / LOVE) + 2
+> special (COMPATIBILITY / FORTUNE)**, not 18. **HEALTH was withdrawn from sale
+> 2026-09-28** (todo #3): V1-only, hidden from the homepage since `7a15e37`, no V2
+> streamer. Existing HEALTH rows still render via `?id=`; nothing that generates or
+> displays one was deleted. See § "Readings: STREAMING and INLINE" for the
+> dispatcher invariant that came out of it.
 
 ## Tech Stack
 - **Monorepo**: Turborepo + npm workspaces
@@ -581,7 +586,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
   - 5 xfailed: 4 Phase 12d Pattern 1 doctrinal regressions + 1 Phase 12f BAZI flag flip cascade (`test_bigs_wang_palace_clashes_severe`) in `test_compatibility_gold_standard.py`. All same doctrinal-regression class — Pattern 1 / Fix 1a 用神 reclassification cascading into compat scoring.
 
 ## Reading Types
-18 total: 6 Bazi + 10 ZWDS + 2 Special. Credits: 1-3 per reading. See `docs/monetization.md` for pricing.
+HISTORICAL: 18 total (6 Bazi + 10 ZWDS + 2 Special). **Now 4 sellable Bazi + 2 special** — ZWDS deleted (`ad106fc`), HEALTH withdrawn from sale 2026-09-28 (todo #3, viewable via `?id=` only). Credits: 1-3 per reading. See `docs/monetization.md` for pricing.
 
 ## Worktree Development Guide
 When working in a git worktree (`.claude/worktrees/`):
@@ -3970,9 +3975,28 @@ abort), not a flaky upstream. It is now refused at admission with **400
 and BELOW the reuse branch so a cached re-fetch still serves.
 
 **Measured 2026-08-31, real Anthropic:** LIFETIME streaming **180.3s**, 15
-sections, $0.303624. HEALTH inline **10s**, 4 sections. Web and mobile both
-send `stream: true` for LIFETIME/CAREER/ANNUAL/LOVE; **HEALTH is the only
-real-user inline caller.**
+sections, $0.303624. HEALTH inline **10s**, 4 sections (measured before HEALTH
+was withdrawn from sale 2026-09-28). Web and mobile both send `stream: true` for
+LIFETIME/CAREER/ANNUAL/LOVE, and since every creatable type is now streamable
+**the inline branch is unreachable over HTTP** (a cache hit is served by the
+branch above it; a streamable type without `stream` is refused with
+STREAM_REQUIRED before it). It stays live at the service layer: `test/reading-create-preflight.spec.ts` and
+`test/ai-failure-refund.spec.ts` drive it with HEALTH as the V1 stand-in, and
+`generateInterpretation` is the V2 total-failure fallback — do not add a
+service-level type check there.
+
+⚠️ **`_setupStream` used to end in `default: streamLifetimeV2`.** Any row whose
+type had no `case` — HEALTH, or a ZWDS row before `3336922` — was narrated as
+八字終身運 and PERSISTED that way (production row `ab232801…`: `readingType:
+HEALTH`, `failedReason: ai-failed-LIFETIME-…`). Fixed 2026-09-28 (todo #3):
+`STREAMABLE_READING_TYPES` (next to `BAZI_CREATABLE_READING_TYPES` in the
+create DTO) is ONE list read by both `createReading.isV2Reading` and a step-2b
+allowlist guard in `_setupStream` — placed after the content-present return and
+BEFORE the slot, lock and quota, so a refusal spends nothing — and the
+dispatcher's `default:` now THROWS. `test/reading-type-surface.spec.ts` asserts
+creatable == streamable; `bazi.service.stream-dispatch-default.spec.ts` reaches
+the `default:` by `jest.mock`ing the list wider, because with the guard in place
+nothing else can. A guard no test can reach is decoration.
 
 ⚠️ **`AI_MAX_TOTAL_TIME_MS` (900s) is the constant people forget.** It bounds
 one generation across all providers and retries, and it gates the START of an
@@ -4770,7 +4794,10 @@ chat that ~10k-token cached system block at the 2× write rate is most of the tu
   all 17 while the `@ApiProperty` documented five, and class-validator does not read
   Swagger metadata — so a ZWDS type validated, deducted 2 credits, and narrated a
   紫微斗數 reading over Bazi-shaped data. Both now bind to
-  `BAZI_CREATABLE_READING_TYPES`.
+  `BAZI_CREATABLE_READING_TYPES` — **LIFETIME / ANNUAL / CAREER / LOVE since
+  2026-09-28** (HEALTH withdrawn, todo #3) — and `STREAMABLE_READING_TYPES` in the
+  same file must EQUAL it (`test/reading-type-surface.spec.ts`). What can be
+  bought here can be streamed, and nothing else can be either.
 - **`@Public()` routes get optional auth** — the guard verifies a token when present so
   `explain-element` can tell a subscriber from an anonymous caller. The paywall is server-side
   (`stripPaidExplanationLayers`), which **empties** rather than deletes keys — mobile dereferences

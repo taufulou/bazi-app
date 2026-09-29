@@ -526,6 +526,15 @@ export interface AIReadingData {
 }
 
 /**
+ * The reading types the API can stream — mirrors `STREAMABLE_READING_TYPES` in
+ * `apps/api/src/bazi/dto/create-reading.dto.ts` (enum values). Web cannot import
+ * from the API package, so this is a copy; keep the two in sync.
+ */
+export const STREAMABLE_READING_TYPES = ['LIFETIME', 'CAREER', 'ANNUAL', 'LOVE'] as const;
+/** Same set as frontend slugs — drives the `stream: true` decision on create. */
+export const STREAMABLE_READING_SLUGS = ['lifetime', 'career', 'annual', 'love'] as const;
+
+/**
  * Does this reading need its AI interpretation re-streamed?
  *
  * A row the user PAID for that carries no interpretation is a charge with
@@ -545,11 +554,28 @@ export interface AIReadingData {
  *    a wasted round-trip that surfaces as an error.
  *  - not refunded — the money is already back. `_setupStream` refuses these and
  *    tells the user to create a new reading, which is the correct end state.
+ *
+ * todo #3 added a FOURTH condition, checked first and failing CLOSED: the
+ * row's type must be one the API can stream (`STREAMABLE_READING_TYPES`).
+ * A HEALTH or ZWDS row has nothing a stream could produce for it.
  */
 export function needsInterpretationRecovery(
-  reading: { creditsUsed: number; refundedAt?: string | null },
+  reading: { readingType?: string; creditsUsed: number; refundedAt?: string | null },
   sectionCount: number,
 ): boolean {
+  // Fail CLOSED on type: a row the API has no streamer for must never be sent
+  // to the stream. `_setupStream` used to end in `default: streamLifetimeV2`,
+  // so recovering a HEALTH (or ZWDS) row here generated a 八字終身運 reading
+  // over the wrong chart and PERSISTED it (todo #3). The backend now refuses
+  // such a row too, but refusing here first means no wasted round-trip on a
+  // row that has nothing to recover — and the backend's SSE error would only
+  // stop the spinner (`recoverPaidReading`'s `onError` sets no message).
+  if (
+    !reading.readingType ||
+    !(STREAMABLE_READING_TYPES as readonly string[]).includes(reading.readingType)
+  ) {
+    return false;
+  }
   return sectionCount === 0 && reading.creditsUsed > 0 && !reading.refundedAt;
 }
 
