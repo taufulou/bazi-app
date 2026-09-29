@@ -23,13 +23,6 @@ import {
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  /** A4 — see `createBirthProfile`. Env-tunable without a redeploy of logic. */
-  private maxBirthProfilesPerUser(): number {
-    const raw = this.config.get<string>('BIRTH_PROFILE_MAX_PER_USER');
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 10;
-  }
-
   constructor(
     private prisma: PrismaService,
     private readonly config: ConfigService,
@@ -339,29 +332,22 @@ export class UsersService {
   async createBirthProfile(clerkUserId: string, dto: CreateBirthProfileDto) {
     const user = await this.ensureUser(clerkUserId);
 
-    // A4: cap profiles per user.
+    // No per-user profile cap — deliberately (A4a, removed 2026-09-29).
     //
-    // Profiles are the multiplier on free AI generation: the fortune free tier
-    // is scoped per profile per day, so an uncapped account can mint one free
-    // narration per profile per day — hundreds of profiles is hundreds of daily
-    // Anthropic calls from a single free account, which is denial-of-wallet
-    // rather than ordinary use. 10 is far above any genuine use (self plus
-    // family and a few friends) and is env-tunable if that proves wrong.
+    // One existed (10) to bound free fortune narrations per account. The S4
+    // daily quota (`QuotaService`, fortune 30/day per USER, however many
+    // profiles) is that bound now, with the S2 spend cap above it; 10 profiles
+    // x 3 fortune scopes was exactly 30 anyway. Creating a profile makes no AI
+    // call. Meanwhile the cap blocked paying users: every paid reading needs a
+    // profile, and freeing a slot deletes it — which CASCADES to the readings
+    // and comparisons bought on it. Do not re-add a count cap as a cost
+    // control; tighten the S4 quota instead.
     //
-    // Not race-proof by design: two concurrent creates can both observe count
-    // 9 and produce 11. A DB-level constraint cannot express "count per user",
-    // and the exposure of overshooting by a handful is negligible against the
-    // vector this closes, whereas a transaction here would serialize an
-    // ordinary user action. The per-user daily quotas (S4) are the tight bound.
+    // The count is still taken: it decides whether this is the FIRST profile
+    // (auto-primary, below).
     const profileCount = await this.prisma.birthProfile.count({
       where: { userId: user.id },
     });
-    if (profileCount >= this.maxBirthProfilesPerUser()) {
-      throw new BadRequestException({
-        code: 'BIRTH_PROFILE_LIMIT_REACHED',
-        message: `最多只能建立 ${this.maxBirthProfilesPerUser()} 個命盤檔案。請先刪除不需要的檔案。`,
-      });
-    }
 
     // If this is set as primary, unset other primaries
     if (dto.isPrimary) {
@@ -396,9 +382,8 @@ export class UsersService {
         // the primary flag at all. Found by walking the real first-run path in
         // production; it is on the path EVERY new user takes.
         //
-        // `profileCount` is the count taken above for the per-user cap, so this
-        // costs no extra query. Two concurrent first-creates could both see 0
-        // and both land primary — harmless, since the lookup orders by
+        // `profileCount` is the count taken above. Two concurrent first-creates
+        // could both see 0 and both land primary — harmless, since the lookup orders by
         // `isPrimary desc` and takes one, and the next explicit primary change
         // unsets the others.
         isPrimary: dto.isPrimary || profileCount === 0,
