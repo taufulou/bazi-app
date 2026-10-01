@@ -1,4 +1,4 @@
-# §0 STATE 2026-09-02 — STRIPE IS NEXT. Read this first.
+# §0 STATE 2026-10-01 — STRIPE IS NEXT. Read this first.
 
 **Supersedes every dated section below.**
 
@@ -11,6 +11,24 @@
 LIVE at `https://tianmingapp.com`. Phases 1, 2B (M1–M10), 2C (Ob1–Ob3) and
 **3 (load test, L1–L6)** are complete. Teardown is done — nothing from the load
 test is left running.
+
+### Since 2026-10-01 — #23, #24, #11(c) (+ #27 found on the way)
+
+Branch `claude/launch-security-phase1-plan-8e760f`, UNCOMMITTED at the time of
+writing (owner commits). Plan + 4-round staff review:
+`.claude/plans/todo-23-24-11c-lock-tokens-ratelimit-deps.md`.
+- **#27 ✅** — `reading:create` lock (30s) was a live DOUBLE CHARGE under a slow
+  engine; both create locks now derive from named engine timeouts (105s / 90s).
+- **#23 ✅** — Redis locks have ownership tokens + compare-and-delete;
+  `redis.lock.lost_before_release` alert (runbook section) — expect a few
+  `lost_early` during the rollout window itself.
+- **#24 ✅** — code done (`instance` on ops, self-explaining rate-limit
+  counters, `ops.mjs --samples`); owner A1 PASSED 2026-10-01 — production
+  `AI-CALL` carries a numeric `rlOutRemaining` from real Anthropic.
+- **#11(c) ✅** — `lunar-typescript` declared in web, root crutch removed; CI's
+  Build job now installs like the Dockerfiles, with a drift guard.
+- **#26 ⬜ NEW** — `chat-session-stream` 150s lock can be outlived (cold context
+  build inside the lock); the new alert will measure it.
 
 ### Since 2026-08-31
 
@@ -711,7 +729,23 @@ next, not by size. Update it in place as items land.
          specs also mock `/api/zwds/readings`, a NestJS endpoint deleted in
          `ad106fc`, so they already target a removed product — folded into item 9.
          ⚠️ Their current pass/fail state was NOT measured.
-     (c) `apps/web` imports `lunar-typescript` without declaring it (it is in the
+     (c) ✅ **FIXED 2026-10-01 (C4 of `.claude/plans/todo-23-24-11c-lock-tokens-ratelimit-deps.md`).**
+         Declared in `apps/web`, REMOVED from the root (an accidental root-level
+         install in `91d29e5`), lockfile diff exactly two hunks. Proved
+         load-bearing with a scratch run of `Dockerfile.web`'s scoped install:
+         present with web's line, absent without. And the class is now
+         CI-detectable: the Build job runs each Dockerfile's own scoped
+         `npm ci`, and `scripts/check-ci-docker-install-parity.mjs` (Lint job)
+         fails if they drift. Hardened by two line-audit rounds: it reads each
+         step's whole `run:` scalar (folded/plain multi-line can't hide a flag),
+         fails on ANY other install in the build job (npm install + every npm
+         10 alias, yarn, pnpm, bun; `-g` allowed), on any `npm ci` that isn't
+         exactly one mirrored command (`--workspaces`, path/space forms), and on
+         non-cosmetic `npm_config_*` env. 46-case spec; D1–D3 + G1–G5
+         mutations red. A local run of the new Build job (scoped installs →
+         `nest build` → `next build`) passed end to end, and the 農曆 input
+         converted lunar 1987/7/14 → solar 1987-09-06 in the browser.
+         (Was:) `apps/web` imports `lunar-typescript` without declaring it (it is in the
          ROOT and `apps/mobile` package.json). Safe today — a scoped install still
          gets root deps — but it is the same shape as the `iztro` launch-day bug,
          where the crutch was a SIBLING workspace. Declare it in `apps/web`.
@@ -865,14 +899,16 @@ next, not by size. Update it in place as items land.
          usually covers it but a retry does not. Impact is now much lower
          because the corrected in-flight window catches the second create and
          returns the row free instead of charging — the two compose.
+     (a)+(b) ✅ **superseded 2026-10-01 by #27** — both create locks were shorter
+         than their own engine timeouts, and (a) was a live double charge.
      (b) `comparison:create:{userId}` 30s — creation no longer generates AI, so
          the work inside is short. Believed fine; not measured.
-     (c) **`redis.acquireLock` has no ownership token** — it stores `'1'` and
+     (c) ✅ **fixed 2026-10-01 as #23.** **`redis.acquireLock` has no ownership token** — it stores `'1'` and
          `releaseLock` is a bare `DEL`, so a holder whose lock expired deletes
          its SUCCESSOR's lock, and safe renewal is impossible. Fixing the TTLs
          removes the trigger on these keys but not the hazard. Adding a token
          touches all 5 call sites.
-     (d) `chat-stream.service.ts`'s 150s is **correct** — 90s timeout + 60s
+     (d) ⚠️ **WRONG — see #26.** `chat-stream.service.ts`'s 150s is **correct** — 90s timeout + 60s
          watchdog, no retry/fallback budget. Do not "fix" it by analogy.
 
 16. ✅ **`Ob1Verify` profile DELETED from production 2026-09-01** (owner, via
@@ -885,7 +921,41 @@ next, not by size. Update it in place as items land.
    orphaned them permanently (SetNull + account deletion scopes on profile ids
    that no longer exist).
 
-23. ⬜ **`redis.acquireLock` has no ownership token — promoted from #15(c) so it
+23. ✅ **FIXED 2026-10-01 (C2 of `.claude/plans/todo-23-24-11c-lock-tokens-ratelimit-deps.md`).**
+    - `acquireLock(key, ttlSeconds)` → opaque token `uuid.acquiredAtMs.ttl` or
+      `null` (`ttlSeconds` now REQUIRED); `releaseLock(key, token)` → Lua
+      compare-and-delete, returns `true` only when it deleted OUR lock, and
+      NEVER throws (it runs in `finally` on charged paths).
+    - A miss → `redis.lock.lost_before_release` (Sentry warning; tags
+      `lockPrefix` + `cause`, fingerprinted on both; the id stays in our logs).
+      `overran_ttl` = TTL too short; `lost_early` = eviction / FLUSHALL /
+      restart / old-replica DEL mid-deploy / double or wrong-key release.
+      Runbook section added.
+    - ⚠️ Correction to the text below: **6 call sites, none in fortune** — 4 in
+      `bazi.service.ts` (`reading:create`, `stream:reading`, `comparison:create`,
+      `ai:generate:comparison`) + `chat-extend` + `chat-session-stream`.
+      `withLock` had no production callers.
+    - Tests: unit (`test/redis-lock.spec.ts`, script text hard-coded), real-Redis
+      `test/redis-lock.integration.spec.ts` (reproduces the hazard; FAILS
+      instead of skipping under `REQUIRE_REDIS_TESTS=1`, set in CI's test-api
+      job), per-site token-threading assertions, and an AST source guard
+      `test/redis-lock-ownership.guard.spec.ts` (rules: `nx` literal anywhere,
+      Lua `SET … NX`, `setnx(`, and — added by the line audit — `del`/`unlink`
+      of a lock key). Mutations L1–L12 from the plan plus L4b (reading:create
+      passes the key as the token) all red; L5/L6 first forms did not compile
+      and were redone. Sentry gets only a `KNOWN_LOCK_PREFIXES` value (else
+      `other`), per the line audit.
+    - Live-verified 2026-10-01 (browser + Redis MONITOR, local API): the
+      chat-stream and reading-create locks wrote `uuid.ms.ttl` tokens (TTLs 150
+      / 105) and released by compare-and-delete; a planted foreign
+      `reading:create` lock made a create 409 and was left untouched; and a
+      watcher that swapped a successor's token into `comparison:create`
+      mid-request proved the fix — the API's release ran GET with no DEL,
+      logged `cause=lost_early`, and the successor's lock survived.
+    - Deploy: no migration/env var. Mixed fleet mid-deploy is safe (each
+      replica only releases what it acquired); expect a few `lost_early`
+      during the C2 rollout window itself.
+    (Was:) **`redis.acquireLock` has no ownership token — promoted from #15(c) so it
     is not lost under a ✅ item.** It stores the constant `'1'` and
     `releaseLock` is a bare `DEL`, so a holder whose lock expired deletes its
     SUCCESSOR's lock, and safe renewal is impossible. #15's TTL fix removed the
@@ -896,7 +966,46 @@ next, not by size. Update it in place as items land.
     call sites (`bazi.service` stream + comparison locks, `chat-stream`,
     fortune ×?). Do it when someone is already in that code. Not blocking.
 
-24. ⬜ **`/api/admin/ops` → `rateLimit.*` read `null` right after a real
+24. ✅ **DONE 2026-10-01 (C3 of `.claude/plans/todo-23-24-11c-lock-tokens-ratelimit-deps.md`);
+    production capture confirmed by the owner's A1.** The 2026-09-07 `null`
+    was hypothesis (a)/(b) — benign — not broken capture. The C3 code (replica
+    identity + counters) is still worth shipping: it makes the next such
+    `null` explain itself instead of needing this investigation again.
+    - The check below was undecidable as written: the ops response carried no
+      replica identity, so "hit it several times" could not tell "the other
+      replica" from "the same one again". Three hypotheses, not two: (a) the
+      other replica answered, (b) that reading made no Anthropic call / the
+      replica had restarted, (c) capture broken.
+    - Shipped: `instance` on `GET /api/admin/ops` (`replicaId` from
+      `RAILWAY_REPLICA_ID` → hostname, `deploymentId`, `commitSha`, `startedAt`);
+      `rateLimit` gained `responsesSeen` / `okWithoutHeaders` (2xx only) /
+      `lastResponseAt` / `lastResponseStatus`, so a `null` explains itself; a
+      real streamed call through the factory is now tested (only `create` was);
+      `ops.mjs --samples N` (≤20, paced) groups by replica and says
+      INCONCLUSIVE when a replica was never reached; the "every other section is
+      fleet-wide" claim fixed in runbook, `ops.service.ts`, `admin.controller.ts`;
+      runbook section "Approaching Anthropic's rate limits".
+    - ✅ **A2 done 2026-10-01 (local, real Anthropic):** two local API
+      processes as replicas A/B. One streamed chat message on A →
+      `AI-CALL … "rlOutRemaining":2000000`, and A's ops showed
+      `requestsStarted 1 / responsesSeen 1 / observedAt set`,
+      `aiBaseUrlEffective https://api.anthropic.com`. B, idle, showed
+      `requestsStarted 0` — i.e. the 2026-09-07 `null` reproduced exactly and
+      now explains itself. ⚠️ The real values (limit 2,000,000 / requests
+      9,999) EQUAL the load-test mock's hard-coded ones; real was proven by the
+      reset time (≈ now, the mock uses now+60s), a contextual answer, and no
+      mock listening. So A2 says capture works on the streaming path; the
+      owner's A1 confirms it in production.
+    - ✅ **A1 PASSED 2026-10-01 (owner, production logs, deploy `bf05633`):**
+      `AI-CALL {"route":"chat:stream","provider":"CLAUDE","model":"claude-sonnet-4-6",
+      "ms":14184,…,"rlOutRemaining":2000000,"rlOutReset":"2026-10-01T23:41:34Z",
+      "outcome":"ok"}`, logged 23:41:47. Real Anthropic, not the mock: the call
+      started ~23:41:33 (log time − 14.2s), so the reset is ≈ the call start —
+      the mock would have stamped start+60s (`server.mjs:263`, ≈23:42:33). The
+      tokens agree (32,447 cache-write = the chat system prompt). Plan § 3.6
+      (capture-broken branch) is NOT needed.
+    - After deploy: `node load-test/ops.mjs --api … --samples 20`.
+    (Was:) **`/api/admin/ops` → `rateLimit.*` read `null` right after a real
     streamed reading (2026-09-07).** Those are Anthropic's rate-limit headers,
     captured per PROCESS, and the API runs 2 replicas — so the ops request very
     likely hit the replica that did not serve the stream. Benign if so. Check:
@@ -940,6 +1049,48 @@ next, not by size. Update it in place as items land.
       `expo-secure-store`; every `EXPO_PUBLIC_*` is publishable-by-design
       (no secret in the binary); a global single-flight 401 handler exists
       (`src/lib/api.ts` + `_layout.tsx:87`).
+
+26. ⬜ **`chat-session-stream` lock (150s) can be shorter than its work** — filed
+    2026-10-01 while planning #23. Not fixed; needs its own design.
+    - #15(d) and CLAUDE.md called 150s correct ("90s timeout + 60s watchdog, no
+      retry budget"). Wrong on three counts: the SDK `timeout: 90_000` bounds
+      only time-to-HEADERS per attempt (`fetchWithTimeout` clears its timer once
+      `fetch` resolves); the chat client keeps the SDK default `maxRetries: 2`;
+      and the lock is taken BEFORE `_streamWithLock` builds the chat context,
+      which on a cold cache calls the engine with 45–60s timeouts.
+    - What DOES bound the stream: the no-delta watchdog (`setInterval` every 5s,
+      so ~65s without a delta — it also covers queueing, headers and retries,
+      since `lastDeltaAt` starts before them) + the 800-token output cap. So the
+      overrun case is cold-context + slow-first-token, not an endless stream.
+    - Effect of an overrun: a second concurrent stream on the same session can
+      start. Since #23 the first stream's release no longer deletes the second
+      one's lock; it reports `redis.lock.lost_before_release`
+      `lockPrefix=chat-session-stream cause=overran_ttl` — so production will
+      measure how often this happens. Likely fix: a total stream deadline, or a
+      token-checked renewal (`extendLock`, now possible with tokens).
+    - Comment-only corrections already shipped with #23
+      (`chat-stream.service.ts` docblocks, the misnamed "no race" test).
+
+27. ✅ **FIXED 2026-10-01 (C1 of the #23/#24/#11(c) plan,
+    `.claude/plans/todo-23-24-11c-lock-tokens-ratelimit-deps.md`) — a paid
+    reading could be charged TWICE.** Found while planning #23, not in any todo.
+    `reading:create:{userId}` was a hardcoded 30s while the `/calculate` call it
+    holds takes up to 45s (CAREER/LOVE), and the file itself records ~30s as
+    normal production engine time. `createReading` checks for a reusable row
+    BEFORE the engine call and inserts AFTER it, and `BaziReading` has no unique
+    constraint — so when the lock lapsed mid-engine, a double-submit /
+    refresh-and-resubmit got in, found no row, and BOTH requests inserted and
+    charged. (The atomic `updateMany … credits:{gte}` only prevents overdraft.)
+    - Now `READING_CREATE_LOCK_TTL_SECONDS` = 45 + 60 = **105s** and
+      `COMPARISON_CREATE_LOCK_TTL_SECONDS` = 30 + 60 = **90s**, derived from
+      named engine-timeout constants that the engine calls use too, so the two
+      cannot drift. (`comparison:create` was never a double-charge — creation is
+      free and `(userId, pairKey)` is unique — fixed for consistency.)
+    - Margin renamed `GENERATION_LOCK_MARGIN_SECONDS` → `LOCK_MARGIN_SECONDS`;
+      it sizes both lock families now.
+    - Tests in `bazi.service.generation-lock-ttl.spec.ts`; mutations T1–T3 (plan)
+      plus an extra T4 (engine call back to a literal timeout) all red. Cost: a
+      SIGKILL'd create blocks that user's next create ≤105s.
 
 ---
 

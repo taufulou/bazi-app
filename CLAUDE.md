@@ -3901,6 +3901,22 @@ permissive-looking fallback, the fallback IS the production behaviour until
 someone proves otherwise.** Grep for `|| false`, `?? \'\'`, and `new Set([...])`
 defaults in config parsing before believing a feature is on.
 
+✅ **The `iztro` row is now CI-detectable (todo #11(c), 2026-10-01).** CI's
+**Build** job no longer runs a bare `npm ci`: it runs each Dockerfile's own
+scoped install (`--workspace=api --workspace=@repo/shared
+--include-workspace-root`, then the web one) before building, so a package a
+workspace imports but only a SIBLING declares fails CI instead of the Railway
+build. `scripts/check-ci-docker-install-parity.mjs` (Lint job, before `npm ci`)
+fails if those commands drift from the Dockerfiles'. Lint / typecheck / tests
+still use the full install — they need every workspace — so they still hide the
+class; only Build catches it. The trigger was `lunar-typescript`: imported by
+`apps/web`, declared only at the ROOT (an accidental root-level install in
+`91d29e5`) and in mobile. It is now declared in `apps/web` and removed from the
+root, and a scratch run of the Dockerfile install proved web's line is what puts
+it in the image (present with it, absent without). ⚠️ When adding a dependency,
+add it to the workspace that imports it (`npm install <pkg> -w web`), never at
+the root — `--include-workspace-root` makes a root dependency a silent crutch.
+
 ### ⚠️ The 子時 boundary — "today" has two right answers
 
 Per doctrine the Bazi day flips at **23:00**. Between 23:00 and midnight the
@@ -4317,6 +4333,19 @@ All three now derive from `AIService.getMaxStreamedGenerationMs()` /
 `getMaxCompatGenerationMs()`. **Add new ones the same way** — the failure is
 silent and costs money.
 
+**The two CREATE locks had the same bug, found 2026-10-01 (todo #23 plan, C1).**
+`reading:create:{userId}` and `comparison:create:{userId}` were hardcoded 30s
+while the engine call they hold takes up to 45s (CAREER/LOVE) / 30s. For
+readings that was a live **double charge**: the reuse check runs BEFORE the
+engine call, the row is inserted AFTER it, and `BaziReading` has no unique
+constraint — so a lock that lapsed mid-engine let a double-submit in, and both
+requests inserted and charged. They now derive from named engine-timeout
+constants (`READING_CREATE_LOCK_TTL_SECONDS` = 45+60 = 105s,
+`COMPARISON_CREATE_LOCK_TTL_SECONDS` = 30+60 = 90s), and the engine calls use
+those same constants. The 60s margin is `LOCK_MARGIN_SECONDS` (renamed from
+`GENERATION_LOCK_MARGIN_SECONDS`) — it sizes BOTH families, so tuning it moves
+both.
+
 ⚠️ **The lock and the in-flight window are ONE mechanism** (see the note at the
 `isFirstGenerationInFlight` site): the window stops the duplicate row and the
 second charge, the lock stops the duplicate generation. Size them from the same
@@ -4329,10 +4358,20 @@ longer wedge — a crashed generation now blocks a retry for ~21 min instead of
 ~6 — against a too-short TTL that charges silently. Rare-and-visible beats
 common-and-silent.
 
-⚠️ **`chat-stream.service.ts`'s 150s lock is CORRECT and is not the same case.**
-It derives from a hard 90s per-stream timeout plus a 60s watchdog, and chat has
-no retry/fallback budget — so there the naive "TTL > per-call timeout" reasoning
-genuinely holds. Don't "fix" it by analogy.
+⚠️ **`chat-stream.service.ts`'s 150s lock — the old claim here was WRONG
+(corrected 2026-10-01, todo #26, NOT yet fixed).** This paragraph used to call it
+correct because "a hard 90s per-stream timeout plus a 60s watchdog, no
+retry/fallback budget". In fact the 90s SDK `timeout` bounds only time-to-HEADERS
+per attempt (`fetchWithTimeout` clears its timer once `fetch` resolves), the chat
+client keeps the SDK default `maxRetries: 2`, and the lock is taken BEFORE the
+chat context is built — a cold build calls the engine with 45–60s timeouts. What
+actually bounds the stream is the no-delta watchdog (polled every 5s, so ~65s
+without a delta, covering queueing/headers/retries) plus the 800-token output
+cap; but cold context + ~65s to first delta + body can exceed 150s, and an
+overrun lets a second concurrent stream start on the same session. Since #23 that
+shows up as `redis.lock.lost_before_release` with
+`lockPrefix=chat-session-stream, cause=overran_ttl`. Fix needs its own design (a
+total deadline, or a token-checked renewal) — see todo #26.
 
 ⚠️ **Deriving a value can put `parseInt` output somewhere a literal never
 was.** These TTLs now flow into `redis.acquireLock`, so a malformed timeout env
@@ -4341,12 +4380,31 @@ path the lock sits AFTER the credit charge, making one typo charge 3 credits and
 then 500. `AIService.safeBoundMs` fails CLOSED to a wide fallback and logs at
 error level. Any future derived TTL must go through it.
 
-⚠️ **`redis.acquireLock` stores a constant `'1'`, with no ownership token**, and
-`releaseLock` is a bare `DEL`. A holder whose lock expired therefore deletes its
-SUCCESSOR's lock, and safe renewal is impossible. Correcting the TTLs removes
-the trigger on these keys (a lock that never expires while held is always
-released by its own holder) but the primitive is still unsafe — adding a token
-would be the real fix, and it touches all five call sites.
+✅ **Locks have ownership tokens (todo #23, 2026-10-01).** `redis.acquireLock`
+used to store the constant `'1'` and `releaseLock` was a bare `DEL`, so a holder
+whose lock had expired deleted its SUCCESSOR's lock. Now:
+- `acquireLock(key, ttlSeconds)` returns an opaque token (`uuid.acquiredAtMs.ttl`)
+  or `null`; `ttlSeconds` is REQUIRED (the old `= 30` default is how an underived
+  TTL gets copied).
+- `releaseLock(key, token)` is a Lua compare-and-delete and returns `true` only
+  when it deleted OUR lock. It **never throws** — callers `await` it in `finally`
+  on charged paths, and a Redis blip there must not turn a paid reading into a
+  500. The token parameter is required, so the compiler finds every `releaseLock`
+  call (a hand-rolled `redis.del(lockKey)` is a different call — the AST guard
+  below catches that).
+- A compare that misses emits `redis.lock.lost_before_release` (Sentry warning,
+  tags `lockPrefix` + `cause`; the id never leaves our logs). `cause=overran_ttl`
+  = the work outlived the TTL (a real defect); `cause=lost_early` = the key
+  vanished early (eviction under `volatile-lru`, a FLUSHALL, a Redis restart, an
+  old replica's bare DEL mid-deploy, or a double/wrong-key release). Triage is in
+  `docs/ops/incident-runbook.md`.
+- 6 call sites (4 in `bazi.service.ts`, 2 in chat — none in fortune).
+  `test/redis-lock-ownership.guard.spec.ts` walks the TS AST and fails on any
+  hand-rolled `SET … NX` / `setnx` / Lua `SET … NX`, or a `del`/`unlink` of a
+  lock key, outside `RedisService` (a static ratchet, not a proof). Sentry only
+  ever receives a prefix from `KNOWN_LOCK_PREFIXES` (else `other`) — add a new
+  lock's prefix there.
+- Tokens also make a safe compare-and-`PEXPIRE` renewal possible; not built.
 
 ### A refusal WE issue must not leave the user charged — and the receipt must say so
 

@@ -19,8 +19,12 @@ the alert names are exactly what Sentry sends.
 | `AI-CALL` log lines | Per-call route, tokens (incl. prompt-cache `cacheReadTok` / `cacheWriteTok` / `cacheW5mTok`), cost, outcome, duration | **Authoritative.** One JSON line per call, including failures. Reconcilable by hand — see "Reconciling an `AI-CALL` line" below. |
 | `/admin/ai-costs` | Historical cost by READING type/provider | ⚠️ **Partial, by design and by accident.** Streamed readings were absent until #19. It is still polluted by 1,383 load-test rows until #17's purge is run against prod. And it has **never** included CHAT or FORTUNE — those call `aiSpend.record()` directly and write no `AIUsageLog` row, so their spend shows in `ops.spend` and the `AI-CALL` lines but not here. Since prompt caching (#6), a reading row's `input_tokens` is the UNCACHED remainder — input-token totals drop ~70% while cost drops ~10%; the cached part is shown beside it as "Prompt Cache Read/Write" (summary cards, reading-type and provider tables; `*PromptCache*Tokens` in the API), and "Total Tokens" excludes it. Cross-check against the two above; never size a budget from this page. |
 
-⚠️ `pools` is **per-replica**; every other section is fleet-wide. Multiply by
-`replicas` for the fleet ceiling.
+⚠️ **Some sections describe ONE replica.** `instance` says which replica
+answered. `pools`, `rateLimit`, `aiBaseUrlEffective`, `aiBaseUrlOverride` and
+`alerting` are what THAT replica observed — multiply `pools` by `replicas` for the
+fleet ceiling, and never read a `null` rate-limit gauge as a fact about the other
+replica. `spend`, `breaker` and `quota` are fleet-wide (Redis-backed). To see each replica:
+`node load-test/ops.mjs --api … --samples 20`.
 
 ---
 
@@ -113,6 +117,81 @@ enforce it, and they cover different causes:
 ⚠️ A **refunded** row keeps `creditsUsed` (that column is the refund amount and
 the double-refund guard) and shows 已退款 in history. `creditsUsed > 0` alone
 never means "still owed".
+
+---
+
+## Approaching Anthropic's rate limits
+
+**Severity: depends on the trend. The goal is to see it BEFORE users get 429s.**
+
+`rateLimit` in the ops snapshot is the latest `anthropic-ratelimit-*` header
+reading THIS replica's Anthropic calls received (`outputTokensRemaining`,
+`outputTokensReset`, `requestsRemaining`). The value is account-wide; the
+observation is per replica — check `instance` and read it with the counters:
+
+(Same table as the docblock in `apps/api/src/ai/anthropic-rate-limit.ts` and
+`interpret` in `load-test/ops.mjs` — keep the three in sync.)
+
+| What you see | Meaning |
+|---|---|
+| `requestsStarted == 0` | This replica has made no Anthropic call since `instance.startedAt`. `null` is expected — ask the other replica (`--samples`). |
+| `transportErrors > 0` and `responsesSeen == 0` | 🔴 **Every call got no HTTP response at all** — network/DNS failure or a timeout before headers. Check `aiBaseUrlEffective` (a stale load-test mock URL looks exactly like this) and `AI-CALL` lines with `"outcome":"error"`. |
+| `transportErrors > 0`, `responsesSeen > 0` | ⚠️ Some calls got no response. Often routine: the counter is cumulative since `instance.startedAt` and also counts chat client disconnects and shutdown aborts that land before headers, and SDK attempts later retried (`requestsStarted` counts attempts, retries included). Worry only if it climbs fast or tracks `requestsStarted`. |
+| `observedAt` set, `outputTokensRemaining` set | Working. The reading is `now − observedAt` old; under load it is seconds old. |
+| `observedAt` set, `outputTokensRemaining == null` | ⚠️ **Partial** — some rate-limit headers parse, but not the output-token ones, so `rlOutRemaining` on `AI-CALL` lines is blind. |
+| `observedAt == null`, `okWithoutHeaders > 0` | 🔴 **Capture is broken** — successful responses arrive without the headers we parse. You are blind to approaching limits. |
+| `observedAt == null`, `okWithoutHeaders == 0`, `responsesSeen > 0` | Only error responses so far (outage, bad key, edge 502) — see `lastResponseStatus`. Not a capture bug. |
+| `okWithoutHeaders > 0` with `observedAt` set | ⚠️ The reading may be STALE: compare its age with `lastResponseAt`. |
+
+- **The fleet-wide time series** is the `AI-CALL` log line: every call carries
+  `rlOutRemaining` / `rlOutReset`, emitted by the process that made the call — so
+  it has no replica ambiguity. Exclude periods when the load-test mock was armed
+  (it sends the same header with a fake value).
+- **Actual 429s** show as `AI-CALL … "outcome":"error","errorKind":"rate_limit"`.
+- Levers: the spend cap and the governor pools throttle us before Anthropic does;
+  raising the account's rate limit is an Anthropic-console action.
+
+---
+
+## `redis.lock.lost_before_release` — a lock was gone when its holder released it
+
+**Severity: warning. The holder did NOT delete anyone else's lock (that is what
+the ownership token prevents) — but while its lock was gone, the mutual
+exclusion it provides was not in force.** Since todo #23 every Redis lock stores
+a per-holder token and releases with a compare-and-delete; this event fires
+when the compare missed. Two tags: `lockPrefix` (which lock — the id is
+deliberately not sent; `other` means a lock whose prefix is missing from
+`KNOWN_LOCK_PREFIXES` in `redis.service.ts` — the server log has the full key)
+and `cause`. **Read `cause` first.**
+
+### `cause=overran_ttl` — the work outlived the lock's TTL
+
+The TTL for that `lockPrefix` is shorter than the work it guards. That is a code
+defect: someone else may have taken the lock and run the same work concurrently.
+
+| `lockPrefix` | What concurrency it allowed | Known? |
+|---|---|---|
+| `chat-session-stream` | a second chat stream on the same session | ⚠️ **Expected, todo #26.** The 150s TTL does not cover a cold chat-context build + a slow first token. Count the occurrences and feed #26. |
+| `reading:create`, `comparison:create` | a double-submit getting past the dedupe | Not expected (TTLs derived since #27). The engine call itself cannot overrun — `AbortSignal.timeout` hard-caps it at 45s / 30s. So suspect the DB work around it first: **Prisma pool saturation** (each query can wait `pool_timeout` = 20s), then a stalled event loop. |
+| `stream:reading`, `ai:generate:comparison` | a second full AI generation on one row (double Anthropic spend) | Not expected (TTLs derived from the generation bound since #15). |
+| `chat-extend` | a double extension (the user pays twice and gets both) | Not expected under normal load (30s over short DB work) — but it has the same "healthy path only" margin, so DB pool saturation can do it too. |
+
+### `cause=lost_early` — the key vanished before its TTL
+
+Five causes; check in this order:
+
+1. **Eviction** — Redis is `maxmemory 256mb` + `volatile-lru`, and lock keys carry
+   a TTL, so they are eviction candidates. `redis-cli INFO stats | grep evicted_keys`
+   (non-zero and growing ⇒ memory pressure).
+2. **Redis restart** — `redis-cli INFO server | grep uptime_in_seconds` (small ⇒
+   it restarted; every held lock was lost at once).
+3. **A `FLUSHALL`** — e.g. the post-prompt-change step. Check who ran what; a
+   burst of `lost_early` across prefixes at one moment is the signature.
+4. **An old replica's bare `DEL` during the #23 rolling deploy** — an old-code
+   replica overruns, a new replica acquires, the old one deletes it. Only in the
+   window of that one deploy; check the deploy timeline.
+5. **A code bug** — a double release, or a release with the wrong key. If none of
+   the above apply, read the release site for that `lockPrefix`.
 
 ---
 
