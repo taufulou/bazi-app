@@ -97,3 +97,58 @@ it('observes a 429 — the response no usage-time hook would ever see', async ()
     observedStatus: 429,
   });
 });
+
+/**
+ * #24 — the STREAMING path, which is what every reading and chat turn uses.
+ *
+ * Everything above drives `messages.create`. `messages.stream()` goes through
+ * the same SDK transport (`fetchWithTimeout` → `this.fetch`, SDK 0.73.0
+ * `client.js`), but that was only ever true by reading the SDK. This proves it
+ * by running a real streamed call through the factory: the rate-limit headers
+ * arrive with the response that STARTS the stream, before any body is read.
+ */
+const SSE_BODY = [
+  ['message_start', { type: 'message_start', message: {
+    id: 'msg_s', type: 'message', role: 'assistant', model: 'claude-sonnet-4-5', content: [],
+    stop_reason: null, stop_sequence: null, usage: { input_tokens: 3, output_tokens: 1 },
+  } }],
+  ['content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }],
+  ['content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'ok' } }],
+  ['content_block_stop', { type: 'content_block_stop', index: 0 }],
+  ['message_delta', { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 2 } }],
+  ['message_stop', { type: 'message_stop' }],
+]
+  .map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+  .join('');
+
+it('observes rate-limit headers on a STREAMED call through the SDK (#24)', async () => {
+  const client = createAnthropicClient({
+    apiKey: 'test-key',
+    fetch: async () =>
+      new Response(SSE_BODY, {
+        status: 200,
+        headers: {
+          'content-type': 'text/event-stream',
+          'anthropic-ratelimit-output-tokens-remaining': '7777',
+          'anthropic-ratelimit-output-tokens-reset': '2026-10-01T05:00:00Z',
+        },
+      }),
+  });
+
+  const final = await client.messages
+    .stream({ model: 'claude-sonnet-4-5', max_tokens: 16, messages: [{ role: 'user', content: 'hi' }] })
+    .finalMessage();
+
+  // the stream really completed (so this is not a header-only short-circuit)…
+  expect(final.content).toEqual([expect.objectContaining({ type: 'text', text: 'ok' })]);
+  // …and the gauge moved, and the response was counted.
+  expect(getRateLimitSnapshot()).toMatchObject({
+    outputTokensRemaining: 7777,
+    outputTokensReset: '2026-10-01T05:00:00Z',
+    observedStatus: 200,
+    requestsStarted: 1,
+    transportErrors: 0,
+    responsesSeen: 1,
+    okWithoutHeaders: 0,
+  });
+});

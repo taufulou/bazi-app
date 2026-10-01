@@ -54,9 +54,11 @@ export class AdminController {
     summary: 'AI spend-control operations snapshot',
     description:
       'Read-only. Pool occupancy (S1), spend + breaker state (S2), quota top-consumers (S4) ' +
-      'and the account-level Anthropic rate-limit gauge (Ob1), in one view. `pools` is ' +
-      'per-replica — multiply by `replicas` for the fleet ceiling; every other section is ' +
-      'fleet-wide.',
+      'and the account-level Anthropic rate-limit gauge (Ob1), in one view. `instance` says ' +
+      'which replica answered. `pools`, `rateLimit`, `aiBaseUrlEffective`, `aiBaseUrlOverride` ' +
+      'and `alerting` are what THIS replica observed (multiply `pools` by `replicas` for the ' +
+      'fleet ceiling; a `null` rate-limit gauge says nothing about the other replica); ' +
+      '`spend`, `breaker` and `quota` are fleet-wide.',
   })
   async getOps() {
     return this.opsService.snapshot();

@@ -3,6 +3,8 @@ import { join } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { OpsService, __testables } from '../src/admin/ops.service';
 import { AdminController } from '../src/admin/admin.controller';
+import { hostname } from 'node:os';
+import { resolveInstanceIdentity } from '../src/common/instance-identity';
 import {
   absorbRateLimitHeaders,
   resetRateLimitSnapshot,
@@ -77,6 +79,66 @@ beforeEach(() => {
 });
 afterEach(() => jest.restoreAllMocks());
 
+describe('instance identity (#24)', () => {
+  // Without an identity, a `null` rate-limit gauge on one replica cannot be told
+  // apart from "the other replica served the reading" — and repeating the
+  // request cannot settle it, because you cannot tell which replica answered.
+  it('every snapshot says which replica produced it', async () => {
+    const { service } = makeService();
+    const snap = await service.snapshot();
+    expect(snap.instance).toEqual(
+      expect.objectContaining({
+        replicaId: expect.any(String),
+        replicaIdSource: expect.stringMatching(/^(railway|hostname)$/),
+        startedAt: expect.any(String),
+      }),
+    );
+    expect(snap.instance.replicaId).not.toBe('');
+  });
+
+  it('prefers RAILWAY_REPLICA_ID, with deployment + commit beside it', () => {
+    const id = resolveInstanceIdentity({
+      RAILWAY_REPLICA_ID: 'replica-abc',
+      RAILWAY_DEPLOYMENT_ID: 'dep-1',
+      RAILWAY_GIT_COMMIT_SHA: 'deadbeef',
+    } as NodeJS.ProcessEnv);
+    expect(id).toMatchObject({
+      replicaId: 'replica-abc', replicaIdSource: 'railway',
+      deploymentId: 'dep-1', commitSha: 'deadbeef',
+    });
+  });
+
+  it('falls back to the container hostname — never empty — off Railway', () => {
+    const id = resolveInstanceIdentity({} as NodeJS.ProcessEnv);
+    expect(id.replicaIdSource).toBe('hostname');
+    expect(id.replicaId).toBe(hostname());
+    expect(id.deploymentId).toBeNull();
+    expect(id.commitSha).toBeNull();
+  });
+
+  it('treats a blank RAILWAY_REPLICA_ID as absent', () => {
+    expect(resolveInstanceIdentity({ RAILWAY_REPLICA_ID: '  ' } as NodeJS.ProcessEnv).replicaIdSource)
+      .toBe('hostname');
+  });
+
+  it('startedAt is the PROCESS start, computed once — not re-derived per call', () => {
+    const a = resolveInstanceIdentity({} as NodeJS.ProcessEnv).startedAt;
+    // Move the clock a minute: a per-call `Date.now() - uptime` would shift
+    // with it (back-to-back calls alone are equal ~99% of the time even when
+    // computed per call, so they prove nothing).
+    const real = Date.now();
+    const spy = jest.spyOn(Date, 'now').mockReturnValue(real + 60_000);
+    const b = resolveInstanceIdentity({} as NodeJS.ProcessEnv).startedAt;
+    spy.mockRestore();
+    expect(b).toBe(a);
+    expect(Date.parse(a)).toBeLessThanOrEqual(real);
+  });
+
+  it('carries no pid — it is 1 on every replica (Dockerfile.api execs node)', () => {
+    expect(resolveInstanceIdentity({} as NodeJS.ProcessEnv)).not.toHaveProperty('pid');
+  });
+});
+
 describe('assembly', () => {
   it('returns every section in one read', async () => {
     absorbRateLimitHeaders(
@@ -86,7 +148,7 @@ describe('assembly', () => {
     const { service } = makeService();
     const snap = await service.snapshot();
     expect(Object.keys(snap).sort()).toEqual(
-      ['aiBaseUrlEffective', 'aiBaseUrlOverride', 'alerting', 'breaker', 'generatedAt', 'pools', 'quota', 'rateLimit', 'replicas', 'spend'].sort(),
+      ['aiBaseUrlEffective', 'aiBaseUrlOverride', 'alerting', 'breaker', 'generatedAt', 'instance', 'pools', 'quota', 'rateLimit', 'replicas', 'spend'].sort(),
     );
     expect(snap.pools).toEqual(POOLS);
     expect(snap.rateLimit.outputTokensRemaining).toBe(9000);

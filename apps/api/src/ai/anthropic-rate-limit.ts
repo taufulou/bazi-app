@@ -56,10 +56,23 @@ type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Resp
  * the way you would a CPU gauge sampled at log time.
  *
  * ⚠️ Per-process, like the governor's pools. With N replicas each sees only its
- * own traffic's headers — but since the counters are ACCOUNT-wide, every
- * replica observes the same underlying budget, so the gauge is still correct.
- * It is the one piece of per-process state here that multi-instance does not
- * distort.
+ * own traffic's headers. The VALUE is account-wide, so a reading from any
+ * replica is a reading of the same budget — but a replica that has not called
+ * Anthropic since it started has NO reading, and reports `null`. That is what
+ * an ops request that lands on the idle replica sees (todo #24). The counters
+ * below exist so that a `null` explains itself (keep this table, the runbook's
+ * and `load-test/ops.mjs`'s `interpret` in sync):
+ *
+ * | state | meaning |
+ * |---|---|
+ * | `requestsStarted == 0` | this replica has made no Anthropic call since it started |
+ * | `transportErrors > 0`, `responsesSeen == 0` | EVERY call got NO HTTP response (network failure, DNS — e.g. a stale load-test mock URL — or a timeout before headers): check `aiBaseUrlEffective` and `AI-CALL` lines with `outcome:error` |
+ * | `transportErrors > 0`, `responsesSeen > 0` | some calls got no response — often routine: the counter is cumulative and also counts client disconnects / shutdown aborts before headers and SDK attempts later retried (`requestsStarted` counts attempts, retries included) |
+ * | `observedAt` set, `outputTokensRemaining` set | working; the reading is `now − observedAt` old |
+ * | `observedAt` set, `outputTokensRemaining == null` | PARTIAL — some rate-limit headers parse but not the output-token ones (`rlOutRemaining` on `AI-CALL` lines is blind) |
+ * | `observedAt == null`, `okWithoutHeaders > 0` | CAPTURE BROKEN — successful responses lack the headers we parse |
+ * | `observedAt == null`, `okWithoutHeaders == 0`, `responsesSeen > 0` | only error responses so far (outage, bad key, edge 502) — see `lastResponseStatus` |
+ * | `okWithoutHeaders > 0` in ANY state | warning — if `observedAt` is set, the reading may be STALE; compare its age with `lastResponseAt` |
  */
 
 export interface RateLimitSnapshot {
@@ -75,9 +88,45 @@ export interface RateLimitSnapshot {
   observedAt: number | null;
   /** HTTP status of the response the reading came from. */
   observedStatus: number | null;
+  /**
+   * #24 — requests this process's Anthropic clients STARTED (counted by the
+   * transport wrapper before it awaits). With `responsesSeen` and
+   * `transportErrors` it separates "idle" from "every call is failing".
+   */
+  requestsStarted: number;
+  /**
+   * #24 — requests that ended with NO HTTP response: a network error, DNS
+   * failure, TLS failure, or a timeout / abort before headers arrived. Those
+   * never reach `absorbRateLimitHeaders`, so without this a replica whose every
+   * call fails at the network level would look exactly like an idle one.
+   */
+  transportErrors: number;
+  /** #24 — every response this process's Anthropic clients received. */
+  responsesSeen: number;
+  /**
+   * #24 — 2xx responses carrying NONE of the headers above. Non-zero means
+   * capture is (or was) broken for successful calls. Error responses without
+   * headers (a proxy page, an edge 502) are expected and do NOT count here.
+   */
+  okWithoutHeaders: number;
+  /** #24 — when ANY response last arrived (epoch ms), headers or not. */
+  lastResponseAt: number | null;
+  /** #24 — the status of that last response. */
+  lastResponseStatus: number | null;
 }
 
-const EMPTY: RateLimitSnapshot = {
+/** The header-derived part, replaced wholesale on each observation. */
+type HeaderReading = Omit<
+  RateLimitSnapshot,
+  | 'requestsStarted'
+  | 'transportErrors'
+  | 'responsesSeen'
+  | 'okWithoutHeaders'
+  | 'lastResponseAt'
+  | 'lastResponseStatus'
+>;
+
+const EMPTY: HeaderReading = {
   outputTokensRemaining: null,
   outputTokensLimit: null,
   outputTokensReset: null,
@@ -86,7 +135,15 @@ const EMPTY: RateLimitSnapshot = {
   observedStatus: null,
 };
 
-let latest: RateLimitSnapshot = { ...EMPTY };
+let latest: HeaderReading = { ...EMPTY };
+
+// #24 — kept OUTSIDE `latest`, which is replaced wholesale on each observation.
+let requestsStarted = 0;
+let transportErrors = 0;
+let responsesSeen = 0;
+let okWithoutHeaders = 0;
+let lastResponseAt: number | null = null;
+let lastResponseStatus: number | null = null;
 
 /** A header may be absent, empty, or non-numeric. All three mean "unknown". */
 function intHeader(headers: Headers, name: string): number | null {
@@ -103,6 +160,12 @@ function intHeader(headers: Headers, name: string): number | null {
  * Never throws — see {@link observeRateLimits}.
  */
 export function absorbRateLimitHeaders(headers: Headers, status: number): void {
+  // #24 — counted BEFORE the no-headers early return below, so a response
+  // without headers is still visible as "a response arrived".
+  responsesSeen += 1;
+  lastResponseAt = Date.now();
+  lastResponseStatus = status;
+
   const outRemaining = intHeader(headers, 'anthropic-ratelimit-output-tokens-remaining');
   const outLimit = intHeader(headers, 'anthropic-ratelimit-output-tokens-limit');
   const outReset = headers.get('anthropic-ratelimit-output-tokens-reset');
@@ -111,6 +174,9 @@ export function absorbRateLimitHeaders(headers: Headers, status: number): void {
   // A response with none of these is not an observation — a proxy error page or
   // a network-level failure would otherwise blank a perfectly good reading.
   if (outRemaining === null && outLimit === null && outReset === null && reqRemaining === null) {
+    // Only a SUCCESSFUL response without the headers says capture is broken;
+    // an error page or edge 502 without them is expected.
+    if (status >= 200 && status < 300) okWithoutHeaders += 1;
     return;
   }
 
@@ -126,12 +192,26 @@ export function absorbRateLimitHeaders(headers: Headers, status: number): void {
 
 /** Latest observed reading. Always a fresh object — callers may not mutate ours. */
 export function getRateLimitSnapshot(): RateLimitSnapshot {
-  return { ...latest };
+  return {
+    ...latest,
+    requestsStarted,
+    transportErrors,
+    responsesSeen,
+    okWithoutHeaders,
+    lastResponseAt,
+    lastResponseStatus,
+  };
 }
 
 /** Tests only. */
 export function resetRateLimitSnapshot(): void {
   latest = { ...EMPTY };
+  requestsStarted = 0;
+  transportErrors = 0;
+  responsesSeen = 0;
+  okWithoutHeaders = 0;
+  lastResponseAt = null;
+  lastResponseStatus = null;
 }
 
 /**
@@ -150,7 +230,16 @@ export function resetRateLimitSnapshot(): void {
 export function observeRateLimits(inner?: Fetch): Fetch {
   const base: Fetch = inner ?? ((input, init) => fetch(input, init));
   return async (input, init) => {
-    const response = await base(input, init);
+    // #24 — plain integer increments: they cannot throw, so they cannot change
+    // the call's behaviour. The rejection is rethrown UNCHANGED.
+    requestsStarted += 1;
+    let response: Response;
+    try {
+      response = await base(input, init);
+    } catch (err) {
+      transportErrors += 1;
+      throw err;
+    }
     try {
       absorbRateLimitHeaders(response.headers, response.status);
     } catch {
