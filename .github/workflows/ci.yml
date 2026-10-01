@@ -27,6 +27,8 @@ jobs:
         run: node scripts/check-engine-callers.mjs
       - name: Guard — every AI provider call is metered and capped
         run: node scripts/check-ai-spend-metering.mjs
+      - name: Guard — the Build job installs exactly as the Dockerfiles do
+        run: node scripts/check-ci-docker-install-parity.mjs
       - run: npm ci
       - name: Generate Prisma client
         run: cd apps/api && npx prisma generate
@@ -131,11 +133,22 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-      - run: npm ci
+      # #11(c) — install EXACTLY as each production Dockerfile does, not with a
+      # bare `npm ci`. A full install hoists every workspace's packages to the
+      # root, so a package one workspace imports but only a SIBLING declares
+      # passes CI and then breaks the scoped Docker build — the launch-day
+      # `iztro` bug. `scripts/check-ci-docker-install-parity.mjs` (Lint job)
+      # fails if these two commands drift from the Dockerfiles'.
+      - name: Install — API scope (mirrors docker/Dockerfile.api)
+        run: npm ci --workspace=api --workspace=@repo/shared --include-workspace-root
       - name: Generate Prisma client
         run: cd apps/api && npx prisma generate
       - name: Build API
         run: cd apps/api && npx nest build
+      # A second `npm ci` wipes node_modules before installing, so the web build
+      # cannot see anything the API scope brought in.
+      - name: Install — Web scope (mirrors docker/Dockerfile.web)
+        run: npm ci --workspace=web --workspace=@repo/shared --workspace=@repo/ui --include-workspace-root
       - name: Build Web
         run: cd apps/web && npx next build
         env:

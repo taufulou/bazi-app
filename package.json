@@ -12,6 +12,7 @@
     "lint": "turbo run lint",
     "guard:engine-callers": "node scripts/check-engine-callers.mjs",
     "guard:ai-spend": "node scripts/check-ai-spend-metering.mjs",
+    "guard:install-parity": "node scripts/check-ci-docker-install-parity.mjs",
     "check-types": "turbo run check-types",
     "test": "turbo run test",
     "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
@@ -37,9 +38,6 @@
     "apps/*",
     "packages/*"
   ],
-  "dependencies": {
-    "lunar-typescript": "^1.8.6"
-  },
   "overrides": {
     "react-native": "0.86.0",
     "next": "16.3.1",
