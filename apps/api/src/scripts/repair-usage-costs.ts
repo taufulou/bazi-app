@@ -54,6 +54,14 @@ export interface RepairableRow {
   aiModel: string;
   inputTokens: number;
   outputTokens: number;
+  /**
+   * #6 — prompt-cache counters. Optional: rows written before #6 have 0 here,
+   * and a pre-#6 caller that omits them re-prices exactly as before. Present,
+   * they MUST be priced — `costUsd` is recomputable only from all five.
+   */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheWrite5mTokens?: number;
 }
 
 export interface RepairPlan<T extends RepairableRow> {
@@ -99,6 +107,9 @@ export function planRepair<T extends RepairableRow>(
         pricer.estimateCostUsd(r.aiModel, {
           inputTokens: r.inputTokens,
           outputTokens: r.outputTokens,
+          cacheReadTokens: r.cacheReadTokens,
+          cacheWriteTokens: r.cacheWriteTokens,
+          cacheWrite5mTokens: r.cacheWrite5mTokens,
         }) * 1_000_000,
       ) / 1_000_000;
     costs.set(r.id, c);
@@ -237,7 +248,15 @@ async function main(): Promise<void> {
     const matching = await prisma.aIUsageLog.count({ where });
     const rows = await prisma.aIUsageLog.findMany({
       where,
-      select: { id: true, aiModel: true, inputTokens: true, outputTokens: true },
+      select: {
+        id: true,
+        aiModel: true,
+        inputTokens: true,
+        outputTokens: true,
+        cacheReadTokens: true,
+        cacheWriteTokens: true,
+        cacheWrite5mTokens: true,
+      },
       take: cap,
       orderBy: { createdAt: 'asc' },   // stable, so a re-run resumes predictably
     });

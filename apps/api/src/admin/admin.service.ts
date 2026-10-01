@@ -640,7 +640,16 @@ export class AdminService {
         // Summary stats
         this.prisma.aIUsageLog.aggregate({
           where: { createdAt: { gte: sinceDate } },
-          _sum: { inputTokens: true, outputTokens: true },
+          // #6 — prompt-cache counters too. Once a reading caches its system
+          // prompt, `inputTokens` is only the UNCACHED remainder, so the input
+          // total alone understates the tokens actually processed.
+          _sum: {
+            inputTokens: true,
+            outputTokens: true,
+            cacheReadTokens: true,
+            cacheWriteTokens: true,
+            cacheWrite5mTokens: true,
+          },
           _count: { id: true },
         }),
         // Cost by provider using raw SQL for Decimal aggregation
@@ -651,6 +660,8 @@ export class AdminService {
           avg_cost: number;
           total_input_tokens: bigint;
           total_output_tokens: bigint;
+          total_cache_read_tokens: bigint;
+          total_cache_write_tokens: bigint;
         }>>`
           SELECT
             ai_provider,
@@ -658,7 +669,9 @@ export class AdminService {
             COUNT(*) as count,
             AVG(cost_usd)::float as avg_cost,
             SUM(input_tokens)::bigint as total_input_tokens,
-            SUM(output_tokens)::bigint as total_output_tokens
+            SUM(output_tokens)::bigint as total_output_tokens,
+            SUM(cache_read_tokens)::bigint as total_cache_read_tokens,
+            SUM(cache_write_tokens)::bigint as total_cache_write_tokens
           FROM ai_usage_log
           WHERE created_at >= ${sinceDate}
           GROUP BY ai_provider
@@ -684,6 +697,10 @@ export class AdminService {
           total_output_tokens: bigint;
           avg_latency_ms: number;
           cache_hit_count: bigint;
+          avg_cache_read_tokens: number;
+          avg_cache_write_tokens: number;
+          total_cache_read_tokens: bigint;
+          total_cache_write_tokens: bigint;
         }>>`
           SELECT
             reading_type,
@@ -694,6 +711,10 @@ export class AdminService {
             AVG(output_tokens)::float as avg_output_tokens,
             SUM(input_tokens)::bigint as total_input_tokens,
             SUM(output_tokens)::bigint as total_output_tokens,
+            AVG(cache_read_tokens)::float as avg_cache_read_tokens,
+            AVG(cache_write_tokens)::float as avg_cache_write_tokens,
+            SUM(cache_read_tokens)::bigint as total_cache_read_tokens,
+            SUM(cache_write_tokens)::bigint as total_cache_write_tokens,
             AVG(latency_ms)::float as avg_latency_ms,
             SUM(CASE WHEN is_cache_hit THEN 1 ELSE 0 END)::bigint as cache_hit_count
           FROM ai_usage_log
@@ -724,6 +745,13 @@ export class AdminService {
           avgOutputTokens: Math.round(r.avg_output_tokens || 0),
           totalInputTokens: Number(r.total_input_tokens || 0),
           totalOutputTokens: Number(r.total_output_tokens || 0),
+          // #6 — the PROMPT cache (a reading's system prompt), not the
+          // reading cache behind `cacheHitRate`. `input_tokens` is only the
+          // uncached remainder once a reading caches its prompt.
+          avgPromptCacheReadTokens: Math.round(r.avg_cache_read_tokens || 0),
+          avgPromptCacheWriteTokens: Math.round(r.avg_cache_write_tokens || 0),
+          totalPromptCacheReadTokens: Number(r.total_cache_read_tokens || 0),
+          totalPromptCacheWriteTokens: Number(r.total_cache_write_tokens || 0),
           avgLatencyMs: Math.round(r.avg_latency_ms || 0),
           cacheHitRate: count > 0 ? Number(r.cache_hit_count || 0) / count : 0,
         };
@@ -775,6 +803,12 @@ export class AdminService {
         totalTokens: (summary._sum.inputTokens || 0) + (summary._sum.outputTokens || 0),
         totalInputTokens: summary._sum.inputTokens || 0,
         totalOutputTokens: summary._sum.outputTokens || 0,
+        // Named PROMPT cache so it cannot be confused with `cacheHitRate`, which
+        // is the READING cache (a whole reading served from Redis/DB).
+        totalPromptCacheReadTokens: summary._sum.cacheReadTokens || 0,
+        totalPromptCacheWriteTokens: summary._sum.cacheWriteTokens || 0,
+        // The 5-minute part of the writes; the remainder was priced at 1 hour.
+        totalPromptCacheWrite5mTokens: summary._sum.cacheWrite5mTokens || 0,
         totalRequests: totalCount,
         cacheHitRate: totalCount > 0 ? cacheHits / totalCount : 0,
         costByProvider: costByProvider.map((p) => ({
@@ -784,6 +818,8 @@ export class AdminService {
           avgCost: p.avg_cost || 0,
           totalInputTokens: Number(p.total_input_tokens || 0),
           totalOutputTokens: Number(p.total_output_tokens || 0),
+          totalPromptCacheReadTokens: Number(p.total_cache_read_tokens || 0),
+          totalPromptCacheWriteTokens: Number(p.total_cache_write_tokens || 0),
         })),
         costByReadingType: costByReadingTypeResult,
         costByTier,
@@ -802,6 +838,11 @@ export class AdminService {
         totalTokens: 0,
         totalInputTokens: 0,
         totalOutputTokens: 0,
+        // Same shape as the success branch — a consumer must not see these
+        // fields appear and disappear depending on whether the query failed.
+        totalPromptCacheReadTokens: 0,
+        totalPromptCacheWriteTokens: 0,
+        totalPromptCacheWrite5mTokens: 0,
         totalRequests: 0,
         cacheHitRate: 0,
         costByProvider: [],

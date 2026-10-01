@@ -205,19 +205,19 @@ describe('ChatStreamService', () => {
     };
   }
 
-  function makeAsyncIterableStream(events: any[]) {
+  const DEFAULT_FINAL_USAGE = {
+    input_tokens: 8000,
+    output_tokens: 250,
+    cache_read_input_tokens: 7500,
+    cache_creation_input_tokens: 0,
+  };
+
+  function makeAsyncIterableStream(events: any[], finalUsage: Record<string, unknown> = DEFAULT_FINAL_USAGE) {
     const iterable = {
       [Symbol.asyncIterator]: async function* () {
         for (const e of events) yield e;
       },
-      finalMessage: jest.fn().mockResolvedValue({
-        usage: {
-          input_tokens: 8000,
-          output_tokens: 250,
-          cache_read_input_tokens: 7500,
-          cache_creation_input_tokens: 0,
-        },
-      }),
+      finalMessage: jest.fn().mockResolvedValue({ usage: finalUsage }),
     };
     return iterable;
   }
@@ -451,6 +451,43 @@ describe('ChatStreamService', () => {
         }),
         expect.objectContaining({ timeout: 90_000 }),
       );
+    });
+
+    it('#6 — persists the final message\'s cache counters, read through the shared reader', async () => {
+      // Pairwise-distinct values: the default fixture has cache writes = 0 and
+      // input = 8000, so it could not catch a swapped or neighbour-filled field.
+      mockPrisma.user.findUnique.mockResolvedValue({ id: 'u1', clerkUserId: 'c1' });
+      mockPrisma.chatSession.findUnique.mockResolvedValue(makeFreshSession());
+      mockPrisma.chatMessage.create
+        .mockResolvedValueOnce({ id: 'msg-user' })
+        .mockResolvedValueOnce({ id: 'msg-asst' });
+      mockPrisma.chatSession.update.mockResolvedValue({ messageCount: 1 });
+      mockPrisma.chatSession.findUniqueOrThrow.mockResolvedValue({
+        id: 's1',
+        messageCount: 1,
+        creditExtensions: 0,
+        paidMessagesUsed: 0,
+      });
+      mockAnthropicStream.mockReturnValue(
+        makeAsyncIterableStream(
+          [{ type: 'content_block_delta', delta: { type: 'text_delta', text: '根據您的命局' } }],
+          {
+            input_tokens: 1234,
+            output_tokens: 250,
+            cache_read_input_tokens: 8000,
+            cache_creation_input_tokens: 3000,
+            cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 3000 },
+          },
+        ),
+      );
+
+      await service.streamMessage('c1', 's1', '我的命格如何', undefined, new MockResponse() as never);
+
+      const rows = (mockPrisma.chatMessage.create as jest.Mock).mock.calls
+        .map((c) => (c[0] as { data: Record<string, unknown> }).data)
+        .filter((d) => d.role === 'ASSISTANT');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ tokensInput: 1234, cacheReadTokens: 8000, cacheCreationTokens: 3000 });
     });
   });
 

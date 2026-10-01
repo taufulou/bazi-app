@@ -104,7 +104,7 @@ export default function AdminAICostsPage() {
           <div className={styles.statValue}>${costs.avgCostPerReading.toFixed(4)}</div>
         </div>
         <div className={styles.statCard}>
-          <div className={styles.statLabel}>Total Tokens</div>
+          <div className={styles.statLabel}>Total Tokens (excl. cached)</div>
           <div className={styles.statValue}>{costs.totalTokens.toLocaleString()}</div>
         </div>
         <div className={styles.statCard}>
@@ -122,6 +122,17 @@ export default function AdminAICostsPage() {
         <div className={styles.statCard}>
           <div className={styles.statLabel}>Output Tokens</div>
           <div className={styles.statValue}>{costs.totalOutputTokens.toLocaleString()}</div>
+        </div>
+        {/* #6 — the PROMPT cache (a reading's cached system prompt). Once a
+            reading caches its prompt, Input Tokens is only the uncached
+            remainder; these are the rest. Not the reading cache above. */}
+        <div className={styles.statCard}>
+          <div className={styles.statLabel}>Prompt Cache Read Tokens</div>
+          <div className={styles.statValue}>{(costs.totalPromptCacheReadTokens ?? 0).toLocaleString()}</div>
+        </div>
+        <div className={styles.statCard}>
+          <div className={styles.statLabel}>Prompt Cache Write Tokens</div>
+          <div className={styles.statValue}>{(costs.totalPromptCacheWriteTokens ?? 0).toLocaleString()}</div>
         </div>
       </div>
 
@@ -161,6 +172,8 @@ export default function AdminAICostsPage() {
                   <th>Total Cost</th>
                   <th>Avg Cost</th>
                   <th>Avg In Tokens</th>
+                  <th>Avg Prompt Cache Read</th>
+                  <th>Avg Prompt Cache Write</th>
                   <th>Avg Out Tokens</th>
                   <th>Avg Latency</th>
                   <th>Cache Hit %</th>
@@ -190,6 +203,8 @@ export default function AdminAICostsPage() {
                       <td>${r.totalCost.toFixed(4)}</td>
                       <td>${r.avgCost.toFixed(4)}</td>
                       <td>{r.avgInputTokens.toLocaleString()}</td>
+                      <td>{(r.avgPromptCacheReadTokens ?? 0).toLocaleString()}</td>
+                      <td>{(r.avgPromptCacheWriteTokens ?? 0).toLocaleString()}</td>
                       <td>{r.avgOutputTokens.toLocaleString()}</td>
                       <td>{r.avgLatencyMs.toLocaleString()}ms</td>
                       <td>{(r.cacheHitRate * 100).toFixed(1)}%</td>
@@ -206,30 +221,36 @@ export default function AdminAICostsPage() {
       {costs.costByProvider.length > 0 && (
         <section style={{ marginBottom: 32 }}>
           <h2 className={pageStyles.sectionTitle}>Cost by Provider</h2>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th>Provider</th>
-                <th>Total Cost</th>
-                <th>Requests</th>
-                <th>Avg Cost</th>
-                <th>Input Tokens</th>
-                <th>Output Tokens</th>
-              </tr>
-            </thead>
-            <tbody>
-              {costs.costByProvider.map((p) => (
-                <tr key={p.provider}>
-                  <td style={{ fontWeight: 500 }}>{p.provider}</td>
-                  <td>${p.totalCost.toFixed(4)}</td>
-                  <td>{p.count.toLocaleString()}</td>
-                  <td>${p.avgCost.toFixed(4)}</td>
-                  <td>{p.totalInputTokens.toLocaleString()}</td>
-                  <td>{p.totalOutputTokens.toLocaleString()}</td>
+          <div className={pageStyles.tableWrapper}>
+            <table className={styles.table}>
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Total Cost</th>
+                  <th>Requests</th>
+                  <th>Avg Cost</th>
+                  <th>Input Tokens</th>
+                  <th>Prompt Cache Read</th>
+                  <th>Prompt Cache Write</th>
+                  <th>Output Tokens</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {costs.costByProvider.map((p) => (
+                  <tr key={p.provider}>
+                    <td style={{ fontWeight: 500 }}>{p.provider}</td>
+                    <td>${p.totalCost.toFixed(4)}</td>
+                    <td>{p.count.toLocaleString()}</td>
+                    <td>${p.avgCost.toFixed(4)}</td>
+                    <td>{p.totalInputTokens.toLocaleString()}</td>
+                    <td>{(p.totalPromptCacheReadTokens ?? 0).toLocaleString()}</td>
+                    <td>{(p.totalPromptCacheWriteTokens ?? 0).toLocaleString()}</td>
+                    <td>{p.totalOutputTokens.toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
 

@@ -1,9 +1,9 @@
 /**
  * A4 + F1 (Phase 1A) — free-spend vectors.
  *
- * A4a: birth profiles are the multiplier on free AI generation (the fortune
- * free tier is scoped per profile per day), so an uncapped account can mint one
- * free narration per profile per day.
+ * A4a: the birth-profile cap was REMOVED (2026-09-29). The S4 daily quota
+ * bounds free fortune narrations per user, and the cap blocked paying users.
+ * The test below pins its absence so it is not re-added as a cost control.
  *
  * F1: `deleteAccount` anonymizes rather than deletes, renaming `clerkUserId` to
  * `deleted_<id>_<ts>` — which frees the original id. All three insert sites
@@ -12,7 +12,6 @@
  * Clerk-side delete doesn't take effect, and `deleteClerkUser` is best-effort:
  * it swallows API errors and returns early when CLERK_SECRET_KEY is unset.
  */
-import { BadRequestException } from '@nestjs/common';
 import { UsersService } from '../src/users/users.service';
 import { ClerkWebhookController } from '../src/webhooks/clerk-webhook.controller';
 import {
@@ -24,10 +23,10 @@ const CLERK = 'user_clerk_abc';
 const USER_ID = 'db-uuid-1';
 
 // ============================================================
-// A4a — birth-profile cap
+// A4a — no birth-profile cap (removed; S4 quota is the bound)
 // ============================================================
 
-function makeUsersService(profileCount: number, cap?: string) {
+function makeUsersService(profileCount: number) {
   const prisma = {
     user: {
       findUnique: jest.fn().mockResolvedValue({ id: USER_ID }),
@@ -40,11 +39,7 @@ function makeUsersService(profileCount: number, cap?: string) {
       updateMany: jest.fn(),
     },
   };
-  const config = {
-    get: jest.fn((key: string) =>
-      key === 'BIRTH_PROFILE_MAX_PER_USER' ? cap : undefined,
-    ),
-  };
+  const config = { get: jest.fn(() => undefined) };
   const service = new UsersService(prisma as never, config as never, AI_STUB as never);
   return { service, prisma };
 }
@@ -63,45 +58,15 @@ const DTO = {
 const USERS_STUB = { erasePersonalData: jest.fn() };
 const AI_STUB = { generateBirthDataHash: jest.fn(() => 'hash') };
 
-describe('A4a — birth-profile cap', () => {
-  it('allows creation below the default cap of 10', async () => {
-    const { service, prisma } = makeUsersService(9);
-    await service.createBirthProfile(CLERK, DTO);
-    expect(prisma.birthProfile.create).toHaveBeenCalled();
-  });
-
-  it('rejects at the cap with BIRTH_PROFILE_LIMIT_REACHED', async () => {
-    const { service, prisma } = makeUsersService(10);
-
-    await expect(service.createBirthProfile(CLERK, DTO)).rejects.toMatchObject({
-      response: { code: 'BIRTH_PROFILE_LIMIT_REACHED' },
-    });
-    expect(prisma.birthProfile.create).not.toHaveBeenCalled();
-  });
-
-  it('rejects above the cap too (defensive — pre-existing over-limit accounts)', async () => {
-    const { service } = makeUsersService(47);
-    await expect(service.createBirthProfile(CLERK, DTO)).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
-  });
-
-  it('honours BIRTH_PROFILE_MAX_PER_USER when set', async () => {
-    const { service } = makeUsersService(3, '3');
-    await expect(service.createBirthProfile(CLERK, DTO)).rejects.toThrow();
-
-    const { service: s2, prisma: p2 } = makeUsersService(3, '25');
-    await s2.createBirthProfile(CLERK, DTO);
-    expect(p2.birthProfile.create).toHaveBeenCalled();
-  });
-
-  it('falls back to 10 when the env value is junk rather than disabling the cap', async () => {
-    // A NaN/negative must not read as "unlimited" — that would silently remove
-    // the control the moment someone typos the env var.
-    for (const junk of ['abc', '', '-5', '0']) {
-      const { service } = makeUsersService(10, junk);
-      await expect(service.createBirthProfile(CLERK, DTO)).rejects.toThrow();
-    }
+describe('A4a — birth profiles are uncapped', () => {
+  it('creates a profile for an account already holding far more than the old cap of 10', async () => {
+    const { service, prisma } = makeUsersService(500);
+    await expect(service.createBirthProfile(CLERK, DTO)).resolves.toEqual({ id: 'bp-new' });
+    expect(prisma.birthProfile.create).toHaveBeenCalledTimes(1);
+    // The count still runs, but only to pick the first profile as primary
+    // (test/first-profile-primary.spec.ts) — the 501st must not take primary.
+    const data = (prisma.birthProfile.create.mock.calls[0] as [{ data: { isPrimary: boolean } }])[0].data;
+    expect(data.isPrimary).toBe(false);
   });
 });
 

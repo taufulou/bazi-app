@@ -4,9 +4,9 @@ import { Observable, Subscriber } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { CreditsService } from '../credits/credits.service';
-import { AiSpendService } from './ai-spend.service';
+import { AiSpendService, type TokenUsage } from './ai-spend.service';
 import { classifyAiError, type AiCallAttribution } from './ai-call-log';
-import { estimateOutputTokensFromChars } from './stream-usage';
+import { absorbInputSideUsage, estimateOutputTokensFromChars } from './stream-usage';
 import { AiGovernorService } from './ai-governor.service';
 import { isSelfRefusal, selfRefusalCode, selfRefusalMessage } from './typed-refusals';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
@@ -120,6 +120,120 @@ export const AI_MAX_TOTAL_TIME_MS = parseInt(
 /** Cap on Retry-After header value (don't sleep > 30s even if API asks). */
 export const AI_RETRY_AFTER_CAP_MS = 30000;
 
+// ============================================================
+// #6 — the Call-2 prompt-cache gate
+//
+// A V2 reading's two calls share a byte-identical system prompt (~15.7k tokens
+// for LIFETIME), cached at the 5-minute TTL. A cache entry becomes readable only
+// once the writing request has BEGUN STREAMING, so two calls started together
+// BOTH write (1.25x each) and neither reads. With both calls in parallel, as they
+// were, caching made an isolated LIFETIME reading cost MORE than not caching:
+// $0.1559 of input against $0.1323. Starting Call 2 after Call 1's first chunk
+// turns Call 2's copy into a read (0.1x): $0.1016 — the saving the whole change
+// exists for. The gate costs Call 2 roughly Call 1's time-to-first-token.
+//
+// It opens on the EARLIEST of: Call 1's first chunk; Call 1 entering a LONG
+// retry backoff (see below); Call 1's attempt loop exiting for any reason; or
+// the cap. With `AI_READING_PROMPT_CACHE=0` there is no gate at all.
+// ============================================================
+
+/**
+ * The most Call 2 will wait for Call 1 to begin streaming.
+ *
+ * ⚠️ NOT only a hang bound. The Anthropic SDK retries 429/529/5xx INSIDE
+ * `messages.stream()` (its default `maxRetries: 2`, honouring `retry-after` up
+ * to 60s) before any event reaches `streamClaude`, so those retries are
+ * invisible to Call 1's loop. During one, this cap is the only thing that frees
+ * Call 2.
+ *
+ * ⚠️ A cap-fire can cost MORE than not caching. If Call 1's retried request
+ * starts before Call 2 has begun streaming, BOTH calls write — the naive
+ * parallel cost the gate exists to avoid: an isolated LIFETIME reading's input
+ * is $0.1559 against $0.1323 uncached, about $0.02 more. Accepted, because it
+ * happens only during a provider incident, the alternative is Call 2 waiting
+ * with no bound, and every occurrence is marked by the `gate cap=` warning.
+ * Time-to-first-token for a ~22k-token prompt is seconds, and S1 queue wait is
+ * separately bounded at 15s (AI_BUSY), so on a healthy provider this never
+ * fires.
+ */
+export const PROMPT_CACHE_GATE_MAX_WAIT_MS = 30_000;
+
+/**
+ * Call 1 entering a retry backoff at least this long opens the gate early.
+ *
+ * Two regimes, split on purpose. A `Retry-After` of up to 30s would otherwise
+ * let the cap fire mid-sleep, starting Call 2 and Call 1's retry together so
+ * both write; opening at backoff entry makes Call 2 the writer and the retry
+ * a reader. But the COMMON retry — a 529 with no `Retry-After` — backs off only
+ * 0-2s of jitter (`computeBackoff`), and opening there would start Call 2 about
+ * two seconds before the retry: both write again. So a short backoff keeps the
+ * gate CLOSED and the retry is the writer. No jitter-only backoff reaches 5s.
+ */
+export const PROMPT_CACHE_GATE_BACKOFF_RESOLVE_MS = 5_000;
+
+/**
+ * `'refused'` means WE refused Call 1 (spend cap, AI_BUSY, quota). Those
+ * answers cannot change within a request, so Call 2 is skipped rather than
+ * queued for its own identical refusal — which would double the time to the
+ * user's failure, ~15s to ~30s for AI_BUSY.
+ */
+export type PromptCacheGateOutcome = 'proceed' | 'refused';
+
+interface PromptCacheGate {
+  promise: Promise<PromptCacheGateOutcome>;
+  /** Idempotent — the first outcome wins. Clears the cap timer. */
+  resolve(outcome: PromptCacheGateOutcome): void;
+}
+
+/**
+ * Build one gate for one provider iteration.
+ *
+ * The cap timer is armed HERE, and not at all when `preResolved`, so a gate
+ * that opens immediately never leaves a 30s handle alive for the rest of a
+ * ~180s generation. It is registered in `pendingTimeouts` so the generation's
+ * outer `finally` drains it on every exit, and removed again the moment the
+ * gate opens by any other route.
+ */
+function makePromptCacheGate(opts: {
+  preResolved: boolean;
+  capMs: number;
+  pendingTimeouts: Set<ReturnType<typeof setTimeout>>;
+  onCap: () => void;
+}): PromptCacheGate {
+  let settle!: (outcome: PromptCacheGateOutcome) => void;
+  const promise = new Promise<PromptCacheGateOutcome>((r) => {
+    settle = r;
+  });
+  let done = false;
+  let capTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const resolve = (outcome: PromptCacheGateOutcome) => {
+    if (done) return;
+    done = true;
+    if (capTimer !== undefined) {
+      clearTimeout(capTimer);
+      opts.pendingTimeouts.delete(capTimer);
+      capTimer = undefined;
+    }
+    settle(outcome);
+  };
+
+  if (opts.preResolved) {
+    resolve('proceed');
+  } else {
+    capTimer = setTimeout(() => {
+      try {
+        opts.onCap();
+      } catch {
+        // A logging failure must never keep Call 2 waiting.
+      }
+      resolve('proceed');
+    }, opts.capMs);
+    opts.pendingTimeouts.add(capTimer);
+  }
+  return { promise, resolve };
+}
+
 /**
  * Max free regenerations of a degraded reading.
  * Mirrors @repo/shared REGENERATION_LIMIT — NestJS has a known @repo/shared
@@ -197,6 +311,15 @@ export type StreamUsageOut = {
   outputTextChars?: number;
   outputTokensEstimated?: boolean;
   stopReason?: string;
+  /**
+   * #6 — the input side's cache counters, from `message_start`. Once the system
+   * prompt is cached, `inputTokens` is only the UNCACHED remainder; without
+   * these the ledger would silently lose the cached part of every call.
+   * Optional for the same reason as `outputTextChars`.
+   */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  cacheWrite5mTokens?: number;
 };
 
 @Injectable()
@@ -279,6 +402,20 @@ export class AIService implements OnModuleInit {
   // sound there because chat has a hard per-stream timeout and NO retry or
   // provider-fallback budget. The reading paths have both, so it fails here.
   // ============================================================
+
+  /**
+   * #6 — is the 5-minute prompt cache on for the streaming reading path?
+   *
+   * The ONE read of `AI_READING_PROMPT_CACHE`, used in TWO places that must
+   * agree: `streamClaude` (whether the system block carries `cache_control`)
+   * and `_executeStreamV2Common` (whether Call 2 waits behind Call 1's first
+   * chunk). `0` restores today's behaviour exactly — a plain-string system
+   * prompt AND a parallel, un-gated Call 2. Leaving the gate on with the cache
+   * off would delay every reading for nothing. Default ON.
+   */
+  private isReadingPromptCacheEnabled(): boolean {
+    return (this.configService.get<string>('AI_READING_PROMPT_CACHE') ?? '1') !== '0';
+  }
 
   /** Per-call timeout for the V2 reading stream path. */
   private getStreamTimeoutMs(): number {
@@ -441,7 +578,7 @@ export class AIService implements OnModuleInit {
 
         // Calculate cost
         const estimatedCostUsd =
-          this.priceOrZero(providerConfig.model, result.inputTokens, result.outputTokens);
+          this.priceOrZero(providerConfig.model, { inputTokens: result.inputTokens, outputTokens: result.outputTokens });
 
         // Parse the AI response into structured sections
         const interpretation = this.parseAIResponse(result.content, readingType);
@@ -658,7 +795,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
+          this.priceOrZero(providerConfig.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -837,7 +974,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
+          this.priceOrZero(providerConfig.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -1354,11 +1491,34 @@ export class AIService implements OnModuleInit {
         type Call2Streamed = { streamed: true; inputTokens: number; outputTokens: number; timedOut?: boolean; stopReason?: string; refusal?: unknown };
         type Call2NonStreamed = { content: string; inputTokens: number; outputTokens: number };
         let call2Promise: Promise<Call2Streamed | Call2NonStreamed | null>;
+        // #6 — Call 2 waits for Call 1 to begin streaming so it READS the prompt
+        // cache instead of writing its own copy. Built only when the cache is on
+        // and Call 2 will actually stream: with the flag off there is NO gate
+        // object and no await, so `0` restores the parallel start exactly; the
+        // legacy non-streaming Call 2 cannot read the cache, so it is not gated.
+        // Claude only: `cache_control` is sent by `streamClaude` alone, so on a
+        // GPT/Gemini fallback there is no cache to read and waiting buys nothing.
+        const cacheGate =
+          providerConfig.provider === AIProvider.CLAUDE &&
+          streamCall2Enabled && !haveCall2 && this.isReadingPromptCacheEnabled()
+            ? makePromptCacheGate({
+                preResolved: haveCall1,
+                capMs: PROMPT_CACHE_GATE_MAX_WAIT_MS,
+                pendingTimeouts,
+                onCap: () =>
+                  this.logger.warn(
+                    `${tag} Call 2 gate cap=${PROMPT_CACHE_GATE_MAX_WAIT_MS}ms — Call 1 produced no chunk ` +
+                    `within the cap (possibly inside an SDK-level retry); both calls will write the prompt cache`,
+                  ),
+              })
+            : undefined;
         if (haveCall2) {
           call2Promise = Promise.resolve(null);
         } else if (streamCall2Enabled) {
-          // New path: stream Call 2 in parallel with Call 1
+          // Streams in parallel with Call 1, once the #6 gate opens.
           call2Promise = this._streamV2Call2Loop({
+            awaitBeforeFirstAttempt: cacheGate?.promise,
+            call1Refusal: () => selfRefusal,
             userId: opts.userId,
             readingId: opts.readingId,
             providerConfig,
@@ -1404,50 +1564,71 @@ export class AIService implements OnModuleInit {
         }
 
         // ============ Call 1: streaming, with caller-side retry ============
-        if (!haveCall1) {
-          let call1Err: Error | undefined;
+        // #6 — pessimistic default: if something unexpected escapes Call 1's
+        // loop, the generation is over, so Call 2 must NOT start after it.
+        let call1GateExit: PromptCacheGateOutcome = 'refused';
+        try {
+          if (!haveCall1) {
+            let call1Err: Error | undefined;
 
-          for (let attempt = 1; attempt <= AI_MAX_RETRIES_PER_PROVIDER; attempt++) {
-            if (Date.now() - totalStartMs > AI_MAX_TOTAL_TIME_MS) {
-              this.logger.warn(`${tag} Call 1 total_budget_exceeded provider=${providerConfig.provider}`);
-              break;
-            }
+            for (let attempt = 1; attempt <= AI_MAX_RETRIES_PER_PROVIDER; attempt++) {
+              if (Date.now() - totalStartMs > AI_MAX_TOTAL_TIME_MS) {
+                this.logger.warn(`${tag} Call 1 total_budget_exceeded provider=${providerConfig.provider}`);
+                break;
+              }
 
-            let call1Buffer = '';
-            const call1ExtractedKeys = new Set<string>();
-            let yieldedAny = false;
-            const call1Controller = new AbortController();
-            if (externalControllers) externalControllers.add(call1Controller);
-            // #8 — armed when the S1 slot is HELD, not here. Arming before the
-            // call charged up to QUEUE_TIMEOUT_MS (15s) of queueing against the
-            // provider's own budget. `callProviderWithTimeout` already worked
-            // this way; the streaming path did not.
-            let call1Timeout: ReturnType<typeof setTimeout> | undefined;
-            const armCall1Timeout = () => {
-              call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
-              pendingTimeouts.add(call1Timeout);
-            };
+              let call1Buffer = '';
+              const call1ExtractedKeys = new Set<string>();
+              let yieldedAny = false;
+              const call1Controller = new AbortController();
+              if (externalControllers) externalControllers.add(call1Controller);
+              // #8 — armed when the S1 slot is HELD, not here. Arming before the
+              // call charged up to QUEUE_TIMEOUT_MS (15s) of queueing against the
+              // provider's own budget. `callProviderWithTimeout` already worked
+              // this way; the streaming path did not.
+              let call1Timeout: ReturnType<typeof setTimeout> | undefined;
+              const armCall1Timeout = () => {
+                call1Timeout = setTimeout(() => call1Controller.abort(), timeoutMs);
+                pendingTimeouts.add(call1Timeout);
+              };
 
-            try {
-              const streamGen = this.streamProvider(
-                providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
-                undefined,
-                {
-                  route: `stream:${readingType}:call1`,
-                  userId: opts.userId,
-                  readingId: opts.readingId,
-                  readingType,
-                },
-                armCall1Timeout,
-              );
-
-              for await (const chunk of streamGen) {
-                yieldedAny = true;
-                call1Buffer += chunk;
-                const newSections = this.extractCompletedSections(
-                  call1Buffer, call1SectionKeys, call1ExtractedKeys,
+              try {
+                const streamGen = this.streamProvider(
+                  providerConfig, systemPrompt, userPromptCall1, call1Controller.signal,
+                  undefined,
+                  {
+                    route: `stream:${readingType}:call1`,
+                    userId: opts.userId,
+                    readingId: opts.readingId,
+                    readingType,
+                  },
+                  armCall1Timeout,
                 );
-                for (const [key, rawSection] of Object.entries(newSections)) {
+
+                for await (const chunk of streamGen) {
+                  // #6 — Call 1 has begun streaming, so its cache write is now
+                  // readable: let Call 2 start.
+                  if (!yieldedAny) cacheGate?.resolve('proceed');
+                  yieldedAny = true;
+                  call1Buffer += chunk;
+                  const newSections = this.extractCompletedSections(
+                    call1Buffer, call1SectionKeys, call1ExtractedKeys,
+                  );
+                  for (const [key, rawSection] of Object.entries(newSections)) {
+                    if (emittedKeys.has(key)) continue;
+                    const section = fixSection(key, rawSection);
+                    call1Sections[key] = section;
+                    emittedKeys.add(key);
+                    subscriber.next({
+                      data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(includeScore && section.score != null && { score: section.score }) }),
+                      type: 'section_complete',
+                    } as MessageEvent);
+                  }
+                }
+
+                // Final parse — try summaryExtractor first (Annual uses brace-depth), else use parseLifetimeV2CallResponse
+                const finalParsed = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
+                for (const [key, rawSection] of Object.entries(finalParsed.sections)) {
                   if (emittedKeys.has(key)) continue;
                   const section = fixSection(key, rawSection);
                   call1Sections[key] = section;
@@ -1457,82 +1638,81 @@ export class AIService implements OnModuleInit {
                     type: 'section_complete',
                   } as MessageEvent);
                 }
-              }
+                const extractedSummary = summaryExtractor
+                  ? summaryExtractor(call1Buffer)
+                  : (finalParsed.summary || null);
+                if (extractedSummary && (extractedSummary.preview || extractedSummary.full)) {
+                  call1Summary = extractedSummary;
+                }
 
-              // Final parse — try summaryExtractor first (Annual uses brace-depth), else use parseLifetimeV2CallResponse
-              const finalParsed = this.parseLifetimeV2CallResponse(call1Buffer, 'call1');
-              for (const [key, rawSection] of Object.entries(finalParsed.sections)) {
-                if (emittedKeys.has(key)) continue;
-                const section = fixSection(key, rawSection);
-                call1Sections[key] = section;
-                emittedKeys.add(key);
+                call1Err = undefined;
+                break;
+              } catch (err) {
+                // ⚠️ Capture and fall through — do NOT break the provider loop from
+                // here. `call2Promise` was created before Call 1 ran and is only
+                // awaited below; breaking here jumps past that await, so its token
+                // accounting and `call_complete` never happen while its sections
+                // survive by reference. The loop exit is after the Call 2 await.
+                if (isSelfRefusal(err)) selfRefusal ??= err;
+                call1Err = err instanceof Error ? err : new Error(String(err));
+                if ((call1Err as any).name === 'AbortError') {
+                  this.logger.warn(`${tag} Call 1 aborted_timeout provider=${providerConfig.provider}`);
+                  call1TimedOut = true;
+                  break;
+                }
+                if (yieldedAny) {
+                  this.logger.warn(
+                    `${tag} Call 1 mid_stream_failure provider=${providerConfig.provider} yieldedAny=true ` +
+                    `keeping=${Object.keys(call1Sections).length} reason=no_retry`,
+                  );
+                  break;
+                }
+                if (!this.isRetryableError(call1Err) || attempt === AI_MAX_RETRIES_PER_PROVIDER) {
+                  this.logger.warn(
+                    `${tag} Call 1 ${attempt === AI_MAX_RETRIES_PER_PROVIDER ? 'exhausted_retries' : 'non_retryable_error'} provider=${providerConfig.provider} reason=${call1Err.message}`,
+                  );
+                  break;
+                }
+
                 subscriber.next({
-                  data: JSON.stringify({ key, preview: section.preview, full: section.full, ...(includeScore && section.score != null && { score: section.score }) }),
-                  type: 'section_complete',
+                  data: JSON.stringify({
+                    provider: providerConfig.provider,
+                    attempt: attempt + 1,
+                    max: AI_MAX_RETRIES_PER_PROVIDER,
+                    reason: this.summarizeError(call1Err),
+                    call: 1,
+                  }),
+                  type: 'retry_attempt',
                 } as MessageEvent);
-              }
-              const extractedSummary = summaryExtractor
-                ? summaryExtractor(call1Buffer)
-                : (finalParsed.summary || null);
-              if (extractedSummary && (extractedSummary.preview || extractedSummary.full)) {
-                call1Summary = extractedSummary;
-              }
 
-              call1Err = undefined;
-              break;
-            } catch (err) {
-              // ⚠️ Capture and fall through — do NOT break the provider loop from
-              // here. `call2Promise` was created before Call 1 ran and is only
-              // awaited below; breaking here jumps past that await, so its token
-              // accounting and `call_complete` never happen while its sections
-              // survive by reference. The loop exit is after the Call 2 await.
-              if (isSelfRefusal(err)) selfRefusal ??= err;
-              call1Err = err instanceof Error ? err : new Error(String(err));
-              if ((call1Err as any).name === 'AbortError') {
-                this.logger.warn(`${tag} Call 1 aborted_timeout provider=${providerConfig.provider}`);
-                call1TimedOut = true;
-                break;
-              }
-              if (yieldedAny) {
+                const backoffMs = this.computeBackoff(attempt, call1Err);
                 this.logger.warn(
-                  `${tag} Call 1 mid_stream_failure provider=${providerConfig.provider} yieldedAny=true ` +
-                  `keeping=${Object.keys(call1Sections).length} reason=no_retry`,
+                  `${tag} Call 1 attempt=${attempt}/${AI_MAX_RETRIES_PER_PROVIDER} failed provider=${providerConfig.provider} reason=${call1Err.message} backoff=${backoffMs}ms`,
                 );
-                break;
+                // #6 — a LONG backoff: let Call 2 write the cache now so the retry
+                // reads it. A short (jitter-only) one keeps the gate closed — see
+                // PROMPT_CACHE_GATE_BACKOFF_RESOLVE_MS.
+                if (backoffMs >= PROMPT_CACHE_GATE_BACKOFF_RESOLVE_MS) {
+                  cacheGate?.resolve('proceed');
+                }
+                await new Promise((r) => setTimeout(r, backoffMs));
+              } finally {
+                // May be unarmed: a refusal at the S1 gate (AI_BUSY) or a
+                // budget break means the slot was never held.
+                if (call1Timeout !== undefined) {
+                  clearTimeout(call1Timeout);
+                  pendingTimeouts.delete(call1Timeout);
+                }
+                if (externalControllers) externalControllers.delete(call1Controller);
               }
-              if (!this.isRetryableError(call1Err) || attempt === AI_MAX_RETRIES_PER_PROVIDER) {
-                this.logger.warn(
-                  `${tag} Call 1 ${attempt === AI_MAX_RETRIES_PER_PROVIDER ? 'exhausted_retries' : 'non_retryable_error'} provider=${providerConfig.provider} reason=${call1Err.message}`,
-                );
-                break;
-              }
-
-              subscriber.next({
-                data: JSON.stringify({
-                  provider: providerConfig.provider,
-                  attempt: attempt + 1,
-                  max: AI_MAX_RETRIES_PER_PROVIDER,
-                  reason: this.summarizeError(call1Err),
-                  call: 1,
-                }),
-                type: 'retry_attempt',
-              } as MessageEvent);
-
-              const backoffMs = this.computeBackoff(attempt, call1Err);
-              this.logger.warn(
-                `${tag} Call 1 attempt=${attempt}/${AI_MAX_RETRIES_PER_PROVIDER} failed provider=${providerConfig.provider} reason=${call1Err.message} backoff=${backoffMs}ms`,
-              );
-              await new Promise((r) => setTimeout(r, backoffMs));
-            } finally {
-              // May be unarmed: a refusal at the S1 gate (AI_BUSY) or a
-              // budget break means the slot was never held.
-              if (call1Timeout !== undefined) {
-                clearTimeout(call1Timeout);
-                pendingTimeouts.delete(call1Timeout);
-              }
-              if (externalControllers) externalControllers.delete(call1Controller);
             }
           }
+          // Reached on every NORMAL exit of Call 1. `selfRefusal` here can only
+          // be Call 1's: Call 2 has not run yet, and an earlier provider's
+          // refusal would already have ended the provider loop.
+          call1GateExit = selfRefusal !== undefined ? 'refused' : 'proceed';
+        } finally {
+          cacheGate?.resolve(call1GateExit);
         }
 
         subscriber.next({
@@ -1769,6 +1949,14 @@ export class AIService implements OnModuleInit {
    * call2FixedSections[key] — prevents emit-vs-cache skew on retry.
    */
   private async _streamV2Call2Loop(opts: {
+    /**
+     * #6 — resolved when Call 1 has begun streaming (so this call READS the
+     * prompt cache), or `'refused'` when WE refused Call 1. Undefined = start
+     * immediately (cache off, or the gate does not apply).
+     */
+    awaitBeforeFirstAttempt?: Promise<PromptCacheGateOutcome>;
+    /** #6 — the caller's refusal value, returned unchanged when Call 1 was refused. */
+    call1Refusal?: () => unknown;
     providerConfig: ProviderConfig;
     systemPrompt: string;
     userPromptCall2: string;
@@ -1813,11 +2001,44 @@ export class AIService implements OnModuleInit {
       pendingTimeouts, tag, externalControllers,
     } = opts;
 
-    const usageOut: StreamUsageOut = { inputTokens: 0, outputTokens: 0, outputTextChars: 0 };
     const threshold = Math.floor(expectedCall2Count * degradeConfig.call2CompletionMin);
     let chunkCount = 0;
 
+    // #6 — once, before the attempt loop, so a retry does not wait again.
+    if (opts.awaitBeforeFirstAttempt) {
+      const gateOutcome = await opts.awaitBeforeFirstAttempt;
+      if (gateOutcome === 'refused') {
+        // Same value shape as this loop's own refusal return, so the caller's
+        // handling is identical — and nothing was attempted: no provider call,
+        // no slot, no AI-CALL line.
+        return { streamed: true, inputTokens: 0, outputTokens: 0, refusal: opts.call1Refusal?.() };
+      }
+      // ⚠️ The consumer may have LEFT while this call waited. On unsubscribe the
+      // entry point aborts every controller in `externalControllers` ONCE; this
+      // call registers its controller only below, after the wait, so a
+      // disconnect before Call 1's first chunk would miss it entirely — and
+      // Call 1's abort makes its loop exit normally, opening the gate. Starting
+      // now would buy a full Call 2 for nobody. Before the gate, the controller
+      // was registered synchronously and the disconnect aborted it.
+      if (subscriber.closed) {
+        return { streamed: true, inputTokens: 0, outputTokens: 0 };
+      }
+    }
+
     for (let attempt = 1; attempt <= AI_MAX_RETRIES_PER_PROVIDER; attempt++) {
+      // ⚠️ ONE usage object PER ATTEMPT (F6). `_streamProviderInner`'s `finally`
+      // records and persists whatever object it was handed, on every exit.
+      // Shared across attempts, it re-booked the previous attempt's input side:
+      // attempt 1 gets `message_start` (input + ~15.7k cache tokens) and fails
+      // retryably, attempt 2 dies before its own `message_start` — and attempt
+      // 2's AI-CALL line, AIUsageLog row and spend increment all repeat attempt
+      // 1's numbers. And because `absorbInputSideUsage` only overwrites fields
+      // that are numbers, a stale `cacheWrite5mTokens` also leaked into a retry
+      // that DID get its own `message_start` whenever that response's
+      // `cache_creation` was null. Every return below reads the current
+      // attempt's object; the post-loop return reads nothing.
+      const usageOut: StreamUsageOut = { inputTokens: 0, outputTokens: 0, outputTextChars: 0 };
+
       if (Date.now() - totalStartMs > AI_MAX_TOTAL_TIME_MS) {
         this.logger.warn(`${tag} Call 2 total_budget_exceeded provider=${providerConfig.provider}`);
         break;
@@ -2183,7 +2404,7 @@ export class AIService implements OnModuleInit {
         const deterministic = (enhancedInsights ? deepCamelCase(enhancedInsights) : {}) as Record<string, unknown>;
 
         const totalCost =
-          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
+          this.priceOrZero(providerConfig.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -4102,7 +4323,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
+          this.priceOrZero(providerConfig.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
 
         const interpretation: AIInterpretationResult & { deterministic: Record<string, unknown>; schemaVersion: string } = {
           sections,
@@ -4913,7 +5134,7 @@ export class AIService implements OnModuleInit {
         }
 
         const totalCost =
-          this.priceOrZero(providerConfig.model, totalInputTokens, totalOutputTokens);
+          this.priceOrZero(providerConfig.model, { inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
 
         this.logger.log(
           `Compat Romance V2 generated via ${providerConfig.provider} in ${latencyMs}ms, ` +
@@ -6185,10 +6406,18 @@ export class AIService implements OnModuleInit {
         usage.outputTokensEstimated = true;
       }
 
+      // #6 — ALWAYS the five-field shape, `?? 0`, never conditional keys: the
+      // cache counters are most of a reading's input once the system prompt is
+      // cached, and the row below must price from the same five fields.
+      const cacheTokens = {
+        cacheReadTokens: usage.cacheReadTokens ?? 0,
+        cacheWriteTokens: usage.cacheWriteTokens ?? 0,
+        cacheWrite5mTokens: usage.cacheWrite5mTokens ?? 0,
+      };
       void this.aiSpend.record({
         provider: config.provider,
         model: config.model,
-        usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens },
+        usage: { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, ...cacheTokens },
         outputTokensEstimated: usage.outputTokensEstimated ?? false,
         // Ob1 #12 — the route was `stream:CLAUDE` for every streamed call, so
         // Call 1 and Call 2 of a reading, and all three of a compat reveal,
@@ -6232,6 +6461,7 @@ export class AIService implements OnModuleInit {
           model: config.model,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
+          ...cacheTokens,
           // F4 — the same fact the AI-CALL line carries as `outEst`, so the
           // dashboard can eventually tell inferred spend from measured.
           outputTokensEstimated: usage.outputTokensEstimated ?? false,
@@ -6288,11 +6518,21 @@ export class AIService implements OnModuleInit {
       this.claudeClient = createAnthropicClient({ apiKey: config.apiKey });
     }
 
+    // #6 — the V2 system prompt is byte-identical across a reading's calls AND
+    // across every reading of that type (~15.7k tokens for LIFETIME), so it is
+    // cached. 5-MINUTE TTL, deliberately: a reading is one-shot, and the 1-hour
+    // write premium (2x vs 1.25x) makes an ISOLATED reading cost MORE than not
+    // caching. Never add `ttl: '1h'` here — chat uses 1h because its turns
+    // repeat; readings do not. The saving also depends on Call 2 starting after
+    // Call 1 has begun streaming (see PROMPT_CACHE_GATE_MAX_WAIT_MS): parallel
+    // requests all WRITE and none read.
     const stream = this.claudeClient.messages.stream(
       {
         model: config.model,
         max_tokens: 16384,
-        system: systemPrompt,
+        system: this.isReadingPromptCacheEnabled()
+          ? [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }]
+          : systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
       },
       signal ? { signal } : undefined,
@@ -6302,8 +6542,9 @@ export class AIService implements OnModuleInit {
       // input_tokens arrive on message_start; output_tokens are cumulative
       // on each message_delta (final value wins). SDK docs confirmed.
       if (event.type === 'message_start' && usageOut) {
-        const u = event.message?.usage;
-        if (u?.input_tokens != null) usageOut.inputTokens = u.input_tokens;
+        // #6 — the whole input side, cache counters included. Shared reader, so
+        // this and chat/fortune cannot disagree on how a TTL split is read.
+        absorbInputSideUsage(event.message?.usage, usageOut);
       } else if (
         event.type === 'content_block_delta' &&
         'delta' in event &&
@@ -7936,6 +8177,9 @@ export class AIService implements OnModuleInit {
      * It also drops `interpretation`, `provider` and `model`, which this method
      * never read — the compat site was building an empty `interpretation`
      * literal purely to satisfy the wider type.
+     *
+     * #6 — no cache counters here, on purpose: this is the NON-streaming path,
+     * and `callClaude` sends no `cache_control`, so its cache usage is zero.
      */
     result: {
       tokenUsage: { inputTokens: number; outputTokens: number };
@@ -8012,10 +8256,10 @@ export class AIService implements OnModuleInit {
    * counts are the part that cannot be recomputed later; a $0 row that says so
    * in the log can be repaired.
    */
-  private priceOrZero(model: string, inputTokens: number, outputTokens: number): number {
+  private priceOrZero(model: string, tokens: TokenUsage): number {
     let priced = 0;
     try {
-      priced = this.aiSpend.estimateCostUsd(model, { inputTokens, outputTokens });
+      priced = this.aiSpend.estimateCostUsd(model, tokens);
     } catch (err) {
       // ⚠️ Name the likely cause. In a test environment this is almost always an
       // `aiSpend` stub missing `estimateCostUsd` rather than a real pricing
@@ -8049,9 +8293,22 @@ export class AIService implements OnModuleInit {
      * and widening that type would undo what D1 narrowed it for.
      */
     outputTokensEstimated?: boolean;
+    /** #6 — persisted, because they are priced: `costUsd` must stay recomputable. */
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
+    cacheWrite5mTokens?: number;
     // costUsd — REMOVED. Priced here, from `model` + tokens, so a caller cannot
     // supply a wrong one. Nine of them used to hardcode `0`.
   }): Promise<void> {
+    // #6 — ONE object is both written and priced, so a token cannot be priced
+    // without being persisted: `costUsd` stays recomputable from the row.
+    const tokens = {
+      inputTokens: row.inputTokens,
+      outputTokens: row.outputTokens,
+      cacheReadTokens: row.cacheReadTokens ?? 0,
+      cacheWriteTokens: row.cacheWriteTokens ?? 0,
+      cacheWrite5mTokens: row.cacheWrite5mTokens ?? 0,
+    };
     try {
       await this.prisma.aIUsageLog.create({
         data: {
@@ -8060,9 +8317,8 @@ export class AIService implements OnModuleInit {
           readingType: row.readingType ?? null,
           aiProvider: row.provider as AIProvider,
           aiModel: row.model,
-          inputTokens: row.inputTokens,
-          outputTokens: row.outputTokens,
-          costUsd: this.priceOrZero(row.model, row.inputTokens, row.outputTokens),
+          ...tokens,
+          costUsd: this.priceOrZero(row.model, tokens),
           outputTokensEstimated: row.outputTokensEstimated ?? false,
           latencyMs: row.latencyMs,
           isCacheHit: row.isCacheHit ?? false,
