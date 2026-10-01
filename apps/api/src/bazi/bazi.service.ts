@@ -33,13 +33,56 @@ import { ShutdownService } from '../common/shutdown.service';
 const COMPATIBILITY_FALLBACK_CREDIT_COST = 3;
 
 /**
- * Safety margin added to every derived generation bound, in seconds.
+ * Safety margin added to every DERIVED lock bound in this file, in seconds.
  *
- * The bounds from `AIService` cover the AI calls only. A lock is held across
- * the surrounding work too — the Python engine call, the DB reads and writes,
- * SSE setup — so the margin covers that envelope.
+ * ⚠️ It sizes TWO families at once, so tuning it for one moves the other:
+ *
+ * - the generation locks (`stream:reading`, `ai:generate:comparison`) and the
+ *   first-generation in-flight window — whose `AIService` bounds cover the AI
+ *   calls only, while the lock is also held across the engine call, DB reads
+ *   and writes, and SSE setup;
+ * - the two create locks (`reading:create`, `comparison:create`) — whose bound
+ *   is the engine timeout, while the lock is also held across ~4 sequential DB
+ *   operations. Under pool exhaustion each of those can wait `pool_timeout`
+ *   (20s), so 60s covers the healthy path and moderate contention, NOT the
+ *   worst case. A lock that does outlive its TTL is reported at release as
+ *   `redis.lock.lost_before_release` with `cause=overran_ttl`.
  */
-const GENERATION_LOCK_MARGIN_SECONDS = 60;
+const LOCK_MARGIN_SECONDS = 60;
+
+/**
+ * Engine timeouts, named so the create locks below can be derived from them —
+ * the lock and the timeout must not drift apart (todo #23 / C1).
+ */
+export const ENGINE_CALCULATE_TIMEOUT_MS = 30_000;
+/** CAREER and LOVE run heavier pre-analysis on the engine. */
+export const ENGINE_CALCULATE_HEAVY_TIMEOUT_MS = 45_000;
+export const ENGINE_COMPAT_TIMEOUT_MS = 30_000;
+
+/**
+ * `reading:create:{userId}` — held across `_executeCreateReading`: the reuse
+ * lookup, the engine call, the cache lookup and the charging `$transaction`.
+ *
+ * ⚠️ It was a hardcoded 30s while the engine call alone may take 45s (and the
+ * file records ~30s as normal production engine time). The reuse check runs
+ * BEFORE the engine call and the row is inserted AFTER it, with no unique
+ * constraint on `BaziReading` — so when the lock expired mid-engine, a
+ * double-submit got in, found no row, and BOTH requests inserted and charged.
+ *
+ * ⚠️ This bound assumes NO inline AI call under the lock. True today: every
+ * creatable type is streamable, a cache hit returns before any AI work, and a
+ * streamable type without `stream: true` is refused with `STREAM_REQUIRED`.
+ * If an inline type ever returns, re-derive this from the AI bound.
+ */
+export const READING_CREATE_LOCK_TTL_SECONDS =
+  Math.ceil(ENGINE_CALCULATE_HEAVY_TIMEOUT_MS / 1000) + LOCK_MARGIN_SECONDS;
+
+/**
+ * `comparison:create:{userId}` — held across the compatibility engine call and
+ * the row insert. Was a hardcoded 30s, equal to the engine timeout alone.
+ */
+export const COMPARISON_CREATE_LOCK_TTL_SECONDS =
+  Math.ceil(ENGINE_COMPAT_TIMEOUT_MS / 1000) + LOCK_MARGIN_SECONDS;
 
 
 /**
@@ -184,17 +227,19 @@ export class BaziService {
       );
     }
 
-    // Acquire distributed lock to prevent concurrent reading creation exploit
+    // Acquire distributed lock to prevent concurrent reading creation exploit.
+    // TTL is DERIVED from the engine timeout — see READING_CREATE_LOCK_TTL_SECONDS
+    // for why a 30s literal here let a double-submit be charged twice.
     const lockKey = `reading:create:${user.id}`;
-    const lockAcquired = await this.redis.acquireLock(lockKey, 30);
-    if (!lockAcquired) {
+    const lockToken = await this.redis.acquireLock(lockKey, READING_CREATE_LOCK_TTL_SECONDS);
+    if (!lockToken) {
       throw new ConflictException('A reading is already being created. Please wait.');
     }
 
     try {
       return await this._executeCreateReading(user, profile, dto, service);
     } finally {
-      await this.redis.releaseLock(lockKey);
+      await this.redis.releaseLock(lockKey, lockToken);
     }
   }
 
@@ -1001,7 +1046,7 @@ export class BaziService {
   private firstGenerationInFlightMs(): number {
     return (
       this.aiService.getMaxStreamedGenerationMs() +
-      GENERATION_LOCK_MARGIN_SECONDS * 1000
+      LOCK_MARGIN_SECONDS * 1000
     );
   }
 
@@ -1237,12 +1282,12 @@ export class BaziService {
     const readingLockKey = `stream:reading:${readingId}`;
     const readingLockTtlSeconds = Math.ceil(
       this.aiService.getMaxStreamedGenerationMs() / 1000,
-    ) + GENERATION_LOCK_MARGIN_SECONDS;
-    const readingLockAcquired = await this.redis.acquireLock(
+    ) + LOCK_MARGIN_SECONDS;
+    const readingLockToken = await this.redis.acquireLock(
       readingLockKey,
       readingLockTtlSeconds,
     );
-    if (!readingLockAcquired) {
+    if (!readingLockToken) {
       await this.redis.getClient().decr(activeKey);
       throw new ConflictException(
         'This reading is already being generated. Please wait for it to finish.',
@@ -1250,7 +1295,7 @@ export class BaziService {
     }
     const releaseStreamSlot = () => {
       this.redis.getClient().decr(activeKey).catch(() => {});
-      this.redis.releaseLock(readingLockKey).catch(() => {});
+      this.redis.releaseLock(readingLockKey, readingLockToken).catch(() => {});
     };
 
     try {
@@ -1822,8 +1867,8 @@ export class BaziService {
     // Same-order resubmit → hand back the existing row rather than creating a
     // second one. This is the read-side fast path; the unique index on
     // (userId, pairKey) is the actual arbiter (see the P2002 catch below),
-    // because this check races under a 30s advisory lock that wraps a slow
-    // engine call.
+    // because this check runs BEFORE the `comparison:create` lock is taken (and
+    // that lock — COMPARISON_CREATE_LOCK_TTL_SECONDS — is advisory anyway).
     const existing = await this.prisma.baziComparison.findFirst({
       where: { userId: user.id, pairKey },
       include: { profileA: true, profileB: true },
@@ -1896,10 +1941,11 @@ export class BaziService {
     // AI-at-create block below — creation no longer produces an interpretation,
     // so there was nothing to look up. The cache is read at the reveal instead.)
 
-    // Acquire distributed lock to prevent concurrent exploit
+    // Acquire distributed lock to prevent concurrent exploit. TTL derived from
+    // the engine timeout — see COMPARISON_CREATE_LOCK_TTL_SECONDS.
     const lockKey = `comparison:create:${user.id}`;
-    const lockAcquired = await this.redis.acquireLock(lockKey, 30);
-    if (!lockAcquired) {
+    const lockToken = await this.redis.acquireLock(lockKey, COMPARISON_CREATE_LOCK_TTL_SECONDS);
+    if (!lockToken) {
       throw new ConflictException('A comparison is already being created. Please wait.');
     }
 
@@ -1962,8 +2008,9 @@ export class BaziService {
         });
       } catch (err: unknown) {
         // The unique index on (userId, pairKey) is the real arbiter — the
-        // read-side check above races, because the 30s advisory lock can expire
-        // during a slow engine call before the row is written.
+        // read-side check above runs before the lock is taken, and the lock
+        // (COMPARISON_CREATE_LOCK_TTL_SECONDS) is advisory: it can still lapse
+        // under a slow engine call or DB contention before the row is written.
         if (
           err instanceof Prisma.PrismaClientKnownRequestError &&
           err.code === 'P2002'
@@ -2005,7 +2052,7 @@ export class BaziService {
         ...(reversed ? { reversedPairExists: true, reversedComparisonId: reversed.id } : {}),
       };
     } finally {
-      await this.redis.releaseLock(lockKey);
+      await this.redis.releaseLock(lockKey, lockToken);
     }
   }
 
@@ -2372,9 +2419,9 @@ export class BaziService {
     const lockKey = `ai:generate:comparison:${comparisonId}`;
     const compatLockTtlSeconds = Math.ceil(
       this.aiService.getMaxCompatGenerationMs() / 1000,
-    ) + GENERATION_LOCK_MARGIN_SECONDS;
-    const lockAcquired = await this.redis.acquireLock(lockKey, compatLockTtlSeconds);
-    if (!lockAcquired) {
+    ) + LOCK_MARGIN_SECONDS;
+    const lockToken = await this.redis.acquireLock(lockKey, compatLockTtlSeconds);
+    if (!lockToken) {
       // Another request is already generating AI — poll until done (max 30s)
       for (let i = 0; i < 10; i++) {
         await new Promise(resolve => setTimeout(resolve, 3000));
@@ -2548,7 +2595,7 @@ export class BaziService {
       });
       return this.flattenComparisonResponse(updated!);
     } finally {
-      await this.redis.releaseLock(lockKey);
+      await this.redis.releaseLock(lockKey, lockToken);
     }
   }
 
@@ -2690,7 +2737,11 @@ export class BaziService {
         reading_type: dto.readingType.toLowerCase(),
         target_year: dto.targetYear,
       }),
-      signal: AbortSignal.timeout(dto.readingType === ReadingType.CAREER || dto.readingType === ReadingType.LOVE ? 45000 : 30000),
+      signal: AbortSignal.timeout(
+        dto.readingType === ReadingType.CAREER || dto.readingType === ReadingType.LOVE
+          ? ENGINE_CALCULATE_HEAVY_TIMEOUT_MS
+          : ENGINE_CALCULATE_TIMEOUT_MS,
+      ),
     });
 
     if (!response.ok) {
@@ -2826,7 +2877,7 @@ export class BaziService {
         comparison_type: dto.comparisonType.toLowerCase(),
         current_year: new Date().getFullYear(),
       }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(ENGINE_COMPAT_TIMEOUT_MS),
     });
 
     if (!response.ok) {

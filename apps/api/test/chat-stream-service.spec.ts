@@ -112,8 +112,10 @@ describe('ChatStreamService', () => {
       }),
     };
     mockRedis = {
-      acquireLock: jest.fn().mockResolvedValue(true),
-      releaseLock: jest.fn().mockResolvedValue(undefined),
+      // #23 — an ownership TOKEN, so the release assertion proves the same
+      // token comes back.
+      acquireLock: jest.fn().mockResolvedValue('tok-stream'),
+      releaseLock: jest.fn().mockResolvedValue(true),
     };
     mockPaymentService = {
       deductForMessage: jest.fn().mockResolvedValue({ method: 'FREE_QUOTA' }),
@@ -306,6 +308,7 @@ describe('ChatStreamService', () => {
 
       expect(mockRedis.releaseLock).toHaveBeenCalledWith(
         'chat-session-stream:s1',
+        'tok-stream',
       );
     });
 
@@ -500,9 +503,13 @@ describe('ChatStreamService', () => {
   // ============================================================
 
   describe('Phase 1.6 audit fixes', () => {
-    it('Bug B fix — STREAM_LOCK_TTL_SECONDS > Anthropic timeout (no race)', async () => {
-      // Verifies the lock TTL > Anthropic timeout invariant by inspecting
-      // the acquireLock call. Lock must be 150s; Anthropic timeout 90s.
+    it('lock TTL exceeds the per-attempt time-to-headers timeout (NOT a bound on the stream — see #26)', async () => {
+      // ⚠️ This used to be named "no race", certifying that a 150s lock could
+      // not expire mid-stream because the 90s Anthropic timeout capped the
+      // stream. It does not (corrected 2026-10-01, todo #26): that timeout only
+      // bounds time-to-HEADERS per attempt, and the lock is also held across the
+      // cold chat-context build. The assertion is kept so nobody LOWERS the TTL
+      // below the timeout — but it is not proof the lock cannot be outlived.
       mockPrisma.user.findUnique.mockResolvedValue({ id: 'u1', clerkUserId: 'c1' });
       mockPrisma.chatSession.findUnique.mockResolvedValue(makeFreshSession());
       mockRedis.acquireLock.mockResolvedValue(false); // bail early — we just want to check the call args

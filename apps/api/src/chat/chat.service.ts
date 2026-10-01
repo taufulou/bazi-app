@@ -622,11 +622,11 @@ export class ChatService {
     // + creditExtensions++ so even the "first wins, second runs after"
     // race window is closed.
     const lockKey = `chat-extend:${sessionId}`;
-    const acquired = await this.redis.acquireLock(
+    const lockToken = await this.redis.acquireLock(
       lockKey,
       EXTEND_LOCK_TTL_SECONDS,
     );
-    if (!acquired) {
+    if (!lockToken) {
       throw new HttpException(
         {
           code: 'EXTEND_IN_PROGRESS',
@@ -701,8 +701,9 @@ export class ChatService {
 
       return await this.paymentService.extendSession(sessionId, user.id);
     } finally {
-      await this.redis.releaseLock(lockKey).catch((err) => {
-        // Non-fatal: TTL will reap the lock if release fails.
+      await this.redis.releaseLock(lockKey, lockToken).catch((err) => {
+        // Non-fatal: TTL will reap the lock if release fails. (`releaseLock`
+        // no longer throws — this catch is belt-and-braces.)
         this.logger.warn(`Failed to release extend lock ${lockKey}: ${err}`);
       });
     }

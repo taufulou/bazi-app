@@ -59,8 +59,9 @@ describe('BaziService._setupStream — self-refusal refund backstop', () => {
       redis: {
         incrementRateLimit: jest.fn().mockResolvedValue(1),
         getClient: jest.fn().mockReturnValue({ decr: jest.fn().mockResolvedValue(0) }),
-        acquireLock: jest.fn().mockResolvedValue(true),
-        releaseLock: jest.fn().mockResolvedValue(undefined),
+        // #23 — an ownership TOKEN; the release assertion checks it comes back.
+        acquireLock: jest.fn().mockResolvedValue('tok-stream-1'),
+        releaseLock: jest.fn().mockResolvedValue(true),
       },
       aiService: { getMaxStreamedGenerationMs: jest.fn().mockReturnValue(1_260_000) },
       // The refusal under test — raised where the real ones are raised.
@@ -123,7 +124,7 @@ describe('BaziService._setupStream — self-refusal refund backstop', () => {
     const { service } = build({ throws: refusal(AI_BUSY_CODE) });
     await expect(run(service)).rejects.toBeDefined();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expect((service as any).redis.releaseLock).toHaveBeenCalled();
+    expect((service as any).redis.releaseLock).toHaveBeenCalledWith('stream:reading:reading-1', 'tok-stream-1');
   });
 
   it('a row WITH content never reaches the catch at all (step 2 returns early)', async () => {

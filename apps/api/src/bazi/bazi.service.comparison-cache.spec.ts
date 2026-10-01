@@ -28,6 +28,7 @@ describe('BaziService.createComparison — free, and never delivers a report', (
   let service: BaziService;
   let deductCredits: jest.Mock;
   let createdRow: Record<string, unknown> | undefined;
+  let redis: { acquireLock: jest.Mock; releaseLock: jest.Mock };
   let ai: {
     generateCompatibilityRomanceV2: jest.Mock;
     generateInterpretation: jest.Mock;
@@ -64,9 +65,10 @@ describe('BaziService.createComparison — free, and never delivers a report', (
       },
     };
 
-    const redis = {
-      acquireLock: jest.fn().mockResolvedValue(true),
-      releaseLock: jest.fn().mockResolvedValue(undefined),
+    redis = {
+      // #23 — an ownership TOKEN; see the release assertion below.
+      acquireLock: jest.fn().mockResolvedValue('tok-cmp-create'),
+      releaseLock: jest.fn().mockResolvedValue(true),
     };
 
     ai = {
@@ -140,6 +142,14 @@ describe('BaziService.createComparison — free, and never delivers a report', (
     expect(createdRow?.aiInterpretation).toBeUndefined();
     expect(ai.generateCompatibilityRomanceV2).not.toHaveBeenCalled();
     expect(ai.generateInterpretation).not.toHaveBeenCalled();
+  });
+
+  it('releases comparison:create with the token its acquisition returned (#23)', async () => {
+    const svc = buildService();
+
+    await svc.createComparison('clerk-1', dto(true));
+
+    expect(redis.releaseLock).toHaveBeenCalledWith(`comparison:create:${USER_ID}`, 'tok-cmp-create');
   });
 
   it('stores an ORDERED pairKey — a deliberate A/B swap is a different report', async () => {

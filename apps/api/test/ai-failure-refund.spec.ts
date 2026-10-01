@@ -110,8 +110,10 @@ describe('AI Failure Graceful Degradation', () => {
       getJson: jest.fn(),
       setJson: jest.fn(),
       del: jest.fn(),
-      acquireLock: jest.fn().mockResolvedValue(true),
-      releaseLock: jest.fn().mockResolvedValue(undefined),
+      // #23 — a distinctive token, so the release assertion proves the lock is
+      // released with the token THIS acquisition got, not merely "released".
+      acquireLock: jest.fn().mockResolvedValue('tok-create'),
+      releaseLock: jest.fn().mockResolvedValue(true),
     };
 
     const mockAI = {
@@ -377,7 +379,7 @@ describe('AI Failure Graceful Degradation', () => {
     ).rejects.toThrow();
 
     // Lock should be released regardless of AI failure
-    expect(redis.releaseLock).toHaveBeenCalledWith('reading:create:user-1');
+    expect(redis.releaseLock).toHaveBeenCalledWith('reading:create:user-1', 'tok-create');
   });
 
   it('should use cached interpretation when available (no AI call)', async () => {

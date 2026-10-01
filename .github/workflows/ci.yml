@@ -83,6 +83,10 @@ jobs:
           CLERK_SECRET_KEY: 'sk_test_fake'
           CLERK_WEBHOOK_SECRET: 'whsec_test_fake'
           NODE_ENV: 'test'
+          # #23 — this job has the redis:7 service, so a real-Redis spec that
+          # cannot reach it must FAIL here rather than skip green. Opt-in, not
+          # keyed on the generic `CI` variable (sandboxes set that without Redis).
+          REQUIRE_REDIS_TESTS: '1'
 
   test-web:
     name: Web Tests
