@@ -487,4 +487,204 @@ describe('Phase — streaming Call 2 in _executeStreamV2Common', () => {
     expect(usageOut.cacheWriteTokens).toBe(300);
     expect(usageOut.cacheWrite5mTokens).toBe(300);
   });
+
+  // --------------------------------------------------------
+  // F6 — a Call 2 retry must not re-book the previous attempt's usage
+  // --------------------------------------------------------
+  it('F6 — each Call 2 attempt books ONLY its own usage, through the real streaming path', async () => {
+    // Driven through the REAL streamProvider → _streamProviderInner →
+    // streamClaude, with only the Anthropic client scripted: the double-count
+    // lived in the object handed from `_streamV2Call2Loop` to the `finally`
+    // that records it, so mocking `streamProvider` would test nothing.
+    const svc = makeService();
+    const internals = svc as unknown as {
+      claudeClient: unknown;
+      providers: unknown[];
+      aiSpend: { record: jest.Mock };
+      _streamV2Call2Loop: (opts: Record<string, unknown>) => Promise<unknown>;
+    };
+    const { subscriber } = makeSubscriberSpy();
+    jest.spyOn(svc, 'computeBackoff').mockReturnValue(0);
+
+    // What the SDK throws for a mid-stream SSE `error` event after
+    // `message_start`: no `status`, retryable by its message.
+    const midStreamOverload = () =>
+      new Error('{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}');
+
+    let attempts = 0;
+    internals.claudeClient = {
+      messages: {
+        stream: () => {
+          attempts += 1;
+          const n = attempts;
+          return {
+            [Symbol.asyncIterator]: async function* () {
+              if (n === 1) {
+                // Attempt 1 is billed its input side, then fails before any text.
+                yield {
+                  type: 'message_start',
+                  message: { usage: { input_tokens: 5450, cache_read_input_tokens: 15757, cache_creation_input_tokens: 0 } },
+                };
+              }
+              // Attempt 2 fails before its own `message_start` — nothing billed.
+              throw midStreamOverload();
+            },
+          };
+        },
+      },
+    };
+
+    const result = await internals._streamV2Call2Loop({
+      providerConfig: internals.providers[0],
+      systemPrompt: 'sys', userPromptCall2: 'u',
+      subscriber, readingType: ReadingType.LIFETIME,
+      userId: 'user-1', readingId: 'reading-1',
+      call2FixedSections: {},
+      emittedKeys: new Set<string>(),
+      call2ExpectedKeys: ['a', 'b'],
+      call2Parser: undefined,
+      fixSection: makeFixSection(),
+      totalStartMs: Date.now(),
+      timeoutMs: 5000,
+      includeScore: false,
+      expectedCall2Count: 2,
+      degradeConfig: DEGRADE_THRESHOLDS.LIFETIME,
+      pendingTimeouts: new Set<ReturnType<typeof setTimeout>>(),
+      tag: '[V2Stream:LIFETIME]',
+    });
+
+    expect(AI_MAX_RETRIES_PER_PROVIDER).toBe(2); // the scenario assumes the 2nd attempt is the last
+    expect(attempts).toBe(2);
+    expect(result).toBeNull(); // both attempts failed before any chunk
+
+    // Spend ledger: exactly one record per attempt, and only attempt 1's carries tokens.
+    const call2Records = internals.aiSpend.record.mock.calls
+      .map((c) => c[0] as { context: string; usage: { inputTokens: number; cacheReadTokens: number } })
+      .filter((a) => a.context === 'stream:LIFETIME:call2');
+    expect(call2Records).toHaveLength(2);
+    const booked = call2Records.map((r) => [r.usage.inputTokens, r.usage.cacheReadTokens]);
+    expect(booked).toEqual([
+      [5450, 15757],
+      [0, 0],
+    ]);
+
+    // AIUsageLog: the same — one row with attempt 1's numbers, one with zeros.
+    const rows = (mockPrisma.aIUsageLog.create as jest.Mock).mock.calls.map(
+      (c) => (c[0] as { data: { inputTokens: number; cacheReadTokens: number } }).data,
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.map((d) => [d.inputTokens, d.cacheReadTokens])).toEqual([
+      [5450, 15757],
+      [0, 0],
+    ]);
+  });
+
+  it('F6 — a retry that IS billed does not inherit the previous attempt\'s 5-minute cache write', async () => {
+    // The second way a shared usage object went wrong. `absorbInputSideUsage`
+    // only overwrites fields that are numbers, so when the retry's own usage
+    // carries no `cache_creation` split, the previous attempt's
+    // `cacheWrite5mTokens` survived into the retry's record — billing a
+    // 15,757-token cache write that never happened (~$0.059 at 1.25x).
+    const svc = makeService();
+    const internals = svc as unknown as {
+      claudeClient: unknown;
+      providers: unknown[];
+      aiSpend: { record: jest.Mock };
+      _streamV2Call2Loop: (opts: Record<string, unknown>) => Promise<unknown>;
+    };
+    const { subscriber } = makeSubscriberSpy();
+    jest.spyOn(svc, 'computeBackoff').mockReturnValue(0);
+
+    let attempts = 0;
+    internals.claudeClient = {
+      messages: {
+        stream: () => {
+          attempts += 1;
+          const n = attempts;
+          return {
+            [Symbol.asyncIterator]: async function* () {
+              if (n === 1) {
+                // Attempt 1 WRITES the cache at the 5-minute TTL, then the SSE
+                // stream errors before any text.
+                yield {
+                  type: 'message_start',
+                  message: {
+                    usage: {
+                      input_tokens: 5450,
+                      cache_read_input_tokens: 0,
+                      cache_creation_input_tokens: 15757,
+                      cache_creation: { ephemeral_5m_input_tokens: 15757, ephemeral_1h_input_tokens: 0 },
+                    },
+                  },
+                };
+                throw new Error('{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}');
+              }
+              // Attempt 2 READS the cache and completes — and its usage has NO
+              // split object at all.
+              yield {
+                type: 'message_start',
+                message: {
+                  usage: {
+                    input_tokens: 5450,
+                    cache_read_input_tokens: 15757,
+                    cache_creation_input_tokens: 0,
+                    cache_creation: null,
+                  },
+                },
+              };
+              yield {
+                type: 'content_block_delta',
+                delta: { type: 'text_delta', text: '{"a":{"preview":"p","full":"f"}}' },
+              };
+              yield { type: 'message_delta', usage: { output_tokens: 40 }, delta: { stop_reason: 'end_turn' } };
+            },
+          };
+        },
+      },
+    };
+
+    const result = await internals._streamV2Call2Loop({
+      providerConfig: internals.providers[0],
+      systemPrompt: 'sys', userPromptCall2: 'u',
+      subscriber, readingType: ReadingType.LIFETIME,
+      userId: 'user-1', readingId: 'reading-1',
+      call2FixedSections: {},
+      emittedKeys: new Set<string>(),
+      call2ExpectedKeys: ['a'],
+      call2Parser: undefined,
+      fixSection: makeFixSection(),
+      totalStartMs: Date.now(),
+      timeoutMs: 5000,
+      includeScore: false,
+      expectedCall2Count: 1,
+      degradeConfig: DEGRADE_THRESHOLDS.LIFETIME,
+      pendingTimeouts: new Set<ReturnType<typeof setTimeout>>(),
+      tag: '[V2Stream:LIFETIME]',
+    });
+
+    expect(attempts).toBe(2);
+    expect(result).toMatchObject({ streamed: true }); // the retry completed
+
+    type CacheUsage = { cacheReadTokens: number; cacheWriteTokens: number; cacheWrite5mTokens: number };
+    const call2Records = internals.aiSpend.record.mock.calls
+      .map((c) => c[0] as { context: string; usage: CacheUsage })
+      .filter((a) => a.context === 'stream:LIFETIME:call2');
+    expect(call2Records).toHaveLength(2);
+    // Attempt 1's write is real and booked once; attempt 2 read the cache and
+    // wrote nothing — its 5-minute part must be 0, not attempt 1's 15,757.
+    const pick = (u: CacheUsage) => [u.cacheReadTokens, u.cacheWriteTokens, u.cacheWrite5mTokens];
+    expect(call2Records.map((r) => pick(r.usage))).toEqual([
+      [0, 15757, 15757],
+      [15757, 0, 0],
+    ]);
+
+    // The AIUsageLog rows (what /admin/ai-costs reads) agree.
+    const rows = (mockPrisma.aIUsageLog.create as jest.Mock).mock.calls.map(
+      (c) => (c[0] as { data: CacheUsage }).data,
+    );
+    expect(rows.map(pick)).toEqual([
+      [0, 15757, 15757],
+      [15757, 0, 0],
+    ]);
+  });
 });

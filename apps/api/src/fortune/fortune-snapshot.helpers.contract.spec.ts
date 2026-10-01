@@ -115,9 +115,13 @@ const VALID_NARRATIVE_JSON = JSON.stringify({ sections: SAMPLE_NARRATIVE });
 
 // Anthropic non-streaming response shape (FortuneService.runDailyAINarration uses
 // client.messages.create — returns `{ content: [{ type: 'text', text }] }`).
-function buildAnthropicNonStreamingResponse(jsonText: string) {
+//
+// `usage` is OPTIONAL and absent by default, so the contract tests below see
+// exactly the response they always did; only the #6 metering test passes one.
+function buildAnthropicNonStreamingResponse(jsonText: string, usage?: Record<string, unknown>) {
   return {
     content: [{ type: 'text', text: jsonText }],
+    ...(usage && { usage }),
   };
 }
 
@@ -413,5 +417,37 @@ describe('FortuneService + FortuneStreamService contract', () => {
     expect(ns.upsertCalls[0].create.aiLastFailedAt).toBeNull();
     expect(stream.upsertCalls[0].create.aiFailureCount).toBe(0);
     expect(stream.upsertCalls[0].create.aiLastFailedAt).toBeNull();
+  });
+});
+
+describe('#6 — non-streaming fortune meters the cache counters through the shared reader', () => {
+  it('passes the response\'s cache counters AND the 5-minute part of the split to the spend record', async () => {
+    // Pairwise-distinct values and a MIXED split (200 of 300 at 5m), so this
+    // one case tells "reads the split" from "defaults it to 0" and from
+    // "copies the total" — and a neighbour-filled field cannot pass.
+    const ns = buildNonStreamingPath(
+      buildAnthropicNonStreamingResponse(VALID_NARRATIVE_JSON, {
+        input_tokens: 1200,
+        output_tokens: 400,
+        cache_read_input_tokens: 700,
+        cache_creation_input_tokens: 300,
+        cache_creation: { ephemeral_5m_input_tokens: 200, ephemeral_1h_input_tokens: 100 },
+      }),
+    );
+    await ns.service.getDailyFortune(CLERK_ID, { profileId: PROFILE_ID, date: TARGET_DATE });
+
+    // `record` fires before the narrative is parsed, so no parse outcome can mask this.
+    const record = (ns.service as unknown as { aiSpend: { record: jest.Mock } }).aiSpend.record;
+    const spend = record.mock.calls
+      .map((c) => c[0] as { context: string; usage: unknown })
+      .filter((a) => a.context === 'fortune:daily');
+    expect(spend).toHaveLength(1);
+    expect(spend[0].usage).toEqual({
+      inputTokens: 1200,
+      outputTokens: 400,
+      cacheReadTokens: 700,
+      cacheWriteTokens: 300,
+      cacheWrite5mTokens: 200,
+    });
   });
 });

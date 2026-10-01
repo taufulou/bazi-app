@@ -4011,7 +4011,10 @@ or `PROMPT_CACHE_GATE_MAX_WAIT_MS` (30s). Measured cost of the gate: ~2s on a
 ~175s reading. **Never "parallelise Call 2 for speed" without it.**
 - ⚠️ The 30s cap is NOT only a hang bound: the SDK retries 429/529 inside
   `messages.stream()` (default `maxRetries: 2`, `retry-after` up to 60s),
-  invisibly to Call 1's loop, and the cap is what frees Call 2 then.
+  invisibly to Call 1's loop, and the cap is what frees Call 2 then. A cap-fire
+  can cost MORE than not caching: if Call 1's retry starts before Call 2 streams,
+  both write (~$0.02 more than uncached on an isolated LIFETIME reading).
+  Accepted — incident-only, and marked by the `gate cap=` warning.
 - ⚠️ Recorded behaviour change: a Call 1 refused `AI_BUSY` no longer lets a queued
   Call 2 deliver a half-reading — the reading fails with a refund instead.
 - Compat streaming is already sequential and needs no gate; GPT/Gemini fallbacks
@@ -4020,18 +4023,32 @@ or `PROMPT_CACHE_GATE_MAX_WAIT_MS` (30s). Measured cost of the gate: ~2s on a
 **3. The TTL split comes from the API, never from a caller flag.**
 `message_start.usage.cache_creation.ephemeral_5m_input_tokens` →
 `cacheWrite5mTokens`. `AiSpendService` prices that at 1.25x and EVERY other write
-token at the 1h 2x rate — chat (which passes only the total) is priced exactly as
-before. The total is `max(cacheWriteTokens, cacheWrite5mTokens)`, never `min`:
+token at the 1h 2x rate. Chat passes the split too, and is priced exactly as
+before only because every chat cache write is sent at `ttl: '1h'` (so its 5m part
+is 0). The total is `max(cacheWriteTokens, cacheWrite5mTokens)`, never `min`:
 `min` would bill a real write at $0 on a payload with the split but no total.
-`absorbInputSideUsage` (`stream-usage.ts`) is the ONE reader of the input side,
-shared by readings and chat/fortune.
+`absorbInputSideUsage` (`stream-usage.ts`) is the ONE reader in `apps/api/src`
+of the cache counters (`cache_read_input_tokens`, `cache_creation_input_tokens`)
+and the TTL split (`cache_creation.ephemeral_*`): readings via `streamClaude`,
+streamed chat/fortune via the stream accumulator (final message included, via
+`mergeFinalUsage`), and a completed response read outside an accumulator (sync
+chat, non-streaming fortune, streamed chat's ChatMessage row) via
+`readInputSideUsage`. `test/usage-reader.guard.spec.ts` fails on a cache field
+read anywhere else — call the helper. Plain `input_tokens` is not a cache
+counter and has no split, so a few sites still read it directly (chat's
+ChatMessage `tokensInput`, sync chat's returned usage, the LLM judge,
+`callClaude`); the chat requests ARE cached and take their cache counters from
+the helper.
 
 **4. Never price a token you do not persist.** `AIUsageLog` has
 `cache_read_tokens` / `cache_write_tokens` / `cache_write_5m_tokens`, and
 `persistUsageRow` spreads ONE token object into the row AND prices it, so
 `costUsd` stays recomputable (the D2 repair re-prices from the row).
 ⚠️ On `/admin/ai-costs`, a reading row's `input_tokens` is now the UNCACHED
-remainder — token totals drop ~70% while cost drops ~10%. Not a bug.
+remainder — input-token totals drop ~70% while cost drops ~10%. Not a bug: the
+cached part is shown beside it ("Prompt Cache Read/Write" in the summary cards,
+the reading-type table and the provider table), and "Total Tokens" is labelled
+"(excl. cached)".
 
 **Reconcile an AI-CALL line by hand** (Sonnet, per MTok):
 `inTok×3 + outTok×15 + cacheReadTok×0.30 + cacheW5mTok×3.75 + (cacheWriteTok−cacheW5mTok)×6`.
@@ -4842,7 +4859,7 @@ fortune breaker.
 `message_delta.output_tokens` is **cumulative, not incremental** (summing multiplies
 the bill). Four of five streaming sites previously read only `finalMessage()`, which
 a client disconnect never reaches — while Anthropic bills the input in full, and for
-chat that ~10k-token cached system block at the 2× write rate is most of the turn.
+chat that ~30k-token cached system block (30,173 measured 2026-09-29) at the 2× write rate is most of the turn.
 
 ### Other invariants
 

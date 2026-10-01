@@ -144,10 +144,17 @@ export const AI_RETRY_AFTER_CAP_MS = 30000;
  * `messages.stream()` (its default `maxRetries: 2`, honouring `retry-after` up
  * to 60s) before any event reaches `streamClaude`, so those retries are
  * invisible to Call 1's loop. During one, this cap is the only thing that frees
- * Call 2 — and Call 1 may then also write, which is exactly today's cost, never
- * worse. Time-to-first-token for a ~22k-token prompt is seconds, and S1 queue
- * wait is separately bounded at 15s (AI_BUSY), so on a healthy provider this
- * never fires.
+ * Call 2.
+ *
+ * ⚠️ A cap-fire can cost MORE than not caching. If Call 1's retried request
+ * starts before Call 2 has begun streaming, BOTH calls write — the naive
+ * parallel cost the gate exists to avoid: an isolated LIFETIME reading's input
+ * is $0.1559 against $0.1323 uncached, about $0.02 more. Accepted, because it
+ * happens only during a provider incident, the alternative is Call 2 waiting
+ * with no bound, and every occurrence is marked by the `gate cap=` warning.
+ * Time-to-first-token for a ~22k-token prompt is seconds, and S1 queue wait is
+ * separately bounded at 15s (AI_BUSY), so on a healthy provider this never
+ * fires.
  */
 export const PROMPT_CACHE_GATE_MAX_WAIT_MS = 30_000;
 
@@ -1994,7 +2001,6 @@ export class AIService implements OnModuleInit {
       pendingTimeouts, tag, externalControllers,
     } = opts;
 
-    const usageOut: StreamUsageOut = { inputTokens: 0, outputTokens: 0, outputTextChars: 0 };
     const threshold = Math.floor(expectedCall2Count * degradeConfig.call2CompletionMin);
     let chunkCount = 0;
 
@@ -2020,6 +2026,19 @@ export class AIService implements OnModuleInit {
     }
 
     for (let attempt = 1; attempt <= AI_MAX_RETRIES_PER_PROVIDER; attempt++) {
+      // ⚠️ ONE usage object PER ATTEMPT (F6). `_streamProviderInner`'s `finally`
+      // records and persists whatever object it was handed, on every exit.
+      // Shared across attempts, it re-booked the previous attempt's input side:
+      // attempt 1 gets `message_start` (input + ~15.7k cache tokens) and fails
+      // retryably, attempt 2 dies before its own `message_start` — and attempt
+      // 2's AI-CALL line, AIUsageLog row and spend increment all repeat attempt
+      // 1's numbers. And because `absorbInputSideUsage` only overwrites fields
+      // that are numbers, a stale `cacheWrite5mTokens` also leaked into a retry
+      // that DID get its own `message_start` whenever that response's
+      // `cache_creation` was null. Every return below reads the current
+      // attempt's object; the post-loop return reads nothing.
+      const usageOut: StreamUsageOut = { inputTokens: 0, outputTokens: 0, outputTextChars: 0 };
+
       if (Date.now() - totalStartMs > AI_MAX_TOTAL_TIME_MS) {
         this.logger.warn(`${tag} Call 2 total_budget_exceeded provider=${providerConfig.provider}`);
         break;

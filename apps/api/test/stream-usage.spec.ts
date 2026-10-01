@@ -5,6 +5,7 @@ import {
   emptyStreamUsage,
   hasUsage,
   mergeFinalUsage,
+  readInputSideUsage,
 } from '../src/ai/stream-usage';
 
 const src = (rel: string) => readFileSync(join(__dirname, '..', rel), 'utf8');
@@ -279,5 +280,50 @@ describe('hasUsage — the guard that decides whether to record at all', () => {
   it('is false only when the stream genuinely cost nothing', () => {
     // A stream that threw before `message_start` must record nothing.
     expect(hasUsage(emptyStreamUsage())).toBe(false);
+  });
+});
+
+describe('readInputSideUsage — the input side of a COMPLETED response', () => {
+  // Sync chat, non-streaming fortune and a stream's `finalMessage()` go through
+  // this, so they read the cache counters AND the 5m/1h split the same way the
+  // stream accumulator does (see `test/usage-reader.guard.spec.ts`).
+  it('reads every input-side counter, including the 5-minute part of the split', () => {
+    expect(
+      readInputSideUsage({
+        input_tokens: 1200,
+        output_tokens: 400,
+        cache_read_input_tokens: 700,
+        cache_creation_input_tokens: 300,
+        cache_creation: { ephemeral_5m_input_tokens: 200, ephemeral_1h_input_tokens: 100 },
+      }),
+    ).toEqual({ inputTokens: 1200, cacheReadTokens: 700, cacheWriteTokens: 300, cacheWrite5mTokens: 200 });
+  });
+
+  it('zero-fills whatever is missing — the shape the call sites used to build with `?? 0`', () => {
+    const zero = { inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, cacheWrite5mTokens: 0 };
+    expect(readInputSideUsage(undefined)).toEqual(zero);
+    expect(readInputSideUsage({})).toEqual(zero);
+    // The SDK types the cache counters `number | null`; null must read as 0.
+    expect(
+      readInputSideUsage({
+        input_tokens: 5,
+        cache_read_input_tokens: null,
+        cache_creation_input_tokens: null,
+        cache_creation: null,
+      }),
+    ).toEqual({ ...zero, inputTokens: 5 });
+  });
+
+  it('does not read output_tokens — that is each caller\'s own, deliberately', () => {
+    expect(readInputSideUsage({ output_tokens: 999 })).not.toHaveProperty('outputTokens');
+  });
+
+  it('returns a fresh object each call — a caller mutating one cannot leak into the next', () => {
+    expect(readInputSideUsage({})).not.toBe(readInputSideUsage({}));
+    // A field the second call's input does NOT set must not inherit the first
+    // caller's write (a shared object would carry it over).
+    const first = readInputSideUsage({});
+    first.cacheReadTokens = 42;
+    expect(readInputSideUsage({}).cacheReadTokens).toBe(0);
   });
 });

@@ -776,11 +776,16 @@ describe('AdminService', () => {
 
   describe('getAICosts', () => {
     function setupAICostsMocks(overrides?: {
-      costByProvider?: Array<{ ai_provider: string; total_cost: number; count: bigint; avg_cost: number; total_input_tokens: bigint; total_output_tokens: bigint }>;
+      costByProvider?: Array<{
+        ai_provider: string; total_cost: number; count: bigint; avg_cost: number; total_input_tokens: bigint; total_output_tokens: bigint;
+        total_cache_read_tokens?: bigint; total_cache_write_tokens?: bigint;
+      }>;
       costByReadingType?: Array<{
         reading_type: string | null; total_cost: number; count: bigint; avg_cost: number;
         avg_input_tokens: number; avg_output_tokens: number; total_input_tokens: bigint;
         total_output_tokens: bigint; avg_latency_ms: number; cache_hit_count: bigint;
+        avg_cache_read_tokens?: number; avg_cache_write_tokens?: number;
+        total_cache_read_tokens?: bigint; total_cache_write_tokens?: bigint;
       }>;
     }) {
       mockPrisma.aIUsageLog.aggregate.mockResolvedValue({
@@ -791,15 +796,15 @@ describe('AdminService', () => {
 
       // $queryRaw is called 3 times: costByProvider, dailyCosts, costByReadingType
       const costByProvider = overrides?.costByProvider ?? [
-        { ai_provider: 'CLAUDE', total_cost: 1.5, count: BigInt(60), avg_cost: 0.025, total_input_tokens: BigInt(30000), total_output_tokens: BigInt(15000) },
-        { ai_provider: 'GPT', total_cost: 0.8, count: BigInt(40), avg_cost: 0.02, total_input_tokens: BigInt(20000), total_output_tokens: BigInt(10000) },
+        { ai_provider: 'CLAUDE', total_cost: 1.5, count: BigInt(60), avg_cost: 0.025, total_input_tokens: BigInt(30000), total_output_tokens: BigInt(15000), total_cache_read_tokens: BigInt(62000), total_cache_write_tokens: BigInt(15700) },
+        { ai_provider: 'GPT', total_cost: 0.8, count: BigInt(40), avg_cost: 0.02, total_input_tokens: BigInt(20000), total_output_tokens: BigInt(10000), total_cache_read_tokens: BigInt(0), total_cache_write_tokens: BigInt(0) },
       ];
       const dailyCosts = [
         { day: new Date('2026-02-10'), total_cost: 0.5, count: BigInt(30) },
         { day: new Date('2026-02-11'), total_cost: 0.7, count: BigInt(40) },
       ];
       const costByReadingType = overrides?.costByReadingType ?? [
-        { reading_type: 'LIFETIME', total_cost: 0.8, count: BigInt(20), avg_cost: 0.04, avg_input_tokens: 2000, avg_output_tokens: 1000, total_input_tokens: BigInt(40000), total_output_tokens: BigInt(20000), avg_latency_ms: 2500, cache_hit_count: BigInt(5) },
+        { reading_type: 'LIFETIME', total_cost: 0.8, count: BigInt(20), avg_cost: 0.04, avg_input_tokens: 2000, avg_output_tokens: 1000, total_input_tokens: BigInt(40000), total_output_tokens: BigInt(20000), avg_latency_ms: 2500, cache_hit_count: BigInt(5), avg_cache_read_tokens: 1550, avg_cache_write_tokens: 785, total_cache_read_tokens: BigInt(31000), total_cache_write_tokens: BigInt(15700) },
         { reading_type: 'ZWDS_DAILY', total_cost: 0.3, count: BigInt(30), avg_cost: 0.01, avg_input_tokens: 500, avg_output_tokens: 200, total_input_tokens: BigInt(15000), total_output_tokens: BigInt(6000), avg_latency_ms: 800, cache_hit_count: BigInt(10) },
         { reading_type: 'ANNUAL', total_cost: 0.5, count: BigInt(25), avg_cost: 0.02, avg_input_tokens: 1500, avg_output_tokens: 800, total_input_tokens: BigInt(37500), total_output_tokens: BigInt(20000), avg_latency_ms: 1800, cache_hit_count: BigInt(3) },
         { reading_type: 'ZWDS_QA', total_cost: 0.2, count: BigInt(15), avg_cost: 0.013, avg_input_tokens: 800, avg_output_tokens: 400, total_input_tokens: BigInt(12000), total_output_tokens: BigInt(6000), avg_latency_ms: 1200, cache_hit_count: BigInt(2) },
@@ -909,6 +914,8 @@ describe('AdminService', () => {
         avgCost: 0.025,
         totalInputTokens: 30000,
         totalOutputTokens: 15000,
+        totalPromptCacheReadTokens: 62000,
+        totalPromptCacheWriteTokens: 15700,
       });
     });
 
@@ -928,9 +935,48 @@ describe('AdminService', () => {
         avgOutputTokens: 1000,
         totalInputTokens: 40000,
         totalOutputTokens: 20000,
+        avgPromptCacheReadTokens: 1550,
+        avgPromptCacheWriteTokens: 785,
+        totalPromptCacheReadTokens: 31000,
+        totalPromptCacheWriteTokens: 15700,
         avgLatencyMs: 2500,
         cacheHitRate: 0.25, // 5/20
       });
+    });
+
+    it('#6 — both breakdown queries SELECT the prompt-cache columns (not just read them off a mock)', async () => {
+      setupAICostsMocks();
+      await service.getAICosts();
+
+      // `$queryRaw` is a tagged template: call[0] is the TemplateStringsArray.
+      // Match each query by content, not by call order.
+      // Whitespace collapsed, and asserted on the AGGREGATE of the real column —
+      // `cache_read_tokens` alone would also match the `total_cache_read_tokens`
+      // alias on a query that summed the wrong column.
+      const sqls = mockPrisma.$queryRaw.mock.calls.map((c: unknown[]) =>
+        (c[0] as TemplateStringsArray).join(' ').replace(/\s+/g, ' '),
+      );
+      const byProvider = sqls.find((q: string) => q.includes('GROUP BY ai_provider'));
+      const byType = sqls.find((q: string) => q.includes('GROUP BY reading_type'));
+      for (const q of [byProvider, byType]) {
+        expect(q).toBeDefined();
+        expect(q).toContain('SUM(cache_read_tokens)::bigint as total_cache_read_tokens');
+        expect(q).toContain('SUM(cache_write_tokens)::bigint as total_cache_write_tokens');
+      }
+      expect(byType).toContain('AVG(cache_read_tokens)::float as avg_cache_read_tokens');
+      expect(byType).toContain('AVG(cache_write_tokens)::float as avg_cache_write_tokens');
+    });
+
+    it('#6 — the error fallback returns the same prompt-cache summary fields, as 0', async () => {
+      setupAICostsMocks();
+      mockPrisma.aIUsageLog.aggregate.mockRejectedValueOnce(new Error('db down'));
+
+      const result = await service.getAICosts();
+
+      expect(result.totalCost).toBe(0);
+      expect(result.totalPromptCacheReadTokens).toBe(0);
+      expect(result.totalPromptCacheWriteTokens).toBe(0);
+      expect(result.totalPromptCacheWrite5mTokens).toBe(0);
     });
 
     it('should map NULL reading_type to UNCLASSIFIED', async () => {

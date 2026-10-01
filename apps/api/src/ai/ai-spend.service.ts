@@ -280,8 +280,15 @@ export class AiSpendService {
    * no `cache_creation` split (an older API shape, the load-test mock) or a
    * genuine 1-hour write (chat) both land there. That is the conservative
    * direction — over-counting trips the breaker early, under-counting sails
-   * past it — and it keeps chat priced exactly as it was before the split
-   * existed, since chat passes only the total.
+   * past it.
+   *
+   * Every site that sends `cache_control` passes the API's own split (readings
+   * via `streamClaude`, chat via `stream-usage.ts`). Chat is priced exactly as
+   * before the split existed because all its cache writes are sent at
+   * `ttl: '1h'`, so the API attributes none of them to 5 minutes — NOT because
+   * chat omits the split. A block ever sent at the default 5-minute TTL would
+   * correctly price at 1.25x. (The LLM judge and fortune send no
+   * `cache_control`, so they write nothing to cache.)
    *
    * ⚠️ The total is `max(cacheWriteTokens, cacheWrite5mTokens)`, NOT `min`.
    * A payload carrying the split with a null/0 total (or a call site that

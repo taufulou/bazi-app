@@ -28,6 +28,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AiSpendService } from '../ai/ai-spend.service';
 import { AiGovernorService } from '../ai/ai-governor.service';
 import { QuotaService } from '../ai/quota.service';
+import { readInputSideUsage } from '../ai/stream-usage';
 import { isSelfRefusal } from '../ai/typed-refusals';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -309,14 +310,11 @@ export class FortuneService {
     void this.aiSpend.record({
       provider: 'CLAUDE',
       model,
+      // Cache counters and the 5m/1h split through the shared reader (see
+      // `stream-usage.ts`); this request sends no `cache_control`, so they are 0.
       usage: {
-        inputTokens: response.usage?.input_tokens ?? 0,
+        ...readInputSideUsage(response.usage),
         outputTokens: response.usage?.output_tokens ?? 0,
-        cacheReadTokens:
-          ((response.usage ?? {}) as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
-        cacheWriteTokens:
-          ((response.usage ?? {}) as { cache_creation_input_tokens?: number })
-            .cache_creation_input_tokens ?? 0,
       },
       context: 'fortune:daily',
       durationMs: Date.now() - aiStartedAt,
@@ -580,14 +578,11 @@ export class FortuneService {
     void this.aiSpend.record({
       provider: 'CLAUDE',
       model,
+      // Cache counters and the 5m/1h split through the shared reader (see
+      // `stream-usage.ts`); this request sends no `cache_control`, so they are 0.
       usage: {
-        inputTokens: response.usage?.input_tokens ?? 0,
+        ...readInputSideUsage(response.usage),
         outputTokens: response.usage?.output_tokens ?? 0,
-        cacheReadTokens:
-          ((response.usage ?? {}) as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
-        cacheWriteTokens:
-          ((response.usage ?? {}) as { cache_creation_input_tokens?: number })
-            .cache_creation_input_tokens ?? 0,
       },
       context: 'fortune:monthly',
       durationMs: Date.now() - aiStartedAt,
@@ -831,14 +826,11 @@ export class FortuneService {
     void this.aiSpend.record({
       provider: 'CLAUDE',
       model,
+      // Cache counters and the 5m/1h split through the shared reader (see
+      // `stream-usage.ts`); this request sends no `cache_control`, so they are 0.
       usage: {
-        inputTokens: response.usage?.input_tokens ?? 0,
+        ...readInputSideUsage(response.usage),
         outputTokens: response.usage?.output_tokens ?? 0,
-        cacheReadTokens:
-          ((response.usage ?? {}) as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
-        cacheWriteTokens:
-          ((response.usage ?? {}) as { cache_creation_input_tokens?: number })
-            .cache_creation_input_tokens ?? 0,
       },
       context: 'fortune:yearly',
       durationMs: Date.now() - aiStartedAt,

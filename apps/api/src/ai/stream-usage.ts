@@ -8,7 +8,7 @@
  * `await stream.finalMessage()`, which is reached solely on clean completion.
  * On a client disconnect or a watchdog abort, control jumps to the `catch` and
  * nothing is recorded — but Anthropic bills the input in full regardless, and
- * for chat that is most of the turn's cost: a ~10k-token system block cached at
+ * for chat that is most of the turn's cost: a ~30k-token system block cached at
  * the 1h TTL is charged at the 2× cache-WRITE rate on the first turn. So the
  * spend figure the breaker reads systematically under-counted exactly the case
  * mobile produces most.
@@ -121,9 +121,24 @@ export interface InputSideUsage {
 
 /**
  * Fold the INPUT side of a usage object — input tokens and all three cache
- * counters — into `into`. The ONE reading of those fields, shared by this
- * module's accumulator (chat, fortune) and `ai.service.ts::streamClaude`
- * (readings), so the two cannot drift on how a cache split is read.
+ * counters — into `into`.
+ *
+ * The ONE reader in `apps/api/src` of Anthropic's cache counters
+ * (`cache_read_input_tokens`, `cache_creation_input_tokens`) and of the TTL
+ * split (`cache_creation.ephemeral_*`), so no call site can drift on how a
+ * cache split is read. Reached three ways: this module's stream accumulator
+ * (`absorb` — streamed chat and fortune, including their final message via
+ * `mergeFinalUsage`), `ai.service.ts::streamClaude`'s `message_start`
+ * (readings), and `readInputSideUsage` below for a completed response read
+ * outside an accumulator (sync chat, non-streaming fortune, streamed chat's
+ * ChatMessage row).
+ * `test/usage-reader.guard.spec.ts` fails on a cache field read anywhere else.
+ *
+ * Plain `input_tokens` is NOT a cache counter and has no TTL split, so there is
+ * nothing to drift on: sync chat's ChatMessage `tokensInput` and returned usage,
+ * streamed chat's ChatMessage `tokensInput`, the LLM judge's spend record and
+ * `callClaude` still read it directly. The chat requests ARE cached — their
+ * CACHE counters come from here.
  *
  * ⚠️ Deliberately does NOT touch `output_tokens`. `absorb` below copies it from
  * both events (cumulative), which is right for this module; `streamClaude`
@@ -141,6 +156,18 @@ export function absorbInputSideUsage(raw: RawUsage | undefined, into: InputSideU
   }
   const split5m = raw.cache_creation?.ephemeral_5m_input_tokens;
   if (typeof split5m === 'number') into.cacheWrite5mTokens = split5m;
+}
+
+/**
+ * The input side of a COMPLETED usage object (a sync `messages.create`
+ * response, or a stream's `finalMessage().usage`) as a fresh object, every
+ * counter defaulted to 0 — the same shape the call sites used to build by hand
+ * with `?? 0`. A `null` counter stays 0, exactly as `?? 0` gave.
+ */
+export function readInputSideUsage(raw: RawUsage | undefined): Required<InputSideUsage> {
+  const out = { inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, cacheWrite5mTokens: 0 };
+  absorbInputSideUsage(raw, out);
+  return out;
 }
 
 function absorb(into: StreamUsage, usage: RawUsage | undefined): void {
@@ -225,7 +252,7 @@ export function finalizeStreamUsage(u: StreamUsage): StreamUsage {
  *
  * ⚠️ Includes the CACHE counters. The first version asked only about
  * `inputTokens || outputTokens` — in a module whose whole argument is that the
- * expensive part of a chat turn is a ~10k-token system block billed at the 2×
+ * expensive part of a chat turn is a ~30k-token system block billed at the 2×
  * cache-WRITE rate. An abort reporting `input_tokens: 0` alongside a large
  * `cache_creation_input_tokens` would have been dropped by the guard protecting
  * it. Reachable only if the SDK ever makes `input_tokens` optional, but the

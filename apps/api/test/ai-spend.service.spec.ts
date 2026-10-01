@@ -128,14 +128,30 @@ describe('S2 — pricing', () => {
       expect(cost).toBeCloseTo(0.4 * 3.75 + 0.6 * 6, 9); // $5.10
     });
 
-    it('chat parity lock — a total with no 5-minute split prices exactly as before the split existed', () => {
-      // Chat passes only the total (it sends ttl:'1h'). Before #6 the table had
-      // ONE write rate, the 1-hour one. The price of that shape must not move.
+    it('no-split parity lock — a total with no 5-minute split prices exactly as before the split existed', () => {
+      // A write with no split attribution (an older API shape, the load-test
+      // mock). Before #6 the table had ONE write rate, the 1-hour one. The price
+      // of that shape must not move.
       const { service } = makeService();
       const N = 12_345;
       expect(
         service.estimateCostUsd('claude-sonnet-4-5', { ...u, cacheWriteTokens: N }),
       ).toBeCloseTo((N * 6) / M, 12);
+    });
+
+    it('chat parity lock — the shape chat ACTUALLY passes (split present, 5m = 0) prices the same', () => {
+      // Chat passes the API's split through `stream-usage.ts`; its writes are
+      // `ttl: '1h'`, so the 5-minute part is 0. Its price is unchanged because
+      // of THAT, not because the split is absent — so pin this shape too.
+      const { service } = makeService();
+      const N = 12_345;
+      const withSplit = service.estimateCostUsd('claude-sonnet-4-5', {
+        ...u, cacheWriteTokens: N, cacheWrite5mTokens: 0,
+      });
+      expect(withSplit).toBeCloseTo((N * 6) / M, 12);
+      expect(withSplit).toBe(
+        service.estimateCostUsd('claude-sonnet-4-5', { ...u, cacheWriteTokens: N }),
+      );
     });
 
     it('clamp errs toward OVER-count: a 5m split with an absent total is still billed', () => {
