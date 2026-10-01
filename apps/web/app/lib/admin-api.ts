@@ -152,6 +152,15 @@ export interface CostByReadingType {
   avgOutputTokens: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  /**
+   * #6 — the PROMPT cache (a reading's cached system prompt), not the reading
+   * cache behind `cacheHitRate`. Optional: the page must render against an API
+   * deployed before these fields existed.
+   */
+  avgPromptCacheReadTokens?: number;
+  avgPromptCacheWriteTokens?: number;
+  totalPromptCacheReadTokens?: number;
+  totalPromptCacheWriteTokens?: number;
   avgLatencyMs: number;
   cacheHitRate: number;
 }
@@ -169,9 +178,14 @@ export interface AICosts {
   days: number;
   totalCost: number;
   avgCostPerReading: number;
+  /** Input + output only — the cached prompt tokens are the fields below. */
   totalTokens: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  /** #6 — optional for the same deploy-order reason as `CostByReadingType`. */
+  totalPromptCacheReadTokens?: number;
+  totalPromptCacheWriteTokens?: number;
+  totalPromptCacheWrite5mTokens?: number;
   totalRequests: number;
   cacheHitRate: number;
   costByProvider: {
@@ -181,6 +195,8 @@ export interface AICosts {
     avgCost: number;
     totalInputTokens: number;
     totalOutputTokens: number;
+    totalPromptCacheReadTokens?: number;
+    totalPromptCacheWriteTokens?: number;
   }[];
   costByReadingType: CostByReadingType[];
   costByTier: CostByTier[];

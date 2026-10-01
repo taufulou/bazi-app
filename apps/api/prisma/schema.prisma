@@ -277,6 +277,14 @@ model AIUsageLog {
   /// ⚠️ Nothing READS this yet; the dashboard change is deliberately deferred.
   /// This exists so the distinction stops being unrecoverable.
   outputTokensEstimated Boolean @default(false) @map("output_tokens_estimated")
+  /// #6 — prompt-cache counters, persisted because `costUsd` is priced from them
+  /// and must stay recomputable from the row. `cacheWriteTokens` is the TOTAL;
+  /// `cacheWrite5mTokens` is the part attributed to the 5-minute TTL, and the
+  /// remainder was priced at the 1-hour rate. 0 on rows written before #6: no
+  /// reading path had ever cached, and chat/fortune never write this table.
+  cacheReadTokens    Int @default(0) @map("cache_read_tokens")
+  cacheWriteTokens   Int @default(0) @map("cache_write_tokens")
+  cacheWrite5mTokens Int @default(0) @map("cache_write_5m_tokens")
   latencyMs    Int          @map("latency_ms")
   isCacheHit   Boolean      @default(false) @map("is_cache_hit")
   createdAt    DateTime     @default(now()) @map("created_at")

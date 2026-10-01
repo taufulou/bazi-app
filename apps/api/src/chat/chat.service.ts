@@ -24,6 +24,7 @@ import { RedisService } from '../redis/redis.service';
 import { AiSpendService } from '../ai/ai-spend.service';
 import { AiGovernorService } from '../ai/ai-governor.service';
 import { QuotaService } from '../ai/quota.service';
+import { readInputSideUsage } from '../ai/stream-usage';
 import { buildPrompt } from './chat-prompt-builder';
 import {
   CreateChatSessionResponse,
@@ -1023,6 +1024,11 @@ export class ChatService {
         );
       });
 
+      // The cache counters and the 5m/1h split, read once through the shared
+      // reader (see `stream-usage.ts`) — the spend record below and the
+      // ChatMessage row both take them from here.
+      const inputSide = readInputSideUsage(response.usage);
+
       // S2 — meter this call. Chat and fortune bypassed `ai.service`'s usage
       // logger entirely, so before this every token they spent was invisible
       // to both `AIUsageLog` and the spend breaker.
@@ -1030,12 +1036,8 @@ export class ChatService {
         provider: 'CLAUDE',
         model: this.model,
         usage: {
-          inputTokens: response.usage?.input_tokens ?? 0,
+          ...inputSide,
           outputTokens: response.usage?.output_tokens ?? 0,
-          cacheReadTokens:
-            ((response.usage ?? {}) as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0,
-          cacheWriteTokens:
-            ((response.usage ?? {}) as { cache_creation_input_tokens?: number }).cache_creation_input_tokens ?? 0,
         },
         context: 'chat:sync',
         durationMs: Date.now() - aiStartedAt,
@@ -1069,8 +1071,8 @@ export class ChatService {
       }
 
       const usage = response.usage;
-      const cacheReadTokens = (usage as { cache_read_input_tokens?: number }).cache_read_input_tokens ?? 0;
-      const cacheCreationTokens = (usage as { cache_creation_input_tokens?: number }).cache_creation_input_tokens ?? 0;
+      const cacheReadTokens = inputSide.cacheReadTokens;
+      const cacheCreationTokens = inputSide.cacheWriteTokens;
 
       // 6. Persist assistant message + increment session.messageCount
       const assistantMessage = await this.prisma.$transaction(async (tx) => {

@@ -57,8 +57,17 @@ export interface TokenUsage {
   outputTokens: number;
   /** Cached prompt reads — billed at a discount, and large for chat. */
   cacheReadTokens?: number;
-  /** Cache WRITES are billed at a premium, not a discount. */
+  /**
+   * Cache WRITES are billed at a premium, not a discount. This is the TOTAL
+   * (`usage.cache_creation_input_tokens`) — both TTLs together.
+   */
   cacheWriteTokens?: number;
+  /**
+   * The part of `cacheWriteTokens` the API ATTRIBUTED to the 5-minute TTL
+   * (`usage.cache_creation.ephemeral_5m_input_tokens`). Everything in the total
+   * NOT covered here is billed at the 1-hour rate — see `estimateCostUsd`.
+   */
+  cacheWrite5mTokens?: number;
 }
 
 export interface SpendSnapshot {
@@ -76,7 +85,10 @@ interface ModelPrice {
   input: number;
   output: number;
   cacheRead: number;
-  cacheWrite: number;
+  /** 5-minute cache write — 1.25x base input on Anthropic. */
+  cacheWrite5m: number;
+  /** 1-hour cache write — 2x base input on Anthropic. */
+  cacheWrite1h: number;
 }
 
 /**
@@ -89,30 +101,42 @@ interface ModelPrice {
  * cap. Over-counting an unrecognised model trips the breaker early, which is
  * visible and recoverable; under-counting is neither.
  */
-// ⚠️ `cacheWrite` is the ONE-HOUR rate (2x base input), not the 5-minute one
-// (1.25x). Chat sends its system block with `ttl: '1h'` on every turn
-// (`chat.service.ts` / `chat-stream.service.ts`), so the 5-minute rate
-// under-reported every session's first turn by 37.5% — the single
-// under-counting direction this table is built to avoid.
+// ⚠️ TWO cache-write rates, because the two TTLs cost different amounts:
+// 5-minute = 1.25x base input, 1-hour = 2x. Chat sends its system block with
+// `ttl: '1h'` (turns repeat, so the longer TTL pays); readings send the default
+// 5-minute TTL (one-shot, so a 2x write would cost MORE than not caching).
+//
+// There used to be ONE rate and it was the 1-hour one. That was right while
+// chat was the only caller — the 5-minute rate had under-reported every chat
+// session's first turn by 37.5%. But it would have over-reported every reading
+// write by 60%, corrupting exactly the numbers used to verify the saving. The
+// TTL split is read from the API's own `usage.cache_creation`, never from a
+// caller flag that could drift from what the request actually sent.
 const PRICE_TABLE: Record<string, ModelPrice> = {
   // Anthropic — https://docs.anthropic.com/en/docs/about-claude/pricing
-  'claude-opus-4': { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 30 },
-  'claude-opus': { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 30 },
-  'claude-sonnet-4-5': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 6 },
-  'claude-sonnet': { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 6 },
-  'claude-3-5-haiku': { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1.6 },
-  'claude-haiku': { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 2 },
-  // OpenAI fallback
-  'gpt-4o-mini': { input: 0.15, output: 0.6, cacheRead: 0.075, cacheWrite: 0.15 },
-  'gpt-4o': { input: 2.5, output: 10, cacheRead: 1.25, cacheWrite: 2.5 },
-  // Google fallback
-  'gemini-2.0-flash': { input: 0.1, output: 0.4, cacheRead: 0.025, cacheWrite: 0.1 },
-  'gemini-1.5-pro': { input: 1.25, output: 5, cacheRead: 0.3125, cacheWrite: 1.25 },
-  'gemini': { input: 2, output: 12, cacheRead: 0.5, cacheWrite: 2 },
+  'claude-opus-4': { input: 15, output: 75, cacheRead: 1.5, cacheWrite5m: 18.75, cacheWrite1h: 30 },
+  'claude-opus': { input: 15, output: 75, cacheRead: 1.5, cacheWrite5m: 18.75, cacheWrite1h: 30 },
+  'claude-sonnet-4-5': { input: 3, output: 15, cacheRead: 0.3, cacheWrite5m: 3.75, cacheWrite1h: 6 },
+  'claude-sonnet': { input: 3, output: 15, cacheRead: 0.3, cacheWrite5m: 3.75, cacheWrite1h: 6 },
+  'claude-3-5-haiku': { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite5m: 1, cacheWrite1h: 1.6 },
+  'claude-haiku': { input: 1, output: 5, cacheRead: 0.1, cacheWrite5m: 1.25, cacheWrite1h: 2 },
+  // OpenAI fallback — no TTL concept, so both write rates are the same value.
+  'gpt-4o-mini': { input: 0.15, output: 0.6, cacheRead: 0.075, cacheWrite5m: 0.15, cacheWrite1h: 0.15 },
+  'gpt-4o': { input: 2.5, output: 10, cacheRead: 1.25, cacheWrite5m: 2.5, cacheWrite1h: 2.5 },
+  // Google fallback — same.
+  'gemini-2.0-flash': { input: 0.1, output: 0.4, cacheRead: 0.025, cacheWrite5m: 0.1, cacheWrite1h: 0.1 },
+  'gemini-1.5-pro': { input: 1.25, output: 5, cacheRead: 0.3125, cacheWrite5m: 1.25, cacheWrite1h: 1.25 },
+  'gemini': { input: 2, output: 12, cacheRead: 0.5, cacheWrite5m: 2, cacheWrite1h: 2 },
 };
 
 /** Unknown model ⇒ charge the most expensive rate we know. See PRICE_TABLE. */
-const FALLBACK_PRICE: ModelPrice = { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 30 };
+const FALLBACK_PRICE: ModelPrice = {
+  input: 15,
+  output: 75,
+  cacheRead: 1.5,
+  cacheWrite5m: 18.75,
+  cacheWrite1h: 30,
+};
 
 const DEFAULT_DAILY_LIMIT_USD = 50;
 const DEFAULT_MONTHLY_LIMIT_USD = 400;
@@ -248,14 +272,44 @@ export class AiSpendService {
     return price;
   }
 
+  /**
+   * ## Cache writes — which TTL rate
+   *
+   * `cacheWrite5mTokens` is what the API ATTRIBUTED to the 5-minute TTL. Every
+   * write token NOT proven 5-minute is billed at the 1-hour rate: a payload with
+   * no `cache_creation` split (an older API shape, the load-test mock) or a
+   * genuine 1-hour write (chat) both land there. That is the conservative
+   * direction — over-counting trips the breaker early, under-counting sails
+   * past it.
+   *
+   * Every site that sends `cache_control` passes the API's own split (readings
+   * via `streamClaude`, chat via `stream-usage.ts`). Chat is priced exactly as
+   * before the split existed because all its cache writes are sent at
+   * `ttl: '1h'`, so the API attributes none of them to 5 minutes — NOT because
+   * chat omits the split. A block ever sent at the default 5-minute TTL would
+   * correctly price at 1.25x. (The LLM judge and fortune send no
+   * `cache_control`, so they write nothing to cache.)
+   *
+   * ⚠️ The total is `max(cacheWriteTokens, cacheWrite5mTokens)`, NOT `min`.
+   * A payload carrying the split with a null/0 total (or a call site that
+   * forgot to copy the total) would have `min` DISCARD the 5-minute tokens —
+   * $0 for a real write, the one direction a spend-cap input must never err.
+   * `max` keeps the 1-hour remainder non-negative with the failure pointing
+   * toward over-count, and is a no-op on every healthy payload because the API
+   * guarantees `5m + 1h == cache_creation_input_tokens`.
+   */
   estimateCostUsd(model: string, usage: TokenUsage): number {
     const p = this.priceFor(model);
     const per = (tokens: number | undefined, rate: number) => ((tokens ?? 0) * rate) / 1_000_000;
+    const write5m = usage.cacheWrite5mTokens ?? 0;
+    const writeTotal = Math.max(usage.cacheWriteTokens ?? 0, write5m);
+    const write1hOrUnknown = writeTotal - write5m;
     return (
       per(usage.inputTokens, p.input) +
       per(usage.outputTokens, p.output) +
       per(usage.cacheReadTokens, p.cacheRead) +
-      per(usage.cacheWriteTokens, p.cacheWrite)
+      per(write5m, p.cacheWrite5m) +
+      per(write1hOrUnknown, p.cacheWrite1h)
     );
   }
 
@@ -503,6 +557,7 @@ export class AiSpendService {
           outTokEstimated: args.outputTokensEstimated ?? false,
           cacheReadTok: args.usage.cacheReadTokens ?? 0,
           cacheWriteTok: args.usage.cacheWriteTokens ?? 0,
+          cacheW5mTok: args.usage.cacheWrite5mTokens ?? 0,
           costUsd,
           userIdHash: hashUserId(args.userId),
           rlOutRemaining: rl.outputTokensRemaining,

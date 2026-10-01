@@ -35,6 +35,7 @@ import {
   finalizeStreamUsage,
   hasUsage,
   mergeFinalUsage,
+  readInputSideUsage,
 } from '../ai/stream-usage';
 import { classifyAiError } from '../ai/ai-call-log';
 import { ShutdownService } from '../common/shutdown.service';
@@ -664,7 +665,7 @@ export class ChatStreamService {
       );
 
       for await (const event of stream) {
-        // S2 — meter as we go. A chat turn's cost is mostly its ~10k-token
+        // S2 — meter as we go. A chat turn's cost is mostly its ~30k-token
         // cached system block, billed at the 2× cache-WRITE rate on the first
         // turn — and read only from `message_start`, which arrives before any
         // disconnect can happen. See `stream-usage.ts`.
@@ -679,15 +680,13 @@ export class ChatStreamService {
 
       // Stream finished — extract final usage
       const finalMessage = await stream.finalMessage();
+      // Cache counters through the shared reader (see `stream-usage.ts`).
+      const finalInputSide = readInputSideUsage(finalMessage.usage);
       usage = {
         inputTokens: finalMessage.usage.input_tokens,
         outputTokens: finalMessage.usage.output_tokens,
-        cacheReadTokens:
-          (finalMessage.usage as { cache_read_input_tokens?: number })
-            .cache_read_input_tokens ?? 0,
-        cacheCreationTokens:
-          (finalMessage.usage as { cache_creation_input_tokens?: number })
-            .cache_creation_input_tokens ?? 0,
+        cacheReadTokens: finalInputSide.cacheReadTokens,
+        cacheCreationTokens: finalInputSide.cacheWriteTokens,
       };
       // Clean completion — prefer the authoritative final numbers. The
       // `finally` does the recording either way.

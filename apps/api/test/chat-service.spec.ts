@@ -487,6 +487,79 @@ describe('ChatService', () => {
       );
     });
 
+    it('#6 — reads the cache counters and the 5m/1h split through the shared reader', async () => {
+      // Every field pairwise distinct, so a counter filled from its neighbour,
+      // a swapped read/write or a literal 0 cannot pass.
+      mockPrisma.user.findUnique.mockResolvedValue({ id: 'user-1', clerkUserId: 'clerk-1' });
+      mockPrisma.chatSession.findUnique.mockResolvedValue({
+        id: 's1',
+        userId: 'user-1',
+        startedAt: new Date(),
+        endedAt: null,
+        contextVersion: 'v1.0.0',
+        preAnalysisVersion: 'life=v2.9.0|love=v1.11.0|car=v2.5.0|ann=v2.4.0',
+        messageCount: 0,
+        firstMessageAt: null,
+        readingId: 'reading-1',
+        creditExtensions: 0,
+        paidMessagesUsed: 0,
+      });
+      mockPaymentService.deductForMessage.mockResolvedValue({ method: 'FREE_QUOTA' });
+      mockPrisma.chatMessage.create
+        .mockResolvedValueOnce({ id: 'msg-user-1' })
+        .mockResolvedValueOnce({ id: 'msg-asst-1' });
+      mockPrisma.chatMessage.findMany.mockResolvedValue([]);
+      mockAnthropicCreate.mockResolvedValue({
+        content: [{ type: 'text', text: '根據您的命盤，您目前處於丁酉大運...' }],
+        usage: {
+          input_tokens: 1234,
+          output_tokens: 250,
+          cache_read_input_tokens: 8000,
+          cache_creation_input_tokens: 3000,
+          // Chat writes at ttl '1h', so the API attributes nothing to 5m.
+          cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 3000 },
+        },
+      });
+      mockPrisma.chatSession.update.mockResolvedValue({ messageCount: 1 });
+      mockPrisma.chatSession.findUniqueOrThrow.mockResolvedValue({
+        id: 's1',
+        messageCount: 1,
+        creditExtensions: 0,
+        paidMessagesUsed: 0,
+      });
+      mockPaymentService.getMonthlyUsage.mockResolvedValue({
+        chatsUsed: 1,
+        monthlyQuota: 15,
+        resetsAt: new Date(),
+        subscriptionTier: 'BASIC',
+      });
+
+      await service.sendMessage('clerk-1', 's1', '我的命格如何？');
+
+      // The spend record — exactly the reader's output plus the output count.
+      const record = (service as unknown as { aiSpend: { record: jest.Mock } }).aiSpend.record;
+      const spend = record.mock.calls
+        .map((c) => c[0] as { context: string; usage: unknown })
+        .filter((a) => a.context === 'chat:sync');
+      expect(spend).toHaveLength(1);
+      expect(spend[0].usage).toEqual({
+        inputTokens: 1234,
+        outputTokens: 250,
+        cacheReadTokens: 8000,
+        cacheWriteTokens: 3000,
+        cacheWrite5mTokens: 0,
+      });
+
+      // The ASSISTANT ChatMessage row. Both creates (user, then assistant) run
+      // inside a `$transaction` that passes `mockPrisma` through, so both hit
+      // the same mock — select by role.
+      const rows = (mockPrisma.chatMessage.create as jest.Mock).mock.calls
+        .map((c) => (c[0] as { data: Record<string, unknown> }).data)
+        .filter((d) => d.role === 'ASSISTANT');
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ tokensInput: 1234, cacheReadTokens: 8000, cacheCreationTokens: 3000 });
+    });
+
     it('passes the assistant content through ChatValidatorsService.postValidate', async () => {
       mockPrisma.user.findUnique.mockResolvedValue({ id: 'user-1', clerkUserId: 'clerk-1' });
       mockPrisma.chatSession.findUnique.mockResolvedValue({

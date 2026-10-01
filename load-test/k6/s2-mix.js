@@ -242,11 +242,10 @@ function reading(token, profileId) {
   sseFirstByte.add(stream.timings.waiting, tags);
   recordAiCall(stream.timings.duration, tags);
 
-  // ⚠️ RECYCLE THE SLOT. A user may hold at most 10 birth profiles
-  // (BIRTH_PROFILE_LIMIT_REACHED), so creating one per iteration fills all 90
-  // users to the ceiling within a couple of minutes and every later create
-  // 400s — which is how run 5 reached zero generations. Deleting after use
-  // keeps cache misses unlimited and leaves less for teardown to clean up.
+  // RECYCLE THE PROFILE. Originally required: a 10-profile cap once filled all
+  // 90 users within minutes and every later create 400'd (run 5 reached zero
+  // generations). The cap was removed 2026-09-29, but deleting after use still
+  // leaves less for teardown to clean up.
   http.del(`${API}/api/users/me/birth-profiles/${profileId}`, null, { headers: headers(token), tags });
 }
 

@@ -81,6 +81,8 @@ describe('record() emits the Ob1 line', () => {
       outTok: 500,
       cacheReadTok: 20,
       cacheWriteTok: 5,
+      // #6 — always emitted; 0 here because the usage carried no 5-minute split.
+      cacheW5mTok: 0,
       costUsd: expect.any(Number),
       userIdHash: hashUserId('user-42'),
       rlOutRemaining: 17500,
@@ -93,6 +95,27 @@ describe('record() emits the Ob1 line', () => {
       // the unusual case cannot be filtered on.
       outEst: false,
     });
+  });
+
+  it('#6 — carries the 5-minute cache-write split and prices it at the 5-minute rate', async () => {
+    const { service, lines } = makeService();
+    const cost = await service.record({
+      provider: 'CLAUDE',
+      model: 'claude-sonnet-4-5',
+      usage: {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheWriteTokens: 1_000_000,
+        cacheWrite5mTokens: 1_000_000,
+      },
+      context: 'stream:LIFETIME:call1',
+    });
+    const line = parseOne(lines);
+    expect(line.cacheWriteTok).toBe(1_000_000);
+    expect(line.cacheW5mTok).toBe(1_000_000);
+    // $3.75/MTok — the 5-minute rate, not the $6 1-hour one.
+    expect(cost).toBeCloseTo(3.75, 9);
+    expect(line.costUsd).toBeCloseTo(3.75, 6);
   });
 
   /**
@@ -125,6 +148,7 @@ describe('record() emits the Ob1 line', () => {
         outTok: 0,
         cacheReadTok: 0,
         cacheWriteTok: 0,
+        cacheW5mTok: 0,
         costUsd: 0,
         userIdHash: hashUserId('user-42'),
         rlOutRemaining: null,

@@ -28,6 +28,24 @@ describe('planRepair', () => {
     expect(p.totalUsd).toBeCloseTo(3, 6);
   });
 
+  it('#6 — prices a row\'s prompt-cache columns, not just input/output', () => {
+    // A repaired row must be byte-comparable with a freshly written one, and
+    // `persistUsageRow` prices all five token fields since #6.
+    const p = planRepair(
+      [row({
+        inputTokens: 0, outputTokens: 0,
+        cacheReadTokens: 1_000_000, cacheWriteTokens: 1_000_000, cacheWrite5mTokens: 1_000_000,
+      })],
+      pricer(),
+    );
+    expect(p.costs.get('a')).toBeCloseTo(0.3 + 3.75, 6); // read + 5-minute write
+  });
+
+  it('#6 — a pre-#6 row with no cache columns re-prices exactly as before', () => {
+    const p = planRepair([row()], pricer());
+    expect(p.costs.get('a')).toBeCloseTo(3, 6);
+  });
+
   it('SKIPS an unknown model by default — FALLBACK would overstate it forever', () => {
     // `priceFor` bills an unrecognised model at $15/$75 so the BREAKER errs
     // toward tripping early. That bias is right for a breaker and simply wrong

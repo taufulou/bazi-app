@@ -153,7 +153,15 @@ describe('S2 chokepoint — streamProvider (every streaming call)', () => {
     expect(spend.record).toHaveBeenCalledWith(
       expect.objectContaining({
         model: CLAUDE_CONFIG.model,
-        usage: { inputTokens: 1000, outputTokens: 2000 },
+        // #6 — always the five-field shape. The cache counters are `0`, not
+        // absent: conditional keys would keep this matcher green by accident.
+        usage: {
+          inputTokens: 1000,
+          outputTokens: 2000,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          cacheWrite5mTokens: 0,
+        },
       }),
     );
   });
@@ -183,7 +191,65 @@ describe('S2 chokepoint — streamProvider (every streaming call)', () => {
     await gen.return(undefined as never);
 
     expect(spend.record).toHaveBeenCalledWith(
-      expect.objectContaining({ usage: { inputTokens: 500, outputTokens: 100 } }),
+      expect.objectContaining({
+        usage: {
+          inputTokens: 500,
+          outputTokens: 100,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          cacheWrite5mTokens: 0,
+        },
+      }),
+    );
+  });
+
+  /**
+   * #6 — once a reading caches its system prompt, `input_tokens` is only the
+   * UNCACHED remainder. The cached part arrives in `message_start` as separate
+   * counters, and if they do not reach `record()` the breaker silently loses
+   * most of every reading's input — the under-count direction.
+   *
+   * Drives the REAL `streamClaude` (only the SDK client is faked) so the whole
+   * path is covered: `message_start` → `absorbInputSideUsage` → `usageOut` →
+   * `_streamProviderInner`'s `finally` → `record()`.
+   */
+  it('#6 — carries the prompt-cache counters from message_start to record()', async () => {
+    const spend = makeSpendStub();
+    const service = makeService(spend) as unknown as Chokepoints;
+    (service as unknown as { claudeClient: unknown }).claudeClient = {
+      messages: {
+        stream: () => ({
+          [Symbol.asyncIterator]: async function* () {
+            yield {
+              type: 'message_start',
+              message: {
+                usage: {
+                  input_tokens: 6_831,
+                  cache_read_input_tokens: 100,
+                  cache_creation_input_tokens: 15_756,
+                  cache_creation: { ephemeral_5m_input_tokens: 15_756, ephemeral_1h_input_tokens: 0 },
+                },
+              },
+            };
+            yield { type: 'content_block_delta', delta: { type: 'text_delta', text: 'hi' } };
+            yield { type: 'message_delta', usage: { output_tokens: 42 } };
+          },
+        }),
+      },
+    };
+
+    await drain(service.streamProvider(CLAUDE_CONFIG, 'sys', 'user'));
+
+    expect(spend.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        usage: {
+          inputTokens: 6_831,
+          outputTokens: 42,
+          cacheReadTokens: 100,
+          cacheWriteTokens: 15_756,
+          cacheWrite5mTokens: 15_756,
+        },
+      }),
     );
   });
 });
