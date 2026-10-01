@@ -1,6 +1,6 @@
 # Todo #3 — HEALTH readings deliver LIFETIME content — Implementation Plan
 
-**Status:** IMPLEMENTED 2026-09-28, LINE-AUDITED + LIVE-TESTED 2026-09-29, in worktree `claude/launch-security-phase1-review-05ef66` (uncommitted; Option A; panel dropped for the ZWDS-style submit refusal). Step 0 + § 6 remediation WAIVED 2026-09-29 — no production customers yet (§ 11 Q2). Verification record in § 12. — staff-engineer review rounds 1 (15 findings) · 2 (4) · 3 (APPROVE, 2 optional lows folded in).
+**Status:** IMPLEMENTED 2026-09-28, LINE-AUDITED + LIVE-TESTED 2026-09-29, committed as PR #73 (`0fd56e0`); Option A; panel dropped for the ZWDS-style submit refusal. **Amended 2026-10-01 by `pr73-review-fixes-plan.md`** — the 2b refusal now REFUNDS a charged-empty row and the web recovery predicate no longer gates on type (§ 3.3 / § 3.5 / § 3.7 notes below). Step 0 + § 6 remediation WAIVED 2026-09-29 — no production customers yet (§ 11 Q2). Verification record in § 12. — staff-engineer review rounds 1 (15 findings) · 2 (4) · 3 (APPROVE, 2 optional lows folded in).
 **Branch:** `claude/launch-security-phase1-review-05ef66` (worktree), based on `main` @ `65f5dd0`.
 **Source item:** `.claude/plans/launch-security-phase1-session-handoff.md` § THE TODO LIST, item 3.
 **Review log:** § 12 at the bottom.
@@ -226,6 +226,13 @@ total-failure fallback (`ai.service.ts:542`).
 
 ### 3.3 `_setupStream` — allowlist guard, placed after step 2 and BEFORE step 3
 
+> **Superseded in part by `pr73-review-fixes-plan.md` § 1 (2026-10-01):** the
+> snippet below says "the backstop does not refund — the user keeps whatever the
+> row holds". Every row that reaches 2b is charged-and-EMPTY (1b/1c/step 2 turn
+> everything else away), so that sentence described a row that cannot exist. 2b
+> now calls `refundUnservableRow` before the throw and the exception carries
+> `refunded` / `refundedAmount`; the placement argument below is unchanged.
+
 Replace the `startsWith('ZWDS')` block (`:1091-1119`) with an allowlist check, and
 **move it up to sit immediately after step 2** (`if (reading.aiInterpretation) {
 … return; }`, `:1008-1015`) and before step 3 (the per-user slot, `:1017`). That
@@ -265,7 +272,9 @@ level only: `streamReading` (`:885-893`) catches the rejected promise and emits
 `:1144-1157`: add `case 'LIFETIME':` explicitly and make `default:` throw a plain
 `Error` (`Unreachable: no streamer for ${reading.readingType}`) after a
 `logger.error`. It sits inside the `try`, so the existing catch releases the
-slot and lock via `releaseStreamSlot()`; it is not a self-refusal, so no refund.
+slot and lock via `releaseStreamSlot()`; it is not a self-refusal, so no refund
+(this is still true of `default:` after the PR #73 review fixes — finding I,
+dismissed at 35; the REFUND lives at step 2b, § 3.3, not here).
 Two facts to write into the `default:` comment:
 
 - **What the client sees:** the route is `@Sse` (`bazi.controller.ts:87`);
@@ -279,6 +288,12 @@ Two facts to write into the `default:` comment:
   narrating the wrong product.
 
 ### 3.5 Web — make the recovery predicate type-aware
+
+> **Superseded by `pr73-review-fixes-plan.md` § 1.5 (2026-10-01):** the type gate
+> shown below was REMOVED. 2b now refunds the charged-empty row, so the web's job
+> is to REACH the refusal; `needsInterpretationRecovery` is back to its three
+> conditions and no longer reads `readingType`. The `page.tsx:673` slug-flag
+> change stands and is parity-tested (`test/streamable-slugs-parity.spec.ts`).
 
 **File:** `apps/web/app/lib/readings-api.ts:549`.
 
@@ -311,8 +326,11 @@ export function needsInterpretationRecovery(
   required: `readingType` there is the 16-literal `ReadingTypeSlug` union
   (`page.tsx:58`), and `.includes` on a 4-literal readonly tuple rejects it
   (TS2345) without it.
-- ⚠️ **Accepted consequence:** a paid-empty, unrefunded HEALTH row opened from
-  history now renders the chart with **no AI area and no message** —
+- ⚠️ **Accepted consequence — SUPERSEDED by `pr73-review-fixes-plan.md` § 1
+  (2026-10-01):** the type gate was REMOVED from the predicate; 2b now refunds
+  the row and the web shows the refund banner. Kept for history: a paid-empty,
+  unrefunded HEALTH row opened from
+  history used to render the chart with **no AI area and no message** —
   `loadSavedReading` sets `aiData = transformAIResponse(null)` and
   `AIReadingDisplay` is gated on `aiData || isAiLoading` (`page.tsx:2036, 2098`).
   That is the exact row class this item exists for, ending in silence. It is
@@ -329,6 +347,9 @@ pre-fix degraded HEALTH row (`_executeStreamV2Common` sets `isDegraded: true` on
 whatever row it was handed, and pre-fix HEALTH rows were handed to
 `streamLifetimeV2`) would be nulled, then refused at step 2b with no refund, then
 told 「狀態正常」 on a second regenerate — paid-empty forever, by a user click.
+(**Superseded in part by `pr73-review-fixes-plan.md` § 1** — 2b and the
+regenerate type branch now REFUND a charged-empty row; the WHERE conjuncts below
+still stand, because a content-bearing degraded row must keep its content.)
 The § 0.1 claim "a HEALTH row can never be degraded" is true only post-fix.
 
 Fix: `readingType: { in: [...STREAMABLE_READING_TYPES] }` AND `refundedAt: null`
@@ -654,6 +675,13 @@ Option C becomes a product item on the handoff list.
 ---
 
 ## 12. Review log
+
+> **2026-10-01 — amended by `.claude/plans/pr73-review-fixes-plan.md`** (the
+> `/code-review` of PR #73: 9 findings, none ≥ 80; eight of nine fixed — six at
+> 75, two at 50; I at 35 dismissed). Its § 10 is the verification record and § 11
+> carries that plan's own three-round review log. The material change: step 2b
+> refused a charged-empty row without refunding it — see § 3.3 / § 3.5 / § 3.7
+> notes above.
 
 **Round 1 (2026-09-26) — VERDICT: REVISE, 15 issues (8 low · 5 medium · 2 high · 0 critical). All 15 applied in v2:**
 

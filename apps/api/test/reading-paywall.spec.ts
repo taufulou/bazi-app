@@ -17,6 +17,7 @@
  * generation (real Anthropic spend) for a reading already refunded, bypassing
  * the 3-per-reading cap that `regenerateReading` enforces.
  */
+import { ConflictException } from '@nestjs/common';
 import { BaziService } from '../src/bazi/bazi.service';
 import { CreditsService } from '../src/credits/credits.service';
 import { ShutdownService } from '../src/common/shutdown.service';
@@ -30,7 +31,11 @@ const SECTIONS = {
   career: { preview: 'peek2', full: 'MORE PAID CONTENT' },
 };
 
-function makeService(readingOverrides: Record<string, unknown>, tier = 'FREE') {
+function makeService(
+  readingOverrides: Record<string, unknown>,
+  tier = 'FREE',
+  credits?: { refundReadingCredit: jest.Mock },
+) {
   const reading = {
     id: READING_ID,
     userId: USER_ID,
@@ -52,7 +57,7 @@ function makeService(readingOverrides: Record<string, unknown>, tier = 'FREE') {
   const service = new BaziService(
     mockPrisma as never, {} as never,
     { get: jest.fn().mockReturnValue('http://localhost:5001') } as never,
-    {} as never, {} as never,
+    {} as never, (credits ?? {}) as never,
     { consume: jest.fn(), peek: jest.fn(), limitFor: () => 100 } as never,
     // S2 — the cap pre-check that now runs before every quota consume.
     { assertUnderCap: jest.fn(), record: jest.fn(), recordFailure: jest.fn(), estimateCostUsd: jest.fn(() => 0.01) } as never,
@@ -136,6 +141,9 @@ describe('F2 — stream refuses to regenerate a refunded reading', () => {
     const evt = events[0] as { type: string; data: string };
     expect(evt.type).toBe('error');
     expect(evt.data).toContain('退款');
+    // Since the PR #73 review fixes `streamReading` forwards the typed `code`
+    // (picked by name) alongside the message — see the describe below.
+    expect(JSON.parse(evt.data).code).toBe('READING_REFUNDED');
   });
 
   it('still streams a non-refunded reading with content', async () => {
@@ -155,15 +163,17 @@ describe('F2 — stream refuses to regenerate a refunded reading', () => {
 
 describe('F2 — regeneration must not destroy the record of a real charge', () => {
   /**
-   * The reachability argument these tests encode: `ai.service.ts` computes ONE
-   * exclusive status per attempt and sets `isDegraded` only on 'degraded',
-   * while the refund fires only on 'failed'. `regenerateReading`'s WHERE
-   * requires `isDegraded: true`, so it can only ever match a row that was
-   * charged and NOT refunded.
+   * The reachability argument these tests encode: `regenerateReading`'s WHERE
+   * requires `refundedAt: null` (enforced since todo #3), so it can only ever
+   * match a row that was charged and NOT refunded. For rows the pipeline
+   * produced that was already implied by `isDegraded: true` — `ai.service.ts`
+   * computes ONE exclusive status per attempt and refunds only on 'failed' —
+   * but an operator refund breaks the implication, which is why the WHERE no
+   * longer leans on it.
    *
    * An earlier revision cleared `refundedAt` and zeroed `creditsUsed` here to
    * close a double-refund that regeneration was believed to open. It closed
-   * nothing (the column is already null on every matching row) and it broke the
+   * nothing (the WHERE already requires the column to be null) and it broke the
    * case that IS reachable — see the second test.
    */
   it('leaves refundedAt and creditsUsed untouched', async () => {
@@ -176,8 +186,10 @@ describe('F2 — regeneration must not destroy the record of a real charge', () 
     await service.regenerateReading(CLERK, READING_ID);
 
     const call = mockPrisma.baziReading.updateMany.mock.calls[0][0];
-    // The reachability argument above depends on this guard staying in the WHERE.
-    expect(call.where).toMatchObject({ isDegraded: true });
+    // The reachability argument above depends on BOTH conjuncts staying in the
+    // WHERE: `refundedAt: null` is what guarantees the row was not refunded,
+    // `isDegraded: true` is what makes it a regeneration candidate at all.
+    expect(call.where).toMatchObject({ isDegraded: true, refundedAt: null });
     expect(call.data).not.toHaveProperty('creditsUsed');
     expect(call.data).not.toHaveProperty('refundedAt');
   });
@@ -246,13 +258,83 @@ describe('F2 — regeneration must not destroy the record of a real charge', () 
 
 });
 
-// Removed: a test that constructed a `BadRequestException({ code: 'READING_REFUNDED' })`
-// inline and asserted its own `code`. It exercised NestJS, not this codebase —
-// it would have passed with `bazi.service.ts` deleted — while describing itself
-// as locking "the error contract the frontend branches on". No frontend branches
-// on it: `streamReading` forwards only `err.message` into the SSE error event,
-// so the code never reaches a client. Deleted rather than "fixed", because the
-// contract it claimed to guard does not exist.
+// ============================================================
+// The SSE `error` event's wire contract (PR #73 review fix A)
+// ============================================================
+
+describe('streamReading — the SSE error payload carries typed fields, picked by NAME', () => {
+  /**
+   * Until the PR #73 review fixes `streamReading` forwarded `err.message` ONLY,
+   * so no typed `code` ever reached a client and a test that asserted one was
+   * (rightly) deleted as guarding a contract that did not exist. The contract
+   * exists now: step 2b REFUNDS a charged-empty non-streamable row and the web
+   * branches on `refunded` to show its refund banner. These tests pin the exact
+   * payload for every exception SHAPE the catch can see, because the one way to
+   * get this wrong — spreading `getResponse()` — only leaks for a string-built
+   * exception (`{message, error, statusCode}`), never for an object-built one.
+   */
+  // Resolves the RAW event list; the structural assertions run in the test
+  // body. An `expect` that throws inside an rxjs `complete` callback goes to
+  // `reportUnhandledError`, never rejects the promise, and the test would die
+  // as a 5 s timeout with no matcher message instead of a legible red.
+  const collect = (service: BaziService) =>
+    new Promise<Array<{ type: string; data: string }>>((resolve) => {
+      const events: Array<{ type: string; data: string }> = [];
+      service.streamReading(CLERK, READING_ID).subscribe({
+        next: (e) => events.push(e as { type: string; data: string }),
+        complete: () => resolve(events),
+      });
+    });
+  const payloadOf = (events: Array<{ type: string; data: string }>): Record<string, unknown> => {
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('error');
+    return JSON.parse(events[0].data);
+  };
+
+  it('forwards code/refunded/refundedAmount for a typed refusal, and nothing else', async () => {
+    // A paid-empty HEALTH row: past 1b (not refunded), 1c (charged), step 2
+    // (no content) → 2b refuses AND refunds. `toEqual` is exact — a leaked
+    // `statusCode` or `error` key fails it.
+    const refundReadingCredit = jest.fn().mockResolvedValue({ refunded: true, amount: 2 });
+    const { service } = makeService(
+      { readingType: 'HEALTH', aiInterpretation: null, creditsUsed: 2 },
+      'FREE',
+      { refundReadingCredit },
+    );
+    const payload = payloadOf(await collect(service));
+    expect(payload).toEqual({
+      message: expect.stringContaining('已退回'),
+      code: 'READING_TYPE_NOT_STREAMABLE',
+      refunded: true,
+      refundedAmount: 2,
+    });
+    // `refundedAmount: 2` is the row's `creditsUsed`; this proves the money
+    // actually moved rather than the number being copied from the row.
+    expect(refundReadingCredit).toHaveBeenCalledTimes(1);
+    expect(refundReadingCredit).toHaveBeenCalledWith(READING_ID, 'not-streamable:HEALTH');
+  });
+
+  it('forwards message ONLY for a string-built HttpException — the shape a spread would leak', async () => {
+    // The real step-3 refusal. Nest builds `{message, error: 'Conflict',
+    // statusCode: 409}` for a string argument; pick-by-name forwards none of
+    // the internals.
+    const { service } = makeService({});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (service as any)._setupStream = jest
+      .fn()
+      .mockRejectedValue(new ConflictException('Maximum concurrent streams reached'));
+    const payload = payloadOf(await collect(service));
+    expect(payload).toEqual({ message: 'Maximum concurrent streams reached' });
+  });
+
+  it('forwards message ONLY for a plain Error', async () => {
+    const { service } = makeService({});
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (service as any)._setupStream = jest.fn().mockRejectedValue(new Error('boom'));
+    const payload = payloadOf(await collect(service));
+    expect(payload).toEqual({ message: 'boom' });
+  });
+});
 
 // ============================================================
 // F-4 sibling — getComparison (B1/B2 audit finding 6)

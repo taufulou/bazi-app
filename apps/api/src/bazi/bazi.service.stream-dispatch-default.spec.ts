@@ -12,8 +12,8 @@ import { BaziService } from './bazi.service';
  * which the switch has no `case` for, and asserts what the `default:` does.
  *
  * `jest.mock` is file-scoped, which is why this cannot live in the sibling spec.
- * ⚠️ The harness below is a twin of `buildWith`/`buildDispatch` there — change
- * both together.
+ * ⚠️ The `build()` harness below is a twin of `buildWith()` in
+ * `bazi.service.self-refusal-refund.spec.ts` — change both together.
  */
 jest.mock('./dto/create-reading.dto', () => {
   const actual = jest.requireActual('./dto/create-reading.dto');

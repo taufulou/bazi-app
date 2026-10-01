@@ -270,7 +270,12 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
     /** True when user has used all 3 free regenerations — show persistent "limit reached" state */
     exhausted?: boolean;
   } | null>(null);
-  const [refundedInfo, setRefundedInfo] = useState<{ refunded: boolean; amount: number } | null>(null);
+  // `body` overrides the banner's default 「AI 服務目前繁忙…」 line. Set only by
+  // the not-streamable refund path (`recoverPaidReading`'s `onError`), where
+  // the default's "retry" instruction would be wrong for a withdrawn product
+  // and would contradict the server's own message on the same screen. The
+  // AI-failure paths leave it unset and keep the existing copy.
+  const [refundedInfo, setRefundedInfo] = useState<{ refunded: boolean; amount: number; body?: string } | null>(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
   // Ref for the TOP refunded banner instance only (not the bottom one rendered
   // inside AIReadingDisplay's beforeDisclaimer slot). Used to scroll the user
@@ -593,15 +598,15 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
       // Streaming an existing id does NOT re-charge: the charge lives in
       // `createReading`, which is not on this path.
       //
-      // ⚠️ The predicate is TYPE-AWARE and fails closed (see
-      // `needsInterpretationRecovery`). `_setupStream`'s streamer switch used to
-      // end in `default: streamLifetimeV2`, so a ZWDS or HEALTH row sent there
-      // generated a 八字終身運 reading over the wrong chart and OVERWROTE the row
-      // (two paid `ZWDS_LIFETIME` reports exist; HEALTH was todo #3). Those rows
-      // render whatever they hold and must be left alone; the backend now
-      // refuses them too, but refusing here first avoids a wasted round-trip
-      // that would end in a silent spinner stop (`recoverPaidReading`'s
-      // `onError` sets no message).
+      // ⚠️ The predicate does NOT gate on type, on purpose. todo #3 briefly made
+      // it fail closed on HEALTH / ZWDS, because `_setupStream`'s switch used to
+      // end in `default: streamLifetimeV2` and a row of those types sent there
+      // was narrated as 八字終身運 and OVERWRITTEN. The API is the guard now:
+      // step 2b refuses such a row AND refunds it (every row that reaches 2b is
+      // charged-and-empty), and the SSE `error` carries `refunded`. So the
+      // web's job is to REACH that refusal — gating here would strand the
+      // user's money behind a round-trip that never happens. A row WITH content
+      // never streams at all (`sectionCount === 0` is the first condition).
       if (needsInterpretationRecovery(reading, aiReading?.sections?.length ?? 0)) {
         void recoverPaidReading(reading.id, readingType, { owned: true });
       }
@@ -644,8 +649,10 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
       // refuses before creating anything, so computing a chart first would be
       // a throttled web → NestJS → engine round-trip for a result-step the
       // user only sees an error on. ⚠️ Do NOT hoist Phase 2's throw up here
-      // instead — `handleFormSubmit`'s catch would swallow it; the Phase-2
-      // placement is what routes it through `handleNestJSError` to the banner.
+      // instead — this block's own `catch` below swallows everything ("Chart
+      // fetch failed") so the chart fallback can proceed, and the message would
+      // never render. Phase 2's placement is what routes it through
+      // `handleNestJSError` to the banner.
       if (!isZwds && !isWithdrawn) {
         const baziResponse = await fetch("/api/bazi-calculate", {
           method: "POST",
@@ -699,8 +706,10 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
           birthProfileId,
           readingType: readingType,
           targetYear: readingType === "annual" ? new Date().getFullYear() : undefined,
-          // V2 streaming — the SAME list the recovery predicate reads, so the
-          // two can never disagree about what streams.
+          // V2 streaming — slug twin of the API's `STREAMABLE_READING_TYPES`,
+          // parity-tested in `test/streamable-slugs-parity.spec.ts`. The recovery
+          // predicate does not gate on type (the API refuses and refunds; see
+          // `needsInterpretationRecovery`).
           stream: (STREAMABLE_READING_SLUGS as readonly string[]).includes(readingType),
         });
         setChartData(response.calculationData);
@@ -1568,9 +1577,39 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
           onRetryAttempt: (info) => {
             setRetryStatus(info);
           },
-          // Same reasoning as onFinal failed branch above — surface the error
-          // via existing error state rather than hiding AIReadingDisplay.
-          onError: () => { setIsAiLoading(false); setRetryStatus(null); },
+          // A charged-EMPTY row the API cannot stream (HEALTH / ZWDS — todo #3)
+          // is REFUNDED at the refusal (`_setupStream` step 2b) and the SSE
+          // error says so. Same money event as an AI failure → same banner and
+          // the same page-local credit bump as `onFinal`'s failed branch above,
+          // with the server's message as the banner body (the default body says
+          // "retry", which is wrong here). The banner adds its own
+          // 「N 個額度已自動退回」 line, so the message's trailing
+          // 「，點數已退回。」 is trimmed for the body only — the wire message is
+          // untouched for API/mobile callers.
+          // `aiData` goes back to null: the state a content-less row starts in
+          // (`null` for `aiInterpretation: null`; `null` and `{sections: []}`
+          // both render the 暫無解讀資料 card). It also keeps the
+          // chat button absent — already null-typed for these pages (`chatType`
+          // is null for HEALTH/ZWDS); `!aiData` guards it generically. These
+          // types use the TABBED layout, so AIReadingDisplay is gated on the
+          // reading tab, not on `aiData`; the user lands on the chart tab with
+          // the banner.
+          // Other errors keep the pre-existing behaviour (spinner stops; the
+          // row stays recoverable on the next open).
+          onError: (err) => {
+            setIsAiLoading(false);
+            setRetryStatus(null);
+            if (err.refunded) {
+              const amount = err.refundedAmount ?? existing.creditsUsed ?? 0;
+              setAiData(null);
+              setRefundedInfo({
+                refunded: true,
+                amount,
+                body: err.message.replace(/，點數已退回。$/, '。'),
+              });
+              if (amount > 0) setUserCredits((prev) => (prev !== null ? prev + amount : prev));
+            }
+          },
           onCallComplete: () => {},
         });
         streamCleanupRef.current = () => stream.close();
@@ -1760,7 +1799,7 @@ function ValidReadingPage({ readingType }: { readingType: ReadingTypeSlug }) {
             <div className={styles.aiBannerContent}>
               <div className={styles.aiBannerTitle}>命理分析暫時無法完成</div>
               <div className={styles.aiBannerBody}>
-                AI 服務目前繁忙，請稍候片刻後再試一次。
+                {refundedInfo.body ?? 'AI 服務目前繁忙，請稍候片刻後再試一次。'}
                 {refundedInfo.refunded && refundedInfo.amount > 0 && (
                   <>
                     您的 <strong className={styles.aiBannerBodyStrong}>{refundedInfo.amount} 個額度</strong>

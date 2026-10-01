@@ -42,7 +42,11 @@ const PLANS: PlanInfo[] = [
     description: "全方位命理分析，適合深度探索命運",
     features: [
       "每月 15 次命理解讀",
-      "全部 6 種解讀類型",
+      // The count is the product rows in COMPARISON_ROWS below (八字終身運 ·
+      // 流年運勢 · 八字事業詳批 · 愛情姻緣分析 · 合盤比較). It said 6 after
+      // 先天健康分析 was removed from that table (PR #73) — a paid tier was
+      // promising a product the API no longer creates. Change both together.
+      "全部 5 種解讀類型",
       "PDF 報告匯出",
       "優先 AI 分析引擎",
       "進階流年運勢與流月分析",

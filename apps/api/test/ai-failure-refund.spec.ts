@@ -294,8 +294,9 @@ describe('AI Failure Graceful Degradation', () => {
     expect(aiService.generateLifetimeV2Interpretation).not.toHaveBeenCalled();
   });
 
-  // HEALTH (V1) — the only type that still generates INLINE. A V2 type here
-  // would be refused at admission and this test would prove nothing.
+  // HEALTH (V1) — the inline stand-in: not creatable over HTTP since todo #3,
+  // still the V1 path at the service layer (CLAUDE.md § Readings). A V2 type
+  // here would be refused at admission and this test would prove nothing.
   it('should include AI interpretation when AI succeeds', async () => {
     const mockAIResult = {
       interpretation: {

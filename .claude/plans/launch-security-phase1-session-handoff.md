@@ -358,7 +358,7 @@ next, not by size. Update it in place as items land.
       the same treatment — `refundComparisonCredit` also clears `paidAt`, so a
       refunded comparison currently renders as 未解鎖 rather than 已退款.
 
-3. ✅ **FIXED 2026-09-28 (uncommitted in worktree `claude/launch-security-phase1-review-05ef66`) — HEALTH withdrawn from sale (Option A) + the dispatcher made an allowlist.**
+3. ✅ **FIXED 2026-09-28 (PR #73, `0fd56e0` + the 2026-10-01 review-fix commit, branch `claude/launch-security-phase1-review-05ef66`) — HEALTH withdrawn from sale (Option A) + the dispatcher made an allowlist.**
    Plan (3 staff-engineer rounds, APPROVED): `.claude/plans/fix-health-reading-dispatch.md`.
    Owner decision: HEALTH is not a product we deliver now; fix only what touches the
    main product. Nothing that generates or renders a HEALTH reading was deleted.
@@ -395,6 +395,18 @@ next, not by size. Update it in place as items land.
      and refund per plan § 6.** Optional: deactivate the `health` `Service` row
      via `PATCH /api/admin/services/:id`.
    - Deploy: no migration, no env var, no cache bump. Merging to `main` deploys.
+   - **2026-10-01 — PR #73 `/code-review` fixes (plan: `pr73-review-fixes-plan.md`,
+     3 staff-engineer rounds, APPROVED).** 9 findings, none ≥ 80; eight of nine fixed
+     in one follow-up commit (six at 75, two at 50; I at 35 dismissed). The material one: step 2b refused a charged-EMPTY row
+     without refunding it — every row that reaches 2b is charged-and-empty by
+     construction, so "the user keeps the row" was always "nothing". Now:
+     `refundUnservableRow` refunds BEFORE the throw at 2b AND at `regenerateReading`'s
+     type branch; the SSE `error` carries `code`/`refunded`/`refundedAmount` (picked
+     by name — never spread a string-built exception); the web recovery predicate
+     no longer gates on type (reaching the refusal IS the refund) and
+     `recoverPaidReading.onError` shows the refund banner with the server message
+     as its body; `STREAMABLE_READING_SLUGS` (web) got a parity test against the
+     API DTO source; pricing says 5 types; six stale/false comments rewritten.
    - **2026-09-29 — line audit (3 parallel agents) + live browser test, both DONE.**
      Audit: 0 critical/high, 3 medium (all fixed same day — `regenerateReading`
      sibling path now carries the same allowlist + `refundedAt: null`; the

@@ -3998,6 +3998,21 @@ creatable == streamable; `bazi.service.stream-dispatch-default.spec.ts` reaches
 the `default:` by `jest.mock`ing the list wider, because with the guard in place
 nothing else can. A guard no test can reach is decoration.
 
+**And, since the PR #73 review fixes, the 2b refusal REFUNDS.** Every row that
+reaches 2b is charged-and-empty by construction (1b/1c/step 2 turn everything
+else away), so "the user keeps whatever the row holds" was always "nothing".
+`refundUnservableRow` gives the credits back BEFORE the throw, and the SSE
+`error` event carries `refunded` / `refundedAmount` (`code` too — `streamReading`
+picks the fields by NAME; never spread `getResponse()`, a string-built exception's
+response carries `statusCode`/`error`). The web recovery predicate therefore does
+NOT gate on type — reaching the refusal is how the user gets their money back,
+and `recoverPaidReading`'s `onError` shows the refund banner on `refunded`.
+`regenerateReading`'s type branch refunds the same way; on that plain `@Post`
+the exception filter forwards only `statusCode`/`code`/`message`/`error`/
+`timestamp`/`path` — never `refunded` — so the MESSAGE is the receipt there
+(「…，點數已退回。」). The helper's predicate is `!(creditsUsed > 0)`,
+not `=== 0` — it fails closed on a row it cannot see the charge of.
+
 ⚠️ **`AI_MAX_TOTAL_TIME_MS` (900s) is the constant people forget.** It bounds
 one generation across all providers and retries, and it gates the START of an
 attempt rather than aborting one in flight — so an attempt admitted at 14:59
@@ -4236,13 +4251,14 @@ NEITHER branch and reached the charge with nothing checked. All three
 self-refusals (S2 cap, S4 quota, S1 concurrency) are raised later, in
 `_setupStream`, whose catch only released the slot and rethrew.
 
-Three controls now, and they are not interchangeable:
+Four controls now, and they are not interchangeable:
 
 | control | where | covers |
 |---|---|---|
 | **pre-flight** | `createReading`, above the charging `$transaction` | the common case: no row, no charge, no history entry |
 | **refund backstop** | `_setupStream`'s catch, on `isSelfRefusal(err)` | the race the pre-flight cannot close, and S1, which cannot be reserved from another method |
 | **recovery** | `needsInterpretationRecovery` → `loadSavedReading` | a paid-empty row with NO refusal behind it (crash, deploy mid-stream, dropped connection) |
+| **2b refund** | `_setupStream` step 2b and `regenerateReading`'s type branch, via `refundUnservableRow` | a paid-empty row of a type we will never generate for (HEALTH / ZWDS) — refused and refunded at the refusal |
 
 ⚠️ **The pre-flight is gated on `isStreamingRequest`, NOT on `chargeable`.** An
 earlier draft used `chargeable` and broke the last V1 reading of the day: the
@@ -4257,8 +4273,10 @@ measured in single digits. `check` shares `consume`'s throw via a private
 `exceeded()` so `isQuotaError` cannot stop matching one of them.
 
 ⚠️ **Refunding FORECLOSES recovery** — `refundedAt` makes `_setupStream` refuse
-the row for good. That is the intended division of labour between rows 2 and 3
-above, not an oversight.
+the row for good. That is the intended division of labour between the refund
+backstop (row 2), the recovery branch (row 3) and the 2b refund (row 4): rows 2
+and 4 foreclose recovery on purpose; row 3 is for the paid-empty row nobody
+refused.
 
 ⚠️ **`!reading.aiInterpretation` in the backstop is unreachable-false**, because
 step 2 of `_setupStream` returns early whenever an interpretation exists —

@@ -170,13 +170,14 @@ describe('BaziService._setupStream — self-refusal refund backstop', () => {
     };
     const aiSpend = { assertUnderCap: jest.fn().mockResolvedValue(undefined) };
     const quota = { consume: jest.fn().mockResolvedValue(undefined) };
+    const logger = { log: jest.fn(), warn: jest.fn(), error: jest.fn() };
     const service = Object.create(BaziService.prototype) as BaziService;
     Object.assign(service, {
       prisma: {
         user: { findUnique: jest.fn().mockResolvedValue({ id: USER_ID }) },
         baziReading: { findFirst: jest.fn().mockResolvedValue(reading) },
       },
-      logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      logger,
       redis,
       aiService: { getMaxStreamedGenerationMs: jest.fn().mockReturnValue(1_260_000), ...streamers },
       aiSpend,
@@ -184,7 +185,7 @@ describe('BaziService._setupStream — self-refusal refund backstop', () => {
       creditsService: { refundReadingCredit },
       emitStaticSections: jest.fn(),
     });
-    return { service, streamers, ...streamers, redis, aiSpend, quota, refundReadingCredit };
+    return { service, streamers, ...streamers, redis, aiSpend, quota, refundReadingCredit, logger };
   }
 
   describe('ZWDS — a row with no streamer must be refused, not silently regenerated', () => {
@@ -209,19 +210,37 @@ describe('BaziService._setupStream — self-refusal refund backstop', () => {
       expect(streamLifetimeV2).not.toHaveBeenCalled();
     });
 
-    it('does NOT refund — the user keeps a report we merely decline to regenerate', async () => {
+    it('REFUNDS a paid-empty ZWDS row — nothing can ever be generated for it', async () => {
+      // This fixture is paid-EMPTY (`aiInterpretation: null`): the only way it
+      // reaches 2b is past 1b (not refunded), 1c (charged) and step 2 (no
+      // content). A row in that state holds NOTHING, so "the user keeps the
+      // report" — the previous name of this test — described a row that cannot
+      // get here. The refusal gives the money back (PR #73 review fix A).
       const { service, refundReadingCredit } = buildWith(zwdsReading());
-      await expect(run(service)).rejects.toBeDefined();
-      expect(refundReadingCredit).not.toHaveBeenCalled();
+      await expect(run(service)).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'READING_TYPE_NOT_STREAMABLE',
+          refunded: true,
+          refundedAmount: 3,
+          message: expect.stringContaining('點數已退回'),
+        }),
+      });
+      expect(refundReadingCredit).toHaveBeenCalledTimes(1);
+      expect(refundReadingCredit).toHaveBeenCalledWith('reading-z', 'not-streamable:ZWDS_LIFETIME');
     });
 
-    it('still SERVES a paid ZWDS row that already has content', async () => {
+    it('still SERVES a paid ZWDS row that already has content — and refunds NOTHING', async () => {
       // The guard sits after step 2 on purpose. Placing it earlier would break
-      // the two paid reports it exists to protect.
-      const { service } = buildWith(zwdsReading({ sections: { a: { preview: 'p', full: 'f' } } }));
+      // the two paid reports it exists to protect — and now that the guard
+      // refunds, placing it earlier would also REFUND them, which is why this
+      // test pins the refund call count and not just the serve.
+      const { service, refundReadingCredit } = buildWith(
+        zwdsReading({ sections: { a: { preview: 'p', full: 'f' } } }),
+      );
       await run(service);
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((service as any).emitStaticSections).toHaveBeenCalled();
+      expect(refundReadingCredit).not.toHaveBeenCalled();
     });
 
     it('does not refuse a normal Bazi row — the run RESOLVES and the streamer is called', async () => {
@@ -272,14 +291,24 @@ describe('BaziService._setupStream — self-refusal refund backstop', () => {
       }
     });
 
-    // Test 2 — the production case.
-    it('REFUSES a paid-empty HEALTH row before anything is spent', async () => {
+    // Test 2 — the production case. Every row that reaches 2b is charged AND
+    // empty (1b/1c/step 2 turned everything else away), so the refusal gives the
+    // money back at the refusal (PR #73 review fix A). `refundedAmount: 2` is
+    // the ROW's `creditsUsed`, not the mock's `amount: 3` — the amount must
+    // come from the thing that was charged.
+    it('REFUSES a paid-empty HEALTH row before anything is spent — and REFUNDS it', async () => {
       const { service, streamers, redis, quota, refundReadingCredit } = buildWith(paidEmpty('HEALTH'));
       await expect(run(service)).rejects.toMatchObject({
-        response: expect.objectContaining({ code: 'READING_TYPE_NOT_STREAMABLE' }),
+        response: expect.objectContaining({
+          code: 'READING_TYPE_NOT_STREAMABLE',
+          refunded: true,
+          refundedAmount: 2,
+          message: expect.stringContaining('點數已退回'),
+        }),
       });
       for (const mock of Object.values(streamers)) expect(mock).not.toHaveBeenCalled();
-      expect(refundReadingCredit).not.toHaveBeenCalled(); // not a self-refusal: the user keeps the row
+      expect(refundReadingCredit).toHaveBeenCalledTimes(1);
+      expect(refundReadingCredit).toHaveBeenCalledWith('reading-h', 'not-streamable:HEALTH');
       expect(redis.incrementRateLimit).not.toHaveBeenCalled(); // no slot taken
       expect(redis.acquireLock).not.toHaveBeenCalled(); // no lock taken
       // "A refusal we issue must not spend the user's daily allowance" — CLAUDE.md.
@@ -289,13 +318,15 @@ describe('BaziService._setupStream — self-refusal refund backstop', () => {
     it('uses a non-ZWDS message for HEALTH — 停用 is the ZWDS wording, not this one', async () => {
       const { service } = buildWith(paidEmpty('HEALTH'));
       await expect(run(service)).rejects.toMatchObject({
-        response: expect.objectContaining({ message: expect.stringContaining('不支援串流生成') }),
+        response: expect.objectContaining({ message: expect.stringContaining('已停止提供') }),
       });
     });
 
     // Test 3 — placement ABOVE S2/S4: with the cap tripped, the type refusal
-    // still wins, and neither the cap nor the quota is consulted. (A row WITH
-    // content cannot pin this — step 2 returns before either check.)
+    // still wins, and neither the cap nor the quota is consulted. The ONE refund
+    // call is 2b's own, not the backstop's — the backstop lives in the catch,
+    // which a 2b throw (outside the `try`) never enters. (A row WITH content
+    // cannot pin this — step 2 returns before either check.)
     it('is placed above the spend cap and the quota — the type refusal wins even when the cap is tripped', async () => {
       const { service, aiSpend, quota, refundReadingCredit } = buildWith(paidEmpty('HEALTH'));
       aiSpend.assertUnderCap.mockRejectedValue(refusal(AI_SPEND_CAP_CODE));
@@ -304,19 +335,76 @@ describe('BaziService._setupStream — self-refusal refund backstop', () => {
       });
       expect(aiSpend.assertUnderCap).not.toHaveBeenCalled();
       expect(quota.consume).not.toHaveBeenCalled();
-      expect(refundReadingCredit).not.toHaveBeenCalled();
+      expect(refundReadingCredit).toHaveBeenCalledTimes(1);
+      expect(refundReadingCredit).toHaveBeenCalledWith('reading-h', 'not-streamable:HEALTH');
     });
 
     // Test 4 — placement BELOW step 2: a paid HEALTH row that already HAS its
-    // (V1) content is still served, never refused.
-    it('still SERVES a paid HEALTH row that already has content', async () => {
-      const { service, streamers } = buildWith(
+    // (V1) content is still served, never refused — and never REFUNDED. This
+    // pins that the refund cannot move above step 2; the helper's own content
+    // check is pinned at the regenerate door (`test/bazi-regenerate.spec.ts`),
+    // the one place a content-bearing row actually reaches it.
+    it('still SERVES a paid HEALTH row that already has content — and refunds NOTHING', async () => {
+      const { service, streamers, refundReadingCredit } = buildWith(
         paidEmpty('HEALTH', { sections: { constitution: { preview: 'p', full: 'f' } } }),
       );
       await expect(run(service)).resolves.toBeUndefined();
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect((service as any).emitStaticSections).toHaveBeenCalled();
       for (const mock of Object.values(streamers)) expect(mock).not.toHaveBeenCalled();
+      expect(refundReadingCredit).not.toHaveBeenCalled();
+    });
+
+    // Test 5 — the refund's own failure must not replace the refusal the client
+    // needs to see. `refunded: false` because the message reports the RESULT:
+    // a refund that threw must not claim money moved. The log carries the error
+    // NAME only — a Prisma error's `.message` can echo query arguments, and the
+    // four pillars are personal data (domain PII rule).
+    it('a FAILED refund does not swallow the refusal — and does not claim a refund', async () => {
+      const { service, refundReadingCredit, logger } = buildWith(paidEmpty('HEALTH'));
+      refundReadingCredit.mockRejectedValue(new Error('db down: SELECT * FROM birth_profiles'));
+      await expect(run(service)).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'READING_TYPE_NOT_STREAMABLE',
+          refunded: false,
+          refundedAmount: 0,
+          message: expect.not.stringContaining('已退回'),
+        }),
+      });
+      const errText = logger.error.mock.calls.flat().join(' ');
+      expect(errText).toContain('reading-h');
+      expect(errText).not.toContain('db down');
+      expect(errText).not.toContain('birth_profiles');
+    });
+
+    // Test 6 — a concurrent caller won `refundReadingCredit`'s atomic guard.
+    // The credits ARE back (the other caller moved them); this response just
+    // must not claim that THIS call did.
+    it('a race-lost refund reports refunded: false', async () => {
+      const { service, refundReadingCredit } = buildWith(paidEmpty('HEALTH'));
+      refundReadingCredit.mockResolvedValue({ refunded: false, amount: 0 });
+      await expect(run(service)).rejects.toMatchObject({
+        response: expect.objectContaining({
+          refunded: false,
+          refundedAmount: 0,
+          message: expect.not.stringContaining('已退回'),
+        }),
+      });
+      expect(refundReadingCredit).toHaveBeenCalledTimes(1);
+    });
+
+    // Test 7 — the helper fails CLOSED on a row whose `creditsUsed` is missing.
+    // Driven DIRECTLY: 1c reads `creditsUsed` too, so no row without it can
+    // reach 2b through `_setupStream` — but the helper is shared with
+    // `regenerateReading`, whose `findFirst` has no such gate in front of it.
+    // `undefined === 0` is false, so an `=== 0` guard would fall through to a
+    // refund it cannot see the charge of (the DO-NOT-select trap).
+    it('fails CLOSED when creditsUsed is absent from the row', async () => {
+      const { service, refundReadingCredit } = buildWith(paidEmpty('HEALTH'));
+      const row = { ...paidEmpty('HEALTH'), creditsUsed: undefined };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await expect((service as any).refundUnservableRow(row, 'not-streamable:HEALTH')).resolves.toBe(false);
+      expect(refundReadingCredit).not.toHaveBeenCalled();
     });
   });
 });

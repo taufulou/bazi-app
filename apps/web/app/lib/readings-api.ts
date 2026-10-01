@@ -16,7 +16,9 @@ import { COMPAT_ROMANCE_V2_SECTION_KEYS } from '../../../../packages/shared/src/
 // Slug → Backend Enum Mapping
 // ============================================================
 
-const READING_TYPE_MAP: Record<string, string> = {
+// Exported for `test/streamable-slugs-parity.spec.ts`, which maps the slug
+// list below through it and compares against the API's enum list.
+export const READING_TYPE_MAP: Record<string, string> = {
   lifetime: 'LIFETIME',
   annual: 'ANNUAL',
   career: 'CAREER',
@@ -526,12 +528,14 @@ export interface AIReadingData {
 }
 
 /**
- * The reading types the API can stream — mirrors `STREAMABLE_READING_TYPES` in
- * `apps/api/src/bazi/dto/create-reading.dto.ts` (enum values). Web cannot import
- * from the API package, so this is a copy; keep the two in sync.
+ * The reading types the API can stream, as frontend SLUGS — the twin of
+ * `STREAMABLE_READING_TYPES` in `apps/api/src/bazi/dto/create-reading.dto.ts`
+ * (enum values). Web cannot import from the API package, so this is a copy;
+ * `test/streamable-slugs-parity.spec.ts` fails the moment the two diverge
+ * (it maps these through `READING_TYPE_MAP` and compares with the API source).
+ * Drives the `stream: true` decision on create — a stale list here omits the
+ * flag and every create of that type is refused with STREAM_REQUIRED.
  */
-export const STREAMABLE_READING_TYPES = ['LIFETIME', 'CAREER', 'ANNUAL', 'LOVE'] as const;
-/** Same set as frontend slugs — drives the `stream: true` decision on create. */
 export const STREAMABLE_READING_SLUGS = ['lifetime', 'career', 'annual', 'love'] as const;
 
 /**
@@ -555,27 +559,19 @@ export const STREAMABLE_READING_SLUGS = ['lifetime', 'career', 'annual', 'love']
  *  - not refunded — the money is already back. `_setupStream` refuses these and
  *    tells the user to create a new reading, which is the correct end state.
  *
- * todo #3 added a FOURTH condition, checked first and failing CLOSED: the
- * row's type must be one the API can stream (`STREAMABLE_READING_TYPES`).
- * A HEALTH or ZWDS row has nothing a stream could produce for it.
+ * todo #3 briefly added a type gate here (fail closed on a HEALTH / ZWDS row).
+ * It was REMOVED in the PR #73 review fixes: the API is the guard —
+ * `_setupStream` step 2b refuses AND REFUNDS a charged-empty row of a type it
+ * cannot stream — so sending such a row to the stream is not a wasted
+ * round-trip, it is how the user gets their credits back (the SSE `error`
+ * event carries `refunded`, and `recoverPaidReading`'s `onError` shows the
+ * refund banner on it). The three conditions above are complete: a refunded
+ * row (`refundedAt`) is the post-refund state and is left alone.
  */
 export function needsInterpretationRecovery(
-  reading: { readingType?: string; creditsUsed: number; refundedAt?: string | null },
+  reading: { creditsUsed: number; refundedAt?: string | null },
   sectionCount: number,
 ): boolean {
-  // Fail CLOSED on type: a row the API has no streamer for must never be sent
-  // to the stream. `_setupStream` used to end in `default: streamLifetimeV2`,
-  // so recovering a HEALTH (or ZWDS) row here generated a 八字終身運 reading
-  // over the wrong chart and PERSISTED it (todo #3). The backend now refuses
-  // such a row too, but refusing here first means no wasted round-trip on a
-  // row that has nothing to recover — and the backend's SSE error would only
-  // stop the spinner (`recoverPaidReading`'s `onError` sets no message).
-  if (
-    !reading.readingType ||
-    !(STREAMABLE_READING_TYPES as readonly string[]).includes(reading.readingType)
-  ) {
-    return false;
-  }
   return sectionCount === 0 && reading.creditsUsed > 0 && !reading.refundedAt;
 }
 
@@ -1166,7 +1162,21 @@ export function streamBaziReading(
     onSummary: (summary: { preview: string; full: string }) => void;
     /** @deprecated — use onFinal. Kept for back-compat with code still listening to `done`. */
     onDone?: (info: { totalSections: number; latencyMs: number }) => void;
-    onError: (error: { message: string; partial?: boolean; code?: string }) => void;
+    /**
+     * `refunded` / `refundedAmount` arrive when `_setupStream` step 2b refused a
+     * charged-empty row and gave the credits back (PR #73 review fix A); `code`
+     * is the typed refusal. All three are picked by name server-side
+     * (`streamReading`) and handed to `onError` untouched by the
+     * `case 'error'` branch below (`callbacks.onError(data)`);
+     * `test/stream-error-payload.spec.ts` pins it.
+     */
+    onError: (error: {
+      message: string;
+      partial?: boolean;
+      code?: string;
+      refunded?: boolean;
+      refundedAmount?: number;
+    }) => void;
     /** Called when AI completes (success/degraded/failed). Replaces onDone. */
     onFinal?: (info: FinalEventPayload) => void;
     /** Called while retrying — for UX status ("AI busy, retrying 2/3..."). */

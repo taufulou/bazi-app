@@ -326,8 +326,11 @@ export class BaziService {
           ),
         };
       }
-      // Otherwise fall through: a degraded / refunded / long-abandoned row is
-      // what `regenerateBaziReading` exists to replace, not something to serve.
+      // Otherwise fall through, not something to serve: a degraded row is what
+      // `regenerateBaziReading` exists to replace; a long-abandoned one is
+      // re-streamed by the web's recovery predicate
+      // (`needsInterpretationRecovery` → `/stream`); a refunded row is refused
+      // there (READING_REFUNDED) and the user creates a new reading.
       // "Long-abandoned" is the key word — a row younger than
       // `firstGenerationInFlightMs()` is caught by the branch above instead.
     }
@@ -579,7 +582,8 @@ export class BaziService {
     // exists to stop coming back:
     //
     // The inline branch ABOVE already ran `assertUnderCap` + `quota.consume`
-    // (`:442`). `consume` increments and refuses at `used > limit`, so the last
+    // (the pair at the top of that branch, just before the V2/V1 generator
+    // dispatch). `consume` increments and refuses at `used > limit`, so the last
     // allowed reading of the day leaves `used === limit` — at which point a
     // second, post-increment `check` (`used >= limit`) refuses it. The AI had
     // already run by then, so the user would lose their final quota unit AND a
@@ -696,9 +700,9 @@ export class BaziService {
     if (!user) throw new NotFoundException('User not found');
 
     // Atomic conditional update — only succeeds if the row is degraded,
-    // not exhausted, and below the limit. Prevents a TOCTOU race where two
-    // concurrent regen requests both pass a check-then-update sequence and
-    // burn an extra free regen.
+    // not exhausted, below the limit, of a streamable type, and not refunded.
+    // Prevents a TOCTOU race where two concurrent regen requests both pass a
+    // check-then-update sequence and burn an extra free regen.
     // CRITICAL: Prisma.DbNull sets the column to SQL NULL (vs Prisma.JsonNull
     // which writes JSONB literal 'null'). undefined would be a no-op.
     const result = await this.prisma.baziReading.updateMany({
@@ -732,16 +736,18 @@ export class BaziService {
         aiModel: null,
         // ⚠️ Deliberately does NOT touch `refundedAt` or `creditsUsed`.
         //
-        // `isDegraded: true` in the WHERE above already means this row was NOT
-        // refunded: `ai.service.ts` computes one exclusive status per attempt
-        // and sets `isDegraded` only on 'degraded', while the refund fires only
-        // on 'failed'. So a refunded reading can never match here — the user
-        // was charged, got partial content, and kept the charge.
+        // `refundedAt: null` in the WHERE above is what guarantees this row was
+        // not refunded — enforced, not inferred. (For rows the pipeline produced
+        // it is also implied by `isDegraded: true`: `ai.service.ts` sets one
+        // exclusive status per attempt and refunds only on 'failed'. That
+        // implication does not survive an operator refund, which is why the
+        // conjunct is there and why this comment no longer leans on it.) The
+        // user was charged, got partial content, and kept the charge.
         //
         // An earlier version of this block cleared `refundedAt` and zeroed
         // `creditsUsed` to close a double-refund it believed regeneration
-        // opened. The clear was a no-op (the column is already null on every
-        // row that matches), and the zeroing was actively harmful: it erased
+        // opened. The clear was a no-op (the WHERE already requires the column
+        // to be null), and the zeroing was actively harmful: it erased
         // the record of a real charge, so if the regenerated stream also failed,
         // `refundReadingCredit`'s `creditsUsed > 0` guard blocked the refund and
         // the user silently ate the credits they had paid.
@@ -755,15 +761,26 @@ export class BaziService {
       });
       if (!reading) throw new NotFoundException('Reading not found');
       // Checked BEFORE the isDegraded/exhausted answers: those would describe a
-      // row this endpoint is never going to regenerate. Not a self-refusal —
-      // the user keeps whatever the row holds (the WHERE above never touched it).
+      // row this endpoint is never going to regenerate. The WHERE above never
+      // touched the row. If it holds content (a pre-fix degraded HEALTH row
+      // narrated by `streamLifetimeV2`) the user keeps it — no refund. If it is
+      // charged-and-EMPTY, nothing can ever be generated for it: refund at the
+      // refusal, same rule and same helper as `_setupStream` step 2b. The
+      // message carries the receipt — this route is a plain `@Post`, and
+      // `AllExceptionsFilter` forwards only `statusCode`/`code`/`message`/
+      // `error`/`timestamp`/`path`, never `refunded`, so a `refunded` field
+      // here would never reach a client. ⚠️ Checked BEFORE `refundedAt`
+      // on purpose (parent plan § 3.7): a refunded non-streamable row answers
+      // with the TYPE code and no second refund (the helper returns false on
+      // `refundedAt`), pinned by `test/bazi-regenerate.spec.ts`.
       if (!(STREAMABLE_READING_TYPES as readonly ReadingType[]).includes(reading.readingType)) {
         this.logger.warn(
           `[Regenerate] REFUSED reading=${readingId} user=${user.id} type=${reading.readingType} — no streamer for this type`,
         );
+        const refunded = await this.refundUnservableRow(reading, `not-streamable:${reading.readingType}`);
         throw new BadRequestException({
           code: 'READING_TYPE_NOT_STREAMABLE',
-          message: '此類型分析不支援重新生成。',
+          message: '此類型分析不支援重新生成' + (refunded ? '，點數已退回。' : '。'),
         });
       }
       if (reading.refundedAt) {
@@ -927,8 +944,28 @@ export class BaziService {
       this._setupStream(clerkUserId, readingId, subscriber)
         .catch((err) => {
           const message = err instanceof Error ? err.message : 'Stream setup failed';
+          // Typed fields a client can act on, picked by NAME. An exception built
+          // from an object (`new BadRequestException({code, …})`) has exactly
+          // that object as its response; one built from a STRING
+          // (`new ConflictException('…')`, step 3) has `{message, error,
+          // statusCode}` — never spread, or those leak onto the wire. The web
+          // branches on `refunded` (step 2b's receipt); `code` rides along for
+          // every typed refusal on this route. `test/reading-paywall.spec.ts`
+          // pins the exact payload for both shapes.
+          const resp = err instanceof HttpException ? err.getResponse() : null;
+          const t =
+            resp && typeof resp === 'object'
+              ? (resp as { code?: string; refunded?: boolean; refundedAmount?: number })
+              : {};
           subscriber.next({
-            data: JSON.stringify({ message }),
+            data: JSON.stringify({
+              message,
+              ...(t.code !== undefined && { code: t.code }),
+              ...(t.refunded !== undefined && {
+                refunded: t.refunded,
+                refundedAmount: t.refundedAmount ?? 0,
+              }),
+            }),
             type: 'error',
           } as MessageEvent);
           subscriber.complete();
@@ -968,6 +1005,62 @@ export class BaziService {
     );
   }
 
+  /**
+   * A row we REFUSE to generate for, that holds no content, and was charged:
+   * give the credits back at the point of refusal (CLAUDE.md § "A refusal WE
+   * issue must not leave the user charged"). Two doors call this — `_setupStream`
+   * step 2b and `regenerateReading`'s type refusal — with the same predicate.
+   *
+   * Returns true only when THIS call moved the money. False when there was
+   * nothing to refund (content present / never charged / already refunded), when
+   * a concurrent caller won `refundReadingCredit`'s atomic guard, or when the
+   * refund THREW — logged at ERROR and swallowed, because the caller's refusal
+   * must reach the client (a lost refund is findable in the log; a swallowed
+   * refusal is not). ⚠️ Logs the error NAME only, never `.message` — a Prisma
+   * error can echo query arguments (domain PII rule).
+   *
+   * The predicate re-checks conditions that are true BY CONSTRUCTION at 2b
+   * (1b/1c/step 2 have already run). Deliberate: at the regenerate door they are
+   * NOT by construction — a degraded HEALTH row with partial content reaches it
+   * — and a helper that trusts its caller is the "well-covered helper behind
+   * untested wiring" shape. The `aiInterpretation` conjunct is load-bearing only
+   * there, which is where `test/bazi-regenerate.spec.ts` pins it.
+   *
+   * ⚠️ `!(creditsUsed > 0)`, not `creditsUsed === 0`: fails CLOSED on a row
+   * whose `creditsUsed` is missing (`undefined === 0` is false — the trap
+   * `_setupStream`'s DO-NOT-select note describes). A refund must never fire on
+   * a row this code cannot see the charge of.
+   */
+  private async refundUnservableRow(
+    reading: {
+      id: string;
+      userId: string;
+      readingType: ReadingType;
+      creditsUsed: number;
+      refundedAt: Date | null;
+      aiInterpretation: unknown;
+    },
+    reason: string,
+  ): Promise<boolean> {
+    if (reading.aiInterpretation || !(reading.creditsUsed > 0) || reading.refundedAt) return false;
+    try {
+      const r = await this.creditsService.refundReadingCredit(reading.id, reason);
+      if (r.refunded) {
+        this.logger.warn(
+          `[Refund] ${r.amount} credits returned for reading=${reading.id} user=${reading.userId} ` +
+            `type=${reading.readingType} — ${reason}`,
+        );
+      }
+      return r.refunded;
+    } catch (err) {
+      this.logger.error(
+        `[Refund] FAILED for reading=${reading.id} user=${reading.userId} (${reason}): ` +
+          `${err instanceof Error ? err.name : 'unknown'}`,
+      );
+      return false;
+    }
+  }
+
   private async _setupStream(
     clerkUserId: string,
     readingId: string,
@@ -1003,11 +1096,13 @@ export class BaziService {
     //   • that generation bypasses the regeneration counter entirely, since the
     //     3-per-reading cap is enforced in `regenerateReading`, not here.
     // The legitimate path forward is a NEW reading, not regeneration.
-    // `regenerateReading` matches only `isDegraded: true`, and a refunded row is
-    // never degraded (one exclusive status per attempt), so it would answer
-    // 「此分析狀態正常，無需重新生成」 — and the web UI doesn't render the
-    // regenerate control for a non-degraded reading anyway. The user has their
-    // credits back, so `POST /readings` creates and charges a fresh row: all
+    // `regenerateReading` refuses a refunded row explicitly (`READING_REFUNDED`,
+    // checked ahead of its degraded/exhausted answers, and `refundedAt: null`
+    // is in its atomic WHERE) — it does not rely on "a refunded row is never
+    // degraded", which is only true of rows the pipeline produced (an operator
+    // can refund a degraded row by hand, plan § 6). The web UI does not render
+    // the regenerate control for a non-degraded reading anyway. The user has
+    // their credits back, so `POST /readings` creates and charges a fresh row: all
     // three reuse branches require `refundedAt === null`, so the refunded row is
     // correctly skipped rather than handed back.
     if (reading.refundedAt) {
@@ -1071,20 +1166,37 @@ export class BaziService {
     // served by `emitStaticSections` above and never gets here. Placed BEFORE
     // step 3 so a refusal takes no slot, no lock and no quota.
     //
-    // ⚠️ NOT a self-refusal (nothing we control failed; the row simply cannot
-    // be regenerated), so the refund backstop in the catch below does not fire:
-    // the user keeps whatever the row holds. On this `@Sse` route the caller
-    // sees `event: error` with only the message; the `code` is for the specs.
+    // ⚠️ Every row that reaches this line is CHARGED and EMPTY — not "keeps
+    // whatever it holds". 1b turned away the refunded rows, 1c the never-paid
+    // ones, step 2 the ones with content. A refusal we issue on a charged row
+    // must give the money back HERE, at the refusal (CLAUDE.md § "A refusal WE
+    // issue must not leave the user charged"). This is the only PERMANENT
+    // product refusal on a charged row in this method (3 and 3b below are
+    // transient — the row stays recoverable — and also sit outside the `try`;
+    // the dispatcher's `default:` is a code-drift error, not a product
+    // refusal — see its comment); it sits
+    // OUTSIDE the `try` on purpose (nothing to release), so the refund backstop
+    // in the catch never sees it, self-refusal or not. Refund BEFORE the throw.
+    // Idempotent: `refundReadingCredit` guards atomically, so two tabs opening
+    // the same row refund once. The message reports the helper's RESULT, not
+    // the intent — a refund that threw or lost the race does not claim money
+    // moved. On this `@Sse` route the client sees `event: error` with
+    // `{message, code, refunded, refundedAmount}` (see `streamReading`); the
+    // web reuses its AI-failure refund banner on `refunded`.
     if (!(STREAMABLE_READING_TYPES as readonly ReadingType[]).includes(reading.readingType)) {
       this.logger.warn(
         `[Stream] REFUSED reading=${readingId} user=${user.id} type=${reading.readingType} — ` +
           `no streamer for this type; would have generated LIFETIME over its data`,
       );
+      const refunded = await this.refundUnservableRow(reading, `not-streamable:${reading.readingType}`);
       throw new BadRequestException({
         code: 'READING_TYPE_NOT_STREAMABLE',
-        message: reading.readingType.startsWith('ZWDS')
-          ? '紫微斗數功能已停用，此報告無法重新生成。'
-          : '此類型分析不支援串流生成，無法重新生成。',
+        refunded,
+        refundedAmount: refunded ? reading.creditsUsed : 0,
+        message:
+          (reading.readingType.startsWith('ZWDS')
+            ? '紫微斗數功能已停用，此報告無法生成'
+            : '此類型分析已停止提供，無法生成') + (refunded ? '，點數已退回。' : '。'),
       });
     }
 
@@ -1210,7 +1322,11 @@ export class BaziService {
           // catch below releases the slot and lock, does not refund (a plain
           // Error is not a self-refusal), and `streamReading` turns the throw
           // into an SSE `event: error` over HTTP 200 — there is no 500 on this
-          // route, so the log line is the operator's signal.
+          // route, so the log line is the operator's signal. Deliberately NOT
+          // refunded (PR #73 review, finding I): this is code drift on a type
+          // that SHOULD stream, and the standard recovery path fixes the row
+          // the moment a `case` is added — a refund here would foreclose that.
+          // The refund for a type we will never generate for lives at step 2b.
           this.logger.error(
             `[Stream] UNREACHABLE reading=${readingId} user=${user.id} type=${reading.readingType} — ` +
               `passed the streamable allowlist but has no case in the dispatcher`,

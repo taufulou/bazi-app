@@ -170,10 +170,7 @@
   },
   "test/bazi-regenerate.spec.ts": {
     "@typescript-eslint/no-explicit-any": {
-      "count": 5
-    },
-    "@typescript-eslint/no-unused-vars": {
-      "count": 1
+      "count": 4
     }
   },
   "test/chat-payment-integration.spec.ts": {

@@ -180,7 +180,7 @@ test.describe('Pricing Page', () => {
     await expect(page.getByText('命盤視覺化圖表')).toBeVisible();
 
     // Pro plan features
-    await expect(page.getByText('全部 6 種解讀類型')).toBeVisible();
+    await expect(page.getByText('全部 5 種解讀類型')).toBeVisible();
     await expect(page.getByText('PDF 報告匯出').first()).toBeVisible();
 
     // Master plan features
