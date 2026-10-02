@@ -122,7 +122,8 @@ Read `load-test/README.md` in full before running anything. The expensive ones:
   anyway**, so setting it redirects every call while our own override reports
   `null`. Read **`aiBaseUrlEffective`** on `GET /api/admin/ops` (the resolved
   `client.baseURL`) — it is the only value that cannot lie about where AI
-  traffic is going. `node load-test/ops.mjs` prints an ARMED / NOT ARMED verdict.
+  traffic is going. `node load-test/ops.mjs` samples every replica and prints
+  ARMED / NOT ARMED / PARTIALLY ARMED / INCONCLUSIVE / NOT CONFIRMED.
 - **Unset `LOADTEST_ANTHROPIC_BASE_URL` BEFORE deleting the mock service.**
   Reversed, every reading fails looking exactly like an Anthropic outage.
 - **`MOCK_USAGE_SCALE=1` drives the REAL spend ledger.** The S2 breaker trips

@@ -1,4 +1,11 @@
-import { BaziService } from './bazi.service';
+import {
+  BaziService,
+  ENGINE_CALCULATE_TIMEOUT_MS,
+  ENGINE_CALCULATE_HEAVY_TIMEOUT_MS,
+  ENGINE_COMPAT_TIMEOUT_MS,
+  READING_CREATE_LOCK_TTL_SECONDS,
+  COMPARISON_CREATE_LOCK_TTL_SECONDS,
+} from './bazi.service';
 import {
   AIService,
   AI_MAX_TOTAL_TIME_MS,
@@ -192,8 +199,12 @@ describe('generation wall-clock bounds', () => {
     // the helper, so nothing above would have caught it.
     const USER_ID = 'user-1';
 
+    let lastCompatRelease: jest.Mock;
+
     async function ttlPassedToCompatLock(aiSvc: AIService): Promise<number> {
-      const acquireLock = jest.fn().mockResolvedValue(true);
+      // #23 — an ownership TOKEN, so the release can be checked against it.
+      const acquireLock = jest.fn().mockResolvedValue('tok-reveal');
+      lastCompatRelease = jest.fn().mockResolvedValue(true);
       const comparison = {
         id: 'cmp-1', userId: USER_ID, aiInterpretation: null, paidAt: null,
         comparisonType: 'ROMANCE', calculationData: {},
@@ -208,7 +219,7 @@ describe('generation wall-clock bounds', () => {
           getCachedInterpretation: jest.fn().mockResolvedValue(null),
         }),
         logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
-        redis: { acquireLock, releaseLock: jest.fn().mockResolvedValue(undefined) },
+        redis: { acquireLock, releaseLock: lastCompatRelease },
         prisma: {
           user: { findUnique: jest.fn().mockResolvedValue({ id: USER_ID }) },
           baziComparison: {
@@ -236,6 +247,11 @@ describe('generation wall-clock bounds', () => {
       const ttl = await ttlPassedToCompatLock(aiSvc);
       expect(ttl * 1000).toBeGreaterThan(expected);
       expect(ttl).toBe(Math.ceil(expected / 1000) + 60);
+    });
+
+    it('releases the reveal lock with the token its acquisition returned (#23)', async () => {
+      await ttlPassedToCompatLock(ai({ AI_COMPAT_V2_TIMEOUT_MS: '300000' }, 3));
+      expect(lastCompatRelease).toHaveBeenCalledWith('ai:generate:comparison:cmp-1', 'tok-reveal');
     });
 
     it('is no longer the hardcoded 60s that expired on any slow reveal', async () => {
@@ -271,6 +287,110 @@ describe('generation wall-clock bounds', () => {
       const aiSvc = ai({ AI_STREAM_TIMEOUT_MS: '300000' });
       const lockTtlMs = (Math.ceil(aiSvc.getMaxStreamedGenerationMs() / 1000) + 60) * 1000;
       expect(build(aiSvc)()).toBe(lockTtlMs);
+    });
+  });
+
+  describe('BaziService create-lock TTLs (C1)', () => {
+    // The two create locks were hardcoded 30s while the engine call they hold
+    // takes up to 45s (CAREER/LOVE). `createReading` checks for a reusable row
+    // BEFORE the engine call and inserts AFTER it, and `BaziReading` has no
+    // unique constraint — so a lock that lapsed mid-engine let a double-submit
+    // in, and both requests inserted and charged.
+    const USER_ID = 'user-1';
+    const profile = {
+      id: 'p-1', userId: USER_ID, birthDate: new Date('1990-01-01'), birthTime: '08:00',
+      hourKnown: true, birthCity: 'X', birthTimezone: 'Asia/Taipei',
+      birthLongitude: null, birthLatitude: null, gender: 'MALE',
+    };
+
+    function build() {
+      // false -> 409 the moment the TTL has been handed to Redis.
+      const acquireLock = jest.fn().mockResolvedValue(false);
+      const service = Object.create(BaziService.prototype) as BaziService;
+      Object.assign(service, {
+        logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() },
+        prisma: {
+          user: { findUnique: jest.fn().mockResolvedValue({ id: USER_ID, credits: 99, subscriptionTier: 'FREE' }) },
+          birthProfile: { findFirst: jest.fn().mockResolvedValue(profile) },
+          service: { findFirst: jest.fn().mockResolvedValue({ creditCost: 3, type: 'CAREER' }) },
+          baziComparison: { findFirst: jest.fn().mockResolvedValue(null) },
+        },
+        redis: { acquireLock, releaseLock: jest.fn().mockResolvedValue(true) },
+      });
+      return { service, acquireLock };
+    }
+
+    const ttlFor = (acquireLock: jest.Mock, prefix: string): number => {
+      const call = acquireLock.mock.calls.find((c: unknown[]) => String(c[0]).startsWith(prefix));
+      expect(call).toBeDefined();
+      return call![1] as number;
+    };
+
+    it('reading:create receives the derived 105s, not the old 30s', async () => {
+      const { service, acquireLock } = build();
+      await expect(
+        service.createReading('clerk_1', { birthProfileId: 'p-1', readingType: 'CAREER' } as never),
+      ).rejects.toThrow(/already being created/);
+      expect(ttlFor(acquireLock, 'reading:create:')).toBe(105);
+    });
+
+    it('comparison:create receives the derived 90s, not the old 30s', async () => {
+      const { service, acquireLock } = build();
+      await expect(
+        service.createComparison('clerk_1', {
+          profileAId: 'p-1', profileBId: 'p-2', comparisonType: 'ROMANCE',
+        } as never),
+      ).rejects.toThrow(/already being created/);
+      expect(ttlFor(acquireLock, 'comparison:create:')).toBe(90);
+    });
+
+    it('each create lock outlives the engine timeout of the work it holds', () => {
+      // Catches a margin cut to <= 0. (A raised engine timeout raises the TTL
+      // with it — the derivation is the point — and is caught by the exact
+      // 105/90 checks above instead.)
+      expect(READING_CREATE_LOCK_TTL_SECONDS * 1000).toBeGreaterThan(ENGINE_CALCULATE_HEAVY_TIMEOUT_MS);
+      expect(READING_CREATE_LOCK_TTL_SECONDS * 1000).toBeGreaterThan(ENGINE_CALCULATE_TIMEOUT_MS);
+      expect(COMPARISON_CREATE_LOCK_TTL_SECONDS * 1000).toBeGreaterThan(ENGINE_COMPAT_TIMEOUT_MS);
+    });
+
+    describe('the engine calls use the SAME constants the locks are derived from', () => {
+      const realFetch = global.fetch;
+      let timeoutSpy: jest.SpyInstance;
+
+      beforeEach(() => {
+        timeoutSpy = jest.spyOn(AbortSignal, 'timeout');
+        global.fetch = jest.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({ data: {} }),
+        }) as unknown as typeof fetch;
+      });
+      afterEach(() => {
+        timeoutSpy.mockRestore();
+        global.fetch = realFetch;
+      });
+
+      function engineService() {
+        const service = Object.create(BaziService.prototype) as BaziService;
+        Object.assign(service, { baziEngineUrl: 'http://engine' });
+        return service;
+      }
+
+      it.each([
+        ['CAREER', ENGINE_CALCULATE_HEAVY_TIMEOUT_MS],
+        ['LOVE', ENGINE_CALCULATE_HEAVY_TIMEOUT_MS],
+        ['LIFETIME', ENGINE_CALCULATE_TIMEOUT_MS],
+        ['ANNUAL', ENGINE_CALCULATE_TIMEOUT_MS],
+      ])('/calculate for %s aborts at its named constant', async (readingType, expected) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (engineService() as any).callBaziEngine(profile, { readingType, targetYear: 2026 });
+        expect(timeoutSpy).toHaveBeenCalledWith(expected);
+      });
+
+      it('/compatibility aborts at ENGINE_COMPAT_TIMEOUT_MS', async () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (engineService() as any).callBaziCompatibility(profile, profile, { comparisonType: 'ROMANCE' });
+        expect(timeoutSpy).toHaveBeenCalledWith(ENGINE_COMPAT_TIMEOUT_MS);
+      });
     });
   });
 });

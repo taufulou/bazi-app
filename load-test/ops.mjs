@@ -13,9 +13,27 @@
  *
  *   export CLERK_SECRET_KEY=sk_live_...
  *   node load-test/ops.mjs --api https://<api-host> --fapi clerk.tianmingapp.com
+ *
+ * Verdicts: 🟠 ARMED (every replica points at the mock — the only safe state to
+ * start k6), 🟢 NOT ARMED (every replica answered, none is armed, and each has a
+ * built client on api.anthropic.com — the only passing teardown), 🟠 PARTIALLY
+ * ARMED, 🟡 INCONCLUSIVE (a replica never answered, or a deploy is mid-roll), 🟡
+ * NOT CONFIRMED (a replica has not built an Anthropic client yet — make AI calls
+ * until each replica has served one, then re-run). Run it AFTER the redeploy that applies a variable change has
+ * finished — Railway stages variable edits until deployed.
+ *
+ * #24 — `rateLimit`, `pools` and `aiBaseUrlEffective` are what ONE replica
+ * observed, so the answers are grouped by `instance.replicaId`. By DEFAULT the
+ * script keeps sampling (paced, at most 20 — the admin controller is throttled
+ * at 30/min) until every expected replica has answered; `--samples N` takes
+ * exactly N instead, e.g. to watch the counters over time.
+ *
+ * All decisions and output live in `ops-report.mjs` (pure, tested by
+ * apps/api/test/ops-report.spec.ts); this file only fetches and prints.
  */
 import { createClerkClient } from '@clerk/backend';
 import { mintForUser, resolveFapiHost } from './clerk-auth.mjs';
+import { SAMPLES_MAX, needMoreSamples, render } from './ops-report.mjs';
 
 const arg = (f, d = null) => {
   const i = process.argv.indexOf(`--${f}`);
@@ -39,71 +57,42 @@ for (let offset = 0; ; offset += 100) {
 }
 if (!admin) { console.error('No user has publicMetadata.role === "admin".'); process.exit(1); }
 
+// No --samples → AUTO (sample until every replica has answered); --samples N → exactly N.
+const samplesArg = arg('samples');
+const samplesRaw = samplesArg === null ? null : Number.parseInt(samplesArg, 10);
+const explicit = samplesArg === null ? null : Math.max(1, Number.isFinite(samplesRaw) ? samplesRaw : 1);
+if (explicit !== null && explicit > SAMPLES_MAX) {
+  console.log(`  (--samples capped at ${SAMPLES_MAX}: the admin endpoint is throttled at 30/min)`);
+}
+
 const { jwt } = await mintForUser(clerk, admin.id, { ttl: 600, fapi: FAPI });
-const res = await fetch(`${API}/api/admin/ops`, { headers: { Authorization: `Bearer ${jwt}` } });
-if (!res.ok) { console.error(`GET /api/admin/ops -> ${res.status}`, await res.text()); process.exit(1); }
-const ops = await res.json();
-
-const eff = ops.aiBaseUrlEffective;
-const override = ops.aiBaseUrlOverride;
-
-// ⚠️ A MISSING field is not a null field, and conflating them cost three rounds
-// of diagnosis. Production was running code from before `aiBaseUrlEffective`
-// existed, so the response simply had no such key — and this script rendered
-// that identically to "present, but no client built yet". Both readings were
-// honest; both were useless.
-//
-// Same for the override: if the deployed API predates the rename it reads
-// `ANTHROPIC_BASE_URL`, so setting `LOADTEST_ANTHROPIC_BASE_URL` is inert and
-// reports null forever, which looks exactly like not having set it.
-const missingEffective = !('aiBaseUrlEffective' in ops);
-const missingOverride = !('aiBaseUrlOverride' in ops);
-if (missingEffective || missingOverride) {
-  console.log('');
-  console.log('  ⚠️  THE DEPLOYED API IS OLDER THAN THIS SCRIPT.');
-  console.log(`     /api/admin/ops did not return ${missingEffective ? 'aiBaseUrlEffective' : ''}` +
-    `${missingEffective && missingOverride ? ' or ' : ''}${missingOverride ? 'aiBaseUrlOverride' : ''}.`);
-  console.log('     That field ships with the load-test switch, so the running code');
-  console.log('     probably predates the rename and reads ANTHROPIC_BASE_URL instead.');
-  console.log('     Setting LOADTEST_ANTHROPIC_BASE_URL against it does nothing at all.');
-  console.log('     Deploy the current branch before trusting anything below.');
+// `fetch` handles both http:// (a local API on :4000) and https:// (Railway).
+async function readOps() {
+  try {
+    const res = await fetch(`${API}/api/admin/ops`, { headers: { Authorization: `Bearer ${jwt}` } });
+    if (!res.ok) return { ok: false, status: res.status, text: await res.text() };
+    const body = await res.json();
+    if (typeof body !== 'object' || body === null) return { ok: false, status: 'non-object body', text: '' };
+    return { ok: true, body };
+  } catch (err) {
+    // A network error (reset, DNS) must not throw away the samples in hand.
+    return { ok: false, status: `network error: ${err?.cause?.code ?? err?.message ?? err}`, text: '' };
+  }
 }
 
-// ⚠️ Both signals, because either alone gets it wrong in a dangerous direction.
-//
-// `effective` is null until a client is built on the replica that served this
-// request — clients are lazy and there are 2 replicas. Judging on it alone
-// reports NOT ARMED while the variable IS set, which at teardown reads as a
-// false all-clear.
-//
-// `override` alone misses the other case: the SDK honours a bare
-// ANTHROPIC_BASE_URL of its own accord, which redirects traffic while our
-// override stays null.
-const redirected = !!eff && !eff.includes('api.anthropic.com');
-const armed = redirected || !!override;
-const uncertain = !eff && !override;
-
-console.log('');
-console.log(armed
-  ? '  🟠 ARMED — AI traffic is going to the MOCK, not to Anthropic.'
-  : uncertain
-    ? '  🟢 NOT ARMED — no override set, and no client built yet to confirm against.'
-    : '  🟢 NOT ARMED — AI traffic is going to the real Anthropic API.');
-console.log('');
-console.log(`  aiBaseUrlEffective : ${eff ?? '(no client built yet on this replica)'}`);
-console.log(`  aiBaseUrlOverride  : ${ops.aiBaseUrlOverride ?? 'null'}`);
-console.log('');
-console.log(`  replicas           : ${ops.replicas}`);
-console.log(`  pools.reading      : inFlight=${ops.pools.reading.inFlight} limit=${ops.pools.reading.limit} peak=${ops.pools.reading.peak}`);
-console.log(`  pools.interactive  : inFlight=${ops.pools.interactive.inFlight} limit=${ops.pools.interactive.limit} peak=${ops.pools.interactive.peak}`);
-console.log(`  spend today        : $${ops.spend.dayUsd ?? '?'} / $${ops.spend.dayLimitUsd} (${ops.spend.dayPct ?? '?'}%)`);
-console.log(`  breaker            : ${ops.breaker.trippedOn ?? 'healthy'}`);
-console.log(`  rate limit         : ${ops.rateLimit.outputTokensRemaining ?? '(not yet observed)'} output tokens left`);
-console.log('');
-
-if (eff === null) {
-  console.log('  ⚠️  Null means no Anthropic client has been built on the replica that');
-  console.log('     served this request — not that nothing is overridden. There are');
-  console.log(`     ${ops.replicas} replicas; run this again, or after one AI call, to be sure.`);
-  console.log('');
+// Collect samples. A 429 (or any later failure) STOPS sampling and reports what
+// was already collected — it must not throw away the readings in hand.
+const samples = [];
+while (needMoreSamples(samples, { explicit })) {
+  if (samples.length > 0) await new Promise((r) => setTimeout(r, 250));
+  const r = await readOps();
+  if (r.ok) { samples.push(r.body); continue; }
+  if (samples.length === 0) { console.error(`GET /api/admin/ops -> ${r.status}`, r.text); process.exit(1); }
+  console.log(r.status === 429
+    ? `  ⚠️  Throttled (429) after ${samples.length} sample(s) — the admin endpoint allows 30/min.` +
+      ' Reporting what was collected; wait 60s before running again.'
+    : `  ⚠️  Sample ${samples.length + 1} failed (${r.status}); reporting the ${samples.length} collected.`);
+  break;
 }
+
+for (const line of render(samples)) console.log(line);

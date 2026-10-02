@@ -78,6 +78,89 @@ describe('absorbRateLimitHeaders', () => {
   });
 });
 
+describe('response counters — a null gauge must explain itself (#24)', () => {
+  beforeEach(() => resetRateLimitSnapshot());
+
+  it('starts at zero: "this replica has made no Anthropic call yet"', () => {
+    expect(getRateLimitSnapshot()).toMatchObject({
+      requestsStarted: 0, transportErrors: 0,
+      responsesSeen: 0, okWithoutHeaders: 0, lastResponseAt: null, lastResponseStatus: null,
+    });
+  });
+
+  it('a call that gets NO HTTP response counts as a transport error, and still rejects unchanged', async () => {
+    // Without this a replica whose every call fails at the network level (DNS,
+    // ECONNREFUSED, a stale load-test mock URL, a timeout before headers) shows
+    // responsesSeen == 0 — exactly what an IDLE replica shows.
+    const boom = new Error('getaddrinfo ENOTFOUND mock-anthropic.railway.internal');
+    const wrapped = observeRateLimits(async () => {
+      throw boom;
+    });
+    await expect(wrapped('https://api.anthropic.com/v1/messages')).rejects.toBe(boom);
+    expect(getRateLimitSnapshot()).toMatchObject({
+      requestsStarted: 1, transportErrors: 1, responsesSeen: 0, observedAt: null,
+    });
+  });
+
+  it('a call that DOES get a response is started but not a transport error', async () => {
+    const wrapped = observeRateLimits(async () => new Response('', { status: 200, headers: FULL }));
+    await wrapped('https://api.anthropic.com/v1/messages');
+    expect(getRateLimitSnapshot()).toMatchObject({ requestsStarted: 1, transportErrors: 0, responsesSeen: 1 });
+  });
+
+  it('a 2xx WITHOUT the headers counts as okWithoutHeaders — capture is broken', () => {
+    absorbRateLimitHeaders(headers({ 'content-type': 'application/json' }), 200);
+    const s = getRateLimitSnapshot();
+    expect(s.responsesSeen).toBe(1);
+    expect(s.okWithoutHeaders).toBe(1);
+    expect(s.observedAt).toBeNull();
+    expect(s.lastResponseStatus).toBe(200);
+    expect(s.lastResponseAt).toEqual(expect.any(Number));
+  });
+
+  it('an error page WITHOUT the headers is NOT a capture bug — only responsesSeen moves', () => {
+    absorbRateLimitHeaders(headers({}), 502);
+    const s = getRateLimitSnapshot();
+    expect(s.responsesSeen).toBe(1);
+    expect(s.okWithoutHeaders).toBe(0);
+    expect(s.observedAt).toBeNull();
+    expect(s.lastResponseStatus).toBe(502);
+  });
+
+  it('a response WITH headers counts as seen and keeps okWithoutHeaders at 0', () => {
+    absorbRateLimitHeaders(headers(FULL), 200);
+    expect(getRateLimitSnapshot()).toMatchObject({ responsesSeen: 1, okWithoutHeaders: 0 });
+  });
+
+  it('flags a STALE reading: captured once, then successful responses lose the headers', () => {
+    absorbRateLimitHeaders(headers(FULL), 200);
+    absorbRateLimitHeaders(headers({}), 200);
+    const s = getRateLimitSnapshot();
+    expect(s.observedAt).not.toBeNull(); // the old reading is still shown…
+    expect(s.okWithoutHeaders).toBe(1); // …and this says it may be stale
+    expect(s.responsesSeen).toBe(2);
+  });
+
+  it('the wrapper counts every request it starts and every response it sees', async () => {
+    const wrapped = observeRateLimits(async () => new Response('', { status: 200 }));
+    await wrapped('https://api.anthropic.com/v1/messages');
+    await wrapped('https://api.anthropic.com/v1/messages');
+    expect(getRateLimitSnapshot()).toMatchObject({ requestsStarted: 2, responsesSeen: 2 });
+  });
+
+  it('reset clears the counters too', async () => {
+    absorbRateLimitHeaders(headers({}), 200);
+    await observeRateLimits(async () => {
+      throw new Error('x');
+    })('u').catch(() => undefined);
+    resetRateLimitSnapshot();
+    expect(getRateLimitSnapshot()).toMatchObject({
+      requestsStarted: 0, transportErrors: 0,
+      responsesSeen: 0, okWithoutHeaders: 0, lastResponseAt: null, lastResponseStatus: null,
+    });
+  });
+});
+
 describe('observeRateLimits', () => {
   beforeEach(() => resetRateLimitSnapshot());
 

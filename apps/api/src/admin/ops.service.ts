@@ -8,6 +8,7 @@ import { getRateLimitSnapshot, type RateLimitSnapshot } from '../ai/anthropic-ra
 import { anthropicBaseUrlOverride, effectiveAnthropicBaseUrl } from '../ai/anthropic-client';
 import { parseReplicaCount } from '../common/replica-count';
 import { resolveAlertingStatus, type AlertingStatus } from '../common/alerting-status';
+import { resolveInstanceIdentity, type InstanceIdentity } from '../common/instance-identity';
 
 /**
  * Ob2 — one read-only view of every AI spend control at once.
@@ -32,13 +33,19 @@ import { resolveAlertingStatus, type AlertingStatus } from '../common/alerting-s
  *
  * | Section | Scope | Read it as |
  * |---|---|---|
+ * | `instance` | THIS process | which replica answered — attributes every per-process field below. |
  * | `pools` | THIS process | one replica's share. `replicas` is included precisely so it can be multiplied. |
  * | `spend` | fleet | Redis-backed, authoritative. |
  * | `quota` | fleet | Redis-backed, authoritative. |
- * | `rateLimit` | account | the same underlying budget every replica sees. |
+ * | `breaker` | fleet | derived from `spend`. |
+ * | `rateLimit` | account-wide VALUE, per-replica OBSERVATION | the budget is the account's, but a replica only knows what its OWN Anthropic responses told it. A replica that has made no call since `instance.startedAt` reports `null` — read `rateLimit.requestsStarted` / `transportErrors` / `responsesSeen` (table in `anthropic-rate-limit.ts`). |
+ * | `aiBaseUrlEffective` | THIS process | `null` until this replica has built a client. |
+ * | `aiBaseUrlOverride` | THIS process | read from this process's env (normally identical on every replica). |
+ * | `alerting` | THIS process | whether THIS process's Sentry client is armed. |
  *
  * Getting this wrong in the other direction is the trap: `pools.reading.limit`
- * of 12 on a 2-replica fleet is a fleet ceiling of 25, not of 12.
+ * of 12 on a 2-replica fleet is a fleet ceiling of 25, not of 12. And the
+ * reverse: a `null` gauge on one replica says nothing about the other.
  */
 
 const QUOTA_KINDS: QuotaKind[] = ['reading', 'chat', 'fortune'];
@@ -63,6 +70,13 @@ export interface QuotaConsumer {
 
 export interface OpsSnapshot {
   generatedAt: string;
+  /**
+   * #24 — which replica produced THIS snapshot. Every per-process section
+   * (`pools`, `rateLimit`, `aiBaseUrlEffective`, `alerting`) describes this
+   * process only; without the identity, repeating the request cannot tell
+   * "the other replica" from "the same one again".
+   */
+  instance: InstanceIdentity;
   /** M8 — the divisor the in-process pool limits were derived with. */
   replicas: number;
   /**
@@ -159,6 +173,7 @@ export class OpsService {
 
     return {
       generatedAt: new Date().toISOString(),
+      instance: resolveInstanceIdentity(),
       replicas: parseReplicaCount(this.config.get<string | number>('REPLICA_COUNT')),
       alerting: resolveAlertingStatus(),
       pools: this.governor.snapshot(),

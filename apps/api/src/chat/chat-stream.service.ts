@@ -52,14 +52,34 @@ const CHAT_RECENT_MESSAGES_FOR_PROMPT = 10;
  *  stream + refund. Per plan Layer 6 streaming pipeline step 10. */
 const STREAM_WATCHDOG_MS = 60_000;
 
-/** Anthropic SDK timeout. Hard ceiling for the entire stream duration. */
+/**
+ * Anthropic SDK `timeout` option for the chat stream.
+ *
+ * ⚠️ This is NOT a ceiling on the whole stream (corrected 2026-10-01, todo #26).
+ * It is a PER-ATTEMPT bound on time-to-HEADERS: the SDK's `fetchWithTimeout`
+ * clears its timer as soon as `fetch` resolves (`@anthropic-ai/sdk/client.js`),
+ * and the client keeps the SDK default `maxRetries: 2`. What actually bounds the
+ * stream is the no-delta WATCHDOG above (polled every 5s, so up to ~65s without
+ * a text delta — which also covers slot queueing, time-to-headers and SDK
+ * retries, since `lastDeltaAt` starts before them) plus the 800-token output cap.
+ */
 const ANTHROPIC_STREAM_TIMEOUT_MS = 90_000;
 
 /**
- * Redis lock TTL for concurrent-stream prevention. MUST be > Anthropic
- * timeout — otherwise the lock could expire mid-stream and a second
- * concurrent stream could acquire it, defeating the lock's purpose
- * (Phase 1.6 audit Bug B).
+ * Redis lock TTL for concurrent-stream prevention.
+ *
+ * ⚠️ CAN BE SHORTER THAN ITS WORK (todo #26, not fixed here). The original
+ * reasoning — "must be > the Anthropic timeout, which caps the stream" — rested
+ * on the premise corrected above, and it also missed that the lock is taken
+ * BEFORE `_streamWithLock` builds the chat context, which on a cold cache calls
+ * the engine with 45–60s timeouts. Cold context build + up to ~65s to the first
+ * delta + the body can exceed 150s. When it does, a second concurrent stream on
+ * the same session can start; since #23 the release then reports
+ * `redis.lock.lost_before_release` with `cause=overran_ttl` instead of deleting
+ * the other stream's lock — deliberately still sent to Sentry, because that
+ * issue's event count is #26's measurement; the runbook says to archive it
+ * "until escalating" rather than silence it here. Likely fix: a total deadline,
+ * or a token-checked lock renewal.
  */
 const STREAM_LOCK_TTL_SECONDS = 150;
 
@@ -103,8 +123,10 @@ interface TokenUsage {
  *
  * Replaces the non-streaming `ChatService.sendMessage` flow with token-by-token
  * SSE streaming via Anthropic SDK `messages.stream()`. Adds:
- * - **Concurrent-stream lock**: per-session Redis SETNX prevents double-stream
- *   from rapid double-click. Lock TTL 90s (worst-case stream duration).
+ * - **Concurrent-stream lock**: per-session Redis lock (token-owned, #23)
+ *   prevents double-stream from rapid double-click. TTL is
+ *   `STREAM_LOCK_TTL_SECONDS` (150s) — which CAN be outlived; see its docblock
+ *   and todo #26.
  * - **60s watchdog**: if no `text_delta` event arrives for 60s, abort + refund.
  *   Default Anthropic SDK timeout is ~10min — without this, hung upstream
  *   pins server resources and accrues output tokens.
@@ -247,8 +269,8 @@ export class ChatStreamService {
 
     // Acquire per-session concurrent-stream lock
     const lockKey = `chat-session-stream:${sessionId}`;
-    const acquired = await this.redis.acquireLock(lockKey, STREAM_LOCK_TTL_SECONDS);
-    if (!acquired) {
+    const lockToken = await this.redis.acquireLock(lockKey, STREAM_LOCK_TTL_SECONDS);
+    if (!lockToken) {
       this._emitError(
         response,
         'CONCURRENT_STREAM',
@@ -267,7 +289,7 @@ export class ChatStreamService {
         refusal,
       );
     } finally {
-      await this.redis.releaseLock(lockKey).catch((err) => {
+      await this.redis.releaseLock(lockKey, lockToken).catch((err) => {
         this.logger.warn(`Failed to release stream lock ${lockKey}: ${err}`);
       });
     }

@@ -39,8 +39,8 @@ describe('BaziService._setupStream — the dispatcher default: throws (simulated
     const redis = {
       incrementRateLimit: jest.fn().mockResolvedValue(1),
       getClient: jest.fn().mockReturnValue({ decr: jest.fn().mockResolvedValue(0) }),
-      acquireLock: jest.fn().mockResolvedValue(true),
-      releaseLock: jest.fn().mockResolvedValue(undefined),
+      acquireLock: jest.fn().mockResolvedValue('tok-stream-h'),
+      releaseLock: jest.fn().mockResolvedValue(true),
     };
     const quota = { consume: jest.fn().mockResolvedValue(undefined) };
     const refundReadingCredit = jest.fn().mockResolvedValue({ refunded: true, amount: 2 });
@@ -88,7 +88,8 @@ describe('BaziService._setupStream — the dispatcher default: throws (simulated
   it('releases the slot and the lock — a throw must not wedge the reading for the lock TTL', async () => {
     const { service, redis } = build();
     await expect(run(service)).rejects.toBeDefined();
-    expect(redis.releaseLock).toHaveBeenCalled();
+    // #23 — released with the token THIS acquisition got.
+    expect(redis.releaseLock).toHaveBeenCalledWith('stream:reading:reading-h', 'tok-stream-h');
     expect(redis.getClient().decr).toHaveBeenCalled();
   });
 

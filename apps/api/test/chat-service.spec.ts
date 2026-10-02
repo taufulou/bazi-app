@@ -107,8 +107,10 @@ describe('ChatService', () => {
     mockRedis = {
       // Default behavior: lock acquisition succeeds. Specific tests
       // override this to simulate concurrent-extend scenarios.
-      acquireLock: jest.fn().mockResolvedValue(true),
-      releaseLock: jest.fn().mockResolvedValue(undefined),
+      // #23 — resolves an ownership TOKEN; the release assertions below check
+      // the same token comes back.
+      acquireLock: jest.fn().mockResolvedValue('tok-extend'),
+      releaseLock: jest.fn().mockResolvedValue(true),
     };
 
     service = new ChatService(
@@ -1127,7 +1129,7 @@ describe('ChatService', () => {
 
         await service.extendSession('clerk-1', 's1');
 
-        expect(mockRedis.releaseLock).toHaveBeenCalledWith('chat-extend:s1');
+        expect(mockRedis.releaseLock).toHaveBeenCalledWith('chat-extend:s1', 'tok-extend');
         expect(mockRedis.releaseLock).toHaveBeenCalledTimes(1);
       });
 
@@ -1148,7 +1150,7 @@ describe('ChatService', () => {
         // The lock release must happen regardless of payment failure —
         // otherwise a credit-deduction failure would leave the lock held
         // for the full TTL (30s) and block legitimate retries.
-        expect(mockRedis.releaseLock).toHaveBeenCalledWith('chat-extend:s1');
+        expect(mockRedis.releaseLock).toHaveBeenCalledWith('chat-extend:s1', 'tok-extend');
       });
 
       it('releases the lock even when drift check rejects', async () => {
@@ -1164,7 +1166,7 @@ describe('ChatService', () => {
           response: expect.objectContaining({ code: 'CONTEXT_VERSION_DRIFTED' }),
         });
 
-        expect(mockRedis.releaseLock).toHaveBeenCalledWith('chat-extend:s1');
+        expect(mockRedis.releaseLock).toHaveBeenCalledWith('chat-extend:s1', 'tok-extend');
       });
 
       it('release-lock failure is non-fatal (logged, not propagated)', async () => {

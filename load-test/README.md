@@ -90,6 +90,17 @@ Confirm teardown with `GET /api/admin/ops`: **`aiBaseUrlOverride` must be `null`
 AND `aiBaseUrlEffective` must point at `api.anthropic.com`.** Checking only the
 first would miss a redirect set through the SDK's own variable.
 
+`node load-test/ops.mjs --api <url> --fapi clerk.tianmingapp.com` does both
+checks on EVERY replica: it keeps sampling until each one has answered, then
+prints 🟢 NOT ARMED (every replica answered with no override and a built client on
+api.anthropic.com — the only passing teardown), 🟠 ARMED (all replicas on the mock —
+the only state to start k6 in), 🟠 PARTIALLY ARMED, 🟡 INCONCLUSIVE (a replica never
+answered, or a deploy is mid-roll — re-run) or 🟡 NOT CONFIRMED (a replica has not
+built an Anthropic client yet — make AI calls until each replica has served one,
+then re-run). Run it after the
+redeploy that applies the variable change has finished; Railway stages variable
+edits until they are deployed.
+
 ## L3 — auth for k6
 
 Clerk session JWTs live 60 seconds, which is shorter than any scenario. The

@@ -27,6 +27,8 @@ jobs:
         run: node scripts/check-engine-callers.mjs
       - name: Guard — every AI provider call is metered and capped
         run: node scripts/check-ai-spend-metering.mjs
+      - name: Guard — the Build job installs exactly as the Dockerfiles do
+        run: node scripts/check-ci-docker-install-parity.mjs
       - run: npm ci
       - name: Generate Prisma client
         run: cd apps/api && npx prisma generate
@@ -54,8 +56,10 @@ jobs:
     runs-on: ubuntu-latest
     # M1 — the throttler storage spec asserts parity with the bundled in-memory
     # implementation against a REAL Redis (the contract is Lua + PTTL semantics;
-    # a fake would only re-state my reading of it). Without this service the
-    # spec skips, which is the worst outcome: green, and testing nothing.
+    # a fake would only re-state my reading of it). `redis-lock.integration.spec.ts`
+    # (#23) needs it too. Without this service those real-Redis specs FAIL —
+    # REQUIRE_REDIS_TESTS below makes `test/support/real-redis.ts` throw instead
+    # of skipping, because a skip here would be green and test nothing.
     services:
       redis:
         image: redis:7
@@ -83,6 +87,10 @@ jobs:
           CLERK_SECRET_KEY: 'sk_test_fake'
           CLERK_WEBHOOK_SECRET: 'whsec_test_fake'
           NODE_ENV: 'test'
+          # #23 — this job has the redis:7 service, so a real-Redis spec that
+          # cannot reach it must FAIL here rather than skip green. Opt-in, not
+          # keyed on the generic `CI` variable (sandboxes set that without Redis).
+          REQUIRE_REDIS_TESTS: '1'
 
   test-web:
     name: Web Tests
@@ -127,11 +135,22 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-      - run: npm ci
+      # #11(c) — install EXACTLY as each production Dockerfile does, not with a
+      # bare `npm ci`. A full install hoists every workspace's packages to the
+      # root, so a package one workspace imports but only a SIBLING declares
+      # passes CI and then breaks the scoped Docker build — the launch-day
+      # `iztro` bug. `scripts/check-ci-docker-install-parity.mjs` (Lint job)
+      # fails if these two commands drift from the Dockerfiles'.
+      - name: Install — API scope (mirrors docker/Dockerfile.api)
+        run: npm ci --workspace=api --workspace=@repo/shared --include-workspace-root
       - name: Generate Prisma client
         run: cd apps/api && npx prisma generate
       - name: Build API
         run: cd apps/api && npx nest build
+      # A second `npm ci` wipes node_modules before installing, so the web build
+      # cannot see anything the API scope brought in.
+      - name: Install — Web scope (mirrors docker/Dockerfile.web)
+        run: npm ci --workspace=web --workspace=@repo/shared --workspace=@repo/ui --include-workspace-root
       - name: Build Web
         run: cd apps/web && npx next build
         env:
