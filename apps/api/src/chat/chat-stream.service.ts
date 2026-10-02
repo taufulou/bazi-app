@@ -24,8 +24,9 @@ import {
   CHAT_SESSION_HARD_CAP_MESSAGES,
   CHAT_CONSECUTIVE_REFUSE_REFUND_LIMIT,
 } from './chat-payment.service';
-import { ChatContextService } from './chat-context.service';
+import { ChatContextService, CHAT_CONTEXT_ENGINE_TIMEOUT_MS } from './chat-context.service';
 import { ChatValidatorsService } from './chat-validators.service';
+import { DEFAULT_POOL_TIMEOUT } from '../common/database-url';
 import { buildPrompt } from './chat-prompt-builder';
 import { sanitizeUserContent } from './chat.service';
 import { isTopicBoundaryRefuse } from '../ai/prompts';
@@ -48,6 +49,9 @@ const CHAT_OUTPUT_MAX_TOKENS_LOCAL = 800;
 const CHAT_REGROUNDING_TRIGGER_TURN_LOCAL = 4;
 const CHAT_RECENT_MESSAGES_FOR_PROMPT = 10;
 
+/** The watchdog interval polls this often; it is also the deadline's precision. */
+const WATCHDOG_POLL_MS = 5_000;
+
 /** Watchdog: if no text_delta event for this many milliseconds, abort the
  *  stream + refund. Per plan Layer 6 streaming pipeline step 10. */
 const STREAM_WATCHDOG_MS = 60_000;
@@ -58,30 +62,109 @@ const STREAM_WATCHDOG_MS = 60_000;
  * ⚠️ This is NOT a ceiling on the whole stream (corrected 2026-10-01, todo #26).
  * It is a PER-ATTEMPT bound on time-to-HEADERS: the SDK's `fetchWithTimeout`
  * clears its timer as soon as `fetch` resolves (`@anthropic-ai/sdk/client.js`),
- * and the client keeps the SDK default `maxRetries: 2`. What actually bounds the
- * stream is the no-delta WATCHDOG above (polled every 5s, so up to ~65s without
- * a text delta — which also covers slot queueing, time-to-headers and SDK
- * retries, since `lastDeltaAt` starts before them) plus the 800-token output cap.
+ * and the client keeps the SDK default `maxRetries: 2`. What bounds the stream
+ * is the WATCHDOG above — which FIRES ≤ 60s + one poll after `lastDeltaAt`,
+ * covering slot queueing, time-to-headers and the SDK's retry attempts, since
+ * `lastDeltaAt` starts before them — plus the total DEADLINE below. ⚠️ Firing
+ * is not observing: an abort fired while the SDK is inside a retry sleep is
+ * seen only when that sleep ends (`SDK_RETRY_SLEEP_MAX_MS`); that lag is
+ * budgeted in the lock's margin, not here.
  */
 const ANTHROPIC_STREAM_TIMEOUT_MS = 90_000;
 
+// ============================================================
+// Total deadline + lock TTL (todo #26)
+//
+// The per-session lock is held for the WHOLE of `_streamWithLock`, so its TTL
+// must be derived from a bound on that work — and until #26 the work had no
+// bound: the SDK timeout is per-attempt time-to-headers, the watchdog is
+// per-gap, and the context build runs inside the lock. The deadline below
+// gives the work a bound; the TTL is deadline + the longer post-deadline tail.
+// Every number is a compile-time literal derived from a NAMED bound — no env
+// var, the #15 lesson: a malformed env value once reached Redis as a TTL.
+// ============================================================
+
 /**
- * Redis lock TTL for concurrent-stream prevention.
- *
- * ⚠️ CAN BE SHORTER THAN ITS WORK (todo #26, not fixed here). The original
- * reasoning — "must be > the Anthropic timeout, which caps the stream" — rested
- * on the premise corrected above, and it also missed that the lock is taken
- * BEFORE `_streamWithLock` builds the chat context, which on a cold cache calls
- * the engine with 45–60s timeouts. Cold context build + up to ~65s to the first
- * delta + the body can exceed 150s. When it does, a second concurrent stream on
- * the same session can start; since #23 the release then reports
- * `redis.lock.lost_before_release` with `cause=overran_ttl` instead of deleting
- * the other stream's lock — deliberately still sent to Sentry, because that
- * issue's event count is #26's measurement; the runbook says to archive it
- * "until escalating" rather than silence it here. Likely fix: a total deadline,
- * or a token-checked lock renewal.
+ * P2 bound: the slowest cold context build is compat's 60s engine call (ONE
+ * call — `engineFetch` never retries). Read from the constants the engine
+ * calls themselves use, so the two cannot drift.
  */
-const STREAM_LOCK_TTL_SECONDS = 150;
+const CHAT_CONTEXT_BUILD_BOUND_MS = Math.max(...Object.values(CHAT_CONTEXT_ENGINE_TIMEOUT_MS));
+/**
+ * P4+P5a bound on when the watchdog FIRES: ≤ 60s + one poll after
+ * `lastDeltaAt`, which is set BEFORE the slot wait and the SDK's retries. When
+ * the abort is OBSERVED is an abort-path question, budgeted in `ABORT_TAIL_MS`.
+ */
+const FIRST_DELTA_BOUND_MS = STREAM_WATCHDOG_MS + WATCHDOG_POLL_MS;
+/** P5b bound: 800 tokens at a degraded 10 tok/s. Normal Sonnet output is 50–80 tok/s → 10–20s. */
+const STREAM_BODY_BOUND_MS = 80_000;
+/**
+ * From the moment the lock is REQUESTED to the end of the Anthropic stream.
+ * P1/P3, and P2's own DB/Redis round trips around the engine call (the
+ * entitlement query, profile/snapshot lookups, the context cache get/set),
+ * are NOT budgeted — ms in health; under pool saturation the pre-check
+ * refuses rather than start a doomed stream.
+ */
+export const CHAT_STREAM_DEADLINE_MS =
+  CHAT_CONTEXT_BUILD_BOUND_MS + FIRST_DELTA_BOUND_MS + STREAM_BODY_BOUND_MS; // 205_000
+/**
+ * Pre-check floor: a normal turn needs ≤ 3s to first delta + ≤ 20s body. With
+ * less than this left, starting a stream is more likely to be cut than to
+ * finish — and the first turn's ~30k-token cache WRITE (1h TTL, 2× rate:
+ * ~$0.18) would be spent on a cut stream, recovered only if the user retries
+ * within the hour.
+ */
+const MIN_STREAM_BUDGET_MS = 30_000;
+
+/**
+ * The SDK's retry sleep honours `retry-after` up to 59.99s and IGNORES our
+ * signal (`@anthropic-ai/sdk` client.js `retryRequest` → `sleep`, a bare
+ * setTimeout); the abort is seen only by the next `makeRequest`. A property of
+ * the SDK, not a knob — re-check it on an SDK major bump.
+ */
+const SDK_RETRY_SLEEP_MAX_MS = 60_000;
+/** Prisma interactive-transaction defaults: `maxWait` 2s for a connection + `timeout` 5s. Not configured anywhere in this repo. */
+const PRISMA_TX_BOUND_MS = 7_000;
+/**
+ * A plain query's wait for a pooled connection (M2's `pool_timeout`). Its
+ * EXECUTION is unbounded (no statement_timeout). Assumed ≤ 20s: an operator
+ * `pool_timeout` override in DATABASE_URL is not seen here (one ABOVE 20s is
+ * outside this derivation), and when the URL already carries a
+ * `connection_limit` Prisma's own default (10s) applies, which is inside it.
+ * #27's derivation makes the same assumption.
+ */
+const POOL_WAIT_BOUND_MS = DEFAULT_POOL_TIMEOUT * 1000;
+/**
+ * Normal completion after the deadline (P6). The deadline is only checked on
+ * the interval's ticks, so a stream can finish normally up to one poll AFTER
+ * the deadline and only then run P6: persist tx + optional refuse-refund tx +
+ * 3 plain reads.
+ */
+const NORMAL_TAIL_MS = WATCHDOG_POLL_MS + 2 * PRISMA_TX_BOUND_MS + 3 * POOL_WAIT_BOUND_MS; // 79_000
+/** Abort path after the deadline: one poll + the SDK retry sleep + `_refundOnError` (1 plain update + 1 refund tx). */
+const ABORT_TAIL_MS =
+  WATCHDOG_POLL_MS + SDK_RETRY_SLEEP_MAX_MS + POOL_WAIT_BOUND_MS + PRISMA_TX_BOUND_MS; // 92_000
+/** Rounding cushion over the enumerated tail; the enumeration does not bound query execution. */
+const LOCK_TAIL_CUSHION_SECONDS = 20;
+/** The longer of the two tails that run AFTER the deadline, plus the cushion. */
+const STREAM_LOCK_MARGIN_SECONDS =
+  Math.ceil(Math.max(NORMAL_TAIL_MS, ABORT_TAIL_MS) / 1000) + LOCK_TAIL_CUSHION_SECONDS; // 112
+/**
+ * Redis lock TTL for concurrent-stream prevention = deadline + margin.
+ *
+ * Until todo #26 this was a literal 150s "derived" from the SDK timeout plus
+ * the watchdog — neither of which bounds the stream (see above) — with the
+ * cold context build running inside the lock on top. A lock that expires
+ * under a live holder stops excluding anyone: a second stream on the same
+ * session could start, with a double deduction and two assistant rows. Since #23
+ * that overrun reports `redis.lock.lost_before_release` `cause=overran_ttl`;
+ * with this derivation it is no longer expected — the runbook lists what to
+ * suspect if it fires. Deliberately NOT `bazi.service.ts`'s
+ * `LOCK_MARGIN_SECONDS`: that margin covers an engine call, this one an
+ * enumerated post-deadline tail whose dominant term is the SDK sleep.
+ */
+export const STREAM_LOCK_TTL_SECONDS =
+  Math.ceil(CHAT_STREAM_DEADLINE_MS / 1000) + STREAM_LOCK_MARGIN_SECONDS; // 317
 
 // ============================================================
 // SSE event types — wire protocol contract with frontend
@@ -125,8 +208,10 @@ interface TokenUsage {
  * SSE streaming via Anthropic SDK `messages.stream()`. Adds:
  * - **Concurrent-stream lock**: per-session Redis lock (token-owned, #23)
  *   prevents double-stream from rapid double-click. TTL is
- *   `STREAM_LOCK_TTL_SECONDS` (150s) — which CAN be outlived; see its docblock
- *   and todo #26.
+ *   `STREAM_LOCK_TTL_SECONDS`, derived from the total deadline (#26).
+ * - **Total deadline** (`CHAT_STREAM_DEADLINE_MS`, clocked from the lock
+ *   REQUEST): a pre-check refuses before the Anthropic call when too little
+ *   budget is left; the watchdog interval aborts a stream that crosses it.
  * - **60s watchdog**: if no `text_delta` event arrives for 60s, abort + refund.
  *   Default Anthropic SDK timeout is ~10min — without this, hung upstream
  *   pins server resources and accrues output tokens.
@@ -269,6 +354,13 @@ export class ChatStreamService {
 
     // Acquire per-session concurrent-stream lock
     const lockKey = `chat-session-stream:${sessionId}`;
+    // #26 — the deadline's clock. Taken BEFORE the acquire, not after: the TTL
+    // starts when Redis runs the SET, and this client has no `commandTimeout`,
+    // so a slow acquire round trip would otherwise start the deadline LATER
+    // than the TTL and eat the margin. Taken here it is at or ahead of the TTL
+    // clock by construction — the same choice `acquireLock` makes for its own
+    // token stamp. (Not parsed from the token: nothing else may parse it.)
+    const lockRequestedAt = Date.now();
     const lockToken = await this.redis.acquireLock(lockKey, STREAM_LOCK_TTL_SECONDS);
     if (!lockToken) {
       this._emitError(
@@ -287,6 +379,7 @@ export class ChatStreamService {
         sanitizedContent,
         sectionContextHint,
         refusal,
+        lockRequestedAt,
       );
     } finally {
       await this.redis.releaseLock(lockKey, lockToken).catch((err) => {
@@ -328,7 +421,13 @@ export class ChatStreamService {
     sanitizedContent: string,
     sectionContextHint: string | undefined,
     refusal: { refused: boolean; syntheticReply?: string; matchedPattern?: string },
+    // #26 — `Date.now()` taken by the caller immediately BEFORE the lock
+    // acquire; the deadline and the TTL run on the same clock.
+    lockRequestedAt: number,
   ): Promise<void> {
+    // #26 — computed at entry, so the pre-check below AND the watchdog interval
+    // (created before the AI `try`) both see it.
+    const deadlineAt = lockRequestedAt + CHAT_STREAM_DEADLINE_MS;
     const sessionId = session.id;
 
     // ============================================================
@@ -610,6 +709,70 @@ export class ChatStreamService {
       ownedCrossSellTargets,
     });
 
+    // ============================================================
+    // #26 — deadline pre-check: refuse BEFORE the Anthropic call when too
+    // little budget is left. Everything before this point (P1 deduct, P2
+    // context build, P3 history + Tier C) has already elapsed; nothing is
+    // registered or scheduled yet and no S1 slot is held.
+    //
+    // Deliberately OUTSIDE the AI `try` below: that try's catch treats any
+    // non-HttpException as an AI failure, and this fires precisely under pool
+    // saturation — when the refund tx is likeliest to throw (P2024/P2028).
+    // Inside the try, that throw would be relabelled AI_CALL_FAILED, overwrite
+    // the stamp with AI_FAILED, write an `AI-CALL outcome:"error"` line for a
+    // call that never happened, and escape after headers. Out here, with the
+    // `.catch`, none of that can happen. The shape mirrors the entitlement
+    // branch above (and like it, NOT `_refundOnError`: no AI call was made, so
+    // this must not feed the AI-failure signal).
+    // ============================================================
+    if (deadlineAt - Date.now() < MIN_STREAM_BUDGET_MS) {
+      const elapsedMs = Date.now() - lockRequestedAt;
+      try {
+        await this.prisma.chatMessage.update({
+          where: { id: userMessageId },
+          data: { errorCode: 'STREAM_TIMEOUT' },
+        });
+      } catch {
+        // Best-effort diagnostic stamp; the refund below is what matters.
+      }
+      const refundResult = await this.paymentService
+        .refundLastMessage(
+          userMessageId,
+          sessionId,
+          userId,
+          `stream-deadline-before-ai:${Math.round(elapsedMs / 1000)}s`,
+        )
+        .catch((refundErr: unknown) => {
+          // Swallowed on purpose (the refusal must still reach the client) but
+          // never silently: this fires under pool saturation, exactly when the
+          // refund is likeliest to fail, and a charged user with no log line is
+          // the one an operator cannot help. Error NAME only — never a message.
+          this.logger.warn(
+            `Pre-AI deadline refund FAILED for message ${userMessageId} (session ${sessionId}): ` +
+              `${refundErr instanceof Error ? refundErr.name : 'error'}`,
+          );
+          return { refunded: false, method: null };
+        });
+      this._reportDeadline('pre_ai', {
+        elapsedMs,
+        aiElapsedMs: null,
+        sessionId,
+        refunded: refundResult.refunded,
+      });
+      // The clients render `message` verbatim — never claim a refund that did
+      // not happen.
+      this._emitError(
+        response,
+        'STREAM_TIMEOUT',
+        refundResult.refunded
+          ? '系統忙碌，回覆逾時，點數已退還，請稍後再試'
+          : '系統忙碌，回覆逾時，請稍後再試',
+        refundResult.refunded,
+        refundResult.method,
+      );
+      return;
+    }
+
     // Phase 1.6 audit Bug A — use AbortController so watchdog actually
     // interrupts a hung Anthropic request mid-await. The original `aborted = true`
     // flag was only checked at iteration boundaries, useless when Anthropic is
@@ -621,20 +784,33 @@ export class ChatStreamService {
     // persist-if-parseable path rather than dying as a TCP reset.
     const releaseShutdown = this.shutdown.registerStream(() => abortController.abort());
     let watchdogTriggered = false;
+    let deadlineTriggered = false;
     // Ob1 (#14) — captured so the `finally` can say WHY a stream produced no
     // usage. Without it a zero-token abort emitted no AI-CALL line at all.
     let aiCallError: unknown;
+    // #26 — ONE branch per tick (an if / else-if chain, not independent ifs):
+    // that is what makes the ORDER observable, so a swap flips the label.
     const watchdogTimer = setInterval(() => {
-      if (Date.now() - lastDeltaAt > STREAM_WATCHDOG_MS) {
+      if (abortController.signal.aborted) {
+        // Already aborted (watchdog, client, drain) but not yet OBSERVED — the
+        // SDK's retry sleep ignores the signal. Never relabel, never log again.
+        return;
+      } else if (Date.now() >= deadlineAt) {
+        // Most specific cause first: a stream that is both idle and past the
+        // deadline is reported as a deadline.
+        deadlineTriggered = true;
+        abortController.abort();
+      } else if (Date.now() - lastDeltaAt > STREAM_WATCHDOG_MS) {
         this.logger.warn(`Stream watchdog timeout for session ${sessionId}`);
         watchdogTriggered = true;
         abortController.abort();
       }
-    }, 5_000);
+    }, WATCHDOG_POLL_MS);
 
     // Phase 1.6 audit Bug C — abort the stream if the client disconnects
     // (mobile sleep, tab close, etc.). Without this, we keep streaming
-    // Anthropic events to a dead response and hold the lock for 150s wasted.
+    // Anthropic events to a dead response and hold the lock until the stream
+    // ends (up to the deadline) for nothing.
     let clientDisconnected = false;
     const onClientClose = () => {
       this.logger.log(`Client disconnected mid-stream for session ${sessionId}`);
@@ -718,6 +894,20 @@ export class ChatStreamService {
       clearInterval(watchdogTimer);
       response.off('close', onClientClose);
 
+      // #26 — report a deadline fire HERE, before the two early-return branches
+      // below, or it can be silent: when the abort is observed late (the SDK
+      // retry sleep, or `assertUnderCap`/`acquire` still pending — neither
+      // takes a signal) the client may close in that window, or the pending
+      // call may throw a typed 503, and either branch would then return first.
+      // The user is refunded either way; this keeps the telemetry.
+      if (deadlineTriggered) {
+        this._reportDeadline('mid_stream', {
+          elapsedMs: Date.now() - lockRequestedAt,
+          aiElapsedMs: Date.now() - aiStartedAt,
+          sessionId,
+        });
+      }
+
       // If client disconnected, no need to write to dead response.
       // The user message is persisted; refund applies because no assistant
       // reply was completed.
@@ -744,7 +934,7 @@ export class ChatStreamService {
       }
 
       // A typed refusal is NOT an AI failure — same reasoning as the
-      // entitlement branch ~180 lines above, which this block was missing.
+      // entitlement branch in the context-build catch above, which this block was missing.
       // `_refundOnError` hard-codes `AI_CALL_FAILED` + «AI 暫時無法回答», stamps
       // the row AI_FAILED, and feeds the AI-failure alerting signal. For an
       // S2 spend cap that is wrong three times over: the AI never failed, the
@@ -769,9 +959,14 @@ export class ChatStreamService {
         return;
       }
 
-      const reason = watchdogTriggered
-        ? 'watchdog-timeout-no-delta-60s'
-        : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
+      // #26 — the deadline is the most specific cause, then the watchdog.
+      // Both are AI-path failures (the call was made and did not finish inside
+      // its bound) and take the watchdog's existing route.
+      const reason = deadlineTriggered
+        ? `stream-deadline-exceeded:${Math.round((Date.now() - lockRequestedAt) / 1000)}s`
+        : watchdogTriggered
+          ? 'watchdog-timeout-no-delta-60s'
+          : `ai-stream-failed: ${err instanceof Error ? err.message : String(err)}`;
       this.logger.error(`Anthropic stream failed for ${sessionId}: ${reason}`);
       await this._refundOnError(response, sessionId, userId, userMessageId, reason);
       return;
@@ -1004,6 +1199,39 @@ export class ChatStreamService {
   private _emitEvent(response: Response, event: StreamEvent): void {
     if (response.writableEnded) return;
     response.write(`data: ${JSON.stringify(event)}\n\n`);
+  }
+
+  /**
+   * #26 — a deadline fire is never silent. The session id stays in OUR log;
+   * Sentry receives the phase and the timings only (fingerprinted per phase,
+   * so the project's any-event alert rule emails once an hour per phase). The
+   * whole body is guarded, as `RedisService.reportLostLock` is: a helper whose
+   * job is visibility must not be able to throw.
+   */
+  private _reportDeadline(
+    phase: 'pre_ai' | 'mid_stream',
+    args: { elapsedMs: number; aiElapsedMs: number | null; sessionId: string; refunded?: boolean },
+  ): void {
+    try {
+      this.logger.warn(
+        `Chat stream deadline exceeded (${phase}) for session ${args.sessionId}: ` +
+          `elapsed=${args.elapsedMs}ms ai=${args.aiElapsedMs ?? '-'}ms ` +
+          `deadline=${CHAT_STREAM_DEADLINE_MS}ms` +
+          (args.refunded === undefined ? '' : ` refunded=${args.refunded}`),
+      );
+      Sentry.captureMessage('chat.stream.deadline_exceeded', {
+        level: 'warning',
+        tags: { phase },
+        extra: {
+          elapsedMs: args.elapsedMs,
+          aiElapsedMs: args.aiElapsedMs,
+          deadlineMs: CHAT_STREAM_DEADLINE_MS,
+        },
+        fingerprint: ['chat.stream.deadline_exceeded', phase],
+      });
+    } catch {
+      // Reporting is best-effort; the refund and the SSE error already happened.
+    }
   }
 
   private _emitError(

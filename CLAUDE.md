@@ -3835,9 +3835,11 @@ That is the canonical list of what is left before
 launch; this file is reference, not a task tracker. Its `§0 STATE` block at the
 top supersedes every dated section below it in that file.
 
-The same handoff carries `## 📌 DEFERRED FINDING — prompt caching`, a measured
-but unimplemented cost optimisation (71% of every reading's input is an uncached
-static system prompt) with the two traps that make a naive fix wrong.
+The same handoff carries `## 📌 DEFERRED FINDING — prompt caching`, the ORIGINAL
+2026-08-28 measurement (71% of every reading's input was an uncached static
+system prompt). ✅ It has since been IMPLEMENTED — todo #6, PR #72 (`1485e18`,
+2026-10-01); the live invariants are in § "Prompt caching on the reading paths —
+four traps" below. The section is evidence, not a pending item.
 
 ### Phase 2B is COMPLETE (2026-08-27) — and what the sequence taught
 
@@ -4368,25 +4370,35 @@ longer wedge — a crashed generation now blocks a retry for ~21 min instead of
 ~6 — against a too-short TTL that charges silently. Rare-and-visible beats
 common-and-silent.
 
-⚠️ **`chat-stream.service.ts`'s 150s lock — the old claim here was WRONG
-(corrected 2026-10-01, todo #26, NOT yet fixed).** This paragraph used to call it
-correct because "a hard 90s per-stream timeout plus a 60s watchdog, no
-retry/fallback budget". In fact the 90s SDK `timeout` bounds only time-to-HEADERS
-per attempt (`fetchWithTimeout` clears its timer once `fetch` resolves), the chat
-client keeps the SDK default `maxRetries: 2`, and the lock is taken BEFORE the
-chat context is built — a cold build calls the engine with 45–60s timeouts. What
-actually bounds the stream is the no-delta watchdog (polled every 5s, so ~65s
-without a delta, covering queueing/headers/retries) plus the 800-token output
-cap; but cold context + ~65s to first delta + body can exceed 150s, and an
-overrun lets a second concurrent stream start on the same session. Since #23 that
-shows up as `redis.lock.lost_before_release` with
-`lockPrefix=chat-session-stream, cause=overran_ttl`. It is deliberately NOT
-silenced in code: that Sentry issue's event count is #26's measurement. When the
-first one emails, archive that ONE issue "until escalating" (runbook §
-`redis.lock.lost_before_release`) — Sentry keeps counting and re-alerts on a spike;
-resolve it when #26 ships (and remove the runbook's fallback rule filter, if it was
-ever added). Fix needs its own design (a total deadline, or a
-token-checked renewal) — see todo #26.
+✅ **`chat-stream.service.ts`'s lock — FIXED 2026-10-02 (todo #26): a total
+deadline, and a TTL derived from it.** The old 150s literal was "derived" from
+the 90s SDK `timeout` + the 60s watchdog, and neither bounds the stream: the SDK
+timeout is per-attempt time-to-HEADERS (`fetchWithTimeout` clears its timer once
+`fetch` resolves), the chat client keeps the SDK default `maxRetries: 2`, the
+watchdog is per-GAP (a trickle never trips it), and the cold chat-context build
+(engine 45–60s) ran INSIDE the lock. Now `CHAT_STREAM_DEADLINE_MS` = 60s (slowest
+cold context build, read from `CHAT_CONTEXT_ENGINE_TIMEOUT_MS`) + 65s (watchdog +
+one poll) + 80s (800 tokens at 10 tok/s) = **205s, clocked from the lock
+REQUEST** (taken BEFORE `acquireLock`, so it never lags the TTL clock). It bites
+twice: a **pre-check** after `buildPrompt` and before the `AbortController` — too
+little budget (< 30s) → refuse with `STREAM_TIMEOUT` + refund, NO Anthropic call,
+no AI-CALL line, its own `.catch` so its refund failure can never be relabelled an
+AI failure; and the **watchdog interval** — an `if / else-if` chain (aborted →
+deadline → watchdog, one branch per tick, so the ORDER is observable) aborts a
+stream that crosses it, labelled `stream-deadline-exceeded:<s>` through the
+watchdog's existing `AI_CALL_FAILED` route. The margin is DERIVED:
+`ceil(max(normal tail 79s, abort tail 92s)) + 20` = **112s**, so
+`STREAM_LOCK_TTL_SECONDS` = 205 + 112 = **317s**.
+⚠️ The abort tail is the one people miss: **the SDK's retry sleep (≤ 60s,
+`retry-after`) ignores our abort signal** — the watchdog FIRES at 65s but the
+abort is OBSERVED only when the sleep ends; that lag is in the margin, not in the
+deadline. Both bites emit `chat.stream.deadline_exceeded` (Sentry warning, tag
+`phase=pre_ai|mid_stream`, `elapsedMs`/`aiElapsedMs`; runbook has the section).
+Tests: `test/chat-stream-service.spec.ts` «#26 — total deadline» (fake timers; a
+600s horizon is advanced BEFORE awaiting, so a broken guard fails fast; T3b uses
+an abort-BLIND sleep because an abort-aware mock can never reach a post-abort
+tick) + `test/chat-context-engine-timeouts.guard.spec.ts` (no timeout literal in
+chat-context). Plan + 3-round review: `.claude/plans/todo-26-chat-stream-deadline.md`.
 
 ⚠️ **Deriving a value can put `parseInt` output somewhere a literal never
 was.** These TTLs now flow into `redis.acquireLock`, so a malformed timeout env

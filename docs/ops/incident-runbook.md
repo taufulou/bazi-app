@@ -173,43 +173,18 @@ defect: someone else may have taken the lock and run the same work concurrently.
 
 | `lockPrefix` | What concurrency it allowed | Known? |
 |---|---|---|
-| `chat-session-stream` | a second chat stream on the same session | ⚠️ **Expected, todo #26.** The 150s TTL does not cover a cold chat-context build + a slow first token. **Archive it — see below the table.** Its event count is #26's measurement. |
+| `chat-session-stream` | a second chat stream on the same session | Not expected since todo #26 (2026-10-02): TTL **317s** = a 205s total stream deadline + a 112s margin derived from the longer post-deadline tail (the abort path's ≤ 60s SDK retry sleep, which ignores our abort signal). The phases that can STILL run unbounded are **pre-AI** (the deduct, the chat-context build and the history/ownership lookups — before the deadline pre-check can refuse): a **hung Redis command** (no `commandTimeout`) — `redis-cli --latency`, `SLOWLOG GET 10`; a **slow-executing Postgres query** (no `statement_timeout`; `pool_timeout` bounds only the connection wait) — `pg_stat_activity`; context-build DB waits under pool saturation. ⚠️ A pre-AI hang longer than the TTL produces BOTH this event AND `chat.stream.deadline_exceeded{phase:pre_ai}` with `elapsedMs` > 317000 — read them together. Then: the post-stream persist under pool saturation (each of its 3 reads can wait 20s); then a stalled event loop. |
 | `reading:create` | a double-submit getting past the dedupe (a double charge) | Not expected (TTL 105s, derived since #27). The engine call cannot overrun — `AbortSignal.timeout` hard-caps it at 45s, no retry — and even full **Prisma pool exhaustion** stays under the TTL (45s engine + two connection waits ≤20s each + the charging transaction, bounded by Prisma's defaults at ~7s ≈ 92s). So suspect, in order: a **hung Redis command** (the lock body runs Redis commands, and this client has no `commandTimeout`) — `redis-cli --latency`, `redis-cli SLOWLOG GET 10`; a **slow-executing Postgres query** (`pool_timeout` bounds only the wait for a connection, and there is no `statement_timeout`) — check `pg_stat_activity` for long-running queries; then a stalled event loop. |
 | `comparison:create` | a same-pair double-submit getting past the dedupe | Not expected (TTL 90s). The normal path is engine (≤30s) + one insert (≤20s connection wait) = 50s. Only the duplicate-pair (P2002) path — an extra `findFirst` + `update` — can reach 90s on connection waits alone, under full pool exhaustion. So check for a same-pair double-submit while the pool was saturated, a slow-executing Postgres query (`pg_stat_activity`), then a stalled event loop. |
 | `stream:reading`, `ai:generate:comparison` | a second full AI generation on one row (double Anthropic spend) | Not expected (TTLs derived from the generation bound since #15). |
 | `chat-extend` | a double extension (the user pays twice and gets both) | Not expected under normal load: a 30s TTL over short DB work. But under pool exhaustion each query can wait `pool_timeout` (20s), so two queries can outlive it — check pool saturation first, then a slow-executing query. |
 
-**The known `chat-session-stream` / `overran_ttl` issue — archive it, do not
-silence it in code.** The project's one Sentry alert rule emails on ANY event
-(throttled to once an hour per issue), so this known, unfixed condition would
-keep emailing. But #26 is waiting for exactly this count, so it stays in Sentry:
-
-1. The FIRST event emails. In Sentry open that issue (tags
-   `lockPrefix:chat-session-stream`, `cause:overran_ttl`) → **Archive → Until
-   escalating**. Sentry keeps counting it (that count is #26's measurement) and
-   alerts again only if it spikes. The fingerprint is
-   `[event, lockPrefix, cause]`, so this masks no other issue.
-2. **Check the archive once:** the next occurrence must raise that issue's event
-   count WITHOUT an email.
-3. Only if it still emails — fallback, easy to get wrong: in the rule's IF
-   section add filters with match **"Any"** and two **"is not equal to"** tag
-   filters (`lockPrefix` ≠ `chat-session-stream`, `cause` ≠ `overran_ttl`). The
-   tempting "None of" + two "equals" filters would silence EVERY `overran_ttl`
-   (including `reading:create`, the double-charge signal) and every
-   `chat-session-stream` event. Then prove a tagless event still emails, with a
-   REAL ingested event carrying a UNIQUE message (`sentry-cli send-event`, or a
-   one-off `captureMessage`) — the rule editor's "Send Test Notification" button
-   skips the IF filters, and an event on an issue that already alerted within the
-   hour is throttled. The #7 spend drill counts only if the
-   `ai.spend.threshold_80` issue has not alerted in the last hour. If you cannot
-   prove it, remove the filter: the cost of no filter is at most one email an
-   hour, only while the overrun happens. Never leave an unverified filter on the
-   only alert rule. Note that under the filter a SPIKE no longer re-alerts (the
-   event count still accrues) — the archive does not have that cost.
-4. When #26 ships, **Resolve** the issue — and **remove the step-3 filter** if you
-   added it, or a recurrence can never alert as a regression.
-
-Do not archive any OTHER lost-lock issue this way.
+**Do not archive any lost-lock issue.** (Before todo #26 shipped, the
+`chat-session-stream` / `overran_ttl` issue was the one deliberate exception —
+its count was #26's measurement. That is over: if that issue exists in Sentry,
+**Resolve** it, and remove the alert rule's "is not equal to" tag filters on
+`lockPrefix` / `cause` if they were ever added, so a recurrence alerts as a
+regression.)
 
 ### `cause=lost_early` — the key vanished before its TTL
 
@@ -229,6 +204,29 @@ Five causes; check in this order:
    a regression.
 5. **A code bug** — a double release, or a release with the wrong key. If none of
    the above apply, read the release site for that `lockPrefix`.
+
+---
+
+## `chat.stream.deadline_exceeded` — a chat turn ran past its total budget
+
+**Severity: warning. A refund was attempted and the user saw a retryable error;
+nothing is stuck.** (The pre-check path can end `refunded:false` — its refund is
+best-effort — so check `CreditLedger` for that user if they complain.) Since todo #26 every chat stream has a total deadline
+(`CHAT_STREAM_DEADLINE_MS`, 205s from the lock request) and the lock TTL is
+derived from it (317s). This event fires when the deadline was crossed. One
+tag, `phase`; two timings in `extra`: `elapsedMs` (since the lock request) and
+`aiElapsedMs` (since the Anthropic call started; `null` for `pre_ai`). The
+project's any-event alert rule emails once an hour per phase — a chat turn that
+ran past 3½ minutes is worth that email.
+
+| `phase` | What happened | Suspect, in order |
+|---|---|---|
+| `pre_ai` | The pre-check refused BEFORE calling Anthropic: < 30s of budget was left after the deduct, the chat-context build and the history/ownership lookups. No AI call, no `AI-CALL` line, user message stamped `STREAM_TIMEOUT`, refund attempted. | **DB pool saturation** (every pre-AI query can wait `pool_timeout` 20s for a connection) — `pg_stat_activity` (connections for this app against the boot log line «Prisma pool — connection_limit=… pool_timeout=…»); ⚠️ NOT `GET /api/admin/ops` → `pools`, which is the in-process AI-governor concurrency pool, not Prisma; **engine latency** (a cold context build is ONE `/build-chat-context*` call capped at 45–60s) — the engine's request logs and its Sentry project `bazi-engine`; `ENGINE-AUTH-ROLLUP` only tells you the engine is RECEIVING requests, it carries no timing; a **hung Redis command** (the client has no `commandTimeout`) — `redis-cli --latency`, `SLOWLOG GET 10`. If `elapsedMs` > 317000, the lock ALSO expired — expect a paired `redis.lock.lost_before_release` for `chat-session-stream`. |
+| `mid_stream` | Anthropic was called and had not finished by 205s; the stream was aborted, refunded as `AI_CALL_FAILED`, reason `stream-deadline-exceeded:<s>`. The `AI-CALL` line for it says `outcome:"error"`. | Compare the two timings. `aiElapsedMs` ≈ `elapsedMs` → **Anthropic was slow** (long time-to-first-token, a 429/529 retry with a long `retry-after`, or an output trickle) — the `AI-CALL` line's `ms` and `rlOutRemaining`, Anthropic status page. `aiElapsedMs` ≪ `elapsedMs` → **our own pre-AI slowness** ate the budget and the stream was the last straw — same checks as `pre_ai`. |
+
+Do NOT raise the deadline to make these go away: 205s is already generous
+(cold compat context 60s + a slow first token 65s + 80s of body); a chat turn
+that needs more is a symptom, and the lock TTL is derived from the deadline.
 
 ---
 

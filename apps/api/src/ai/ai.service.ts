@@ -397,10 +397,13 @@ export class AIService implements OnModuleInit {
   // size itself from the methods below, never from AI_STREAM_TIMEOUT_MS or
   // AI_COMPAT_V2_TIMEOUT_MS directly.
   //
-  // Contrast `chat-stream.service.ts`, whose 150s lock IS correctly derived
-  // from its per-call timeout (90s) plus its watchdog (60s). That reasoning is
-  // sound there because chat has a hard per-stream timeout and NO retry or
-  // provider-fallback budget. The reading paths have both, so it fails here.
+  // `chat-stream.service.ts` has the same shape of problem, solved the same
+  // way: its `STREAM_LOCK_TTL_SECONDS` is derived from a TOTAL deadline on the
+  // stream (`CHAT_STREAM_DEADLINE_MS`) plus the longer post-deadline tail. An
+  // earlier version of this comment called its old 150s "correctly derived
+  // from the 90s SDK timeout + the 60s watchdog" — wrong twice over: that SDK
+  // timeout is per-attempt time-to-headers, and the chat client keeps the
+  // SDK's default retries (todo #26).
   // ============================================================
 
   /**
