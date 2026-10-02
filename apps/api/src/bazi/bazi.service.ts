@@ -42,10 +42,25 @@ const COMPATIBILITY_FALLBACK_CREDIT_COST = 3;
  *   calls only, while the lock is also held across the engine call, DB reads
  *   and writes, and SSE setup;
  * - the two create locks (`reading:create`, `comparison:create`) — whose bound
- *   is the engine timeout, while the lock is also held across ~4 sequential DB
- *   operations. Under pool exhaustion each of those can wait `pool_timeout`
- *   (20s), so 60s covers the healthy path and moderate contention, NOT the
- *   worst case. A lock that does outlive its TTL is reported at release as
+ *   is the engine timeout, while the lock is also held across the work around
+ *   it. Each Prisma query outside a transaction may wait `pool_timeout` (20s)
+ *   for a connection under pool exhaustion:
+ *   - `reading:create`: reuse `findFirst` (≤20s wait) → cache lookup, a Redis
+ *     GET then `readingCache.findFirst` (≤20s wait; plus a Redis SET on a
+ *     DB-cache hit) → engine (≤45s) → the streaming pre-flight (Redis only) →
+ *     the charging interactive `$transaction`, which has no options, so
+ *     Prisma's defaults bound it (`maxWait` 2s + `timeout` 5s). Worst case for
+ *     pool WAITS ≈ 45 + 20 + 20 + 7 = 92s < 105s: pool exhaustion ALONE does not
+ *     outlive this lock. What can: a Redis command that hangs (this client has
+ *     `maxRetriesPerRequest` — a bound for a Redis that is DOWN — but no
+ *     `commandTimeout`), a slow-EXECUTING Postgres query (`pool_timeout` bounds
+ *     only the wait for a connection; there is no `statement_timeout`), or an
+ *     event-loop stall.
+ *   - `comparison:create`: engine (≤30s) → one insert (≤20s wait) = 50s; the
+ *     duplicate-pair (P2002) path adds a `findFirst` and possibly an `update`
+ *     (≤40s) = 90s, exactly the TTL. No Redis inside the lock body; a
+ *     slow-executing query or an event-loop stall can also outlive it.
+ *   A lock that does outlive its TTL is reported at release as
  *   `redis.lock.lost_before_release` with `cause=overran_ttl`.
  */
 const LOCK_MARGIN_SECONDS = 60;
@@ -61,7 +76,8 @@ export const ENGINE_COMPAT_TIMEOUT_MS = 30_000;
 
 /**
  * `reading:create:{userId}` — held across `_executeCreateReading`: the reuse
- * lookup, the engine call, the cache lookup and the charging `$transaction`.
+ * lookup, the cache lookup, the engine call, the streaming pre-flight and the
+ * charging `$transaction` (bounds per step: `LOCK_MARGIN_SECONDS` above).
  *
  * ⚠️ It was a hardcoded 30s while the engine call alone may take 45s (and the
  * file records ~30s as normal production engine time). The reuse check runs

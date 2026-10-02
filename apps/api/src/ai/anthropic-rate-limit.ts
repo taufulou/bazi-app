@@ -61,12 +61,13 @@ type Fetch = (input: string | URL | Request, init?: RequestInit) => Promise<Resp
  * Anthropic since it started has NO reading, and reports `null`. That is what
  * an ops request that lands on the idle replica sees (todo #24). The counters
  * below exist so that a `null` explains itself (keep this table, the runbook's
- * and `load-test/ops.mjs`'s `interpret` in sync):
+ * and `load-test/ops-report.mjs`'s `interpret` in sync):
  *
  * | state | meaning |
  * |---|---|
  * | `requestsStarted == 0` | this replica has made no Anthropic call since it started |
- * | `transportErrors > 0`, `responsesSeen == 0` | EVERY call got NO HTTP response (network failure, DNS — e.g. a stale load-test mock URL — or a timeout before headers): check `aiBaseUrlEffective` and `AI-CALL` lines with `outcome:error` |
+ * | `responsesSeen == 0`, MORE calls in flight than failed (in flight = `requestsStarted − responsesSeen − transportErrors`; every started attempt ends as exactly one response or one transport error) | nothing back YET — not a failure; read again in a few seconds (any `transportErrors` so far show as a warning beside it) |
+ * | `transportErrors > 0`, `responsesSeen == 0`, at least as many failed as are still in flight | calls are getting NO HTTP response (network failure, DNS — e.g. a stale load-test mock URL — or a timeout before headers): check `aiBaseUrlEffective` and `AI-CALL` lines with `outcome:error` |
  * | `transportErrors > 0`, `responsesSeen > 0` | some calls got no response — often routine: the counter is cumulative and also counts client disconnects / shutdown aborts before headers and SDK attempts later retried (`requestsStarted` counts attempts, retries included) |
  * | `observedAt` set, `outputTokensRemaining` set | working; the reading is `now − observedAt` old |
  * | `observedAt` set, `outputTokensRemaining == null` | PARTIAL — some rate-limit headers parse but not the output-token ones (`rlOutRemaining` on `AI-CALL` lines is blind) |

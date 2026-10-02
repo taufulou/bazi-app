@@ -26,7 +26,11 @@ import { KNOWN_LOCK_PREFIXES } from '../src/redis/redis.service';
  *   (c) a CALL to a property named `setnx` (any case). Prose that merely
  *       mentions "SETNX" in a comment or a description string stays legal.
  *   (d) a `.del(…)` / `.unlink(…)` whose first argument names a lock — its
- *       text matches /lock/i, or it starts with a known lock prefix. Acquiring
+ *       text contains `lock` at the START of a word or camel-case part
+ *       (`LOCK_WORD` below:
+ *       `lockKey`, `readingLockKey`, `LOCK_KEY`, `stream:lock` — not
+ *       `blockKey` / `clock` / `streamlock`), or it starts with a known lock
+ *       prefix. Acquiring
  *       through RedisService and then deleting the key by hand re-arms exactly
  *       the delete-your-successor bug; the compiler only forces a token on
  *       `releaseLock`, not on `del`.

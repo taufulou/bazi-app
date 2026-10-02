@@ -3766,7 +3766,17 @@ setting it still redirects every call while our `aiBaseUrlOverride` reports
 `null`. That is why `GET /api/admin/ops` also returns **`aiBaseUrlEffective`**
 (the resolved `client.baseURL`): it is the only value that cannot lie about
 where AI traffic is going. **Read it at teardown, not the override.**
-`node load-test/ops.mjs` prints a plain ARMED / NOT ARMED verdict.
+`node load-test/ops.mjs` prints a plain verdict — 🟠 ARMED (every replica on the
+mock: the only state to start k6 in), 🟢 NOT ARMED (every replica answered, none
+armed, and each confirmed by a built client on api.anthropic.com: the only passing
+teardown), 🟠 PARTIALLY ARMED, 🟡 INCONCLUSIVE (a replica never answered, or a
+deploy is mid-roll) or 🟡 NOT CONFIRMED (no override, but a replica has not built
+an Anthropic client yet — make AI calls until each replica has served one, then
+re-run). By default it keeps sampling
+until every replica has answered; `--samples N` takes exactly N. Run it after the
+redeploy that applies a variable change — Railway stages variable edits until
+deployed. All its logic is in `load-test/ops-report.mjs`, tested by
+`apps/api/test/ops-report.spec.ts`.
 
 **`sessions.createSession()` is DEVELOPMENT-INSTANCE ONLY** — it fails on
 production with `request_invalid_for_environment`. Minting a production token
@@ -4370,8 +4380,13 @@ without a delta, covering queueing/headers/retries) plus the 800-token output
 cap; but cold context + ~65s to first delta + body can exceed 150s, and an
 overrun lets a second concurrent stream start on the same session. Since #23 that
 shows up as `redis.lock.lost_before_release` with
-`lockPrefix=chat-session-stream, cause=overran_ttl`. Fix needs its own design (a
-total deadline, or a token-checked renewal) — see todo #26.
+`lockPrefix=chat-session-stream, cause=overran_ttl`. It is deliberately NOT
+silenced in code: that Sentry issue's event count is #26's measurement. When the
+first one emails, archive that ONE issue "until escalating" (runbook §
+`redis.lock.lost_before_release`) — Sentry keeps counting and re-alerts on a spike;
+resolve it when #26 ships (and remove the runbook's fallback rule filter, if it was
+ever added). Fix needs its own design (a total deadline, or a
+token-checked renewal) — see todo #26.
 
 ⚠️ **Deriving a value can put `parseInt` output somewhere a literal never
 was.** These TTLs now flow into `redis.acquireLock`, so a malformed timeout env

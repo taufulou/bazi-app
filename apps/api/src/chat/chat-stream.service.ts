@@ -76,8 +76,10 @@ const ANTHROPIC_STREAM_TIMEOUT_MS = 90_000;
  * delta + the body can exceed 150s. When it does, a second concurrent stream on
  * the same session can start; since #23 the release then reports
  * `redis.lock.lost_before_release` with `cause=overran_ttl` instead of deleting
- * the other stream's lock. Likely fix: a total deadline, or a token-checked
- * lock renewal.
+ * the other stream's lock — deliberately still sent to Sentry, because that
+ * issue's event count is #26's measurement; the runbook says to archive it
+ * "until escalating" rather than silence it here. Likely fix: a total deadline,
+ * or a token-checked lock renewal.
  */
 const STREAM_LOCK_TTL_SECONDS = 150;
 

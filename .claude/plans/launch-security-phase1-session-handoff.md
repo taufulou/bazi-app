@@ -28,7 +28,8 @@ writing (owner commits). Plan + 4-round staff review:
 - **#11(c) ✅** — `lunar-typescript` declared in web, root crutch removed; CI's
   Build job now installs like the Dockerfiles, with a drift guard.
 - **#26 ⬜ NEW** — `chat-session-stream` 150s lock can be outlived (cold context
-  build inside the lock); the new alert will measure it.
+  build inside the lock); the new alert will measure it — when its first Sentry
+  issue emails, archive that ONE issue "until escalating" (runbook), don't silence it.
 
 ### Since 2026-08-31
 
@@ -165,8 +166,15 @@ it anyway**, so setting it still redirects every call while
 `client.baseURL`, the only value that cannot lie about where traffic is going.
 **Read that one at teardown, not the override.**
 
-`node load-test/ops.mjs --api <url> --fapi clerk.tianmingapp.com` prints a
-plain ARMED / NOT ARMED verdict and is the arm-time and teardown check.
+`node load-test/ops.mjs --api <url> --fapi clerk.tianmingapp.com` is the arm-time
+and teardown check. It samples until every replica has answered and prints
+🟠 ARMED (all replicas on the mock — the only state to start k6 in), 🟢 NOT ARMED
+(all answered, none armed, each confirmed on api.anthropic.com — the only passing
+teardown), 🟠 PARTIALLY ARMED (do not start k6; not torn down), 🟡 INCONCLUSIVE (a
+replica never answered, or a deploy is mid-roll — re-run) or 🟡 NOT CONFIRMED (a
+replica has not built an Anthropic client yet — make AI calls until each replica
+has served one, then re-run). Run it after the redeploy that applies a variable change:
+Railway stages variable edits until they are deployed.
 
 ## ⚠️ The mock's FAKE tokens drive REAL spend accounting
 
@@ -202,8 +210,9 @@ disarmed), not anything recorded while `MOCK_USAGE_SCALE` is in effect.
 3. **Unset `LOADTEST_ANTHROPIC_BASE_URL` BEFORE deleting the mock service.**
    Reversed, every reading fails looking exactly like an Anthropic outage.
 4. Restore `ANTHROPIC_API_KEY` if it was swapped for a dummy.
-5. Confirm with `ops.mjs`: 🟢 NOT ARMED and `aiBaseUrlEffective` on
-   `api.anthropic.com`.
+5. Confirm with `ops.mjs`: 🟢 NOT ARMED on every replica, `aiBaseUrlEffective`
+   on `api.anthropic.com`. Run it AFTER the redeploy that applies the variable
+   change has finished — mid-deploy it reports INCONCLUSIVE / PARTIALLY ARMED.
 
 ## Test suites (measured 2026-08-30)
 
@@ -1004,7 +1013,8 @@ next, not by size. Update it in place as items land.
       the mock would have stamped start+60s (`server.mjs:263`, ≈23:42:33). The
       tokens agree (32,447 cache-write = the chat system prompt). Plan § 3.6
       (capture-broken branch) is NOT needed.
-    - After deploy: `node load-test/ops.mjs --api … --samples 20`.
+    - After deploy: `node load-test/ops.mjs --api …` (samples until every replica
+      has answered).
     (Was:) **`/api/admin/ops` → `rateLimit.*` read `null` right after a real
     streamed reading (2026-09-07).** Those are Anthropic's rate-limit headers,
     captured per PROCESS, and the API runs 2 replicas — so the ops request very
@@ -1065,9 +1075,15 @@ next, not by size. Update it in place as items land.
     - Effect of an overrun: a second concurrent stream on the same session can
       start. Since #23 the first stream's release no longer deletes the second
       one's lock; it reports `redis.lock.lost_before_release`
-      `lockPrefix=chat-session-stream cause=overran_ttl` — so production will
-      measure how often this happens. Likely fix: a total stream deadline, or a
-      token-checked renewal (`extendLock`, now possible with tokens).
+      `lockPrefix=chat-session-stream cause=overran_ttl`. That Sentry issue's
+      event count IS the measurement: when its first event emails, archive that
+      one issue "until escalating" (runbook § `redis.lock.lost_before_release`)
+      — Sentry keeps counting and re-alerts on a spike. Do NOT silence it in
+      code. Likely fix: a total stream deadline, or a token-checked renewal
+      (`extendLock`, now possible with tokens).
+    - **When fixed:** resolve that Sentry issue — and remove the runbook's
+      fallback rule filter if it was ever added — so a recurrence alerts as a
+      regression.
     - Comment-only corrections already shipped with #23
       (`chat-stream.service.ts` docblocks, the misnamed "no race" test).
 

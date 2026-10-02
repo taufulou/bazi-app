@@ -1,6 +1,7 @@
 import Redis from 'ioredis';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../src/redis/redis.service';
+import { needRedis } from './support/real-redis';
 
 /**
  * todo #23 — the lock's ownership semantics against a REAL Redis.
@@ -13,10 +14,10 @@ import { RedisService } from '../src/redis/redis.service';
  * `REQUIRE_REDIS_TESTS=1`, under which an unreachable Redis FAILS this spec —
  * a skip there would be green while testing nothing. Elsewhere (a dev machine
  * without Redis, or a sandbox that merely sets the generic `CI` variable) it
- * skips loudly. It is deliberately NOT keyed on `CI`.
+ * skips loudly. It is deliberately NOT keyed on `CI`. The rule lives in
+ * `test/support/real-redis.ts` (`needRedis`), shared with the throttler spec.
  */
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const REQUIRED = process.env.REQUIRE_REDIS_TESTS === '1';
 
 let probe: Redis;
 let service: RedisService | null = null;
@@ -52,24 +53,11 @@ afterAll(async () => {
   if (probe) await probe.quit().catch(() => undefined);
 });
 
-/** Returns true when the test should run; fails or skips otherwise. */
-function needRedis(): boolean {
-  if (available) return true;
-  if (REQUIRED) {
-    throw new Error(
-      `REQUIRE_REDIS_TESTS=1 but no Redis is reachable at ${REDIS_URL} — ` +
-        'the CI redis service is broken; a skip here would test nothing.',
-    );
-  }
-  console.warn('SKIPPED: no Redis at ' + REDIS_URL);
-  return false;
-}
-
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 describe('RedisService lock ownership — real Redis', () => {
   it('THE HAZARD: an expired holder releasing does NOT delete its successor\'s lock', async () => {
-    if (!needRedis()) return;
+    if (!needRedis(available, REDIS_URL)) return;
     const key = `${PREFIX}:hazard`;
 
     const tokenA = await service!.acquireLock(key, 30);
@@ -96,7 +84,7 @@ describe('RedisService lock ownership — real Redis', () => {
   });
 
   it('a held lock refuses a second acquirer', async () => {
-    if (!needRedis()) return;
+    if (!needRedis(available, REDIS_URL)) return;
     const key = `${PREFIX}:held`;
     const t = await service!.acquireLock(key, 30);
     expect(t).not.toBeNull();
@@ -105,7 +93,7 @@ describe('RedisService lock ownership — real Redis', () => {
   });
 
   it('the owner\'s release returns true and removes the key', async () => {
-    if (!needRedis()) return;
+    if (!needRedis(available, REDIS_URL)) return;
     const key = `${PREFIX}:owner`;
     const t = await service!.acquireLock(key, 30);
     await expect(service!.releaseLock(key, t!)).resolves.toBe(true);
@@ -113,12 +101,12 @@ describe('RedisService lock ownership — real Redis', () => {
   });
 
   it('releasing an absent key returns false', async () => {
-    if (!needRedis()) return;
+    if (!needRedis(available, REDIS_URL)) return;
     await expect(service!.releaseLock(`${PREFIX}:absent`, 'u.1.30')).resolves.toBe(false);
   });
 
   it('sets the TTL Redis enforces', async () => {
-    if (!needRedis()) return;
+    if (!needRedis(available, REDIS_URL)) return;
     const key = `${PREFIX}:ttl`;
     const t = await service!.acquireLock(key, 105);
     const ttl = await probe.ttl(key);
@@ -128,7 +116,7 @@ describe('RedisService lock ownership — real Redis', () => {
   });
 
   it('the script reply ioredis hands back is a NUMBER (pins the === 1 check)', async () => {
-    if (!needRedis()) return;
+    if (!needRedis(available, REDIS_URL)) return;
     const key = `${PREFIX}:reply`;
     const t = await service!.acquireLock(key, 30);
     const reply = await probe.eval(

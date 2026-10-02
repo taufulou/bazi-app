@@ -56,8 +56,10 @@ jobs:
     runs-on: ubuntu-latest
     # M1 — the throttler storage spec asserts parity with the bundled in-memory
     # implementation against a REAL Redis (the contract is Lua + PTTL semantics;
-    # a fake would only re-state my reading of it). Without this service the
-    # spec skips, which is the worst outcome: green, and testing nothing.
+    # a fake would only re-state my reading of it). `redis-lock.integration.spec.ts`
+    # (#23) needs it too. Without this service those real-Redis specs FAIL —
+    # REQUIRE_REDIS_TESTS below makes `test/support/real-redis.ts` throw instead
+    # of skipping, because a skip here would be green and test nothing.
     services:
       redis:
         image: redis:7

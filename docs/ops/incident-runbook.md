@@ -24,7 +24,8 @@ answered. `pools`, `rateLimit`, `aiBaseUrlEffective`, `aiBaseUrlOverride` and
 `alerting` are what THAT replica observed — multiply `pools` by `replicas` for the
 fleet ceiling, and never read a `null` rate-limit gauge as a fact about the other
 replica. `spend`, `breaker` and `quota` are fleet-wide (Redis-backed). To see each replica:
-`node load-test/ops.mjs --api … --samples 20`.
+`node load-test/ops.mjs --api …` — it keeps sampling until every replica has answered
+(`--samples N` takes exactly N instead).
 
 ---
 
@@ -130,12 +131,13 @@ reading THIS replica's Anthropic calls received (`outputTokensRemaining`,
 observation is per replica — check `instance` and read it with the counters:
 
 (Same table as the docblock in `apps/api/src/ai/anthropic-rate-limit.ts` and
-`interpret` in `load-test/ops.mjs` — keep the three in sync.)
+`interpret` in `load-test/ops-report.mjs` — keep the three in sync.)
 
 | What you see | Meaning |
 |---|---|
-| `requestsStarted == 0` | This replica has made no Anthropic call since `instance.startedAt`. `null` is expected — ask the other replica (`--samples`). |
-| `transportErrors > 0` and `responsesSeen == 0` | 🔴 **Every call got no HTTP response at all** — network/DNS failure or a timeout before headers. Check `aiBaseUrlEffective` (a stale load-test mock URL looks exactly like this) and `AI-CALL` lines with `"outcome":"error"`. |
+| `requestsStarted == 0` | This replica has made no Anthropic call since `instance.startedAt`. `null` is expected — read the other replica (`ops.mjs` samples every replica). |
+| `responsesSeen == 0`, MORE calls in flight than failed (in flight = `requestsStarted − responsesSeen − transportErrors`) | Nothing back **yet** — the first calls are still waiting for headers. Not a failure; read again in a few seconds. Any `transportErrors` so far show as a ⚠️ beside it. |
+| `transportErrors > 0`, `responsesSeen == 0`, at least as many failed as are still in flight | 🔴 **Calls are getting no HTTP response at all** — network/DNS failure or a timeout before headers. Check `aiBaseUrlEffective` (a stale load-test mock URL looks exactly like this) and `AI-CALL` lines with `"outcome":"error"`. |
 | `transportErrors > 0`, `responsesSeen > 0` | ⚠️ Some calls got no response. Often routine: the counter is cumulative since `instance.startedAt` and also counts chat client disconnects and shutdown aborts that land before headers, and SDK attempts later retried (`requestsStarted` counts attempts, retries included). Worry only if it climbs fast or tracks `requestsStarted`. |
 | `observedAt` set, `outputTokensRemaining` set | Working. The reading is `now − observedAt` old; under load it is seconds old. |
 | `observedAt` set, `outputTokensRemaining == null` | ⚠️ **Partial** — some rate-limit headers parse, but not the output-token ones, so `rlOutRemaining` on `AI-CALL` lines is blind. |
@@ -171,10 +173,43 @@ defect: someone else may have taken the lock and run the same work concurrently.
 
 | `lockPrefix` | What concurrency it allowed | Known? |
 |---|---|---|
-| `chat-session-stream` | a second chat stream on the same session | ⚠️ **Expected, todo #26.** The 150s TTL does not cover a cold chat-context build + a slow first token. Count the occurrences and feed #26. |
-| `reading:create`, `comparison:create` | a double-submit getting past the dedupe | Not expected (TTLs derived since #27). The engine call itself cannot overrun — `AbortSignal.timeout` hard-caps it at 45s / 30s. So suspect the DB work around it first: **Prisma pool saturation** (each query can wait `pool_timeout` = 20s), then a stalled event loop. |
+| `chat-session-stream` | a second chat stream on the same session | ⚠️ **Expected, todo #26.** The 150s TTL does not cover a cold chat-context build + a slow first token. **Archive it — see below the table.** Its event count is #26's measurement. |
+| `reading:create` | a double-submit getting past the dedupe (a double charge) | Not expected (TTL 105s, derived since #27). The engine call cannot overrun — `AbortSignal.timeout` hard-caps it at 45s, no retry — and even full **Prisma pool exhaustion** stays under the TTL (45s engine + two connection waits ≤20s each + the charging transaction, bounded by Prisma's defaults at ~7s ≈ 92s). So suspect, in order: a **hung Redis command** (the lock body runs Redis commands, and this client has no `commandTimeout`) — `redis-cli --latency`, `redis-cli SLOWLOG GET 10`; a **slow-executing Postgres query** (`pool_timeout` bounds only the wait for a connection, and there is no `statement_timeout`) — check `pg_stat_activity` for long-running queries; then a stalled event loop. |
+| `comparison:create` | a same-pair double-submit getting past the dedupe | Not expected (TTL 90s). The normal path is engine (≤30s) + one insert (≤20s connection wait) = 50s. Only the duplicate-pair (P2002) path — an extra `findFirst` + `update` — can reach 90s on connection waits alone, under full pool exhaustion. So check for a same-pair double-submit while the pool was saturated, a slow-executing Postgres query (`pg_stat_activity`), then a stalled event loop. |
 | `stream:reading`, `ai:generate:comparison` | a second full AI generation on one row (double Anthropic spend) | Not expected (TTLs derived from the generation bound since #15). |
-| `chat-extend` | a double extension (the user pays twice and gets both) | Not expected under normal load (30s over short DB work) — but it has the same "healthy path only" margin, so DB pool saturation can do it too. |
+| `chat-extend` | a double extension (the user pays twice and gets both) | Not expected under normal load: a 30s TTL over short DB work. But under pool exhaustion each query can wait `pool_timeout` (20s), so two queries can outlive it — check pool saturation first, then a slow-executing query. |
+
+**The known `chat-session-stream` / `overran_ttl` issue — archive it, do not
+silence it in code.** The project's one Sentry alert rule emails on ANY event
+(throttled to once an hour per issue), so this known, unfixed condition would
+keep emailing. But #26 is waiting for exactly this count, so it stays in Sentry:
+
+1. The FIRST event emails. In Sentry open that issue (tags
+   `lockPrefix:chat-session-stream`, `cause:overran_ttl`) → **Archive → Until
+   escalating**. Sentry keeps counting it (that count is #26's measurement) and
+   alerts again only if it spikes. The fingerprint is
+   `[event, lockPrefix, cause]`, so this masks no other issue.
+2. **Check the archive once:** the next occurrence must raise that issue's event
+   count WITHOUT an email.
+3. Only if it still emails — fallback, easy to get wrong: in the rule's IF
+   section add filters with match **"Any"** and two **"is not equal to"** tag
+   filters (`lockPrefix` ≠ `chat-session-stream`, `cause` ≠ `overran_ttl`). The
+   tempting "None of" + two "equals" filters would silence EVERY `overran_ttl`
+   (including `reading:create`, the double-charge signal) and every
+   `chat-session-stream` event. Then prove a tagless event still emails, with a
+   REAL ingested event carrying a UNIQUE message (`sentry-cli send-event`, or a
+   one-off `captureMessage`) — the rule editor's "Send Test Notification" button
+   skips the IF filters, and an event on an issue that already alerted within the
+   hour is throttled. The #7 spend drill counts only if the
+   `ai.spend.threshold_80` issue has not alerted in the last hour. If you cannot
+   prove it, remove the filter: the cost of no filter is at most one email an
+   hour, only while the overrun happens. Never leave an unverified filter on the
+   only alert rule. Note that under the filter a SPIKE no longer re-alerts (the
+   event count still accrues) — the archive does not have that cost.
+4. When #26 ships, **Resolve** the issue — and **remove the step-3 filter** if you
+   added it, or a recurrence can never alert as a regression.
+
+Do not archive any OTHER lost-lock issue this way.
 
 ### `cause=lost_early` — the key vanished before its TTL
 
@@ -189,7 +224,9 @@ Five causes; check in this order:
    burst of `lost_early` across prefixes at one moment is the signature.
 4. **An old replica's bare `DEL` during the #23 rolling deploy** — an old-code
    replica overruns, a new replica acquires, the old one deletes it. Only in the
-   window of that one deploy; check the deploy timeline.
+   window of that one deploy; check the deploy timeline. **Resolve** these issues
+   once the window is over — never archive them — so a later recurrence alerts as
+   a regression.
 5. **A code bug** — a double release, or a release with the wrong key. If none of
    the above apply, read the release site for that `lockPrefix`.
 

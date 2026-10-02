@@ -1,6 +1,7 @@
 import Redis from 'ioredis';
 import { ThrottlerStorageService } from '@nestjs/throttler';
 import { RedisThrottlerStorage } from '../src/throttler/redis-throttler.storage';
+import { needRedis } from './support/real-redis';
 
 /**
  * M1(a) — the Redis storage must behave like the bundled in-memory one.
@@ -17,10 +18,13 @@ import { RedisThrottlerStorage } from '../src/throttler/redis-throttler.storage'
  * would only re-state my reading of the contract, so a skip in CI would be the
  * worst outcome: green, and testing nothing.
  *
- * It still SKIPS (loudly) rather than fails when no Redis is reachable, so the
- * suite runs on a dev machine without one. A silent pass would be worse than a
- * visible skip — but note that a skip in CI now means the service is broken,
- * not absent.
+ * Under `REQUIRE_REDIS_TESTS=1` — which CI's `test-api` job sets — an
+ * unreachable Redis FAILS every test here, because there a skip would mean the
+ * service is broken. On a dev machine without Redis (flag unset) the tests skip
+ * loudly so the rest of the suite still runs. The rule lives in ONE place,
+ * `test/support/real-redis.ts` (`needRedis`), shared with
+ * `redis-lock.integration.spec.ts`: until PR #74's review, only that spec
+ * honoured the flag and this one kept skipping green.
  */
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 let client: Redis;
@@ -51,7 +55,7 @@ const LIMIT = 3;
 
 describe('RedisThrottlerStorage — parity with the bundled reference', () => {
   it('matches ThrottlerStorageService hit-for-hit through and past the limit', async () => {
-    if (!available) return void console.warn('SKIPPED: no Redis at ' + REDIS_URL);
+    if (!needRedis(available, REDIS_URL)) return;
 
     const key = `paritytest:${Date.now()}:${Math.random()}`;
     await client.del(`throttle:default:${key}`, `throttle:default:${key}:blocked`);
@@ -78,7 +82,7 @@ describe('RedisThrottlerStorage — parity with the bundled reference', () => {
   });
 
   it('sets isBlocked exactly when the limit is exceeded — the flag the guard throws on', async () => {
-    if (!available) return void console.warn('SKIPPED: no Redis');
+    if (!needRedis(available, REDIS_URL)) return;
 
     const key = `blocktest:${Date.now()}:${Math.random()}`;
     const s = makeStorage();
@@ -94,7 +98,7 @@ describe('RedisThrottlerStorage — parity with the bundled reference', () => {
   });
 
   it('two callers with different keys do not share a bucket', async () => {
-    if (!available) return void console.warn('SKIPPED: no Redis');
+    if (!needRedis(available, REDIS_URL)) return;
     const s = makeStorage();
     const a = `iso-a:${Date.now()}:${Math.random()}`;
     const b = `iso-b:${Date.now()}:${Math.random()}`;
@@ -107,7 +111,7 @@ describe('RedisThrottlerStorage — parity with the bundled reference', () => {
   });
 
   it('is atomic under concurrency — 20 parallel hits produce exactly 20', async () => {
-    if (!available) return void console.warn('SKIPPED: no Redis');
+    if (!needRedis(available, REDIS_URL)) return;
     // A MULTI-based read-modify-write loses updates here; the Lua script cannot.
     const s = makeStorage();
     const key = `race:${Date.now()}:${Math.random()}`;
@@ -120,7 +124,7 @@ describe('RedisThrottlerStorage — parity with the bundled reference', () => {
   });
 
   it('separate throttler names do not collide on the same tracker', async () => {
-    if (!available) return void console.warn('SKIPPED: no Redis');
+    if (!needRedis(available, REDIS_URL)) return;
     const s = makeStorage();
     const key = `named:${Date.now()}:${Math.random()}`;
 
@@ -130,7 +134,7 @@ describe('RedisThrottlerStorage — parity with the bundled reference', () => {
   });
 
   it('is a SLIDING window — a paced caller cannot sustain 2x the limit at the boundary', async () => {
-    if (!available) return void console.warn('SKIPPED: no Redis');
+    if (!needRedis(available, REDIS_URL)) return;
 
     // The case a fixed window gets wrong, and the reason this storage uses a
     // sorted set. With expiry anchored to the FIRST hit, a caller who places
