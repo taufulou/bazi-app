@@ -80,8 +80,18 @@ const ANTHROPIC_STREAM_TIMEOUT_MS = 90_000;
 // bound: the SDK timeout is per-attempt time-to-headers, the watchdog is
 // per-gap, and the context build runs inside the lock. The deadline below
 // gives the work a bound; the TTL is deadline + the longer post-deadline tail.
-// Every number is a compile-time literal derived from a NAMED bound — no env
-// var, the #15 lesson: a malformed env value once reached Redis as a TTL.
+// Every number is a module-load constant computed from NAMED bounds (imported
+// constants and `Math.max` over them — which is what lets the guard spec probe
+// the derivation with `jest.doMock`) — no env input, the #15 lesson: a
+// malformed env value once reached Redis as a TTL.
+//
+// Phase labels used below (the plan's numbering, `.claude/plans/
+// todo-26-chat-stream-deadline.md` §1): P1 cap + quota + deduct tx ·
+// P2 chat-context build (the F5/F6 entitlement re-check runs inside P2's try
+// and is counted with P2's round trips below; the plan's §1 table lists it
+// under P1 — same unbudgeted query either way) · P3 recent messages + Tier C
+// lookup · P4 S2 cap + S1 slot · P5a to first delta · P5b stream body ·
+// P6 post-validate + persist.
 // ============================================================
 
 /**
@@ -96,7 +106,7 @@ const CHAT_CONTEXT_BUILD_BOUND_MS = Math.max(...Object.values(CHAT_CONTEXT_ENGIN
  * the abort is OBSERVED is an abort-path question, budgeted in `ABORT_TAIL_MS`.
  */
 const FIRST_DELTA_BOUND_MS = STREAM_WATCHDOG_MS + WATCHDOG_POLL_MS;
-/** P5b bound: 800 tokens at a degraded 10 tok/s. Normal Sonnet output is 50–80 tok/s → 10–20s. */
+/** P5b bound: 800 tokens at a degraded 10 tok/s. Normal Sonnet output is 50–80 tok/s → 10–16s. */
 const STREAM_BODY_BOUND_MS = 80_000;
 /**
  * From the moment the lock is REQUESTED to the end of the Anthropic stream.
@@ -108,11 +118,11 @@ const STREAM_BODY_BOUND_MS = 80_000;
 export const CHAT_STREAM_DEADLINE_MS =
   CHAT_CONTEXT_BUILD_BOUND_MS + FIRST_DELTA_BOUND_MS + STREAM_BODY_BOUND_MS; // 205_000
 /**
- * Pre-check floor: a normal turn needs ≤ 3s to first delta + ≤ 20s body. With
- * less than this left, starting a stream is more likely to be cut than to
- * finish — and the first turn's ~30k-token cache WRITE (1h TTL, 2× rate:
- * ~$0.18) would be spent on a cut stream, recovered only if the user retries
- * within the hour.
+ * Pre-check floor: a normal turn needs ≤ 3s to first delta + ≤ 16s body, so
+ * 30s leaves no cushion for a slow first token or a single SDK retry. A stream
+ * started with less than this is one hiccup from being cut — and the first
+ * turn's ~30k-token cache WRITE (1h TTL, 2× rate: ~$0.18) would be spent on a
+ * cut stream, recovered only if the user retries within the hour.
  */
 const MIN_STREAM_BUDGET_MS = 30_000;
 
@@ -165,6 +175,23 @@ const STREAM_LOCK_MARGIN_SECONDS =
  */
 export const STREAM_LOCK_TTL_SECONDS =
   Math.ceil(CHAT_STREAM_DEADLINE_MS / 1000) + STREAM_LOCK_MARGIN_SECONDS; // 317
+
+/**
+ * A log-safe label for a caught error: its NAME, plus a string `code` when one
+ * is set (Prisma's `P2028`, our own typed codes). Never the message — a DB or
+ * provider error can echo the failing arguments, and chat rows carry user
+ * content. Total by construction, like `classifyAiError`: it runs inside
+ * `.catch` handlers whose only job is to keep a failure from escaping.
+ */
+function errorLabel(err: unknown): string {
+  try {
+    if (!(err instanceof Error)) return 'error';
+    const code = (err as { code?: unknown }).code;
+    return typeof code === 'string' && code ? `${err.name}/${code}` : err.name || 'error';
+  } catch {
+    return 'error';
+  }
+}
 
 // ============================================================
 // SSE event types — wire protocol contract with frontend
@@ -721,9 +748,10 @@ export class ChatStreamService {
     // Inside the try, that throw would be relabelled AI_CALL_FAILED, overwrite
     // the stamp with AI_FAILED, write an `AI-CALL outcome:"error"` line for a
     // call that never happened, and escape after headers. Out here, with the
-    // `.catch`, none of that can happen. The shape mirrors the entitlement
-    // branch above (and like it, NOT `_refundOnError`: no AI call was made, so
-    // this must not feed the AI-failure signal).
+    // `.catch`, none of that can happen. The shape is the entitlement branch
+    // above plus a diagnostic `STREAM_TIMEOUT` stamp and a LOGGED `.catch`
+    // (the entitlement branch's is silent) — and like it, NOT `_refundOnError`:
+    // no AI call was made, so this must not feed the AI-failure signal.
     // ============================================================
     if (deadlineAt - Date.now() < MIN_STREAM_BUDGET_MS) {
       const elapsedMs = Date.now() - lockRequestedAt;
@@ -749,7 +777,7 @@ export class ChatStreamService {
           // the one an operator cannot help. Error NAME only — never a message.
           this.logger.warn(
             `Pre-AI deadline refund FAILED for message ${userMessageId} (session ${sessionId}): ` +
-              `${refundErr instanceof Error ? refundErr.name : 'error'}`,
+              errorLabel(refundErr),
           );
           return { refunded: false, method: null };
         });
@@ -1202,11 +1230,15 @@ export class ChatStreamService {
   }
 
   /**
-   * #26 — a deadline fire is never silent. The session id stays in OUR log;
-   * Sentry receives the phase and the timings only (fingerprinted per phase,
-   * so the project's any-event alert rule emails once an hour per phase). The
-   * whole body is guarded, as `RedisService.reportLostLock` is: a helper whose
-   * job is visibility must not be able to throw.
+   * #26 — a deadline fire is never silent. The session id goes in OUR log; the
+   * explicit Sentry payload (tags / extra / fingerprint) carries the phase and
+   * the timings only. The request context Sentry attaches on its own is
+   * unchanged — `scrubSentryEvent` keeps `request.url`, so the session UUID in
+   * the route is still there, as it is for every event raised in this request
+   * (a random id, not birth data). Fingerprinted per phase, so the project's
+   * any-event alert rule emails once an hour per phase. The whole body is
+   * guarded, as `RedisService.reportLostLock` is: a helper whose job is
+   * visibility must not be able to throw.
    */
   private _reportDeadline(
     phase: 'pre_ai' | 'mid_stream',
@@ -1270,21 +1302,34 @@ export class ChatStreamService {
       // Non-fatal — message may have been deleted concurrently
     }
 
-    const refundResult = await this.paymentService.refundLastMessage(
-      userMessageId,
-      sessionId,
-      userId,
-      reason,
-    );
+    // PR #75 review (B) — this runs AFTER headers, from the AI-failure catch
+    // (and the context-build catch), and since #26 it is also the route for a
+    // deadline abort: pool saturation, exactly when the refund tx is likeliest
+    // to throw (P2024/P2028). Nothing above this (the lock `finally`, the
+    // controller) catches: an escaped throw reaches the exception filter on a
+    // response whose headers are already flushed, so it can write no `error`
+    // event — the client sees a dropped connection and a charge. Same `.catch`
+    // shape as the pre-check; error NAME + Prisma code only, never a message.
+    const refundResult = await this.paymentService
+      .refundLastMessage(userMessageId, sessionId, userId, reason)
+      .catch((refundErr: unknown) => {
+        this.logger.warn(
+          `Refund FAILED for message ${userMessageId} (session ${sessionId}): ${errorLabel(refundErr)}`,
+        );
+        return { refunded: false, method: null };
+      });
 
     this.logger.warn(
       `Refunded ${refundResult.method ?? 'none'} for message ${userMessageId}: ${refundResult.refunded}`,
     );
 
+    // The clients render `message` verbatim — never claim a refund that did
+    // not happen (a thrown refund, an already-refunded row, or a message that
+    // was never charged all come back `refunded: false`).
     this._emitError(
       response,
       'AI_CALL_FAILED',
-      'AI 暫時無法回答，已退還點數',
+      refundResult.refunded ? 'AI 暫時無法回答，已退還點數' : 'AI 暫時無法回答',
       refundResult.refunded,
       refundResult.method,
     );

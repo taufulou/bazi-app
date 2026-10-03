@@ -10,6 +10,7 @@
 jest.mock('@sentry/nestjs', () => ({ captureMessage: jest.fn(), addBreadcrumb: jest.fn() }));
 
 import * as Sentry from '@sentry/nestjs';
+import { ServiceUnavailableException } from '@nestjs/common';
 import { ChatStreamService, STREAM_LOCK_TTL_SECONDS } from '../src/chat/chat-stream.service';
 import { ShutdownService } from '../src/common/shutdown.service';
 
@@ -532,7 +533,7 @@ describe('ChatStreamService', () => {
       //   deadline 205 = 60 (slowest cold context build: compat engine call)
       //                + 65 (watchdog 60s + one 5s poll — when it FIRES)
       //                + 80 (800 output tokens at a degraded 10 tok/s)
-      //   margin   112 = ceil(max(79 normal tail, 92 abort tail) / 1000) + 20 cushion
+      //   margin   112 = ceil(max(79s normal tail, 92s abort tail)) + 20s cushion
       //                  normal tail: 5s poll (P6 can start up to one poll after
       //                               the deadline) + 2 tx × 7s + 3 reads × 20s pool wait
       //                  abort tail:  5s poll + 60s SDK retry sleep (ignores the
@@ -608,8 +609,9 @@ describe('ChatStreamService', () => {
   // Instant mocks + a fake clock put the lock request, `lastDeltaAt` and the
   // watchdog interval all at fake t = 0, so interval polls land at 5, 10, …,
   // 205 s. Every test advances the clock to a 600 s HORIZON before awaiting
-  // the stream — beyond the natural end of every mutant (the longest generator
-  // ends at 400 s; a deadline wrongly clocked from stream start lands at
+  // the stream — beyond the natural end of every mutant (the `silence`
+  // generators end at 500 s from stream start; T6's, started at 150 s, at
+  // 550 s absolute; a deadline wrongly clocked from stream start lands at
   // 355 s) — so a broken guard fails FAST on an assertion, never on jest's
   // 5 s timeout.
   // ============================================================
@@ -714,8 +716,11 @@ describe('ChatStreamService', () => {
      * are the ONLY thing that catches a pre-check moved to after the
      * AbortController / registerStream / setInterval block (mutation M12).
      */
-    async function drive(): Promise<MockResponse> {
+    async function drive(arm?: (res: MockResponse) => void): Promise<MockResponse> {
       const res = new MockResponse();
+      // Lets a test schedule something against THIS response (a client
+      // disconnect at a chosen fake time) before the stream starts.
+      arm?.(res);
       const settled = service
         .streamMessage('c1', 's1', '我的命格如何', undefined, res as never)
         .then(() => undefined, (e: unknown) => e);
@@ -924,6 +929,85 @@ describe('ChatStreamService', () => {
       expect(stamps).toEqual(['STREAM_TIMEOUT']);
       expect(res.events.some((e) => e.code === 'AI_CALL_FAILED')).toBe(false);
     });
+
+    // PR #75 review (A) — the mid-stream report is HOISTED above the catch's
+    // two early-return branches. The two tests below are what make that
+    // placement load-bearing: each reaches a branch that returns before the
+    // refund route, with the deadline already fired, and requires the report.
+    // Moving the report back below either branch turns the test red.
+
+    it('T11 — a deadline fired during an abort-BLIND sleep is still reported when the CLIENT DISCONNECTS before the abort is observed', async () => {
+      // Deltas flow to 150 s, then the generator parks on a 100 s abort-blind
+      // sleep (the SDK retry sleep). The 205 s tick is past the deadline with a
+      // 55 s gap, so it is the DEADLINE that fires (not the watchdog); the sleep
+      // ignores it. At 220 s the client closes; at 250 s the sleep ends and the
+      // generator throws — into the catch's `clientDisconnected` branch, which
+      // returns before `_refundOnError`.
+      const { impl } = streamMock({ deltaAt: every10s(15), after: 'blind-silence', blindMs: 100_000 });
+      mockAnthropicStream.mockImplementation(impl);
+
+      const res = await drive((r) => {
+        setTimeout(() => r.simulateClientDisconnect(), 220_000);
+      });
+
+      // The disconnect branch ran: its stamp, its refund reason, nothing
+      // written to the dead response.
+      expect(refundReason()).toBe('client-disconnected');
+      const stamps = (mockPrisma.chatMessage.update as jest.Mock).mock.calls.map((c) => c[0].data.errorCode);
+      expect(stamps).toEqual(['CLIENT_DISCONNECTED']);
+      expect(errorEvent(res)).toBeUndefined();
+      expect(watchdogWarns()).toBe(0);
+      // …and the deadline was still reported, with the timings of the moment
+      // the abort was OBSERVED (250 s), not fired (205 s).
+      expect(Sentry.captureMessage).toHaveBeenCalledTimes(1);
+      expect(Sentry.captureMessage).toHaveBeenCalledWith('chat.stream.deadline_exceeded', {
+        level: 'warning',
+        tags: { phase: 'mid_stream' },
+        extra: { elapsedMs: 250_000, aiElapsedMs: 250_000, deadlineMs: DEADLINE_MS },
+        fingerprint: ['chat.stream.deadline_exceeded', 'mid_stream'],
+      });
+    });
+
+    it('T12 — a deadline fired while the S1 slot wait is pending is still reported when that wait ends in a TYPED 503', async () => {
+      // A 140 s context build leaves 65 s (the pre-check passes), then
+      // `aiGovernor.acquire` — which takes no signal — stays pending. `lastDeltaAt`
+      // was set at 140 s, so the 200 s tick's gap is exactly 60 s (not > 60: no
+      // watchdog) and the 205 s tick is the deadline; the pending acquire
+      // ignores the abort. At 240 s it rejects with our own typed refusal — into
+      // the catch's `HttpException` branch, which returns before `_refundOnError`.
+      mockContextService.getChatContextForReading.mockImplementation(
+        () => new Promise((resolve) => setTimeout(() => resolve(DEFAULT_CHAT_CONTEXT), 140_000)),
+      );
+      mockGovernorAcquire.mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) =>
+            setTimeout(
+              () => reject(new ServiceUnavailableException({ code: 'AI_BUSY', message: 'AI 服務繁忙' })),
+              100_000,
+            ),
+          ),
+      );
+      mockAnthropicStream.mockImplementation(streamMock({ deltaAt: every10s(3), after: 'end' }).impl);
+
+      const res = await drive();
+
+      // The typed-refusal branch ran: its code on the wire, its refund reason,
+      // no AI_FAILED stamp, no Anthropic call.
+      expect(errorEvent(res)).toMatchObject({ code: 'AI_BUSY', refunded: true });
+      expect(refundReason()).toBe('refused: AI_BUSY');
+      expect(mockAnthropicStream).not.toHaveBeenCalled();
+      expect(res.events.some((e) => e.code === 'AI_CALL_FAILED')).toBe(false);
+      expect(watchdogWarns()).toBe(0);
+      // …and the deadline was still reported. `aiStartedAt` is taken before
+      // the cap check at 140 s, so the AI-side timing is the 100 s slot wait.
+      expect(Sentry.captureMessage).toHaveBeenCalledTimes(1);
+      expect(Sentry.captureMessage).toHaveBeenCalledWith('chat.stream.deadline_exceeded', {
+        level: 'warning',
+        tags: { phase: 'mid_stream' },
+        extra: { elapsedMs: 240_000, aiElapsedMs: 100_000, deadlineMs: DEADLINE_MS },
+        fingerprint: ['chat.stream.deadline_exceeded', 'mid_stream'],
+      });
+    });
   });
 
   describe('refund on Anthropic error', () => {
@@ -975,6 +1059,68 @@ describe('ChatStreamService', () => {
         'u1',
         expect.stringContaining('Anthropic 503'),
       );
+    });
+
+    // PR #75 review (B) — `_refundOnError` runs after headers and, since #26,
+    // is the deadline's mid-stream route: it fires under pool saturation, when
+    // the refund tx is likeliest to throw. The throw must not escape (the
+    // response is already streaming — nothing upstream can turn it into an
+    // `error` event), and the receipt must never claim a refund that did not
+    // happen.
+    it('a refund that THROWS inside _refundOnError is logged, does not escape, and the receipt does not claim a refund', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ id: 'u1', clerkUserId: 'c1' });
+      mockPrisma.chatSession.findUnique.mockResolvedValue(makeFreshSession());
+      mockPrisma.chatMessage.create.mockResolvedValueOnce({ id: 'msg-user' });
+      mockAnthropicStream.mockReturnValue(
+        // eslint-disable-next-line require-yield
+        (async function* () {
+          throw new Error('Anthropic 503 Service Unavailable');
+        })(),
+      );
+      mockPaymentService.refundLastMessage.mockRejectedValueOnce(
+        Object.assign(new Error('Transaction API error: Unable to start a transaction in the given time.'), { code: 'P2028' }),
+      );
+      const warnSpy = jest
+        .spyOn((service as unknown as { logger: { warn: (m: string) => void } }).logger, 'warn')
+        .mockImplementation(() => undefined);
+
+      const res = new MockResponse();
+      await expect(service.streamMessage('c1', 's1', '我的命格如何', undefined, res as never)).resolves.toBeUndefined();
+
+      const ev = res.events.find((e) => e.type === 'error') as Record<string, unknown>;
+      expect(ev).toMatchObject({ code: 'AI_CALL_FAILED', refunded: false, refundMethod: null });
+      expect(String(ev.message)).not.toContain('已退還');
+      expect(res.ended).toBe(true);
+      // Logged by NAME + Prisma code — never the message (it can echo the
+      // failing arguments).
+      const refundWarn = warnSpy.mock.calls.map((c) => String(c[0])).find((m) => /Refund FAILED/.test(m));
+      expect(refundWarn).toContain('Error/P2028');
+      expect(refundWarn).not.toContain('Unable to start a transaction');
+      // The AI_FAILED stamp still landed before the refund attempt.
+      expect(mockPrisma.chatMessage.update).toHaveBeenCalledWith({
+        where: { id: 'msg-user' },
+        data: { errorCode: 'AI_FAILED' },
+      });
+    });
+
+    it('a refund that comes back `refunded: false` (nothing to refund) does not claim 已退還', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue({ id: 'u1', clerkUserId: 'c1' });
+      mockPrisma.chatSession.findUnique.mockResolvedValue(makeFreshSession());
+      mockPrisma.chatMessage.create.mockResolvedValueOnce({ id: 'msg-user' });
+      mockAnthropicStream.mockReturnValue(
+        // eslint-disable-next-line require-yield
+        (async function* () {
+          throw new Error('Anthropic 503 Service Unavailable');
+        })(),
+      );
+      mockPaymentService.refundLastMessage.mockResolvedValueOnce({ refunded: false, method: null });
+
+      const res = new MockResponse();
+      await service.streamMessage('c1', 's1', '我的命格如何', undefined, res as never);
+
+      const ev = res.events.find((e) => e.type === 'error') as Record<string, unknown>;
+      expect(ev).toMatchObject({ code: 'AI_CALL_FAILED', refunded: false, refundMethod: null });
+      expect(String(ev.message)).toBe('AI 暫時無法回答');
     });
   });
 

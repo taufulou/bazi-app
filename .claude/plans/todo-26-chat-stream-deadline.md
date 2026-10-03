@@ -1,6 +1,6 @@
 # Todo #26 — `chat-session-stream` lock can be outlived: a total deadline + a derived TTL
 
-**Status: ✅ IMPLEMENTED 2026-10-02 on `claude/launch-security-phase1-review-d1daf4` (UNCOMMITTED — owner commits; this file is untracked, `git add` it). Built exactly as plan v3.1, which the staff-engineer reviewer APPROVED in round 3 (Round-1: REVISE 14 · Round-2: REVISE 8 · Round-3: APPROVE 2 low — §7). Mutation results, suite results and the line-audit outcome are in §8.**
+**Status: ✅ IMPLEMENTED 2026-10-02 on `claude/launch-security-phase1-review-d1daf4`, committed as `a9b38ce`, PR #75. Built exactly as plan v3.1, which the staff-engineer reviewer APPROVED in round 3 (Round-1: REVISE 14 · Round-2: REVISE 8 · Round-3: APPROVE 2 low — §7). Mutation results, suite results and the line-audit outcome are in §8; the PR #75 `/code-review` follow-ups (2026-10-03) are in §9.**
 Branch: `claude/launch-security-phase1-review-d1daf4` (= `main` at `992839e`).
 
 ## 0. The decision in one paragraph
@@ -468,3 +468,36 @@ M1/M5a/M5b now ALSO redden the guard probe (its expected 235s/347s shift with th
 - API log: 0 lines matching deadline / watchdog / STREAM_TIMEOUT / CONCURRENT_STREAM / lost-lock.
 - ⚠️ That first turn ran on the PRE-audit build: the post-audit restart had used `kill $(lsof -ti:4001)`, which returned a client socket's PID too, killed nothing, and the new process died `EADDRINUSE` while `/health/ready` kept answering 200 from the old one. Caught by checking the LISTEN pid. Restarted properly (`-sTCP:LISTEN`), dist verified to carry the post-audit lines, and a **second turn on the FINAL build** (pid 64782): `AI-CALL {"route":"chat:stream",…,"ms":1696,"inTok":388,"outTok":17,"cacheReadTok":30173,"cacheWriteTok":0,…,"outcome":"ok"}` (the 1h-cached system block read back), Redis `set … EX 317 NX` → compare-and-delete 1.8s later with the same token, session `message_count` 2, four clean rows, no deadline/watchdog lines.
 - The deadline FIRING cannot be exercised live (no slow-Anthropic mock); it is pinned by the fake-timer tests + mutations above.
+
+## 9. PR #75 `/code-review` follow-ups (2026-10-03)
+
+The review (5 reviewers + confidence scoring, posted at
+https://github.com/taufulou/bazi-app/pull/75#issuecomment-5955468240) found no
+bug in the code. Everything ≥ 25 was fixed except E6 (a quotation-marks nit in
+`ai.service.ts`, judged a false positive — deliberately untouched).
+
+| # | score | finding | fix |
+|---|---|---|---|
+| **C** | 100 | handoff + this file still said "UNCOMMITTED / `git add` it" after the commit | both now say committed as `a9b38ce`, PR #75 |
+| **A** | 75 | the HOISTED `_reportDeadline('mid_stream')` (above the catch's two early returns) had no test that made its placement load-bearing | **T11** (deadline fires during an abort-blind sleep, client disconnects at 220s, abort observed at 250s → disconnect branch runs AND Sentry gets `mid_stream` 250000/250000) + **T12** (140s context build, `acquire` pends 100s then rejects with a typed `AI_BUSY` 503 at 240s; the 200s tick's gap is exactly 60s so the watchdog cannot fire first, the 205s tick is the deadline → HttpException branch runs AND Sentry gets 240000/100000). `drive()` gained an `arm(res)` hook. **M17** (report moved back below the branches) → exactly T11 + T12 red |
+| **B** | 75 | `_refundOnError`'s refund had no `.catch` (a P2024/P2028 under pool saturation escaped after headers) and the message ALWAYS said 已退還點數 | `.catch` → `{refunded:false}` + `logger.warn` of error NAME + Prisma code via a new total `errorLabel()` (also used by the pre-check); message conditional on `refunded` ('AI 暫時無法回答' when false). Two tests in «refund on Anthropic error». **M18** (drop the `.catch`) → the throw test red; **M19** (unconditional message) → both receipt tests red |
+| E2 | 75 | P1–P6 labels used in source, defined only here | legend in the «Total deadline + lock TTL» header, matching §1 |
+| E3 | 75 | guard-spec header called a hoisted `const T = 60_000` a "known gap"; the negative lookahead catches it | header names the REAL gap (a signal built without `AbortSignal.timeout(` that still satisfies the site count) |
+| E4 | 75 | spec header "longest generator ends at 400 s" | 500s (`silence`) / 550s absolute (T6) / 355s |
+| E7 | 50 | "the shape mirrors the entitlement branch" | "…plus a diagnostic `STREAM_TIMEOUT` stamp and a LOGGED `.catch` (the entitlement branch's is silent)" |
+| F | 50 | runbook `pre_ai` row listed engine latency as a cause on its own; the engine call is ≤ 60s of the ≥ 175s the pre-check needs | "at most 60s of the 175s … NEVER the sole cause: look for it stacked on the DB or Redis waits" |
+| D | 25 | CLAUDE.md «any future derived TTL must go through `safeBoundMs`» contradicts #26's constant-derived TTL | scoped to ENV-sourced values; `STREAM_LOCK_TTL_SECONDS` named as the exception (no parse step) |
+| E1 | 25 | «Sentry receives the phase and the timings only» — `scrubSentryEvent` keeps `request.url`, so the session UUID is in the request context | docblock: explicit payload = phase + timings; request-URL context unchanged (random id, not birth data) |
+| E5 | 25 | 10–20s → 10–16s (800/80, 800/50); the 30s-floor rationale; T1's "/ 1000" unit slip; "compile-time literal" | all reworded against the arithmetic; "module-load constants … no env input" |
+
+### Mutations — all 19 SEEN red by test name (16 prior + M17–M19), source restored after each
+M2 / M4 / M7 / M16 now ALSO redden T11 / T12 (the new tests sit on the same deadline branch, timings and check order). `chat-stream-service.spec.ts` + guard spec **36/36**; api `tsc --noEmit` clean.
+
+### Line audit of the follow-ups (staff-engineer agent, independent re-run of M17–M19) — VERDICT: PASS
+Every fix CONFIRMED against the code (A: T11/T12 timings re-traced tick by tick, incl. T12's 200s gap being exactly 60s; B: both callers `await` + `return`, the pre-change throw reached the exception filter on a flushed SSE response; C: `a9b38ce` adds the plan + the #26 code, PR #75 is OPEN on this branch; D: every term of the TTL is a literal or a literal-derived constant, `safeBoundMs` wraps the three `parseInt` env reads; E1: `scrubSentryEvent` keeps `request.url`; E4/E5/F arithmetic). Lint ratchet unchanged (spec `no-explicit-any` 38 = HEAD, service `no-unused-vars` 5 = pinned). Taken from its notes:
+- **E3** — the header had over-stated the gap: an `AbortController` + manual `setTimeout` site drops its key from `uses` and the key-list assertion catches it. Header now names the ONE shape that slips: a site that stops using `AbortSignal.timeout(` while a textual `AbortSignal.timeout(CHAT_CONTEXT_ENGINE_TIMEOUT_MS.<thatKey>)` survives elsewhere in the file (a dead module-scope const), so key list and site count still balance.
+- **E2** — the legend's P1 omits the entitlement re-check that §1's P1 row lists; the code runs it inside P2's try and the deadline docblock counts it with P2. Legend now says so (same unbudgeted query either way).
+- **B's non-streaming twin** (`chat.service.ts::sendMessage`) emitted the same unconditional 已退還點數 — the «sibling path doing the same thing unfixed» class. Message now conditional on `refunded`; new test in `chat-service.spec.ts`; **M20** (unconditional again) → that test red, restored. Its refund has no `.catch`, deliberately: pre-headers, a throw there is a typed-500 through the filter, not a dropped stream.
+- Noted, pre-existing, untouched: web `ChatDrawer` appends «（已退還點數）» to a message that already says it when `refunded` is true (mobile renders `message` verbatim, so the server wording is what mobile shows); the handoff's "second commit" line reworded to be true before and after the commit.
+
+After the audit: `chat-service` + `chat-stream-service` + guard specs **77/77**; eslint clean on all five changed TS files; api `tsc` clean.

@@ -9,8 +9,17 @@ import { CHAT_CONTEXT_ENGINE_TIMEOUT_MS } from '../src/chat/chat-context.service
  *
  *   sites → object : every `engineFetch` site in `chat-context.service.ts`
  *                    reads its timeout from `CHAT_CONTEXT_ENGINE_TIMEOUT_MS`
- *                    (first three tests — a source-text ratchet, not a proof:
- *                    a hoisted `const T = 60_000` passed in is a known gap);
+ *                    (first three tests — a source-text ratchet, not a proof.
+ *                    The negative lookahead DOES catch a hoisted
+ *                    `const T = 60_000` passed in, and a site rebuilt on an
+ *                    `AbortController` + manual `setTimeout` drops its key
+ *                    from `uses`, which the second test's key list catches.
+ *                    The one shape that slips through: a site that stops
+ *                    using `AbortSignal.timeout(` while a textual
+ *                    `AbortSignal.timeout(CHAT_CONTEXT_ENGINE_TIMEOUT_MS.<thatKey>)`
+ *                    survives elsewhere in the file — a dead module-scope
+ *                    const, say — so the key list and the site count still
+ *                    balance);
  *   object → TTL   : `chat-stream.service.ts` really computes from the object
  *                    (last test — a module probe, so a later "simplification"
  *                    to a literal `60_000` cannot survive it).

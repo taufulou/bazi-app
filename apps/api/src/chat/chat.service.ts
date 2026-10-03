@@ -1195,10 +1195,13 @@ export class ChatService {
         `Refunded ${refundResult.method ?? 'none'} for message ${userMessage.id}: ${refundResult.refunded}`,
       );
 
+      // Never claim a refund that did not happen (an already-refunded row or
+      // a message that was never charged come back `refunded: false`) — the
+      // twin of `_refundOnError` in chat-stream.service.ts (PR #75 review B).
       throw new HttpException(
         {
           code: 'AI_CALL_FAILED',
-          message: 'AI 暫時無法回答，已退還點數',
+          message: refundResult.refunded ? 'AI 暫時無法回答，已退還點數' : 'AI 暫時無法回答',
           refunded: refundResult.refunded,
           refundMethod: refundResult.method,
         },

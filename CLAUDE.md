@@ -4405,7 +4405,9 @@ was.** These TTLs now flow into `redis.acquireLock`, so a malformed timeout env
 var (NaN) would be handed to Redis as an expiry it rejects — and on the compat
 path the lock sits AFTER the credit charge, making one typo charge 3 credits and
 then 500. `AIService.safeBoundMs` fails CLOSED to a wide fallback and logs at
-error level. Any future derived TTL must go through it.
+error level. Any future TTL derived from an ENV-sourced value must go through
+it. A TTL computed purely from module constants — #26's
+`STREAM_LOCK_TTL_SECONDS` is one — has no parse step to guard and does not.
 
 ✅ **Locks have ownership tokens (todo #23, 2026-10-01).** `redis.acquireLock`
 used to store the constant `'1'` and `releaseLock` was a bare `DEL`, so a holder

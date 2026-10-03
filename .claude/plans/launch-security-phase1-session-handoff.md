@@ -17,10 +17,10 @@ test is left running.
 #23/#24/#11(c)/#27: branch `claude/launch-security-phase1-plan-8e760f`, merged
 as PR #74. Plan + 4-round staff review:
 `.claude/plans/todo-23-24-11c-lock-tokens-ratelimit-deps.md`.
-**#26: branch `claude/launch-security-phase1-review-d1daf4`, UNCOMMITTED at the
-time of writing (owner commits — the plan file is UNTRACKED, `git add` it).**
-Plan + 3-round staff review + implementation log:
-`.claude/plans/todo-26-chat-stream-deadline.md`.
+**#26: branch `claude/launch-security-phase1-review-d1daf4`, committed as
+`a9b38ce` and open as PR #75; the `/code-review` follow-ups (2026-10-03) are on
+the same branch.** Plan + 3-round staff review + implementation log + the
+review follow-ups (§9): `.claude/plans/todo-26-chat-stream-deadline.md`.
 - **#27 ✅** — `reading:create` lock (30s) was a live DOUBLE CHARGE under a slow
   engine; both create locks now derive from named engine timeouts (105s / 90s).
 - **#23 ✅** — Redis locks have ownership tokens + compare-and-delete;
