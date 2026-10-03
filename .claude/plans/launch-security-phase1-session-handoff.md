@@ -12,11 +12,15 @@ LIVE at `https://tianmingapp.com`. Phases 1, 2B (M1–M10), 2C (Ob1–Ob3) and
 **3 (load test, L1–L6)** are complete. Teardown is done — nothing from the load
 test is left running.
 
-### Since 2026-10-01 — #23, #24, #11(c) (+ #27 found on the way)
+### Since 2026-10-01 — #23, #24, #11(c) (+ #27 found on the way); 2026-10-02 — #26
 
-Branch `claude/launch-security-phase1-plan-8e760f`, UNCOMMITTED at the time of
-writing (owner commits). Plan + 4-round staff review:
+#23/#24/#11(c)/#27: branch `claude/launch-security-phase1-plan-8e760f`, merged
+as PR #74. Plan + 4-round staff review:
 `.claude/plans/todo-23-24-11c-lock-tokens-ratelimit-deps.md`.
+**#26: branch `claude/launch-security-phase1-review-d1daf4`, committed as
+`a9b38ce` and open as PR #75; the `/code-review` follow-ups (2026-10-03) are on
+the same branch.** Plan + 3-round staff review + implementation log + the
+review follow-ups (§9): `.claude/plans/todo-26-chat-stream-deadline.md`.
 - **#27 ✅** — `reading:create` lock (30s) was a live DOUBLE CHARGE under a slow
   engine; both create locks now derive from named engine timeouts (105s / 90s).
 - **#23 ✅** — Redis locks have ownership tokens + compare-and-delete;
@@ -27,9 +31,11 @@ writing (owner commits). Plan + 4-round staff review:
   `AI-CALL` carries a numeric `rlOutRemaining` from real Anthropic.
 - **#11(c) ✅** — `lunar-typescript` declared in web, root crutch removed; CI's
   Build job now installs like the Dockerfiles, with a drift guard.
-- **#26 ⬜ NEW** — `chat-session-stream` 150s lock can be outlived (cold context
-  build inside the lock); the new alert will measure it — when its first Sentry
-  issue emails, archive that ONE issue "until escalating" (runbook), don't silence it.
+- **#26 ✅ (2026-10-02)** — `chat-session-stream` lock now has a total stream
+  deadline (205s from the lock request) and a TTL derived from it (317s). Owner
+  post-deploy: Resolve the `redis.lock.lost_before_release {chat-session-stream,
+  overran_ttl}` Sentry issue if it exists (note its count first — that was the
+  measurement) and remove any rule filter added for it.
 
 ### Since 2026-08-31
 
@@ -513,13 +519,49 @@ next, not by size. Update it in place as items land.
 
 ### Cost / quality, not blocking
 
-6. **⭐ Prompt caching on the reading paths — MEASURED, NOT IMPLEMENTED.**
-   Deferred deliberately on 2026-08-28; see
-   **`## 📌 DEFERRED FINDING — prompt caching`** below for the full measurement,
-   the economics, and the trap that makes a naive implementation wrong.
-   Short version: **71% of every reading's input is a byte-identical static
-   system prompt that is not cached.** ~10% saving guaranteed, up to ~28% under
-   traffic. Requires making the spend price table TTL-aware FIRST.
+6. ✅ **Prompt caching on the reading paths — IMPLEMENTED 2026-09-28, MERGED
+   2026-10-01 as PR #72 (`1485e18`, branch `claude/launch-security-phase1-task-6-c1cb25`).**
+   Plan (3 staff-review rounds + line audit): `~/.claude/plans/prompt-caching-reading-paths.md`
+   (author's Mac only — the invariants are in CLAUDE.md § "Prompt caching on the
+   reading paths — four traps", which is the copy a fresh session needs).
+   ⚠️ This entry was stale in THIS copy until 2026-10-02 (the home-dir copy had
+   it; the repo copy did not) — the `## 📌 DEFERRED FINDING` section below is
+   kept as the ORIGINAL MEASUREMENT, not as a pending item.
+   - **Measured live, real Anthropic, local stack** — every run reconciled three
+     ways (AI-CALL line re-priced by hand = Redis spend delta = AIUsageLog row):
+
+     | Reading | Cached prefix | Cost |
+     |---|---|---|
+     | LIFETIME isolated | 15,757 tok (call1 writes, call2 reads) | **$0.275** (was $0.312) |
+     | LIFETIME, 2nd inside 5 min | both calls read | **$0.230** |
+     | CAREER / LOVE / ANNUAL | 5,831 / 9,901 / 3,664 | $0.229 / $0.253 / $0.243 |
+     | COMPAT reveal | 7,951 (call1 writes, 2+3 read) | $0.275 |
+     | LIFETIME, flag `AI_READING_PROMPT_CACHE=0` | none, parallel restored | $0.305 |
+
+   - ⚠️ **The finding as written would have LOST money.** The two V2 calls ran in
+     parallel, and parallel requests all WRITE the cache and none read — naive
+     caching made an isolated reading dearer ($0.1559 input vs $0.1323). Call 2 now
+     waits for Call 1's first chunk (measured cost ~2s on a ~175s reading). And the
+     streaming adapter never captured cache counters, so the spend ledger would
+     have UNDER-counted. Both fixed; see the plan's C1–C3.
+   - **AIUsageLog gained 3 columns** (migration `20260928032503_…`, additive).
+     Prod applied it via the Dockerfile's `migrate deploy` on the PR #72 merge.
+   - ⚠️ **Knock-on for #7:** the per-reading cost the $50/day cap was sized from
+     dropped ~12% (more under traffic). Re-measure from the first ~10 production
+     readings, then decide whether $50/day stays.
+   - **Follow-ups recorded in the plan (§6):** F1 inline `callClaude` caching;
+     F2 load-test mock emitting a `cache_creation` split; F3 the #7 re-size;
+     F4 fortune; F5 the double retry layer (SDK `maxRetries: 2` × app retries);
+     F6 Call 2's usage object is shared across its retry attempts (pre-existing,
+     over-count direction). PR #72's `/code-review` follow-ups landed in
+     `95e8597` (one cache-counter reader, admin prompt-cache columns, per-attempt
+     Call 2 usage — that last one closes F6).
+   - ⚠️ **Observed, pre-existing:** `BaziService.streamReading` never
+     unsubscribes the inner AI observable, so a client disconnect does NOT abort a
+     reading's AI calls — it generates to completion and persists. The
+     abort-on-teardown machinery in `ai.service.ts` is unreachable from the
+     reading endpoint. Decide whether that is intended (a paid reading completes)
+     before anyone "fixes" it.
 
 7. ✅ **`AI_DAILY_SPEND_LIMIT_USD` set + breaker drill RUN — 2026-09-02.**
    Live values: **daily $50, monthly $900**. Both alert events proven end to
@@ -917,8 +959,9 @@ next, not by size. Update it in place as items land.
          its SUCCESSOR's lock, and safe renewal is impossible. Fixing the TTLs
          removes the trigger on these keys but not the hazard. Adding a token
          touches all 5 call sites.
-     (d) ⚠️ **WRONG — see #26.** `chat-stream.service.ts`'s 150s is **correct** — 90s timeout + 60s
-         watchdog, no retry/fallback budget. Do not "fix" it by analogy.
+     (d) ⚠️ **WRONG, and since FIXED as #26 (2026-10-02).** This line used to say
+         `chat-stream.service.ts`'s 150s was "correct — 90s timeout + 60s
+         watchdog, no retry/fallback budget". It was not; see #26.
 
 16. ✅ **`Ob1Verify` profile DELETED from production 2026-09-01** (owner, via
    `/dashboard/profiles`). Verified beforehand in the schema: `BaziReading` is
@@ -1060,32 +1103,42 @@ next, not by size. Update it in place as items land.
       (no secret in the binary); a global single-flight 401 handler exists
       (`src/lib/api.ts` + `_layout.tsx:87`).
 
-26. ⬜ **`chat-session-stream` lock (150s) can be shorter than its work** — filed
-    2026-10-01 while planning #23. Not fixed; needs its own design.
-    - #15(d) and CLAUDE.md called 150s correct ("90s timeout + 60s watchdog, no
-      retry budget"). Wrong on three counts: the SDK `timeout: 90_000` bounds
-      only time-to-HEADERS per attempt (`fetchWithTimeout` clears its timer once
-      `fetch` resolves); the chat client keeps the SDK default `maxRetries: 2`;
-      and the lock is taken BEFORE `_streamWithLock` builds the chat context,
-      which on a cold cache calls the engine with 45–60s timeouts.
-    - What DOES bound the stream: the no-delta watchdog (`setInterval` every 5s,
-      so ~65s without a delta — it also covers queueing, headers and retries,
-      since `lastDeltaAt` starts before them) + the 800-token output cap. So the
-      overrun case is cold-context + slow-first-token, not an endless stream.
-    - Effect of an overrun: a second concurrent stream on the same session can
-      start. Since #23 the first stream's release no longer deletes the second
-      one's lock; it reports `redis.lock.lost_before_release`
-      `lockPrefix=chat-session-stream cause=overran_ttl`. That Sentry issue's
-      event count IS the measurement: when its first event emails, archive that
-      one issue "until escalating" (runbook § `redis.lock.lost_before_release`)
-      — Sentry keeps counting and re-alerts on a spike. Do NOT silence it in
-      code. Likely fix: a total stream deadline, or a token-checked renewal
-      (`extendLock`, now possible with tokens).
-    - **When fixed:** resolve that Sentry issue — and remove the runbook's
-      fallback rule filter if it was ever added — so a recurrence alerts as a
-      regression.
-    - Comment-only corrections already shipped with #23
-      (`chat-stream.service.ts` docblocks, the misnamed "no race" test).
+26. ✅ **FIXED 2026-10-02 — a total stream deadline + a TTL derived from it.**
+    Plan (3 staff-engineer rounds: REVISE 14 → REVISE 8 → APPROVE):
+    `.claude/plans/todo-26-chat-stream-deadline.md`. Invariants: CLAUDE.md
+    § "A per-call timeout is NOT how long a generation can run", chat paragraph.
+    - `CHAT_STREAM_DEADLINE_MS` = 60s (slowest cold context build, from the new
+      exported `CHAT_CONTEXT_ENGINE_TIMEOUT_MS`) + 65s (watchdog + poll) + 80s
+      (body) = **205s, clocked from the lock REQUEST** (taken before
+      `acquireLock`). Pre-check after `buildPrompt` → `STREAM_TIMEOUT` + refund,
+      no Anthropic call; watchdog interval is an `if/else-if` chain (aborted →
+      deadline → watchdog) → `AI_CALL_FAILED` with reason
+      `stream-deadline-exceeded:<s>`. `STREAM_LOCK_TTL_SECONDS` = 205 + margin
+      `ceil(max(79 normal, 92 abort)) + 20` = **317s**; the abort tail is the
+      SDK's ≤ 60s retry sleep, which ignores the abort signal.
+    - Sentry `chat.stream.deadline_exceeded` (tag `phase`); runbook section.
+      NOT the old archive instruction — the lost-lock issue is to be RESOLVED.
+    - Tests: «#26 — total deadline» describe (T2–T7, T3b, T4b, T6b, T10, fake
+      timers, 600s horizon advanced before awaiting; `drive()` asserts no
+      leaked timer / registration / escaped throw after EVERY run) + the
+      `chat-context-engine-timeouts` guard spec incl. an object→TTL module
+      probe; **17 mutations all SEEN red by test name** — results in the plan's
+      §8. api 2778 / 148 suites green; tsc 0; turbo lint 5/5 with 0 cached.
+    - Line audit (3 agents): docs FIX NEEDED (2 high — two wrong instruments
+      named in the runbook; 4 med; 7 low), backend CLEAN (11 low), tests FIX
+      NEEDED (3 med, 8 low) — **every finding fixed the same day**, plan §8.
+    - Live, this worktree's build on :4001/:3001, owner signed in: one real
+      chat turn → `done`, `AI-CALL … outcome:"ok"`; Redis MONITOR shows the lock
+      `SET … EX 317 NX` and the compare-and-delete release with the same token
+      12s later; zero deadline/watchdog/timeout lines. The deadline FIRING is
+      not live-testable (no slow mock) — pinned by fake-timer tests + mutations.
+    - Deploy: no migration, no env var, no cache bump. Mixed fleet safe.
+    (Was, filed 2026-10-01 while planning #23:) the 150s TTL was shorter than
+    its work — the SDK `timeout: 90_000` bounds only time-to-headers per
+    attempt, the chat client keeps `maxRetries: 2`, and the cold context build
+    (engine 45–60s) ran inside the lock, so a slow turn let a second stream
+    start on the same session. The Sentry lost-lock issue's count was the
+    interim measurement; it is now to be RESOLVED, not archived (see above).
 
 27. ✅ **FIXED 2026-10-01 (C1 of the #23/#24/#11(c) plan,
     `.claude/plans/todo-23-24-11c-lock-tokens-ratelimit-deps.md`) — a paid
@@ -1112,8 +1165,13 @@ next, not by size. Update it in place as items land.
 
 ## 📌 DEFERRED FINDING — prompt caching on the reading paths
 
-Measured 2026-08-28 from the first production `AI-CALL` lines. **Not
-implemented.** Recorded here so a future session does not have to rediscover it.
+> ✅ **IMPLEMENTED — todo #6, merged as PR #72 (`1485e18`) on 2026-10-01.** This
+> section is kept as the ORIGINAL 2026-08-28 measurement and the reasoning that
+> shaped the fix. The live invariants are in CLAUDE.md § "Prompt caching on the
+> reading paths — four traps". Nothing below is pending.
+
+Measured 2026-08-28 from the first production `AI-CALL` lines. Recorded here so
+a future session does not have to rediscover it.
 
 ### The measurement
 

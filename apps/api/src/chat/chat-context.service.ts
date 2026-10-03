@@ -172,6 +172,22 @@ const PRE_ANALYSIS_VERSIONS_FOR_CHAT_HASH = {
 
 const CHAT_CONTEXT_TTL_SECONDS = 24 * 60 * 60; // 24h
 
+/**
+ * Per-call `AbortSignal.timeout` for the three engine chat-context builds.
+ * Each build makes exactly ONE engine call (`engineFetch` never retries), so
+ * these are the bound on a cold context build — and `chat-stream.service.ts`
+ * derives its stream deadline and lock TTL from the largest of them (todo #26).
+ * Keep the three `engineFetch` sites reading from here, never a literal:
+ * `test/chat-context-engine-timeouts.guard.spec.ts` fails on a literal.
+ */
+export const CHAT_CONTEXT_ENGINE_TIMEOUT_MS = {
+  // 4-pipeline merge is heavier than single-pipeline; allow extra time
+  reading: 45_000,
+  // Dual-chart pipeline is heavier than single-chart; allow extra time
+  compat: 60_000,
+  fortune: 45_000,
+} as const;
+
 // ============================================================
 // Pure helpers
 // ============================================================
@@ -1349,8 +1365,7 @@ export class ChatContextService {
         target_year: args.targetYear,
         target_month: args.targetMonth,
       }),
-      // 4-pipeline merge is heavier than single-pipeline; allow extra time
-      signal: AbortSignal.timeout(45_000),
+      signal: AbortSignal.timeout(CHAT_CONTEXT_ENGINE_TIMEOUT_MS.reading),
     });
 
     if (!response.ok) {
@@ -1421,8 +1436,7 @@ export class ChatContextService {
         target_year: args.targetYear,
         target_month: args.targetMonth,
       }),
-      // Dual-chart pipeline is heavier than single-chart; allow extra time
-      signal: AbortSignal.timeout(60_000),
+      signal: AbortSignal.timeout(CHAT_CONTEXT_ENGINE_TIMEOUT_MS.compat),
     });
 
     if (!response.ok) {
@@ -1496,7 +1510,7 @@ export class ChatContextService {
           precomputed_yearly: args.precomputedYearly ?? null,
           fortune_scope: args.fortuneScope ?? 'DAY',
         }),
-        signal: AbortSignal.timeout(45_000),
+        signal: AbortSignal.timeout(CHAT_CONTEXT_ENGINE_TIMEOUT_MS.fortune),
       },
     );
 

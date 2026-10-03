@@ -352,6 +352,42 @@ describe('ChatService', () => {
         'user-1',
         expect.stringContaining('Anthropic 503'),
       );
+      // The receipt matches the refund that happened.
+      await expect(service.sendMessage('clerk-1', 's1', 'hello')).rejects.toMatchObject({
+        response: expect.objectContaining({ message: 'AI 暫時無法回答，已退還點數' }),
+      });
+    });
+
+    it('does not claim 已退還 when the refund comes back `refunded: false` (PR #75 review B, non-streaming twin)', async () => {
+      mockPrisma.chatSession.findUnique.mockResolvedValue({
+        id: 's1',
+        userId: 'user-1',
+        startedAt: new Date(),
+        endedAt: null,
+        contextVersion: 'v1.0.0',
+        preAnalysisVersion: 'life=v2.9.0|love=v1.11.0|car=v2.5.0|ann=v2.4.0',
+        messageCount: 0,
+        firstMessageAt: null,
+        readingId: 'reading-1',
+        creditExtensions: 0,
+        paidMessagesUsed: 0,
+      });
+      mockPaymentService.deductForMessage.mockResolvedValue({ method: 'FREE_QUOTA' });
+      mockPrisma.chatMessage.create.mockResolvedValue({ id: 'm1' });
+      mockPrisma.chatMessage.findMany.mockResolvedValue([]);
+      mockAnthropicCreate.mockRejectedValue(new Error('Anthropic 503'));
+      // An already-refunded row / a never-charged message: nothing to give back.
+      mockPaymentService.refundLastMessage.mockResolvedValue({ refunded: false, method: null });
+
+      await expect(service.sendMessage('clerk-1', 's1', 'hello')).rejects.toMatchObject({
+        status: 503,
+        response: {
+          code: 'AI_CALL_FAILED',
+          message: 'AI 暫時無法回答',
+          refunded: false,
+          refundMethod: null,
+        },
+      });
     });
 
     it('reports an ENTITLEMENT refusal as itself, not as an AI failure', async () => {
