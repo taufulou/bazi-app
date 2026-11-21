@@ -158,6 +158,45 @@ export interface SubscriptionStatus {
     status: string;
     cancelledAt: string | null;
   } | null;
+  /**
+   * The STRIPE membership the website's billing buttons act on (1B item 5):
+   * ACTIVE, PAST_DUE, or CANCELLED with its period still running. Separate from
+   * `activeSubscription`, which is the newest row of ANY platform.
+   * Optional because an API deployed before 1B does not send it — read it
+   * through `stripeSubscriptionOf`, never directly.
+   */
+  stripeSubscription?: StripeSubscriptionSummary | null;
+}
+
+export interface StripeSubscriptionSummary {
+  status: string;
+  cancelledAt: string | null;
+  currentPeriodEnd: string;
+}
+
+/** Store-governed memberships are managed on the phone, never on this site. */
+export const STORE_MANAGED_NOTE =
+  "此方案透過 App Store／Google Play 訂閱，請在手機的訂閱設定中管理或取消。";
+
+/**
+ * The Stripe membership, or null. Shared by the subscription and pricing pages.
+ *
+ * ⚠️ `!== undefined`, NOT `??`. A post-1B API sends `stripeSubscription: null`
+ * on purpose when there is no live Stripe row — and its `activeSubscription`
+ * can still be a STALE cancelled Stripe row (it filters ACTIVE/CANCELLED with no
+ * period check), which `??` would resurrect into a 重新啟用 button that 404s.
+ * The fallback is only for a pre-1B API that omits the key entirely, during the
+ * window where web and API deploy separately.
+ */
+export function stripeSubscriptionOf(
+  status: SubscriptionStatus | null | undefined,
+): StripeSubscriptionSummary | null {
+  if (!status) return null;
+  if (status.stripeSubscription !== undefined) return status.stripeSubscription;
+  const a = status.activeSubscription;
+  return a?.platform === "STRIPE"
+    ? { status: a.status, cancelledAt: a.cancelledAt, currentPeriodEnd: a.currentPeriodEnd }
+    : null;
 }
 
 /** A plan object returned by GET /api/payments/plans */

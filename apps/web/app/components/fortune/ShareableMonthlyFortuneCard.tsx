@@ -30,6 +30,7 @@ import type { MonthlyFortuneResponse } from '../../lib/fortune-api';
 import { friendlyExplanationFromLabel, ringTierFromLabel, dimTierFromScore } from './labels';
 import { MONTHLY_DIM_META } from './monthlyDimensions';
 import styles from './ShareableMonthlyFortuneCard.module.css';
+import { siteHost } from '../../lib/site-url';
 
 interface ShareableMonthlyFortuneCardProps {
   data: MonthlyFortuneResponse;
@@ -200,7 +201,7 @@ const ShareableMonthlyFortuneCard = React.forwardRef<HTMLDivElement, ShareableMo
               <img src={qrDataUrl} alt="QR code" className={styles.qr} width={160} height={160} />
             )}
             <div className={styles.footerText}>
-              <div className={styles.footerDomain}>baziapp.com</div>
+              <div className={styles.footerDomain}>{siteHost()}</div>
               <div className={styles.footerTagline}>掃描查看您自己的命理月運</div>
               <div className={styles.footerDisclaimer}>※ 流月為趨勢，僅供參考，不構成任何專業建議</div>
             </div>

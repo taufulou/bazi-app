@@ -25,6 +25,12 @@ model User {
   languagePref      Language         @default(ZH_TW) @map("language_pref")
   languageChosen    Boolean          @default(false) @map("language_chosen")
   deviceFingerprint String?          @map("device_fingerprint")
+  /// When the user agreed to the AI-data disclosure, and which version of it
+  /// (`legal/legal-constants.ts`). NULL = never consented / withdrawn. Recorded
+  /// by the mobile app's consent sheet (App Store 5.1.2(i)); NOT enforced
+  /// server-side in v1 — see the 1B design.
+  aiConsentAt       DateTime?        @map("ai_consent_at")
+  aiConsentVersion  String?          @map("ai_consent_version")
   createdAt         DateTime         @default(now()) @map("created_at")
   updatedAt         DateTime         @updatedAt @map("updated_at")
 

@@ -11,8 +11,10 @@ import {
   DefaultValuePipe,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { UsersService } from './users.service';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { RecordAiConsentDto } from './dto/ai-consent.dto';
 import { CreateBirthProfileDto, UpdateBirthProfileDto } from './dto/create-birth-profile.dto';
 import { CurrentUser, AuthPayload } from '../auth/current-user.decorator';
 
@@ -37,6 +39,26 @@ export class UsersController {
     @Body() dto: UpdateUserDto,
   ) {
     return this.usersService.updateProfile(auth.userId, dto);
+  }
+
+  /**
+   * Record AI-data consent (1B item 3; App Store 5.1.2(i)). The body is the
+   * disclosure version the app displayed; the server accepts only versions in
+   * its allowlist (409 otherwise). Throttled: it writes.
+   */
+  @Post('me/ai-consent')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Record consent to the AI-data disclosure' })
+  async recordAiConsent(@CurrentUser() auth: AuthPayload, @Body() dto: RecordAiConsentDto) {
+    return this.usersService.recordAiConsent(auth.userId, dto.version);
+  }
+
+  /** Withdraw AI-data consent (nulls the record). */
+  @Delete('me/ai-consent')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @ApiOperation({ summary: 'Withdraw consent to the AI-data disclosure' })
+  async withdrawAiConsent(@CurrentUser() auth: AuthPayload) {
+    return this.usersService.withdrawAiConsent(auth.userId);
   }
 
   @Delete('me')

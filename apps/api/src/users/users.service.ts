@@ -4,12 +4,14 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ReadingType } from '@prisma/client';
 import { createClerkClient } from '@clerk/backend';
 import Stripe from 'stripe';
 import { PrismaService } from '../prisma/prisma.service';
+import { AI_CONSENT_ACCEPTED_VERSIONS, AI_CONSENT_VERSION } from '../legal/legal-constants';
 import { AIService } from '../ai/ai.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateBirthProfileDto, UpdateBirthProfileDto } from './dto/create-birth-profile.dto';
@@ -50,7 +52,51 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    return user;
+    // The app decides whether to show the AI consent sheet from these (1B item
+    // 3): consented iff `aiConsentVersion` is in the accepted list. Set
+    // membership only — the version strings are not ordered.
+    return {
+      ...user,
+      aiConsentCurrentVersion: AI_CONSENT_VERSION,
+      aiConsentAcceptedVersions: AI_CONSENT_ACCEPTED_VERSIONS,
+    };
+  }
+
+  /**
+   * Record the user's AI-data consent (1B item 3; App Store 5.1.2(i)).
+   *
+   * Via `ensureUser`, not `findByClerkId`: a user can reach the consent sheet
+   * before any other call has created their row, and that must not 404.
+   * The SERVER decides what is acceptable to consent to — a version outside
+   * `AI_CONSENT_ACCEPTED_VERSIONS` is refused with 409 and the current version,
+   * so a client can never record consent to a disclosure we no longer stand
+   * behind. Re-posting refreshes the timestamp (a re-consent).
+   */
+  async recordAiConsent(clerkUserId: string, version: string) {
+    if (!AI_CONSENT_ACCEPTED_VERSIONS.includes(version)) {
+      throw new ConflictException({
+        code: 'CONSENT_VERSION_UNKNOWN',
+        message: '此版本的 AI 資料說明已不適用，請更新 App。',
+        currentVersion: AI_CONSENT_VERSION,
+      });
+    }
+    const user = await this.ensureUser(clerkUserId);
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { aiConsentAt: new Date(), aiConsentVersion: version },
+      select: { aiConsentAt: true, aiConsentVersion: true },
+    });
+    return { ...updated, aiConsentCurrentVersion: AI_CONSENT_VERSION };
+  }
+
+  /** Withdraw AI-data consent: both columns back to NULL. Idempotent. */
+  async withdrawAiConsent(clerkUserId: string) {
+    const user = await this.ensureUser(clerkUserId);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { aiConsentAt: null, aiConsentVersion: null },
+    });
+    return { aiConsentAt: null, aiConsentVersion: null, aiConsentCurrentVersion: AI_CONSENT_VERSION };
   }
 
   /**
@@ -139,6 +185,9 @@ export class UsersService {
         // Device fingerprint is an identifier in its own right (it exists to
         // link anonymous sessions to a person) and has no financial purpose.
         deviceFingerprint: null,
+        // The consent record goes with the account (1B item 3).
+        aiConsentAt: null,
+        aiConsentVersion: null,
       },
     });
 

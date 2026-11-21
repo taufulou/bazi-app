@@ -227,6 +227,9 @@ describe('UsersService.deleteAccount', () => {
           // An identifier in its own right — it exists to link anonymous
           // sessions to a person, and has no financial purpose.
           deviceFingerprint: null,
+          // 1B item 3: the AI-consent record goes with the account.
+          aiConsentAt: null,
+          aiConsentVersion: null,
         }),
       });
     });

@@ -129,9 +129,6 @@
     }
   },
   "test/pricing-page.spec.tsx": {
-    "@typescript-eslint/no-explicit-any": {
-      "count": 1
-    },
     "react/display-name": {
       "count": 1
     }

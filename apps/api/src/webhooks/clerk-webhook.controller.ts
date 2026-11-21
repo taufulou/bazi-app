@@ -268,6 +268,9 @@ export class ClerkWebhookController {
         credits: 0,
         subscriptionTier: 'FREE',
         deviceFingerprint: null,
+        // The consent record goes with the account (1B item 3).
+        aiConsentAt: null,
+        aiConsentVersion: null,
       },
     });
 

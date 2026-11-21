@@ -46,7 +46,16 @@ const LOCKED = [
  * each was 404ing to exactly those clients before M9, because the middleware
  * matcher does not skip `.txt`/`.xml`.
  */
-const PUBLIC = ['/sign-in', '/sign-up', '/robots.txt', '/sitemap.xml'];
+const PUBLIC = ['/sign-in', '/sign-up', '/robots.txt', '/sitemap.xml', '/privacy', '/terms', '/support'];
+
+/**
+ * The legal pages App Store Connect links to (1B). Public on BOTH layers: the
+ * middleware allowlist covers Layer B, and Layer A never runs because they are
+ * route handlers — no React tree, so no `SignedOutRedirect`. The test below
+ * pins that second half: a page that ships the app's JS bundle could redirect
+ * a reviewer's browser to sign-in even with a 200 from the server.
+ */
+const LEGAL = ['/privacy', '/terms', '/support'];
 
 test.describe('signed-out lockdown', () => {
   for (const path of LOCKED) {
@@ -85,6 +94,21 @@ test.describe('signed-out lockdown', () => {
       if (!path.startsWith('/sign-')) {
         expect(new URL(res.url()).pathname).toBe(path);
       }
+    });
+  }
+
+  for (const path of LEGAL) {
+    test(`${path} is served as plain HTML with no client JS`, async ({ request, page }) => {
+      const res = await request.get(path);
+      expect(res.headers()['content-type']).toContain('text/html');
+      const body = await res.text();
+      expect(body).not.toContain('<script');
+      expect(body).not.toContain('/_next/static');
+
+      // And in a real browser it stays put.
+      await page.goto(path);
+      await page.waitForTimeout(1500);
+      expect(new URL(page.url()).pathname).toBe(path);
     });
   }
 

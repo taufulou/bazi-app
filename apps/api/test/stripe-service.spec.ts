@@ -4,7 +4,7 @@
  */
 import { StripeService } from '../src/payments/stripe.service';
 import { EntitlementsService } from '../src/payments/entitlements.service';
-import { NotFoundException, BadRequestException } from '@nestjs/common';
+import { NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 
 // ============================================================
 // Mock Stripe SDK
@@ -88,6 +88,7 @@ const mockPrisma = {
   subscription: {
     findFirst: jest.fn(),
     findMany: jest.fn(),
+    count: jest.fn(),
     create: jest.fn(),
     upsert: jest.fn(),
     update: jest.fn(),
@@ -166,6 +167,8 @@ describe('StripeService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // No live App Store / Google Play membership unless a test says so.
+    mockPrisma.subscription.count.mockResolvedValue(0);
     service = new StripeService(
       mockConfig as any,
       mockPrisma as any,
@@ -191,12 +194,69 @@ describe('StripeService', () => {
 
   describe('createSubscriptionCheckout', () => {
     beforeEach(() => {
+      mockPrisma.subscription.findMany.mockResolvedValue([]);
       mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
       mockPrisma.plan.findFirst.mockResolvedValue(MOCK_PLAN);
       mockStripeCustomers.search.mockResolvedValue({ data: [{ id: 'cus_123' }] });
       mockStripeCheckoutSessions.create.mockResolvedValue({
         id: 'cs_123',
         url: 'https://checkout.stripe.com/test',
+      });
+    });
+
+    describe('refuses a duplicate while a membership is live (1B item 5)', () => {
+      const input = {
+        clerkUserId: 'clerk_user_abc',
+        planSlug: 'pro',
+        billingCycle: 'monthly' as const,
+        successUrl: 'https://example.com/success',
+        cancelUrl: 'https://example.com/cancel',
+      };
+      const conflictCode = async () => {
+        const err = await service.createSubscriptionCheckout(input).catch((e) => e);
+        expect(mockStripeCheckoutSessions.create).not.toHaveBeenCalled();
+        return err?.getResponse?.();
+      };
+
+      it('queries exactly the three live shapes (the mock returns rows regardless)', async () => {
+        mockPrisma.subscription.findMany.mockResolvedValue([]);
+        await service.createSubscriptionCheckout(input);
+        expect(mockPrisma.subscription.findMany).toHaveBeenCalledWith({
+          where: {
+            userId: MOCK_USER.id,
+            OR: [
+              { status: 'ACTIVE' },
+              { platform: 'STRIPE', status: 'PAST_DUE' },
+              { platform: 'STRIPE', status: 'CANCELLED', currentPeriodEnd: { gt: expect.any(Date) } },
+            ],
+          },
+          select: { status: true, platform: true },
+        });
+        expect(mockStripeCheckoutSessions.create).toHaveBeenCalled();
+      });
+
+      it('ACTIVE membership on any platform → ALREADY_SUBSCRIBED, with the support email', async () => {
+        mockPrisma.subscription.findMany.mockResolvedValue([{ status: 'ACTIVE', platform: 'APPLE_IAP' }]);
+        const res = await conflictCode();
+        expect(res).toMatchObject({ code: 'ALREADY_SUBSCRIBED', message: expect.stringContaining('@') });
+      });
+
+      it('PAST_DUE Stripe row → PAYMENT_PAST_DUE (fix the card, do not start a second one)', async () => {
+        mockPrisma.subscription.findMany.mockResolvedValue([{ status: 'PAST_DUE', platform: 'STRIPE' }]);
+        expect(await conflictCode()).toMatchObject({ code: 'PAYMENT_PAST_DUE', message: expect.stringContaining('管理帳務資料') });
+      });
+
+      it('running CANCELLED Stripe row → CANCELLATION_PENDING (reactivate instead)', async () => {
+        mockPrisma.subscription.findMany.mockResolvedValue([{ status: 'CANCELLED', platform: 'STRIPE' }]);
+        expect(await conflictCode()).toMatchObject({ code: 'CANCELLATION_PENDING' });
+      });
+
+      it('ACTIVE wins over the others when several exist', async () => {
+        mockPrisma.subscription.findMany.mockResolvedValue([
+          { status: 'PAST_DUE', platform: 'STRIPE' },
+          { status: 'ACTIVE', platform: 'GOOGLE_PLAY' },
+        ]);
+        expect(await conflictCode()).toMatchObject({ code: 'ALREADY_SUBSCRIBED' });
       });
     });
 
@@ -502,6 +562,30 @@ describe('StripeService', () => {
         where: { id: MOCK_USER.id },
         data: { subscriptionTier: 'PRO' },
       });
+    });
+
+    // 1B audit: cancelled here, then subscribed in the iOS app. Reactivating
+    // would bill Stripe and Apple for the same period.
+    it('refuses with 409 ALREADY_SUBSCRIBED when a store membership is ACTIVE, before touching Stripe', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(MOCK_USER);
+      mockPrisma.subscription.findFirst.mockResolvedValue({
+        id: 'sub-db-1',
+        stripeSubscriptionId: 'sub_stripe_123',
+        status: 'CANCELLED',
+      });
+      mockPrisma.subscription.count.mockResolvedValue(1);
+
+      const err = await service.reactivateSubscription('clerk_user_abc').catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as ConflictException).getResponse()).toMatchObject({
+        code: 'ALREADY_SUBSCRIBED',
+        message: expect.stringContaining('重複扣款'),
+      });
+      expect(mockPrisma.subscription.count).toHaveBeenCalledWith({
+        where: { userId: MOCK_USER.id, status: 'ACTIVE', platform: { not: 'STRIPE' } },
+      });
+      expect(mockStripeSubscriptions.update).not.toHaveBeenCalled();
+      expect(mockPrisma.subscription.update).not.toHaveBeenCalled();
     });
 
     it('should throw NotFoundException when no cancelled subscription', async () => {

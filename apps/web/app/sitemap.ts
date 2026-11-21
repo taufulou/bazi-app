@@ -39,6 +39,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'yearly',
       priority: 0.3,
     },
+    // 1B — public legal pages (route handlers; see app/lib/legal-proxy.ts).
+    ...(['privacy', 'terms', 'support'] as const).map((path) => ({
+      url: `${BASE_URL}/${path}`,
+      lastModified: new Date(),
+      changeFrequency: 'yearly' as const,
+      priority: 0.2,
+    })),
   ];
 
   const readingPages: MetadataRoute.Sitemap = READING_SLUGS.map((slug) => ({

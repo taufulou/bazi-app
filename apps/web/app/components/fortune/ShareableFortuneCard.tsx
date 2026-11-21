@@ -29,6 +29,7 @@ import HeadlinerAnchorLine from './HeadlinerAnchorLine';
 import { formatFortuneDate, friendlyExplanationFromLabel, ringTierFromLabel } from './labels';
 import type { DailyFortuneResponse } from '../../lib/fortune-api';
 import styles from './ShareableFortuneCard.module.css';
+import { siteHost } from '../../lib/site-url';
 
 interface ShareableFortuneCardProps {
   data: DailyFortuneResponse;
@@ -202,7 +203,7 @@ const ShareableFortuneCard = React.forwardRef<HTMLDivElement, ShareableFortuneCa
               <img src={qrDataUrl} alt="QR code" className={styles.qr} width={160} height={160} />
             )}
             <div className={styles.footerText}>
-              <div className={styles.footerDomain}>baziapp.com</div>
+              <div className={styles.footerDomain}>{siteHost()}</div>
               <div className={styles.footerTagline}>掃描查看您自己的命理日運</div>
               <div className={styles.footerDisclaimer}>※ 流日為觸發點，僅供參考，不構成任何專業建議</div>
             </div>

@@ -13,7 +13,9 @@ import { parseAuthorizedParties } from './app/lib/authorized-parties';
 // real Clerk session, so `auth.protect()` would block them). Real signed-out
 // users on `/reading/*` are redirected CLIENT-side by Layer A (SignedOutRedirect),
 // which short-circuits when the E2E cookie is present.
-const isPublicRoute = createRouteMatcher([
+// Exported so a jest test can build the matcher and assert BEHAVIOUR (what
+// matches, what does not) instead of grepping this file.
+export const PUBLIC_ROUTE_PATTERNS = [
   '/sign-in(.*)',
   '/sign-up(.*)',
   '/api/webhooks(.*)',
@@ -39,7 +41,15 @@ const isPublicRoute = createRouteMatcher([
   // `assetlinks.json` if the mobile app ever wants universal / app links.
   '/.well-known(.*)',
   '/reading(.*)', // kept public for E2E cookie-bypass; guarded client-side by Layer A
-]);
+  // 1B — the legal pages App Store Connect links to. Exact paths, nothing lives
+  // under them. They are route handlers (no layout, so the client-side
+  // SignedOutRedirect never runs); this entry is the SERVER half of "public".
+  '/privacy',
+  '/terms',
+  '/support',
+];
+
+const isPublicRoute = createRouteMatcher(PUBLIC_ROUTE_PATTERNS);
 
 // B5 — the SECOND Clerk token verifier in this monorepo.
 //

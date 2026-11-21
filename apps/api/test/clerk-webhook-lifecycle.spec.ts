@@ -234,6 +234,15 @@ describe('Clerk webhook — user.deleted erases personal data', () => {
     expect(order).toEqual(['erase', 'endSubscriptions', 'anonymize']);
   });
 
+  it('the anonymise also clears the AI-consent record (1B item 3)', async () => {
+    const { controller, prisma } = makeController();
+    await call(controller, 'handleUserDeleted', EVENT);
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: expect.objectContaining({ aiConsentAt: null, aiConsentVersion: null }),
+    });
+  });
+
   it('REJECTS when ending the rows fails (DB error) — Clerk retries, nothing anonymised yet', async () => {
     const { controller, prisma, usersService } = makeController();
     (usersService.endSubscriptionsForDeletedUser as AnyFn).mockRejectedValue(new Error('db down'));

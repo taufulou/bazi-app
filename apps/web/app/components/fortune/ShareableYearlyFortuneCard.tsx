@@ -32,6 +32,7 @@ import type { YearlyFortuneResponse } from '../../lib/fortune-api';
 import { friendlyExplanationFromLabel, ringTierFromLabel, dimTierFromScore } from './labels';
 import { YEARLY_DIM_META } from './yearlyDimensions';
 import styles from './ShareableYearlyFortuneCard.module.css';
+import { siteHost } from '../../lib/site-url';
 
 interface ShareableYearlyFortuneCardProps {
   data: YearlyFortuneResponse;
@@ -197,7 +198,7 @@ const ShareableYearlyFortuneCard = React.forwardRef<HTMLDivElement, ShareableYea
               <img src={qrDataUrl} alt="QR code" className={styles.qr} width={160} height={160} />
             )}
             <div className={styles.footerText}>
-              <div className={styles.footerDomain}>baziapp.com</div>
+              <div className={styles.footerDomain}>{siteHost()}</div>
               <div className={styles.footerTagline}>掃描查看您自己的命理年運</div>
               <div className={styles.footerDisclaimer}>※ 流年為趨勢，僅供參考，不構成任何專業建議</div>
             </div>

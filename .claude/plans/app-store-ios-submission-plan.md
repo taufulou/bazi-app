@@ -221,6 +221,8 @@ deployed; the local build stays valid because nothing in the binary changes.
 
 #### 1B — Web + API: public pages and consent storage
 
+> ✅ **Implemented 2026-11-21, not yet committed** — design + 4 review rounds + two line audits in `.claude/plans/1b-web-public-pages-and-consent.md`. API jest 2899, web jest 470, lint 5/5, 39/39 mutations caught. Before merging: confirm the first `WEB_ORIGINS` entry on the Railway API is `https://tianmingapp.com`.
+
 - `/privacy`, `/terms`, `/support` on `tianmingapp.com` as **route handlers
   returning plain HTML**. They are added to the middleware allowlist (route
   handlers still pass through the middleware), and because they render no app

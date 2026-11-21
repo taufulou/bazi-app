@@ -9,6 +9,8 @@ import {
   reactivateSubscription,
   createPortalSession,
   getInvoices,
+  stripeSubscriptionOf,
+  STORE_MANAGED_NOTE,
   type SubscriptionStatus,
   type Invoice,
 } from "../../lib/api";
@@ -161,8 +163,29 @@ export default function SubscriptionPage() {
   const tierInfo = TIER_META[tier] ?? FREE_TIER_META;
   const isPaid = tier !== "FREE";
   const activeSub = subscription?.activeSubscription;
-  const isCancelled = activeSub?.status === "CANCELLED";
+  // Badge + "服務到期日" label: a CANCELLED row, or an ACTIVE one with
+  // `cancelledAt` set (a Stripe portal cancel and a store auto-renew-off both
+  // keep the row ACTIVE until the period ends; both clear it on un-cancel).
+  const isCancelled =
+    activeSub?.status === "CANCELLED" || (activeSub?.status === "ACTIVE" && !!activeSub.cancelledAt);
   const credits = subscription?.credits ?? 0;
+
+  // 1B item 5 — every Stripe button is driven by the STRIPE row, not by the tier.
+  const stripeSub = stripeSubscriptionOf(subscription);
+  // Paid, with no Stripe row: the membership came from App Store / Google Play.
+  const storeGoverned = isPaid && !stripeSub;
+  // A live store membership alongside a Stripe row (cancelled here, then
+  // subscribed in the app). `activeSubscription` is the newest row of any
+  // platform, so a newer ACTIVE Apple/Google row shows up there.
+  const storeActive = activeSub?.status === "ACTIVE" && activeSub.platform !== "STRIPE";
+  const stripePastDue = stripeSub?.status === "PAST_DUE";
+  const canCancelStripe = stripeSub?.status === "ACTIVE" && !stripeSub.cancelledAt;
+  // ONLY a CANCELLED row: a portal cancel leaves the row ACTIVE + cancelledAt,
+  // and `reactivateSubscription` finds CANCELLED rows only — so offering it
+  // there would 404. That member un-cancels in the portal instead.
+  // Never while a store membership is live: Stripe would renew alongside it —
+  // double billing. The API refuses it too (409 ALREADY_SUBSCRIBED).
+  const canReactivateStripe = stripeSub?.status === "CANCELLED" && !storeActive;
 
   return (
     <div className={styles.page}>
@@ -256,11 +279,21 @@ export default function SubscriptionPage() {
                       <span className={styles.detailLabel}>付款方式</span>
                       <span className={styles.detailValue}>
                         {activeSub.platform === "STRIPE" ? "信用卡 (Stripe)" :
-                         activeSub.platform === "APPLE" ? "Apple IAP" :
-                         activeSub.platform === "GOOGLE" ? "Google Play" : activeSub.platform}
+                         activeSub.platform === "APPLE_IAP" ? "App Store" :
+                         activeSub.platform === "GOOGLE_PLAY" ? "Google Play" : activeSub.platform}
                       </span>
                     </div>
                   </>
+                )}
+
+                {(storeGoverned || storeActive) && (
+                  <p className={styles.storeNote}>{STORE_MANAGED_NOTE}</p>
+                )}
+
+                {stripePastDue && (
+                  <p className={styles.storeNote} role="status">
+                    上一筆扣款未成功，請至「管理帳務資料」更新付款方式。
+                  </p>
                 )}
 
                 {/* Free tier message */}
@@ -279,31 +312,31 @@ export default function SubscriptionPage() {
             <div className={styles.actions}>
               <Link href="/store" className={styles.buyCreditsLink}>💎 購買點數</Link>
 
-              {isPaid && !isCancelled && (
-                <>
-                  <button
-                    className={styles.portalButton}
-                    onClick={handlePortal}
-                    disabled={actionLoading !== null}
-                  >
-                    {actionLoading === "portal" ? (
-                      <span className={styles.btnSpinner} />
-                    ) : (
-                      "管理帳務資料"
-                    )}
-                  </button>
-
-                  <button
-                    className={styles.cancelButton}
-                    onClick={() => setShowCancelConfirm(true)}
-                    disabled={actionLoading !== null}
-                  >
-                    取消訂閱
-                  </button>
-                </>
+              {stripeSub && (
+                <button
+                  className={styles.portalButton}
+                  onClick={handlePortal}
+                  disabled={actionLoading !== null}
+                >
+                  {actionLoading === "portal" ? (
+                    <span className={styles.btnSpinner} />
+                  ) : (
+                    "管理帳務資料"
+                  )}
+                </button>
               )}
 
-              {isPaid && isCancelled && (
+              {canCancelStripe && (
+                <button
+                  className={styles.cancelButton}
+                  onClick={() => setShowCancelConfirm(true)}
+                  disabled={actionLoading !== null}
+                >
+                  取消訂閱
+                </button>
+              )}
+
+              {canReactivateStripe && (
                 <button
                   className={styles.reactivateButton}
                   onClick={handleReactivate}
@@ -317,13 +350,15 @@ export default function SubscriptionPage() {
                 </button>
               )}
 
-              {!isPaid && (
+              {/* A PAST_DUE Stripe member reads as FREE — send them to the portal
+                  (above), never to a second checkout. */}
+              {!isPaid && !stripeSub && (
                 <Link href="/pricing" className={styles.upgradeLink}>
                   升級方案
                 </Link>
               )}
 
-              {isPaid && (
+              {isPaid && !storeGoverned && (
                 <Link href="/pricing" className={styles.changePlanLink}>
                   變更方案
                 </Link>
@@ -337,10 +372,10 @@ export default function SubscriptionPage() {
                   <h3 className={styles.confirmTitle}>確認取消訂閱</h3>
                   <p className={styles.confirmText}>
                     取消後，您的訂閱將持續至當前計費週期結束
-                    {activeSub?.currentPeriodEnd && (
+                    {stripeSub?.currentPeriodEnd && (
                       <>
                         （
-                        {new Date(activeSub.currentPeriodEnd).toLocaleDateString("zh-TW", {
+                        {new Date(stripeSub.currentPeriodEnd).toLocaleDateString("zh-TW", {
                           year: "numeric",
                           month: "long",
                           day: "numeric",

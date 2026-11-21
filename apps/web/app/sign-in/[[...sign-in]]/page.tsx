@@ -1,4 +1,5 @@
 import { SignIn } from "@clerk/nextjs";
+import AuthLegalFooter from "../../components/AuthLegalFooter";
 
 export default function SignInPage() {
   return (
@@ -31,7 +32,9 @@ export default function SignInPage() {
             marginBottom: "2rem",
           }}
         >
-          預見你的一生
+          {/* Was 「預見你的一生」 — an accuracy claim. The iOS app's forgot-password
+              link opens this page, so App Review may read it. */}
+          八字命理・AI 解讀
         </p>
         {/* No `appearance` here on purpose. It previously passed
             `elements: { rootBox: "mx-auto" }` — a TAILWIND class, in a project
@@ -40,6 +43,7 @@ export default function SignInPage() {
             now come from `clerkAppearance` on the ClerkProvider in layout.tsx,
             in ONE place. */}
         <SignIn />
+        <AuthLegalFooter />
       </div>
     </div>
   );
