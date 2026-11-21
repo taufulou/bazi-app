@@ -516,6 +516,64 @@ next, not by size. Update it in place as items land.
    the ⭐ items: lower the self-imposed Anthropic spend limit from $200,000 to a
    deliberate number, raise auto-reload only with S2 verified, and retire the
    prod-as-test-environment rule.
+28. ⬜ **Annual memberships do not work — MUST FIX (owner, 2026-11-13: "we
+   really need the annual plan").** Found while planning the iOS submission.
+   - **The defect, on the web today:** an annual member receives ONE month of
+     credits per year. Credits are granted per paid invoice
+     (`stripe.service.ts:1030-1048`), an annual plan invoices yearly, and there
+     is no scheduler anywhere in `apps/api/src` (`@nestjs/schedule` is not
+     installed). The pricing page sells annual (`pricing/page.tsx:185`). Only
+     test-mode customers are affected so far, because of #4.
+   - **On iOS:** each plan maps to ONE store product (`Plan.appleProductId`),
+     so an annual Apple product would map to nothing.
+   - **Owner decision:** the FIRST App Store submission goes out WITHOUT
+     annual (three monthly memberships + four credit packs). Annual follows as
+     the next piece of work. It does not block that submission; it does block
+     the two things below.
+   - ⚠️ **Blocks #4 as it stands.** Before Stripe goes live, EITHER this is
+     fixed OR annual is hidden on the web and month↔year switches are refused
+     in `/payments/upgrade`. Do not take live payments for a plan that
+     delivers a twelfth of what it sells.
+   - ⚠️ **Do NOT build the obvious design.** Granting from the stored
+     subscription row, keyed on `MonthlyCreditsLog @@unique([userId,
+     periodStart])`, MINTS credits whenever that row moves: a RevenueCat
+     transfer, a governing-subscription switch, any event that rewrites
+     `currentPeriodStart`, a month↔year switch (which bypasses the
+     `subscription_update` deny list in `handleInvoicePaid`), and a back-fill
+     on deploy day. A staff review caught this before any code was written.
+   - **Design constraints (14 of them) and the reasoning:**
+     `.claude/plans/app-store-ios-submission-plan.md` § 6. The design document
+     is written AFTER the first real store purchases have run (that plan's
+     step 3.3), because it depends on the actual upgrade and renewal payloads,
+     and it gets its own plan-review loop.
+   - Do NOT create the three annual App Store products
+     (`com.tianming.app.{master,pro,basic}.annual`) until this is built —
+     product IDs are permanent, and an unmapped product in the subscription
+     group can be reached from Apple's own manage-subscriptions sheet.
+
+29. ⬜ **Stripe-side account-deletion hardening — MUST land before Stripe goes
+   live (blocks #4).** Split out of 1A-core (iOS plan) on review, because Stripe
+   is still test-mode. 1A-core makes both deletion doors (in-app and Clerk's
+   `user.deleted` webhook) cancel ACTIVE Stripe subs best-effort and mark every
+   row EXPIRED — no worse than before, but NOT durable: a failed cancel leaves
+   Stripe billing, and `handleSubscriptionUpdated` (`stripe.service.ts:806-818`)
+   rewrites the row ACTIVE, and `handleInvoicePaid` grants to the anonymised
+   user. To do (full list: `.claude/plans/1a-core-payment-hardening.md` §
+   "Follow-up — launch todo #29"):
+   - widen the cancel to every non-EXPIRED Stripe row AND to the customer's
+     subscriptions listed at Stripe (catches a checkout paid just before
+     deletion and processed after);
+   - detect "already canceled" by retrieve/error code, never message text;
+   - propagate real cancel failures — ONLY after making the Clerk webhook
+     re-entrant (anonymise personal fields before the Stripe step, rename
+     `clerkUserId` last), or a persistent Stripe failure leaves a name in place;
+   - deleted-owner guard in `handleSubscriptionUpdated` (both branches),
+     `handleInvoicePaid`, `handleInvoiceFailed`, `handleCheckoutCompleted`,
+     `handleOneTimePayment` — re-cancel + alert only when the Stripe status is
+     live;
+   - one-off script for already-deleted accounts (`--execute --target`, no
+     RevenueCat call), and a 10s Stripe client timeout;
+   - backfill `environment = SANDBOX` on existing Stripe rows (all test-mode).
 
 ### Cost / quality, not blocking
 
@@ -760,8 +818,11 @@ next, not by size. Update it in place as items land.
      expecting «八字合盤分析» when the title is «八字感情合盤»). That is a
      spec-rewrite project, not a lockdown cleanup.
 
-10. **Sign in with Apple** — blocked on the Developer Program membership;
-   runbook already written. A website with Google-only is fine.
+10. **Sign in with Apple** — ~~blocked on the Developer Program membership~~
+   **UNBLOCKED 2026-11-13: membership approved.** Now part of the iOS
+   submission plan, `.claude/plans/app-store-ios-submission-plan.md` (step 0.7
+   for Clerk + Apple config, Phase 1C for the native button). A website with
+   Google-only is fine; the iPhone app is not (guideline 4.8).
 11. ✅ **`/api/zwds-calculate` DELETED 2026-09-01** — not rate-limited, removed.
    It was unauthenticated, unthrottled, and ran a synchronous `iztro` calc on the
    **Next.js web server** (single-threaded event loop, also serves sign-in), so a

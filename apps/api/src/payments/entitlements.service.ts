@@ -163,8 +163,13 @@ export class EntitlementsService {
       return { granted: false, creditsGranted: 0 };
     }
 
+    // NOT filtered on `isActive` (1A-core item 2). This runs for a period the
+    // customer has ALREADY paid for — a store renewal or a Stripe invoice — so a
+    // plan switched off in the admin panel must still deliver. `isActive` gates
+    // what is offered for sale, not what a paying subscriber receives; filtering
+    // here silently skipped the grant (the miss below only logs).
     const plan = await this.prisma.plan.findFirst({
-      where: { slug: planSlug, isActive: true },
+      where: { slug: planSlug },
     });
     if (!plan) {
       this.logger.warn(`Plan "${planSlug}" not found — skipping monthly credit grant`);
@@ -322,15 +327,21 @@ export class EntitlementsService {
    * balance so credits never go negative — if the pack was already spent, we
    * claw back only what remains. Ledgered (negative `CreditLedger` row).
    *
+   * Pass `tx` to enlist in the CALLER's transaction — the subscription-refund
+   * path (1A-core item 5) pairs the clawback with a UNIQUE REFUND Transaction
+   * row, and "row exists ⇒ clawed back" only holds if the two are atomic. Same
+   * rule as {@link grantCredits}: with `tx`, never open a nested transaction.
+   *
    * @returns { clawedBack } the amount actually removed (0 when floored).
    */
   async clawbackCredits(
     userId: string,
     amount: number,
     reason: string,
+    tx?: Prisma.TransactionClient,
   ): Promise<{ clawedBack: number }> {
     if (amount <= 0) return { clawedBack: 0 };
-    return this.prisma.$transaction(async (tx) => {
+    const run = async (tx: Prisma.TransactionClient) => {
       // Atomic non-negative decrement: GREATEST clamps at 0 within the same
       // row-locked UPDATE, so concurrent clawbacks (or a clawback racing a
       // normal spend) can never drive credits below 0. The CTE captures the
@@ -351,7 +362,8 @@ export class EntitlementsService {
       await tx.creditLedger.create({ data: { userId, amount: -clawedBack, reason } });
       this.logger.warn(`Clawed back ${clawedBack}/${amount} credits from user ${userId}: ${reason}`);
       return { clawedBack };
-    });
+    };
+    return tx ? run(tx) : this.prisma.$transaction(run);
   }
 
   // ============================================================

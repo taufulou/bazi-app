@@ -1065,7 +1065,10 @@ describe('Monthly Credits', () => {
       );
 
       expect(mockPrisma.plan.findFirst).toHaveBeenCalledWith({
-        where: { slug: 'basic', isActive: true },
+        // Exact match on purpose: NO `isActive`. This runs for a period the
+        // customer already paid for, so a deactivated plan must still deliver
+        // (1A-core item 2). Re-adding the filter fails this assertion.
+        where: { slug: 'basic' },
       });
     });
 
@@ -1079,7 +1082,10 @@ describe('Monthly Credits', () => {
       );
 
       expect(mockPrisma.plan.findFirst).toHaveBeenCalledWith({
-        where: { slug: 'pro', isActive: true },
+        // Exact match on purpose: NO `isActive`. This runs for a period the
+        // customer already paid for, so a deactivated plan must still deliver
+        // (1A-core item 2). Re-adding the filter fails this assertion.
+        where: { slug: 'pro' },
       });
     });
 
@@ -1094,7 +1100,10 @@ describe('Monthly Credits', () => {
       );
 
       expect(mockPrisma.plan.findFirst).toHaveBeenCalledWith({
-        where: { slug: 'master', isActive: true },
+        // Exact match on purpose: NO `isActive`. This runs for a period the
+        // customer already paid for, so a deactivated plan must still deliver
+        // (1A-core item 2). Re-adding the filter fails this assertion.
+        where: { slug: 'master' },
       });
     });
   });

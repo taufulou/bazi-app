@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SubscriptionStatus } from '@prisma/client';
+import { stripeEnvironment } from './payment-environment';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { EntitlementsService } from './entitlements.service';
@@ -851,6 +852,7 @@ export class StripeService {
             planTier,
             status: 'ACTIVE',
             platform: 'STRIPE',
+            environment: stripeEnvironment(sub.livemode),
             currentPeriodStart: periodStart ? new Date(periodStart * 1000) : new Date(),
             currentPeriodEnd: periodEnd
               ? new Date(periodEnd * 1000)
@@ -977,6 +979,7 @@ export class StripeService {
           type: 'SUBSCRIPTION',
           description: `Subscription payment — ${invoice.lines?.data?.[0]?.description || 'renewal'}`,
           platform: 'STRIPE',
+          environment: stripeEnvironment(invoice.livemode),
         },
       });
     } catch (err) {
@@ -1192,6 +1195,7 @@ export class StripeService {
           planTier,
           status: 'ACTIVE',
           platform: 'STRIPE',
+          environment: stripeEnvironment(session.livemode),
           currentPeriodStart: periodStart,
           currentPeriodEnd: periodEnd,
         },
@@ -1246,6 +1250,7 @@ export class StripeService {
           type: 'SUBSCRIPTION',
           description: `New subscription: ${planSlug}`,
           platform: 'STRIPE',
+          environment: stripeEnvironment(session.livemode),
         },
       });
     } catch (err) {
@@ -1309,6 +1314,7 @@ export class StripeService {
                 type: 'CREDIT_PURCHASE',
                 description: `Credit package: ${metadata.packageSlug || 'unknown'} (${actualAmount} credits)`,
                 platform: 'STRIPE',
+                environment: stripeEnvironment(session.livemode),
               },
             });
             await this.entitlements.grantCredits(
@@ -1374,6 +1380,7 @@ export class StripeService {
               type: 'ONE_TIME',
               description: serviceSlug ? `One-time reading: ${serviceSlug}` : 'One-time purchase',
               platform: 'STRIPE',
+              environment: stripeEnvironment(session.livemode),
             },
           });
           await this.entitlements.grantCredits(

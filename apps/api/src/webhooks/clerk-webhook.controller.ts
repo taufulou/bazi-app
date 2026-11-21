@@ -250,6 +250,14 @@ export class ClerkWebhookController {
     // runs on every in-app deletion.
     await this.usersService.erasePersonalData(user.id);
 
+    // 1A-core item 6: cancel Stripe, delete the RevenueCat subscriber and end the
+    // subscription rows — the same step the in-app door runs. This door did none
+    // of it, so a person who deleted themselves through Clerk kept being billed.
+    // Its provider steps are best-effort and never throw, so they cannot stop the
+    // anonymise below; only a database error in ending the rows propagates (500,
+    // Clerk retries — erase and this step are idempotent).
+    await this.usersService.endSubscriptionsForDeletedUser(user.id, data.id);
+
     // Anonymize what is retained: the financial record and the row it hangs off.
     await this.prisma.user.update({
       where: { id: user.id },

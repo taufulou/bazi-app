@@ -199,6 +199,10 @@ model Subscription {
   currentPeriodStart   DateTime           @map("current_period_start")
   currentPeriodEnd     DateTime           @map("current_period_end")
   cancelledAt          DateTime?          @map("cancelled_at")
+  // Real money vs a store sandbox / Stripe test-mode payment. NULL = recorded
+  // before this column existed. Nothing reads it yet; it exists so the books
+  // can separate test purchases from revenue.
+  environment          PaymentEnvironment? @map("environment")
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")
 
@@ -222,6 +226,8 @@ model Transaction {
   type            TransactionType
   description     String?
   platform        PaymentPlatform @default(STRIPE) @map("platform")
+  // See Subscription.environment.
+  environment     PaymentEnvironment? @map("environment")
   createdAt       DateTime        @default(now()) @map("created_at")
 
   // Relations
@@ -878,6 +884,13 @@ enum PaymentPlatform {
   STRIPE
   APPLE_IAP
   GOOGLE_PLAY
+}
+
+/// Whether a payment moved real money. RevenueCat reports SANDBOX/PRODUCTION;
+/// Stripe reports `livemode`.
+enum PaymentEnvironment {
+  PRODUCTION
+  SANDBOX
 }
 
 enum AdRewardType {

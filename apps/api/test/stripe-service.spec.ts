@@ -555,6 +555,7 @@ describe('StripeService', () => {
     it('should handle subscription checkout completion', async () => {
       const session = {
         id: 'cs_123',
+        livemode: false,
         mode: 'subscription',
         subscription: 'sub_stripe_456',
         payment_intent: 'pi_789',
@@ -597,6 +598,8 @@ describe('StripeService', () => {
           where: { stripeSubscriptionId: 'sub_stripe_456' },
           create: expect.objectContaining({
             userId: 'user-123',
+            // 1A-core item 4: a test-mode checkout is recorded as SANDBOX.
+            environment: 'SANDBOX',
             stripeSubscriptionId: 'sub_stripe_456',
             planTier: 'PRO',
             status: 'ACTIVE',
@@ -870,6 +873,13 @@ describe('StripeService', () => {
     });
 
     // ---- credit-package branch ----
+
+    it('records a live-mode pack purchase as PRODUCTION (1A-core item 4)', async () => {
+      await service.handleCheckoutCompleted(packageSession({ livemode: true }));
+      expect(mockTxTransaction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ environment: 'PRODUCTION' }),
+      });
+    });
 
     it('grants a credit pack atomically — one transaction, no top-level writes', async () => {
       await service.handleCheckoutCompleted(packageSession());

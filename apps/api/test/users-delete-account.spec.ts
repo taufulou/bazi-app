@@ -54,6 +54,9 @@ const PROFILE = {
 
 const mockPrisma = {
   user: { findUnique: jest.fn(), update: jest.fn() },
+  // endSubscriptionsForDeletedUser (1A-core item 6) — covered in
+  // account-deletion-subscriptions.spec.ts.
+  subscription: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
   birthProfile: { findMany: jest.fn() },
   baziReading: { findMany: jest.fn() },
   $transaction: jest.fn(async (fn: (t: unknown) => Promise<unknown>) => fn(tx)),

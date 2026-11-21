@@ -230,6 +230,45 @@ that needs more is a symptom, and the lock TTL is derived from the deadline.
 
 ---
 
+## In-app purchases (RevenueCat) — `revenuecat.*`
+
+Added with 1A-core (design `.claude/plans/1a-core-payment-hardening.md`).
+Before it, every case below logged and returned 200, so the purchase event —
+and any resend within 48h — was silently lost. Now the two error events mean
+**the webhook answered 500 and did not set its idempotency key**, so RevenueCat
+is retrying. Sentry extras carry the RevenueCat **event id** (never the user's
+id): search for it in the RevenueCat dashboard → Customer → event history.
+
+⚠️ **RevenueCat's retries are bounded** — a handful over a few hours, then it
+stops [unverified: confirm the schedule in the RevenueCat docs/dashboard]. If
+the cause is fixed after the last retry, the event is still lost and needs the
+manual recovery at the end of this section.
+
+| Event | Level | Meaning | What to do |
+|---|---|---|---|
+| `revenuecat.unmapped_product` | error | The purchased product id maps to no plan, credit pack, or tier. Tag `kind` says which. The customer has paid. | Check `SELECT slug, apple_product_id, google_product_id FROM plans` / `credit_packages`. There is no admin UI for these columns — fix with reviewed SQL. Then wait for the next retry, or recover manually. |
+| `revenuecat.unknown_app_user` | error (`PRODUCTION`) / warning (`SANDBOX`) | The event's user ids match no account, and none is a deleted account. | `SANDBOX`: almost always a build signed into a different Clerk instance than the one this API serves (e.g. a build with the `appl_` RevenueCat key and dev Clerk keys). Fix the build's env; nothing is owed. `PRODUCTION`: a paying customer we cannot find — check whether the Clerk user exists and whether `user.created` reached us (`ensureUser` creates the row on first API call, so a user who bought before ever calling the API is the likely race; the retry resolves it). |
+| `revenuecat.inactive_product_purchased` | warning | A product switched off in the admin panel was **newly** sold. Credits/tier were granted anyway (the money moved). | Remove the product from the RevenueCat offering. |
+| `revenuecat.subscription_refunded` | warning | Apple/Google refunded a membership. The row is EXPIRED, the tier recomputed, and that period's monthly credits clawed back (floored at 0). `extra` has `requested`/`clawedBack`/`alreadyProcessed`. | Nothing, unless `clawedBack < requested` repeatedly for one user (spend-then-refund pattern). |
+| `revenuecat.refund_needs_review` | warning | Either a refund whose expiry is absent or still in the future — not the shape the code assumes — or (tag `reason=older_period`) a refund of a period OLDER than the one the subscription currently holds: that period's credits were clawed back, but the current paid period was left ACTIVE. **Access was not revoked in either case.** | Look at the event in the RevenueCat dashboard. If access should end, expire the row by hand; capture the payload so the code can learn the shape. |
+| `revenuecat.stale_activation_ignored` | warning | An activation was deliberately not applied (tag `reason`: `ended_period` / `older_than_stored` — older than the stored state; `refund_already_recorded` — its transaction was already refunded; `period_already_over` — its own period had ended, so it was recorded EXPIRED rather than granting a tier nothing would ever take away). Usually a retried delivery. | Nothing for occasional ones. A steady stream for one subscription means the stored row is wrong — compare it with the RevenueCat customer page. |
+
+Not alerting, but in the logs: events for a **deleted** account and events
+with **only `$RCAnonymousID`** ids are acknowledged with a log line and no
+write. After an account is deleted while its Apple subscription still bills,
+renewals keep arriving — that is expected.
+
+**Manual recovery of a lost event:** fix the cause, then **prefer resending**
+the event from the RevenueCat dashboard (Customer → event → resend). Only if it
+is past RevenueCat's history, reconcile from
+`GET https://api.revenuecat.com/v1/subscribers/{app_user_id}` and apply the
+grant through the ledgered admin credit adjustment. **Never do both for the same
+event:** an admin adjustment writes no `monthly_credits_logs` row, so a later
+resend of that RENEWAL would grant the month a second time. Confirm the
+`subscriptions` row and the `credit_ledger` entry afterwards.
+
+---
+
 ## Deploys and shutdown
 
 SIGTERM runs a drain: readiness 503s immediately, then in-flight streams get

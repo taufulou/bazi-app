@@ -105,27 +105,9 @@ export class UsersService {
     //    is a clean, retryable no-op: the user still has their account.
     await this.erasePersonalData(user.id);
 
-    // 3. Cancel active Stripe subs (best-effort).
-    const activeStripe = user.subscriptions.filter(
-      (s) => s.status === 'ACTIVE' && s.platform === 'STRIPE' && s.stripeSubscriptionId,
-    );
-    if (activeStripe.length > 0) {
-      const stripe = this.getStripeClient();
-      if (stripe) {
-        for (const s of activeStripe) {
-          try {
-            await stripe.subscriptions.cancel(s.stripeSubscriptionId as string);
-          } catch (err) {
-            this.logger.error(
-              `deleteAccount: failed to cancel Stripe sub ${s.stripeSubscriptionId}: ${err}`,
-            );
-          }
-        }
-      }
-    }
-
-    // 4. Delete the RevenueCat subscriber (best-effort).
-    await this.deleteRevenueCatSubscriber(clerkUserId);
+    // 3–4. Cancel Stripe, delete the RevenueCat subscriber, end the rows. Shared
+    //      with the Clerk `user.deleted` webhook — see the method.
+    await this.endSubscriptionsForDeletedUser(user.id, clerkUserId);
 
     // 5. Delete the Clerk user (best-effort — anonymize proceeds regardless).
     //    NOTE this fires the `user.deleted` webhook, which now also erases.
@@ -262,6 +244,78 @@ export class UsersService {
     );
   }
 
+  /**
+   * End a deleted account's subscriptions (1A-core item 6). Called from BOTH
+   * deletion doors: `deleteAccount` (in-app) and the Clerk `user.deleted`
+   * webhook (Clerk's own self-deletion, and Dashboard deletes). Before this, the
+   * webhook door cancelled nothing and neither door ended the rows.
+   *
+   * ORDER IS LOAD-BEARING:
+   * 1. Cancel ACTIVE Stripe subscriptions — best-effort, exactly as
+   *    `deleteAccount` always did. Deliberately NOT widened and NOT made to
+   *    throw here: the Clerk webhook anonymises AFTER this method, and a
+   *    throwing Stripe step there would leave a deleted person's name in place
+   *    on a persistent Stripe failure. Hardening this (wider filter,
+   *    propagation behind a re-entrant webhook, Stripe-side deleted-owner
+   *    guards) is launch todo #29, a blocker of Stripe going live.
+   * 2. Delete the RevenueCat subscriber — best-effort.
+   * 3. Only then mark every non-EXPIRED row EXPIRED. A STATUS UPDATE, never a
+   *    delete: `Subscription` is a retained financial record (see
+   *    `erasePersonalData`). EXPIRED, not CANCELLED, because CANCELLED means
+   *    both "scheduled" and "terminated" in this codebase. An existing
+   *    `cancelledAt` (the user's own auto-renew-off time) is preserved.
+   *
+   * Steps 1–2 never throw. The initial row lookup and step 3 can (a database
+   * error — the lookup before anything has happened): in-app that is a 500
+   * before the Clerk user is deleted, so the user can retry; in the webhook it
+   * is a 500 Clerk retries. Everything before it is idempotent.
+   *
+   * Why marking a Stripe row EXPIRED after a FAILED cancel is no worse than
+   * before: the row used to stay ACTIVE while Stripe kept billing; now Stripe's
+   * next `customer.subscription.updated` rewrites it to ACTIVE — the same state.
+   * Store subscriptions end for good: later RevenueCat events for this account
+   * resolve as known-deleted and are acknowledged without a write.
+   */
+  async endSubscriptionsForDeletedUser(userId: string, clerkUserId: string): Promise<void> {
+    const subscriptions = await this.prisma.subscription.findMany({
+      where: { userId },
+      select: { status: true, platform: true, stripeSubscriptionId: true },
+    });
+
+    // 1. Cancel active Stripe subs (best-effort).
+    const activeStripe = subscriptions.filter(
+      (s) => s.status === 'ACTIVE' && s.platform === 'STRIPE' && s.stripeSubscriptionId,
+    );
+    if (activeStripe.length > 0) {
+      const stripe = this.getStripeClient();
+      if (stripe) {
+        for (const s of activeStripe) {
+          try {
+            await stripe.subscriptions.cancel(s.stripeSubscriptionId as string);
+          } catch (err) {
+            this.logger.error(
+              `endSubscriptionsForDeletedUser: failed to cancel Stripe sub ${s.stripeSubscriptionId}: ${err}`,
+            );
+          }
+        }
+      }
+    }
+
+    // 2. Delete the RevenueCat subscriber (best-effort).
+    await this.deleteRevenueCatSubscriber(clerkUserId);
+
+    // 3. End the rows — after the provider calls, never before.
+    const now = new Date();
+    await this.prisma.subscription.updateMany({
+      where: { userId, status: { not: 'EXPIRED' }, cancelledAt: null },
+      data: { status: 'EXPIRED', cancelledAt: now },
+    });
+    await this.prisma.subscription.updateMany({
+      where: { userId, status: { not: 'EXPIRED' } },
+      data: { status: 'EXPIRED' },
+    });
+  }
+
   private getStripeClient(): Stripe | null {
     const key = this.config.get<string>('STRIPE_SECRET_KEY');
     if (!key) {
@@ -294,7 +348,13 @@ export class UsersService {
     try {
       const res = await fetch(
         `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(appUserId)}`,
-        { method: 'DELETE', headers: { Authorization: `Bearer ${apiKey}` } },
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${apiKey}` },
+          // The Clerk webhook now runs this too, and Svix redelivers on a short
+          // timeout. A hung RevenueCat must not stall deletion indefinitely.
+          signal: AbortSignal.timeout(10_000),
+        },
       );
       if (!res.ok && res.status !== 404) {
         this.logger.error(`deleteAccount: RevenueCat delete returned ${res.status}`);

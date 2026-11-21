@@ -40,8 +40,21 @@ async function main() {
     { slug: 'master', nameZhTw: '大師版', nameZhCn: '大师版', priceMonthly: 19.99, priceAnnual: 159.99, currency: 'USD', features: ['50 readings/month', 'Partner compatibility', 'Advanced analysis', 'Early access features'], readingsPerMonth: 50, monthlyCredits: 50, sortOrder: 3 },
   ];
 
+  // App Store product ids (1A-core item 1). Set on CREATE only, so a re-seed
+  // never overwrites a value an operator set by hand. The same ids are applied
+  // to existing databases by migration `20261121000100_map_apple_product_ids_v1`.
+  const planAppleProductIds: Record<string, string> = {
+    basic: 'com.tianming.app.basic.monthly',
+    pro: 'com.tianming.app.pro.monthly',
+    master: 'com.tianming.app.master.monthly',
+  };
+
   for (const plan of plans) {
-    await prisma.plan.upsert({ where: { slug: plan.slug }, update: plan, create: plan });
+    await prisma.plan.upsert({
+      where: { slug: plan.slug },
+      update: plan,
+      create: { ...plan, appleProductId: planAppleProductIds[plan.slug] },
+    });
   }
   console.log(`  ✅ ${plans.length} plans seeded`);
 
@@ -221,11 +234,19 @@ async function main() {
     { slug: 'mega-60', nameZhTw: '豪華包 60 點', nameZhCn: '豪华包 60 点', creditAmount: 60, priceUsd: 34.99, sortOrder: 4 },
   ];
 
+  // See planAppleProductIds above — create-only, mirrored by the v1 migration.
+  const packageAppleProductIds: Record<string, string> = {
+    'starter-5': 'com.tianming.app.credits.5',
+    'value-12': 'com.tianming.app.credits.12',
+    'popular-30': 'com.tianming.app.credits.30',
+    'mega-60': 'com.tianming.app.credits.60',
+  };
+
   for (const pkg of creditPackages) {
     await prisma.creditPackage.upsert({
       where: { slug: pkg.slug },
       update: pkg,
-      create: pkg,
+      create: { ...pkg, appleProductId: packageAppleProductIds[pkg.slug] },
     });
   }
   console.log(`  ✅ ${creditPackages.length} credit packages seeded`);
