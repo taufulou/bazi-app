@@ -25,6 +25,8 @@ const mockPrisma = {
   // findUnique: the refund-before-purchase check (1A-core item 5).
   transaction: { create: jest.fn(), findUnique: jest.fn() },
   monthlyCreditsLog: { findUnique: jest.fn() },
+  // findFirst: the pack-grant lookup a consumable refund makes (PR #76 review).
+  creditLedger: { findFirst: jest.fn() },
   // Implementation set in beforeEach (it invokes the callback with this same
   // mock and propagates its rejection — so a test can tell whether a P2002 is
   // caught inside or outside the transaction).
@@ -76,6 +78,7 @@ describe('RevenueCatService', () => {
     mockPrisma.user.findFirst.mockResolvedValue(null);
     mockPrisma.transaction.findUnique.mockResolvedValue(null);
     mockPrisma.monthlyCreditsLog.findUnique.mockResolvedValue(null);
+    mockPrisma.creditLedger.findFirst.mockResolvedValue({ id: 'ledger-grant' }); // the pack was granted
     mockPrisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(mockPrisma));
     mockEntitlements.syncUserTier.mockResolvedValue({ tier: 'PRO', changed: true });
   });

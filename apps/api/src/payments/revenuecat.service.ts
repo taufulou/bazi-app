@@ -390,7 +390,24 @@ export class RevenueCatService {
       throw err;
     }
 
-    const reason = `iap-credit-pack:${pkg.slug}:${event.transaction_id ?? event.id}`;
+    // A refund that arrived BEFORE this purchase (PR #76 review): the purchase's
+    // first delivery failed, Apple refunded, the refund landed first. The refund
+    // path took nothing back (nothing had been granted — see handleCancellation),
+    // so granting now would hand out credits for a refunded pack. The purchase
+    // row above stays as the record of the sale.
+    if (event.transaction_id && (await this.isRefundRecorded(event.transaction_id))) {
+      Sentry.captureMessage('revenuecat.refunded_purchase_not_granted', {
+        level: 'warning',
+        tags: { eventType: event.type },
+        extra: { eventId: event.id, package: pkg.slug, environment: event.environment },
+      });
+      this.logger.warn(
+        `RC NON_RENEWING_PURCHASE ${idemKey}: already refunded — credits NOT granted (${pkg.slug})`,
+      );
+      return;
+    }
+
+    const reason = this.packGrantReason(pkg.slug, event.transaction_id ?? event.id);
     await this.entitlements.grantCredits(userId, pkg.creditAmount, reason);
 
     this.logger.log(`RC NON_RENEWING_PURCHASE: user=${userId} +${pkg.creditAmount} credits (${pkg.slug})`);
@@ -440,6 +457,26 @@ export class RevenueCatService {
           return;
         }
         throw err;
+      }
+
+      // Refund BEFORE its purchase (PR #76 review): if this pack's credits were
+      // never granted, there is nothing of it to take back — clawing back anyway
+      // would take the customer's OTHER credits. Skip; the purchase path sees the
+      // REFUND row above and grants nothing. Keyed on the GRANT (its ledger
+      // row), not the purchase Transaction row: that row is written before the
+      // grant, so a purchase being processed concurrently would read as granted
+      // when it is not. Without a transaction_id there is no key to look up, so
+      // the old behaviour (claw back) applies.
+      if (event.transaction_id && !(await this.isPackGranted(userId, pkg.slug, event.transaction_id))) {
+        Sentry.captureMessage('revenuecat.refund_before_purchase', {
+          level: 'warning',
+          tags: { eventType: event.type },
+          extra: { eventId: event.id, package: pkg.slug, environment: event.environment },
+        });
+        this.logger.warn(
+          `RC CANCELLATION (consumable refund) ${idemKey}: pack was never granted — nothing clawed back; its purchase will not grant`,
+        );
+        return;
       }
 
       const reason = `iap-refund:${pkg.slug}:${event.transaction_id ?? event.id}`;
@@ -631,6 +668,39 @@ export class RevenueCatService {
 
     const platform = this.platformFromStore(event.store);
     const txKey = event.original_transaction_id ?? event.transaction_id ?? null;
+
+    // A late EXPIRATION for a period that a newer activation has already
+    // replaced must not end the newer one (PR #76 review). Shape: the
+    // subscription lapses, that EXPIRATION's delivery fails and is queued for
+    // retry, the customer resubscribes on the same original transaction (we mark
+    // it ACTIVE with the new period), then the retry lands. The test is
+    // "expired at or before the stored period STARTED" — a new period cannot
+    // begin before the old one ended. A refund that shortened the CURRENT period
+    // (expiry inside it) still expires, which the refund_needs_review fail-safe
+    // relies on. An expiry slightly after the start (an early renewal) also
+    // still expires: on any doubt this keeps the old behaviour, never free access.
+    const existing = await this.findSubscriptionByTxKey(platform, txKey);
+    if (
+      existing?.status === 'ACTIVE' &&
+      event.expiration_at_ms != null &&
+      event.expiration_at_ms <= existing.currentPeriodStart.getTime()
+    ) {
+      Sentry.captureMessage('revenuecat.stale_expiration_ignored', {
+        level: 'warning',
+        tags: { eventType: event.type },
+        extra: {
+          eventId: event.id,
+          environment: event.environment,
+          expirationAtMs: event.expiration_at_ms,
+          currentPeriodStartMs: existing.currentPeriodStart.getTime(),
+        },
+      });
+      this.logger.warn(
+        `RC EXPIRATION ${event.id}: expiry is before the current period started — a newer activation replaced it; row left ACTIVE`,
+      );
+      return;
+    }
+
     const tier = await this.expireSubscription(userId, platform, txKey, event.expiration_at_ms);
     this.logger.log(`RC EXPIRATION: user=${userId} tier recomputed to ${tier}`);
   }
@@ -830,6 +900,20 @@ export class RevenueCatService {
   private async isRefundRecorded(transactionId: string): Promise<boolean> {
     const row = await this.prisma.transaction.findUnique({
       where: { stripePaymentId: `rc-refund:${transactionId}` },
+      select: { id: true },
+    });
+    return !!row;
+  }
+
+  /** The CreditLedger reason of a pack grant — one builder, so the refund lookup can't drift from it. */
+  private packGrantReason(slug: string, key: string): string {
+    return `iap-credit-pack:${slug}:${key}`;
+  }
+
+  /** Whether this pack purchase's credits were actually granted (its ledger row exists). */
+  private async isPackGranted(userId: string, slug: string, transactionId: string): Promise<boolean> {
+    const row = await this.prisma.creditLedger.findFirst({
+      where: { userId, reason: this.packGrantReason(slug, transactionId) },
       select: { id: true },
     });
     return !!row;

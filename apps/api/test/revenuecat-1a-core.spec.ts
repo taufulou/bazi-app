@@ -20,6 +20,7 @@ const mockPrisma = {
   subscription: { findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
   transaction: { create: jest.fn(), findUnique: jest.fn() },
   monthlyCreditsLog: { findUnique: jest.fn() },
+  creditLedger: { findFirst: jest.fn() },
   $transaction: jest.fn(),
 };
 
@@ -88,6 +89,7 @@ describe('RevenueCatService — 1A-core', () => {
     mockPrisma.transaction.create.mockResolvedValue({});
     mockPrisma.transaction.findUnique.mockResolvedValue(null);
     mockPrisma.monthlyCreditsLog.findUnique.mockResolvedValue(null);
+    mockPrisma.creditLedger.findFirst.mockResolvedValue({ id: 'ledger-grant' });
     mockPrisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(mockPrisma));
     mockEntitlements.syncUserTier.mockResolvedValue({ tier: 'FREE', changed: true });
     mockEntitlements.clawbackCredits.mockResolvedValue({ clawedBack: 15 });
@@ -480,7 +482,9 @@ describe('RevenueCatService — 1A-core', () => {
     it('EXPIRATION records its expiry as the period end, so a retried RENEWAL for that period is then ignored (audit M1)', async () => {
       const oldEnd = Date.now() - 40 * DAY;
       const expiredAt = Date.now() - 10 * DAY;
-      mockPrisma.subscription.findFirst.mockResolvedValue(subRow({ currentPeriodEnd: new Date(oldEnd) }));
+      mockPrisma.subscription.findFirst.mockResolvedValue(
+        subRow({ currentPeriodStart: new Date(oldEnd - 30 * DAY), currentPeriodEnd: new Date(oldEnd) }),
+      );
       await svc.handleEvent(makeEvent({ type: 'EXPIRATION', expiration_at_ms: expiredAt }));
       expect(mockPrisma.subscription.update).toHaveBeenCalledWith({
         where: { id: 'sub-1' },
@@ -511,6 +515,95 @@ describe('RevenueCatService — 1A-core', () => {
       await svc.handleEvent(makeEvent({ type: 'INITIAL_PURCHASE', transaction_id: undefined }));
       expect(mockPrisma.transaction.findUnique).not.toHaveBeenCalled();
       expect(mockPrisma.subscription.create).toHaveBeenCalled();
+    });
+  });
+
+  // ============================================================
+  // PR #76 review — two retry orderings that cost money or access
+  // ============================================================
+  describe('PR #76 review — a late EXPIRATION must not end a newer period', () => {
+    // The customer lapsed, then resubscribed on the same original transaction:
+    // the stored row is ACTIVE with a period that STARTED after the old expiry.
+    const resubscribed = () =>
+      subRow({ currentPeriodStart: new Date(Date.now() - 2 * DAY), currentPeriodEnd: new Date(Date.now() + 28 * DAY) });
+
+    it('an EXPIRATION for the period before the current one is ignored — no write, no tier recompute', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue(resubscribed());
+      await svc.handleEvent(makeEvent({ type: 'EXPIRATION', expiration_at_ms: Date.now() - 3 * DAY }));
+      expect(mockPrisma.subscription.update).not.toHaveBeenCalled();
+      expect(mockEntitlements.syncUserTier).not.toHaveBeenCalled();
+      expect(sentryNames()).toContain('revenuecat.stale_expiration_ignored');
+    });
+
+    it('an expiry exactly at the current period start is the old period — ignored', async () => {
+      const row = resubscribed();
+      mockPrisma.subscription.findFirst.mockResolvedValue(row);
+      await svc.handleEvent(makeEvent({ type: 'EXPIRATION', expiration_at_ms: row.currentPeriodStart.getTime() }));
+      expect(expiredUpdate()).toBeUndefined();
+    });
+
+    it('an expiry INSIDE the current period (a refund that shortened it) still expires', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue(resubscribed());
+      await svc.handleEvent(makeEvent({ type: 'EXPIRATION', expiration_at_ms: Date.now() - 60 * 60 * 1000 }));
+      expect(expiredUpdate()).toBeDefined();
+      expect(mockEntitlements.syncUserTier).toHaveBeenCalledWith('user-buyer');
+      expect(sentryNames()).not.toContain('revenuecat.stale_expiration_ignored');
+    });
+
+    it('an EXPIRATION with no expiry still expires (nothing to compare)', async () => {
+      mockPrisma.subscription.findFirst.mockResolvedValue(resubscribed());
+      await svc.handleEvent(makeEvent({ type: 'EXPIRATION', expiration_at_ms: undefined }));
+      expect(expiredUpdate()).toBeDefined();
+    });
+  });
+
+  describe('PR #76 review — a credit-pack refund that arrives before its purchase', () => {
+    const packEvent = (overrides: Partial<RevenueCatEvent>) =>
+      makeEvent({ product_id: 'com.tianming.app.credits.12', transaction_id: 'apple_pack_1', ...overrides });
+    beforeEach(() => mockPrisma.creditPackage.findFirst.mockResolvedValue(PACK));
+
+    it('the refund of a never-granted pack records the REFUND row but claws back NOTHING (exact grant query)', async () => {
+      mockPrisma.creditLedger.findFirst.mockResolvedValue(null);
+      await svc.handleEvent(packEvent({ type: 'CANCELLATION', cancel_reason: 'CUSTOMER_SUPPORT' }));
+      expect(mockPrisma.transaction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ stripePaymentId: 'rc-refund:apple_pack_1', type: 'REFUND' }),
+      });
+      expect(mockPrisma.creditLedger.findFirst).toHaveBeenCalledWith({
+        where: { userId: 'user-buyer', reason: 'iap-credit-pack:value-12:apple_pack_1' },
+        select: { id: true },
+      });
+      expect(mockEntitlements.clawbackCredits).not.toHaveBeenCalled();
+      expect(sentryNames()).toContain('revenuecat.refund_before_purchase');
+    });
+
+    it('the refund of a granted pack claws it back as before', async () => {
+      await svc.handleEvent(packEvent({ type: 'CANCELLATION', cancel_reason: 'CUSTOMER_SUPPORT' }));
+      expect(mockEntitlements.clawbackCredits).toHaveBeenCalledWith('user-buyer', 12, 'iap-refund:value-12:apple_pack_1');
+    });
+
+    it('a refund with no transaction_id cannot look the grant up — claws back as before', async () => {
+      await svc.handleEvent(packEvent({ type: 'CANCELLATION', cancel_reason: 'CUSTOMER_SUPPORT', transaction_id: undefined }));
+      expect(mockPrisma.creditLedger.findFirst).not.toHaveBeenCalled();
+      expect(mockEntitlements.clawbackCredits).toHaveBeenCalled();
+    });
+
+    it('the purchase of an already-refunded pack records the sale but grants NOTHING (exact refund query)', async () => {
+      mockPrisma.transaction.findUnique.mockResolvedValue({ id: 'tx-refund' });
+      await svc.handleEvent(packEvent({ type: 'NON_RENEWING_PURCHASE' }));
+      expect(mockPrisma.transaction.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ stripePaymentId: 'rc-purchase:apple_pack_1', type: 'CREDIT_PURCHASE' }),
+      });
+      expect(mockPrisma.transaction.findUnique).toHaveBeenCalledWith({
+        where: { stripePaymentId: 'rc-refund:apple_pack_1' },
+        select: { id: true },
+      });
+      expect(mockEntitlements.grantCredits).not.toHaveBeenCalled();
+      expect(sentryNames()).toContain('revenuecat.refunded_purchase_not_granted');
+    });
+
+    it('a purchase with no refund grants, under the reason the refund looks up', async () => {
+      await svc.handleEvent(packEvent({ type: 'NON_RENEWING_PURCHASE' }));
+      expect(mockEntitlements.grantCredits).toHaveBeenCalledWith('user-buyer', 12, 'iap-credit-pack:value-12:apple_pack_1');
     });
   });
 });
