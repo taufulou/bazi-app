@@ -1,5 +1,6 @@
 /**
- * RTL tests for the store screen — unsupported "coming soon" state, and the
+ * RTL tests for the store screen — the could-not-load state (never placeholder
+ * copy — guideline 2.1), and the
  * populated (offering) state rendering subscription + credit-pack rows with
  * prices and compliance copy. RC + API + Clerk are mocked.
  */
@@ -37,10 +38,12 @@ describe('StoreScreen', () => {
     mockApi.getUserProfile.mockResolvedValue({ credits: 42, subscriptionTier: 'FREE', languagePref: 'zh-TW', languageChosen: true });
   });
 
-  it('shows the "coming soon" state when IAP is unsupported', async () => {
+  it('shows the could-not-load state (with 重試) when IAP is unsupported', async () => {
     mockPurchases.isPurchasesSupported.mockReturnValue(false);
     await render(<StoreScreen />);
-    await waitFor(() => expect(screen.getByText('商店即將推出')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('目前無法載入商店項目')).toBeTruthy());
+    expect(screen.getByText('重試')).toBeTruthy();
+    expect(screen.queryByText(/即將推出|敬請期待/)).toBeNull();
     // Balance still renders from the profile fetch.
     expect(screen.getByText('42')).toBeTruthy();
     expect(mockPurchases.getCurrentOffering).not.toHaveBeenCalled();
@@ -76,6 +79,7 @@ describe('StoreScreen', () => {
     mockPurchases.getCurrentOffering.mockResolvedValue({ identifier: 'default', availablePackages: [] } as never);
 
     await render(<StoreScreen />);
-    await waitFor(() => expect(screen.getByText('商店即將推出')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('目前無法載入商店項目')).toBeTruthy());
+    expect(screen.getByText('重試')).toBeTruthy();
   });
 });

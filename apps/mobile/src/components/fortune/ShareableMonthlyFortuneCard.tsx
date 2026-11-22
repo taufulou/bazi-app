@@ -12,6 +12,7 @@ import { colors, fonts, fontSize, spacing, radius } from '../../theme';
 import type { MonthlyFortuneDimension, IntraMonthBreakdown } from '../../lib/fortune-api';
 import { friendlyExplanationFromLabel, ringTierFromLabel } from './labels';
 import { MONTHLY_DIM_META, type MonthlyDimKey } from './monthlyDimensions';
+import { SITE_HOST, SITE_URL } from '../../lib/links';
 
 interface Props {
   month: string; // YYYY-MM
@@ -27,7 +28,8 @@ const RING_RADIUS = 58;
 const RING_CIRC = 2 * Math.PI * RING_RADIUS;
 const RING_SIZE = 136;
 const RING_CENTER = RING_SIZE / 2;
-const SHARE_URL = 'https://baziapp.com';
+// Our domain (1C item 3) — the QR code and the printed host both come from links.ts.
+const SHARE_URL = SITE_URL;
 
 function formatMonthIso(iso: string): string {
   const m = iso.match(/^(\d{4})-(\d{2})$/);
@@ -117,7 +119,7 @@ const ShareableMonthlyFortuneCard = forwardRef<View, Props>(function ShareableMo
             <QRCode value={SHARE_URL} size={72} color={colors.textPrimary} backgroundColor="#FFFFFF" />
           </View>
           <View style={styles.footerText}>
-            <Text style={styles.footerDomain}>baziapp.com</Text>
+            <Text style={styles.footerDomain}>{SITE_HOST}</Text>
             <Text style={styles.footerTagline}>掃描查看您自己的命理月運</Text>
             <Text style={styles.footerDisclaimer}>※ 流月為趨勢，僅供參考，不構成任何專業建議</Text>
           </View>

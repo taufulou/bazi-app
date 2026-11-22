@@ -37,37 +37,59 @@ export function isPurchasesSupported(): boolean {
 }
 
 let configuredForUser: string | null = null;
+let inFlight: Promise<boolean> | null = null;
 
 /**
- * Configure the RC SDK for a signed-in user (idempotent per user). Safe to call
- * on every app focus / sign-in. No-op (returns false) when unsupported.
+ * Bind the RC SDK to a signed-in user. Safe to call on every sign-in and from
+ * the store screen. No-op (returns false) when unsupported.
+ *
+ * `Purchases.configure` runs ONCE per process — asked of the SDK itself, not of
+ * our memo, because sign-out clears the memo while the SDK stays configured. A
+ * second `configure` replaces the shared instance and drops its listeners (1C
+ * item 6). Every later user is a `logIn`. Concurrent callers (the identity bridge
+ * and the store screen at sign-in) share one in-flight call.
  */
 export async function configurePurchases(clerkUserId: string): Promise<boolean> {
   const apiKey = platformKey();
   if (!apiKey || !clerkUserId) return false;
 
-  try {
-    if (configuredForUser === null) {
-      if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.WARN);
-      Purchases.configure({ apiKey, appUserID: clerkUserId });
+  if (inFlight) await inFlight.catch(() => false);
+  if (configuredForUser === clerkUserId) return true;
+
+  inFlight = (async () => {
+    try {
+      if (!(await Purchases.isConfigured())) {
+        if (__DEV__) Purchases.setLogLevel(LOG_LEVEL.WARN);
+        Purchases.configure({ apiKey, appUserID: clerkUserId });
+      } else {
+        await Purchases.logIn(clerkUserId);
+      }
       configuredForUser = clerkUserId;
-    } else if (configuredForUser !== clerkUserId) {
-      // A different user signed in on the same process — switch RC identity.
-      await Purchases.logIn(clerkUserId);
-      configuredForUser = clerkUserId;
+      return true;
+    } catch (err) {
+      console.warn('[purchases] configure failed', err);
+      return false;
     }
-    return true;
-  } catch (err) {
-    console.warn('[purchases] configure failed', err);
-    return false;
+  })();
+  try {
+    return await inFlight;
+  } finally {
+    inFlight = null;
   }
 }
 
-/** Clear RC identity on sign-out (best-effort). */
+/**
+ * Clear the RC identity on sign-out (best-effort). Asks the SDK rather than our
+ * memo, so an identity bound by the sign-in bridge is cleared even if this module
+ * never configured it in this session. Logging out an anonymous user throws in
+ * RC, so that case is skipped.
+ */
 export async function logOutPurchases(): Promise<void> {
-  if (!isPurchasesSupported() || configuredForUser === null) return;
+  if (!isPurchasesSupported()) return;
   try {
-    await Purchases.logOut();
+    if ((await Purchases.isConfigured()) && !(await Purchases.isAnonymous())) {
+      await Purchases.logOut();
+    }
   } catch (err) {
     console.warn('[purchases] logOut failed', err);
   } finally {
@@ -116,14 +138,38 @@ export async function purchasePackage(pkg: PurchasesPackage): Promise<PurchaseRe
   }
 }
 
-/** Restore prior purchases. Returns the CustomerInfo (or null on failure). */
-export async function restorePurchases(): Promise<CustomerInfo | null> {
-  if (!isPurchasesSupported()) return null;
+/**
+ * Outcome of a restore (1C item 6, F26). It used to collapse every failure into
+ * "nothing to restore", which hid the case that matters under O4: the purchase
+ * belongs to ANOTHER account (RevenueCat "keep with original App User ID").
+ */
+export type RestoreResult =
+  | { kind: 'restored'; hasPurchases: boolean }
+  | { kind: 'other_account' }
+  | { kind: 'error' };
+
+/** RC error codes: RECEIPT_ALREADY_IN_USE_ERROR / RECEIPT_IN_USE_BY_OTHER_SUBSCRIBER_ERROR. */
+const OTHER_ACCOUNT_CODES = new Set(['7', '13']);
+
+export function hasAnyPurchase(info: CustomerInfo | null | undefined): boolean {
+  if (!info) return false;
+  return (
+    Object.keys(info.entitlements?.active ?? {}).length > 0 ||
+    (info.activeSubscriptions?.length ?? 0) > 0 ||
+    (info.nonSubscriptionTransactions?.length ?? 0) > 0
+  );
+}
+
+export async function restorePurchases(): Promise<RestoreResult> {
+  if (!isPurchasesSupported()) return { kind: 'error' };
   try {
-    return await Purchases.restorePurchases();
+    const info = await Purchases.restorePurchases();
+    return { kind: 'restored', hasPurchases: hasAnyPurchase(info) };
   } catch (err) {
+    const code = String((err as { code?: unknown })?.code ?? '');
+    if (OTHER_ACCOUNT_CODES.has(code)) return { kind: 'other_account' };
     console.warn('[purchases] restore failed', err);
-    return null;
+    return { kind: 'error' };
   }
 }
 
@@ -152,13 +198,29 @@ export function addCustomerInfoListener(cb: (info: CustomerInfo) => void): () =>
  * can only be cancelled by the user in the store (never server-side), so the
  * account-deletion + paywall flows deep-link here.
  */
+export const MANAGE_SUBSCRIPTIONS_URL =
+  Platform.OS === 'ios'
+    ? 'https://apps.apple.com/account/subscriptions'
+    : 'https://play.google.com/store/account/subscriptions';
+
+/**
+ * iOS: Apple's own manage-subscriptions sheet — the only view that lists SANDBOX
+ * subscriptions, which is what App Review uses. Falls back to the account URL on
+ * Android, when RC is not configured, or on any failure.
+ */
 export async function openManageSubscriptions(): Promise<void> {
-  const url =
-    Platform.OS === 'ios'
-      ? 'https://apps.apple.com/account/subscriptions'
-      : 'https://play.google.com/store/account/subscriptions';
+  if (Platform.OS === 'ios' && isPurchasesSupported()) {
+    try {
+      if (await Purchases.isConfigured()) {
+        await Purchases.showManageSubscriptions();
+        return;
+      }
+    } catch (err) {
+      console.warn('[purchases] showManageSubscriptions failed', err);
+    }
+  }
   try {
-    await Linking.openURL(url);
+    await Linking.openURL(MANAGE_SUBSCRIPTIONS_URL);
   } catch (err) {
     console.warn('[purchases] openManageSubscriptions failed', err);
   }
@@ -167,4 +229,5 @@ export async function openManageSubscriptions(): Promise<void> {
 /** Test-only: reset the module's configured-user memo. */
 export function __resetPurchasesForTest(): void {
   configuredForUser = null;
+  inFlight = null;
 }

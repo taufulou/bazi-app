@@ -7,11 +7,25 @@ import { colors, spacing, fontSize, radius, shadows, text as T } from '../../the
 import { useZh, useLang, useChangeLanguage } from '../../lib/language';
 import { deleteAccount, getUserProfile, ApiError, type SubscriptionTier } from '../../lib/api';
 import { TIER_LABELS } from '../../components/home/CreditBadge';
+import * as WebBrowser from 'expo-web-browser';
+import { accountDisplayName, accountEmailLabel } from '../../lib/account-display';
+import { PRIVACY_URL, SUPPORT_MAILTO, TERMS_URL } from '../../lib/links';
+import { useAiConsent } from '../../lib/ai-consent';
+import { signOutAndClear } from '../../lib/session';
+import { loadPurchases } from '../../lib/lazy-purchases';
+
+/** The store this build sells through — named exactly (guideline 2.3.10). */
+const STORE_NAME = Platform.OS === 'ios' ? 'App Store' : 'Google Play';
+const MANAGE_SUBSCRIPTIONS_URL =
+  Platform.OS === 'ios'
+    ? 'https://apps.apple.com/account/subscriptions'
+    : 'https://play.google.com/store/account/subscriptions';
 
 /** 我的 — account info + store + language toggle + sign-out + delete account. */
 export default function MeScreen() {
   const { user } = useUser();
-  const { signOut, getToken } = useAuth();
+  const { signOut, getToken, userId } = useAuth();
+  const consent = useAiConsent();
   const router = useRouter();
   const zh = useZh();
   const lang = useLang();
@@ -60,21 +74,25 @@ export default function MeScreen() {
           // Navigate off the authed stack FIRST so the (authenticated) guard
           // doesn't race a redirect to /sign-in when isSignedIn flips.
           router.replace('/');
-          await signOut();
+          await signOutAndClear(signOut);
         },
       },
     ]);
   };
 
-  // Deep-link to the store's manage-subscriptions page. Inlined (pure Linking)
-  // rather than imported from lib/purchases so this always-mounted tab never
-  // pulls the native react-native-purchases module into the app boot path.
-  const openStoreSubscriptions = () => {
-    const url =
-      Platform.OS === 'ios'
-        ? 'https://apps.apple.com/account/subscriptions'
-        : 'https://play.google.com/store/account/subscriptions';
-    void Linking.openURL(url);
+  // Apple's own manage-subscriptions sheet — the only view that lists SANDBOX
+  // subscriptions, which is what App Review sees (1C item 8). Lazy import keeps
+  // the native purchases module off this always-mounted tab's boot path; the
+  // sign-in bridge has normally configured RevenueCat already, and we configure
+  // again here in case it has not. Any failure falls back to the account URL.
+  const openStoreSubscriptions = async () => {
+    try {
+      const purchases = loadPurchases();
+      if (userId) await purchases.configurePurchases(userId);
+      await purchases.openManageSubscriptions();
+    } catch {
+      void Linking.openURL(MANAGE_SUBSCRIPTIONS_URL);
+    }
   };
 
   const performDelete = async (acknowledgeIap: boolean) => {
@@ -84,14 +102,14 @@ export default function MeScreen() {
       await deleteAccount(token, acknowledgeIap);
       // Success — leave the authed stack, then sign out.
       router.replace('/');
-      await signOut();
+      await signOutAndClear(signOut);
     } catch (e) {
       if (e instanceof ApiError && e.code === 'ACTIVE_IAP_SUBSCRIPTION') {
         Alert.alert(
           zh('請先取消訂閱'),
-          zh('您在 App Store／Google Play 仍有有效訂閱，無法從此處取消。請先於商店取消訂閱後，再刪除帳號。'),
+          `${zh('您在')} ${STORE_NAME} ${zh('仍有有效訂閱，無法從此處取消。請先於商店取消訂閱後，再刪除帳號。')}`,
           [
-            { text: zh('前往管理訂閱'), onPress: openStoreSubscriptions },
+            { text: zh('前往管理訂閱'), onPress: () => void openStoreSubscriptions() },
             { text: zh('我已取消，仍要刪除'), style: 'destructive', onPress: () => void performDelete(true) },
             { text: zh('取消'), style: 'cancel' },
           ],
@@ -116,10 +134,10 @@ export default function MeScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.card}>
-        <Text style={styles.name}>
-          {user?.firstName || zh('會員')}
+        <Text style={styles.name}>{zh(accountDisplayName(user?.firstName))}</Text>
+        <Text style={styles.email}>
+          {zh(accountEmailLabel(user?.primaryEmailAddress?.emailAddress))}
         </Text>
-        <Text style={styles.email}>{user?.primaryEmailAddress?.emailAddress ?? ''}</Text>
 
         {tier || credits !== null ? (
           <View style={styles.accountSummary}>
@@ -156,6 +174,57 @@ export default function MeScreen() {
         onPress={() => router.push('/store')}
       >
         <Text style={styles.rowLabel}>{zh('購買點數與方案')}</Text>
+        <ChevronRight color={colors.textMuted} size={20} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        testID="me-row-ai-consent"
+        style={styles.row}
+        accessibilityRole="button"
+        accessibilityLabel={zh('AI 解讀資料使用')}
+        onPress={() => {
+          if (consent.status === 'granted') consent.withdraw();
+          else void consent.requireAiConsent();
+        }}
+      >
+        <Text style={styles.rowLabel}>{zh('AI 解讀資料使用')}</Text>
+        <Text style={styles.rowValue}>
+          {consent.status === 'granted' ? zh('已同意') : zh('未同意')}
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        testID="me-row-privacy"
+        style={styles.row}
+        accessibilityRole="link"
+        accessibilityLabel={zh('隱私權政策')}
+        onPress={() => void WebBrowser.openBrowserAsync(PRIVACY_URL)}
+      >
+        <Text style={styles.rowLabel}>{zh('隱私權政策')}</Text>
+        <ChevronRight color={colors.textMuted} size={20} />
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        testID="me-row-terms"
+        style={styles.row}
+        accessibilityRole="link"
+        accessibilityLabel={zh('服務條款')}
+        onPress={() => void WebBrowser.openBrowserAsync(TERMS_URL)}
+      >
+        <Text style={styles.rowLabel}>{zh('服務條款')}</Text>
+        <ChevronRight color={colors.textMuted} size={20} />
+      </TouchableOpacity>
+
+      {/* An email, not the support page: that page links onward to the website's
+          purchase pages (guideline 3.1.1). */}
+      <TouchableOpacity
+        testID="me-row-support"
+        style={styles.row}
+        accessibilityRole="link"
+        accessibilityLabel={zh('聯絡客服')}
+        onPress={() => void Linking.openURL(SUPPORT_MAILTO)}
+      >
+        <Text style={styles.rowLabel}>{zh('聯絡客服')}</Text>
         <ChevronRight color={colors.textMuted} size={20} />
       </TouchableOpacity>
 

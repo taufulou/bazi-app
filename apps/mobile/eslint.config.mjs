@@ -17,6 +17,17 @@ export default [
     },
   },
   {
+    // Expo config plugins run in Node at prebuild time and must be CommonJS.
+    // Linted (they hold real logic), with Node's module globals declared.
+    files: ['plugins/**/*.js'],
+    languageOptions: {
+      globals: {
+        require: 'readonly',
+        module: 'writable',
+      },
+    },
+  },
+  {
     ignores: [
       'dist/**',
       '.expo/**',

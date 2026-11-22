@@ -16,6 +16,10 @@ import {
 import { useZh } from '../lib/language';
 import { colors, radius, spacing, fontSize, fonts, text as T } from '../theme';
 import { GoogleSignInButton } from '../components/GoogleSignInButton';
+import { AppleSignInButton } from '../components/AppleSignInButton';
+import { AuthLegalLinks } from '../components/AuthLegalLinks';
+import { SUPPORT_EMAIL } from '../lib/links';
+import { enterApp } from '../lib/enter-app';
 
 export default function SignUpScreen() {
   const { signUp, setActive, isLoaded } = useSignUp();
@@ -61,11 +65,15 @@ export default function SignUpScreen() {
 
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
-        router.replace('/(authenticated)/home');
+        enterApp(router);
       } else {
         // Non-complete (e.g., phone required per the Clerk dashboard config) —
         // surface it instead of leaving the user on a dead spinner.
-        Alert.alert(zh('需要額外資料'), zh('此帳號還需要補充資料才能完成註冊，請改用網頁版完成。'));
+        // Points at 客服, not the website: the website sells memberships (3.1.1).
+        Alert.alert(
+          zh('需要額外資料'),
+          `${zh('此帳號還需要補充資料才能完成註冊，請聯絡客服：')}${SUPPORT_EMAIL}`,
+        );
       }
     } catch (err: unknown) {
       const error = err as { errors?: Array<{ message?: string; longMessage?: string }> };
@@ -191,7 +199,11 @@ export default function SignUpScreen() {
             <View style={styles.dividerLine} />
           </View>
 
-          <GoogleSignInButton />
+          {/* Apple first: guideline 4.8 asks for equivalent prominence. */}
+          <View style={styles.socialStack}>
+            <AppleSignInButton mode="sign-up" />
+            <GoogleSignInButton />
+          </View>
 
           <TouchableOpacity
             style={styles.linkButton}
@@ -202,6 +214,8 @@ export default function SignUpScreen() {
               {zh('已有帳號？')} <Text style={styles.linkHighlight}>{zh('登入')}</Text>
             </Text>
           </TouchableOpacity>
+
+          <AuthLegalLinks variant="consent" />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -269,6 +283,7 @@ const styles = StyleSheet.create({
     marginVertical: spacing.xl,
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: colors.borderLight },
+  socialStack: { gap: spacing.md },
   dividerText: { ...T.bodyTight, color: colors.textMuted },
   linkButton: {
     alignItems: 'center',

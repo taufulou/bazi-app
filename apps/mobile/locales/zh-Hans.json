@@ -1,0 +1,6 @@
+{
+  "ios": {
+    "CFBundleDisplayName": "天命",
+    "NSPhotoLibraryAddUsageDescription": "需要访问相册以保存您的命盘分享图片。"
+  }
+}

@@ -88,7 +88,7 @@ export default function BirthDataForm({
   isLoading = false,
   error,
   title = '輸入出生資料',
-  subtitle = '請填寫準確的出生時間以獲得最精確的分析',
+  subtitle = '請填寫準確的出生時間以獲得更完整的分析',
   submitLabel = '開始排盤',
   children,
   initialValues,

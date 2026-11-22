@@ -254,6 +254,8 @@ deployed; the local build stays valid because nothing in the binary changes.
 
 #### 1C — Mobile
 
+> ✅ **1C-a implemented 2026-11-22, not yet committed** — design + 3 review rounds + line audit in `.claude/plans/1c-mobile-app-store-readiness.md`. 1C-b (icon/splash, Sentry symbolication, RevenueCat "keep with original App User ID", banner content review, real-device Apple/email sign-up/reset) is owner-dependent and listed there.
+
 | Item | Detail |
 |---|---|
 | Sign in with Apple (F1) | `useSignInWithApple()` + `expo-apple-authentication`. Handles `createdSessionId: null` with the same fallback as Google. The hook sends no name, so give 我的 a sensible display for a relay-email user. O2 for token revocation |

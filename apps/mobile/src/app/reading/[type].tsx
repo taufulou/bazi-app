@@ -29,6 +29,7 @@ import type { ChatReadingType } from '../../lib/chat-api';
 import { calculateBazi } from '../../lib/bazi-api';
 import type { BaziChartData } from '../../lib/bazi-types';
 import { ApiError, getUserProfile } from '../../lib/api';
+import { useAiConsent } from '../../lib/ai-consent';
 import {
   fetchBirthProfiles,
   createBirthProfile,
@@ -68,6 +69,20 @@ type SectionMap = Record<string, { preview: string; full: string; score?: number
 
 export default function ReadingFlowScreen() {
   const { getToken, isSignedIn, isLoaded } = useAuth();
+  // AI-data consent is asked from the TAP, before any Modal opens (1C item 2):
+  // iOS cannot present the consent sheet over UnlockConfirmModal or ChatSheet.
+  // Code that runs under those Modals relies on the lib-level guard alone.
+  const { requireAiConsent } = useAiConsent();
+  const openChat = useCallback(
+    async (sectionHint: string | undefined, pending: string | undefined) => {
+      if (!(await requireAiConsent())) return;
+      setChatSectionHint(sectionHint);
+      setChatPending(pending);
+      setChatOpen(true);
+    },
+    // setState setters are stable; declared below.
+    [requireAiConsent],
+  );
   const zh = useZh();
   const router = useRouter();
   const params = useLocalSearchParams<{ type?: string; id?: string }>();
@@ -354,6 +369,7 @@ export default function ReadingFlowScreen() {
     // Degraded case: reset the reading server-side (free, ≤3×) THEN re-stream —
     // re-streaming alone just replays the same degraded content (audit fix).
     if (!readingId) return;
+    if (!(await requireAiConsent())) return;
     const token = await getToken();
     if (!token) return;
     setSections({});
@@ -390,7 +406,7 @@ export default function ReadingFlowScreen() {
     });
     // getToken omitted (unstable Clerk ref → loop). refreshCredits is stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [readingId, zh, refreshCredits]);
+  }, [readingId, zh, refreshCredits, requireAiConsent]);
 
   if (isLoaded && !isSignedIn) return <Redirect href="/sign-in" />;
 
@@ -490,7 +506,11 @@ export default function ReadingFlowScreen() {
                 readingType={slug}
                 creditCost={meta.creditCost}
                 currentCredits={credits}
-                onUnlock={() => setShowUnlock(true)}
+                onUnlock={() => {
+                  void (async () => {
+                    if (await requireAiConsent()) setShowUnlock(true);
+                  })();
+                }}
                 onBuyCredits={() => router.push('/store')}
               />
             ) : null}
@@ -551,16 +571,8 @@ export default function ReadingFlowScreen() {
                     <InlineAskCard
                       readingType={chatReadingType}
                       sectionKey={sectionKey}
-                      onAsk={(sk, q) => {
-                        setChatSectionHint(sk);
-                        setChatPending(q);
-                        setChatOpen(true);
-                      }}
-                      onOpenChat={(sk) => {
-                        setChatSectionHint(sk);
-                        setChatPending(undefined);
-                        setChatOpen(true);
-                      }}
+                      onAsk={(sk, q) => void openChat(sk, q)}
+                      onOpenChat={(sk) => void openChat(sk, undefined)}
                     />
                   ) : null}
                   {slug
@@ -625,13 +637,7 @@ export default function ReadingFlowScreen() {
           finished reading, so offering it before the sections land invites a
           question we can't answer well yet. */}
       {step === 'reading' && readingId && !showPill ? (
-        <ChatFloatingButton
-          onPress={() => {
-            setChatSectionHint(undefined);
-            setChatPending(undefined);
-            setChatOpen(true);
-          }}
-        />
+        <ChatFloatingButton onPress={() => void openChat(undefined, undefined)} />
       ) : null}
 
       {chatReadingType && readingId ? (

@@ -5,7 +5,9 @@ import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import * as AuthSession from 'expo-auth-session';
 import { useZh } from '../lib/language';
+import { SUPPORT_EMAIL } from '../lib/links';
 import { colors, radius, spacing, fontSize } from '../theme';
+import { enterApp } from '../lib/enter-app';
 
 // Completes the OAuth redirect back into the app after the browser closes.
 WebBrowser.maybeCompleteAuthSession();
@@ -24,9 +26,10 @@ function useWarmUpBrowser() {
  * "使用 Google 登入" — mirrors the web app's Google sign-in. Uses Clerk's SSO flow
  * (`oauth_google`) via the in-app browser, then activates the returned session.
  *
- * NOTE: if the Clerk instance requires a phone number, Google sign-in returns
- * without a session (needs the extra step) → we surface a message. Set phone to
- * "optional" in the Clerk Dashboard to allow Google sign-in to complete.
+ * If Clerk still needs a step we don't render (e.g. a missing required field),
+ * the flow returns without a session and we surface a message. The production
+ * instance requires no phone number (verified 2026-08-26 via its public
+ * /v1/environment), so this is a fallback, not the expected path.
  */
 export function GoogleSignInButton() {
   useWarmUpBrowser();
@@ -50,7 +53,7 @@ export function GoogleSignInButton() {
       // 1. Happy path — the OAuth account is already linked → session ready.
       if (createdSessionId && setActive) {
         await setActive({ session: createdSessionId });
-        router.replace('/(authenticated)/home');
+        enterApp(router);
         return;
       }
 
@@ -65,7 +68,7 @@ export function GoogleSignInButton() {
         const res = await signIn!.create({ transfer: true });
         if (res.status === 'complete' && res.createdSessionId && setActive) {
           await setActive({ session: res.createdSessionId });
-          router.replace('/(authenticated)/home');
+          enterApp(router);
           return;
         }
       }
@@ -73,15 +76,16 @@ export function GoogleSignInButton() {
         const res = await signUp!.create({ transfer: true });
         if (res.status === 'complete' && res.createdSessionId && setActive) {
           await setActive({ session: res.createdSessionId });
-          router.replace('/(authenticated)/home');
+          enterApp(router);
           return;
         }
       }
 
       // 3. Still no session → graceful message.
+      // Points at 客服, not the website: the website sells memberships (3.1.1).
       Alert.alert(
         zh('登入未完成'),
-        zh('無法完成 Google 登入，請再試一次，或改用網頁版。'),
+        `${zh('無法完成 Google 登入，請再試一次，或聯絡客服：')}${SUPPORT_EMAIL}`,
       );
     } catch (err: unknown) {
       const e = err as { errors?: Array<{ longMessage?: string; message?: string }> };

@@ -16,6 +16,7 @@
 import { env } from './env';
 import { notifyUnauthorized } from './api';
 import { openSseStream } from './stream';
+import { assertAiConsent } from './ai-consent-state';
 
 const API_BASE = env.apiUrl;
 
@@ -241,6 +242,7 @@ export function streamDailyFortune(opts: StreamOpts): () => void {
     url,
     token: opts.token,
     label: 'DailyFortune',
+    requiresAiConsent: true,
     onEvent: opts.onEvent,
     onError: opts.onError,
     onClose: opts.onClose,
@@ -257,6 +259,7 @@ export function streamMonthlyFortune(opts: MonthlyStreamOpts): () => void {
     url,
     token: opts.token,
     label: 'MonthlyFortune',
+    requiresAiConsent: true,
     onEvent: opts.onEvent,
     onError: opts.onError,
     onClose: opts.onClose,
@@ -277,6 +280,8 @@ interface FetchOpts {
 }
 
 export async function fetchDailyFortune(opts: FetchOpts): Promise<DailyFortuneResponse> {
+  // engineOnly is the score/dimensions path with no AI narration — no consent needed.
+  if (!opts.engineOnly) assertAiConsent();
   const params = new URLSearchParams();
   if (opts.profileId) params.set('profileId', opts.profileId);
   if (opts.date) params.set('date', opts.date);
@@ -553,6 +558,7 @@ interface FetchMonthlyOpts {
 }
 
 export async function fetchMonthlyFortune(opts: FetchMonthlyOpts): Promise<MonthlyFortuneResponse> {
+  assertAiConsent(); // monthly has no engine-only path
   const params = new URLSearchParams();
   if (opts.profileId) params.set('profileId', opts.profileId);
   if (opts.month) params.set('month', opts.month);
@@ -779,6 +785,7 @@ export function streamYearlyFortune(opts: YearlyStreamOpts): () => void {
     url,
     token: opts.token,
     label: 'YearlyFortune',
+    requiresAiConsent: true,
     onEvent: opts.onEvent,
     onError: opts.onError,
     onClose: opts.onClose,
