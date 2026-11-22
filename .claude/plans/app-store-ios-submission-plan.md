@@ -146,8 +146,8 @@ dashboard, owner approves each save · **[V]** verification with evidence.
 | 0.6 | App Store Connect API key (EAS) and In-App Purchase key (RevenueCat). Owner downloads the `.p8` files; they go to EAS / RevenueCat only | O + D |
 | 0.7 | ✅ Done 2026-11-21. Production Clerk: iOS app registered (Native applications: `5W93NMYV2B` / `com.tianming.app`); `tianming://sso-callback` allowlisted (Clerk also auto-added `com.tianming.app://callback`); Apple connection set to custom credentials — Services ID `com.tianming.app.signin` (Apple side: domain `clerk.tianmingapp.com`, return URL `https://clerk.tianmingapp.com/v1/oauth_callback`), Team ID `5W93NMYV2B`, Key ID `4GDLC4KUW6`, private key pasted by the owner (owner holds the `.p8`); status "Used for sign-in". Private-relay email source `bounces+113126207@clkmail.tianmingapp.com` registered with Apple, SPF green. Facebook and LINE disabled. Verified: Apple's authorize page accepts the Services ID + return URL. **Not yet verified:** a full sign-in round trip (proves the key) — web on a signed-out browser, native in step 3.2 | D |
 | 0.8 | ✅ Created 2026-11-21 — two sandbox testers (Malaysia, Taiwan storefronts) | O |
-| 0.9 | Read the production `plans` and `credit_packages` rows; confirm §5 matches what production grants (plans are admin-editable) | C, V |
-| 0.10 | ✅ Tier names fixed 2026-11-21 (owner, option A): **基礎會員 / 專業會員 / 大師會員** everywhere — app, website, App Store product names (F25) | C, O |
+| 0.9 | ✅ Checked 2026-11-22 via the public `GET /api/payments/plans` and `/credit-packages`: prices and credits match §5 exactly (5/15/50 credits at $4.99/$9.99/$19.99; packs 5/12/30/60 at $4.99/$9.99/$19.99/$34.99) | C, V |
+| 0.10 | ✅ Tier names fixed 2026-11-21 (owner, option A): **基礎會員 / 專業會員 / 大師會員** everywhere — app, website, App Store product names (F25). **Rolled out 2026-11-22**: web shared constant `app/lib/tier-names.ts` (badge, account panel, pricing, subscription page), mobile `TIER_LABELS` (badge, 我的, store), `seed.ts`, and migration `20261122000100_rename_plan_tiers_to_member` for the production rows (these also name the Stripe checkout product). Guarded by `apps/api/test/tier-names-parity.spec.ts` (5/5 mutations caught). Free tier keeps 免費 / 免費方案 | C, O |
 | 0.11 | Re-create the EAS robot token if `EXPO_TOKEN` is gone | O |
 | 0.12 | O6: add `api.tianmingapp.com` to the Railway API; re-run the `TRUST_PROXY_HOPS` forged-header check; move the RevenueCat webhook URL | O, C verifies |
 
@@ -254,7 +254,7 @@ deployed; the local build stays valid because nothing in the binary changes.
 
 #### 1C — Mobile
 
-> ✅ **1C-a implemented 2026-11-22, not yet committed** — design + 3 review rounds + line audit in `.claude/plans/1c-mobile-app-store-readiness.md`. 1C-b (icon/splash, Sentry symbolication, RevenueCat "keep with original App User ID", banner content review, real-device Apple/email sign-up/reset) is owner-dependent and listed there.
+> ✅ **1C-a implemented 2026-11-22, committed `00b9196` (branch `claude/app-store-submission-plan-b3dbe7`, pushed, not merged)**. Simulator-verified; config plugin `with-pod-deployment-target` added for Xcode 27.2 — design + 3 review rounds + line audit in `.claude/plans/1c-mobile-app-store-readiness.md`. 1C-b (icon/splash, Sentry symbolication, RevenueCat "keep with original App User ID", banner content review, real-device Apple/email sign-up/reset) is owner-dependent and listed there.
 
 | Item | Detail |
 |---|---|

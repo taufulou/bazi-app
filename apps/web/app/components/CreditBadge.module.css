@@ -44,6 +44,8 @@
   border-radius: 10px;
   font-weight: 600;
   border: 1px solid;
+  /* Four-character names (專業會員): a squeezed header must not break the pill. */
+  white-space: nowrap;
 }
 
 .tierFREE {

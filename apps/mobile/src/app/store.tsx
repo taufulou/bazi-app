@@ -31,6 +31,7 @@ import { colors, spacing, fontSize, radius, shadows, text as T } from '../theme'
 import { useZh } from '../lib/language';
 import { getUserProfile, getWebMembership, type SubscriptionTier, type WebMembership } from '../lib/api';
 import { PRIVACY_URL, TERMS_URL } from '../lib/links';
+import { TIER_LABELS } from '../components/home/CreditBadge';
 import { monthlyCreditsFor, periodLabel, periodSuffix } from '../lib/store-products';
 import {
   isPurchasesSupported,
@@ -359,14 +360,9 @@ function PackageRow({
   );
 }
 
+/** The header badge's wording (one source); only paid tiers reach here. */
 function tierLabel(zh: (s: string) => string, tier: SubscriptionTier): string {
-  const map: Record<SubscriptionTier, string> = {
-    FREE: '',
-    BASIC: '基礎會員',
-    PRO: '專業會員',
-    MASTER: '大師會員',
-  };
-  return zh(map[tier] || '會員');
+  return zh(tier === 'FREE' ? '會員' : TIER_LABELS[tier] ?? '會員');
 }
 
 const styles = StyleSheet.create({

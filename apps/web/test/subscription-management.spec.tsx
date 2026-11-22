@@ -130,7 +130,7 @@ describe('SubscriptionPage', () => {
     render(<SubscriptionPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('Pro 方案')).toBeInTheDocument();
+      expect(screen.getByText('專業會員')).toBeInTheDocument();
     });
 
     // Should show credits
@@ -153,7 +153,7 @@ describe('SubscriptionPage', () => {
     render(<SubscriptionPage />);
 
     await waitFor(() => {
-      expect(screen.getByText('Master 方案')).toBeInTheDocument();
+      expect(screen.getByText('大師會員')).toBeInTheDocument();
     });
 
     // MASTER now shows actual credit count (99 per mock), not "無限"

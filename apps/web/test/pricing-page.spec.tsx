@@ -80,7 +80,7 @@ const row = (over: Record<string, unknown> = {}) => ({
 
 /** Signed-in CTAs are disabled until the status is known (1B item 5). */
 async function waitForStatus() {
-  await waitFor(() => expect(ctaFor('Pro')).not.toBeDisabled());
+  await waitFor(() => expect(ctaFor('專業會員')).not.toBeDisabled());
 }
 
 // Mock @repo/shared
@@ -132,9 +132,9 @@ describe('PricingPage', () => {
     render(<PricingPage />);
 
     // Plan names appear in card headings + comparison table headers
-    expect(screen.getAllByText('Basic').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('Pro').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('Master').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('基礎會員').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('專業會員').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('大師會員').length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows monthly prices by default', () => {
@@ -189,7 +189,7 @@ describe('PricingPage', () => {
 
     render(<PricingPage />);
 
-    fireEvent.click(ctaFor('Basic'));
+    fireEvent.click(ctaFor('基礎會員'));
 
     // API should NOT be called — user is redirected to sign-in instead
     expect(mockCreateSubscriptionCheckout).not.toHaveBeenCalled();
@@ -205,7 +205,7 @@ describe('PricingPage', () => {
     render(<PricingPage />);
     await waitForStatus();
 
-    fireEvent.click(ctaFor('Pro'));
+    fireEvent.click(ctaFor('專業會員'));
 
     await waitFor(() => {
       expect(mockCreateSubscriptionCheckout).toHaveBeenCalledWith(
@@ -231,7 +231,7 @@ describe('PricingPage', () => {
     // Toggle to annual
     fireEvent.click(screen.getByText('年繳'));
 
-    fireEvent.click(ctaFor('Pro'));
+    fireEvent.click(ctaFor('專業會員'));
 
     await waitFor(() => {
       expect(mockCreateSubscriptionCheckout).toHaveBeenCalledWith(
@@ -250,7 +250,7 @@ describe('PricingPage', () => {
     render(<PricingPage />);
     await waitForStatus();
 
-    fireEvent.click(ctaFor('Pro'));
+    fireEvent.click(ctaFor('專業會員'));
 
     await waitFor(() => {
       expect(screen.getByText('Stripe error')).toBeInTheDocument();
@@ -264,10 +264,10 @@ describe('PricingPage', () => {
     mockGetSubscriptionStatus.mockRejectedValue(new Error('boom'));
     render(<PricingPage />);
     await waitFor(() => expect(screen.getByText(/無法載入您目前的方案/)).toBeInTheDocument());
-    for (const plan of ['Basic', 'Pro', 'Master']) {
+    for (const plan of ['基礎會員', '專業會員', '大師會員']) {
       expect(ctaFor(plan)).toBeDisabled();
     }
-    fireEvent.click(ctaFor('Pro'));
+    fireEvent.click(ctaFor('專業會員'));
     expect(mockCreateSubscriptionCheckout).not.toHaveBeenCalled();
   });
 

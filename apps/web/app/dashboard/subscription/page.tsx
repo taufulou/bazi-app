@@ -15,6 +15,7 @@ import {
   type Invoice,
 } from "../../lib/api";
 import styles from "./page.module.css";
+import { PAID_TIER_NAMES } from "../../lib/tier-names";
 
 // ============================================================
 // Tier display metadata
@@ -29,9 +30,9 @@ const FREE_TIER_META = { name: "免費方案", badge: "free" };
 
 const TIER_META: Record<string, { name: string; badge: string }> = {
   FREE: FREE_TIER_META,
-  BASIC: { name: "Basic 方案", badge: "basic" },
-  PRO: { name: "Pro 方案", badge: "pro" },
-  MASTER: { name: "Master 方案", badge: "master" },
+  BASIC: { name: PAID_TIER_NAMES.BASIC, badge: "basic" },
+  PRO: { name: PAID_TIER_NAMES.PRO, badge: "pro" },
+  MASTER: { name: PAID_TIER_NAMES.MASTER, badge: "master" },
 };
 
 // ============================================================

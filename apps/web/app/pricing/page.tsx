@@ -14,6 +14,7 @@ import {
   type StripeSubscriptionSummary,
 } from "../lib/api";
 import styles from "./page.module.css";
+import { PAID_TIER_NAMES } from "../lib/tier-names";
 
 // ============================================================
 // Plan metadata (features, descriptions, CTA text)
@@ -31,7 +32,7 @@ interface PlanInfo {
 const PLANS: PlanInfo[] = [
   {
     key: "basic",
-    name: "Basic",
+    name: PAID_TIER_NAMES.BASIC,
     description: "適合初次體驗八字命理的用戶",
     features: [
       "每月 5 次命理解讀",
@@ -45,7 +46,7 @@ const PLANS: PlanInfo[] = [
   },
   {
     key: "pro",
-    name: "Pro",
+    name: PAID_TIER_NAMES.PRO,
     description: "全方位命理分析，適合深度探索命運",
     features: [
       "每月 15 次命理解讀",
@@ -64,7 +65,7 @@ const PLANS: PlanInfo[] = [
   },
   {
     key: "master",
-    name: "Master",
+    name: PAID_TIER_NAMES.MASTER,
     description: "每月 50 次解讀，專為命理愛好者打造",
     features: [
       "50 次命理解讀/月",
@@ -103,9 +104,9 @@ const COMPARISON_ROWS: [string, ComparisonValue, ComparisonValue, ComparisonValu
 
 const TIER_META: Record<string, { name: string }> = {
   FREE: { name: "免費方案" },
-  BASIC: { name: "Basic 方案" },
-  PRO: { name: "Pro 方案" },
-  MASTER: { name: "Master 方案" },
+  BASIC: { name: PAID_TIER_NAMES.BASIC },
+  PRO: { name: PAID_TIER_NAMES.PRO },
+  MASTER: { name: PAID_TIER_NAMES.MASTER },
 };
 
 function calcSavingsPercent(monthly: number, annual: number): number {
@@ -501,9 +502,9 @@ export default function PricingPage() {
               <tr>
                 <th>功能</th>
                 <th>免費</th>
-                <th>Basic</th>
-                <th className={styles.comparisonHeaderRecommended}>Pro</th>
-                <th>Master</th>
+                <th>{PAID_TIER_NAMES.BASIC}</th>
+                <th className={styles.comparisonHeaderRecommended}>{PAID_TIER_NAMES.PRO}</th>
+                <th>{PAID_TIER_NAMES.MASTER}</th>
               </tr>
             </thead>
             <tbody>
@@ -578,7 +579,7 @@ export default function PricingPage() {
                 您即將從{" "}
                 <strong>{TIER_META[currentTier]?.name || currentTier}</strong>{" "}
                 {isUpgradeModal ? "升級" : "降級"}至{" "}
-                <strong>{changeTarget.name} 方案</strong>。
+                <strong>{changeTarget.name}</strong>。
               </p>
               <div className={styles.upgradeDialogPrice}>
                 {targetPrice}

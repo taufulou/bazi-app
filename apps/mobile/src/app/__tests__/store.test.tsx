@@ -55,14 +55,14 @@ describe('StoreScreen', () => {
     mockPurchases.getCurrentOffering.mockResolvedValue({
       identifier: 'default',
       availablePackages: [
-        pkg('pro', '專業版 月費', 'NT$300', 'SUBSCRIPTION'),
+        pkg('pro', '專業會員 月費', 'NT$300', 'SUBSCRIPTION'),
         pkg('credits12', '12 點數包', 'NT$150', 'NON_SUBSCRIPTION'),
       ],
     } as never);
 
     await render(<StoreScreen />);
 
-    await waitFor(() => expect(screen.getByText('專業版 月費')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('專業會員 月費')).toBeTruthy());
     expect(screen.getByText('訂閱方案')).toBeTruthy();
     expect(screen.getByText('點數包')).toBeTruthy();
     expect(screen.getByText('12 點數包')).toBeTruthy();

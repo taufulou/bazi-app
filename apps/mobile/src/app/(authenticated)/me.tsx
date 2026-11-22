@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
     borderColor: colors.borderLight,
     backgroundColor: colors.bgSecondary,
   },
-  // 免費/基本/專業/大師 — the SAME TIER_LABELS constant CreditBadge renders, which
+  // 免費/基礎會員/專業會員/大師會員 — the SAME TIER_LABELS constant CreditBadge renders, which
   // takes `meta` (13). At 11 this was both under the readable CJK floor and a
   // different size from its own twin in the home-screen header.
   tierPillText: { ...T.meta, fontWeight: '600', color: colors.textPrimary },
