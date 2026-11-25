@@ -1,4 +1,5 @@
 import { SignUp } from "@clerk/nextjs";
+import AuthLegalFooter from "../../components/AuthLegalFooter";
 
 export default function SignUpPage() {
   return (
@@ -40,6 +41,7 @@ export default function SignUpPage() {
             now come from `clerkAppearance` on the ClerkProvider in layout.tsx,
             in ONE place. */}
         <SignUp />
+        <AuthLegalFooter />
       </div>
     </div>
   );

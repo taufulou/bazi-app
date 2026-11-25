@@ -80,8 +80,14 @@ describe('CompatibilityScoreRevealV2', () => {
 describe('CompatibilityRevealCTA', () => {
   it('renders the feature list + reveal button', async () => {
     await render(<CompatibilityRevealCTA onReveal={() => {}} isRevealing={false} />);
-    expect(screen.getByText('查看完整報告')).toBeTruthy();
+    // The button became 「解鎖完整報告 · N 點」 when the charge moved to the reveal
+    // (111ef07); this assertion kept the old label and went unnoticed because
+    // mobile tests did not run in CI.
+    expect(screen.getByText('解鎖完整報告 · 3 點')).toBeTruthy();
     expect(screen.getByText('八字感情合盤完整報告')).toBeTruthy();
+    // 1C copy pass: no prediction claim (婚變危機預測 → 婚姻挑戰分析).
+    expect(screen.getByText('✓ 婚姻挑戰分析')).toBeTruthy();
+    expect(screen.queryByText(/婚變危機預測/)).toBeNull();
   });
 
   it('labels 時辰未知 by the unknown party’s actual gender', async () => {

@@ -50,9 +50,38 @@ jest.mock('next/link', () => {
 
 // Mock API functions
 const mockCreateSubscriptionCheckout = jest.fn();
+const mockGetSubscriptionStatus = jest.fn();
+const mockUpgradeSubscription = jest.fn();
 jest.mock('../app/lib/api', () => ({
-  createSubscriptionCheckout: (...args: any[]) => mockCreateSubscriptionCheckout(...args),
+  createSubscriptionCheckout: (...args: unknown[]) => mockCreateSubscriptionCheckout(...args),
+  getSubscriptionStatus: (...args: unknown[]) => mockGetSubscriptionStatus(...args),
+  upgradeSubscription: (...args: unknown[]) => mockUpgradeSubscription(...args),
+  // Real implementations — the store/Stripe decision lives in these.
+  stripeSubscriptionOf: jest.requireActual('../app/lib/api').stripeSubscriptionOf,
+  STORE_MANAGED_NOTE: jest.requireActual('../app/lib/api').STORE_MANAGED_NOTE,
 }));
+
+const FREE_STATUS = {
+  subscriptionTier: 'FREE',
+  credits: 0,
+  activeSubscription: null,
+  stripeSubscription: null,
+};
+
+const row = (over: Record<string, unknown> = {}) => ({
+  planTier: 'PRO',
+  platform: 'STRIPE',
+  currentPeriodStart: '2026-11-01T00:00:00Z',
+  currentPeriodEnd: '2026-12-01T00:00:00Z',
+  status: 'ACTIVE',
+  cancelledAt: null,
+  ...over,
+});
+
+/** Signed-in CTAs are disabled until the status is known (1B item 5). */
+async function waitForStatus() {
+  await waitFor(() => expect(ctaFor('專業會員')).not.toBeDisabled());
+}
 
 // Mock @repo/shared
 jest.mock('@repo/shared', () => ({
@@ -93,6 +122,7 @@ describe('PricingPage', () => {
     jest.clearAllMocks();
     mockIsSignedIn = false;
     mockGetToken.mockResolvedValue('test-token');
+    mockGetSubscriptionStatus.mockResolvedValue(FREE_STATUS);
     // Reset search params
     mockSearchParams.delete('subscription');
     mockSearchParams.delete('cancelled');
@@ -102,9 +132,9 @@ describe('PricingPage', () => {
     render(<PricingPage />);
 
     // Plan names appear in card headings + comparison table headers
-    expect(screen.getAllByText('Basic').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('Pro').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText('Master').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('基礎會員').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('專業會員').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('大師會員').length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows monthly prices by default', () => {
@@ -159,7 +189,7 @@ describe('PricingPage', () => {
 
     render(<PricingPage />);
 
-    fireEvent.click(ctaFor('Basic'));
+    fireEvent.click(ctaFor('基礎會員'));
 
     // API should NOT be called — user is redirected to sign-in instead
     expect(mockCreateSubscriptionCheckout).not.toHaveBeenCalled();
@@ -173,8 +203,9 @@ describe('PricingPage', () => {
     });
 
     render(<PricingPage />);
+    await waitForStatus();
 
-    fireEvent.click(ctaFor('Pro'));
+    fireEvent.click(ctaFor('專業會員'));
 
     await waitFor(() => {
       expect(mockCreateSubscriptionCheckout).toHaveBeenCalledWith(
@@ -195,11 +226,12 @@ describe('PricingPage', () => {
     });
 
     render(<PricingPage />);
+    await waitForStatus();
 
     // Toggle to annual
     fireEvent.click(screen.getByText('年繳'));
 
-    fireEvent.click(ctaFor('Pro'));
+    fireEvent.click(ctaFor('專業會員'));
 
     await waitFor(() => {
       expect(mockCreateSubscriptionCheckout).toHaveBeenCalledWith(
@@ -216,12 +248,81 @@ describe('PricingPage', () => {
     mockCreateSubscriptionCheckout.mockRejectedValue(new Error('Stripe error'));
 
     render(<PricingPage />);
+    await waitForStatus();
 
-    fireEvent.click(ctaFor('Pro'));
+    fireEvent.click(ctaFor('專業會員'));
 
     await waitFor(() => {
       expect(screen.getByText('Stripe error')).toBeInTheDocument();
     });
+  });
+
+  // ---- 1B item 5 ----
+
+  it('status fetch FAILS: error state, and no plan CTA can start a checkout', async () => {
+    mockIsSignedIn = true;
+    mockGetSubscriptionStatus.mockRejectedValue(new Error('boom'));
+    render(<PricingPage />);
+    await waitFor(() => expect(screen.getByText(/無法載入您目前的方案/)).toBeInTheDocument());
+    for (const plan of ['基礎會員', '專業會員', '大師會員']) {
+      expect(ctaFor(plan)).toBeDisabled();
+    }
+    fireEvent.click(ctaFor('專業會員'));
+    expect(mockCreateSubscriptionCheckout).not.toHaveBeenCalled();
+  });
+
+  it('status fetch failure is recoverable via 重新載入', async () => {
+    mockIsSignedIn = true;
+    mockGetSubscriptionStatus.mockRejectedValueOnce(new Error('boom')).mockResolvedValueOnce(FREE_STATUS);
+    render(<PricingPage />);
+    await waitFor(() => expect(screen.getByText('重新載入')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('重新載入'));
+    await waitForStatus();
+    expect(screen.queryByText(/無法載入您目前的方案/)).not.toBeInTheDocument();
+  });
+
+  it('store member: note shown, no 升級/降級方案 buttons, never calls upgradeSubscription', async () => {
+    mockIsSignedIn = true;
+    mockGetSubscriptionStatus.mockResolvedValue({
+      subscriptionTier: 'PRO',
+      credits: 5,
+      activeSubscription: row({ platform: 'APPLE_IAP' }),
+      stripeSubscription: null,
+    });
+    render(<PricingPage />);
+    await waitFor(() => expect(screen.getByText(/此方案透過 App Store／Google Play 訂閱/)).toBeInTheDocument());
+    expect(screen.queryByText('升級方案')).not.toBeInTheDocument();
+    expect(screen.queryByText('降級方案')).not.toBeInTheDocument();
+    expect(screen.queryByText('立即訂閱')).not.toBeInTheDocument();
+    expect(screen.getAllByText('請於手機的訂閱設定變更')).toHaveLength(2);
+    expect(mockUpgradeSubscription).not.toHaveBeenCalled();
+  });
+
+  it('Stripe PRO member: 升級/降級 buttons, no store note', async () => {
+    mockIsSignedIn = true;
+    mockGetSubscriptionStatus.mockResolvedValue({
+      subscriptionTier: 'PRO',
+      credits: 5,
+      activeSubscription: row(),
+      stripeSubscription: row(),
+    });
+    render(<PricingPage />);
+    await waitFor(() => expect(screen.getByText('升級方案')).toBeInTheDocument());
+    expect(screen.getByText('降級方案')).toBeInTheDocument();
+    expect(screen.queryByText(/此方案透過 App Store／Google Play 訂閱/)).not.toBeInTheDocument();
+  });
+
+  it('PAST_DUE Stripe member (tier FREE): sent to 管理訂閱, never to checkout', async () => {
+    mockIsSignedIn = true;
+    mockGetSubscriptionStatus.mockResolvedValue({
+      subscriptionTier: 'FREE',
+      credits: 0,
+      activeSubscription: null,
+      stripeSubscription: row({ status: 'PAST_DUE' }),
+    });
+    render(<PricingPage />);
+    await waitFor(() => expect(screen.getAllByText('管理訂閱')).toHaveLength(3));
+    expect(screen.queryByText('立即訂閱')).not.toBeInTheDocument();
   });
 
   it('does not show manage link for unauthenticated users', () => {

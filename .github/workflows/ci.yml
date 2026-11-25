@@ -109,6 +109,26 @@ jobs:
         env:
           NODE_ENV: 'test'
 
+  # Mobile had no CI at all: its typography guards, the AI-consent guards and
+  # the wrong-domain guard only ran when someone remembered. Its specs mock every
+  # native module and network boundary, so no services are needed.
+  test-mobile:
+    name: Mobile Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - name: Typecheck Mobile
+        run: cd apps/mobile && npx tsc --noEmit
+      - name: Run Mobile tests
+        run: cd apps/mobile && npx jest --verbose
+        env:
+          NODE_ENV: 'test'
+
   test-bazi:
     name: Bazi Engine Tests
     runs-on: ubuntu-latest

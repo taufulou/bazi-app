@@ -5,12 +5,11 @@ import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
 import { getUserProfile } from "../lib/api";
 import styles from "./AccountPanel.module.css";
+import { PAID_TIER_NAMES } from "../lib/tier-names";
 
 const TIER_LABELS: Record<string, string> = {
   FREE: "免費方案",
-  BASIC: "基本方案",
-  PRO: "專業方案",
-  MASTER: "大師方案",
+  ...PAID_TIER_NAMES,
 };
 
 const TIER_STYLES: Record<string, string> = {

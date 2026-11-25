@@ -54,6 +54,9 @@ const PROFILE = {
 
 const mockPrisma = {
   user: { findUnique: jest.fn(), update: jest.fn() },
+  // endSubscriptionsForDeletedUser (1A-core item 6) — covered in
+  // account-deletion-subscriptions.spec.ts.
+  subscription: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
   birthProfile: { findMany: jest.fn() },
   baziReading: { findMany: jest.fn() },
   $transaction: jest.fn(async (fn: (t: unknown) => Promise<unknown>) => fn(tx)),
@@ -224,6 +227,9 @@ describe('UsersService.deleteAccount', () => {
           // An identifier in its own right — it exists to link anonymous
           // sessions to a person, and has no financial purpose.
           deviceFingerprint: null,
+          // 1B item 3: the AI-consent record goes with the account.
+          aiConsentAt: null,
+          aiConsentVersion: null,
         }),
       });
     });

@@ -12,7 +12,8 @@ const mockCaptureMessage = jest.fn();
 jest.mock('@sentry/nestjs', () => ({ captureMessage: (...args: unknown[]) => mockCaptureMessage(...args) }));
 
 const mockPrisma = {
-  user: { findUnique: jest.fn() },
+  // findFirst: the soft-deleted lookup (`deleted_<id>_`) added by 1A-core item 3.
+  user: { findUnique: jest.fn(), findFirst: jest.fn() },
   plan: { findFirst: jest.fn() },
   creditPackage: { findFirst: jest.fn() },
   subscription: {
@@ -21,7 +22,15 @@ const mockPrisma = {
     update: jest.fn(),
     updateMany: jest.fn(),
   },
-  transaction: { create: jest.fn() },
+  // findUnique: the refund-before-purchase check (1A-core item 5).
+  transaction: { create: jest.fn(), findUnique: jest.fn() },
+  monthlyCreditsLog: { findUnique: jest.fn() },
+  // findFirst: the pack-grant lookup a consumable refund makes (PR #76 review).
+  creditLedger: { findFirst: jest.fn() },
+  // Implementation set in beforeEach (it invokes the callback with this same
+  // mock and propagates its rejection — so a test can tell whether a P2002 is
+  // caught inside or outside the transaction).
+  $transaction: jest.fn(),
 };
 
 const mockEntitlements = {
@@ -36,6 +45,8 @@ const mockConfig = {
   get: jest.fn().mockImplementation((k: string) => (k === 'RC_WEBHOOK_SECRET' ? 'rc-secret' : undefined)),
 };
 
+const DAY = 24 * 60 * 60 * 1000;
+
 function makeEvent(overrides: Partial<RevenueCatEvent>): RevenueCatEvent {
   return {
     id: 'evt_1',
@@ -43,8 +54,10 @@ function makeEvent(overrides: Partial<RevenueCatEvent>): RevenueCatEvent {
     app_user_id: 'clerk_buyer',
     product_id: 'com.tianming.pro.monthly',
     store: 'APP_STORE',
-    purchased_at_ms: Date.parse('2026-02-01'),
-    expiration_at_ms: Date.parse('2026-03-01'),
+    // Relative to now: since 1A-core an activation whose period is already over
+    // is recorded EXPIRED, not ACTIVE, so fixed past dates would change meaning.
+    purchased_at_ms: Date.now() - DAY,
+    expiration_at_ms: Date.now() + 29 * DAY,
     original_transaction_id: 'apple_tx_1',
     transaction_id: 'apple_tx_1',
     ...overrides,
@@ -62,6 +75,11 @@ describe('RevenueCatService', () => {
     mockPrisma.plan.findFirst.mockResolvedValue({ slug: 'pro', isActive: true });
     mockPrisma.creditPackage.findFirst.mockResolvedValue(null);
     mockPrisma.subscription.findFirst.mockResolvedValue(null);
+    mockPrisma.user.findFirst.mockResolvedValue(null);
+    mockPrisma.transaction.findUnique.mockResolvedValue(null);
+    mockPrisma.monthlyCreditsLog.findUnique.mockResolvedValue(null);
+    mockPrisma.creditLedger.findFirst.mockResolvedValue({ id: 'ledger-grant' }); // the pack was granted
+    mockPrisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(mockPrisma));
     mockEntitlements.syncUserTier.mockResolvedValue({ tier: 'PRO', changed: true });
   });
 
@@ -108,7 +126,7 @@ describe('RevenueCatService', () => {
 
   // ---- RENEWAL ----
   it('RENEWAL: updates the existing sub + grants via the governing-sub gate', async () => {
-    const existing = { id: 'sub-db-1', userId: 'user-buyer', planTier: 'PRO', currentPeriodStart: new Date('2026-02-01'), currentPeriodEnd: new Date('2026-03-01') };
+    const existing = { id: 'sub-db-1', userId: 'user-buyer', planTier: 'PRO', status: 'ACTIVE', currentPeriodStart: new Date(Date.now() - 31 * DAY), currentPeriodEnd: new Date(Date.now() - DAY) };
     mockPrisma.subscription.findFirst.mockResolvedValue(existing);
 
     await svc.handleEvent(makeEvent({ type: 'RENEWAL' }));
@@ -166,12 +184,12 @@ describe('RevenueCatService', () => {
 
   // ---- EXPIRATION ----
   it('EXPIRATION: flips to EXPIRED + recomputes tier', async () => {
-    mockPrisma.subscription.findFirst.mockResolvedValue({ id: 'sub-db-1', userId: 'user-buyer' });
+    mockPrisma.subscription.findFirst.mockResolvedValue({ id: 'sub-db-1', userId: 'user-buyer', currentPeriodEnd: new Date(Date.now() + 29 * DAY) });
 
     await svc.handleEvent(makeEvent({ type: 'EXPIRATION' }));
 
     expect(mockPrisma.subscription.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: 'sub-db-1' }, data: { status: 'EXPIRED' } }),
+      expect.objectContaining({ where: { id: 'sub-db-1' }, data: expect.objectContaining({ status: 'EXPIRED' }) }),
     );
     expect(mockEntitlements.syncUserTier).toHaveBeenCalledWith('user-buyer');
   });
@@ -208,24 +226,32 @@ describe('RevenueCatService', () => {
   });
 
   // ---- unknown mappings / users ----
-  it('skips when the product maps to no active Plan', async () => {
+  // 1A-core item 3: these used to log-and-skip, the controller answered 200, and
+  // the event was lost. They now THROW so the controller 500s and RevenueCat
+  // retries. (Full coverage of the outcomes lives in revenuecat-1a-core.spec.ts.)
+  it('throws when the product maps to no Plan (unmapped product is not acknowledged)', async () => {
     mockPrisma.plan.findFirst.mockResolvedValue(null);
     mockPrisma.creditPackage.findFirst.mockResolvedValue(null);
-    await svc.handleEvent(makeEvent({ type: 'INITIAL_PURCHASE', product_id: 'unknown.product' }));
+    await expect(
+      svc.handleEvent(makeEvent({ type: 'INITIAL_PURCHASE', product_id: 'unknown.product' })),
+    ).rejects.toMatchObject({ reason: 'unmapped_product' });
     expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
     expect(mockEntitlements.syncUserTier).not.toHaveBeenCalled();
   });
 
-  it('skips when the app_user_id resolves to no user', async () => {
+  it('throws when the app_user_id was never seen (not deleted, not anonymous)', async () => {
     mockPrisma.user.findUnique.mockResolvedValue(null);
-    await svc.handleEvent(makeEvent({ type: 'INITIAL_PURCHASE' }));
+    await expect(svc.handleEvent(makeEvent({ type: 'INITIAL_PURCHASE' }))).rejects.toMatchObject({
+      reason: 'unknown_app_user',
+    });
     expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
   });
 
-  it('ignores the $RCAnonymousID app_user_id', async () => {
+  it('ignores the $RCAnonymousID app_user_id — acknowledged, no Sentry event', async () => {
     await svc.handleEvent(makeEvent({ type: 'INITIAL_PURCHASE', app_user_id: '$RCAnonymousID:abc', aliases: [], original_app_user_id: undefined }));
     // No non-anonymous candidate → user lookup never yields a user.
     expect(mockPrisma.subscription.create).not.toHaveBeenCalled();
+    expect(mockCaptureMessage).not.toHaveBeenCalled();
   });
 
   // ---- audit fixes ----

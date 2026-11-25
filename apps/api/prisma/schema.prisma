@@ -25,6 +25,12 @@ model User {
   languagePref      Language         @default(ZH_TW) @map("language_pref")
   languageChosen    Boolean          @default(false) @map("language_chosen")
   deviceFingerprint String?          @map("device_fingerprint")
+  /// When the user agreed to the AI-data disclosure, and which version of it
+  /// (`legal/legal-constants.ts`). NULL = never consented / withdrawn. Recorded
+  /// by the mobile app's consent sheet (App Store 5.1.2(i)); NOT enforced
+  /// server-side in v1 — see the 1B design.
+  aiConsentAt       DateTime?        @map("ai_consent_at")
+  aiConsentVersion  String?          @map("ai_consent_version")
   createdAt         DateTime         @default(now()) @map("created_at")
   updatedAt         DateTime         @updatedAt @map("updated_at")
 
@@ -199,6 +205,10 @@ model Subscription {
   currentPeriodStart   DateTime           @map("current_period_start")
   currentPeriodEnd     DateTime           @map("current_period_end")
   cancelledAt          DateTime?          @map("cancelled_at")
+  // Real money vs a store sandbox / Stripe test-mode payment. NULL = recorded
+  // before this column existed. Nothing reads it yet; it exists so the books
+  // can separate test purchases from revenue.
+  environment          PaymentEnvironment? @map("environment")
   createdAt            DateTime           @default(now()) @map("created_at")
   updatedAt            DateTime           @updatedAt @map("updated_at")
 
@@ -222,6 +232,8 @@ model Transaction {
   type            TransactionType
   description     String?
   platform        PaymentPlatform @default(STRIPE) @map("platform")
+  // See Subscription.environment.
+  environment     PaymentEnvironment? @map("environment")
   createdAt       DateTime        @default(now()) @map("created_at")
 
   // Relations
@@ -878,6 +890,13 @@ enum PaymentPlatform {
   STRIPE
   APPLE_IAP
   GOOGLE_PLAY
+}
+
+/// Whether a payment moved real money. RevenueCat reports SANDBOX/PRODUCTION;
+/// Stripe reports `livemode`.
+enum PaymentEnvironment {
+  PRODUCTION
+  SANDBOX
 }
 
 enum AdRewardType {

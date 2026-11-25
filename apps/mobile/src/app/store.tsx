@@ -6,8 +6,9 @@
  * grants credits/tier server-side, so after a successful purchase we POLL
  * `/api/users/me` until the balance/tier reflects (optimistic 處理中 → success).
  *
- * Graceful when RC isn't configured yet (no platform key) OR returns no
- * offering — shows a friendly "即將推出" state instead of crashing.
+ * When RC isn't configured (no platform key), returns no offering, or fails,
+ * the screen says it could not load and offers 重試 — never placeholder copy,
+ * which App Review rejects (2.1).
  *
  * NOTE: react-native-purchases is a native module — the dev client must be
  * rebuilt after install before this screen runs on-device.
@@ -22,12 +23,16 @@ import {
   ActivityIndicator,
   Linking,
   Alert,
+  Platform,
 } from 'react-native';
 import { useAuth } from '@clerk/clerk-expo';
 import type { PurchasesOffering, PurchasesPackage } from 'react-native-purchases';
 import { colors, spacing, fontSize, radius, shadows, text as T } from '../theme';
 import { useZh } from '../lib/language';
-import { getUserProfile, type SubscriptionTier } from '../lib/api';
+import { getUserProfile, getWebMembership, type SubscriptionTier, type WebMembership } from '../lib/api';
+import { PRIVACY_URL, TERMS_URL } from '../lib/links';
+import { TIER_LABELS } from '../components/home/CreditBadge';
+import { monthlyCreditsFor, periodLabel, periodSuffix } from '../lib/store-products';
 import {
   isPurchasesSupported,
   configurePurchases,
@@ -37,8 +42,8 @@ import {
   openManageSubscriptions,
 } from '../lib/purchases';
 
-const EULA_URL = 'https://baziapp.com/terms';
-const PRIVACY_URL = 'https://baziapp.com/privacy';
+/** Named exactly per platform (guideline 2.3.10 — no "Google Play" on iOS). */
+const STORE_ACCOUNT_SETTINGS = Platform.OS === 'ios' ? 'Apple ID 帳戶設定' : 'Google Play 帳戶設定';
 const POLL_INTERVAL_MS = 2000;
 const POLL_TIMEOUT_MS = 30000;
 
@@ -54,6 +59,7 @@ export default function StoreScreen() {
   const [tier, setTier] = useState<SubscriptionTier>('FREE');
   const [busyPackageId, setBusyPackageId] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [webMembership, setWebMembership] = useState<WebMembership | null>(null);
 
   const refreshProfile = useCallback(async () => {
     try {
@@ -70,8 +76,22 @@ export default function StoreScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Best-effort: a failure here must not block the store, only skip the warning. */
+  const refreshWebMembership = useCallback(async () => {
+    try {
+      const token = await getToken();
+      if (!token) return;
+      setWebMembership(await getWebMembership(token));
+    } catch {
+      setWebMembership(null);
+    }
+    // getToken is an unstable Clerk ref each render — exclude from deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const load = useCallback(async () => {
     setState('loading');
+    void refreshWebMembership();
     if (!isPurchasesSupported()) {
       await refreshProfile();
       setState('unsupported');
@@ -87,7 +107,7 @@ export default function StoreScreen() {
     }
     // getToken/userId handled explicitly; refreshProfile is stable.
      
-  }, [userId, refreshProfile]);
+  }, [userId, refreshProfile, refreshWebMembership]);
 
   useEffect(() => {
     if (isSignedIn) void load();
@@ -107,8 +127,30 @@ export default function StoreScreen() {
     [refreshProfile],
   );
 
+  /**
+   * A website (Stripe) member buying a membership here would pay twice (F20).
+   * Credit packs never warn. Resolves true to go ahead.
+   */
+  const confirmNoDoubleMembership = useCallback(
+    (pkg: PurchasesPackage): Promise<boolean> => {
+      if (pkg.product.productCategory !== 'SUBSCRIPTION' || !webMembership) return Promise.resolve(true);
+      const message =
+        webMembership.status === 'CANCELLED' && webMembership.currentPeriodEnd
+          ? `${zh('您的網站方案將於')} ${new Date(webMembership.currentPeriodEnd).toLocaleDateString('zh-TW')} ${zh('到期，在此之前再次訂閱會有一段期間重複付費。確定要繼續嗎？')}`
+          : zh('您已在網站訂閱會員方案，再次於此訂閱將重複扣款。確定要繼續嗎？');
+      return new Promise((resolve) => {
+        Alert.alert(zh('已有網站會員方案'), message, [
+          { text: zh('取消'), style: 'cancel', onPress: () => resolve(false) },
+          { text: zh('仍要訂閱'), onPress: () => resolve(true) },
+        ]);
+      });
+    },
+    [webMembership, zh],
+  );
+
   const handlePurchase = useCallback(
     async (pkg: PurchasesPackage) => {
+      if (!(await confirmNoDoubleMembership(pkg))) return;
       setBusyPackageId(pkg.identifier);
       const before = { credits, tier };
       try {
@@ -132,18 +174,25 @@ export default function StoreScreen() {
         setSyncing(false);
       }
     },
-    [credits, tier, pollForEntitlement, zh],
+    [credits, tier, pollForEntitlement, zh, confirmNoDoubleMembership],
   );
 
   const handleRestore = useCallback(async () => {
     setSyncing(true);
     try {
-      const info = await restorePurchases();
+      const result = await restorePurchases();
       await refreshProfile();
-      Alert.alert(
-        zh('恢復購買'),
-        info ? zh('已恢復您的購買記錄。') : zh('找不到可恢復的購買。'),
-      );
+      // Say what actually happened (F26). `other_account` needs RevenueCat's
+      // "keep with original App User ID" setting (O4).
+      const message =
+        result.kind === 'other_account'
+          ? zh('此購買屬於另一個帳號，請登入原本購買的帳號以恢復。')
+          : result.kind === 'error'
+            ? zh('恢復失敗，請稍後再試。')
+            : result.hasPurchases
+              ? zh('已恢復您的購買記錄。')
+              : zh('此帳號沒有可恢復的購買。如果您是以其他帳號購買，請登入該帳號。');
+      Alert.alert(zh('恢復購買'), message);
     } finally {
       setSyncing(false);
     }
@@ -172,17 +221,11 @@ export default function StoreScreen() {
 
       {state === 'unsupported' || state === 'error' || state === 'empty' ? (
         <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>{zh('商店即將推出')}</Text>
-          <Text style={styles.emptyBody}>
-            {state === 'error'
-              ? zh('暫時無法載入商店，請稍後再試。')
-              : zh('內購項目正在準備中，敬請期待。')}
-          </Text>
-          {state === 'error' ? (
-            <TouchableOpacity style={styles.secondaryBtn} onPress={() => void load()} accessibilityRole="button">
-              <Text style={styles.secondaryBtnText}>{zh('重試')}</Text>
-            </TouchableOpacity>
-          ) : null}
+          <Text style={styles.emptyTitle}>{zh('目前無法載入商店項目')}</Text>
+          <Text style={styles.emptyBody}>{zh('請檢查網路連線後重試。')}</Text>
+          <TouchableOpacity style={styles.secondaryBtn} onPress={() => void load()} accessibilityRole="button">
+            <Text style={styles.secondaryBtnText}>{zh('重試')}</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <>
@@ -193,6 +236,7 @@ export default function StoreScreen() {
                 <PackageRow
                   key={pkg.identifier}
                   pkg={pkg}
+                  membership
                   cta={zh('訂閱')}
                   busy={busyPackageId === pkg.identifier}
                   disabled={!!busyPackageId}
@@ -233,13 +277,13 @@ export default function StoreScreen() {
       {/* Compliance copy (App Store 3.1.2 / Google Play) */}
       {subs.length > 0 ? (
         <Text style={styles.compliance}>
-          {zh(
-            '訂閱為自動續訂，除非於當期結束前至少 24 小時取消，否則將自動續期並扣款。您可於 App Store／Google Play 帳戶設定中管理或取消訂閱。',
-          )}
+          {zh('訂閱為自動續訂，除非於當期結束前至少 24 小時取消，否則將自動續期並扣款。您可於')}
+          {zh(STORE_ACCOUNT_SETTINGS)}
+          {zh('中管理或取消訂閱。')}
         </Text>
       ) : null}
       <View style={styles.legalRow}>
-        <TouchableOpacity onPress={() => void Linking.openURL(EULA_URL)} accessibilityRole="link">
+        <TouchableOpacity onPress={() => void Linking.openURL(TERMS_URL)} accessibilityRole="link">
           <Text style={styles.legalLink}>{zh('使用條款')}</Text>
         </TouchableOpacity>
         <Text style={styles.legalDot}>·</Text>
@@ -270,18 +314,29 @@ function PackageRow({
   busy,
   disabled,
   onPress,
+  membership = false,
 }: {
   pkg: PurchasesPackage;
   cta: string;
   busy: boolean;
   disabled: boolean;
   onPress: () => void;
+  /** Membership rows add the period and credits per month (1C item 8). */
+  membership?: boolean;
 }) {
+  const zh = useZh();
+  const period = pkg.product.subscriptionPeriod;
+  const credits = membership ? monthlyCreditsFor(pkg.product.identifier) : null;
   return (
     <View style={styles.pkgRow}>
       <View style={styles.pkgInfo}>
         <Text style={styles.pkgTitle}>{pkg.product.title}</Text>
-        {pkg.product.description ? (
+        {membership ? (
+          <Text style={styles.pkgDesc}>
+            {zh(periodLabel(period))}
+            {credits !== null ? ` · ${zh('每月')} ${credits} ${zh('點')}` : ''}
+          </Text>
+        ) : pkg.product.description ? (
           <Text style={styles.pkgDesc}>{pkg.product.description}</Text>
         ) : null}
       </View>
@@ -295,21 +350,19 @@ function PackageRow({
         {busy ? (
           <ActivityIndicator color="#fff" size="small" />
         ) : (
-          <Text style={styles.buyBtnText}>{pkg.product.priceString}</Text>
+          <Text style={styles.buyBtnText}>
+            {pkg.product.priceString}
+            {membership ? zh(periodSuffix(period)) : ''}
+          </Text>
         )}
       </TouchableOpacity>
     </View>
   );
 }
 
+/** The header badge's wording (one source); only paid tiers reach here. */
 function tierLabel(zh: (s: string) => string, tier: SubscriptionTier): string {
-  const map: Record<SubscriptionTier, string> = {
-    FREE: '',
-    BASIC: '基礎會員',
-    PRO: '專業會員',
-    MASTER: '大師會員',
-  };
-  return zh(map[tier] || '會員');
+  return zh(tier === 'FREE' ? '會員' : TIER_LABELS[tier] ?? '會員');
 }
 
 const styles = StyleSheet.create({

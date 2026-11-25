@@ -7,12 +7,11 @@ import { getUserProfile } from "../lib/api";
 import { redirectToSignInOnExpiry } from "../lib/auth-redirect";
 import { devWarnServiceDown } from "../lib/dev-warn";
 import styles from "./CreditBadge.module.css";
+import { PAID_TIER_NAMES } from "../lib/tier-names";
 
 const TIER_LABELS: Record<string, string> = {
   FREE: "免費",
-  BASIC: "基本",
-  PRO: "專業",
-  MASTER: "大師",
+  ...PAID_TIER_NAMES,
 };
 
 /** Imperative handle to refresh credit badge from parent */

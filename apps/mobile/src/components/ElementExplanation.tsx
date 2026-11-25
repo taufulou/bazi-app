@@ -143,7 +143,7 @@ export function ElementExplanation({
           </View>
         ) : !hasData ? (
           <View style={styles.center}>
-            <Text style={styles.muted}>{zh('此項目的詳細解讀即將推出')}</Text>
+            <Text style={styles.muted}>{zh('此項目暫無詳細解讀')}</Text>
           </View>
         ) : (
           <>

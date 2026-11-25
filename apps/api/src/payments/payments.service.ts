@@ -86,9 +86,38 @@ export class PaymentsService {
       orderBy: { createdAt: 'desc' },
     });
 
+    // The STRIPE row the website's billing buttons act on (1B item 5), separate
+    // from `activeSubscription` (newest row of any platform, for display): a user
+    // holding a Stripe membership and a newer Apple one must keep the Stripe
+    // controls. PAST_DUE included — that member needs the portal to fix the card.
+    // CANCELLED only while its period runs: a stale CANCELLED row (lost
+    // `subscription.deleted`, out-of-order `updated(canceled)`) would otherwise
+    // offer a 重新啟用 that Stripe refuses.
+    const stripeSubscription = await this.prisma.subscription.findFirst({
+      where: {
+        userId: user.id,
+        platform: 'STRIPE',
+        OR: [
+          { status: { in: ['ACTIVE', 'PAST_DUE'] } },
+          { status: 'CANCELLED', currentPeriodEnd: { gt: new Date() } },
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
     return {
       subscriptionTier: user.subscriptionTier,
       credits: user.credits,
+      stripeSubscription: stripeSubscription
+        ? {
+            planTier: stripeSubscription.planTier,
+            platform: stripeSubscription.platform,
+            currentPeriodStart: stripeSubscription.currentPeriodStart,
+            currentPeriodEnd: stripeSubscription.currentPeriodEnd,
+            status: stripeSubscription.status,
+            cancelledAt: stripeSubscription.cancelledAt,
+          }
+        : null,
       activeSubscription: activeSubscription
         ? {
             planTier: activeSubscription.planTier,

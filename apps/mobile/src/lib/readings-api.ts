@@ -13,6 +13,7 @@ import { env } from './env';
 import { apiFetch } from './api';
 import { openSseStream } from './stream';
 import { LOVE_V2_SECTION_KEYS } from '@repo/shared';
+import { assertAiConsent } from './ai-consent-state';
 
 const API_BASE = env.apiUrl;
 
@@ -118,8 +119,8 @@ export const SECTION_TITLE_MAP: Record<string, string> = {
   marriage_wealth_b: '女方婚前婚後財富',
   post_marriage_sweetness: '婚後感情甜蜜度',
   post_marriage_stability: '婚後生活穩定度',
-  marriage_crisis_a: '男方婚變情況預測',
-  marriage_crisis_b: '女方婚變情況預測',
+  marriage_crisis_a: '男方婚姻挑戰分析',
+  marriage_crisis_b: '女方婚姻挑戰分析',
   combined_crisis_analysis: '兩人合婚危機分析',
   marriage_advice: '經營婚姻建議',
   annual_love_a: '男方感情運',
@@ -523,6 +524,7 @@ export async function createBaziReading(
     stream?: boolean;
   },
 ): Promise<NestJSReadingResponse> {
+  assertAiConsent(); // charges credits and starts an AI reading (1C item 2)
   return apiFetch<NestJSReadingResponse>('/api/bazi/readings', {
     method: 'POST',
     token,
@@ -967,7 +969,8 @@ export interface StreamBaziReadingCallbacks {
   onSummary: (summary: { preview: string; full: string }) => void;
   /** @deprecated — use onFinal. Kept for back-compat with `done`. */
   onDone?: (info: { totalSections: number; latencyMs: number }) => void;
-  onError: (error: { message: string; partial?: boolean }) => void;
+  /** `code` is set for a refusal made on the device (e.g. `AI_CONSENT_REQUIRED`). */
+  onError: (error: { message: string; partial?: boolean; code?: string }) => void;
   /** Called when AI completes (success/degraded/failed). Replaces onDone. */
   onFinal?: (info: FinalEventPayload) => void;
   /** Called while retrying — for UX status ("AI busy, retrying 2/3..."). */
@@ -989,6 +992,7 @@ export function streamBaziReading(
     token,
     parseFrame: parseReadingFrame,
     label: 'Reading stream',
+    requiresAiConsent: true,
     onPreflightError: (status, body) => ({
       event: 'error',
       data: { message: body.message || `HTTP ${status}` },
@@ -1022,7 +1026,11 @@ export function streamBaziReading(
       }
     },
     // Transport-level failure (network / reader) — surface as an error.
-    onError: (err) => callbacks.onError({ message: err.message || 'Stream failed' }),
+    onError: (err) =>
+      callbacks.onError({
+        message: err.message || 'Stream failed',
+        code: (err as { code?: string }).code,
+      }),
     onClose: () => {
       /* terminal events (final/done/error) drive the UI; nothing to do on close */
     },
@@ -1036,6 +1044,7 @@ export async function regenerateBaziReading(
   token: string,
   readingId: string,
 ): Promise<{ readingId: string; regenerationCount: number; regenerationsRemaining: number }> {
+  assertAiConsent();
   return apiFetch(`/api/bazi/readings/${readingId}/regenerate`, { method: 'POST', token });
 }
 
@@ -1150,6 +1159,8 @@ export async function createBaziCompatibility(
     skipAI?: boolean;
   },
 ): Promise<CompatibilityResponse> {
+  // Engine-only creation (`skipAI`) needs no consent; anything else narrates.
+  if (!params.skipAI) assertAiConsent();
   return apiFetch<CompatibilityResponse>('/api/bazi/comparisons', {
     method: 'POST',
     token,
@@ -1189,6 +1200,7 @@ export async function generateCompatibilityAI(
   token: string,
   id: string,
 ): Promise<CompatibilityResponse> {
+  assertAiConsent();
   return apiFetch<CompatibilityResponse>(`/api/bazi/comparisons/${id}/generate-ai`, {
     method: 'POST',
     token,
@@ -1200,7 +1212,8 @@ export interface StreamCompatibilityCallbacks {
   onCallComplete: (callNumber: number) => void;
   onSummary: (summary: { preview: string; full: string }) => void;
   onDone: (info: { totalSections: number; latencyMs: number }) => void;
-  onError: (error: { message: string; partial?: boolean }) => void;
+  /** `code` is set for a refusal made on the device (e.g. `AI_CONSENT_REQUIRED`). */
+  onError: (error: { message: string; partial?: boolean; code?: string }) => void;
 }
 
 /**
@@ -1219,6 +1232,7 @@ export function streamCompatibilityReading(
     token,
     parseFrame: parseReadingFrame,
     label: 'Compat stream',
+    requiresAiConsent: true,
     onPreflightError: (status, body) => ({
       event: 'error',
       data: { message: body.message || `HTTP ${status}` },
@@ -1245,7 +1259,11 @@ export function streamCompatibilityReading(
           break;
       }
     },
-    onError: (err) => callbacks.onError({ message: err.message || 'Stream failed' }),
+    onError: (err) =>
+      callbacks.onError({
+        message: err.message || 'Stream failed',
+        code: (err as { code?: string }).code,
+      }),
     onClose: () => {
       /* terminal events (done/error) drive the UI; nothing to do on close */
     },

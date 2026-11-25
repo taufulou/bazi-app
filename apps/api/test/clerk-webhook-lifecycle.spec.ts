@@ -57,6 +57,7 @@ function makeController(opts?: {
   };
   const usersService = {
     erasePersonalData: opts?.eraseImpl ?? jest.fn().mockResolvedValue(undefined),
+    endSubscriptionsForDeletedUser: jest.fn().mockResolvedValue(undefined),
   };
   const redis = { del: jest.fn().mockResolvedValue(1) };
 
@@ -209,6 +210,44 @@ describe('Clerk webhook — user.deleted erases personal data', () => {
     await call(controller, 'handleUserDeleted', EVENT);
 
     expect(order).toEqual(['erase', 'anonymize']);
+  });
+
+  it('ends the user\'s subscriptions AFTER the erase and BEFORE the anonymise (1A-core item 6)', async () => {
+    // This door used to cancel nothing: a person who deleted themselves through
+    // Clerk's portal kept being billed, and their rows stayed ACTIVE. The step
+    // must run while `clerkUserId` is still the real id (RevenueCat is keyed on
+    // it), i.e. before the anonymise renames it.
+    const order: string[] = [];
+    const erase = jest.fn().mockImplementation(async () => void order.push('erase'));
+    const { controller, prisma, usersService } = makeController({ eraseImpl: erase });
+    (usersService.endSubscriptionsForDeletedUser as AnyFn).mockImplementation(async () => {
+      order.push('endSubscriptions');
+    });
+    (prisma.user.update as AnyFn).mockImplementation(async () => {
+      order.push('anonymize');
+      return {};
+    });
+
+    await call(controller, 'handleUserDeleted', EVENT);
+
+    expect(usersService.endSubscriptionsForDeletedUser).toHaveBeenCalledWith('user-1', CLERK);
+    expect(order).toEqual(['erase', 'endSubscriptions', 'anonymize']);
+  });
+
+  it('the anonymise also clears the AI-consent record (1B item 3)', async () => {
+    const { controller, prisma } = makeController();
+    await call(controller, 'handleUserDeleted', EVENT);
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      data: expect.objectContaining({ aiConsentAt: null, aiConsentVersion: null }),
+    });
+  });
+
+  it('REJECTS when ending the rows fails (DB error) — Clerk retries, nothing anonymised yet', async () => {
+    const { controller, prisma, usersService } = makeController();
+    (usersService.endSubscriptionsForDeletedUser as AnyFn).mockRejectedValue(new Error('db down'));
+    await expect(call(controller, 'handleUserDeleted', EVENT)).rejects.toThrow('db down');
+    expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
   it('REJECTS when the erase fails, so the dispatcher 500s and Clerk retries', async () => {

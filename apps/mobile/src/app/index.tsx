@@ -41,7 +41,7 @@ export default function HomeScreen() {
               another icon swap. */}
           <Text style={styles.logo}>{'\u262F\uFE0E'}</Text>
           <Text style={styles.title}>天命</Text>
-          <Text style={styles.subtitle}>{zh('預見你的一生')}</Text>
+          <Text style={styles.subtitle}>{zh('八字命理・AI 解讀')}</Text>
         </View>
 
         {/* Features */}
@@ -54,7 +54,7 @@ export default function HomeScreen() {
               vocabulary deliberately; Users (two people) keeps 合盤 distinct from
               the single Heart of 愛情. */}
           <FeatureItem Icon={ScrollText} text="終身運勢分析" />
-          <FeatureItem Icon={CalendarDays} text="流年運勢預測" />
+          <FeatureItem Icon={CalendarDays} text="流年運勢分析" />
           <FeatureItem Icon={Heart} text="愛情姻緣分析" />
           <FeatureItem Icon={Users} text="合盤比較" />
         </View>
@@ -128,7 +128,7 @@ const styles = StyleSheet.create({
     color: colors.red,
     marginBottom: spacing.sm,
   },
-  // 「預見你的一生」 — the tagline under the wordmark on the first screen anyone
+  // The tagline under the wordmark on the first screen anyone
   // sees. Unleaded, like the rest of this file: it predates the role system.
   subtitle: { ...T.body, color: colors.textSecondary, textAlign: 'center' },
   features: {

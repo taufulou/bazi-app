@@ -4,12 +4,14 @@ import {
   BadRequestException,
   ForbiddenException,
   Logger,
+  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ReadingType } from '@prisma/client';
 import { createClerkClient } from '@clerk/backend';
 import Stripe from 'stripe';
 import { PrismaService } from '../prisma/prisma.service';
+import { AI_CONSENT_ACCEPTED_VERSIONS, AI_CONSENT_VERSION } from '../legal/legal-constants';
 import { AIService } from '../ai/ai.service';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateBirthProfileDto, UpdateBirthProfileDto } from './dto/create-birth-profile.dto';
@@ -50,7 +52,51 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    return user;
+    // The app decides whether to show the AI consent sheet from these (1B item
+    // 3): consented iff `aiConsentVersion` is in the accepted list. Set
+    // membership only — the version strings are not ordered.
+    return {
+      ...user,
+      aiConsentCurrentVersion: AI_CONSENT_VERSION,
+      aiConsentAcceptedVersions: AI_CONSENT_ACCEPTED_VERSIONS,
+    };
+  }
+
+  /**
+   * Record the user's AI-data consent (1B item 3; App Store 5.1.2(i)).
+   *
+   * Via `ensureUser`, not `findByClerkId`: a user can reach the consent sheet
+   * before any other call has created their row, and that must not 404.
+   * The SERVER decides what is acceptable to consent to — a version outside
+   * `AI_CONSENT_ACCEPTED_VERSIONS` is refused with 409 and the current version,
+   * so a client can never record consent to a disclosure we no longer stand
+   * behind. Re-posting refreshes the timestamp (a re-consent).
+   */
+  async recordAiConsent(clerkUserId: string, version: string) {
+    if (!AI_CONSENT_ACCEPTED_VERSIONS.includes(version)) {
+      throw new ConflictException({
+        code: 'CONSENT_VERSION_UNKNOWN',
+        message: '此版本的 AI 資料說明已不適用，請更新 App。',
+        currentVersion: AI_CONSENT_VERSION,
+      });
+    }
+    const user = await this.ensureUser(clerkUserId);
+    const updated = await this.prisma.user.update({
+      where: { id: user.id },
+      data: { aiConsentAt: new Date(), aiConsentVersion: version },
+      select: { aiConsentAt: true, aiConsentVersion: true },
+    });
+    return { ...updated, aiConsentCurrentVersion: AI_CONSENT_VERSION };
+  }
+
+  /** Withdraw AI-data consent: both columns back to NULL. Idempotent. */
+  async withdrawAiConsent(clerkUserId: string) {
+    const user = await this.ensureUser(clerkUserId);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { aiConsentAt: null, aiConsentVersion: null },
+    });
+    return { aiConsentAt: null, aiConsentVersion: null, aiConsentCurrentVersion: AI_CONSENT_VERSION };
   }
 
   /**
@@ -105,27 +151,9 @@ export class UsersService {
     //    is a clean, retryable no-op: the user still has their account.
     await this.erasePersonalData(user.id);
 
-    // 3. Cancel active Stripe subs (best-effort).
-    const activeStripe = user.subscriptions.filter(
-      (s) => s.status === 'ACTIVE' && s.platform === 'STRIPE' && s.stripeSubscriptionId,
-    );
-    if (activeStripe.length > 0) {
-      const stripe = this.getStripeClient();
-      if (stripe) {
-        for (const s of activeStripe) {
-          try {
-            await stripe.subscriptions.cancel(s.stripeSubscriptionId as string);
-          } catch (err) {
-            this.logger.error(
-              `deleteAccount: failed to cancel Stripe sub ${s.stripeSubscriptionId}: ${err}`,
-            );
-          }
-        }
-      }
-    }
-
-    // 4. Delete the RevenueCat subscriber (best-effort).
-    await this.deleteRevenueCatSubscriber(clerkUserId);
+    // 3–4. Cancel Stripe, delete the RevenueCat subscriber, end the rows. Shared
+    //      with the Clerk `user.deleted` webhook — see the method.
+    await this.endSubscriptionsForDeletedUser(user.id, clerkUserId);
 
     // 5. Delete the Clerk user (best-effort — anonymize proceeds regardless).
     //    NOTE this fires the `user.deleted` webhook, which now also erases.
@@ -157,6 +185,9 @@ export class UsersService {
         // Device fingerprint is an identifier in its own right (it exists to
         // link anonymous sessions to a person) and has no financial purpose.
         deviceFingerprint: null,
+        // The consent record goes with the account (1B item 3).
+        aiConsentAt: null,
+        aiConsentVersion: null,
       },
     });
 
@@ -262,6 +293,78 @@ export class UsersService {
     );
   }
 
+  /**
+   * End a deleted account's subscriptions (1A-core item 6). Called from BOTH
+   * deletion doors: `deleteAccount` (in-app) and the Clerk `user.deleted`
+   * webhook (Clerk's own self-deletion, and Dashboard deletes). Before this, the
+   * webhook door cancelled nothing and neither door ended the rows.
+   *
+   * ORDER IS LOAD-BEARING:
+   * 1. Cancel ACTIVE Stripe subscriptions — best-effort, exactly as
+   *    `deleteAccount` always did. Deliberately NOT widened and NOT made to
+   *    throw here: the Clerk webhook anonymises AFTER this method, and a
+   *    throwing Stripe step there would leave a deleted person's name in place
+   *    on a persistent Stripe failure. Hardening this (wider filter,
+   *    propagation behind a re-entrant webhook, Stripe-side deleted-owner
+   *    guards) is launch todo #29, a blocker of Stripe going live.
+   * 2. Delete the RevenueCat subscriber — best-effort.
+   * 3. Only then mark every non-EXPIRED row EXPIRED. A STATUS UPDATE, never a
+   *    delete: `Subscription` is a retained financial record (see
+   *    `erasePersonalData`). EXPIRED, not CANCELLED, because CANCELLED means
+   *    both "scheduled" and "terminated" in this codebase. An existing
+   *    `cancelledAt` (the user's own auto-renew-off time) is preserved.
+   *
+   * Steps 1–2 never throw. The initial row lookup and step 3 can (a database
+   * error — the lookup before anything has happened): in-app that is a 500
+   * before the Clerk user is deleted, so the user can retry; in the webhook it
+   * is a 500 Clerk retries. Everything before it is idempotent.
+   *
+   * Why marking a Stripe row EXPIRED after a FAILED cancel is no worse than
+   * before: the row used to stay ACTIVE while Stripe kept billing; now Stripe's
+   * next `customer.subscription.updated` rewrites it to ACTIVE — the same state.
+   * Store subscriptions end for good: later RevenueCat events for this account
+   * resolve as known-deleted and are acknowledged without a write.
+   */
+  async endSubscriptionsForDeletedUser(userId: string, clerkUserId: string): Promise<void> {
+    const subscriptions = await this.prisma.subscription.findMany({
+      where: { userId },
+      select: { status: true, platform: true, stripeSubscriptionId: true },
+    });
+
+    // 1. Cancel active Stripe subs (best-effort).
+    const activeStripe = subscriptions.filter(
+      (s) => s.status === 'ACTIVE' && s.platform === 'STRIPE' && s.stripeSubscriptionId,
+    );
+    if (activeStripe.length > 0) {
+      const stripe = this.getStripeClient();
+      if (stripe) {
+        for (const s of activeStripe) {
+          try {
+            await stripe.subscriptions.cancel(s.stripeSubscriptionId as string);
+          } catch (err) {
+            this.logger.error(
+              `endSubscriptionsForDeletedUser: failed to cancel Stripe sub ${s.stripeSubscriptionId}: ${err}`,
+            );
+          }
+        }
+      }
+    }
+
+    // 2. Delete the RevenueCat subscriber (best-effort).
+    await this.deleteRevenueCatSubscriber(clerkUserId);
+
+    // 3. End the rows — after the provider calls, never before.
+    const now = new Date();
+    await this.prisma.subscription.updateMany({
+      where: { userId, status: { not: 'EXPIRED' }, cancelledAt: null },
+      data: { status: 'EXPIRED', cancelledAt: now },
+    });
+    await this.prisma.subscription.updateMany({
+      where: { userId, status: { not: 'EXPIRED' } },
+      data: { status: 'EXPIRED' },
+    });
+  }
+
   private getStripeClient(): Stripe | null {
     const key = this.config.get<string>('STRIPE_SECRET_KEY');
     if (!key) {
@@ -294,7 +397,13 @@ export class UsersService {
     try {
       const res = await fetch(
         `https://api.revenuecat.com/v1/subscribers/${encodeURIComponent(appUserId)}`,
-        { method: 'DELETE', headers: { Authorization: `Bearer ${apiKey}` } },
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${apiKey}` },
+          // The Clerk webhook now runs this too, and Svix redelivers on a short
+          // timeout. A hung RevenueCat must not stall deletion indefinitely.
+          signal: AbortSignal.timeout(10_000),
+        },
       );
       if (!res.ok && res.status !== 404) {
         this.logger.error(`deleteAccount: RevenueCat delete returned ${res.status}`);

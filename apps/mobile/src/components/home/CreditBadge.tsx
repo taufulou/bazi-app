@@ -18,12 +18,16 @@ import { colors, fontSize, spacing, radius, text as T } from '../../theme';
 import { useZh } from '../../lib/language';
 import { getUserProfile, type SubscriptionTier } from '../../lib/api';
 
-/** Exported so 我的 renders the same tier wording as the header badge. */
+/**
+ * Exported so 我的 and the store screen render the same tier wording as the header
+ * badge. Paid names fixed by the owner 2026-11-21 (App Store plan step 0.10) and
+ * kept identical to web / the `plans` table by `apps/api/test/tier-names-parity.spec.ts`.
+ */
 export const TIER_LABELS: Record<SubscriptionTier, string> = {
   FREE: '免費',
-  BASIC: '基本',
-  PRO: '專業',
-  MASTER: '大師',
+  BASIC: '基礎會員',
+  PRO: '專業會員',
+  MASTER: '大師會員',
 };
 
 /**

@@ -48,8 +48,8 @@ interface GradientSlide {
 const FALLBACK_SLIDES: GradientSlide[] = [
   {
     id: 'welcome',
-    title: 'AI 命理，精準解命',
-    subtitle: '結合八字與紫微斗數，為您提供專業的命理分析',
+    title: 'AI 八字命理',
+    subtitle: '以八字命理結合 AI，提供命理分析參考',
     cta: { label: '開始分析', href: '#readings' },
     ornament: '命',
     bg: colors.red, // web: red → orange

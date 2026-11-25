@@ -16,6 +16,7 @@ import QRCode from 'react-native-qrcode-svg';
 import { colors, fonts, fontSize, spacing, radius } from '../../theme';
 import type { DailyFortuneResponse } from '../../lib/fortune-api';
 import { formatFortuneDate, friendlyExplanationFromLabel, ringTierFromLabel } from './labels';
+import { SITE_HOST, SITE_URL } from '../../lib/links';
 
 interface Props {
   data: DailyFortuneResponse;
@@ -25,7 +26,8 @@ const RING_RADIUS = 58;
 const RING_CIRC = 2 * Math.PI * RING_RADIUS;
 const RING_SIZE = 136;
 const RING_CENTER = RING_SIZE / 2;
-const SHARE_URL = 'https://baziapp.com';
+// Our domain (1C item 3) — the QR code and the printed host both come from links.ts.
+const SHARE_URL = SITE_URL;
 
 const ShareableFortuneCard = forwardRef<View, Props>(function ShareableFortuneCard({ data }, ref) {
   const { engineOutput, narrative, date } = data;
@@ -126,7 +128,7 @@ const ShareableFortuneCard = forwardRef<View, Props>(function ShareableFortuneCa
             <QRCode value={SHARE_URL} size={72} color={colors.textPrimary} backgroundColor="#FFFFFF" />
           </View>
           <View style={styles.footerText}>
-            <Text style={styles.footerDomain}>baziapp.com</Text>
+            <Text style={styles.footerDomain}>{SITE_HOST}</Text>
             <Text style={styles.footerTagline}>掃描查看您自己的命理日運</Text>
             <Text style={styles.footerDisclaimer}>※ 流日為觸發點，僅供參考，不構成任何專業建議</Text>
           </View>

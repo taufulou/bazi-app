@@ -65,7 +65,7 @@ describe('CreditBadge', () => {
     render(<CreditBadge />);
 
     await waitFor(() => {
-      expect(screen.getByText('專業')).toBeInTheDocument();
+      expect(screen.getByText('專業會員')).toBeInTheDocument();
       expect(screen.getByText('10')).toBeInTheDocument();
     });
   });
@@ -74,7 +74,7 @@ describe('CreditBadge', () => {
     render(<CreditBadge />);
 
     await waitFor(() => {
-      const tierLink = screen.getByText('專業').closest('a');
+      const tierLink = screen.getByText('專業會員').closest('a');
       expect(tierLink).toHaveAttribute('href', '/dashboard/subscription');
     });
   });
@@ -96,7 +96,7 @@ describe('CreditBadge', () => {
     render(<CreditBadge />);
 
     await waitFor(() => {
-      expect(screen.getByText('大師')).toBeInTheDocument();
+      expect(screen.getByText('大師會員')).toBeInTheDocument();
       expect(screen.getByText('999')).toBeInTheDocument();
       const creditLink = screen.getByText('999').closest('a');
       expect(creditLink).toHaveAttribute('href', '/store');
@@ -120,7 +120,7 @@ describe('CreditBadge', () => {
 
     // Should not display any tier badge or credits
     expect(screen.queryByText('免費')).not.toBeInTheDocument();
-    expect(screen.queryByText('專業')).not.toBeInTheDocument();
+    expect(screen.queryByText('專業會員')).not.toBeInTheDocument();
   });
 
   it('can refresh credit data via imperative handle', async () => {

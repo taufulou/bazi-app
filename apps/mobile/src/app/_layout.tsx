@@ -20,14 +20,20 @@ import { useAppFonts } from '../theme/fonts';
 import { colors, fonts, fontSize, spacing } from '../theme';
 import { env } from '../lib/env';
 import { setUnauthorizedHandler } from '../lib/api';
+import { sentryInitOptions } from '../lib/sentry-options';
+import { AiConsentProvider } from '../lib/ai-consent';
+import { PurchasesIdentityBridge } from '../lib/purchases-identity-bridge';
+import { signOutAndClear } from '../lib/session';
 import { reportCurrentScreen } from '../dev/type-audit';
 
 // Keep the native splash up until fonts AND (below) Clerk are ready.
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
-// Crash reporting — no-op when no DSN is configured (dev / until wired at M7).
+// Crash reporting — no-op when no DSN is configured. Every PII setting lives in
+// `sentryInitOptions` (1C item 7): scrubbers on events, transactions and
+// breadcrumbs; no default PII; no screenshots or view hierarchy.
 if (env.sentryDsn) {
-  Sentry.init({ dsn: env.sentryDsn, tracesSampleRate: 0.1 });
+  Sentry.init(sentryInitOptions(env.sentryDsn));
 }
 
 const publishableKey = env.clerkPublishableKey;
@@ -51,6 +57,7 @@ function AppStack() {
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="sign-in" options={{ title: '登入', presentation: 'modal' }} />
       <Stack.Screen name="sign-up" options={{ title: '註冊', presentation: 'modal' }} />
+      <Stack.Screen name="reset-password" options={{ title: '重設密碼', presentation: 'modal' }} />
       <Stack.Screen name="(authenticated)" options={{ headerShown: false }} />
       <Stack.Screen name="profiles" options={{ title: '我的命盤' }} />
       <Stack.Screen
@@ -73,9 +80,19 @@ function AppStack() {
   );
 }
 
-/** LanguageProvider + optional PostHog analytics. */
+/**
+ * LanguageProvider + AI-consent (needs `zh`, so inside it) + optional PostHog.
+ * PostHog stays off for v1 (O5): the key is unset.
+ */
 function Providers({ children }: { children: ReactNode }) {
-  const content = <LanguageProvider>{children}</LanguageProvider>;
+  const content = (
+    <LanguageProvider>
+      <AiConsentProvider>
+        <PurchasesIdentityBridge />
+        {children}
+      </AiConsentProvider>
+    </LanguageProvider>
+  );
   return env.posthogKey ? (
     <PostHogProvider apiKey={env.posthogKey}>{content}</PostHogProvider>
   ) : (
@@ -98,7 +115,7 @@ function AuthBridge() {
       if (firing.current) return;
       firing.current = true;
       try {
-        await signOut();
+        await signOutAndClear(signOut);
       } catch {
         // best-effort; still route to sign-in
       }

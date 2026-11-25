@@ -16,6 +16,10 @@ import {
 import { useZh } from '../lib/language';
 import { colors, radius, spacing, fontSize, fonts, text as T } from '../theme';
 import { GoogleSignInButton } from '../components/GoogleSignInButton';
+import { AppleSignInButton } from '../components/AppleSignInButton';
+import { AuthLegalLinks } from '../components/AuthLegalLinks';
+import { SUPPORT_EMAIL } from '../lib/links';
+import { enterApp } from '../lib/enter-app';
 
 export default function SignInScreen() {
   const { signIn, setActive, isLoaded } = useSignIn();
@@ -37,14 +41,34 @@ export default function SignInScreen() {
 
       if (result.status === 'complete') {
         await setActive({ session: result.createdSessionId });
-        router.replace('/(authenticated)/home');
+        enterApp(router);
       } else {
         // Non-complete status (2FA / missing requirements) — don't dead-end silently.
-        Alert.alert(zh('需要額外驗證'), zh('此帳號需要額外的登入步驟，請稍後再試或改用網頁版。'));
+        // Points at 客服, not the website: the website sells memberships (3.1.1).
+        Alert.alert(
+          zh('需要額外驗證'),
+          `${zh('此帳號需要額外的登入步驟，請聯絡客服：')}${SUPPORT_EMAIL}`,
+        );
       }
     } catch (err: unknown) {
-      const error = err as { errors?: Array<{ message?: string; longMessage?: string }> };
+      const error = err as { errors?: Array<{ code?: string; message?: string; longMessage?: string }> };
       const clerkErr = error.errors?.[0];
+      // The live instance refuses breached passwords at sign-in (HIBP). Without a
+      // way out this locked the user out of the app (F11).
+      if (clerkErr?.code === 'form_password_pwned') {
+        Alert.alert(
+          zh('請重設密碼'),
+          zh('此密碼曾出現在外洩資料中，為了安全請重設密碼。'),
+          [
+            { text: zh('取消'), style: 'cancel' },
+            {
+              text: zh('重設密碼'),
+              onPress: () => router.push({ pathname: '/reset-password', params: { email: emailAddress } }),
+            },
+          ],
+        );
+        return;
+      }
       Alert.alert(
         zh('登入失敗'),
         clerkErr?.longMessage || clerkErr?.message || zh('請檢查您的帳號和密碼'),
@@ -93,6 +117,14 @@ export default function SignInScreen() {
               placeholderTextColor={colors.textMuted}
               secureTextEntry
             />
+            <TouchableOpacity
+              testID="forgot-password"
+              style={styles.forgotButton}
+              accessibilityRole="button"
+              onPress={() => router.push({ pathname: '/reset-password', params: { email: emailAddress } })}
+            >
+              <Text style={styles.forgotText}>{zh('忘記密碼？')}</Text>
+            </TouchableOpacity>
           </View>
 
           <TouchableOpacity
@@ -114,7 +146,11 @@ export default function SignInScreen() {
             <View style={styles.dividerLine} />
           </View>
 
-          <GoogleSignInButton />
+          {/* Apple first: guideline 4.8 asks for equivalent prominence. */}
+          <View style={styles.socialStack}>
+            <AppleSignInButton mode="sign-in" />
+            <GoogleSignInButton />
+          </View>
 
           <TouchableOpacity
             style={styles.linkButton}
@@ -125,6 +161,8 @@ export default function SignInScreen() {
               {zh('還沒有帳號？')} <Text style={styles.linkHighlight}>{zh('註冊')}</Text>
             </Text>
           </TouchableOpacity>
+
+          <AuthLegalLinks variant="links" />
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -193,6 +231,9 @@ const styles = StyleSheet.create({
     marginVertical: spacing.xl,
   },
   dividerLine: { flex: 1, height: 1, backgroundColor: colors.borderLight },
+  socialStack: { gap: spacing.md },
+  forgotButton: { alignSelf: 'flex-end', marginTop: spacing.sm, paddingVertical: spacing.xs },
+  forgotText: { ...T.bodyTight, color: colors.textSecondary, textDecorationLine: 'underline' },
   dividerText: { ...T.bodyTight, color: colors.textMuted },
   linkButton: {
     alignItems: 'center',

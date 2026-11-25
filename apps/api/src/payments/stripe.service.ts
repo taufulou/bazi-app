@@ -15,9 +15,12 @@ import {
   NotFoundException,
   HttpException,
   HttpStatus,
+  ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SubscriptionStatus } from '@prisma/client';
+import { stripeEnvironment } from './payment-environment';
+import { CONTACT_EMAIL } from '../legal/legal-constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
 import { EntitlementsService } from './entitlements.service';
@@ -83,10 +86,62 @@ export class StripeService {
   // ============================================================
 
   /**
+   * Refuse a NEW subscription checkout while the user already has a live
+   * membership (1B item 5). Without this, a second, parallel subscription is
+   * billed in full: the pricing page treats any user whose tier reads FREE as
+   * a new subscriber — including a PAST_DUE Stripe member (tier drops to FREE)
+   * and anyone whose status fetch failed.
+   *
+   * Paid members never reach checkout (`/pricing` sends them to
+   * `upgradeSubscription`), so this only ever refuses a duplicate. Each case has
+   * a distinct code and a zh-TW message the page shows as-is.
+   */
+  private async assertNoLiveSubscription(userId: string): Promise<void> {
+    const now = new Date();
+    const live = await this.prisma.subscription.findMany({
+      where: {
+        userId,
+        OR: [
+          { status: 'ACTIVE' },
+          { platform: 'STRIPE', status: 'PAST_DUE' },
+          { platform: 'STRIPE', status: 'CANCELLED', currentPeriodEnd: { gt: now } },
+        ],
+      },
+      select: { status: true, platform: true },
+    });
+    if (live.some((s) => s.status === 'ACTIVE')) {
+      // A store member stays blocked until RevenueCat's EXPIRATION arrives —
+      // intended, it prevents paying twice. No time-based override: the
+      // billing-grace window keeps store rows ACTIVE past period end by design.
+      // The support address is the escape hatch for a row that never expires.
+      throw new ConflictException({
+        code: 'ALREADY_SUBSCRIBED',
+        message:
+          '您已有進行中的會員方案。若方案來自 App Store／Google Play，請先在手機取消，' +
+          `待目前週期結束後再於網站訂閱。如有疑問請來信 ${CONTACT_EMAIL}`,
+      });
+    }
+    if (live.some((s) => s.status === 'PAST_DUE')) {
+      throw new ConflictException({
+        code: 'PAYMENT_PAST_DUE',
+        message: `上一筆扣款未成功，請至「管理帳務資料」更新付款方式。如有疑問請來信 ${CONTACT_EMAIL}`,
+      });
+    }
+    if (live.length > 0) {
+      throw new ConflictException({
+        code: 'CANCELLATION_PENDING',
+        message: '您的方案已排定取消，可直接重新啟用。',
+      });
+    }
+  }
+
+  /**
    * Create a Stripe Checkout session for a subscription plan.
    */
   async createSubscriptionCheckout(input: CreateCheckoutInput): Promise<{ sessionId: string; url: string }> {
     const user = await this.findUserOrThrow(input.clerkUserId);
+
+    await this.assertNoLiveSubscription(user.id);
 
     // Look up the plan from DB
     const plan = await this.prisma.plan.findFirst({
@@ -368,6 +423,23 @@ export class StripeService {
 
     if (!subscription || !subscription.stripeSubscriptionId) {
       throw new NotFoundException('No cancelled subscription found to reactivate');
+    }
+
+    // 1B audit: a member who cancelled here and then subscribed in the app has a
+    // live store membership. Reactivating would make Stripe renew alongside
+    // Apple / Google — the same double billing the checkout guard refuses
+    // (ALREADY_SUBSCRIBED), through a second door. Checked before Stripe is
+    // touched, so a refusal changes nothing.
+    const storeActive = await this.prisma.subscription.count({
+      where: { userId: user.id, status: 'ACTIVE', platform: { not: 'STRIPE' } },
+    });
+    if (storeActive > 0) {
+      throw new ConflictException({
+        code: 'ALREADY_SUBSCRIBED',
+        message:
+          '您已有透過 App Store／Google Play 的進行中方案，為避免重複扣款，無法重新啟用網站訂閱。' +
+          `如有疑問請來信 ${CONTACT_EMAIL}`,
+      });
     }
 
     await this.stripe.subscriptions.update(
@@ -851,6 +923,7 @@ export class StripeService {
             planTier,
             status: 'ACTIVE',
             platform: 'STRIPE',
+            environment: stripeEnvironment(sub.livemode),
             currentPeriodStart: periodStart ? new Date(periodStart * 1000) : new Date(),
             currentPeriodEnd: periodEnd
               ? new Date(periodEnd * 1000)
@@ -977,6 +1050,7 @@ export class StripeService {
           type: 'SUBSCRIPTION',
           description: `Subscription payment — ${invoice.lines?.data?.[0]?.description || 'renewal'}`,
           platform: 'STRIPE',
+          environment: stripeEnvironment(invoice.livemode),
         },
       });
     } catch (err) {
@@ -1192,6 +1266,7 @@ export class StripeService {
           planTier,
           status: 'ACTIVE',
           platform: 'STRIPE',
+          environment: stripeEnvironment(session.livemode),
           currentPeriodStart: periodStart,
           currentPeriodEnd: periodEnd,
         },
@@ -1246,6 +1321,7 @@ export class StripeService {
           type: 'SUBSCRIPTION',
           description: `New subscription: ${planSlug}`,
           platform: 'STRIPE',
+          environment: stripeEnvironment(session.livemode),
         },
       });
     } catch (err) {
@@ -1309,6 +1385,7 @@ export class StripeService {
                 type: 'CREDIT_PURCHASE',
                 description: `Credit package: ${metadata.packageSlug || 'unknown'} (${actualAmount} credits)`,
                 platform: 'STRIPE',
+                environment: stripeEnvironment(session.livemode),
               },
             });
             await this.entitlements.grantCredits(
@@ -1374,6 +1451,7 @@ export class StripeService {
               type: 'ONE_TIME',
               description: serviceSlug ? `One-time reading: ${serviceSlug}` : 'One-time purchase',
               platform: 'STRIPE',
+              environment: stripeEnvironment(session.livemode),
             },
           });
           await this.entitlements.grantCredits(

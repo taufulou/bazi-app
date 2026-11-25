@@ -37,6 +37,8 @@ import CompatibilityRevealCTA from '../../components/compat/CompatibilityRevealC
 import ShareableCompatibilityCard from '../../components/compat/ShareableCompatibilityCard';
 import ShareFortuneButton from '../../components/fortune/ShareFortuneButton';
 import ChatFloatingButton from '../../components/chat/ChatFloatingButton';
+import { useAiConsent } from '../../lib/ai-consent';
+import { AI_CONSENT_REQUIRED_CODE } from '../../lib/ai-consent-state';
 import ChatSheet from '../../components/chat/ChatSheet';
 
 const COMPAT_CREDIT_COST = 3;
@@ -84,6 +86,9 @@ function compatDynamicTitle(
 export default function CompatScreen() {
   const zh = useZh();
   const { getToken } = useAuth();
+  // Asked from the tap, before the reveal changes any state or a Modal opens
+  // (1C item 2). The reveal is where 3 credits are charged.
+  const { requireAiConsent } = useAiConsent();
   const router = useRouter();
   const params = useLocalSearchParams<{ id?: string }>();
   const idParam = typeof params.id === 'string' ? params.id : Array.isArray(params.id) ? params.id[0] : undefined;
@@ -193,6 +198,12 @@ export default function CompatScreen() {
     // Flip the disabling state SYNCHRONOUSLY (before the getToken await) so a
     // second tap can't slip through the async gap.
     revealingRef.current = true;
+    // Consent BEFORE any state write — declining must leave the paywall exactly
+    // as it was, with nothing half-revealed and nothing charged.
+    if (!(await requireAiConsent())) {
+      revealingRef.current = false;
+      return;
+    }
     setError(null);
     setRevealed(true);
     setStreaming(true);
@@ -279,6 +290,14 @@ export default function CompatScreen() {
           // backend refunds). Either way the balance may have moved.
           void refreshCredits();
           const code = (err as { code?: string }).code;
+          if (code === AI_CONSENT_REQUIRED_CODE) {
+            // Refused on the device (consent withdrawn mid-screen): nothing was
+            // sent and nothing charged — not the refund wording below.
+            setRevealed(false);
+            setAiData(null);
+            setError(zh(err.message));
+            return;
+          }
           if (code === 'INSUFFICIENT_CREDITS') {
             // Drop back to the paywall rather than stranding the user on an
             // empty screen — `revealed` was set optimistically before the stream.
@@ -319,6 +338,10 @@ export default function CompatScreen() {
           setRevealed(false);
           setAiData(null);
           setError(zh('點數不足，無法解鎖完整報告。'));
+        } else if (code === AI_CONSENT_REQUIRED_CODE) {
+          setRevealed(false);
+          setAiData(null);
+          setError(zh((e as Error).message));
         } else {
           setError(e instanceof Error ? e.message : zh('分析生成失敗，請稍後再試'));
         }
@@ -329,7 +352,7 @@ export default function CompatScreen() {
     }
     // getToken omitted (unstable ref).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [comparison, isRomance, refreshCredits, zh]);
+  }, [comparison, isRomance, refreshCredits, zh, requireAiConsent]);
 
   const handleNew = useCallback(() => {
     streamRef.current?.close();
@@ -582,7 +605,13 @@ export default function CompatScreen() {
       {/* AI 命理師 chat — only after the reading is revealed (mirrors the web's
           !showPaywall gate). The chat stack is already comparisonId-aware. */}
       {step === 'result' && revealed && comparison?.id ? (
-        <ChatFloatingButton onPress={() => setChatOpen(true)} />
+        <ChatFloatingButton
+          onPress={() => {
+            void (async () => {
+              if (await requireAiConsent()) setChatOpen(true);
+            })();
+          }}
+        />
       ) : null}
       {comparison?.id ? (
         <ChatSheet

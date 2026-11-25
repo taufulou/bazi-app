@@ -5,8 +5,16 @@ import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useAuth } from "@clerk/nextjs";
 import { DEFAULT_PLANS } from "@repo/shared";
-import { createSubscriptionCheckout, upgradeSubscription, getSubscriptionStatus } from "../lib/api";
+import {
+  createSubscriptionCheckout,
+  upgradeSubscription,
+  getSubscriptionStatus,
+  stripeSubscriptionOf,
+  STORE_MANAGED_NOTE,
+  type StripeSubscriptionSummary,
+} from "../lib/api";
 import styles from "./page.module.css";
+import { PAID_TIER_NAMES } from "../lib/tier-names";
 
 // ============================================================
 // Plan metadata (features, descriptions, CTA text)
@@ -24,7 +32,7 @@ interface PlanInfo {
 const PLANS: PlanInfo[] = [
   {
     key: "basic",
-    name: "Basic",
+    name: PAID_TIER_NAMES.BASIC,
     description: "適合初次體驗八字命理的用戶",
     features: [
       "每月 5 次命理解讀",
@@ -38,7 +46,7 @@ const PLANS: PlanInfo[] = [
   },
   {
     key: "pro",
-    name: "Pro",
+    name: PAID_TIER_NAMES.PRO,
     description: "全方位命理分析，適合深度探索命運",
     features: [
       "每月 15 次命理解讀",
@@ -57,7 +65,7 @@ const PLANS: PlanInfo[] = [
   },
   {
     key: "master",
-    name: "Master",
+    name: PAID_TIER_NAMES.MASTER,
     description: "每月 50 次解讀，專為命理愛好者打造",
     features: [
       "50 次命理解讀/月",
@@ -96,9 +104,9 @@ const COMPARISON_ROWS: [string, ComparisonValue, ComparisonValue, ComparisonValu
 
 const TIER_META: Record<string, { name: string }> = {
   FREE: { name: "免費方案" },
-  BASIC: { name: "Basic 方案" },
-  PRO: { name: "Pro 方案" },
-  MASTER: { name: "Master 方案" },
+  BASIC: { name: PAID_TIER_NAMES.BASIC },
+  PRO: { name: PAID_TIER_NAMES.PRO },
+  MASTER: { name: PAID_TIER_NAMES.MASTER },
 };
 
 function calcSavingsPercent(monthly: number, annual: number): number {
@@ -117,6 +125,11 @@ export default function PricingPage() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "info" } | null>(null);
   const [currentTier, setCurrentTier] = useState<string>("FREE");
   const [changeTarget, setChangeTarget] = useState<{ key: string; name: string; direction: "upgrade" | "downgrade" } | null>(null);
+  // 1B item 5. A failed status fetch must NOT read as FREE: that offered
+  // 立即訂閱 — a second, parallel subscription — to a paying member.
+  const [statusState, setStatusState] = useState<"loading" | "ok" | "error">("loading");
+  const [stripeSub, setStripeSub] = useState<StripeSubscriptionSummary | null>(null);
+  const [statusAttempt, setStatusAttempt] = useState(0);
 
   const { isSignedIn, getToken } = useAuth();
   const router = useRouter();
@@ -126,14 +139,19 @@ export default function PricingPage() {
   useEffect(() => {
     if (!isSignedIn) {
       setCurrentTier("FREE");
+      setStripeSub(null);
+      setStatusState("ok");
       return;
     }
+    setStatusState("loading");
     (async () => {
       try {
         const token = await getToken();
-        if (!token) return;
+        if (!token) throw new Error("no token");
         const status = await getSubscriptionStatus(token);
         setCurrentTier(status.subscriptionTier);
+        setStripeSub(stripeSubscriptionOf(status));
+        setStatusState("ok");
 
         // Detect billing cycle from subscription period dates
         if (status.activeSubscription) {
@@ -144,10 +162,17 @@ export default function PricingPage() {
         }
         // If no active subscription (FREE user), leave isAnnual at default false
       } catch {
-        // Silent — default to FREE + monthly
+        setStatusState("error");
       }
     })();
-  }, [isSignedIn, getToken]);
+  }, [isSignedIn, getToken, statusAttempt]);
+
+  // Paid with no Stripe row → the membership is App Store / Google Play. Its
+  // plan can only change on the phone; `upgradeSubscription` is Stripe-only and
+  // would 404.
+  const storeGoverned = statusState === "ok" && currentTier !== "FREE" && !stripeSub;
+  // Every plan CTA waits for a known status — never act on a guessed tier.
+  const ctaBlocked = statusState !== "ok";
 
   // ---- Handle success/cancel query params ----
   useEffect(() => {
@@ -328,6 +353,17 @@ export default function PricingPage() {
         {isAnnual && <span className={styles.savingsBadge}>最高省 33%</span>}
       </div>
 
+      {statusState === "error" && (
+        <div className={styles.statusError} role="alert">
+          <span>無法載入您目前的方案，暫時無法變更或訂閱。</span>
+          <button type="button" onClick={() => setStatusAttempt((n) => n + 1)}>
+            重新載入
+          </button>
+        </div>
+      )}
+
+      {storeGoverned && <p className={styles.storeNote}>{STORE_MANAGED_NOTE}</p>}
+
       {/* ---- Plan Cards ---- */}
       <div className={styles.plansGrid}>
         {PLANS.map((plan) => {
@@ -400,11 +436,20 @@ export default function PricingPage() {
                 <Link href="/dashboard/subscription" className={`${styles.ctaButton} ${styles.ctaCurrent}`}>
                   管理訂閱
                 </Link>
+              ) : storeGoverned ? (
+                <p className={styles.ctaNote}>請於手機的訂閱設定變更</p>
+              ) : currentTier === "FREE" && stripeSub ? (
+                // A PAST_DUE Stripe member reads as FREE. Fixing the card in the
+                // portal recovers the existing subscription; a checkout here
+                // would bill a second one (the API refuses it with 409 anyway).
+                <Link href="/dashboard/subscription" className={`${styles.ctaButton} ${styles.ctaCurrent}`}>
+                  管理訂閱
+                </Link>
               ) : isDowngrade ? (
                 <button
                   className={`${styles.ctaButton} ${styles.ctaDowngrade} ${isLoading ? styles.ctaLoading : ""}`}
                   onClick={() => setChangeTarget({ key: plan.key, name: plan.name, direction: "downgrade" })}
-                  disabled={loadingPlan !== null}
+                  disabled={loadingPlan !== null || ctaBlocked}
                 >
                   {isLoading ? (
                     <span className={styles.spinner} aria-label="載入中" />
@@ -416,7 +461,7 @@ export default function PricingPage() {
                 <button
                   className={`${styles.ctaButton} ${plan.isRecommended ? styles.ctaPrimary : styles.ctaSecondary} ${isLoading ? styles.ctaLoading : ""}`}
                   onClick={() => setChangeTarget({ key: plan.key, name: plan.name, direction: "upgrade" })}
-                  disabled={loadingPlan !== null}
+                  disabled={loadingPlan !== null || ctaBlocked}
                 >
                   {isLoading ? (
                     <span className={styles.spinner} aria-label="載入中" />
@@ -428,7 +473,7 @@ export default function PricingPage() {
                 <button
                   className={`${styles.ctaButton} ${plan.isRecommended ? styles.ctaPrimary : styles.ctaSecondary} ${isLoading ? styles.ctaLoading : ""}`}
                   onClick={() => handleCheckout(plan.key)}
-                  disabled={loadingPlan !== null}
+                  disabled={loadingPlan !== null || ctaBlocked}
                   aria-busy={isLoading}
                 >
                   {isLoading ? (
@@ -457,9 +502,9 @@ export default function PricingPage() {
               <tr>
                 <th>功能</th>
                 <th>免費</th>
-                <th>Basic</th>
-                <th className={styles.comparisonHeaderRecommended}>Pro</th>
-                <th>Master</th>
+                <th>{PAID_TIER_NAMES.BASIC}</th>
+                <th className={styles.comparisonHeaderRecommended}>{PAID_TIER_NAMES.PRO}</th>
+                <th>{PAID_TIER_NAMES.MASTER}</th>
               </tr>
             </thead>
             <tbody>
@@ -534,7 +579,7 @@ export default function PricingPage() {
                 您即將從{" "}
                 <strong>{TIER_META[currentTier]?.name || currentTier}</strong>{" "}
                 {isUpgradeModal ? "升級" : "降級"}至{" "}
-                <strong>{changeTarget.name} 方案</strong>。
+                <strong>{changeTarget.name}</strong>。
               </p>
               <div className={styles.upgradeDialogPrice}>
                 {targetPrice}

@@ -1,0 +1,13 @@
+.footer {
+  composes: cell from "../styles/type.module.css";
+  display: flex;
+  justify-content: center;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+  color: var(--text-muted);
+}
+
+.footer a {
+  color: var(--text-secondary);
+  text-decoration: underline;
+}

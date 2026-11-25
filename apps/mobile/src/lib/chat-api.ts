@@ -16,6 +16,7 @@ import type {
   ChatExtendResponse,
   ChatUsageResponse,
 } from './chat-types';
+import { aiConsentRejection } from './ai-consent-state';
 
 const API_BASE = env.apiUrl;
 
@@ -88,6 +89,8 @@ export function createChatSession(args: {
   };
   token: string;
 }): Promise<CreateChatSessionResponse> {
+  const refused = aiConsentRejection<CreateChatSessionResponse>();
+  if (refused) return refused;
   return jsonFetch('/api/chat/sessions', {
     method: 'POST',
     body: JSON.stringify({
@@ -135,6 +138,8 @@ export function getMessages(args: {
 }
 
 export function extendSession(args: { sessionId: string; token: string }): Promise<ChatExtendResponse> {
+  const refused = aiConsentRejection<ChatExtendResponse>();
+  if (refused) return refused;
   return jsonFetch(`/api/chat/sessions/${args.sessionId}/extend`, {
     method: 'POST',
     body: JSON.stringify({}),
@@ -237,5 +242,6 @@ export function streamChatMessage(args: {
       message: body.message || `Chat stream failed: ${status}`,
     }),
     label: 'Chat stream',
+    requiresAiConsent: true,
   });
 }

@@ -42,8 +42,10 @@ const BASE_URL = SITE_URL;
 
 export const metadata: Metadata = {
   title: "天命 | AI 命理平台",
-  description: "天命 — AI驅動的命理分析平台，提供八字、紫微斗數、終身運勢、流年運勢、八字事業詳批、愛情姻緣等專業解讀。",
-  keywords: ["天命", "八字", "命理", "紫微斗數", "Chinese astrology", "fortune telling", "AI", "命盤"],
+  description: "天命 — AI驅動的八字命理平台，提供八字排盤、終身運勢、流年運勢、八字事業詳批、愛情姻緣與日月年運勢解讀。僅供參考與娛樂用途。",
+  // ZWDS removed: the feature was deleted (ad106fc), and this metadata is what
+  // search results and link previews show for the site the iOS app links to.
+  keywords: ["天命", "八字", "命理", "Chinese astrology", "fortune telling", "AI", "命盤"],
   metadataBase: new URL(BASE_URL),
   icons: {
     icon: "/favicon.ico",
@@ -51,7 +53,7 @@ export const metadata: Metadata = {
   },
   openGraph: {
     title: "天命 | AI 命理平台",
-    description: "天命 — AI驅動的命理分析平台，提供八字、紫微斗數、終身運勢、流年運勢、八字事業詳批、愛情姻緣等專業解讀。",
+    description: "天命 — AI驅動的八字命理平台，提供八字排盤、終身運勢、流年運勢、八字事業詳批、愛情姻緣與日月年運勢解讀。僅供參考與娛樂用途。",
     url: BASE_URL,
     siteName: "天命",
     locale: "zh_TW",
@@ -61,7 +63,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary",
     title: "天命 | AI 命理平台",
-    description: "天命 — AI驅動的命理分析平台，提供八字、紫微斗數、終身運勢、流年運勢、八字事業詳批、愛情姻緣等專業解讀。",
+    description: "天命 — AI驅動的八字命理平台，提供八字排盤、終身運勢、流年運勢、八字事業詳批、愛情姻緣與日月年運勢解讀。僅供參考與娛樂用途。",
     images: ["/logo-1024.png"],
   },
   robots: {

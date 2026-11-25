@@ -177,6 +177,18 @@
   border: 1px solid rgba(255, 152, 0, 0.2);
 }
 
+/* App Store / Google Play note and the past-due notice (1B item 5) */
+.storeNote {
+  composes: cell from "../../styles/type.module.css";
+  margin: 0;
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid rgba(var(--color-gold-rgb), 0.2);
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
 /* ---- Plan Details ---- */
 .planDetails {
   display: flex;

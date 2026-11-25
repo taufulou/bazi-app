@@ -9,17 +9,8 @@ import { env } from './env';
 
 const API_BASE = env.apiUrl;
 
-/** Typed API error carrying the HTTP status + the NestJS error `code` when present. */
-export class ApiError extends Error {
-  status: number;
-  code?: string;
-  constructor(message: string, status: number, code?: string) {
-    super(message);
-    this.name = 'ApiError';
-    this.status = status;
-    this.code = code;
-  }
-}
+import { ApiError } from './api-error';
+export { ApiError };
 
 /**
  * Global 401 handler. The app sets this once (in the root layout) to redirect an
@@ -150,3 +141,38 @@ export async function deleteAccount(token: string, acknowledgeIap = false): Prom
     token,
   });
 }
+
+/** The website (Stripe) membership, from `GET /api/payments/subscription` (1B item 5). */
+export interface WebMembership {
+  status: string; // ACTIVE | PAST_DUE | CANCELLED (period still running)
+  currentPeriodEnd: string | null;
+}
+
+interface RawPaymentsSubscription {
+  stripeSubscription?: { status: string; currentPeriodEnd?: string | null } | null;
+  activeSubscription?: { platform?: string; status: string; currentPeriodEnd?: string | null } | null;
+}
+
+/**
+ * The user's website membership, or null (1C item 6 — warn before a second,
+ * parallel membership). A 404 means no user row yet → no membership. An API
+ * predating 1B omits `stripeSubscription`; fall back to a Stripe
+ * `activeSubscription` (key absent ≠ null, as on the website).
+ */
+export async function getWebMembership(token: string): Promise<WebMembership | null> {
+  let raw: RawPaymentsSubscription;
+  try {
+    raw = await apiFetch<RawPaymentsSubscription>('/api/payments/subscription', { token });
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 404) return null;
+    throw e;
+  }
+  if (raw.stripeSubscription !== undefined) {
+    return raw.stripeSubscription
+      ? { status: raw.stripeSubscription.status, currentPeriodEnd: raw.stripeSubscription.currentPeriodEnd ?? null }
+      : null;
+  }
+  const a = raw.activeSubscription;
+  return a?.platform === 'STRIPE' ? { status: a.status, currentPeriodEnd: a.currentPeriodEnd ?? null } : null;
+}
+

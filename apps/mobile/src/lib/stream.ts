@@ -14,6 +14,7 @@
  */
 import { fetch as expoFetch } from 'expo/fetch';
 import { notifyUnauthorized } from './api';
+import { AiConsentRequiredError, getAiConsentStatus } from './ai-consent-state';
 
 /** Canonical error frame shape shared by all streaming domains. */
 export interface SseErrorEvent {
@@ -45,6 +46,14 @@ export interface OpenSseStreamOpts<E> {
   onPreflightError?: (status: number, body: { code?: string; message?: string }) => E;
   /** Label used in default error messages. */
   label?: string;
+  /**
+   * This stream reaches the AI (1C item 2, layer 1). Without consent no request
+   * is sent: the refusal goes through the normal transport-error path —
+   * `onError(AiConsentRequiredError)` then `onClose()`, on a microtask (callers
+   * assign the returned teardown synchronously, and `onClose` clears it) — and
+   * the usual teardown is returned. Every caller already handles that path.
+   */
+  requiresAiConsent?: boolean;
 }
 
 /**
@@ -73,6 +82,18 @@ export function parseSseDataFrame<E>(frame: string): E | null {
  * that aborts the underlying fetch + reader (call it on unmount / dep change).
  */
 export function openSseStream<E>(opts: OpenSseStreamOpts<E>): () => void {
+  if (opts.requiresAiConsent && getAiConsentStatus() !== 'granted') {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (cancelled) return;
+      opts.onError(new AiConsentRequiredError());
+      opts.onClose();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }
+
   const controller = new AbortController();
   const parse = opts.parseFrame ?? parseSseDataFrame<E>;
   const label = opts.label ?? 'Stream';

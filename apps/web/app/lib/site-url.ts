@@ -20,3 +20,16 @@
 export const SITE_URL = (
   process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'
 ).replace(/\/+$/, '');
+
+/**
+ * The bare host of {@link SITE_URL} (e.g. `tianmingapp.com`), for places that
+ * print the domain as text — the share cards' footer. Those used to hardcode a
+ * domain we do not own (1B item 4).
+ */
+export function siteHost(siteUrl: string = SITE_URL): string {
+  try {
+    return new URL(siteUrl).host.replace(/^www\./, '');
+  } catch {
+    return siteUrl;
+  }
+}

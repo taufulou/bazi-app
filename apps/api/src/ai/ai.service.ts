@@ -10,6 +10,7 @@ import { absorbInputSideUsage, estimateOutputTokensFromChars } from './stream-us
 import { AiGovernorService } from './ai-governor.service';
 import { isSelfRefusal, selfRefusalCode, selfRefusalMessage } from './typed-refusals';
 import { AIProvider, ReadingType, Prisma } from '@prisma/client';
+import { providersMissingFromPrivacyPolicy } from './ai-provider-disclosure';
 import {
   READING_PROMPTS,
   ZWDS_READING_PROMPTS,
@@ -385,6 +386,17 @@ export class AIService implements OnModuleInit {
 
     if (this.providers.length === 0) {
       this.logger.warn('No AI providers configured! Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.');
+    }
+
+    // The privacy policy names Anthropic as the ONLY AI provider (1B). A key for
+    // any other provider means birth data can reach a company the policy does
+    // not disclose — say so loudly at every boot, not in a comment nobody reads.
+    const undisclosed = providersMissingFromPrivacyPolicy(this.providers.map((p) => p.provider));
+    if (undisclosed.length > 0) {
+      this.logger.error(
+        `AI providers configured but NOT named in the privacy policy: ${undisclosed.join(', ')}. ` +
+          'Update legal.controller.ts (§3) and ai-provider-disclosure.ts first, or unset the key.',
+      );
     }
   }
 

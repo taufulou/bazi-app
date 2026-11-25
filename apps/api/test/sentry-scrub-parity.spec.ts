@@ -15,14 +15,22 @@
  * This test fails the moment the two key lists diverge.
  */
 import * as api from '../src/common/sentry-scrub';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const web = require('../../web/app/lib/sentry-scrub') as {
+type ScrubberCopy = {
   PII_KEY_LIST: string[];
   PII_SUBTREE_KEY_LIST: string[];
   REDACTED: string;
   scrubSentryEvent: <T>(e: T) => T;
   redactFreeText: (s: string) => string;
 };
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const web = require('../../web/app/lib/sentry-scrub') as ScrubberCopy;
+/**
+ * The third copy (1C item 7, launch todo #25): the mobile app RENDERS the chart,
+ * so the four pillars sit in its component state. No React Native imports in that
+ * file, so ts-jest here compiles it.
+ */
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const mobile = require('../../mobile/src/lib/sentry-scrub') as ScrubberCopy;
 
 /** The API copy keeps its sets private; re-derive by probing. */
 function apiRedacts(key: string): boolean {
@@ -39,7 +47,7 @@ function webRedacts(key: string): boolean {
   return out.extra?.[key] === web.REDACTED;
 }
 
-describe('Sentry scrubber parity (api ↔ web)', () => {
+describe('Sentry scrubber parity (api ↔ web ↔ mobile)', () => {
   // ⚠️ The union of BOTH sides. Deriving this from web alone made the check
   // one-directional: a key deleted from web left the iteration set with it, and
   // the suite stayed green while the browser SDK — the one running on the pages
@@ -51,11 +59,21 @@ describe('Sentry scrubber parity (api ↔ web)', () => {
       ...web.PII_SUBTREE_KEY_LIST,
       ...api.PII_KEY_LIST,
       ...api.PII_SUBTREE_KEY_LIST,
+      ...mobile.PII_KEY_LIST,
+      ...mobile.PII_SUBTREE_KEY_LIST,
     ]),
   ];
 
+  function mobileRedacts(key: string): boolean {
+    const out = mobile.scrubSentryEvent({ extra: { [key]: 'PROBE_VALUE' } }) as {
+      extra?: Record<string, unknown>;
+    };
+    return out.extra?.[key] === mobile.REDACTED;
+  }
+
   it('uses the same redaction marker', () => {
     expect(web.REDACTED).toBe(api.REDACTED);
+    expect(mobile.REDACTED).toBe(api.REDACTED);
   });
 
   it('the two key lists are set-equal, in both directions', () => {
@@ -65,11 +83,16 @@ describe('Sentry scrubber parity (api ↔ web)', () => {
     expect([...web.PII_SUBTREE_KEY_LIST].sort()).toEqual(
       [...api.PII_SUBTREE_KEY_LIST].sort(),
     );
+    expect([...mobile.PII_KEY_LIST].sort()).toEqual([...api.PII_KEY_LIST].sort());
+    expect([...mobile.PII_SUBTREE_KEY_LIST].sort()).toEqual(
+      [...api.PII_SUBTREE_KEY_LIST].sort(),
+    );
   });
 
-  it.each(allKeys)('both copies redact "%s"', (key) => {
+  it.each(allKeys)('all three copies redact "%s"', (key) => {
     expect(apiRedacts(key)).toBe(true);
     expect(webRedacts(key)).toBe(true);
+    expect(mobileRedacts(key)).toBe(true);
   });
 
   it('neither copy redacts a benign key', () => {
@@ -77,11 +100,13 @@ describe('Sentry scrubber parity (api ↔ web)', () => {
     // everything.
     expect(apiRedacts('readingId')).toBe(false);
     expect(webRedacts('readingId')).toBe(false);
+    expect(mobileRedacts('readingId')).toBe(false);
   });
 
   it('free-text redaction agrees on the shapes that matter', () => {
     const sample = 'born 1987-09-06 at 16:11, 丁卯 year, a@b.com, eyJhbGciOiJIUzI1NiJ9.a.b';
     expect(web.redactFreeText(sample)).toBe(api.redactFreeText(sample));
+    expect(mobile.redactFreeText(sample)).toBe(api.redactFreeText(sample));
   });
 
   it('agrees on the whole realistic event', () => {
@@ -93,6 +118,9 @@ describe('Sentry scrubber parity (api ↔ web)', () => {
     };
 
     expect(JSON.stringify(web.scrubSentryEvent(event))).toBe(
+      JSON.stringify(api.scrubSentryEvent(event)),
+    );
+    expect(JSON.stringify(mobile.scrubSentryEvent(event))).toBe(
       JSON.stringify(api.scrubSentryEvent(event)),
     );
   });

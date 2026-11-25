@@ -30,7 +30,10 @@ import { formatFortuneDate } from '../../components/fortune/labels';
 import { useFortuneNarrativeStream } from '../../components/fortune/hooks/useFortuneNarrativeStream';
 import { getUserProfile } from '../../lib/api';
 import { fetchBirthProfiles, type BirthProfile } from '../../lib/birth-profiles-api';
+import { useAiConsent } from '../../lib/ai-consent';
+import { AiConsentCard } from '../../components/AiConsentCard';
 import {
+  fetchDailyFortune,
   resolveBaziToday,
   resolveCurrentMonthIso,
   resolveCurrentYearIso,
@@ -177,10 +180,28 @@ export default function FortuneScreen() {
    * button would animate straight out the moment it appeared.
    */
   const [chatPending, setChatPending] = useState<string | undefined>(undefined);
-  const askFortune = useCallback((question?: string) => {
-    setChatPending(question);
-    setChatOpen(true);
-  }, []);
+  const consent = useAiConsent();
+  const requireAiConsent = consent.requireAiConsent;
+  // Chat reaches the AI: ask for consent from the tap, BEFORE the chat sheet (a
+  // Modal) opens — iOS cannot present the consent sheet over it (1C item 2).
+  const askFortune = useCallback(
+    async (question?: string) => {
+      if (!(await requireAiConsent())) return;
+      setChatPending(question);
+      setChatOpen(true);
+    },
+    [requireAiConsent],
+  );
+  const onChatOpenChange = useCallback(
+    async (open: boolean) => {
+      if (!open) {
+        setChatOpen(false);
+        return;
+      }
+      if (await requireAiConsent()) setChatOpen(true);
+    },
+    [requireAiConsent],
+  );
   useEffect(() => {
     setChatOpen(false);
   }, [tab]);
@@ -247,6 +268,11 @@ export default function FortuneScreen() {
 
   const isFree = tier === undefined || tier === 'FREE';
   const switcherActiveId = selectedProfileId ?? resolvedProfileId;
+  // `unknown` starts nothing (no stream, no engine-only flash) until the consent
+  // load resolves; `error` gets its own retry so `unknown` always has an exit.
+  const aiAllowed = consent.status === 'granted';
+  const consentPending = consent.status === 'unknown';
+  const consentFailed = consent.status === 'error';
 
   return (
     // Wrapper so the floating chat button can sit ABOVE the scroll content
@@ -290,7 +316,20 @@ export default function FortuneScreen() {
         })}
       </View>
 
-      {tab === 'day' ? (
+      {consentPending ? (
+        <View style={styles.loadingBox}>
+          <ActivityIndicator color={colors.red} />
+          <Text style={styles.loadingText}>{zh('正在為您排運勢…')}</Text>
+        </View>
+      ) : consentFailed ? (
+        <View style={styles.errorBox} testID="fortune-consent-error">
+          <Text style={styles.errorTitle}>{zh('暫時無法載入運勢')}</Text>
+          <Text style={styles.errorMsg}>{zh('請檢查網路連線後重試。')}</Text>
+          <Pressable style={styles.retryBtn} onPress={() => void consent.refresh()} accessibilityRole="button">
+            <Text style={styles.retryText}>{zh('重試')}</Text>
+          </Pressable>
+        </View>
+      ) : tab === 'day' ? (
         <DailyFortuneView
           isFree={isFree}
           profileId={selectedProfileId}
@@ -299,6 +338,16 @@ export default function FortuneScreen() {
           onAsk={askFortune}
           focusDate={focusDate}
           focusNonce={focusNonce}
+          aiAllowed={aiAllowed}
+        />
+      ) : !aiAllowed ? (
+        // 月運 / 年運 have no engine-only path: nothing is fetched before consent.
+        <AiConsentCard
+          body={
+            tab === 'month'
+              ? '月運分析由 AI 根據您的命盤產生。開始前，請先閱讀並同意 AI 解讀資料說明。'
+              : '年運分析由 AI 根據您的命盤產生。開始前，請先閱讀並同意 AI 解讀資料說明。'
+          }
         />
       ) : tab === 'month' ? (
         <MonthlyFortuneView
@@ -326,7 +375,7 @@ export default function FortuneScreen() {
       anchorDate={tab === 'day' ? dayAnchor : tab === 'month' ? monthAnchor : yearAnchor}
       open={chatOpen}
       pending={chatPending}
-      onOpenChange={setChatOpen}
+      onOpenChange={(open) => void onChatOpenChange(open)}
       onPendingConsumed={() => setChatPending(undefined)}
     />
     </View>
@@ -345,7 +394,14 @@ function DailyFortuneView({
   onAsk,
   focusDate,
   focusNonce,
+  aiAllowed = true,
 }: {
+  /**
+   * False before AI-data consent (1C item 2): no stream — the engine-only path
+   * renders score, dimensions and folk content, and the narrative area shows
+   * the consent card.
+   */
+  aiAllowed?: boolean;
   isFree: boolean;
   profileId?: string;
   onResolvedProfile?: (id: string) => void;
@@ -418,7 +474,7 @@ function DailyFortuneView({
   );
 
   useFortuneNarrativeStream({
-    enabled,
+    enabled: enabled && aiAllowed,
     scope: 'day',
     profileId,
     date,
@@ -449,14 +505,70 @@ function DailyFortuneView({
     setDate(next);
   }, []);
 
+  // Before consent: the engine-only fetch (no AI narration, no consent needed).
+  const { getToken } = useAuth();
+  const getTokenRef = useRef(getToken);
+  getTokenRef.current = getToken;
+  const [engineOnlyAttempt, setEngineOnlyAttempt] = useState(0);
+  useEffect(() => {
+    if (aiAllowed) return;
+    let cancelled = false;
+    engineRef.current = null;
+    setStreamed({});
+    setStreamError(null);
+    setState({ status: 'loading' });
+    (async () => {
+      try {
+        const token = await getTokenRef.current();
+        if (!token) throw new Error('認證過期，請重新登入');
+        const data = await fetchDailyFortune({ token, profileId, date, engineOnly: true });
+        if (cancelled) return;
+        const engine: DayEngineData = {
+          engineOutput: data.engineOutput,
+          date: data.date,
+          profileId: data.profileId,
+        };
+        engineRef.current = engine;
+        onResolvedProfile?.(data.profileId);
+        setState({ status: 'success', engine, narrative: null });
+      } catch (e) {
+        if (cancelled) return;
+        const err = e as { code?: string; message?: string };
+        setState({ status: 'error', code: err.code ?? 'FETCH_FAILED', message: err.message ?? '請稍後再試' });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // onResolvedProfile is a stable parent setter.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [aiAllowed, profileId, date, engineOnlyAttempt]);
+
+  // Consent granted on this screen: drop the engine-only render; the stream opens.
+  const prevAiAllowed = useRef(aiAllowed);
+  useEffect(() => {
+    if (prevAiAllowed.current === aiAllowed) return;
+    prevAiAllowed.current = aiAllowed;
+    if (aiAllowed) {
+      engineRef.current = null;
+      setStreamed({});
+      setStreamError(null);
+      setState({ status: 'loading' });
+    }
+  }, [aiAllowed]);
+
   const retry = useCallback(() => {
     setStreamed({});
     setStreamError(null);
     engineRef.current = null;
     setState({ status: 'loading' });
+    if (!aiAllowed) {
+      setEngineOnlyAttempt((n) => n + 1);
+      return;
+    }
     setEnabled(false);
     setTimeout(() => setEnabled(true), 0);
-  }, []);
+  }, [aiAllowed]);
 
   // Home-card deep-link: on a nonce change, reset to the focused date (today) —
   // but only if not already there (resetTo with the same date sets loading
@@ -529,16 +641,20 @@ function DailyFortuneView({
         <SectionDivider />
         <DimensionBars dimensions={eo.dimensions} />
         <SectionDivider />
-        <NarrativeCard
-          narrative={narrative}
-          dimensions={eo.dimensions}
-          headlinerSignals={eo.headlinerSignals}
-          loading={state.status === 'engine'}
-          streamedSections={streamed}
-        />
+        {aiAllowed ? (
+          <NarrativeCard
+            narrative={narrative}
+            dimensions={eo.dimensions}
+            headlinerSignals={eo.headlinerSignals}
+            loading={state.status === 'engine'}
+            streamedSections={streamed}
+          />
+        ) : (
+          <AiConsentCard body="今日運勢解讀由 AI 根據您的命盤產生。開始前，請先閱讀並同意 AI 解讀資料說明。" />
+        )}
         {/* 想問什麼？ pill strip — web places it between the narrative and the folk
             card. Tapping a pill opens the shared chat sheet with it prefilled. */}
-        {onAsk ? (
+        {onAsk && aiAllowed ? (
           <>
             <SectionDivider />
             <SampleQuestionStrip onPick={onAsk} />
@@ -551,7 +667,7 @@ function DailyFortuneView({
             吉色/吉數/宜食/忌食/吉時 were unreachable without exporting a share card.
             Engine-only (no AI), so it shows as soon as engine data lands. */}
         <FolkContentCard folkContent={eo.folkContent} />
-        {shareData ? (
+        {shareData && aiAllowed ? (
           <ShareFortuneButton renderCard={(ref) => <ShareableFortuneCard ref={ref} data={shareData} />} />
         ) : null}
       </>

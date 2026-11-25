@@ -4,6 +4,7 @@
  * native `react-native-purchases` module is mocked.
  */
 import Purchases from 'react-native-purchases';
+import { Linking } from 'react-native';
 import { env } from '../env';
 import {
   isPurchasesSupported,
@@ -11,6 +12,9 @@ import {
   getCurrentOffering,
   purchasePackage,
   restorePurchases,
+  logOutPurchases,
+  openManageSubscriptions,
+  hasAnyPurchase,
   __resetPurchasesForTest,
 } from '../purchases';
 
@@ -22,6 +26,9 @@ jest.mock('react-native-purchases', () => ({
   __esModule: true,
   default: {
     configure: jest.fn(),
+    isConfigured: jest.fn().mockResolvedValue(false),
+    isAnonymous: jest.fn().mockResolvedValue(false),
+    showManageSubscriptions: jest.fn().mockResolvedValue(undefined),
     logIn: jest.fn().mockResolvedValue({}),
     logOut: jest.fn().mockResolvedValue({}),
     setLogLevel: jest.fn(),
@@ -66,6 +73,15 @@ describe('purchases wrapper', () => {
       mutableEnv.revenueCatIosKey = 'appl_key';
     });
 
+    beforeEach(() => {
+      // The SDK reports configured once `configure` has run — like the real one.
+      let configured = false;
+      P.isConfigured.mockImplementation(async () => configured);
+      P.configure.mockImplementation(() => {
+        configured = true;
+      });
+    });
+
     it('isPurchasesSupported true + configure passes appUserID=clerkUserId', async () => {
       expect(isPurchasesSupported()).toBe(true);
       const ok = await configurePurchases('clerk_1');
@@ -101,9 +117,88 @@ describe('purchases wrapper', () => {
       await expect(purchasePackage({ identifier: 'p' } as never)).resolves.toMatchObject({ success: false, userCancelled: false, error: 'network' });
     });
 
-    it('restorePurchases returns the CustomerInfo', async () => {
-      P.restorePurchases.mockResolvedValue({ id: 'ci' } as never);
-      await expect(restorePurchases()).resolves.toEqual({ id: 'ci' });
+    // ---- 1C item 6 ----
+
+    it('sign-out → sign-in in one process configures ONCE, then logs in', async () => {
+      await configurePurchases('clerk_1');
+      await logOutPurchases();
+      await configurePurchases('clerk_2');
+      expect(P.configure).toHaveBeenCalledTimes(1);
+      expect(P.logOut).toHaveBeenCalledTimes(1);
+      expect(P.logIn).toHaveBeenCalledWith('clerk_2');
+    });
+
+    it('concurrent configure calls (bridge + store at sign-in) configure once', async () => {
+      await Promise.all([configurePurchases('clerk_1'), configurePurchases('clerk_1')]);
+      expect(P.configure).toHaveBeenCalledTimes(1);
+      expect(P.logIn).not.toHaveBeenCalled();
+    });
+
+    it('logOutPurchases clears an identity this module never configured (the bridge did)', async () => {
+      P.isConfigured.mockResolvedValue(true);
+      await logOutPurchases();
+      expect(P.logOut).toHaveBeenCalledTimes(1);
+    });
+
+    it('logOutPurchases skips an anonymous user (RC throws on that) and an unconfigured SDK', async () => {
+      P.isConfigured.mockResolvedValue(true);
+      P.isAnonymous.mockResolvedValue(true);
+      await logOutPurchases();
+      P.isConfigured.mockResolvedValue(false);
+      await logOutPurchases();
+      expect(P.logOut).not.toHaveBeenCalled();
+    });
+
+    it('restore: purchases found / none / another account (7, 13) / other error', async () => {
+      P.restorePurchases.mockResolvedValueOnce({
+        entitlements: { active: { pro: {} } },
+        activeSubscriptions: ['com.tianming.app.pro.monthly'],
+        nonSubscriptionTransactions: [],
+      } as never);
+      await expect(restorePurchases()).resolves.toEqual({ kind: 'restored', hasPurchases: true });
+
+      P.restorePurchases.mockResolvedValueOnce({
+        entitlements: { active: {} },
+        activeSubscriptions: [],
+        nonSubscriptionTransactions: [],
+      } as never);
+      await expect(restorePurchases()).resolves.toEqual({ kind: 'restored', hasPurchases: false });
+
+      P.restorePurchases.mockRejectedValueOnce({ code: '7' });
+      await expect(restorePurchases()).resolves.toEqual({ kind: 'other_account' });
+      P.restorePurchases.mockRejectedValueOnce({ code: '13' });
+      await expect(restorePurchases()).resolves.toEqual({ kind: 'other_account' });
+
+      P.restorePurchases.mockRejectedValueOnce({ code: '10' });
+      await expect(restorePurchases()).resolves.toEqual({ kind: 'error' });
+    });
+
+    it('a consumable-only history counts as a purchase', () => {
+      expect(
+        hasAnyPurchase({
+          entitlements: { active: {} },
+          activeSubscriptions: [],
+          nonSubscriptionTransactions: [{ productIdentifier: 'com.tianming.app.credits.5' }],
+        } as never),
+      ).toBe(true);
+    });
+
+    it('manage subscriptions: native sheet when configured, URL otherwise', async () => {
+      const linking = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never);
+      P.isConfigured.mockResolvedValue(true);
+      await openManageSubscriptions();
+      expect(P.showManageSubscriptions).toHaveBeenCalledTimes(1);
+      expect(linking).not.toHaveBeenCalled();
+
+      P.isConfigured.mockResolvedValue(false);
+      await openManageSubscriptions();
+      expect(linking).toHaveBeenCalledWith('https://apps.apple.com/account/subscriptions');
+
+      P.isConfigured.mockResolvedValue(true);
+      P.showManageSubscriptions.mockRejectedValueOnce(new Error('boom'));
+      await openManageSubscriptions();
+      expect(linking).toHaveBeenCalledTimes(2);
+      linking.mockRestore();
     });
   });
 });
