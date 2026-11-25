@@ -405,7 +405,7 @@ same coverage. D2/D12 stand unless the owner changes them.
 | # | Item | Who |
 |---|---|---|
 | 6.1 | Screenshots: 6.9" iPhone, 繁體 and 簡體, 6–8 each, from the final UI. Confirm required sizes on the upload page | C, owner approves |
-| 6.2 | Name, subtitle, promo text, description, keywords in both languages. No accuracy or prediction claims; includes the entertainment disclaimer | C drafts, owner approves |
+| 6.2 | Name, subtitle, promo text, description, keywords in both languages. No accuracy or prediction claims; includes the entertainment disclaimer. 🟡 **Draft 1 written 2026-11-22: `app-store-listing.md`** (also covers 6.3 and 6.6) — awaiting owner approval | C drafts, owner approves |
 | 6.3 | Category: Lifestyle primary, Entertainment secondary | D |
 | 6.4 | Age rating questionnaire, including the AI-chat questions | D, owner confirms |
 | 6.5 | App Privacy labels from `docs/security/data-inventory-and-retention.md`. Birth date/time/place is "Other User Content", not Apple's "Sensitive Info" list **[belief 75%]** — decide deliberately. No tracking, no ATT | D, owner confirms |

@@ -127,9 +127,9 @@ worktrees). Plan + full execution log: **`/Users/roger/.claude/plans/vivid-roami
   fallback hid it), and compat labelling a female party A as 男方. Also
   gender-derived party labels, the cache toast (was rendering above the fold so
   the user never saw «未扣除額度»), and testIDs on the primary targets.
-- **Next**: ⏸ **app-store work PAUSED by owner 2026-07-18** to tackle
-  scalability + security first — see «App Store progress» below for the resume
-  point. Branch is **47 commits ahead of main and NOT pushed** (owner's call).
+- **Next**: the **iOS App Store track RESUMED 2026-11-13** (Android still paused
+  at AND4). Plan: `.claude/plans/app-store-ios-submission-plan.md`; state and
+  invariants in «iOS App Store track» below.
 - **Bazi-only, NO ZWDS** (v1 scope). 合盤: only 感情 enabled (事業/友誼 hidden).
 - ⏳ **Cross-stack TODO**: move the 合盤 3-credit charge from create (step 1) to
   reveal (step 2) — backend + web + mobile. See the plan's «⏳ TODO … move 合盤 charge».
@@ -321,11 +321,11 @@ themselves; and the `.env` LAN switch means the phone reads the **local dev DB**
 (Roger's 85 readings) rather than Railway's thinner seed — which is what you want
 for any content-density review.
 
-### ⏸ App Store progress — PAUSED 2026-07-18 (resume point for a future session)
+### App Store progress — Android PAUSED 2026-07-18; iOS RESUMED 2026-11-13
 
-Owner paused store submission to tackle **scalability + security** first. The app
-is feature-complete and UI-verified; nothing below is blocked on code quality —
-it is paperwork, store config, and one unproven integration hop.
+Android was paused to tackle **scalability + security** first and is still
+parked at AND4. iOS has its own track and state — see «iOS App Store track»
+below; the iOS bullets in this section are history.
 
 **Android — Play Console**
 | Step | State |
@@ -351,17 +351,9 @@ it is paperwork, store config, and one unproven integration hop.
 - All EAS profiles carry `SENTRY_DISABLE_AUTO_UPLOAD=true` (the first build
   ERRORED at the gradle Sentry source-map step without it).
 
-**iOS — Apple**
-- $99 paid, **awaiting account approval**. Nothing else can start until it clears.
-  Still true as of 2026-08-09, and now with evidence rather than assumption: the
-  first physical-device build resolved to a **personal team** (`5W93NMYV2B`,
-  "Roger Lim") issuing a **7-day** provisioning profile. A paid membership would
-  give a 1-year profile and unlock TestFlight — so if a future device build shows
-  a 1-year expiry, the account has come through and the App Store track can
-  resume from AND4 / the iOS list above.
-- Then: App Store Connect record, IAP products, sandbox testers, RC iOS config
-  (`appl_` key), TestFlight. Paid Apps agreement + banking + tax on day one —
-  slowest approval, and it gates IAP sandbox.
+**iOS — Apple** (history; current state in «iOS App Store track» below)
+- Paid individual membership approved (same Team ID `5W93NMYV2B`); App Store
+  Connect record 天命：八字命理 created 2026-11-21.
 
 **RevenueCat**
 - Backend is DONE and proven: webhook + provider-neutral entitlements +
@@ -381,15 +373,94 @@ it is paperwork, store config, and one unproven integration hop.
   — mascots are served by the API host. Getting this wrong silently degrades to
   the day-master glyph with no error (exactly the Android bug fixed in `eea51f5`).
 - `EXPO_PUBLIC_API_URL` → Railway.
-- Configure `expo-updates` (`runtimeVersion: {policy:"fingerprint"}`, channels)
-  BEFORE the first production build, or OTA is unavailable for that build.
-- Still to do at M7: Google OAuth + **Sign in with Apple** (mandatory once Google
-  ships), privacy labels (birth data = sensitive), final icon/splash/screenshots,
-  a dedicated **prod Clerk instance** (currently reusing DEV Clerk keys), and
-  release-build Maestro E2E.
+- ✅ `expo-updates` is configured (fingerprint `runtimeVersion`, EAS channels) —
+  done in 1C, before the first production build as required.
+- ✅ Google + Sign in with Apple and the production Clerk instance are live. Still
+  open: privacy labels, final icon/splash/screenshots, release-build E2E.
 
 **Deliberate v1 non-goals**: push notifications, offline support, iPad
 (`supportsTablet:false`), ZWDS, mobile deep-links (share QR points at web).
+
+### iOS App Store track — state and LOAD-BEARING INVARIANTS (2026-11-22)
+
+Plan (canonical, with the decisions D1–D16 and the step table):
+**`.claude/plans/app-store-ios-submission-plan.md`**. Per-track design + review
+logs: `1a-core-payment-hardening.md`, `1b-web-public-pages-and-consent.md`,
+`1c-mobile-app-store-readiness.md` (same folder).
+
+**Where it stands:** Phase 0 done except the Paid Apps agreement (Pending User
+Info: tax form + legal-address change + bank processing — all owner-only) and
+0.6/0.11/0.12. Phase 1 code (1A-core, 1B, 1C, tier names, two RevenueCat review
+fixes) is in **PR #76, not merged**. Phase 2 (create the 7 App Store products,
+RevenueCat) waits on the agreement being **Active**. Scope: iOS only, production
+backend for TestFlight, worldwide minus EU-27 and mainland China, 繁+簡 listing,
+no annual plans in the first submission (todo #28). Stop before "Submit for
+Review" — submitting is the owner's call.
+
+**AI-data consent (Apple 5.1.2(i)) — never let an AI call skip it.** Birth data
+goes to Anthropic, so the app asks before the first AI call.
+- Server record: `users.ai_consent_at` / `ai_consent_version`,
+  `POST/DELETE /api/users/me/ai-consent`, version checked against
+  `AI_CONSENT_ACCEPTED_VERSIONS` (`apps/api/src/legal/legal-constants.ts`).
+  Cleared on account deletion and in the Clerk deletion webhook.
+- The disclosure text `AI_DATA_DISCLOSURE_ZH` is pinned by hash per version, and
+  the mobile copy is held equal by `ai-disclosure-mobile-parity.spec.ts`.
+  **Changing one character needs a new `AI_CONSENT_VERSION`**; removing the old
+  version from the accepted list stops builds showing the old text from
+  recording consent.
+- `ai-provider-disclosure.ts`: the policy names Anthropic only. A key for any
+  other AI provider makes `AIService` log an ERROR at every boot — it does NOT
+  stop the boot, so it is only seen if someone reads the log. Adding a provider = update
+  the disclosure + new version FIRST.
+- Mobile enforces it twice: the AI-calling and charging functions the app uses in
+  `apps/mobile/src/lib` refuse without consent (exception: `recalculateCompatibility`
+  is unguarded and has no caller — guard it before wiring it up)
+  (`__tests__/ai-consent-guards.test.ts` — add any new such function there),
+  and each screen asks from the tap, BEFORE any other Modal opens (iOS cannot
+  present two). 日運 shows the engine-only score + a consent card until then.
+  Withdraw lives in 我的.
+
+**Paid tier names: 基礎會員 / 專業會員 / 大師會員** (free = 免費 / 免費方案).
+One source per platform — `apps/web/app/lib/tier-names.ts`, mobile
+`TIER_LABELS` in `components/home/CreditBadge.tsx` — plus `seed.ts` and the
+`plans` rows (which also name the Stripe checkout product). Held together by
+`apps/api/test/tier-names-parity.spec.ts`; a future rename needs a new data
+migration, which that spec reads.
+
+**RevenueCat webhook (`revenuecat.service.ts`) — rules added in 1A-core + PR #76.**
+- An event we cannot process (unmapped product, never-seen user) **throws → 500
+  → RevenueCat retries**. Never acknowledge-and-drop a paid event. Non-IAP stores
+  are skipped BEFORE user lookup; known-deleted / anonymous-only ids are
+  acknowledged.
+- The admin `isActive` flag never refuses an already-paid event.
+- Ordering is STATE-based, never wall-clock (sandbox periods last minutes):
+  older activations don't overwrite newer ones; a retried RENEWAL for an ended
+  period is ignored; an activation for an already-over period is recorded
+  EXPIRED; a refund recorded before its purchase blocks the activation; a late
+  EXPIRATION whose expiry is at/before the stored ACTIVE period's START is
+  ignored (`stale_expiration_ignored`).
+- Membership refund (CANCELLATION + `CUSTOMER_SUPPORT`, expiry past): REFUND row
+  + that period's clawback in ONE transaction, then expire (expire runs even on
+  a duplicate). Anything else → `refund_needs_review`, access left.
+- Credit-pack refund claws back only if the pack's GRANT ledger row exists;
+  otherwise it records the REFUND row and the later purchase grants nothing.
+- `PaymentEnvironment` (SANDBOX/PRODUCTION) is stored on subscriptions and
+  transactions. Every new `revenuecat.*` alert is in
+  `docs/ops/incident-runbook.md` — add new ones there.
+
+**Website billing is store-aware.** Status exposes the Stripe row separately;
+Stripe checkout refuses (409) on top of a live App Store / Play membership, and
+reactivation refuses while one is active (double billing).
+
+**Public legal pages.** `/privacy`, `/terms`, `/support` on tianmingapp.com are
+route handlers proxying the API's HTML (one source of text), exact-path entries
+in the middleware public list, static 503 fallback. App Store Connect points at
+these URLs — don't move them.
+
+**Native build (Xcode 27.2).** Config plugin
+`apps/mobile/plugins/with-pod-deployment-target.js` raises pods below iOS 15.1
+(Xcode 27.2 rejects < 15.0) — survives `expo prebuild --clean`. CI now has a
+`test-mobile` job (tsc + jest).
 
 ## Key Commands
 ```bash
@@ -552,7 +623,7 @@ ZWDS (紫微斗數) sections use a purple accent to differentiate from Bazi's re
 - Docker NOT available — use Homebrew services (PostgreSQL, Redis)
 - Prisma v6 (not v7) — v7 has breaking constructor changes
 - Entertainment disclaimer required: 「本服務僅供參考與娛樂用途，不構成任何專業建議」
-- AI fallback chain: Claude Sonnet 4.5 → GPT-4o → Gemini 2.0 Flash
+- AI fallback chain in code: Claude → GPT-4o → Gemini — but **only Claude runs**: neither `OPENAI_API_KEY` nor `GEMINI_API_KEY` is set in production, and the privacy policy names Anthropic only. Setting either key is a privacy-policy change first (see «iOS App Store track» → AI consent).
 - True Solar Time DISABLED — wall clock time used for all pillar calculations
 - Styling: CSS Modules (no Tailwind)
 
@@ -4818,13 +4889,14 @@ chart up inside the trust boundary.
 
 Binds: Sentry, PostHog, any new logging, any eval corpus, any future analytics.
 
-### The Sentry scrubber exists THREE times, on purpose
+### The Sentry scrubber exists FOUR times, on purpose
 
-`apps/api/src/common/sentry-scrub.ts` (canonical), `apps/web/app/lib/sentry-scrub.ts`, and — since
+`apps/api/src/common/sentry-scrub.ts` (canonical), `apps/web/app/lib/sentry-scrub.ts`,
+`apps/mobile/src/lib/sentry-scrub.ts` (since 1C — the app renders the chart), and — since
 Ob3 — `packages/bazi-engine/app/observability.py`. Web cannot import from api, `@repo/shared` is
 off-limits to the NestJS runtime, and the engine is Python and cannot import TypeScript at all — so
-there is no single home. **`apps/api/test/sentry-scrub-parity.spec.ts` fails if the two TS key lists
-drift.** Add a key to one, add it to both.
+there is no single home. **`apps/api/test/sentry-scrub-parity.spec.ts` fails if the three TS key lists
+(api ↔ web ↔ mobile) drift.** Add a key to one, add it to all.
 
 The Python copy is held by a different mechanism, because a TS parity spec cannot run there:
 `tests/test_observability.py::test_python_key_set_is_a_superset_of_the_typescript_one` parses
